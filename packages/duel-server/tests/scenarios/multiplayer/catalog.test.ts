@@ -86,8 +86,8 @@ describe("multiplayer card catalog", () => {
   it("keeps 21 all-seat or ongoing cards and 45 one-opponent cards after the FFA rule change", () => {
     expect(GROUP_ALL).toHaveLength(21);
     expect(GROUP_ONE).toHaveLength(45);
-    expect(MULTIPLAYER_FORBIDDEN).toHaveLength(47);
-    expect(MULTIPLAYER_FORBIDDEN.filter((entry) => entry.formats.includes("tag"))).toHaveLength(26);
+    expect(MULTIPLAYER_FORBIDDEN).toHaveLength(44);
+    expect(MULTIPLAYER_FORBIDDEN.filter((entry) => entry.formats.includes("tag"))).toHaveLength(25);
   });
 
   it("puts opponent-field cards in the one-opponent group with the declaration or response rule", () => {
@@ -189,12 +189,12 @@ describe("multiplayer card catalog", () => {
       expect(entry?.category, String(code)).toBe("alt-win");
       expect(entry?.formats, String(code)).toEqual(["ffa3", "ffa4", "tag"]);
     }
-    // Every script that calls Duel.Win is on the forbidden list, so none is left open.
+    // Owner 2026-10-18: only Exodia the Forbidden One may call Duel.Win at multiplayer tables.
     const withWin = readdirSync(join(scripts, "official"))
       .filter((file) => /^c\d+\.lua$/.test(file) && readFileSync(join(scripts, "official", file), "utf8").includes("Duel.Win("))
       .map((file) => Number(file.slice(1, -4)));
     const forbidden = new Set(MULTIPLAYER_FORBIDDEN.map((entry) => entry.code));
-    expect(withWin.filter((code) => !forbidden.has(code))).toEqual([]);
+    expect(withWin.filter((code) => !forbidden.has(code))).toEqual([33396948]);
   });
 
   it("forbids Convulsion of Nature in every multiplayer format with Deck reverse evidence", () => {

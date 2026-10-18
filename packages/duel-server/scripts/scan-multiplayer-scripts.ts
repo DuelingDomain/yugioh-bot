@@ -527,7 +527,7 @@ export const RULES: readonly PatternRule[] = [
     cls: "F",
     ambiguous: false,
     tables: "all",
-    why: "Duel.Win(player, reason) has no defined result for more than two players (ADR-0002: all 'you win' cards are forbidden).",
+    why: "Duel.Win(player, reason) needs a multiplayer result rule. Only Exodia the Forbidden One is allowed (ADR-0002; owner 2026-10-18).",
     detect: (s) => callRule(s, "duel-win", (c) => c.owner === "Duel" && c.fn === "Win"),
   },
   {

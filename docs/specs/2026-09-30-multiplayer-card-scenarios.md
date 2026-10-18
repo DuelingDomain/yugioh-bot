@@ -39,6 +39,18 @@ These rules come from ADR-0002 and spec section 4.2.
 10. **Tribute of an opponent monster (owner answer to triage question 8, 2026-10-01).** A Tribute of a monster of an opponent works for the monsters of any opponent, not only seat 1. This includes the Kaiju, Lava Golem and The Winged Dragon of Ra - Sphere Mode. For Ra Sphere Mode, all Tributed monsters come from ONE opponent, and it goes to the field of that opponent.
 11. **Turn count (owner answer to triage question 1, 2026-10-01).** Every turn of any opponent counts as one opponent turn (in Tag, only a turn of the two opposing duelists). The turn-count review found no card to ban. The 4 free-for-all turn-count bans in group (c) stay. Swords of Revealing Light is legal and protects only its controller in FFA (R-FFA-SWORDS-PROTECT).
 
+## Owner 2026-10-18: hand effects and Exodia
+
+These three cards are allowed in FFA3, FFA4 and Tag. Other alternative-win cards stay forbidden.
+
+| Card | Code | Rule | Live proof |
+|---|---|---|---|
+| Card Destruction | 72892473 | Every living player discards their whole hand. Each then draws that player's hand count, in turn order from the activator. Include the Tag partner. | `owner-hands-exodia.ts`: unequal and empty hands, activators P0 and P1, skipped lost seats, Standard and Domain cores. |
+| Hand Destruction | 74519184 | Every living player chooses 2 cards from their own hand, in turn order from the activator. Send the chosen cards to the GY together. Each then draws 2. Include the Tag partner. | `owner-hands-exodia.ts`: each player prompt, off-turn activator order, exact hand/GY/Deck counts, a short hand and skipped lost seats; Standard and Domain cores. |
+| Exodia the Forbidden One | 33396948 | All five pieces must be in one player's hand. That player wins the whole duel at once. All other players lose. There are no second, third or fourth places. In Tag, both members of the winning team win. | `owner-hands-exodia.ts`: every winner seat, split hands and prior losses on Standard and Domain cores. `owner-hands-exodia-host.test.ts`: saved results, history and real replay. `packages/web/tests/multiplayer-exodia.integration.test.tsx`: real opening hands and rendered win/loss screens without places. |
+
+Source: ADR-0002, R-COMMON-HAND-DESTRUCTION and R-COMMON-EXODIA; owner 2026-10-18. The overlays are `c72892473.lua`, `c74519184.lua` and `c33396948.lua`. The host sets `result.victory = "exodia"` from `MSG_WIN` reason 0x10. Saved views and replays preserve this field. The FFA end screen omits places for this result. Multiplayer ranked play is disabled and gives no ELO award.
+
 ## Corpus counts
 
 Method: count of files in `data/duel-engine-next/card-scripts/official/` (13,541 scripts) that match the pattern. Command:
@@ -257,14 +269,12 @@ The catalog checks the real deck-validation result for Main Deck, Side Deck and 
 
 ## Group (c): forbidden in free-for-all
 
-The deck check refuses these cards at the listed tables. "Tag too" says if the card also breaks in 2v2 Tag. Alternate-art passcodes are caught through the `alias` column of `cards.cdb` (for example Exodia 33396949, 33396950 and 33396951).
+The deck check refuses these cards at the listed tables. "Tag too" says if the card also breaks in 2v2 Tag. Alternate-art passcodes are caught through the `alias` column of `cards.cdb` (for example Nibiru 27204313). Exodia alternate arts are allowed under the owner 2026-10-18 rule.
 
-Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, turn-count (counts opponent turns), turn-order (skips a turn), alt-win (ends the duel with a plain win; forbidden in every format by the owner decision of 2026-10-01), global-state (two-slot player tables), chooser (asks one opponent), lp-reset (sets or compares the LP of two players).
+Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, turn-count (counts opponent turns), turn-order (skips a turn), alt-win (ends the duel with a plain win; forbidden except Exodia the Forbidden One under owner 2026-10-18), global-state (two-slot player tables), chooser (asks one opponent), lp-reset (sets or compares the LP of two players).
 
 | Card | Passcode | Category | Reason | Script evidence | Tables | Tag too |
 |---|---|---|---|---|---|---|
-| Hand Destruction | 74519184 | hand-swap | Turn player and one other player draw and discard. The other players do nothing. | `c74519184.lua:16`, `c74519184.lua:28`, `c74519184.lua:39` | 3-FFA, 4-FFA | no |
-| Card Destruction | 72892473 | hand-swap | Both hands go to the GY, but only two players draw. | `c72892473.lua:18`, `c72892473.lua:27` | 3-FFA, 4-FFA | no |
 | Morphing Jar | 33508719 | hand-swap | It discards all hands, but only two players draw 5 cards. In Tag, the partner discards and does not draw. | `c33508719.lua:19`, `c33508719.lua:23` | 3-FFA, 4-FFA, Tag | yes |
 | Multiple Destruction | 14057297 | hand-swap | It reads two hands and two LP totals only. Other players are not part of the cost or the draw. | `c14057297.lua:21`, `c14057297.lua:44` | 3-FFA, 4-FFA, Tag | yes |
 | Exchange of the Spirit | 17484499 | hand-swap | The script swaps the Deck and GY of exactly two players. The condition reads one GY on each side. | `c17484499.lua:15`, `c17484499.lua:16` | 3-FFA, 4-FFA, Tag | yes |
@@ -282,7 +292,6 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 | Gamble | 37313786 | turn-order | It skips a turn. FFA turn order has no 'the opponent's turn'. | `c37313786.lua:33` | 3-FFA, 4-FFA | no |
 | The Six Shinobi | 6357341 | turn-order | It skips a turn. FFA turn order has no 'the opponent's turn'. | `c6357341.lua:28` | 3-FFA, 4-FFA | no |
 | Mischief of the Time Goddess | 92182447 | turn-order | It skips a turn. FFA turn order has no 'the opponent's turn'. | `c92182447.lua:52` | 3-FFA, 4-FFA | no |
-| Exodia the Forbidden One | 33396948 | alt-win | It reads both hands and ends the duel with win, loss or draw for two sides. | `c33396948.lua:34`, `c33396948.lua:40` | 3-FFA, 4-FFA, Tag | yes |
 | Final Countdown | 95308449 | alt-win | It keeps one counter for each of two players and then ends the duel. | `c95308449.lua:12`, `c95308449.lua:39` | 3-FFA, 4-FFA, Tag | yes |
 | Last Turn | 28566710 | alt-win | It compares two players and ends the duel with win, loss or draw. | `c28566710.lua:64`, `c28566710.lua:66` | 3-FFA, 4-FFA, Tag | yes |
 | True Exodia | 37984331 | alt-win | It ends the duel with a win for 'the opponent of the controller'. FFA and Tag have no single opponent. | `c37984331.lua:23` | 3-FFA, 4-FFA, Tag | yes |
@@ -311,7 +320,7 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 
 Turn-count rows: these 4 bans stay. Swords of Revealing Light is legal under R-FFA-SWORDS-PROTECT (owner correction, 2026-10-02 night). Other cards with an opponent-turn count are legal and follow rule 11; the review is in `.status/multiplayer-turncount-review.md`.
 
-Total: 47 cards. 3-FFA and 4-FFA: 47 cards (21 only in free-for-all). Tag: 26 cards.
+Total: 44 cards. 3-FFA and 4-FFA: 44 cards (19 only in free-for-all). Tag: 25 cards. Owner 2026-10-18 removes Card Destruction, Hand Destruction and Exodia the Forbidden One.
 
 Error message format: `<card> is forbidden in 4-player free-for-all: <reason>`. The table name is "3-player free-for-all", "4-player free-for-all" or "2v2 Tag Duel".
 

@@ -8,6 +8,8 @@ import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 
 const EXODIA = 33396948;
 const EXODIA_ALT = 33396949;
+const FINAL_COUNTDOWN = 95308449;
+const CARD_DESTRUCTION = 72892473;
 const NIBIRU = 27204311;
 const NIBIRU_ALT = 27204313;
 const HAND_DESTRUCTION = 74519184;
@@ -85,14 +87,11 @@ describe("multiplayer forbidden list in deck validation", () => {
     expect(() => validateDeck("normal", deck, DATA, settings, {})).not.toThrow();
   });
 
-  it("flags a ffa-only card at 3-FFA and 4-FFA but not in Tag", () => {
-    const deck = deckWith(HAND_DESTRUCTION);
-    for (const table of FFA_TABLES) {
-      const issues = inspectDeck("normal", deck, DATA, settings, { table }).issues;
-      expect(issues.length, table).toBe(1);
-      expect(issues[0]!.cards).toEqual([{ section: "main", index: 0, code: HAND_DESTRUCTION }].map((ref) => expect.objectContaining(ref)));
+  it("allows the three owner 2026-10-18 cards at every multiplayer table", () => {
+    const deck = deckWith(EXODIA, EXODIA_ALT, HAND_DESTRUCTION, CARD_DESTRUCTION);
+    for (const table of ["ffa3", "ffa4", "tag"] as const) {
+      expect(inspectDeck("normal", deck, DATA, settings, { table }).issues, table).toEqual([]);
     }
-    expect(inspectDeck("normal", deck, DATA, settings, { table: "tag" }).issues).toEqual([]);
   });
 
   it("refuses Ring of Destruction at 3-FFA and 4-FFA, and allows it in Tag and 1v1", () => {
@@ -108,7 +107,7 @@ describe("multiplayer forbidden list in deck validation", () => {
   });
 
   it("flags an all-format card in Tag too", () => {
-    const deck = deckWith(EXODIA);
+    const deck = deckWith(FINAL_COUNTDOWN);
     for (const table of ["ffa3", "ffa4", "tag"] as const) {
       expect(inspectDeck("normal", deck, DATA, settings, { table }).issues.length, table).toBe(1);
     }
@@ -136,21 +135,20 @@ describe("multiplayer forbidden list in deck validation", () => {
   });
 
   it("uses the documented message format", () => {
-    const issue = inspectDeck("normal", deckWith(HAND_DESTRUCTION), DATA, settings, { table: "ffa4" }).issues[0]!;
-    expect(issue.message).toMatch(/^Hand Destruction is forbidden in 4-player free-for-all: .+/);
-    const three = inspectDeck("normal", deckWith(HAND_DESTRUCTION), DATA, settings, { table: "ffa3" }).issues[0]!;
+    const issue = inspectDeck("normal", deckWith(RING_OF_DESTRUCTION), DATA, settings, { table: "ffa4" }).issues[0]!;
+    expect(issue.message).toMatch(/^Ring of Destruction is forbidden in 4-player free-for-all: .+/);
+    const three = inspectDeck("normal", deckWith(RING_OF_DESTRUCTION), DATA, settings, { table: "ffa3" }).issues[0]!;
     expect(three.message).toContain("in 3-player free-for-all:");
-    const tag = inspectDeck("normal", deckWith(EXODIA), DATA, settings, { table: "tag" }).issues[0]!;
+    const tag = inspectDeck("normal", deckWith(FINAL_COUNTDOWN), DATA, settings, { table: "tag" }).issues[0]!;
     expect(tag.message).toContain("in 2v2 Tag Duel:");
-    expect(() => validateDeck("normal", deckWith(HAND_DESTRUCTION), DATA, settings, { table: "ffa4" })).toThrow(
+    expect(() => validateDeck("normal", deckWith(RING_OF_DESTRUCTION), DATA, settings, { table: "ffa4" })).toThrow(
       /forbidden in 4-player free-for-all/,
     );
   });
 
   it("catches alternate-art passcodes through the alias column", () => {
-    expect(multiplayerForbiddenFor("ffa4", EXODIA_ALT, EXODIA)?.code).toBe(EXODIA);
+    expect(multiplayerForbiddenFor("ffa4", EXODIA_ALT, EXODIA)).toBeUndefined();
     for (const [alt, name] of [
-      [EXODIA_ALT, "Exodia the Forbidden One"],
       [NIBIRU_ALT, "Nibiru, the Primal Being"],
     ] as const) {
       const issues = inspectDeck("normal", deckWith(alt), DATA, settings, { table: "ffa4" }).issues;
@@ -192,9 +190,9 @@ describe("multiplayer forbidden list in deck validation", () => {
 
   it("still flags forbidden cards when deck validation is off (the engine cannot play them)", () => {
     const off = { ...settings, validateDeck: false };
-    const issues = inspectDeck("normal", deckWith(EXODIA), DATA, off, { table: "ffa4" }).issues;
-    expect(issues.map((issue) => issue.message)).toEqual([expect.stringMatching(/^Exodia the Forbidden One is forbidden in 4-player/)]);
-    expect(inspectDeck("normal", deckWith(EXODIA), DATA, off).issues).toEqual([]);
+    const issues = inspectDeck("normal", deckWith(FINAL_COUNTDOWN), DATA, off, { table: "ffa4" }).issues;
+    expect(issues.map((issue) => issue.message)).toEqual([expect.stringMatching(/^Final Countdown is forbidden in 4-player/)]);
+    expect(inspectDeck("normal", deckWith(FINAL_COUNTDOWN), DATA, off).issues).toEqual([]);
   });
 
   it("flags a forbidden Deck Master in Domain Format", () => {

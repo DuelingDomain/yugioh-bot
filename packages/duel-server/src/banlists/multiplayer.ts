@@ -17,7 +17,7 @@ export type MultiplayerCategory =
   | "control-swap" // the script swaps control between two named players
   | "turn-count" // a counter or a reset that counts "the opponent's turns"
   | "turn-order" // the script skips or adds a turn for one player
-  | "alt-win" // the script ends the duel with Duel.Win ("you win"); decided forbidden in all formats (ADR-0002)
+  | "alt-win" // the script ends the duel with Duel.Win ("you win"); forbidden except Exodia the Forbidden One (owner 2026-10-18)
   | "global-state" // a per-player global flag table with two slots
   | "chooser" // the script asks "the opponent" to choose and assumes only one
   | "lp-reset"; // the script sets or compares the LP of exactly two players
@@ -38,8 +38,6 @@ const NO_RESULT = " A 'you win' effect has no defined result for the other playe
 
 export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   // --- hand-swap: both hands, one chooser per side
-  { code: 74519184, name: "Hand Destruction", category: "hand-swap", reason: "Turn player and one other player draw and discard. The other players do nothing.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
-  { code: 72892473, name: "Card Destruction", category: "hand-swap", reason: "Both hands go to the GY, but only two players draw.", formats: FFA, tagDecision: { allowed: true, source: "owner 2026-10-06, option A" } },
   { code: 33508719, name: "Morphing Jar", category: "hand-swap", reason: "It discards all hands, but only two players draw 5 cards. In Tag, the partner discards and does not draw.", formats: ALL },
   { code: 14057297, name: "Multiple Destruction", category: "hand-swap", reason: "It reads two hands and two LP totals only. Other players are not part of the cost or the draw.", formats: ALL },
   { code: 17484499, name: "Exchange of the Spirit", category: "hand-swap", reason: "The script swaps the Deck and GY of exactly two players. The condition reads one GY on each side.", formats: ALL },
@@ -62,7 +60,6 @@ export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   { code: 6357341, name: "The Six Shinobi", category: "turn-order", reason: "It skips a turn. FFA turn order has no 'the opponent's turn'.", formats: FFA },
   { code: 92182447, name: "Mischief of the Time Goddess", category: "turn-order", reason: "It skips a turn. FFA turn order has no 'the opponent's turn'.", formats: FFA },
   // --- alt-win
-  { code: 33396948, name: "Exodia the Forbidden One", category: "alt-win", reason: "It reads both hands and ends the duel with win, loss or draw for two sides.", formats: ALL },
   { code: 95308449, name: "Final Countdown", category: "alt-win", reason: "It keeps one counter for each of two players and then ends the duel.", formats: ALL },
   { code: 28566710, name: "Last Turn", category: "alt-win", reason: "It compares two players and ends the duel with win, loss or draw.", formats: ALL },
   { code: 37984331, name: "True Exodia", category: "alt-win", reason: "It ends the duel with a win for 'the opponent of the controller'. FFA and Tag have no single opponent.", formats: ALL },
@@ -246,6 +243,10 @@ const OPPONENT_FIELD_EFFECT_SUMMON: readonly (readonly [number, string])[] = [
 ];
 
 const CARD_RULE_DRAFTS: readonly MultiplayerCardRuleDraft[] = [
+  // --- whole-table hand and Exodia rules (owner 2026-10-18)
+  { code: 72892473, name: "Card Destruction", rule: "In FFA3, FFA4 and Tag, every living player discards their whole hand, then draws the same number of cards. Draw in turn order from the activator. Owner 2026-10-18." },
+  { code: 74519184, name: "Hand Destruction", rule: "In FFA3, FFA4 and Tag, every living player chooses 2 cards from their own hand in turn order from the activator. Send those cards to the GY, then each player draws 2. Owner 2026-10-18." },
+  { code: 33396948, name: "Exodia the Forbidden One", rule: "Five pieces in one player's hand win the whole duel. All other players lose at the same time, with no places. In Tag, that player's team wins and the other team loses. Other 'you win' cards stay forbidden. Owner 2026-10-18." },
   // --- Kaiju and Lava summon: Tribute a monster of an opponent, the card goes to that opponent's field
   { code: 55063751, name: "Gameciel, the Sea Turtle Kaiju", rule: KAIJU_RULE },
   { code: 28674152, name: "Radian, the Multidimensional Kaiju", rule: KAIJU_RULE },
@@ -288,6 +289,9 @@ const CARD_RULE_DRAFTS: readonly MultiplayerCardRuleDraft[] = [
  * proven card stays "pending" until it has a scenario of its own. catalog.test.ts compares this with LIVE_PROOF in catalog.ts.
  */
 export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat[]>> = {
+  72892473: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
+  74519184: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
+  33396948: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   55063751: ["ffa3", "ffa4", "tag"], // Gameciel (Kaiju procedure)
   102380: ["ffa3", "ffa4", "tag"], // Lava Golem
   63014935: ["ffa3"], // Volcanic Queen

@@ -662,7 +662,7 @@ describe("engine data update", () => {
     ]);
   });
 
-  it.each([74519184, 72892473, 82301904, 35059553, 37313786, 27204311, 57728570, 15305240, 13532663])(
+  it.each([82301904, 35059553, 37313786, 27204311, 57728570, 15305240, 13532663])(
     "honors the owner Tag decision for %i but still reports script changes", (code) => {
       const entry = MULTIPLAYER_FORBIDDEN.find((card) => card.code === code)!;
       expect(entry.tagDecision).toEqual({ allowed: true, source: "owner 2026-10-06, option A" });
