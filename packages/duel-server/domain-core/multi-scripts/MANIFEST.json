@@ -2358,6 +2358,21 @@
       ]
     },
     {
+      "code": 27204311,
+      "file": "c27204311.lua",
+      "name": "Nibiru, the Primal Being",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "7f0e133f5e4175784b0f160dc8b45e68093ccd656cb5d3fb156035f80622c29f",
+      "note": "Owner 2026-10-18: count summons by the real turn duelist; bind that opponent; keep other FFA fields; Tag Tributes both full sides.",
+      "redefined": [
+        "checkop",
+        "condition",
+        "target",
+        "operation"
+      ]
+    },
+    {
       "code": 27279764,
       "file": "c27279764.lua",
       "name": "Apoqliphort Towers",
