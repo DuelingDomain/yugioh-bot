@@ -40,7 +40,7 @@ export function validateEffectCandidate(root, outputDirectory) {
   if (candidate.baseVersion !== before.artifactVersion || candidate.manifestSha256 !== sha(manifestBytes) || candidate.artifactVersion !== artifactVersion || sha(JSON.stringify(identity)) !== artifactVersion || after.formatVersion !== before.formatVersion || after.schemaVersion !== before.schemaVersion || !identical(after.source, before.source)) throw new Error("Effect manifest provenance or integrity is invalid");
   if (after.generation?.kind !== "anthropic-message-batches" || after.generation.model !== MODEL || after.generation.baseArtifactVersion !== before.artifactVersion || after.generation.normalization !== "newline-trim-pendulum-first-v1" || !Number.isInteger(after.generation.acceptedCards) || after.generation.acceptedCards < 1) throw new Error("Effect generation provenance is invalid");
   const decode = (directory, manifest, key) => {
-    const names = { tags: "tags.jsonl.gz", profiles: "profiles.jsonl.gz", popularity: "popularity.json.gz", sourceHashes: "source-hashes.json.gz" };
+    const names = { tags: "tags.jsonl.gz", profiles: "profiles.jsonl.gz", popularity: "popularity.json.gz", sourceHashes: "source-hashes.json.gz", releases: "releases.json.gz" };
     const file = manifest.files[key];
     if (file.path !== names[key] || !Number.isSafeInteger(file.bytes) || file.bytes < 1 || file.bytes > 30_000_000) throw new Error("Invalid effect artifact descriptor");
     const compressed = readFileSync(join(directory, DATA, file.path));
@@ -49,8 +49,8 @@ export function validateEffectCandidate(root, outputDirectory) {
     if (bytes.length !== file.bytes || sha(bytes) !== file.sha256) throw new Error("Effect artifact content integrity failed");
     return bytes.toString("utf8");
   };
-  for (const key of ["profiles", "popularity"]) {
-    if (!identical(after.files[key], before.files[key]) || !readFileSync(join(outputDirectory, DATA, after.files[key].path)).equals(readFileSync(join(root, DATA, before.files[key].path)))) throw new Error("Effect publication changed unrelated profile/popularity data");
+  for (const key of ["profiles", "popularity", "releases"]) {
+    if (!identical(after.files[key], before.files[key]) || !readFileSync(join(outputDirectory, DATA, after.files[key].path)).equals(readFileSync(join(root, DATA, before.files[key].path)))) throw new Error("Effect publication changed unrelated profile/popularity/release data");
     decode(outputDirectory, after, key);
   }
   const tagsBefore = new Map(decode(root, before, "tags").trim().split("\n").map(line => { const row = JSON.parse(line); return [row.id, row]; }));

@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
-import { cleanReleaseMonth } from "../../packages/shared/src/cards/effects/releases.js";
+import { cleanReleaseMonth } from "@yugidraft/shared/cards/effects";
 const input = process.argv[2];
 if (!input) throw new Error("Usage: tsx scripts/effects/build-releases.ts <searchygo/data/cards.json>");
 const sha = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");

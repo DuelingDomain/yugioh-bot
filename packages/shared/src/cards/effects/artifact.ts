@@ -142,8 +142,23 @@ function object(value: unknown, context: string): Record<string, unknown> {
 }
 
 function canonicalizer(db: Database.Database, options: CardEffectArtifactImportOptions, releases: ReleaseRow[]) {
-  const artworks = new Map((db.prepare("SELECT artwork_id,card_id FROM card_artworks WHERE artwork_id<>card_id").all() as { artwork_id: number; card_id: number }[]).map(row => [row.artwork_id, row.card_id]));
-  for (const row of releases) for (const alias of row.aliases) if (!artworks.has(alias)) artworks.set(alias, row.id);
+  const artworkRows = db.prepare("SELECT artwork_id,card_id FROM card_artworks").all() as { artwork_id: number; card_id: number }[];
+  const artworks = new Map(artworkRows.filter(row => row.artwork_id !== row.card_id).map(row => [row.artwork_id, row.card_id]));
+  const mains = new Set(artworkRows.map(row => row.card_id));
+  const catalog = new Set((db.prepare("SELECT ygoprodeck_id FROM card_catalog").all() as { ygoprodeck_id: number }[]).map(row => row.ygoprodeck_id));
+  for (const row of releases) {
+    const family = [row.id, ...row.aliases];
+    let target = family.map(code => artworks.get(code)).find(code => code !== undefined)
+      ?? family.find(code => mains.has(code)) ?? family.find(code => catalog.has(code)) ?? row.id;
+    const seen = new Set<number>();
+    while (artworks.has(target)) {
+      if (seen.has(target)) throw new Error("Cyclic stored artwork identity");
+      seen.add(target); target = artworks.get(target)!;
+    }
+    // Existing artwork parents and known catalog mains are stronger than the
+    // upstream display artwork. Never add an edge from the selected parent.
+    for (const code of family) if (code !== target && !artworks.has(code) && !options.remaps?.has(code)) artworks.set(code, target);
+  }
   for (const [old, target] of options.remaps ?? []) {
     if (!validPasscode(old) || !validPasscode(target)) throw new Error("Invalid effect artifact passcode remap");
   }

@@ -198,7 +198,7 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     expect(api.events).toEqual([]); expect(writes).toBe(0);
   });
 
-  it("writes a reviewable next pin with actual tagged-input hashes and unchanged profiles/popularity", async () => {
+  it("writes a reviewable next pin with actual tagged-input hashes and unchanged profiles/popularity/releases", async () => {
     const context = await setup(), api = await endpoint();
     const client = new context.AnthropicBatchClient({ baseUrl: api.baseUrl, apiKey: "fake", allowLoopback: true });
     await context.runTagging({ cards: changedCards(), store: context.store, client, dryRun: false, now: context.now });
@@ -213,7 +213,7 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     expect(manifest.generation).toMatchObject({ model: "claude-haiku-4-5-20251001", acceptedCards: 6 });
     const sidecar = JSON.parse(gunzipSync(readFileSync(join(output, "packages/shared/data/effects/source-hashes.json.gz"))).toString("utf8"));
     expect(sidecar.hashes[14558127]).toBe(hashCardEffectSourceText(changedCards()[0]));
-    for (const file of ["profiles.jsonl.gz", "popularity.json.gz"]) {
+    for (const file of ["profiles.jsonl.gz", "popularity.json.gz", "releases.json.gz"]) {
       expect(readFileSync(join(output, "packages/shared/data/effects", file))).toEqual(readFileSync(join(rootPath, "packages/shared/data/effects", file)));
     }
     expect(readFileSync(join(output, "packages/shared/src/cards/effects/artifact.ts"), "utf8")).toContain(manifest.artifactVersion);
@@ -222,6 +222,11 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     const publisherPath = "../../ci/publish-effect-tags.mjs";
     const { validateEffectCandidate } = await import(publisherPath);
     expect(validateEffectCandidate(rootPath, output).changed).toBe(true);
+    const releasePath = join(output, "packages/shared/data/effects/releases.json.gz");
+    const releaseBytes = readFileSync(releasePath);
+    writeFileSync(releasePath, "corrupt");
+    expect(() => validateEffectCandidate(rootPath, output)).toThrow(/release|unrelated|integrity/i);
+    writeFileSync(releasePath, releaseBytes);
     // A real Git commit object models an amend retaining bot author identity
     // while a reviewer becomes the committer. No workspace ref/commit is made.
     const bare = join(context.directory, "history.git");
