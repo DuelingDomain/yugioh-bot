@@ -189,11 +189,12 @@ export async function getDeckCardFacets(): Promise<CardFacets> {
   return { archetypes: body.archetypes ?? [], banlists: body.banlists ?? {} };
 }
 
-export async function getDeckCards(codes: number[], context: CardAdmissionContext = {}): Promise<{ cards: DeckCardInfo[]; missing: number[] }> {
+export async function getDeckCards(codes: number[], context: CardAdmissionContext = {}, signal?: AbortSignal): Promise<{ cards: DeckCardInfo[]; missing: number[] }> {
   const body = await parseBody<{ cards?: DeckCardInfo[]; missing?: number[] }>(await fetch("/api/duels/cards", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ codes, ...context }),
+    signal,
   }));
   return { cards: body.cards ?? [], missing: body.missing ?? [] };
 }

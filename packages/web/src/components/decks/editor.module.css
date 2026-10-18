@@ -389,3 +389,12 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
   .de-back-room .de-back-long { display: none; }
   .de-back-room .de-back-short { display: inline; }
 }
+
+/* The deck pane's own tabs (Deck | Suggestions), shown when effect search is on. With Suggestions open, only the tabs, the notice and the list show. */
+/* The segmented control clips its buttons (overflow: hidden), so the scrolling pane's grid squeezed its row to 2px on a phone: a fixed row height (buttons plus border) stops that. */
+.de-vt { justify-self: start; min-height: 32px; }
+.de-vt button { min-height: 30px; padding: 0 12px; font-size: 13px; }
+:global(.ms) .de-vt button { min-height: 36px; }
+:global(.ms) .de-vt { min-height: 38px; }
+.de-deck[data-view="suggest"] > :not([data-keep]) { display: none; }
+.de-deck[data-view="suggest"] { align-content: start; }
