@@ -1,5 +1,9 @@
 # Effect search foundation contract
 
+Cube batch addition, phrase seed preview/confirmation, cube description
+resolution and draft pool-health fields are specified in
+[the cube backend contract](effect-search-cube-contract.md).
+
 The stable shared exports are `@yugidraft/shared/cards/effects`,
 `@yugidraft/shared/cards/effects/capability` and `@yugidraft/shared/services`.
 The capability subpath is safe for client attribution imports and does not pull

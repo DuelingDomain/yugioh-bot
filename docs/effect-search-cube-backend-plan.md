@@ -4,20 +4,20 @@ The owner approved the feature scope and foundation contract. This work uses the
 existing SQLite services and authenticated web routes. No new unit tests or UI
 changes are required for this backend slice.
 
-- [ ] Add transactional `addBatch` with per-row copies, engine section routing,
+- [x] Add transactional `addBatch` with per-row copies, engine section routing,
   canonical duplicate reporting, and no change to existing copy totals.
   Cover it with a real SQLite integration suite before implementation.
-- [ ] Add a read-only phrase seed preview: select core phrase/archetype matches,
+- [x] Add a read-only phrase seed preview: select core phrase/archetype matches,
   rank partners with the existing synergy scorer and profiles, fill role quotas,
   and report shortages. Exclude cards already in the cube. Confirmation uses
   `addBatch` with the chosen rows. Add authenticated route integration coverage.
-- [ ] Extend `/api/cards/resolve` with an explicit effect description mode. Keep
+- [x] Extend `/api/cards/resolve` with an explicit effect description mode. Keep
   all name-resolution branches on their current path.
-- [ ] Add optional `poolHealth` to cube analysis and per-cube draft preflight.
+- [x] Add optional `poolHealth` to cube analysis and per-cube draft preflight.
   Health observations only add warnings; existing errors and access rules stay.
-- [ ] Build shared before consumers. Run targeted integration and affected
+- [x] Build shared before consumers. Run targeted integration and affected
   regression files with one worker, then shared/web TypeScript checks.
-- [ ] Review the changes, publish the UI contract, make small local commits,
+- [x] Review the changes, publish the UI contract, make small local commits,
   and remove generated build outputs. Do not push.
 
 Seed target means new distinct card rows, not copies or final cube size. Requests
