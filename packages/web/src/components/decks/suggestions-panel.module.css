@@ -44,3 +44,4 @@
 .add[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; background: none; color: var(--sg-ink-3); }
 .credit { margin: 4px 0 0; color: var(--sg-ink-3); font-size: 11.5px; }
 @media (max-width: 480px) { .art { width: 40px; } .side, .add { width: 44px; } }
+.have b { font-weight: 500; }

@@ -28,11 +28,22 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     const works = browser.getByRole("button", { name: "Find cards that work with Ash Blossom & Joyous Spring" }).first();
     if (phone) await tile.focus();
     await expect(works).toBeVisible();
+    // The icon sits on the art, clear of the limit, art, points and copy marks.
+    const overlaps = await works.evaluate((icon) => {
+      const box = icon.getBoundingClientRect();
+      const marks = [...(icon.parentElement?.querySelectorAll<HTMLElement>("button > span") ?? [])]
+        .filter((mark) => getComputedStyle(mark).position === "absolute")
+        .map((mark) => mark.getBoundingClientRect());
+      return marks.filter((m) => Math.min(box.right, m.right) - Math.max(box.left, m.left) > 1 && Math.min(box.bottom, m.bottom) - Math.max(box.top, m.top) > 1).length;
+    });
+    expect(overlaps).toBe(0);
     const before = await tile.boundingBox();
     await shot("works-with-icon");
     await works.click();
     const chip = browser.getByRole("list", { name: "Works with" });
     await expect(chip.getByText("Ash Blossom & Joyous Spring")).toBeVisible();
+    // The search text is cleared, so the partners show.
+    await expect(search).toHaveValue("");
     // The card does not move, and the partner list never holds the card itself.
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     await expect(browser.getByRole("button", { name: /^Ash Blossom & Joyous Spring/ })).toHaveCount(0);
@@ -43,26 +54,40 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     await expect(chip).toHaveCount(0);
 
     // The W key does the same from a focused tile.
+    await search.fill("Ash Blossom");
     await tile.focus();
     await page.keyboard.press("w");
     await expect(browser.getByRole("list", { name: "Works with" })).toBeVisible();
     await browser.getByRole("button", { name: "Remove Works with Ash Blossom & Joyous Spring" }).click();
+    await search.fill("Ash Blossom");
 
     // Suggestions: add two cards in the list view, then open the tab.
     await browser.getByRole("button", { name: "Card list with details" }).click();
     await browser.getByRole("button", { name: "Add Ash Blossom & Joyous Spring to the deck" }).first().click();
     await search.fill("Effect Veiler");
     await browser.getByRole("button", { name: "Add Effect Veiler to the deck" }).first().click();
+    // The e2e catalog has few tagged cards, so the server can rank none. Answer the suggest op with catalog cards, so the rows show.
+    const catalog = await page.request.post("/api/decks/cards", { data: { text: "Veiler", mode: "normal", limit: 10 } });
+    const known = ((await catalog.json()) as { cards: { code: number; name: string }[] }).cards.slice(0, 3);
+    expect(known.length).toBeGreaterThan(0);
+    await page.route("**/api/cards/insights", async (route) => {
+      const body = route.request().postDataJSON() as { op?: string };
+      if (body.op !== "suggest") return route.fallback();
+      await route.fulfill({ json: { effectSearchEnabled: true, attribution: "Effect search powered by searchygo", cards: known.map((card, index) => ({
+        passcode: card.code, name: card.name, score: 10 - index, linkedCards: 2 - Math.min(index, 1), reason: `Negates monster effects, like ${index === 0 ? "Ash Blossom" : "Effect Veiler"}.`,
+      })) } });
+    });
     const deckTab = page.getByRole("tab", { name: /^Deck/ }).first();
     if (phone) await deckTab.click();
     await page.getByRole("tablist", { name: "Deck pane" }).getByRole("tab", { name: "Suggestions" }).click();
     const panel = page.getByRole("region", { name: "Suggestions" });
     await expect(panel).toBeVisible();
     await expect(panel.getByText("Effect search powered by searchygo", { exact: true })).toBeVisible();
-    await expect(panel.locator("li").first().or(panel.getByText(/No card fits right now|Could not|not available/))).toBeVisible({ timeout: 30_000 });
+    await expect(panel.locator("ol > li").first()).toBeVisible({ timeout: 30_000 });
     const rows = await panel.locator("ol > li").count();
     expect(rows).toBeLessThanOrEqual(20);
-    if (rows > 0) {
+    await expect(panel.getByText(/^Negates monster effects/).first()).toBeVisible();
+    {
       await expect(panel.locator("ol > li").first().getByText(/^Links to/)).toBeVisible();
       const first = panel.locator("ol > li").first();
       const name = (await first.locator("strong").first().textContent()) ?? "";

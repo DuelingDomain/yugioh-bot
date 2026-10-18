@@ -763,6 +763,8 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
   function findPartners(card: DeckCardInfo) {
     rememberCatalog([card]);
     setPartner({ code: card.code, name: card.name });
+    // The search text named the card itself; the partners would not match it. Other filters stay.
+    setQuery((current) => ({ ...current, text: "", effectOmit: [] }));
     setPhoneTab("cards");
     setCardSheetOpen(false);
   }

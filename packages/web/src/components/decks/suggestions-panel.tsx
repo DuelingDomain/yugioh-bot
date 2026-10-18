@@ -108,7 +108,7 @@ function Row({
           <span className={styles.meta}>
             <span className={styles.links}><Link2 size={12} aria-hidden />Links to <b className="num">{card.linkedCards}</b> {card.linkedCards === 1 ? "card" : "cards"}</span>
             {master && card.deckMasterFit ? <span className={cn("chip", "chip-gold", styles.fit)} title="This card links to your Deck Master"><Crown size={12} aria-hidden />Deck Master fits</span> : null}
-            {copies > 0 ? <span className={cn("num", styles.have)}>×{copies} in deck</span> : null}
+            {copies > 0 ? <span className={styles.have}><b className="num">×{copies}</b> in deck</span> : null}
           </span>
         </span>
         {points ? <GenesysBadge card={card} variant="inline" /> : null}

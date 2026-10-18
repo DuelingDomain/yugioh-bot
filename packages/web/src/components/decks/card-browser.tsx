@@ -461,7 +461,7 @@ export function CardBrowser({
       <div className={styles.body}>
         <div ref={scrollRef} className={styles.results} aria-busy={stale || undefined}>
           <p className={styles["de-count"]} aria-live="polite">
-            <span className={"num"}>{countText}</span>{" "}
+            <span className={partner ? undefined : "num"}>{countText}</span>{" "}
             {stale ? <span className={styles.working}>Updating…</span> : null}
           </p>
 
