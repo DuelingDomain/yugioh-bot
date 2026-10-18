@@ -45,6 +45,10 @@ for (const [viewportIndex, viewport] of [{ width: 1920, height: 1080 }, { width:
       const after = await card.boundingBox();
       expect(after!.x).toBeCloseTo(before!.x, 1); expect(after!.y).toBeCloseTo(before!.y, 1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+      if (viewport.width < 600) await card.click();
+      const reader = page.getByRole("complementary", { name: "Card reader" });
+      await expect(reader.getByText("Effect search powered by searchygo", { exact: true })).toBeVisible();
+      await expect(reader.locator(".insp-fit")).toContainText("Shares Draft family");
       await page.screenshot({ path: testInfo.outputPath(`draft-picks-${viewport.width}.png`), fullPage: true });
     } finally {
       try {

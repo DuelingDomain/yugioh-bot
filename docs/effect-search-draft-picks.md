@@ -19,8 +19,8 @@ with the same logic as `pickScore`. They are absent for zero scores, blocked
 choices, empty pools and disabled capability. A viewer without a seat receives
 no pack or pool. No numeric bot score, other seat's pool or private cube is added
 to this response. Render reasons outside existing corner badges and keep card
-geometry fixed on hover. The optional card type field is available to the UI;
-the draft room currently leaves fit reasons unrendered.
+geometry fixed on hover. The draft card reader renders fit reasons in a fixed line with searchygo
+credit; card tiles and corner badges retain their positions.
 
 ## Shared policy
 
