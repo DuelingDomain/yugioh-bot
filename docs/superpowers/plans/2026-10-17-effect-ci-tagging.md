@@ -6,10 +6,13 @@ Design: reuse scripts/effects and its durable state/effect-tagging ledger. Reser
 
 Alternatives: a separate profile ledger risks two independent caps; workflow cache state can be lost. Both are rejected in favor of the existing Git compare-and-swap ledger. Keep data publication in the existing fixed-path validator and evaluated PR flow.
 
-- [ ] Extend the existing fake HTTP + real disk/artifact integration suite first. Verify Haiku 5.5, profile requests, cleanup, reuse, caps, historical results and candidate tamper guards.
-- [ ] Port upstream synergy prompt/profile selection into scripts/effects/profile-archetypes.ts and synergy-prompt.ts with source credit. Extend reservation schema/client/runner with profile work and model-specific billing.
-- [ ] Emit profiles with source hashes and validated provenance; expand the publication allowlist by profiles.jsonl.gz only. Verify the generated pin and all unchanged records.
-- [ ] Make missing-secret workflow skips explicit. Retain the approved engine-pin trigger and daily collection; document Monday/Thursday merge behavior, secret setup and ledger recovery.
-- [ ] Run targeted offline integration tests, shared/artifact/search evals, script TypeScript and workflow checks. Review the final diff, commit small changes with required trailers, and remove generated build caches.
+- [x] Extend the existing fake HTTP + real disk/artifact integration suite first. Verify Haiku 5.5, profile requests, cleanup, reuse, caps, historical results and candidate tamper guards.
+- [x] Port upstream synergy prompt/profile selection into scripts/effects/profile-archetypes.ts and synergy-prompt.ts with source credit. Extend reservation schema/client/runner with profile work and model-specific billing.
+- [x] Emit profiles with source hashes and validated provenance; expand the publication allowlist by profiles.jsonl.gz only. Verify the generated pin and all unchanged records.
+- [x] Make missing-secret workflow skips explicit. Retain the approved engine-pin trigger and daily collection; document Monday/Thursday merge behavior, secret setup and ledger recovery.
+- [x] Run targeted offline integration tests, shared/artifact/search evals, script TypeScript and workflow checks. Review the final diff, commit small changes with required trailers, and remove generated build caches.
 
 Contract: runtime APIs, tables, EFFECT_SEARCH and attribution do not change. CLI remains scripts/effects/tag-cards.ts. The sole new published path is packages/shared/data/effects/profiles.jsonl.gz. No UI changes or screen checks are needed for this CI-only task.
+
+
+Verification (2026-10-17): Node 22 npm ci and shared build passed. Script TypeScript passed. The Batch/disk/generated-pin SQLite suite passed 17 tests; shared artifact/search suites passed 21 tests; duel search eval passed 61 tests (60 labeled queries, precision and recall both 1.0). The workflow YAML parsed and git diff --check passed. Independent review findings were fixed and reviewed again. No paid API requests, GitHub writes, push, runtime flag changes or UI changes were made.

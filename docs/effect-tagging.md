@@ -27,7 +27,7 @@ excluded. Normal Pendulum Monsters with effects remain eligible.
    requests, ledger mutations or publication.
 4. To submit/collect, dispatch with `dry_run=false`. Approved `main` changes to
    the engine preparation pin also trigger a run; a daily 07:30 UTC run collects
-   completed work. Without the API secret these runs stay dry. All runs share
+   completed work. Without the API secret paid runs skip cleanly and emit an Actions notice. Explicit dry runs remain available. All runs share
    one concurrency group with cancellation disabled.
 
 The CLI also defaults to a keyless dry run. Build shared first, then point it at
@@ -48,18 +48,30 @@ tagging of the same inputs.
 
 ## Hard monthly budget
 
-The code pins `claude-haiku-4-5-20251001`, whose context bound is 200,000 tokens.
-It sends at most eight cards per Batch request and sets output to 20,000 tokens.
-It omits caching, thinking, tools and effort.
-[Anthropic model specifications](https://platform.claude.com/docs/en/models/haiku-4-5/overview).
+The code pins `claude-haiku-5-5`. It sends at most eight cards per tag
+request or forty representative members per profile request, with a 20,000
+output-token limit. New members take priority over popular members. Archetypes
+need at least three members. An upstream profile refreshes when its member count
+grows; generated profiles also refresh when their member-input hash changes.
+The upstream artifact has counts but no member IDs, so equal-count membership
+replacement in an original profile cannot be detected until its first refresh.
+[Anthropic model specifications](https://platform.claude.com/docs/en/models/haiku-5-5/overview).
 
-Verified on 2026-10-17, Batch pricing is USD $0.50 per million input tokens and
-$2.50 per million output tokens. The worst accepted request therefore costs at
-most `$0.50 × 0.2 + $2.50 × 0.02 = $0.15`; this entire amount is reserved before
-submission, regardless of estimates or actual card count. Settlement rounds
-actual usage upward to an integer microdollar. Recheck the official price and
-model limits before changing the pinned model or enabling after a price change.
-[Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing).
+Verified on 2026-10-17, Haiku 5.5 Batch pricing is $0.05/M input and $0.25/M
+output up to 100,000 input tokens, and $0.25/M input and $1.25/M output above
+that threshold. The 1M context bound and 20K output limit give a conservative
+maximum of `$0.25 × 1 + $1.25 × 0.02 = $0.275` per request. This whole amount
+is reserved before submission, including structured-schema and thinking tokens;
+local token estimates never authorize spend. Actual usage rounds upward to an
+integer microdollar. Both request kinds share the $2 per-run cap: at most seven
+requests ($1.925 held). `--max-requests` can reduce this, never raise the cap.
+Historical Haiku 4.5 ledger entries remain readable, retain their $0.15 holds,
+and settle using their original rate; their POST is never repeated after intent.
+A legacy batch still in `reserved` state can be trimmed to the run cap before
+submission intent; unsubmitted excess inputs become eligible on later runs.
+No `submission_started` or `submitted` liability is ever reduced this way.
+Recheck official prices and limits before changing the model or rates.
+[Anthropic Batch pricing](https://platform.claude.com/docs/en/build-with-claude/batch-processing).
 
 The $10 cap is enforced by settled spend in the current UTC month plus **all**
 unsettled reservations, including prior months. Missing, corrupt or conflicting
@@ -101,7 +113,7 @@ Results pass structured output validation, copied upstream repair/defaulting,
 quoted-name cleanup, and the application CardTags schema. The generator emits
 candidate files in a temporary output directory: deterministic compressed
 tags/source hashes, a new manifest and two literal code pin replacements.
-Profiles and popularity are byte-identical to the prior pin. Text hashes record
+Only accepted profile rows can change. Popularity remains byte-identical to the prior pin. Text hashes record
 the actual submitted printed effect, never current text substituted for an old
 tag's source.
 
@@ -109,11 +121,11 @@ The fixed source metadata continues to credit LorenzoWhite/searchygo commit
 `9b2d952f8e7c389e13267d4bba6504cc8ea4cb5c` as the foundation. Changed file
 descriptors retain `baseSourcePath`/`baseSourceSha256`; generation metadata adds
 the immutable model, prior artifact version, normalization, prompt hashes,
-reservation IDs and accepted-results digest. Generated cards are attributed to
+reservation IDs and accepted tag/profile digests. Generated profile rows retain their member-input hash for the next refresh. Generated cards are attributed to
 the Batch generation rather than claimed as verbatim upstream bytes. Schema
 adapters retain their upstream source headers.
 
-Before publication, CI verifies the strict four-file allowlist, builds the
+Before publication, CI verifies the strict five-file allowlist (manifest, tags, source hashes, profiles, and artifact pin source), builds the
 candidate shared package, runs real-artifact SQLite tests and evaluates the
 prepared engine's 60-query search fixture against that candidate. The publisher
 then revalidates data and pin-only code changes in a fresh checkout. It opens or
@@ -132,3 +144,33 @@ prlimit --core=0 -- npx vitest run scripts/effects/tests/effect-tagging.integrat
 ```
 
 These checks need no API secret and issue no GitHub writes or paid requests.
+
+## Files and worker contract
+
+- `scripts/effects/tag-cards.ts`: CLI and `runTagging(options)`. Default is dry
+  run; `--live` needs the owner secret and initialized durable state.
+- `scripts/effects/profile-archetypes.ts`: count/hash selection and Zod plus
+  `readProfile` validation; `synergy-prompt.ts` ports the credited upstream prompt.
+- `budget-ledger.ts`, `batch-client.ts`: one ledger and one Batch transport for
+  both kinds. Per-request prompts and input hashes survive restarts. Failed
+  profiles settle their billed usage and are deferred until the next UTC month.
+- `artifact-output.ts`, `scripts/ci/publish-effect-tags.mjs`: generate and validate
+  the candidate in `.status/effect-tagging`; no checked-out pin changes locally.
+  The PR may change `packages/shared/data/effects/{manifest.json,tags.jsonl.gz,
+  source-hashes.json.gz,profiles.jsonl.gz}` plus the two literal constants in
+  `packages/shared/src/cards/effects/artifact.ts`. Each compressed file and its
+  uncompressed content have SHA-256 descriptors.
+- `.github/workflows/effect-tagging.yml`: starts after an approved engine pin
+  merges to main, including Monday/Thursday engine update PRs; daily runs collect
+  completed batches. It tags the approved catalog, rather than sending unreviewed
+  engine PR input to the paid API. Engine update PRs do not wait for Batch completion.
+- Runtime APIs, `card_tags`, `card_tag_profiles`, `EFFECT_SEARCH=1`, the attribution
+  constant, and summary display are unchanged. No API key is needed at runtime.
+
+Before publishing, CI evaluates all sixty engine queries against the generated
+pin. Any failed expected hit or exclusion fails the job; no lower score is
+accepted. The generated PR also dispatches the normal Test workflow. No generated
+artifact was committed from a real model in local development: the integration
+suite exercises candidate generation, validation and dry run with fake responses.
+The owner must add `ANTHROPIC_API_KEY` and initialize the ledger before paid use.
+No secret is created by this change.

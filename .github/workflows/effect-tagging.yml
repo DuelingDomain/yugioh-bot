@@ -6,6 +6,8 @@ on:
     paths:
       - packages/duel-server/scripts/prepare-data.ts
       - scripts/effects/**
+      - packages/shared/src/cards/effects/tags.ts
+      - packages/shared/src/cards/effects/synergy.ts
       - scripts/ci/publish-effect-tags.mjs
       - .github/workflows/effect-tagging.yml
   schedule:
@@ -43,7 +45,19 @@ jobs:
     timeout-minutes: 30
     outputs:
       base_sha: ${{ steps.base.outputs.sha }}
+      has_key: ${{ steps.secret.outputs.present }}
     steps:
+      - name: Check owner-provided tagging secret
+        id: secret
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::ANTHROPIC_API_KEY is missing. Paid effect tagging is skipped. The owner must add this repository secret.'
+          else
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v4
         with:
           ref: main
@@ -63,6 +77,7 @@ jobs:
 
   tag:
     needs: validate
+    if: needs.validate.outputs.has_key == 'true' || inputs.dry_run == true || inputs.initialize_ledger == true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
