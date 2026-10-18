@@ -1,5 +1,5 @@
--- Hand Destruction stays forbidden in FFA. In Tag, every duelist sends two cards and draws two.
-if Duel.MPMode()~=2 then return end
+-- Owner 2026-10-18: each living duelist sends two, then draws two, in turn order from the activator.
+if not aux.MPForEachDuelist then return end
 function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then return aux.MPAllDuelists(function(p)
 		return #Duel.GetMatchingGroup(nil,p,LOCATION_HAND,0,e:GetHandler())>=2 and Duel.IsPlayerCanDraw(p,2)

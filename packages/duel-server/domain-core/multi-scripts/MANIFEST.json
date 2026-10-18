@@ -2843,6 +2843,18 @@
       "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
+      "code": 33396948,
+      "file": "c33396948.lua",
+      "name": "Exodia the Forbidden One",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "f5b9907d008d4905fbe87c4236339642ffc8e9aedc924fed4c9c04e7c4a0e131",
+      "note": "Owner 2026-10-18: check each living duelist hand separately. Five pieces in one hand win the whole duel through Duel.Win. In Tag, the team wins. Pieces in separate hands do not count."
+    },
+    {
       "code": 33782437,
       "file": "c33782437.lua",
       "name": "One Day of Peace",
@@ -6187,7 +6199,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "087e5964a6158051bb44fa0685192c9d9ed6a029005bd0a2536d5b9177be340e",
-      "note": "In Tag, discard every living duelist hand together, then each duelist draws its own discarded count. Keep this card forbidden in FFA."
+      "note": "Owner 2026-10-18: in FFA3, FFA4 and Tag, discard every living duelist hand together, then each draws its own hand count in turn order from the activator."
     },
     {
       "code": 73082255,
@@ -6304,7 +6316,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "33446081eef2e3150316717b8ec860ec4f2cb899370a748f84a87aca371afb1c",
-      "note": "In Tag, each living duelist sends two cards from its own hand, then draws two cards. Keep this card forbidden in FFA."
+      "note": "Owner 2026-10-18: in FFA3, FFA4 and Tag, each living duelist chooses two cards from its own hand in turn order from the activator. Send the cards together, then each draws two."
     },
     {
       "code": 74586817,

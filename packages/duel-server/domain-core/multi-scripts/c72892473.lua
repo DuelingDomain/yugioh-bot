@@ -1,5 +1,5 @@
--- Card Destruction stays forbidden in FFA. In Tag, every duelist discards and draws its own count.
-if Duel.MPMode()~=2 then return end
+-- Owner 2026-10-18: every living duelist discards and draws its own hand count in FFA and Tag.
+if not aux.MPForEachDuelist then return end
 function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then
 		local total=0
