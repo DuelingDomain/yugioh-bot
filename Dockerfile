@@ -83,6 +83,7 @@ COPY --from=runtime-deps /app/node_modules ./node_modules
 # Shared package (symlink target for @yugidraft/shared)
 COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
+COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
 # Bot compiled output
 COPY --from=build /app/packages/bot/package*.json packages/bot/
 COPY --from=build /app/packages/bot/dist packages/bot/dist
@@ -101,6 +102,7 @@ COPY --from=runtime-deps /app/node_modules ./node_modules
 # Shared package (symlink target for @yugidraft/shared; ws duel auth imports it)
 COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
+COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
 COPY --from=build /app/packages/ws/package*.json packages/ws/
 COPY --from=build /app/packages/ws/dist packages/ws/dist
 RUN mkdir -p /app/data && chown node:node /app/data
@@ -120,10 +122,12 @@ COPY --from=build /app/package*.json ./
 COPY --from=runtime-deps /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
+COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
 COPY --from=build /app/packages/duel-server/package*.json packages/duel-server/
 COPY --from=build /app/packages/duel-server/card-block-list.json packages/duel-server/card-block-list.json
 COPY --from=build /app/packages/duel-server/dist packages/duel-server/dist
 COPY --from=build /app/packages/duel-server/scripts/install-engine-bundle.sh packages/duel-server/scripts/install-engine-bundle.sh
+COPY --from=build /app/packages/duel-server/scripts/verify-effect-artifact.py packages/duel-server/scripts/verify-effect-artifact.py
 COPY --from=build /app/packages/duel-server/scripts/verify-deploy-multi-cores.mjs packages/duel-server/scripts/verify-deploy-multi-cores.mjs
 RUN mkdir -p /app/data && chown node:node /app/data
 USER node
@@ -147,6 +151,7 @@ ENV NODE_ENV=production
 COPY --from=web-build /app/packages/web/.next/standalone ./
 COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
+COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
 RUN mkdir -p /app/data /app/packages/web/.next/cache && \
     chown node:node /app/data && chown -R node:node /app/packages/web/.next/cache
 VOLUME ["/app/data"]
@@ -163,6 +168,7 @@ COPY --from=build /app/package*.json ./
 COPY --from=runtime-deps /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
+COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
 COPY --from=build /app/packages/worker/package*.json packages/worker/
 COPY --from=build /app/packages/worker/dist packages/worker/dist
 RUN mkdir -p /app/data && chown node:node /app/data
