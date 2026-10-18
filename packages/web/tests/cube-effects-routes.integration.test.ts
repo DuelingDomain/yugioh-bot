@@ -4,11 +4,18 @@ import { migrate } from "../../shared/src/db/schema";
 import { fixtureUserId, seedFixtureUsers } from "./fixtures/identity";
 import { importCardEffectArtifact } from "../../shared/src/cards/effects/artifact";
 
-const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn() }));
+const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn(), warm: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db }));
 vi.mock("@/lib/session-identity", async () => {
   const { sessionFixture } = await import("./fixtures/session");
   return sessionFixture(state.auth);
+});
+vi.mock("@/lib/cube-pool", async importOriginal => {
+  const original = await importOriginal<typeof import("@/lib/cube-pool")>();
+  return { ...original, ensureCatalogCards: (...args: Parameters<typeof original.ensureCatalogCards>) => {
+    state.warm(...args);
+    return original.ensureCatalogCards(...args);
+  } };
 });
 const owner = fixtureUserId("cube-effects-owner");
 const request = (body: unknown) => new Request("http://test/api", { method: "POST", body: JSON.stringify(body) });
@@ -17,6 +24,7 @@ const db = () => state.db!;
 
 beforeEach(() => {
   vi.resetModules();
+  state.warm.mockClear();
   vi.stubEnv("DISCORD_GUILD_ID", "g");
   vi.stubEnv("EFFECT_SEARCH", "1");
   vi.stubEnv("DUEL_DATA_DIR", "/tmp/cube-effects-routes-no-engine");
@@ -115,12 +123,22 @@ describe("phrase preview, confirmation and description routes", () => {
     expect((await POST(request({ phrase: "dark magician", targetCount: 1 }), context())).status).toBe(200);
   });
 
+  it("does not warm display metadata for unscoped effect search hits", async () => {
+    importCardEffectArtifact(db());
+    const { POST } = await import("../app/api/cards/resolve/route");
+    const response = await POST(request({ op: "effectSearch", text: "hand traps that negate" }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ total: 1, cards: [{ id: 97268402 }], unknownIds: [] });
+    expect(state.warm).not.toHaveBeenCalled();
+  });
+
   it("keeps description search explicit and returns display rows, chips and reasons", async () => {
     importCardEffectArtifact(db());
     const { POST } = await import("../app/api/cards/resolve/route");
     const response = await POST(request({ op: "effectSearch", text: "hand traps that negate", pool: [97268402] }));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ effectSearchEnabled: true, attribution: "Effect search powered by searchygo", reading: { chips: expect.any(Array) }, total: 1, cards: [{ id: 97268402, reason: expect.any(String), score: expect.any(Number) }] });
+    expect(state.warm).toHaveBeenCalledWith(expect.anything(), [97268402], { remaining: 50, lookupLimited: false });
     const exact = await POST(request({ op: "effectSearch", text: "hand traps", exact: true, pool: [97268402] }));
     expect(await exact.json()).toMatchObject({ reading: null, cards: [], total: 0 });
     const malformed = await POST(request({ op: "effectSearch", text: "searchers", cubeId: 1 }));
