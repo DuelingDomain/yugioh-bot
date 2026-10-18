@@ -51,7 +51,9 @@ import { useCardPress } from "./card-press";
 import { DeckArtMenu, type ArtMenuTarget } from "./art-menu";
 import { CardActions, CardCopyCount } from "./card-actions";
 import { CardArt } from "./card-art";
-import { CardBrowser, type BrowserCard } from "./card-browser";
+import { CardBrowser, type BrowserCard, type BrowserPartner } from "./card-browser";
+import { SuggestionsPanel } from "./suggestions-panel";
+import { useDeckSuggestions } from "./use-deck-suggestions";
 import { CardBottomSheet } from "./card-bottom-sheet";
 import { CardPreview } from "./card-preview";
 import { DeckSegmented, DeckSelect } from "./controls";
@@ -263,6 +265,11 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
   const [poolRetry, setPoolRetry] = useState(0);
   const { editorRef, isPhone, isCompact } = useEditorViewport(!!pool);
   const [phoneTab, setPhoneTab] = useState<"deck" | "cards">("deck");
+  // The deck pane shows the deck, or (with effect search on) the Suggestions for it.
+  const [deckView, setDeckView] = useState<"deck" | "suggest">("deck");
+  const [suggestRetry, setSuggestRetry] = useState(0);
+  // "Works with: <card>": the card list shows the cards that work with this card.
+  const [partner, setPartner] = useState<BrowserPartner | null>(null);
   const phoneDir = useTabDirection(phoneTab, PHONE_TAB_ORDER);
   const [cardSheetOpen, setCardSheetOpen] = useState(false);
   // The Deck Master slot was the last place a card was opened from, so a new art replaces the master.
@@ -557,6 +564,19 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
     () => (genesysOn && genesys ? summarizeGenesys(deck, mode, catalog, genesys, settled) : null),
     [genesysOn, genesys, deck, mode, catalog, settled],
   );
+  const suggestPool = useMemo(() => (pool && poolCards ? poolCards.map((card) => card.canonicalPasscode ?? card.code) : undefined), [pool, poolCards]);
+  const genesysRemaining = genesysSummary ? Math.max(0, genesysSummary.cap - genesysSummary.known) : null;
+  const suggestions = useDeckSuggestions({
+    enabled: insightsOn && deckView === "suggest" && (pool == null || suggestPool != null),
+    deck,
+    mode,
+    genesys: genesysSummary != null,
+    remaining: genesysRemaining,
+    pool: suggestPool,
+    retry: suggestRetry,
+  });
+  // Suggested cards join the catalog, so their names, points and copy limits resolve like any listed card.
+  useEffect(() => { rememberCatalog(suggestions.cards); }, [suggestions.cards, rememberCatalog]);
   const misplaced = useMemo(() => misplacedCards(deck, catalog), [deck, catalog]);
   const over = useMemo(() => new Set(problems.map((problem) => problem.key)), [problems]);
   const archetypes = facets?.archetypes ?? [];
@@ -728,6 +748,23 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
       ? `${card.name}: you already have 3 copies.`
       : `${card.name}: ${banlistName ?? "the banlist"} ${copiesText(max)}.`);
     return false;
+  }
+
+  /** Why a suggested card cannot be added now (the add button then says so), or null. */
+  function suggestionBlock(card: DeckCardInfo): string | null {
+    if (card.unavailableReason) return `Unavailable: ${card.unavailableReason}`;
+    if (genesysOn && genesysMark(card)?.kind === "forbidden") return GENESYS_FORBIDDEN_MESSAGE;
+    if (mode === "domain" && deckCount(card) >= 1) return DOMAIN_ONE_COPY;
+    const max = poolMap ? deckAllowance(poolMap, poolCode(card.code), forcedMap) : copyLimit(card.code, catalog, limits);
+    return deckCount(card) >= max ? "No copy left to add." : null;
+  }
+
+  /** "Find cards that work with this": the card list shows its partners, on the Cards tab on a phone. */
+  function findPartners(card: DeckCardInfo) {
+    rememberCatalog([card]);
+    setPartner({ code: card.code, name: card.name });
+    setPhoneTab("cards");
+    setCardSheetOpen(false);
   }
 
   function addFromList(card: DeckCardInfo, wanted?: DeckSection) {
@@ -1233,6 +1270,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
       onMaster={() => makeMaster(inspected.code, selected?.code === inspected.code ? selected.section : undefined)}
       onClearMaster={removeDeckMaster}
       onArchetype={showArchetype}
+      onWorksWith={insightsOn ? () => findPartners(inspected) : undefined}
       artwork={
         <ArtworkPicker
           code={inspected.code}
@@ -1384,7 +1422,13 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
             {cardControls}
             <ControlsLegend domain={mode === "domain"} />
           </aside>
-          <main ref={deckFitRef} className={styles["de-deck"]} aria-label="Deck" id="deck-editor-deck">
+          <main ref={deckFitRef} className={styles["de-deck"]} aria-label="Deck" id="deck-editor-deck" data-view={insightsOn && deckView === "suggest" ? "suggest" : undefined}>
+            {insightsOn ? (
+              <div className={cn("seg", styles["de-vt"])} role="tablist" aria-label="Deck pane" data-keep>
+                <button type="button" role="tab" aria-selected={deckView === "deck"} aria-pressed={deckView === "deck"} onClick={() => setDeckView("deck")}>Deck</button>
+                <button type="button" role="tab" aria-selected={deckView === "suggest"} aria-pressed={deckView === "suggest"} onClick={() => setDeckView("suggest")}>Suggestions</button>
+              </div>
+            ) : null}
             {registration ? (
               <div className={styles["de-reg"]}>
                 <RegistrationMark registration={registration} />
@@ -1422,7 +1466,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
               {isPhone ? historyControls : null}
             </div>
             {isPhone ? <ControlsLegend phone /> : null}
-            {notice ? <p className={styles.notice} role="status">{notice}<button type="button" className={styles["de-ib"]} aria-label="Close message" onClick={() => setNotice(null)}><X className="ic sm" aria-hidden /></button></p> : null}
+            {notice ? <p className={styles.notice} role="status" data-keep>{notice}<button type="button" className={styles["de-ib"]} aria-label="Close message" onClick={() => setNotice(null)}><X className="ic sm" aria-hidden /></button></p> : null}
             {facetsError ? <div className={styles["de-alert"]}><StatusLine tone="warn"><b>Filters and banlists are not available.</b> {pool ? "Archetype filters do not load." : "Archetype filters do not load and the editor does not check banlist limits."}</StatusLine><SvButton variant="quiet" onClick={() => setFacetsRetry((value) => value + 1)}>Try again</SvButton></div> : null}
             {pool && pool.unresolved.length > 0 ? <div className={styles["de-alert"]}><StatusLine tone="warn"><b>{pool.unresolved.length} {pool.unresolved.length === 1 ? "card" : "cards"} cannot be used.</b> The duel engine does not know {pool.unresolved.length === 1 ? "this card" : "these cards"}, so {pool.unresolved.length === 1 ? "it is" : "they are"} not in the list.</StatusLine></div> : null}
             {poolError ? <div className={styles["de-alert"]}><StatusLine tone="block"><b>Your draft pool is not available.</b> {poolError}</StatusLine><SvButton variant="quiet" onClick={() => setPoolRetry((value) => value + 1)}>Try again</SvButton></div> : null}
@@ -1445,8 +1489,22 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
             <DeckSectionGrid {...sectionProps} title="Main" section="main" codes={deck.main} minimum={mainLow} maximum={DRAFT_MAIN_MAX} target={mode === "domain" ? "60" : `${mainLow}–${DRAFT_MAIN_MAX}`} emptyHint="Add cards from the list on the right." actions={clearButton("main", "Main")} warning={mainWarning} />
             <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} warning={extraWarning} />
             <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, Ctrl+click a deck card, or use Side on a selected card." actions={clearButton("side", "Side")} />
+            {insightsOn && deckView === "suggest" ? (
+              <SuggestionsPanel
+                state={suggestions}
+                genesys={genesysSummary ? { remaining: genesysRemaining ?? 0, cap: genesysSummary.cap } : null}
+                domain={mode === "domain"}
+                hasMaster={deck.deckMaster != null}
+                inDeck={deckCount}
+                addBlock={suggestionBlock}
+                onAdd={(card) => addFromList(card)}
+                onInspect={(card) => { rememberCatalog([card]); inspect(card.code, null, false); }}
+                onWorksWith={findPartners}
+                onRetry={() => setSuggestRetry((value) => value + 1)}
+              />
+            ) : null}
           </main>
-          <CardBrowser onEffectCapability={setInsightsOn} mode={mode} genesys={genesysOn} id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={browserQuery} onQueryChange={(next) => setQuery(genesysOn ? { ...next, banlist: query.banlist, limits: query.limits } : next)} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
+          <CardBrowser onEffectCapability={setInsightsOn} partner={partner} onPartnerChange={setPartner} onWorksWith={findPartners} mode={mode} genesys={genesysOn} id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={browserQuery} onQueryChange={(next) => setQuery(genesysOn ? { ...next, banlist: query.banlist, limits: query.limits } : next)} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
         </div>
         {artMenu ? <DeckArtMenu key={`${artMenu.section}-${artMenu.index}`} target={artMenu} knownCount={altArtCount(artMenu.code, catalog) + 1} busy={artBusy} disabled={busy} onClose={() => setArtMenu(null)} onFamily={(family) => { void loadFamilyCards(family); }} onPick={(art, family) => { void pickMenuArtwork(art, family); }} /> : null}
         {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview insightsEnabled={insightsOn} card={shown} compact copySummary={inspected && !previewing ? <><CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? deckAllowance(poolMap, poolCode(inspected.code), forcedMap) : undefined} forced={forcedMap.get(poolCode(inspected.code)) ?? 0} />{genesysOn ? <GenesysCardLine card={inspected} /> : null}</> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}
