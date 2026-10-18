@@ -22,27 +22,27 @@ The owner rule chooses one eligible opponent when "your opponent" means exactly 
 
 | Card | Formats | Rule | Proof file |
 |---|---|---|---|
-| Angelechy Opposition (101402094) | FFA3, FFA4, Tag | Choose one eligible receiving field. Check that field's MMZ. Exclude full fields. | `unban-angelechy.ts` (24 cases) |
+| Angelechy Opposition (101402094) | FFA3, FFA4, Tag | Choose one eligible receiving field. Check that field's MMZ. Exclude full fields. | `unban-angelechy.ts`, including Rivalry and Kaiju receiver cases |
 | Chaos Emperor Dragon - Envoy of the End (82301904) | FFA3, FFA4; Tag retained | FFA sends only your cards and the chosen opponent's cards. Damage counts cards sent to that opponent's GY. Tag sends all duelists' cards. | `unban-chooser.ts`, `chaos-emperor-tag.ts` |
 | Ring of Destruction (83555666) | FFA3, FFA4, Tag | Check the chosen target controller's LP. Damage you, then that opponent. | `unban-chooser.ts` |
 | Crush Card Virus (57728570) | FFA3, FFA4, Tag | Check one hand and Deck. FFA uses only that opponent's field. Tag keeps joined opposing fields. Prevent damage through the next turn. No repeated draw destruction. | `unban-chooser.ts` |
-| Nibiru, the Primal Being (27204311) | FFA3, FFA4, Tag | Count the real turn player's summons. FFA Tributes only your field and that opponent's field. Tag Tributes both sides. Give the Token to the summoning player. | `unban-nibiru.ts` |
+| Nibiru, the Primal Being (27204311) | FFA3, FFA4, Tag | Count each real opponent's summons this turn. Any single opponent must reach 5. Choose a qualifying opponent. FFA Tributes your field and that opponent's field; Tag Tributes both sides. Give the Token to the chosen opponent. | `unban-nibiru.ts` |
 
-All rows use **owner 2026-10-18**. The owner decision 2026-10-18: CED uses you + one chosen opponent in FFA. This card-specific rule overrides the general "both players" rule for CED in FFA. The current text counts damage only for cards sent to the opponent's GY. See ADR-0002 for the official card-text links and the rulebook difference. The Angelechy recipient tests do not prove the separate Rivalry of Warlords restriction gap described in that ADR.
+All rows use **owner 2026-10-18**. The owner decision 2026-10-18: CED uses you + one chosen opponent in FFA. This card-specific rule overrides the general "both players" rule for CED in FFA. The current text counts damage only for cards sent to the opponent's GY. See ADR-0002 for the official card-text links and the rulebook difference. The Rivalry tests prove legal Angelechy and Kaiju summons when a different opponent has a monster of another Type. They also test a Rivalry owned by a third duelist.
 
 The historical group tables below are superseded by these decisions where they still describe a pending ban. The current forbidden list and the audit table added below are authoritative.
 
 ## Full forbidden-list audit (owner 2026-10-18)
 
-"All" means FFA3, FFA4, and Tag. "FFA" means FFA3 and FFA4. Every proof file is in `packages/duel-server/tests/scenarios/multiplayer`. Each file runs Standard and Domain cores. The catalog records the exact IDs. Cases tagged `unsupported` prove an engine gap; they are excluded from `LIVE_PROOF` and from rule coverage.
+"All" means FFA3, FFA4, and Tag. "FFA" means FFA3 and FFA4. Every proof file is in `packages/duel-server/tests/scenarios/multiplayer`. Each file runs Standard and Domain cores. The catalog records the exact IDs. The earlier Tag gap cases now prove correct results. Their new IDs are in `LIVE_PROOF`.
 
 | Card | Decision | Rule | Live proof |
 |---|---|---|---|
-| Angelechy Opposition | Allow all | Choose an eligible receiving field; check its zones. | `unban-angelechy.ts` |
+| Angelechy Opposition | Allow all | Choose an eligible receiving field; check its zones and Rivalry restriction. | `unban-angelechy.ts` |
 | Chaos Emperor Dragon | Allow all | FFA: send the chosen pair's cards; count the opponent's GY for damage. Tag: all duelists. | `unban-chooser.ts` |
-| Ring of Destruction | Allow all | Check the target controller's LP; damage you, then that opponent. | `unban-chooser.ts` |
+| Ring of Destruction | Allow all | Check the target controller's LP. The FFA4 choice is exactly p2 and p3; p1 has no legal target. | `unban-chooser.ts` |
 | Crush Card Virus | Allow all | One hand and Deck; one FFA field. Current text: one check, damage prevention through next turn. | `unban-chooser.ts` |
-| Nibiru | Allow all | Count the real turn player's summons. FFA: only your field and that opponent's field. Tag: both sides. | `unban-nibiru.ts` |
+| Nibiru | Allow all | Count each opponent separately, including off-turn summons. Choose one opponent with 5 or more. Tribute your side and that side; give that duelist the Token. | `unban-nibiru.ts`, 240 cases |
 | Morphing Jar | Allow all | Every living duelist discards and draws 5. | `unban-audit.ts` |
 | Multiple Destruction | Allow all | All hands participate. Real Deck owners sort; all draw in turn order. | `unban-audit.ts`, off-turn and foreign-hand cases |
 | Exchange of the Spirit | Allow all | Each duelist swaps their own Deck/GY. Tag checks joined GY counts. | `unban-audit.ts` |
@@ -53,18 +53,21 @@ The historical group tables below are superseded by these decisions where they s
 | Doom Virus Dragon | Allow all | FFA checks the chosen opponent through three of their turns. Tag keeps opposing fields. | `unban-audit.ts`, `unban-audit-tag.ts` |
 | The Wicked Avatar | Allow all | FFA locks one opponent for two of their turns. Tag locks the opposing team. | `unban-audit-extra.ts` |
 | Grisaille Prison | Allow all | Global restriction; one chosen FFA opponent sets its duration. Tag uses the next opposing turn. | `unban-audit.ts`, `unban-audit-tag.ts` |
-| Million-Century Ice Prison | Allow FFA; block Tag | FFA follows the responsible opponent. Tag can skip the other member's Main Phase. | `unban-audit-extra.ts`, both modes and Tag gap |
-| Tellarknight Ptolemaeus | Allow FFA; block Tag | FFA skips the chosen turn. Tag choosing p3 still skips p1. | `unban-audit.ts`, `unban-audit-tag.ts` gap |
-| Arcana Force XXI - The World | Allow FFA; block Tag | FFA choice works. Tag can skip the wrong member or return no GY card. | `unban-audit-extra.ts`, Heads, Tails, and gaps |
+| Million-Century Ice Prison | Allow all | Skip the responsible duelist's current phase or next Main Phase 1. The other Tag member keeps that phase. | `unban-audit-extra.ts`, both choices and expiry |
+| Tellarknight Ptolemaeus | Allow all | Skip only the chosen duelist's next turn, including the far Tag member. | `unban-audit.ts`, `unban-audit-tag.ts` |
+| Arcana Force XXI - The World | Allow all | Heads skips the chosen turn. Tails returns the top card from the chosen duelist's own GY. | `unban-audit-extra.ts`, Heads and Tails |
 | Gamble | Allow all | One qualifying hand; the coin changes only your draw or your next turn. | `unban-audit.ts`, both coin results |
-| The Six Shinobi | Allow FFA; block Tag | FFA skips the chosen turn. Tag choosing p3 still skips p1. | `unban-audit.ts`, `unban-audit-tag.ts` gap |
-| Mischief of the Time Goddess | Keep FFA blocked; block Tag | It leaves another duelist's normal turn open. It does not reach your next Battle Phase. | `unban-audit-extra.ts`, all-format gap cases |
+| The Six Shinobi | Allow all | Skip only the chosen duelist's next turn; the Tag partner and other opponent keep their turns. | `unban-audit.ts`, `unban-audit-tag.ts` |
+| Mischief of the Time Goddess | Allow all | Skip every intervening turn, including the Tag partner, and reach your next Battle Phase. The same monster can attack again. | `unban-audit-extra.ts`, FFA3, FFA4 and Tag |
 | Creature Seizure | Allow all | Swap the chosen pair. Tag choices keep the actual controller seats. | `unban-audit.ts` |
-| Switcheroroo | Allow FFA; block Tag | FFA swaps one pair. Tag cannot swap groups with several controllers. | `unban-audit.ts`, Tag no-swap gap |
+| Switcheroroo | Allow all | FFA swaps one pair. Tag swaps both joined fields at once through facing seats p0/p1 and p2/p3. | `unban-audit.ts`, mixed controllers, capacity and Rivalry |
 | Dummy Golem | Allow all | One opponent chooses the swap. Tag permits a partner's card in the joined field. | `unban-audit.ts` |
 | Life Equalizer | Allow all | Compare and reset one FFA pair, or the two Tag LP totals. | `unban-audit.ts` |
+| Rivalry of Warlords | Keep allowed | Read the real Special Summon receiver before Lua player values are folded. Other FFA fields cannot block an empty receiving field. | `unban-angelechy.ts`, Angelechy and Kaiju |
+| Gameciel, the Sea Turtle Kaiju | Keep allowed | Tribute and summon to the same opponent, with Rivalry on the field. | `unban-angelechy.ts` |
 
-The Tag blocks above are new safety restrictions under the owner's one-opponent rule. A default first-member choice is not proof that a far-member choice works. The tests choose p3 and check p1 separately. Alternate-win cards remain forbidden. Card Destruction, Hand Destruction, and Exodia are unchanged.
+Owner decision 2026-10-18 keeps all six former Tag gap cards legal. The tests choose p3 and check p1 separately. Switcheroroo checks all receiving fields before its atomic swap. Mischief also passes in FFA3 and FFA4, so it has no FFA ban. Alternate-win cards remain forbidden. Card Destruction, Hand Destruction, and Exodia are unchanged.
+
 
 ## How to read the tables
 
@@ -315,11 +318,6 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 |---|---|---|---|---|---|---|
 | Hand Destruction | 74519184 | hand-swap | Turn player and one other player draw and discard. The other players do nothing. | `c74519184.lua:16`, `c74519184.lua:28`, `c74519184.lua:39` | 3-FFA, 4-FFA | no |
 | Card Destruction | 72892473 | hand-swap | Both hands go to the GY, but only two players draw. | `c72892473.lua:18`, `c72892473.lua:27` | 3-FFA, 4-FFA | no |
-| Million-Century Ice Prison | 23746827 | turn-count | The next-Main-Phase-1 effect can skip a different opposing member. owner 2026-10-18. | `c23746827.lua:48` | Tag | yes |
-| Tellarknight Ptolemaeus | 18326736 | turn-order | Choosing p3 still skips p1. owner 2026-10-18. | `c18326736.lua:73` | Tag | yes |
-| Arcana Force XXI - The World | 23846921 | turn-order | The skip and top-GY index can use the wrong opposing member. owner 2026-10-18. | `c23846921.lua:76` | Tag | yes |
-| The Six Shinobi | 6357341 | turn-order | Choosing p3 still skips p1. owner 2026-10-18. | `c6357341.lua:28` | Tag | yes |
-| Mischief of the Time Goddess | 92182447 | turn-order | Another FFA opponent or the Tag partner still takes a normal turn. owner 2026-10-18. | `c92182447.lua:52` | 3-FFA, 4-FFA, Tag | yes |
 | Exodia the Forbidden One | 33396948 | alt-win | It reads both hands and ends the duel with win, loss or draw for two sides. | `c33396948.lua:34`, `c33396948.lua:40` | 3-FFA, 4-FFA, Tag | yes |
 | Final Countdown | 95308449 | alt-win | It keeps one counter for each of two players and then ends the duel. | `c95308449.lua:12`, `c95308449.lua:39` | 3-FFA, 4-FFA, Tag | yes |
 | Last Turn | 28566710 | alt-win | It compares two players and ends the duel with win, loss or draw. | `c28566710.lua:64`, `c28566710.lua:66` | 3-FFA, 4-FFA, Tag | yes |
@@ -340,13 +338,13 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 | Musical Sumo Dice Games | 96637156 | alt-win | It ends the duel with a win for its controller when it gets its 7th Xyz Material. A 'you win' effect has no defined result for the other players. | `c96637156.lua:57` | 3-FFA, 4-FFA, Tag | yes |
 | Phantasm Spiral Assault | 97795930 | alt-win | It ends the duel with a win for its controller when its counter reaches 3. A 'you win' effect has no defined result for the other players. | `c97795930.lua:77` | 3-FFA, 4-FFA, Tag | yes |
 | Number 88: Gimmick Puppet of Leo | 48995978 | alt-win | It ends the duel with a win for its controller when it has 3 counters. A 'you win' effect has no defined result for the other players. | `c48995978.lua:58` | 3-FFA, 4-FFA, Tag | yes |
-| Switcheroroo | 30426226 | control-swap | Several real controllers occur in each swap group; stock SwapControl rejects them. owner 2026-10-18. | `c30426226.lua:19`, `c30426226.lua:29` | Tag | yes |
 
-Turn-count rows: these 4 bans stay. Swords of Revealing Light is legal under R-FFA-SWORDS-PROTECT (owner correction, 2026-10-02 night). Other cards with an opponent-turn count are legal and follow rule 11; the review is in `.status/multiplayer-turncount-review.md`.
+No turn-count ban remains after the owner 2026-10-18 fixes. Swords of Revealing Light is legal under R-FFA-SWORDS-PROTECT (owner correction, 2026-10-02 night). Other cards with an opponent-turn count are legal and follow rule 11; the review is in `.status/multiplayer-turncount-review.md`.
 
-Total: 47 cards. 3-FFA and 4-FFA: 47 cards (21 only in free-for-all). Tag: 26 cards.
+Total: 22 cards. FFA3 and FFA4: 22 cards. Tag: 20 cards. The two hand cards are restricted in FFA only.
 
 Error message format: `<card> is forbidden in 4-player free-for-all: <reason>`. The table name is "3-player free-for-all", "4-player free-for-all" or "2v2 Tag Duel".
+
 
 ### Card rules (owner decisions, 2026-10-01)
 
