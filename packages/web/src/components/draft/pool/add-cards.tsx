@@ -5,7 +5,7 @@ import { Check, CircleAlert, Info, Plus, Search } from "lucide-react";
 import { segmentSlide, svButtonClass } from "@/components/sheet";
 import { useTabDirection } from "@/lib/tab-motion";
 import { isExtraDeckMonster, type CardSummary } from "@/lib/card-types";
-import { AutoImportBox, type ImportEntryView, type ImportRun } from "@/components/card-list-import/auto-import-box";
+import { AutoImportBox, ImportEntries, type ImportEntryView, type ImportRun } from "@/components/card-list-import/auto-import-box";
 import { ListImportReport } from "@/components/card-list-import/list-import-report";
 import { type ListDiagnostics } from "@/lib/card-list-import";
 import { useResultNav } from "@/lib/hooks/use-result-nav";
@@ -23,6 +23,7 @@ import {
   importLine,
   kindText,
   reportOf,
+  type ImportRecord,
 } from "./pool-model";
 import type { PoolEditor } from "./use-pool-editor";
 import styles from "./pool.module.css";
@@ -137,13 +138,22 @@ export function CardTab({ ctl, setNote }: TabProps) {
   const [barNote, setBarNote] = React.useState<string | null>(null);
   const copiesOf = React.useCallback((card: CardSummary) => (isExtraDeckMonster(card) ? ctl.extra : ctl.pool).get(card.id) ?? 0, [ctl.extra, ctl.pool]);
   const kindLine = React.useCallback((card: CardSummary) => `${kindText(card)}, ${isExtraDeckMonster(card) ? "Extra" : "Main"}`, []);
+  const batches = React.useMemo(() => batchEntries(ctl.imports), [ctl.imports]);
   if (!enabled) return <NameCardTab ctl={ctl} setNote={setNote} />;
 
   const addBatch = () => {
     if (batch.cards.size === 0) return;
-    const outcome = ctl.add([...batch.cards.values()].map((card) => ({ card, copies })));
+    // Like a cube batch, a card the pool already holds keeps its copies; only new cards are recorded, so Remove takes out just those.
+    const fresh = [...batch.cards.values()].filter((card) => copiesOf(card) === 0);
+    const extraAdded = fresh.filter(isExtraDeckMonster).length;
+    if (fresh.length > 0) {
+      ctl.importList(
+        fresh.map((card) => ({ id: card.id, copies, pool: isExtraDeckMonster(card) ? ("extra" as const) : ("main" as const) })),
+        { fileName: nextBatchLabel(ctl.imports), corrected: [], unknown: [] },
+      );
+    }
     setBatch(EMPTY_BATCH);
-    setBarNote(addedLine("search", outcome));
+    setBarNote(addedLine("search", { added: fresh.length - extraAdded, extraAdded, alreadyIn: batch.cards.size - fresh.length }));
     setNote(null);
   };
   return (
@@ -174,9 +184,18 @@ export function CardTab({ ctl, setNote }: TabProps) {
         }}
         onAdd={addBatch}
       />
+      <ImportEntries entries={batches} onRemove={(key) => ctl.removeImport(Number(key))} />
     </>
   );
 }
+
+/** Batches added from search are listed under the Card tab's batch bar, not under the card list box. */
+const BATCH_LABEL = "Search batch";
+const isBatch = (record: { label: string }) => record.label.startsWith(BATCH_LABEL);
+const nextBatchLabel = (imports: readonly { label: string }[]) => `${BATCH_LABEL} ${imports.filter(isBatch).length + 1}`;
+const entryViews = (records: readonly ImportRecord[]): ImportEntryView[] =>
+  records.map((record) => ({ key: record.key, label: record.label, line: importLine(record), report: reportOf(record) }));
+const batchEntries = (imports: readonly ImportRecord[]) => entryViews(imports.filter(isBatch));
 
 function NameCardTab({ ctl, setNote }: TabProps) {
   const inputId = React.useId();
@@ -515,16 +534,7 @@ export function ListTab({ ctl }: { ctl: PoolEditor }) {
     ctlRef.current.importList(result.entries, { fileName, ...report });
   }, []);
 
-  const entries = React.useMemo<ImportEntryView[]>(
-    () =>
-      ctl.imports.map((record) => ({
-        key: record.key,
-        label: record.label,
-        line: importLine(record),
-        report: reportOf(record),
-      })),
-    [ctl.imports],
-  );
+  const entries = React.useMemo<ImportEntryView[]>(() => entryViews(ctl.imports.filter((record) => !isBatch(record))), [ctl.imports]);
 
   return (
     <AutoImportBox
