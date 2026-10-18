@@ -2973,7 +2973,7 @@
         "operation"
       ],
       "stockSha256": "f5b9907d008d4905fbe87c4236339642ffc8e9aedc924fed4c9c04e7c4a0e131",
-      "note": "Owner 2026-10-18: check each living duelist hand separately. Five pieces in one hand win the whole duel through Duel.Win. In Tag, the team wins. Pieces in separate hands do not count."
+      "note": "Owner 2026-10-18: check each living duelist hand separately. Five pieces in one hand win the whole duel through Duel.Win. Count one claim per Tag team: simultaneous complete hands on one team win for that team; claims from both teams draw. In FFA, simultaneous complete hands from two or more seats draw. Pieces in separate hands do not count."
     },
     {
       "code": 33508719,

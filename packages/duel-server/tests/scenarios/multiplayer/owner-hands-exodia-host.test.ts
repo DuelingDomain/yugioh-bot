@@ -23,14 +23,19 @@ const SECRET = "owner-hands-exodia-integration";
 for (const mode of ["normal", "domain"] as const) {
   describeWithCores(`${mode}: Exodia host, saved result and replay`, [needs.cards(DATA), needs.installedMulti(DATA), ...needs.domainMulti()], () => {
     const cases = (["ffa3", "ffa4", "tag"] as const).flatMap(format => [false, true].flatMap(draw =>
-      [false, true].map(crossVersion => ({ format, priorLoss: false, crossVersion, draw }))));
-    cases.push({ format: "ffa3", priorLoss: true, crossVersion: false, draw: false }, { format: "ffa4", priorLoss: true, crossVersion: false, draw: false });
-    it.each(cases)("$format (draw: $draw, prior loss: $priorLoss, changed engine: $crossVersion) records one result for every seat", async ({ format, priorLoss, crossVersion, draw }) => {
+      [false, true].map(crossVersion => ({ format, priorLoss: false, crossVersion, draw, teamWin: null as number | null }))));
+    cases.push({ format: "ffa3", priorLoss: true, crossVersion: false, draw: false, teamWin: null }, { format: "ffa4", priorLoss: true, crossVersion: false, draw: false, teamWin: null });
+    for (const teamWin of [0, 1]) for (const crossVersion of [false, true]) {
+      cases.push({ format: "tag", priorLoss: false, crossVersion, draw: false, teamWin });
+    }
+    it.each(cases)("$format (draw: $draw, same-team win: $teamWin, prior loss: $priorLoss, changed engine: $crossVersion) records one result for every seat", async ({ format, priorLoss, crossVersion, draw, teamWin }) => {
       const db = new Database(":memory:"); migrate(db);
-      const count = seatCountFor(format), actor = count - 1;
+      const count = seatCountFor(format), actor = teamWin ?? count - 1;
+      const simultaneous = draw || teamWin !== null;
       const players = Array.from({ length: count }, (_, i) => seedIdentity(db, { guildId: "g", userId: 100 + i }).playerId);
       const service = createDuelService(db);
-      const scenario = OWNER_HANDS_EXODIA_SCENARIOS.find(s => s.id === `owner-exodia-${draw ? `draw-${format}-1-2` : `${format}-p${actor}`}${mode === "domain" ? "-domain" : ""}`)!;
+      const scenarioId = teamWin !== null ? `draw-tag-${teamWin}-${teamWin + 2}` : draw ? `draw-${format}-1-2` : `${format}-p${actor}`;
+      const scenario = OWNER_HANDS_EXODIA_SCENARIOS.find(s => s.id === `owner-exodia-${scenarioId}${mode === "domain" ? "-domain" : ""}`)!;
       const compiled = compileBoard(scenario.setup).options;
       const resources = getCurrentEngineResources(DATA, { mode, format });
       const created = service.create({ guildId: "g", organizerPlayerId: players[0], name: "Exodia integration", mode, format,
@@ -63,8 +68,8 @@ for (const mode of ["normal", "domain"] as const) {
           if (!open) break;
           const view = open.engine!, prompt = view.prompt!;
           const action = prompt.context?.type === "action";
-          const activation = prompt.options.find(o => o.id.startsWith("activate:") && o.card?.code === (draw ? 72892473 : 55144522));
-          const answer = action ? { choice: view.turnSeat === (draw ? 0 : actor) && activation ? activation.id : "to_ep" } : chooseSurrenderedAnswer(prompt);
+          const activation = prompt.options.find(o => o.id.startsWith("activate:") && o.card?.code === (simultaneous ? 72892473 : 55144522));
+          const answer = action ? { choice: view.turnSeat === (simultaneous ? 0 : actor) && activation ? activation.id : "to_ep" } : chooseSurrenderedAnswer(prompt);
           await post("respond", prompt.seat, { command: { promptId: prompt.id, revision: view.revision, answer } });
         }
         const session = service.get(created.slug, "g");

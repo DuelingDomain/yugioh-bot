@@ -91,12 +91,16 @@ function replacedExodiaScenario(format: typeof FORMATS[number], domain: boolean,
     setup[SEATS[i]]!.hand = [...Array(winners.includes(i) ? 5 : 1).fill(HAND[i]), ...(i === 0 ? ["Card Destruction"] : [])];
     if (winners.includes(i)) setup[SEATS[i]]!.deck = PIECES;
   }
-  const draw = winners.length > 1;
+  const claims = new Set(winners.map(seat => format === "tag" ? seat % 2 : seat));
+  const draw = claims.size > 1;
+  const sameTeam = format === "tag" && winners.length > 1 && !draw;
   const losers = SEATS.slice(0, count).filter((_, i) => !draw && (format === "tag" ? i % 2 !== winners[0] % 2 : i !== winners[0]));
-  return defineScenario({ id: `owner-exodia-${draw ? "draw" : "off-turn"}-${format}-${winners.join("-")}${domain ? "-domain" : ""}`,
-    title: `Card Destruction: ${draw ? "two complete Exodia hands give a draw for everyone" : "p2 completes Exodia during p0's turn"}`,
+  // Keep published simultaneous-case IDs, including the same-team Tag cases that now win.
+  return defineScenario({ id: `owner-exodia-${winners.length > 1 ? "draw" : "off-turn"}-${format}-${winners.join("-")}${domain ? "-domain" : ""}`,
+    title: `Card Destruction: ${draw ? (format === "tag" ? "both teams complete Exodia and everyone draws" : "two complete Exodia hands give a draw for everyone")
+      : sameTeam ? `both players on team ${winners[0] % 2} complete Exodia and their team wins` : "p2 completes Exodia during p0's turn"}`,
     source: SOURCE, rules: ["R-COMMON-EXODIA", "R-COMMON-HAND-DESTRUCTION"],
-    tags: ["multiplayer", format, "card:33396948", "card:72892473", ...(draw ? ["exodia-draw"] : ["exodia-off-turn"])], setup,
+    tags: ["multiplayer", format, "card:33396948", "card:72892473", draw ? "exodia-draw" : sameTeam ? "exodia-team-win" : "exodia-off-turn"], setup,
     steps: [activate("Card Destruction", "p0"),
       expectBoard(Object.fromEntries(winners.map(i => [SEATS[i], { hand: PIECES, deckCount: 7 }]))),
       expectResult(draw ? { seat: null, ...(format === "tag" ? { team: null } : {}), reason: "Exodia the Forbidden One" }
@@ -198,7 +202,7 @@ export const OWNER_HANDS_EXODIA_SCENARIOS: Scenario[] = FORMATS.flatMap(format =
   ...SEATS.slice(0, format === "ffa3" ? 3 : 4).map((_, actor) => exodiaScenario(format, domain, actor)),
   splitExodiaScenario(format, domain), shortHandScenario(format, domain), offTurnHandScenario(format, domain), emptyHandScenario(format, domain),
   replacedExodiaScenario(format, domain, [2]), replacedExodiaScenario(format, domain, [1, 2]),
-  ...(format === "tag" ? [replacedExodiaScenario(format, domain, [0, 2])] : []),
+  ...(format === "tag" ? [[0, 2], [1, 3], [0, 1, 2, 3]].map(winners => replacedExodiaScenario(format, domain, winners)) : []),
   ...(format === "tag" ? [] : ([72892473, 74519184, 33396948] as const).map(code => afterLossScenario(format, domain, code))),
   ...(format === "ffa4" ? [deckOutScenario(domain, 1), deckOutScenario(domain, 2), shortDeckScenario(domain)] : []),
 ]));
