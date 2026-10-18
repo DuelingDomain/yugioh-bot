@@ -86,6 +86,35 @@ describe("phrase preview, confirmation and description routes", () => {
     expect(db().prepare("SELECT count(*) AS n FROM cube_cards").get()).toEqual({ n: 1 });
   });
 
+  it("allows only one unfinished preview per user across cubes and releases after failures", async () => {
+    const { POST } = await import("../app/api/cubes/[id]/seed/preview/route");
+    db().prepare("INSERT INTO cubes(id,guild_id,name,created_by_user_id) VALUES(3,'g','Second',?),(4,'g','Guest',?)").run(owner, fixtureUserId("other"));
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const pending = new Request("http://test/api", { method: "POST", duplex: "half", body: new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } }) } as RequestInit);
+    let entered!: () => void;
+    const reading = new Promise<void>(resolve => { entered = resolve; });
+    const getReader = pending.body!.getReader.bind(pending.body!);
+    vi.spyOn(pending.body!, "getReader").mockImplementation(() => { entered(); return getReader(); });
+    const first = POST(pending, context());
+    await reading;
+    try {
+      const duplicate = await POST(request({ phrase: "dark magician" }), context("3"));
+      expect(duplicate.status).toBe(429);
+      expect(await duplicate.json()).toMatchObject({ error: "cube_seed_preview_in_flight" });
+      state.auth.mockResolvedValue({ user: { id: String(fixtureUserId("other")) } });
+      expect((await POST(request({ phrase: "dark magician", targetCount: 1 }), context("4"))).status).toBe(200);
+    } finally {
+      stream.enqueue(new TextEncoder().encode(JSON.stringify({ phrase: "dark magician", targetCount: 1 })));
+      stream.close();
+      expect((await first).status).toBe(200);
+    }
+    state.auth.mockResolvedValue({ user: { id: String(owner) } });
+    expect((await POST(request({ phrase: "dark magician", targetCount: 0 }), context())).status).toBe(400);
+    expect((await POST(request({ phrase: "dark magician", targetCount: 1 }), context())).status).toBe(200);
+    expect((await POST(request({ phrase: "dark magician", unexpected: true }), context())).status).toBe(400);
+    expect((await POST(request({ phrase: "dark magician", targetCount: 1 }), context())).status).toBe(200);
+  });
+
   it("keeps description search explicit and returns display rows, chips and reasons", async () => {
     importCardEffectArtifact(db());
     const { POST } = await import("../app/api/cards/resolve/route");

@@ -8,6 +8,20 @@ import { cubeOwnerAccess } from "./cube-access";
 import { effectSearchEnabled } from "./effect-search";
 import { readJsonBody } from "./bug-reports/read-body";
 
+const previewsInFlight = new Set<number>();
+
+/** Reserve before reading the body so overlapping requests cannot queue scans. */
+export function acquireCubeSeedPreview(userId: number) {
+  if (previewsInFlight.has(userId)) return {
+    ok: false,
+    response: NextResponse.json({ error: "cube_seed_preview_in_flight" }, {
+      status: 429, headers: { "Cache-Control": "private, no-store", "Retry-After": "1" },
+    }),
+  } as const;
+  previewsInFlight.add(userId);
+  return { ok: true, release: () => { previewsInFlight.delete(userId); } } as const;
+}
+
 export async function authorizeCubeEffects(params: Promise<{ id: string }>) {
   const actor = await requireWebAccess();
   if (!actor.ok) return { ok: false, response: actor.response } as const;
@@ -19,7 +33,7 @@ export async function authorizeCubeEffects(params: Promise<{ id: string }>) {
   if (denied) return { ok: false, response: denied } as const;
   if (!effectSearchEnabled()) return { ok: false, response: NextResponse.json({ effectSearchEnabled: false, error: "effect_search_disabled" }, { status: 404 }) } as const;
   const catalog = createCardCatalogService(db, { memberId: actor.userId });
-  return { ok: true, db, cubeId, catalog, cubes: createCubeService(db, catalog) } as const;
+  return { ok: true, db, cubeId, userId: actor.userId, catalog, cubes: createCubeService(db, catalog) } as const;
 }
 
 export async function readCubeEffectBody(request: Request, fields: readonly string[]) {

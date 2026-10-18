@@ -2,6 +2,11 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../src/db/schema.js";
 import { createCardCatalogService } from "../src/services/card-catalog.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { createCardInsightService } from "../src/services/card-insights.js";
+import { previewCubeSeed } from "../src/services/cube-seed.js";
 import { createCubeService } from "../src/services/cubes.js";
 import * as insightCatalog from "../src/services/card-insight-catalog.js";
 import { seedUser } from "./helpers/identity.js";
@@ -53,6 +58,53 @@ describe("phrase cube previews over the pinned artifact", () => {
     expect(db.prepare("SELECT * FROM cubes").all()).toEqual(before);
     expect(cubes.previewSeed(cubeId, { phrase: "dark magician", targetCount: 6, maxCopies: 2 })).toEqual(preview);
   });
+
+  it.each(["broken", "{}", "null"])("skips an unreadable profile (%s) in previews and foundation suggestions", hooks => {
+    seedCatalog();
+    db.prepare("UPDATE card_tag_profiles SET hooks_json=? WHERE archetype='Dark Magician'").run(hooks);
+    const preview = cubes.previewSeed(cubeId, { phrase: "dark magician", targetCount: 6 });
+    expect(preview.rows).toHaveLength(6);
+    expect(preview.warnings).toContainEqual(expect.stringMatching(/skipped.*profile.*Dark Magician/i));
+    expect(createCardInsightService(db).worksWith(46986414, [7084129]).map(card => card.passcode)).toContain(7084129);
+  });
+
+  it.skipIf(!process.env.CUBE_SEED_BENCHMARK_DB)("times a preview over the real full-size catalog without modifying source data", async () => {
+    const sourcePath = process.env.CUBE_SEED_BENCHMARK_DB!;
+    const source = new Database(sourcePath, { readonly: true, fileMustExist: true });
+    const directory = mkdtempSync(join(tmpdir(), "cube-seed-benchmark-"));
+    const backup = join(directory, "bot.sqlite");
+    try { await source.backup(backup); } finally { source.close(); }
+    const benchmark = new Database(backup);
+    try {
+      migrate(benchmark);
+      importCardEffectArtifact(benchmark);
+      vi.stubEnv("DUEL_DATA_DIR", join(dirname(sourcePath), "duel-engine"));
+      // The lazy display cache can be sparse. Expand only the temporary copy
+      // with real, tagged engine cards before measuring the request operation.
+      const catalog = insightCatalog.createInsightCatalog(benchmark);
+      const insert = benchmark.prepare(`INSERT OR IGNORE INTO card_catalog
+        (ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,archetype,image_url,image_url_small,card_sets_json,cached_at)
+        VALUES(?,?,?,?,?,?,?,?,'image','small','[]',CURRENT_TIMESTAMP)`);
+      try {
+        for (const { passcode } of benchmark.prepare<[], { passcode: number }>("SELECT passcode FROM card_tags").all()) {
+          const candidate = catalog.candidate(passcode);
+          if (!candidate) continue;
+          const { card } = candidate;
+          insert.run(card.id, card.name, card.typeLine || (card.kind === "monster" ? "Effect Monster" : `${card.kind} Card`),
+            card.kind === "monster" ? "effect" : card.kind, card.text, card.attribute ?? null,
+            card.level ?? card.rank ?? card.linkRating ?? null, card.archetype ?? null);
+        }
+      } finally { catalog.close(); }
+      const { cards } = benchmark.prepare<[], { cards: number }>("SELECT count(*) AS cards FROM card_catalog").get()!;
+      expect(cards).toBeGreaterThanOrEqual(13_000);
+      console.info(`Seed preview catalog: ${cards} real cards`);
+      console.time("previewCubeSeed real catalog");
+      let preview;
+      try { preview = previewCubeSeed(benchmark, { phrase: "dark magician", targetCount: 180 }, []); }
+      finally { console.timeEnd("previewCubeSeed real catalog"); }
+      expect(preview.rows).toHaveLength(180);
+    } finally { benchmark.close(); rmSync(directory, { recursive: true, force: true }); }
+  }, 30_000);
 
   it("excludes existing identities, reports shortages and does not fill an unknown phrase with staples", () => {
     seedCatalog();

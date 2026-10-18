@@ -4,9 +4,10 @@ import type { CubePool } from "../types/index.js";
 import { isExtraDeckCard } from "../cards/effects/card.js";
 import { matchCard } from "../cards/effects/effect-match.js";
 import { compactEffectName } from "../cards/effects/name-match.js";
-import { scoreForDeck, type ArchetypeProfile, type Candidate } from "../cards/effects/synergy.js";
+import { scoreForDeck, type Candidate } from "../cards/effects/synergy.js";
 import type { Interpretation } from "../cards/effects/query.js";
 import { createInsightCatalog } from "./card-insight-catalog.js";
+import { readInsightProfiles } from "./card-insight-profiles.js";
 import { createCardInsightService } from "./card-insights.js";
 import { DEFAULT_CUBE_COPIES, MAX_CUBE_COPIES } from "./constants.js";
 
@@ -58,6 +59,7 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
     const names = new Set([...reading.query.card.archetypes, ...reading.query.supports?.archetypes ?? []].map(compactEffectName));
     const words = reading.query.text.toLowerCase().split(/\s+/).filter(Boolean);
     const core: Choice[] = [];
+    const coreMatched = new Set<number>();
     const anchorChoices: Choice[] = [];
     const quotaChoices = new Map<SeedRole, Choice[]>(roles.map(role => [role, []]));
     const considerRoles = (choice: Choice) => {
@@ -80,6 +82,7 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
     for (const candidate of catalog.candidates()) {
       const choice = coreChoice(candidate);
       if (!choice) continue;
+      coreMatched.add(candidate.card.id);
       retain(anchorChoices, choice, 32);
       if (!existing.has(candidate.card.id)) retain(core, choice, targetCount);
       considerRoles(choice);
@@ -87,18 +90,11 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
     if (!anchorChoices.length) { preview.warnings.push("No cards matched this phrase in the cached catalog."); return preview; }
 
     const anchors = anchorChoices.map(choice => choice.candidate);
-    const profiles = new Map<string, ArchetypeProfile>();
-    const findProfile = db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE");
-    for (const { card } of anchors) {
-      if (!card.archetype || profiles.has(card.archetype)) continue;
-      const row = findProfile.get(card.archetype);
-      if (row) profiles.set(card.archetype, { plan: row.plan, hooks: JSON.parse(row.hooks_json) as ArchetypeProfile["hooks"] });
-    }
-    const coreIds = new Set(core.map(choice => choice.candidate.card.id));
+    const profiles = readInsightProfiles(db, anchors, warning => preview.warnings.push(warning));
     const partners: Choice[] = [];
     const staples = new Map<SeedRole, Choice[]>(roles.map(role => [role, []]));
     for (const candidate of catalog.candidates()) {
-      if (existing.has(candidate.card.id) || coreIds.has(candidate.card.id) || coreChoice(candidate)) continue;
+      if (existing.has(candidate.card.id) || coreMatched.has(candidate.card.id)) continue;
       const result = scoreForDeck(candidate, anchors, profiles);
       if (result.score > 0) {
         const choice: Choice = { candidate, category: "partner", reason: result.reason, score: result.score, linked: result.linkedCards };

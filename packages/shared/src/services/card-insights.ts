@@ -4,9 +4,10 @@ import { isBarredFromGenesys, isExtraDeckCard } from "../cards/effects/card.js";
 import { buildArchetypeMatcher, describe, interpret, omitReadingChips, type Interpretation } from "../cards/effects/query.js";
 import { matchCard } from "../cards/effects/effect-match.js";
 import { compactEffectName, resolveEffectName } from "../cards/effects/name-match.js";
-import { cardSynergy, filterReachesCard, scoreForDeck, type ArchetypeProfile, type Candidate, type RankedInsightCard } from "../cards/effects/synergy.js";
+import { cardSynergy, filterReachesCard, scoreForDeck, type Candidate, type RankedInsightCard } from "../cards/effects/synergy.js";
 import { normalizeImportedCardName } from "./card-name-match.js";
 import { createInsightCatalog, type InsightCatalog } from "./card-insight-catalog.js";
+import { readInsightProfiles } from "./card-insight-profiles.js";
 
 export type CardInsightFormat = "normal" | "domain" | "genesys" | "genesys-domain";
 export interface CardInsightOptions {
@@ -87,22 +88,12 @@ export function createCardInsightService(db: Database.Database, options: { dataD
     const query = { card: { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] }, roles: [], quick: false, text: "", supports: { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [name] } };
     return { query, chips: describe(query) };
   };
-  const profilesFor = (deck: readonly Candidate[]): ReadonlyMap<string, ArchetypeProfile> => {
-    const profiles = new Map<string, ArchetypeProfile>();
-    const find = db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE");
-    for (const { card } of deck) {
-      if (!card.archetype || profiles.has(card.archetype)) continue;
-      const row = find.get(card.archetype);
-      if (row) profiles.set(card.archetype, { plan: row.plan, hooks: JSON.parse(row.hooks_json) as ArchetypeProfile["hooks"] });
-    }
-    return profiles;
-  };
   const rank = (catalog: InsightCatalog, deck: readonly Candidate[], pool: readonly number[] | undefined, opts: CardInsightOptions): { cards: RankedInsightCard[]; total: number } => {
     if (!deck.length) return { cards: [], total: 0 };
     const owned = new Set(deck.map(candidate => candidate.card.id));
     const master = domain(opts.format) && opts.deckMaster !== undefined ? catalog.candidate(opts.deckMaster) : undefined;
     if (master) owned.add(master.card.id);
-    const profiles = profilesFor(deck), ranked: Retained[] = [];
+    const profiles = readInsightProfiles(db, deck), ranked: Retained[] = [];
     let total = 0;
     for (const candidate of catalog.candidates(pool)) {
       if (owned.has(candidate.card.id) || !allowed(candidate, opts)) continue;
@@ -217,7 +208,7 @@ export function createCardInsightService(db: Database.Database, options: { dataD
       return withCatalog(catalog => {
         const candidate = catalog.candidate(passcode), deck = [...catalog.candidates(pickedPool)];
         if (!candidate || deck.some(anchor => anchor.card.id === candidate.card.id)) return 0;
-        const score = scoreForDeck(candidate, deck, profilesFor(deck)).score;
+        const score = scoreForDeck(candidate, deck, readInsightProfiles(db, deck)).score;
         const present = new Set<string>(deck.flatMap(anchor => anchor.tags?.roles ?? []));
         const balance = deck.length ? ["searcher", "extender", "removal", "hand_trap"].filter(role => candidate.tags?.roles.some(value => value === role) && !present.has(role)).length : 0;
         return score + balance;

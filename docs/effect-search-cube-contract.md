@@ -58,6 +58,10 @@ type Move = { code: number; name: string; from: "main" | "extra";
   **new distinct rows**, not copies or the cube's final size.
 - `maxCopies`: optional integer 1–99; default 3. Applied to each preview row.
 - The body has a 64 KiB limit. Unknown top-level fields are rejected.
+- One unfinished preview per user is allowed across cubes in each web process.
+  Overlapping requests receive 429 `{ error: "cube_seed_preview_in_flight" }`
+  with `Retry-After: 1`. The reservation covers body reading and selection and
+  is released on success, validation failure or an unexpected error.
 - Preview reads the cached public catalog and pinned tags/profiles. It neither
   writes cube data nor fetches cards. A cold cache can produce a short preview.
 - Selection reserves initial space for phrase/archetype members and mechanical
@@ -91,7 +95,8 @@ Response:
 
 An unknown phrase returns an empty preview with a warning. It does not create
 an unrelated staple pool. Existing cube identities are excluded. The response
-uses `Cache-Control: private, no-store`.
+uses `Cache-Control: private, no-store`. Unreadable synergy profiles are skipped
+with a preview warning; card-level links still contribute to ranking.
 
 ## Seed confirmation
 
