@@ -9,8 +9,8 @@
 .de-name:hover { border-color: var(--rule-lo); }
 .de-name:focus-visible { outline: none; border-color: var(--pen-ink); }
 .de-fmt { flex: none; }
-.de-fmt button { min-height: 30px; padding: 0 12px; font-size: 13.5px; }
-.de-banf { flex: 0 1 210px; min-width: 0; }
+.de-fmt button { min-height: 30px; padding: 0 9px; font-size: 13px; white-space: nowrap; }
+.de-banf { flex: 0 1 270px; min-width: 0; }
 .de-rule { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; min-width: 0; color: var(--ink-3); font-size: 13px; line-height: 1.35; }
 .de-rule b { color: var(--ink-2); font-weight: 600; }
 /* Two lines at most, one each: the page bar has a fixed height, so a long name or rule is cut short, never wrapped. */
@@ -30,9 +30,15 @@
 
 
 /* three panes */
-.de-body { display: grid; grid-template-columns: clamp(250px, 21%, 320px) minmax(0, 1fr) clamp(320px, 28%, 420px); min-height: 0; }
-.de-read { min-height: 0; overflow: auto; padding: 20px 20px 28px; border-right: 1px solid var(--rule-lo); background: rgb(4 7 14 / 0.35); }
-.de-deck { container: de-deck / inline-size; display: grid; align-content: start; gap: 22px; min-height: 0; overflow: auto; padding: 12px 22px 64px; }
+.de-body { --de-pane: clamp(340px, 20cqw, 400px); display: grid; grid-template-columns: var(--de-pane) minmax(0, 1fr) clamp(320px, 28%, 420px); min-height: 0; }
+/* The card reader has one fixed width for its editor size. It never depends on what it shows (a card, the deck check, a long name or text), and the
+   scrollbar gutter stays reserved, so a scrollbar that comes and goes with the text moves nothing: not the image, not the text, not the deck grid.
+   It reads as a column: the card first and the controls last. The card art takes the full width of the pane. */
+.de-read { --card-art-w: 100%; display: flex; flex-direction: column; width: var(--de-pane); min-width: 0; max-width: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; padding: 20px 12px 24px 20px; border-right: 1px solid var(--rule-lo); background: rgb(4 7 14 / 0.35); }
+.de-read > * { flex: none; }
+.de-read > :has(+ .de-legend) { margin-bottom: 22px; }
+.de-read > .de-legend { margin-top: auto; }
+.de-deck { container: de-deck / inline-size; display: grid; align-content: start; gap: 22px; min-height: 0; overflow: auto; scrollbar-gutter: stable; padding: 12px 22px 64px; }
 
 /* left pane: the deck check */
 .de-sum { display: grid; gap: 24px; }
@@ -73,6 +79,13 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-flag[data-s="ok"] { color: var(--chain-ink); }
 .de-tools { display: inline-flex; gap: 2px; }
 .de-dbar > .de-tools { margin-left: auto; }
+/* Genesys: the points meter keeps its place, and the deck check text takes the room between it and the tools. It never wraps, so a hover, a long message or new numbers cannot move the meter or the grid. */
+.de-dbar[data-gx] { flex-wrap: nowrap; }
+.de-deck .de-dbar[data-gx] .de-flag { flex: 1 1 0; min-width: 0; max-width: none; }
+.de-flagt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The points total stays in view while the deck scrolls. */
+.de-dbar[data-gx] { position: sticky; top: 0; z-index: 3; background: var(--ground); }
+.de-banf select:disabled { opacity: 1; color: var(--ink-2); font-size: 13px; }
 .de-sec-b { display: grid; gap: 10px; }
 .de-sh { display: flex; align-items: center; gap: 12px; min-height: 38px; padding-bottom: 8px; border-bottom: 1px solid var(--rule-lo); }
 .de-st { color: var(--ink); font: 600 19px/1 var(--f-display); }
@@ -104,7 +117,8 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-c[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--pen), 0 0 0 5px rgb(155 126 255 / 0.2); }
 .de-c[data-over] { box-shadow: 0 0 0 2px var(--loss); }
 .de-c[data-over] img { opacity: 0.5; }
-.de-lim { position: absolute; left: 3px; top: 3px; display: grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 4px; background: rgb(5 8 15 / 0.9); color: var(--chain-ink); font: 600 11.5px/1 var(--f-num); box-shadow: 0 0 0 1px rgb(228 182 79 / 0.5); }
+.de-c[data-gx="forbidden"] { box-shadow: 0 0 0 2px var(--loss); }
+.de-lim { position: absolute; left: 3px; top: 3px; display: grid; place-items: center; min-width: clamp(14px, calc(var(--fit-tw, 99px) * 0.3), 17px); height: 17px; padding: 0 clamp(2px, calc((var(--fit-tw, 99px) - 40px) * 0.3), 4px); border-radius: 4px; background: rgb(5 8 15 / 0.9); color: var(--chain-ink); font: 600 11.5px/1 var(--f-num); box-shadow: 0 0 0 1px rgb(228 182 79 / 0.5); }
 .de-lim[data-l="0"] { color: var(--loss-ink); box-shadow: 0 0 0 1px rgb(228 90 77 / 0.6); }
 .de-lim svg { width: 11px; height: 11px; stroke-width: 2.4; }
 @media (prefers-reduced-motion: reduce) { .de-c { transition: none; } .de-c:hover { transform: none; } }
@@ -160,12 +174,12 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .host[data-pool] { height: calc(100dvh - var(--de-top, 0px)); min-height: 560px; border: 0; border-radius: 0; }
 .center { display: grid; place-content: center; justify-items: center; gap: 14px; padding: 24px; }
 .de { min-width: 0; }
-.de-bar { display: grid; grid-template-columns: auto minmax(120px, 1fr) auto minmax(100px, 210px) auto auto; gap: 10px; }
+.de-bar { display: grid; grid-template-columns: auto minmax(120px, 1fr) auto minmax(100px, 270px) auto auto; gap: 10px; }
 .de-prow { display: contents; }
 .de-namef { min-width: 0; }
 .de-banf { display: block; }
 :global(.ms) .de-banf select { height: 38px; font-size: 14px; }
-:global(.ms) .de-fmt button { min-height: 30px; padding: 0 12px; font-size: 13.5px; }
+:global(.ms) .de-fmt button { min-height: 30px; padding: 0 9px; font-size: 13px; white-space: nowrap; }
 :global(.ms) .de-back { padding-inline: 8px; }
 .host[data-pool] .de-bar { grid-template-columns: auto minmax(160px, 320px) minmax(0, 1fr) auto auto; }
 /* Level with the sidebar's 68px brand row, whose line the bar's line continues. */
@@ -244,11 +258,11 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 @keyframes deck-sheet-in { from { transform: translateY(20px); opacity: 0; } }
 @container de-deck (max-width: 619px) { .de-size { width: 110px; } .de-sh { gap: 8px; } }
 @container de-editor (960px <= width < 1200px) {
-  .de-bar, .host[data-pool] .de-bar { grid-template-columns: auto minmax(120px, 1fr) auto minmax(150px, 210px); }
+  .de-bar, .host[data-pool] .de-bar { grid-template-columns: auto minmax(120px, 1fr) auto minmax(150px, 270px); }
   .de-status { grid-column: 1 / 3; }
   .de-acts { grid-column: 3 / -1; justify-content: flex-end; }
   .de-rule { grid-column: 3 / -1; }
-  .de-body { grid-template-columns: 230px minmax(0, 1fr) 320px; }
+  .de-body { --de-pane: 280px; grid-template-columns: var(--de-pane) minmax(0, 1fr) 320px; }
   .de-deck { padding-inline: 16px; }
 }
 @container de-editor (width < 960px) {
@@ -268,6 +282,10 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
   .de-save { grid-column: 4; grid-row: 1 / 3; }
   .de-prow { grid-column: 1 / -1; grid-row: 3; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; padding: 6px 0 10px 6px; border-bottom: 1px solid var(--rule-lo); }
   .host[data-pool] .de-prow { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  /* Four format choices share one full row; the long one wraps to two lines. The banlist select takes the row below. */
+  .de-fmt, .de-banf { grid-column: 1 / -1; }
+  .de-fmt :global(.seg) { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; box-sizing: border-box; }
+  .de-fmt :global(.seg) button { min-height: 36px; padding: 0 2px; font-size: 12.5px; line-height: 1.15; white-space: normal; text-align: center; }
   :global(.ms) .de-tabs { display: grid; margin: 10px 12px 0; }
   :global(.ms) .de-tabs button { min-height: 38px; }
   .de-tabs b { margin-left: 4px; font-size: 15px; font-weight: 400; }
@@ -296,11 +314,26 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 /* The art menu beside a deck card: the shared picker in a small popover. */
 .de-c { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .de-artmenu { width: min(292px, calc(100vw - 24px)); padding: 12px; gap: 8px; }
-.de-legend { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--rule-lo); color: rgb(239 231 213 / 0.66); font-size: 12.5px; line-height: 1.5; }
-.de-legend-h { margin: 0 0 6px; font: 600 11px/1 var(--f-ui, inherit); letter-spacing: 0.08em; text-transform: uppercase; color: rgb(239 231 213 / 0.5); }
-.de-legend-k { margin: 8px 0 2px; color: rgb(239 231 213 / 0.82); font-weight: 600; }
-.de-legend ul { margin: 0; padding: 0; list-style: none; }
-.de-legend kbd { padding: 1px 5px; border-radius: 4px; background: rgb(5 8 15 / 0.7); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.16); color: rgb(239 231 213 / 0.9); font: inherit; font-size: 11.5px; }
+.de-legend { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--rule-lo); color: var(--ink-3); font-size: 13px; line-height: 1.4; }
+.de-lg-all summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; cursor: pointer; list-style: none; border-radius: 4px; }
+.de-lg-all summary::-webkit-details-marker { display: none; }
+.de-lg-all summary:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 3px; }
+.de-legend-h { margin: 0; font: 600 11px/1 var(--f-ui, inherit); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.de-lg-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--ink-3); }
+.de-lg-all summary:hover .de-lg-toggle { color: var(--ink-2); }
+.de-lg-toggle svg { transition: transform 120ms ease; }
+.de-lg-all[open] .de-lg-toggle svg { transform: rotate(180deg); }
+.de-lg-group { margin-top: 14px; }
+.de-lg-all .de-lg-group:first-of-type { margin-top: 4px; }
+.de-legend-k { margin: 0 0 4px; font: 600 11px/1.3 var(--f-ui, inherit); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
+.de-lg-rows { display: grid; margin: 0; }
+.de-lg-rows > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; min-height: 30px; padding: 4px 0; border-bottom: 1px solid var(--rule-lo); }
+.de-lg-rows > div:last-child { border-bottom: 0; }
+.de-lg-rows dt { color: var(--ink-2); }
+.de-lg-rows dd { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 6px; margin: 0; }
+.de-lg-combo { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.de-lg-plus, .de-lg-or { color: var(--ink-3); font-size: 11px; }
+.de-legend kbd { display: inline-flex; border: 0; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 5px; background: rgb(5 8 15 / 0.7); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.16); color: var(--ink); font: 500 11.5px/1 var(--f-ui, inherit); white-space: nowrap; }
 .de-legend-phone { margin: 0 0 8px; font-size: 12px; color: rgb(239 231 213 / 0.55); }
 
 /* Desktop fit. `useDeckFit` sizes the tiles (--fit-*) so the Deck Master, Main, Extra and Side all show in the pane without scrolling.
@@ -342,5 +375,16 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-deck[data-fit] .de-hand-g { grid-template-columns: repeat(auto-fill, 38px); gap: 5px; max-height: 58px; overflow-y: auto; scrollbar-width: thin; }
 /* Wide desktops keep the side panes narrower, so the deck gets the room. */
 @container de-editor (1200px <= width < 1500px) {
-  .de-body { grid-template-columns: 230px minmax(0, 1fr) 320px; }
+  .de-body { --de-pane: clamp(300px, 22cqw, 340px); grid-template-columns: var(--de-pane) minmax(0, 1fr) 320px; }
+}
+
+/* Opened from a duel room: a bordered "Back to room" button, with the short word on a phone, so the way back is plain. */
+.de-back-room { gap: 4px; padding: 0 12px 0 6px; border: 1px solid var(--rule); color: var(--ink); }
+.de-back-room:hover { border-color: var(--ink-3); }
+.de-back-short { display: none; }
+@container de-editor (width < 960px) {
+  .de-bar:has(.de-back-room), .host[data-pool] .de-bar:has(.de-back-room) { grid-template-columns: auto minmax(0, 1fr) 34px auto; }
+  :global(.ms) .de-back.de-back-room { width: auto; height: 36px; padding: 0 10px 0 4px; align-self: center; }
+  .de-back-room .de-back-long { display: none; }
+  .de-back-room .de-back-short { display: inline; }
 }

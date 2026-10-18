@@ -648,6 +648,17 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "card_catalog", "attribute", "text");
   addColumnIfMissing(db, "card_catalog", "level", "integer");
   addColumnIfMissing(db, "card_catalog", "archetype", "text");
+  // Unknown until a successful TCG Genesys snapshot. Zero is a real, known value.
+  addColumnIfMissing(db, "card_catalog", "genesys_points",
+    "integer check (genesys_points is null or (typeof(genesys_points) = 'integer' and genesys_points >= 0))");
+  addColumnIfMissing(db, "card_catalog", "genesys_revision", "text");
+  db.exec(`create table if not exists genesys_points_meta (
+    id integer primary key check (id = 1),
+    revision text not null,
+    effective_date text not null,
+    source_url text not null,
+    synced_at text not null
+  );`);
   backfillMainArtworkRows(db);
   addColumnIfMissing(db, "card_sets", "card_count", "integer");
   addColumnIfMissing(db, "card_sets", "set_code", "text");
@@ -982,6 +993,10 @@ export function migrate(db: Database.Database) {
 
   db.exec(`
     create index if not exists duels_guild_archived_created_idx on duels (guild_id, archived_at, created_at);
+    create index if not exists duel_seats_player_idx on duel_seats (player_id, duel_id) where is_bot = 0;
+    create index if not exists duel_commands_eliminated_idx on duel_commands (duel_id, seat)
+      where json_extract(command_json, '$.promptId') glob 'eliminate:*'
+        or json_extract(command_json, '$.promptId') glob 'eliminate-eot:*';
     create index if not exists duels_play_history_idx
       on duels (guild_id, julianday(coalesce(ended_at, created_at)) desc, id desc)
       where kind = 'play';
@@ -1219,6 +1234,9 @@ export function migrate(db: Database.Database) {
   migrateIdentity(db);
   migrateCubeOwnerNames(db);
   migrateAccessIndexes(db);
+
+  // After identity migration, which rebuilds legacy saved_decks with its original columns.
+  addColumnIfMissing(db, "saved_decks", "genesys_json", "text");
 
   addColumnIfMissing(db, "users", "first_sign_in_at", "integer");
 

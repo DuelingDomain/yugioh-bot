@@ -1,0 +1,84 @@
+/* Genesys: the points mark on a card tile, and the total against the cap. Neutral by default; the cap states use the loss and warn inks. */
+/*
+ * The points chip on a card tile: a bold number with a small "pts". It sits bottom left, over the text box of the
+ * card, so it never covers the name at the top. The alt art chip has the top right, the copy count and the Master
+ * crown the bottom right, and the banlist mark the top left.
+ */
+.badge {
+  position: absolute; left: 3px; bottom: 3px; z-index: 1;
+  display: inline-flex; align-items: baseline; justify-content: center; gap: 2px;
+  /* --bw is the tile width in the fitted deck grid (--fit-tw). Small tiles get a smaller chip, and under 54px no "pts", so a 3 digit total still fits.
+     Everywhere else (search results, an unfitted grid) it is 999px and the chip is full size. */
+  --bw: var(--fit-tw, 999px); --bh: clamp(18px, calc(var(--bw) * 0.4), 28px);
+  max-width: calc(100% - 6px); height: var(--bh); padding: 0 clamp(3px, calc(var(--bw) * 0.08), 6px); box-sizing: border-box;
+  border-radius: 6px; background: rgb(10 7 24 / 0.94); color: var(--chain-ink, var(--duel-chain-ink, #f4d690));
+  box-shadow: 0 0 0 1.5px rgb(155 126 255 / 0.85), 0 2px 8px rgb(0 0 0 / 0.7);
+  font: 800 clamp(12px, calc(var(--bw) * 0.26), 19px)/var(--bh) var(--f-num, var(--duel-f-num));
+  white-space: nowrap; pointer-events: none;
+}
+.badge small { color: var(--pen-ink, var(--duel-pen-ink, #c6b6ff)); font-weight: 600; font-size: clamp(0px, calc((var(--bw) - 54px) * 0.5), 10px); line-height: var(--bh); letter-spacing: 0.05em; text-transform: uppercase; }
+.badge[data-k="forbidden"] { align-items: center; padding: 0 5px; color: var(--loss-ink, var(--duel-loss-ink)); box-shadow: 0 0 0 1px rgb(228 90 77 / 0.8), 0 2px 6px rgb(0 0 0 / 0.55); }
+.badge[data-k="unknown"] { color: var(--warn-ink, #ffc079); box-shadow: 0 0 0 1px rgb(255 192 121 / 0.6), 0 2px 6px rgb(0 0 0 / 0.55); }
+.badge[data-k="unknown"] small { color: var(--warn-ink, #ffc079); }
+.badge svg { width: 15px; height: 15px; align-self: center; stroke-width: 2.4; }
+/* A card with a strip across its foot (the invalid mark of the duel deck editor): the chip sits above the strip. */
+.badge[data-lift] { bottom: 24px; }
+/* A list row thumbnail is only 42px wide, so the chip is a strip over its foot. */
+.badge[data-w] small { display: none; }
+/* The search grid tile is about 85px wide and keeps the copy count at the bottom right, so its chip is sized as a 70px tile. */
+.badge[data-v="browse"] { --bw: 70px; }
+.badge[data-v="row"] { --bh: 17px; left: 0; right: 0; bottom: 0; max-width: none; height: 17px; padding: 0; border-radius: 0; box-shadow: none; font: 800 13.5px/17px var(--f-num, var(--duel-f-num)); }
+.badge[data-v="row"] small { font-size: 8px; line-height: 17px; }
+.badge[data-v="row"] svg { width: 12px; height: 12px; }
+/* In a search result the chip is part of the row, not laid over the picture. */
+.badge[data-v="inline"] { --bw: 999px; position: static; flex: none; align-self: center; margin-left: auto; }
+
+/* The card panel line. */
+.cardLine { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 2px 8px; border: 1px solid var(--rule-lo, var(--duel-rule-lo)); border-radius: 999px; color: var(--ink-2, var(--duel-ink-2)); font-size: 12.5px; line-height: 1.4; }
+.cardLine b { color: var(--ink, var(--duel-ink)); font: 600 13px/1 var(--f-num, var(--duel-f-num)); }
+.cardLine[data-k="forbidden"] { color: var(--loss-ink, var(--duel-loss-ink)); border-color: rgb(228 90 77 / 0.4); background: var(--loss-soft, var(--duel-loss-soft)); }
+.cardLine[data-k="unknown"] { color: var(--warn-ink, #ffc079); border-color: rgb(255 192 121 / 0.4); }
+.cardLine svg { width: 12px; height: 12px; flex: none; }
+
+/* The meter: a panel with the total against the cap, large enough to read at a glance: "Points  86 / 100 pts". */
+.meter {
+  display: flex; align-items: center; gap: 10px 12px; flex: 0 1 420px; min-width: 0; max-width: 420px;
+  padding: 6px 12px; border: 1px solid rgb(155 126 255 / 0.4); border-radius: 8px; background: rgb(155 126 255 / 0.07);
+}
+.meter[data-wide] { flex: 1 1 300px; max-width: none; }
+.meter[data-s="over"] { border-color: rgb(228 90 77 / 0.7); background: var(--loss-soft, var(--duel-loss-soft, rgb(228 90 77 / 0.1))); }
+.meter[data-s="unknown"], .meter[data-s="pending"] { border-color: rgb(255 192 121 / 0.5); }
+.label { flex: none; color: var(--pen-ink, var(--duel-pen-ink, #c6b6ff)); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.bar { position: relative; flex: 1 1 60px; min-width: 40px; height: 9px; border-radius: 999px; overflow: hidden; background: rgb(239 231 213 / 0.14); }
+.fill { position: absolute; inset: 0 auto 0 0; width: var(--fill, 0%); border-radius: inherit; background: var(--chain-ink, var(--duel-chain-ink, #f4d690)); transition: width 160ms var(--ease, ease-out); }
+.meter[data-s="over"] .fill { background: var(--loss, var(--duel-loss)); }
+.meter[data-s="unknown"] .fill, .meter[data-s="pending"] .fill { background: var(--warn-ink, #ffc079); }
+.value { flex: none; display: inline-flex; align-items: baseline; gap: 5px; color: var(--ink-3, var(--duel-ink-3)); font: 600 16px/1 var(--f-num, var(--duel-f-num)); white-space: nowrap; }
+.value b { color: var(--chain-ink, var(--duel-chain-ink, #f4d690)); font-weight: 800; font-size: 32px; line-height: 1; }
+.value small { color: var(--pen-ink, var(--duel-pen-ink, #c6b6ff)); font: 600 11px/1 var(--f-num, var(--duel-f-num)); letter-spacing: 0.06em; text-transform: uppercase; }
+.meter[data-s="over"] .value b { color: var(--loss-ink, var(--duel-loss-ink)); }
+.meter[data-s="unknown"] .value b, .meter[data-s="pending"] .value b { color: var(--warn-ink, #ffc079); }
+.cap { width: 62px; height: 30px; padding: 0 6px; border: 1px solid var(--rule-lo, var(--duel-rule-lo)); border-radius: 6px; background: transparent; color: var(--ink, var(--duel-ink)); font: 700 16px/1 var(--f-num, var(--duel-f-num)); text-align: right; -moz-appearance: textfield; appearance: textfield; }
+.cap::-webkit-outer-spin-button, .cap::-webkit-inner-spin-button { appearance: none; margin: 0; }
+.cap:focus-visible { outline: 2px solid var(--pen, var(--duel-pen)); outline-offset: 1px; }
+.cap[aria-invalid="true"] { border-color: var(--loss, var(--duel-loss)); }
+.cap:disabled { opacity: 0.6; }
+
+/* The deck check section. */
+.check { display: grid; gap: 6px; }
+.check h3 { margin: 0; color: var(--ink-3, var(--duel-ink-3)); font-size: 12px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
+.list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.list button { display: flex; flex-wrap: wrap; gap: 4px 8px; width: 100%; padding: 3px 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.list button:hover .name { text-decoration: underline; text-underline-offset: 3px; }
+.name { color: var(--ink, var(--duel-ink)); font-size: 14px; }
+.why { color: var(--loss-ink, var(--duel-loss-ink)); font-size: 13px; }
+.line { margin: 0; color: var(--ink-2, var(--duel-ink-2)); font-size: 13.5px; line-height: 1.45; }
+.line[data-tone="bad"] { color: var(--loss-ink, var(--duel-loss-ink)); }
+.line[data-tone="warn"] { color: var(--warn-ink, #ffc079); }
+
+@media (prefers-reduced-motion: reduce) { .fill { transition: none; } }
+@media (max-width: 480px) {
+  .label { display: none; }
+  .meter { flex-basis: 100%; max-width: none; }
+  .value b { font-size: 28px; }
+}

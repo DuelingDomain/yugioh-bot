@@ -10,8 +10,8 @@ export const IMPORT_MAX_DECKS = 50;
 export const IMPORT_MAX_SOURCE_BYTES = 64 * 1024;
 export const IMPORT_MAX_BODY_BYTES = 1024 * 1024;
 
-/** The deck format a row is saved as. The server names them "standard" and "domain". */
-export type ImportMode = "standard" | "domain";
+/** The deck format a row is saved as. The two Genesys formats save with the Genesys tag. The import never detects it from the text. */
+export type ImportMode = "standard" | "domain" | "genesys" | "genesys-domain";
 
 export type ImportSource = { id: string; name: string; text: string; mode?: ImportMode };
 
@@ -19,6 +19,8 @@ export type ImportDeck = { main: number[]; extra: number[]; side: number[]; deck
 
 export type ImportError = { code: string; message: string; passcode?: number; line?: number; count?: number };
 export type ImportWarning = { code: string; message: string; from?: number; to?: number; line?: number; count?: number };
+/** Information that needs no action, such as a card that uses the game's own copy. It is not a warning. */
+export type ImportNote = { code: string; message: string; from?: number; to?: number; line?: number; count?: number };
 
 export type ImportDuplicate =
   | { kind: "saved"; deckId: number; name: string }
@@ -32,6 +34,8 @@ export type ImportPreviewRow = {
   counts: { main: number; extra: number; side: number };
   errors: ImportError[];
   warnings: ImportWarning[];
+  /** Absent when an older server answers. */
+  notes?: ImportNote[];
   mode?: ImportMode;
   duplicateOf?: ImportDuplicate | null;
 };

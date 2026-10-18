@@ -252,7 +252,7 @@ describe("backend review fixes", () => {
     const body = await response.json();
     const errors = route === preview ? body.rows[0].errors : body.failed[0].errors;
     expect(errors).toHaveLength(5);
-    expect(errors[0]).toMatchObject({ code: "lookup_limited", message: "lookup limit reached, try again", passcode: codes[50] });
+    expect(errors[0]).toMatchObject({ code: "lookup_limited", message: expect.stringContaining("the card check hit its limit"), passcode: codes[50] });
     expect(mocks.callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ lookupLimit: 50 }));
   });
 
@@ -397,7 +397,8 @@ describe("backend review fixes", () => {
   it("carries source lines for card issues and split YDKE errors", async () => {
     const rows = await previewRows([source("#main\n999\n101402052"), source("\n ydke://!!!\n\nydke://broken", "f2")]);
     expect(rows[0].errors[0]).toMatchObject({ code: "unknown_card", line: 2 });
-    expect(rows[0].warnings).toContainEqual(expect.objectContaining({ code: "remapped", line: 3 }));
+    expect(rows[0].notes).toContainEqual(expect.objectContaining({ code: "remapped", line: 3 }));
+    expect(rows[0].warnings.filter((issue: { code: string }) => issue.code === "remapped")).toEqual([]);
     expect(rows[2].errors[0]).toMatchObject({ line: 4 });
   });
 });
@@ -532,20 +533,33 @@ describe("preview", () => {
     expect(mocks.callDuelHost).not.toHaveBeenCalled();
   });
 
-  it("echoes Standard and retains its lone Side card", async () => {
-    const [shown] = await previewRows([{ ...source("#main\n89631139\n!side\n46986414"), mode: "standard" }]);
-    expect(shown).toMatchObject({ mode: "standard", deck: { ...deck(), side: [46986414] }, counts: { main: 1, extra: 0, side: 1 } });
+  it.each(["standard", "genesys"] as const)("echoes %s and retains its lone Side card through saving", async mode => {
+    const [shown] = await previewRows([{ ...source("#main\n89631139\n!side\n46986414"), mode }]);
+    expect(shown).toMatchObject({ mode, deck: { ...deck(), side: [46986414] }, counts: { main: 1, extra: 0, side: 1 } });
     expect(mocks.callDuelHost).not.toHaveBeenCalledWith(expect.objectContaining({ op: "validate-deck-master" }));
+    const response = await bulk(request({ rows: [shown] }));
+    const { created, failed } = await response.json();
+    expect(failed).toEqual([]);
+    expect(decks.get(created[0].id, "g", 1)).toMatchObject({ mode: "normal", deck: { main: shown.deck.main, extra: [], side: [46986414] },
+      genesys: mode === "genesys" ? { pointCap: 100 } : null });
   });
 
-  it.each([
+  it.each((["domain", "genesys-domain"] as const).flatMap(mode => [
     "#main\n89631139\n!side\n101402052",
     encodeYdke({ ...deck(), side: [101402052] }),
-  ])("moves and resolves a lone Domain Side card into Deck Master for %s", async text => {
-    const [shown] = await previewRows([{ ...source(text), mode: "domain" }]);
-    expect(shown).toMatchObject({ mode: "domain", deck: { ...deck(), deckMaster: 40235813 }, counts: { main: 1, extra: 0, side: 0 }, errors: [] });
-    expect(shown.warnings).toContainEqual(expect.objectContaining({ code: "remapped", from: 101402052, to: 40235813 }));
+  ].map(text => ({ mode, text }))))("moves and resolves a lone $mode Side card into Deck Master for $text", async ({ mode, text }) => {
+    mocks.engine.set(40235813, { name: "Official Test Card", type: 0x21 });
+    const [shown] = await previewRows([{ ...source(text), mode }]);
+    expect(shown).toMatchObject({ mode, deck: { ...deck(), deckMaster: 40235813 }, counts: { main: 1, extra: 0, side: 0 }, errors: [] });
+    expect(shown.notes).toContainEqual(expect.objectContaining({ code: "remapped", from: 101402052, to: 40235813 }));
+    expect(shown.notes[0].message).toBe("Official Test Card: uses the game's own copy of this card. No action needed.");
+    expect(shown.warnings.filter((issue: { code: string }) => issue.code === "remapped")).toEqual([]);
     expect(mocks.callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "validate-deck-master", deck: { main: [], extra: [], side: [], deckMaster: 40235813 } }));
+    const response = await bulk(request({ rows: [shown] }));
+    const { created, failed } = await response.json();
+    expect(failed).toEqual([]);
+    expect(decks.get(created[0].id, "g", 1)).toMatchObject({ mode: "domain", deck: shown.deck,
+      genesys: mode === "genesys-domain" ? { pointCap: 100 } : null });
   });
 
   it("keeps Domain mode for each split line, including a malformed line", async () => {
@@ -596,8 +610,8 @@ describe("preview", () => {
   it("keeps unknown passcodes and artwork copies, and reports remaps once", async () => {
     const [result] = await previewRows([source("#main\n999\n999\n101402052\n101402052\n89631133")]);
     expect(result.deck.main).toEqual([999, 999, 40235813, 40235813, 89631133]);
-    expect(result.errors).toEqual([{ code: "unknown_card", message: expect.any(String), passcode: 999, line: 2 }]);
-    expect(result.warnings.filter((w: { code: string }) => w.code === "remapped")).toEqual([{ code: "remapped", message: expect.any(String), from: 101402052, to: 40235813, line: 4 }]);
+    expect(result.errors).toEqual([{ code: "unknown_card", message: "Card 999: not found in the game's card data. Check the passcode in the deck file.", passcode: 999, line: 2 }]);
+    expect(result.notes.filter((w: { code: string }) => w.code === "remapped")).toEqual([{ code: "remapped", message: "Card 101402052: uses the game's copy under ID 40235813. No action needed.", from: 101402052, to: 40235813, line: 4 }]);
   });
 
   it("detects owner-saved or earlier-row duplicates by the combined card multiset", async () => {
@@ -693,7 +707,7 @@ describe("bulk", () => {
     db.exec("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (901,'Test Spell','Spell Card','link','','','[]','test')");
     const response = await bulk(request({ rows: [row("Bad", { main: [999], extra: [901], side: [] })] }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ created: [], failed: [{ index: 0, errors: [{ code: "unknown_card", message: "Unknown card 999", passcode: 999 }] }] });
+    expect(await response.json()).toEqual({ created: [], failed: [{ index: 0, errors: [{ code: "unknown_card", message: "Card 999: not found in the game's card data. Check the passcode in the deck file.", passcode: 999 }] }] });
     expect(decks.list("g", 1)).toEqual([]);
   });
 
@@ -707,7 +721,7 @@ describe("bulk", () => {
     expect(result).toMatchObject({
       created: [{ id: expect.any(Number), name: "Good" }],
       failed: [{ index: 1, errors: [{ code: limited ? "lookup_limited" : "unknown_card",
-        message: limited ? "lookup limit reached, try again" : "Unknown card 999", passcode: 999 }] }],
+        message: limited ? "Card 999: the card check hit its limit. Check this deck again in a moment." : "Card 999: not found in the game's card data. Check the passcode in the deck file.", passcode: 999 }] }],
     });
     expect(result.warnings).toContainEqual({ index: 0, warnings: [{ code: "unknown_card_type", message: expect.stringContaining("89631139") }] });
     expect(decks.list("g", 1).map(saved => saved.name)).toEqual(["Good"]);
@@ -848,7 +862,8 @@ it("uses the real bundle resolver for approved chained remaps, protected artwork
     const [shown] = await previewRows([source(encodeYdke(deck([101402052, 89631133, 81480461])))]);
     expect(shown.deck.main).toEqual([40235813, 89631133, 89631139]);
     expect(shown.errors).toEqual([]);
-    expect(shown.warnings).toContainEqual(expect.objectContaining({ code: "remapped", from: 101402052, to: 40235813 }));
+    expect(shown.notes).toContainEqual(expect.objectContaining({ code: "remapped", from: 101402052, to: 40235813 }));
+    expect(shown.warnings.filter((issue: { code: string }) => issue.code === "remapped")).toEqual([]);
     const response = await bulk(request({ rows: [row("Real maps", deck([101402052, 89631133, 81480461]))] }));
     const { created, failed } = await response.json();
     expect(failed).toEqual([]);

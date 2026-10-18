@@ -23,6 +23,7 @@ import { useDuelWebsocket } from "@/lib/hooks/use-duel-websocket";
 import { createEchoWindow } from "@/lib/duel-echo-window";
 import { applyAnswerResult } from "./answer-result";
 import { useChainModeControl } from "./use-chain-mode";
+import { useDuelRoomActivity } from "@/lib/hooks/use-duel-room-activity";
 import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import { useBlockBrowserContextMenu } from "@/lib/hooks/use-block-browser-context-menu";
 import {
@@ -71,6 +72,7 @@ import { useLiveTableController } from "./table/use-live-table-controller";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { duelActionErrorText } from "@/lib/duel/action-errors";
 import { MultiSeatStage } from "./multi-seat-stage";
+import { genesysLabel, genesysOf, sessionBoardRule } from "./genesys";
 import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, isOpponentPick, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds, seatPickFor, seatNamer, winnerLabel } from "./multi-seat";
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
@@ -231,6 +233,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       // keep the default.
       dedupingInterval: forkSeenFor.current === slug ? 0 : undefined },
   );
+  const idleDeadline = useDuelRoomActivity(rawData?.session.kind === "play" && rawData.session.status === "lobby"
+    && rawData.mySeat != null && rawData.opening == null ? slug : null);
   const refreshRoom = useCallback(
     () => mutate(() => getDuelRoom(slug, spectate, forkView.view), { revalidate: false }),
     [mutate, slug, spectate, forkView.view],
@@ -1082,7 +1086,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   if (data.session.status === "lobby" && !ownWindowGate) {
     const opening = data.opening;
     const lobby = (
-      <RoomLobby room={data} presence={realtime.presence} slug={slug} busy={busy} starting={starting} actionError={actionError}
+      <RoomLobby room={data} presence={realtime.presence} idleDeadline={idleDeadline} slug={slug} busy={busy} starting={starting} actionError={actionError}
         onDeckLocked={() => void refreshRoom()}
         onTakeSeat={(seat) => void run(() => takeDuelSeat(slug, seat))}
         onAddBot={(seat) => void run(() => addPracticeBot(slug, seat))}
@@ -1544,7 +1548,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const spectatorTag = spectator ? <strong className={styles.viewerRole} title="You are watching. Both players' hidden cards remain private.">
     <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
   </strong> : null;
-  const formatText = `${domain ? isCustomDomain(data.session.masterRule, data.session.settings) ? "Custom Domain" : "Domain" : `MR${data.session.masterRule}`} · ${formatLabel(format)}`;
+  const modeText = genesysLabel(data.session.mode, genesysOf(data.session), domain && isCustomDomain(data.session.masterRule, data.session.settings))
+    ?? (domain ? isCustomDomain(data.session.masterRule, data.session.settings) ? "Custom Domain" : "Domain" : `MR${data.session.masterRule}`);
+  const formatText = `${modeText} · ${formatLabel(format)}`;
   const headerIdentity = (
     <div className={styles.identity}>
       {wordmark}
@@ -1652,7 +1658,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     />
   ) : null;
   const fieldProps = engine ? {
-    engine, mySeat: data.mySeat, bottomSeat: cameraSeat, masterRule: data.session.masterRule,
+    engine, mySeat: data.mySeat, bottomSeat: cameraSeat, masterRule: sessionBoardRule(data.session, engine),
     reducedMotion: preferences.reducedMotion,
     priorityLive: !busy && !error && !realtime.recovering && !catchingUp &&
       (data.mySeat == null || (engine.prioritySeat ?? prompt?.seat) !== data.mySeat || revealed),
@@ -1858,7 +1864,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         <section className={styles.boardColumn} aria-label="Duel field">
           <div className={styles.board} ref={boardRef} data-deal-wait={startBeats.waiting ? "true" : undefined}>
             {renderBoard(multi ? (
-              <MultiSeatStage key={slug} engine={engine!} mySeat={data.mySeat} masterRule={data.session.masterRule}
+              <MultiSeatStage key={slug} engine={engine!} mySeat={data.mySeat} masterRule={sessionBoardRule(data.session, engine)}
                 reducedMotion={preferences.reducedMotion}
                 legalKeys={fieldLegalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
                 onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
@@ -1889,7 +1895,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           nameOf={playerName}
           seatTones={hudSeatTones}
           logUnread={logUnread}
-          onInspect={setInspect}
           preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hudState.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={pickHintShown || Boolean(pile?.open)}

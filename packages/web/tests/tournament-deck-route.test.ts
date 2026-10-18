@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { createSavedDeckService, createTournamentService } from "@yugidraft/shared/services";
+import { createSavedDeckService, createTournamentDuelService, createTournamentService } from "@yugidraft/shared/services";
 import { mainIds, passcodeOf, seedDraftDeck } from "./helpers/draft-deck-fixture";
 
 const auth = vi.fn();
@@ -121,6 +121,24 @@ describe("tournament deck route", () => {
     const res = await PUT(put({ savedDeckId: s.savedId }), ctx);
     expect(res.status).toBe(400);
     expect(((await res.json()) as { report: unknown }).report).toEqual(report);
+    expect(s.db.prepare("select deck_json from tournament_participants where player_id = ?").get(s.a)).toEqual({ deck_json: null });
+  });
+
+  it.each(["normal", "domain"] as const)("uses the tournament's Genesys cap for %s admission and returns its error", async mode => {
+    const s = seed();
+    createTournamentDuelService(s.db).setRules(s.tournamentId, fixtureUserId("u-org"), {
+      mode, settings: { genesys: { pointCap: 0 }, validateDeck: false },
+    });
+    const saved = createSavedDeckService(s.db).create("g1", fixtureUserId("u-a"), { name: "Untagged", mode,
+      deck: mode === "domain" ? { ...DECK, deckMaster: 1004 } : DECK });
+    const report = { issues: [{ message: "Deck uses 1 Genesys points; the cap is 0.", cards: [] }] };
+    callDuelHost.mockResolvedValue({ ok: true, data: { deck: saved.deck, report } });
+    const { PUT } = await import("../app/api/tournaments/[slug]/deck/route");
+    const res = await PUT(put({ savedDeckId: saved.id }), ctx);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: report.issues[0].message, report });
+    expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "check-deck", mode, format: "1v1",
+      settings: expect.objectContaining({ genesys: { pointCap: 0 }, banlist: "none", validateDeck: false }) }));
     expect(s.db.prepare("select deck_json from tournament_participants where player_id = ?").get(s.a)).toEqual({ deck_json: null });
   });
 

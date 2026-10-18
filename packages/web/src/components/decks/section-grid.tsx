@@ -8,6 +8,8 @@ import { ArtChip } from "./art-chip";
 import { CardArt } from "./card-art";
 import { useCardPress } from "./card-press";
 import { dragCardKind, hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
+import { genesysMark, genesysMarkText } from "./genesys";
+import { GenesysBadge } from "./genesys-ui";
 import { LimitBadge } from "./limit-badge";
 import { MasterChip } from "./master-chip";
 import {
@@ -67,6 +69,7 @@ export function DeckSectionGrid({
   artMenu,
   canMaster,
   onMaster,
+  genesys = false,
 }: {
   title: string;
   section: DeckSection;
@@ -105,6 +108,8 @@ export function DeckSectionGrid({
   canMaster?: (code: number) => boolean;
   /** The M key or the crown: the copy becomes the Deck Master. */
   onMaster?: (copy: { code: number; section: DeckSection }) => void;
+  /** Genesys on: tiles show points instead of banlist marks, and Link and Pendulum tiles are marked. */
+  genesys?: boolean;
 }) {
   const [dropping, setDropping] = useState(false);
   const [insertAt, setInsertAt] = useState<number | null>(null);
@@ -212,6 +217,7 @@ export function DeckSectionGrid({
             const arts = altArtCount(code, catalog);
             const menuOpen = artMenu?.section === section && artMenu.index === index;
             const masterable = !!onMaster && !!canMaster?.(code);
+            const gMark = genesys ? genesysMark(catalog.get(code)) : null;
             const gesture = press({
               remove: () => removeAndRefocus(code, index),
               moveSide: () => onMoveSide({ code, from: section, index }),
@@ -231,10 +237,11 @@ export function DeckSectionGrid({
                   className={styles["de-c"]}
                   aria-pressed={isSelected}
                   aria-keyshortcuts={`Delete${copyable ? " Plus =" : ""}${masterable ? " M" : ""} ContextMenu Shift+F10`}
-                  aria-label={`${name}, ${title} Deck card ${index + 1}${missing ? ", not in the card database" : ""}${isOver ? ", too many copies" : ""}${arts > 0 ? `, ${artCountLabel(arts)}` : ""}`}
+                  aria-label={`${name}, ${title} Deck card ${index + 1}${missing ? ", not in the card database" : ""}${isOver ? ", too many copies" : ""}${gMark ? `, ${genesysMarkText(gMark)}` : ""}${arts > 0 ? `, ${artCountLabel(arts)}` : ""}`}
                   title={name}
                   data-unknown={missing ? "true" : undefined}
                   data-over={isOver ? "true" : undefined}
+                  data-gx={gMark?.kind === "forbidden" ? "forbidden" : undefined}
                   draggable
                   {...gesture}
                   onPointerEnter={(event) => { if (event.pointerType !== "touch") onHover({ section, index }); }}
@@ -263,9 +270,9 @@ export function DeckSectionGrid({
                   }}
                 >
                   <CardArt code={code} name={name} />
-                  <LimitBadge limit={copyLimit(code, catalog, limits)} />
+                  {genesys ? <GenesysBadge card={catalog.get(code)} /> : <LimitBadge limit={copyLimit(code, catalog, limits)} />}
                   <ArtChip otherArts={arts} corner open={menuOpen} onOpen={(anchor) => openMenu(anchor, code, index)} />
-                  {masterable ? <MasterChip name={name} onSet={() => onMaster({ code, section })} /> : null}
+                  {masterable ? <MasterChip name={name} onSet={() => onMaster({ code, section })} genesys={genesys} /> : null}
                   {missing ? <span className={cn("num", styles.unknownTag)}>{code}</span> : null}
                 </button>
               </li>

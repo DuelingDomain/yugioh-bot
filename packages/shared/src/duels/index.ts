@@ -1,9 +1,10 @@
-import type { DuelClock, DuelFormat, DuelSettings } from "./settings.js";
+import type { DuelClock, DuelFormat, DuelSettings, GenesysSettings } from "./settings.js";
 import type { DuelFirstChoice, DuelOpeningView } from "./opening.js";
 import type { DuelKind } from "./duel-kind.js";
 import type { ReplayForkControl } from "./replay-fork.js";
 
 export * from "./duel-kind.js";
+export * from "./genesys.js";
 export * from "./replay.js";
 export * from "./replay-fork.js";
 export { isUnknownEngineChoice, sourceEngineChoice } from "./source-engine-choice.js";
@@ -17,17 +18,32 @@ export type DuelMasterRule = 1 | 2 | 3 | 4 | 5;
 export const DUEL_SEAT_LEFT_ERROR_CODE = "seat_left" as const;
 export type DuelErrorCode = typeof DUEL_SEAT_LEFT_ERROR_CODE | "INVALID_EXTRA_DECK_CARD";
 
+/** A waiting room closes after ten minutes without player input. */
+export const DUEL_WAITING_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+
+export interface DuelWaitingActivity {
+  slug: string;
+  idleTimeoutMs: number;
+  idleDeadlineAt: string;
+}
+
 export type {
   DuelCardPool,
   DuelClock,
   DuelClockState,
   DuelFormat,
   DuelSettings,
+  GenesysSettings,
   DuelTimeout,
   DuelVisibility,
 } from "./settings.js";
 export {
   DEFAULT_DUEL_FORMAT,
+  DEFAULT_GENESYS_POINT_CAP,
+  MAX_GENESYS_POINT_CAP,
+  normalizeGenesysSettings,
+  DuelSettingsError,
+  parseStoredDuelSettings,
   DUEL_FORMATS,
   MAX_DUEL_SEATS,
   isDuelFormat,
@@ -104,6 +120,8 @@ export interface SavedDeck {
   id: number;
   name: string;
   mode: DuelMode;
+  /** Library tag only; omission/null means off. */
+  genesys?: GenesysSettings | null;
   deck: DuelDeck;
   createdAt: string;
   updatedAt: string;
@@ -191,6 +209,8 @@ export interface DuelDeckValidation {
 }
 
 export interface DuelCardInfo {
+  /** Current TCG Genesys points. null or absent means unknown, never zero. */
+  genesysPoints?: number | null;
   /** Search result belongs to the requesting seat's own main, extra or side deck. */
   inDeck?: boolean;
   /** Preview data from BabelCDB; available to search and card-info consumers. */
@@ -527,6 +547,8 @@ export interface DuelChainLink {
 }
 
 export interface DuelEngineView {
+  /** Original Genesys field: no Extra Monster or Pendulum Zones. Missing/false means the existing Master Rule layout. */
+  field?: { genesys: boolean };
   revision: number;
   /** Seat and team layout. Absent means `1v1`. In Tag both partners' `lp` is the shared team LP. */
   format?: DuelFormat;
@@ -641,6 +663,14 @@ export interface DuelListItem extends Omit<DuelSession, "createdAt" | "seats"> {
   seats: Array<DuelSeat & { team: number | null; result: "win" | "loss" | "draw" | null }>;
   /** Whether this ordinary table is invite-only. */
   private: boolean;
+  /** Card rules. `format` and `tableType` identify the seat layout. */
+  matchFormat: "standard" | "domain" | "genesys" | "genesys-domain";
+  tableType: DuelFormat;
+  visibility: "public" | "private";
+  /** Empty seat indices, in seat order. A fixed match can have empty seats but cannot admit a new player. */
+  openSeats: number[];
+  /** True only when this viewer can take an open seat now. */
+  joinable: boolean;
   /** The viewer's seat, or null when the viewer is not seated. */
   mySeat: number | null;
   /** Last start or accepted input; falls back to creation time. */

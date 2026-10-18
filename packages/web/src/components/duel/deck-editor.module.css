@@ -39,7 +39,7 @@
 /* ---------- add card: name search dropdown ---------- */
 .addPanel { position: absolute; z-index: 5; inset: auto 0 auto 0; margin-top: 4px; max-height: min(62vh, 440px); max-height: min(50dvh, 440px); overflow-y: auto; background: var(--duel-panel-2); border: 1px solid var(--duel-rule); border-radius: 8px; box-shadow: 0 12px 28px rgb(0 0 0 / 0.45); }
 .addList { margin: 0; padding: 4px; list-style: none; display: grid; gap: 2px; }
-.addOption { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; color: var(--duel-ink); cursor: pointer; }
+.addOption { position: relative; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; color: var(--duel-ink); cursor: pointer; }
 .addOption > img { flex: none; width: 30px; aspect-ratio: 59 / 86; object-fit: cover; border-radius: 2px; }
 .addOption[data-active="true"] { background: var(--duel-panel-3); border-color: var(--duel-chain); }
 .addOption[data-blocked="true"] { cursor: default; color: var(--duel-ink-3); }
@@ -121,3 +121,14 @@
   .card, .drop { transition: none; }
   .card:hover { translate: none; }
 }
+
+/* Edit action of a saved deck, and the folded list of every saved deck in a Standard or Domain room. */
+.editLink { flex: none; cursor: pointer; }
+.editList { display: grid; gap: 6px; }
+.editList > summary { width: fit-content; padding: 4px 0; color: var(--duel-ink-2); font-size: 13px; cursor: pointer; }
+.editList > summary:hover { color: var(--duel-ink); }
+.editList > ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; max-height: min(40dvh, 280px); overflow-y: auto; }
+.editList li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 12px; border: 1px solid var(--duel-rule-lo); border-radius: 8px; }
+.editName { display: grid; gap: 1px; min-width: 0; }
+.editName strong { color: var(--duel-ink); font-size: 14px; font-weight: 450; overflow-wrap: anywhere; }
+.editName span { color: var(--duel-ink-3); font-size: 12px; overflow-wrap: anywhere; }

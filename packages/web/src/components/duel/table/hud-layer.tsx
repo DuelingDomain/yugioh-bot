@@ -28,14 +28,17 @@ export interface HudPaneState {
   close: () => void;
   /** Closes only what is private to one view: the pinned card and the Card flyout. Log, Settings and Camera stay open. */
   closePrivate: () => void;
-  /** Opens the Card flyout: Inspect on a plate or a log row. A click on a board card pins it instead (`pinCard`). */
-  openCard: () => void;
-  /** The board card pinned in the left peek, or `null`. It never shows together with a flyout. */
-  pinned: DuelCard | null;
+  /**
+   * Inspect on a plate, a log row or a pile: opens the Card flyout (the 1v1 room), or, when the table has no Card flyout
+   * (`cardPane: false`), shows `target` in the pinned card pop-out like a click on a board card does.
+   */
+  openCard: (target?: InspectTarget) => void;
+  /** The card pinned in the left peek, or `null`: a board card, or the card of an Inspect (`DuelCardInfo`, no position). It never shows together with a flyout. */
+  pinned: DuelCard | DuelCardInfo | null;
   /** The element that was clicked to pin it (the peek keeps clear of it, and focus returns to it). */
   pinAnchor: HTMLElement | null;
-  /** A click on a board card pins it in the peek (another card moves the pin); `null` lets the pin go (a flyout stays). A face-down card has no peek: it opens the Card flyout. */
-  pinCard: (card: DuelCard | null, anchor?: HTMLElement | null) => void;
+  /** A click on a board card pins it in the peek (another card moves the pin); `null` lets the pin go (a flyout stays). A face-down card has no peek: it opens the Card flyout (1v1) or does nothing. */
+  pinCard: (card: DuelCard | DuelCardInfo | null, anchor?: HTMLElement | null, keep?: boolean) => void;
   /** Takes the fresh copy of the pinned card from the board, or lets the pin go when the card is gone (see `usePinSync`). */
   syncPin: (seats: readonly DuelSeatView[]) => void;
   /** Counts every change of the pane or the pin: a press on a zone that changes nothing by its click lets the pin go (see `useHudEscape`). */
@@ -53,17 +56,22 @@ const PIN_ZONES = (seat: DuelSeatView): Array<DuelCard | null> => [...seat.hand,
  * Inspect on a card) does. A hover or a prompt row never opens the Card flyout, so it cannot cover the response prompt.
  * Call it before `useTableUi`, then pass `openCard` on and give `useHudEscape` the table's `suspended` flag.
  */
-export function useHudPane({ camera = false, log = true, initialPane = null }: {
+export function useHudPane({ camera = false, log = true, cardPane = true, initialPane = null }: {
   /** The table has a camera panel (the Tag Rooftop, the 3-way plaza): the dock gets a camera icon. */
   camera?: boolean;
   /** The dock has the Log icon. Every table has it; only a HUD with no log panel turns it off. */
   log?: boolean;
+  /**
+   * The table has a Card flyout (the 1v1 room). The multi-seat tables (Tag, 3-way, 4-way) have none: a click on a card, and Inspect, open
+   * the pinned card pop-out instead, and the edge drawers are Log, Settings, Camera and Chain only.
+   */
+  cardPane?: boolean;
   /** The flyout that is open at mount. A replay seek remounts the table and brings back the one the viewer had open. */
   initialPane?: HudPane | null;
 } = {}): HudPaneState {
   const [pane, setPaneState] = useState<HudPane | null>(initialPane ?? null);
   // `handSize`: the hand of the pinned card as the last sync saw it, so a shifted sequence can be told from another copy.
-  const [pin, setPin] = useState<{ card: DuelCard; anchor: HTMLElement | null; handSize?: number } | null>(null);
+  const [pin, setPin] = useState<{ card: DuelCard | DuelCardInfo; anchor: HTMLElement | null; handSize?: number; keep?: boolean } | null>(null);
   const epochRef = useRef(0);
   const epoch = useCallback(() => epochRef.current, []);
   // A flyout and the pinned peek never show together: opening one lets the other go.
@@ -88,25 +96,35 @@ export function useHudPane({ camera = false, log = true, initialPane = null }: {
     setPaneState((current) => (current === "card" ? null : current));
     setPin(null);
   }, []);
-  const openCard = useCallback(() => setPane("card"), [setPane]);
-  const pinCard = useCallback((card: DuelCard | null, anchor: HTMLElement | null = null) => {
+  // `keep`: the card of an Inspect (a Deck Master, a log row). It may not be on the board, so the sync leaves it alone until it is closed.
+  const pinCard = useCallback((card: DuelCard | DuelCardInfo | null, anchor: HTMLElement | null = null, keep = false) => {
     epochRef.current += 1;
     if (card == null) {
       setPin(null);
       return;
     }
     if (card.code == null) {
-      setPane("card");
+      // A face-down card has no art to show: the 1v1 Card flyout says so, a table with a pop-out only drops the old pin.
+      if (cardPane) setPane("card");
+      else setPin(null);
       return;
     }
     setPaneState(null);
-    setPin({ card, anchor });
-  }, [setPane]);
+    setPin({ card, anchor, keep });
+  }, [cardPane, setPane]);
+  const openCard = useCallback((target?: InspectTarget) => {
+    if (cardPane) {
+      setPane("card");
+      return;
+    }
+    if (target && target.type !== "pile") pinCard(target.card, null, true);
+  }, [cardPane, pinCard, setPane]);
   // A functional update, so a pin that another effect of the same commit just removed (a new prompt) stays removed.
   const syncPin = useCallback((seats: readonly DuelSeatView[]) => {
     setPin((current) => {
-      if (!current) return current;
+      if (!current || current.keep) return current;
       const was = current.card;
+      if (!("location" in was)) return current;
       const same = (card: DuelCard | null): card is DuelCard => card != null && card.code === was.code && card.controller === was.controller && card.location === was.location;
       let live: DuelCard | null = null;
       let handSize: number | undefined;
@@ -244,8 +262,6 @@ export interface HudLayerProps {
   nameOf: (seat: number) => string;
   seatTones: SeatTones;
   logUnread: number;
-  /** Shows the Card flyout. */
-  onInspect: (target: InspectTarget) => void;
   /** The card for the left peek and its owner, or `null` when there is none. A prompt row card has no owner. `pinned`: it stays until closed. */
   preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean } | null;
   /** The equip links of the live board: the pinned peek adds the same lines as the Card flyout (equip, counters, materials). */
@@ -261,7 +277,7 @@ export interface HudLayerProps {
   edge?: boolean;
 }
 
-export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, onInspect, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats, edge = false }: HudLayerProps) {
+export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats, edge = false }: HudLayerProps) {
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   // A hovered board card says only what the art already shows (negated); a pinned one adds its equip, counter and material lines.
   const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
@@ -280,7 +296,7 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
   return (
     <>
       {edge ? (
-        <EdgeHud hud={hud} panels={panels} chain={chain} chainOpen={chainOpen} nameOf={nameOf} seatTones={seatTones} logUnread={logUnread} onInspect={onInspect} />
+        <EdgeHud hud={hud} panels={panels} chain={chain} chainOpen={chainOpen} nameOf={nameOf} seatTones={seatTones} logUnread={logUnread} />
       ) : (
         <>
         <GridDock pane={hud.pane} onToggle={hud.toggle} unread={logUnread} panes={hud.dock} />

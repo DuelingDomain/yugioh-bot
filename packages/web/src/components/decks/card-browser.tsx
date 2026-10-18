@@ -13,6 +13,8 @@ import { CardArt } from "./card-art";
 import { CardFilters } from "./card-filters";
 import { hasCardDrag, readCardDrag, writeCardDrag, type CardDrag } from "./drag";
 import { SORT_CHOICES, clearFilters, filterChips, queryKey, type BrowserView } from "./filter-model";
+import { genesysMark, genesysMarkText } from "./genesys";
+import { GenesysBadge } from "./genesys-ui";
 import { LimitBadge, limitName } from "./limit-badge";
 import { cardKind, type BanlistLimits } from "./model";
 import { queryPoolCards } from "./pool-search";
@@ -64,6 +66,7 @@ export function CardBrowser({
   onCatalog,
   onRemoveDrop,
   searchRef,
+  genesys = false,
 }: {
   id?: string;
   mode?: DuelMode;
@@ -84,6 +87,8 @@ export function CardBrowser({
   onCatalog: (cards: DeckCardInfo[]) => void;
   onRemoveDrop: (drag: CardDrag) => void;
   searchRef: RefObject<HTMLInputElement | null>;
+  /** Genesys on: tiles show points instead of banlist marks, and Link and Pendulum tiles are marked. */
+  genesys?: boolean;
 }) {
   const key = `${mode}:${queryKey(query)}`;
   const [results, setResults] = useState<Results | null>(null);
@@ -192,7 +197,8 @@ export function CardBrowser({
     return () => observer.disconnect();
   }, [hasMore, view]);
 
-  const chips = useMemo(() => filterChips(query, archetypes), [query, archetypes]);
+  // In Genesys the Link and Pendulum filter is always on, so it is a rule of the format and not a chip to clear.
+  const chips = useMemo(() => filterChips(genesys ? { ...query, excludeGenesysForbidden: false } : query, archetypes), [query, archetypes, genesys]);
   const stale = loading || (results != null && results.key !== key);
 
   function onTileKey(event: KeyboardEvent, card: DeckCardInfo) {
@@ -367,14 +373,17 @@ export function CardBrowser({
                 const full = pool ? left <= 0 : count >= limit;
                 const status = pool ? null : limitName(limit);
                 const arts = card.altArtCount ? `, ${artCountLabel(card.altArtCount)}` : "";
+                const gMark = genesys && !pool ? genesysMark(card) : null;
+                const gText = gMark ? `, ${genesysMarkText(gMark)}` : "";
                 const availability = card.unavailableReason ? `, Unavailable: ${card.unavailableReason}` : "";
                 const label = (pool
                   ? `${card.name}, ${left} ${left === 1 ? "copy" : "copies"} left in your pool${arts}`
-                  : `${card.name}${count ? `, ${count} in deck` : ""}${status ? `, ${status}` : ""}${arts}`) + availability;
+                  : `${card.name}${count ? `, ${count} in deck` : ""}${status ? `, ${status}` : ""}${gText}${arts}`) + availability;
                 const handlers = {
                   draggable: !card.unavailableReason,
                   title: card.unavailableReason ? `${card.name}: Unavailable: ${card.unavailableReason}` : card.name,
                   "aria-pressed": inspectCode === card.code,
+                  "data-gx": gMark?.kind === "forbidden" ? "forbidden" : undefined,
                   onClick: (event: MouseEvent<HTMLButtonElement>) => { event.currentTarget.focus(); onInspect(card); },
                   onPointerEnter: (event: PointerEvent) => { if (event.pointerType !== "touch") pointAt(card); },
                   onPointerLeave: () => pointAt(null),
@@ -386,14 +395,14 @@ export function CardBrowser({
                 if (view === "grid") {
                   return (
                     <li key={card.code}>
-                      <button type="button" className={styles["de-t"]} aria-label={label} data-full={card.unavailableReason || (pool && full) ? "true" : undefined} {...handlers}>
+                      <button type="button" className={styles["de-t"]} aria-label={label} data-full={card.unavailableReason || (pool && full) ? "true" : undefined} data-un={card.unavailableReason ? "" : undefined} {...handlers}>
                         <CardArt code={card.code} name={card.name} />
-                        <LimitBadge limit={limit} />
+                        {genesys && !pool ? <GenesysBadge card={card} variant="browse" lift={Boolean(card.unavailableReason)} /> : <LimitBadge limit={limit} />}
                         <ArtChip otherArts={card.altArtCount ?? 0} corner />
                         {card.unavailableReason ? <span className={styles.unavailable}>Unavailable</span> : null}
                         {pool ? (
                           <span className={cn("num", styles["de-left"])} data-zero={left <= 0 ? "true" : undefined} title="Copies left in your pool">{left} left</span>
-                        ) : count > 0 ? <span className={cn("num", styles["de-have"])}>×{count}</span> : null}
+                        ) : count > 0 ? <span className={cn("num", styles["de-have"])} data-gx={genesys ? "" : undefined}>×{count}</span> : null}
                       </button>
                     </li>
                   );
@@ -404,7 +413,7 @@ export function CardBrowser({
                     <button type="button" className={styles.rowMain} aria-label={label} data-full={card.unavailableReason || (pool && full) ? "true" : undefined} {...handlers}>
                       <span className={styles.rowArt}>
                         <CardArt code={card.code} name={card.name} />
-                        <LimitBadge limit={limit} />
+                        {genesys && !pool ? <GenesysBadge card={card} variant="row" /> : <LimitBadge limit={limit} />}
                       </span>
                       <span className={styles.rowText}>
                         <strong>{card.name}</strong>{" "}
@@ -450,7 +459,7 @@ export function CardBrowser({
               </button>
             </div>
             <div className={styles.filtersScroll}>
-              <CardFilters query={query} archetypes={archetypes} onChange={onQueryChange} hideLimits={pool != null} />
+              <CardFilters query={query} archetypes={archetypes} onChange={onQueryChange} hideLimits={pool != null || genesys} genesys={genesys} />
             </div>
             <div className={styles.filtersFoot}>
               <DeckButton kind="quiet" size="sm" disabled={chips.length === 0} onClick={() => onQueryChange(clearFilters(query))}>

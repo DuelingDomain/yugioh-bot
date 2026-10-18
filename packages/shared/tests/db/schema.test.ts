@@ -156,6 +156,8 @@ describe("shared database schema", () => {
       "card_sets_json",
       "cached_at",
       "archetype",
+      "genesys_points",
+      "genesys_revision",
     ]);
   });
 
@@ -364,6 +366,8 @@ describe("shared database schema", () => {
       "attribute",
       "level",
       "archetype",
+      "genesys_points",
+      "genesys_revision",
     ]);
   });
 

@@ -58,13 +58,19 @@ const QUADRANTS: Record<GridQuadrant, { column: 0 | 1; row: 0 | 1 }> = {
 /** The seat fields that `usesGridLayout` reads. */
 export type GridSeatLike = Pick<DuelEngineView["seats"][number], "seat" | "eliminated" | "sharedExtraWith">;
 
+/** The engine view `field` that `usesGridLayout` reads. */
+export type GridFieldLike = Pick<NonNullable<DuelEngineView["field"]>, "genesys">;
+
 /**
  * True when the engine shares the Extra Monster Zones as the grid draws them: every seat in the duel shares with its
  * facing seat (`gridPartnerOf`) while that seat is in the duel, and with no other seat. A seat view without
  * `sharedExtraWith` (a fixture, an older view) does not count against it. A core that shares across (0+2, 1+3) or not
- * at all fails, because the grid would draw two seats' cards in one shared cell.
+ * at all fails, because the grid would draw two seats' cards in one shared cell. A Genesys board (`field.genesys`) has no
+ * Extra Monster Zones at all (the engine reports `sharedExtraWith: null` for every seat), so nothing is shared in a wrong
+ * cell and the grid always fits.
  */
-export function gridExtraZonesFit(seats: readonly GridSeatLike[]): boolean {
+export function gridExtraZonesFit(seats: readonly GridSeatLike[], field?: GridFieldLike | null): boolean {
+  if (field?.genesys === true) return true;
   const out = new Set(seats.filter((view) => view.eliminated === true).map((view) => view.seat));
   return seats.every((view) => {
     if (view.eliminated === true) return true;
@@ -80,9 +86,9 @@ export function gridExtraZonesFit(seats: readonly GridSeatLike[]): boolean {
  * Monster Zones between facing seats (`gridExtraZonesFit`). An out seat keeps its cell (the field crumbles, then the
  * cell stays empty), so the seat count never changes it. The shell keeps a refusal for the rest of the duel.
  */
-export function usesGridLayout(format: TableFormat | "1v1", seats: readonly GridSeatLike[]): boolean {
+export function usesGridLayout(format: TableFormat | "1v1", seats: readonly GridSeatLike[], field?: GridFieldLike | null): boolean {
   // The 3-way table keeps the plaza stage (owner, 2026-10-11): its facing pair is drawn there as a link, not as a grid.
-  return format === "ffa4" && seats.length === 4 && gridExtraZonesFit(seats);
+  return format === "ffa4" && seats.length === 4 && gridExtraZonesFit(seats, field);
 }
 
 /** The cell of every seat of the layout. Spectators have seat 0 (the anchor) at bottom-left. */
@@ -208,11 +214,20 @@ export const SMALL_FIELD_WIDTH = 520;
 /** The face-off: the plates sit left of the board (shares of the card height); the same room is kept on its right. */
 export const FINALE_SIDE = 2;
 export const FINALE_GAP = 0.22;
+/** The least a face-off plate gets on a phone (px): a plate narrower than this cannot hold its name and life points. */
+const FINALE_PLATE_MIN = { width: 112, height: 52 } as const;
+const FINALE_PLATE_GAP = 6;
 /**
- * How far the two fields of the face-off overlap: only their pads. Each keeps its own Extra Monster row (nothing is shared in
- * the face-off, also for a facing pair), so the two rows lie face to face in a double band.
+ * How far the two fields of the face-off overlap: not at all, their boxes (and so their frames) meet edge to edge. Each keeps
+ * its own Extra Monster row (nothing is shared in the face-off, also for a facing pair), so the two rows lie face to face in
+ * a double band.
  */
-export const FINALE_OVERLAP = PAD;
+export const FINALE_OVERLAP = 0;
+/**
+ * The room of the face-off is fitted as if the boxes overlapped by their pads (the old layout), so the cards keep their size.
+ * The pads that no longer overlap move the bottom field down into the free edge below the board.
+ */
+const FINALE_FIT_OVERLAP = PAD;
 
 export interface GridWorld {
   masterRule: DuelMasterRule;
@@ -336,7 +351,7 @@ function union(a: GridRect, b: GridRect): GridRect {
 
 /** Height of the face-off from the top of its top lane to the bottom of its bottom lane (px; `lane` in card heights). */
 function finaleHeight(z: number, lane: number): number {
-  return (TOP_LANE + 2 * FIELD_ZONES_HIGH - FINALE_OVERLAP + lane) * z;
+  return (TOP_LANE + 2 * FIELD_ZONES_HIGH - FINALE_FIT_OVERLAP + lane) * z;
 }
 
 /**
@@ -345,14 +360,21 @@ function finaleHeight(z: number, lane: number): number {
  */
 function placeFinale(finale: GridFinaleCells, zones: number, edge: number, width: number, height: number): { top: GridCellRect; bottom: GridCellRect; rect: GridFinaleRect } {
   const lane = finale.homeHand ? HOME_LANE : RIVAL_BOTTOM_LANE;
-  const z = Math.max(0, Math.min(height / finaleHeight(1, lane), width / (zones + 2 * (FINALE_SIDE + FINALE_GAP))));
+  const byHeight = height / finaleHeight(1, lane);
+  const zSide = Math.max(0, Math.min(byHeight, width / (zones + 2 * (FINALE_SIDE + FINALE_GAP))));
+  // A phone: the side room of two plate widths is too narrow for a readable plate (its text keeps a floor size and runs
+  // off the box). Then only the left side keeps room, of a readable plate, and the board takes the rest of the width.
+  const narrow = FINALE_SIDE * zSide < FINALE_PLATE_MIN.width;
+  const z = narrow ? Math.max(0, Math.min(byHeight, (width - FINALE_PLATE_MIN.width - FINALE_PLATE_GAP) / zones)) : zSide;
   const top0 = edge + (height - finaleHeight(z, lane)) / 2;
-  const x = edge + width / 2 - (zones * z) / 2;
+  const x = narrow ? edge + width - zones * z : edge + width / 2 - (zones * z) / 2;
   const topBox = rect(x, top0 + TOP_LANE * z, zones * z, FIELD_ZONES_HIGH * z);
   const bottomBox = rect(x, topBox.y + topBox.height - FINALE_OVERLAP * z, zones * z, FIELD_ZONES_HIGH * z);
-  const plateX = x - (FINALE_GAP + FINALE_SIDE) * z;
-  const bottomPlate = rect(plateX, bottomBox.y + bottomBox.height - PLATE_H * z, FINALE_SIDE * z, PLATE_H * z);
-  const topPlate = rect(plateX, topBox.y, FINALE_SIDE * z, PLATE_H * z);
+  const plateW = narrow ? FINALE_PLATE_MIN.width : FINALE_SIDE * z;
+  const plateH = narrow ? FINALE_PLATE_MIN.height : PLATE_H * z;
+  const plateX = narrow ? edge : x - (FINALE_GAP + FINALE_SIDE) * z;
+  const bottomPlate = rect(plateX, bottomBox.y + bottomBox.height - plateH, plateW, plateH);
+  const topPlate = rect(plateX, topBox.y, plateW, plateH);
   const at = (target: GridFocusTarget, turn: 0 | 180, box: GridRect, plate: GridRect, drawer: boolean): GridCellRect => ({
     column: target.column,
     row: target.row,

@@ -1,4 +1,4 @@
-import { hasKnownDeckCardType, isExtraDeckCard, cardLimit, cardTypeRank, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
+import { hasKnownDeckCardType, isExtraDeckCard, cardLimit, cardTypeRank, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode, type GenesysSettings } from "@yugidraft/shared/duels";
 import {
   TYPE_FUSION,
   TYPE_LINK,
@@ -185,13 +185,15 @@ export function importForLibrary(raw: DuelDeck, mode: DuelMode): DeckMasterSelec
   return { deck: cloneDeck(raw), masterOrigin: null };
 }
 
-export function snapshotOf(name: string, mode: DuelMode, deck: DuelDeck): string {
-  return JSON.stringify({ name, mode, deck });
+/** The Genesys tag joins the snapshot only when it is on, so a deck without it compares as it always did. */
+export function snapshotOf(name: string, mode: DuelMode, deck: DuelDeck, genesys?: GenesysSettings | null): string {
+  return JSON.stringify(genesys ? { name, mode, deck, genesys: { pointCap: genesys.pointCap } } : { name, mode, deck });
 }
 
-export function isNewDeckDirty(name: string, mode: DuelMode, deck: DuelDeck): boolean {
+export function isNewDeckDirty(name: string, mode: DuelMode, deck: DuelDeck, genesys?: GenesysSettings | null): boolean {
   return name.trim() !== DEFAULT_NAME
     || mode !== "normal"
+    || genesys != null
     || deck.main.length > 0
     || deck.extra.length > 0
     || deck.side.length > 0

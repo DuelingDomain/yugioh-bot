@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { createDuelService, DuelServiceError } from "../../src/services/duels.js";
 import { createDuelSeriesService } from "../../src/services/duel-series.js";
+import { createTournamentService } from "../../src/services/tournaments.js";
 
 const databases: Database.Database[] = [];
 const directories: string[] = [];
@@ -45,6 +46,108 @@ function expectStatus(work: () => unknown, status: number, message?: RegExp) {
   }
   throw new Error(`Expected status ${status}`);
 }
+
+describe("lobby departure", () => {
+  it("releases a guest from an unstarted casual challenge without closing the host's room", () => {
+    const app = setup();
+    const match = app.series.createChallenge({ guildId: "g", challengerPlayerId: app.host, opponentPlayerId: app.guest,
+      bestOf: 3, ranked: true, mode: "normal" });
+    app.duels.setDeck(match.duel.slug, "g", app.host, deck);
+    app.duels.setDeck(match.duel.slug, "g", app.guest, deck);
+    const hostSeat = app.duels.get(match.duel.slug, "g").seats.find(seat => seat.playerId === app.host);
+    const left = app.duels.leaveLobby(match.duel.slug, "g", app.guest);
+    expect(left).toMatchObject({ slug: match.duel.slug, status: "lobby", seriesId: null, gameNumber: null, bestOf: 3, ranked: true });
+    expect(left.settings).toEqual(match.duel.settings);
+    expect(left.seats).toEqual([hostSeat]);
+    expect(app.duels.room(left.slug, "g", app.host).myDeck).toEqual(deck);
+    expect(app.series.get(match.series.id, "g")).toMatchObject({ status: "cancelled", currentDuelSlug: null, wins: [0, 0] });
+    const invite = app.duels.room(left.slug, "g", app.host).inviteCode!;
+    app.duels.admit(left.slug, "g", app.viewer, invite);
+    app.duels.takeSeat(left.slug, "g", app.viewer);
+    app.duels.setDeck(left.slug, "g", app.viewer, deck);
+    const started = app.duels.activate(left.slug, "g", app.host, ["s"], "v", null);
+    expect(started.seriesId).not.toBe(match.series.id);
+    expect(app.series.get(started.seriesId!, "g").playerIds).toContain(app.viewer);
+    expect(app.series.get(started.seriesId!, "g").playerIds).not.toContain(app.guest);
+  });
+
+  it("closes an unstarted casual challenge and its series when the host departs", () => {
+    const app = setup();
+    const match = app.series.createChallenge({ guildId: "g", challengerPlayerId: app.host, opponentPlayerId: app.guest,
+      bestOf: 3, ranked: false, mode: "normal" });
+    expect(app.duels.leaveLobby(match.duel.slug, "g", app.host).status).toBe("cancelled");
+    expect(app.series.get(match.series.id, "g").status).toBe("cancelled");
+  });
+
+  it("cannot leave the later lobby of a match as host or guest", () => {
+    const app = setup();
+    const match = app.series.createChallenge({ guildId: "g", challengerPlayerId: app.host, opponentPlayerId: app.guest,
+      bestOf: 3, ranked: false, mode: "normal" });
+    app.duels.setDeck(match.duel.slug, "g", app.host, deck);
+    app.duels.setDeck(match.duel.slug, "g", app.guest, deck);
+    app.duels.activate(match.duel.slug, "g", null, ["s"], "v", null);
+    app.duels.complete(match.duel.slug, "g", 0, "done");
+    const next = app.series.createNextGame(match.series.id, "g");
+    expectStatus(() => app.duels.leaveLobby(next.slug, "g", app.host), 409);
+    expectStatus(() => app.duels.leaveLobby(next.slug, "g", app.guest), 409);
+    expect(app.series.get(match.series.id, "g").status).toBe("active");
+  });
+
+  it("preserves tournament organizer cancellation and fixed seats", () => {
+    const app = setup();
+    const tournaments = createTournamentService(app.db);
+    const cup = tournaments.create("g", "Cup", "single_elim", seedUser(app.db, "viewer").userId);
+    tournaments.join(cup.id, app.host);
+    tournaments.join(cup.id, app.guest);
+    tournaments.start(cup.id);
+    app.db.prepare("update tournament_participants set deck_json=? where tournament_id=?").run(JSON.stringify(deck), cup.id);
+    const slot = app.db.prepare("select id,player_one_id from tournament_matches where tournament_id=?").get(cup.id) as { id: number; player_one_id: number };
+    const match = app.series.startTournamentMatch({ guildId: "g", tournamentMatchId: slot.id, actorPlayerId: slot.player_one_id });
+    const opponent = match.duel.seats.find(seat => seat.playerId !== match.duel.organizerPlayerId)!.playerId!;
+    expectStatus(() => app.duels.leaveLobby(match.duel.slug, "g", match.duel.organizerPlayerId), 403);
+    expectStatus(() => app.duels.leaveLobby(match.duel.slug, "g", opponent), 409);
+    expect(app.duels.get(match.duel.slug, "g").seats).toHaveLength(2);
+    expect(app.series.get(match.series.id, "g").status).toBe("active");
+  });
+
+  it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("closes a hosted %s lobby with other players", format => {
+    const app = setup();
+    const table = app.duels.create({ guildId: "g", organizerPlayerId: app.host, name: "Close", mode: "normal", format });
+    app.duels.takeSeat(table.slug, "g", app.guest, 1);
+    expect(app.duels.leaveLobby(table.slug, "g", app.host).status).toBe("cancelled");
+    expect(app.duels.room(table.slug, "g", app.guest).session.status).toBe("cancelled");
+  });
+
+  it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("releases a guest's %s seat while leaving the lobby open", format => {
+    const app = setup();
+    const table = app.duels.create({ guildId: "g", organizerPlayerId: app.host, name: "Leave", mode: "normal", format });
+    app.duels.takeSeat(table.slug, "g", app.guest, 1);
+    app.duels.setDeck(table.slug, "g", app.guest, deck);
+    expect(app.duels.leaveLobby(table.slug, "g", app.guest).status).toBe("lobby");
+    expect(app.duels.room(table.slug, "g", app.guest)).toMatchObject({ mySeat: null, myDeck: null });
+  });
+
+  it("refuses departure after an opening or game starts, even for the host", () => {
+    const app = setup();
+    const table = app.duels.create({ guildId: "g", organizerPlayerId: app.host, name: "Start", mode: "normal" });
+    app.duels.takeSeat(table.slug, "g", app.guest, 1);
+    app.duels.setDeck(table.slug, "g", app.host, deck);
+    app.duels.setDeck(table.slug, "g", app.guest, deck);
+    app.duels.startOpening(table.slug, "g", app.host, Date.now());
+    expectStatus(() => app.duels.leaveLobby(table.slug, "g", app.host), 409);
+    expectStatus(() => app.duels.leaveLobby(table.slug, "g", app.guest), 409);
+    app.duels.abortOpening(table.slug, "g");
+    app.duels.activate(table.slug, "g", app.host, ["s"], "v", null);
+    expectStatus(() => app.duels.leaveLobby(table.slug, "g", app.host), 409);
+  });
+
+  it("cannot depart as a spectator or a foreign guild player", () => {
+    const app = setup();
+    const table = app.duels.create({ guildId: "g", organizerPlayerId: app.host, name: "Stay", mode: "normal" });
+    expectStatus(() => app.duels.leaveLobby(table.slug, "g", app.viewer), 403);
+    expectStatus(() => app.duels.leaveLobby(table.slug, "g", app.outsider), 400);
+  });
+});
 
 describe("explicit lobby seats", () => {
   it.each(["normal", "domain"] as const)("opens a %s table as a spectator until a seat is chosen", (mode) => {

@@ -56,7 +56,8 @@ function fixture(format: DuelFormat = "1v1", path = ":memory:") {
   ];
   const insert = db.prepare("insert into duel_commands(duel_id,seq,seat,command_json) values(?,?,?,?)");
   for (const entry of commands) insert.run(session.id, entry.storedSeq, entry.seat, JSON.stringify(entry.command));
-  duels.setSetup(session.slug, actor.guildId, { ...duels.privateState(session.slug, actor.guildId).setup!, surrenderedSeats: [players.length - 1] });
+  duels.setSetup(session.slug, actor.guildId, { ...duels.privateState(session.slug, actor.guildId).setup!,
+    surrenderedSeats: [players.length - 1], eliminatedSeats: [players.length - 1] });
   duels.interrupt(session.slug, actor.guildId, "Fixture stopped");
   vi.stubEnv("OWNER_USER_IDS", "101,102");
   const sourceState = duels.privateState(session.slug, actor.guildId);
@@ -167,7 +168,7 @@ describe("atomic replay fork storage", () => {
     })).toThrow(/immutable/);
   });
 
-  it("keeps loss commands from the prefix without copying final surrendered seats", () => {
+  it("keeps loss commands from the prefix without copying final surrendered or eliminated seats", () => {
     const app = fixture("ffa4");
     app.input.origin.prefixCount = 3;
     app.input.origin.prefixHash = services.hashReplayForkPrefix(app.source.commands.slice(0, 3));
@@ -175,6 +176,7 @@ describe("atomic replay fork storage", () => {
     const state = app.duels.privateState(session.slug, app.actor.guildId);
     expect(state.commands[2]!.command.promptId).toBe("eliminate:4");
     expect(state.setup?.surrenderedSeats).toBeUndefined();
+    expect(state.setup?.eliminatedSeats).toBeUndefined();
   });
 
   it("copies the opening prefix and appends new commands after copied sequence gaps", () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { DuelDeck, DuelDeckValidation, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import { canonicalCardCode, type DeckCardInfo, type DuelDeck, type DuelDeckValidation, type DuelMode, type DuelSettings, type GenesysCard } from "@yugidraft/shared/duels";
 import { AlertTriangle, CheckCircle2, FileUp, Info, Loader2, X } from "lucide-react";
 import { cardArtUrl } from "./constants";
 import { cx, SheetButton } from "./sheet-ui";
@@ -15,6 +15,8 @@ import { SavedDeckPicker, useSavedDecks } from "./saved-deck-picker";
 import { createSavedDeck, listSavedDecks, prepareDeckTextImport } from "../decks/api";
 import { deckNameFromFile } from "../decks/import";
 import { modeLabel } from "../decks/model";
+import { GenesysBadge, GenesysCheck, GenesysMeter } from "../decks/genesys-ui";
+import { useGenesysDeckSummary } from "../decks/use-genesys-deck";
 import { findSavedDuplicate, pastedDeckName, prepareImportSave, uniqueDeckName } from "./import-save";
 import { CardAddField } from "./card-add-field";
 
@@ -33,6 +35,7 @@ function Section({
   onChooseMaster,
   cardMeta,
   onPreview,
+  genesysCard,
 }: {
   title: string;
   section: "main" | "extra" | "side";
@@ -44,6 +47,8 @@ function Section({
   /** Card names and type bitmasks by passcode; the Master control shows only for monsters. */
   cardMeta?: ReadonlyMap<number, DeckCardMeta>;
   onPreview?: (code: number) => void;
+  /** Genesys room: the points mark of a card, once its details are in. */
+  genesysCard?: (code: number) => Pick<DeckCardInfo, "type" | "genesysPoints"> | undefined;
 }) {
   return (
     <section className={styles.list} aria-label={`${title} deck`}>
@@ -74,6 +79,7 @@ function Section({
                   data-invalid={problem ? "true" : undefined}
                 >
                   <img src={cardArtUrl(code, "small")} alt="" loading="lazy" />
+                  <GenesysBadge card={genesysCard?.(code)} lift={Boolean(problem)} />
                   {problem ? (
                     <span className={styles.invalidTag}><AlertTriangle size={11} strokeWidth={1.8} aria-hidden />Invalid</span>
                   ) : null}
@@ -138,7 +144,7 @@ export function DeckEditor({
   const cardMeta = useDeckCardMeta(deck, { enabled: mode === "domain", retry });
   const [fileName, setFileName] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const savedList = useSavedDecks();
+  const savedList = useSavedDecks(slug);
   const importSeq = useRef(0);
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const [saveNote, setSaveNote] = useState<{ text: string; error?: boolean } | null>(null);
@@ -153,6 +159,16 @@ export function DeckEditor({
   const onLockedRef = useRef(onLocked);
   onLockedRef.current = onLocked;
   const sideAllowed = mode === "normal" || !settings.validateDeck;
+  // A Genesys room: the points of the deck, read only. The server check is what the Ready button waits for.
+  const genesysDeck = useGenesysDeckSummary(deck, mode, settings.genesys);
+  const genesysCard = settings.genesys
+    ? (code: number): Pick<DeckCardInfo, "type" | "genesysPoints"> | undefined => {
+        const own = genesysDeck.catalog.get(code);
+        if (!own) return undefined;
+        const main: GenesysCard | undefined = genesysDeck.catalog.get(canonicalCardCode(code, genesysDeck.catalog));
+        return { type: own.type, genesysPoints: main?.genesysPoints };
+      }
+    : undefined;
 
   const currentValidation = validation?.slug === slug && validation.deck === deck ? validation : null;
   const report = currentValidation?.report;
@@ -228,13 +244,13 @@ export function DeckEditor({
         return;
       }
       const existing = savedList.latest.current ?? await listSavedDecks(AbortSignal.timeout(SAVE_TIMEOUT_MS));
-      const duplicate = findSavedDuplicate(existing, prepared.mode, prepared.deck);
+      const duplicate = findSavedDuplicate(existing, prepared.mode, prepared.deck, settings.genesys);
       if (duplicate) {
         note({ text: `Already in your decks: ${duplicate.name}` });
         return;
       }
       const name = uniqueDeckName(baseName, existing.map((entry) => entry.name));
-      const created = await createSavedDeck({ name, mode: prepared.mode, deck: prepared.deck }, AbortSignal.timeout(SAVE_TIMEOUT_MS));
+      const created = await createSavedDeck({ name, mode: prepared.mode, deck: prepared.deck, ...(settings.genesys ? { genesys: settings.genesys } : {}) }, AbortSignal.timeout(SAVE_TIMEOUT_MS));
       savedList.add(created);
       note({
         text: prepared.mode === mode
@@ -324,6 +340,9 @@ export function DeckEditor({
     : mode === "domain"
       ? "Domain: exactly 60 singleton Main Deck cards, up to 15 Extra Deck cards, and one separate Deck Master. The master determines your Domain; there is no separate leader or Domain selection."
       : "Normal: 40–60 Main Deck cards and up to 15 each in Extra and Side. To use a Deck Master, create a Domain table instead.";
+  const genesysNote = settings.genesys
+    ? `Genesys: the points of all your cards, ${mode === "domain" ? "the Deck Master included, " : ""}must stay within ${settings.genesys.pointCap}. Link and Pendulum Monsters are not allowed. Points replace the banlist.`
+    : "";
   const mainTarget = !settings.validateDeck ? undefined : mode === "domain" ? "of 60" : "40–60";
   const extraTarget = settings.validateDeck ? "up to 15" : undefined;
   const sideTarget = settings.validateDeck && mode === "normal" ? "up to 15" : undefined;
@@ -344,10 +363,19 @@ export function DeckEditor({
             Ready with this deck
           </SheetButton>
         </div>
-        <p className={styles.rules}><Info size={15} strokeWidth={1.6} aria-hidden /><span>{rulesNote}</span></p>
+        <p className={styles.rules}><Info size={15} strokeWidth={1.6} aria-hidden /><span>{rulesNote}{genesysNote ? ` ${genesysNote}` : ""}</span></p>
+        {genesysDeck.summary ? <GenesysMeter summary={genesysDeck.summary} wide /> : null}
+        {genesysDeck.summary ? <GenesysCheck summary={genesysDeck.summary} /> : null}
       </header>
 
-      <SavedDeckPicker mode={mode} disabled={busy} list={savedList} onLoad={(saved) => {
+      <SavedDeckPicker mode={mode} genesys={settings.genesys} disabled={busy} list={savedList}
+        onBeforeEdit={() => {
+          // The editor opens in this tab, so the deck changed here by hand is lost: ask first. A deck from the room or
+          // a saved deck that was not changed leaves nothing behind.
+          const changed = deck !== pristineDeck && (main.length > 0 || extra.length > 0 || side.length > 0 || masterCode !== undefined);
+          return !changed || window.confirm("You changed the deck at this table. If you open the deck editor, those changes are lost. Open the editor?");
+        }}
+        onLoad={(saved) => {
         const hasCards = main.length > 0 || extra.length > 0 || side.length > 0 || masterCode !== undefined;
         if (hasCards && deck !== pristineDeck
           && !window.confirm("Replace the deck you changed at this table? Your saved deck is unchanged.")) return false;
@@ -464,12 +492,12 @@ export function DeckEditor({
       {parseError ? <p role="alert" className={ui.alert}>{parseError}</p> : null}
 
       <Section title="Main" section="main" codes={main} problems={problems} target={mainTarget}
-        onRemove={(index) => removeCard("main", index)} onPreview={onPreviewCard} onChooseMaster={mode === "domain" ? chooseMaster : undefined} cardMeta={cardMeta} />
+        onRemove={(index) => removeCard("main", index)} onPreview={onPreviewCard} onChooseMaster={mode === "domain" ? chooseMaster : undefined} cardMeta={cardMeta} genesysCard={genesysCard} />
       <Section title="Extra" section="extra" codes={extra} problems={problems} target={extraTarget}
-        onRemove={(index) => removeCard("extra", index)} onPreview={onPreviewCard} onChooseMaster={mode === "domain" ? chooseMaster : undefined} cardMeta={cardMeta} />
+        onRemove={(index) => removeCard("extra", index)} onPreview={onPreviewCard} onChooseMaster={mode === "domain" ? chooseMaster : undefined} cardMeta={cardMeta} genesysCard={genesysCard} />
       {sideAllowed || side.length > 0 ? (
         <Section title="Side" section="side" codes={side} problems={problems} target={sideTarget}
-          onRemove={(index) => removeCard("side", index)} onPreview={onPreviewCard} onChooseMaster={mode === "domain" ? chooseMaster : undefined} cardMeta={cardMeta} />
+          onRemove={(index) => removeCard("side", index)} onPreview={onPreviewCard} onChooseMaster={mode === "domain" ? chooseMaster : undefined} cardMeta={cardMeta} genesysCard={genesysCard} />
       ) : null}
 
     </div>

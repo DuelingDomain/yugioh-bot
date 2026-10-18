@@ -8,6 +8,7 @@ import Link from "next/link";
 import { Circle, Diamond, Eye, Film, Radio, Volume2, VolumeX } from "lucide-react";
 import type { DuelCard } from "@yugidraft/shared/duels";
 import { isCustomDomain } from "@yugidraft/shared/duels";
+import { genesysLabel, genesysOf } from "../genesys";
 import { BattleFx } from "../battle-fx";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
@@ -244,15 +245,15 @@ function TableShellBody({
   // plaza stage. A core that shares the Extra Monster Zones another way than the grid draws them (the facing pairs are
   // fixed for the whole duel) keeps the plaza stage for the whole duel (see useLatch).
   const trackedFormat = engineFormat(tracked.engine) as TableFormat;
-  const gridFits = usesGridLayout(trackedFormat, tracked.engine.seats);
+  const gridFits = usesGridLayout(trackedFormat, tracked.engine.seats, tracked.engine.field);
   const gridRefused = useLatch(trackedFormat === "ffa4" && !gridFits);
   const grid = gridFits && !gridRefused;
   // The 3-way plaza on a wide screen keeps its stage and gets the same floating HUD (Log, Settings and Camera).
   const plazaHud = !narrow && !grid && trackedFormat === "ffa3";
   // The 4-way grid on a wide screen swaps the bars and side columns for the floating HUD (grid-hud.tsx).
   const hud = !narrow && (grid || plazaHud);
-  // The Card pane is a flyout in the HUD: a hover must not fill it, only a click or Inspect does.
-  const hudState = useHudPane({ camera: plazaHud, initialPane: replayCarry?.current.hudPane });
+  // No Card drawer in the 3-way plaza or the 4-way grid: a click on a card (and Inspect) opens the pinned card pop-out.
+  const hudState = useHudPane({ camera: plazaHud, cardPane: false, initialPane: replayCarry?.current.hudPane });
   const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (grid && hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
   useHudEscape(hudState, hud, ui.suspended);
   usePinSync(hudState, tracked.engine.seats);
@@ -528,7 +529,7 @@ function TableShellBody({
         </strong>
       ) : null}
       <span className={roomStyles.format}>
-        {domain ? (isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain") : `MR${session.masterRule}`} · {formatLabel(format)}
+        {genesysLabel(session.mode, genesysOf(session), domain && isCustomDomain(session.masterRule, session.settings)) ?? (domain ? (isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain") : `MR${session.masterRule}`)} · {formatLabel(format)}
       </span>
     </div>
   );
@@ -618,7 +619,7 @@ function TableShellBody({
 
   // The Deck Master badges (the corner of each LP plate) read their seat's master from here, with this table's keys and prompt.
   const showMasterCard = (target: InspectTarget) => {
-    if (hud) { ui.setInspect(target); hudState.setPane("card"); }
+    if (hud) { ui.setInspect(target); hudState.openCard(target); }
     else inspectCard(target);
   };
   const masterBadges: MasterBadgeSource | null = domain ? {
@@ -630,6 +631,8 @@ function TableShellBody({
       true,
     ),
     onInspect: showMasterCard,
+    // The 3-way plaza has free table at the bottom left: the emblem stands there instead of in the hand row.
+    apart: plazaHud ? "corner" : true,
   } : null;
 
   // The 3-way plaza keeps its side content in edge drawers (plaza-drawers.tsx); the grid and the other tables keep the floating HUD.
@@ -950,7 +953,6 @@ function TableShellBody({
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          onInspect={showMasterCard}
           preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={ui.pile?.open === true}

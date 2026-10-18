@@ -34,6 +34,7 @@ import { ViewReset } from "./view-reset";
 import { clearRoom, FOLLOW_ATTR, fitItemRect, fitRoom, followShift, VIEW_IDENTITY, type FitItem, type View } from "./view-zoom";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
 import { useForkLabels } from "./fork-labels";
+import { sessionBoardRule } from "../genesys";
 import styles from "./table-stage.module.css";
 
 /**
@@ -521,14 +522,14 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   useFlyGestures(rootRef, fly, dispatchCamera);
 
   const format = engineFormat(engine);
-  const masterRule = room.session.masterRule;
+  const masterRule = sessionBoardRule(room.session, engine);
   const picks = controller.seatPick;
   const pickOrder = picks ? play.slots.map((slot) => slot.seat).filter((seat) => picks.options.has(seat)) : [];
   const promptSeat = controller.prompt?.seat ?? null;
   const flyYaw = fly ? world.yawDeg : 0;
 
   const plaza3 = layout.format === "ffa3" && layout.slots.length === 3;
-  const facingPair = plaza3 ? plazaFacingPair(engine) : null;
+  const facingPair = plaza3 && masterRule >= 4 ? plazaFacingPair(engine) : null;
   // One object per seat for as long as the pair and the names stay, so the memoized fields of the pair do not draw again each render.
   const pairA = facingPair?.[0].seat ?? null;
   const pairB = facingPair?.[1].seat ?? null;

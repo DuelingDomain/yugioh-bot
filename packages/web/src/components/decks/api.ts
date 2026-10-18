@@ -1,12 +1,22 @@
 import type { CardAdmissionContext } from "@/lib/card-admission-context";
 import type { DraftDeckPool } from "./pool-model";
-import type { CardFacets, CardQuery, CardQueryResult, DeckArtworkSwapRequest, DeckCardInfo, DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
+import type { CardFacets, CardQuery, CardQueryResult, DeckArtworkSwapRequest, DeckCardInfo, DuelDeck, DuelMode, GenesysSettings, SavedDeck } from "@yugidraft/shared/duels";
 import type { DeckRegistrationMark } from "@yugidraft/shared/services";
 
 export type { SavedDeck, DeckRegistrationMark };
 
 /** A saved deck as the decks API returns it: the stored deck plus the tournament it is registered for, if any. */
-export type SavedDeckView = SavedDeck & { registration?: DeckRegistrationMark | null };
+export type SavedDeckView = SavedDeck & {
+  registration?: DeckRegistrationMark | null;
+  editDeckId?: number;
+  editHref?: string;
+};
+
+export interface SavedDeckListResponse {
+  decks: SavedDeckView[];
+  roomSlug: string | null;
+  roomHref: string | null;
+}
 
 export class DeckRequestError extends Error {
   readonly status: number;
@@ -51,8 +61,9 @@ function readDeck(body: { deck?: SavedDeckView }): SavedDeckView {
   return body.deck;
 }
 
-export async function listSavedDecks(signal?: AbortSignal): Promise<SavedDeckView[]> {
-  const body = await parseBody<{ decks?: SavedDeckView[] }>(await fetch("/api/decks", { cache: "no-store", signal }));
+export async function listSavedDecks(signal?: AbortSignal, roomSlug?: string): Promise<SavedDeckView[]> {
+  const url = `/api/decks${roomSlug ? `?room=${encodeURIComponent(roomSlug)}` : ""}`;
+  const body = await parseBody<SavedDeckListResponse>(await fetch(url, { cache: "no-store", signal }));
   if (!Array.isArray(body.decks)) {
     throw new DeckRequestError("The server returned an invalid deck list.", 502);
   }
@@ -67,6 +78,8 @@ export async function createSavedDeck(input: {
   name: string;
   mode: DuelMode;
   deck: DuelDeck;
+  /** Omitted: the deck is not tagged Genesys. */
+  genesys?: GenesysSettings | null;
 }, signal?: AbortSignal): Promise<SavedDeck> {
   return readDeck(await parseBody(await fetch("/api/decks", {
     method: "POST",
@@ -78,7 +91,8 @@ export async function createSavedDeck(input: {
 
 export async function updateSavedDeck(
   id: number,
-  input: { name: string; mode: DuelMode; deck: DuelDeck },
+  /** `genesys` omitted keeps the saved tag; null removes it. */
+  input: { name: string; mode: DuelMode; deck: DuelDeck; genesys?: GenesysSettings | null },
 ): Promise<SavedDeckView> {
   return readDeck(await parseBody(await fetch(`/api/decks/${id}`, {
     method: "PUT",

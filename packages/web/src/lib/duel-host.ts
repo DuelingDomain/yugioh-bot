@@ -13,7 +13,7 @@ import {
   type DuelService,
 } from "@yugidraft/shared/services";
 import { isReplayFork, seatCountFor, type CardQuery, type DuelChainMode, type DuelCommand, type DuelDeck, type DuelFirstChoice,
-  type DuelMasterRule, type DuelMode, type DuelRpsMove, type DuelRoom, type ReplayForkRequest, type ReplayUnverifiedReason } from "@yugidraft/shared/duels";
+  type DuelFormat, type DuelMasterRule, type DuelMode, type DuelRpsMove, type DuelRoom, type ReplayForkRequest, type ReplayUnverifiedReason } from "@yugidraft/shared/duels";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -177,6 +177,7 @@ export async function callDuelHost(input: {
   cardQuery?: CardQuery;
   /** Rules for `check-deck`. */
   mode?: DuelMode;
+  format?: DuelFormat;
   masterRule?: DuelMasterRule;
   settings?: unknown;
   /** check-deck only: the server loads this player's durable draft pool. */
@@ -236,6 +237,7 @@ export async function callDuelHost(input: {
   if (input.note !== undefined) payload.note = input.note;
   if (input.cardQuery !== undefined) payload.cardQuery = input.cardQuery;
   if (input.mode !== undefined) payload.mode = input.mode;
+  if (input.format !== undefined) payload.format = input.format;
   if (input.masterRule !== undefined) payload.masterRule = input.masterRule;
   if (input.settings !== undefined) payload.settings = input.settings;
   if (input.move !== undefined) payload.move = input.move;

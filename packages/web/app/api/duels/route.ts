@@ -21,7 +21,10 @@ export async function GET(request: NextRequest) {
     }
     const archived = request.nextUrl.searchParams.get("archived") === "1";
     if (!archived) {
-      return NextResponse.json({ duels: actor.duels.list(actor.guildId, actor.playerId) });
+      return NextResponse.json({ duels: actor.duels.list(actor.guildId, actor.playerId).map(duel => ({
+        ...duel, joinable: duel.joinable && !multiplayerTablesBlockReason(duel.tableType, multiplayerTablesEnabled()),
+      })) },
+        { headers: { "cache-control": "private, no-store" } });
     }
     const param = (key: string) => {
       const values = request.nextUrl.searchParams.getAll(key);
@@ -59,7 +62,7 @@ export async function POST(request: NextRequest) {
     name?: unknown;
     mode?: unknown;
     masterRule?: unknown;
-    /** settings.firstTurnDraw: boolean, Domain ffa3/ffa4 only; omission defaults ON. */
+    /** Includes host-settable genesys: { pointCap: 0..1000 } and Domain FFA firstTurnDraw. */
     settings?: unknown;
     format?: unknown;
     opponentPlayerId?: unknown;

@@ -1399,6 +1399,8 @@ button.bpill[data-targets="true"] { border-color: rgb(240 192 96 / 0.85); }
   .pmain { min-width: 0; }
   .mchips { gap: 4px; }
   .m1 b { max-width: 52px; }
+  /* With the damage chip in the row the plate is too wide for a phone and its right chip (and Deck Master badge) leaves the screen: the starting life points give way. */
+  .pr2:has(.dmg) .lpof { display: none; }
 }
 
 .srOnly {

@@ -25,10 +25,15 @@
 @container de-list (max-width: 300px) { .de-res { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .de-t { border-radius: 5px; }
 .de-have, .de-left { position: absolute; right: 4px; bottom: 4px; min-width: 24px; height: 19px; padding: 0 5px; border-radius: 4px; background: rgb(5 8 15 / 0.9); color: var(--chain-ink); font: 500 13px/19px var(--f-num); text-align: center; box-shadow: 0 0 0 1px rgb(181 153 99 / 0.55); }
+/* Genesys: the points chip has the bottom left (28px tall), so the copy count sits right above the foot, clear of it. A strip across the foot ("Unavailable") raises both. */
+.de-have[data-gx] { bottom: 35px; }
+.de-t[data-un] .de-have[data-gx] { bottom: 59px; }
 .de-left { color: var(--ink); }
 .de-left[data-zero] { color: var(--ink-3); box-shadow: 0 0 0 1px var(--rule-lo); }
 .de-t[data-full] img { opacity: 0.38; filter: grayscale(0.6); }
-.unavailable { position: absolute; left: 4px; bottom: 4px; padding: 2px 5px; border-radius: 4px; background: rgb(5 8 15 / 0.95); color: var(--ink); font-size: 11px; }
+/* A strip across the foot, so it fits any tile width; the copy count and the points chip sit above it. */
+.unavailable { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 0; background: rgb(5 8 15 / 0.95); color: var(--ink); font-size: 11px; line-height: 1.4; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.de-t[data-un] .de-have { bottom: 26px; }
 
 
 .de-list { container: de-list / inline-size; position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; border-left: 1px solid var(--rule-lo); background: rgb(4 7 14 / 0.35); }
@@ -55,7 +60,7 @@
 .chipButton { cursor: pointer; font-size: 12.5px; }
 :global(.ms) .clearAll { min-height: 26px; padding: 0 8px; font-size: 12.5px; }
 .body { position: relative; min-height: 0; }
-.results { height: 100%; overflow: auto; overscroll-behavior: contain; padding: 0 18px 28px; scrollbar-width: thin; }
+.results { height: 100%; overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; padding: 0 18px 28px; scrollbar-width: thin; }
 .de-count { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; margin-bottom: 12px; }
 .working { color: var(--ink-4); font-size: 12px; }
 .none { display: grid; gap: 10px; justify-items: start; padding-block: 20px; color: var(--ink-3); }
@@ -67,6 +72,8 @@
 .de-t:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.32), 0 12px 20px -14px #000; }
 .de-t:active { cursor: grabbing; }
 .de-t[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--pen), 0 0 0 5px var(--pen-soft); }
+.de-t[data-gx="forbidden"] { box-shadow: 0 0 0 2px var(--loss); }
+.de-t[data-gx="forbidden"] img { opacity: 0.55; }
 .de-list :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .de-view { flex: none; }
 @container de-list (max-width: 350px) { .head { padding: 12px 12px 10px; } .results { padding-inline: 12px; } :global(.ms) .de-fbtn { padding-inline: 8px; } }
@@ -171,6 +178,7 @@
 }
 
 .fBody { display: grid; }
+.fNote { margin: 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.45; }
 .fSection { display: grid; gap: 9px; padding: 14px 0; border-bottom: 1px solid rgb(181 153 99 / 0.1); }
 .fSection:last-child { border-bottom: 0; }
 .fHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 26px; }
