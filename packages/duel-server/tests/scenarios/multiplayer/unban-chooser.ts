@@ -1,4 +1,4 @@
-import { activate, defineScenario, endTurn, expectBoard, expectNotOffered, expectPickSeats,
+import { activate, defineScenario, endTurn, expectBoard, expectNotOffered, expectPickSeats, expectSeatNotOffered, no,
   pickOpponent, select, yes, type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
 
 type Format = "ffa3" | "ffa4" | "tag";
@@ -23,19 +23,20 @@ function state(format: Format, spec: BoardExpect): Step {
   }])));
 }
 
-function chaos(format: "ffa3" | "ffa4", domain: boolean): Scenario {
+function chaos(format: Format, domain: boolean): Scenario {
   const setup = fixture(format, domain);
   const hands = [OX, FANG, "Axe Raider", "Celtic Guardian"];
   for (const [index, seat] of seats(format).entries()) Object.assign(setup[seat]!, { hand: [hands[index]], monsters: [ELF] });
   setup.p0!.monsters!.push(CED);
   const result: BoardExpect = {};
-  for (const [index, seat] of seats(format).entries()) result[seat] = seat === "p0" || seat === "p2"
-    ? { lp: seat === "p0" ? 7000 : 7400, grave: [ELF, hands[index], ...(seat === "p0" ? [CED, ...(domain ? [ELF] : [])] : [])] }
+  for (const [index, seat] of seats(format).entries()) result[seat] = format === "tag" || seat === "p0" || seat === "p2"
+    ? { lp: format === "tag" ? (index % 2 === 0 ? 15000 : 14800) : seat === "p0" ? 7000 : 7400,
+      grave: [ELF, hands[index], ...(seat === "p0" ? [CED, ...(domain ? [ELF] : [])] : [])] }
     : { monsters: [ELF], hand: [hands[index]] };
-  return defineScenario({ id: `unban-chooser-${format}-chaos-picks-p2${domain ? "-domain" : ""}`,
-    title: `${format}: Chaos Emperor Dragon sends only the chosen pair`, source,
-    rules: ["R-FFA-OPP-ONE"], tags: ["multiplayer", "card:82301904", format], setup,
-    steps: [activate(CED, "p0"), expectPickSeats(seats(format).slice(1), "p0"), pickOpponent("p2", "p0"), state(format, result)] });
+  return defineScenario({ id: `unban-chooser-${format}-chaos-${format === "tag" ? "all-duelists" : "picks-p2"}${domain ? "-domain" : ""}`,
+    title: `${format}: Chaos Emperor Dragon ${format === "tag" ? "keeps its all-duelist send" : "sends only the chosen pair"}`, source,
+    rules: [format === "tag" ? "R-COMMON-EACH-PLAYER" : "R-FFA-OPP-ONE"], tags: ["multiplayer", "card:82301904", format], setup,
+    steps: [activate(CED, "p0"), ...(format === "tag" ? [] : [expectPickSeats(seats(format).slice(1), "p0"), pickOpponent("p2", "p0")]), state(format, result)] });
 }
 
 function ring(format: Format, domain: boolean): Scenario {
@@ -88,19 +89,35 @@ function virusDuration(format: "ffa3" | "ffa4", domain: boolean): Scenario {
   setup.p0!.spells = [{ card: VIRUS, pos: "set" }];
   setup.p1!.hand = ["Hinotama"];
   setup.p2!.hand = ["Tremendous Fire"];
+  setup.p2!.deck = Array(20).fill(BLUE);
   setup.p2!.monsters = [OX, FANG];
   return defineScenario({ id: `unban-chooser-${format}-crush-next-turn-expiry${domain ? "-domain" : ""}`,
     title: `${format}: Crush Card Virus prevents damage through the next turn only`, source,
     rules: ["R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK"], tags: ["multiplayer", "card:57728570", format], setup,
-    steps: [activate(VIRUS, "p0"), pickOpponent("p2", "p0"), endTurn("p0"),
+    steps: [activate(VIRUS, "p0"), pickOpponent("p2", "p0"), no("p2"), endTurn("p0"),
       activate("Hinotama", "p1"), pickOpponent("p2", "p1"), expectBoard({ p2: { lp: 8000 } }),
       endTurn("p1"), activate("Tremendous Fire", "p2"), pickOpponent("p1", "p2"),
       state(format, { p0: { hand: domain ? [ELF] : [], grave: [VIRUS, "Kuriboh"] },
         p1: { lp: 7000, hand: [ELF], grave: ["Hinotama"] },
-        p2: { lp: 7500, hand: [ELF], monsters: [FANG], grave: [OX, "Tremendous Fire"] } })] });
+        p2: { lp: 7500, hand: [BLUE], monsters: [FANG], grave: [OX, "Tremendous Fire"] } })] });
+}
+
+function ringAboveLp(format: Format, domain: boolean): Scenario {
+  const setup = fixture(format, domain);
+  setup.p0!.spells = [{ card: RING, pos: "set" }];
+  for (const seat of seats(format).filter(seat => format === "tag" ? seat === "p1" || seat === "p3" : seat !== "p0")) {
+    setup[seat]!.lp = 2000;
+    setup[seat]!.monsters = [BLUE];
+  }
+  return defineScenario({ id: `unban-chooser-${format}-ring-above-controller-lp${domain ? "-domain" : ""}`,
+    title: `${format}: Ring cannot target an opponent monster above that controller's LP`, source,
+    rules: ["R-FFA-OPP-ONE"], tags: ["multiplayer", "card:83555666", format], setup,
+    steps: [endTurn("p0"), expectSeatNotOffered("activate", RING, "p0"),
+      expectBoard({ p0: { spells: [RING], grave: [] }, p1: { lp: 2000, monsters: [BLUE], hand: [ELF] } })] });
 }
 
 export const UNBAN_CHOOSER_SCENARIOS: Scenario[] = [false, true].flatMap(domain => [
   ...(["ffa3", "ffa4"] as const).flatMap(format => [chaos(format, domain), virusDuration(format, domain)]),
-  ...(["ffa3", "ffa4", "tag"] as const).flatMap(format => [ring(format, domain), virus(format, domain)]),
+  chaos("tag", domain),
+  ...(["ffa3", "ffa4", "tag"] as const).flatMap(format => [ring(format, domain), ringAboveLp(format, domain), virus(format, domain)]),
 ]);
