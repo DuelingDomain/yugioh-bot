@@ -852,7 +852,7 @@ export const CARD_RULE_EVIDENCE: Record<number, Evidence[]> = {
   82301904: [{ file: "overlay/c82301904.lua", line: 4, token: "s.sgtg=aux.MPTarget" }, { file: "overlay/c82301904.lua", line: 5, token: "s.sgop=aux.MPOne" }],
   83555666: [ev(83555666, 25, "Duel.GetLP(1-tp)"), ev(83555666, 41, "Duel.Damage(1-tp,val")],
   57728570: [ev(57728570, 43, "GetFieldGroup(tp,0,LOCATION_MZONE|LOCATION_HAND)"), ev(57728570, 52, "SelectYesNo(1-tp")],
-  27204311: [{ file: "overlay/c27204311.lua", line: 10, token: "GetSummonPlayer()" }, { file: "overlay/c27204311.lua", line: 15, token: "Duel.MPTurnSeat()" }, { file: "overlay/c27204311.lua", line: 24, token: "stock_target" }],
+  27204311: [{ file: "overlay/c27204311.lua", line: 16, token: "MPAnyOpponent" }],
 
   // Kaiju and Lava procedure: Tribute a monster of an opponent, summon to that field.
   55063751: [ev(55063751, 5, "aux.AddKaijuProcedure"), ...lavaCore],

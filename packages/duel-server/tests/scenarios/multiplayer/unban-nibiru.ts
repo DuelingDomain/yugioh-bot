@@ -1,6 +1,6 @@
 import {
-  activate, changePhase, defineScenario, endTurn, expectBoard, expectPrompt, faceDown, normalSummon,
-  pass, pickOpponent, position, zone, type BoardExpect, type DuelistId, type Scenario, type Step,
+  activate, changePhase, defineScenario, endTurn, expectBoard, expectOffered, expectPickSeats, expectPrompt, faceDown, normalSummon,
+  pass, pickOpponent, position, select, zone, type BoardExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { domainVariant } from "./domain-variants.js";
 
@@ -11,7 +11,7 @@ const KURIBOH_TOKEN = 40703223;
 export const MULTIPLY = "Multiply";
 export const ELF = "Mystical Elf";
 export const OX = "Battle Ox";
-export const NIBIRU_SOURCE = "Owner 2026-10-18: Nibiru counts summons by the real turn player; tribute only its controller and that opponent in FFA, or their two full sides in Tag; summon Nibiru to its controller and the Token to the turn player. docs/adr/0002-multiplayer-duel-rules.md [R-FFA-OPP-RESPONSE] [R-COMMON-SEAT-STATE] [R-TAG-SHARED-CARDS]";
+export const NIBIRU_SOURCE = "Owner 2026-10-18: Nibiru counts each real opponent's summons this turn. Choose one opponent that summoned at least five; tribute its controller and that opponent in FFA, or both full sides in Tag; give the Token to the chosen summoner. docs/adr/0002-multiplayer-duel-rules.md [R-FFA-OPP-RESPONSE] [R-COMMON-SEAT-STATE] [R-TAG-SHARED-CARDS]";
 export const NIBIRU_FORMATS = ["ffa3", "ffa4", "tag"] as const;
 export type NibiruFormat = typeof NIBIRU_FORMATS[number];
 export const nibiruSeats = (format: NibiruFormat): DuelistId[] => format === "ffa3" ? ["p0", "p1", "p2"] : ["p0", "p1", "p2", "p3"];
@@ -86,7 +86,7 @@ const countControls = NIBIRU_FORMATS.flatMap(format => nibiruSeats(format).flatM
 })));
 
 // The non-turn duelist summons five while answering the turn player's Spell.
-// Those summons must not enable Nibiru now or carry over to that duelist's next turn.
+// Those summons enable Nibiru now, but do not carry over to the next turn.
 const otherTurn = NIBIRU_FORMATS.flatMap(format => nibiruSeats(format).slice(1).map(summoner => {
   const seats = nibiruSeats(format);
   const actor = "p0";
@@ -97,18 +97,89 @@ const otherTurn = NIBIRU_FORMATS.flatMap(format => nibiruSeats(format).slice(1).
   setup[summoner] = { monsters: [KURIBOH], spells: [faceDown(MULTIPLY)] };
   return defineScenario({
     id: `unban-nibiru-${format}-nonturn-${summoner}-turn-${actor}-reset`,
-    title: `${format}: five summons by ${summoner} outside its turn do not enable Nibiru or carry to its next turn`,
+    title: `${format}: five summons by ${summoner} outside its turn enable Nibiru but do not carry to its next turn`,
     source: NIBIRU_SOURCE, rules: ["R-FFA-OPP-RESPONSE", "R-COMMON-SEAT-STATE"],
     tags: ["multiplayer", format, "card:27204311"], setup,
     steps: [activate("Dian Keto the Cure Master", actor), zone(actor, "s0", actor), activate(MULTIPLY, summoner),
       ...(format !== "tag" ? [pickOpponent(seats.find(seat => seat !== summoner)!, summoner)] : []),
-      noNibiru(holder), expectPrompt({ by: actor, context: "action" }),
+      expectOffered("activate", NIBIRU, holder), pass(holder), expectPrompt({ by: actor, context: "action" }),
       expectBoard({ [summoner]: { monsters: { count: 5, include: [KURIBOH_TOKEN] }, grave: [KURIBOH, MULTIPLY] }, [holder]: { hand: { include: [NIBIRU] } } }),
-      ...seats.slice(0, seats.indexOf(summoner)).map(seat => endTurn(seat)),
+      ...seats.slice(0, seats.indexOf(summoner)).flatMap(seat => [endTurn(seat), ...(seat === actor && holder !== actor ? [pass(holder)] : [])]),
       noNibiru(holder), expectPrompt({ by: summoner, context: "action" }), noNibiru(holder),
       expectBoard({ [holder]: { hand: { include: [NIBIRU] } }, [summoner]: { monsters: { count: 5, include: [KURIBOH_TOKEN] } } })],
   });
 }));
+
+const offTurnResolutions = NIBIRU_FORMATS.flatMap(format => nibiruSeats(format).slice(1).map(summoner => {
+  const seats = nibiruSeats(format);
+  const holder = seats.find(seat => seat !== summoner && nibiruOpponent(format, summoner, seat))!;
+  const setup: Scenario["setup"] = { format, skipOpeningDraw: true };
+  for (const seat of seats) setup[seat] = { hand: seat === holder ? [NIBIRU] : [], monsters: [seat === holder ? ELF : OX] };
+  setup.p0!.hand = [...(holder === "p0" ? [NIBIRU] : []), "Dian Keto the Cure Master"];
+  setup[summoner] = { monsters: [KURIBOH], spells: [faceDown(MULTIPLY)] };
+  const board: BoardExpect = Object.fromEntries(seats.map(seat => [seat, {
+    monsters: seat === summoner ? [NIBIRU_TOKEN] : seat === holder ? [NIBIRU] : format === "tag" ? [] : [OX],
+    spells: [], grave: seat === summoner ? [KURIBOH, MULTIPLY] : [
+      ...(seat === "p0" ? ["Dian Keto the Cure Master"] : []), ...(seat === holder ? [ELF] : format === "tag" ? [OX] : []),
+    ], hand: [], banished: [], extra: [],
+  }]));
+  board[summoner]!.zones = { m0: { card: NIBIRU_TOKEN, attack: format === "tag" ? 5700 : 2300, defense: format === "tag" ? 5000 : 3000 } };
+  return defineScenario({ id: `unban-nibiru-${format}-nonturn-${summoner}-resolution`,
+    title: `${format}: Nibiru gives its Token to off-turn summoner ${summoner}`,
+    source: NIBIRU_SOURCE, rules: ["R-FFA-OPP-RESPONSE", "R-COMMON-SEAT-STATE", ...(format === "tag" ? ["R-TAG-SHARED-CARDS"] : [])],
+    tags: ["multiplayer", format, "card:27204311"], setup,
+    steps: [activate("Dian Keto the Cure Master", "p0"), zone("p0", "s0", "p0"), activate(MULTIPLY, summoner),
+      ...(format !== "tag" ? [pickOpponent(seats.find(seat => seat !== summoner)!, summoner)] : []),
+      activate(NIBIRU, holder), zone(holder, "m0", holder), position("atk", holder),
+      zone(summoner, "m0", holder), position("atk", holder), expectPrompt({ by: "p0", context: "action" }), expectBoard(board)],
+  });
+}));
+
+const multipleQualifiers = NIBIRU_FORMATS.flatMap(format => {
+  const summoners: DuelistId[] = format === "tag" ? ["p1", "p3"] : ["p1", "p2"];
+  return summoners.map(chosen => {
+    const seats = nibiruSeats(format);
+    const setup: Scenario["setup"] = { format, skipOpeningDraw: true,
+      p0: { hand: [NIBIRU, "Dian Keto the Cure Master"], monsters: [ELF] } };
+    for (const seat of seats.slice(1)) setup[seat] = summoners.includes(seat)
+      ? { monsters: [KURIBOH], spells: [faceDown(MULTIPLY)] } : { monsters: [OX] };
+    const board: BoardExpect = Object.fromEntries(seats.map(seat => [seat, {
+      monsters: seat === "p0" ? [NIBIRU] : seat === chosen ? [NIBIRU_TOKEN] : format === "tag" ? [] : summoners.includes(seat)
+        ? Array<number>(5).fill(KURIBOH_TOKEN) : [OX],
+      spells: [], grave: seat === "p0" ? [ELF, "Dian Keto the Cure Master"] : summoners.includes(seat)
+        ? [KURIBOH, MULTIPLY] : format === "tag" ? [OX] : [], hand: [], extra: [], banished: [],
+    }]));
+    board[chosen]!.zones = { m0: { card: NIBIRU_TOKEN, attack: format === "tag" ? 5500 : 2300, defense: format === "tag" ? 5000 : 3000 } };
+    return defineScenario({ id: `unban-nibiru-${format}-multiple-qualifiers-choose-${chosen}`,
+      title: `${format}: Nibiru offers only the two opponents with five summons and gives the Token to chosen ${chosen}`,
+      source: NIBIRU_SOURCE, rules: ["R-FFA-OPP-RESPONSE", "R-COMMON-SEAT-STATE", "R-COMMON-OPP-PICK"],
+      tags: ["multiplayer", format, "card:27204311"], setup,
+      steps: [activate("Dian Keto the Cure Master", "p0"), zone("p0", "s0", "p0"),
+        ...summoners.flatMap((seat, index) => [activate(MULTIPLY, seat), ...(format !== "tag" ? [pickOpponent("p0", seat)]
+          : index === 0 ? [select({ card: KURIBOH, owner: seat })] : [])]),
+        activate(NIBIRU, "p0"), expectPickSeats(summoners, "p0"), pickOpponent(chosen, "p0"),
+        zone("p0", "m0", "p0"), position("atk", "p0"), zone(chosen, "m0", "p0"), position("atk", "p0"),
+        expectPrompt({ by: "p0", context: "action" }), expectBoard(board)],
+    });
+  });
+});
+
+const splitOpponentCounts = NIBIRU_FORMATS.map(format => {
+  const four = format === "tag" ? "p2" : "p1";
+  const holder = format === "tag" ? "p1" : "p2";
+  return defineScenario({ id: `unban-nibiru-${format}-opponents-one-plus-four-not-five`,
+    title: `${format}: one summon by p0 and four by ${four} do not enable ${holder}'s Nibiru`,
+    source: NIBIRU_SOURCE, rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", format, "card:27204311"],
+    setup: { format, skipOpeningDraw: true, [holder]: { hand: [NIBIRU] }, p0: { hand: [KURIBOH] },
+      [four]: { monsters: [KURIBOH, faceDown(ELF)], spells: [faceDown(MULTIPLY)] } },
+    steps: [normalSummon(KURIBOH, "p0"), activate(MULTIPLY, four),
+      ...(format === "tag" ? [select({ card: KURIBOH, owner: four })] : [pickOpponent("p0", four)]),
+      noNibiru(holder), expectPrompt({ by: "p0", context: "action" }),
+      expectBoard({ [holder]: { hand: { include: [NIBIRU] }, monsters: [] }, p0: { monsters: [KURIBOH] },
+        [four]: { monsters: [ELF, ...Array<number>(4).fill(KURIBOH_TOKEN)], grave: [KURIBOH, MULTIPLY] } })],
+  });
+});
 
 const battleControls = resolutions.map(scenario => {
   const actor = scenario.id.match(/turn-(p\d)/)![1] as DuelistId;
@@ -140,5 +211,5 @@ const tagSeparateCounts = (["p0"] as const).flatMap(actor => nibiruSeats("tag")
     });
   }));
 
-const standard = [...resolutions, ...countControls, ...otherTurn, ...battleControls, ...tagSeparateCounts];
+const standard = [...resolutions, ...countControls, ...otherTurn, ...offTurnResolutions, ...multipleQualifiers, ...splitOpponentCounts, ...battleControls, ...tagSeparateCounts];
 export const UNBAN_NIBIRU_SCENARIOS = [...standard, ...standard.map(domainVariant)];
