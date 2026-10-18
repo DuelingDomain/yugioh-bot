@@ -151,7 +151,9 @@ describe("SQL insights over the real pinned artifact", () => {
     expect(service.pickScore(7084129, [46986414])).toBeGreaterThan(service.pickScore(71039903, [46986414]));
     const fits = service.packFits([7084129, 71039903, 46986414], [46986414]);
     expect(fits.get(7084129)).toContain("Dark Magician");
-    expect(fits.has(71039903)).toBe(false);
+    // A pack can also help by supplying a missing role, through the same policy as bots.
+    expect(fits.get(71039903)).toBe("Adds searcher and extender to your pool");
+    expect(service.pickScore(71039903, [46986414])).toBeGreaterThan(0);
     expect(fits.has(46986414)).toBe(false);
     expect(service.packFits([7084129], []).size).toBe(0);
     expect(service.effectSearch("works with Dark Magician", [7084129, 71039903]).cards.map(card => card.passcode)).toEqual([7084129]);
