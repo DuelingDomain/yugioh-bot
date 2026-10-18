@@ -39,6 +39,7 @@ export function useDeckSuggestions({
   genesys,
   remaining,
   pool,
+  slug,
   retry = 0,
 }: {
   enabled: boolean;
@@ -47,14 +48,16 @@ export function useDeckSuggestions({
   genesys: boolean;
   remaining: number | null;
   pool?: readonly number[];
+  /** The room, so the room's admission rules mark cards that cannot be added. */
+  slug?: string;
   retry?: number;
 }): SuggestionsState {
   const [state, setState] = useState<SuggestionsState>(IDLE);
-  const latest = useRef({ deck, pool, mode, genesys, remaining });
-  latest.current = { deck, pool, mode, genesys, remaining };
+  const latest = useRef({ deck, pool, mode, genesys, remaining, slug });
+  latest.current = { deck, pool, mode, genesys, remaining, slug };
   const deckKey = insightDeckKey(deck);
   const filled = deck.main.length + deck.extra.length + deck.side.length > 0;
-  const scopeKey = `${mode}|${genesys}|${genesys ? remaining ?? "" : ""}|${poolKey(pool)}`;
+  const scopeKey = `${mode}|${slug ?? ""}|${genesys}|${genesys ? remaining ?? "" : ""}|${poolKey(pool)}`;
 
   useEffect(() => {
     if (!enabled) return;
@@ -80,7 +83,7 @@ export function useDeckSuggestions({
             },
             controller.signal,
           );
-          const cards = (await resolveInsightCards(ranked, current.mode, controller.signal)).slice(0, SUGGESTION_COUNT);
+          const cards = (await resolveInsightCards(ranked, { mode: current.mode, ...(current.slug ? { slug: current.slug } : {}) }, controller.signal)).slice(0, SUGGESTION_COUNT);
           if (!controller.signal.aborted) setState({ status: "ready", cards, error: null });
         } catch (error) {
           if (controller.signal.aborted) return;

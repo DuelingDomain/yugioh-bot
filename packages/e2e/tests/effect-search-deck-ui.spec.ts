@@ -20,6 +20,18 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     const browser = page.getByRole("complementary", { name: "Card list" });
     const search = browser.getByRole("searchbox", { name: "Search cards" });
 
+    // The e2e catalog has few tagged cards, so the server can rank none. Answer the insight ops with catalog cards, so partners and rows show.
+    const catalog = await page.request.post("/api/decks/cards", { data: { text: "Veiler", mode: "normal", limit: 10 } });
+    const known = ((await catalog.json()) as { cards: { code: number; name: string }[] }).cards.slice(0, 3);
+    expect(known.length).toBeGreaterThan(0);
+    await page.route("**/api/cards/insights", async (route) => {
+      const body = route.request().postDataJSON() as { op?: string };
+      if (body.op !== "suggest" && body.op !== "worksWith") return route.fallback();
+      await route.fulfill({ json: { effectSearchEnabled: true, attribution: "Effect search powered by searchygo", cards: known.map((card, index) => ({
+        passcode: card.code, name: card.name, score: 10 - index, linkedCards: 2 - Math.min(index, 1), reason: `Negates monster effects, like ${index === 0 ? "Ash Blossom" : "Effect Veiler"}.`,
+      })) } });
+    });
+
     // Works with: the hover icon sets a gold chip and lists partners of the card.
     await search.fill("Ash Blossom");
     const tile = browser.getByRole("button", { name: /^Ash Blossom & Joyous Spring/ }).first();
@@ -42,8 +54,10 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     await works.click();
     const chip = browser.getByRole("list", { name: "Works with" });
     await expect(chip.getByText("Ash Blossom & Joyous Spring")).toBeVisible();
-    // The search text is cleared, so the partners show.
+    // The search text is cleared, so the partners show: the count is above 0 and a partner tile is in the list.
     await expect(search).toHaveValue("");
+    await expect(browser.getByText(/^[1-9][\d,]* cards? works? with Ash Blossom/)).toBeVisible();
+    await expect(browser.getByRole("button", { name: new RegExp(`^${known[0]!.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`) }).first()).toBeVisible();
     // The card does not move, and the partner list never holds the card itself.
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     await expect(browser.getByRole("button", { name: /^Ash Blossom & Joyous Spring/ })).toHaveCount(0);
@@ -66,20 +80,9 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     await browser.getByRole("button", { name: "Add Ash Blossom & Joyous Spring to the deck" }).first().click();
     await search.fill("Effect Veiler");
     await browser.getByRole("button", { name: "Add Effect Veiler to the deck" }).first().click();
-    // The e2e catalog has few tagged cards, so the server can rank none. Answer the suggest op with catalog cards, so the rows show.
-    const catalog = await page.request.post("/api/decks/cards", { data: { text: "Veiler", mode: "normal", limit: 10 } });
-    const known = ((await catalog.json()) as { cards: { code: number; name: string }[] }).cards.slice(0, 3);
-    expect(known.length).toBeGreaterThan(0);
-    await page.route("**/api/cards/insights", async (route) => {
-      const body = route.request().postDataJSON() as { op?: string };
-      if (body.op !== "suggest") return route.fallback();
-      await route.fulfill({ json: { effectSearchEnabled: true, attribution: "Effect search powered by searchygo", cards: known.map((card, index) => ({
-        passcode: card.code, name: card.name, score: 10 - index, linkedCards: 2 - Math.min(index, 1), reason: `Negates monster effects, like ${index === 0 ? "Ash Blossom" : "Effect Veiler"}.`,
-      })) } });
-    });
     const deckTab = page.getByRole("tab", { name: /^Deck/ }).first();
     if (phone) await deckTab.click();
-    await page.getByRole("tablist", { name: "Deck pane" }).getByRole("tab", { name: "Suggestions" }).click();
+    await page.getByRole("group", { name: "Deck pane" }).getByRole("button", { name: "Suggestions" }).click();
     const panel = page.getByRole("region", { name: "Suggestions" });
     await expect(panel).toBeVisible();
     await expect(panel.getByText("Effect search powered by searchygo", { exact: true })).toBeVisible();
@@ -98,7 +101,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     await expect(panel.getByText("Updating…")).toHaveCount(0);
     await shot("suggestions");
-    await page.getByRole("tablist", { name: "Deck pane" }).getByRole("tab", { name: "Deck" }).click();
+    await page.getByRole("group", { name: "Deck pane" }).getByRole("button", { name: "Deck", exact: true }).click();
     await expect(panel).toHaveCount(0);
   });
 }

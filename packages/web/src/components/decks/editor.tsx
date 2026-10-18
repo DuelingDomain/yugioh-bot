@@ -1426,9 +1426,9 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
           </aside>
           <main ref={deckFitRef} className={styles["de-deck"]} aria-label="Deck" id="deck-editor-deck" data-view={insightsOn && deckView === "suggest" ? "suggest" : undefined}>
             {insightsOn ? (
-              <div className={cn("seg", styles["de-vt"])} role="tablist" aria-label="Deck pane" data-keep>
-                <button type="button" role="tab" aria-selected={deckView === "deck"} aria-pressed={deckView === "deck"} onClick={() => setDeckView("deck")}>Deck</button>
-                <button type="button" role="tab" aria-selected={deckView === "suggest"} aria-pressed={deckView === "suggest"} onClick={() => setDeckView("suggest")}>Suggestions</button>
+              <div className={cn("seg", styles["de-vt"])} role="group" aria-label="Deck pane" data-keep>
+                <button type="button" aria-pressed={deckView === "deck"} onClick={() => setDeckView("deck")}>Deck</button>
+                <button type="button" aria-pressed={deckView === "suggest"} onClick={() => setDeckView("suggest")}>Suggestions</button>
               </div>
             ) : null}
             {registration ? (

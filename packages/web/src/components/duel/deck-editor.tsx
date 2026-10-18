@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { canonicalCardCode, type DeckCardInfo, type DuelDeck, type DuelDeckValidation, type DuelMode, type DuelSettings, type GenesysCard } from "@yugidraft/shared/duels";
+import { canonicalCardCode, cardLimit, type DeckCardInfo, type DuelDeck, type DuelDeckValidation, type DuelMode, type DuelSettings, type GenesysCard } from "@yugidraft/shared/duels";
 import { AlertTriangle, CheckCircle2, ChevronDown, FileUp, Info, Loader2, Sparkles, X } from "lucide-react";
 import { cardArtUrl } from "./constants";
 import { cx, SheetButton } from "./sheet-ui";
@@ -19,7 +19,7 @@ import { GenesysBadge, GenesysCheck, GenesysMeter } from "../decks/genesys-ui";
 import { useGenesysDeckSummary } from "../decks/use-genesys-deck";
 import { findSavedDuplicate, pastedDeckName, prepareImportSave, uniqueDeckName } from "./import-save";
 import { CardAddField } from "./card-add-field";
-import { cardAddBlock } from "./card-add-search";
+import { cardAddBlock, useBanlistLimits } from "./card-add-search";
 import { defaultAddSection } from "../decks/model";
 import { probeInsights } from "../decks/insights-api";
 import { SuggestionsPanel } from "../decks/suggestions-panel";
@@ -180,10 +180,11 @@ export function DeckEditor({
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestRetry, setSuggestRetry] = useState(0);
   useEffect(() => {
-    const controller = new AbortController();
-    void probeInsights(controller.signal).then((on) => { if (!controller.signal.aborted) setInsightsOn(on); });
-    return () => controller.abort();
+    let live = true;
+    void probeInsights().then((on) => { if (live) setInsightsOn(on); });
+    return () => { live = false; };
   }, []);
+  const banlistLimits = useBanlistLimits(settings.banlist, settings.validateDeck && !settings.genesys, insightsOn && suggestOpen);
   const genesysRemaining = genesysDeck.summary ? Math.max(0, genesysDeck.summary.cap - genesysDeck.summary.known) : null;
   const suggestions = useDeckSuggestions({
     enabled: insightsOn && suggestOpen && !locked,
@@ -191,6 +192,7 @@ export function DeckEditor({
     mode,
     genesys: settings.genesys != null,
     remaining: genesysRemaining,
+    slug,
     retry: suggestRetry,
   });
 
@@ -356,11 +358,13 @@ export function DeckEditor({
 
   /** Why a suggested card cannot be added now, or null. The room's deck check still runs on the whole deck. */
   function suggestionBlock(card: DeckCardInfo): string | null {
-    const block = cardAddBlock(card, settings);
+    const block = cardAddBlock(card, settings, banlistLimits);
     if (block) return block;
     const copies = [...main, ...extra, ...side].filter((code) => code === card.code).length;
     if (mode === "domain" && settings.validateDeck && copies >= 1) return "Domain decks hold one copy of each card.";
-    if (settings.validateDeck && copies >= 3) return "No copy left to add.";
+    // The room's banlist sets the limit; without one, or while it loads, three copies.
+    const max = settings.validateDeck && !settings.genesys && banlistLimits ? cardLimit(banlistLimits, card) : 3;
+    if (settings.validateDeck && copies >= max) return "No copy left to add.";
     return null;
   }
 

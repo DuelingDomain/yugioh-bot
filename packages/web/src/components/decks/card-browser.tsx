@@ -160,7 +160,7 @@ export function CardBrowser({
             if (cached && cached.code === partner.code && cached.scope === scope) ranked = cached.cards;
             else {
               const hits = await fetchWorksWith(partner.code, { mode, genesys, ...(poolCards ? { pool: poolCards.map((card) => card.canonicalPasscode ?? card.code) } : {}), limit: WORKS_WITH_LIMIT }, controller.signal);
-              ranked = (await resolveInsightCards(hits, mode, controller.signal)).filter((card) => card.code !== partner.code);
+              ranked = (await resolveInsightCards(hits, { mode }, controller.signal)).filter((card) => card.code !== partner.code);
               if (controller.signal.aborted) return;
               partnersCache.current = { code: partner.code, scope, cards: ranked };
             }

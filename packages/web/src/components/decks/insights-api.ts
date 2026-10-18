@@ -1,6 +1,7 @@
 import type { DeckCardInfo, DuelDeck, DuelMode } from "@yugidraft/shared/duels";
 import type { RankedInsightCard } from "@yugidraft/shared/cards/effects";
 import type { CardInsightFormat } from "@yugidraft/shared/services";
+import type { CardAdmissionContext } from "@/lib/card-admission-context";
 import { getDeckCards } from "./api";
 
 export type { RankedInsightCard };
@@ -83,9 +84,9 @@ export async function fetchWorksWith(passcode: number, scope: InsightScope, sign
 }
 
 /** Card details for ranked cards, in rank order. A card the engine does not know is left out. */
-export async function resolveInsightCards(ranked: readonly RankedInsightCard[], mode: DuelMode, signal?: AbortSignal): Promise<InsightCard[]> {
+export async function resolveInsightCards(ranked: readonly RankedInsightCard[], context: CardAdmissionContext, signal?: AbortSignal): Promise<InsightCard[]> {
   if (ranked.length === 0) return [];
-  const { cards } = await getDeckCards(ranked.map((item) => item.passcode), { mode });
+  const { cards } = await getDeckCards(ranked.map((item) => item.passcode), context, signal);
   if (signal?.aborted) return [];
   const byCode = new Map(cards.map((card) => [card.code, card]));
   const out: InsightCard[] = [];
@@ -96,12 +97,21 @@ export async function resolveInsightCards(ranked: readonly RankedInsightCard[], 
   return out;
 }
 
-/** True when the server has effect search on. A failed probe counts as off, so nothing shows that could not work. */
-export async function probeInsights(signal?: AbortSignal): Promise<boolean> {
-  try {
-    await postInsights({ op: "read", text: "search" }, signal);
-    return true;
-  } catch {
-    return false;
-  }
+let probed: Promise<boolean> | null = null;
+
+/**
+ * True when the server has effect search on. A failed probe counts as off, so nothing shows that could not work.
+ * The answer holds for the whole session, so opening the room lobby again asks nothing; only a network or server
+ * error is asked again next time.
+ */
+export function probeInsights(): Promise<boolean> {
+  probed ??= postInsights({ op: "read", text: "search" }).then(
+    () => true,
+    (error) => {
+      if (error instanceof InsightsDisabledError) return false;
+      probed = null;
+      return false;
+    },
+  );
+  return probed;
 }
