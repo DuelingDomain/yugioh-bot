@@ -5,7 +5,7 @@ import { Check, CircleAlert, Info, Plus, Search } from "lucide-react";
 import { segmentSlide, svButtonClass } from "@/components/sheet";
 import { useTabDirection } from "@/lib/tab-motion";
 import { isExtraDeckMonster, type CardSummary } from "@/lib/card-types";
-import { AutoImportBox, ImportEntries, type ImportEntryView, type ImportRun } from "@/components/card-list-import/auto-import-box";
+import { AutoImportBox, HideImportEntriesContext, ImportEntries, type ImportEntryView, type ImportRun } from "@/components/card-list-import/auto-import-box";
 import { ListImportReport } from "@/components/card-list-import/list-import-report";
 import { type ListDiagnostics } from "@/lib/card-list-import";
 import { useResultNav } from "@/lib/hooks/use-result-nav";
@@ -139,6 +139,8 @@ export function CardTab({ ctl, setNote }: TabProps) {
   const copiesOf = React.useCallback((card: CardSummary) => (isExtraDeckMonster(card) ? ctl.extra : ctl.pool).get(card.id) ?? 0, [ctl.extra, ctl.pool]);
   const kindLine = React.useCallback((card: CardSummary) => `${kindText(card)}, ${isExtraDeckMonster(card) ? "Extra" : "Main"}`, []);
   const batches = React.useMemo(() => batchEntries(ctl.imports), [ctl.imports]);
+  // A surface that lists every import elsewhere (the draft form's banner) hides this one too.
+  const entriesHidden = React.useContext(HideImportEntriesContext);
   if (!enabled) return <NameCardTab ctl={ctl} setNote={setNote} />;
 
   const addBatch = () => {
@@ -184,7 +186,7 @@ export function CardTab({ ctl, setNote }: TabProps) {
         }}
         onAdd={addBatch}
       />
-      <ImportEntries entries={batches} onRemove={(key) => ctl.removeImport(Number(key))} />
+      {!entriesHidden && <ImportEntries entries={batches} onRemove={(key) => ctl.removeImport(Number(key))} />}
     </>
   );
 }
