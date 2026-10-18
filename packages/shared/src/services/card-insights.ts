@@ -40,6 +40,12 @@ export interface CardPoolHealth {
   warnings: string[];
 }
 
+export interface CardPickInsight {
+  passcode: number;
+  score: number;
+  reason?: string;
+}
+
 type Retained = RankedInsightCard & { popularity: number };
 const compare = (a: Retained, b: Retained) => b.linkedCards - a.linkedCards || b.score - a.score || b.popularity - a.popularity || a.passcode - b.passcode;
 const limitOf = (value?: number) => Math.max(1, Math.min(120, Number.isFinite(value) ? Math.floor(value!) : 30));
@@ -114,6 +120,21 @@ export function createCardInsightService(db: Database.Database, options: { dataD
     }
     return { cards: withoutPopularity(ranked), total };
   };
+
+  // Batch a pack against one pool/profile snapshot; do not reopen the engine per choice.
+  const pickScores = (passcodes: readonly number[], pickedPool: readonly number[]): CardPickInsight[] => withCatalog(catalog => {
+    const deck = [...catalog.candidates(pickedPool)], profiles = profilesFor(deck);
+    const owned = new Set(deck.map(anchor => anchor.card.id));
+    const present = new Set<string>(deck.flatMap(anchor => anchor.tags?.roles ?? []));
+    return passcodes.map(passcode => {
+      const candidate = catalog.candidate(passcode);
+      if (!candidate || owned.has(candidate.card.id)) return { passcode, score: 0 };
+      const ranked = scoreForDeck(candidate, deck, profiles);
+      const missing = deck.length ? ["searcher", "extender", "removal", "hand_trap"].filter(role => candidate.tags?.roles.some(value => value === role) && !present.has(role)) : [];
+      const reason = ranked.reason || (missing.length ? `Adds ${missing.map(role => role.replaceAll("_", " ")).join(" and ")} to your pool` : "");
+      return { passcode, score: ranked.score + missing.length, ...(reason ? { reason } : {}) };
+    });
+  });
 
   return {
     summary(passcode: number): CardInsightSummary | null {
@@ -214,15 +235,9 @@ export function createCardInsightService(db: Database.Database, options: { dataD
       });
     },
     pickScore(passcode: number, pickedPool: readonly number[]): number {
-      return withCatalog(catalog => {
-        const candidate = catalog.candidate(passcode), deck = [...catalog.candidates(pickedPool)];
-        if (!candidate || deck.some(anchor => anchor.card.id === candidate.card.id)) return 0;
-        const score = scoreForDeck(candidate, deck, profilesFor(deck)).score;
-        const present = new Set<string>(deck.flatMap(anchor => anchor.tags?.roles ?? []));
-        const balance = deck.length ? ["searcher", "extender", "removal", "hand_trap"].filter(role => candidate.tags?.roles.some(value => value === role) && !present.has(role)).length : 0;
-        return score + balance;
-      });
+      return pickScores([passcode], pickedPool)[0]!.score;
     },
+    pickScores,
   };
 }
 
