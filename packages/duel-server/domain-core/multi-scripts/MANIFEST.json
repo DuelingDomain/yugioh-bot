@@ -2692,7 +2692,7 @@
       "kind": "chooser",
       "classes": [],
       "stockSha256": "6d2f6b9ec2fb84b7b59bf1dacf931e50e2285d52ae28672eabb4bf0fa90633c8",
-      "note": "Owner 2026-10-18: Compare and swap only the chosen FFA pair. Tag mixed-controller swaps stay blocked.",
+      "note": "Owner 2026-10-18: FFA compares and swaps one chosen pair. Tag swaps joined fields atomically through fixed facing seats after all destination checks.",
       "redefined": [
         "target",
         "activate"

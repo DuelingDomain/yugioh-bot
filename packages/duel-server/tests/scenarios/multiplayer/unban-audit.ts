@@ -1,6 +1,6 @@
 import {
-  activate, changePosition, defineScenario, expectBoard, expectNotOffered, expectPickSeats,
-  faceDown, pickOpponent, expectPrompt, raw, endTurn, expectTurn, xyz, select, normalSummon, attack, yes, choose, type BoardExpect, type DuelistId, type Scenario, type Step,
+  activate, changePosition, defineScenario, expectBoard, expectNotOffered, expectPickSeats, expectPickOptions, zone,
+  faceDown, pickOpponent, expectPrompt, raw, endTurn, expectTurn, xyz, select, normalSummon, attack, yes, choose, type BoardExpect, type DuelistId, type Scenario, type Step, type Zone,
 } from "../../support/dsl.js";
 
 import { COMPARE_GAP_SCENARIOS } from "./compare-gaps.js";
@@ -274,17 +274,88 @@ function gambleAudit(format: Format, domain: boolean, result: "win"|"lose"|"shor
   return defineScenario({id:`unban-audit-gamble-${format}-${result}${domain?"-domain":""}`,title:result==="short"?"Opponent hands cannot add together to qualify":"The coin changes only the activator's draw or its own next turn",
     source:"Owner 2026-10-18; ADR-0002 R-FFA-OPP-ONE",rules:[tag?"R-TAG-PARTNER":"R-FFA-OPP-ONE"],tags:["multiplayer","unban-audit","card:37313786",format],setup,steps});
 }
-function switcherTagUnsupported(domain: boolean): Scenario {
+function switcherTag(domain: boolean, variant: "mixed"|"uneven"|"full"|"rivalry"|"no-room"): Scenario {
   const setup=simpleSetup("tag",domain);
-  for (let i=0;i<4;i++) setup[SEATS[i]]!.monsters=[HAND[i]];
-  setup.p0!.spells=[faceDown("Switcheroroo")];
-  return defineScenario({id:`unban-audit-switcheroroo-tag-unsupported${domain?"-domain":""}`,title:"Joined Tag groups with multiple real controllers cannot be swapped",
-    source:"Native SwapControl rejects mixed-controller groups; core patch 0024 keeps this stock contract",rules:["R-TAG-SHARED-CARDS"],tags:["multiplayer","unban-audit","unsupported-control","card:30426226","tag"],setup,
-    steps:[activate("Switcheroroo","p0"),expectPrompt({by:"p0",context:"action"}),expectBoard({p0:{monsters:[HAND[0]],grave:["Switcheroroo"]},p1:{monsters:[HAND[1]]},p2:{monsters:[HAND[2]]},p3:{monsters:[HAND[3]]}})]});
+  const counts=variant==="full"?[5,5,5,5]:variant==="uneven"?[2,1,1,2]:variant==="no-room"?[6,3,1,4]:[1,1,1,1];
+  const cards=variant==="rivalry"?["Silver Fang","Celtic Guardian","Mystical Sheep #2","Axe Raider"]:HAND;
+  for (let i=0;i<4;i++) setup[SEATS[i]]!.monsters=Array(Math.min(counts[i],5)).fill(cards[i]);
+  if (variant==="no-room") setup.p0!.monsters!.push("Link Spider");
+  setup.p0!.spells=[faceDown("Switcheroroo"),...(variant==="rivalry"?["Rivalry of Warlords"]:[])];
+  const before: BoardExpect=Object.fromEntries(SEATS.map((seat,i)=>[seat,{monsters:[...Array(Math.min(counts[i],5)).fill(cards[i]),...(variant==="no-room"&&i===0?["Link Spider"]:[])]}]));
+  const board: BoardExpect={};
+  const steps: Step[]=variant==="no-room"?[expectNotOffered("activate","Switcheroroo","p0"),expectBoard(before)]:[activate("Switcheroroo","p0")];
+  if (variant!=="no-room") {
+    // All placements are chosen by the actual receiving member, including a partner's field.
+    for (let i=0;i<4;i++) {
+      const from=i^1;
+      // The fifth MMZ is automatic once the other four are reserved.
+      for (let j=0;j<Math.min(counts[from],4);j++) steps.push(expectPrompt({by:SEATS[i],kind:"places"}),zone(SEATS[i],`m${j}` as Zone,SEATS[i]));
+      board[SEATS[i]]={monsters:Array(counts[from]).fill(cards[from]),grave:i===0?["Switcheroroo"]:[],
+        spells:i===0&&variant==="rivalry"?["Rivalry of Warlords"]:[],
+        zones:Object.fromEntries(Array.from({length:5},(_,j)=>[`m${j}`,j<counts[from]?cards[from]:null]))};
+    }
+    steps.push(expectPrompt({by:"p0",context:"action"}),expectBoard(board));
+  }
+  return defineScenario({id:`unban-audit-switcheroroo-tag-${variant}${domain?"-domain":""}`,title:variant==="no-room"?"A six-monster facing group cannot fit and activation is refused":variant==="rivalry"?"Both teams change race together under Rivalry without losing any monster":"Joined Tag fields swap atomically into the fixed facing controller seats",
+    source:"Owner 2026-10-18; R-TAG-SHARED-CARDS; fixed facing seats 0/1 and 2/3",rules:["R-TAG-SHARED-CARDS"],tags:["multiplayer","unban-audit","card:30426226","tag"],setup,steps});
 }
 UNBAN_AUDIT_SCENARIOS.push(...(["ffa3","ffa4"] as const).flatMap(format=>[false,true].map(domain=>multipleOffTurn(format,domain))),
   ...FORMATS.flatMap(format=>[false,true].flatMap(domain=>(["win","lose","short"] as const).map(result=>gambleAudit(format,domain,result)))),
-  ...[false,true].map(domain=>switcherTagUnsupported(domain)));
+  ...[false,true].flatMap(domain=>(["mixed","uneven","full","rivalry","no-room"] as const).map(variant=>switcherTag(domain,variant))));
+function switcherTagZones(domain: boolean, variant: "forced"|"pruned"|"impossible"): Scenario {
+  const setup=simpleSetup("tag",domain);
+  setup.p0!.monsters=["Silver Fang","Mystical Sheep #2"];
+  setup.p1!.monsters=["Battle Ox","Dark Magician"];
+  setup.p2!.monsters=["Celtic Guardian"];setup.p3!.monsters=["Axe Raider"];
+  setup.p0!.spells=[faceDown("Switcheroroo")];
+  const steps: Step[]=[activate("Switcheroroo","p0")];
+  if (variant==="impossible") steps.push(expectPrompt({by:"p0",context:"action"}),expectBoard({
+    p0:{monsters:["Silver Fang","Mystical Sheep #2"],grave:["Switcheroroo"],zones:{m0:"Silver Fang",m1:"Mystical Sheep #2"}},
+    p1:{monsters:["Battle Ox","Dark Magician"],zones:{m0:"Battle Ox",m1:"Dark Magician"}},
+    p2:{monsters:["Celtic Guardian"],zones:{m0:"Celtic Guardian"}},p3:{monsters:["Axe Raider"],zones:{m0:"Axe Raider"}},
+  }));
+  else {
+    // The first incoming monster can use m0/m1, but m0 must stay available for the second.
+    if (variant==="forced") steps.push(expectPickOptions([{seat:"p0",label:"Monster Zone 2"},{seat:"p0",label:"Monster Zone 3"}],"p0"),zone("p0","m1","p0"));
+    // With pruned masks both destinations are forced, so SelectPlace takes them automatically.
+    steps.push(expectPrompt({by:"p1",kind:"places"}),zone("p1","m3","p1"),expectPrompt({by:"p1",kind:"places"}),zone("p1","m4","p1"),
+      expectPrompt({by:"p2",kind:"places"}),zone("p2","m2","p2"),expectPrompt({by:"p3",kind:"places"}),zone("p3","m1","p3"),
+      expectPrompt({by:"p0",context:"action"}),expectBoard({
+        p0:{monsters:["Battle Ox","Dark Magician"],grave:["Switcheroroo"],zones:{m0:"Dark Magician",m1:"Battle Ox",m2:null,m3:null,m4:null}},
+        p1:{monsters:["Silver Fang","Mystical Sheep #2"],zones:{m0:null,m1:null,m2:null,m3:"Silver Fang",m4:"Mystical Sheep #2"}},
+        p2:{monsters:["Axe Raider"],zones:{m2:"Axe Raider"}},p3:{monsters:["Celtic Guardian"],zones:{m1:"Celtic Guardian"}},
+      }));
+  }
+  return defineScenario({id:`unban-audit-switcheroroo-tag-zones-${variant}${domain?"-domain":""}`,title:variant==="impossible"?"Conflicting single-card zone restrictions leave every field intact":"Per-card zone restrictions keep a complete placement available for every incoming monster",
+    source:"Core EFFECT_MUST_USE_MZONE live API fixture; R-TAG-SHARED-CARDS",rules:["R-TAG-SHARED-CARDS"],tags:["multiplayer","unban-audit","card:30426226","tag",`switcher-zone-${variant}`],setup,steps});
+}
+UNBAN_AUDIT_SCENARIOS.push(...[false,true].flatMap(domain=>(["forced","pruned","impossible"] as const).map(variant=>switcherTagZones(domain,variant))));
+function switcherTagLateImpossible(domain: boolean): Scenario {
+  const setup=simpleSetup("tag",domain);
+  const board: BoardExpect={};
+  for (let i=0;i<4;i++) {
+    setup[SEATS[i]]!.monsters=Array(5).fill(HAND[i]);
+    board[SEATS[i]]={monsters:Array(5).fill(HAND[i]),grave:i===0?["Switcheroroo"]:[],zones:Object.fromEntries(Array.from({length:5},(_,j)=>[`m${j}`,HAND[i]]))};
+  }
+  setup.p0!.spells=[faceDown("Switcheroroo")];
+  return defineScenario({id:`unban-audit-switcheroroo-tag-zones-late-impossible${domain?"-domain":""}`,title:"An impossible last receiving field rejects twenty-monster control exchange promptly",
+    source:"Native per-card forced-zone API fixture on the last receiving seat",rules:["R-TAG-SHARED-CARDS"],tags:["multiplayer","unban-audit","card:30426226","tag","switcher-zone-late-impossible"],setup,
+    steps:[activate("Switcheroroo","p0"),expectPrompt({by:"p0",context:"action"}),expectBoard(board)]});
+}
+UNBAN_AUDIT_SCENARIOS.push(...[false,true].map(switcherTagLateImpossible));
+function switcherTagLane(domain: boolean): Scenario {
+  const setup=simpleSetup("tag",domain);
+  setup.p0!.monsters=["Silver Fang","Mystical Sheep #2"];setup.p0!.spells=[faceDown("Switcheroroo")];
+  setup.p1!.monsters=["Battle Ox","Dark Magician"];setup.p1!.spells=["Lane Restriction"];
+  return defineScenario({id:`unban-audit-switcheroroo-tag-lane${domain?"-domain":""}`,title:"Dynamic forced-zone masks advance after each reserved incoming monster",
+    source:"Official Lane Restriction EFFECT_FORCE_MZONE; native CONTROL placement contract",rules:["R-TAG-SHARED-CARDS"],tags:["multiplayer","unban-audit","card:30426226","card:47914440","tag"],setup,
+    steps:[activate("Switcheroroo","p0"),expectPrompt({by:"p1",kind:"places"}),zone("p1","m3","p1"),expectPrompt({by:"p1",kind:"places"}),zone("p1","m4","p1"),
+      expectPrompt({by:"p0",context:"action"}),expectBoard({
+        p0:{monsters:["Battle Ox","Dark Magician"],grave:["Switcheroroo"],zones:{m0:"Battle Ox",m1:"Dark Magician",m2:null,m3:null,m4:null}},
+        p1:{monsters:["Silver Fang","Mystical Sheep #2"],spells:["Lane Restriction"],zones:{m0:null,m1:null,m2:null,m3:"Silver Fang",m4:"Mystical Sheep #2"}},p2:{monsters:[]},p3:{monsters:[]},
+      })]});
+}
+UNBAN_AUDIT_SCENARIOS.push(...[false,true].map(switcherTagLane));
 function foreignMultiple(format: Format, domain: boolean): Scenario {
   const scenario=audit("multiple-destruction",format,domain);
   scenario.id=`unban-audit-multiple-destruction-foreign-hand-${format}${domain?"-domain":""}`;

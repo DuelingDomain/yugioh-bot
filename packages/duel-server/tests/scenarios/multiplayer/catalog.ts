@@ -833,7 +833,7 @@ export const CARD_RULE_EVIDENCE: Record<number, Evidence[]> = {
   17178486: [ev(17178486, 18, "Duel.SetLP(1-tp,3000)")],
   15305240: [ev(15305240, 30, "SelectMatchingCard(1-tp"), ev(15305240, 34, "SwapControl(c1,c2,0,0)")],
   13532663: [ev(13532663, 25, "SelectMatchingCard(1-tp"), ev(13532663, 26, "SwapControl(c,g:GetFirst(),0,0)")],
-  30426226: [{ file: "overlay/c30426226.lua", line: 5, token: "mp_check=aux.MPAny" }],
+  30426226: [{ file: "overlay/c30426226.lua", line: 30, token: "mp_check=aux.MPAny" }],
   33508719: [{ file: "overlay/c33508719.lua", line: 15, token: "MPForEachDuelistFromTurn" }],
   14057297: [{ file: "overlay/c14057297.lua", line: 24, token: "SortDeckbottom" }],
   17484499: [{ file: "overlay/c17484499.lua", line: 14, token: "SwapDeckAndGrave" }],
