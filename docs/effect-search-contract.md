@@ -88,7 +88,15 @@ service.worksWith(passcode: number, pool?: readonly number[], options?: CardInsi
 service.suggestForDeck(deck: DuelDeck | readonly number[], options: CardInsightOptions & { pool?: readonly number[]; format: CardInsightFormat }): RankedInsightCard[];
 service.poolHealth(cards: readonly number[]): CardPoolHealth;
 service.pickScore(candidate: number, pickedPool: readonly number[]): number;
+service.pickScores(passcodes: readonly number[], pickedPool: readonly number[]): CardPickInsight[];
+service.packFits(passcodes: readonly number[], pickedPool: readonly number[]): Map<number, string>;
 ```
+
+`CardPickInsight = {passcode: number; score: number; reason?: string}`.
+Pack fit reasons and automatic picks share the same mechanical-link and
+missing-role policy. Pack reads share one catalog/profile snapshot; the web
+caches reasons by viewer, exact pack and picked pool. Blocked choices receive
+no displayed reason. See [smart draft picks](effect-search-draft-picks.md).
 
 `CardInsightFormat = "normal" | "domain" | "genesys" | "genesys-domain"`.
 `CardInsightOptions = {limit?: number; format?: CardInsightFormat;
