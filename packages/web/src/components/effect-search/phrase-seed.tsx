@@ -37,11 +37,17 @@ export function PhraseSeed({
   preview,
   confirm,
   busy,
+  label = "Seed from a phrase",
+  onCancel,
 }: {
   preview: (phrase: string, options: { targetCount: number; signal: AbortSignal }) => Promise<SeedPreview>;
   /** Adds the kept rows. Throws an Error with a message fit to show when it is refused. */
   confirm: (entries: BatchEntry[], phrase: string) => Promise<SeedOutcome>;
   busy?: boolean;
+  /** The field label. */
+  label?: string;
+  /** Called when the player cancels a preview, so a caller can drop what it made for it. */
+  onCancel?: () => void;
 }) {
   const inputId = React.useId();
   const sizeId = React.useId();
@@ -89,6 +95,7 @@ export function PhraseSeed({
 
   const cancel = () => {
     abort.current?.abort();
+    onCancel?.();
     setShown(null);
     setRemoved(new Set());
     setError(null);
@@ -133,7 +140,7 @@ export function PhraseSeed({
     <div className={styles.seed} data-testid="phrase-seed">
       <div>
         <label className="label" htmlFor={inputId}>
-          Seed from a phrase
+          {label}
         </label>
         <input
           id={inputId}

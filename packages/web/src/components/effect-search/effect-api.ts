@@ -148,3 +148,9 @@ export interface BatchEntry {
   copies: number;
   pool?: "main" | "extra";
 }
+
+/** Adds the rows the player kept from a preview. The cube can be one the player just made for the phrase. */
+export async function confirmSeed(cubeId: number, entries: BatchEntry[]): Promise<{ added: number; copies: number }> {
+  const data = await post<{ added?: number; copies?: number }>(`/api/cubes/${cubeId}/seed/confirm`, { entries }, "Could not add the cards. Try again.");
+  return { added: data.added ?? entries.length, copies: data.copies ?? entries.reduce((n, e) => n + e.copies, 0) };
+}
