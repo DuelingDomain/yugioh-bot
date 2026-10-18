@@ -1,6 +1,7 @@
 import type { Reservation } from "./budget-ledger.js";
-import { MAX_OUTPUT_TOKENS, MODEL } from "./budget-ledger.js";
+import { MAX_OUTPUT_TOKENS, LEGACY_MODEL } from "./budget-ledger.js";
 import { buildUserMessage, tagBatchFormat } from "./tagging-prompt.js";
+import { profileFormat, renderArchetype, resolveSynergyPrompt } from "./synergy-prompt.js";
 import type { Card } from "@yugidraft/shared/cards/effects";
 
 export interface BatchClient {
@@ -37,13 +38,14 @@ export class AnthropicBatchClient implements BatchClient {
   }
   async create(reservation: Reservation): Promise<{ id: string }> {
     const requests = reservation.requests.map(req => ({ custom_id: req.customId, params: {
-      model: MODEL, max_tokens: MAX_OUTPUT_TOKENS, system: reservation.systemPrompt,
-      messages: [{ role: "user", content: buildUserMessage(req.cards as Card[]) }],
-      output_config: { format: tagBatchFormat() },
+      model: reservation.model ?? LEGACY_MODEL, max_tokens: MAX_OUTPUT_TOKENS, system: req.archetype ? resolveSynergyPrompt(req) : reservation.systemPrompt,
+      thinking: { type: "disabled" },
+      messages: [{ role: "user", content: req.archetype ? renderArchetype(req.archetype, req.cards as Card[]) : buildUserMessage(req.cards as Card[]) }],
+      output_config: { format: req.archetype ? profileFormat() : tagBatchFormat() },
     } }));
     const body = { requests };
     // Bound local memory and reject abnormally large input; the pinned model's
-    // 200K context limit bounds accepted/billed input, including schema tokens.
+    // 1M context limit bounds accepted/billed input, including schema tokens.
     if (requests.some(req => Buffer.byteLength(JSON.stringify(req.params), "utf8") > 500_000)) throw new Error("Tagging request exceeds input safety bound");
     const result = await (await this.request("", body)).json() as { id?: unknown };
     if (typeof result.id !== "string") throw new Error("Missing Batch creation identity");

@@ -12,9 +12,10 @@ export function exampleCards(): Card[] {
 export function readPinnedArtifact(directory = DEFAULT_CARD_EFFECT_ARTIFACT_DIRECTORY) {
   verifyCardEffectArtifact(directory);
   const tags = gunzipSync(readFileSync(join(directory, "tags.jsonl.gz"))).toString("utf8").trim().split("\n").map(line => JSON.parse(line) as TaggedCard);
+  const profiles = gunzipSync(readFileSync(join(directory, "profiles.jsonl.gz"))).toString("utf8").trim().split("\n").map(line => JSON.parse(line) as import("./profile-archetypes.js").StoredProfile);
   const sidecar = JSON.parse(gunzipSync(readFileSync(join(directory, "source-hashes.json.gz"))).toString("utf8"));
   if (sidecar.normalization !== CARD_EFFECT_TEXT_NORMALIZATION) throw new Error("Unknown source text normalization");
-  return { tags, hashes: sidecar.hashes as Record<string, string | null>, manifest: JSON.parse(readFileSync(join(directory, "manifest.json"), "utf8")) };
+  return { tags, profiles, hashes: sidecar.hashes as Record<string, string | null>, manifest: JSON.parse(readFileSync(join(directory, "manifest.json"), "utf8")) };
 }
 export function isTaggable(card: Card): boolean {
   return !card.subtypes.includes("token") && Boolean(hashCardEffectSourceText(card)) &&

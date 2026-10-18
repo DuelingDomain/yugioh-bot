@@ -11,3 +11,6 @@ provided. Adapted source headers and the UI retain searchygo attribution.
 Card names, text and artwork are associated with Yu-Gi-Oh! and their respective
 owners. searchygo's derived tag and archetype-profile datasets are preserved with
 source revision and SHA-256 integrity pins.
+
+The CI tagging adapters in scripts/effects include adapted card tagging,
+cleanup, examples, archetype profiling and synergy prompt code from that revision.

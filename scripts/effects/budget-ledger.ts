@@ -3,26 +3,34 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import * as z from "zod";
-import { CardTags } from "@yugidraft/shared/cards/effects";
+import { ArchetypeProfile, CardTags } from "@yugidraft/shared/cards/effects";
 import { CARD_KINDS, SUBTYPES } from "@yugidraft/shared/cards/effects";
 import { hashCardEffectSourceText } from "@yugidraft/shared/cards/effects";
 
 export const MONTHLY_CAP_MICROS = 10_000_000;
-export const REQUEST_RESERVATION_MICROS = 150_000;
-export const MODEL = "claude-haiku-4-5-20251001";
-export const MAX_INPUT_TOKENS = 200_000;
+export const RUN_CAP_MICROS = 2_000_000;
+// Worst Haiku 5.5 Batch tier: $0.25/M input + $1.25/M output.
+// Reserve the full 1M context plus 20K output, without relying on token estimates.
+export const REQUEST_RESERVATION_MICROS = 275_000;
+export const MODEL = "claude-haiku-5-5";
+export const LEGACY_MODEL = "claude-haiku-4-5-20251001";
+export const MAX_INPUT_TOKENS = 1_000_000;
+export const reservationCost = (model: string) => model === LEGACY_MODEL ? 150_000 : REQUEST_RESERVATION_MICROS;
+export const billedMicros = (model: string, input: number, output: number) => model === LEGACY_MODEL ? Math.ceil((input + 5 * output) / 2) : Math.ceil((input + 5 * output) / (input > 100_000 ? 4 : 20));
 export const MAX_OUTPUT_TOKENS = 20_000;
 export const MAX_CARDS_PER_REQUEST = 8;
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const month = z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/);
 const card = z.object({ id: z.number().int().positive().max(0xffffffff), name: z.string().min(1), kind: z.enum(CARD_KINDS), typeLine: z.string(), subtypes: z.array(z.enum(SUBTYPES)), text: z.string(), pendulumText: z.string().optional(), formats: z.array(z.string()), views: z.number().int().nonnegative(), url: z.string() }).passthrough();
-const accepted = z.object({ id: z.number().int().positive().max(0xffffffff), name: z.string(), model: z.literal(MODEL), tags: CardTags, inputHash: digest, promptHash: digest, reservationId: z.string(), batchId: z.string(), customId: z.string(), taggedAt: z.string().datetime() }).strict();
-const request = z.object({ customId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/), cards: z.array(card).min(1).max(MAX_CARDS_PER_REQUEST), hashes: z.record(z.string(), digest) }).strict();
-const reservation = z.object({ id: z.string().regex(/^[a-f0-9]{32}$/), month, createdAt: z.string().datetime(), state: z.enum(["reserved", "submission_started", "submitted", "settled"]), reservedMicros: z.number().int().nonnegative().max(MONTHLY_CAP_MICROS), systemPrompt: z.string(), promptHash: digest, requests: z.array(request).min(1).max(66), batchId: z.string().regex(/^msgbatch_[a-zA-Z0-9_]+$/).optional(), actualMicros: z.number().int().nonnegative().optional(), accepted: z.array(accepted).optional(), failures: z.array(z.number().int().positive()).optional() }).strict();
+const accepted = z.object({ id: z.number().int().positive().max(0xffffffff), name: z.string(), model: z.enum([MODEL, LEGACY_MODEL]), tags: CardTags, inputHash: digest, promptHash: digest, reservationId: z.string(), batchId: z.string(), customId: z.string(), taggedAt: z.string().datetime() }).strict();
+const acceptedProfile = z.object({ archetype: z.string().min(1), cards: z.number().int().min(3), model: z.literal(MODEL), profile: ArchetypeProfile, inputHash: digest, promptHash: digest, reservationId: z.string(), batchId: z.string(), customId: z.string(), taggedAt: z.string().datetime() }).strict();
+const request = z.object({ customId: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/), cards: z.array(card).min(1).max(40), archetype: z.string().min(1).optional(), profileInputHash: digest.optional(), memberCount: z.number().int().min(3).optional(), systemPrompt: z.string().optional(), promptHash: digest.optional(), hashes: z.record(z.string(), digest.nullable()) }).strict();
+const reservation = z.object({ id: z.string().regex(/^[a-f0-9]{32}$/), month, createdAt: z.string().datetime(), model: z.enum([MODEL, LEGACY_MODEL]).optional(), state: z.enum(["reserved", "submission_started", "submitted", "settled"]), reservedMicros: z.number().int().nonnegative().max(MONTHLY_CAP_MICROS), systemPrompt: z.string(), promptHash: digest, requests: z.array(request).min(1).max(66), batchId: z.string().regex(/^msgbatch_[a-zA-Z0-9_]+$/).optional(), actualMicros: z.number().int().nonnegative().optional(), accepted: z.array(accepted).optional(), acceptedProfiles: z.array(acceptedProfile).optional(), failures: z.array(z.number().int().positive()).optional(), profileFailures: z.array(z.string()).optional() }).strict();
 export const LedgerSchema = z.object({ version: z.literal(1), months: z.record(month, z.number().int().nonnegative().max(MONTHLY_CAP_MICROS)), reservations: z.array(reservation) }).strict();
 export type Ledger = z.infer<typeof LedgerSchema>;
 export type Reservation = Ledger["reservations"][number];
+export type AcceptedProfile = z.infer<typeof acceptedProfile>;
 export type AcceptedTag = z.infer<typeof accepted>;
 export interface LedgerSnapshot { revision: string; ledger: Ledger }
 export interface LedgerStore { read(): Promise<LedgerSnapshot | undefined>; compareAndSwap(revision: string | undefined, next: Ledger): Promise<string> }
@@ -31,13 +39,15 @@ export function validateLedger(value: unknown): Ledger {
   const ledger = LedgerSchema.parse(value), ids = new Set<string>();
   const totals: Record<string, number> = {};
   for (const entry of ledger.reservations) {
-    if (ids.has(entry.id) || entry.reservedMicros !== entry.requests.length * REQUEST_RESERVATION_MICROS || hash(entry.systemPrompt) !== entry.promptHash) throw new Error("Invalid budget ledger reservation");
+    if (ids.has(entry.id) || entry.reservedMicros !== entry.requests.length * reservationCost(entry.model ?? LEGACY_MODEL) || hash(entry.systemPrompt) !== entry.promptHash) throw new Error("Invalid budget ledger reservation");
     ids.add(entry.id);
     if ((entry.state === "submitted" || entry.state === "settled") && !entry.batchId) throw new Error("Missing durable batch identity");
     if (entry.state === "settled" && (entry.actualMicros === undefined || entry.actualMicros > entry.reservedMicros)) throw new Error("Invalid settled budget usage");
     if (entry.state === "settled") totals[entry.month] = (totals[entry.month] ?? 0) + entry.actualMicros!;
     const customIds = new Set<string>();
     for (const req of entry.requests) {
+      if ((!req.archetype && (req.cards.length > MAX_CARDS_PER_REQUEST || req.systemPrompt || req.promptHash || req.profileInputHash || req.memberCount)) || (req.archetype && ((!req.systemPrompt && !req.promptHash) || !req.profileInputHash || !req.memberCount || req.memberCount < req.cards.length))) throw new Error("Invalid ledger request kind");
+      if (req.systemPrompt && req.promptHash && hash(req.systemPrompt) !== req.promptHash) throw new Error("Invalid ledger profile prompt hash");
       if (customIds.has(req.customId) || Object.keys(req.hashes).length !== req.cards.length || new Set(req.cards.map(card => card.id)).size !== req.cards.length || req.cards.some(card => req.hashes[card.id] !== hashCardEffectSourceText(card))) throw new Error("Invalid ledger request identity");
       customIds.add(req.customId);
     }

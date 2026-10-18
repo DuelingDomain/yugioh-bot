@@ -82,9 +82,10 @@ describe("the pinned searchygo artifact and SQLite import", () => {
     expect(db.prepare("SELECT COUNT(*) AS count FROM card_tags WHERE text_hash IS NULL").get()).toEqual({ count: Object.values(sourceHashes()).filter(hash => hash === null).length });
     expect(db.prepare("SELECT text_hash FROM card_tags WHERE passcode=101402101").get()).toEqual({ text_hash: sourceHashes()[101402101] });
     const profile = db.prepare("SELECT plan,hooks_json,cards FROM card_tag_profiles WHERE archetype='Dark World'").get() as { plan: string; hooks_json: string; cards: number };
-    expect(profile.plan).toContain("Fiends");
+    const pinnedProfile = gunzipSync(readFileSync(join(artifactDirectory, "profiles.jsonl.gz"))).toString("utf8").trim().split("\n").map(line => JSON.parse(line)).find(row => row.archetype === "Dark World");
+    expect(profile.plan).toBe(pinnedProfile.profile.plan);
     expect(JSON.parse(profile.hooks_json)).not.toHaveLength(0);
-    expect(profile.cards).toBe(37);
+    expect(profile.cards).toBe(pinnedProfile.cards);
     expect(db.prepare("SELECT artifact_version FROM card_tag_artifact_imports").get()).toEqual({ artifact_version: report.version });
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });
