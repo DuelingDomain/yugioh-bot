@@ -89,9 +89,17 @@ function audit(kind: Kind, format: Format, domain = false, invalid = false): Sce
     board.p0!.grave = [card];
     board.p0!.lp = lp - 900 * count;
     if (format === "tag") board.p2!.lp = board.p0!.lp;
-    if (invalid) return defineScenario({ id: `unban-audit-${kind}-${format}${domain ? "-domain" : ""}-short-hand`, title: "Every living hand must have three cards",
-      source: "Owner 2026-10-18; ADR-0002 R-COMMON-ALL-BOTH", rules: ["R-COMMON-ALL-BOTH"], tags: ["multiplayer", `card:${code}`], setup,
-      steps: [expectNotOffered("activate", card, "p0")] });
+    if (invalid) {
+      // The short seat's normal draw repairs the condition; the same set Trap must now resolve for everyone.
+      for (const [i, seat] of seats.entries()) board[seat]!.deckCount = i === count - 1 ? 7 : 8;
+      board.p0!.lp = lp - 300 * (4 * count - 2);
+      if (format === "tag") board.p2!.lp = board.p0!.lp;
+      return defineScenario({ id: `unban-audit-${kind}-${format}${domain ? "-domain" : ""}-short-hand`, title: "Activation waits until every living hand has three cards",
+        source: "Owner 2026-10-18; ADR-0002 R-COMMON-ALL-BOTH", rules: ["R-COMMON-ALL-BOTH"], tags: ["multiplayer", `card:${code}`], setup,
+        steps: [expectNotOffered("activate", card, "p0"), ...seats.slice(0, -1).map(seat => endTurn(seat)), activate(card, "p0"),
+          ...[seats[count - 1], ...seats.slice(0, -1)].flatMap(seat => [expectPrompt({ by: seat, kind: "order" }),
+            raw({ selected: Array.from({ length: seat === "p0" || seat === seats[count - 1] ? 3 : 4 }, (_, n) => `card:${n}`) }, seat)]), expectBoard(board)] });
+    }
     steps.push(activate(card, "p0"), ...seats.flatMap(seat => [expectPrompt({ by: seat, kind: "order" }), raw({ selected: ["card:0", "card:1", "card:2"] }, seat)]));
   } else {
     setup.p0!.spells = [faceDown(card)];
@@ -103,9 +111,18 @@ function audit(kind: Kind, format: Format, domain = false, invalid = false): Sce
     if (invalid && format === "tag") { setup.p1!.grave = Array(7).fill(HAND[1]); setup.p3!.grave = Array(7).fill(HAND[3]); }
     board.p0!.lp = lp - 1000;
     if (format === "tag") board.p2!.lp = lp - 1000;
-    if (invalid) return defineScenario({ id: `unban-audit-${kind}-${format}${domain ? "-domain" : ""}-short-grave`, title: "Every living Graveyard must have fifteen cards",
-      source: "Owner 2026-10-18; ADR-0002 R-COMMON-ALL-BOTH", rules: ["R-COMMON-ALL-BOTH"], tags: ["multiplayer", `card:${code}`], setup,
-      steps: [expectNotOffered("activate", card, "p0")] });
+    if (invalid) {
+      const unchanged: BoardExpect = {};
+      for (const [i, seat] of seats.entries()) unchanged[seat] = {
+        lp, hand: i === 0 ? [] : [HAND[i]], monsters: i === 0 ? [HAND[i]] : [],
+        spells: i === 0 ? [card] : [], grave: setup[seat]!.grave, deckCount: 10,
+        ...(i === 0 ? { zones: { s0: { card, pos: "set" as const } } } : {}),
+      };
+      return defineScenario({ id: `unban-audit-${kind}-${format}${domain ? "-domain" : ""}-short-grave`, title: "Every living Graveyard must have fifteen cards",
+        source: "Owner 2026-10-18; ADR-0002 R-COMMON-ALL-BOTH", rules: ["R-COMMON-ALL-BOTH"], tags: ["multiplayer", `card:${code}`], setup,
+        steps: [expectNotOffered("activate", card, "p0"), normalSummon(HAND[0], "p0"),
+          expectPrompt({ by: "p0", context: "action" }), expectNotOffered("activate", card, "p0"), expectBoard(unchanged)] });
+    }
     steps.push(activate(card, "p0"));
   }
   if (pair && format !== "tag") {
@@ -261,7 +278,16 @@ function gambleAudit(format: Format, domain: boolean, result: "win"|"lose"|"shor
   const seats=SEATS.slice(0,format==="ffa3"?3:4),setup=simpleSetup(format,domain,20),tag=format==="tag";
   setup.p0!.spells=[faceDown("Gamble")];
   for (const seat of seats.slice(1)) setup[seat]!.hand=Array(result==="short"?3:seat===seats.at(-1)?6:1).fill("Silver Fang");
-  const steps: Step[]=result==="short"?[expectNotOffered("activate","Gamble","p0")]:[
+  if (result==="short") setup.p0!.hand=["Mystical Elf"];
+  const steps: Step[]=result==="short"?[
+    expectNotOffered("activate","Gamble","p0"),normalSummon("Mystical Elf","p0"),
+    expectPrompt({by:"p0",context:"action"}),expectNotOffered("activate","Gamble","p0"),
+    expectBoard(Object.fromEntries(seats.map((seat,i)=>[seat,{
+      lp:tag?16000:8000,hand:i===0?[]:Array(3).fill("Silver Fang"),monsters:i===0?["Mystical Elf"]:[],
+      spells:i===0?["Gamble"]:[],grave:[],deckCount:20,
+      ...(i===0?{zones:{s0:{card:"Gamble",pos:"set" as const}}}:{}),
+    }]))),
+  ]:[
     activate("Gamble","p0"),choose(result==="win"?"tails":"heads","p0"),expectPrompt({by:"p0",context:"action"}),
     expectBoard({p0:{hand:result==="win"?Array(5).fill("Mystical Elf"):[],deckCount:result==="win"?15:20,grave:["Gamble"]}})];
   if (result==="lose") {
@@ -283,7 +309,12 @@ function switcherTag(domain: boolean, variant: "mixed"|"uneven"|"full"|"rivalry"
   setup.p0!.spells=[faceDown("Switcheroroo"),...(variant==="rivalry"?["Rivalry of Warlords"]:[])];
   const before: BoardExpect=Object.fromEntries(SEATS.map((seat,i)=>[seat,{monsters:[...Array(Math.min(counts[i],5)).fill(cards[i]),...(variant==="no-room"&&i===0?["Link Spider"]:[])]}]));
   const board: BoardExpect={};
-  const steps: Step[]=variant==="no-room"?[expectNotOffered("activate","Switcheroroo","p0"),expectBoard(before)]:[activate("Switcheroroo","p0")];
+  if (variant==="no-room") before.p0={...before.p0,hand:[],grave:[],spells:["Switcheroroo"],
+    zones:{m0:{card:cards[0],pos:"def"},s0:{card:"Switcheroroo",pos:"set"}}};
+  const steps: Step[]=variant==="no-room"?[
+    expectNotOffered("activate","Switcheroroo","p0"),changePosition({card:cards[0],nth:0},"p0"),
+    expectPrompt({by:"p0",context:"action"}),expectNotOffered("activate","Switcheroroo","p0"),expectBoard(before),
+  ]:[activate("Switcheroroo","p0")];
   if (variant!=="no-room") {
     // All placements are chosen by the actual receiving member, including a partner's field.
     for (let i=0;i<4;i++) {

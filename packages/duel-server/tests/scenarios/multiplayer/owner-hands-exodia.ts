@@ -113,10 +113,23 @@ function shortHandScenario(format: typeof FORMATS[number], domain: boolean): Sce
   for (const [i, seat] of SEATS.slice(0, format === "ffa3" ? 3 : 4).entries()) setup[seat]!.hand = [HAND[i], HAND[i]];
   setup.p0!.hand!.push("Hand Destruction");
   setup.p2!.hand = [HAND[2]];
+  const seats = SEATS.slice(0, format === "ffa3" ? 3 : 4);
+  const board: BoardExpect = {};
+  // One round of normal draws repairs only the short-hand condition. The card must then resolve for every seat.
+  const steps: Step[] = [expectNotOffered("activate", "Hand Destruction", "p0"), ...seats.map(seat => endTurn(seat)),
+    activate("Hand Destruction", "p0")];
+  for (const [i, seat] of seats.entries()) {
+    const sent = i === 2 ? [HAND[i], FILLER] : [HAND[i], HAND[i]];
+    // With exactly two cards p2 has no choice; the core sends that hand automatically.
+    if (i !== 2) steps.push(expectPrompt({ by: seat, kind: "cards" }), { op: "select", sels: sent, by: seat });
+    board[seat] = { hand: Array(i === 2 ? 2 : 3).fill(FILLER),
+      grave: [...(i === 0 ? ["Hand Destruction"] : []), ...sent], deckCount: 9 };
+  }
+  steps.push(expectBoard(board));
   return defineScenario({
-    id: `owner-hands-short-${format}${domain ? "-domain" : ""}`, title: "Hand Destruction: a player with fewer than two cards prevents activation",
+    id: `owner-hands-short-${format}${domain ? "-domain" : ""}`, title: "Hand Destruction: activation waits until the short hand draws its second card",
     source: SOURCE, rules: ["R-COMMON-EACH-PLAYER", "R-COMMON-HAND-DESTRUCTION"], tags: ["multiplayer", format, "card:74519184"], setup,
-    steps: [expectNotOffered("activate", "Hand Destruction", "p0"), expectBoard({ p2: { hand: [HAND[2]], grave: [], deckCount: 12 } })],
+    steps,
   });
 }
 
@@ -180,7 +193,11 @@ function shortDeckScenario(domain: boolean): Scenario {
   return defineScenario({ id: `owner-hands-short-deck-ffa4${domain ? "-domain" : ""}`,
     title: "Card Destruction: the activator must have enough cards in the Deck", source: SOURCE,
     rules: ["R-COMMON-HAND-DESTRUCTION"], tags: ["multiplayer", "ffa4", "card:72892473"], setup,
-    steps: [expectNotOffered("activate", "Card Destruction", "p0")] });
+    steps: [expectNotOffered("activate", "Card Destruction", "p0"), normalSummon("Battle Ox", "p0"),
+      activate("Card Destruction", "p0"), expectBoard({
+        p0: { hand: [FILLER], monsters: ["Battle Ox"], grave: ["Card Destruction", "Silver Fang"], deckCount: 0 },
+        p1: { hand: [], grave: [], deckCount: 1 }, p2: { hand: [], grave: [], deckCount: 1 }, p3: { hand: [], grave: [], deckCount: 1 },
+      })] });
 }
 
 function afterLossScenario(format: "ffa3" | "ffa4", domain: boolean, code: 72892473 | 74519184 | 33396948): Scenario {

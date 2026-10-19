@@ -9,10 +9,14 @@ const luaFailure = (code: number): NFailure =>
 describe("lua-1-tp-nil known issue", () => {
   it("covers only the listed cards, in a format with more than two duelists", () => {
     for (const code of LUA_1_TP_CARDS) expect(knownIssueFor(luaFailure(code), { format: "ffa3", coreTag: "P59" })?.sig, `${code}`).toBe("lua-1-tp-nil");
-    expect(knownIssueFor(luaFailure(27204311), { format: "1v1", coreTag: "P59" })).toBeNull();
+    expect(knownIssueFor(luaFailure(1918087), { format: "1v1", coreTag: "P59" })).toBeNull();
   });
 
   it("treats a Lua nil error of any other card as a new failure", () => {
+    // Nibiru now has an overlay: its old nil error must fail fuzz runs as a regression.
+    for (const format of ["ffa3", "ffa4", "tag"]) {
+      expect(knownIssueFor(luaFailure(27204311), { format, coreTag: "P59" }), format).toBeNull();
+    }
     expect(knownIssueFor(luaFailure(83957459), { format: "ffa4", coreTag: "P59" })).toBeNull();
     expect(knownIssueFor(luaFailure(55144522), { format: "tag", coreTag: "P59" })).toBeNull();
   });
