@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelEngineView, DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
-import { LOCATION_DMZONE, cardArtUrl, isDefense, isFacedown, zoneKey } from "./constants";
+import { LOCATION_DMZONE, cardArtUrl, formatStat, isDefense, isFacedown, zoneKey } from "./constants";
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { battleOutcomeId, battleTrigger } from "./battle-trigger";
 import { coinBarrierFor, coinTossBefore, whenCoinBarrierClears } from "./coin-barrier";
@@ -591,7 +591,7 @@ function AttackPlay({ play, showStats }: { play: Play; showStats: boolean }) {
           title="Damage calculation"
           style={{ left: stat.box.left + stat.box.width / 2,
             top: `calc(${stat.above ? stat.box.top : stat.box.top + stat.box.height}px ${stat.above ? "-" : "+"} 6 * var(--fx-unit))` }}>
-          <strong>{stat.value}</strong> <small>{stat.label}</small>
+          <strong>{formatStat(stat.value)}</strong> <small>{stat.label}</small>
         </span>
       )) : null}
     </div>
