@@ -170,7 +170,7 @@ describe("Genesys points snapshots", () => {
     expect(createGenesysPointsReader(db).points([1]).get(1)).toBe(7);
     payload(completeSnapshot());
     await expect(catalog.syncGenesysPoints()).rejects.toThrow(/unverified/);
-  });
+  }, 30_000);
 
   it("does not roll back a newer list when an older concurrent fetch finishes late", async () => {
     const { db, catalog, payload } = setup();

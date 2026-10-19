@@ -188,7 +188,7 @@ export async function callDuelHost(input: {
   choice?: DuelFirstChoice;
   /** chain-mode only: the response switch position for the caller's own seat. */
   chainMode?: DuelChainMode;
-}): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
+}): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse; retryable?: boolean }> {
   const replayOp = input.op === "replay" || input.op === "owner-replay" || input.op === "replay-fork"
     || input.op === "fork-list" || input.op === "fork-restart" || input.op === "fork-cancel";
   const failure = (body: NonNullable<ReturnType<typeof hostErrorBody>>["body"], status: number): NextResponse => NextResponse.json({
@@ -199,9 +199,9 @@ export async function callDuelHost(input: {
   const configProblem = duelHostConfigProblem(cfg);
   if (configProblem) {
     log("warn", "[duel-host] configuration is incomplete");
-    return { ok: false, response: failure({ error: configProblem }, 503) };
+    return { ok: false, response: failure({ error: configProblem }, 503), retryable: false };
   }
-  const transport = signedTransport({ ...cfg, purpose: "duel-host", ...(input.op === "engine-data-status" ? { timeoutMs: 5000 }
+  const transport = signedTransport({ ...cfg, purpose: "duel-host", ...(input.op === "engine-data-status" || input.op === "bug-context" ? { timeoutMs: 5000 }
     : input.op === "normalize-codes" || input.op === "validate-deck-master" ? { timeoutMs: 20000 }
     : replayOp ? { timeoutMs: 30_000 } : {}) });
   const payload: Record<string, unknown> = {
@@ -246,6 +246,13 @@ export async function callDuelHost(input: {
 
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {
+    if (input.op === "bug-context") {
+      // Capture retries use the original host result. Other operations map some 4xx responses to 503.
+      const timedOut = result.status === 0 && result.text === "Internal request timed out";
+      const status = result.status >= 400 && result.status < 600 ? result.status : 503;
+      return { ok: false, response: failure({ error: "Could not capture duel data" }, status),
+        retryable: timedOut || (result.status >= 500 && result.status < 600) };
+    }
     if (result.status < 400) {
       report(new Error(result.text), { tags: { operation: input.op } });
       const error = result.text === "Internal request timed out"

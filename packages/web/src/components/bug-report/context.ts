@@ -1,5 +1,6 @@
 import type { DuelRoom } from "@yugidraft/shared/duels";
 import type { BugReportRequest } from "@/lib/bug-report";
+import { duelSlugFromPath } from "@/lib/bug-report";
 import { getAnimationSpeed } from "../duel/animation-speed";
 
 /** The part of a bug report the browser fills in by itself. The server checks and filters all of it again. */
@@ -19,7 +20,7 @@ export function collectBugContext(room: DuelRoom | null): CollectedContext {
   if (context.userAgent === undefined) delete context.userAgent;
   if (context.viewport === undefined) delete context.viewport;
   const path = typeof window === "undefined" ? "/" : window.location.pathname || "/";
-  if (!room) return { path, context };
+  if (!room) return { path, context, duelSlug: duelSlugFromPath(path) };
 
   context.animationSpeed = getAnimationSpeed();
   return { path, duelSlug: room.session.slug, context };

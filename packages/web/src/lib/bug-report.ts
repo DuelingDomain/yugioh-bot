@@ -38,6 +38,9 @@ export interface BugReportContext {
   userAgent?: string;
   viewport?: { width: number; height: number };
   timestamp?: string;
+  /** Fixed server messages. Never accepted from a browser request. */
+  logMissingReason?: string;
+  boardMissingReason?: string;
 }
 
 export interface BugReportRequest {
@@ -209,6 +212,12 @@ function parsePath(raw: unknown): string | null {
   return /^\/[A-Za-z0-9/_\-.[\]]*$/.test(path) && !path.includes("//") ? path : null;
 }
 
+/** A duel page can report before its client room store has loaded. General pages never imply a past duel. */
+export function duelSlugFromPath(path: string): string | undefined {
+  const slug = /^\/duels\/([A-Za-z0-9_-]{1,80})(?:\/replay)?\/?$/.exec(path)?.[1];
+  return slug === "new" || slug === "dev-presets" ? undefined : slug;
+}
+
 /** Strict validation of the POST body. Unknown fields are refused, not ignored. */
 export function parseBugReportRequest(raw: unknown): ParseResult<BugReportRequest> {
   if (!isObject(raw)) return { ok: false, error: "Body must be a JSON object" };
@@ -239,6 +248,8 @@ export function parseBugReportRequest(raw: unknown): ParseResult<BugReportReques
   }
   const context = parseContext(raw.context);
   if (!context.ok) return context;
+  duelSlug = duelSlugFromPath(path) ?? duelSlug;
+  if (duelSlug === "new" || duelSlug === "dev-presets") duelSlug = undefined;
   return { ok: true, value: { description, expected, path, ...(duelSlug ? { duelSlug } : {}), context: context.value, ...(duplicateOf ? { duplicateOf } : {}) } };
 }
 
@@ -260,12 +271,15 @@ export function redactText(text: string, redact: readonly string[], replacement 
     .filter((value) => value.length >= 3 && !COMMON_NAMES.has(value.toLowerCase()))
     // Longest first, so "Seraphina Quill" goes before "Seraphina".
     .sort((a, b) => b.length - a.length);
-  let out = text;
+  // Earlier sanitizing may have split an email's @ with a zero-width space.
+  let out = clean(text);
   for (const value of values) {
     const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     out = out.replace(new RegExp(`(?<![${WORD_CHAR}])${escaped}(?![${WORD_CHAR}])`, "giu"), () => replacement);
   }
-  return out;
+  return out
+    .replace(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, replacement)
+    .replace(/\b\d{17,20}\b/g, replacement);
 }
 
 export function issueTitle(description: string, context: BugReportContext, redact: readonly string[] = []): string {
@@ -276,14 +290,12 @@ export function issueTitle(description: string, context: BugReportContext, redac
 }
 
 export interface IssueBodyInput {
-  reportId: number;
+  reportId: string;
   description: string;
   expected?: string | null;
   path: string;
   duelSlug?: string | null;
   context: BugReportContext;
-  /** Public web base URL, no trailing slash. Without it the issue has no replay link. */
-  baseUrl?: string;
 }
 
 /** The browser name and major version only ("Chrome 126"): the full user agent is not published. */
@@ -319,15 +331,104 @@ export function buildCommentBody(input: IssueBodyInput, redact: readonly string[
   return sections.join("\n\n");
 }
 
+// Routes under app/: [id] is one parameter, [...id] is a catch-all, and an empty child marks a route endpoint.
+// Match the whole route so a parameter that equals a fixed sibling name is still masked.
+const PUBLIC_ROUTE_CHILDREN: Readonly<Partial<Record<string, readonly string[]>>> = {
+  "": ["", "access", "api", "cubes", "dashboard", "decks", "dev", "draft", "drafts", "duels", "leaderboard", "login", "monitoring", "player", "settings", "sign-in", "sign-up", "sso-callback", "themes", "tournament", "tournaments", "welcome-back"],
+  "/api": ["account", "admin", "archetypes", "auth", "bug-reports", "cards", "cubes", "dashboard", "decks", "discord", "drafts", "duels", "leaderboard", "live", "lobby", "matches", "player", "players", "sets", "test-auth", "tournaments", "waitlist", "webhooks"],
+  "/api/account": ["delete", "refresh"],
+  "/api/admin": ["access", "bug-reports", "card-data-status", "duels"],
+  "/api/admin/bug-reports": ["", "[id]"],
+  "/api/admin/duels": ["[id]", "forks"],
+  "/api/admin/duels/[id]": ["replay"],
+  "/api/admin/duels/[id]/replay": ["", "fork"],
+  "/api/auth": ["callback", "existing-player", "session"],
+  "/api/auth/callback": ["discord"],
+  "/api/auth/existing-player": ["complete", "start", "ticket"],
+  "/api/bug-reports": ["", "precheck"],
+  "/api/cards": ["[id]", "resolve"],
+  "/api/cards/[id]": ["artworks", "image"],
+  "/api/cubes": ["", "[id]"],
+  "/api/cubes/[id]": ["", "cards", "ydk"],
+  "/api/decks": ["", "[id]", "artwork", "cards", "import"],
+  "/api/decks/cards": ["", "facets"],
+  "/api/decks/import": ["", "bulk", "preview"],
+  "/api/discord": ["channels"],
+  "/api/drafts": ["", "[id]"],
+  "/api/drafts/[id]": ["", "auto-start", "cancel", "claim-cube", "connection", "cubes", "deck-pool", "export", "invite", "join", "join-bot", "nudge", "pick", "players", "pool", "preflight", "ready", "start", "talk", "tournament", "visibility"],
+  "/api/drafts/[id]/cubes": ["", "[id]"],
+  "/api/drafts/[id]/invite": ["", "reset"],
+  "/api/drafts/[id]/players": ["[id]"],
+  "/api/duels": ["", "[id]", "active", "cards", "client-error", "preset", "series"],
+  "/api/duels/[id]": ["", "actions", "activity", "archive", "bot", "cancel", "cancel-waiting", "chain-mode", "connection", "debug-trace", "deck", "fork", "invite", "leave", "opening", "ready", "replay", "report", "seat", "series", "start", "surrender", "unready"],
+  "/api/duels/[id]/deck": ["", "validate"],
+  "/api/duels/[id]/fork": ["cancel", "restart"],
+  "/api/duels/[id]/series": ["first", "ready", "side", "unready"],
+  "/api/duels/series": ["[id]"],
+  "/api/duels/series/[id]": ["cancel"],
+  "/api/lobby": ["open"],
+  "/api/matches": ["[id]"],
+  "/api/matches/[id]": ["approve", "deny"],
+  "/api/player": ["[id]", "me"],
+  "/api/sets": ["", "[id]"],
+  "/api/test-auth": ["session", "sign-out"],
+  "/api/tournaments": ["", "[id]"],
+  "/api/tournaments/[id]": ["", "announce", "complete", "connection", "deck", "invite", "join", "join-bot", "kick", "leave", "matches", "reopen", "report", "standings", "visibility"],
+  "/api/tournaments/[id]/invite": ["", "reset"],
+  "/api/tournaments/[id]/matches": ["[id]"],
+  "/api/tournaments/[id]/matches/[id]": ["duel", "result"],
+  "/api/webhooks": ["clerk"],
+  "/cubes": ["", "[id]"],
+  "/decks": ["", "[id]", "draft", "new"],
+  "/decks/draft": ["[id]"],
+  "/dev": ["delete-account-preview", "fx-lab", "sign-in-preview", "solid-preview", "table-preview"],
+  "/dev/table-preview": ["", "classic", "ffa3", "ffa4", "pile", "tag"],
+  "/dev/table-preview/classic": ["", "room"],
+  "/draft": ["[id]"],
+  "/drafts": ["", "new"],
+  "/drafts/new": ["", "cube", "theme"],
+  "/duels": ["", "[id]", "dev-presets", "new"],
+  "/duels/[id]": ["", "replay"],
+  "/player": ["[id]"],
+  "/settings": ["", "account", "bug-reports", "card-data"],
+  "/settings/account": ["", "[...id]"],
+  "/sign-in": ["", "[...id]"],
+  "/sign-up": ["", "[...id]"],
+  "/themes": ["", "[id]"],
+  "/tournament": ["[id]"],
+  "/tournament/[id]": ["", "standings"],
+  "/tournaments": ["", "new"],
+};
+
+function publicPagePath(path: string): string {
+  const segments = path.split("/").filter(Boolean);
+  function matchRoute(parent: string, index: number): string[] | null {
+    const children = PUBLIC_ROUTE_CHILDREN[parent];
+    if (index === segments.length) return !children || children.includes("") ? [] : null;
+    const segment = segments[index]!;
+    if (!segment.startsWith("[") && children?.includes(segment)) {
+      const rest = matchRoute(`${parent}/${segment}`, index + 1);
+      if (rest) return [segment, ...rest];
+    }
+    if (children?.includes("[id]")) {
+      const rest = matchRoute(`${parent}/[id]`, index + 1);
+      if (rest) return ["[id]", ...rest];
+    }
+    if (children?.includes("[...id]")) return segments.slice(index).map(() => "[id]");
+    return null;
+  }
+  // Unknown routes also mask every segment after the first.
+  const masked = matchRoute("", 0) ?? segments.map((segment, index) => index === 0 ? segment : "[id]");
+  const trailingSlash = segments.length > 0 && path.endsWith("/") ? "/" : "";
+  return `/${masked.join("/")}${trailingSlash}`;
+}
+
 function reportSections(input: IssueBodyInput, redact: readonly string[]): string[] {
   const { context } = input;
-  const seat = context.seat === undefined ? undefined : context.seat === null ? "spectator" : `seat ${context.seat + 1}`;
   const rows: Array<[string, string]> = [
-    ["Page", cell(input.path)],
-    ["Duel", cell(input.duelSlug)],
+    ["Page", cell(publicPagePath(input.path))],
     ["Format", cell(context.format ? FORMAT_TEXT[context.format] : undefined)],
     ["Rules", cell(context.duelMode)],
-    ["Reporter seat", cell(seat)],
     ["Turn", cell(context.turn)],
     ["Phase", cell(context.phase)],
     ["Turn of", cell(context.turnSeat === undefined ? undefined : context.turnSeat === null ? "none" : `seat ${context.turnSeat + 1}`)],
@@ -349,8 +450,7 @@ function reportSections(input: IssueBodyInput, redact: readonly string[]): strin
     "## Recent log",
     log.length ? fence(log.join("\n")) : "_No duel log._",
   ];
-  if (input.duelSlug && input.baseUrl) {
-    sections.push("## Replay", `${input.baseUrl}/duels/${encodeURIComponent(input.duelSlug)}/replay (sign-in needed)`);
-  }
+  if (input.duelSlug && context.logMissingReason) sections.push(`Log missing because ${context.logMissingReason}.`);
+  if (input.duelSlug && context.boardMissingReason) sections.push(`Board missing because ${context.boardMissingReason}.`);
   return sections;
 }

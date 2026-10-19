@@ -145,6 +145,11 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
       contexts += writeContext.run(JSON.stringify(context), report.id).changes;
     }
     note("bug_report_contexts", contexts);
+    // The report's submitter snapshot must follow the same deletion policy as the account.
+    // A null snapshot lets report reads use the anonymised users row after this transaction.
+    note("bug_report_submitters", db.prepare(
+      `update bug_reports set submitter_json = null where player_id in ${owned} and submitter_json is not null`,
+    ).run(userId).changes);
 
     note("players", db.prepare(
       "update players set display_name = ?, discord_user_id = null where user_id = ? and (display_name <> ? or discord_user_id is not null)",

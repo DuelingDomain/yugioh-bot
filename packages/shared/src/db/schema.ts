@@ -1,4 +1,5 @@
 import { log } from "../observability/index.js";
+import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import { backfillMainArtworkRows } from "../services/card-artworks.js";
 import { generateWebSlug } from "../util/web-slug.js";
@@ -1177,6 +1178,18 @@ export function migrate(db: Database.Database) {
     create index if not exists bug_reports_player_idx on bug_reports (guild_id, player_id, created_at);
   `);
   db.exec("create index if not exists bug_reports_duel_idx on bug_reports (guild_id, duel_slug, created_at)");
+  // Private report data. Older reports keep their identity through players -> users.
+  addColumnIfMissing(db, "bug_reports", "submitter_json", "text");
+  addColumnIfMissing(db, "bug_reports", "diagnostics_json", "text");
+  addColumnIfMissing(db, "bug_reports", "public_id", "text");
+  addColumnIfMissing(db, "bug_reports", "submission_key", "text");
+  db.transaction(() => {
+    db.exec("create unique index if not exists bug_reports_public_id_idx on bug_reports(public_id)");
+    const missing = db.prepare("select id from bug_reports where public_id is null").all() as Array<{ id: number }>;
+    const setPublicId = db.prepare("update bug_reports set public_id = ? where id = ?");
+    for (const row of missing) setPublicId.run(randomBytes(9).toString("base64url"), row.id);
+    db.exec("create index if not exists bug_reports_submission_idx on bug_reports(guild_id, player_id, submission_key, created_at)");
+  }).immediate();
 
   db.exec(`
     create table if not exists product_events (
