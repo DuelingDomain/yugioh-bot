@@ -472,6 +472,8 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
     piles: pileRects,
     fields: fieldRects,
     focus: focusRect,
+    // The turn-order strip is drawn at a multi-seat table only (also when two seats are left), never at a 1v1 duel.
+    multiTable: wipe && document.querySelector('[data-testid="seat-strip"]') != null,
     sequential: group.events.some((event) => event.sourceKind === "spell" || event.sourceKind === "trap"),
   });
   const ghosts: WipeGhost[] = [];

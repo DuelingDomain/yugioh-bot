@@ -218,6 +218,7 @@ export type SceneInput = {
   /** Wipes at a multi-seat table: every field, and the one field a piece is aimed at (see FxScene). */
   fields?: FxField[];
   focus?: FxRect;
+  multiTable?: boolean;
 };
 
 const cx = (r: FxRect): number => r.x + r.w / 2;
@@ -511,6 +512,7 @@ export function planWipe(input: SceneInput): { scene: FxScene; cues: SceneCue[] 
       piles: input.piles,
       fields: input.fields,
       focus: input.focus,
+      multiTable: input.multiTable,
       marks,
     },
     cues,

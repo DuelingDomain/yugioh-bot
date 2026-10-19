@@ -72,10 +72,13 @@ export const buildStorm: WipeBuild = (ctx) => {
     return Math.min(life, Math.max(0.12, room / vx));
   };
 
+  // Heavy Storm over a whole multi-seat table: the streaks of the demo (made for one board) would fill the canvas with a
+  // pale veil, so there are fewer, thinner and fainter streaks that stay on the Spell/Trap rows.
+  const wide = heavy && (!!ctx.scene.fields || !!ctx.scene.multiTable);
   const streaks = ctx.particles(
-    ctx.count(heavy ? 600 : 320),
+    ctx.count(wide ? 200 : heavy ? 600 : 320),
     () => {
-      const row = r() < 0.2 ? (r() * 2 - 1) * 330 : rows[Math.floor(r() * rows.length)] + (r() - 0.5) * 200;
+      const row = !wide && r() < 0.2 ? (r() * 2 - 1) * 330 : rows[Math.floor(r() * rows.length)] + (r() - 0.5) * (wide ? 110 : 200);
       const x0 = startX - (ctx.focused ? 0 : r() * 60);
       const vx = 1700 + r() * 1400;
       return {
@@ -83,10 +86,10 @@ export const buildStorm: WipeBuild = (ctx) => {
         v: [vx, (r() - 0.5) * 140 + 70],
         delay: F0 - 0.3 + r() * 1.3,
         life: inside(x0, vx, 0.5 + r() * 0.3, 0.3),
-        size: 90 + r() * 140,
+        size: wide ? 50 + r() * 70 : 90 + r() * 140,
         stretch: 0.12,
         shape: 1,
-        col: [...(heavy ? ([0.75, 1, 0.95] as const) : ([1, 0.86, 0.95] as const)), 0.3 + r() * 0.3] as [number, number, number, number],
+        col: [...(heavy ? ([0.75, 1, 0.95] as const) : ([1, 0.86, 0.95] as const)), (wide ? 0.12 : 0.3) + r() * (wide ? 0.12 : 0.3)] as [number, number, number, number],
       };
     },
     { drag: 0.3, P: [0, 0, 0.5, 0.1] },
@@ -154,16 +157,19 @@ export const buildStorm: WipeBuild = (ctx) => {
       const sky = ramp(t, 0.1, 0.6) * (1 - ramp(t, 1.9, D));
       const b = bump(t, F0, 2.0);
       P.uTint.value.setRGB(TINT[0], TINT[1], TINT[2]);
-      P.uTintAmt.value = (heavy ? 0.55 : 0.4) * sky;
-      P.uDarken.value = (heavy ? 0.3 : 0.12) * sky;
+      // At a multi-seat table the storm blends into the table: a lighter tint and clouds, so the plates and the other fields
+      // stay readable.
+      const multi = !!ctx.scene.fields || !!ctx.scene.multiTable;
+      P.uTintAmt.value = (heavy ? (multi ? 0.3 : 0.55) : 0.4) * sky;
+      P.uDarken.value = (heavy ? (multi ? 0.16 : 0.3) : 0.12) * sky;
       P.uVig.value = 0.25 + 0.25 * sky;
-      P.uClouds.value = heavy ? 0.4 * sky : 0;
+      P.uClouds.value = heavy ? (multi ? 0.1 : 0.4) * sky : 0;
       if (t > F0 - 0.12 && t < F1 + 0.3) P.uGust.value.set(ctx.uv(frontX(t), 0)[0], gustWidthUv, heavy ? 0.075 : 0.06);
       if (heavy) {
         P.uLens.value.set(0.6, 0.1 * b, 0.45 * b, 0);
         P.uAberr.value = 0.25 * b;
       }
-      soft.set(frontX(t), heavy ? 0 : rows[0], 360, 0.18 * bump(t, F0 - 0.1, F1 + 0.3), glowH);
+      soft.set(frontX(t), heavy ? 0 : rows[0], 360, (multi ? 0.08 : 0.18) * bump(t, F0 - 0.1, F1 + 0.3), glowH);
 
       streaks.setT(t);
       feathers.setT(t);
