@@ -331,6 +331,16 @@ export function PileViewer({
   }
 
   function onPanelKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    // A pick: 1..9 choose that material, as in the generic card list (PromptCenter and the tray ignore keys inside a dialog).
+    if (pick && !event.metaKey && !event.ctrlKey && !event.altKey && !event.nativeEvent.isComposing) {
+      const digit = /^[1-9]$/.test(event.key) ? Number(event.key) : /^Numpad[1-9]$/.test(event.key) ? Number(event.key.slice(6)) : null;
+      const id = digit != null ? pick.ids[digit - 1] : undefined;
+      if (id != null) {
+        event.preventDefault();
+        if (!event.repeat && !pick.busy) pick.onToggle(id);
+        return;
+      }
+    }
     if (event.key !== "Tab") return;
     const panel = panelRef.current;
     if (!panel) return;

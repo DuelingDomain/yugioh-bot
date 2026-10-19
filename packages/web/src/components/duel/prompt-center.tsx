@@ -1238,9 +1238,13 @@ function optionCard(option: DuelPromptOption, seat: number): DuelCard {
 
 const noInspect = () => {};
 
-function pickStatus(prompt: DuelPrompt, chosen: number): string {
+function pickStatus(prompt: DuelPrompt, chosen: number, confirm: boolean): string {
   const { min, max } = selectionBounds(prompt);
-  if (max <= 1) return min === 0 ? "Click a material to choose it, or none" : "Click a material to choose it";
+  if (max <= 1) {
+    // A click answers at once only when exactly one is needed; "none" is a pick that Confirm ends.
+    if (confirm) return min === 0 ? "Choose a material or none, then Confirm" : "Choose a material, then Confirm";
+    return "Click a material to choose it";
+  }
   if (min === max) return `Choose ${max} materials · ${chosen} of ${max} chosen`;
   return `Choose ${min} to ${max} materials · ${chosen} chosen`;
 }
@@ -1288,7 +1292,7 @@ function MaterialPicker({
         ids,
         notes,
         selected: chosen,
-        status: pickStatus(prompt, chosen.length),
+        status: pickStatus(prompt, chosen.length, explicit),
         busy,
         confirm: explicit,
         ready: toggle ? true : canConfirm(prompt, draft),
