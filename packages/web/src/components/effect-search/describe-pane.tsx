@@ -6,6 +6,7 @@ import type { CardSummary } from "@/lib/card-types";
 import { useResultNav } from "@/lib/hooks/use-result-nav";
 import { EffectCredit } from "./batch-bar";
 import { EraNote } from "./era-note";
+import { IntentHeading, RelaxHints } from "./search-intent";
 import { HowItPlays } from "./how-it-plays";
 import type { CardEra } from "@yugidraft/shared/cards/effects";
 import { effectSearch, EffectApiError, type EffectSearchResult } from "./effect-api";
@@ -144,8 +145,9 @@ export function DescribePane({
     if (exact) empty = "No card text has those words.";
     else if (allOff) empty = "Every part is switched off. Turn one back on.";
     else if (!result.chips) empty = "That did not read as an effect. Try other words, or turn on Exact text to match the written card text.";
-    else empty = "No cards match all of this. Switch off a part to widen it.";
+    else if (!result.relax?.length) empty = "No cards match all of this. Switch off a part to widen it.";
   }
+  const relaxHints = !exact && !error && !searching && cards.length === 0 ? result?.relax : undefined;
 
   return (
     <div className={styles.pane} data-testid="describe-pane">
@@ -212,6 +214,7 @@ export function DescribePane({
           })}
         </ul>
       )}
+      {!exact && ready && result?.intent ? <IntentHeading intent={result.intent} count={result.total} /> : null}
       {!exact && ready && result?.guide ? <HowItPlays guide={result.guide} testId="describe-how-it-plays" /> : null}
       <div className={styles.eraSlot} data-testid="era-note-space">
         {ready && sort === "match" && sessionEra ? <EraNote era={sessionEra} warning={session.warning} /> : null}
@@ -230,6 +233,7 @@ export function DescribePane({
           {empty}
         </p>
       ) : null}
+      {relaxHints?.length ? <RelaxHints relax={relaxHints} onRemove={(chip) => setOmitted((now) => (now.includes(chip) ? now : [...now, chip]))} /> : null}
       {cards.length > 0 && !error && (
         <div onPointerMove={() => keyboard && setKeyboard(false)}>
           <SelectAllShown

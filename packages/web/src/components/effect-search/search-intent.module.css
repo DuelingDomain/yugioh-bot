@@ -1,0 +1,34 @@
+/*
+ * Search hints and intent titles. Colors come from the .ms tokens. Nothing here changes size, position or
+ * border on hover; a hint button only changes its text color.
+ */
+.relax { box-sizing: border-box; width: 100%; display: grid; gap: 6px; min-width: 0; padding: 10px 12px; border: 1px solid var(--rule-lo); border-radius: 10px; background: var(--panel-2); }
+.relaxLead { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.35; }
+.relaxList { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.relaxBtn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule-lo);
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.relaxBtn:hover { color: var(--ink); }
+.relaxBtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.relaxText { min-width: 0; overflow-wrap: anywhere; }
+.relaxText strong { color: var(--ink); font-weight: 500; }
+.relaxCount { color: var(--gold-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.intent { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.art { flex: none; width: 24px; aspect-ratio: 59 / 86; border-radius: 2px; object-fit: cover; background: var(--panel-3); }
+.intentTitle { min-width: 0; margin: 0; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.intentCount { flex: none; margin-left: auto; color: var(--ink-3); font-size: 11px; }

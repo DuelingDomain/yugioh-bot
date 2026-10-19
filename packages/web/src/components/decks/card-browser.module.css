@@ -159,7 +159,11 @@
 @media (prefers-reduced-motion: reduce) { .worksTile { transition: none; } }
 .effectHeading { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 10px; padding-top: 12px; border-top: 1px solid var(--rule-lo); color: var(--ink-3); font-size: 11px; }
 .effectHeading h3 { color: var(--ink); font-size: 13px; font-weight: 500; }
-.effectReason { margin-top: 5px; color: var(--ink-3); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.effectHeading > :first-child:not(h3) { flex: 1 1 0; min-width: 0; }
+.effectHeading:first-child { padding-top: 0; border-top: 0; }
+/* One muted line under the tile; the full text is the tooltip. The tile above keeps its size. */
+.tileReason { margin: 4px 0 0; overflow: hidden; color: var(--ink-3); font-size: 11px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.effectReason { margin-top: 2px; color: var(--ink-3); font-size: 11px; line-height: 1.35; }
 
 /* ---------- filter sheet (covers the results) ---------- */
 .filters {
