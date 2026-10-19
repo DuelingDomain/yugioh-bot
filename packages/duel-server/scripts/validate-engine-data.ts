@@ -30,8 +30,10 @@ if (metadata.changed) {
     const artifact = JSON.parse(remapBytes.toString("utf8"));
     if (!artifact.scriptSmoke) throw new Error("Prepared prerelease script smoke results missing");
     report = withPrereleaseSmoke(report, artifact.scriptSmoke);
-    if (metadata.cardChanges) report = withCardUpdate(report,
-      withPreviewExclusions(metadata.cardChanges, artifact.scriptSmoke.excluded.map((card: { code: number }) => card.code)));
+    if (metadata.cardChanges) {
+      metadata.cardChanges = withPreviewExclusions(metadata.cardChanges, artifact.scriptSmoke.excluded.map((card: { code: number }) => card.code));
+      report = withCardUpdate(report, metadata.cardChanges);
+    }
   }
   const probe = await probeEngineData(dataDirectory, metadata.changedPaths);
   // An incomplete scan must still publish its blocking findings without opening the invalid bundle again.
@@ -47,6 +49,8 @@ if (metadata.changed) {
   if (probe.artworkScriptScanError || probe.artworkScriptFallbacks?.length) process.exitCode = 1;
   report += "\n## Bundle validation\n\n`npm run duel:prepare` passed with the candidate pins in a temporary DUEL_DATA_DIR. The core probe above ran against this prepared bundle.\n";
   await writeFile(join(artifact, "probe.json"), JSON.stringify(probe, null, 2) + "\n");
+  // Keep the complete machine-readable card list in sync with the finalized report.
+  await writeFile(join(artifact, "update.json"), JSON.stringify(metadata, null, 2) + "\n");
 }
 report = report.replace(/## Script errors in prod \(last 7 days\)\n[\s\S]*?(?=\n## |$)/, prodSection);
 await writeFile(reportPath, report);

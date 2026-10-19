@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { DuelCard, DuelEngineView } from "@yugidraft/shared/duels";
-import { isDefense, isFacedown, zoneKey } from "../constants";
+import { combatStat, isDefense, isFacedown, zoneKey } from "../constants";
 
 export type AttackPreview = { attacker: string; target: string; lines: ReactNode[] };
 
@@ -23,9 +23,10 @@ export function buildAttackPreview(engine: DuelEngineView, attackerKey: string |
   const attacker = monsterAt(engine, attackerKey);
   const target = monsterAt(engine, targetKey);
   if (!attacker || !target || attacker.attack == null || isFacedown(target.position)) return undefined;
-  const atk = attacker.attack;
+  const atk = combatStat(attacker.attack);
   const defending = isDefense(target.position);
-  const against = (defending ? target.defense : target.attack) ?? 0;
+  const against = combatStat(defending ? target.defense : target.attack);
+  if (atk == null || against == null) return undefined;
   const lines: ReactNode[] = [];
   const foe = <b>{nameOf(target.controller)}</b>;
   const me = <b>{nameOf(attacker.controller)}</b>;

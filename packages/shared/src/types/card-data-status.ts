@@ -99,6 +99,20 @@ export interface CardDataStatus {
     babelCdbFiles: { status: DataStatus; files: string[] };
   };
   updateWorkflow: EngineUpdateWorkflowStatus;
+  /** Added by the web API from committed data; older hosts do not send history. */
+  updateHistory?: CardDataUpdateHistoryEntry[];
+}
+export interface CardDataUpdateHistoryEntry {
+  /** Publication snapshot date; historical backfills use the merge date. */
+  date: string;
+  label: string;
+  pullRequest: { number: number; url: string };
+  /** null means the original comparison was unavailable, never a zero count. */
+  counts: { newCards: number | null; changedCards: number | null; removedCards: number | null; changedScripts: number | null; newSetCodes: number | null };
+  setCodes: string[];
+  newCards: Array<{ name: string; passcode: number; setName: string; setCode: string | null; prerelease: boolean }>;
+  cardListAvailable: boolean;
+  note: string;
 }
 /** The signed host response before adding GitHub metadata. */
 export type LocalCardDataStatus = Pick<CardDataStatus, "engine" | "catalog" | "gap">;

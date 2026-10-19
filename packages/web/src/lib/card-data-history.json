@@ -1,0 +1,171 @@
+[
+  {
+    "date": "2026-10-19T17:47:58.615Z",
+    "label": "Project Ignis 2026-10-19",
+    "pullRequest": {
+      "number": 395,
+      "url": "https://github.com/DuelingDomain/yugioh-bot/pull/395"
+    },
+    "counts": {
+      "newCards": 18,
+      "changedCards": 11,
+      "removedCards": 0,
+      "changedScripts": 78,
+      "newSetCodes": 3
+    },
+    "setCodes": [
+      "IMPH",
+      "MVB1",
+      "RV02"
+    ],
+    "newCards": [
+      {
+        "name": "Ars Magna Academic Arcane Apparition Acropolis",
+        "passcode": 101403061,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Ars Magna Artmage",
+        "passcode": 101403045,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Ars Magna DoomZ",
+        "passcode": 101403046,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Ars Magna Elfnote",
+        "passcode": 101403047,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Omega Vidolium the Power Patron of Heaven's End",
+        "passcode": 101403035,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Power Patron Portal Plugging -Sword of Mutual Destruction-",
+        "passcode": 101403060,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Theorealize Ephemeral Lull",
+        "passcode": 101403079,
+        "setName": "Set IMPH",
+        "setCode": "IMPH",
+        "prerelease": true
+      },
+      {
+        "name": "Gandora-X the Blackmetal Rampaging Dragon",
+        "passcode": 100463002,
+        "setName": "Set MVB1",
+        "setCode": "MVB1",
+        "prerelease": true
+      },
+      {
+        "name": "Time Chain",
+        "passcode": 100463005,
+        "setName": "Set MVB1",
+        "setCode": "MVB1",
+        "prerelease": true
+      },
+      {
+        "name": "Warrior's Devotion",
+        "passcode": 100463008,
+        "setName": "Set MVB1",
+        "setCode": "MVB1",
+        "prerelease": true
+      },
+      {
+        "name": "Invoked Magistus Heruvim",
+        "passcode": 100462002,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Magistus Witchcrafter Aruru",
+        "passcode": 100462004,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Trinitas Magistus",
+        "passcode": 100462001,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Aqua Leviathan @Marincess",
+        "passcode": 100460028,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      },
+      {
+        "name": "Marincess Azuri",
+        "passcode": 100460026,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      },
+      {
+        "name": "Marincess Reef Lagoon",
+        "passcode": 100460031,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      },
+      {
+        "name": "Marincess Truth Heart",
+        "passcode": 100460030,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      },
+      {
+        "name": "Marincess Ulpis",
+        "passcode": 100460027,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      }
+    ],
+    "cardListAvailable": true,
+    "note": "Card counts compare loaded database rows. The card list follows the report and excludes blocked pre-release cards and graduations. Set codes are known sets of listed new cards. Final prepare-time pre-release script exclusions: 0. The 11 reviewed multiplayer restrictions remain in effect."
+  },
+  {
+    "date": "2026-10-06T21:12:36Z",
+    "label": "Project Ignis 2026-10-06",
+    "pullRequest": {
+      "number": 210,
+      "url": "https://github.com/DuelingDomain/yugioh-bot/pull/210"
+    },
+    "counts": {
+      "newCards": 0,
+      "changedCards": 2,
+      "removedCards": 0,
+      "changedScripts": 47,
+      "newSetCodes": 0
+    },
+    "setCodes": [],
+    "newCards": [],
+    "cardListAvailable": true,
+    "note": "Backfilled from the merged PR and its original cards.cdb comparison. Script counts include the official and shared script changes in that report."
+  }
+]
