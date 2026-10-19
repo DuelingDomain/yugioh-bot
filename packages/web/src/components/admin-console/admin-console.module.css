@@ -117,3 +117,9 @@
 .rowName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rowSection { color: var(--ink-2); }
 .rowSeen { color: var(--ink-4); font-variant-numeric: tabular-nums; text-align: right; }
+/* Area names exist only while the sheet row is a phone grid (same container query as match-sheet.css). */
+@container (max-width: 620px) {
+  .rowName { grid-area: nm; }
+  .rowSection { grid-area: sec; }
+  .rowSeen { grid-area: seen; }
+}

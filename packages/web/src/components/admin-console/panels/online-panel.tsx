@@ -27,9 +27,9 @@ export function OnlinePanel() {
               <FloorList aria-label="People online">
                 {rows.map((u) => (
                   <FloorRow key={u.userId} cols="minmax(0,1fr) minmax(0,1fr) 84px" phoneCols="minmax(0,1fr) auto" phoneAreas={'"nm seen" "sec sec"'}>
-                    <span className={styles.rowName} style={{ gridArea: "nm" }}><LiveDot className="" /> {u.name}</span>
-                    <span className={styles.rowSection} style={{ gridArea: "sec" }}>{u.label}</span>
-                    <span className={styles.rowSeen} style={{ gridArea: "seen" }}>{ago(u.lastSeenAt, now)}</span>
+                    <span className={styles.rowName}><LiveDot className="" /> {u.name}</span>
+                    <span className={styles.rowSection}>{u.label}</span>
+                    <span className={styles.rowSeen}>{ago(u.lastSeenAt, now)}</span>
                   </FloorRow>
                 ))}
               </FloorList>
