@@ -97,7 +97,7 @@ describe("deck APIs reject invalid Extra cards independently of the client", () 
   it.each(["get", "list"])("exposes the repair notice on the saved-deck object returned by %s", async read => {
     const original = { main: Array(60).fill(901), extra: [901, 903], side: [] };
     const id = Number(db.prepare("insert into saved_decks(guild_id,owner_user_id,name,mode,deck_json) values ('test-g',1,'Test legacy','normal',?)").run(JSON.stringify(original)).lastInsertRowid);
-    const response = read === "get" ? await GET(request({}), { params: Promise.resolve({ id: String(id) }) }) : await LIST();
+    const response = read === "get" ? await GET(request({}), { params: Promise.resolve({ id: String(id) }) }) : await LIST(new Request("http://test/api/decks"));
     expect(response.status).toBe(200);
     const data = await response.json();
     const saved = read === "get" ? data.deck : data.decks[0];
