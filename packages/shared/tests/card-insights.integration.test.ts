@@ -99,6 +99,25 @@ describe("SQL insights over the real pinned artifact", () => {
     expect(service.effectSearch("hand traps", [97268402], { exact: true })).toMatchObject({ reading: null, total: 0, cards: [] });
   });
 
+  it("adds the How it plays profile to an archetype reading and searches one of its hooks", () => {
+    const guide = service.effectSearch("blueeyes support", [89631139, 71039903, 97268402]).guide;
+    expect(guide).toMatchObject({ archetype: "Blue-Eyes", plan: expect.any(String), hooks: expect.any(Array) });
+    expect(guide?.plan.length).toBeGreaterThan(20);
+    expect(guide?.hooks.length).toBeGreaterThan(0);
+    expect(JSON.stringify(guide)).not.toMatch(/\bAI\b/);
+    expect(service.effectSearch("hand traps", [97268402]).guide).toBeUndefined();
+    expect(service.effectSearch("Printed text for Effect Veiler", [97268402], { exact: true }).guide).toBeUndefined();
+    const hook = guide!.hooks.findIndex(item => item.searchable);
+    expect(hook).toBeGreaterThanOrEqual(0);
+    const cards = service.hookSearch("Blue-Eyes", hook, [89631139, 71039903, 97268402, 14558127]);
+    // A card of the archetype itself is never a hook match.
+    expect(cards.map(card => card.passcode)).not.toContain(89631139);
+    expect(cards.every(card => card.reason === guide!.hooks[hook]!.label)).toBe(true);
+    expect(service.hookSearch("Blue-Eyes", 99)).toEqual([]);
+    expect(service.hookSearch("No Such Archetype", 0)).toEqual([]);
+    expect(service.hookSearch("Blue-Eyes", hook, [])).toEqual([]);
+  });
+
   it("filters release readings and sorts newest cards through the SQL catalog", () => {
     expect(service.effectSearch("hand traps before 2015", [97268402, 14558127])).toMatchObject({
       total: 1, cards: [{ passcode: 97268402 }], reading: { chips: expect.arrayContaining(["Released: before 2015"]) },

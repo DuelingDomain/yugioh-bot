@@ -9,3 +9,4 @@ export * from "./engine-card.js";
 export * from "./artifact.js";
 export * from "./releases.js";
 export * from "./release-query.js";
+export * from "./guide.js";

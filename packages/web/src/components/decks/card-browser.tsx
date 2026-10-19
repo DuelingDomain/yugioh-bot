@@ -4,13 +4,15 @@ import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type Ke
 import { AlertTriangle, ArrowDownWideNarrow, ArrowUpNarrowWide, Minus, LayoutGrid, Link2, List, Plus, RotateCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { cardLimit, type CardArchetype, type CardQuery, type CardQueryResult, type DeckCardInfo, type DuelMode } from "@yugidraft/shared/duels";
 import { EFFECT_SEARCH_ATTRIBUTION, mayReadEffect } from "@yugidraft/shared/cards/effects/capability";
+import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
+import { HowItPlays } from "@/components/effect-search/how-it-plays";
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
 import { cn } from "@/lib/utils";
 import { artCountLabel } from "@/components/artwork/artwork-picker";
 import { ArtChip } from "./art-chip";
 import { DeckButton, DeckSelect, DeckSegmented } from "./controls";
 import { queryDeckCards } from "./api";
-import { InsightsDisabledError, fetchWorksWith, resolveInsightCards, type InsightCard } from "./insights-api";
+import { InsightsDisabledError, fetchGuide, fetchHookCards, fetchWorksWith, resolveInsightCards, type InsightCard } from "./insights-api";
 import { useTileLongPress } from "./tile-long-press";
 import { CardArt } from "./card-art";
 import { CardFilters } from "./card-filters";
@@ -36,7 +38,7 @@ const SCOPE_CHOICES = [
 /** A search result. Server searches say how many other arts the card has; the pool list does not. */
 export type BrowserCard = DeckCardInfo & { altArtCount?: number; reason?: string };
 
-type Results = Pick<CardQueryResult, "effectSearchEnabled" | "reading" | "effectHits" | "effectTotal"> & {
+type Results = Pick<CardQueryResult, "effectSearchEnabled" | "reading" | "effectHits" | "effectTotal" | "profile"> & {
   key: string;
   cards: BrowserCard[];
   total: number;
@@ -44,7 +46,12 @@ type Results = Pick<CardQueryResult, "effectSearchEnabled" | "reading" | "effect
 };
 
 /** The card the list is showing partners for ("Works with: <card>"). */
-export type BrowserPartner = { code: number; name: string };
+export type BrowserPartner = {
+  code: number;
+  name: string;
+  /** The list shows the cards that fit one hook of an archetype's "How it plays" panel, not the partners of a card. */
+  hook?: { archetype: string; index: number };
+};
 
 /** Draft deck mode: the list holds only the player's pool, searched in the browser. */
 export type BrowserPool = {
@@ -154,12 +161,13 @@ export function CardBrowser({
       const timer = window.setTimeout(() => {
         void (async () => {
           try {
-            const scope = `${mode}|${genesys}|${poolCards ? poolCards.length : ""}`;
+            const scope = `${mode}|${genesys}|${poolCards ? poolCards.length : ""}${partner.hook ? `|${partner.hook.archetype}#${partner.hook.index}` : ""}`;
             let ranked: InsightCard[];
             const cached = partnersCache.current;
             if (cached && cached.code === partner.code && cached.scope === scope) ranked = cached.cards;
             else {
-              const hits = await fetchWorksWith(partner.code, { mode, genesys, ...(poolCards ? { pool: poolCards.map((card) => card.canonicalPasscode ?? card.code) } : {}), limit: WORKS_WITH_LIMIT }, controller.signal);
+              const scopeOptions = { mode, genesys, ...(poolCards ? { pool: poolCards.map((card) => card.canonicalPasscode ?? card.code) } : {}), limit: WORKS_WITH_LIMIT };
+              const hits = partner.hook ? await fetchHookCards(partner.hook.archetype, partner.hook.index, scopeOptions, controller.signal) : await fetchWorksWith(partner.code, scopeOptions, controller.signal);
               ranked = (await resolveInsightCards(hits, { mode }, controller.signal)).filter((card) => card.code !== partner.code);
               if (controller.signal.aborted) return;
               partnersCache.current = { code: partner.code, scope, cards: ranked };
@@ -180,7 +188,7 @@ export function CardBrowser({
               partnerRef.current?.(null);
               return;
             }
-            setResults({ key, cards: [], total: 0, error: `Could not find cards that work with ${partner.name}.` });
+            setResults({ key, cards: [], total: 0, error: `Could not find cards that ${partner.hook ? "fit" : "work with"} ${partner.name}.` });
             setLoading(false);
             dropHover();
           }
@@ -281,6 +289,28 @@ export function CardBrowser({
   const chips = useMemo(() => filterChips(genesys ? { ...query, excludeGenesysForbidden: false } : query, archetypes), [query, archetypes, genesys]);
   const stale = loading || (results != null && results.key !== key);
 
+  // "How it plays": from the first page of an archetype search, or loaded by name while a hook is shown.
+  const hookArchetype = partner?.hook?.archetype;
+  const [hookGuide, setHookGuide] = useState<ArchetypeGuide | null>(null);
+  useEffect(() => {
+    if (!hookArchetype) return;
+    const controller = new AbortController();
+    void fetchGuide([hookArchetype], controller.signal).then((found) => { if (!controller.signal.aborted) setHookGuide(found); }, () => undefined);
+    return () => controller.abort();
+  }, [hookArchetype]);
+  const searchGuide = !partner && results?.key === key ? results.profile ?? null : null;
+  const shownGuide = hookArchetype ? (hookGuide && hookGuide.archetype.toLowerCase() === hookArchetype.toLowerCase() ? hookGuide : null) : searchGuide;
+  function openHook(index: number) {
+    if (!shownGuide) return;
+    // The active row is a switch: pressing it again drops the hook.
+    if (partner?.hook?.index === index) onPartnerChange?.(null);
+    else {
+      // The search text named the archetype; the cards that fit its hook would not match it. Other filters stay.
+      onQueryChange({ ...query, text: "", effectOmit: [] });
+      onPartnerChange?.({ code: -(index + 1), name: shownGuide.hooks[index]?.label ?? shownGuide.archetype, hook: { archetype: shownGuide.archetype, index } });
+    }
+  }
+
   const worksEnabled = onWorksWith != null && results?.effectSearchEnabled === true;
 
   function onTileKey(event: KeyboardEvent, card: DeckCardInfo) {
@@ -300,7 +330,7 @@ export function CardBrowser({
 
   /** The title above the first card of a group: partners of a card, or the effect hits under the name results. */
   function heading(position: number) {
-    if (partner) return position === 0 ? <li className={styles.effectHeading}><h3>Works with {partner.name}</h3><span>{total.toLocaleString("en-US")} {total === 1 ? "card" : "cards"}</span></li> : null;
+    if (partner) return position === 0 ? <li className={styles.effectHeading}><h3>{partner.hook ? "Fits" : "Works with"} {partner.name}</h3><span>{total.toLocaleString("en-US")} {total === 1 ? "card" : "cards"}</span></li> : null;
     return position === cards.length && effectCards.length > 0 ? <li className={styles.effectHeading}><h3>Cards that do this</h3><span>{effectTotal.toLocaleString("en-US")} matches</span></li> : null;
   }
 
@@ -331,8 +361,8 @@ export function CardBrowser({
   const countText = results?.error
     ? "Search failed"
     : results == null
-      ? partner ? `Finding cards that work with ${partner.name}…` : pool ? "Loading your pool…" : "Searching…"
-      : partner ? `${total.toLocaleString("en-US")} ${total === 1 ? "card works" : "cards work"} with ${partner.name}`
+      ? partner ? `Finding cards that ${partner.hook ? "fit" : "work with"} ${partner.name}…` : pool ? "Loading your pool…" : "Searching…"
+      : partner ? `${total.toLocaleString("en-US")} ${partner.hook ? (total === 1 ? "card fits" : "cards fit") : (total === 1 ? "card works" : "cards work")}${partner.hook ? "" : " with"} ${partner.name}`
       : `${displayedTotal.toLocaleString("en-US")} ${displayedTotal === 1 ? "card" : "cards"}${pool ? " in your pool" : ""}`;
 
   return (
@@ -428,8 +458,8 @@ export function CardBrowser({
         {partner ? (
           <ul className={styles["de-chips"]} aria-label="Works with">
             <li>
-              <button type="button" className={cn("chip", "chip-gold", styles.chipButton)} aria-label={`Remove Works with ${partner.name}`} onClick={() => onPartnerChange?.(null)}>
-                <Link2 size={12} aria-hidden />Works with: {partner.name}<X size={12} aria-hidden />
+              <button type="button" className={cn("chip", "chip-gold", styles.chipButton)} aria-label={`Remove ${partner.hook ? "Fits" : "Works with"} ${partner.name}`} onClick={() => onPartnerChange?.(null)}>
+                <Link2 size={12} aria-hidden />{partner.hook ? "Fits" : "Works with"}: {partner.name}<X size={12} aria-hidden />
               </button>
             </li>
           </ul>
@@ -467,6 +497,8 @@ export function CardBrowser({
             {stale ? <span className={styles.working}>Updating…</span> : null}
           </p>
 
+          {shownGuide && !results?.error ? <div className={styles.guide}><HowItPlays guide={shownGuide} activeHook={partner?.hook?.index ?? null} onHook={onPartnerChange ? openHook : undefined} /></div> : null}
+
           {results?.error ? (
             <div className="banner banner-bad" role="alert">
               <AlertTriangle className="ic" aria-hidden />
@@ -477,7 +509,7 @@ export function CardBrowser({
             </div>
           ) : results != null && total === 0 && effectTotal === 0 && !stale ? (
             <div className={styles.none}>
-              <p>{partner ? `No card that works with ${partner.name} fits these filters.` : "No cards match."}</p>
+              <p>{partner ? `No card that ${partner.hook ? "fits" : "works with"} ${partner.name} fits these filters.` : "No cards match."}</p>
               {chips.length > 0 ? (
                 <DeckButton size="sm" kind="quiet" onClick={() => onQueryChange(clearFilters(query))}>Clear filters</DeckButton>
               ) : null}

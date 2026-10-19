@@ -121,3 +121,73 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     await shot("newest-sort");
   });
 }
+
+for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844 }]) {
+  test(`How it plays panel above the effect hits at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
+    const phone = viewport.width < 768;
+    await page.setViewportSize(viewport);
+    const login = await page.request.post("/api/test-auth/session", { data: { userId: 101, secret: process.env.E2E_AUTH_SECRET } });
+    expect(login.status()).toBe(200);
+    // The e2e database holds no archetype profiles, so the profile of the real response is a fixture.
+    const guide = {
+      archetype: "Blue-Eyes",
+      plan: "Summon Blue-Eyes White Dragon again and again, then end the turn on a boss monster that your opponent cannot easily answer. ".repeat(4).trim(),
+      hooks: [
+        { label: "Dragon search", why: "Adds a Blue-Eyes card from the Deck, so the plan starts every turn.", searchable: true },
+        { label: "Level 8 support", why: "Any Level 8 Dragon can be a second body.", searchable: true },
+        { label: "Graveyard recursion", why: "Brings the dragons back after a board wipe.", searchable: false },
+        { label: "Fusion engine", why: "Makes the big Fusion monsters.", searchable: true },
+      ],
+    };
+    await page.route("**/api/decks/cards", async (route) => {
+      const body = route.request().postDataJSON() as { text?: string; offset?: number };
+      if (!/blue-eyes/i.test(body.text ?? "")) return route.fallback();
+      const response = await route.fetch();
+      const data = (await response.json()) as Record<string, unknown>;
+      await route.fulfill({ json: { ...data, effectSearchEnabled: true, ...((body.offset ?? 0) === 0 ? { profile: guide } : {}) } });
+    });
+    let hookRequest: { archetype?: string; hook?: number } | null = null;
+    await page.route("**/api/cards/insights", async (route) => {
+      const body = route.request().postDataJSON() as { op?: string; archetype?: string; hook?: number };
+      if (body.op !== "hookSearch") return route.fallback();
+      hookRequest = body;
+      await route.fulfill({ json: { effectSearchEnabled: true, attribution: "Effect search powered by searchygo", cards: [] } });
+    });
+    await page.goto("/decks/new");
+    const cardsTab = page.getByRole("tab", { name: "Cards", exact: true });
+    if (await cardsTab.isVisible()) await cardsTab.click();
+    const browser = page.getByRole("complementary", { name: "Card list" });
+    await browser.getByRole("searchbox", { name: "Search cards" }).fill("Blue-Eyes synergies");
+
+    const panel = browser.getByTestId("how-it-plays");
+    await expect(panel).toBeVisible({ timeout: 30_000 });
+    await expect(panel).toContainText("Blue-Eyes");
+    await expect(panel).not.toContainText(/\bAI\b/);
+    // The plan is three lines until "More"; three hooks are shown until "Show all".
+    const plan = panel.getByTestId("how-it-plays-plan");
+    const clamped = (await plan.boundingBox())!.height;
+    await panel.getByRole("button", { name: "More" }).click();
+    expect((await plan.boundingBox())!.height).toBeGreaterThan(clamped);
+    await panel.getByRole("button", { name: "Less" }).click();
+    await expect(panel.getByTestId("how-it-plays-hook").or(panel.getByTestId("how-it-plays-hook-text"))).toHaveCount(3);
+    await panel.getByRole("button", { name: /^Show all/ }).click();
+    await expect(panel.getByTestId("how-it-plays-hook").or(panel.getByTestId("how-it-plays-hook-text"))).toHaveCount(4);
+    await panel.getByRole("button", { name: "Show fewer" }).click();
+
+    // Nothing moves on hover, and the panel does not run over the page.
+    const hook = panel.getByTestId("how-it-plays-hook").first();
+    const before = await hook.boundingBox();
+    await hook.hover();
+    expect(await hook.boundingBox()).toEqual(before);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+
+    // A hook with data runs a search for the cards that fit it; the same row again goes back.
+    await hook.click();
+    await expect(browser.getByRole("list", { name: "Works with" }).getByText("Dragon search")).toBeVisible();
+    expect(hookRequest).toMatchObject({ archetype: "Blue-Eyes", hook: 0 });
+    await browser.getByRole("button", { name: "Remove Fits Dragon search" }).click();
+    await expect(browser.getByRole("list", { name: "Works with" })).toHaveCount(0);
+    if (!phone) await expect(browser.getByText("Effect search powered by searchygo", { exact: true })).toBeVisible();
+    void testInfo;
+  });
+}

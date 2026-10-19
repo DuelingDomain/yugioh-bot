@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   const data = result.data as Record<string, unknown>;
   const enabled = effectSearchEnabled() && data.effectSearchEnabled === true;
   if (!enabled) {
-    const { reading: _reading, effectHits: _hits, effectTotal: _total, effectOffset: _offset, ...literal } = data;
+    const { reading: _reading, profile: _profile, effectHits: _hits, effectTotal: _total, effectOffset: _offset, ...literal } = data;
     return NextResponse.json({ ...literal, effectSearchEnabled: false });
   }
   return NextResponse.json(data);

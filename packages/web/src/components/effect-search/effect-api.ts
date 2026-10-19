@@ -7,7 +7,7 @@
 import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
 import { EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
-import type { CardEra } from "@yugidraft/shared/cards/effects";
+import type { ArchetypeGuide, CardEra } from "@yugidraft/shared/cards/effects";
 
 export { EFFECT_SEARCH_ATTRIBUTION };
 
@@ -23,6 +23,8 @@ export interface EffectSearchResult {
   total: number;
   /** How the text was read: one chip per part. Null when the text does not read as an effect. */
   chips: string[] | null;
+  /** "How it plays" for the archetype the text names, when there is one. */
+  guide?: ArchetypeGuide;
 }
 
 /** The server says the feature is off (HTTP 404), or the request failed. */
@@ -77,14 +79,14 @@ export async function effectSearch(text: string, options: EffectSearchOptions = 
   if (options.sort === "newest") body.sort = "newest";
   if (options.era !== undefined) body.era = options.era;
   if (options.omittedChips?.length) body.omittedChips = options.omittedChips;
-  const data = await post<{ cards: EffectCard[]; total: number; reading: { chips: string[] } | null }>(
+  const data = await post<{ cards: EffectCard[]; total: number; reading: { chips: string[] } | null; guide?: ArchetypeGuide }>(
     "/api/cards/resolve",
     body,
     "The description search did not work.",
     options.signal,
   );
   putCards(data.cards);
-  return { cards: data.cards, total: data.total, chips: data.reading?.chips ?? null };
+  return { cards: data.cards, total: data.total, chips: data.reading?.chips ?? null, ...(data.guide ? { guide: data.guide } : {}) };
 }
 
 /* ---------- card summary (hover) ---------- */
@@ -131,6 +133,7 @@ export interface SeedPreview {
   maxCopies: number;
   era?: CardEra;
   chips: string[] | null;
+  guide?: ArchetypeGuide;
   rows: SeedRow[];
   cards: CardSummary[];
   roleQuotas: Record<SeedRole, { target: number; selected: number }>;

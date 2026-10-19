@@ -5,10 +5,11 @@ import { isBarredFromGenesys, isExtraDeckCard } from "../cards/effects/card.js";
 import { buildArchetypeMatcher, describe, interpret, omitReadingChips, type Interpretation } from "../cards/effects/query.js";
 import { matchCard } from "../cards/effects/effect-match.js";
 import { compactEffectName, resolveEffectName } from "../cards/effects/name-match.js";
-import { cardSynergy, filterReachesCard, scoreForDeck, type Candidate, type RankedInsightCard } from "../cards/effects/synergy.js";
+import { belongsTo, cardSynergy, filterReachesCard, hookQuery, scoreForDeck, type Candidate, type RankedInsightCard } from "../cards/effects/synergy.js";
+import { readingArchetypes, type ArchetypeGuide } from "../cards/effects/guide.js";
 import { normalizeImportedCardName } from "./card-name-match.js";
 import { createInsightCatalog, type InsightCatalog } from "./card-insight-catalog.js";
-import { readInsightProfiles } from "./card-insight-profiles.js";
+import { readArchetypeGuide, readArchetypeHook, readInsightProfiles } from "./card-insight-profiles.js";
 
 export type CardInsightFormat = "normal" | "domain" | "genesys" | "genesys-domain";
 export interface CardInsightOptions {
@@ -32,6 +33,8 @@ export interface CardInsightSummary {
 }
 export interface CardEffectSearchResult {
   reading: Interpretation | null;
+  /** "How it plays" for the archetype the reading names, on the first page only. */
+  guide?: ArchetypeGuide;
   cards: RankedInsightCard[];
   total: number;
 }
@@ -140,16 +143,7 @@ export function createCardInsightService(db: Database.Database, options: {
     });
   });
 
-  return {
-    summary(passcode: number): CardInsightSummary | null {
-      return withCatalog(catalog => {
-        const canonical = catalog.canonical(passcode);
-        const row = db.prepare("SELECT summary,roles_json,source,text_hash,tagged_at FROM card_tags WHERE passcode=?").get(canonical) as { summary: string; roles_json: string; source: string; text_hash: string | null; tagged_at: string } | undefined;
-        return row ? { passcode: canonical, summary: row.summary, roles: JSON.parse(row.roles_json) as string[], source: row.source, textHash: row.text_hash, taggedAt: row.tagged_at } : null;
-      });
-    },
-    readQuery,
-    effectSearch(text: string, pool?: readonly number[], opts: CardInsightOptions = {}): CardEffectSearchResult {
+  const searchEffects = (text: string, pool: readonly number[] | undefined, opts: CardInsightOptions): CardEffectSearchResult => {
       if (opts.exact) return withCatalog(catalog => {
         const literal = text.trim().toLowerCase(), ranked: Retained[] = [];
         const master = domain(opts.format) && opts.deckMaster !== undefined ? catalog.candidate(opts.deckMaster) : undefined;
@@ -187,6 +181,42 @@ export function createCardInsightService(db: Database.Database, options: {
             ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), effective);
         }
         return { reading, cards: withoutPopularity(ranked), total };
+      });
+  };
+
+  return {
+    summary(passcode: number): CardInsightSummary | null {
+      return withCatalog(catalog => {
+        const canonical = catalog.canonical(passcode);
+        const row = db.prepare("SELECT summary,roles_json,source,text_hash,tagged_at FROM card_tags WHERE passcode=?").get(canonical) as { summary: string; roles_json: string; source: string; text_hash: string | null; tagged_at: string } | undefined;
+        return row ? { passcode: canonical, summary: row.summary, roles: JSON.parse(row.roles_json) as string[], source: row.source, textHash: row.text_hash, taggedAt: row.tagged_at } : null;
+      });
+    },
+    readQuery,
+    effectSearch(text: string, pool?: readonly number[], opts: CardInsightOptions = {}): CardEffectSearchResult {
+      const result = searchEffects(text, pool, opts);
+      const guide = result.reading ? readArchetypeGuide(db, readingArchetypes(result.reading)) : null;
+      return guide ? { ...result, guide } : result;
+    },
+    /** Cards outside an archetype that fit one hook of its "How it plays" panel. */
+    hookSearch(archetype: string, hookIndex: number, pool?: readonly number[], opts: CardInsightOptions = {}): RankedInsightCard[] {
+      const found = readArchetypeHook(db, archetype, hookIndex);
+      if (!found || pool?.length === 0) return [];
+      const query = hookQuery(found.hook, found.archetype), phrases = found.hook.phrases.map(phrase => phrase.toLowerCase());
+      const ranked: Retained[] = [], limit = limitOf(opts.limit);
+      return withCatalog(catalog => {
+        const master = domain(opts.format) && opts.deckMaster !== undefined ? catalog.candidate(opts.deckMaster) : undefined;
+        for (const candidate of catalog.candidates(pool)) {
+          const { card } = candidate;
+          if (!allowed(candidate, opts) || belongsTo(card, found.archetype)) continue;
+          const printed = `${card.pendulumText ?? ""}\n${card.text}`.toLowerCase();
+          if (!phrases.every(phrase => printed.includes(phrase))) continue;
+          const score = matchCard(card, candidate.tags, query);
+          if (score === null) continue;
+          retain(ranked, { passcode: card.id, name: card.name, score: score + cardEraBoost(card, opts.era), linkedCards: 0, reason: found.hook.label,
+            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limit, opts);
+        }
+        return withoutPopularity(ranked);
       });
     },
     worksWith(passcode: number, pool?: readonly number[], opts: CardInsightOptions = {}): RankedInsightCard[] {

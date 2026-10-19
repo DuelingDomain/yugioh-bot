@@ -7,6 +7,8 @@ import { compactEffectName } from "../cards/effects/name-match.js";
 import type { Candidate } from "../cards/effects/synergy.js";
 import { cardEraBoost, compareNewest, deriveCardEra, isCardEra, matchesReleased, type CardEra } from "../cards/effects/releases.js";
 import type { Interpretation } from "../cards/effects/query.js";
+import { readingArchetypes, type ArchetypeGuide } from "../cards/effects/guide.js";
+import { readArchetypeGuide } from "./card-insight-profiles.js";
 import { getCubeSeedIndex, type CubeSeedIndex } from "./cube-seed-index.js";
 import { DEFAULT_CUBE_COPIES, MAX_CUBE_COPIES } from "./constants.js";
 
@@ -27,6 +29,8 @@ export interface CubeSeedPreview {
   targetCount: number;
   maxCopies: number;
   reading: Interpretation | null;
+  /** "How it plays" for the archetype the phrase names. */
+  guide?: ArchetypeGuide;
   era?: CardEra;
   rows: CubeSeedRow[];
   roleQuotas: Record<SeedRole, { target: number; selected: number }>;
@@ -99,7 +103,8 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
   const fractions = { searcher: 0.12, extender: 0.18, removal: 0.12, hand_trap: 0.08 };
   const roleQuotas = Object.fromEntries(roles.map(role => [role, { target: Math.max(targetCount >= 4 ? 1 : 0, Math.floor(targetCount * fractions[role])), selected: 0 }])) as CubeSeedPreview["roleQuotas"];
   const reading = index.readQuery(phrase);
-  const preview: CubeSeedPreview = { phrase: phrase.trim(), targetCount, maxCopies, reading, ...(era ? { era } : {}), rows: [], roleQuotas, warnings: [] };
+  const guide = reading ? readArchetypeGuide(db, readingArchetypes(reading)) : null;
+  const preview: CubeSeedPreview = { phrase: phrase.trim(), targetCount, maxCopies, reading, ...(guide ? { guide } : {}), ...(era ? { era } : {}), rows: [], roleQuotas, warnings: [] };
   if (!reading) { preview.warnings.push("No cards matched this phrase. Try an archetype or an effect description."); return finish(preview); }
 
   const compare = (a: Choice, b: Choice) => (reading.query.sort === "newest"
