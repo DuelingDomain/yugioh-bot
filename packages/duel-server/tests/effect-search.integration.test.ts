@@ -541,6 +541,16 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
     const result=present(search(text,[...include,...exclude].map(code)));
     checkLabels(result,include,exclude,text);
   });
+  it.each(['hand trap', 'hand traps'])('keeps the effect group for the full-catalog role query: %s', text => {
+    const result = search(text);
+    expect(result.effectSearchEnabled).toBe(true);
+    expect(result.reading?.chips).toEqual(['Role: hand trap']);
+    expect(result.cards).toEqual([]);
+    expect(result.total).toBe(0);
+    expect(result.effectHits?.map(card => card.code)).toEqual(expect.arrayContaining([
+      'Ash Blossom & Joyous Spring', 'Effect Veiler', 'Droll & Lock Bird', 'Ghost Ogre & Snow Rabbit',
+    ].map(code)));
+  });
   it.each(supportCases)('support phrase: %s', text => {
     evaluatedQueries++;
     const include = ['Elemental HERO Stratos', 'Elemental HERO Shadow Mist'];

@@ -345,9 +345,9 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
     const compact = foldCardText(trimmed).replaceAll(" ", "");
     const aliases = eligible.filter(entry => entry.name.replaceAll(" ", "").includes(compact));
     if (aliases.length) sorted.push(...sortEntries(aliases, query, member, releaseFor));
-    // A support-only reading already describes the request. Keep compact name
-    // aliases, but do not replace its effect group with a merely nearby name.
-    else if (!(reading?.query.supports && !reading.query.text)) {
+    // A complete effect reading already describes the request. Keep compact
+    // name aliases, but do not replace its effect group with a nearby name.
+    else if (!reading || reading.query.text) {
       const nearby = resolveEffectName(eligible.map(entry => ({ name: entry.card.name, entry })), trimmed);
       if (nearby) sorted.push(nearby.entry);
     }

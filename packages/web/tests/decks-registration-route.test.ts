@@ -43,7 +43,7 @@ describe("deck registration marks", () => {
   }
   async function listDecks() {
     const { GET } = await import("../app/api/decks/route");
-    return (await (await GET()).json()) as { decks: Array<{ id: number; registration: unknown }> };
+    return (await (await GET(new Request("http://localhost/api/decks"))).json()) as { decks: Array<{ id: number; registration: unknown }> };
   }
   async function withDb<T>(work: (db: import("better-sqlite3").Database) => T): Promise<T> {
     const Database = (await import("better-sqlite3")).default;

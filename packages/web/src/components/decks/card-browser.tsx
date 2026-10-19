@@ -327,12 +327,13 @@ export function CardBrowser({
     onRemoveDrop(drag);
   }
 
+  const displayedTotal = pool ? pool.totalCopies ?? total : total + effectTotal;
   const countText = results?.error
     ? "Search failed"
     : results == null
       ? partner ? `Finding cards that work with ${partner.name}…` : pool ? "Loading your pool…" : "Searching…"
       : partner ? `${total.toLocaleString("en-US")} ${total === 1 ? "card works" : "cards work"} with ${partner.name}`
-      : `${(pool ? pool.totalCopies ?? total : total).toLocaleString("en-US")} ${(pool ? pool.totalCopies ?? total : total) === 1 ? "card" : "cards"}${pool ? " in your pool" : ""}`;
+      : `${displayedTotal.toLocaleString("en-US")} ${displayedTotal === 1 ? "card" : "cards"}${pool ? " in your pool" : ""}`;
 
   return (
     <aside
