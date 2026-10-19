@@ -86,6 +86,36 @@ integration("resolves real previews by passcode, name and search, imports cubes 
   const fresh = previews.find(card => !catalog.hasCatalogRow(card.id) && !(card.type & (T.fusion | T.synchro | T.xyz | T.link)))!;
   expect(fresh).toBeDefined();
   expect((await offline.syncDraftPool({ setNames: [], includeNames: [fresh.name], excludeNames: [] })).map(card => card.ygoprodeckId)).toContain(fresh.id);
+
+  // The API can publish a card before the bundle remaps its temporary passcode.
+  const graduating = main.map(card => catalog.findByIds([card.id])[0]).find(card => card.archetype && card.ygoprodeckId > 99_999_999)!;
+  expect(graduating).toBeDefined();
+  const officialId = 99_999_990;
+  expect(engine.prepare("select 1 from datas where id=?").get(officialId)).toBeUndefined();
+  let apiId = graduating.ygoprodeckId;
+  let failNameLookup = false;
+  const published = createCardCatalogService(db, { fetch: async input => {
+    if (failNameLookup && new URL(String(input)).searchParams.has("name")) throw new TypeError("offline");
+    return { ok: true, status: 200, json: async () => ({ data: [{
+      id: apiId, name: graduating.name.toUpperCase(), type: graduating.type, frameType: graduating.frameType,
+      desc: "Published API text", archetype: graduating.archetype,
+      card_images: [{ id: apiId, image_url: `https://images.ygoprodeck.com/images/cards/${apiId}.jpg`,
+        image_url_small: `https://images.ygoprodeck.com/images/cards_small/${apiId}.jpg` }],
+      card_sets: [{ set_name: "Graduated set" }],
+    }] }) };
+  } });
+  expect(await published.syncCardByName(graduating.name)).toMatchObject({ prerelease: true, catalogSource: "api" });
+  apiId = officialId;
+  expect((await published.syncDraftPool({ setNames: ["Graduated set"], includeNames: [` ${graduating.name.toUpperCase()} `], excludeNames: [] }))
+    .map(card => card.ygoprodeckId)).toEqual([officialId]);
+  failNameLookup = true;
+  expect((await published.syncDraftPool({ setNames: ["Graduated set"], includeNames: [graduating.name], excludeNames: [] }))
+    .map(card => card.ygoprodeckId)).toEqual([officialId]);
+  failNameLookup = false;
+  const seeded = await createCubeService(db, published).createFromArchetype("g", graduating.archetype!, owner.userId);
+  expect(cubes.getCubePools(seeded.id).main.filter(card => [graduating.ygoprodeckId, officialId].includes(card.catalogCardId))
+    .map(card => card.catalogCardId)).toEqual([officialId]);
+  expect((await published.syncCardsByFuzzyName(graduating.name)).map(card => card.ygoprodeckId)).toEqual([officialId]);
 }), 30_000);
 
 integration.each([false, true])("preserves previews and graduates real references; official row already exists=%s", async (alreadyPublished) => withDatabase(async (db, engine) => {
