@@ -1,4 +1,5 @@
 export interface CardSummary {
+  prerelease?: boolean;
   id: number;
   name: string;
   type: string;

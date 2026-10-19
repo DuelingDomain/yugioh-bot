@@ -1,5 +1,6 @@
 import { log } from "../observability/index.js";
 import { isExtraDeckFrame } from "../services/card-catalog.js";
+import { loadEngineCatalog } from "../services/engine-card-catalog.js";
 import { remapTargetMetadata } from "./engine-card-metadata.js";
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
@@ -96,6 +97,11 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
   let metadata: ReturnType<typeof remapTargetMetadata>;
   try {
     metadata = remapTargetMetadata(engine, remaps.values());
+    const catalog = loadEngineCatalog(directory);
+    for (const target of new Set(remaps.values())) {
+      const card = catalog.get(target);
+      if (card) metadata.set(target, card.metadata);
+    }
     const find = engine.prepare("SELECT 1 FROM datas WHERE id=?");
     for (const target of new Set(remaps.values())) if (!find.get(target)) throw new Error(`Remap target ${target} is absent from engine database`);
   } finally { engine.close(); }
@@ -115,9 +121,12 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
     for (const [old, target] of remaps) {
       const copiedPreview = copyCatalog.run(target, old).changes > 0;
       if (copiedPreview) {
-        db.prepare("UPDATE card_catalog SET image_url=?,image_url_small=? WHERE ygoprodeck_id=?").run(
-          `https://images.ygoprodeck.com/images/cards/${target}.jpg`,
-          `https://images.ygoprodeck.com/images/cards_small/${target}.jpg`, target);
+        db.prepare(`UPDATE card_catalog SET
+          image_url=CASE WHEN catalog_source='engine' THEN ? ELSE ? END,
+          image_url_small=CASE WHEN catalog_source='engine' THEN ? ELSE ? END,
+          catalog_source='engine',is_prerelease=0 WHERE ygoprodeck_id=?`).run(
+          `/api/cards/${target}/image`, `https://images.ygoprodeck.com/images/cards/${target}.jpg`,
+          `/api/cards/${target}/image?size=small`, `https://images.ygoprodeck.com/images/cards_small/${target}.jpg`, target);
       }
       const official = metadata.get(target);
       if (official && copiedPreview) {

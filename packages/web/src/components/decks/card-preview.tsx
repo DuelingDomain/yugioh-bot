@@ -1,5 +1,7 @@
 "use client";
 
+import { PrereleaseLabel } from "@/components/prerelease-label";
+
 import { useState, type ReactNode } from "react";
 import type { DeckCardInfo } from "@yugidraft/shared/duels";
 import { TYPE_PENDULUM, cardArtUrl, cardCombatText, cardDetailsText, cardKindText } from "@/components/duel/constants";
@@ -44,6 +46,7 @@ export function CardPreview({ card, compact = false, copySummary }: { card: Deck
         )}
       </div>
       <h2 className={styles["de-cn"]}>{card.name}</h2>
+      {card.prerelease ? <PrereleaseLabel /> : null}
       <div className={styles["de-facts"]}>
         {details ? <p>{details}</p> : null}
         {kind && kind !== details ? <p>{kind}</p> : null}

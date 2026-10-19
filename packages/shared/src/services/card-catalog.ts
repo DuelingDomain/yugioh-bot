@@ -1,3 +1,4 @@
+import { loadEngineCatalog, type EngineCatalogCard } from "./engine-card-catalog.js";
 import { log } from "../observability/index.js";
 import { isExtraDeckCard as classifyExtraDeckCard } from "../duels/extra-deck.js";
 import type Database from "better-sqlite3";
@@ -46,6 +47,7 @@ type YgoprodeckCard = {
   attribute?: string;
   level?: number;
   archetype?: string;
+  race?: string;
   card_images: Array<{
     id?: number;
     image_url: string;
@@ -120,6 +122,11 @@ function isExtraDeckCard(card: YgoprodeckCard) {
 function mapCard(row: any, activeGenesysRevision?: string): CardCatalogCard {
   return {
     ygoprodeckId: row.ygoprodeck_id,
+    prerelease: row.is_prerelease === 1,
+    catalogSource: row.catalog_source ?? "api",
+    race: row.race ?? undefined,
+    setcodes: JSON.parse(row.setcodes_json ?? "[]"),
+    isExtraDeck: isExtraDeckFrame({ type: row.type, frameType: row.frame_type }),
     canonicalCardId: row.card_id ?? row.ygoprodeck_id,
     genesysPoints: activeGenesysRevision && row.genesys_revision === activeGenesysRevision ? row.genesys_points ?? null : null,
     genesysRevision: activeGenesysRevision && row.genesys_revision === activeGenesysRevision ? row.genesys_revision : null,
@@ -148,6 +155,7 @@ export function createCardCatalogService(
   const genesys = createGenesysPointsReader(db);
   let identity = options.identityCatalog;
   const engineIdentity = () => identity ??= loadArtworkIdentityCatalog(deckEngineDataDirectory(db.name));
+  const engineCards = () => loadEngineCatalog(deckEngineDataDirectory(db.name));
   const mainId = (card: YgoprodeckCard): number | undefined => {
     const proven = mainArtworkId(card, engineIdentity());
     if (proven !== undefined) return proven;
@@ -191,7 +199,7 @@ export function createCardCatalogService(
         !Number.isSafeInteger(card.id) || card.id <= 0 || typeof card.name !== "string" || typeof card.type !== "string"
         || typeof card.frameType !== "string" || !Array.isArray(card.card_images)
         || [card.atk, card.def, card.level].some((value) => value != null && !Number.isFinite(value))
-        || [card.desc, card.attribute, card.archetype].some((value) => value != null && typeof value !== "string")
+        || [card.desc, card.attribute, card.archetype, card.race].some((value) => value != null && typeof value !== "string")
         || (card.card_sets != null && (!Array.isArray(card.card_sets) || card.card_sets.some((set) => typeof set.set_name !== "string")))
         || card.card_images.some((image) => typeof image.image_url !== "string" || typeof image.image_url_small !== "string"
           || (image.id != null && (!Number.isSafeInteger(image.id) || image.id <= 0))))) {
@@ -287,6 +295,7 @@ export function createCardCatalogService(
   const upsertCards = db.transaction((cards: YgoprodeckCard[]) => {
     const cachedAt = new Date().toISOString();
     const savedIds = new Set<number>();
+    const engine = engineCards();
 
     for (const card of cards) {
       if (card.card_images.length === 0) continue;
@@ -320,22 +329,26 @@ export function createCardCatalogService(
       });
       const cardSets = JSON.stringify(mergeCardSets(oldSets, card.card_sets ?? []));
 
-      for (const [artworkId, image] of images) upsertCard.run(
-        artworkId,
-        card.name,
-        card.type,
-        card.frameType,
-        card.desc ?? "",
-        card.atk ?? null,
-        card.def ?? null,
-        card.attribute ?? null,
-        card.level ?? null,
-        image.image_url,
-        image.image_url_small,
-        cardSets,
-        cachedAt,
-        card.archetype ?? null,
-      );
+      for (const [artworkId, image] of images) {
+        upsertCard.run(
+          artworkId,
+          card.name,
+          card.type,
+          card.frameType,
+          card.desc ?? "",
+          card.atk ?? null,
+          card.def ?? null,
+          card.attribute ?? null,
+          card.level ?? null,
+          image.image_url,
+          image.image_url_small,
+          cardSets,
+          cachedAt,
+          card.archetype ?? null,
+        );
+        db.prepare(`update card_catalog set catalog_source='api',is_prerelease=0,race=?,setcodes_json=?,is_extra_deck=? where ygoprodeck_id=?`)
+          .run(card.race ?? null, engine.get(cardId)?.metadata.setcodes_json ?? "[]", Number(isExtraDeckCard(card)), artworkId);
+      }
       // All foreign-key targets exist before artwork mappings are inserted.
       for (const parent of previousParents) db.prepare("update card_artworks set is_main = 0 where card_id = ?").run(parent);
       // Retained engine-only arts are deliberately absent from API images, but
@@ -377,6 +390,7 @@ export function createCardCatalogService(
       const artwork = artworkById.get(id) as ArtworkRow | undefined;
       const specific = cardsById.get(id);
       return { ...original, ygoprodeckId: id, canonicalCardId: resolved,
+        prerelease: specific?.prerelease ?? original.prerelease, catalogSource: specific?.catalogSource ?? original.catalogSource,
         imageUrl: artwork?.image_url ?? specific?.imageUrl ?? `https://images.ygoprodeck.com/images/cards/${id}.jpg`,
         imageUrlSmall: artwork?.image_url_small ?? specific?.imageUrlSmall ?? `https://images.ygoprodeck.com/images/cards_small/${id}.jpg`,
         imageUrlCropped: artwork?.image_url_cropped ?? undefined };
@@ -411,9 +425,43 @@ export function createCardCatalogService(
     upsertCard.run(id, row.name, row.type, row.frame_type, row.effect_text, row.atk, row.def,
       row.attribute, row.level, `https://images.ygoprodeck.com/images/cards/${id}.jpg`,
       `https://images.ygoprodeck.com/images/cards_small/${id}.jpg`, row.card_sets_json, row.cached_at, row.archetype);
+    db.prepare(`update card_catalog set is_prerelease=?,catalog_source=?,race=?,setcodes_json=?,is_extra_deck=? where ygoprodeck_id=?`)
+      .run(Number(engineCards().get(id)?.prerelease ?? (row.is_prerelease === 1)), row.catalog_source, row.race, row.setcodes_json, row.is_extra_deck, id);
     db.prepare(`insert into card_artworks (card_id,artwork_id,image_url,image_url_small,image_url_cropped,is_main,source)
       values (?, ?, ?, ?, null, 0, 'engine')`).run(originalId, id,
         `https://images.ygoprodeck.com/images/cards/${id}.jpg`, `https://images.ygoprodeck.com/images/cards_small/${id}.jpg`);
+  };
+  const ensureEngineCard = (id: number): void => {
+    if (!Number.isSafeInteger(id) || id <= 0 || hasCatalogRow(id)) return;
+    const original = canonicalCardCode(id, engineIdentity());
+    if (original !== id) {
+      ensureEngineCard(original);
+      ensureEngineArtwork(id);
+      return;
+    }
+    const card = engineCards().get(id);
+    if (!card) return;
+    const values = { ygoprodeck_id: id, ...card.metadata,
+      image_url: `/api/cards/${id}/image`, image_url_small: `/api/cards/${id}/image?size=small`,
+      card_sets_json: "[]", cached_at: new Date().toISOString(), catalog_source: "engine", is_prerelease: Number(card.prerelease) };
+    const fields = Object.keys(values);
+    db.transaction(() => {
+      db.prepare(`insert or ignore into card_catalog (${fields.join(",")}) values (${fields.map(() => "?").join(",")})`).run(...Object.values(values));
+      db.prepare(`insert or ignore into card_artworks (card_id,artwork_id,image_url,image_url_small,image_url_cropped,is_main,source)
+        values (?,?,?,?,?,1,'engine')`).run(id, id, values.image_url, values.image_url_small, `/api/cards/${id}/image?variant=cropped`);
+    })();
+  };
+  const engineMatches = (matches: (card: EngineCatalogCard) => boolean, preserveArtwork = false): CardCatalogCard[] => {
+    const ids = [...engineCards().values()].filter(matches).map(card => card.id);
+    for (const id of ids) ensureEngineCard(id);
+    const cards = findByIds(ids);
+    if (preserveArtwork) return cards;
+    const distinct = new Map<number, CardCatalogCard>();
+    for (const card of cards) {
+      const id = card.canonicalCardId ?? card.ygoprodeckId;
+      if (!distinct.has(id) || card.ygoprodeckId === id) distinct.set(id, card);
+    }
+    return findByIds([...distinct.keys()]);
   };
   const ensureLegacyEngineArtwork = (id: number) => {
     const original = canonicalCardCode(id, engineIdentity());
@@ -477,13 +525,17 @@ export function createCardCatalogService(
 
     async syncDraftPool(input: SyncDraftPoolInput, options: { lookupBudget?: CardLookupBudget } = {}) {
       const distinctCustomIds = [...new Set(input.customCardIds ?? [])];
-      for (const id of distinctCustomIds) ensureLegacyEngineArtwork(id);
+      const engine = engineCards();
+      for (const id of distinctCustomIds) {
+        if (engine.get(id)?.prerelease) ensureEngineCard(id);
+        ensureLegacyEngineArtwork(id);
+      }
       const cachedIds: number[] = [];
       const load = async (fetch: () => Promise<YgoprodeckCard[]>, cached: () => CardCatalogCard[],
         usable = (cards: CardCatalogCard[]) => cards.length > 0) => {
         try { return await fetch(); }
         catch (error) {
-          if (!isTransientFetchFailure(error)) throw error;
+          if (!isTransientFetchFailure(error) && !(error instanceof CardFetchLimitError)) throw error;
           const cards = cached();
           if (!usable(cards)) throw error;
           cachedIds.push(...cards.map((card) => card.ygoprodeckId));
@@ -498,12 +550,15 @@ export function createCardCatalogService(
             const set = db.prepare("select card_count from card_sets where set_name = ?").get(name) as { card_count: number | null } | undefined;
             return set?.card_count != null && set.card_count > 0 && cards.length >= set.card_count;
           })),
-        ...distinctCustomIds.filter((id) => !hasCatalogRow(id)).map((id) => () => load(() => fetchArtworkFamily(id, options.lookupBudget), () => {
+        ...distinctCustomIds.filter((id) => !hasCatalogRow(id)
+          || (catalogRowById.get(id) as { catalog_source: string }).catalog_source === "engine").map((id) => () => load(() => fetchArtworkFamily(id, options.lookupBudget), () => {
+          ensureEngineCard(id);
           ensureEngineArtwork(id);
           return findByIds([id]);
         })),
         ...input.includeNames.map((name) => () => load(() => fetchCards("name", name, options.lookupBudget),
-          () => cachedCards((card) => normalizeName(card.name) === normalizeName(name)))),
+          () => [...cachedCards((card) => normalizeName(card.name) === normalizeName(name)),
+            ...engineMatches(card => normalizeName(card.name) === normalizeName(name))])),
       ];
       // One import must not fill the process-wide queue. Keep at most four
       // lookups active, and retain successes even if another lookup fails.
@@ -525,12 +580,13 @@ export function createCardCatalogService(
       }
 
       const savedIds = upsertCards(cardsToCache);
-      for (const id of distinctCustomIds) ensureEngineArtwork(id);
+      for (const id of distinctCustomIds) { ensureEngineCard(id); ensureEngineArtwork(id); }
+      const engineIncluded = engineMatches(card => !excludedNames.has(normalizeName(card.name)) && input.includeNames.some(name => normalizeName(name) === normalizeName(card.name)));
 
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
-      const cached = findByIds(cachedIds).filter((card) => !isExtraDeckFrame(card) && !excludedNames.has(normalizeName(card.name)));
-      return [...findByIds(savedIds).filter((card) => !isExtraDeckFrame(card)), ...cached];
+      const cached = findByIds(cachedIds.map(canonicalId)).filter((card) => !isExtraDeckFrame(card) && !excludedNames.has(normalizeName(card.name)));
+      return [...new Map([...findByIds(savedIds), ...cached, ...findByIds(distinctCustomIds.map(canonicalId)), ...engineIncluded].filter(card => !isExtraDeckFrame(card) && !excludedNames.has(normalizeName(card.name))).map(card => [card.ygoprodeckId, card])).values()];
     },
 
     async syncByArchetype(
@@ -542,10 +598,13 @@ export function createCardCatalogService(
         params.banlist = opts.banlist;
       }
 
-      const cached = await useCache(async () => {
+      const local = engineMatches(card => card.prerelease
+        && normalizeName(String(card.metadata.archetype ?? "")) === normalizeName(archetype));
+      const fetched = await useCache(async () => {
         const cards = await fetchCardsWith(params);
         return findByIds(upsertCards(cards));
-      }, () => cachedCards((card) => normalizeName(card.archetype ?? "") === normalizeName(archetype)), (cards) => cards.length > 0);
+      }, () => [...cachedCards((card) => normalizeName(card.archetype ?? "") === normalizeName(archetype)), ...local], (cards) => cards.length > 0);
+      const cached = [...new Map([...local, ...fetched].map(card => [card.ygoprodeckId, card])).values()];
       const extraIds = new Set(cached.filter(isExtraDeckFrame).map((card) => card.ygoprodeckId));
 
       return {
@@ -556,7 +615,10 @@ export function createCardCatalogService(
 
     async syncCardById(id: number, options: { lookupBudget?: CardLookupBudget; enrichArtwork?: boolean } = {}): Promise<CardCatalogCard | undefined> {
       ensureLegacyEngineArtwork(id);
-      if (hasCatalogRow(id)) {
+      if (!hasCatalogRow(id) && engineCards().get(id)?.prerelease) {
+        ensureEngineCard(id);
+      }
+      if (hasCatalogRow(id) && (catalogRowById.get(id) as { catalog_source: string }).catalog_source !== "engine") {
         ensureEngineArtwork(id);
         return findByIds([id])[0];
       }
@@ -564,8 +626,9 @@ export function createCardCatalogService(
       try { cards = await fetchArtworkFamily(id, options.lookupBudget, options.enrichArtwork); }
       catch (error) {
         // A card with invalid data is unknown, not a lost connection: the caller reports it and goes on.
-        if (error instanceof CardDataError) return findByIds([id])[0];
-        if (!isTransientFetchFailure(error)) throw error;
+        if (error instanceof CardDataError) { ensureEngineCard(id); return findByIds([id])[0]; }
+        if (!isTransientFetchFailure(error) && !(error instanceof CardFetchLimitError && hasCatalogRow(id))) throw error;
+        ensureEngineCard(id);
         const cached = findByIds([id])[0];
         if (!cached) throw error;
         ensureEngineArtwork(id);
@@ -573,6 +636,7 @@ export function createCardCatalogService(
       }
       const [card] = cards;
       if (!card) {
+        ensureEngineCard(id);
         ensureEngineArtwork(id);
         return hasCatalogRow(id) ? findByIds([id])[0] : undefined;
       }
@@ -616,9 +680,14 @@ export function createCardCatalogService(
         const key = normalizeImportedCardName(row.name);
         if (!cached.has(key)) cached.set(key, { id: row.main_id, name: row.name });
       }
+      for (const card of engineCards().values()) {
+        const key = normalizeImportedCardName(card.name);
+        if (card.prerelease && !cached.has(key) && canonicalCardCode(card.id, engineIdentity()) === card.id) cached.set(key, { id: card.id, name: card.name });
+      }
       if (options.cacheOnly) {
         return names.map((name) => {
           const match = cached.get(normalizeImportedCardName(name));
+          if (match) ensureEngineCard(match.id);
           return { name, card: match && findByIds([match.id])[0] };
         });
       }
@@ -657,6 +726,7 @@ export function createCardCatalogService(
       upsertCards([...fetched].filter(([key]) => selected.has(key)).map(([, card]) => card));
       return names.map((name, i) => {
         const match = matches[i];
+        if (match) ensureEngineCard(match.id);
         const card = match && findByIds([canonicalId(match.id)])[0];
         return { name, card, ...(card && normalizeImportedCardName(name) !== normalizeImportedCardName(card.name)
           ? { corrected: { from: name, to: card.name } } : {}) };
@@ -668,12 +738,13 @@ export function createCardCatalogService(
       try { cards = await fetchCards("name", name); }
       catch (error) {
         if (!isTransientFetchFailure(error)) throw error;
-        const cached = cachedCards((card) => normalizeName(card.name) === normalizeName(name) && !isExtraDeckFrame(card))[0];
+        const cached = [...cachedCards((card) => normalizeName(card.name) === normalizeName(name)), ...engineMatches(card => normalizeName(card.name) === normalizeName(name))].filter(card => !isExtraDeckFrame(card))[0];
         if (!cached) throw error;
         return cached;
       }
       const [card] = cards;
-      if (!card || isExtraDeckCard(card)) {
+      if (!card) return engineMatches(card => normalizeName(card.name) === normalizeName(name)).filter(card => !isExtraDeckFrame(card))[0];
+      if (isExtraDeckCard(card)) {
         return undefined;
       }
 
@@ -695,6 +766,9 @@ export function createCardCatalogService(
         return [];
       }
 
+      const engineIds = new Set((db.prepare("select ygoprodeck_id from card_catalog where catalog_source='engine'").all() as Array<{ ygoprodeck_id: number }>).map(row => row.ygoprodeck_id));
+      const local = engineMatches(card => (card.prerelease || engineIds.has(card.id))
+        && (/^\d{6,10}$/.test(text) ? card.id === Number(text) : words.every(word => foldCardText(card.name).includes(word))), /^\d{6,10}$/.test(text));
       // Only the API's no-result 400 body means no match; other failures reach the caller.
       let cards: YgoprodeckCard[] = [];
       try {
@@ -728,15 +802,18 @@ export function createCardCatalogService(
         }
 
       } catch (error) {
-        if (!isTransientFetchFailure(error)) throw error;
+        if (!isTransientFetchFailure(error) && !(error instanceof CardFetchLimitError && local.length > 0)) throw error;
         const cached = /^\d{6,10}$/.test(text) ? findByIds([Number(text)])
           : cachedCards((card) => words.every((word) => foldCardText(card.name).includes(word)));
-        const usable = options.includeExtra ? cached : cached.filter((card) => !isExtraDeckFrame(card));
+        const combined = [...new Map([...local, ...cached].map(card => [card.ygoprodeckId, card])).values()];
+        const usable = options.includeExtra ? combined : combined.filter((card) => !isExtraDeckFrame(card));
         if (usable.length === 0) throw error;
         return rankCardsByName(usable, text).slice(0, options.limit ?? 24);
       }
       const usable = options.includeExtra ? cards : cards.filter((card) => !isExtraDeckCard(card));
-      const ranked = rankCardsByName(findByIds(upsertCards(usable)), text);
+      const saved = findByIds(upsertCards(usable));
+      const combined = [...new Map([...local, ...saved].map(card => [card.canonicalCardId ?? card.ygoprodeckId, card])).values()];
+      const ranked = rankCardsByName(options.includeExtra ? combined : combined.filter(card => !isExtraDeckFrame(card)), text);
       return ranked.slice(0, options.limit ?? 24);
     },
 

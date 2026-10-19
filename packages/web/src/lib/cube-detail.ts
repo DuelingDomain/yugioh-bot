@@ -13,6 +13,7 @@ export function buildCubeCards(
   const ids = [...pools.main, ...pools.extra].map((c) => c.catalogCardId);
   return catalog.findByIds(ids).map((c) => ({
     id: c.ygoprodeckId,
+    prerelease: c.prerelease,
     name: c.name,
     type: c.type,
     frameType: c.frameType,

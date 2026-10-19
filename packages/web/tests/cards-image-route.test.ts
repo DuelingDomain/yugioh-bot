@@ -582,10 +582,15 @@ describe("GET /api/cards/[passcode]/image", () => {
     expect(fetched).toEqual([`https://images.ygoprodeck.com/images/cards_cropped/${id}.jpg`]);
   });
 
-  it("does not substitute a full card when its crop is missing", async () => {
+  it("uses full Ignis art when its crop is missing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      fetched.push(url);
+      return url === `${IGNIS}/5405694.jpg` ? new Response(new Uint8Array(RITUAL_ART)) : new Response("missing", { status: 404 });
+    }));
     const res = await getImage("5405694", "?variant=cropped");
-    expect(res.status).toBe(404);
-    expect(fetched).toEqual(["https://images.ygoprodeck.com/images/cards_cropped/5405694.jpg"]);
+    expect(res.status).toBe(200);
+    expect(Buffer.from(await res.arrayBuffer())).toEqual(RITUAL_ART);
+    expect(fetched).toEqual(["https://images.ygoprodeck.com/images/cards_cropped/5405694.jpg", `${IGNIS}/5405694.jpg`]);
   });
 
   it.each(["network", "timeout", "429", "503"])("returns a card back for %s without poisoning the cache", async (failure) => {
@@ -647,7 +652,7 @@ describe("GET /api/cards/[passcode]/image", () => {
       fetched.push(url); return url.endsWith("81480460.jpg") ? new Response(new Uint8Array(await jpeg("main crop"))) : new Response("missing", { status: 404 });
     }));
     expect(Buffer.from(await (await getImage("81480461", "?variant=cropped")).arrayBuffer())).toEqual(await jpeg("main crop"));
-    expect(fetched).toEqual(["https://images.ygoprodeck.com/crop/81480461.jpg", "https://images.ygoprodeck.com/crop/81480460.jpg"]);
+    expect(fetched).toEqual(["https://images.ygoprodeck.com/crop/81480461.jpg", `${IGNIS}/81480461.jpg`, "https://images.ygoprodeck.com/crop/81480460.jpg"]);
     expect(callDuelHost).not.toHaveBeenCalled();
   });
 
