@@ -85,9 +85,15 @@ describe("deck editor card search", () => {
   });
 
   it("filters by limit status on a banlist", () => {
-    const limits = banlistLimitsFor("tcg-2026-09") ?? {};
-    const forbidden = search({ banlist: "tcg-2026-09", limits: ["forbidden"] });
+    const limits = banlistLimitsFor("tcg-2026-10-19") ?? {};
+    const forbidden = search({ banlist: "tcg-2026-10-19", limits: ["forbidden"] });
     expect(forbidden.total).toBeGreaterThan(0);
+    const facets = cardFacets(cards).banlists;
+    expect(facets["tcg-2026-10-19"]?.[24224830]).toBe(0);
+    expect(facets["tcg-2026-09"]?.[24224830]).toBe(1);
+    expect(facets["tcg-2026-10-19"]?.[94145021]).toBe(1);
+    expect(facets["tcg-2026-10-19"]?.[13203964]).toBeUndefined();
+    expect(facets["tcg-2026-11-11"]?.[13203964]).toBe(1);
     expect(forbidden.cards.every((card) => limits[card.code] === 0 || limits[card.alias] === 0)).toBe(true);
   });
 

@@ -1,7 +1,14 @@
 /**
  * Immutable versioned banlist IDs for Custom Game Creator.
  *
- * TCG September 2026 (id `tcg-2026-09`):
+ * Current TCG: October 19, 2026 (`tcg-2026-10-19`).
+ *   https://www.yugioh-card.com/en/limited/list_2026-10-19/
+ *   Passcodes: ProjectIgnis/LFLists `!2026.10 TCG`.
+ *   SHA-256(0TCG.lflist.conf)=24a78cae14a067b41b1aa669011ae725e4a7c0bacfbcdf6aba5bf9dfcced128c
+ *   November 11 is a separate future snapshot: Perfectron Hydradrive Dragon becomes Limited.
+ *   Source audit, compiled hashes and counts: docs/banlists/2026-10.md.
+ *
+ * Historical TCG September 2026 (id `tcg-2026-09`):
  *   Official: https://www.yugioh-card.com/en/limited/list_2026-09-21/
  *   Passcodes: ProjectIgnis/LFLists 0TCG.lflist.conf `!2026.09 TCG`
  *   SHA-256(0TCG.lflist.conf)=1c1a6469b42d090d43769089fd1145bc5697000d4b63a62bf2a12f1e0f546f2c
@@ -26,11 +33,13 @@ export interface DuelBanlistOption {
 }
 
 export const NO_BANLIST_ID = "none";
-export const PINNED_TCG_BANLIST_ID = "tcg-2026-09";
+export const PINNED_TCG_BANLIST_ID = "tcg-2026-10-19";
 export const PINNED_OCG_BANLIST_ID = "ocg-2026-07";
 
 export const DUEL_BANLIST_OPTIONS: readonly DuelBanlistOption[] = [
   { id: NO_BANLIST_ID, label: "None", region: "none", effectiveFrom: null },
-  { id: PINNED_TCG_BANLIST_ID, label: "TCG September 2026", region: "tcg", effectiveFrom: "2026-09-21" },
+  { id: "tcg-2026-09", label: "TCG September 2026", region: "tcg", effectiveFrom: "2026-09-21" },
+  { id: PINNED_TCG_BANLIST_ID, label: "TCG — October 19, 2026", region: "tcg", effectiveFrom: "2026-10-19" },
+  { id: "tcg-2026-11-11", label: "TCG — November 11, 2026", region: "tcg", effectiveFrom: "2026-11-11" },
   { id: PINNED_OCG_BANLIST_ID, label: "OCG July 2026", region: "ocg", effectiveFrom: "2026-07-01" },
 ];
