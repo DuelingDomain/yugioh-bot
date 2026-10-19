@@ -41,6 +41,7 @@ import {
   CardQueryError, DuelSettingsError, deckCardCounts, duel1v1EngineForMode, isFirstChoice, isReplayFork, isReplaySeed, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
   COIN_TIMING, COIN_CHAIN_BEAT_MAX_MS, MIN_DUEL_FX_SPEED, coinTossDurationMs,
   CHAIN_MODE_JOURNAL_LIMIT, CHAIN_MODE_PROMPT_PREFIX, chainModeOf, isDuelChainMode, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_OPENING_REVEAL_MS, DUEL_RPS_MOVES,
+  isCompetitiveDuel,
 } from "@yugidraft/shared/duels";
 import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, eliminationAtTurnEnd } from "./engine.js";
 import { EngineAnswerError } from "./prompts.js";
@@ -365,6 +366,7 @@ export function createDuelHost(options: {
   const repairDeckCopies = () => deckCopies ??= createDeckCopyRepairService(options.db, repairEngine);
   const service = createDuelService(options.db, { rollDie: options.rollDie });
   const series = createDuelSeriesService(options.db, repairEngine);
+  const competitive = (session: DuelSession) => isCompetitiveDuel(session.ranked === true, series.forDuel(session.id)?.tournamentMatchId);
   const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as EngineDataManifest;
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
   const localCardDataStatus = createLocalCardDataStatus(options.db, options.dataDirectory, { manifest, now: options.now });
@@ -1363,7 +1365,7 @@ export function createDuelHost(options: {
 
   async function recover(slug: string, guildId: string): Promise<DuelGameWorker> {
     const session = service.get(slug, guildId);
-    if (session.ranked && await settleRankedDeadline(slug, guildId)) {
+    if (competitive(session) && await settleRankedDeadline(slug, guildId)) {
       throw new RequestError("This duel has ended on time", 409);
     }
     const fork = isReplayFork(session);
@@ -1625,7 +1627,7 @@ export function createDuelHost(options: {
   async function settleRankedDeadline(slug: string, guildId: string, game?: DuelGameWorker, at = now()): Promise<boolean> {
     const state = service.privateState(slug, guildId);
     const seat = state.clock?.activeSeat;
-    if (!state.session.ranked || state.session.format !== "1v1" || state.session.status !== "active"
+    if (!competitive(state.session) || state.session.format !== "1v1" || state.session.status !== "active"
       || !state.clock || seat == null || !isClockDue(state.clock, at)
       || state.session.seats.some(entry => entry.seat === seat && entry.isBot)) return false;
     const winner = opponentSeatsOf("1v1", seat)[0]!;
@@ -1645,8 +1647,8 @@ export function createDuelHost(options: {
     const state = service.privateState(slug, guildId);
     if (isReplayFork(state.session) || state.session.status !== "active") return;
     if (!state.clock) {
-      // Legacy unlimited ranked games acquire the fixed bank once, then persist it across restarts.
-      if (state.session.ranked) {
+      // Legacy competitive timed games acquire their bank once. Unlimited tournaments keep no clock.
+      if (competitive(state.session) && state.session.settings.turnSeconds > 0) {
         const live = game?.running ? game : await recover(slug, guildId);
         const seatCount = seatCountFor(state.session.format);
         service.setClock(slug, guildId, startDecisionClock(await readClockView(live, seatCount), state.session.settings.turnSeconds, at, seatCount));
@@ -1672,7 +1674,7 @@ export function createDuelHost(options: {
       return;
     }
 
-    if (state.session.ranked && await settleRankedDeadline(slug, guildId, game, at)) return;
+    if (competitive(state.session) && await settleRankedDeadline(slug, guildId, game, at)) return;
     const live = game?.running ? game : await recover(slug, guildId);
     await forfeitSeat(slug, guildId, live, expired, TIME_LIMIT_REASON);
   }
@@ -3167,7 +3169,7 @@ export function createDuelHost(options: {
     const slug = body.slug;
     if (op === "replay" || op === "owner-replay") return replayRequest(body, slug, guildId, actor, ctl?.signal);
     let room = service.room(slug, guildId, actor, { includeStoredBoard: false });
-    if (room.session.ranked && await settleRankedDeadline(slug, guildId)) {
+    if (competitive(room.session) && await settleRankedDeadline(slug, guildId)) {
       room = service.room(slug, guildId, actor, { includeStoredBoard: false });
     }
     if (isReplayFork(room.session) && ["start", "ready", "unready", "deck", "validate-deck", "add-bot", "opening-pick", "opening-choose",
@@ -3491,14 +3493,23 @@ export function createDuelHost(options: {
   async function tick(): Promise<void> {
     if (stopped) return;
     const t = now();
-    // Casual idle closure ignores decision clocks and includes tables with no resident worker.
-    // Ranked tables are excluded: their durable clock must settle a loss, including after a restart.
+    try {
+      service.recordHostHeartbeat(t);
+    } catch (error) {
+      report(error, { tags: { operation: "[duel] heartbeat failed" } });
+    }
+    // Every table has an idle backstop. Proven competitive timeouts settle first, without engine recovery.
     try {
       for (const item of service.dueIdleDuels(t, ARCHIVE_SWEEP_LIMIT)) {
         if (stopped) return;
         try {
           await enqueue(item.slug, async () => {
             if (stopped) return;
+            try {
+              if (await settleRankedDeadline(item.slug, item.guildId)) return;
+            } catch (error) {
+              report(error, { tags: { operation: "[duel] idle deadline settlement failed" } });
+            }
             let snapshots: DuelFinalSnapshots | undefined;
             const entry = games.get(item.slug);
             if (entry?.game.running) {
@@ -3636,6 +3647,7 @@ export function createDuelHost(options: {
     }
   }
 
+  service.resumeCompetitiveClocks(now());
   const timer = setInterval(() => {
     void tick();
   }, pollIntervalMs);

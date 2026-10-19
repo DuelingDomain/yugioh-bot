@@ -114,8 +114,14 @@ export const DUEL_CLOCK_INCREMENT_MS = 3_000;
 /** Ranked clock policy is server-owned; casual clock choices do not apply. */
 export const RANKED_DUEL_BANK_SECONDS = 180;
 
-export function rankedDuelSettings(settings: DuelSettings, ranked: boolean): DuelSettings {
-  return ranked ? { ...settings, turnSeconds: RANKED_DUEL_BANK_SECONDS, timeout: "loss" } : settings;
+export function isCompetitiveDuel(ranked: boolean, tournamentMatchId?: number | null): boolean {
+  return ranked || tournamentMatchId != null;
+}
+
+export function rankedDuelSettings(settings: DuelSettings, ranked: boolean, tournamentMatchId?: number | null): DuelSettings {
+  return isCompetitiveDuel(ranked, tournamentMatchId)
+    ? { ...settings, turnSeconds: ranked ? RANKED_DUEL_BANK_SECONDS : settings.turnSeconds, timeout: "loss" }
+    : settings;
 }
 export const DUEL_CLOCK_REGAIN_FRACTION = 0.25;
 export const DUEL_CLOCK_REGAIN_MIN_MS = 30_000;

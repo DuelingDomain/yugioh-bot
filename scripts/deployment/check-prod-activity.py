@@ -27,7 +27,8 @@ def main():
     label = "Staging deploy skipped" if args.target == "staging" else "Production deploy refused"
     names = ["duels", "drafts"]
     # Same idle rule as the host and engine installer. Never mutate while services are running.
-    # The installer interrupts these rows after all gameplay services stop.
+    # After services stop, the installer interrupts casual rows and preserves ranked/tournament
+    # rows for the restarted host to settle their clock loss or apply the no-winner idle backstop.
     idle = """kind = 'play' and status = 'active'
         and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday('now', '-10 minutes')"""
     query = """

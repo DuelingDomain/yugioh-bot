@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { rmSync } from "node:fs";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { seatCountFor, type DuelClockState, type DuelEngineView, type DuelFormat, type DuelVisibility } from "@yugidraft/shared/duels";
+import { seatCountFor, type DuelClockState, type DuelEngineView, type DuelFormat, type DuelSession, type DuelVisibility } from "@yugidraft/shared/duels";
 import { createDuelSeriesService, createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost } from "../src/host.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
@@ -21,13 +21,14 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
-function table(format: DuelFormat = "1v1", idleMs = 0, clock: DuelClockState | null = null, ranked = false, start = true, visibility: DuelVisibility = "public") {
+function table(format: DuelFormat = "1v1", idleMs = 0, clock: DuelClockState | null = null, ranked = false, start = true, visibility: DuelVisibility = "public",
+  beforeBoot?: (t: { db: Database.Database; session: DuelSession; players: number[] }) => void) {
   const directory = createHostDataFixture([]);
   const db = new Database(":memory:"); migrate(db);
   const players = Array.from({ length: seatCountFor(format) }, (_, seat) =>
     seedIdentity(db, { guildId: "g", name: `P${seat}` }).playerId);
   const service = createDuelService(db);
-  const session = service.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Idle table", mode: "normal", format,
+  let session = service.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Idle table", mode: "normal", format,
     ranked, settings: { visibility, validateDeck: false, turnSeconds: clock ? 3600 : 0, timeout: "continue" } });
   for (const player of players.slice(1)) {
     if (visibility === "private") service.admit(session.slug, "g", player, service.room(session.slug, "g", players[0]!).inviteCode!);
@@ -36,7 +37,7 @@ function table(format: DuelFormat = "1v1", idleMs = 0, clock: DuelClockState | n
   for (const player of players) service.setDeck(session.slug, "g", player, { main: Array(40).fill(1), extra: [], side: [] });
   const activate = (initialClock: DuelClockState | null) => service.activate(session.slug, "g", players[0]!, ["1", "2", "3", "4"],
     pinnedEngineVersion("fixture", players.length, activeMultiScriptsHash(directory)), initialClock, { firstTurnDraw: false });
-  if (start) activate(clock);
+  if (start) session = activate(clock);
   db.prepare("update duels set last_activity_at = ? where id = ?").run(new Date(Date.now() - idleMs).toISOString(), session.id);
   let running = true, revision = 1, turn = 1;
   const worker: DuelGameWorker = {
@@ -54,15 +55,32 @@ function table(format: DuelFormat = "1v1", idleMs = 0, clock: DuelClockState | n
     async close() { running = false; },
   };
   const changes: string[] = [];
-  const host = createDuelHost({ db, dataDirectory: directory, secret: SECRET, searchCards: () => [], pollIntervalMs: SWEEP,
+  beforeBoot?.({ db, session, players });
+  const startHost = () => createDuelHost({ db, dataDirectory: directory, secret: SECRET, searchCards: () => [], pollIntervalMs: SWEEP,
     idleWorkerMs: 24 * 60 * MINUTE, createWorker: () => worker, onChange: slug => { changes.push(slug); } });
+  let host = startHost();
   cleanups.push(async () => { await host.close(); db.close(); rmSync(directory, { recursive: true, force: true }); });
   const post = async (op: string, extra = {}) => {
     const body = JSON.stringify({ op, slug: session.slug, guildId: "g", playerId: players[0], ...extra });
     return host.handle(new Request("http://localhost/internal/duel", { method: "POST", body,
       headers: { "content-type": "application/json", ...await signedHeaders(body, SECRET, "http://localhost/internal/duel", "duel-host") } }));
   };
-  return { db, service, session, changes, worker, post, players, activate, nextTurn: () => { turn++; } };
+  return { db, service, session, changes, worker, post, players, activate, nextTurn: () => { turn++; },
+    restart: async (downtime: number) => { await host.close(); vi.setSystemTime(Date.now() + downtime); host = startHost(); } };
+}
+
+function heartbeat(db: Database.Database, at: number) {
+  // Also seed the pre-migration implementation so failures exercise recovery behavior.
+  db.exec("create table if not exists duel_host_heartbeat (id integer primary key check (id = 1), last_tick_at integer not null)");
+  db.prepare("insert or replace into duel_host_heartbeat (id, last_tick_at) values (1, ?)").run(at);
+}
+
+function tournament({ db, session, players }: Parameters<NonNullable<Parameters<typeof table>[6]>>[0]) {
+  const cup = db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id) select 'g', 'Cup', 'single_elim', 'active', user_id from players where id = ?").run(players[0]);
+  const slot = db.prepare("insert into tournament_matches (tournament_id, player_one_id, player_two_id, round_number, status) values (?, ?, ?, 1, 'open')")
+    .run(cup.lastInsertRowid, players[0], players[1]);
+  db.prepare("update duel_series set tournament_match_id = ?, ranked = 0 where id = ?").run(slot.lastInsertRowid, session.seriesId);
+  db.prepare("update duels set ranked = 0 where id = ?").run(session.id);
 }
 
 it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("closes a stale %s on the host sweep without a winner or match result", async format => {
@@ -132,9 +150,9 @@ it("awards a ranked AFK loss and rating changes at three minutes before idle clo
   expectRankedLoss(t);
 });
 
-it("settles a ranked clock that expired during downtime before idle close without recovering an engine", async () => {
+it("settles a ranked deadline proven before the last heartbeat without recovering an engine", async () => {
   const t = table("1v1", 11 * MINUTE, { turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * MINUTE,
-    remainingMs: [3 * MINUTE, 3 * MINUTE] }, true);
+    remainingMs: [3 * MINUTE, 3 * MINUTE] }, true, true, "public", ({ db }) => heartbeat(db, Date.now() - 7 * MINUTE));
   // A replacement bundle cannot recover this game, but the durable clock already proves the loss.
   t.db.prepare("update duels set bundle_version = 'unavailable-old-bundle' where id = ?").run(t.session.id);
   await vi.advanceTimersByTimeAsync(SWEEP);
@@ -175,12 +193,137 @@ it("refuses to start ranked without a clock and caps clocks on start and subsequ
   expect(() => t.service.setClock(t.session.slug, "g", null)).toThrow("Ranked duels require a clock");
 });
 
-it("settles a legacy ranked continue clock already frozen at zero as a loss", async () => {
-  const t = table("1v1", 11 * MINUTE, { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [3 * MINUTE, 3 * MINUTE] }, true);
-  t.db.prepare("update duels set clock_json = ? where id = ?")
-    .run(JSON.stringify({ turn: 1, activeSeat: 0, startedAt: null, remainingMs: [0, 3 * MINUTE] }), t.session.id);
+it("gives a legacy ranked continue clock frozen at zero the thirty-second regain at boot", async () => {
+  const boot = Date.now();
+  const t = table("1v1", 0, { turn: 1, activeSeat: 0, startedAt: boot, remainingMs: [3 * MINUTE, 3 * MINUTE] }, true, true, "public", ({ db, session }) => {
+    db.prepare("update duels set clock_json = ? where id = ?")
+      .run(JSON.stringify({ turn: 1, activeSeat: 0, startedAt: null, remainingMs: [0, 3 * MINUTE] }), session.id);
+  });
   await vi.advanceTimersByTimeAsync(SWEEP);
+  expect(t.service.get(t.session.slug, "g").status).toBe("active");
+  expect(t.service.privateState(t.session.slug, "g").clock).toMatchObject({ startedAt: boot, remainingMs: [30_000, 180_000] });
+  await vi.advanceTimersByTimeAsync(30_000);
   expectRankedLoss(t);
+});
+
+it.each([null, { turn: 1, activeSeat: null, startedAt: null, remainingMs: [180_000, 180_000] }])("interrupts an idle ranked duel with an unsettleable clock %j", async clock => {
+  const t = table("1v1", 11 * MINUTE, { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [180_000, 180_000] }, true, true, "public", ({ db, session }) => {
+    db.prepare("update duels set clock_json = ?, bundle_version = 'unavailable-old-bundle' where id = ?").run(clock ? JSON.stringify(clock) : null, session.id);
+  });
+  await vi.advanceTimersByTimeAsync(SWEEP);
+  expect(t.service.get(t.session.slug, "g")).toMatchObject({ status: "interrupted", winnerSeat: null, resultReason: "No player activity for 10 minutes." });
+  expect(t.db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
+});
+
+it("interrupts an idle ranked duel when persisting its proven timeout fails", async () => {
+  const t = table("1v1", 11 * MINUTE, { turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * MINUTE, remainingMs: [180_000, 180_000] }, true, true, "public", ({ db }) => {
+    heartbeat(db, Date.now() - MINUTE);
+    db.exec("create trigger fail_timeout before update of status on duels when new.status = 'completed' begin select raise(abort, 'fixture timeout persistence failure'); end");
+  });
+  await vi.advanceTimersByTimeAsync(SWEEP);
+  expect(t.service.get(t.session.slug, "g")).toMatchObject({ status: "interrupted", winnerSeat: null, resultReason: "No player activity for 10 minutes." });
+  expect(t.db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
+});
+
+it.each(["{", JSON.stringify({ turn: 1, remainingMs: [], activeSeat: 0, startedAt: 0 })])("starts and interrupts an idle ranked duel with malformed clock %s", async raw => {
+  const t = table("1v1", 11 * MINUTE, { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [180_000, 180_000] }, true, true, "public", ({ db, session }) => {
+    db.prepare("update duels set clock_json = ? where id = ?").run(raw, session.id);
+  });
+  await vi.advanceTimersByTimeAsync(SWEEP);
+  expect(t.service.get(t.session.slug, "g")).toMatchObject({ status: "interrupted", winnerSeat: null, resultReason: "No player activity for 10 minutes." });
+  expect(t.db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
+});
+
+it.each([6 * MINUTE, 2 * MINUTE])("rebases a legacy ten-minute ranked bank after four minutes of use (bank=%i)", async bank => {
+  const boot = Date.now();
+  const t = table("1v1", 0, { turn: 1, activeSeat: 0, startedAt: boot, remainingMs: [180_000, 180_000] }, true, true, "public", ({ db, session }) => {
+    db.prepare("update duels set clock_json = ? where id = ?").run(JSON.stringify({ turn: 1, activeSeat: 0,
+      startedAt: boot - 4 * MINUTE, remainingMs: [bank + 4 * MINUTE, 10 * MINUTE] }), session.id);
+  });
+  await vi.advanceTimersByTimeAsync(SWEEP);
+  expect(t.service.get(t.session.slug, "g").status).toBe("active");
+  expect(t.service.privateState(t.session.slug, "g").clock).toMatchObject({ startedAt: boot, remainingMs: [Math.min(180_000, bank), 180_000] });
+  await vi.advanceTimersByTimeAsync(Math.min(180_000, bank));
+  expectRankedLoss(t);
+});
+
+it("rebases an overdue clock with no heartbeat without awarding an unproven win", async () => {
+  const t = table("1v1", 0, { turn: 1, activeSeat: 0, startedAt: Date.now() - 4 * MINUTE, remainingMs: [180_000, 180_000] }, true);
+  await vi.advanceTimersByTimeAsync(SWEEP);
+  expect(t.service.get(t.session.slug, "g").status).toBe("active");
+  expect(t.service.privateState(t.session.slug, "g").clock?.remainingMs[0]).toBe(30_000);
+  expect(t.db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
+});
+
+it.each(["ranked", "tournament"])("persists heartbeats and excludes restart outages from the %s clock exactly once", async kind => {
+  const t = table("1v1", 0, { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [180_000, 180_000] }, true, true, "public", context => {
+    if (kind === "tournament") tournament(context);
+  });
+  await vi.advanceTimersByTimeAsync(MINUTE);
+  expect(t.db.prepare("select last_tick_at from duel_host_heartbeat where id = 1").get()).toEqual({ last_tick_at: Date.now() });
+  await t.restart(4 * MINUTE);
+  await vi.advanceTimersByTimeAsync(SWEEP);
+  expect(t.service.get(t.session.slug, "g").status).toBe("active");
+  await vi.advanceTimersByTimeAsync(MINUTE);
+  await t.restart(30_000);
+  await vi.advanceTimersByTimeAsync(MINUTE);
+  expectRankedLoss(t);
+});
+
+it("keeps a tournament's five-minute bank and settles a loss instead of continuing at zero", async () => {
+  const t = table("1v1", 0, { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [180_000, 180_000] }, true, true, "public", context => {
+    tournament(context);
+    context.db.prepare("update duels set settings_json = json_set(settings_json, '$.turnSeconds', 300, '$.timeout', 'continue'), clock_json = ? where id = ?")
+      .run(JSON.stringify({ turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [5 * MINUTE, 5 * MINUTE] }), context.session.id);
+  });
+  await vi.advanceTimersByTimeAsync(3 * MINUTE);
+  expect(t.service.get(t.session.slug, "g")).toMatchObject({ status: "active", settings: { turnSeconds: 300, timeout: "loss" } });
+  expect(t.service.privateState(t.session.slug, "g").clock?.remainingMs).toEqual([5 * MINUTE, 5 * MINUTE]);
+  expect(() => t.service.setClock(t.session.slug, "g", null)).toThrow("Timed competitive duels require a clock");
+  await vi.advanceTimersByTimeAsync(2 * MINUTE + SWEEP);
+  expect(t.service.get(t.session.slug, "g")).toMatchObject({ status: "completed", winnerSeat: 1, resultReason: "Time limit" });
+  expect(t.db.prepare("select status, winner_id from matches").all()).toEqual([{ status: "approved", winner_id: t.players[1] }]);
+});
+
+it.each([0, 12 * MINUTE])("keeps tournament timer %i and applies a no-winner idle backstop", async bank => {
+  const t = table("1v1", 11 * MINUTE, { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [180_000, 180_000] }, true, true, "public", context => {
+    tournament(context);
+    context.db.prepare("update duels set settings_json = json_set(settings_json, '$.turnSeconds', ?, '$.timeout', 'continue'), clock_json = ? where id = ?")
+      .run(bank / 1000, bank ? JSON.stringify({ turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [bank, bank] }) : null, context.session.id);
+  });
+  expect(t.service.get(t.session.slug, "g").settings).toMatchObject({ turnSeconds: bank / 1000, timeout: "loss" });
+  await vi.advanceTimersByTimeAsync(SWEEP);
+  expect(t.service.get(t.session.slug, "g")).toMatchObject({ status: "interrupted", winnerSeat: null });
+  expect(t.db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
+});
+
+it("settles a tournament deadline proven before the heartbeat ahead of idle cleanup and engine recovery", async () => {
+  const t = table("1v1", 11 * MINUTE, { turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * MINUTE, remainingMs: [180_000, 180_000] }, true, true, "public", context => {
+    tournament(context);
+    heartbeat(context.db, Date.now() - MINUTE);
+    context.db.prepare("update duels set bundle_version = 'unavailable-old-bundle', settings_json = json_set(settings_json, '$.turnSeconds', 300, '$.timeout', 'continue'), clock_json = ? where id = ?")
+      .run(JSON.stringify({ turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * MINUTE, remainingMs: [5 * MINUTE, 5 * MINUTE] }), context.session.id);
+  });
+  await vi.advanceTimersByTimeAsync(SWEEP);
+  expect(t.service.get(t.session.slug, "g")).toMatchObject({ status: "completed", winnerSeat: 1, resultReason: "Time limit" });
+  expect(t.db.prepare("select status, winner_id from matches").all()).toEqual([{ status: "approved", winner_id: t.players[1] }]);
+});
+
+it("reaches a newer ranked deadline behind more than a sweep of unrecoverable null clocks", async () => {
+  const t = table("1v1", 0, { turn: 1, activeSeat: null, startedAt: null, remainingMs: [180_000, 180_000] }, true, true, "public", ({ db, session }) => {
+    for (let index = 0; index < 40; index++) {
+      db.prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status, ranked, bundle_version, created_at, last_activity_at) select guild_id, ?, 'Stuck', organizer_player_id, mode, 'active', 1, 'missing', datetime('now', '-1 minute'), datetime('now') from duels where id = ?")
+        .run(`stuck-${index}`, session.id);
+    }
+    db.prepare("update duels set clock_json = '{' where web_slug = 'stuck-0'").run();
+  });
+  const newer = t.service.create({ guildId: "g", organizerPlayerId: t.players[0]!, name: "Newer ranked", mode: "normal", ranked: true, settings: { validateDeck: false } });
+  t.service.takeSeat(newer.slug, "g", t.players[1]!);
+  for (const player of t.players) t.service.setDeck(newer.slug, "g", player, { main: Array(40).fill(1), extra: [], side: [] });
+  t.service.activate(newer.slug, "g", t.players[0]!, ["1"], "unavailable-old-bundle", { turn: 1, activeSeat: 0,
+    startedAt: Date.now() - 4 * MINUTE, remainingMs: [180_000, 180_000] });
+  await vi.advanceTimersByTimeAsync(3 * SWEEP);
+  expectRankedLoss({ ...t, session: newer });
 });
 
 it("starts and persists a fixed bank for a legacy unlimited ranked game", async () => {

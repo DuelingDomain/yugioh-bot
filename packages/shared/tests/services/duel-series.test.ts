@@ -61,9 +61,11 @@ function seatOf(session: DuelSession, playerId: number): number {
 }
 
 function start(app: App, slug: string, actor: number | null = null) {
-  const ranked = app.duels.get(slug, "g1").ranked;
-  return app.duels.activate(slug, "g1", actor, ["s"], "v", ranked
-    ? { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [180_000, 180_000] } : null);
+  const session = app.duels.get(slug, "g1");
+  const competitive = session.ranked || app.series.forDuel(session.id)?.tournamentMatchId != null;
+  const bank = competitive ? session.settings.turnSeconds * 1000 : 0;
+  return app.duels.activate(slug, "g1", actor, ["s"], "v", bank > 0
+    ? { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [bank, bank] } : null);
 }
 
 /** Starts a game, then ends it: winner null = draw. */

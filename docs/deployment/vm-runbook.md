@@ -147,8 +147,8 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    Force skips only the activity guard; it never disables the engine preflight, lock or backups.
    It then runs the existing **preflight** before anything on the VM changes: the install script from that commit runs with
    `DUEL_PREFLIGHT=1` on the new bundle and installs nothing. Both read-only guards ignore play duels with more than
-   **10 minutes** since `last_activity_at` (falling back to `started_at`, then `created_at`), unless a seat's running
-   decision clock still has time. Missing activity evidence remains protected. It refuses while a live duel has `status = 'active'`
+   **10 minutes** since `last_activity_at` (falling back to `started_at`, then `created_at`), including ranked and tournament
+   games, regardless of the decision clock. Missing activity evidence remains protected. It refuses while a live duel has `status = 'active'`
    in `data/bot.sqlite` and the base bundle would be replaced (a locked or corrupt DB fails closed).
    For a new multi core under an identical base bundle, only a live Tag/FFA duel refuses. On refusal, the old
    checkout, images and containers stay as they were. The transfer tarball and preflight files use
@@ -350,13 +350,24 @@ The multiplayer merge changes the Standard and Domain cores, so its first deploy
    4 MB.
 
 The duel host owns live-table idle expiry. On startup and each normal polling sweep (default 30 seconds), it interrupts
-1v1, Tag, FFA3 and FFA4 games after **10 minutes without player input**, regardless of the decision clock.
+1v1, Tag, FFA3 and FFA4 games after **10 minutes without player input**, including ranked and tournament games.
 Accepted responses and explicit chain-response switch changes renew activity. Views, heartbeats, journal recovery,
 bot/autopilot steps and automatic time-limit eliminations do not. Even with a long clock bank, thinking for more than
-10 minutes without a player click closes the table without a winner. Clocks shorter than 10 minutes expire first
-and use the existing time-limit result. Idle cleanup runs before clock losses, so an abandoned table found after a
-restart produces no winner. Downtime counts as idle time: after a long outage, startup closes live tables whose last
+10 minutes without a player click closes the table without a winner. Ranked games have a server-owned 180-second
+bank and timeouts always lose. Tournament matches also use timeout losses, while retaining the organizer's timer,
+including unlimited. An unlimited tournament match idle for 10 minutes closes without a winner under the current rule.
+Before idle closure, the host first tries to settle a saved ranked or tournament deadline; if settlement is impossible
+or fails, it interrupts with no winner. Casual clocks shorter than 10 minutes use their existing time-limit result.
+Downtime counts as idle time: after a long outage, startup closes live tables whose last
 input is more than 10 minutes old. Waiting-lobby expiry keeps its separate existing timeout.
+
+Downtime does **not** count against competitive decision clocks. Each host tick saves `duel_host_heartbeat.last_tick_at`.
+At startup, a deadline at or before the previous heartbeat proves a time-limit loss. Later deadlines move forward by
+the downtime. Startup rebases each remaining ranked bank once to the lesser of 180 seconds and its live remaining
+time at the heartbeat (or boot when no heartbeat exists), starting at boot. Old continue-at-zero freezes receive the
+existing 30-second minimum regain. Without a heartbeat, an already exhausted bank also receives that regain instead
+of an unproven win. The clock rebases and new heartbeat commit together. Tournament banks retain their configured size.
+Clock sweeps rotate through bounded batches so an unrecoverable older game cannot starve newer deadlines.
 
 Idle games use the existing `interrupted` end state with reason `No player activity for 10 minutes.`, null winner and
 clock, an end/archive timestamp, and no match/rating result. The host saves final boards when a worker is resident,
@@ -366,8 +377,9 @@ If its tournament has already ended, the series is cancelled instead.
 
 During deployment, preflight and the gameplay activity check stay read-only while services run. After stopping
 web, duel, worker and WS and taking the drained backup, the deploy step sets `DUEL_IDLE_CLOSE=1` so the installer
-transactionally interrupts stale rows before checking the engine guard. It applies the same input timestamp rule and
-interruption state, retains replay journals, and leaves live games protected. No fresh final board is available with
+transactionally interrupts stale casual rows before checking the engine guard. Idle ranked and tournament rows allow
+replacement but remain unchanged for the restarted host to settle or interrupt. It applies the same input timestamp
+rule and interruption state, retains replay journals, and leaves recently active games protected. No fresh final board is available with
 the duel service stopped. Clients refetch the
 closed state when WS reconnects. Ordinary container starts leave duel rows unchanged for the host sweep to close with
 WS events; keep `DUEL_IDLE_CLOSE` unset outside the stopped-service deploy step. `force=true` still bypasses only the

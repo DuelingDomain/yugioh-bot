@@ -45,7 +45,9 @@ import {
   parseStoredDuelClock,
   parseStoredDuelSettings,
   rankedDuelSettings,
+  isCompetitiveDuel,
   RANKED_DUEL_BANK_SECONDS,
+  DUEL_CLOCK_REGAIN_MIN_MS,
 } from "../duels/settings.js";
 import { assertReplayForkAccess, resolveOwnerPlayer } from "../access/owner-access.js";
 import { DUEL_LIST_ACCESS_SQL as LIST_ACCESS_SQL, DUEL_LIST_COLUMNS, duelHistoryQuery, historyCursor, historyTimestamp, registerDuelHistoryFunctions } from "./duel-history.js";
@@ -76,14 +78,16 @@ const MAX_SIDE = 15;
 export const PRACTICE_BOT_NAME = "Practice Bot";
 const ARCHIVE_DUE_CAP = 32;
 const CLOCK_DUE_CAP = 32;
-/** Casual play expires after this long without player input, regardless of the decision clock. */
+/** All play expires after this long without player input, regardless of the decision clock. */
 export const DUEL_LIVE_IDLE_AFTER_MS = 10 * 60 * 1000;
 export const DUEL_LIVE_IDLE_REASON = "No player activity for 10 minutes.";
 
 // Keep the deploy installer's offline interruption and activity guard in sync with this predicate.
 const LIVE_IDLE_SQL = `kind = 'play' and status = 'active'
-  and ranked = 0
   and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday(@before)`;
+const COMPETITIVE_SQL = `(ranked = 1 or exists (
+  select 1 from duel_series s where s.id = duels.series_id and s.tournament_match_id is not null
+))`;
 
 function isTerminalStatus(status: string): status is DuelStatus {
   return status === "completed" || status === "interrupted" || status === "cancelled";
@@ -262,6 +266,9 @@ export interface DuelService {
   setSetup(slug: string, guildId: string, setup: DuelSetup | null): void;
   setClock(slug: string, guildId: string, clock: DuelClockState | null): void;
   dueClocks(now: number, limit: number): Array<{ slug: string; guildId: string }>;
+  /** Host startup only: rebase competitive banks without charging server downtime. */
+  resumeCompetitiveClocks(now: number): void;
+  recordHostHeartbeat(now: number): void;
   /**
    * Starts a lobby opening: 1v1 RPS or FFA dice, with all seats ready. Idempotent while an
    * opening exists. `actorPlayerId` is the player who pressed Start: the organizer of an open table, or a
@@ -581,10 +588,6 @@ function serializeClock(clock: DuelClockState | null): string | null {
   return clock ? JSON.stringify(clock) : null;
 }
 
-function rowSettings(row: Pick<DuelRow, "settings_json" | "ranked">): DuelSettings {
-  return rankedDuelSettings(wrapSettingsError(() => parseStoredDuelSettings(row.settings_json), 500), row.ranked === 1);
-}
-
 function rowClock(row: DuelRow): DuelClockState | null {
   const clock = wrapSettingsError(() => parseStoredDuelClock(row.clock_json), 500);
   if (!clock || row.ranked !== 1) return clock;
@@ -595,8 +598,6 @@ function rankedClock(clock: DuelClockState): DuelClockState {
   return {
     ...clock,
     remainingMs: clock.remainingMs.map(ms => Math.min(ms, RANKED_DUEL_BANK_SECONDS * 1000)),
-    // Old continue-at-zero games already exhausted their bank; a frozen clock must still lose.
-    startedAt: clock.activeSeat !== null && clock.remainingMs[clock.activeSeat] === 0 ? clock.startedAt ?? 0 : clock.startedAt,
   };
 }
 
@@ -622,6 +623,11 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     "select 1 as ok from players where id = ? and guild_id = ?",
   );
   const series = createSeriesStore(db);
+  const tournamentMatchId = (row: Pick<DuelRow, "series_id">) => row.series_id === null ? null : series.byId(row.series_id)?.tournament_match_id;
+  const competitive = (row: Pick<DuelRow, "series_id" | "ranked">) => isCompetitiveDuel(row.ranked === 1, tournamentMatchId(row));
+  const rowSettings = (row: Pick<DuelRow, "settings_json" | "ranked" | "series_id">): DuelSettings =>
+    rankedDuelSettings(wrapSettingsError(() => parseStoredDuelSettings(row.settings_json), 500), row.ranked === 1, tournamentMatchId(row));
+  const writeHeartbeat = db.prepare<[number]>("insert into duel_host_heartbeat (id, last_tick_at) values (1, ?) on conflict(id) do update set last_tick_at = excluded.last_tick_at");
   const insertDuel = db.prepare<[string, string, string, number, DuelMode, DuelMasterRule, string, string | null, DuelFormat, number, number]>(
     `
       insert into duels (guild_id, web_slug, name, organizer_player_id, mode, master_rule, status, settings_json, invite_code, format, best_of, ranked)
@@ -696,39 +702,44 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       limit ?
     `,
   );
-  const selectDueClocks = db.prepare<[number, number], { slug: string; guildId: string }>(
+  let clockSweepAfterId = 0;
+  const selectDueClocks = db.prepare<{ now: number; after: number; limit: number }, { id: number; slug: string; guildId: string }>(
     `
-      select web_slug as slug, guild_id as guildId
+      select id, web_slug as slug, guild_id as guildId
       from duels
       where kind = 'play' and status = 'active'
-        and (
-          (ranked = 1 and clock_json is null)
-          or (ranked = 1 and json_extract(clock_json, '$.activeSeat') >= 0
-            and json_extract(clock_json, '$.remainingMs[' || json_extract(clock_json, '$.activeSeat') || ']') = 0)
-          or (json_extract(clock_json, '$.startedAt') is not null
-            and json_extract(clock_json, '$.activeSeat') >= 0
-            and (
+        and case
+          when clock_json is null then ${COMPETITIVE_SQL}
+            and (ranked = 1 or json_extract(settings_json, '$.turnSeconds') > 0)
+          when json_valid(clock_json) then case
+            when json_type(clock_json, '$.activeSeat') = 'integer'
+              and json_extract(clock_json, '$.activeSeat') >= 0
+              and json_extract(clock_json, '$.activeSeat') < json_array_length(clock_json, '$.remainingMs')
+            then json_extract(clock_json, '$.startedAt') is not null and (
               json_extract(clock_json, '$.startedAt')
               + case when ranked = 1 then min(${RANKED_DUEL_BANK_SECONDS * 1000},
                   json_extract(clock_json, '$.remainingMs[' || json_extract(clock_json, '$.activeSeat') || ']'))
                 else json_extract(clock_json, '$.remainingMs[' || json_extract(clock_json, '$.activeSeat') || ']') end
-            ) <= ?)
-        )
-      order by datetime(created_at) asc, id asc
-      limit ?
+            ) <= @now
+            else 0 end
+          else 0 end
+        and id > @after
+      order by id asc
+      limit @limit
     `,
   );
 
-  const checkedClock = (clock: DuelClockState | null, seatCount: number, ranked: boolean): DuelClockState | null => {
+  const checkedClock = (clock: DuelClockState | null, seatCount: number, row: DuelRow): DuelClockState | null => {
     if (clock === null) {
-      if (ranked) throw new DuelServiceError("Ranked duels require a clock", 400);
+      if (row.ranked === 1) throw new DuelServiceError("Ranked duels require a clock", 400);
+      if (competitive(row) && rowSettings(row).turnSeconds > 0) throw new DuelServiceError("Timed competitive duels require a clock", 400);
       return null;
     }
     const stored = wrapSettingsError(() => normalizeDuelClockState(clock));
     if (stored.remainingMs.length !== seatCount) {
       throw new DuelServiceError(`clock must have ${seatCount} seats`, 400);
     }
-    return ranked ? rankedClock(stored) : stored;
+    return row.ranked === 1 ? rankedClock(stored) : stored;
   };
 
   const selectDueOpenings = db.prepare<[number, number], { slug: string; guildId: string }>(
@@ -1218,8 +1229,8 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         );
       }
 
-      const storedClock = checkedClock(clock, seatCount, row.ranked === 1);
-      if (row.ranked === 1) db.prepare("update duels set settings_json = ? where id = ?").run(JSON.stringify(rowSettings(row)), row.id);
+      const storedClock = checkedClock(clock, seatCount, row);
+      if (competitive(row)) db.prepare("update duels set settings_json = ? where id = ?").run(JSON.stringify(rowSettings(row)), row.id);
       const storedSetup = setup === undefined && engineIdentity === undefined ? null : JSON.stringify({
         ...validateSetup(setup ?? {}), ...(engineIdentity ? { engineIdentity } : {}),
       });
@@ -1243,7 +1254,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         throw new DuelServiceError("Seat is not occupied", 400);
       }
       if (isReplayFork(row) && clock !== null) throw new DuelServiceError("Replay forks have no live clock", 409);
-      const storedClock = checkedClock(clock, seatCountFor(rowFormat(row)), row.ranked === 1);
+      const storedClock = checkedClock(clock, seatCountFor(rowFormat(row)), row);
       const next = nextCommandSeq.get(row.id);
       if (!next) throw new DuelServiceError("Duel record is invalid", 500);
       insertCommand.run(row.id, next.next_seq, seat, JSON.stringify(command));
@@ -1304,7 +1315,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
           : null;
       const seat0Json = !seatsJson && seatViews[0] ? freezeStoredBoard(seatViews[0], result) : null;
       const seat1Json = !seatsJson && seatViews[1] ? freezeStoredBoard(seatViews[1], result) : null;
-      const turnCount = [snapshots?.public.turn, ...seatViews.map(view => view?.turn), parseStoredDuelClock(row.clock_json)?.turn]
+      const turnCount = [snapshots?.public.turn, ...seatViews.map(view => view?.turn), storedTurnCount({ clock_json: row.clock_json })]
         .find(turn => typeof turn === "number" && Number.isSafeInteger(turn) && turn >= 0) ?? null;
 
       db.prepare<
@@ -1842,7 +1853,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     setClock(slug, guildId, clock) {
       const row = loadDuelRow(slug, guildId);
       if (isReplayFork(row) && clock !== null) throw new DuelServiceError("Replay forks have no live clock", 409);
-      const storedClock = checkedClock(clock, seatCountFor(rowFormat(row)), row.ranked === 1);
+      const storedClock = checkedClock(clock, seatCountFor(rowFormat(row)), row);
       updateClock.run(serializeClock(storedClock), row.id);
     },
 
@@ -1861,8 +1872,46 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
 
     dueClocks(now, limit) {
       const cap = Math.min(Math.max(1, Math.floor(limit)), CLOCK_DUE_CAP);
-      const instant = Math.floor(now);
-      return selectDueClocks.all(instant, cap);
+      // Advance even when a candidate cannot settle. Broken old games cannot monopolize every sweep.
+      let rows = selectDueClocks.all({ now: Math.floor(now), after: clockSweepAfterId, limit: cap });
+      if (!rows.length && clockSweepAfterId !== 0) rows = selectDueClocks.all({ now: Math.floor(now), after: 0, limit: cap });
+      clockSweepAfterId = rows.at(-1)?.id ?? 0;
+      return rows.map(({ slug, guildId }) => ({ slug, guildId }));
     },
+
+    resumeCompetitiveClocks(at) {
+      db.transaction(() => {
+        const heartbeat = db.prepare<[], { last_tick_at: number }>("select last_tick_at from duel_host_heartbeat where id = 1").get();
+        const lastTick = heartbeat ? Math.min(at, heartbeat.last_tick_at) : null;
+        const rows = db.prepare<[], DuelRow>(`select * from duels where kind = 'play' and status = 'active' and ${COMPETITIVE_SQL}`).all();
+        for (const row of rows) {
+          let clock: DuelClockState | null;
+          try {
+            clock = parseStoredDuelClock(row.clock_json);
+          } catch (error) {
+            // One bad row must not prevent boot or another game's recovery. Idle interruption clears it later.
+            report(error, { tags: { operation: "[duel] startup clock rebase failed" } });
+            continue;
+          }
+          if (!clock) continue; // Legacy ranked null clocks are initialized by the host; unlimited tournaments stay unlimited.
+          const seat = clock.activeSeat;
+          const deadline = seat === null || clock.startedAt === null ? null : clock.startedAt + clock.remainingMs[seat]!;
+          // A deadline reached while the host was alive proves a loss. Leave it for normal settlement.
+          if (lastTick !== null && deadline !== null && deadline <= lastTick) continue;
+          const elapsed = clock.startedAt === null ? 0 : Math.max(0, (lastTick ?? at) - clock.startedAt);
+          const remainingMs = clock.remainingMs.map((ms, index) => {
+            const live = Math.max(0, ms - (index === seat ? elapsed : 0));
+            // Old continue freezes and unproven expiries get the existing minimum regain, never an instant win.
+            const remaining = live === 0 ? DUEL_CLOCK_REGAIN_MIN_MS : live;
+            return row.ranked === 1 ? Math.min(RANKED_DUEL_BANK_SECONDS * 1000, remaining) : remaining;
+          });
+          updateClock.run(serializeClock({ ...clock, remainingMs, startedAt: seat === null ? null : at }), row.id);
+        }
+        // Commit the rebases and heartbeat together so another restart never applies the same outage twice.
+        writeHeartbeat.run(at);
+      })();
+    },
+
+    recordHostHeartbeat(at) { writeHeartbeat.run(at); },
   };
 }

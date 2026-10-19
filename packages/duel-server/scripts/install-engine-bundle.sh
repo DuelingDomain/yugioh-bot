@@ -205,20 +205,23 @@ if multi_seat_only and "format" not in columns:
     print(0)
     sys.exit(0)
 
-# Same predicate as shared/services/duels.ts LIVE_IDLE_SQL: casual input only, regardless of the clock.
-# Ranked results must be settled by the host before resources can change.
+# Same predicate as shared/services/duels.ts LIVE_IDLE_SQL: all play input, regardless of the clock.
+# Idle competitive rows do not block replacement and stay unchanged for the restarted host.
 # Old schemas without activity fields remain conservatively protected.
 idle = "0"
 params = {}
 if {"kind", "ranked", "last_activity_at", "started_at", "created_at", "clock_json"} <= columns:
     now = int(time.time() * 1000)
     params = {"before": datetime.fromtimestamp((now - 600_000) / 1000, timezone.utc).isoformat(timespec="milliseconds")}
-    idle = """kind = 'play' and status = 'active' and ranked = 0
+    idle = """kind = 'play' and status = 'active'
         and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday(:before)"""
     if idle_close:
         # The deploy stops web/duel/worker/ws before install. Recheck and close in one write transaction.
         con.execute("begin immediate")
-        ids = [row[0] for row in con.execute("select id from duels where " + idle, params)]
+        competitive = "ranked = 1"
+        if "series_id" in columns and con.execute("select 1 from sqlite_master where type = 'table' and name = 'duel_series'").fetchone():
+            competitive += " or exists (select 1 from duel_series s where s.id = duels.series_id and s.tournament_match_id is not null)"
+        ids = [row[0] for row in con.execute("select id from duels where " + idle + " and not (" + competitive + ")", params)]
         for duel_id in ids:
             # Mirrors finalizeTx(..., 'interrupted', null): no winner, rating or match result.
             # Keep seed/setup/commands for replay; no engine is available for a fresh final board.

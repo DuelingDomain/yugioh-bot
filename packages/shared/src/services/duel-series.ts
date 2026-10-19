@@ -461,7 +461,7 @@ export function createSeriesStore(db: Database.Database) {
       input.organizerPlayerId,
       input.mode,
       input.masterRule,
-      JSON.stringify(rankedDuelSettings(input.settings, input.ranked)),
+      JSON.stringify(rankedDuelSettings(input.settings, input.ranked, requireSeries(input.seriesId).tournament_match_id)),
       inviteCode,
       input.seriesId,
       input.gameNumber,

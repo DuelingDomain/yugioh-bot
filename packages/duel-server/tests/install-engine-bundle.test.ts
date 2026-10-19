@@ -290,7 +290,7 @@ describe("install-engine-bundle.sh idle duels with the application schema", () =
     } finally { db.close(); }
   });
 
-  it.each([false, true])("preserves an idle ranked series for clock settlement and refuses a bundle replacement (closed tournament=%s)", closedTournament => {
+  it.each(["ranked", "tournament", "closed tournament"])("preserves an idle %s for host settlement while replacing the bundle", kind => {
     const f = fixture({ tag: "old" }, { tag: "new" }, []);
     const db = new Database(join(f.root, "data", "bot.sqlite"));
     try {
@@ -301,24 +301,26 @@ describe("install-engine-bundle.sh idle duels with the application schema", () =
       const { duel, series: match } = series.createChallenge({ guildId: "g", challengerPlayerId: owner, opponentPlayerId: guest,
         bestOf: 3, ranked: true, mode: "normal" });
       db.prepare("update duel_series set status = 'active' where id = ?").run(match.id);
-      if (closedTournament) {
-        const tournament = db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id) select 'g', 'Finished cup', 'single_elim', 'completed', user_id from players where id = ?").run(owner);
+      if (kind !== "ranked") {
+        db.prepare("update duels set ranked = 0 where id = ?").run(duel.id);
+        db.prepare("update duel_series set ranked = 0 where id = ?").run(match.id);
+        const tournament = db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id) select 'g', 'Cup', 'single_elim', ?, user_id from players where id = ?")
+          .run(kind === "closed tournament" ? "completed" : "active", owner);
         const slot = db.prepare("insert into tournament_matches (tournament_id, player_one_id, player_two_id, round_number, status) values (?, ?, ?, 1, 'open')")
           .run(tournament.lastInsertRowid, owner, guest);
         db.prepare("update duel_series set tournament_match_id = ? where id = ?").run(slot.lastInsertRowid, match.id);
       }
-      const clock = { turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * 60_000, remainingMs: [30 * 60_000, 30 * 60_000] };
+      const clock = { turn: 1, activeSeat: null, startedAt: null, remainingMs: [180_000, 180_000] };
       db.prepare("update duels set status = 'active', last_activity_at = datetime('now', '-11 minutes'), clock_json = ? where id = ?")
         .run(JSON.stringify(clock), duel.id);
       const before = db.prepare("select * from duels where id = ?").get(duel.id);
-      const installed = snapshot(f.dst);
-      expect(run(f, true, "1").status).toBe(1);
+      expect(run(f, true, "1").status).toBe(0);
       expect(createDuelService(db).get(duel.slug, "g").status).toBe("active");
       expect(series.get(match.id, "g").status).toBe("active");
       const result = run(f, false, "1");
-      expect(result.status, result.out).toBe(1);
+      expect(result.status, result.out).toBe(0);
       expect(db.prepare("select * from duels where id = ?").get(duel.id)).toEqual(before);
-      expect(snapshot(f.dst)).toEqual(installed);
+      expect(snapshot(f.dst)).toEqual(snapshot(f.src));
       expect(series.get(match.id, "g")).toMatchObject({ status: "active", wins: [0, 0], nextGameAt: null });
       expect(db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
     } finally { db.close(); }
