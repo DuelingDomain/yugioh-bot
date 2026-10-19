@@ -336,8 +336,9 @@ end`]);
       expect(final.log.some((line) => line.text.startsWith("Player 2 drew 1"))).toBe(false);
       expect(states(final)).toEqual(["in", ...Array(t.count - 1).fill("out")]);
       expect(final.eliminationOrder).toEqual(Array.from({ length: t.count - 1 }, (_, index) => [t.count - 1 - index]));
+      // FFA results name the winning seat; winnerTeam is only part of a Tag result.
       expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[0])
-        .toEqual({ ...final, result: { ...final.result, winnerTeam: 0 } });
+        .toEqual(final);
       await t.recover();
       expect(await t.view()).toEqual(final);
     }, 60_000);

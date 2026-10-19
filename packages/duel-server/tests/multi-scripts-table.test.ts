@@ -57,10 +57,11 @@ export interface TableCard {
   name: string;
 }
 
-// The pre-errata card is outside the current corpus. Keep its C6 geometry audit.
-// Add it to the live table only after its database row and official script are supplied.
-const TABLE_EXCLUSIONS: Record<number, string> = {
-  5043020: "Firewall Dragon (pre-errata): the corpus has no database row or official script. The live table cannot load this card.",
+// These cards have no official script in the pinned corpus. Keep their dedicated scenario coverage.
+// Pin database availability too, so a corpus change requires a review before adding them to the live table.
+const TABLE_EXCLUSIONS: Record<number, { reason: string; inDatabase: boolean }> = {
+  5043020: { reason: "Firewall Dragon (pre-errata): the corpus has no database row or official script. The live table cannot load this card.", inDatabase: false },
+  100200298: { reason: 'Counter Spell "Negate Attack": the corpus has a prerelease database row and a pre-release script, but no official script (unban-audit.ts covers its overlay).', inDatabase: true },
 };
 
 /**
@@ -140,6 +141,8 @@ const NO_CONDITION_RUN: Record<number, string> = {
   59011257: "Fallin' Cheatah: ctrltg runs on a custom event after an opponent Special Summons a monster; no such event reaches it in the generic game (cheatah-controller.ts proves the event and every seat)",
   71315423: "Worm Millidith: eqtg runs on a Flip and damtg runs after it equips; the generic board starts it face-up and does not flip a Set monster (worm-table-p68.test.ts proves the equip, damage and every seat)",
   83819309: "Cooling Embers: its targets run after a duelist gains LP (EVENT_RECOVER); the generic game has no LP gain effect (cooling-embers.test.ts proves the trigger and every seat)",
+  33396948: "Exodia the Forbidden One: its continuous EVENT_TO_HAND effect has only an operation, with no condition, target or cost to probe (owner-hands-exodia.test.ts proves completed hands, team claims and draws)",
+  98139712: "Skull Invitation: its activation and continuous EVENT_TO_GRAVE effect have no condition, target or cost to probe (unban-audit.ts proves damage to every real owner in Standard and Domain)",
   // R2 cards. Their global effects and flags load and run (no Lua error, no trap U or c); only a condition, target or cost never ran.
   3900605: "Absorbing Jar: the target is a Flip effect and the rest are continuous Summon and Set locks; the generic game does not flip a Set monster",
   18114794: "Summon Breaker: a Field Spell whose trigger is a custom event raised by a global effect after a Normal or Flip Summon; no such event reaches its condition",
@@ -218,11 +221,17 @@ export const CLASS_DECISIONS: Record<number, CardClass[]> = {
 };
 
 /**
- * The scan class (U, C, O, F) that a listed card must have. Default O (one-opponent). Sangen Kaiho and Incredible Ecclesia are F:
- * they also keep a per-player flag in a global check (rule global-player-flag, a seat-state change that is not part of the compare
- * overlay). The overlay changes their compare only.
+ * The scan class (U, C, O, F) that a listed card must have. Default O (one-opponent). Sangen Kaiho and Incredible Ecclesia also
+ * keep a per-player flag in a global check. The newly allowed hand overlays replace each-player pairs or SwapControl, which the
+ * stock scan correctly calls F: the fold alone cannot implement those operations.
  */
-export const SCAN_CLASS_OF: Record<number, CardScan["cls"]> = { 25388971: "F", 55273560: "F" };
+export const SCAN_CLASS_OF: Record<number, CardScan["cls"]> = {
+  25388971: "F", 55273560: "F",
+  14057297: "F", // Multiple Destruction: each-player-pair
+  17484499: "F", // Exchange of the Spirit: each-player-pair
+  30426226: "F", // Switcheroroo: swap-control
+  33508719: "F", // Morphing Jar: each-player-pair
+};
 
 /**
  * The scan classes that an R1 entry may have. The scan marks a card as U (no opponent read) or C (the fold is enough) when the stock
@@ -847,10 +856,10 @@ describe("the table helpers", () => {
     for (const code of Object.keys(NO_CONDITION_RUN_ONLY)) expect(NO_CONDITION_RUN[Number(code)], `${code} has a NO_CONDITION_RUN entry`).toBeTruthy();
   });
 
-  it("requires a corpus review if an excluded card gains a database row or an official script", () => {
-    for (const [code, reason] of Object.entries(TABLE_EXCLUSIONS)) {
+  it("requires a corpus review if an excluded card's database availability changes or it gains an official script", () => {
+    for (const [code, { reason, inDatabase }] of Object.entries(TABLE_EXCLUSIONS)) {
       expect(reason, code).toBeTruthy();
-      expect(inCardDatabase(Number(code)), `${reason} Review the card before table use.`).toBe(false);
+      expect(inCardDatabase(Number(code)), `${reason} Review the card before table use.`).toBe(inDatabase);
       expect(existsSync(join(stockDirectory, `c${code}.lua`)), `${reason} Review the card before table use.`).toBe(false);
       expect(TABLE.some((row) => row.code === Number(code)), code).toBe(false);
     }
