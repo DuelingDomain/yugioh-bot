@@ -357,7 +357,7 @@ export function createCardCatalogService(
           card.race ?? null,
           engine.get(cardId)?.metadata.setcodes_json ?? "[]",
           Number(isExtraDeckCard(card)),
-          0,
+          Number(engine.get(artworkId)?.prerelease ?? false),
           "api",
         );
       }
@@ -578,6 +578,7 @@ export function createCardCatalogService(
         results.push(...await Promise.allSettled(jobs.slice(offset, offset + 4).map((job) => job())));
       }
       const excludedNames = new Set(input.excludeNames.map(normalizeName));
+      const includedNames = new Set(input.includeNames.map(normalizeName));
       const cardsToCache: YgoprodeckCard[] = [];
 
       for (const card of results.flatMap((result) => result.status === "fulfilled" ? result.value : [])) {
@@ -592,11 +593,14 @@ export function createCardCatalogService(
 
       const savedIds = upsertCards(cardsToCache);
       for (const id of distinctCustomIds) { ensureEngineCard(id); ensureEngineArtwork(id); }
-      const engineIncluded = engineMatches(card => !excludedNames.has(normalizeName(card.name)) && input.includeNames.some(name => normalizeName(name) === normalizeName(card.name)));
+      const apiNames = new Set(cardsToCache.map(card => normalizeName(card.name)));
+      const engineIncluded = engineMatches(card => card.prerelease && includedNames.has(normalizeName(card.name))
+        && !excludedNames.has(normalizeName(card.name)) && !apiNames.has(normalizeName(card.name)));
 
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
-      const cached = findByIds(cachedIds.map(canonicalId)).filter((card) => !isExtraDeckFrame(card) && !excludedNames.has(normalizeName(card.name)));
+      const cached = findByIds(cachedIds.map(canonicalId)).filter((card) => !isExtraDeckFrame(card)
+        && !excludedNames.has(normalizeName(card.name)) && !apiNames.has(normalizeName(card.name)));
       return [...new Map([...findByIds(savedIds), ...cached, ...findByIds(distinctCustomIds.map(canonicalId)), ...engineIncluded].filter(card => !isExtraDeckFrame(card) && !excludedNames.has(normalizeName(card.name))).map(card => [card.ygoprodeckId, card])).values()];
     },
 
@@ -615,7 +619,8 @@ export function createCardCatalogService(
         const cards = await fetchCardsWith(params);
         return findByIds(upsertCards(cards));
       }, () => [...cachedCards((card) => normalizeName(card.archetype ?? "") === normalizeName(archetype)), ...local], (cards) => cards.length > 0);
-      const cached = [...new Map([...local, ...fetched].map(card => [card.ygoprodeckId, card])).values()];
+      const fetchedNames = new Set(fetched.map(card => normalizeName(card.name)));
+      const cached = [...new Map([...local.filter(card => !fetchedNames.has(normalizeName(card.name))), ...fetched].map(card => [card.ygoprodeckId, card])).values()];
       const extraIds = new Set(cached.filter(isExtraDeckFrame).map((card) => card.ygoprodeckId));
 
       return {
@@ -822,7 +827,8 @@ export function createCardCatalogService(
       }
       const usable = options.includeExtra ? cards : cards.filter((card) => !isExtraDeckCard(card));
       const saved = findByIds(upsertCards(usable));
-      const combined = [...new Map([...local, ...saved].map(card => [card.canonicalCardId ?? card.ygoprodeckId, card])).values()];
+      const apiNames = new Set(cards.map(card => normalizeName(card.name)));
+      const combined = [...new Map([...local.filter(card => !apiNames.has(normalizeName(card.name))), ...saved].map(card => [card.canonicalCardId ?? card.ygoprodeckId, card])).values()];
       const ranked = rankCardsByName(options.includeExtra ? combined : combined.filter(card => !isExtraDeckFrame(card)), text);
       return ranked.slice(0, options.limit ?? 24);
     },

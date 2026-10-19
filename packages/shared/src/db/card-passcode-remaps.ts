@@ -96,17 +96,17 @@ export function applyEngineCardRemaps(db: Database.Database, directory: string):
   let metadata: ReturnType<typeof remapTargetMetadata>;
   try {
     metadata = remapTargetMetadata(engine, remaps.values());
-    const catalog = loadEngineCatalog(directory);
-    for (const target of new Set(remaps.values())) {
-      const card = catalog.get(target);
-      if (card) metadata.set(target, card.metadata);
-    }
     const find = engine.prepare("SELECT 1 FROM datas WHERE id=?");
     for (const target of new Set(remaps.values())) if (!find.get(target)) throw new Error(`Remap target ${target} is absent from engine database`);
   } finally { engine.close(); }
   const remap = (code: number) => remaps.get(code) ?? code;
   return db.transaction(() => {
     if (db.prepare("SELECT 1 FROM engine_card_remap_runs WHERE bundle_version=?").get(manifest.bundleVersion)) return { skipped: true, remappedPasscodes: 0 };
+    const catalog = loadEngineCatalog(directory);
+    for (const target of new Set(remaps.values())) {
+      const card = catalog.get(target);
+      if (card) metadata.set(target, card.metadata);
+    }
     // Catalog writers share this DB. Check artwork families under the same write
     // lock as the rewrite, so an intervening sync cannot turn a source into real art.
     const artwork = db.prepare("SELECT 1 FROM card_artworks WHERE artwork_id=? AND card_id<>artwork_id");
