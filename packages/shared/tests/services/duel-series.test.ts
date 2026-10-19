@@ -61,7 +61,9 @@ function seatOf(session: DuelSession, playerId: number): number {
 }
 
 function start(app: App, slug: string, actor: number | null = null) {
-  return app.duels.activate(slug, "g1", actor, ["s"], "v", null);
+  const ranked = app.duels.get(slug, "g1").ranked;
+  return app.duels.activate(slug, "g1", actor, ["s"], "v", ranked
+    ? { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [180_000, 180_000] } : null);
 }
 
 /** Starts a game, then ends it: winner null = draw. */

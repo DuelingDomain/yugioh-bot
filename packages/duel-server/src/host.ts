@@ -1363,6 +1363,9 @@ export function createDuelHost(options: {
 
   async function recover(slug: string, guildId: string): Promise<DuelGameWorker> {
     const session = service.get(slug, guildId);
+    if (session.ranked && await settleRankedDeadline(slug, guildId)) {
+      throw new RequestError("This duel has ended on time", 409);
+    }
     const fork = isReplayFork(session);
     if (fork) assertDuelForkAccess(options.db, slug, { guildId, playerId: session.organizerPlayerId });
     const existing = games.get(slug);
@@ -1619,9 +1622,38 @@ export function createDuelHost(options: {
     if (drive) await driveBot(slug, guildId, game);
   }
 
+  async function settleRankedDeadline(slug: string, guildId: string, game?: DuelGameWorker, at = now()): Promise<boolean> {
+    const state = service.privateState(slug, guildId);
+    const seat = state.clock?.activeSeat;
+    if (!state.session.ranked || state.session.format !== "1v1" || state.session.status !== "active"
+      || !state.clock || seat == null || !isClockDue(state.clock, at)
+      || state.session.seats.some(entry => entry.seat === seat && entry.isBot)) return false;
+    const winner = opponentSeatsOf("1v1", seat)[0]!;
+    const resident = game?.running ? game : games.get(slug)?.game;
+    // The saved deadline proves the loss even when resources/journal recovery would fail after a restart.
+    if (resident?.running) {
+      await persistComplete(slug, guildId, resident, winner, TIME_LIMIT_REASON);
+    } else {
+      service.complete(slug, guildId, winner, TIME_LIMIT_REASON);
+      await emitChange(slug, guildId);
+      await afterGameEnded(slug, guildId);
+    }
+    return true;
+  }
+
   async function settleClock(slug: string, guildId: string, game?: DuelGameWorker, at = now()): Promise<void> {
     const state = service.privateState(slug, guildId);
-    if (isReplayFork(state.session) || state.session.status !== "active" || !state.clock) return;
+    if (isReplayFork(state.session) || state.session.status !== "active") return;
+    if (!state.clock) {
+      // Legacy unlimited ranked games acquire the fixed bank once, then persist it across restarts.
+      if (state.session.ranked) {
+        const live = game?.running ? game : await recover(slug, guildId);
+        const seatCount = seatCountFor(state.session.format);
+        service.setClock(slug, guildId, startDecisionClock(await readClockView(live, seatCount), state.session.settings.turnSeconds, at, seatCount));
+        await emitChange(slug, guildId);
+      }
+      return;
+    }
     const clock = state.clock;
     if (!isClockDue(clock, at)) return;
 
@@ -1640,6 +1672,7 @@ export function createDuelHost(options: {
       return;
     }
 
+    if (state.session.ranked && await settleRankedDeadline(slug, guildId, game, at)) return;
     const live = game?.running ? game : await recover(slug, guildId);
     await forfeitSeat(slug, guildId, live, expired, TIME_LIMIT_REASON);
   }
@@ -3134,6 +3167,9 @@ export function createDuelHost(options: {
     const slug = body.slug;
     if (op === "replay" || op === "owner-replay") return replayRequest(body, slug, guildId, actor, ctl?.signal);
     let room = service.room(slug, guildId, actor, { includeStoredBoard: false });
+    if (room.session.ranked && await settleRankedDeadline(slug, guildId)) {
+      room = service.room(slug, guildId, actor, { includeStoredBoard: false });
+    }
     if (isReplayFork(room.session) && ["start", "ready", "unready", "deck", "validate-deck", "add-bot", "opening-pick", "opening-choose",
       "series-first", "series-side", "series-ready", "series-unready"].includes(String(op))) {
       throw new RequestError("Replay forks cannot use normal lobby or series operations", 409);
@@ -3455,8 +3491,8 @@ export function createDuelHost(options: {
   async function tick(): Promise<void> {
     if (stopped) return;
     const t = now();
-    // Run before clock losses: a table abandoned across a restart must not award a ranked win.
-    // The query ignores decision clocks and includes tables with no resident worker.
+    // Casual idle closure ignores decision clocks and includes tables with no resident worker.
+    // Ranked tables are excluded: their durable clock must settle a loss, including after a restart.
     try {
       for (const item of service.dueIdleDuels(t, ARCHIVE_SWEEP_LIMIT)) {
         if (stopped) return;

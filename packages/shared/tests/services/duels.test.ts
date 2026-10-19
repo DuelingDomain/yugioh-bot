@@ -87,7 +87,9 @@ function readyDuel(app: ReturnType<typeof setup>, mode: "normal" | "domain" = "n
 }
 
 function start(app: ReturnType<typeof setup>, slug: string, seed: string[] = ["s"], bundle = "v") {
-  return app.duels.activate(slug, "g1", app.p1, seed, bundle, null);
+  const ranked = app.duels.get(slug, "g1").ranked;
+  return app.duels.activate(slug, "g1", app.p1, seed, bundle, ranked
+    ? { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [180_000, 180_000] } : null);
 }
 
 

@@ -15,7 +15,7 @@ import type {
 import { deckCardCounts } from "../duels/pool.js";
 import type { DeckTypeEngineSource } from "./deck-sections.js";
 import { createDeckCopyRepairService } from "./deck-copy-repair.js";
-import { normalizeDuelSettings, parseStoredDuelSettings } from "../duels/settings.js";
+import { normalizeDuelSettings, parseStoredDuelSettings, rankedDuelSettings } from "../duels/settings.js";
 import type { DuelSettings } from "../duels/settings.js";
 import { generateWebSlug } from "../util/web-slug.js";
 // duels.ts imports this module too. The cycle is safe: neither module uses the
@@ -461,7 +461,7 @@ export function createSeriesStore(db: Database.Database) {
       input.organizerPlayerId,
       input.mode,
       input.masterRule,
-      JSON.stringify(input.settings),
+      JSON.stringify(rankedDuelSettings(input.settings, input.ranked)),
       inviteCode,
       input.seriesId,
       input.gameNumber,
@@ -884,7 +884,7 @@ export function createDuelSeriesService(db: Database.Database, engine?: DeckType
     const opponent = assertPlayerGuild(input.opponentPlayerId, input.guildId);
     const masterRule = resolveMasterRule(input.mode, input.masterRule);
     const settings: DuelSettings = {
-      ...wrapSettingsError(() => normalizeDuelSettings(input.mode, input.settings)),
+      ...rankedDuelSettings(wrapSettingsError(() => normalizeDuelSettings(input.mode, input.settings)), input.ranked),
       visibility: "private",
     };
     const name = input.name?.trim() || `${challenger.display_name} vs ${opponent.display_name}`;

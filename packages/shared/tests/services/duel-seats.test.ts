@@ -65,7 +65,8 @@ describe("lobby departure", () => {
     app.duels.admit(left.slug, "g", app.viewer, invite);
     app.duels.takeSeat(left.slug, "g", app.viewer);
     app.duels.setDeck(left.slug, "g", app.viewer, deck);
-    const started = app.duels.activate(left.slug, "g", app.host, ["s"], "v", null);
+    const started = app.duels.activate(left.slug, "g", app.host, ["s"], "v",
+      { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [180_000, 180_000] });
     expect(started.seriesId).not.toBe(match.series.id);
     expect(app.series.get(started.seriesId!, "g").playerIds).toContain(app.viewer);
     expect(app.series.get(started.seriesId!, "g").playerIds).not.toContain(app.guest);

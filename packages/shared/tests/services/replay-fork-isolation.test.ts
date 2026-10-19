@@ -220,7 +220,8 @@ describe("replay fork real-play isolation", () => {
     const app = fixture(), game = app.series.createChallenge({ guildId: app.guildId, challengerPlayerId: app.actors[0]!.playerId,
       opponentPlayerId: app.actors[1]!.playerId, mode: "normal", bestOf: 1, ranked: true, settings: { validateDeck: false } });
     for (const player of app.actors) app.duels.setDeck(game.duel.slug, app.guildId, player.playerId, deck);
-    app.duels.activate(game.duel.slug, app.guildId, null, ["1", "2", "3", "4"], "fixture", null);
+    app.duels.activate(game.duel.slug, app.guildId, null, ["1", "2", "3", "4"], "fixture",
+      { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [180_000, 180_000] });
     const winnerSeat = app.duels.get(game.duel.slug, app.guildId).seats.find(seat => seat.playerId === app.actors[0]!.playerId)!.seat;
     app.duels.complete(game.duel.slug, app.guildId, winnerSeat, "Engine result");
     expect(app.series.get(game.series.id, app.guildId)).toMatchObject({ status: "completed", winnerPlayerId: app.actors[0]!.playerId });

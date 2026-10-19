@@ -68,7 +68,7 @@ interface Fixture {
 function fixture(installed: { tag: string; multi?: string }, incoming: { tag: string; multi?: string }, duels: Array<{ format: string | null; status: string }>): Fixture {
   const root = mkdtempSync(join(tmpdir(), "install-bundle-"));
   roots.push(root);
-  const dst = join(root, "data", "duel-engine");
+  const dst = join(root, "data", "engine-bundle");
   const src = join(root, "incoming");
   mkdirSync(dst, { recursive: true });
   mkdirSync(src, { recursive: true });
@@ -290,7 +290,7 @@ describe("install-engine-bundle.sh idle duels with the application schema", () =
     } finally { db.close(); }
   });
 
-  it.each([false, true])("closes an idle ranked series despite a funded clock without a score (closed tournament=%s)", closedTournament => {
+  it.each([false, true])("preserves an idle ranked series for clock settlement and refuses a bundle replacement (closed tournament=%s)", closedTournament => {
     const f = fixture({ tag: "old" }, { tag: "new" }, []);
     const db = new Database(join(f.root, "data", "bot.sqlite"));
     try {
@@ -310,14 +310,16 @@ describe("install-engine-bundle.sh idle duels with the application schema", () =
       const clock = { turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * 60_000, remainingMs: [30 * 60_000, 30 * 60_000] };
       db.prepare("update duels set status = 'active', last_activity_at = datetime('now', '-11 minutes'), clock_json = ? where id = ?")
         .run(JSON.stringify(clock), duel.id);
-      expect(run(f, true, "1").status).toBe(0);
+      const before = db.prepare("select * from duels where id = ?").get(duel.id);
+      const installed = snapshot(f.dst);
+      expect(run(f, true, "1").status).toBe(1);
       expect(createDuelService(db).get(duel.slug, "g").status).toBe("active");
       expect(series.get(match.id, "g").status).toBe("active");
       const result = run(f, false, "1");
-      expect(result.status, result.out).toBe(0);
-      expect(createDuelService(db).get(duel.slug, "g")).toMatchObject({ status: "interrupted", winnerSeat: null,
-        winnerPlayerId: null, resultReason: "No player activity for 10 minutes." });
-      expect(series.get(match.id, "g")).toMatchObject({ status: closedTournament ? "cancelled" : "between_games", wins: [0, 0], nextGameAt: null });
+      expect(result.status, result.out).toBe(1);
+      expect(db.prepare("select * from duels where id = ?").get(duel.id)).toEqual(before);
+      expect(snapshot(f.dst)).toEqual(installed);
+      expect(series.get(match.id, "g")).toMatchObject({ status: "active", wins: [0, 0], nextGameAt: null });
       expect(db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
     } finally { db.close(); }
   });
