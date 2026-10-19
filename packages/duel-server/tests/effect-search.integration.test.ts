@@ -28,6 +28,13 @@ const descriptorSupportCases = [
 const deckEffectCases = ['dark monsters that search the deck', 'dark monsters that shuffle deck'];
 
 const effectCases: [string,string[],string[]][] = [
+  ["hand traps that negate blorptastic", ["Effect Veiler", "Ash Blossom & Joyous Spring"], ["Raigeki"]],
+  ["cards like Ash Blossom", ["Effect Veiler"], ["Ash Blossom & Joyous Spring", "Blue-Eyes White Dragon"]],
+  ["similar to Effect Veiler", ["Ash Blossom & Joyous Spring"], ["Effect Veiler", "Blue-Eyes White Dragon"]],
+  ["budget Ash Blossom", ["Effect Veiler"], ["Ash Blossom & Joyous Spring", "Blue-Eyes White Dragon"]],
+  ["how to beat Snake-Eye", ["D.D. Crow"], ["Snake-Eye Ash", "Blue-Eyes White Dragon"]],
+  ["counters to Kashtira", ["Gameciel, the Sea Turtle Kaiju"], ["Kashtira Fenrir", "Blue-Eyes White Dragon"]],
+  ["stop Tearlaments", ["D.D. Crow", "Called by the Grave"], ["Tearlaments Scheiren", "Blue-Eyes White Dragon"]],
   ["1500 atk or less", ["Effect Veiler", "Ash Blossom & Joyous Spring"], ["Blue-Eyes White Dragon"]],
   ["atk 1500 or lower", ["Effect Veiler"], ["Blue-Eyes White Dragon"]],
   ["2500 attack or more", ["Dark Magician", "Blue-Eyes White Dragon"], ["Effect Veiler"]],
@@ -466,7 +473,7 @@ const nameCases: [string,string][] = [
   ]
 ];
 // Newest sort, five budgets, four formats, deck synergy, extra text and multi-attack.
-const expectedQueries = effectCases.length + supportCases.length + descriptorSupportCases.length + deckEffectCases.length + nameCases.length + 13;
+const expectedQueries = effectCases.length + supportCases.length + descriptorSupportCases.length + deckEffectCases.length + nameCases.length + 15;
 const cards = loadCardDatabase(engineDataDirectory);
 const byName = new Map([...cards.all()].map(card => [card.name,card]));
 const code = (name: string): number => { const card=byName.get(name); if (!card) throw new Error(`Eval card missing: ${name}`); return card.canonicalPasscode ?? card.code; };
@@ -490,7 +497,7 @@ const checkLabels = (result: readonly number[], include: readonly string[], excl
 };
 
 beforeAll(() => {
-  vi.stubEnv("EFFECT_SEARCH","1");
+  vi.stubEnv("EFFECT_SEARCH","1"); vi.stubEnv("ANTHROPIC_API_KEY", "");
   migrate(db); importCardEffectArtifact(db,{canonicalize:createCanonicalEffectResolver(cards)}); createCardEffectIndex(db,cards);
   // Actual engine metadata supplies the catalog used by SQL insights; no online API is involved.
   const insert=db.prepare(`INSERT OR IGNORE INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,atk,def,image_url,image_url_small,card_sets_json,cached_at,archetype,genesys_points,genesys_revision)
@@ -534,7 +541,7 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
         expect(prepared.readQuery(text), text).toEqual(reading);
         if (reading) expect(all.map(card => prepared.match(card.code, reading)), text).toEqual(all.map(card => sync.match(card.code, reading)));
       }
-    } finally { disk?.close(); rmSync(directory, { recursive: true, force: true }); }
+    } finally { createCardEffectIndex(db, cards); disk?.close(); rmSync(directory, { recursive: true, force: true }); }
   }, 30_000);
   it.each(effectCases)('effect: %s',(text,include,exclude)=>{
     evaluatedQueries++;
@@ -568,12 +575,12 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
     expect(catalog.effectTotal).toBeGreaterThan(0);
     expect(catalog.effectHits?.length).toBeGreaterThan(0);
   });
-  it('keeps meaningful text after a support phrase as a requirement', () => {
+  it('uses unknown words after support only as a soft boost', () => {
     evaluatedQueries++;
     const result = search('elemental hero synergies nonexistentword', ['Elemental HERO Stratos'].map(code));
     expect(result.reading?.query.supports?.archetypes).toEqual(['Elemental HERO']);
     expect(result.reading?.query.text).toBe('nonexistentword');
-    expect(result.effectTotal).toBe(0);
+    expect(result.effectTotal).toBe(1);
   });
   it.each(descriptorSupportCases)('support descriptor: %s', (text, key, value, name) => {
     evaluatedQueries++;
@@ -589,6 +596,23 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
     expect(reading?.query.card.attributes).toEqual(['DARK']);
     expect(reading?.query.supports).toBeUndefined();
     expect(reading?.query.text).toBe('deck');
+  });
+  it('counts relaxations inside all outer filters and returns short card reasons', () => {
+    evaluatedQueries++;
+    const pool = ['Effect Veiler', 'Raigeki', 'Blue-Eyes White Dragon'].map(code);
+    const result = search('hand traps that destroy', pool);
+    expect(result.effectTotal).toBe(0);
+    expect(result.relax).toEqual([{ chip: 'Does: destroy', count: 1 }, { chip: 'Role: hand trap', count: 1 }]);
+    for (const hint of result.relax ?? []) {
+      expect(search('hand traps that destroy', pool, { effectOmit: [hint.chip] }).effectTotal).toBe(hint.count);
+    }
+    expect(search('hand traps that destroy', pool, { kind: 'trap' }).relax).toEqual([]);
+    const hits = search('hand traps that negate', pool).effectHits!;
+    expect(hits[0].reason).toMatch(/negat/i);
+    expect(hits.every(hit => hit.reason.length > 0 && hit.reason.length <= 70)).toBe(true);
+    const boosted = search('hand traps veiler', ['Ash Blossom & Joyous Spring', 'Effect Veiler'].map(code));
+    expect(boosted.effectTotal).toBe(2);
+    expect(boosted.effectHits?.[0]?.name).toBe('Effect Veiler');
   });
   it('newest spells orders the retained page by release date', () => {
     evaluatedQueries++;
@@ -691,4 +715,57 @@ it('sorts and filters dates with effect search off without installing effect fac
     expect(filtered.cards.map((card: { name: string }) => card.name)).not.toContain('Twin Twisters');
     expect(cardEffectIndex(isolatedCards)).toBeUndefined();
   } finally { await isolatedHost.close(); isolatedCards.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+it('evaluates a hard phrase through one mocked Messages POST against real artifact tags', async () => {
+  evaluatedQueries++;
+  vi.stubEnv('EFFECT_SEARCH', '1');
+  const { createServer } = await import('node:http');
+  const { fallbackEffectReading } = await import('@yugidraft/shared/cards/effects/reading-fallback');
+  const { createEmptyLedger, validateLedger } = await import('@yugidraft/shared/cards/effects/budget-ledger');
+  let ledger = createEmptyLedger(), revision = '0', posts = 0;
+  const store: import("@yugidraft/shared/cards/effects/budget-ledger").LedgerStore = {
+    read: async () => ({ revision, ledger: structuredClone(ledger) }),
+    compareAndSwap: async (previous, next) => { if (previous !== revision) throw new Error('CAS'); ledger = structuredClone(validateLedger(next)); revision = String(Number(revision) + 1); return revision; },
+  };
+  const phrase = 'end their combo before it begins';
+  const server = createServer(async (request, response) => {
+    for await (const _ of request) { /* Mock the paid endpoint, never use a real key. */ }
+    posts++;
+    response.end(JSON.stringify({ id: 'msg_eval', model: 'claude-haiku-5-5', stop_reason: 'end_turn', usage: { input_tokens: 100, output_tokens: 100 }, content: [{ type: 'text', text: JSON.stringify(cardEffectIndex(cards)!.readQuery('hand traps that negate')!.query) }] }));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const port = (server.address() as import('node:net').AddressInfo).port;
+    expect(await fallbackEffectReading(db, phrase, 'eval-user', { store, apiKey: 'mock', baseUrl: `http://127.0.0.1:${port}`, allowLoopback: true })).not.toBeNull();
+    const pool = ['Effect Veiler', 'Ash Blossom & Joyous Spring', 'Raigeki'].map(code);
+    const first = search(phrase, pool), again = search(phrase, pool);
+    checkLabels(present(first), ['Effect Veiler', 'Ash Blossom & Joyous Spring'], ['Raigeki'], phrase);
+    expect(first.effectHits?.map(card => card.reason)).toEqual(again.effectHits?.map(card => card.reason));
+    expect(first.effectHits?.every(card => card.reason.length > 0 && card.reason.length <= 70)).toBe(true);
+    expect(posts).toBe(1);
+  } finally { await new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }); }
+});
+
+it('keeps similarity and counter matches within outer pool, type, banlist and Genesys filters in both services', () => {
+  vi.stubEnv('EFFECT_SEARCH', '1');
+  const points = new Map([[code('Effect Veiler'), 0], [code('Ash Blossom & Joyous Spring'), 30]]);
+  const pool = ['Effect Veiler', 'Ash Blossom & Joyous Spring', 'Blue-Eyes White Dragon'].map(code);
+  const input = { ...emptyCardQuery(), text: 'cards like Ash Blossom', passcodes: pool, excludeGenesysForbidden: true, genesysPoints: { min: null, max: 0 } };
+  expect(queryCards(cards, input, undefined, points).effectHits?.map(card => card.code)).toEqual([code('Effect Veiler')]);
+  expect(queryCards(cards, { ...input, kind: 'spell' }, undefined, points).effectTotal).toBe(0);
+  expect(queryCards(cards, { ...input, passcodes: [] }, undefined, points).effectTotal).toBe(0);
+  expect(queryCards(cards, { ...input, banlist: 'tcg-2026-09', limits: ['forbidden'] }, undefined, points).effectTotal).toBe(0);
+  expect(search('stop Tearlaments', ['D.D. Crow'].map(code), { kind: 'spell' }).effectTotal).toBe(0);
+  const sql = createCardInsightService(db, { dataDirectory: engineDataDirectory });
+  for (const format of ['normal', 'domain', 'genesys', 'genesys-domain'] as const) {
+    expect(sql.effectSearch('similar to Ash Blossom', pool, { format, genesysRemaining: 0 }).cards.map(card => card.passcode)).toContain(code('Effect Veiler'));
+    const counters = sql.effectSearch('stop Tearlaments', ['D.D. Crow', 'Tearlaments Scheiren', 'Blue-Eyes White Dragon'].map(code), { format, genesysRemaining: 0 });
+    expect(counters.cards.map(card => card.passcode)).toEqual([code('D.D. Crow')]);
+    expect(counters.cards[0].reason.length).toBeLessThanOrEqual(70);
+  }
+  const relaxed = sql.effectSearch('hand traps that destroy', ['Effect Veiler', 'Raigeki', 'Blue-Eyes White Dragon'].map(code));
+  expect(relaxed.relax).toEqual([{ chip: 'Does: destroy', count: 1 }, { chip: 'Role: hand trap', count: 1 }]);
+  for (const hint of relaxed.relax!) expect(sql.effectSearch('hand traps that destroy', ['Effect Veiler', 'Raigeki', 'Blue-Eyes White Dragon'].map(code), { omittedChips: [hint.chip] }).total).toBe(hint.count);
 });

@@ -248,6 +248,7 @@ export interface CardQueryResult {
   profile?: ArchetypeGuide;
   effectHits?: Array<DeckCardInfo & { altArtCount: number; score: number; reason: string }>;
   effectTotal?: number;
+  relax?: Array<{ chip: string; count: number }>;
   effectOffset?: number;
 }
 

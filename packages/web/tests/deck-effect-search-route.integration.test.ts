@@ -9,7 +9,8 @@ import { createHostDataFixture } from "../../duel-server/tests/helpers/host-data
 import { emptyCardQuery, type DeckCardInfo } from "@yugidraft/shared/duels";
 import { queryPoolCards } from "../src/components/decks/pool-search";
 
-const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn() }));
+const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn(), fallback: vi.fn() }));
+vi.mock("@yugidraft/shared/cards/effects/reading-fallback", () => ({ fallbackEffectReading: state.fallback }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db }));
 vi.mock("@/lib/auth", () => ({ auth: state.auth }));
 vi.mock("@/lib/discord-web-access", () => ({ checkDiscordWebAccess: async () => ({ ok: true }) }));
@@ -30,6 +31,7 @@ beforeAll(() => {
 });
 afterAll(async()=>{await host.close();state.db?.close();rmSync(directory,{recursive:true,force:true});});
 beforeEach(()=>{
+  state.fallback.mockReset().mockResolvedValue(null);
   vi.resetModules();vi.stubEnv("DISCORD_GUILD_ID","configured-community");vi.stubEnv("EFFECT_SEARCH","1");
   vi.stubEnv("DUEL_INTERNAL_URL","http://effect-host");vi.stubEnv("DUEL_INTERNAL_SECRET","web-effect-secret");
   state.auth.mockResolvedValue({user:{id:"123",name:"Yugi"}});
@@ -68,4 +70,27 @@ it("keeps immediate draft-pool aliases and typos consistent with the scoped host
   }
   expect(queryPoolCards(cards,{...emptyCardQuery(),text:"blueeyes",exact:true})).toEqual([]);
   expect(queryPoolCards(cards,{...emptyCardQuery(),text:"blueeyes",kind:"spell"})).toEqual([]);
+});
+
+it("reruns hard phrases through the same scoped host filters after a fallback and skips successful names/exact/off/empty pools", async () => {
+  const { interpret } = await import('@yugidraft/shared/cards/effects');
+  const reading = interpret('hand traps that negate')!;
+  state.fallback.mockImplementation(async (db: Database.Database, phrase: string, user: number) => {
+    expect(user).toBe(123);
+    db.prepare("INSERT OR REPLACE INTO effect_readings VALUES(?,'done',?,0)").run(phrase.toLowerCase(), JSON.stringify(reading.query));
+    return reading;
+  });
+  const result = await (await post({ text: 'halt their combo', passcodes: [97268402,89631139] })).json();
+  expect(result).toMatchObject({ effectTotal: 1, effectHits: [{ code: 97268402, reason: expect.any(String) }], relax: [] });
+  expect(result.effectHits[0].reason.length).toBeLessThanOrEqual(70);
+  expect(state.fallback).toHaveBeenCalledTimes(1);
+  state.fallback.mockClear();
+  await post({ text: 'Blue-Eyes White Dragon' });
+  await post({ text: 'another difficult phrase', exact: true });
+  await post({ text: 'another difficult phrase', scope: 'name' });
+  await post({ text: 'another difficult phrase', passcodes: [] });
+  vi.stubEnv('EFFECT_SEARCH', '0');
+  const off = await (await post({ text: 'another difficult phrase' })).json();
+  expect(off).not.toHaveProperty('relax');
+  expect(state.fallback).not.toHaveBeenCalled();
 });

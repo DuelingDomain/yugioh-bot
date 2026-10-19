@@ -3,7 +3,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { migrate } from "../../shared/src/db/schema";
 import { importCardEffectArtifact } from "../../shared/src/cards/effects/artifact";
 
-const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn() }));
+const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn(), fallback: vi.fn() }));
+vi.mock("@yugidraft/shared/cards/effects/reading-fallback", () => ({ fallbackEffectReading: state.fallback }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db }));
 vi.mock("@/lib/auth", () => ({ auth: state.auth }));
 vi.mock("@/lib/discord-web-access", () => ({ checkDiscordWebAccess: async () => ({ ok: true }) }));
@@ -19,6 +20,7 @@ beforeAll(() => {
 });
 afterAll(() => state.db?.close());
 beforeEach(() => {
+  state.fallback.mockReset().mockResolvedValue(null);
   vi.resetModules();
   vi.stubEnv("DISCORD_GUILD_ID", "configured-community");
   vi.stubEnv("EFFECT_SEARCH", "1");
@@ -98,7 +100,8 @@ describe("authenticated public-catalog insight operations", () => {
       { op: "worksWith", passcode: 46986414, draftSlug: "private-draft" },
     ]) expect((await request(body)).status).toBe(400);
     vi.stubEnv("DISCORD_GUILD_ID", "");
-    vi.resetModules();
+    state.fallback.mockReset().mockResolvedValue(null);
+  vi.resetModules();
     expect((await request({ op: "summary", passcode: 7084129 })).status).toBe(503);
   });
 
@@ -146,4 +149,38 @@ describe("authenticated public-catalog insight operations", () => {
     expect((await request({ op: "poolHealth", cards: Array(500).fill(46986414) })).status).toBe(200);
     expect((await request({ op: "pickScore", candidate: 7084129, pickedPool: Array(500).fill(46986414) })).status).toBe(200);
   });
+});
+
+it('returns the same compact reading, relax hints and deterministic reasons after a hard-phrase fallback', async () => {
+  const { interpret } = await import('@yugidraft/shared/cards/effects');
+  const reading = interpret('hand traps that negate')!;
+  state.fallback.mockImplementation(async (db: Database.Database, phrase: string, user: number) => {
+    expect(user).toBe(123);
+    db.prepare("INSERT OR REPLACE INTO effect_readings VALUES(?,'done',?,0)").run(phrase.toLowerCase(), JSON.stringify(reading.query));
+    return reading;
+  });
+  const response = await request({ op: 'effectSearch', text: 'halt their engine', pool: [97268402,46986414] });
+  expect(response.headers.get('cache-control')).toBe('private, no-store');
+  const result = await response.json();
+  expect(result).toMatchObject({ total: 1, cards: [{ passcode: 97268402, reason: expect.any(String) }], relax: [] });
+  expect(result.cards[0].reason.length).toBeLessThanOrEqual(70);
+  state.fallback.mockClear();
+  const { POST: resolveCards } = await import('../app/api/cards/resolve/route');
+  const resolved = await resolveCards(new Request('http://local/api/cards/resolve', { method: 'POST', body: JSON.stringify({ op: 'effectSearch', text: 'halt another engine', pool: [97268402,46986414] }) }));
+  expect(await resolved.json()).toMatchObject({ total: 1, cards: [{ id: 97268402, reason: expect.any(String) }], relax: [] });
+  const browserFetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => resolveCards(new Request('http://local/api/cards/resolve', init)));
+  try {
+    const { effectSearch } = await import('../src/components/effect-search/effect-api');
+    expect(await effectSearch('halt another engine')).toMatchObject({ total: 1, cards: [{ id: 97268402 }], relax: [], chips: ['Role: hand trap','Does: negate'] });
+  } finally { browserFetch.mockRestore(); }
+  state.fallback.mockResolvedValue(null);
+  const relaxed = await (await request({ op: 'effectSearch', text: 'hand traps that destroy', pool: [97268402] })).json();
+  expect(relaxed.total).toBe(0);
+  expect(relaxed.relax).toEqual([{ chip: 'Does: destroy', count: 1 }]);
+  state.fallback.mockClear();
+  await request({ op: 'effectSearch', text: 'hard phrase', exact: true });
+  await request({ op: 'effectSearch', text: 'hard phrase', pool: [] });
+  vi.stubEnv('EFFECT_SEARCH', '0');
+  expect((await request({ op: 'effectSearch', text: 'hard phrase' })).status).toBe(404);
+  expect(state.fallback).not.toHaveBeenCalled();
 });

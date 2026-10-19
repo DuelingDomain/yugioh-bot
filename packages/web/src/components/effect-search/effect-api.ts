@@ -9,6 +9,8 @@ import { putCards } from "@/lib/cards-cache";
 import { EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
 import type { ArchetypeGuide, CardEra } from "@yugidraft/shared/cards/effects";
 
+export type EffectIntent = { kind: "similar"; passcode: number; name: string } | { kind: "counters"; archetype: string };
+
 export { EFFECT_SEARCH_ATTRIBUTION };
 
 /** A card that matched a description, with the one-line reason it matched. */
@@ -25,6 +27,9 @@ export interface EffectSearchResult {
   chips: string[] | null;
   /** "How it plays" for the archetype the text names, when there is one. */
   guide?: ArchetypeGuide;
+  relax?: Array<{ chip: string; count: number }>;
+  /** What the text asks for beyond a filter: cards like one card, or how to beat an archetype. */
+  intent?: EffectIntent;
 }
 
 /** The server says the feature is off (HTTP 404), or the request failed. */
@@ -79,14 +84,14 @@ export async function effectSearch(text: string, options: EffectSearchOptions = 
   if (options.sort === "newest") body.sort = "newest";
   if (options.era !== undefined) body.era = options.era;
   if (options.omittedChips?.length) body.omittedChips = options.omittedChips;
-  const data = await post<{ cards: EffectCard[]; total: number; reading: { chips: string[] } | null; guide?: ArchetypeGuide }>(
+  const data = await post<{ cards: EffectCard[]; total: number; reading: { chips: string[]; query?: { intent?: EffectIntent } } | null; guide?: ArchetypeGuide; relax?: EffectSearchResult["relax"] }>(
     "/api/cards/resolve",
     body,
     "The description search did not work.",
     options.signal,
   );
   putCards(data.cards);
-  return { cards: data.cards, total: data.total, chips: data.reading?.chips ?? null, ...(data.guide ? { guide: data.guide } : {}) };
+  return { cards: data.cards, total: data.total, chips: data.reading?.chips ?? null, relax: data.relax ?? [], ...(data.reading?.query?.intent ? { intent: data.reading.query.intent } : {}), ...(data.guide ? { guide: data.guide } : {}) };
 }
 
 /* ---------- card summary (hover) ---------- */

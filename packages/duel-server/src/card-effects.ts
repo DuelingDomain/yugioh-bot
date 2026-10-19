@@ -8,7 +8,8 @@ import { pathToFileURL } from "node:url";
 import { join, resolve } from "node:path";
 import {
   buildArchetypeMatcher, engineInsightCard, interpret, matchCard, omitReadingChips, mayReadEffect,
-  compactEffectName,
+  compactEffectName, resolveEffectName, cachedEffectReading, intentReading, cardSimilarity, counterProfileFromHooks, counterLink,
+  softTextScore, effectMatchReason, shortReason, ArchetypeProfile,
   type ReleaseDates,
   type Card, type Interpretation,
 } from "@yugidraft/shared/cards/effects";
@@ -23,6 +24,7 @@ export interface CardEffectIndex {
   readQuery(text: string, omitted?: readonly string[]): Interpretation | null;
   match(code: number, reading: Interpretation): number | null;
   popularity(code: number): number;
+  reason(code: number, reading: Interpretation): string;
 }
 
 const indexes = new WeakMap<CardDatabase, CardEffectIndex>();
@@ -44,7 +46,7 @@ export function createCanonicalEffectResolver(cards: CardDatabase): (passcode: n
   };
 }
 
-function installCardEffectIndex(cards: CardDatabase, { facets, releases, archetypes: profileArchetypes }: CardEffectFacets): CardEffectIndex {
+function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { facets, releases, archetypes: profileArchetypes }: CardEffectFacets): CardEffectIndex {
   type PrintedType = Pick<Card, "kind" | "subtypes" | "monsterType" | "attribute">;
   const printedTypes = new Map<string, PrintedType>();
   const names = new Set<string>();
@@ -64,12 +66,35 @@ function installCardEffectIndex(cards: CardDatabase, { facets, releases, archety
     monsterType: undefined, attribute: undefined, level: undefined, rank: undefined, linkRating: undefined,
     atk: null, def: null, tcgDate: undefined, ocgDate: undefined };
   const canonical = (code: number) => cards.get(code)?.canonicalPasscode ?? code;
+  const summary = db.prepare<[number], { summary: string }>("SELECT summary FROM card_tags WHERE passcode=?");
+  const profileRow = db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE");
+  const contexts = new WeakMap<Interpretation, { anchor?: { card: Card; tags?: import("@yugidraft/shared/cards/effects").MatchTags }; counter?: import("@yugidraft/shared/cards/effects").CounterProfile }>();
+  const context = (reading: Interpretation) => {
+    let result = contexts.get(reading);
+    if (result) return result;
+    result = {};
+    const intent = reading.query.intent;
+    if (intent?.kind === "similar") {
+      const anchor = cards.deckCard(intent.passcode);
+      if (anchor) result.anchor = { card: engineInsightCard(anchor), tags: facets.get(canonical(intent.passcode)) };
+    } else if (intent?.kind === "counters") {
+      const row = profileRow.get(intent.archetype);
+      try { if (row) result.counter = counterProfileFromHooks(ArchetypeProfile.parse({ plan: row.plan, hooks: JSON.parse(row.hooks_json) })); } catch { /* Optional profile: fail closed. */ }
+    }
+    contexts.set(reading, result);
+    return result;
+  };
+  const named = (text: string) => {
+    const card = resolveEffectName([...cards.all()].filter(card => !card.canonicalPasscode || card.canonicalPasscode === card.code), text);
+    return card ? { id: card.code, name: card.name } : undefined;
+  };
+  const intent = (text: string) => intentReading(text, named, text => resolveEffectName([...archetypes].map(name => ({ name })), text)?.name);
   const index: CardEffectIndex = {
     size: facets.size,
     release: code => releases.get(canonical(code)) ?? {},
     readQuery: (text, omitted) => {
-      if (!mayReadEffect(text) || names.has(compactEffectName(text))) return null;
-      const reading = interpret(text, findArchetypes);
+      if (names.has(compactEffectName(text))) return null;
+      const reading = intent(text) ?? cachedEffectReading(db, text, archetypes) ?? (mayReadEffect(text) ? interpret(text, findArchetypes) : null);
       return reading ? omitReadingChips(reading, omitted) : null;
     },
     match: (code, reading) => {
@@ -78,13 +103,28 @@ function installCardEffectIndex(cards: CardDatabase, { facets, releases, archety
       const printed = printedTypes.get(`${card.type}:${card.race}:${card.attribute}`);
       if (!printed) return null;
       const id = card.canonicalPasscode ?? card.code, dates = releases.get(id);
+      current.text = card.description;
       current.id = id; current.name = card.name; current.kind = printed.kind; current.subtypes = printed.subtypes;
       current.monsterType = printed.monsterType; current.attribute = printed.attribute;
       current.level = card.type & (T.xyz | T.link) ? undefined : card.level;
       current.rank = card.type & T.xyz ? card.level : undefined; current.linkRating = card.type & T.link ? card.level : undefined;
       current.atk = card.attack >= 0 ? card.attack : null; current.def = card.defense >= 0 ? card.defense : null;
       current.tcgDate = dates?.tcgDate; current.ocgDate = dates?.ocgDate;
-      return matchCard(current, facets.get(id), reading.query);
+      const tags = facets.get(id), base = matchCard(current, tags, reading.query);
+      if (base === null) return null;
+      const { anchor, counter } = context(reading);
+      const candidate = { card: current, tags };
+      const score = reading.query.intent?.kind === "similar" ? (anchor ? cardSimilarity(anchor, candidate) : null)
+        : reading.query.intent?.kind === "counters" ? (counter ? counterLink(counter, reading.query.intent.archetype, candidate)?.score ?? null : null) : base;
+      return score === null ? null : score + softTextScore(current, reading.query.text);
+    },
+    reason: (code, reading) => {
+      const raw = cards.deckCard(code);
+      if (!raw) return "Matches your search";
+      const card = engineInsightCard(raw), tags = facets.get(canonical(code)), ctx = context(reading);
+      if (reading.query.intent?.kind === "counters" && ctx.counter) return counterLink(ctx.counter, reading.query.intent.archetype, { card, tags })?.reason ?? "Disrupts this plan";
+      if (reading.query.intent?.kind === "similar") return shortReason(`Similar ${tags?.roles.find(role => ctx.anchor?.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${reading.query.intent.name}`);
+      return effectMatchReason(card, tags, reading.query, summary.get(canonical(code))?.summary);
     },
     popularity: code => facets.get(canonical(code))?.popularity ?? 0,
   };
@@ -94,7 +134,7 @@ function installCardEffectIndex(cards: CardDatabase, { facets, releases, archety
 
 /** Synchronous API retained for callers and in-memory fixtures. */
 export function createCardEffectIndex(db: Database.Database, cards: CardDatabase): CardEffectIndex {
-  const index = installCardEffectIndex(cards, buildCardEffectFacets(db));
+  const index = installCardEffectIndex(db, cards, buildCardEffectFacets(db));
   db.pragma("shrink_memory");
   return index;
 }
@@ -175,7 +215,7 @@ export async function initializeCardEffectIndex(db: Database.Database, cards: Ca
     });
     const prepared = readPreparedFacets(path);
     db.pragma("shrink_memory");
-    return installCardEffectIndex(cards, prepared);
+    return installCardEffectIndex(db, cards, prepared);
   } finally {
     closeSync(fd);
     rmSync(temporary, { recursive: true, force: true });

@@ -19,5 +19,6 @@ export interface ArchetypeGuide {
 /** The archetypes a reading names, the ones it supports first. */
 export function readingArchetypes(reading: Interpretation | null | undefined): string[] {
   if (!reading) return [];
-  return [...new Set([...reading.query.supports?.archetypes ?? [], ...reading.query.card.archetypes])];
+  const intent = reading.query.intent?.kind === "counters" ? [reading.query.intent.archetype] : [];
+  return [...new Set([...intent, ...reading.query.supports?.archetypes ?? [], ...reading.query.card.archetypes])];
 }
