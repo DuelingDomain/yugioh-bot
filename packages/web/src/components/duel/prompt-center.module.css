@@ -46,6 +46,11 @@
   --pc-btn-radius: 8px;
 }
 
+/* The Materials window of a detach pick: above the chain badges (22), like a pile viewer opened over a prompt. */
+.layerFront {
+  z-index: var(--duel-z-prompt-front);
+}
+
 @keyframes rise {
   from { opacity: 0; transform: translateY(10px) scale(0.975); }
   to { opacity: 1; transform: none; }
