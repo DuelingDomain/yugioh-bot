@@ -484,15 +484,18 @@ export const buildTorrential: WipeBuild = (ctx) => {
       // grade: a deep blue tint grows, then a lighter wet tint stays
       const wetA = ramp(t, 0.1, Tb + 0.2) * (1 - 0.45 * ramp(t, 2.0, 2.8)) * endFade;
       P.uTint.value.setRGB(0.6, 0.88, 1.1);
-      P.uTintAmt.value = 0.5 * wetA;
-      P.uDarken.value = 0.22 * wetA;
+      // At a multi-seat table the light stays on the fields: a gentler tint and no whole-canvas flash (it would wash out
+      // the plates and the other fields).
+      const multi = !!ctx.scene.fields || !!ctx.scene.multiTable;
+      P.uTintAmt.value = (multi ? 0.32 : 0.5) * wetA;
+      P.uDarken.value = (multi ? 0.14 : 0.22) * wetA;
       P.uVig.value = 0.25 + 0.3 * wetA;
       // flash at the burst peak
       let fl = t < Tb ? 0.8 * ramp(t, Tb - 0.035, Tb) : 0.8 * Math.exp(-(t - Tb) / 0.1);
       fl = Math.max(fl, 0.15 * decay(t, 0.62, 0.08));
-      P.uFlash.value.set(0.8, 0.95, 1, fl);
-      P.uAberr.value = Math.min(1.2, fl * 1.2);
-      bigflash.set(0, 0, 1500, t >= Tb ? 0.55 * Math.exp(-u0 / 0.09) : 0);
+      P.uFlash.value.set(0.8, 0.95, 1, multi ? fl * 0.12 : fl);
+      P.uAberr.value = Math.min(1.2, fl * (multi ? 0.6 : 1.2));
+      bigflash.set(0, 0, 1500, t >= Tb && !multi ? 0.55 * Math.exp(-u0 / 0.09) : 0);
       // refraction + ripple distortion over the board, glints, wet darkening
       const bp = ramp(t, Tb - 0.02, Tb + 0.12) * (1 - ramp(t, Tb + 0.9, Tb + 1.8));
       const aft = ramp(t, 1.6, 2.1) * endFade;

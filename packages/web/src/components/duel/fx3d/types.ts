@@ -172,6 +172,8 @@ export type FxScene = {
   fields?: FxField[];
   /** Wipes at a multi-seat table: the one field a piece is aimed at, with the room above it (canvas px). */
   focus?: FxRect;
+  /** Wipes at a multi-seat table, also when only two fields are left: the grade stays light (no whole-canvas wash). */
+  multiTable?: boolean;
   /** Wipes only: how the demo times were laid out (key points in ms, for the sound and the lab). */
   marks?: Partial<Record<"open" | "strike" | "close" | "land", number>>;
 };
