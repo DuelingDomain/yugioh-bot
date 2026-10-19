@@ -215,7 +215,7 @@ function parsePath(raw: unknown): string | null {
 /** A duel page can report before its client room store has loaded. General pages never imply a past duel. */
 export function duelSlugFromPath(path: string): string | undefined {
   const slug = /^\/duels\/([A-Za-z0-9_-]{1,80})(?:\/replay)?\/?$/.exec(path)?.[1];
-  return slug === "new" ? undefined : slug;
+  return slug === "new" || slug === "dev-presets" ? undefined : slug;
 }
 
 /** Strict validation of the POST body. Unknown fields are refused, not ignored. */
@@ -249,6 +249,7 @@ export function parseBugReportRequest(raw: unknown): ParseResult<BugReportReques
   const context = parseContext(raw.context);
   if (!context.ok) return context;
   duelSlug = duelSlugFromPath(path) ?? duelSlug;
+  if (duelSlug === "new" || duelSlug === "dev-presets") duelSlug = undefined;
   return { ok: true, value: { description, expected, path, ...(duelSlug ? { duelSlug } : {}), context: context.value, ...(duplicateOf ? { duplicateOf } : {}) } };
 }
 
@@ -289,14 +290,12 @@ export function issueTitle(description: string, context: BugReportContext, redac
 }
 
 export interface IssueBodyInput {
-  reportId: number;
+  reportId: string;
   description: string;
   expected?: string | null;
   path: string;
   duelSlug?: string | null;
   context: BugReportContext;
-  /** Public web base URL, no trailing slash. Without it the issue has no replay link. */
-  baseUrl?: string;
 }
 
 /** The browser name and major version only ("Chrome 126"): the full user agent is not published. */
@@ -334,13 +333,13 @@ export function buildCommentBody(input: IssueBodyInput, redact: readonly string[
 
 function reportSections(input: IssueBodyInput, redact: readonly string[]): string[] {
   const { context } = input;
-  const seat = context.seat === undefined ? undefined : context.seat === null ? "spectator" : `seat ${context.seat + 1}`;
+  // A public page reference must not identify a replay or the reporter's seat.
+  const slug = duelSlugFromPath(input.path);
+  const path = slug ? input.path.replace(`/duels/${slug}`, "/duels/[duel]") : input.path;
   const rows: Array<[string, string]> = [
-    ["Page", cell(redactText(input.path, redact))],
-    ["Duel", cell(input.duelSlug)],
+    ["Page", cell(path)],
     ["Format", cell(context.format ? FORMAT_TEXT[context.format] : undefined)],
     ["Rules", cell(context.duelMode)],
-    ["Reporter seat", cell(seat)],
     ["Turn", cell(context.turn)],
     ["Phase", cell(context.phase)],
     ["Turn of", cell(context.turnSeat === undefined ? undefined : context.turnSeat === null ? "none" : `seat ${context.turnSeat + 1}`)],
@@ -351,7 +350,7 @@ function reportSections(input: IssueBodyInput, redact: readonly string[]): strin
     ["Sent at", cell(context.timestamp)],
   ];
   const table = ["| Field | Value |", "| --- | --- |", ...rows.filter(([, value]) => value !== "-").map(([key, value]) => `| ${key} | ${value} |`)].join("\n");
-  const log = (context.log ?? []).slice(-BUG_LOG_LINES).map((line) => sanitizeLine(redactText(line, redact), LOG_LINE_MAX));
+  const log = (context.log ?? []).slice(-BUG_LOG_LINES).map((line) => sanitizeLine(line, LOG_LINE_MAX));
   const sections = [
     "## Description",
     fence(sanitizeText(redactText(limitText(input.description), redact))),
@@ -362,10 +361,7 @@ function reportSections(input: IssueBodyInput, redact: readonly string[]): strin
     "## Recent log",
     log.length ? fence(log.join("\n")) : "_No duel log._",
   ];
-  if (context.logMissingReason) sections.push(`Log missing because ${context.logMissingReason}.`);
+  if (input.duelSlug && context.logMissingReason) sections.push(`Log missing because ${context.logMissingReason}.`);
   if (input.duelSlug && context.boardMissingReason) sections.push(`Board missing because ${context.boardMissingReason}.`);
-  if (input.duelSlug && input.baseUrl) {
-    sections.push("## Replay", `${input.baseUrl}/duels/${encodeURIComponent(input.duelSlug)}/replay (sign-in needed)`);
-  }
   return sections;
 }

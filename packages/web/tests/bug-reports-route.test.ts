@@ -166,15 +166,18 @@ describe("POST /api/bug-reports", () => {
     expect((call!.init.headers as Record<string, string>).Authorization).toBe(`Bearer ${TOKEN}`);
     expect(call!.payload.labels).toEqual(["bug", "needs-triage", "from-app"]);
     expect(call!.payload.title.startsWith("[Bug] [FFA3] ")).toBe(true);
-    expect(call!.payload.body).toContain("https://duel.example.com/duels/duel-a/replay");
-    expect(call!.payload.body).toContain("`Report #1`");
+    expect(call!.payload.body).not.toContain("duel-a");
+    expect(call!.payload.body).not.toContain("Reporter seat");
+    expect(call!.payload.body).not.toContain("## Replay");
+    expect(call!.payload.body).toContain(`Report #${row!.public_id}`);
+    expect(row!.public_id).toMatch(/^[A-Za-z0-9_-]{12}$/);
   });
 
-  it("builds the replay link only from WEB_URL, never from the request", async () => {
+  it("keeps the replay and duel reference private even with a configured WEB_URL", async () => {
     const POST = await route();
     vi.stubEnv("WEB_URL", "https://web-url.example.com/");
     await POST(new Request("https://evil.example/api/bug-reports", { method: "POST", body: JSON.stringify(body()) }));
-    expect(githubCalls()[0]!.payload.body).toContain("https://web-url.example.com/duels/duel-a/replay");
+    expect(githubCalls()[0]!.payload.body).not.toMatch(/web-url\.example|evil\.example|duel-a|## Replay/);
   });
 
   it("leaves the replay link out when no public URL is configured, even if the request has an origin", async () => {
@@ -187,7 +190,7 @@ describe("POST /api/bug-reports", () => {
     expect(text).not.toContain("evil.example");
     expect(text).not.toContain("web-url.example.com");
     expect(text).not.toContain("localhost");
-    expect(text).toContain("`Report #1`");
+    expect(text).toContain(`Report #${(await rows())[0]!.public_id}`);
   });
 
   it("ignores a configured URL that is not http or https", async () => {
@@ -279,12 +282,12 @@ describe("POST /api/bug-reports", () => {
   });
 
   it("still files the issue after two failed captures and records a safe reason", async () => {
-    callDuelHost.mockRejectedValue(new Error(`private internal error ${TOKEN}`));
+    callDuelHost.mockRejectedValue(new DOMException(`private internal error ${TOKEN}`, "TimeoutError"));
     expect((await (await route())(post(body()))).status).toBe(200);
     expect(callDuelHost).toHaveBeenCalledTimes(2);
     const [row] = await rows();
-    expect(JSON.parse(row!.diagnostics_json)).toMatchObject({ attempts: 2, board: null, missingReason: "the duel host request failed" });
-    expect(githubCalls()[0]!.payload.body).toContain("Log missing because the duel host request failed");
+    expect(JSON.parse(row!.diagnostics_json)).toMatchObject({ attempts: 2, board: null, missingReason: "the duel host request timed out" });
+    expect(githubCalls()[0]!.payload.body).toContain("Log missing because the duel host request timed out");
     expect(githubCalls()[0]!.payload.body).not.toContain("private internal error");
   });
 
@@ -295,21 +298,136 @@ describe("POST /api/bug-reports", () => {
     expect(githubCalls()[0]!.payload.body).toContain(PUBLIC_LOG[0]);
   });
 
-  it("explains an outside-duel report without guessing a previous duel", async () => {
+  it("sends an outside-duel report without a missing-log reason or a host call", async () => {
     const payload = { description: "A card effect did not work as expected", expected: "The card effect should work", path: "/decks", context: {} };
     expect((await (await route())(post(payload))).status).toBe(200);
     expect(callDuelHost).not.toHaveBeenCalled();
-    expect(githubCalls()[0]!.payload.body).toContain("Log missing because the report was sent outside a duel");
+    expect(githubCalls()[0]!.payload.body).not.toContain("Log missing because");
+    expect(JSON.parse((await rows())[0]!.context_json)).not.toHaveProperty("logMissingReason");
   });
 
-  it("keeps stored account names and emails out of the public description and log", async () => {
+  it("keeps stored account names and emails out of player-written public text", async () => {
     const { getDb } = await import("../src/lib/db");
     getDb().prepare("update users set username = ?, email = ? where id = ?")
       .run("report-author", "author@example.test", fixtureUserId(DISCORD_ID));
-    callDuelHost.mockResolvedValue({ ok: true, data: { ...hostAnswer().data, log: ["report-author connected author@example.test"] } });
+    callDuelHost.mockResolvedValue({ ok: true, data: { ...hostAnswer().data, log: ["Player 1 summoned a card"] } });
     await (await route())(post(body({ description: "report-author at author@example.test saw another@example.test and 123456789012345678 fail" })));
     const issue = JSON.stringify(githubCalls()[0]!.payload).replace(/\u200b/g, "");
     for (const privateValue of ["report-author", "author@example.test", "another@example.test", "123456789012345678"]) expect(issue).not.toContain(privateValue);
+  });
+
+  it("keeps game numbers and card names in trusted logs and page paths", async () => {
+    const { getDb } = await import("../src/lib/db");
+    getDb().prepare("insert into users(id,username,display_name) values(8000,'Kuriboh','Kuriboh')").run();
+    getDb().prepare("insert into players(guild_id,user_id,display_name) values(?,8000,'Kuriboh')").run(GUILD);
+    callDuelHost.mockResolvedValue({ ok: true, data: { ...hostAnswer().data,
+      board: { log: [{ text: "Kuriboh has 8000 ATK" }] }, log: ["Kuriboh has 8000 ATK"],
+    } });
+    await (await route())(post(body({ path: "/cards/Kuriboh/8000", description: "Kuriboh saw the card keep 8000 ATK after resolving", expected: "Kuriboh expected 8000 ATK to remain" })));
+    const issue = githubCalls()[0]!.payload;
+    expect(issue.title).toContain("8000 ATK");
+    expect(issue.title).not.toContain("Kuriboh");
+    expect(issue.body).toContain("[removed] saw the card keep 8000 ATK");
+    expect(issue.body).toContain("[removed] expected 8000 ATK");
+    expect(issue.body).toContain("Kuriboh has 8000 ATK");
+    expect(issue.body).toContain("/cards/Kuriboh/8000");
+  });
+
+  it.each([400, 401, 403, 404, 409, 429])("does not retry host HTTP %s", async status => {
+    callDuelHost.mockResolvedValue({ ok: false, response: Response.json({}, { status }) });
+    expect((await (await route())(post(body()))).status).toBe(200);
+    expect(callDuelHost).toHaveBeenCalledTimes(1);
+    expect(JSON.parse((await rows())[0]!.diagnostics_json).attempts).toBe(1);
+  });
+
+  it("does not retry a host error that is not a timeout", async () => {
+    callDuelHost.mockRejectedValue(new Error("private failure"));
+    expect((await (await route())(post(body()))).status).toBe(200);
+    expect(callDuelHost).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([null, [], "invalid"])("retries invalid host data %s", async data => {
+    callDuelHost.mockResolvedValueOnce({ ok: true, data });
+    expect((await (await route())(post(body()))).status).toBe(200);
+    expect(callDuelHost).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["new", "dev-presets"])("does not treat /duels/%s as a duel", async page => {
+    expect((await (await route())(post(body({ path: `/duels/${page}`, duelSlug: page })))).status).toBe(200);
+    expect(callDuelHost).not.toHaveBeenCalled();
+    expect((await rows())[0]!.duel_slug).toBeNull();
+    expect(githubCalls()[0]!.payload.body).not.toContain("Log missing because");
+  });
+
+  it("uses a neutral reason if the duel check fails", async () => {
+    await (await route())(post(body({ path: "/duels/not-found", duelSlug: "not-found" })));
+    const [row] = await rows();
+    expect(JSON.parse(row!.diagnostics_json).missingReason).toBe("no duel data was found");
+    expect(githubCalls()[0]!.payload.body).not.toMatch(/unavailable to this account|not-found/);
+  });
+
+  it("keeps only the last 400 diagnostic log entries", async () => {
+    const log = Array.from({ length: 900 }, (_, id) => ({ id, text: `Public event ${id}` }));
+    callDuelHost.mockResolvedValue({ ok: true, data: { ...hostAnswer().data, board: { revision: 9, log } } });
+    await (await route())(post(body()));
+    const diagnostics = JSON.parse((await rows())[0]!.diagnostics_json);
+    expect(diagnostics.log).toEqual(log.slice(-400));
+    expect(diagnostics.board.log).toEqual(log.slice(-400));
+    expect(diagnostics.logTruncated).toBe(true);
+  });
+
+  it("caps diagnostic bytes and keeps the end of the log when a board is too large", async () => {
+    const log = Array.from({ length: 600 }, (_, id) => ({ id, text: `Event ${id} ` + "x".repeat(2000) }));
+    callDuelHost.mockResolvedValue({ ok: true, data: { ...hostAnswer().data, board: { large: "x".repeat(500_000), log } } });
+    await (await route())(post(body()));
+    const [row] = await rows();
+    expect(Buffer.byteLength(row!.diagnostics_json)).toBeLessThanOrEqual(256 * 1024);
+    const diagnostics = JSON.parse(row!.diagnostics_json);
+    expect(diagnostics.log.at(-1)).toEqual(log.at(-1));
+    expect(diagnostics.board).toBeNull();
+    expect(diagnostics.boardOmittedReason).toBe("the board exceeded the storage limit");
+  });
+
+  it("makes one report and issue for concurrent or repeated submissions", async () => {
+    const POST = await route();
+    const results = await Promise.all([POST(post(body())), POST(post(body()))]);
+    expect(results.map(res => res.status)).toEqual([200, 200]);
+    expect(await results[0]!.json()).toEqual(await results[1]!.json());
+    const first = (await rows())[0]!;
+    expect(await rows()).toHaveLength(1);
+    expect(githubCalls()).toHaveLength(1);
+    // Simulate a retry handled by a new route instance after a lost browser response.
+    vi.resetModules();
+    await (await route())(post(body({ context: { viewport: { width: 1000, height: 800 } } })));
+    expect(await rows()).toHaveLength(1);
+    expect((await rows())[0]!.public_id).toBe(first.public_id);
+    expect(githubCalls()).toHaveLength(1);
+  });
+
+  it("claims one report when separate route instances finish capture at the same time", async () => {
+    let finishCapture!: (value: unknown) => void;
+    const capture = new Promise(resolve => { finishCapture = resolve; });
+    callDuelHost.mockImplementation(() => capture);
+    const first = (await route())(post(body()));
+    await vi.waitFor(() => expect(callDuelHost).toHaveBeenCalledTimes(1));
+    vi.resetModules();
+    const second = (await route())(post(body()));
+    await vi.waitFor(() => expect(callDuelHost).toHaveBeenCalledTimes(2));
+    finishCapture({ ok: true, data: { board: { log: [] }, log: [] } });
+    expect((await Promise.all([first, second])).map(response => response.status)).toEqual([200, 200]);
+    expect(await rows()).toHaveLength(1);
+    expect(githubCalls()).toHaveLength(1);
+  });
+
+  it("keeps the tail of one oversized log entry within the diagnostic byte limit", async () => {
+    const text = "x".repeat(300_000) + " final public event";
+    callDuelHost.mockResolvedValue({ ok: true, data: { board: { log: [{ text }] } } });
+    await (await route())(post(body()));
+    const [row] = await rows();
+    expect(Buffer.byteLength(row!.diagnostics_json)).toBeLessThanOrEqual(256 * 1024);
+    const diagnostics = JSON.parse(row!.diagnostics_json);
+    expect(diagnostics.log.at(-1).text).toMatch(/final public event$/);
+    expect(diagnostics.logTruncated).toBe(true);
   });
 
   it("shows saved reports only to owners, with guild scope and old identity fallback", async () => {
@@ -342,6 +460,7 @@ describe("POST /api/bug-reports", () => {
     const html = renderToStaticMarkup(await Page(pageParams));
     expect(html).toContain("fixture:");
     expect(html).toContain("/duels/duel-a/replay");
+    expect(html).toContain((await rows())[0]!.public_id);
     expect(html).toContain("https://github.com/DuelingDomain/yugioh-bot/issues/77");
     expect(html).toContain("Board and log (JSON)");
     const { GET: detail } = await import("../app/api/admin/bug-reports/[id]/route");
@@ -486,7 +605,7 @@ describe("POST /api/bug-reports", () => {
 
   it("429 on the sixth report in ten minutes, with Retry-After", async () => {
     const POST = await route();
-    for (let i = 0; i < 5; i += 1) expect((await POST(post(body()))).status).toBe(200);
+    for (let i = 0; i < 5; i += 1) expect((await POST(post(body({ description: `Distinct report ${i} about a card effect failure` })))).status).toBe(200);
     const res = await POST(post(body()));
     expect(res.status).toBe(429);
     expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
@@ -603,8 +722,8 @@ describe("POST /api/bug-reports with duplicateOf", () => {
     expect(row).toMatchObject({ player_id: 1, duplicate_of: ISSUE, github_issue_number: ISSUE, github_issue_url: issueUrl, github_error: null });
     expect(calls().map((c) => `${c.method} ${c.url.replace("https://api.github.com/repos/DuelingDomain/yugioh-bot", "")}`)).toEqual([`GET /issues/${ISSUE}`, `POST /issues/${ISSUE}/comments`]);
     const [comment] = comments();
-    expect(comment!.body.body.startsWith("**+1** from `Report #1`")).toBe(true);
-    expect(comment!.body.body).toContain("https://duel.example.com/duels/duel-a/replay");
+    expect(comment!.body.body.startsWith(`**+1** from \`Report #${row!.public_id}\``)).toBe(true);
+    expect(comment!.body.body).not.toMatch(/duel-a|Reporter seat|## Replay/);
     expect(comment!.body.body).toContain("Player 2 drew 1 card(s)");
   });
 
@@ -749,7 +868,7 @@ describe("POST /api/bug-reports with duplicateOf", () => {
   it("counts a +1 in the same limit of 5 reports in 10 minutes", async () => {
     serve();
     const POST = await route();
-    for (let i = 0; i < 5; i += 1) expect((await POST(post(body({ duplicateOf: ISSUE })))).status).toBe(200);
+    for (let i = 0; i < 5; i += 1) expect((await POST(post(body({ duplicateOf: ISSUE, description: `Distinct report ${i} about a card effect failure` })))).status).toBe(200);
     expect((await POST(post(body({ duplicateOf: ISSUE })))).status).toBe(429);
     expect(comments()).toHaveLength(5);
   });

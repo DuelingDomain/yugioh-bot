@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { BugReportDialog } from "../src/components/bug-report/bug-report-dialog";
@@ -19,13 +19,17 @@ let directory: string;
 let database: Database.Database | undefined;
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   database?.close();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   if (directory) rmSync(directory, { recursive: true, force: true });
 });
 
-it("sends the dialog through the real report routes and keeps board and identity behind owner access", async () => {
+async function setup() {
+  vi.resetModules();
+  host.mockReset();
   directory = mkdtempSync(join(tmpdir(), "report-dialog-integration-"));
   vi.stubEnv("DATABASE_PATH", join(directory, "test.sqlite"));
   vi.stubEnv("DISCORD_GUILD_ID", "integration-guild");
@@ -53,6 +57,11 @@ it("sends the dialog through the real report routes and keeps board and identity
     if (String(url).startsWith("https://api.github.com/")) return Response.json([]);
     throw new Error("Unexpected external request");
   });
+  return { POST, publicIssues, board };
+}
+
+it("sends the dialog through the real report routes and keeps board and identity behind owner access", async () => {
+  const { publicIssues } = await setup();
   window.history.replaceState({}, "", "/duels/flow-duel");
   render(<BugReportDialog open onClose={() => {}} collect={() => collectBugContext(null)} />);
   expect(screen.getByText("Describe the problem. We save the board and the duel log with your report. A screenshot is optional.")).toBeTruthy();
@@ -61,17 +70,62 @@ it("sends the dialog through the real report routes and keeps board and identity
   await user.type(screen.getByRole("textbox", { name: /What did you expect/ }), "The selection should close after my choice");
   await user.click(screen.getByRole("button", { name: "Send report" }));
   await waitFor(() => expect(screen.getByTestId("bug-report-done")).toBeTruthy());
-  const saved = database.prepare("select * from bug_reports").get() as Record<string, string>;
+  const saved = database!.prepare("select * from bug_reports").get() as Record<string, string>;
   expect(saved.duel_slug).toBe("flow-duel");
   expect(JSON.parse(saved.submitter_json!)).toEqual({ userId: 37, username: "private-author", email: "private@example.test" });
   expect(JSON.parse(saved.diagnostics_json!).board.log).toHaveLength(25);
   expect(publicIssues).toHaveLength(1);
-  expect(publicIssues[0]!.body).toContain("Report #1");
+  expect(saved.public_id).toMatch(/^[A-Za-z0-9_-]{12}$/);
+  expect(publicIssues[0]!.body).toContain(`Report #${saved.public_id}`);
   const publicText = JSON.stringify(publicIssues);
-  for (const secret of ["private-author", "Private Author", "private@example.test", "revision", "Public log event 0"]) expect(publicText).not.toContain(secret);
+  for (const secret of ["private-author", "Private Author", "private@example.test", "revision", "Public log event 0", "flow-duel", "Reporter seat", "## Replay"]) expect(publicText).not.toContain(secret);
   const { GET } = await import("../app/api/admin/bug-reports/route");
   const ownerList = await (await GET(new Request("https://duel.example.test/api/admin/bug-reports"))).json();
-  expect(ownerList.reports[0]).toMatchObject({ submitter: { userId: 37, email: "private@example.test" }, githubIssueNumber: 77 });
+  expect(ownerList.reports[0]).toMatchObject({ submitter: { userId: 37, email: "private@example.test" }, githubIssueNumber: 77, publicId: saved.public_id });
   vi.stubEnv("OWNER_USER_IDS", "");
   expect((await GET(new Request("https://duel.example.test/api/admin/bug-reports"))).status).toBe(403);
+});
+
+
+it("times out the submit and safely retries the same report through the real route", async () => {
+  const { POST, publicIssues, board } = await setup();
+  let finishCapture!: (value: unknown) => void;
+  host.mockImplementation(() => new Promise(resolve => { finishCapture = resolve; }));
+  const apiFetch = globalThis.fetch;
+  const submissions: Promise<Response>[] = [];
+  const signals: AbortSignal[] = [];
+  vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+    if (url !== "/api/bug-reports") return apiFetch(url, init);
+    const work = POST(new Request("https://duel.example.test/api/bug-reports", init));
+    submissions.push(work);
+    const signal = init?.signal;
+    if (!signal) return work;
+    signals.push(signal);
+    return new Promise<Response>((resolve, reject) => {
+      const aborted = () => reject(new DOMException("Timed out", "AbortError"));
+      signal.addEventListener("abort", aborted, { once: true });
+      void work.then(resolve, reject).finally(() => signal.removeEventListener("abort", aborted));
+    });
+  });
+  window.history.replaceState({}, "", "/duels/flow-duel");
+  render(<BugReportDialog open onClose={() => {}} collect={() => collectBugContext(null)} />);
+  fireEvent.change(screen.getByRole("textbox", { name: /What went wrong/ }), { target: { value: "The card selection stays open after I make a choice" } });
+  fireEvent.change(screen.getByRole("textbox", { name: /What did you expect/ }), { target: { value: "The selection should close after my choice" } });
+  vi.useFakeTimers();
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send report" })); });
+  expect(host).toHaveBeenCalledTimes(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(34_999); });
+  expect(screen.queryByText(/Check your connection/)).toBeNull();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(signals[0]?.aborted).toBe(true);
+  expect(screen.getByText(/Check your connection/)).toBeTruthy();
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send report" })); });
+  expect(submissions).toHaveLength(2);
+  await act(async () => {
+    finishCapture({ ok: true, data: { board, log: ["Last public event"] } });
+    await Promise.all(submissions);
+  });
+  expect(screen.getByTestId("bug-report-done")).toBeTruthy();
+  expect(publicIssues).toHaveLength(1);
+  expect(database!.prepare("select count(*) as n from bug_reports").get()).toEqual({ n: 1 });
 });

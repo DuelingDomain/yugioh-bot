@@ -14,7 +14,7 @@ export interface ServerContextInput {
 
 export interface ReportDiagnostics {
   board: Record<string, unknown> | null;
-  /** Full available public log, without the issue's 15-line limit. */
+  /** Public log. The storage service keeps a bounded tail. */
   log: unknown[];
   attempts: number;
   source?: string;
@@ -52,13 +52,13 @@ export async function buildReportContext(input: ServerContextInput): Promise<Ser
   if (client.viewport) context.viewport = { width: client.viewport.width, height: client.viewport.height };
   if (client.animationSpeed !== undefined) context.animationSpeed = client.animationSpeed;
   if (client.userAgent) context.userAgent = client.userAgent.slice(0, 300);
-  if (!input.duelSlug) return missing("the report was sent outside a duel", false);
+  if (!input.duelSlug) return { context, diagnostics, duelVerified: false };
 
   let room: ReturnType<DuelService["room"]>;
   try {
     room = input.duels.room(input.duelSlug, input.guildId, input.playerId, { includeStoredBoard: false });
   } catch {
-    return missing("the duel is unavailable to this account", false);
+    return missing("no duel data was found", false);
   }
   if (isReplayFork(room.session)) return { context, diagnostics, duelVerified: false, replayFork: true };
   context.format = room.session.format as BugFormat;
@@ -72,6 +72,7 @@ export async function buildReportContext(input: ServerContextInput): Promise<Ser
       const host = await callDuelHost({ op: "bug-context", slug: input.duelSlug, guildId: input.guildId, playerId: input.playerId });
       if (!host.ok) {
         reason = `the duel host returned HTTP ${host.response.status}`;
+        if (host.retryable === false || host.response.status < 500 || host.response.status >= 600) break;
         continue;
       }
       if (!object(host.data)) {
@@ -105,8 +106,9 @@ export async function buildReportContext(input: ServerContextInput): Promise<Ser
       reason = typeof data.missingReason === "string" && HOST_REASONS.has(data.missingReason)
         ? data.missingReason : "the duel host did not return a board";
     } catch (error) {
-      reason = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name)
-        ? "the duel host request timed out" : "the duel host request failed";
+      const timeout = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name);
+      reason = timeout ? "the duel host request timed out" : "the duel host request failed";
+      if (!timeout) break;
     }
   }
   diagnostics.missingReason = reason;
