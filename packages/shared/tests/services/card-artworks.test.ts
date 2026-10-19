@@ -495,7 +495,7 @@ it("materializes engine-only arts under the existing API family main", async () 
   ]), fetch: async () => ({ ok: true, json: async () => ({ data: [{ id: 12, name: "Dragon", type: "Normal Monster", frameType: "normal",
     card_images: [10,12].map(id => ({ id, image_url: "full", image_url_small: "small" })) }] }) }) });
   // Materialize without an API result first, then simulate a later full family sync.
-  db.exec("insert into card_catalog select 11,name,type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype from card_catalog where ygoprodeck_id = 10");
+  db.exec("insert into card_catalog (ygoprodeck_id,name,type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype) select 11,name,type,frame_type,effect_text,atk,def,attribute,level,image_url,image_url_small,card_sets_json,cached_at,archetype from card_catalog where ygoprodeck_id = 10");
   await catalog.syncCardById(11);
   expect([10,11,12].map(catalog.canonicalId)).toEqual([12,12,12]);
   expect(db.prepare("select card_id from card_artworks where artwork_id = 11").get()).toEqual({ card_id: 12 });

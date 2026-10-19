@@ -9,7 +9,8 @@ import { createCardCatalogService, createCubeService, createDraftService, create
 import { CARD_TYPE_BITS as T } from "@yugidraft/shared/duels";
 
 function seedIdentity(db: Database.Database) {
-  const userId = Number(db.prepare("insert into users(username,display_name) values('integration','Integration player')").run().lastInsertRowid);
+  const { count } = db.prepare("select count(*) as count from players").get() as { count: number };
+  const userId = String(900000000000000000n + BigInt(count + 1));
   return { userId, playerId: createPlayerService(db).findOrCreate("g", userId, "Integration player").id };
 }
 
@@ -68,7 +69,7 @@ integration("resolves real previews by passcode, name and search, imports cubes 
   await cubes.importPasscodes(cube.id, [...main.map(card => card.id), extra.id]);
   expect(cubes.getCubePools(cube.id).extra.map(card => card.catalogCardId)).toEqual([extra.id]);
   const drafts = createDraftService(db);
-  const draft = drafts.create("g", null, "Preview draft", { customCardIds: main.map(card => card.id),
+  const draft = drafts.create("g", "integration-channel", "Preview draft", { customCardIds: main.map(card => card.id),
     customExtraCardIds: [extra.id, extra.id], packsPerPlayer: 1, packSize: 2, cardsPerPlayer: 2,
     extraDeckEnabled: true, extraDeckSize: 1 }, owner.userId, owner.playerId);
   drafts.join(draft.id, second.playerId);
@@ -112,7 +113,7 @@ integration.each([false, true])("preserves previews and graduates real reference
   db.prepare(`insert into card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at,catalog_source,is_prerelease)
     values(?,?,?,?,? ,?,?,'[]','preview','engine',1)`).run(oldId, "Preview name", apiCard.type, apiCard.frameType, "Preview text", `/api/cards/${oldId}/image`, `/api/cards/${oldId}/image?size=small`);
   const cube = createCubeService(db, catalog).createWithCards("g", "Graduating cube", owner.userId, [{ id: oldId, copies: 3 }, ...(alreadyPublished ? [{ id: officialId, copies: 2 }] : [])]);
-  const draft = createDraftService(db).create("g", null, "Graduating draft", { customCardIds: [oldId] }, owner.userId, owner.playerId);
+  const draft = createDraftService(db).create("g", "integration-channel", "Graduating draft", { customCardIds: [oldId] }, owner.userId, owner.playerId);
   db.prepare("insert into draft_cards(id,draft_id,wave_number,catalog_card_id) values(1,?,1,?)").run(draft.id, oldId);
   db.prepare("insert into draft_deal(draft_id,position,catalog_card_id) values(?,1,?)").run(draft.id, oldId);
   db.prepare("insert into draft_undealt(draft_id,position,catalog_card_id) values(?,2,?)").run(draft.id, oldId);
