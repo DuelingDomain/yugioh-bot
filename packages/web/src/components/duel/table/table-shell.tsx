@@ -6,7 +6,7 @@ import { connectionLabel as labelForConnection } from "../connection-label";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { Circle, Diamond, Eye, Film, Radio, Volume2, VolumeX } from "lucide-react";
-import type { DuelCard } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { isCustomDomain } from "@yugidraft/shared/duels";
 import { genesysLabel, genesysOf } from "../genesys";
 import { BattleFx } from "../battle-fx";
@@ -67,6 +67,7 @@ import { OpponentBar } from "./opponent-bar";
 import { attackLockAt, placeLabel, placings, toneBySeat, trackOutOrder } from "./seat-state";
 import { TableDrawer, TableRail } from "./table-rail";
 import { TableSettings, type TableConnection } from "./table-settings";
+import { GridHoverPreview } from "./grid-preview";
 import { TablePhonePanes } from "./table-phone-panes";
 import { TableStage } from "./table-stage";
 import { tableZoneAnchor } from "./zone-find";
@@ -254,7 +255,15 @@ function TableShellBody({
   const hud = !narrow && (grid || plazaHud);
   // No Card drawer in the 3-way plaza or the 4-way grid: a click on a card (and Inspect) opens the pinned card pop-out.
   const hudState = useHudPane({ camera: plazaHud, cardPane: false, initialPane: replayCarry?.current.hudPane });
-  const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (grid && hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
+  // The phone layout pins a tapped card in the same left drawer as the wide shells; the tab sheet keeps Log, Settings and Masters.
+  const [phoneCard, setPhoneCard] = useState<DuelCard | DuelCardInfo | null>(null);
+  useEffect(() => {
+    if (!phoneCard) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setPhoneCard(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phoneCard]);
+  const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (grid && hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard, onTapCard: narrow ? setPhoneCard : undefined });
   useHudEscape(hudState, hud, ui.suspended);
   usePinSync(hudState, tracked.engine.seats);
   const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
@@ -461,7 +470,12 @@ function TableShellBody({
   };
   const playersText = session.seats.map((seat) => seat.displayName).join(" v ");
   const logVisible = hud ? hudState.pane === "log" : ui.pane === "log" && (narrow ? sheetOpen : drawer.open);
-  const inspectCard = (target: InspectTarget) => { ui.inspectCard(target); if (narrow) setSheetOpen(true); };
+  const inspectCard = (target: InspectTarget) => {
+    ui.inspectCard(target);
+    if (!narrow) return;
+    if (target.type === "pile") setSheetOpen(true);
+    else setPhoneCard(target.card);
+  };
   // Before anything is hovered the Card tab shows the viewer's first face-up monster (else a hand card), as the tag table does.
   const startCard = ui.inspect ? null : firstInspectCard(engine, viewerSeat);
   const inspectorTarget: InspectTarget | null = ui.inspect ?? (startCard ? { type: "card", card: startCard } : null);
@@ -962,8 +976,6 @@ function TableShellBody({
           preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
           reducedMotion={controller.reducedMotion}
-          hoverAnchor={ui.hover?.anchor ?? null}
-          ownSeats={[viewerSeat ?? layout.anchorSeat]}
           edge={grid}
         />
       ) : null}
@@ -999,7 +1011,13 @@ function TableShellBody({
           onBack={flow.cancel}
         />
       ) : null}
-      {!hud && ui.hover && !ui.menu && !ui.pile?.open && !sheetOpen ? <CardHoverInfo card={ui.hover.card} anchor={ui.hover.anchor} /> : null}
+      {narrow ? (
+        <GridHoverPreview
+          card={sheetOpen || ui.pile?.open ? null : phoneCard ?? (ui.menu ? null : ui.hover?.card ?? null)}
+          owner={null} reducedMotion={controller.reducedMotion} pinned={phoneCard != null && !sheetOpen}
+          onClose={() => setPhoneCard(null)} />
+      ) : null}
+      {!hud && !narrow && ui.hover && !ui.menu && !ui.pile?.open && !sheetOpen ? <CardHoverInfo card={ui.hover.card} anchor={ui.hover.anchor} /> : null}
       {showResult ? (
         <DuelResultScreen
           room={room}

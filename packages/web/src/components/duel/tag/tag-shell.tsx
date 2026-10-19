@@ -2,8 +2,8 @@
 
 import { multiTableTextStyle, tableTextBig, useCardTextSize, useMultiTableTextFloor } from "../card-text-size";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { teamOfSeat } from "@yugidraft/shared/duels";
-import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, materialsMenu, targetName } from "../card-interactions";
+import { teamOfSeat, type DuelCard, type DuelCardInfo } from "@yugidraft/shared/duels";
+import { AttackConfirm, CardActionMenu, confirmSide, materialsMenu, targetName } from "../card-interactions";
 import { isBattlePhase } from "../constants";
 import { DuelResultScreen } from "../duel-result";
 import { SeatField } from "../field";
@@ -34,6 +34,7 @@ import hudStyles from "../table/grid-hud.module.css";
 import { AimArrow } from "../table/aim-arrow";
 import { useAimFlow } from "../table/use-aim-flow";
 import { useTableUi } from "../table/use-table-ui";
+import { GridHoverPreview } from "../table/grid-preview";
 import { tableZoneAnchor } from "../table/zone-find";
 import { carriedCamera, useReadOnlyReplayController, useReplayCarry, type ReplayCarryRef } from "../table/replay-mode";
 import { SEAT_TONE_HEX, type ReplayShellMode, type TableController } from "../table/types";
@@ -153,7 +154,15 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   const hud = !narrow;
   // No Card drawer on the Rooftop: a click on a card (and Inspect) opens the pinned card pop-out.
   const hudState = useHudPane({ camera: true, cardPane: false, initialPane: replayCarry?.current.hudPane });
-  const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
+  // The phone layout pins a tapped card in the same left drawer as the wide shells; the tab sheet keeps Log, Settings and Masters.
+  const [phoneCard, setPhoneCard] = useState<DuelCard | DuelCardInfo | null>(null);
+  useEffect(() => {
+    if (!phoneCard) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setPhoneCard(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phoneCard]);
+  const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard, onTapCard: narrow ? setPhoneCard : undefined });
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
   const { engine, room, viewerSeat, cameraSeat, nameOf, prompt } = base;
@@ -588,7 +597,12 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
           onBack={flow.cancel}
         />
       ) : null}
-      {!hud && ui.hover && !ui.menu && !ui.pile?.open && !sheetOpen ? <CardHoverInfo card={ui.hover.card} anchor={ui.hover.anchor} /> : null}
+      {narrow ? (
+        <GridHoverPreview
+          card={sheetOpen || ui.pile?.open ? null : phoneCard ?? (ui.menu ? null : ui.hover?.card ?? null)}
+          owner={null} reducedMotion={controller.reducedMotion} pinned={phoneCard != null && !sheetOpen}
+          onClose={() => setPhoneCard(null)} />
+      ) : null}
       {showResult && !preview ? (
         <DuelResultScreen
           room={room}

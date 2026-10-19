@@ -216,8 +216,6 @@ export function TagSide({
           preview={hudPreview(hud.hover?.card ?? null, hud.menuCard, hud.rowCard, (card) => ({ name: nameOf(card.controller), ...(seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hud.state.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
           reducedMotion={controller.reducedMotion}
-          hoverAnchor={hud.hover?.anchor ?? null}
-          ownSeats={partner == null ? [seat] : [seat, partner]}
         />
       </>
     );

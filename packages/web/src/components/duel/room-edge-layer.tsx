@@ -38,7 +38,7 @@ function Pane({ label, closeLabel, onClose, children, kind, open }: { label: str
 
 export function RoomEdgeLayer({
   hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks,
-  previewHidden, reducedMotion, hoverAnchor = null, ownSeats,
+  previewHidden, reducedMotion
 }: RoomEdgeLayerProps) {
   const { pane, setPane, close } = hud;
   const bind = useCallback((id: HudPane) => ({
@@ -85,9 +85,6 @@ export function RoomEdgeLayer({
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
         extras={extras}
-        avoid={preview?.pinned === true ? hud.pinAnchor : null}
-        hoverAnchor={preview?.pinned === true ? null : hoverAnchor}
-        ownSeats={ownSeats}
         onClose={closePin}
       />
     </>

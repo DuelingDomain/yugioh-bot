@@ -78,6 +78,7 @@ import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import hudStyles from "./table/grid-hud.module.css";
 import { hudPreview } from "./table/hud-preview";
+import { GridHoverPreview } from "./table/grid-preview";
 import { RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./table/hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./table/hud-shared";
 import { SEAT_TONE_HEX } from "./table/types";
@@ -318,6 +319,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const [logUnread, setLogUnread] = useState(0);
   const narrow = useIsNarrow();
   const [mobileInspect, setMobileInspect] = useState(false);
+  // The narrow layout (phone): a tap on a card pins it in the same left drawer as the HUD shells. The Card tab keeps its sheet.
+  const [phoneCard, setPhoneCard] = useState<DuelCard | DuelCardInfo | null>(null);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   // The Surrender menu on your own deck is open: prompt keys and the right-click decline wait for it.
@@ -502,6 +505,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const closePrivateHud = hudState.closePrivate;
   // The panes are edge drawers that close themselves (Esc, a press outside, the tab). Only the pinned peek goes through the HUD's own dismiss.
   useHudEscape({ ...hudState, pane: null }, hud, Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen);
+  // Esc closes the phone drawer, as in the HUD shells.
+  useEffect(() => {
+    if (!phoneCard) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setPhoneCard(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phoneCard]);
   usePinSync(hudState, data?.engine?.seats);
   // A new prompt for this seat lets the pinned peek go: it must not cover the cards the prompt asks for.
   const promptId = prompt?.id ?? null;
@@ -779,6 +789,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       return;
     }
     setInspect(target);
+    if (mobile && narrow && !hud && !reveal) {
+      setPhoneCard(target.card);
+      return;
+    }
     // The HUD opens its Card flyout here: only a click, Inspect or a log row gets this far, never a hover.
     if (hud) hudState.openCard();
     // A board click on the Log tab keeps the log (the hover card already shows it). A click on a log row (reveal),
@@ -1759,7 +1773,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           onBack={() => setAimLock(null)} />
       ) : null}
       {pickHintShown && pickHint ? <PickRefusalHint anchor={pickHint.anchor} text={pickHint.text} onDone={clearPickHint} /> : null}
-      {!hud && hover && !activeMenu && !pickHintShown && !mobileInspect && !pile?.open ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
+      {!hud && !narrow && hover && !activeMenu && !pickHintShown && !mobileInspect && !pile?.open ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
+      {!hud && narrow ? (
+        <GridHoverPreview
+          card={mobileInspect || pile?.open ? null : phoneCard ?? (activeMenu || pickHintShown ? null : hover?.card ?? null)}
+          owner={null} reducedMotion={preferences.reducedMotion} pinned={phoneCard != null && !mobileInspect}
+          onClose={() => setPhoneCard(null)} />
+      ) : null}
       <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)}
         className={solid ? SOLID_SHEET_CLASS : undefined}
         title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Settings"}>
@@ -1905,8 +1925,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={pickHintShown}
           reducedMotion={preferences.reducedMotion}
-          hoverAnchor={hover?.anchor ?? null}
-          ownSeats={[localSeat]}
         />
       ) : null}
       {overlaysNode}
