@@ -2,6 +2,7 @@ import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
 import { isReplayForkSetup } from "../duels/replay-fork.js";
 import { userHistory } from "./user-history.js";
+import { createWaitlistService } from "./waitlist.js";
 
 /** What every kept row of a deleted account says in place of the person's name. */
 export const DELETED_PLAYER_NAME = "Deleted player";
@@ -106,7 +107,13 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     note("replay_fork_names", scrubbedForks);
 
     note("saved_decks", db.prepare("delete from saved_decks where owner_user_id = ?").run(userId).changes);
-    if (user.email) note("waitlist_signups", db.prepare("delete from waitlist_signups where email = ?").run(user.email).changes);
+    if (user.email) {
+      const removed = createWaitlistService(db).remove(user.email);
+      note("waitlist_signups", removed.signups);
+      note("discord_waitlist_actions", removed.actions);
+    }
+    note("discord_waitlist_actors", db.prepare(`update discord_waitlist_actions set actor_user_id=null,actor_name=?
+      where actor_user_id=?`).run(DELETED_PLAYER_NAME, userId).changes);
 
     const owned = "(select id from players where user_id = ?)";
     if (Object.keys(userHistory(db, userId)).length === 0) {

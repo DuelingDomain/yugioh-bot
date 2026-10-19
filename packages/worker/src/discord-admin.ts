@@ -2,12 +2,14 @@ import type Database from "better-sqlite3";
 import { createClerkBackend } from "@yugidraft/shared/clerk";
 import { clearOldPresence, ONLINE_WINDOW_MS, PRESENCE_ROUTES, isPresenceRoute } from "@yugidraft/shared/presence";
 import { discordText, discordWebhook, updateWaitlistMessage, webhookHash } from "@yugidraft/shared/notify";
+import { log } from "@yugidraft/shared/observability";
 
 interface StatusState {
   webhook_hash: string | null; message_id: string | null; pending_count: number | null;
   pending_checked_at: number | null; pending_attempted_at: number | null; retry_at: number;
 }
 const CACHE_MS = 5 * 60_000;
+const EDIT_RETRY_GRACE_MS = 15 * 60_000;
 async function pendingCount(db: Database.Database, state: StatusState, now: number): Promise<string> {
   const secretKey = process.env.CLERK_SECRET_KEY;
   if (secretKey && (state.pending_attempted_at === null || state.pending_attempted_at <= now - CACHE_MS)) {
@@ -56,11 +58,21 @@ function statusContent(db: Database.Database, pending: string, now: number): str
 export async function tickDiscordAdmin(db: Database.Database): Promise<void> {
   const now = Date.now();
   clearOldPresence(db, now);
+  // The alert body contains an email. Keep it only while an edit can still need it,
+  // including a short grace after link expiry for decisions made near the deadline.
+  const pruneActions = db.transaction(() => {
+    db.prepare(`update discord_waitlist_actions set message_json=null
+      where message_json is not null and (discord_updated_at is not null or expires_at<=?)`).run(now - EDIT_RETRY_GRACE_MS);
+    db.prepare(`delete from discord_waitlist_actions where expires_at<=?
+      and (completed_at is null or discord_updated_at is not null or discord_message_id is null or message_json is null)
+      and (completed_at is not null or attempted_at is null or attempted_at<=?)`).run(now, now - 30_000);
+  });
+  pruneActions.immediate();
   const alertUrl = process.env.DISCORD_ADMIN_WEBHOOK_URL?.trim();
   if (alertUrl) {
     const edits = db.prepare<[string, number], { id: string }>(`select id from discord_waitlist_actions
       where completed_at is not null and discord_updated_at is null and discord_message_id is not null
-        and webhook_hash=? and discord_retry_at<=? order by completed_at limit 10`).all(webhookHash(alertUrl), now);
+        and message_json is not null and webhook_hash=? and discord_retry_at<=? order by completed_at limit 10`).all(webhookHash(alertUrl), now);
     for (const edit of edits) await updateWaitlistMessage(db, edit.id);
   }
   const url = process.env.DISCORD_ADMIN_STATUS_WEBHOOK_URL?.trim();
@@ -84,4 +96,6 @@ export async function tickDiscordAdmin(db: Database.Database): Promise<void> {
   }
   if (result.ok && result.messageId) db.prepare("update discord_admin_status set message_id=?,retry_at=0 where id=1").run(result.messageId);
   else if (!result.ok) db.prepare("update discord_admin_status set retry_at=? where id=1").run(now + Math.max(60_000, result.retryAfterMs ?? 0));
+  if (!result.ok && state.retry_at === 0) log("warn", "[discord-status] Delivery is failing", { status: result.status });
+  else if (result.ok && result.messageId && state.retry_at !== 0) log("warn", "[discord-status] Delivery recovered", { status: result.status });
 }

@@ -151,6 +151,17 @@ is not recreated. Changing the alert webhook leaves old messages in the old
 channel; clean them up manually. If Discord accepted a POST but its response was
 lost, no ID is available to repair that alert. Check Clerk for its actual state.
 
+The saved alert body can contain a masked or full email. It is cleared as soon
+as the decision edit succeeds (or the alert is already deleted). The worker also
+clears saved bodies 15 minutes after the 24-hour link expires, and deletes expired
+action records without an edit left to retry. This cleanup runs with publishing
+disabled and with webhook URLs unset. Account deletion removes the person's
+action records immediately. For a waitlist-only deletion, use
+`createWaitlistService(db).remove(email)` in the shared package; it removes the
+local signup and action records in one transaction, even for a Clerk-only alert.
+Remove the corresponding Clerk entry and Discord message separately when handling
+a deletion request. The hashed alert-deduplication claim remains.
+
 ## Online status and privacy
 
 Only visible signed-in app tabs send a tiny route-template heartbeat on entry,
@@ -172,6 +183,8 @@ remove the old channel's message manually. A lost create response can leave an
 extra message: delete the extra message if that rare transport ambiguity occurs.
 Discord retry-after delays are respected. HTTP calls time out after two seconds,
 including response-body reads. All messages disable mentions and escape text.
+Status delivery logs one warning on failure and one on recovery, with only the
+HTTP status. Repeated failures do not produce a warning on each tick.
 
 **Online** means seen less than 120 seconds ago. The list shows names and friendly
 section labels, up to 25 users and 2,000 message characters, then `+N more`.
@@ -214,3 +227,18 @@ and HTTP status, never credential URLs or provider error payloads. Crashes and
 transport failures can lose an alert; there is no alert send queue. Existing
 rows are not sent as a batch on enablement. Reconciliation of a large old backlog
 can reach this limit; inspect its dry run first.
+
+## Optional deployment result alerts
+
+Create a separate private Discord webhook for deployment results. Save its URL
+as the GitHub Actions secret `DISCORD_DEPLOY_WEBHOOK_URL`, either in the repository
+or in the protected `production` environment. This secret is used only by the
+final notification step in `.github/workflows/deploy.yml`; no VM setting is needed.
+Leave it empty to skip that step.
+
+After preparation, image builds, VM deployment and image retention finish, the
+step sends **success** or **failure**, the deploy commit's short SHA, a link to
+the Actions run, and elapsed time since the run started. Preparation and build
+failures also send a failure result. Cancelled and superseded runs send nothing.
+Mentions are disabled. The URL and HTTP error bodies are never logged; delivery
+errors produce a generic warning or HTTP status and do not fail the deployment.

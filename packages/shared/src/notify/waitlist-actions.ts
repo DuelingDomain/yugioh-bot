@@ -65,7 +65,7 @@ export async function updateWaitlistMessage(db: Database.Database, id: string): 
   const result = await discordWebhook(url, "PATCH", message, row.discord_message_id);
   if (result.ok || result.status === 404) {
     // A deleted alert stays deleted. Only the singleton status message is recreated.
-    db.prepare("update discord_waitlist_actions set discord_updated_at=? where id=?").run(Date.now(), id);
+    db.prepare("update discord_waitlist_actions set discord_updated_at=?,message_json=null where id=?").run(Date.now(), id);
   } else db.prepare("update discord_waitlist_actions set discord_retry_at=? where id=?").run(Date.now() + Math.max(60_000, result.retryAfterMs ?? 0), id);
 }
 

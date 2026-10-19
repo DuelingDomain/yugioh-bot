@@ -956,3 +956,46 @@ jobs:
               await tag('production', next);
               core.info(`${repository}:production retains ${next.digest}`);
             }
+
+  notify:
+    name: Optional Discord deploy result
+    needs: [prepare, build, deploy, retain]
+    if: ${{ !cancelled() && needs.prepare.result != 'skipped' && needs.prepare.outputs.superseded != 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 2
+    env:
+      DISCORD_DEPLOY_WEBHOOK_URL: ${{ secrets.DISCORD_DEPLOY_WEBHOOK_URL }}
+      DEPLOY_COMMIT: ${{ needs.prepare.outputs.commit || github.event.workflow_run.head_sha }}
+      DEPLOY_REF: ${{ inputs.ref || github.sha }}
+      DEPLOY_RESULT: ${{ needs.prepare.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') && needs.deploy.result == 'success' && needs.retain.result == 'success' && 'success' || 'failure' }}
+    steps:
+      - name: Post deploy result to Discord
+        if: ${{ env.DISCORD_DEPLOY_WEBHOOK_URL != '' }}
+        continue-on-error: true
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            try {
+              const { owner, repo } = context.repo;
+              let sha = process.env.DEPLOY_COMMIT;
+              if (!sha) {
+                const { data: commit } = await github.rest.repos.getCommit({ owner, repo, ref: process.env.DEPLOY_REF });
+                sha = commit.sha;
+              }
+              const { data: run } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: context.runId });
+              const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(run.run_started_at)) / 1000));
+              const duration = `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+              const body = {
+                content: `Deploy ${process.env.DEPLOY_RESULT}: ${sha.slice(0, 7)} · ${duration}\n${run.html_url}`,
+                allowed_mentions: { parse: [] }
+              };
+              const response = await fetch(process.env.DISCORD_DEPLOY_WEBHOOK_URL, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body), signal: AbortSignal.timeout(5000), redirect: 'error'
+              });
+              if (!response.ok) core.warning(`Deploy notification failed: HTTP ${response.status}`);
+            } catch {
+              // Fetch errors can contain the credential URL. Never report the exception.
+              core.warning('Deploy notification could not be sent.');
+            }

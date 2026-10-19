@@ -128,7 +128,30 @@ describe("worker Discord status with real SQLite and external HTTP stubs", () =>
     expect(calls.filter(c => c.url.includes("clerk"))).toHaveLength(1);
     expect(calls.at(-1)!.method).toBe("PATCH");
     expect(JSON.stringify(calls.at(-1)!.body)).toContain("Approved by Owner");
-    expect(db.prepare("select discord_updated_at from discord_waitlist_actions").get()).toEqual({ discord_updated_at: now + 60_000 });
+    expect(db.prepare("select discord_updated_at,message_json from discord_waitlist_actions").get()).toEqual({ discord_updated_at: now + 60_000, message_json: null });
+  });
+
+  it("purges retained alert bodies and expired actions while keeping a short edit retry grace", async () => {
+    vi.stubEnv("DISCORD_ONLINE_STATUS_ENABLED", "0");
+    vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", "");
+    const payload = JSON.stringify({ embeds: [{ fields: [{ name: "Email", value: "player@example.test" }] }] });
+    const insert = db.prepare(`insert into discord_waitlist_actions(id,subject_hash,expires_at,completed_at,
+      discord_message_id,discord_updated_at,message_json) values(?,?,?,?,'123456',?,?)`);
+    insert.run("expired-completed", "expired-completed", now - 1, now - 60_000, now - 30_000, payload);
+    insert.run("completed", "completed", now + 60_000, now - 60_000, now - 30_000, payload);
+    insert.run("expired-unused", "expired-unused", now - 1, null, null, payload);
+    insert.run("in-progress", "in-progress", now - 1, null, null, payload);
+    db.prepare("update discord_waitlist_actions set attempted_at=? where id='in-progress'").run(now);
+    insert.run("retry-grace", "retry-grace", now - 1, now - 60_000, null, payload);
+    insert.run("retry-exhausted", "retry-exhausted", now - 15 * 60_000, now - 60_000, null, payload);
+
+    await tickDiscordAdmin(db);
+
+    expect(db.prepare("select * from discord_waitlist_actions where id='expired-completed'").get()).toBeUndefined();
+    expect(db.prepare("select message_json from discord_waitlist_actions where id='completed'").get()).toEqual({ message_json: null });
+    expect(db.prepare("select id from discord_waitlist_actions order by id").all()).toEqual([{ id: "completed" }, { id: "in-progress" }, { id: "retry-grace" }]);
+    expect(db.prepare("select message_json from discord_waitlist_actions where id='retry-grace'").get()).toEqual({ message_json: payload });
+    expect(calls).toEqual([]);
   });
 
   it("does not let old webhook edits starve a failed edit in the current channel", async () => {
