@@ -77,11 +77,18 @@ export interface StatsData {
 export interface ErrorIssue {
   id: string;
   title: string;
+  /** Events in the last 24 hours. */
   count: number;
   /** ISO time. */
   lastSeen: string;
   url: string;
   level: string | null;
+  /** Short code location, for example "app/api/duels/route". */
+  culprit?: string | null;
+  /** People affected (Sentry user count), or null when Sentry gives none. */
+  users?: number | null;
+  /** Sentry project slug. */
+  project?: string;
 }
 export interface ErrorsData {
   issues: ErrorIssue[];
@@ -97,6 +104,10 @@ export interface UsageData {
   wau: number | null;
   pageviewsToday: number | null;
   dashboardUrl: string | null;
+  /** Daily visitors for the last 7 days, oldest first. The last one is today. */
+  dauSeries?: number[];
+  /** Top pages today by views. Route templates only, for example "/duels/[slug]". */
+  topPages?: { path: string; views: number }[];
 }
 
 /* ---- system ---- */
