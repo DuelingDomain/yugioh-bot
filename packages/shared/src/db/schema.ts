@@ -996,6 +996,9 @@ export function migrate(db: Database.Database) {
     create index if not exists bug_reports_player_idx on bug_reports (guild_id, player_id, created_at);
   `);
   db.exec("create index if not exists bug_reports_duel_idx on bug_reports (guild_id, duel_slug, created_at)");
+  // Private report data. Older reports keep their identity through players -> users.
+  addColumnIfMissing(db, "bug_reports", "submitter_json", "text");
+  addColumnIfMissing(db, "bug_reports", "diagnostics_json", "text");
 
   // Public, email-only signups are independent of Discord players and guilds.
   db.exec(`

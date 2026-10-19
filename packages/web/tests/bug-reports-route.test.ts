@@ -243,6 +243,162 @@ describe("POST /api/bug-reports", () => {
     expect(issue).not.toContain(HAND[1]);
   });
 
+  it("captures the full board and log privately, with a submitter snapshot", async () => {
+    const { getDb } = await import("../src/lib/db");
+    getDb().prepare("update users set username = ?, email = ? where id = ?")
+      .run("report-author", "author@example.test", fixtureUserId(DISCORD_ID));
+    const board = { revision: 42, seats: [], log: Array.from({ length: 25 }, (_, id) => ({ id, text: `Public event ${id}` })) };
+    callDuelHost.mockResolvedValue({ ok: true, data: { ...hostAnswer().data, board } });
+    expect((await (await route())(post(body()))).status).toBe(200);
+    const [row] = await rows();
+    expect(JSON.parse(row!.submitter_json)).toEqual({ userId: fixtureUserId(DISCORD_ID), username: "report-author", email: "author@example.test" });
+    expect(JSON.parse(row!.diagnostics_json)).toMatchObject({ board, attempts: 1 });
+    expect(callDuelHost).toHaveBeenCalledTimes(1);
+    getDb().prepare("update users set username = 'changed-author', email = null where id = ?").run(fixtureUserId(DISCORD_ID));
+    vi.stubEnv("OWNER_USER_IDS", String(fixtureUserId(DISCORD_ID)));
+    const { GET } = await import("../app/api/admin/bug-reports/route");
+    const ownerList = await (await GET(new Request("http://x/api/admin/bug-reports"))).json();
+    expect(ownerList.reports[0].submitter).toEqual({ userId: fixtureUserId(DISCORD_ID), username: "report-author", email: "author@example.test" });
+    const { GET: detail } = await import("../app/api/admin/bug-reports/[id]/route");
+    const savedData = await (await detail(new Request("http://x"), { params: Promise.resolve({ id: "1" }) })).json();
+    expect(savedData.diagnostics.board.log).toHaveLength(25);
+    const issue = JSON.stringify(githubCalls()[0]!.payload).replace(/\u200b/g, "");
+    for (const privateValue of ["author@example.test", "report-author", "\"revision\"", "Public event 0"]) expect(issue).not.toContain(privateValue);
+  });
+
+  it("infers the duel from its page path when the room has not loaded", async () => {
+    expect((await (await route())(post(body({ duelSlug: undefined })))).status).toBe(200);
+    expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ slug: "duel-a" }));
+    expect((await rows())[0]!.duel_slug).toBe("duel-a");
+  });
+
+  it("retries a failed capture once and saves the recovered board", async () => {
+    const board = { revision: 7, seats: [], log: [{ id: 1, text: "Recovered public log" }] };
+    callDuelHost.mockResolvedValueOnce({ ok: false, response: Response.json({ error: "down" }, { status: 503 }) })
+      .mockResolvedValueOnce({ ok: true, data: { ...hostAnswer().data, board } });
+    expect((await (await route())(post(body()))).status).toBe(200);
+    expect(callDuelHost).toHaveBeenCalledTimes(2);
+    expect(JSON.parse((await rows())[0]!.diagnostics_json)).toMatchObject({ board, attempts: 2 });
+    expect(githubCalls()[0]!.payload.body).not.toContain("Log missing because");
+  });
+
+  it("still files the issue after two failed captures and records a safe reason", async () => {
+    callDuelHost.mockRejectedValue(new Error(`private internal error ${TOKEN}`));
+    expect((await (await route())(post(body()))).status).toBe(200);
+    expect(callDuelHost).toHaveBeenCalledTimes(2);
+    const [row] = await rows();
+    expect(JSON.parse(row!.diagnostics_json)).toMatchObject({ attempts: 2, board: null, missingReason: "the duel host request failed" });
+    expect(githubCalls()[0]!.payload.body).toContain("Log missing because the duel host request failed");
+    expect(githubCalls()[0]!.payload.body).not.toContain("private internal error");
+  });
+
+  it("retries an incomplete old host response and explains the missing board", async () => {
+    expect((await (await route())(post(body()))).status).toBe(200);
+    expect(callDuelHost).toHaveBeenCalledTimes(2);
+    expect(githubCalls()[0]!.payload.body).toContain("Board missing because the duel host did not return a board");
+    expect(githubCalls()[0]!.payload.body).toContain(PUBLIC_LOG[0]);
+  });
+
+  it("explains an outside-duel report without guessing a previous duel", async () => {
+    const payload = { description: "A card effect did not work as expected", expected: "The card effect should work", path: "/decks", context: {} };
+    expect((await (await route())(post(payload))).status).toBe(200);
+    expect(callDuelHost).not.toHaveBeenCalled();
+    expect(githubCalls()[0]!.payload.body).toContain("Log missing because the report was sent outside a duel");
+  });
+
+  it("keeps stored account names and emails out of the public description and log", async () => {
+    const { getDb } = await import("../src/lib/db");
+    getDb().prepare("update users set username = ?, email = ? where id = ?")
+      .run("report-author", "author@example.test", fixtureUserId(DISCORD_ID));
+    callDuelHost.mockResolvedValue({ ok: true, data: { ...hostAnswer().data, log: ["report-author connected author@example.test"] } });
+    await (await route())(post(body({ description: "report-author at author@example.test saw another@example.test and 123456789012345678 fail" })));
+    const issue = JSON.stringify(githubCalls()[0]!.payload).replace(/\u200b/g, "");
+    for (const privateValue of ["report-author", "author@example.test", "another@example.test", "123456789012345678"]) expect(issue).not.toContain(privateValue);
+  });
+
+  it("shows saved reports only to owners, with guild scope and old identity fallback", async () => {
+    const POST = await route();
+    await POST(post(body()));
+    const { getDb } = await import("../src/lib/db");
+    const db = getDb();
+    db.prepare("update bug_reports set submitter_json = null where id = 1").run();
+    db.prepare("insert into bug_reports(guild_id,player_id,created_at,path,description,context_json) values('other-guild',1,?, '/', 'Other guild report', '{}')").run(new Date().toISOString());
+    const { GET } = await import("../app/api/admin/bug-reports/route");
+    const request = new Request("http://x/api/admin/bug-reports");
+    const { default: Page } = await import("../app/(app)/settings/bug-reports/page");
+    const pageParams = { searchParams: Promise.resolve({}) };
+    auth.mockResolvedValue(null);
+    await expect(Page(pageParams)).rejects.toThrow("NEXT_REDIRECT");
+    expect((await GET(request)).status).toBe(401);
+    auth.mockResolvedValue({ user: { id: String(fixtureUserId(DISCORD_ID)), name: "Member" } });
+    vi.stubEnv("OWNER_USER_IDS", "");
+    expect((await GET(request)).status).toBe(403);
+    await expect(Page(pageParams)).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
+    vi.stubEnv("OWNER_USER_IDS", String(fixtureUserId(DISCORD_ID)));
+    const response = await GET(request);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const list = await response.json();
+    expect(list.reports).toHaveLength(1);
+    expect(list.reports[0]).toMatchObject({ id: 1, duelSlug: "duel-a", githubIssueNumber: 77,
+      submitter: { userId: fixtureUserId(DISCORD_ID), username: `fixture:${DISCORD_ID}`, email: null } });
+    expect(list.reports[0]).not.toHaveProperty("diagnostics");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const html = renderToStaticMarkup(await Page(pageParams));
+    expect(html).toContain("fixture:");
+    expect(html).toContain("/duels/duel-a/replay");
+    expect(html).toContain("https://github.com/DuelingDomain/yugioh-bot/issues/77");
+    expect(html).toContain("Board and log (JSON)");
+    const { GET: detail } = await import("../app/api/admin/bug-reports/[id]/route");
+    const params = (id: string) => ({ params: Promise.resolve({ id }) });
+    expect((await detail(request, params("1"))).status).toBe(200);
+    expect((await detail(request, params("2"))).status).toBe(404);
+    expect((await detail(request, params("not-an-id"))).status).toBe(404);
+    vi.stubEnv("OWNER_USER_IDS", "");
+    expect((await detail(request, params("1"))).status).toBe(403);
+  });
+
+  it("paginates owner reports without moving reports across guilds", async () => {
+    const POST = await route();
+    await POST(post(body()));
+    const { getDb } = await import("../src/lib/db");
+    const insert = getDb().prepare("insert into bug_reports(guild_id,player_id,created_at,path,description,context_json) values(?,1,?, '/', 'Saved report', '{}')");
+    for (let index = 0; index < 51; index += 1) insert.run(GUILD, new Date().toISOString());
+    vi.stubEnv("OWNER_USER_IDS", String(fixtureUserId(DISCORD_ID)));
+    const { GET } = await import("../app/api/admin/bug-reports/route");
+    const first = await (await GET(new Request("http://x/api/admin/bug-reports"))).json();
+    expect(first.reports).toHaveLength(50);
+    expect(first.next).toBe(3);
+    const next = await (await GET(new Request(`http://x/api/admin/bug-reports?before=${first.next}`))).json();
+    expect(next.reports.map((report: { id: number }) => report.id)).toEqual([2, 1]);
+    expect(next.next).toBeNull();
+  });
+
+  it("removes the submitter snapshot when the account is deleted", async () => {
+    const { getDb } = await import("../src/lib/db");
+    getDb().prepare("update users set username = 'private-author', email = 'private@example.test' where id = ?").run(fixtureUserId(DISCORD_ID));
+    await (await route())(post(body()));
+    const { deleteUserAccount, createBugReportService } = await import("@yugidraft/shared/services");
+    deleteUserAccount(getDb(), fixtureUserId(DISCORD_ID));
+    const report = createBugReportService(getDb()).get(1, GUILD);
+    expect(report.submitter).toEqual({ userId: fixtureUserId(DISCORD_ID), username: `deleted-${fixtureUserId(DISCORD_ID)}`, email: null });
+    expect(JSON.stringify(report.submitter)).not.toMatch(/private-author|private@example.test/);
+  });
+
+  it("removes other account names from member duplicate suggestions when GitHub is unavailable", async () => {
+    const { getDb } = await import("../src/lib/db");
+    getDb().prepare("update users set username = 'private-opponent', email = 'opponent@example.test' where id = ?").run(fixtureUserId("other-owner"));
+    const payload = body({ description: "private-opponent says the chain froze after the summon" });
+    await (await route())(post(payload));
+    expect(githubCalls()[0]!.payload.body).not.toContain("private-opponent");
+    vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", "");
+    const { POST } = await import("../app/api/bug-reports/precheck/route");
+    const response = await POST(post(payload));
+    expect(response.status).toBe(200);
+    const suggestions = await response.json();
+    expect(suggestions.duplicates).toHaveLength(1);
+    expect(JSON.stringify(suggestions)).not.toMatch(/private-opponent|opponent@example.test|submitter/);
+  });
+
   it("returns issue null and records the error when the token is missing", async () => {
     vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", "");
     const POST = await route();
@@ -466,13 +622,16 @@ describe("POST /api/bug-reports with duplicateOf", () => {
   });
 
   it("keeps private data out of the comment", async () => {
+    const { getDb } = await import("../src/lib/db");
+    getDb().prepare("update users set username = 'private-handle', email = 'private@example.test' where id = ?").run(fixtureUserId(DISCORD_ID));
     serve();
     const POST = await route();
-    await POST(post(body({ duplicateOf: ISSUE, description: `Seraphina Quill (${DISCORD_ID}) in ${GUILD} cc @octocat #9` })));
+    await POST(post(body({ duplicateOf: ISSUE, description: `Seraphina Quill (${DISCORD_ID}) in ${GUILD} cc @octocat #9 private-handle private@example.test` })));
     const text = String(comments()[0]!.body.body);
     for (const secret of [DISCORD_ID, "Seraphina Quill", "Seraphina", GUILD, TOKEN, ...HAND]) expect(text).not.toContain(secret);
     expect(text).not.toMatch(/@[A-Za-z]/);
     expect(text).not.toMatch(/#9\b/);
+    expect(text.replace(/\u200b/g, "")).not.toMatch(/private-handle|private@example.test/);
     expect((await rows())[0]!.description).toContain(DISCORD_ID);
   });
 

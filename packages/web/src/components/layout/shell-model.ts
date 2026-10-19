@@ -7,7 +7,7 @@ export const NAV_GROUPS: { label: string | null; hrefs: string[]; adminOnly?: bo
   { label: null, hrefs: ["/dashboard"] },
   { label: "Compete", hrefs: ["/tournaments", "/drafts", "/duels", "/leaderboard"] },
   { label: "Build", hrefs: ["/decks", "/cubes", "/sandbox"] },
-  { label: "Admin", hrefs: ["/settings/card-data"], adminOnly: true },
+  { label: "Admin", hrefs: ["/settings/card-data", "/settings/bug-reports"], adminOnly: true },
 ];
 
 export const FOOT_HREF = "/settings";

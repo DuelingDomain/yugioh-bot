@@ -6,6 +6,7 @@ import { candidateFromRow, isSameDuelMoment, takePrecheckSlot } from "@/lib/bug-
 import { matchKnownLimits } from "@/lib/bug-reports/known-limits";
 import { formatFromTitle, rankCandidates, type DuplicateCandidate } from "@/lib/bug-reports/similarity";
 import { readJsonBody } from "@/lib/bug-reports/read-body";
+import { reportRedactions } from "@/lib/bug-reports/redaction";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
@@ -48,11 +49,10 @@ export async function POST(request: Request) {
     : [];
   const sameDuelNumbers = new Set(sameDuelRows.map((row) => row.githubIssueNumber!));
 
-  const owner = db.prepare("select discord_user_id, display_name from players where id = ?");
-  const redactFor = (row: BugReport) => {
-    const who = owner.get(row.playerId) as { discord_user_id?: string; display_name?: string } | undefined;
-    return [who?.discord_user_id ?? "", who?.display_name ?? "", guildId];
-  };
+  const identities = reportRedactions(db, guildId);
+  const redactFor = (row: BugReport) => [
+    ...identities, row.submitter?.username ?? "", row.submitter?.email ?? "",
+  ];
   const fromRow = (row: BugReport, sameDuel: boolean): DuplicateCandidate => ({
     ...candidateFromRow(row, row.githubIssueUrl!, redactFor(row)),
     sameDuel,
