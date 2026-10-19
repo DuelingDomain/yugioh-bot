@@ -31,7 +31,7 @@ export default async function BugReportsPage({ searchParams }: { searchParams: P
             <thead><tr>{["Report", "Submitter", "Sent at (UTC)", "Duel", "GitHub", "Saved data"].map(label => <th key={label} scope="col" className="p-3">{label}</th>)}</tr></thead>
             <tbody>{page.map(report => (
               <tr key={report.id} className="border-t border-border align-top">
-                <th scope="row" className="p-3 font-medium">Report #{report.id}</th>
+                <th scope="row" className="p-3 font-medium">Report #{report.publicId}</th>
                 <td className="p-3">
                   <div>{report.submitter.username}</div>
                   <div className="text-xs text-text-secondary">User {report.submitter.userId}</div>

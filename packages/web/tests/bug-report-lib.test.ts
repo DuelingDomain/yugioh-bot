@@ -100,20 +100,19 @@ describe("validateBugText", () => {
 
 describe("buildIssueBody", () => {
   const base = {
-    reportId: 42,
+    reportId: "public-42",
     description: "Stuck. cc @someone #9\n```\n# fake section\n```",
     expected: "It moves on",
     path: "/duels/abc",
     duelSlug: "abc",
     context: { format: "ffa3" as const, seat: 0, turn: 4, phase: "main1", turnSeat: 2, livingPlayers: 3, animationSpeed: 1.5, log: ["Turn 4", "Player 1 draws 1 card"], viewport: { width: 1200, height: 800 }, userAgent: "Mozilla/5.0 (X11)", timestamp: "2026-10-03T10:00:00.000Z" },
-    baseUrl: "https://duel.example.com",
   };
-  it("has every section, the replay link and the report id", () => {
+  it("has the public sections and the opaque report id", () => {
     const body = buildIssueBody(base);
-    for (const heading of ["## Description", "## Expected", "## Context", "## Recent log", "## Replay"]) expect(body).toContain(heading);
-    expect(body).toContain("https://duel.example.com/duels/abc/replay");
-    expect(body).toContain("`Report #42`");
-    expect(body).toContain("| Reporter seat | `seat 1` |");
+    for (const heading of ["## Description", "## Expected", "## Context", "## Recent log"]) expect(body).toContain(heading);
+    expect(body).not.toContain("https://duel.example.com/duels/abc/replay");
+    expect(body).toContain("`Report #public-42`");
+    expect(body).not.toContain("Reporter seat");
     expect(body).toContain("| Format | `3-player FFA` |");
     expect(body).toContain("Player 1 draws 1 card");
   });
@@ -170,13 +169,12 @@ describe("redactText", () => {
 
 describe("redaction inside the issue", () => {
   const base = {
-    reportId: 7,
+    reportId: "public-7",
     description: "Dark Magician did not attack and the Turn counter stayed at 3",
     expected: "The attack should go through",
     path: "/duels/abc",
     duelSlug: "abc",
     context: { format: "1v1" as const, turn: 3, phase: "Dark World", log: ["Turn 3 — Player 1", "Dark Magician attacks"] },
-    baseUrl: "https://duel.example.com",
   };
   it("leaves headings, table labels, log lines and the Unknown fallback alone when a name is Dark or Turn", () => {
     const body = buildIssueBody(base, ["Dark", "Turn", "Unknown"]);
@@ -211,7 +209,7 @@ describe("browserLabel", () => {
     expect(browserLabel(agent)).toBe(label);
   });
   it("is what the issue shows, not the full user agent", () => {
-    const body = buildIssueBody({ reportId: 1, description: "x".repeat(30), path: "/", context: { userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0.6478.55 Safari/537.36" }, baseUrl: "https://a.b" });
+    const body = buildIssueBody({ reportId: "public-1", description: "x".repeat(30), path: "/", context: { userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0.6478.55 Safari/537.36" } });
     expect(body).toContain("| Browser | `Chrome 126` |");
     expect(body).not.toContain("X11");
   });

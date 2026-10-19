@@ -132,6 +132,28 @@ describe("bug report duplicates", () => {
 });
 
 describe("bug_reports table", () => {
+  it("backfills unique public IDs for old reports and keeps them on repeated migration", () => {
+    const { db } = setup();
+    db.exec("drop table bug_reports");
+    db.exec(`create table bug_reports (
+      id integer primary key, guild_id text, player_id integer, created_at text, path text, duel_slug text,
+      description text, expected text, context_json text, github_issue_number integer, github_issue_url text,
+      github_error text, duplicate_of integer
+    );
+    insert into bug_reports(id,guild_id,player_id,created_at,path,description,context_json)
+      values(1,'guild-a',1,'2026-10-01','/','Old report','{}'),
+            (2,'guild-a',1,'2026-10-02','/','Other report','{}');`);
+    migrate(db);
+    const rows = db.prepare("select id, public_id from bug_reports order by id").all() as Array<{ id: number; public_id: string }>;
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row.public_id).toMatch(/^[A-Za-z0-9_-]{12}$/);
+    expect(rows[0]!.public_id).not.toBe(rows[1]!.public_id);
+    migrate(db);
+    expect(db.prepare("select id, public_id from bug_reports order by id").all()).toEqual(rows);
+    expect(() => db.prepare("update bug_reports set public_id = ? where id = 2").run(rows[0]!.public_id)).toThrow(/UNIQUE/);
+    expect(createBugReportService(db).list("guild-a")[0]!.publicId).toBe(rows[1]!.public_id);
+  });
+
   it("has duplicate_of from the CREATE TABLE and migrates again without error", () => {
     const { db } = setup();
     migrate(db);
@@ -139,4 +161,15 @@ describe("bug_reports table", () => {
     expect(columns.filter((name) => name === "duplicate_of")).toHaveLength(1);
     expect(db.prepare("select name from sqlite_master where type = 'index' and name in ('bug_reports_player_idx', 'bug_reports_duel_idx')").all()).toHaveLength(2);
   });
+});
+
+
+it("saves the local Discord submitter and keeps the snapshot after a name change", () => {
+  const { db, reports } = setup();
+  const report = reports.create({ ...base, submitterEmail: "author@example.test" });
+  expect(report.submitter).toEqual({ userId: "u1", username: "One", email: "author@example.test" });
+  db.prepare("update players set display_name = 'Renamed' where id = 1").run();
+  expect(reports.get(report.id, "guild-a").submitter).toEqual(report.submitter);
+  db.prepare("update bug_reports set submitter_json = null where id = ?").run(report.id);
+  expect(reports.get(report.id, "guild-a").submitter).toEqual({ userId: "u1", username: "Renamed", email: null });
 });

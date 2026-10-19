@@ -15,6 +15,7 @@ type Step = "write" | "checking" | "review" | "done";
 
 const FIELD = "w-full rounded-md border border-border bg-transparent p-2 text-sm text-text-primary placeholder:text-text-secondary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent-primary";
 const PRECHECK_TIMEOUT_MS = 5000;
+const SUBMIT_TIMEOUT_MS = 35_000;
 
 /** What the player reads when the server refuses or the network fails. */
 async function failureText(response: Response): Promise<string> {
@@ -107,11 +108,14 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
     sending.current = true;
     setBusy(true);
     setError(null);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SUBMIT_TIMEOUT_MS);
     try {
       const response = await fetch("/api/bug-reports", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ description, expected, ...snapshot.current, ...(duplicateOf ? { duplicateOf } : {}) }),
+        signal: controller.signal,
       });
       if (!response.ok) {
         const text = await failureText(response);
@@ -128,6 +132,7 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
       setError("Could not send the report. Check your connection and try again.");
       if (step !== "review") setStep("write");
     } finally {
+      clearTimeout(timer);
       sending.current = false;
       setBusy(false);
     }

@@ -133,20 +133,19 @@ describe("getOpenFromAppIssue", () => {
 
 describe("commentOnIssue and buildCommentBody", () => {
   const input = {
-    reportId: 42,
+    reportId: "public-42",
     description: "Seraphina Quill (123456789012345678) says the chain froze, cc @octocat #9",
     expected: "It resolves",
     path: "/duels/abc",
     duelSlug: "abc",
     context: { format: "ffa3" as const, turn: 4, phase: "main1", log: ["Turn 4", "Player 1 draws 1 card"] },
-    baseUrl: "https://duel.example.com",
   };
   const redact = ["123456789012345678", "Seraphina Quill", "guild-xyz"];
 
   it("names the report and holds the same safe sections as the issue", () => {
     const body = buildCommentBody(input, redact);
-    expect(body.startsWith("**+1** from `Report #42`")).toBe(true);
-    for (const part of ["## Description", "## Expected", "## Context", "## Recent log", "## Replay", "https://duel.example.com/duels/abc/replay"]) expect(body).toContain(part);
+    expect(body.startsWith("**+1** from `Report #public-42`")).toBe(true);
+    for (const part of ["## Description", "## Expected", "## Context", "## Recent log"]) expect(body).toContain(part);
     expect(body).toContain("Player 1 draws 1 card");
   });
 
