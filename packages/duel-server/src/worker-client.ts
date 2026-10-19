@@ -2,7 +2,7 @@ import type { SandboxEngineSnapshot } from "./sandbox-snapshot.js";
 import type { DuelScriptError, DuelScriptFatalError } from "./script-errors.js";
 import { Worker } from "node:worker_threads";
 import type { PromptTraceEntry } from "./prompt-trace.js";
-import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
+import type { EngineViewHistory, EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
 import type { DuelWorkerResponse, WorkerCreateTimings } from "./worker-protocol.js";
 import { EngineAnswerError } from "./prompts.js";
 import { EngineLoopError } from "./engine-loop-error.js";
@@ -52,7 +52,7 @@ export interface WorkerDebugState {
 export interface DuelGameWorker {
   readonly running: boolean;
   create(options: GameOptions): Promise<void>;
-  view(seat: number | null): Promise<DuelEngineView>;
+  view(seat: number | null, history?: EngineViewHistory): Promise<DuelEngineView>;
   answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void>;
   search(query: string, seat?: number): Promise<DuelCardInfo[]>;
   /** Flag a core loss. `atTurnEnd` identifies retired journal commands, which the engine refuses. */
@@ -173,8 +173,8 @@ export class GameWorker implements DuelGameWorker {
     return this.request({ op: "create", options });
   }
 
-  view(seat: number | null): Promise<DuelEngineView> {
-    return this.request({ op: "view", seat });
+  view(seat: number | null, history?: EngineViewHistory): Promise<DuelEngineView> {
+    return this.request({ op: "view", seat, ...(history ? { history } : {}) });
   }
 
   answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void> {

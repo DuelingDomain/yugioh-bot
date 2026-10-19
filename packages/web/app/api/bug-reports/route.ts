@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { BugReport } from "@yugidraft/shared/services";
 import { NextResponse } from "next/server";
-import { BugReportServiceError, createBugReportService, createDuelService, createPlayerService } from "@yugidraft/shared/services";
+import { BugReportServiceError, createBugReportService, createDuelService, createPlayerService, createSavedDeckService } from "@yugidraft/shared/services";
 import { parseBugReportRequest } from "@/lib/bug-report";
 import { bugReportRepo, commentOnIssue, createGithubIssue, getOpenFromAppIssue, resetGithubIssueCache } from "@/lib/bug-report-github";
 import { takeDuplicateCheckSlot } from "@/lib/bug-reports/precheck";
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
   const reports = createBugReportService(db);
 
   const submissionKey = createHash("sha256").update(JSON.stringify([
-    report.path, report.duelSlug ?? null, report.description, report.expected, report.duplicateOf ?? null,
+    report.path, report.duelSlug ?? null, report.description, report.expected, report.duplicateOf ?? null, report.deckId ?? null, report.deckFormat ?? null, report.deckSnapshot ?? null,
   ])).digest("hex");
   const key = JSON.stringify([guildId, player.id, submissionKey]);
   const pending = submissions.get(key);
@@ -84,6 +84,23 @@ export async function POST(request: Request) {
     if (built.replayFork) {
       return NextResponse.json({ error: "Bug reports from replay forks are disabled to protect private duel data." },
         { status: 409, headers: { "cache-control": "private, no-store" } });
+    }
+    // Only decks owned by this actor can be captured. Keep a copy so later edits do not erase the evidence.
+    const pageDeckId = /^\/decks\/(\d+)\/?$/.exec(report.path)?.[1];
+    const deckId = pageDeckId ? Number(pageDeckId) : report.deckId;
+    if (deckId) {
+      try {
+        const deck = createSavedDeckService(db).get(deckId, guildId, actor.userId);
+        built.diagnostics.deck = { id: deck.id, mode: deck.mode, format: deck.genesys ? `genesys${deck.mode === "domain" ? "-domain" : ""}` : deck.mode,
+          deck: deck.deck, genesys: deck.genesys ?? null };
+      } catch { /* Do not disclose or retain another user's deck. */ }
+    } else if (report.deckFormat) {
+      built.diagnostics.deck = { id: null, format: report.deckFormat };
+    }
+    if (report.deckSnapshot && report.deckFormat) {
+      built.diagnostics.deck = { ...built.diagnostics.deck, id: built.diagnostics.deck?.id ?? null,
+        source: "editor", format: report.deckFormat, mode: report.deckFormat.includes("domain") ? "domain" : "normal",
+        deck: report.deckSnapshot.deck, testHand: report.deckSnapshot.testHand };
     }
     report.context = built.context;
     const duelSlug = built.duelVerified ? report.duelSlug : undefined;

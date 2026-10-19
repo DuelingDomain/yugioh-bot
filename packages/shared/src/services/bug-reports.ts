@@ -39,7 +39,7 @@ export interface BugReport {
   duplicateOf: number | null;
   /** Private identity at submission time. Never passed to GitHub. */
   submitter: BugReportSubmitter | null;
-  /** Server capture with a bounded board and public log tail. Owner access only. */
+  /** Server capture with a bounded board and complete public log. Owner access only. */
   diagnostics: unknown;
 }
 
@@ -104,7 +104,7 @@ export function createBugReportService(db: Database.Database) {
   const selectOne = db.prepare(`select r.*, p.discord_user_id as user_id, p.display_name as username, null as email ${identityJoin} where r.id = ? and r.guild_id = ?`);
   const submitter = db.prepare("select discord_user_id as userId, display_name as username, null as email from players where id = ? and guild_id = ?");
   const listReports = db.prepare(`select r.id, r.public_id, r.created_at, r.duel_slug, r.github_issue_number, r.github_issue_url,
-    r.github_error, r.submitter_json, p.discord_user_id as user_id, p.display_name as username, null as email ${identityJoin}
+    r.github_error, r.submitter_json, json_type(r.diagnostics_json, '$.moment') = 'object' as has_moment, p.discord_user_id as user_id, p.display_name as username, null as email ${identityJoin}
     where r.guild_id = ? and r.id < ? order by r.id desc limit ?`);
   // Duplicate checks must not load hundreds of full board captures.
   const candidateColumns = "id, public_id, guild_id, player_id, created_at, path, duel_slug, description, expected, context_json, github_issue_number, github_issue_url, github_error, duplicate_of, submitter_json";
@@ -212,10 +212,10 @@ export function createBugReportService(db: Database.Database) {
       const rows = listReports.all(guildId, before, limit) as Array<{
         id: number; public_id: string; created_at: string; duel_slug: string | null; github_issue_number: number | null;
         github_issue_url: string | null; github_error: string | null; submitter_json: string | null;
-        user_id: string; username: string; email: string | null;
+        user_id: string; username: string; email: string | null; has_moment: number | null;
       }>;
       return rows.map(row => ({
-        id: row.id, publicId: row.public_id, createdAt: row.created_at, duelSlug: row.duel_slug,
+        id: row.id, publicId: row.public_id, createdAt: row.created_at, duelSlug: row.duel_slug, hasMoment: row.has_moment === 1,
         githubIssueNumber: row.github_issue_number, githubIssueUrl: row.github_issue_url, githubError: row.github_error,
         submitter: (row.submitter_json ? JSON.parse(row.submitter_json)
           : { userId: row.user_id, username: row.username, email: row.email }) as BugReportSubmitter,

@@ -1,3 +1,4 @@
+import type { EngineViewHistory } from "../engine.js";
 import { scriptErrorCoreFactory } from "../script-load-scope.js"; // LEGACY-1V1: distinguish load failures from runtime errors
 import { EngineLoopError } from "../engine-loop-error.js"; // LEGACY-1V1: shared core loop invariant
 import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError, type DuelScriptFatalError } from "../script-errors.js"; // LEGACY-1V1: owner runtime script-error policy
@@ -96,7 +97,7 @@ export interface EngineGameOptions {
 
 export interface EngineGame {
   diagnostics(): EngineDiagnostic[]; // LEGACY-1V1: private display error diagnostics
-  view(seat: number | null): DuelEngineView;
+  view(seat: number | null, history?: EngineViewHistory): DuelEngineView;
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
   searchCards(query: string, seat?: number): DuelCardInfo[]; // LEGACY-1V1: seat-scoped card announcement search
   /** LEGACY-1V1: set a seat's chain response mode; true when it passed the open window. See ../engine.ts EngineGame.setChainMode. */
@@ -385,7 +386,6 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const appendLog = (text: string, audience: "all" | number = "all"): LogEntry => {
     const entry = { id: nextLogId++, text, audience };
     log.push(entry);
-    if (log.length > 400) log.splice(0, log.length - 400);
     return entry;
   };
   // Lines for cards that left the field this batch (log-lines.ts LogLine.leftField). A destroy event for the same
@@ -681,9 +681,10 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   }
 
   const game: EngineGame = {
-    view(seat) {
+    view(seat, history) {
       if (closed) throw new Error("Engine is closed");
       if (seat != null && seat !== 0 && seat !== 1) throw new Error("Invalid seat");
+      const logAfter = history?.logAfter, eventsAfter = history?.eventsAfter;
       const projected = scriptErrors.query(() => projectView({
         lib,
         handle,
@@ -697,8 +698,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         lp,
         prompt: pending?.prompt ?? null,
         promptSeat: pending?.seat ?? null,
-        log,
-        events,
+        log: logAfter == null ? (history?.fullLog ? log : log.slice(-400)) : log.filter((entry) => entry.id > logAfter),
+        events: eventsAfter == null ? events : events.filter((entry) => entry.id > eventsAfter),
         chain: chainMemory,
         result,
         reveals,

@@ -1,6 +1,5 @@
 const MAX_LOG_LINES = 400;
 const MAX_PART_BYTES = 128 * 1024;
-const MAX_DIAGNOSTIC_BYTES = 256 * 1024;
 const BOARD_OMITTED = "the board exceeded the storage limit";
 
 const object = (value: unknown): value is Record<string, unknown> =>
@@ -29,13 +28,16 @@ function logTail(entries: unknown[]): unknown[] {
 export function serializeBugReportDiagnostics(input: unknown): string | null {
   if (!object(input)) return null;
   const originalLog = Array.isArray(input.log) ? input.log : [];
-  const log = logTail(originalLog);
+  // This log is trusted server data. Preserve every public event for diagnosis.
+  const log = originalLog;
   const originalBoardLog = object(input.board) && Array.isArray(input.board.log) ? input.board.log : [];
   const boardLog = logTail(originalBoardLog);
   const board = object(input.board) ? { ...input.board, log: boardLog } : null;
   const diagnostics = {
     board: board && bytes(board) <= MAX_PART_BYTES ? board : null,
     log,
+    ...(object(input.moment) ? { moment: input.moment } : {}),
+    ...(object(input.deck) ? { deck: input.deck } : {}),
     attempts: typeof input.attempts === "number" && Number.isFinite(input.attempts) ? input.attempts : 0,
     ...(typeof input.source === "string" ? { source: input.source.slice(0, 64) } : {}),
     ...(typeof input.missingReason === "string" ? { missingReason: input.missingReason.slice(0, 300) } : {}),
@@ -44,11 +46,5 @@ export function serializeBugReportDiagnostics(input: unknown): string | null {
       ? { logTruncated: true } : {}),
     ...(board && bytes(board) > MAX_PART_BYTES ? { boardOmittedReason: BOARD_OMITTED } : {}),
   };
-  let json = JSON.stringify(diagnostics);
-  if (Buffer.byteLength(json) > MAX_DIAGNOSTIC_BYTES) {
-    diagnostics.board = null;
-    diagnostics.boardOmittedReason = BOARD_OMITTED;
-    json = JSON.stringify(diagnostics);
-  }
-  return json;
+  return JSON.stringify(diagnostics);
 }

@@ -100,7 +100,7 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
       }
       case "view": {
         if (!game) return { id: request.id, ok: false, error: "No game" };
-        return { id: request.id, ok: true, value: game.view(request.seat) };
+        return { id: request.id, ok: true, value: game.view(request.seat, request.history) };
       }
       case "answer": {
         if (!game) return { id: request.id, ok: false, error: "No game" };

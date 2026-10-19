@@ -212,10 +212,18 @@ export function eliminationCodeOf(promptId: string): number | null {
 /** Entries the ring buffer keeps. */
 export const DIAGNOSTICS_LIMIT = 200;
 
+/** Internal replay cursors. Filtering stored history before projection avoids formatting old private text. */
+export interface EngineViewHistory {
+  /** Internal diagnostics only. Normal live views retain their bounded tail. */
+  fullLog?: boolean;
+  logAfter?: number;
+  eventsAfter?: number;
+}
+
 export interface EngineGame {
   /** Private, unredacted capture for sandbox saves only. Legacy cores may omit it. */
   sandboxSnapshot?(): SandboxEngineSnapshot;
-  view(seat: number | null): DuelEngineView;
+  view(seat: number | null, history?: EngineViewHistory): DuelEngineView;
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
   searchCards(query: string, seat?: number): DuelCardInfo[];
   /**
@@ -604,7 +612,6 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const appendLog = (text: string, audience: "all" | number = "all"): LogEntry => {
     const entry = { id: nextLogId++, text, audience };
     log.push(entry);
-    if (log.length > 400) log.splice(0, log.length - 400);
     return entry;
   };
   // Lines for cards that left the field this batch (log-lines.ts LogLine.leftField). A destroy event for the same
@@ -1144,9 +1151,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
 
   const game: EngineGame = {
     setManualLossAnswers(enabled) { manualLossAnswers = enabled; },
-    view(seat) {
+    view(seat, history) {
       if (closed) throw new Error("Engine is closed");
       if (seat != null && !(Number.isInteger(seat) && seat >= 0 && seat < seatCount)) throw new Error("Invalid seat");
+      const logAfter = history?.logAfter, eventsAfter = history?.eventsAfter;
       const projected = scriptErrors.query(() => projectView({
         lib,
         coreCapabilities,
@@ -1161,8 +1169,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         lp: Array.from({ length: seatCount }, (_, index) => lpOf(index)),
         prompt: pending?.prompt ?? null,
         promptSeat: pending?.seat ?? null,
-        log,
-        events,
+        log: logAfter == null ? (history?.fullLog ? log : log.slice(-400)) : log.filter((entry) => entry.id > logAfter),
+        events: eventsAfter == null ? events : events.filter((entry) => entry.id > eventsAfter),
         chain: chainMemory,
         result,
         reveals,
