@@ -1,0 +1,11 @@
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; }
+.count { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.big { font: 600 28px/1.1 var(--f-disp); font-variant-numeric: tabular-nums; }
+.muted { margin: 0; color: var(--ink-3); font: 400 14px/1.5 var(--f-ui); }
+.line { display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; }
+.email { flex: 1 1 140px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 14px/1.5 var(--f-ui); }
+.when { flex: 0 0 auto; color: var(--ink-4); font: 400 14px/1.5 var(--f-ui); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.actions { flex: 0 1 auto; margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.ask { min-width: 0; color: var(--ink-2); font: 400 14px/1.5 var(--f-ui); }
+.fail { flex-basis: 100%; margin: 0; color: var(--ink-2); font: 400 14px/1.5 var(--f-ui); text-align: right; }
+.more { margin: 0; color: var(--ink-3); font: 400 14px/1.5 var(--f-ui); }
