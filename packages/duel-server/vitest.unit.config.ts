@@ -29,6 +29,7 @@ const NEEDS_ENGINE = [
   "tests/target-names.test.ts",
   "tests/engine-declare-search.test.ts",
   "tests/prerelease-engine.test.ts",
+  "tests/prerelease-catalog.test.ts",
   "tests/host-surrender-eot.test.ts",
   "tests/scenarios/multiplayer/leave-chains.test.ts",
   "tests/scenarios/multiplayer/leave-effects.test.ts",

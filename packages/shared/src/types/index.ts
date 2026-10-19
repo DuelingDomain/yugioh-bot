@@ -142,6 +142,11 @@ export interface TournamentMatch {
 }
 
 export interface Card {
+  prerelease?: boolean;
+  catalogSource?: "api" | "engine";
+  race?: string;
+  setcodes?: number[];
+  isExtraDeck?: boolean;
   ygoprodeckId: number;
   canonicalCardId?: number;
   /** Current TCG Genesys points; null or absent is unknown. */
