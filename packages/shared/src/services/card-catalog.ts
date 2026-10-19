@@ -265,8 +265,13 @@ export function createCardCatalogService(
         image_url_small,
         card_sets_json,
         cached_at,
-        archetype
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        archetype,
+        race,
+        setcodes_json,
+        is_extra_deck,
+        is_prerelease,
+        catalog_source
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       on conflict(ygoprodeck_id) do update set
         name = excluded.name,
         type = excluded.type,
@@ -280,7 +285,12 @@ export function createCardCatalogService(
         image_url_small = excluded.image_url_small,
         card_sets_json = excluded.card_sets_json,
         cached_at = excluded.cached_at,
-        archetype = excluded.archetype
+        archetype = excluded.archetype,
+        race = excluded.race,
+        setcodes_json = excluded.setcodes_json,
+        is_extra_deck = excluded.is_extra_deck,
+        is_prerelease = excluded.is_prerelease,
+        catalog_source = excluded.catalog_source
     `,
   );
 
@@ -345,9 +355,12 @@ export function createCardCatalogService(
           cardSets,
           cachedAt,
           card.archetype ?? null,
+          card.race ?? null,
+          engine.get(cardId)?.metadata.setcodes_json ?? "[]",
+          Number(isExtraDeckCard(card)),
+          0,
+          "api",
         );
-        db.prepare(`update card_catalog set catalog_source='api',is_prerelease=0,race=?,setcodes_json=?,is_extra_deck=? where ygoprodeck_id=?`)
-          .run(card.race ?? null, engine.get(cardId)?.metadata.setcodes_json ?? "[]", Number(isExtraDeckCard(card)), artworkId);
       }
       // All foreign-key targets exist before artwork mappings are inserted.
       for (const parent of previousParents) db.prepare("update card_artworks set is_main = 0 where card_id = ?").run(parent);
@@ -424,9 +437,8 @@ export function createCardCatalogService(
     }
     upsertCard.run(id, row.name, row.type, row.frame_type, row.effect_text, row.atk, row.def,
       row.attribute, row.level, `https://images.ygoprodeck.com/images/cards/${id}.jpg`,
-      `https://images.ygoprodeck.com/images/cards_small/${id}.jpg`, row.card_sets_json, row.cached_at, row.archetype);
-    db.prepare(`update card_catalog set is_prerelease=?,catalog_source=?,race=?,setcodes_json=?,is_extra_deck=? where ygoprodeck_id=?`)
-      .run(Number(engineCards().get(id)?.prerelease ?? (row.is_prerelease === 1)), row.catalog_source, row.race, row.setcodes_json, row.is_extra_deck, id);
+      `https://images.ygoprodeck.com/images/cards_small/${id}.jpg`, row.card_sets_json, row.cached_at, row.archetype,
+      row.race, row.setcodes_json, row.is_extra_deck, Number(engineCards().get(id)?.prerelease ?? (row.is_prerelease === 1)), row.catalog_source);
     db.prepare(`insert into card_artworks (card_id,artwork_id,image_url,image_url_small,image_url_cropped,is_main,source)
       values (?, ?, ?, ?, null, 0, 'engine')`).run(originalId, id,
         `https://images.ygoprodeck.com/images/cards/${id}.jpg`, `https://images.ygoprodeck.com/images/cards_small/${id}.jpg`);
