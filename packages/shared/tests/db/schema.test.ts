@@ -135,6 +135,11 @@ describe("shared database schema", () => {
       "card_sets_json",
       "cached_at",
       "archetype",
+      "race",
+      "setcodes_json",
+      "is_extra_deck",
+      "is_prerelease",
+      "catalog_source",
       "genesys_points",
       "genesys_revision",
     ]);
@@ -345,6 +350,11 @@ describe("shared database schema", () => {
       "attribute",
       "level",
       "archetype",
+      "race",
+      "setcodes_json",
+      "is_extra_deck",
+      "is_prerelease",
+      "catalog_source",
       "genesys_points",
       "genesys_revision",
     ]);
