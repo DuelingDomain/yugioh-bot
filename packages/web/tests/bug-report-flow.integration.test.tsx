@@ -77,6 +77,7 @@ it("sends the dialog through the real report routes and keeps board and identity
   expect(publicIssues).toHaveLength(1);
   expect(saved.public_id).toMatch(/^[A-Za-z0-9_-]{12}$/);
   expect(publicIssues[0]!.body).toContain(`Report #${saved.public_id}`);
+  expect(publicIssues[0]!.body).toContain("| Page | `/duels/[id]` |");
   const publicText = JSON.stringify(publicIssues);
   for (const secret of ["private-author", "Private Author", "private@example.test", "revision", "Public log event 0", "flow-duel", "Reporter seat", "## Replay"]) expect(publicText).not.toContain(secret);
   const { GET } = await import("../app/api/admin/bug-reports/route");
@@ -84,6 +85,19 @@ it("sends the dialog through the real report routes and keeps board and identity
   expect(ownerList.reports[0]).toMatchObject({ submitter: { userId: 37, email: "private@example.test" }, githubIssueNumber: 77, publicId: saved.public_id });
   vi.stubEnv("OWNER_USER_IDS", "");
   expect((await GET(new Request("https://duel.example.test/api/admin/bug-reports"))).status).toBe(403);
+});
+
+it("masks the player id in the public issue and keeps the original path in the saved report", async () => {
+  const { POST, publicIssues } = await setup();
+  const response = await POST(new Request("https://duel.example.test/api/bug-reports", { method: "POST", body: JSON.stringify({
+    description: "The player profile does not show the latest results", expected: "The player profile should show the latest results",
+    path: "/player/42", context: {},
+  }) }));
+  expect(response.status).toBe(200);
+  expect(publicIssues).toHaveLength(1);
+  expect(publicIssues[0]!.body).toContain("| Page | `/player/[id]` |");
+  expect(publicIssues[0]!.body).not.toContain("/player/42");
+  expect(database!.prepare("select path from bug_reports").get()).toEqual({ path: "/player/42" });
 });
 
 

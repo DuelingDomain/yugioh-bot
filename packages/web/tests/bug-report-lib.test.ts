@@ -116,6 +116,47 @@ describe("buildIssueBody", () => {
     expect(body).toContain("| Format | `3-player FFA` |");
     expect(body).toContain("Player 1 draws 1 card");
   });
+  it.each([
+    ["/player/42", "/player/[id]"],
+    ["/decks/42", "/decks/[id]"],
+    ["/decks/draft/private-slug", "/decks/draft/[id]"],
+    ["/draft/private-slug", "/draft/[id]"],
+    ["/drafts/private-slug", "/drafts/[id]"],
+    ["/duels/private-slug/replay", "/duels/[id]/replay"],
+    ["/tournament/private-slug/standings", "/tournament/[id]/standings"],
+    ["/tournaments/private-slug", "/tournaments/[id]"],
+    ["/cubes/42", "/cubes/[id]"],
+    ["/themes/42", "/themes/[id]"],
+    ["/settings/account/private-slug/security", "/settings/account/[id]/[id]"],
+    ["/sign-in/private-slug/second-step", "/sign-in/[id]/[id]"],
+    ["/sign-up/private-slug/second-step", "/sign-up/[id]/[id]"],
+    ["/api/drafts/private-slug/players/42", "/api/drafts/[id]/players/[id]"],
+    ["/api/drafts/private-slug/cubes/42", "/api/drafts/[id]/cubes/[id]"],
+    ["/api/tournaments/private-slug/matches/42/result", "/api/tournaments/[id]/matches/[id]/result"],
+    ["/api/duels/series/42/cancel", "/api/duels/series/[id]/cancel"],
+    ["/api/admin/duels/private-slug/replay/fork", "/api/admin/duels/[id]/replay/fork"],
+    ["/api/duels/active/replay", "/api/duels/[id]/replay"],
+    ["/api/admin/duels/forks/replay", "/api/admin/duels/[id]/replay"],
+    ["/duels/new/replay", "/duels/[id]/replay"],
+    ["/api/duels/series", "/api/duels/[id]"],
+    ["/api/admin/bug-reports/42", "/api/admin/bug-reports/[id]"],
+    ["/api/cards/42/image", "/api/cards/[id]/image"],
+    ["/api/sets/private-slug", "/api/sets/[id]"],
+    // A route name can also be a parameter value in a different position.
+    ["/player/decks", "/player/[id]"],
+    ["/decks/draft/new", "/decks/draft/[id]"],
+    ["/settings/account/decks/new", "/settings/account/[id]/[id]"],
+    ["/decks/new", "/decks/new"],
+    ["/drafts/new/cube", "/drafts/new/cube"],
+    ["/duels/dev-presets", "/duels/dev-presets"],
+    ["/api/player/me", "/api/player/me"],
+    ["/api/decks/import/preview", "/api/decks/import/preview"],
+  ])("masks route parameters in the public page path %s", (path, expected) => {
+    const input = { ...base, path };
+    for (const body of [buildIssueBody(input), buildCommentBody(input)]) {
+      expect(body).toContain(`| Page | \`${expected}\` |`);
+    }
+  });
   it("neutralizes mentions and keeps user text inside a code fence", () => {
     const body = buildIssueBody(base);
     expect(body).not.toMatch(/@[A-Za-z]/);

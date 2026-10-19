@@ -316,7 +316,7 @@ describe("POST /api/bug-reports", () => {
     for (const privateValue of ["report-author", "author@example.test", "another@example.test", "123456789012345678"]) expect(issue).not.toContain(privateValue);
   });
 
-  it("keeps game numbers and card names in trusted logs and page paths", async () => {
+  it("keeps game numbers and card names in trusted logs and masks page parameters", async () => {
     const { getDb } = await import("../src/lib/db");
     getDb().prepare("insert into users(id,username,display_name) values(8000,'Kuriboh','Kuriboh')").run();
     getDb().prepare("insert into players(guild_id,user_id,display_name) values(?,8000,'Kuriboh')").run(GUILD);
@@ -330,7 +330,7 @@ describe("POST /api/bug-reports", () => {
     expect(issue.body).toContain("[removed] saw the card keep 8000 ATK");
     expect(issue.body).toContain("[removed] expected 8000 ATK");
     expect(issue.body).toContain("Kuriboh has 8000 ATK");
-    expect(issue.body).toContain("/cards/Kuriboh/8000");
+    expect(issue.body).toContain("| Page | `/cards/[id]/[id]` |");
   });
 
   it.each([400, 401, 403, 404, 409, 429])("does not retry host HTTP %s", async status => {
