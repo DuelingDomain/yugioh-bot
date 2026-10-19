@@ -15,7 +15,7 @@ function fixture() {
 afterEach(() => dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
 
 describe("production activity guard with the application schema", () => {
-  it("ignores stale duels but protects recent actions and a player still within their decision clock", () => {
+  it("ignores stale duels even with a funded clock but protects recent player actions", () => {
     const path = join(fixture(), "prod.sqlite");
     const db = openDatabase(path);
     try {
@@ -25,10 +25,11 @@ describe("production activity guard with the application schema", () => {
       const guard = () => spawnSync("python3", ["-B", join(root, "scripts/deployment/check-prod-activity.py"), path, "--live-only"], { encoding: "utf8" });
       expect(guard().status).toBe(0);
       expect(db.prepare("select status from duels").get()).toEqual({ status: "active" });
-      const clock = { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [60_000, 60_000] };
-      db.prepare("update duels set clock_json = ?").run(JSON.stringify(clock));
-      expect(guard().status).toBe(1);
-      db.prepare("update duels set clock_json = null, last_activity_at = datetime('now', '-9 minutes')").run();
+      const clock = { turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * 60_000, remainingMs: [30 * 60_000, 30 * 60_000] };
+      db.prepare("update duels set clock_json = ?, last_activity_at = datetime('now', '-11 minutes')").run(JSON.stringify(clock));
+      expect(guard().status).toBe(0);
+      expect(db.prepare("select status, clock_json from duels").get()).toEqual({ status: "active", clock_json: JSON.stringify(clock) });
+      db.prepare("update duels set last_activity_at = datetime('now', '-9 minutes')").run();
       expect(guard().status).toBe(1);
     } finally { db.close(); }
   });

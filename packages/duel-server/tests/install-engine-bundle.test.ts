@@ -94,10 +94,11 @@ function incompleteFixture(legacy: false | "bad-hash"): Fixture {
   return f;
 }
 
-function run(f: Fixture, preflight: boolean): { status: number | null; out: string } {
+function run(f: Fixture, preflight: boolean, idleClose?: string): { status: number | null; out: string } {
   const result = spawnSync("sh", [script], {
     encoding: "utf8",
-    env: { PATH: process.env.PATH ?? "", DUEL_BUNDLE_SRC: f.src, DUEL_DATA_DIR: f.dst, ...(preflight ? { DUEL_PREFLIGHT: "1" } : {}) },
+    env: { PATH: process.env.PATH ?? "", DUEL_BUNDLE_SRC: f.src, DUEL_DATA_DIR: f.dst,
+      ...(preflight ? { DUEL_PREFLIGHT: "1" } : {}), ...(idleClose === undefined ? {} : { DUEL_IDLE_CLOSE: idleClose }) },
   });
   return { status: result.status, out: `${result.stdout}${result.stderr}` };
 }
@@ -261,11 +262,14 @@ describe("install-engine-bundle.sh idle duels with the application schema", () =
       db.prepare("insert into duel_commands (duel_id, seq, seat, command_json) values (?, 1, 0, '{}')").run(stale.id);
       const before = snapshot(f.dst);
       // Before stopping the services the check is read-only, even if another live game refuses deployment.
-      const preflight = run(f, true);
+      const preflight = run(f, true, "1");
       expect(preflight.status, preflight.out).toBe(1);
       expect(preflight.out).toContain("1 active");
       expect(service.get(stale.slug, "g").status).toBe("active");
-      const refused = run(f, false);
+      const startup = run(f, false);
+      expect(startup.status, startup.out).toBe(1);
+      expect(service.get(stale.slug, "g").status).toBe("active");
+      const refused = run(f, false, "1");
       expect(refused.status, refused.out).toBe(1);
       expect(refused.out).toContain("1 active");
       expect(snapshot(f.dst)).toEqual(before);
@@ -276,9 +280,9 @@ describe("install-engine-bundle.sh idle duels with the application schema", () =
         .toEqual({ ended: 1, archived: 1, clock_json: null });
       expect(service.privateState(stale.slug, "g").commands).toHaveLength(1);
       db.prepare("update duels set last_activity_at = datetime('now', '-2 hours') where id = ?").run(live.id);
-      expect(run(f, true).status).toBe(0);
+      expect(run(f, true, "1").status).toBe(0);
       expect(service.get(live.slug, "g").status).toBe("active");
-      const installed = run(f, false);
+      const installed = run(f, false, "1");
       expect(installed.status, installed.out).toBe(0);
       expect(service.get(live.slug, "g").status).toBe("interrupted");
       expect(snapshot(f.dst)).toEqual(snapshot(f.src));
@@ -286,7 +290,7 @@ describe("install-engine-bundle.sh idle duels with the application schema", () =
     } finally { db.close(); }
   });
 
-  it.each([false, true])("preserves a funded clock and closes a ranked series without a score (closed tournament=%s)", closedTournament => {
+  it.each([false, true])("closes an idle ranked series despite a funded clock without a score (closed tournament=%s)", closedTournament => {
     const f = fixture({ tag: "old" }, { tag: "new" }, []);
     const db = new Database(join(f.root, "data", "bot.sqlite"));
     try {
@@ -303,18 +307,37 @@ describe("install-engine-bundle.sh idle duels with the application schema", () =
           .run(tournament.lastInsertRowid, owner, guest);
         db.prepare("update duel_series set tournament_match_id = ? where id = ?").run(slot.lastInsertRowid, match.id);
       }
-      const clock = { turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * 60_000, remainingMs: [12 * 60_000, 12 * 60_000] };
+      const clock = { turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * 60_000, remainingMs: [30 * 60_000, 30 * 60_000] };
       db.prepare("update duels set status = 'active', last_activity_at = datetime('now', '-11 minutes'), clock_json = ? where id = ?")
         .run(JSON.stringify(clock), duel.id);
-      expect(run(f, true).status).toBe(1);
-      expect(run(f, false).status).toBe(1);
+      expect(run(f, true, "1").status).toBe(0);
+      expect(createDuelService(db).get(duel.slug, "g").status).toBe("active");
       expect(series.get(match.id, "g").status).toBe("active");
-      clock.startedAt -= 2 * 60_000;
-      db.prepare("update duels set clock_json = ? where id = ?").run(JSON.stringify(clock), duel.id);
-      const result = run(f, false);
+      const result = run(f, false, "1");
       expect(result.status, result.out).toBe(0);
+      expect(createDuelService(db).get(duel.slug, "g")).toMatchObject({ status: "interrupted", winnerSeat: null,
+        winnerPlayerId: null, resultReason: "No player activity for 10 minutes." });
       expect(series.get(match.id, "g")).toMatchObject({ status: closedTournament ? "cancelled" : "between_games", wins: [0, 0], nextGameAt: null });
       expect(db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
+    } finally { db.close(); }
+  });
+
+  it.each([undefined, "0", "true"])("leaves stale duel rows for the host to close during container startup (DUEL_IDLE_CLOSE=%s)", idleClose => {
+    const f = fixture({ tag: "old" }, { tag: "new" }, []);
+    const db = new Database(join(f.root, "data", "bot.sqlite"));
+    try {
+      db.exec("drop table duels"); migrate(db);
+      const owner = seedIdentity(db, { guildId: "g", name: "Owner" }).playerId;
+      const service = createDuelService(db);
+      const duel = service.create({ guildId: "g", organizerPlayerId: owner, name: "Stale", mode: "normal" });
+      const clock = { turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * 60_000, remainingMs: [30 * 60_000, 30 * 60_000] };
+      db.prepare("update duels set status = 'active', last_activity_at = datetime('now', '-11 minutes'), clock_json = ? where id = ?")
+        .run(JSON.stringify(clock), duel.id);
+      const before = db.prepare("select * from duels where id = ?").get(duel.id);
+      const result = run(f, false, idleClose);
+      expect(result.status, result.out).toBe(0);
+      expect(snapshot(f.dst)).toEqual(snapshot(f.src));
+      expect(db.prepare("select * from duels where id = ?").get(duel.id)).toEqual(before);
     } finally { db.close(); }
   });
 });

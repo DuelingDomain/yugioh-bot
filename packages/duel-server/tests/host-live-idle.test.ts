@@ -123,19 +123,20 @@ it("rechecks a sweep candidate after a player command was accepted", async () =>
   expect(t.changes).toEqual([]);
 });
 
-it("protects a player thinking within their clock, then interrupts after a continue clock expires", async () => {
-  const t = table("ffa4", 11 * MINUTE, { turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * MINUTE,
-    remainingMs: [12 * MINUTE, 12 * MINUTE, 12 * MINUTE, 12 * MINUTE] });
+it("interrupts an idle FFA4 at the first sweep even with a funded thirty-minute loss clock", async () => {
+  const t = table("ffa4", 10 * MINUTE + 1_000, { turn: 1, activeSeat: 0, startedAt: Date.now() - 10 * MINUTE - 1_000,
+    remainingMs: [30 * MINUTE, 30 * MINUTE, 30 * MINUTE, 30 * MINUTE] });
+  t.db.prepare("update duels set settings_json = json_set(settings_json, '$.timeout', 'loss') where id = ?").run(t.session.id);
   await vi.advanceTimersByTimeAsync(SWEEP);
-  expect(t.service.get(t.session.slug, "g").status).toBe("active");
-  await vi.advanceTimersByTimeAsync(MINUTE);
-  expect(t.service.get(t.session.slug, "g").status).toBe("interrupted");
+  expect(t.service.get(t.session.slug, "g")).toMatchObject({ status: "interrupted", winnerSeat: null, winnerPlayerId: null,
+    resultReason: "No player activity for 10 minutes." });
+  expect(t.service.privateState(t.session.slug, "g").clock).toBeNull();
   expect(t.db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
 });
 
 it("keeps the existing loss path for an ordinary clock shorter than ten minutes", async () => {
-  const t = table("1v1", 0, { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [MINUTE, MINUTE] });
+  const t = table("1v1", 0, { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [5 * MINUTE, 5 * MINUTE] });
   t.db.prepare("update duels set settings_json = json_set(settings_json, '$.timeout', 'loss') where id = ?").run(t.session.id);
-  await vi.advanceTimersByTimeAsync(MINUTE + SWEEP);
+  await vi.advanceTimersByTimeAsync(5 * MINUTE + SWEEP);
   expect(t.service.get(t.session.slug, "g")).toMatchObject({ status: "completed", winnerSeat: 1, resultReason: "Time limit" });
 });

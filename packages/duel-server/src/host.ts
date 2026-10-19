@@ -3456,7 +3456,7 @@ export function createDuelHost(options: {
     if (stopped) return;
     const t = now();
     // Run before clock losses: a table abandoned across a restart must not award a ranked win.
-    // The query protects funded decision clocks and includes tables with no resident worker.
+    // The query ignores decision clocks and includes tables with no resident worker.
     try {
       for (const item of service.dueIdleDuels(t, ARCHIVE_SWEEP_LIMIT)) {
         if (stopped) return;

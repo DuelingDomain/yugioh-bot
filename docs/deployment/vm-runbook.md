@@ -339,17 +339,24 @@ The multiplayer merge changes the Standard and Domain cores, so its first deploy
    or a multi-core replacement while a live Tag/FFA table remains. An hours-idle active row does not block deployment.
 2. Do not start new tables until the deploy has finished. Tell the players first. A table that starts after the
    preflight is caught by the second check, but then the deploy stops after the images were pulled.
+   A player returning to an idle table in the seconds between the final check and service stop can make the
+   installer refuse the bundle change, leaving production stopped. Keep services stopped, wait until the last
+   player input is more than 10 minutes old, then retry Deploy with the same SHA. If the manual series/round guard
+   still blocks, use `force=true` for that retry; the engine guard still protects recently active tables.
+   To resume play instead, follow the matched release recovery in [Image rollback](#image-rollback).
 3. After the deploy, the duel container must be `running restarts=0` (the workflow checks this).
 4. Watch memory for the first days (`docker stats --no-stream`). The duel service has `mem_limit` 1g
    (`DUEL_MEM_LIMIT`). The first game loads the card database and scripts (about 114 MB). Each game adds about 2.4 to
    4 MB.
 
 The duel host owns live-table idle expiry. On startup and each normal polling sweep (default 30 seconds), it interrupts
-1v1, Tag, FFA3 and FFA4 games after **10 minutes without player input**, once any running decision clock has elapsed.
+1v1, Tag, FFA3 and FFA4 games after **10 minutes without player input**, regardless of the decision clock.
 Accepted responses and explicit chain-response switch changes renew activity. Views, heartbeats, journal recovery,
-bot/autopilot steps and automatic time-limit eliminations do not. A player thinking within their funded clock keeps
-that time; ordinary shorter time-limit losses still use the existing clock path. Idle cleanup runs before clock losses,
-so an abandoned table found after a restart produces no winner. Waiting-lobby expiry keeps its separate existing timeout.
+bot/autopilot steps and automatic time-limit eliminations do not. Even with a long clock bank, thinking for more than
+10 minutes without a player click closes the table without a winner. Clocks shorter than 10 minutes expire first
+and use the existing time-limit result. Idle cleanup runs before clock losses, so an abandoned table found after a
+restart produces no winner. Downtime counts as idle time: after a long outage, startup closes live tables whose last
+input is more than 10 minutes old. Waiting-lobby expiry keeps its separate existing timeout.
 
 Idle games use the existing `interrupted` end state with reason `No player activity for 10 minutes.`, null winner and
 clock, an end/archive timestamp, and no match/rating result. The host saves final boards when a worker is resident,
@@ -358,10 +365,13 @@ series waits between games with unchanged wins and no next-game timer; players m
 If its tournament has already ended, the series is cancelled instead.
 
 During deployment, preflight and the gameplay activity check stay read-only while services run. After stopping
-web, duel, worker and WS and taking the drained backup, the installer transactionally interrupts stale rows before
-checking the engine guard. It applies the same timestamp/clock rule and interruption state, retains replay journals,
-and leaves live games protected. No fresh final board is available with the duel service stopped. Clients refetch the
-closed state when WS reconnects. `force=true` still bypasses only the gameplay guard; it cannot replace a live table's core.
+web, duel, worker and WS and taking the drained backup, the deploy step sets `DUEL_IDLE_CLOSE=1` so the installer
+transactionally interrupts stale rows before checking the engine guard. It applies the same input timestamp rule and
+interruption state, retains replay journals, and leaves live games protected. No fresh final board is available with
+the duel service stopped. Clients refetch the
+closed state when WS reconnects. Ordinary container starts leave duel rows unchanged for the host sweep to close with
+WS events; keep `DUEL_IDLE_CLOSE` unset outside the stopped-service deploy step. `force=true` still bypasses only the
+gameplay guard; it cannot replace a live table's core.
 
 The duel host defaults to `DUEL_MAX_WORKERS=12` across live games and replay rebuilds,
 `DUEL_MAX_TABLES_PER_PLAYER=3` for each seated player at in-progress Tables, `DUEL_WORKER_HEAP_MB=256` per worker heap,

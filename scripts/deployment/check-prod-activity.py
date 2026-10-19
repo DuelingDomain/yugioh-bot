@@ -29,10 +29,7 @@ def main():
     # Same idle rule as the host and engine installer. Never mutate while services are running.
     # The installer interrupts these rows after all gameplay services stop.
     idle = """kind = 'play' and status = 'active'
-        and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday('now', '-10 minutes')
-        and coalesce(json_extract(clock_json, '$.startedAt')
-            + json_extract(clock_json, '$.remainingMs[' || json_extract(clock_json, '$.activeSeat') || ']'), 0)
-            <= (julianday('now') - 2440587.5) * 86400000"""
+        and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday('now', '-10 minutes')"""
     query = """
         select
             (select count(*) from duels where (status = 'active' and not coalesce(({idle}), 0))

@@ -4,7 +4,8 @@
 # engine files into any path that already contains a database. Identical bundles
 # are left untouched so container restarts do not regenerate resources.
 # A different bundle is refused while recently active duels remain in the sibling
-# SQLite file. Install runs after services stop and interrupts idle duels first; preflight is read-only.
+# SQLite file. DUEL_IDLE_CLOSE=1 lets deploy interrupt idle duels after services stop;
+# preflight and ordinary container starts only read duel rows.
 # Staging uses a unique sibling directory; cutover
 # keeps the previous bundle until the new tree validates.
 #
@@ -15,6 +16,7 @@
 #
 # DUEL_PREFLIGHT=1 runs only the checks (bundle complete, multi core sidecar, active duels) and installs nothing.
 # The production deploy runs it before it resets the checkout and builds images, so a refusal changes nothing.
+# DUEL_IDLE_CLOSE=1 enables stale-duel writes only outside preflight, with web/duel/worker/ws stopped.
 set -eu
 
 src="${DUEL_BUNDLE_SRC:-}"
@@ -179,7 +181,7 @@ active_duel_count() {
     echo "python3 is required to refuse bundle replace while games are active" >&2
     return 2
   fi
-  python3 - "$dbfile" "$scope" "${DUEL_PREFLIGHT:-}" <<'PY'
+  python3 - "$dbfile" "$scope" "${DUEL_PREFLIGHT:-}" "${DUEL_IDLE_CLOSE:-}" <<'PY'
 from pathlib import Path
 from datetime import datetime, timezone
 import sqlite3
@@ -189,7 +191,8 @@ import time
 path = Path(sys.argv[1]).resolve()
 multi_seat_only = sys.argv[2] == "multi-seat"
 preflight = bool(sys.argv[3])
-con = sqlite3.connect(path.as_uri() + ("?mode=ro" if preflight else "?mode=rw"), uri=True, timeout=5)
+idle_close = not preflight and sys.argv[4] == "1"
+con = sqlite3.connect(path.as_uri() + ("?mode=rw" if idle_close else "?mode=ro"), uri=True, timeout=5)
 present = con.execute(
     "select 1 from sqlite_master where type = 'table' and name = 'duels'"
 ).fetchone()
@@ -202,18 +205,16 @@ if multi_seat_only and "format" not in columns:
     print(0)
     sys.exit(0)
 
-# Same predicate as shared/services/duels.ts LIVE_IDLE_SQL: input only, and never cut a funded clock.
+# Same predicate as shared/services/duels.ts LIVE_IDLE_SQL: input only, regardless of the clock.
 # Old schemas without activity fields remain conservatively protected.
 idle = "0"
 params = {}
 if {"kind", "last_activity_at", "started_at", "created_at", "clock_json"} <= columns:
     now = int(time.time() * 1000)
-    params = {"now": now, "before": datetime.fromtimestamp((now - 600_000) / 1000, timezone.utc).isoformat(timespec="milliseconds")}
+    params = {"before": datetime.fromtimestamp((now - 600_000) / 1000, timezone.utc).isoformat(timespec="milliseconds")}
     idle = """kind = 'play' and status = 'active'
-        and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday(:before)
-        and coalesce(json_extract(clock_json, '$.startedAt')
-            + json_extract(clock_json, '$.remainingMs[' || json_extract(clock_json, '$.activeSeat') || ']'), 0) <= :now"""
-    if not preflight:
+        and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday(:before)"""
+    if idle_close:
         # The deploy stops web/duel/worker/ws before install. Recheck and close in one write transaction.
         con.execute("begin immediate")
         ids = [row[0] for row in con.execute("select id from duels where " + idle, params)]
