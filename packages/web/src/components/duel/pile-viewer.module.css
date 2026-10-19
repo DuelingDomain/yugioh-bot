@@ -672,3 +672,71 @@
   border-radius: 50%;
   background: var(--seat-main);
 }
+
+/* ---------- a pick: the foot bar of the Materials window when the engine asks which card to take ---------- */
+
+.pickBar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: calc(8 * var(--pv-u));
+  align-items: center;
+  padding: calc(10 * var(--pv-u)) calc(16 * var(--pv-u)) calc(12 * var(--pv-u));
+  border-top: 1px solid var(--pv-rule);
+}
+
+.pickStatus {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--pv-ink-2);
+  font-size: var(--pv-t-body);
+}
+
+.pickStatus[data-done="true"] {
+  color: var(--pv-ink);
+}
+
+.pickBtn {
+  min-height: calc(36 * var(--pv-u));
+  padding: 0 calc(16 * var(--pv-u));
+  border: 1px solid var(--pv-rule-hi);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pv-ink);
+  font-family: var(--pv-f-ui);
+  font-size: var(--pv-t-body);
+  font-weight: 500;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.pickBtn:hover:not(:disabled) {
+  background: rgb(239 231 213 / 0.085);
+}
+
+.pickBtn:focus-visible {
+  outline: 2px solid var(--pv-ink);
+  outline-offset: 2px;
+}
+
+.pickBtn:disabled {
+  border-style: dashed;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.pickBtn[data-kind="quiet"] {
+  border-color: var(--pv-rule);
+  color: var(--pv-ink-2);
+}
+
+.pickBtn[data-kind="primary"] {
+  border-color: #e4b64f;
+  background: #e4b64f;
+  color: #1a1204;
+  font-weight: 600;
+}
+
+.pickBtn[data-kind="primary"]:hover:not(:disabled) {
+  background: #f0c463;
+}

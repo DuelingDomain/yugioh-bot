@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Check, EyeOff, Link2 } from "lucide-react";
-import type { DuelAnswer, DuelCardInfo, DuelChainLink, DuelPrompt, DuelPromptOption, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCard, DuelCardInfo, DuelChainLink, DuelPrompt, DuelPromptOption, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
   AnnounceSearch,
   canConfirm,
@@ -37,6 +37,7 @@ import { chainCardName } from "./chain-state";
 import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import { CardBack } from "./card-face";
 import { CardStrip, type StripCard } from "./card-strip";
+import { PileViewer } from "./pile-viewer";
 import { isMaterialOption, materialHostNotes, type MaterialViewer } from "./material-host";
 import { optionNotes } from "./option-strip";
 import { battleStepLabel, type BattleStep } from "./station-track";
@@ -1206,6 +1207,110 @@ function StripChoice({
   );
 }
 
+/* ----------------------------------------------------- material picker */
+
+/**
+ * A pick among Xyz materials only (a detach cost, "detach 2 materials"): the engine asks for cards from the Overlay
+ * location. They are shown in the Materials window, not the generic strip.
+ */
+export function isMaterialPickPrompt(prompt: DuelPrompt): boolean {
+  return (prompt.kind === "cards" || prompt.kind === "toggle") && prompt.options.length > 0 && prompt.options.every(isMaterialOption);
+}
+
+function optionCard(option: DuelPromptOption, seat: number): DuelCard {
+  const info = option.card;
+  return {
+    controller: option.controller ?? option.host?.controller ?? seat,
+    location: option.location ?? LOCATION_OVERLAY,
+    sequence: option.sequence ?? 0,
+    position: 0,
+    code: info?.code,
+    name: info?.name,
+    description: info?.description,
+    type: info?.type,
+    attack: info?.attack,
+    defense: info?.defense,
+    level: info?.level,
+    attribute: info?.attribute,
+    race: info?.race,
+  };
+}
+
+const noInspect = () => {};
+
+function pickStatus(prompt: DuelPrompt, chosen: number): string {
+  const { min, max } = selectionBounds(prompt);
+  if (max <= 1) return min === 0 ? "Click a material to choose it, or none" : "Click a material to choose it";
+  if (min === max) return `Choose ${max} materials · ${chosen} of ${max} chosen`;
+  return `Choose ${min} to ${max} materials · ${chosen} chosen`;
+}
+
+function MaterialPicker({
+  prompt,
+  draft,
+  busy,
+  mySeat,
+  nameOf,
+  reducedMotion,
+  onSubmit,
+  onCollapse,
+}: {
+  prompt: DuelPrompt;
+  draft: PromptDraft;
+  busy: boolean;
+  mySeat: number | null;
+  nameOf?: (seat: number) => string;
+  reducedMotion: boolean;
+  onSubmit: (answer: DuelAnswer) => void;
+  onCollapse: () => void;
+}) {
+  const cards = prompt.options.map((option) => optionCard(option, prompt.seat));
+  const ids = prompt.options.map((option) => option.id);
+  const notes = materialHostNotes(prompt.options, { mySeat, nameOf }).map((note) => note?.detail ?? null);
+  const hostSeat = prompt.options[0]?.host?.controller;
+  const owner = hostSeat == null || hostSeat === mySeat ? "you" : "opp";
+  // A select/unselect pick: each click is its own answer and the engine keeps the chosen set; Finish ends it.
+  const toggle = prompt.kind === "toggle";
+  const explicit = toggle ? Boolean(prompt.finishable) : needsExplicitConfirm(prompt);
+  const chosen = toggle ? prompt.options.filter((option) => option.selected).map((option) => option.id) : draft.selected;
+  const title = fillPlaceholders(prompt.title, promptSource(prompt)?.name);
+  return (
+    <PileViewer
+      title={title}
+      cards={cards}
+      owner={owner}
+      open
+      onClose={onCollapse}
+      // A click on a card chooses it (pick below); the window shows the card text itself, so nothing goes to the inspector.
+      onInspectCard={noInspect}
+      reducedMotion={reducedMotion}
+      pick={{
+        ids,
+        notes,
+        selected: chosen,
+        status: pickStatus(prompt, chosen.length),
+        busy,
+        confirm: explicit,
+        ready: toggle ? true : canConfirm(prompt, draft),
+        cancelable: Boolean(prompt.cancelable),
+        onToggle: (id) => {
+          if (toggle) {
+            onSubmit({ choice: id });
+            return;
+          }
+          if (!explicit) {
+            onSubmit({ selected: [id] });
+            return;
+          }
+          draft.setSelected((current) => toggleSelected(prompt, current, id));
+        },
+        onConfirm: () => onSubmit(toggle ? { finish: true } : toAnswer(prompt, draft)),
+        onCancel: () => onSubmit({ cancel: true }),
+      }}
+    />
+  );
+}
+
 /* -------------------------------------------------------------- grid picker */
 
 function GridPicker({
@@ -1965,6 +2070,16 @@ export function PromptCenter(props: PromptCenterProps) {
       <EyeOff size={16} strokeWidth={1.75} aria-hidden />
     </button>
   );
+
+  // Xyz materials to pick (a detach cost): the centred Materials window, with the card art, not the generic strip.
+  if (isMaterialPickPrompt(prompt) && !aim) {
+    return (
+      <div ref={layerRef} className={styles.layer}>
+        <MaterialPicker prompt={prompt} draft={draft} busy={busy} mySeat={mySeat} nameOf={props.seatTones ? props.nameOf : undefined}
+          reducedMotion={reducedMotion} onSubmit={onSubmit} onCollapse={() => setCollapsed(true)} />
+      </div>
+    );
+  }
 
   if (kind === "response") {
     const { title, sub, source } = responseTitle(prompt, chain, mySeat, props.seatTones || fork ? props.nameOf : undefined, fork);

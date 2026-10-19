@@ -54,9 +54,34 @@ export type PileViewerProps = {
    * Left out, nothing is marked.
    */
   chainLinks?: readonly ChainLinkState[];
+  /**
+   * A pick: the engine asks the player to choose some of these cards (the Xyz materials of a detach cost). The window
+   * stays the same centred Materials window; a click on a card chooses it instead of inspecting it, and a bar at the foot
+   * says how many are needed, with Confirm when more than one is and Cancel when the engine allows it.
+   */
+  pick?: PileViewerPick;
 };
 
-type Entry = { card: DuelCard; key: string; index: number; marks: readonly PileChainMark[] };
+export type PileViewerPick = {
+  /** One prompt option id per entry of `cards`, in the same order: the option a click on that card chooses. */
+  ids: readonly string[];
+  selected: readonly string[];
+  /** A short line under each card's name (which Xyz it is under), or null; same order as `ids`. Left out, none. */
+  notes?: ReadonlyArray<string | null>;
+  /** The line at the foot: how many to choose and how many are chosen. */
+  status: string;
+  busy: boolean;
+  /** Confirm is shown (the engine needs more than one card). A single pick answers on the click. */
+  confirm: boolean;
+  /** The count rules hold: Confirm is enabled. */
+  ready: boolean;
+  cancelable: boolean;
+  onToggle: (id: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+};
+
+type Entry = { card: DuelCard; key: string; index: number; marks: readonly PileChainMark[]; id?: string };
 
 const NO_MARKS: readonly PileChainMark[] = [];
 
@@ -202,6 +227,7 @@ export function PileViewer({
   legalKeys,
   selectedKeys,
   chainLinks,
+  pick,
 }: PileViewerProps) {
   const styles = useSkinStyles(baseStyles, "pile");
   const headingId = useId();
@@ -221,13 +247,18 @@ export function PileViewer({
     const marks = pileChainMarks(chainLinks ?? [], cards);
     // The materials of an Xyz keep the order they were attached in; a pile shows its top card first.
     const newestFirst = attached ? [...cards] : [...cards].reverse();
-    return newestFirst.map((card, index) => ({
-      card,
-      key: `${zoneKey(card.controller, card.location, card.sequence)}:${card.code ?? "x"}`,
-      index,
-      marks: marks.get(cards.length - 1 - index) ?? NO_MARKS,
-    }));
-  }, [attached, cards, chainLinks]);
+    return newestFirst.map((card, index) => {
+      const id = pick?.ids[attached ? index : cards.length - 1 - index];
+      return {
+        card,
+        // Two Xyz can hold materials in the same overlay place: a pick keys its cards by the option they answer.
+        key: id != null ? `pick:${id}` : `${zoneKey(card.controller, card.location, card.sequence)}:${card.code ?? "x"}`,
+        index,
+        marks: marks.get(cards.length - 1 - index) ?? NO_MARKS,
+        id,
+      };
+    });
+  }, [attached, cards, chainLinks, pick?.ids]);
 
   const preview = entries.find((entry) => entry.key === hoverKey) ?? entries.find((entry) => entry.key === pinnedKey) ?? entries[0] ?? null;
   const tone = usableGlowToneForPile(cards);
@@ -334,9 +365,13 @@ export function PileViewer({
     focusEntry(next);
   }
 
-  function onCardClick(event: ReactMouseEvent<HTMLButtonElement>, key: string, card: DuelCard, legal: boolean) {
+  function onCardClick(event: ReactMouseEvent<HTMLButtonElement>, key: string, card: DuelCard, legal: boolean, id?: string) {
     // A click always selects the card into the detail (touch has no hover, and some browsers do not focus a tapped button).
     setPinnedKey(key);
+    if (pick && id != null) {
+      if (!pick.busy) pick.onToggle(id);
+      return;
+    }
     if (legal && onActivateCard) onActivateCard(card, event.currentTarget);
     else onInspectCard(card);
   }
@@ -345,6 +380,7 @@ export function PileViewer({
   return (
     <div className={cn(duelFontClasses, styles.root)} data-reduced={reducedMotion ? "true" : "false"} data-owner={owner} data-has-legal={anyLegal ? "true" : "false"}
       data-toned={ownerTag ? "true" : undefined}
+      data-pick={pick ? "true" : undefined}
       style={ownerTag ? ({ "--seat-main": ownerTag.tone.main, "--seat-ink": ownerTag.tone.ink } as CSSProperties) : undefined}>
       <div className={styles.scrim} onClick={onClose} aria-hidden="true" />
       <aside
@@ -367,7 +403,7 @@ export function PileViewer({
               {total > 1 && !attached ? <span className={styles.order}> · newest first</span> : null}
             </span>
           </div>
-          <button type="button" className={styles.close} onClick={onClose} aria-label={`Close ${title}`}>
+          <button type="button" className={styles.close} onClick={onClose} aria-label={pick ? "Hide to look at the board" : `Close ${title}`} title={pick ? "Hide to look at the board" : undefined}>
             <X size={18} strokeWidth={1.75} aria-hidden />
           </button>
         </header>
@@ -382,11 +418,11 @@ export function PileViewer({
 
         <ul ref={gridRef} className={styles.grid} role="list" aria-label={attached ? title : `${title}, newest first`} onMouseLeave={() => setHoverKey(null)}>
           {entries.map((entry) => {
-            const { card, key, index, marks } = entry;
+            const { card, key, index, marks, id } = entry;
             const hidden = isHiddenCard(card) || card.code == null;
             const zone = zoneKey(card.controller, card.location, card.sequence);
-            const legal = legalKeys?.has(zone) ?? false;
-            const selected = selectedKeys?.has(zone) ?? false;
+            const legal = pick ? false : legalKeys?.has(zone) ?? false;
+            const selected = pick ? id != null && pick.selected.includes(id) : selectedKeys?.has(zone) ?? false;
             const name = cardName(card, lookedNames);
             return (
               <li key={key} className={styles.cell}>
@@ -397,9 +433,10 @@ export function PileViewer({
                   data-card-key={key}
                   data-legal={legal ? "true" : "false"}
                   data-selected={selected ? "true" : "false"}
+                  data-pick-id={id}
                   data-active={preview?.key === key ? "true" : "false"}
                   data-chain-link={marks.length > 0 ? marks[0].index : undefined}
-                  aria-label={`${name}, ${index + 1} of ${total}${marks.length > 0 ? `, ${marks.map((mark) => `${mark.ariaLabel} ${mark.phase}`).join(", ")}` : ""}${legal ? ", can be chosen" : ""}`}
+                  aria-label={`${name}, ${index + 1} of ${total}${marks.length > 0 ? `, ${marks.map((mark) => `${mark.ariaLabel} ${mark.phase}`).join(", ")}` : ""}${legal || pick ? ", can be chosen" : ""}`}
                   aria-pressed={selected}
                   onMouseEnter={() => {
                     setHoverKey(key);
@@ -411,7 +448,7 @@ export function PileViewer({
                     onHoverCard?.(card);
                   }}
                   onKeyDown={(event) => onCardKeyDown(event, index)}
-                  onClick={(event) => onCardClick(event, key, card, legal)}
+                  onClick={(event) => onCardClick(event, key, card, legal, id)}
                 >
                   <span className={styles.art}>
                     {hidden ? (
@@ -432,11 +469,28 @@ export function PileViewer({
                     <ChainMarkBadges marks={marks} styles={styles} size="thumb" />
                   </span>
                   <span className={styles.name}>{name}</span>
+                  {pick?.notes?.[pick.ids.indexOf(id ?? "")] ? <span className={styles.name} data-pick-note>{pick.notes[pick.ids.indexOf(id ?? "")]}</span> : null}
                 </button>
               </li>
             );
           })}
         </ul>
+
+        {pick ? (
+          <footer className={styles.pickBar} data-testid="pile-pick-bar">
+            <span className={styles.pickStatus} data-done={pick.ready ? "true" : "false"} aria-live="polite">{pick.status}</span>
+            {pick.cancelable ? (
+              <button type="button" className={styles.pickBtn} data-kind="quiet" data-pick-cancel disabled={pick.busy} onClick={pick.onCancel}>
+                Cancel
+              </button>
+            ) : null}
+            {pick.confirm ? (
+              <button type="button" className={styles.pickBtn} data-kind="primary" data-pick-confirm disabled={!pick.ready || pick.busy} onClick={pick.onConfirm}>
+                Confirm
+              </button>
+            ) : null}
+          </footer>
+        ) : null}
       </aside>
     </div>
   );
