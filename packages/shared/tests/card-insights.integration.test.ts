@@ -90,7 +90,11 @@ describe("SQL insights over the real pinned artifact", () => {
     expect(result.cards.map(card => card.passcode)).toEqual([97268402]);
     expect(result.total).toBe(1);
     expect(result.cards[0]?.release).toEqual({ tcgDate: "2010-08", ocgDate: "2010-04", date: "2010-08", region: "tcg", upcoming: false });
-    expect(result.cards[0]?.reason).toContain("Spellcaster");
+    expect(result.cards[0]?.reason).toBe("Negates the effects of an opponent's face-up Effect monster this turn");
+    expect(service.effectSearch("hand traps that negate", [97268402, 14558127]).cards.map(card => card.reason).sort()).toEqual([
+      "Negates an effect that adds a card from the Deck to the hand",
+      "Negates the effects of an opponent's face-up Effect monster this turn",
+    ]);
     expect(service.effectSearch("spellcaster monsters", [46986414]).cards.map(card => card.passcode)).toEqual([46986414]);
     expect(service.effectSearch("searchers", [7084130, 7084129]).cards.map(card => card.passcode)).toEqual([7084129]);
     expect(service.effectSearch("hand traps", []).cards).toEqual([]);
