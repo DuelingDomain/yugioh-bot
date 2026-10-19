@@ -1,5 +1,54 @@
 # Weekly engine data updates
 
+## Update history
+
+`/settings/card-data` shows **Update history** with dates, labels, review counts,
+new card lists and PR links. It uses the same owner access checks as the rest of
+the page and API. The source is `packages/web/src/lib/card-data-history.json`,
+imported by the server route and included in the production web bundle. Reading
+history needs no GitHub token or network request to GitHub. The existing engine
+status call still needs the local duel host and database.
+
+This committed file is simpler than fetching and parsing merged PR bodies at
+runtime. `scripts/ci/publish-engine-data.mjs` projects the complete `update.json`
+report into inert JSON after checking the existing pin-only patch. Final validation
+also saves the card list after excluding failed pre-release scripts. The publisher
+never accepts the history file as an artifact patch path. For an existing PR, the
+snapshot is replaced by PR URL, preserving older updates. For a new PR, a second
+bot commit records the number returned by GitHub; its push has a lease on the first
+commit. If that push fails, a later run with identical PR pins repairs the missing
+entry without replacing the published pin commit or PR report. Human-commit
+protection and base/head checks still apply. No workflow
+permission or schedule change is needed; the next scheduled run uses this support.
+
+Dates are publication snapshot dates; merging the update PR adds its entry to main,
+and deploying the web bundle makes it visible. This is merged update history, not
+an audit of which bundles were deployed. Backfilled dates are merge dates. Null
+counts and unavailable card lists are shown as unknown, never as zero. Card counts
+compare loaded database rows, while the new card list follows the report's identity
+rules and omits graduations and blocked previews. New set codes are the distinct
+known product codes of those listed new cards, as in the update report; they do
+not mean products that have never appeared in the catalog.
+
+Backfill checked all merged `chore/engine-data-update` PRs from #210 onward on
+2026-10-19. Only [#210](https://github.com/DuelingDomain/yugioh-bot/pull/210) was
+merged. Its report predates card-row counts and lists no new official scripts.
+Comparing its old and new root `cards.cdb` files (the only CDB loaded at that
+revision), including all `datas` and `texts` columns with exact SQLite integers,
+gives **0 new, 2 changed, 0 removed cards**. Its report gives **47 script changes**
+(17 official and 30 shared/non-official), with no new cards or set codes.
+
+Run the real-file publication check with Node 22:
+
+```sh
+node scripts/ci/card-data-history.integration.mjs
+```
+
+It uses the checked-in pin/history files, a disposable Git checkout and a local
+bare remote. It checks new/existing PR publication, exact links, counts, card/set
+fields, repair after a failed history push, retention of old entries, rejection of history edits in the candidate
+patch, and human-commit protection. Only GitHub PR operations are simulated.
+
 The admin `GET /api/admin/card-data-status` endpoint reports the installed bundle and
 each pinned source's GitHub committer date as **data as of** (`engine.sources.*.pinnedCommitDate`).
 Preparation time is unknown (`preparedAt: null`, `preparedAtSource: "unknown"`); manifest

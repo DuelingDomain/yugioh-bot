@@ -185,7 +185,7 @@ export interface Cube {
 export type {
   EngineDataSource, DataStatus, EngineSourcePin, EngineDataStatus, CatalogSetStatus,
   CardCatalogStatus, CardDataGapCard, CardDataSetGapStatus, CardDataGapStatus, UpstreamSourceStatus,
-  EngineUpdateWorkflowStatus, CardDataStatus, LocalCardDataStatus,
+  EngineUpdateWorkflowStatus, CardDataStatus, LocalCardDataStatus, CardDataUpdateHistoryEntry,
 } from "./card-data-status.js";
 export * from "./draft-lobby.js";
 
