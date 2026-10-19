@@ -1,6 +1,7 @@
 import type { CardInsightFormat, CardInsightOptions } from "@yugidraft/shared/services";
 import { MAX_HOOKS, isCardEra, isReleasedRange, type CardEra } from "@yugidraft/shared/cards/effects";
 import type { DuelDeck } from "@yugidraft/shared/duels";
+import { DUEL_BANLIST_OPTIONS } from "@yugidraft/shared/duels";
 import { NextResponse } from "next/server";
 import { readJsonBody } from "./bug-reports/read-body";
 
@@ -9,15 +10,16 @@ export const CARD_INSIGHT_POOL_MAX = 5000;
 export const CARD_INSIGHT_DECK_MAX = 500;
 export const CARD_INSIGHT_SUGGEST_DECK_MAX = 100;
 
-type Options = CardInsightOptions & { pool?: number[] };
+type Options = CardInsightOptions & { pool?: number[]; banlist?: string; exclude?: number[] };
 export type CardInsightRequest =
   | { op: "summary"; passcode: number }
   | { op: "read"; text: string }
-  | ({ op: "effectSearch"; text: string } & Options)
+  | ({ op: "effectSearch"; text: string; deck?: DuelDeck } & Options)
   | ({ op: "worksWith"; passcode: number } & Options)
   | ({ op: "hookSearch"; archetype: string; hook: number } & Options)
   | { op: "guide"; archetypes: string[] }
   | ({ op: "suggest"; deck: DuelDeck | number[] } & Options)
+  | ({ op: "suggestRows"; deck: DuelDeck } & Options)
   | { op: "poolHealth"; cards: number[]; era?: CardEra }
   | { op: "pickScore"; candidate: number; pickedPool: number[] };
 
@@ -41,8 +43,9 @@ export function parseCardInsightRequest(value: unknown): CardInsightRequest | nu
   const optionKeys = ["pool", "limit", "format", "genesysRemaining", "deckMaster", "released", "sort", "era"];
   const fields: Record<string, string[]> = {
     summary: ["passcode"], read: ["text"],
-    effectSearch: ["text", ...optionKeys, "exact", "omittedChips"],
+    effectSearch: ["text", ...optionKeys, "exact", "omittedChips", "deck", "banlist", "exclude"],
     worksWith: ["passcode", ...optionKeys], hookSearch: ["archetype", "hook", ...optionKeys], guide: ["archetypes"], suggest: ["deck", ...optionKeys],
+    suggestRows: ["deck", ...optionKeys, "banlist", "exclude"],
     poolHealth: ["cards", "era"], pickScore: ["candidate", "pickedPool"],
   };
   if (!Object.hasOwn(fields, value.op)) return null;
@@ -53,9 +56,13 @@ export function parseCardInsightRequest(value: unknown): CardInsightRequest | nu
   if (value.op === "hookSearch" && (!name(value.archetype) || !integer(value.hook, 0, MAX_HOOKS - 1))) return null;
   if (value.op === "guide" && (!Array.isArray(value.archetypes) || value.archetypes.length < 1 || value.archetypes.length > 5 || !value.archetypes.every(name))) return null;
   if (value.op === "suggest" && !deck(value.deck)) return null;
+  if (value.op === "suggestRows" && (!deck(value.deck) || Array.isArray(value.deck))) return null;
+  if (value.op === "effectSearch" && value.deck !== undefined && (!deck(value.deck) || Array.isArray(value.deck))) return null;
   if (value.op === "poolHealth" && !codes(value.cards, CARD_INSIGHT_DECK_MAX)) return null;
   if (value.op === "pickScore" && (!passcode(value.candidate) || !codes(value.pickedPool, CARD_INSIGHT_DECK_MAX))) return null;
   if (value.pool !== undefined && !codes(value.pool, CARD_INSIGHT_POOL_MAX)) return null;
+  if (value.exclude !== undefined && !codes(value.exclude, CARD_INSIGHT_POOL_MAX)) return null;
+  if (value.banlist !== undefined && !DUEL_BANLIST_OPTIONS.some(option => option.id === value.banlist)) return null;
   if (value.limit !== undefined && !integer(value.limit, 1, 120)) return null;
   if (value.format !== undefined && !format(value.format)) return null;
   if (value.genesysRemaining !== undefined && !integer(value.genesysRemaining, 0, 1000)) return null;

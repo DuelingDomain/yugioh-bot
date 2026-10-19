@@ -1,6 +1,7 @@
 import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
 import type { ArchetypeGuide, CardEra, RankedInsightCard } from "@yugidraft/shared/cards/effects";
-import type { CardInsightFormat } from "@yugidraft/shared/services";
+import type { CardInsightFormat, DeckSuggestionResult } from "@yugidraft/shared/services";
+import type { DuelDeck } from "@yugidraft/shared/duels";
 import type { CardAdmissionContext } from "@/lib/card-admission-context";
 import { getDeckCards } from "./api";
 
@@ -43,6 +44,22 @@ export interface InsightScope {
   genesysRemaining?: number;
   limit?: number;
   era?: CardEra;
+}
+
+export interface SuggestionScope extends InsightScope { banlist?: string; exclude?: readonly number[] }
+
+/** Fetch all four rows. The caller debounces deck changes by 600 ms and aborts stale requests. */
+export async function fetchSuggestRows(deck: DuelDeck, scope: SuggestionScope, signal?: AbortSignal): Promise<DeckSuggestionResult> {
+  const response = await fetch("/api/cards/insights", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ op: "suggestRows", deck, ...scopeBody(scope), banlist: scope.banlist, exclude: scope.exclude }), signal });
+  if (response.status === 404) throw new InsightsDisabledError();
+  if (!response.ok) throw new Error(`Suggestions are not available (${response.status}).`);
+  return await response.json() as DeckSuggestionResult;
+}
+
+/** Outside-archetype phrases use the exact same row service and deck context. */
+export async function fetchOutsideSuggestions(text: string, deck: DuelDeck, scope: SuggestionScope, signal?: AbortSignal): Promise<RankedInsightCard[]> {
+  return (await postInsights({ op: "effectSearch", text, deck, ...scopeBody(scope), banlist: scope.banlist, exclude: scope.exclude }, signal)).cards;
 }
 
 function scopeBody(scope: InsightScope): Record<string, unknown> {

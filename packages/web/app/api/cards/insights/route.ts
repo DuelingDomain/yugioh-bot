@@ -3,9 +3,10 @@ import { createCardInsightService, readArchetypeGuide } from "@yugidraft/shared/
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { effectSearchEnabled } from "@/lib/effect-search";
+import { effectSearchEnabled, deckSuggestionsEnabled } from "@/lib/effect-search";
+import { loadDeckSuggestionLegality } from "@/lib/deck-suggestion-legality";
 import { readCardInsightRequest } from "@/lib/card-insights-api";
-import { lowConfidenceReading } from "@yugidraft/shared/cards/effects";
+import { lowConfidenceReading, searchIntentTarget } from "@yugidraft/shared/cards/effects";
 import { fallbackEffectReading } from "@yugidraft/shared/cards/effects/reading-fallback";
 
 export const runtime = "nodejs";
@@ -21,17 +22,25 @@ export async function POST(request: Request) {
   try {
     const service = createCardInsightService(getDb());
     const input = body.value;
+    const outside = (input.op === "effectSearch" || input.op === "read") && !("exact" in input && input.exact) && searchIntentTarget(input.text)?.kind === "outside";
+    if ((input.op === "suggestRows" || outside) && !deckSuggestionsEnabled()) return NextResponse.json({ deckSuggestionsEnabled: false, error: "deck_suggestions_disabled" }, { status: 404, headers: { "Cache-Control": "private, no-store" } });
+    let suggestionContext;
+    if (input.op === "suggestRows" || (input.op === "effectSearch" && outside)) {
+      const admission = await loadDeckSuggestionLegality({ guildId: env.discordGuildId, userId: actor.userId, format: input.format ?? "normal", banlist: input.banlist, deckMaster: input.deckMaster ?? input.deck?.deckMaster });
+      if (!admission.ok) return admission.response;
+      suggestionContext = { legality: admission.legality, deck: input.deck, banlist: input.banlist, exclude: input.exclude };
+    }
     let data: object;
     switch (input.op) {
       case "summary": data = { summary: service.summary(input.passcode) }; break;
       case "read": {
         let reading = service.readQuery(input.text);
-        if (lowConfidenceReading(input.text, reading)) reading = await fallbackEffectReading(getDb(), input.text, actor.userId) ?? reading;
+        if (!outside && lowConfidenceReading(input.text, reading)) reading = await fallbackEffectReading(getDb(), input.text, actor.userId) ?? reading;
         data = { reading }; break;
       }
       case "effectSearch": {
-        let result = service.effectSearch(input.text, input.pool, input);
-        if (!input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
+        let result = service.effectSearch(input.text, input.pool, { ...input, suggestionContext });
+        if (!outside && !input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
           if (await fallbackEffectReading(getDb(), input.text, actor.userId)) result = service.effectSearch(input.text, input.pool, input);
         }
         data = result; break;
@@ -40,9 +49,10 @@ export async function POST(request: Request) {
       case "guide": data = { guide: readArchetypeGuide(getDb(), input.archetypes) }; break;
       case "worksWith": data = { cards: service.worksWith(input.passcode, input.pool, input) }; break;
       case "suggest": data = { cards: service.suggestForDeck(input.deck, { ...input, format: input.format ?? "normal" }) }; break;
+      case "suggestRows": data = service.suggestRows(input.deck, { ...input, legality: suggestionContext!.legality, format: input.format ?? "normal" }); break;
       case "poolHealth": data = { health: service.poolHealth(input.cards, input) }; break;
       case "pickScore": data = { score: service.pickScore(input.candidate, input.pickedPool) }; break;
     }
-    return NextResponse.json({ effectSearchEnabled: true, ...data }, { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json({ effectSearchEnabled: true, deckSuggestionsEnabled: deckSuggestionsEnabled(), ...data }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Effect search failed" }, { status: 400 }); }
 }
