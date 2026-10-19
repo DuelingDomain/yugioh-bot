@@ -43,7 +43,12 @@ const overlayDirectory = process.env.TABLE_OVERLAY ? resolve(process.env.TABLE_O
 const manifest = readManifest(overlayDirectory);
 const stockDirectory = process.env.DUEL_SCRIPTS_DIR ?? join(currentEngineDataDirectory(), "card-scripts/official");
 const stock = needs.file("official script corpus", stockDirectory, "Set DUEL_SCRIPTS_DIR, or set DUEL_DATA_DIR to an engine data directory with card-scripts/official.");
-const stockText = (code: number) => readFileSync(join(stockDirectory, `c${code}.lua`), "utf8");
+const stockPaths = new Map(manifest.cards.map((card) => [card.code, card.stockPath]));
+const stockPath = (code: number) => {
+  const reviewedPath = stockPaths.get(code);
+  return reviewedPath ? resolve(stockDirectory, "..", reviewedPath) : join(stockDirectory, `c${code}.lua`);
+};
+const stockText = (code: number) => readFileSync(stockPath(code), "utf8");
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // The table. A group is a list of codes. R1 (each duelist) and R2 groups are added here by the parts that write their overlay.
@@ -450,13 +455,13 @@ function cardRowsOf(): Map<number, CardRow> {
 }
 
 describeWithCores("the table: merged card database coverage", [needs.cards(), stock], () => {
-  it("audits every table entry against the database and official scripts, independently of TABLE_SHARD", () => {
+  it("audits every table entry against the database and reviewed stock scripts, independently of TABLE_SHARD", () => {
     const absent = TABLE.filter((row) => !inCardDatabase(row.code)).map((row) => row.code).sort((a, b) => a - b);
     const expectedAbsent = Object.keys(NOT_IN_CARD_DATABASE).map(Number).sort((a, b) => a - b);
     expect(absent, "review database exclusions when a table card is released or removed").toEqual(expectedAbsent);
 
-    const withoutScript = TABLE.filter((row) => inCardDatabase(row.code) && !existsSync(join(stockDirectory, `c${row.code}.lua`)));
-    expect(withoutScript, "every available table card needs its official script").toEqual([]);
+    const withoutScript = TABLE.filter((row) => inCardDatabase(row.code) && !existsSync(stockPath(row.code)));
+    expect(withoutScript, "every available table card needs its reviewed stock script").toEqual([]);
   });
 });
 
