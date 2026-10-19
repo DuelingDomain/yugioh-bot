@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { createPortal } from "react-dom";
 import { ArrowRight, ArrowUpFromLine, Flag, Layers, RotateCw, Shuffle, Sparkles, Swords, Zap, type LucideIcon } from "lucide-react";
 import type { DuelCard, DuelCardInfo, DuelPromptOption } from "@yugidraft/shared/duels";
-import { materialsTitle } from "./card-face";
+import { materialsTarget } from "./card-face";
 import { cardDetailsText, cardStatsText, isFacedown } from "./constants";
 import { duelFontClasses } from "./fonts";
 import { safeAnimate } from "./safe-animate";
@@ -30,11 +30,11 @@ export type CardMenuState = {
  */
 export function materialsMenu(
   card: DuelCard | null | undefined,
-  open: (target: { type: "pile"; title: string; cards: DuelCard[] }) => void,
+  open: (target: ReturnType<typeof materialsTarget>) => void,
 ): { count: number; onView: () => void } | undefined {
   const cards = card && card.code != null && !isFacedown(card.position) ? card.materials : undefined;
-  if (!cards?.length) return undefined;
-  return { count: cards.length, onView: () => open({ type: "pile", title: materialsTitle(cards.length), cards }) };
+  if (!card || !cards?.length) return undefined;
+  return { count: cards.length, onView: () => open(materialsTarget(card, cards)) };
 }
 
 /** A face-down or unnamed target reads as "face-down monster" in the attack confirm. */

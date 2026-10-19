@@ -31,7 +31,7 @@ import { MoveFx } from "../move-fx";
 import { engineFormat, formatLabel, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds } from "../multi-seat";
 import { useLiveChainLinks } from "../pile-chain-marks";
 import { PileViewer } from "../pile-viewer";
-import { livePileCards } from "../pile-focus";
+import { livePileCards, livePileTitle } from "../pile-focus";
 import { MatchSheetLog } from "../text-log";
 import { PositionFx } from "../position-fx";
 import { centerKind, PromptCenter } from "../prompt-center";
@@ -888,7 +888,7 @@ function TableShellBody({
                     {grid ? null : plazaHud ? <CameraControls {...cameraProps} variant="stage" /> : <CameraControls {...cameraProps} variant={narrow && masterRail ? "stage" : "float"} view={narrow ? undefined : { open: drawer.viewOpen }} />}
                     {ui.pile ? (
                       <PileViewer
-                        title={ui.pile.title}
+                        title={livePileTitle(ui.pile, livePileCards(ui.pile, engine, viewerSeat))}
                         owner={ui.pile.owner}
                         ownerTag={pileSeat != null ? { name: nameOf(pileSeat), tone: toneOf(pileSeat) } : null}
                         open={ui.pile.open}

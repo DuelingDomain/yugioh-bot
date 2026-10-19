@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type Component
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Link2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CardFace, cardFieldStats, materialsTitle } from "./card-face";
+import { CardFace, cardFieldStats, materialsTarget } from "./card-face";
 import { CardActionMenu } from "./card-interactions";
 import { DECK_SURRENDER_ID, DECK_USE_ID, deckMenuOptions, deckOffersSurrender, useDeckSurrender } from "./deck-surrender";
 import { EquipChip, EquipLinksContext, useEquipRole } from "./equip-chip";
@@ -150,7 +150,7 @@ export function ZoneMarks({
   return (
     <>
       <span className={styles.glow} data-state={selected ? "picked" : "usable"} aria-hidden="true" />
-      <span className={styles.mark} aria-hidden="true">
+      <span className={styles.mark} data-zone-mark aria-hidden="true">
         {selected ? <Check size={11} strokeWidth={2.4} /> : <NibIcon />}
       </span>
     </>
@@ -231,8 +231,9 @@ export function ZoneSlot({
   const defense = card != null && isDefenseAt(card.location, card.position);
   const equipRole = useEquipRole(card);
   const equipText = equipSentence(equipRole);
-  // A face-up Xyz shows a material badge (CardFace): a click or tap on it opens the list of its materials instead of acting on the card.
-  const materials = onInspect && card && card.code != null && !isFacedown(card.position) ? card.materials ?? [] : [];
+  // A face-up Xyz shows a material badge (CardFace). A click or tap on it opens the list of its materials instead of acting on the
+  // card, unless the card is a legal target right now: then the tap picks it (the card menu and the inspector still list the materials).
+  const materials = onInspect && card && card.code != null && !isFacedown(card.position) && !legal ? card.materials ?? [] : [];
   const materialCount = card && card.code != null && !isFacedown(card.position) ? card.materials?.length ?? 0 : 0;
   const name = [label, equipText, materialCount > 0 ? `${materialCount} ${materialCount === 1 ? "material" : "materials"}` : null].filter(Boolean).join(". ");
 
@@ -245,6 +246,7 @@ export function ZoneSlot({
       data-selected={selected ? "true" : "false"}
       data-occupied={card ? "true" : "false"}
       data-equip={equipRole?.role}
+      data-materials-open={materials.length > 0 ? "true" : undefined}
       data-defense={defense ? "true" : "false"}
       data-side={flip ? "opp" : "you"}
       data-disabled={offId ? "true" : undefined}
@@ -263,7 +265,7 @@ export function ZoneSlot({
         onClick={(event) => {
           if (materials.length > 0 && event.target instanceof Element && event.target.closest("[data-materials-badge]")) {
             event.stopPropagation();
-            onInspect?.({ type: "pile", title: materialsTitle(materials.length), cards: materials });
+            onInspect?.(materialsTarget(card!, materials));
             return;
           }
           onActivate(keys, link === "taken" ? null : card, event.currentTarget);
@@ -278,7 +280,7 @@ export function ZoneSlot({
           {pendulum ? <span className={styles.pendulumMark} data-zone-label>P</span> : null}
           {card ? <CardFace card={card} sleeve={sleeve} /> : sleeve ? <CardFace card={null} sleeve={sleeve} /> : null}
           {atk ? (
-            <span className={styles.plate}>
+            <span className={styles.plate} data-card-plate>
               <b>{atk}</b>
               {def != null ? (
                 <>

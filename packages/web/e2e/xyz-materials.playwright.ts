@@ -12,6 +12,8 @@ import { buildProofPage } from "./proof-build.js";
  *   PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs PROOF_DIR=/tmp/xyz-proof DUEL_DATA_DIR=<engine data> \
  *     node --import tsx packages/web/e2e/xyz-materials.playwright.ts
  * PROOF_CASE = 1v1-domain (default), 1v1-standard or ffa3-domain. PROOF_WIDTH x PROOF_HEIGHT set the viewport; PROOF_TOUCH=1 taps.
+ * Besides the flow, every badge on the board (yours and the rival's) is measured against the ATK/DEF plate, the equip chip and the
+ * legal mark of its own card, with and without an equip card and with legal targets. The Tag stage runs the same checks and the tap.
  */
 const artifacts = resolve(process.env.PROOF_DIR ?? "/tmp/xyz-materials-proof");
 const kind = process.env.PROOF_CASE ?? "1v1-domain";
@@ -41,6 +43,8 @@ if (process.env.PROOF_BUILD_ONLY === "1") {
   const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--allow-file-access-from-files"] });
   try {
     const page = await browser.newPage({ viewport: { width, height }, reducedMotion: "reduce", hasTouch: touch, isMobile: touch, deviceScaleFactor: touch ? 2 : 1 });
+    // tsx wraps named functions in a __name helper that page.evaluate does not carry over.
+    await page.addInitScript("window.__name = (fn) => fn");
     const pageErrors: string[] = [];
     page.on("pageerror", (error: Error) => { pageErrors.push(error.message); });
     // No image cache here: label the art with local placeholders.
@@ -52,12 +56,46 @@ if (process.env.PROOF_BUILD_ONLY === "1") {
     const press = (locator: { click(): Promise<void>; tap(): Promise<void> }) => (touch ? locator.tap() : locator.click());
     const evidence: Record<string, unknown> = { kind, width, height, touch };
 
+    /** Every badge of the board against the plate, equip chip and legal mark of its own zone: no two boxes may touch. */
+    const measure = () => page.evaluate(() => {
+      const box = (node: Element | null) => { const r = node?.getBoundingClientRect(); return r && r.width > 0 && r.height > 0 ? { x: r.x, y: r.y, w: r.width, h: r.height } : null; };
+      const touches = (a: NonNullable<ReturnType<typeof box>>, b: NonNullable<ReturnType<typeof box>>) =>
+        a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+      return [...document.querySelectorAll("[data-materials-badge]")].map((badge) => {
+        const zone = badge.closest("[data-side]")!;
+        const own = box(badge)!;
+        const hits: string[] = [];
+        for (const [name, selector] of [["plate", "[data-card-plate]"], ["equip chip", "[data-equip-chip]"], ["legal mark", "[data-zone-mark]"]] as const) {
+          for (const other of zone.querySelectorAll(selector)) {
+            const found = box(other);
+            if (found && touches(own, found)) hits.push(name);
+          }
+        }
+        const card = box(zone.querySelector("button") ?? zone);
+        const chip = box(zone.querySelector("[data-equip-chip]"));
+        const mark = box(zone.querySelector("[data-zone-mark]"));
+        return { side: zone.getAttribute("data-side"), badge: own, card, chip, mark, hits, inside: !card || (own.x >= card.x - 3 && own.y >= card.y - 3 && own.x + own.w <= card.x + card.w + 3 && own.y + own.h <= card.y + card.h + 3) };
+      });
+    });
+    const checkNoOverlap = async (label: string, expectLegal: boolean, expectEquip: boolean, bothSides = format === "1v1") => {
+      const rows = await measure();
+      assert.ok(rows.length >= 2, `${label}: a badge on your Xyz and on the rival's Xyz`);
+      if (bothSides) assert.ok(rows.some((row) => row.side === "opp") && rows.some((row) => row.side !== "opp"), `${label}: both sides show a badge ${JSON.stringify(rows)}`);
+      for (const row of rows) assert.deepEqual(row.hits, [], `${label}: the ${row.side} badge touches ${row.hits.join(", ")} ${JSON.stringify(row)}`);
+      const marks = await page.locator("[data-zone-mark]").count();
+      const chips = await page.locator("[data-equip-chip]").count();
+      if (expectLegal) assert.ok(marks > 0, `${label}: legal marks show`);
+      if (expectEquip) assert.ok(chips > 0, `${label}: equip chips show`);
+      evidence[label] = { rows, marks, chips };
+    };
+
     await page.goto(pathToFileURL(html).href);
     const badge = page.locator("[data-materials-badge]").first();
     await badge.waitFor({ state: "visible" });
     assert.equal(await badge.getAttribute("data-materials-badge"), "2");
     assert.equal((await badge.textContent())?.trim(), "2");
     evidence.badgeBox = await badge.boundingBox();
+    await checkNoOverlap("board", false, false);
     await page.screenshot({ path: shot("1-board"), fullPage: true });
 
     // The badge opens the Materials view; each material shows and can be inspected.
@@ -69,6 +107,25 @@ if (process.env.PROOF_BUILD_ONLY === "1") {
     await page.screenshot({ path: shot("2-materials-view"), fullPage: true });
     await press(viewer.getByRole("button", { name: new RegExp(`^${XYZ_MATERIALS[0]}`) }));
     await page.screenshot({ path: shot("3-material-inspected"), fullPage: true });
+
+    // The view is live: a material that leaves the Xyz leaves the view, and a face-down Xyz shows none.
+    await page.evaluate(() => (window as unknown as { __detachOne(): void }).__detachOne());
+    await page.waitForFunction(() => /Materials \(1\)/.test(document.querySelector("[data-pile-viewer]")?.textContent ?? ""));
+    await page.evaluate(() => (window as unknown as { __flipDown(): void }).__flipDown());
+    await page.waitForFunction(() => !/Materials \([1-9]/.test(document.querySelector("[data-pile-viewer]")?.textContent ?? ""));
+
+    // Overlap proof: a badge next to an equip chip, and next to legal marks.
+    await page.goto(`${pathToFileURL(html).href}?equip=1`);
+    await page.locator("[data-materials-badge]").first().waitFor({ state: "visible" });
+    await checkNoOverlap("equip", false, true);
+    await page.screenshot({ path: shot("5-equip"), fullPage: true });
+    await page.goto(`${pathToFileURL(html).href}?legal=1&equip=1`);
+    await page.locator("[data-materials-badge]").first().waitFor({ state: "visible" });
+    await checkNoOverlap("legal", true, true);
+    await page.screenshot({ path: shot("6-legal"), fullPage: true });
+    // A legal target keeps its tap: the badge does not open the view.
+    await press(page.locator("[data-materials-badge]").first());
+    assert.equal(await page.locator("[data-pile-viewer]").count(), 0, "a legal target does not open Materials");
 
     // The card menu adds View materials.
     await page.goto(`${pathToFileURL(html).href}?menu=1`);
@@ -82,6 +139,22 @@ if (process.env.PROOF_BUILD_ONLY === "1") {
     await page.goto(pathToFileURL(html).href);
     await press(page.getByTestId("inspector-view-materials"));
     await page.locator("[data-pile-viewer]").waitFor({ state: "visible" });
+
+    // The Tag stage: the same measure, then a tap on the badge of the focused field.
+    await page.goto(`${pathToFileURL(html).href}?tag=1&equip=1`);
+    await page.locator("[data-materials-badge]").first().waitFor({ state: "visible" });
+    await checkNoOverlap("tag", false, true, false);
+    await page.screenshot({ path: shot("7-tag"), fullPage: true });
+    await page.goto(`${pathToFileURL(html).href}?tag=1&legal=1`);
+    await page.locator("[data-materials-badge]").first().waitFor({ state: "visible" });
+    await checkNoOverlap("tag-legal", true, false, false);
+    await page.goto(`${pathToFileURL(html).href}?tag=1`);
+    await page.locator("[data-materials-badge]").first().waitFor({ state: "visible" });
+    await press(page.locator("[data-materials-badge]").first());
+    if (!(await page.locator("[data-pile-viewer]").count())) await press(page.locator("[data-materials-badge]").first());
+    await page.locator("[data-pile-viewer]").waitFor({ state: "visible" });
+    assert.match((await page.locator("[data-pile-viewer]").textContent()) ?? "", /Materials \(2\)/);
+    await page.screenshot({ path: shot("8-tag-materials"), fullPage: true });
 
     assert.deepEqual(pageErrors, [], "render harness must have no browser errors");
     await writeFile(resolve(artifacts, `${kind}-${width}x${height}-evidence.json`), JSON.stringify(evidence, null, 2));

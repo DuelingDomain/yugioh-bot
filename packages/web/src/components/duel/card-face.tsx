@@ -10,11 +10,12 @@ import {
   LOCATION_EXTRA,
   LOCATION_HAND,
 } from "./constants";
+import { materialsTitle, type PileHost } from "./pile-focus";
 import styles from "./field.module.css";
 
-/** The title of the Materials view (the pile viewer) of an Xyz with `count` attached cards. */
-export function materialsTitle(count: number): string {
-  return `Materials (${count})`;
+/** The Materials view of an Xyz as an inspect target. It keeps the Xyz zone, so the open view follows the board. */
+export function materialsTarget(xyz: DuelCard, cards: DuelCard[]): { type: "pile"; title: string; cards: DuelCard[]; host: PileHost } {
+  return { type: "pile", title: materialsTitle(cards.length), cards, host: { controller: xyz.controller, location: xyz.location, sequence: xyz.sequence } };
 }
 
 /** Two stacked cards: the material mark of the badge. */

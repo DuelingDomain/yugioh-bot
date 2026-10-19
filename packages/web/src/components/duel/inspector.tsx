@@ -2,18 +2,19 @@
 
 import { useLayoutEffect, useRef, type CSSProperties, type RefObject } from "react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
-import { CardBack, materialsTitle } from "./card-face";
+import { CardBack, materialsTarget } from "./card-face";
 import { hasCardName, useDuelCardInfo } from "./card-info";
 import { cardTextStyle, useCardTextSize } from "./card-text-size";
 import { cardArtUrl, cardInspectLines, isHiddenCard } from "./constants";
 import { equipSentence, roleOfCard, type EquipLinks } from "./equip-links";
 import baseStyles from "./inspector.module.css";
+import type { PileHost } from "./pile-focus";
 import { useSkinStyles } from "./skin";
 
 export type InspectTarget =
   | { type: "card"; card: DuelCard }
   | { type: "info"; card: DuelCardInfo }
-  | { type: "pile"; title: string; cards: DuelCard[] };
+  | { type: "pile"; title: string; cards: DuelCard[]; host?: PileHost };
 
 /**
  * Mark the scroller that holds the Card tab when it shows the card pane. Its bottom rows then fade while the text has more to read
@@ -248,7 +249,7 @@ export function CardInspector({
             type="button"
             className={styles.materialsButton}
             data-testid="inspector-view-materials"
-            onClick={() => onViewMaterials({ type: "pile", title: materialsTitle(materials.length), cards: materials })}
+            onClick={() => onViewMaterials(materialsTarget(target.card, materials))}
           >
             View materials ({materials.length})
           </button>
