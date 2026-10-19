@@ -171,7 +171,7 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
         const owner: "you" | "opp" = first ? (first.controller === local && viewerSeat != null ? "you" : "opp") : "opp";
         setHover(null);
         if (hud) onPinCard?.(null);
-        setPile({ title: target.title, owner, cards: target.cards, open: true, seat: first?.controller });
+        setPile({ title: target.title, owner, cards: target.cards, open: true, seat: target.host?.controller ?? first?.controller, host: target.host });
         return;
       }
       setInspect(target);

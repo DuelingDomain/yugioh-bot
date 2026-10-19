@@ -1364,8 +1364,7 @@
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1;
-  /* The badge is a button in effect: a click or tap on it opens the Materials view (ZoneSlot reads data-materials-badge). Nothing moves on hover. */
-  cursor: pointer;
+  /* Only a count when it cannot open the view (a legal target, or no inspect handler): see [data-materials-open]. Nothing moves on hover. */
   transition:
     background-color 0.15s ease-out,
     border-color 0.15s ease-out;
@@ -1374,6 +1373,29 @@
 .zone[data-side="opp"] .overlayBadge {
   top: auto;
   bottom: 3px;
+}
+
+/* An equipped Xyz: the equip chip owns the corner next to the count, so the count sits one chip lower (below it on your side, above it on theirs). */
+.zone[data-equip] .overlayBadge {
+  top: calc(max(11px, calc(var(--z, 80px) * 0.12)) + 10px);
+}
+
+.zone[data-equip][data-side="opp"] .overlayBadge {
+  top: auto;
+  bottom: calc(max(11px, calc(var(--z, 80px) * 0.12)) + 10px);
+}
+
+/* The usable / picked mark hangs over the top edge in the middle; on your side the count sits below it (the rival's count is at the bottom). */
+.zone[data-legal="true"]:not([data-side="opp"]) .overlayBadge,
+.zone[data-selected="true"]:not([data-side="opp"]) .overlayBadge {
+  top: calc(max(15px, calc(var(--z, 80px) * 0.155)) - var(--z, 80px) * 0.085 + 3px);
+}
+
+.zone[data-equip]:is([data-legal="true"], [data-selected="true"]):not([data-side="opp"]) .overlayBadge {
+  top: max(
+    calc(max(15px, calc(var(--z, 80px) * 0.155)) - var(--z, 80px) * 0.085 + 3px),
+    calc(max(11px, calc(var(--z, 80px) * 0.12)) + 10px)
+  );
 }
 
 /* A larger invisible hit area around the badge (the card is small); it stays inside the card frame. */
@@ -1398,8 +1420,13 @@
   stroke-linejoin: round;
 }
 
+/* The badge opens the Materials view (ZoneSlot reads data-materials-badge) only while the zone carries data-materials-open. */
+.zone[data-materials-open] .overlayBadge {
+  cursor: pointer;
+}
+
 @media (hover: hover) {
-  .zoneHit:hover .overlayBadge:hover {
+  .zone[data-materials-open] .zoneHit:hover .overlayBadge:hover {
     border-color: var(--chain-ink);
     background: #241a07;
   }

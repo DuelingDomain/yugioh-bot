@@ -7,7 +7,7 @@ import { resolveEquipLinks } from "../equip-links";
 import { DeckMasterRail } from "../field";
 import { DuelHistoryRail } from "../history-rail";
 import { CardInspector, cardScrollerProps } from "../inspector";
-import { livePileCards } from "../pile-focus";
+import { livePileCards, livePileTitle } from "../pile-focus";
 import { useLiveChainLinks } from "../pile-chain-marks";
 import { PileViewer } from "../pile-viewer";
 import { optionsForCard, PromptTray } from "../prompts";
@@ -287,7 +287,7 @@ export function TagPileViewer({ controller, ui }: { controller: TableController;
   const tone = ownerSeat == null ? undefined : seatTones.get(ownerSeat);
   return (
     <PileViewer
-      title={pile.title}
+      title={livePileTitle(pile, livePileCards(pile, engine, viewerSeat))}
       owner={owner}
       ownerTag={ownerSeat != null && tone ? { name: nameOf(ownerSeat), tone } : null}
       open={pile.open}

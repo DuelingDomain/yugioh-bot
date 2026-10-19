@@ -138,7 +138,7 @@ import type { SolidRoomProps } from "./solid/solid-room";
 import { buildAttackPreview } from "./solid/attack-preview";
 import { useLiveChainLinks } from "./pile-chain-marks";
 import { PileViewer } from "./pile-viewer";
-import { livePileCards, shouldClosePileForPrompt, type PileView } from "./pile-focus";
+import { livePileCards, livePileTitle, shouldClosePileForPrompt, type PileView } from "./pile-focus";
 import { MatchSheetLog } from "./text-log";
 import { withDestroyCards } from "./destroy-cards";
 import { usePreviousSeats, withMasterSummonMoves } from "./master-summon-moves";
@@ -775,7 +775,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       if (hud) hudState.pinCard(null);
       // Tables of 3 or 4 seats: the owner is the controller of the pile's cards, not "the other seat".
       const pileSeat = first && isMultiSeat(data?.engine) ? first.controller : undefined;
-      setPile({ title: target.title, owner, cards: target.cards, open: true, seat: pileSeat });
+      setPile({ title: target.title, owner, cards: target.cards, open: true, seat: pileSeat, host: target.host });
       return;
     }
     setInspect(target);
@@ -1703,7 +1703,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         revealed={revealed} onInspectCard={inspectInfo} nameOf={playerName} />
       </RowPreviewBoundary>
       {pile ? (
-        <PileViewer title={pile.title} owner={pile.owner} open={pile.open}
+        <PileViewer title={livePileTitle(pile, livePileCards(pile, engine, localSeat))} owner={pile.owner} open={pile.open}
           cards={livePileCards(pile, engine, localSeat)} onClose={closePile}
           onInspectCard={(card) => { setInspect({ type: "card", card }); if (pane !== "log") setPane("card"); }}
           onHoverCard={(card) => { if (pane === "card" && !hud) setInspect({ type: "card", card }); }}

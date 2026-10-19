@@ -3,6 +3,7 @@
 import { afterEach, beforeAll, expect, it, vi } from "vitest";
 import { populateGlobal } from "vitest/runtime";
 import type { DuelCard } from "@yugidraft/shared/duels";
+import { livePileCards, livePileTitle, type PileHost } from "../src/components/duel/pile-focus";
 import { describeWithCores, needs } from "../../duel-server/tests/support/cores";
 import { XYZ_MATERIALS, XYZ_NAME, xyzMaterialsGame } from "../../duel-server/tests/support/xyz-materials";
 
@@ -87,10 +88,58 @@ for (const item of cases) {
           fireEvent.click(badge);
           expect(onActivate).not.toHaveBeenCalled();
           expect(onInspect).toHaveBeenCalledTimes(1);
-          const target = onInspect.mock.calls[0][0] as { type: string; title: string; cards: DuelCard[] };
+          const target = onInspect.mock.calls[0][0] as { type: string; title: string; cards: DuelCard[]; host?: PileHost };
           expect(target.type).toBe("pile");
+          expect(target.host).toEqual({ controller: card.controller, location: card.location, sequence: card.sequence });
+          expect(document.querySelector("[data-materials-open]")).toBeTruthy();
           expect(target.title).toBe("Materials (2)");
           expect(target.cards.map((material) => material.name)).toEqual(XYZ_MATERIALS);
+          // A legal target (an attack target, a card pick): a tap on the badge picks the card; no Materials view opens.
+          cleanup();
+          const onPick = vi.fn();
+          const onInspectLegal = vi.fn();
+          render(
+            <ZoneSlot card={card} label="Monster zone 1" kind="mz" keys={["0:4:0"]} legalKeys={new Set(["0:4:0"])} selectedKeys={new Set()}
+              showStats onActivate={onPick} onInspect={onInspectLegal} />,
+          );
+          expect(document.querySelector("[data-materials-open]")).toBeNull();
+          fireEvent.click(document.querySelector("[data-materials-badge]")!);
+          expect(onPick).toHaveBeenCalledTimes(1);
+          expect(onInspectLegal).not.toHaveBeenCalled();
+          cleanup();
+          render(
+            <ZoneSlot card={card} label="Monster zone 1" kind="mz" keys={["0:4:0"]} legalKeys={new Set()} selectedKeys={new Set()}
+              showStats onActivate={onActivate} onInspect={onInspect} />,
+          );
+
+          // The open view follows the board: one material less shows 1; a face-down Xyz or an empty zone shows none.
+          const pileView = { title: target.title, owner: "you" as const, cards: target.cards, open: true, host: target.host };
+          const engineView = game.view(viewer);
+          expect(livePileCards(pileView, engineView, 0).map((material) => material.name)).toEqual(XYZ_MATERIALS);
+          const withXyz = (change: (xyz: DuelCard) => DuelCard | null) => ({
+            ...engineView,
+            seats: engineView.seats.map((seatView) => ({
+              ...seatView,
+              monsters: seatView.monsters.map((entry) => (entry && entry.sequence === card.sequence && entry.controller === card.controller ? change(entry) : entry)),
+            })),
+          });
+          const fewer = withXyz((xyz) => ({ ...xyz, materials: xyz.materials?.slice(1) }));
+          expect(livePileCards(pileView, fewer, 0).map((material) => material.name)).toEqual(XYZ_MATERIALS.slice(1));
+          expect(livePileTitle(pileView, livePileCards(pileView, fewer, 0))).toBe("Materials (1)");
+          expect(livePileCards(pileView, withXyz((xyz) => ({ ...xyz, position: 0x8 })), 0)).toEqual([]);
+          expect(livePileCards(pileView, withXyz(() => null), 0)).toEqual([]);
+          cleanup();
+          const shown = livePileCards(pileView, fewer, 0);
+          const viewer1 = render(<PileViewer title={livePileTitle(pileView, target.cards)} cards={target.cards} owner="you" open onClose={vi.fn()} onInspectCard={vi.fn()} reducedMotion />);
+          expect(screen.getByText("Materials (2)")).toBeTruthy();
+          viewer1.rerender(<PileViewer title={livePileTitle(pileView, shown)} cards={shown} owner="you" open onClose={vi.fn()} onInspectCard={vi.fn()} reducedMotion />);
+          expect(screen.getByText("Materials (1)")).toBeTruthy();
+          cleanup();
+          render(
+            <ZoneSlot card={card} label="Monster zone 1" kind="mz" keys={["0:4:0"]} legalKeys={new Set()} selectedKeys={new Set()}
+              showStats onActivate={onActivate} onInspect={onInspect} />,
+          );
+
           // A click on the card itself still acts on it.
           fireEvent.click(screen.getByRole("button", { name: /2 materials/ }));
           expect(onActivate).toHaveBeenCalledTimes(1);
@@ -109,7 +158,7 @@ for (const item of cases) {
           render(<CardInspector target={{ type: "card", card }} onViewMaterials={onViewMaterials} />);
           expect(screen.getByText(`Materials (2): ${XYZ_MATERIALS.join(", ")}`)).toBeTruthy();
           fireEvent.click(screen.getByTestId("inspector-view-materials"));
-          expect(onViewMaterials).toHaveBeenCalledWith({ type: "pile", title: "Materials (2)", cards: card.materials });
+          expect(onViewMaterials).toHaveBeenCalledWith({ type: "pile", title: "Materials (2)", cards: card.materials, host: target.host });
           cleanup();
 
           // The card action menu adds "View materials" after the engine options; it answers nothing.
