@@ -212,7 +212,11 @@ const SELF = /\b(?:itself|themselves|this card|its own self)\b/;
 const WORKS_FROM =
   /\b((?:gy|hand|banished|banishment) effects?|effects? (?:that (?:work|activate|apply) )?(?:in|from|while in) (?:the |your )?(gy|hand)|(?:activates?|usable|works?|used) (?:from|in) (?:the |your )?(gy|hand)|while (?:in (?:the |your )?(gy|hand)|(banished)))\b/;
 const QUICK = /\bquick effects?\b|\bspell speed 2\b|\b(?:during|on|in) (?:the |my |your )?(?:opponent'?s?|either(?: player'?s?)?) turns?\b/;
-const SUPPORT = /\bsupports?\b|\b(?:works?|good|goes|synerg\w+) (?:well )?(?:with|in|for)(?= )/;
+const SUPPORT_PREFIX = /\b(?:supports?(?: for)?|(?:what )?(?:works?|good|goes|synerg\w+) (?:well )?(?:with|in|for)|cards for)(?= )/;
+const SUPPORT_SUFFIX = /\b(?:supports?|synerg(?:y|ies)|combos?|partners?|staples?|related cards)\b/;
+const SUPPORT = new RegExp(`${SUPPORT_PREFIX.source}|${SUPPORT_SUFFIX.source}`);
+const SUPPORT_TARGET_BEFORE = new RegExp(`^(.*?)\\s+(?:${SUPPORT_SUFFIX.source}|deck)$`);
+const SUPPORT_TARGET_AFTER = new RegExp(`(?:${SUPPORT_PREFIX.source})\\s+(.+)$`);
 const CUE = /\b(?:when(?:ever)?|if|upon|after|every time|each time|triggers?(?: when| if| on)?|reacts? to|responds? to|in response to|benefits? from|rewards?|punish(?:es)?)\b|\bon(?= (?:summon|being|normal|special|flip|destruction|leaving))/;
 const AUXILIARY = /\b(?:is|are|gets?|got|being|been|was|were)\b/;
 const BOUNDARY = /[,;:]|\bthen\b|\byou can\b/;
@@ -323,14 +327,17 @@ export function buildArchetypeMatcher(names: Iterable<string>): (text: string) =
   const pattern = new RegExp(`(?<![\\w-])(?:${alternatives.join("|")})(?![\\w-])`, "g");
   return text => {
     const exact = [...text.matchAll(pattern)].map(match => ({ name: byKey.get(compactEffectName(match[0]))!, start: match.index, end: match.index + match[0].length }));
-    if (exact.length) return exact;
-    // Only attempt a typo correction in an explicit support phrase, keeping ordinary effect reads cheap.
-    const phrase = text.match(/^(.*?)\s+support(?:s)?$/)?.[1]
-      ?? text.match(/(?:support(?:s)?(?: for)?|(?:synergy|works?)(?: well)? with)\s+(.+)$/)?.[1];
-    if (!phrase) return [];
-    const found = resolveEffectName(entries, phrase);
+    // Correct the whole support target even if a shorter archetype matched:
+    // "elemntal hero synergies" must not stop at the exact "HERO" substring.
+    const phrase = text.match(SUPPORT_TARGET_BEFORE)?.[1] ?? text.match(SUPPORT_TARGET_AFTER)?.[1];
+    if (!phrase) return exact;
+    // Generic targets belong to the Type/Attribute rules, not a nearby archetype
+    // such as "Dragonmaid" for "dragon deck" or "Lightsworn" for "light deck".
+    if (phrase.split(/[- ]+/).every(word => VOCABULARY_WORDS.has(word) || TYPE_RULES.some(([pattern]) => pattern.test(word)))) return exact;
     const start = text.indexOf(phrase);
-    return found ? [{ name: found.name, start, end: start + phrase.length }] : [];
+    if (exact.some(match => match.start === start && match.end === start + phrase.length)) return exact;
+    const found = resolveEffectName(entries, phrase);
+    return found ? [{ name: found.name, start, end: start + phrase.length }] : exact;
   };
 }
 
@@ -394,6 +401,8 @@ export function interpret(
     if (free(start, end)) marks.push({ type: "archetype", archetype: name, start, end });
   }
   scan(SUPPORT, () => ({ type: "support" }));
+  // "HERO deck" asks for partners; "DARK monsters that search the deck" names an action's zone.
+  if (!marks.some(mark => mark.type === "verb")) scan(/\bdeck$/, () => ({ type: "support" }));
   scan(CUE, () => ({ type: "cue" }));
   scan(SELF, () => ({ type: "self" }));
   scan(/\band (?:is|are)\b/, () => ({ type: "cardCue" }));
@@ -551,6 +560,8 @@ export function interpret(
     query.card.attributes = [];
   }
   if (!isEmptyObject(supports)) query.supports = supports;
+  // A bare "deck" is support wording only when there is a target to work with.
+  else unused.push(...marks.filter(mark => mark.type === "support" && text.slice(mark.start, mark.end) === "deck"));
 
   const strip = ({ verbs, from, player, self, object }: EventQuery): EventQuery => ({ verbs, from: [...new Set(from)], player, self, object });
   if (does) query.does = strip(does);
