@@ -153,6 +153,45 @@ export interface SystemData {
   commit?: { short: string; url: string } | null;
   /** SQLite file and write-ahead log size in bytes; null for an in-memory database. */
   database?: { bytes: number; walBytes: number } | null;
+  /** One row per service, in display order. */
+  services?: ServiceHealth[];
+  /** STRIP (optional): services down or stale, plus one when disk space is at warn or fail. 0 = "All systems up". */
+  problems?: number;
+  /** Filesystem that holds the data volume. Null when the data directory cannot be read. */
+  disk?: DiskStatus | null;
+}
+export type ServiceState = "up" | "down" | "stale" | "not-deployed" | "not-configured";
+export interface ServiceHealth {
+  id: "web" | "duel" | "worker" | "ws" | "bot" | "database";
+  label: string;
+  state: ServiceState;
+  /** One short, safe sentence. Never a URL or key. */
+  detail: string;
+  latencyMs?: number | null;
+  lastBeatAt?: number | null;
+}
+/** Snapshot the worker stores every ~10 minutes (packages/worker/src/disk-usage.ts). */
+export interface DiskBreakdown {
+  measuredAt: number;
+  dataBytes: number;
+  database: { bytes: number; walBytes: number };
+  images: { bytes: number; capBytes: number };
+  engine: { bytes: number } | null;
+  backups: { bytes: number } | null;
+  other: { bytes: number };
+}
+export interface DiskStatus {
+  totalBytes: number;
+  usedBytes: number;
+  freeBytes: number;
+  /** 0 to 100, one decimal. */
+  usedPercent: number;
+  /** warn at 80 % used or under 10 GB free; fail at 90 % used or under 5 GB free. */
+  tone: "ok" | "warn" | "fail";
+  /** Null until the worker has measured once. */
+  breakdown: DiskBreakdown | null;
+  /** Used bytes over the last 7 days, oldest first (at most 56 points); null without history. */
+  trend: { values: number[]; daysUntilFull: number | null } | null;
 }
 
 export interface SectionDataMap {

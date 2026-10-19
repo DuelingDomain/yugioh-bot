@@ -1272,6 +1272,17 @@ export function migrate(db: Database.Database) {
       at integer not null,
       pid integer
     );
+    -- Written by the worker every ~10 minutes (directory sizes are slow); the admin System section reads it.
+    create table if not exists disk_usage_snapshot (
+      id integer primary key check (id = 1),
+      at integer not null,
+      json text not null
+    );
+    -- One row per hour of filesystem used bytes, kept for 7 days, for the growth trend.
+    create table if not exists disk_usage_history (
+      at integer primary key,
+      used_bytes integer not null
+    );
   `);
 
   // Draft privacy follows identity migration so grants reference application users.
