@@ -137,7 +137,7 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    It waits only 15 minutes for the VM build lock; missing `flock` fails closed.
    Before checkout changes or backups, it runs `scripts/deployment/check-prod-activity.py`
    from the workflow revision against the VM's `data/bot.sqlite`. It opens SQLite with `mode=ro` and `query_only=on`.
-   One snapshot counts active duels and lobby duels with RPS/dice openings, active drafts, open/pending-approval rounds in active tournaments,
+   One snapshot counts live duels and lobby duels with RPS/dice openings, active drafts, open/pending-approval rounds in active tournaments,
    and active/between-game series. Committed WAL writes are included. Missing, locked, corrupt or incomplete
    DBs refuse immediately. Automatic runs use `--live-only`: only duels/openings and active drafts block;
    tournament rounds and series are logged for information. They recheck every 120 seconds for up to 60 minutes,
@@ -146,9 +146,11 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    unless `force=true` was explicitly set. Automatic runs always use `force=false` and `rollback=false`.
    Force skips only the activity guard; it never disables the engine preflight, lock or backups.
    It then runs the existing **preflight** before anything on the VM changes: the install script from that commit runs with
-   `DUEL_PREFLIGHT=1` on the new bundle and installs nothing. It refuses while a duel has `status = 'active'`
+   `DUEL_PREFLIGHT=1` on the new bundle and installs nothing. Both read-only guards ignore play duels with more than
+   **10 minutes** since `last_activity_at` (falling back to `started_at`, then `created_at`), unless a seat's running
+   decision clock still has time. Missing activity evidence remains protected. It refuses while a live duel has `status = 'active'`
    in `data/bot.sqlite` and the base bundle would be replaced (a locked or corrupt DB fails closed).
-   For a new multi core under an identical base bundle, only an active Tag/FFA duel refuses. On refusal, the old
+   For a new multi core under an identical base bundle, only a live Tag/FFA duel refuses. On refusal, the old
    checkout, images and containers stay as they were. The transfer tarball and preflight files use
    `mktemp` paths and are removed on refusal or any other exit.
    After preflight, the helper checks free space on Docker's disk. It requires at least **6 GiB free**
@@ -333,15 +335,33 @@ updates still arrive. Roll back all communicating services together if needed.
 
 The multiplayer merge changes the Standard and Domain cores, so its first deploy replaces the bundle. Before it:
 
-1. Count the active duels. The count must be 0:
-   `sqlite3 -readonly /opt/yugioh-bot/data/bot.sqlite "select count(*) from duels where status = 'active'"`
-   (or let the preflight do it: it prints the count and stops the deploy).
+1. Let the engine preflight count live duels. It refuses a base-bundle replacement while any live duel remains,
+   or a multi-core replacement while a live Tag/FFA table remains. An hours-idle active row does not block deployment.
 2. Do not start new tables until the deploy has finished. Tell the players first. A table that starts after the
    preflight is caught by the second check, but then the deploy stops after the images were pulled.
 3. After the deploy, the duel container must be `running restarts=0` (the workflow checks this).
 4. Watch memory for the first days (`docker stats --no-stream`). The duel service has `mem_limit` 1g
    (`DUEL_MEM_LIMIT`). The first game loads the card database and scripts (about 114 MB). Each game adds about 2.4 to
    4 MB.
+
+The duel host owns live-table idle expiry. On startup and each normal polling sweep (default 30 seconds), it interrupts
+1v1, Tag, FFA3 and FFA4 games after **10 minutes without player input**, once any running decision clock has elapsed.
+Accepted responses and explicit chain-response switch changes renew activity. Views, heartbeats, journal recovery,
+bot/autopilot steps and automatic time-limit eliminations do not. A player thinking within their funded clock keeps
+that time; ordinary shorter time-limit losses still use the existing clock path. Idle cleanup runs before clock losses,
+so an abandoned table found after a restart produces no winner. Waiting-lobby expiry keeps its separate existing timeout.
+
+Idle games use the existing `interrupted` end state with reason `No player activity for 10 minutes.`, null winner and
+clock, an end/archive timestamp, and no match/rating result. The host saves final boards when a worker is resident,
+keeps the seed/setup/command journal for replay, frees the worker and publishes the usual WS invalidation. An interrupted
+series waits between games with unchanged wins and no next-game timer; players must explicitly ready again.
+If its tournament has already ended, the series is cancelled instead.
+
+During deployment, preflight and the gameplay activity check stay read-only while services run. After stopping
+web, duel, worker and WS and taking the drained backup, the installer transactionally interrupts stale rows before
+checking the engine guard. It applies the same timestamp/clock rule and interruption state, retains replay journals,
+and leaves live games protected. No fresh final board is available with the duel service stopped. Clients refetch the
+closed state when WS reconnects. `force=true` still bypasses only the gameplay guard; it cannot replace a live table's core.
 
 The duel host defaults to `DUEL_MAX_WORKERS=12` across live games and replay rebuilds,
 `DUEL_MAX_TABLES_PER_PLAYER=3` for each seated player at in-progress Tables, `DUEL_WORKER_HEAP_MB=256` per worker heap,

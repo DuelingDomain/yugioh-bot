@@ -1,5 +1,5 @@
 import { ExpectedError, errorResponseBody, log, report } from "@yugidraft/shared/observability";
-import { createStoredBoardReader, readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, type StoredDuelBoards } from "@yugidraft/shared/services";
+import { createStoredBoardReader, readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, DUEL_LIVE_IDLE_REASON, type StoredDuelBoards } from "@yugidraft/shared/services";
 import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
@@ -992,6 +992,7 @@ export function createDuelHost(options: {
     decidedAt: number,
     afterEventId: number,
     note?: string,
+    touchActivity = true,
   ): Promise<void> {
     const state = service.privateState(slug, guildId);
     if (isReplayFork(state.session)) {
@@ -1018,7 +1019,10 @@ export function createDuelHost(options: {
     );
     // The journal keeps the reason of a scripted bot in `note`. Replay reads only promptId, revision and answer.
     options.db.transaction(() => {
-      service.recordCommand(slug, guildId, seat, note ? ({ ...command, note } as DuelCommand) : command, clock);
+      service.recordCommand(slug, guildId, seat, note ? ({ ...command, note } as DuelCommand) : command, clock, {
+        touchActivity: touchActivity && !state.session.seats.some(s => s.seat === seat && s.isBot)
+          && !(state.setup?.surrenderedSeats ?? []).includes(seat),
+      });
       persistEliminatedSeats(slug, guildId, state, after);
     })();
     if (entry) {
@@ -1530,7 +1534,7 @@ export function createDuelHost(options: {
     }
     const command: DuelCommand = { promptId: `${ELIMINATE_PROMPT_PREFIX}${code}`, revision: before.revision, answer: {} };
     try {
-      await persistAcceptedCommand(slug, guildId, seat, command, game, now(), newestEventId(before));
+      await persistAcceptedCommand(slug, guildId, seat, command, game, now(), newestEventId(before), undefined, code === WIN_REASON_SURRENDER);
     } catch (error) {
       // Applied but not journaled: drop the worker so the next request rebuilds the duel from the journal.
       await disposeGame(slug);
@@ -3420,8 +3424,8 @@ export function createDuelHost(options: {
         await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt, newestEventId(before));
       } else {
         // The clock is not touched: the stored clock goes back in as it is.
-        // Nor does it count as activity: /api/duels shows lastActivityAt to everyone and this change is private.
-        service.recordCommand(slug, guildId, seat, command, state.clock, { touchActivity: false });
+        // A player's explicit switch change renews idle time even when it passes no response window.
+        service.recordCommand(slug, guildId, seat, command, state.clock);
       }
     } catch (error) {
       // Applied but not journaled: drop the worker so the next request rebuilds the duel from the journal.
@@ -3451,6 +3455,37 @@ export function createDuelHost(options: {
   async function tick(): Promise<void> {
     if (stopped) return;
     const t = now();
+    // Run before clock losses: a table abandoned across a restart must not award a ranked win.
+    // The query protects funded decision clocks and includes tables with no resident worker.
+    try {
+      for (const item of service.dueIdleDuels(t, ARCHIVE_SWEEP_LIMIT)) {
+        if (stopped) return;
+        try {
+          await enqueue(item.slug, async () => {
+            if (stopped) return;
+            let snapshots: DuelFinalSnapshots | undefined;
+            const entry = games.get(item.slug);
+            if (entry?.game.running) {
+              try {
+                snapshots = await captureSnapshots(entry.game, service.get(item.slug, item.guildId).format, null, DUEL_LIVE_IDLE_REASON);
+              } catch (error) {
+                // A failed final view must not keep an abandoned table active. Its journal is retained.
+                report(error, { tags: { operation: "[duel] idle final snapshot failed" } });
+              }
+            }
+            const session = service.interruptIdle(item.slug, item.guildId, now(), snapshots);
+            if (!session) return;
+            await disposeGame(item.slug);
+            await emitChange(item.slug, item.guildId);
+            await afterGameEnded(item.slug, item.guildId);
+          });
+        } catch (error) {
+          report(error, { tags: { operation: "[duel] live idle sweep failed" } });
+        }
+      }
+    } catch (error) {
+      report(error, { tags: { operation: "[duel] live idle sweep failed" } });
+    }
     try {
       // Casual lobbies have no backoff entry and may never be read again after a blocked start.
       for (const [slug, entry] of deckStartBlocks) {

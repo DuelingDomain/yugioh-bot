@@ -74,8 +74,15 @@ const MAX_SIDE = 15;
 export const PRACTICE_BOT_NAME = "Practice Bot";
 const ARCHIVE_DUE_CAP = 32;
 const CLOCK_DUE_CAP = 32;
-/** Other players' lobbies and active duels stay in Live tables this long after their last activity. */
-export const DUEL_LIVE_IDLE_AFTER_MS = 15 * 60 * 1000;
+/** Live play expires after this long without player input, once any funded decision clock has elapsed. */
+export const DUEL_LIVE_IDLE_AFTER_MS = 10 * 60 * 1000;
+export const DUEL_LIVE_IDLE_REASON = "No player activity for 10 minutes.";
+
+// Keep the deploy installer's offline interruption and activity guard in sync with this predicate.
+const LIVE_IDLE_SQL = `kind = 'play' and status = 'active'
+  and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday(@before)
+  and coalesce(json_extract(clock_json, '$.startedAt')
+    + json_extract(clock_json, '$.remainingMs[' || json_extract(clock_json, '$.activeSeat') || ']'), 0) <= @now`;
 
 function isTerminalStatus(status: string): status is DuelStatus {
   return status === "completed" || status === "interrupted" || status === "cancelled";
@@ -169,6 +176,9 @@ export interface DuelService {
   /** Player input in a waiting room or its deck editor renews the idle deadline. Passive reads do not. */
   touchWaiting(slug: string, guildId: string, playerId: number): DuelWaitingActivity;
   expireWaitingTables(nowMs: number, limit: number): DuelSession[];
+  dueIdleDuels(nowMs: number, limit: number): Array<{ slug: string; guildId: string }>;
+  /** Rechecks activity transactionally: a queued player response can save a sweep candidate. */
+  interruptIdle(slug: string, guildId: string, nowMs: number, snapshots?: DuelFinalSnapshots): DuelSession | null;
   create(input: {
     guildId: string;
     organizerPlayerId: number;
@@ -633,6 +643,14 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
   const touchActivity = (duelId: number) => updateActivity.run(new Date().toISOString(), duelId);
   const updateSetup = db.prepare<[string | null, number]>("update duels set setup_json = ? where id = ?");
   const updateClock = db.prepare<[string | null, number]>("update duels set clock_json = ? where id = ?");
+  const selectIdle = db.prepare<{ before: string; now: number; limit: number }, { slug: string; guildId: string }>(`
+    select web_slug as slug, guild_id as guildId from duels where ${LIVE_IDLE_SQL}
+    order by julianday(coalesce(last_activity_at, started_at, created_at)), id limit @limit
+  `);
+  const selectIdleSlug = db.prepare<{ slug: string; guildId: string; before: string; now: number }>(`
+    select 1 from duels where web_slug = @slug and guild_id = @guildId and ${LIVE_IDLE_SQL}
+  `);
+  const idleAt = (nowMs: number) => ({ before: new Date(nowMs - DUEL_LIVE_IDLE_AFTER_MS).toISOString(), now: nowMs });
   const listLive = db.prepare<Record<string, string | number>, DuelListItemRow>(
     `
       select ${DUEL_LIST_COLUMNS},
@@ -1715,6 +1733,17 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
 
     recordCommand(slug, guildId, seat, command, clock, options) {
       recordCommandTx(slug, guildId, seat, command, clock, options?.touchActivity !== false);
+    },
+
+    dueIdleDuels(nowMs, limit) {
+      return selectIdle.all({ ...idleAt(nowMs), limit });
+    },
+
+    interruptIdle(slug, guildId, nowMs, snapshots) {
+      return db.transaction(() => {
+        if (!selectIdleSlug.get({ slug, guildId, ...idleAt(nowMs) })) return null;
+        return finalizeTx(slug, guildId, "interrupted", null, DUEL_LIVE_IDLE_REASON, snapshots);
+      }).immediate();
     },
 
     complete(slug, guildId, winnerSeat, reason, snapshots) {

@@ -6,6 +6,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
+import { migrate } from "@yugidraft/shared/db";
+import { createDuelSeriesService, createDuelService } from "@yugidraft/shared/services";
+import { seedIdentity } from "./helpers/identity.js";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "install-engine-bundle.sh");
 const roots: string[] = [];
@@ -240,6 +243,79 @@ describe("install-engine-bundle.sh install", () => {
     expect(run(f, false).status).toBe(0);
     expect(readFileSync(join(f.dst, "ocgcore.multi.wasm"), "utf8")).toBe("m2");
     expect(readFileSync(join(f.dst, "ocgcore.standard.wasm"), "utf8")).toBe(standardBefore);
+  });
+});
+
+describe("install-engine-bundle.sh idle duels with the application schema", () => {
+  it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("closes stale %s duels after stop but still refuses a live duel", format => {
+    const f = fixture({ tag: "old", multi: "m1" }, { tag: "new", multi: "m2" }, []);
+    const db = new Database(join(f.root, "data", "bot.sqlite"));
+    try {
+      db.exec("drop table duels"); migrate(db);
+      const owner = seedIdentity(db, { guildId: "g", name: "Owner" }).playerId;
+      const service = createDuelService(db);
+      const create = (name: string) => service.create({ guildId: "g", organizerPlayerId: owner, name, mode: "normal", format });
+      const stale = create("Stale"), live = create("Live");
+      db.prepare("update duels set status = 'active', seed_json = '[\"1\"]', bundle_version = 'saved', last_activity_at = datetime('now', '-2 hours') where id = ?").run(stale.id);
+      db.prepare("update duels set status = 'active', last_activity_at = datetime('now', '-1 minute') where id = ?").run(live.id);
+      db.prepare("insert into duel_commands (duel_id, seq, seat, command_json) values (?, 1, 0, '{}')").run(stale.id);
+      const before = snapshot(f.dst);
+      // Before stopping the services the check is read-only, even if another live game refuses deployment.
+      const preflight = run(f, true);
+      expect(preflight.status, preflight.out).toBe(1);
+      expect(preflight.out).toContain("1 active");
+      expect(service.get(stale.slug, "g").status).toBe("active");
+      const refused = run(f, false);
+      expect(refused.status, refused.out).toBe(1);
+      expect(refused.out).toContain("1 active");
+      expect(snapshot(f.dst)).toEqual(before);
+      expect(service.get(stale.slug, "g")).toMatchObject({ status: "interrupted", winnerSeat: null, winnerPlayerId: null,
+        resultReason: "No player activity for 10 minutes." });
+      expect(service.get(live.slug, "g").status).toBe("active");
+      expect(db.prepare("select ended_at is not null as ended, archived_at is not null as archived, clock_json from duels where id = ?").get(stale.id))
+        .toEqual({ ended: 1, archived: 1, clock_json: null });
+      expect(service.privateState(stale.slug, "g").commands).toHaveLength(1);
+      db.prepare("update duels set last_activity_at = datetime('now', '-2 hours') where id = ?").run(live.id);
+      expect(run(f, true).status).toBe(0);
+      expect(service.get(live.slug, "g").status).toBe("active");
+      const installed = run(f, false);
+      expect(installed.status, installed.out).toBe(0);
+      expect(service.get(live.slug, "g").status).toBe("interrupted");
+      expect(snapshot(f.dst)).toEqual(snapshot(f.src));
+      expect(db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
+    } finally { db.close(); }
+  });
+
+  it.each([false, true])("preserves a funded clock and closes a ranked series without a score (closed tournament=%s)", closedTournament => {
+    const f = fixture({ tag: "old" }, { tag: "new" }, []);
+    const db = new Database(join(f.root, "data", "bot.sqlite"));
+    try {
+      db.exec("drop table duels"); migrate(db);
+      const owner = seedIdentity(db, { guildId: "g", name: "Owner" }).playerId;
+      const guest = seedIdentity(db, { guildId: "g", name: "Guest" }).playerId;
+      const series = createDuelSeriesService(db);
+      const { duel, series: match } = series.createChallenge({ guildId: "g", challengerPlayerId: owner, opponentPlayerId: guest,
+        bestOf: 3, ranked: true, mode: "normal" });
+      db.prepare("update duel_series set status = 'active' where id = ?").run(match.id);
+      if (closedTournament) {
+        const tournament = db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id) select 'g', 'Finished cup', 'single_elim', 'completed', user_id from players where id = ?").run(owner);
+        const slot = db.prepare("insert into tournament_matches (tournament_id, player_one_id, player_two_id, round_number, status) values (?, ?, ?, 1, 'open')")
+          .run(tournament.lastInsertRowid, owner, guest);
+        db.prepare("update duel_series set tournament_match_id = ? where id = ?").run(slot.lastInsertRowid, match.id);
+      }
+      const clock = { turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * 60_000, remainingMs: [12 * 60_000, 12 * 60_000] };
+      db.prepare("update duels set status = 'active', last_activity_at = datetime('now', '-11 minutes'), clock_json = ? where id = ?")
+        .run(JSON.stringify(clock), duel.id);
+      expect(run(f, true).status).toBe(1);
+      expect(run(f, false).status).toBe(1);
+      expect(series.get(match.id, "g").status).toBe("active");
+      clock.startedAt -= 2 * 60_000;
+      db.prepare("update duels set clock_json = ? where id = ?").run(JSON.stringify(clock), duel.id);
+      const result = run(f, false);
+      expect(result.status, result.out).toBe(0);
+      expect(series.get(match.id, "g")).toMatchObject({ status: closedTournament ? "cancelled" : "between_games", wins: [0, 0], nextGameAt: null });
+      expect(db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
+    } finally { db.close(); }
   });
 });
 
