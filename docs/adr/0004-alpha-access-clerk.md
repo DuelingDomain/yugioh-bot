@@ -34,6 +34,16 @@ We decided the following:
 
 ## Consequences
 
+### Owner webhook administration (2026-10-19)
+
+The owner can invite or reject Clerk waitlist entries from signed, expiring links
+in private Discord alerts. A Clerk session and the existing `OWNER_USER_IDS`
+application-ID allowlist are required on every confirmation and action request.
+This is a narrow owner capability, not a general admin role or a Discord permission
+check. GET shows confirmation; POST makes the decision. The bot stays disabled.
+The independent worker also maintains a private online-status channel message.
+See [owner setup and privacy limits](../deployment/discord-join-alerts.md).
+
 - **Existing members are imported.**
   - PR 1, still on Auth.js, creates a `users` row for every existing Discord player, then records each member's verified Discord email whenever they sign in.
   - At the cutover, a script pre-creates a Clerk account for every user with a verified email. Clerk's account linking connects their first Discord sign-in to it.

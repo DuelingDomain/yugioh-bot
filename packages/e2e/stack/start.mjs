@@ -178,10 +178,25 @@ run("duel", process.execPath, [resolve(repoRoot, "packages/duel-server/dist/serv
 });
 
 const stub = fileURLToPath(new URL("./fetch-stub.mjs", import.meta.url));
+const adminLog = resolve(stackDir, "discord-admin-http.jsonl");
+rmSync(adminLog, { force: true });
+const adminEnv = {
+  E2E_DISCORD_ADMIN: process.env.E2E_DISCORD_ADMIN ?? "0",
+  E2E_DISCORD_ADMIN_LOG: adminLog,
+  DISCORD_GUILD_ID: guildId,
+  CLERK_SECRET_KEY: "sk_test_e2e_fixture",
+  CLERK_WEBHOOK_SIGNING_SECRET: `whsec_${Buffer.from(secrets.clerkWebhook).toString("base64")}`,
+  DISCORD_ADMIN_ACTION_SIGNING_SECRET: secrets.discordAction,
+  DISCORD_ADMIN_WEBHOOK_URL: process.env.E2E_DISCORD_ADMIN === "1" ? "https://discord.example.test/api/webhooks/1/alert-fixture" : "",
+  DISCORD_ADMIN_STATUS_WEBHOOK_URL: process.env.E2E_DISCORD_ADMIN === "1" ? "https://discord.example.test/api/webhooks/2/status-fixture" : "",
+  DISCORD_ONLINE_STATUS_ENABLED: process.env.E2E_DISCORD_ADMIN === "1" ? "1" : "0",
+  DISCORD_JOIN_REQUEST_ALERTS_ENABLED: "1",
+  DISCORD_SIGNUP_ALERTS_ENABLED: "0",
+};
 rmSync(workerHealthPath, { force: true });
 run("worker", process.execPath, [resolve(repoRoot, "packages/worker/dist/index.js")], {
   cwd: serviceDirectory("worker"),
-  env: { ...base, NODE_OPTIONS: `--import=${stub}`, CARD_IMAGE_CACHE_DIR: cardImageDir,
+  env: { ...base, ...adminEnv, NODE_OPTIONS: `--import=${stub}`, CARD_IMAGE_CACHE_DIR: cardImageDir,
     CARD_IMAGE_CACHE_MAX_BYTES: "16106127360", WORKER_HEALTH_PATH: workerHealthPath,
     WS_INTERNAL_URL: wsInternal, WS_INTERNAL_SECRET: secrets.ws,
     DISCORD_BOT_ENABLED: "0", BOT_ANNOUNCE_URL: "", BOT_ANNOUNCE_SECRET: "",
@@ -197,6 +212,7 @@ run("web", process.execPath, ["server.js"], {
   cwd: standaloneDir,
   env: {
     ...base,
+    ...adminEnv,
     PORT: String(ports.web),
     HOSTNAME: "localhost",
     NODE_OPTIONS: `--import=${stub}`,

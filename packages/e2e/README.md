@@ -105,6 +105,22 @@ The web app enables offline auth only when `E2E_AUTH=1` and `E2E_AUTH_SECRET` ha
 
 ## Add a flow
 
+Owner Discord administration has a dedicated offline flow. Build shared, WS,
+duel-server and worker first, then run on a free slot:
+
+```sh
+E2E_SLOT=8 npm run stack:build --workspace=packages/e2e
+E2E_SLOT=8 E2E_OWNER_USER_IDS=101 E2E_DISCORD_ADMIN=1 E2E_WORKERS=1 \
+  npx playwright test 'admin-discord\.spec\.ts$' -c packages/e2e/playwright.config.ts
+```
+
+`E2E_DISCORD_ADMIN=1` enables Clerk and Discord HTTP-boundary stubs in the
+preloaded fetch module, not in application code. The supervisor supplies disposable
+signing keys and fixture webhook URLs to web and worker. The assertion log omits
+signed links, email addresses and webhook credentials. The test checks real SQLite
+state, signed Clerk delivery, owner confirmation/POST, replay, hidden-tab heartbeats
+and the worker's minute update. No live Clerk or Discord call is made.
+
 1. Add `tests/<name>.spec.ts`. Import `test` and `expect` from `../helpers/fixtures`.
 2. `const alice = await player("p1")` opens a new logged-in context and page. Call it once per player.
 3. Use `uniqueTableName()` for table names. Tests share one stack, so never depend on global state.

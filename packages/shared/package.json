@@ -4,6 +4,16 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./presence": {
+      "types": "./dist/presence/index.d.ts",
+      "source": "./src/presence/index.ts",
+      "default": "./dist/presence/index.js"
+    },
+    "./presence/routes": {
+      "types": "./dist/presence/routes.d.ts",
+      "source": "./src/presence/routes.ts",
+      "default": "./dist/presence/routes.js"
+    },
     "./access/owner-access": {
       "types": "./dist/access/owner-access.d.ts",
       "source": "./src/access/owner-access.ts",

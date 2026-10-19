@@ -34,6 +34,8 @@ export function fakeClerk() {
   const entries: ClerkWaitlistEntryJson[] = [];
   const failures = { deleteUser: null as ClerkBackendError | null };
   const backend: ClerkBackend = {
+    async inviteWaitlistEntry() { throw new Error("Not used by owner CLI fixtures"); },
+    async rejectWaitlistEntry() { throw new Error("Not used by owner CLI fixtures"); },
     async getUser(id) { const user = users.find(u => u.id === id); if (!user) throw new Error("Missing remote user"); return user; },
     async listUsers(query) {
       calls.push({ method: "listUsers", input: query });

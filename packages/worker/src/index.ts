@@ -21,6 +21,7 @@ import { createDraftTimer } from "./draft-timer.js";
 import { createTournamentTimer } from "./tournament-timer.js";
 import { createSetSync } from "./set-sync.js";
 import { createImageCleanup } from "./image-cleanup.js";
+import { tickDiscordAdmin } from "./discord-admin.js";
 
 const startedAt = new Date();
 config({ path: process.env.DOTENV_CONFIG_PATH ?? fileURLToPath(new URL("../../../.env", import.meta.url)) });
@@ -38,6 +39,7 @@ const writeHealth = () => writeFileSync(healthPath, JSON.stringify({ pid: proces
 const draftTimer = createDraftTimer({ db, drafts: createDraftService(db), effects, startedAt });
 const tournamentTimer = createTournamentTimer({ db, matches: createMatchService(db), tournaments: createTournamentService(db), effects });
 const jobs = [
+  createLoop(() => tickDiscordAdmin(db), 60_000),
   createLoop(() => drainProductEvents(db, {
     key: process.env.POSTHOG_KEY ?? "",
     host: process.env.POSTHOG_HOST,

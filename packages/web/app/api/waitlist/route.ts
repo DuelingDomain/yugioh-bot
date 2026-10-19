@@ -3,6 +3,7 @@ import { createWaitlistService } from "@yugidraft/shared/services";
 import { createClerkBackend } from "@yugidraft/shared/clerk";
 import { normalizeEmailDomain } from "@yugidraft/shared/util/email-domain";
 import { getDb } from "@/lib/db";
+import { notifyJoinRequest } from "@yugidraft/shared/notify";
 
 const MAX_BODY_BYTES = 2048;
 const take = createRateLimiter(10 * 60 * 1000);
@@ -101,7 +102,10 @@ export async function POST(request: Request): Promise<Response> {
   const secretKey = process.env.CLERK_SECRET_KEY;
   if (!secretKey) return respond("retry");
   try {
-    await createClerkBackend({ secretKey }).createWaitlistEntry({ emailAddress: email, notify: true });
+    const entry = await createClerkBackend({ secretKey }).createWaitlistEntry({ emailAddress: email, notify: true });
+    // Bind the local alert even if the signed Clerk webhook arrives later.
+    void notifyJoinRequest(getDb(), { email, clerkEntryId: entry.id,
+      source: data.source === "app-not-invited" ? "app waitlist" : "marketing waitlist" });
   } catch {
     // Keep the local row for retries/reconciliation; never expose upstream data.
     return respond("retry");

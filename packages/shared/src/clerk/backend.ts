@@ -34,6 +34,8 @@ export interface ClerkBackend {
   updateUserMetadata(clerkUserId: string, input: { privateMetadata: Record<string, unknown> }): Promise<ClerkUserJson>;
   createWaitlistEntry(input: { emailAddress: string; notify: boolean }): Promise<ClerkWaitlistEntryJson>;
   listWaitlistEntries(query: { query?: string; status?: string; offset?: number; limit?: number }): Promise<{ data: ClerkWaitlistEntryJson[]; totalCount: number }>;
+  inviteWaitlistEntry(id: string): Promise<ClerkWaitlistEntryJson>;
+  rejectWaitlistEntry(id: string): Promise<ClerkWaitlistEntryJson>;
   /** DELETE /users/{id}. A 404 means the user is already gone and resolves like a success. */
   deleteUser(clerkUserId: string): Promise<void>;
   deleteWaitlistEntriesByEmail(email: string): Promise<void>;
@@ -132,6 +134,9 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
     updateUserExternalId(clerkUserId, externalId) { return request(`/users/${encodeURIComponent(clerkUserId)}`, "PATCH", { external_id: externalId }); },
     updateUserMetadata(clerkUserId, input) { return request(`/users/${encodeURIComponent(clerkUserId)}/metadata`, "PATCH", { private_metadata: input.privateMetadata }); },
     createWaitlistEntry(input) { return request("/waitlist_entries", "POST", { email_address: input.emailAddress, notify: input.notify }); },
+    // Verified against @clerk/backend 3.23.0 WaitlistEntryAPI.invite/reject.
+    inviteWaitlistEntry(id) { return request(`/waitlist_entries/${encodeURIComponent(id)}/invite`, "POST", {}); },
+    rejectWaitlistEntry(id) { return request(`/waitlist_entries/${encodeURIComponent(id)}/reject`, "POST"); },
     async listWaitlistEntries(query) {
       const params = new URLSearchParams();
       for (const [key, value] of Object.entries(query)) if (value !== undefined) params.append(key, String(value));

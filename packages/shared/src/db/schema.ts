@@ -1262,6 +1262,39 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "saved_decks", "genesys_json", "text");
 
   addColumnIfMissing(db, "users", "first_sign_in_at", "integer");
+  // Latest presence only: no browsing history, IDs, full URLs or query strings.
+  addColumnIfMissing(db, "users", "last_seen_at", "integer");
+  addColumnIfMissing(db, "users", "last_route", "text");
+  db.exec(`
+    create index if not exists users_last_seen_idx on users(last_seen_at) where last_seen_at is not null;
+    create table if not exists discord_waitlist_actions (
+      id text primary key,
+      subject_hash text not null unique,
+      clerk_entry_id text,
+      expires_at integer not null,
+      decision text check (decision in ('approve', 'reject')),
+      actor_user_id integer,
+      actor_name text,
+      attempted_at integer,
+      completed_at integer,
+      discord_message_id text,
+      webhook_hash text,
+      message_json text,
+      discord_updated_at integer,
+      discord_retry_at integer not null default 0
+    );
+    create index if not exists discord_waitlist_edit_idx on discord_waitlist_actions(completed_at)
+      where completed_at is not null and discord_updated_at is null;
+    create table if not exists discord_admin_status (
+      id integer primary key check (id = 1),
+      webhook_hash text,
+      message_id text,
+      pending_count integer,
+      pending_checked_at integer,
+      pending_attempted_at integer,
+      retry_at integer not null default 0
+    );
+  `);
 
   // Draft privacy follows identity migration so grants reference application users.
   // Adding the default also makes every existing draft private; codes stay lazy.

@@ -72,12 +72,14 @@ export function ensureSecrets() {
   // One id for every worker of a run, inside this slot's multiStatusDir.
   process.env.E2E_MULTI_RUN_ID ??= new Date().toISOString().replace(/[:.]/g, "-");
   const make = () => randomBytes(24).toString("hex");
-  for (const name of ["E2E_AUTH_SECRET", "E2E_WS_SECRET", "E2E_DUEL_SECRET"]) {
+  for (const name of ["E2E_AUTH_SECRET", "E2E_WS_SECRET", "E2E_DUEL_SECRET", "E2E_DISCORD_ACTION_SECRET", "E2E_CLERK_WEBHOOK_SECRET"]) {
     process.env[name] ??= make();
   }
   return {
     auth: process.env.E2E_AUTH_SECRET,
     ws: process.env.E2E_WS_SECRET,
     duel: process.env.E2E_DUEL_SECRET,
+    discordAction: process.env.E2E_DISCORD_ACTION_SECRET,
+    clerkWebhook: process.env.E2E_CLERK_WEBHOOK_SECRET,
   };
 }

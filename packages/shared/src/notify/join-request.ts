@@ -2,6 +2,8 @@ import { log } from "../observability/index.js";
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { normalizeEmailDomain } from "../util/email-domain.js";
+import { prepareWaitlistAction, waitlistActionOrigin, waitlistActionToken } from "./waitlist-actions.js";
+import { webhookHash } from "./discord-webhook.js";
 
 export interface JoinRequestNotice {
   email?: string;
@@ -9,6 +11,7 @@ export interface JoinRequestNotice {
   subjectId?: string;
   source: "marketing waitlist" | "app waitlist" | "Clerk waitlist" | "sign-up";
   createdAt?: string;
+  clerkEntryId?: string;
 }
 
 const TIMEOUT_MS = 2000;
@@ -51,7 +54,7 @@ function maskedEmail(email: string): string {
   return at > 0 ? `${Array.from(email)[0]}***${email.slice(at)}` : "Email unavailable";
 }
 
-async function post(url: string, body: string): Promise<number | null> {
+async function post(url: string, body: string, delivered?: (id: string) => void): Promise<number | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -68,6 +71,10 @@ async function post(url: string, body: string): Promise<number | null> {
       if (!controller.signal.aborted && Number.isFinite(seconds) && seconds >= 0 && seconds <= MAX_RETRY_SECONDS) return seconds * 1000;
     }
     if (!response.ok) log("warn", "[join-alert] Discord rejected an alert", { status: response.status });
+    else if (delivered) {
+      const message = await response.json().catch(() => null) as { id?: unknown } | null;
+      if (typeof message?.id === "string" && /^\d{1,25}$/.test(message.id)) delivered(message.id);
+    }
     return null;
   } finally { clearTimeout(timer); }
 }
@@ -90,11 +97,13 @@ export async function notifyJoinRequest(db: Database.Database, notice: JoinReque
     if (email) email = normalizeEmailDomain(email) ?? email;
     const subject = email ? `email:${email}` : notice.subjectId ? `clerk:${notice.subjectId}` : null;
     if (!subject) return;
+    const hash = createHash("sha256").update(subject).digest("hex");
+    const action = signup ? null : prepareWaitlistAction(db, hash, notice.clerkEntryId);
     const now = new Date().toISOString();
     const claim = db.prepare(`
       insert into join_request_notifications (kind, subject_hash, attempted_at) values (?, ?, ?)
       on conflict(kind, subject_hash) do nothing
-    `).run(signup ? "signup" : "join", createHash("sha256").update(subject).digest("hex"), now);
+    `).run(signup ? "signup" : "join", hash, now);
     if (claim.changes === 0) return;
     // Retain dropped claims so replays cannot turn a flood into a later burst.
     if (!takeAlertSlot()) return;
@@ -109,17 +118,25 @@ export async function notifyJoinRequest(db: Database.Database, notice: JoinReque
         fields: [
           { name: "Email", value: email ? emailCode(emailText) : emailText },
           { name: "Source", value: escapeMarkdown(notice.source) },
+          ...(action ? [{ name: "Owner action", value: (["approve", "reject"] as const).map(decision =>
+            `[${decision === "approve" ? "Approve" : "Reject"}](${waitlistActionOrigin()}/admin/waitlist/${waitlistActionToken(action, decision)})`).join(" · ") }] : []),
         ],
       }],
     });
-    const retryAfterMs = await post(url, body);
+    const target = new URL(url);
+    if (action) target.searchParams.set("wait", "true");
+    const delivered = action ? (id: string) => {
+      db.prepare("update discord_waitlist_actions set discord_message_id=?,webhook_hash=?,message_json=? where id=?")
+        .run(id, webhookHash(url), body, action.id);
+    } : undefined;
+    const retryAfterMs = await post(target.href, body, delivered);
     if (retryAfterMs !== null) {
       await new Promise<void>(resolve => {
         // A long rate limit must not keep a one-off owner process alive.
         const timer = setTimeout(resolve, retryAfterMs);
         timer.unref();
       });
-      await post(url, body);
+      await post(target.href, body, delivered);
     }
   } catch {
     // Fetch errors can include the secret URL or email. Never log the exception.

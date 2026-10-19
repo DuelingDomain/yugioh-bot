@@ -17,7 +17,8 @@ function eventTime(createdAt: number, timestamp?: number): string {
 function eventNotice(event: WebhookEvent): JoinRequestNotice | undefined {
   if (event.type === "waitlistEntry.created") {
     if (typeof event.data?.email_address !== "string" || !event.data.email_address.trim()) return;
-    return { email: event.data.email_address, source: "Clerk waitlist", createdAt: eventTime(event.data.created_at, event.timestamp) };
+    if (typeof event.data.id !== "string" || !event.data.id.trim()) return;
+    return { email: event.data.email_address, clerkEntryId: event.data.id, source: "Clerk waitlist", createdAt: eventTime(event.data.created_at, event.timestamp) };
   }
   if (event.type === "user.created") {
     if (typeof event.data?.id !== "string" || !event.data.id.trim()) return;
