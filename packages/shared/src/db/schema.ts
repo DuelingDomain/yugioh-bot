@@ -1263,6 +1263,94 @@ export function migrate(db: Database.Database) {
 
   addColumnIfMissing(db, "users", "first_sign_in_at", "integer");
 
+  // Shared admin state follows identity migration. No email text is stored in decisions.
+  db.exec(`
+    create table if not exists discord_waitlist_actions (
+      id text primary key not null,
+      subject_hash text unique,
+      clerk_entry_id text unique,
+      waitlist_signup_id integer references waitlist_signups(id) on delete cascade,
+      subject_user_id integer references users(id) on delete cascade,
+      subject_clerk_id text,
+      decision text check (decision in ('approve', 'reject')),
+      actor_user_id integer references users(id) on delete cascade,
+      actor_discord_id text,
+      actor_name text,
+      source text check (source in ('web', 'discord')),
+      attempted_at integer,
+      lease_token text,
+      lease_expires_at integer,
+      completed_at integer,
+      channel_id text,
+      message_id text,
+      discord_updated_at integer,
+      created_at integer not null
+    );
+    -- Signup and waitlist webhooks may arrive in either order, even with alerts off.
+    create table if not exists discord_join_subjects (
+      subject_hash text primary key not null,
+      clerk_user_id text not null
+    );
+    create index if not exists discord_join_subjects_clerk_idx on discord_join_subjects(clerk_user_id);
+    create table if not exists mod_actions (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      actor_user_id integer references users(id) on delete cascade,
+      actor_discord_id text,
+      action text not null,
+      target_user_id integer references users(id) on delete cascade,
+      target_discord_id text,
+      reason text,
+      params_json text not null default '{}',
+      result text not null check (result in ('success', 'failure', 'denied')),
+      created_at integer not null
+    );
+    create index if not exists mod_actions_guild_time_idx on mod_actions(guild_id, created_at desc);
+    create index if not exists mod_actions_actor_idx on mod_actions(actor_user_id, actor_discord_id);
+    create table if not exists mod_warnings (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      actor_user_id integer references users(id) on delete cascade,
+      actor_discord_id text,
+      target_discord_id text not null,
+      reason text not null,
+      mod_action_id integer not null references mod_actions(id) on delete cascade,
+      created_at integer not null
+    );
+    create index if not exists mod_warnings_target_idx on mod_warnings(guild_id, target_discord_id, created_at desc);
+    create table if not exists discord_outbox (
+      id integer primary key autoincrement,
+      idempotency_key text not null unique,
+      kind text not null,
+      operation text not null default 'post' check (operation in ('post', 'edit')),
+      channel_id text not null,
+      message_id text,
+      payload_json text,
+      status text not null default 'pending' check (status in ('pending', 'processing', 'posted', 'failed', 'dead')),
+      attempts integer not null default 0,
+      available_at integer not null,
+      lease_token text,
+      lease_expires_at integer,
+      last_error text,
+      waitlist_action_id text references discord_waitlist_actions(id) on delete cascade,
+      mod_action_id integer references mod_actions(id) on delete cascade,
+      subject_hash text,
+      subject_clerk_id text,
+      created_at integer not null,
+      posted_at integer
+    );
+    create index if not exists discord_outbox_due_idx on discord_outbox(status, available_at, id);
+    create index if not exists discord_outbox_waitlist_idx on discord_outbox(waitlist_action_id);
+    create index if not exists discord_outbox_subject_idx on discord_outbox(subject_hash);
+    create index if not exists discord_outbox_clerk_subject_idx on discord_outbox(subject_clerk_id);
+    create index if not exists discord_waitlist_clerk_subject_idx on discord_waitlist_actions(subject_clerk_id);
+    create table if not exists discord_outbox_budget (
+      id integer primary key check (id = 1),
+      window_started_at integer not null,
+      attempts integer not null
+    );
+  `);
+
   // Draft privacy follows identity migration so grants reference application users.
   // Adding the default also makes every existing draft private; codes stay lazy.
   db.transaction(() => {
