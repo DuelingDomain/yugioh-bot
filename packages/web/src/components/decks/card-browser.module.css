@@ -161,8 +161,8 @@
 .effectHeading h3 { color: var(--ink); font-size: 13px; font-weight: 500; }
 .effectHeading > :first-child:not(h3) { flex: 1 1 0; min-width: 0; }
 .effectHeading:first-child { padding-top: 0; border-top: 0; }
-/* One muted line under the tile; the full text is the tooltip. The tile above keeps its size. */
-.tileReason { margin: 4px 0 0; overflow: hidden; color: var(--ink-3); font-size: 11px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+/* Two muted lines under the tile, always reserved so rows never jump; the full text is the tooltip. */
+.tileReason { display: -webkit-box; box-sizing: content-box; height: 2.6em; margin: 4px 0 0; overflow: hidden; color: var(--ink-3); font-size: 10px; line-height: 1.3; overflow-wrap: anywhere; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .effectReason { margin-top: 2px; color: var(--ink-3); font-size: 11px; line-height: 1.35; }
 
 /* ---------- filter sheet (covers the results) ---------- */
