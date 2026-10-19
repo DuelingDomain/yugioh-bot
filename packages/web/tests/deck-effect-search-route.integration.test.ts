@@ -24,10 +24,17 @@ beforeAll(() => {
     {code:14558127,name:"Ash Blossom & Joyous Spring",type:0x21},
     {code:97268402,name:"Effect Veiler",type:0x21},
     {code:89631139,name:"Blue-Eyes White Dragon",type:0x11},
+    {code:87025064,name:"Silver's Cry",type:0x10002},
   ]);
   const engine = new Database(join(directory,"cards.cdb"));
   engine.prepare("UPDATE datas SET race=?,attribute=?,level=? WHERE id=?").run(0x2,0x10,1,97268402);
+  engine.prepare("UPDATE datas SET race=?,attribute=?,level=? WHERE id=?").run(0x2000,0x10,8,89631139);
   engine.close();
+  const insert = state.db.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,archetype,image_url,image_url_small,card_sets_json,cached_at) VALUES(?,?,?,?,?,?,?,?,'fixture','fixture','[]','now')`);
+  insert.run(89631139, "Blue-Eyes White Dragon", "Dragon / Normal Monster", "normal", "A powerful dragon.", "LIGHT", 8, "Blue-Eyes");
+  insert.run(87025064, "Silver's Cry", "Quick-Play Spell Card", "spell", "Target 1 Dragon Normal Monster in your GY; Special Summon that target.", null, null, null);
+  // Unrelated cached catalog records give the real 5% broad-hook guard a useful denominator.
+  for (let n = 0; n < 100; n++) insert.run(500000000 + n, `Unrelated catalog card ${n}`, "Spell Card", "spell", "", null, null, null);
   host=createDuelHost({db:state.db,dataDirectory:directory,secret:"web-effect-secret",searchCards:()=>[],pollIntervalMs:60_000});
 });
 afterAll(async()=>{await host.close();state.db?.close();rmSync(directory,{recursive:true,force:true});});
@@ -47,6 +54,27 @@ it("forwards an authenticated scoped reading to the real signed host and keeps s
   const response=await post({text:"hand traps that negate",passcodes:[14558127,97268402,89631139]});
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({effectSearchEnabled:true,cards:[],effectTotal:2,reading:{chips:["Role: hand trap","Does: negate"]},effectHits:expect.arrayContaining([expect.objectContaining({code:97268402,reason:expect.any(String)})])});
+});
+it("uses the same Outside row through the signed deck-search and insight entry points", async () => {
+  vi.stubEnv("DECK_SUGGESTIONS", "1");
+  vi.stubEnv("DUEL_DATA_DIR", directory);
+  const deck = { main: [89631139, 89631139, 89631139], extra: [], side: [] };
+  const search = await post({ text: "non Blue-Eyes cards that synergize with Blue-Eyes", deck });
+  expect(search.status).toBe(200);
+  const found = await search.json();
+  expect(found.reading.query.intent).toEqual({ kind: "outside", archetype: "Blue-Eyes" });
+  expect(found.effectHits.map((card: DeckCardInfo) => card.code)).toEqual([87025064]);
+  const { POST } = await import("../app/api/cards/insights/route");
+  const response = await POST(new Request("http://web/api/cards/insights", { method: "POST", body: JSON.stringify({ op: "suggestRows", deck }) }));
+  expect(response.status).toBe(200);
+  const suggestions = await response.json();
+  expect(suggestions.rows[1].cards.map((card: { passcode: number }) => card.passcode)).toEqual([87025064]);
+  const excluded = await post({ text: "outside Blue-Eyes", deck, exclude: [87025064] });
+  expect(excluded.status).toBe(200);
+  expect((await excluded.json()).effectHits).toEqual([]);
+  expect(state.fallback).not.toHaveBeenCalled();
+  vi.stubEnv("DECK_SUGGESTIONS", "0");
+  expect((await post({ text: "outside Blue-Eyes", deck })).status).toBe(404);
 });
 it("retains literal search when exact or the web flag is off, even with an enabled host",async()=>{
   expect(await (await post({text:"hand traps that negate",exact:true})).json()).toMatchObject({reading:null,effectHits:[]});

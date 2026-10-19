@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "../src/db/schema.js";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
 import { createCardInsightService } from "../src/services/card-insights.js";
+import { createInsightCatalog } from "../src/services/card-insight-catalog.js";
 
 const db = new Database(":memory:");
 const directory = mkdtempSync(join(tmpdir(), "yugioh-insight-catalog-"));
@@ -68,6 +69,91 @@ beforeAll(() => {
 afterAll(() => { db.close(); rmSync(directory, { recursive: true, force: true }); });
 
 describe("SQL insights over the real pinned artifact", () => {
+  it("preserves cached alias metadata when the canonical engine card has no display row", () => {
+    const aliases = new Database(":memory:");
+    migrate(aliases);
+    aliases.prepare(`INSERT INTO card_catalog
+      (ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,archetype,image_url,image_url_small,card_sets_json,cached_at,genesys_points,genesys_revision)
+      VALUES(7084131,'Magician''s Rod','Spellcaster / Effect Monster','effect','Cached alias printed text','DARK',3,'Dark Magician','image','small','[]',CURRENT_TIMESTAMP,7,'test')`).run();
+    aliases.prepare("INSERT INTO genesys_points_meta(id,revision,effective_date,source_url,synced_at) VALUES(1,'test','2026-01-01','test',CURRENT_TIMESTAMP)").run();
+    const tagged = db.prepare("SELECT tags_json FROM card_tags WHERE passcode=7084129").get() as { tags_json: string };
+    aliases.prepare("INSERT INTO card_tags(passcode,summary,roles_json,tags_json,popularity,source,schema_version) VALUES(7084129,'','[]',?,99,'integration',1)").run(tagged.tags_json);
+    aliases.prepare("INSERT INTO card_release(passcode,tcg_date,ocg_date,quality,source_version) VALUES(7084129,'2020-01','2019-12','ok','integration')").run();
+    const catalog = createInsightCatalog(aliases, directory);
+    try {
+      const original = [...catalog.candidates()][0]!;
+      expect(original.card).toMatchObject({ id: 7084129, text: "Cached alias printed text", genesysPoints: 7, views: 99, tcgDate: "2020-01", ocgDate: "2019-12" });
+      expect([...catalog.suggestionCandidates()].find(candidate => candidate.card.id === 7084129)).toEqual(original);
+      expect(aliases.prepare("SELECT 1 FROM card_catalog WHERE ygoprodeck_id=7084129").get()).toBeUndefined();
+    } finally { catalog.close(); aliases.close(); }
+  });
+
+  it("streams identical catalog metadata with cached artworks and release-only engine records", () => {
+    db.prepare("INSERT INTO card_release(passcode,tcg_date,ocg_date,quality,source_version) VALUES(990010,'2020-01','2019-12','ok','integration')").run();
+    const catalog = createInsightCatalog(db, directory);
+    try {
+      const expected = new Map([...catalog.candidates()].map(candidate => [candidate.card.id, candidate]));
+      for (const code of [97268402, 46986414, 7084129, 7084131, 990010, 990011]) {
+        const candidate = catalog.candidate(code)!;
+        if (!expected.has(candidate.card.id)) expected.set(candidate.card.id, candidate);
+      }
+      const order = (candidates: Iterable<{ card: { id: number } }>) => [...candidates].sort((a, b) => a.card.id - b.card.id);
+      expect(order(catalog.suggestionCandidates())).toEqual(order(expected.values()));
+      expect(catalog.suggestionCount()).toBe(expected.size);
+      expect([...catalog.suggestionCandidates([7084131, 7084129, 990011])]).toEqual([...catalog.candidates([7084131, 7084129, 990011])]);
+      expect(catalog.candidate(990010)?.card).toMatchObject({ tcgDate: "2020-01", ocgDate: "2019-12", archetype: "Dark Magician" });
+      const partial = catalog.suggestionCandidates();
+      expect(partial.next().done).toBe(false);
+      partial.return(undefined);
+      expect(order(catalog.suggestionCandidates())).toEqual(order(expected.values()));
+    } finally {
+      catalog.close();
+      db.prepare("DELETE FROM card_release WHERE passcode=990010").run();
+    }
+  });
+
+  it("returns four exclusive suggestion rows, a complete-deck hint and server copy/pool limits", () => {
+    const legality = { allowed: rows.map(row => row[0]), limits: { 83764719: 0 }, version: "integration-1" };
+    const deck = { main: [89631139, 89631139, 89631139, 71039903], extra: [], side: [] };
+    const result = service.suggestRows(deck, { format: "normal", legality });
+    expect(result.rows.map(row => row.id)).toEqual(["archetype", "outside", "extra", "staples"]);
+    expect(result.rows[2]).toMatchObject({ cards: [], state: "hint", minimumMainCards: 40, mainCards: 4 });
+    const cards = result.rows.flatMap(row => row.cards);
+    expect(new Set(cards.map(card => card.passcode)).size).toBe(cards.length);
+    expect(cards.every(card => card.reason.length > 0 && !/[\r\n]/.test(card.reason))).toBe(true);
+    expect(cards.map(card => card.passcode)).not.toContain(83764719);
+    expect(cards.map(card => card.passcode)).not.toContain(89631139);
+    expect(result.rows[3]!.cards.length).toBeLessThanOrEqual(6);
+    expect(service.suggestRows(deck, { format: "normal", legality, pool: [] }).rows.every(row => !row.cards.length)).toBe(true);
+    expect(service.suggestRows(deck, { format: "normal" }).rows.every(row => !row.cards.length)).toBe(true);
+  });
+
+  it("invalidates cached rows on catalog changes and applies canonical exclusions across service instances", () => {
+    const legality = { allowed: rows.map(row => row[0]), limits: {}, version: "integration-cache" };
+    const deck = { main: [46986414], extra: [], side: [] };
+    const first = service.suggestRows(deck, { format: "normal", legality });
+    const second = createCardInsightService(db, { dataDirectory: directory }).suggestRows(deck, { format: "normal", legality });
+    expect(second).toEqual(first);
+    db.prepare("UPDATE card_catalog SET name='Updated Magician Rod' WHERE ygoprodeck_id=7084129").run();
+    try {
+      const refreshed = service.suggestRows(deck, { format: "normal", legality });
+      expect(refreshed.version).not.toBe(first.version);
+      expect(refreshed.rows.flatMap(row => row.cards).find(card => card.passcode === 7084129)?.name).toBe("Updated Magician Rod");
+    } finally { db.prepare("UPDATE card_catalog SET name=? WHERE ygoprodeck_id=7084129").run("Magician's Rod"); }
+    const limited = service.suggestRows(deck, { format: "normal", legality, exclude: [7084130] });
+    expect(limited.rows.flatMap(row => row.cards).map(card => card.passcode)).not.toContain(7084129);
+    const held = service.suggestRows({ ...deck, side: [7084130] }, { format: "normal", legality });
+    expect(held.rows.flatMap(row => row.cards).map(card => card.passcode)).not.toContain(7084129);
+  });
+
+  it("suggests admitted engine cards before the lazy display cache has a row", () => {
+    const result = service.suggestRows({ main: [46986414], extra: [], side: [] }, {
+      format: "normal", legality: { allowed: [990010], limits: {}, version: "engine-only" },
+    });
+    expect(result.rows[0]!.cards.map(card => card.passcode)).toEqual([990010]);
+    expect(db.prepare("SELECT 1 FROM card_catalog WHERE ygoprodeck_id=990010").get()).toBeUndefined();
+  });
+
   it("batches pack fit scores and reasons without changing the pickScore contract", () => {
     const codes = [7084129, 7084130, 46986414, 990001];
     const pool = [46986414];

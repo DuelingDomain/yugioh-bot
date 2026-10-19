@@ -40,7 +40,7 @@ export interface EventQuery {
 }
 
 export interface EffectQuery {
-  intent?: { kind: "similar"; passcode: number; name: string } | { kind: "counters"; archetype: string };
+  intent?: { kind: "similar"; passcode: number; name: string } | { kind: "counters"; archetype: string } | { kind: "outside"; archetype: string };
   /** What the card itself must be. */
   card: ObjectQuery;
   released?: ReleasedRange;
@@ -659,6 +659,7 @@ export function describe(query: EffectQuery): string[] {
   const chips: string[] = [];
   if (query.intent?.kind === "similar") chips.push(`Like: ${query.intent.name}`);
   if (query.intent?.kind === "counters") chips.push(`Counters: ${query.intent.archetype}`);
+  if (query.intent?.kind === "outside") chips.push(`Outside: ${query.intent.archetype}`);
   if (query.released) chips.push(query.releaseLabel ?? describeReleased(query.released));
   if (query.sort) chips.push("Sort: newest first");
   if (!isEmptyObject(query.card)) chips.push(`Card is: ${describeObject(query.card)}`);

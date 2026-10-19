@@ -6,8 +6,10 @@ import { belongsTo, hookQuery, type ArchetypeProfile } from "./synergy.js";
 import { type CounterProfile, type Weakness } from "./counters.js";
 import { shortReason } from "./search-reasons.js";
 
-export const searchIntentTarget = (text: string): { kind: "similar" | "counters"; target: string } | undefined => {
+export const searchIntentTarget = (text: string): { kind: "similar" | "counters" | "outside"; target: string } | undefined => {
   const source = text.trim().replace(/[?.!]+$/, "");
+  const outside = /^(?:outside(?:\s+of)?\s+(?:the\s+)?|non[- ]+)(.+?)(?:\s+cards?\s+that\s+(?:synergize|synergise|work)\s+with\s+(.+))?$/i.exec(source);
+  if (outside) return { kind: "outside", target: (outside[2] ?? outside[1])!.trim() };
   const similar = /^(?:cards? like|similar to|budget(?: alternatives? (?:to|for))?)\s+(.+)$/i.exec(source);
   if (similar) return { kind: "similar", target: similar[1]!.trim() };
   const counter = /^(?:how to beat|counters? (?:to|for)|stop)\s+(.+)$/i.exec(source);
@@ -18,9 +20,9 @@ export function intentReading(text: string, card: (name: string) => { id: number
   const parsed = searchIntentTarget(text);
   if (!parsed) return null;
   const anchor = parsed.kind === "similar" ? card(parsed.target) : undefined;
-  const target = parsed.kind === "counters" ? archetype(parsed.target) : undefined;
+  const target = parsed.kind !== "similar" ? archetype(parsed.target) : undefined;
   const intent = anchor ? { kind: "similar" as const, passcode: anchor.id, name: anchor.name }
-    : target ? { kind: "counters" as const, archetype: target } : undefined;
+    : target ? parsed.kind === "outside" ? { kind: "outside" as const, archetype: target } : { kind: "counters" as const, archetype: target } : undefined;
   if (!intent) return null;
   const query = { intent, card: { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] }, roles: [], quick: false, text: "" };
   return { query, chips: describe(query) };

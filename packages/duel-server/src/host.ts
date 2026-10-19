@@ -38,7 +38,7 @@ import type {
   ReplayErrorCode,
 } from "@yugidraft/shared/duels";
 import {
-  CardQueryError, DuelSettingsError, deckCardCounts, duel1v1EngineForMode, isFirstChoice, isReplayFork, isReplaySeed, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
+  CardQueryError, DUEL_BANLIST_OPTIONS, DuelSettingsError, deckCardCounts, duel1v1EngineForMode, isFirstChoice, isReplayFork, isReplaySeed, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
   COIN_TIMING, COIN_CHAIN_BEAT_MAX_MS, MIN_DUEL_FX_SPEED, coinTossDurationMs,
   CHAIN_MODE_JOURNAL_LIMIT, CHAIN_MODE_PROMPT_PREFIX, chainModeOf, isDuelChainMode, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_OPENING_REVEAL_MS, DUEL_RPS_MOVES,
 } from "@yugidraft/shared/duels";
@@ -50,7 +50,7 @@ import { RequestError } from "./request-error.js";
 import { WorkerPool, type WorkerReservation } from "./worker-pool.js";
 import { workerLimitsFromEnv } from "./config.js";
 import { GameWorker, limitWorkerOperations, type DuelGameWorker, type LimitedGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
-import { DeckLegalityError, ExtraDeckCardError, inspectDeck, validateDeck, validateExtraDeckTypes, validateDeckMasterType, type InspectDeckOptions } from "./deck-legality.js";
+import { DeckLegalityError, ExtraDeckCardError, deckSuggestionScope, inspectDeck, validateDeck, validateExtraDeckTypes, validateDeckMasterType, type InspectDeckOptions } from "./deck-legality.js";
 import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
@@ -143,7 +143,7 @@ const DUEL_OPS = new Set([
   "card-details", "card-artworks", "card-query", "card-facets", "surrender", "add-bot", "archive", "cancel",
   "replay", "owner-replay", "replay-fork", "fork-list", "fork-restart", "fork-cancel", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
   "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset",
-  "report", "debug-trace", "bug-context", "chain-mode", "validate-deck-master",
+  "report", "debug-trace", "bug-context", "chain-mode", "validate-deck-master", "suggestion-scope",
 ]);
 
 /** What the `bug-context` op answers: public duel facts only. */
@@ -3060,6 +3060,23 @@ export function createDuelHost(options: {
         ...(canonicalCodes ? { canonicalCodes: Object.fromEntries(canonicalCodes) } : {}),
         ...(lookupBudget ? { lookupRemaining: lookupBudget.remaining, lookupLimited: [...lookupLimitedCodes] } : {}),
       };
+    }
+    if (op === "suggestion-scope") {
+      if (typeof body.suggestionFormat !== "string" || !["normal", "domain", "genesys", "genesys-domain"].includes(body.suggestionFormat)) {
+        throw new RequestError("Unknown suggestion format", 400);
+      }
+      if (body.banlist !== undefined && !DUEL_BANLIST_OPTIONS.some(option => option.id === body.banlist)) {
+        throw new RequestError("banlist must be a known versioned id", 400);
+      }
+      if (body.deckMaster !== undefined && (!Number.isSafeInteger(body.deckMaster) || Number(body.deckMaster) <= 0 || Number(body.deckMaster) > 0xffffffff)) {
+        throw new RequestError("Deck Master must be a positive card passcode", 400);
+      }
+      const mode = body.suggestionFormat === "domain" || body.suggestionFormat === "genesys-domain" ? "domain" : "normal";
+      const genesys = body.suggestionFormat === "genesys" || body.suggestionFormat === "genesys-domain";
+      const settings = normalizeDuelSettings(mode, { ...(body.banlist !== undefined ? { banlist: body.banlist } : {}), ...(genesys ? { genesys: {} } : {}) });
+      const master = body.deckMaster === undefined ? undefined
+        : (await normalizeCardCodes([body.deckMaster as number], options.dataDirectory, options.db, { cacheOnly: true })).get(body.deckMaster as number) ?? body.deckMaster as number;
+      return deckSuggestionScope(mode, options.dataDirectory, settings, { deckMaster: master, cardBlocks: admissionEntries(mode, "1v1") });
     }
     if (op === "validate-deck-master") {
       if (body.mode !== "normal" && body.mode !== "domain") throw new RequestError("Duel mode must be normal or domain", 400);
