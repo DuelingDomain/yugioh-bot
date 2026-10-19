@@ -496,3 +496,26 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
 
 
 });
+
+
+it('shares the monthly cap with settled runtime spend and uncertain runtime reservations', async () => {
+  const context = await setup();
+  const { READING_RESERVATION_MICROS, budgetUsed } = await import('../budget-ledger.js');
+  const snapshot = (await context.store.read())!;
+  snapshot.ledger.runtime = Array.from({ length: 20 }, (_, i) => ({
+    id: i.toString(16).padStart(32, '0'), model: 'claude-haiku-5-5' as const,
+    month: '2026-10', createdAt: '2026-10-10T12:00:00Z', phraseHash: 'a'.repeat(64),
+    state: i === 19 ? 'settled' as const : 'submission_started' as const,
+    reservedMicros: READING_RESERVATION_MICROS,
+    ...(i === 19 ? { actualMicros: 400_000, messageId: 'msg_settled' } : {}),
+  }));
+  snapshot.ledger.months['2026-10'] = 400_000;
+  await context.store.compareAndSwap(snapshot.revision, snapshot.ledger);
+  expect(budgetUsed((await context.store.read())!.ledger, '2026-10')).toBe(9_948_640);
+  let posts = 0;
+  const report = await context.runTagging({ cards: changedCards(), store: context.store, dryRun: false, now: context.now,
+    client: { create: async () => { posts++; throw new Error('Must not spend'); }, retrieve: async () => { throw new Error('No batches'); }, results: async () => [] },
+  });
+  expect(report.deferred).toContain('monthly-budget');
+  expect(posts).toBe(0);
+});

@@ -12,6 +12,8 @@ import { effectSearchEnabled } from "@/lib/effect-search";
 import { EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
 import { env } from "@/lib/env";
 import { ensureCatalogCards } from "@/lib/cube-pool";
+import { lowConfidenceReading } from "@yugidraft/shared/cards/effects";
+import { fallbackEffectReading } from "@yugidraft/shared/cards/effects/reading-fallback";
 
 export const runtime = "nodejs";
 
@@ -72,7 +74,11 @@ async function handlePOST(request: Request) {
     const input = parseCardInsightRequest(body);
     if (input?.op !== "effectSearch") return NextResponse.json({ error: "Invalid effect search request" }, { status: 400 });
     const db = getDb();
-    const result = createCardInsightService(db).effectSearch(input.text, input.pool, input);
+    const service = createCardInsightService(db);
+    let result = service.effectSearch(input.text, input.pool, input);
+    if (!input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
+      if (await fallbackEffectReading(db, input.text, actor.userId)) result = service.effectSearch(input.text, input.pool, input);
+    }
     const catalog = createCardCatalogService(db, { memberId: actor.userId });
     // Only explicit pools may need remote display metadata; cap lookups on this debounced path.
     const lookupBudget = createCardLookupBudget();

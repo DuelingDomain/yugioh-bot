@@ -3096,7 +3096,18 @@ export function createDuelHost(options: {
         const query = parseCardQuery(body.cardQuery);
         const effects = enabled ? cardEffectIndex(catalog) ?? await initializeCardEffectIndex(options.db, catalog) : undefined;
         const releases = !enabled && (query.released || query.sort === "newest") ? cardReleaseIndex(options.db) : undefined;
-        return queryCards(catalog, query, cardRequestEntries(body, guildId, actor), await genesysAdmissionPoints(), { effects, releases, effectSearchEnabled: enabled });
+        const entries = cardRequestEntries(body, guildId, actor), points = await genesysAdmissionPoints();
+        const search = () => queryCards(catalog, query, entries, points, { effects, releases, effectSearchEnabled: enabled });
+        const result = search();
+        if (enabled && !query.exact && query.scope !== "name" && query.text.trim() && query.passcodes?.length !== 0 && !query.effectOmit?.length && !result.total) {
+          const { lowConfidenceReading } = await import("@yugidraft/shared/cards/effects");
+          if (!result.effectTotal || lowConfidenceReading(query.text, result.reading ?? null)) {
+            const { fallbackEffectReading } = await import("@yugidraft/shared/cards/effects/reading-fallback");
+            const user = options.db.prepare<[number], { user_id: number }>("SELECT user_id FROM players WHERE id=?").get(actor);
+            if (user && await fallbackEffectReading(options.db, query.text, user.user_id)) return search();
+          }
+        }
+        return result;
       } catch (error) {
         if (error instanceof CardQueryError) throw new RequestError(error.message, 400);
         throw error;

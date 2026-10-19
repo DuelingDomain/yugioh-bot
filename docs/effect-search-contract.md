@@ -241,3 +241,40 @@ export const EFFECT_SEARCH_ATTRIBUTION = "Effect search powered by searchygo";
 
 The UI line, copied-source headers, root `NOTICE` and data `NOTICE.md` preserve
 credit to LorenzoWhite/searchygo at `9b2d952`.
+
+
+## Phrase search improvements (2026-10-19)
+
+Unknown reader words in `query.text` only boost name/text ranking; they never
+reject an effect hit. Exact text retains its existing behavior.
+
+Deck and insights search responses (including `/api/cards/resolve`) add `relax: {chip: string, count: number}[]` (at most two).
+When no results remain, each count is the result total with only that displayed
+chip omitted, preserving the pool, all other chips and every outer filter.
+Only positive relaxations are returned, ordered by count descending then chip
+label. No useful relaxation produces `[]`. `effectOmit` / `omittedChips` accepts
+the returned chip unchanged. Disabled deck responses omit `relax`.
+
+`reading.query.intent` is optional:
+
+```ts
+{ kind: "similar", passcode: number, name: string }
+{ kind: "counters", archetype: string }
+```
+
+`cards like Ash Blossom`, `similar to Effect Veiler` and `budget Ash Blossom`
+resolve a canonical anchor and rank weighted overlap of roles, actions, zones
+and kind, excluding the anchor. Budget means mechanical alternatives; it does
+not claim a market price. `how to beat Snake-Eye`, `counters to Kashtira` and
+`stop Tearlaments` derive opposing queries from the pinned archetype's reliance
+hooks using the credited counter matcher. Both intents use the existing filters
+and paging. Their chips are `Like: <canonical name>` / `Counters: <archetype>`.
+Omitting the intent chip removes that constraint.
+
+Existing `effectHits[].reason` (deck API) / `cards[].reason` (insights API) now
+holds one deterministic string of at most 70 characters from matched mechanics
+and the stored summary. Similarity and counters explain their mechanical link.
+The existing `score` is a relative ordering value, not a probability. No UI
+component or new request field is required. The optional hard-phrase fallback
+uses these same response shapes with no model label; its operational and
+budget contract is in [effect-tagging.md](effect-tagging.md#optional-runtime-phrase-reader).

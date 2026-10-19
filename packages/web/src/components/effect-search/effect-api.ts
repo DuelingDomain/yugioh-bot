@@ -23,6 +23,7 @@ export interface EffectSearchResult {
   total: number;
   /** How the text was read: one chip per part. Null when the text does not read as an effect. */
   chips: string[] | null;
+  relax?: Array<{ chip: string; count: number }>;
 }
 
 /** The server says the feature is off (HTTP 404), or the request failed. */
@@ -77,14 +78,14 @@ export async function effectSearch(text: string, options: EffectSearchOptions = 
   if (options.sort === "newest") body.sort = "newest";
   if (options.era !== undefined) body.era = options.era;
   if (options.omittedChips?.length) body.omittedChips = options.omittedChips;
-  const data = await post<{ cards: EffectCard[]; total: number; reading: { chips: string[] } | null }>(
+  const data = await post<{ cards: EffectCard[]; total: number; reading: { chips: string[] } | null; relax?: EffectSearchResult["relax"] }>(
     "/api/cards/resolve",
     body,
     "The description search did not work.",
     options.signal,
   );
   putCards(data.cards);
-  return { cards: data.cards, total: data.total, chips: data.reading?.chips ?? null };
+  return { cards: data.cards, total: data.total, chips: data.reading?.chips ?? null, relax: data.relax ?? [] };
 }
 
 /* ---------- card summary (hover) ---------- */

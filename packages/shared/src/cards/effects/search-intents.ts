@@ -1,0 +1,93 @@
+import type { Card } from "./card.js";
+import type { MatchTags } from "./effect-match.js";
+import { matchCard } from "./effect-match.js";
+import { describe, type Interpretation } from "./query.js";
+import { belongsTo, hookQuery, type ArchetypeProfile } from "./synergy.js";
+import { type CounterProfile, type Weakness } from "./counters.js";
+import { shortReason } from "./search-reasons.js";
+
+export const searchIntentTarget = (text: string): { kind: "similar" | "counters"; target: string } | undefined => {
+  const source = text.trim().replace(/[?.!]+$/, "");
+  const similar = /^(?:cards? like|similar to|budget(?: alternatives? (?:to|for))?)\s+(.+)$/i.exec(source);
+  if (similar) return { kind: "similar", target: similar[1]!.trim() };
+  const counter = /^(?:how to beat|counters? (?:to|for)|stop)\s+(.+)$/i.exec(source);
+  return counter ? { kind: "counters", target: counter[1]!.trim() } : undefined;
+};
+
+export function intentReading(text: string, card: (name: string) => { id: number; name: string } | undefined, archetype: (name: string) => string | undefined): Interpretation | null {
+  const parsed = searchIntentTarget(text);
+  if (!parsed) return null;
+  const anchor = parsed.kind === "similar" ? card(parsed.target) : undefined;
+  const target = parsed.kind === "counters" ? archetype(parsed.target) : undefined;
+  const intent = anchor ? { kind: "similar" as const, passcode: anchor.id, name: anchor.name }
+    : target ? { kind: "counters" as const, archetype: target } : undefined;
+  if (!intent) return null;
+  const query = { intent, card: { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] }, roles: [], quick: false, text: "" };
+  return { query, chips: describe(query) };
+}
+
+/** Weighted Jaccard, emphasizing role and action overlap over kind and zones. */
+export function cardSimilarity(anchor: { card: Card; tags?: MatchTags }, candidate: { card: Card; tags?: MatchTags }): number | null {
+  if (anchor.card.id === candidate.card.id || !anchor.tags || !candidate.tags) return null;
+  const features = ({ card, tags }: typeof anchor) => {
+    const result = new Map<string, number>([[`kind:${card.kind}`, 1]]);
+    for (const role of tags!.roles) result.set(`role:${role}`, 4);
+    for (const effect of tags!.effects) {
+      for (const zone of effect.location) result.set(`location:${zone}`, 1);
+      for (const action of effect.actions) {
+        result.set(`does:${action.verb}`, 3);
+        for (const zone of action.from) result.set(`zone:${action.verb}:${zone}`, 1);
+      }
+    }
+    return result;
+  };
+  const left = features(anchor), right = features(candidate);
+  let shared = 0, total = 0, mechanical = false;
+  for (const key of new Set([...left.keys(), ...right.keys()])) {
+    const weight = left.get(key) ?? right.get(key)!;
+    total += weight;
+    if (left.has(key) && right.has(key)) {
+      shared += weight;
+      if (key.startsWith("role:") || key.startsWith("does:")) mechanical = true;
+    }
+  }
+  return mechanical ? 10 * shared / total : null;
+}
+
+/** Derive opposing queries from the published reliance hooks, without another model. */
+export function counterProfileFromHooks(profile: ArchetypeProfile): CounterProfile {
+  const weaknesses: Weakness[] = [];
+  const things = { kinds: [], subtypes: [], types: [], attributes: [], level_min: 0, level_max: 0 };
+  const add = (label: string, why: string, roles: Weakness["roles"], verbs: NonNullable<Weakness["does"]>["verbs"] = [], from: NonNullable<Weakness["does"]>["from"] = []) => {
+    if (weaknesses.some(value => value.label === label)) return;
+    weaknesses.push({ label, why, roles, when: "either", does: verbs.length ? { verbs, from, player: "opponent", self: false, what: things } : null,
+      reacts_to: null, card: null, supports: null, phrases: [] });
+  };
+  for (const hook of profile.hooks) {
+    const events = [hook.does, hook.reacts_to].filter(value => value !== null);
+    if (events.some(event => event.from.includes("gy") || event.verbs.includes("send_to_gy"))) {
+      add("Disrupts graveyard resources", "Disrupts the GY resources this plan relies on", ["gy_hate"]);
+    }
+    if (events.some(event => event.verbs.some(verb => ["special_summon", "add_to_hand", "fusion_summon"].includes(verb)))) {
+      add("Interrupts the engine", "Negates the searches or summons that start this plan", ["disruption"], ["negate_activation", "negate_effect"]);
+      add("Stops Special Summons", "Restricts the Special Summons this plan relies on", [], ["restrict_summon", "negate_summon"]);
+    }
+    if (hook.phrases.some(phrase => /rank|xyz/i.test(phrase)) || hook.card?.subtypes.includes("xyz")) {
+      add("Tributes the Xyz board", "Tributes a boss before its Xyz board can lock zones", [], ["tribute"], ["field"]);
+      add("Turns off Xyz bosses", "Turns the Xyz boss face-down to stop its effects", [], ["change_position"], ["field"]);
+    }
+  }
+  return { plan: profile.plan, weaknesses: weaknesses.slice(0, 6), answers: [] };
+}
+
+/** Streaming counterpart of the credited findCounters matcher; no catalog snapshot. */
+export function counterLink(profile: CounterProfile, archetype: string, candidate: { card: Card; tags?: MatchTags }): { score: number; reason: string } | null {
+  if (belongsTo(candidate.card, archetype)) return null;
+  const printed = `${candidate.card.text}\n${candidate.card.pendulumText ?? ""}`.toLowerCase();
+  const stops = profile.weaknesses.filter(weakness => weakness.roles.every(role => candidate.tags?.roles.includes(role))
+    && weakness.phrases.every(phrase => printed.includes(phrase.toLowerCase()))
+    && matchCard(candidate.card, candidate.tags, hookQuery(weakness, archetype)) !== null);
+  const answer = profile.answers.find(value => value.name === candidate.card.name);
+  if (!answer && !stops.length) return null;
+  return { score: (answer ? 100 : 0) + stops.length * 4, reason: shortReason(answer?.why ?? `${stops[0]!.label} against ${archetype}`) };
+}

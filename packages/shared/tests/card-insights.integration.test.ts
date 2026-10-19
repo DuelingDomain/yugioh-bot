@@ -243,3 +243,14 @@ describe("SQL insights over the real pinned artifact", () => {
     expect(service.poolHealth([])).toMatchObject({ cards: 0, untaggedPasscodes: [], unlinkedPasscodes: [], warnings: [] });
   });
 });
+
+
+it('honors a cached hard reading before the legacy works-with anchor shortcut', async () => {
+  const { interpret } = await import('../src/cards/effects/query.js');
+  const reading = interpret('hand traps that negate')!;
+  const phrase = 'works with Dark Magician';
+  db.prepare("INSERT INTO effect_readings VALUES(?,'done',?,0)").run(phrase.toLowerCase(), JSON.stringify(reading.query));
+  const service = createCardInsightService(db, { dataDirectory: directory });
+  expect(service.readQuery(phrase)).toEqual(reading);
+  expect(service.effectSearch(phrase, [7084129,97268402]).cards.map(card => card.passcode)).toEqual([97268402]);
+});

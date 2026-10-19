@@ -112,6 +112,16 @@
     "./services/cube-seed-index": {
       "types": "./dist/services/cube-seed-index.d.ts",
       "default": "./dist/services/cube-seed-index.js"
+    },
+    "./cards/effects/budget-ledger": {
+      "types": "./dist/cards/effects/budget-ledger.d.ts",
+      "source": "./src/cards/effects/budget-ledger.ts",
+      "default": "./dist/cards/effects/budget-ledger.js"
+    },
+    "./cards/effects/reading-fallback": {
+      "types": "./dist/cards/effects/reading-fallback.d.ts",
+      "source": "./src/cards/effects/reading-fallback.ts",
+      "default": "./dist/cards/effects/reading-fallback.js"
     }
   },
   "scripts": {

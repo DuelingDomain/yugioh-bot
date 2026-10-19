@@ -40,6 +40,7 @@ export interface EventQuery {
 }
 
 export interface EffectQuery {
+  intent?: { kind: "similar"; passcode: number; name: string } | { kind: "counters"; archetype: string };
   /** What the card itself must be. */
   card: ObjectQuery;
   released?: ReleasedRange;
@@ -54,7 +55,7 @@ export interface EffectQuery {
   quick: boolean;
   /** Where the card is when the effect is used: "GY effects", "effects while banished". */
   worksFrom?: Zone;
-  /** Words the rules did not use, matched against card text. */
+  /** Words the rules did not use: soft preferences on name/text only. */
   text: string;
 }
 
@@ -570,7 +571,7 @@ export function interpret(
   const understood = query.released || query.sort || query.does || query.reactsTo || query.supports || query.roles.length || query.quick || query.worksFrom || !isEmptyObject(query.card);
   if (!understood) return null;
 
-  // Whatever no rule claimed still narrows the search, as ordinary text.
+  // Whatever no rule claimed only boosts ranking, as ordinary text.
   const used = marks.filter((mark) => !unused.includes(mark));
   let rest = "";
   let cursor = 0;
@@ -656,6 +657,8 @@ function describeEvent(event: EventQuery): string {
 
 export function describe(query: EffectQuery): string[] {
   const chips: string[] = [];
+  if (query.intent?.kind === "similar") chips.push(`Like: ${query.intent.name}`);
+  if (query.intent?.kind === "counters") chips.push(`Counters: ${query.intent.archetype}`);
   if (query.released) chips.push(query.releaseLabel ?? describeReleased(query.released));
   if (query.sort) chips.push("Sort: newest first");
   if (!isEmptyObject(query.card)) chips.push(`Card is: ${describeObject(query.card)}`);
@@ -675,6 +678,7 @@ export function omitReadingChips(reading: Interpretation, omitted: readonly stri
   const query = structuredClone(reading.query);
   const base = (): EffectQuery => ({ card: emptyObject(), roles: [], quick: false, text: "" });
   const removed = (partial: Partial<EffectQuery>) => describe({ ...base(), ...partial }).some(label => omitted.includes(label));
+  if (removed({ intent: query.intent })) delete query.intent;
   if (removed({ released: query.released, releaseLabel: query.releaseLabel })) { delete query.released; delete query.releaseLabel; }
   if (removed({ sort: query.sort })) delete query.sort;
   if (removed({ card: query.card })) query.card = emptyObject();
@@ -686,5 +690,5 @@ export function omitReadingChips(reading: Interpretation, omitted: readonly stri
   if (removed({ supports: query.supports })) delete query.supports;
   if (removed({ text: query.text })) query.text = "";
   const chips = describe(query);
-  return chips.length ? { query, chips } : null;
+  return { query, chips };
 }

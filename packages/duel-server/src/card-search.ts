@@ -315,7 +315,6 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const checks = compile(reading ? { ...query, scope: "name" } : query, index, genesysPoints, releaseFor);
   const passes = (entry: Entry) => checks.every((check) => check(entry));
   const effectChecks = reading ? compile({ ...query, text: "" }, index, genesysPoints, releaseFor) : [];
-  const effectTerms = reading ? parseCardSearchTerms(reading.query.text) : [];
   const effectFound: Array<{ entry: Entry; score: number }> = [];
 
   const trimmed = query.text.trim();
@@ -329,7 +328,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
     if (passes(entry)) found.push(entry);
     else if (reading && effectChecks.every(check => check(entry))) {
       const score = effects!.match(entry.card.code, reading);
-      if (score !== null && effectTerms.every(term => entry.text.includes(term.text) !== term.negate)) effectFound.push({ entry, score });
+      if (score !== null) effectFound.push({ entry, score });
     }
   }
   const member: Matcher | null = query.archetypeMode === "related" && query.archetypes.length > 0
@@ -362,12 +361,26 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
     altArtCount: cardArtworkFamily(cards, entry.card.code)!.artworks.length - 1 });
   effectFound.sort((a, b) => (query.sort === "newest" || (query.sort === "match" && reading?.query.sort === "newest") ? compareNewest(releaseFor(a.entry), releaseFor(b.entry), query.released?.region ?? reading?.query.released?.region) : 0) || b.score - a.score || effects!.popularity(b.entry.card.code) - effects!.popularity(a.entry.card.code) || a.entry.card.code - b.entry.card.code);
   const effectOffset = query.effectOffset ?? query.offset;
+  const relax: Array<{ chip: string; count: number }> = [];
+  if (reading && !effectFound.length && !sorted.length) {
+    for (const chip of reading.chips) {
+      if (chip.startsWith("Text:") || chip.startsWith("Sort:")) continue;
+      const relaxed = effects!.readQuery(query.text, [...(query.effectOmit ?? []), chip]);
+      if (!relaxed) continue;
+      let count = 0;
+      for (const entry of index.entries) {
+        if (!entry.hidden && effectChecks.every(check => check(entry)) && effects!.match(entry.card.code, relaxed) !== null) count++;
+      }
+      if (count) relax.push({ chip, count });
+    }
+    relax.sort((a, b) => b.count - a.count || a.chip.localeCompare(b.chip, "en"));
+  }
   return {
     cards: sorted.slice(query.offset, query.offset + query.limit).map(decorate),
     total: sorted.length,
     offset: query.offset,
     effectSearchEnabled: enabled,
-    ...(enabled ? { reading, effectHits: effectFound.slice(effectOffset, effectOffset + Math.min(query.limit, 30)).map(({ entry, score }) => ({ ...decorate(entry), score, reason: reading!.chips.join(" · ").slice(0, 200) })), effectTotal: effectFound.length, effectOffset } : {}),
+    ...(enabled ? { reading, effectHits: effectFound.slice(effectOffset, effectOffset + Math.min(query.limit, 30)).map(({ entry, score }) => ({ ...decorate(entry), score, reason: effects!.reason(entry.card.code, reading!) })), effectTotal: effectFound.length, effectOffset, relax: relax.slice(0, 2) } : {}),
   };
 }
 

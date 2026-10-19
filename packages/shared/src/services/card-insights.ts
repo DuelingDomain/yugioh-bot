@@ -6,7 +6,10 @@ import { buildArchetypeMatcher, describe, interpret, omitReadingChips, type Inte
 import { matchCard } from "../cards/effects/effect-match.js";
 import { compactEffectName, resolveEffectName } from "../cards/effects/name-match.js";
 import { cardSynergy, filterReachesCard, scoreForDeck, type Candidate, type RankedInsightCard } from "../cards/effects/synergy.js";
-import { normalizeImportedCardName } from "./card-name-match.js";
+import { cachedEffectReading, effectArchetypes } from "../cards/effects/reading-cache.js";
+import { intentReading, cardSimilarity, counterProfileFromHooks, counterLink } from "../cards/effects/search-intents.js";
+import { effectMatchReason, softTextScore, shortReason } from "../cards/effects/search-reasons.js";
+import { ArchetypeProfile } from "../cards/effects/synergy.js";
 import { createInsightCatalog, type InsightCatalog } from "./card-insight-catalog.js";
 import { readInsightProfiles } from "./card-insight-profiles.js";
 
@@ -34,6 +37,7 @@ export interface CardEffectSearchResult {
   reading: Interpretation | null;
   cards: RankedInsightCard[];
   total: number;
+  relax?: Array<{ chip: string; count: number }>;
 }
 export interface CardPoolHealth {
   /** Distinct canonical cards, including unknown passcodes. */
@@ -99,6 +103,14 @@ export function createCardInsightService(db: Database.Database, options: {
   const readQuery = (text: string): Interpretation | null => {
     const matcher = archetypeMatcher();
     const target = synergyTarget(text);
+    const intent = intentReading(text, name => {
+      const id = resolveTarget(name);
+      const card = id === undefined ? undefined : db.prepare<[number], { name: string }>("SELECT name FROM card_catalog WHERE ygoprodeck_id=?").get(id);
+      return card && id !== undefined ? { id, name: card.name } : undefined;
+    }, name => resolveEffectName([...effectArchetypes(db)].map(name => ({ name })), name)?.name);
+    if (intent) return intent;
+    const cached = cachedEffectReading(db, text);
+    if (cached) return cached;
     if (!target) return interpret(text, matcher);
     const named = resolveTarget(target);
     const name = named === undefined ? undefined : (db.prepare("SELECT name FROM card_catalog WHERE ygoprodeck_id=?").get(named) as { name: string } | undefined)?.name;
@@ -157,15 +169,15 @@ export function createCardInsightService(db: Database.Database, options: {
         if (literal) for (const candidate of catalog.candidates(pool)) {
           if (!allowed(candidate, opts) || !`${candidate.card.pendulumText ?? ""}\n${candidate.card.text}`.toLowerCase().includes(literal)) continue;
           total++;
-          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: 0, linkedCards: 0, reason: `Text: ${text.trim()}`,
+          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: 0, linkedCards: 0, reason: shortReason(`Text: ${text.trim()}`),
             ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), opts);
         }
         return { reading: null, cards: withoutPopularity(ranked), total };
       });
       const initial = readQuery(text);
       const reading = initial ? omitReadingChips(initial, opts.omittedChips) : null;
-      if (!reading || pool?.length === 0) return { reading, cards: [], total: 0 };
-      const target = synergyTarget(text), anchor = target && !opts.omittedChips?.includes(initial!.chips[0]!) ? resolveTarget(target) : undefined;
+      if (!reading || pool?.length === 0) return { reading, cards: [], total: 0, relax: [] };
+      const target = cachedEffectReading(db, text) ? undefined : synergyTarget(text), anchor = target && !opts.omittedChips?.includes(initial!.chips[0]!) ? resolveTarget(target) : undefined;
       const effective = { ...opts, sort: opts.sort ?? reading.query.sort,
         released: { ...opts.released, region: opts.released?.region ?? reading.query.released?.region } };
       return withCatalog(catalog => {
@@ -173,20 +185,43 @@ export function createCardInsightService(db: Database.Database, options: {
           const candidate = catalog.candidate(anchor);
           return { reading, ...rank(catalog, candidate ? [candidate] : [], pool, effective) };
         }
-        const ranked: Retained[] = [], words = normalizeImportedCardName(reading.query.text).split(" ").filter(Boolean);
+        const ranked: Retained[] = [];
+        const similar = reading.query.intent?.kind === "similar" ? catalog.candidate(reading.query.intent.passcode) : undefined;
+        const archetype = reading.query.intent?.kind === "counters" ? reading.query.intent.archetype : undefined;
+        const row = archetype ? db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE").get(archetype) : undefined;
+        let counter: ReturnType<typeof counterProfileFromHooks> | undefined;
+        try { if (row) counter = counterProfileFromHooks(ArchetypeProfile.parse({ plan: row.plan, hooks: JSON.parse(row.hooks_json) })); } catch { /* Optional profile: fail closed. */ }
+        const match = (candidate: Candidate, query = reading.query): number | null => {
+          const base = matchCard(candidate.card, candidate.tags, query);
+          if (base === null) return null;
+          if (query.intent?.kind === "similar") return similar ? cardSimilarity(similar, candidate) : null;
+          if (query.intent?.kind === "counters") return counter && archetype ? counterLink(counter, archetype, candidate)?.score ?? null : null;
+          return base + softTextScore(candidate.card, query.text);
+        };
         const master = domain(opts.format) && opts.deckMaster !== undefined ? catalog.candidate(opts.deckMaster) : undefined;
         let total = 0;
         for (const candidate of catalog.candidates(pool)) {
           if (!allowed(candidate, opts)) continue;
-          const printed = normalizeImportedCardName(`${candidate.card.pendulumText ?? ""} ${candidate.card.text}`);
-          if (words.length && !words.every(word => printed.includes(word))) continue;
-          const score = matchCard(candidate.card, candidate.tags, reading.query);
+          const score = match(candidate);
           if (score === null) continue;
           total++;
-          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + cardEraBoost(candidate.card, opts.era), linkedCards: 0, reason: reading.chips.join("; "),
+          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + cardEraBoost(candidate.card, opts.era), linkedCards: 0, reason: counter && archetype ? counterLink(counter, archetype, candidate)!.reason
+            : similar ? shortReason(`Similar ${candidate.tags?.roles.find(role => similar.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${similar.card.name}`)
+            : effectMatchReason(candidate.card, candidate.tags, reading.query, candidate.tags?.summary),
             ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), effective);
         }
-        return { reading, cards: withoutPopularity(ranked), total };
+        const relax: Array<{ chip: string; count: number }> = [];
+        if (!total) {
+          for (const chip of reading.chips) {
+            if (chip.startsWith("Text:") || chip.startsWith("Sort:")) continue;
+            const query = omitReadingChips(reading, [chip])!.query;
+            let count = 0;
+            for (const candidate of catalog.candidates(pool)) if (allowed(candidate, opts) && match(candidate, query) !== null) count++;
+            if (count) relax.push({ chip, count });
+          }
+          relax.sort((a, b) => b.count - a.count || a.chip.localeCompare(b.chip, "en"));
+        }
+        return { reading, cards: withoutPopularity(ranked), total, relax: relax.slice(0, 2) };
       });
     },
     worksWith(passcode: number, pool?: readonly number[], opts: CardInsightOptions = {}): RankedInsightCard[] {
