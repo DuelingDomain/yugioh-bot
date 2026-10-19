@@ -36,7 +36,8 @@ function targetPhrase(action: ReasonEvent): string {
   const what = action.what;
   const named = what.names[0] ?? what.archetypes[0] ?? "";
   if (!named && !what.kinds.length && !what.subtypes.length && !what.types.length && !what.attributes.length) return "";
-  const owner = action.player === "opponent" ? "an opponent's" : action.player === "you" ? "your" : "a";
+  // The opponent is the default target of a disruption, so only "your" is worth the room.
+  const owner = action.player === "you" ? "your" : "a";
   const condition = what.other && what.other.length <= 12 ? what.other : "";
   const noun = named ? (what.names[0] ? named : `"${named}" card`) : [what.attributes.join("/"), ...what.types, ...what.subtypes.map(value => value === "effect" ? "Effect" : value), what.kinds.join("/") || "card"].join(" ");
   const zone = action.from.length === 1 ? ({ gy: " in the GY", deck: " in the Deck", hand: " in the hand", banished: " that is banished" } as Record<string, string>)[action.from[0]!] ?? "" : "";
