@@ -66,7 +66,7 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
     monsterType: undefined, attribute: undefined, level: undefined, rank: undefined, linkRating: undefined,
     atk: null, def: null, tcgDate: undefined, ocgDate: undefined };
   const canonical = (code: number) => cards.get(code)?.canonicalPasscode ?? code;
-  const summary = db.prepare<[number], { summary: string }>("SELECT summary FROM card_tags WHERE passcode=?");
+  const summary = db.prepare<[number], { summary: string; tags_json: string }>("SELECT summary,tags_json FROM card_tags WHERE passcode=?");
   const profileRow = db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE");
   const contexts = new WeakMap<Interpretation, { anchor?: { card: Card; tags?: import("@yugidraft/shared/cards/effects").MatchTags }; counter?: import("@yugidraft/shared/cards/effects").CounterProfile }>();
   const context = (reading: Interpretation) => {
@@ -124,7 +124,11 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
       const card = engineInsightCard(raw), tags = facets.get(canonical(code)), ctx = context(reading);
       if (reading.query.intent?.kind === "counters" && ctx.counter) return counterLink(ctx.counter, reading.query.intent.archetype, { card, tags })?.reason ?? "Disrupts this plan";
       if (reading.query.intent?.kind === "similar") return shortReason(`Similar ${tags?.roles.find(role => ctx.anchor?.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${reading.query.intent.name}`);
-      return effectMatchReason(card, tags, reading.query, summary.get(canonical(code))?.summary);
+      // The compact facets drop each action's note and condition; one stored record is read for the retained card only.
+      const stored = summary.get(canonical(code));
+      let full: typeof tags = tags;
+      try { if (stored?.tags_json) full = JSON.parse(stored.tags_json) as typeof tags; } catch { /* Keep the compact facets. */ }
+      return effectMatchReason(card, full, reading.query, stored?.summary);
     },
     popularity: code => facets.get(canonical(code))?.popularity ?? 0,
   };

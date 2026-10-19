@@ -37,11 +37,12 @@ function targetPhrase(action: ReasonEvent): string {
   const named = what.names[0] ?? what.archetypes[0] ?? "";
   if (!named && !what.kinds.length && !what.subtypes.length && !what.types.length && !what.attributes.length) return "";
   // The opponent is the default target of a disruption, so only "your" is worth the room.
-  const owner = action.player === "you" ? "your" : "a";
+  const owner = action.player === "you" ? "your" : "";
   const condition = what.other && what.other.length <= 12 ? what.other : "";
   const noun = named ? (what.names[0] ? named : `"${named}" card`) : [what.attributes.join("/"), ...what.types, ...what.subtypes.map(value => value === "effect" ? "Effect" : value), what.kinds.join("/") || "card"].join(" ");
   const zone = action.from.length === 1 ? ({ gy: " in the GY", deck: " in the Deck", hand: " in the hand", banished: " that is banished" } as Record<string, string>)[action.from[0]!] ?? "" : "";
-  return [owner, condition, noun].filter(Boolean).join(" ") + zone;
+  const phrase = [owner, condition, noun].filter(Boolean).join(" ");
+  return (owner ? phrase : `${/^[aeiou]/i.test(phrase) ? "an" : "a"} ${phrase}`) + zone;
 }
 
 const thirdPerson = (word: string) => /s$/i.test(word) ? word : /(?:sh|ch|x|z)$/i.test(word) ? `${word}es` : /[^aeiou]y$/i.test(word) ? `${word.slice(0, -1)}ies` : `${word}s`;
