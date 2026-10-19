@@ -122,6 +122,8 @@ const base = {
   // The theme lobby (and its pool health and "Describe a theme") exists only with this flag.
   THEME_DRAFTS: process.env.E2E_THEME_DRAFTS ?? "1",
   DATABASE_PATH: dbPath,
+  DUEL_DATA_DIR: runtimeDuelDataDir,
+  E2E_PRERELEASE_CATALOG: process.env.E2E_PRERELEASE_CATALOG ?? "0",
   DOTENV_CONFIG_PATH: resolve(stackDir, "none.env"),
   DOTENV_CONFIG_QUIET: "true",
 };
@@ -200,7 +202,7 @@ run("web", process.execPath, ["server.js"], {
     E2E_STUB_GUILD_ID: guildId,
     E2E_STUB_MEMBER_IDS: players.map((player) => player.discordId).join(","),
     E2E_MANUAL: manualMode ? "1" : "0",
-    E2E_CARD_IMAGE_SOURCE_DIR: manualMode ? manualImageSource : "",
+    E2E_CARD_IMAGE_SOURCE_DIR: manualMode || process.env.E2E_PRERELEASE_CATALOG === "1" ? manualImageSource : "",
     WS_INTERNAL_URL: wsInternal,
     WS_INTERNAL_SECRET: secrets.ws,
     DUEL_INTERNAL_URL: `http://127.0.0.1:${ports.duel}`,

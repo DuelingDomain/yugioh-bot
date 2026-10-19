@@ -1,5 +1,6 @@
 "use client";
 
+import { PrereleaseLabel } from "@/components/prerelease-label";
 import type { CardEra } from "@yugidraft/shared/cards/effects";
 import { cardImageUrl } from "@/lib/card-image-url";
 import * as React from "react";
@@ -177,7 +178,7 @@ function CardTab({ copiesInCube, onAddCard, busy, effects }: Pick<AddRailProps, 
   }, [query, retry]);
 
   const trimmed = query.trim();
-  const failed = failedFor === trimmed && !searching;
+  const failed = trimmed.length > 0 && failedFor === trimmed && !searching;
   const nav = useResultNav({
     items: results,
     query,
@@ -217,6 +218,7 @@ function CardTab({ copiesInCube, onAddCard, busy, effects }: Pick<AddRailProps, 
                 </span>
                 <div className={styles.resText}>
                   <p className="n">{card.name}</p>
+                  {card.prerelease ? <PrereleaseLabel /> : null}
                   <p className="k">
                     {card.type}, {pool}
                   </p>

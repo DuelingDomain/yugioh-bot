@@ -17,6 +17,7 @@ export function buildCubeCards(
 export function cubeCardsByIds(ids: number[], catalog: CardCatalogService): CardSummary[] {
   return catalog.findByIds(ids).map((c) => ({
     id: c.ygoprodeckId,
+    prerelease: c.prerelease,
     name: c.name,
     type: c.type,
     frameType: c.frameType,

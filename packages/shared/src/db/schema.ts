@@ -436,6 +436,11 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "card_catalog", "attribute", "text");
   addColumnIfMissing(db, "card_catalog", "level", "integer");
   addColumnIfMissing(db, "card_catalog", "archetype", "text");
+  addColumnIfMissing(db, "card_catalog", "race", "text");
+  addColumnIfMissing(db, "card_catalog", "setcodes_json", "text not null default '[]'");
+  addColumnIfMissing(db, "card_catalog", "is_extra_deck", "integer not null default 0");
+  addColumnIfMissing(db, "card_catalog", "is_prerelease", "integer not null default 0");
+  addColumnIfMissing(db, "card_catalog", "catalog_source", "text not null default 'api'");
   // Unknown until a successful TCG Genesys snapshot. Zero is a real, known value.
   addColumnIfMissing(db, "card_catalog", "genesys_points",
     "integer check (genesys_points is null or (typeof(genesys_points) = 'integer' and genesys_points >= 0))");

@@ -34,7 +34,7 @@ function artworkOf(passcode: number): ArtworkRow | undefined {
 class ImageMissingError extends Error {}
 class ImageInvalidError extends CardFetchError {}
 
-/** Try Ignis for missing full/small cards before considering the engine alias. */
+/** Try full Ignis art for any missing variant before considering the engine alias. */
 async function fetchImage(passcode: number, variant: ImageVariant): Promise<FetchedImage> {
   const artwork = artworkOf(passcode);
   const baseUrl = variant === "cropped" ? YGOPRODECK_CROPPED_URL : variant === "small" ? YGOPRODECK_SMALL_URL : YGOPRODECK_IMAGE_URL;
@@ -47,8 +47,8 @@ async function fetchImage(passcode: number, variant: ImageVariant): Promise<Fetc
       throw error;
     }
   };
-  // Ignis has full-card art only; a missing crop must stay on YGOPRODeck.
-  return fetchCardImageResource(url, passcode, fetch, readImage, variant !== "cropped");
+  // Ignis has full-card art only. It still gives a usable image for a missing crop.
+  return fetchCardImageResource(url, passcode, fetch, readImage, true);
 }
 
 /**

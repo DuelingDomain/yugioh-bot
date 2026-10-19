@@ -1,5 +1,6 @@
 "use client";
 
+import { PrereleaseLabel } from "@/components/prerelease-label";
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
 import { AlertTriangle, ArrowDownWideNarrow, ArrowUpNarrowWide, Minus, LayoutGrid, Link2, List, Plus, RotateCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { cardLimit, type CardArchetype, type CardQuery, type CardQueryResult, type DeckCardInfo, type DuelMode } from "@yugidraft/shared/duels";
@@ -560,6 +561,7 @@ export function CardBrowser({
                         <CardArt code={card.code} name={card.name} />
                         {genesys && !pool ? <GenesysBadge card={card} variant="browse" lift={Boolean(card.unavailableReason)} /> : <LimitBadge limit={limit} />}
                         <ArtChip otherArts={card.altArtCount ?? 0} corner />
+                        {card.prerelease ? <span className={styles.prerelease}><PrereleaseLabel /></span> : null}
                         {card.unavailableReason ? <span className={styles.unavailable}>Unavailable</span> : null}
                         {pool ? (
                           <span className={cn("num", styles["de-left"])} data-zero={left <= 0 ? "true" : undefined} title="Copies left in your pool">{left} left</span>
@@ -583,6 +585,7 @@ export function CardBrowser({
                       </span>
                       <span className={styles.rowText}>
                         <strong>{card.name}</strong>{" "}
+                        {card.prerelease ? <PrereleaseLabel /> : null}
                         {card.unavailableReason ? <span>Unavailable: {card.unavailableReason}</span> : null}
                         <span>{cardDetailsText(card)}</span>
                         {card.reason ? <span className={styles.effectReason} title={card.reason}>{card.reason}</span> : null}{" "}
