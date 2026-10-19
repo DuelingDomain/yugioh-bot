@@ -80,6 +80,7 @@ export function CardBrowser({
   onInspect,
   onHover,
   onAdd,
+  fullReason,
   onCatalog,
   onRemoveDrop,
   searchRef,
@@ -105,6 +106,8 @@ export function CardBrowser({
   /** The card under the pointer, or null when the pointer leaves it. */
   onHover: (card: DeckCardInfo | null) => void;
   onAdd: (card: DeckCardInfo) => void;
+  /** Why this card cannot be added because its section is full ("Main Deck is full (60/60)."), or null. */
+  fullReason?: (card: DeckCardInfo) => string | null;
   onCatalog: (cards: DeckCardInfo[]) => void;
   onRemoveDrop: (drag: CardDrag) => void;
   searchRef: RefObject<HTMLInputElement | null>;
@@ -596,7 +599,7 @@ export function CardBrowser({
                       ) : count > 0 ? <span className={cn("num", styles.rowHave)}>×{count}</span> : null}
                     </button>
                     {worksEnabled ? worksButton(card, styles.rowWorks!) : null}
-                    <button type="button" className={styles.rowAdd} aria-label={`Add ${card.name} to the deck`} title={card.unavailableReason ? `Unavailable: ${card.unavailableReason}` : "Add to deck"} disabled={!!card.unavailableReason || (pool != null && full)} onClick={() => onAdd(card)}>
+                    <button type="button" className={styles.rowAdd} aria-label={`Add ${card.name} to the deck`} title={card.unavailableReason ? `Unavailable: ${card.unavailableReason}` : fullReason?.(card) ?? "Add to deck"} disabled={!!card.unavailableReason || (pool != null && full) || !!fullReason?.(card)} onClick={() => onAdd(card)}>
                       <Plus size={16} strokeWidth={1.8} aria-hidden />
                     </button>
                   </li>

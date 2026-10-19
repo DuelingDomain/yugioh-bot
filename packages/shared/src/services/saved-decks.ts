@@ -1,4 +1,5 @@
 import { assertExtraDeckCards, ExtraDeckCardError, isExtraDeckCard, type DeckSectionMove } from "../duels/extra-deck.js";
+import { DECK_SECTION_LIMITS } from "../duels/deck-limits.js";
 import { createDeckTypeLookup, hasKnownDeckCardType } from "./deck-sections.js";
 import type { CardIdentityCatalog } from "../duels/pool.js";
 import type Database from "better-sqlite3";
@@ -6,7 +7,6 @@ import type { DuelDeck, DuelMode, SavedDeck } from "../duels/index.js";
 import { DuelSettingsError, normalizeGenesysSettings, type GenesysSettings } from "../duels/settings.js";
 
 const MAX_NAME_LENGTH = 100;
-const MAX_SECTION_CARDS = 300;
 const UINT32_MAX = 0xffff_ffff;
 
 export class SavedDeckServiceError extends Error {
@@ -63,12 +63,13 @@ function isCardCode(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= UINT32_MAX;
 }
 
-function assertCardCodes(codes: unknown, label: string): number[] {
+function assertCardCodes(codes: unknown, label: string, max: number): number[] {
   if (!Array.isArray(codes)) {
     throw new SavedDeckServiceError(`${label} must be a list of card codes`, 400);
   }
-  if (codes.length > MAX_SECTION_CARDS) {
-    throw new SavedDeckServiceError(`${label} must contain at most ${MAX_SECTION_CARDS} cards`, 400);
+  // The hard stop: no client can save a section past its limit (60 Main, 15 Extra, 15 Side).
+  if (codes.length > max) {
+    throw new SavedDeckServiceError(`${label} must contain at most ${max} cards`, 400);
   }
   for (const code of codes) {
     if (!isCardCode(code)) {
@@ -99,15 +100,16 @@ function normalizeMode(mode: unknown): DuelMode {
   return mode;
 }
 
-function normalizeDeck(deck: unknown): DuelDeck {
+function normalizeDeck(deck: unknown, preview = false): DuelDeck {
   if (!deck || typeof deck !== "object" || Array.isArray(deck)) {
     throw new SavedDeckServiceError("Deck is required", 400);
   }
   const raw = deck as { main?: unknown; extra?: unknown; side?: unknown; deckMaster?: unknown };
+  const limit = (max: number) => (preview ? IMPORT_PREVIEW_SECTION_MAX : max);
   const normalized: DuelDeck = {
-    main: assertCardCodes(raw.main, "Main deck"),
-    extra: assertCardCodes(raw.extra, "Extra deck"),
-    side: assertCardCodes(raw.side, "Side deck"),
+    main: assertCardCodes(raw.main, "Main deck", limit(DECK_SECTION_LIMITS.main)),
+    extra: assertCardCodes(raw.extra, "Extra deck", limit(DECK_SECTION_LIMITS.extra)),
+    side: assertCardCodes(raw.side, "Side deck", limit(DECK_SECTION_LIMITS.side)),
   };
   if (raw.deckMaster !== undefined) {
     if (!isCardCode(raw.deckMaster)) {
@@ -118,15 +120,18 @@ function normalizeDeck(deck: unknown): DuelDeck {
   return normalized;
 }
 
+/** An import preview reads a file before the deck is cut to its limits, so it checks against this. A save never does. */
+export const IMPORT_PREVIEW_SECTION_MAX = 300;
+
 /** Validate storage rules without a write, so previews and saves use the same limits. */
-export function validateSavedDeckWrite(input: SavedDeckWrite): { name: string; mode: DuelMode; deck: DuelDeck; genesys: GenesysSettings | null } {
+export function validateSavedDeckWrite(input: SavedDeckWrite, options: { preview?: boolean } = {}): { name: string; mode: DuelMode; deck: DuelDeck; genesys: GenesysSettings | null } {
   let genesys: GenesysSettings | null;
   try { genesys = normalizeGenesysSettings(input.genesys); }
   catch (error) {
     if (error instanceof DuelSettingsError) throw new SavedDeckServiceError(error.message, 400);
     throw error;
   }
-  return { name: normalizeName(input.name), mode: normalizeMode(input.mode), deck: normalizeDeck(input.deck), genesys };
+  return { name: normalizeName(input.name), mode: normalizeMode(input.mode), deck: normalizeDeck(input.deck, options.preview), genesys };
 }
 
 /** undefined stays undefined (callers decide the default); null clears. */
@@ -207,11 +212,11 @@ export function createSavedDeckService(db: Database.Database, engine?: CardIdent
     }
     if (!moves.length) return { saved };
     const mainCount = saved.deck.main.length + moves.length;
-    const applied = mainCount <= MAX_SECTION_CARDS;
+    const applied = mainCount <= DECK_SECTION_LIMITS.main;
     const count = `${moves.length} ${moves.length === 1 ? "card" : "cards"}`;
     const message = applied
-      ? `${count} moved from Extra Deck to Main Deck.${mainCount > 60 ? ` Main Deck now has ${mainCount} cards; trim it to 60 or fewer before playing.` : ""}`
-      : `${count} in Extra Deck belong in Main Deck. Moving them would make ${mainCount} Main cards, above the ${MAX_SECTION_CARDS}-card save limit. Move cards to Side Deck or remove cards before saving.`;
+      ? `${count} moved from Extra Deck to Main Deck.`
+      : `${count} in Extra Deck belong in Main Deck. Moving them would make ${mainCount} Main cards, above the ${DECK_SECTION_LIMITS.main}-card limit. Move cards to Side Deck or remove cards before saving.`;
     saved.extraDeckRepair = { applied, moves, mainCount, message };
     if (!applied) return { saved };
     saved.deck = { ...saved.deck, main: [...saved.deck.main, ...moves.map(move => move.code)], extra };

@@ -41,6 +41,8 @@ const source = (text = "#main\n89631139\n#extra\n!side", id = "f1", name = "Blue
 const request = (body: unknown, headers?: HeadersInit) => new Request("http://test/api/decks/import", {
   method: "POST", headers, body: JSON.stringify(body),
 });
+// A deck at the hard limits: 60 Main, then 15 Extra, then 15 Side (a saved section never holds more).
+const wide = (codes: number[]) => ({ main: codes.slice(0, 60), extra: codes.slice(60, 75), side: codes.slice(75, 90), deckMaster: null });
 const row = (name = "Blue-Eyes", value: unknown = deck()) => ({ name, deck: value });
 const previewRows = async (sources: unknown[] = [source()]) => (await (await preview(request({ sources }))).json()).rows;
 
@@ -228,7 +230,7 @@ describe("backend review fixes", () => {
       data: { codes: Object.fromEntries(input.codes.map(id => [id, null])), lookupRemaining: input.lookupLimit } }));
     const codes = Array.from({ length: 5100 }, (_, i) => 92000000 + i);
     for (const group of [codes.slice(0, 4500), codes.slice(4500)]) {
-      const rows = Array.from({ length: Math.ceil(group.length / 300) }, (_, i) => row(`Unknown ${i}`, deck(group.slice(i * 300, (i + 1) * 300))));
+      const rows = Array.from({ length: Math.ceil(group.length / 90) }, (_, i) => row(`Unknown ${i}`, wide(group.slice(i * 90, (i + 1) * 90))));
       expect((await bulk(request({ rows }))).status).toBe(200);
     }
     mocks.callDuelHost.mockClear();
@@ -267,16 +269,15 @@ describe("backend review fixes", () => {
     mocks.callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({ ok: true, data: {
       codes: Object.fromEntries(input.codes.map(id => [id, id])), lookupRemaining: 0, lookupLimited: [],
     } }));
-    const response = await bulk(request({ rows: Array.from({ length: 4 }, (_, i) => row(`Deck ${i}`, deck(codes.slice(i * 300, (i + 1) * 300)))) }));
+    const response = await bulk(request({ rows: Array.from({ length: 20 }, (_, i) => row(`Deck ${i}`, deck(codes.slice(i * 60, (i + 1) * 60)))) }));
     expect(response.status).toBe(200);
     expect(mocks.callDuelHost.mock.calls.map(([input]) => input.lookupLimit)).toEqual([50, 0]);
   });
 
-  it.each([preview, bulk])("rejects more than 4550 unique request codes before host work", async route => {
+  it("rejects more than 4550 unique request codes before host work", async () => {
+    // Only a preview can reach this: a bulk row holds at most 91 codes, so 50 rows stay at 4550.
     const codes = Array.from({ length: 4800 }, (_, i) => 90000000 + i);
-    const response = await route(request(route === preview
-      ? { sources: Array.from({ length: 16 }, (_, i) => source(`#main\n${codes.slice(i * 300, (i + 1) * 300).join("\n")}`, `f${i}`)) }
-      : { rows: Array.from({ length: 16 }, (_, i) => row(`Deck ${i}`, deck(codes.slice(i * 300, (i + 1) * 300)))) }));
+    const response = await preview(request({ sources: Array.from({ length: 16 }, (_, i) => source(`#main\n${codes.slice(i * 300, (i + 1) * 300).join("\n")}`, `f${i}`)) }));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "Import must contain at most 4550 unique card codes" });
     expect(mocks.callDuelHost).not.toHaveBeenCalled();
@@ -346,15 +347,15 @@ describe("backend review fixes", () => {
   });
 
   it("caps card errors in both preview and bulk", async () => {
-    const codes = Array.from({ length: 100 }, (_, i) => 90000000 + i);
+    const codes = Array.from({ length: 60 }, (_, i) => 90000000 + i);
     mocks.callDuelHost.mockResolvedValue({ ok: true, data: { codes: Object.fromEntries(codes.map(id => [id, null])) } });
     const [shown] = await previewRows([source(`#main\n${codes.join("\n")}`)]);
     expect(shown.errors.length + shown.warnings.length).toBe(21);
     expect(shown.errors.slice(0, 20)).toHaveLength(20);
-    expect([...shown.errors, ...shown.warnings]).toContainEqual(expect.objectContaining({ code: "more_issues", count: 81 }));
+    expect([...shown.errors, ...shown.warnings]).toContainEqual(expect.objectContaining({ code: "more_issues", count: 40 }));
     const body = await (await bulk(request({ rows: [row("Unknown", deck(codes))] }))).json();
     expect(body.failed[0].errors).toHaveLength(21);
-    expect(body.failed[0].errors.at(-1)).toMatchObject({ code: "more_issues", count: 80 });
+    expect(body.failed[0].errors.at(-1)).toMatchObject({ code: "more_issues", count: 40 });
   });
 
   it.each(["#main\n#extra\n!side", "ydke://!!!", "#main\nbad"])('rejects an empty parsed deck from %s', async text => {
@@ -570,14 +571,26 @@ describe("preview", () => {
     expect(decks.list("g", "owner")).toEqual([]);
   });
 
-  it("checks storage limits again after preview routing without dropping copies", async () => {
-    db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (901,'Test Spell','Spell Card','link','','','[]','test')").run();
-    const [shown] = await previewRows([source(`#main\n901\n#extra\n${"901\n".repeat(300)}`)]);
-    expect(shown.deck.main).toHaveLength(301);
-    expect(shown.deck.extra).toEqual([]);
-    expect(shown.counts).toEqual({ main: 301, extra: 0, side: 0 });
-    expect(shown.errors).toContainEqual(expect.objectContaining({ code: "invalid_deck", message: expect.stringContaining("300") }));
-    expect(shown.warnings).toContainEqual(expect.objectContaining({ code: "section_moved", message: expect.stringContaining("300 cards moved") }));
+  it.each(["main", "extra"] as const)("cuts %s to its limit after routing and reports what was left out", async section => {
+    mocks.engine.set(901, { name: "Test Spell", type: 0x2 });
+    mocks.engine.set(903, { name: "Test Fusion", type: 0x41 });
+    const original = section === "main" ? { main: Array(100).fill(901), extra: [901], side: [] }
+      : { main: [903], extra: Array(30).fill(903), side: [] };
+    const [shown] = await previewRows([source(encodeYdke(original))]);
+    const limit = section === "main" ? 60 : 15;
+    const total = section === "main" ? 101 : 31;
+    expect(shown.deck[section]).toHaveLength(limit);
+    expect(shown.counts[section]).toBe(limit);
+    expect(shown.errors).toEqual([]);
+    expect(shown.warnings).toContainEqual(expect.objectContaining({ code: `${section}_full`, count: total - limit,
+      message: expect.stringContaining(`${section === "main" ? "Main" : "Extra"} Deck is full (${limit}/${limit}). ${total - limit} cards were left out`) }));
+    expect(shown.warnings).toContainEqual(expect.objectContaining({ code: "section_moved" }));
+  });
+
+  it("refuses a preview file that is far past the limits instead of loading it", async () => {
+    const [shown] = await previewRows([source(`#main\n${"89631139\n".repeat(301)}`)]);
+    expect(shown.errors).toContainEqual(expect.objectContaining({ code: "invalid_deck" }));
+    expect(decks.list("g", "owner")).toEqual([]);
   });
 
   it("accepts an omitted source name and defaults to Standard", async () => {
@@ -709,14 +722,13 @@ describe("preview", () => {
     expect(rows.every((r: { duplicateOf?: unknown }) => r.duplicateOf === undefined)).toBe(true);
   });
 
-  it("returns storage overflow as an error and game size issues as warnings", async () => {
-    db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (44508094,'Stardust Dragon','Synchro Monster','synchro','','','[]','test')").run();
-    const rows = await previewRows([source(`#main\n${"89631139\n".repeat(301)}`), source(`#main\n89631139\n#extra\n${"44508094\n".repeat(16)}!side\n${"14558127\n".repeat(16)}`, "f2")]);
-    expect(rows[0].errors).toContainEqual(expect.objectContaining({ code: "invalid_deck" }));
-    expect(rows[1].errors).toEqual([]);
-    expect(rows[1].warnings.map((w: { code: string }) => w.code)).toEqual(["extra_size", "unknown_card_type", "unknown_card_type", "main_size", "side_size"]);
-    expect(rows[1].deck.extra).toHaveLength(16);
-    expect(rows[1].warnings[0].message).toContain("15");
+  it("cuts Extra and Side to 15 and reports the cards left out", async () => {
+    const rows = await previewRows([source(`#main\n89631139\n#extra\n${"44508094\n".repeat(16)}!side\n${"14558127\n".repeat(16)}`)]);
+    expect(rows[0].errors).toEqual([]);
+    expect(rows[0].warnings.map((w: { code: string }) => w.code)).toEqual(["extra_full", "side_full", "unknown_card_type", "unknown_card_type", "main_size"]);
+    expect(rows[0].deck.extra).toHaveLength(15);
+    expect(rows[0].deck.side).toHaveLength(15);
+    expect(rows[0].warnings[0].message).toContain("Extra Deck is full (15/15). 1 card was left out");
   });
 
   it("reports rejected Domain masters using the ordinary save rule", async () => {

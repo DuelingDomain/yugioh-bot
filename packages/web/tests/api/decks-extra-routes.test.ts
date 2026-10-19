@@ -95,16 +95,30 @@ describe("deck APIs reject invalid Extra cards independently of the client", () 
     expect(await response.json()).toMatchObject({ code: "INVALID_EXTRA_DECK_CARD", error: expect.stringContaining("Move Pot of Greed") });
   });
   it.each(["get", "list"])("exposes the repair notice on the saved-deck object returned by %s", async read => {
-    const original = { main: Array(60).fill(901), extra: [901, 903], side: [] };
+    const original = { main: Array(58).fill(901), extra: [901, 903], side: [] };
     const id = Number(db.prepare("insert into saved_decks(guild_id,owner_user_id,name,mode,deck_json) values ('test-g','test-owner','Test legacy','normal',?)").run(JSON.stringify(original)).lastInsertRowid);
     const response = read === "get" ? await GET(request({}), { params: Promise.resolve({ id: String(id) }) }) : await LIST(new Request("http://test/api/decks"));
     expect(response.status).toBe(200);
     const data = await response.json();
     const saved = read === "get" ? data.deck : data.decks[0];
-    expect(saved.deck.main).toHaveLength(61);
-    expect(saved.extraDeckRepair).toMatchObject({ applied: true, mainCount: 61,
-      moves: [{ code: 901, from: "extra", to: "main" }], message: expect.stringContaining("60") });
+    expect(saved.deck.main).toHaveLength(59);
+    expect(saved.extraDeckRepair).toMatchObject({ applied: true, mainCount: 59,
+      moves: [{ code: 901, from: "extra", to: "main" }], message: expect.stringContaining("moved from Extra Deck to Main Deck") });
     expect(saved.deck.extraDeckRepair).toBeUndefined();
+  });
+  it.each([
+    ["Main", { main: Array(61).fill(901), extra: [], side: [] }],
+    ["Extra", { main: [], extra: Array(16).fill(903), side: [] }],
+    ["Side", { main: [], extra: [], side: Array(16).fill(901) }],
+  ] as const)("refuses a %s section past its limit with 400 on create and update", async (label, deck) => {
+    const response = await POST(request({ name: "Too big", mode: "normal", deck }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining(`${label} deck must contain at most`) });
+    expect(decks.list("test-g", "test-owner")).toEqual([]);
+    const saved = decks.create("test-g", "test-owner", { name: "Fits", mode: "normal", deck: { main: Array(60).fill(901), extra: Array(15).fill(903), side: Array(15).fill(901) } });
+    const updated = await PUT(request({ name: "Too big", mode: "normal", deck }), { params: Promise.resolve({ id: String(saved.id) }) });
+    expect(updated.status).toBe(400);
+    expect(decks.get(saved.id, "test-g", "test-owner")).toEqual(saved);
   });
   it("checks engine-only Extra types with an injected map before any Domain check", async () => {
     const engine = new Map([[998, { name: "Engine Fusion", type: 0x41 }], [997, { name: "Engine Spell", type: 0x2 }]]);

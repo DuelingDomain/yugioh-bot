@@ -9,7 +9,7 @@ import { createSavedDeckService } from "../../src/services/saved-decks.js";
 let db: Database.Database;
 let decks: ReturnType<typeof createSavedDeckService>;
 let statements: string[];
-const bad = { main: Array(60).fill(901), extra: [901, 902, 903, 901, 904], side: [902], deckMaster: 905 };
+const bad = { main: Array(45).fill(901), extra: [901, 902, 903, 901, 904], side: [902], deckMaster: 905 };
 beforeEach(() => {
   statements = [];
   db = new Database(":memory:", { verbose: sql => statements.push(String(sql)) });
@@ -45,9 +45,9 @@ describe("saved deck Extra safety", () => {
     expect(result.deck.extra).toEqual([903]);
     expect(result.deck.side).toEqual(bad.side);
     expect(result.deck.deckMaster).toBe(905);
-    expect(result.extraDeckRepair).toMatchObject({ applied: true, mainCount: 64,
+    expect(result.extraDeckRepair).toMatchObject({ applied: true, mainCount: 49,
       moves: [901, 902, 901, 904].map(code => ({ code, from: "extra", to: "main" })),
-      message: expect.stringContaining("60") });
+      message: expect.stringContaining("moved from Extra Deck to Main Deck") });
     const after = db.prepare("select * from saved_decks where id=?").get(id) as Record<string, unknown>;
     expect({ ...after, deck_json: before.deck_json }).toEqual(before);
     expect(JSON.parse(after.deck_json as string)).toEqual({ ...result.deck, extraDeckRepair: result.extraDeckRepair });
@@ -114,23 +114,23 @@ describe("saved deck Extra safety", () => {
     engine.set(998, { name: "Graduated Fusion", type: 0x41 });
     expect(service.get(id, "test-g", "test-owner").deck.extra).toEqual([998]);
   });
-  it("allows a repaired deck above 60 Main cards to be saved as an unfinished deck", () => {
+  it("saves a repaired deck as it was repaired", () => {
     const id = legacy();
     const repaired = decks.get(id, "test-g", "test-owner");
     expect(decks.update(id, "test-g", "test-owner", { ...repaired }).deck).toEqual(repaired.deck);
   });
-  it("leaves a repair that would exceed 300 Main cards untouched and explains how to fix it", () => {
-    const original = { ...bad, main: Array(300).fill(901), extra: [901, 903] };
+  it("leaves a repair that would pass the 60-card Main limit untouched and explains how to fix it", () => {
+    const original = { ...bad, main: Array(60).fill(901), extra: [901, 903] };
     const id = legacy(original);
     const before = db.prepare("select deck_json from saved_decks where id=?").get(id);
     const transaction = vi.spyOn(db, "transaction");
     const result = decks.get(id, "test-g", "test-owner");
     expect(result.deck).toEqual(original);
-    expect(result.extraDeckRepair).toMatchObject({ applied: false, mainCount: 301,
-      message: expect.stringContaining("300"), moves: [{ code: 901, from: "extra", to: "main" }] });
+    expect(result.extraDeckRepair).toMatchObject({ applied: false, mainCount: 61,
+      message: expect.stringContaining("60-card limit"), moves: [{ code: 901, from: "extra", to: "main" }] });
     expect(transaction).not.toHaveBeenCalled();
     expect(db.prepare("select deck_json from saved_decks where id=?").get(id)).toEqual(before);
-    expect(decks.update(id, "test-g", "test-owner", { ...result, deck: { ...original, extra: [903], side: [901] } }).deck.main).toHaveLength(300);
+    expect(decks.update(id, "test-g", "test-owner", { ...result, deck: { ...original, extra: [903], side: [901] } }).deck.main).toHaveLength(60);
   });
   it("does not open a write transaction for clean or unknown-only read results", () => {
     const id = legacy({ ...bad, extra: [903, 999] });
