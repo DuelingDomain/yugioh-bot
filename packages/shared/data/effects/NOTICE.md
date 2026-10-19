@@ -31,4 +31,4 @@ is added to this snapshot. These source dates can refer to a later print.
 The month precision avoids a claim of exact day accuracy. Future months are
 retained; readers calculate the Upcoming state at use time. Rebuild with Node
 22 and `tsx scripts/effects/build-releases.ts <source-cards.json>` from the root.
-Keep the credit: Release dates from YGOPRODeck via searchygo.
+Credit stays here, not in the UI: release dates come from YGOPRODeck misc data via searchygo.

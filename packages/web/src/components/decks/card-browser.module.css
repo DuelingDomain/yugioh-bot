@@ -148,7 +148,6 @@
 .more { display: flex; justify-content: center; padding-top: 16px; }
 .exactToggle { min-height: 30px; padding: 0 8px; border: 1px solid var(--rule-lo); border-radius: 4px; background: none; color: var(--ink-3); font: inherit; font-size: 12px; cursor: pointer; }
 .exactToggle[aria-pressed="true"] { color: var(--pen-ink); border-color: var(--pen); background: var(--pen-soft); }
-.attribution { font-size: 11px; color: var(--ink-4); }
 /* The same action on a grid tile. It sits top centre, clear of the banlist mark (top left) and the art chip (top right), and only fades in: nothing moves. */
 .tileCell { position: relative; container-type: inline-size; }
 /* The left edge, half way down the art: the corners and the foot hold the limit, art, points and copy marks, and the centre stays a plain click. */

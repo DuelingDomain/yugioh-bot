@@ -122,7 +122,7 @@ describe("phrase preview, confirmation and description routes", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
     const result = await response.json();
-    expect(result).toMatchObject({ effectSearchEnabled: true, attribution: "Effect search powered by searchygo", targetCount: 3, rows: expect.any(Array), cards: expect.any(Array) });
+    expect(result).toMatchObject({ effectSearchEnabled: true, targetCount: 3, rows: expect.any(Array), cards: expect.any(Array) });
     expect(result.rows.length).toBe(3);
     expect(db().prepare("SELECT * FROM cubes").all()).toEqual(before);
     expect(db().prepare("SELECT count(*) AS n FROM cube_cards").get()).toEqual({ n: 0 });
@@ -185,7 +185,7 @@ describe("phrase preview, confirmation and description routes", () => {
     const { POST } = await import("../app/api/cards/resolve/route");
     const response = await POST(request({ op: "effectSearch", text: "hand traps that negate", pool: [97268402] }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ effectSearchEnabled: true, attribution: "Effect search powered by searchygo", reading: { chips: expect.any(Array) }, total: 1, cards: [{ id: 97268402, reason: expect.any(String), score: expect.any(Number) }] });
+    expect(await response.json()).toMatchObject({ effectSearchEnabled: true, reading: { chips: expect.any(Array) }, total: 1, cards: [{ id: 97268402, reason: expect.any(String), score: expect.any(Number) }] });
     expect(state.warm).toHaveBeenCalledWith(expect.anything(), [97268402], { remaining: 8, lookupLimited: false });
     const exact = await POST(request({ op: "effectSearch", text: "hand traps", exact: true, pool: [97268402] }));
     expect(await exact.json()).toMatchObject({ reading: null, cards: [], total: 0 });

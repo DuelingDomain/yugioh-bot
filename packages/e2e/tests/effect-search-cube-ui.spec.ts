@@ -91,7 +91,7 @@ for (const viewport of VIEWPORTS) {
     const rows = tid(page, "effect-result");
     await expect(rows.first()).toBeVisible();
     await expect(tid(page, "reading-chips")).toContainText("hand trap", { ignoreCase: true });
-    await expect(page.getByText("Effect search powered by searchygo", { exact: true }).and(page.locator(":visible")).first()).toBeVisible();
+    await expect(page.getByText(/searchygo/i)).toHaveCount(0);
     await expect(tid(page, "effect-reason").first()).not.toBeEmpty();
     expect(await rows.count()).toBeGreaterThan(3);
 
@@ -216,7 +216,7 @@ for (const viewport of VIEWPORTS) {
     await expect(rows.first()).toContainText(/\S/);
     const count = await rows.count();
     expect(count).toBeGreaterThan(2);
-    await expect(panel.getByText("Effect search powered by searchygo", { exact: true })).toBeVisible();
+    await expect(panel).not.toContainText(/searchygo/i);
     await page.screenshot({ path: join(SHOTS, `phrase-preview-${viewport.width}x${viewport.height}.png`) });
 
     // Remove a row, then confirm what is left.

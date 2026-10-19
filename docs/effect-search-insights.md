@@ -124,8 +124,7 @@ Enabled responses also include:
 
 ```json
 {
-  "effectSearchEnabled": true,
-  "attribution": "Effect search powered by searchygo"
+  "effectSearchEnabled": true
 }
 ```
 

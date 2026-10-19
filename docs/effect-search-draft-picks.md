@@ -9,7 +9,6 @@ requests are unchanged.
 | Field | Type | UI use |
 | --- | --- | --- |
 | `effectSearchEnabled` | `boolean` | Capability from server-side `EFFECT_SEARCH` |
-| `attribution` | optional `string` | Exact line: `Effect search powered by searchygo`; present when enabled |
 | `currentPack[].fitsYourPool` | optional `string` | A short pool link or missing-role reason; UI may prefix it with “Fits your pool” |
 | `currentPack[].id` | existing `number` | Draft card instance to send as `cardId` when picking |
 | `currentPack[].passcode` | existing `number` | Card identity/artwork; do not use as the pick instance ID |

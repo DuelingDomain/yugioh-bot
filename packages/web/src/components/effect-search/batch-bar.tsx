@@ -4,16 +4,10 @@ import * as React from "react";
 import { Plus } from "lucide-react";
 import { BugFabLift } from "@/components/bug-report/fab-lift";
 import type { Batch } from "./selection";
-import { EFFECT_SEARCH_ATTRIBUTION } from "./effect-api";
 import styles from "./effect-search.module.css";
 
 export const BATCH_COPY_CHOICES = [1, 2, 3] as const;
 export const DEFAULT_BATCH_COPIES = 3;
-
-/** The credit line for effect search. It shows wherever a description result, preview or health block shows. */
-export function EffectCredit() {
-  return <p className={styles.credit}>{EFFECT_SEARCH_ATTRIBUTION}</p>;
-}
 
 /**
  * The sticky bar under the list: how many cards are picked, how many copies each gets, and the one button that

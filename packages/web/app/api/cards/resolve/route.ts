@@ -9,7 +9,6 @@ import { CardListError } from "@/lib/card-list-parser";
 import { prepareCubeListImport } from "@/lib/cube-list-import";
 import { parseCardInsightRequest } from "@/lib/card-insights-api";
 import { effectSearchEnabled } from "@/lib/effect-search";
-import { EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
 import { env } from "@/lib/env";
 import { ensureCatalogCards } from "@/lib/cube-pool";
 import { lowConfidenceReading } from "@yugidraft/shared/cards/effects";
@@ -91,7 +90,7 @@ async function handlePOST(request: Request) {
       const card = details.get(hit.passcode);
       return card ? [{ ...toCardSummary(card), score: hit.score, reason: hit.reason }] : [];
     });
-    return NextResponse.json({ ...result, cards, unknownIds, effectSearchEnabled: true, attribution: EFFECT_SEARCH_ATTRIBUTION }, { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json({ ...result, cards, unknownIds, effectSearchEnabled: true }, { headers: { "Cache-Control": "private, no-store" } });
   }
   const setNames = Array.isArray(body.setNames) ? body.setNames.filter((s): s is string => typeof s === "string") : [];
   const customCardIds = Array.isArray(body.customCardIds)

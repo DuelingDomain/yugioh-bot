@@ -9,7 +9,7 @@ The owner-approved build and integration briefs in `data/briefs` are the source 
 - `card_tags`, `card_tag_profiles` and import-version state are migrated with the shared DB. Passcode remaps carry tags alongside catalog data.
 - Duel host: a compact, summary-free facet index, constructed once at startup. The existing catalog scan applies the current filters before matching effects. Ordinary name queries retain their current path. Additional effect results have their own group and pagination metadata.
 - `createCardInsightService(db)`: bounded SQL iteration for summaries, effect results, card/deck synergy, pool health and draft scores. No full JSON artifact in web memory. API input limits and existing configured-guild guards apply.
-- `EFFECT_SEARCH`: literal `1` enables and `0` disables; absent defaults on outside production. APIs report the capability. Shared attribution constant: `Effect search powered by searchygo`.
+- `EFFECT_SEARCH`: literal `1` enables and `0` disables; absent defaults on outside production. APIs report the capability. The UI shows no searchygo credit; attribution lives in `NOTICE`.
 
 ## Implementation sequence
 

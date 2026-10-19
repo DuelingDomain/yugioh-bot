@@ -235,12 +235,8 @@ clients; there is no public environment variable. Exact text disables reading
 without changing the capability. Summaries appear as ordinary card summaries,
 without an AI label. Hover changes color or outlines, with no card movement.
 
-```ts
-export const EFFECT_SEARCH_ATTRIBUTION = "Effect search powered by searchygo";
-```
-
-The UI line, copied-source headers, root `NOTICE` and data `NOTICE.md` preserve
-credit to LorenzoWhite/searchygo at `9b2d952`.
+Copied-source headers, root `NOTICE` and data `NOTICE.md` preserve
+credit to LorenzoWhite/searchygo at `9b2d952`. The UI shows no credit.
 
 
 ## Phrase search improvements (2026-10-19)

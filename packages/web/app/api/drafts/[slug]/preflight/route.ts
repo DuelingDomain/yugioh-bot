@@ -7,7 +7,6 @@ import { draftReadAccess } from "@/lib/draft-access";
 import { themeDraftSetupError } from "@/lib/theme-drafts";
 import { createCardCatalogService, createDraftService, createCubeService, findDraftReadAccess, mainDraftPicksPerPlayer, themeDraftNumberError, type CardPoolHealth } from "@yugidraft/shared/services";
 import { effectSearchEnabled } from "@/lib/effect-search";
-import { EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
 
 export const runtime = "nodejs";
 
@@ -86,6 +85,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     }
   }
 
-  if (effectSearchEnabled()) return NextResponse.json({ errors, warnings, poolHealth, effectSearchEnabled: true, attribution: EFFECT_SEARCH_ATTRIBUTION }, { headers: { "Cache-Control": "private, no-store" } });
+  if (effectSearchEnabled()) return NextResponse.json({ errors, warnings, poolHealth, effectSearchEnabled: true }, { headers: { "Cache-Control": "private, no-store" } });
   return NextResponse.json({ errors, warnings });
 }

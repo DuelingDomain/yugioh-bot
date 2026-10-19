@@ -14,7 +14,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     const search = browser.getByRole("searchbox", { name: "Search cards" });
     await search.fill("hand traps that negate");
     await expect(browser.getByRole("heading", { name: "Cards that do this" })).toBeVisible();
-    await expect(browser.getByText("Effect search powered by searchygo", { exact: true })).toBeVisible();
+    await expect(browser).not.toContainText(/searchygo/i);
     await expect(page.getByText("Dueling Domain", { exact: true }).first()).toBeVisible();
     const reading = browser.getByRole("list", { name: "Effect reading" });
     await expect(reading.getByText("Role: hand trap", { exact: true })).toBeVisible();

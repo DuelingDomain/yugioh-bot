@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
 import { AlertTriangle, ArrowDownWideNarrow, ArrowUpNarrowWide, Minus, LayoutGrid, Link2, List, Plus, RotateCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { cardLimit, type CardArchetype, type CardQuery, type CardQueryResult, type DeckCardInfo, type DuelMode } from "@yugidraft/shared/duels";
-import { EFFECT_SEARCH_ATTRIBUTION, mayReadEffect } from "@yugidraft/shared/cards/effects/capability";
+import { mayReadEffect } from "@yugidraft/shared/cards/effects/capability";
 import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
 import { HowItPlays } from "@/components/effect-search/how-it-plays";
 import { IntentHeading, RelaxHints } from "@/components/effect-search/search-intent";
@@ -472,7 +472,6 @@ export function CardBrowser({
         {results?.key === key && results.reading && !partner ? <ul className={styles["de-chips"]} aria-label="Effect reading">
           {results.reading.chips.map(label => <li key={label}><button type="button" className={cn("chip", styles.chipButton)} aria-label={`Remove reading ${label}`} onClick={() => onQueryChange({ ...query, effectOmit: [...(query.effectOmit ?? []), label] })}>{label}<X size={12} aria-hidden /></button></li>)}
         </ul> : null}
-        {results?.effectSearchEnabled ? <p className={styles.attribution}>{EFFECT_SEARCH_ATTRIBUTION}</p> : null}
         {chips.length > 0 ? (
           <ul className={styles["de-chips"]} aria-label="Active filters">
             {chips.map((chip) => (

@@ -4,7 +4,6 @@ import * as React from "react";
 import { X } from "lucide-react";
 import type { CardSummary } from "@/lib/card-types";
 import { useResultNav } from "@/lib/hooks/use-result-nav";
-import { EffectCredit } from "./batch-bar";
 import { EraNote } from "./era-note";
 import { IntentHeading, RelaxHints } from "./search-intent";
 import { HowItPlays } from "./how-it-plays";
@@ -259,7 +258,6 @@ export function DescribePane({
           />
         </div>
       )}
-      {ready && (cards.length > 0 || result) && <EffectCredit />}
     </div>
   );
 }

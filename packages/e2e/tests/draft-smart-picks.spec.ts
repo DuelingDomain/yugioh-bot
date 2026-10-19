@@ -33,7 +33,7 @@ for (const [viewportIndex, viewport] of [{ width: 1920, height: 1080 }, { width:
       expect(picked.status()).toBe(200);
       const state = await picked.json();
       expect(state.effectSearchEnabled).toBe(true);
-      expect(state.attribution).toBe("Effect search powered by searchygo");
+      expect(state).not.toHaveProperty("attribution");
       expect(state.currentPack.length).toBe(3);
       expect(state.currentPack.every((card: { fitsYourPool?: string }) => card.fitsYourPool === "Shares Draft family")).toBe(true);
       await page.goto(`/draft/${draft.webSlug}`);
@@ -47,7 +47,7 @@ for (const [viewportIndex, viewport] of [{ width: 1920, height: 1080 }, { width:
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
       if (viewport.width < 600) await card.click();
       const reader = page.getByRole("complementary", { name: "Card reader" });
-      await expect(reader.getByText("Effect search powered by searchygo", { exact: true })).toBeVisible();
+      await expect(reader).not.toContainText(/searchygo/i);
       await expect(reader.locator(".insp-fit")).toContainText("Shares Draft family");
       await page.screenshot({ path: testInfo.outputPath(`draft-picks-${viewport.width}.png`), fullPage: true });
     } finally {

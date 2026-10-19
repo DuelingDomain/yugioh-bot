@@ -32,7 +32,7 @@ import { lookupDraftCardTypes, type EngineCardTypes } from "@/lib/draft-engine-t
 import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
 import { cardImageUrl } from "@/lib/card-image-url";
 import { isOwnerUser } from "@/lib/owner-access";
-import { effectSearchEnabled, EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
+import { effectSearchEnabled } from "@yugidraft/shared/cards/effects/capability";
 
 // Reconnects and polling share the result for this viewer's exact pack and picked pool.
 const packFitCaches = new WeakMap<object, Map<string, Map<number, string>>>();
@@ -473,7 +473,6 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     myDeckId,
     isParticipant,
     effectSearchEnabled: effectsEnabled,
-    ...(effectsEnabled ? { attribution: EFFECT_SEARCH_ATTRIBUTION } : {}),
     currentPack,
     myPool,
     seats,

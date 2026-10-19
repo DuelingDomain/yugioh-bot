@@ -4,7 +4,6 @@ import * as React from "react";
 import { Check, RotateCcw, TriangleAlert, X } from "lucide-react";
 import { cardImageUrl } from "@/lib/card-image-url";
 import type { CardSummary } from "@/lib/card-types";
-import { EffectCredit } from "./batch-bar";
 import { EraNote } from "./era-note";
 import { HowItPlays } from "./how-it-plays";
 import { EffectApiError, type BatchEntry, type SeedCategory, type SeedPreview, type SeedRole, type SeedRow } from "./effect-api";
@@ -274,7 +273,6 @@ export function PhraseSeed({
               Cancel
             </button>
           </div>
-          <EffectCredit />
         </div>
       )}
     </div>

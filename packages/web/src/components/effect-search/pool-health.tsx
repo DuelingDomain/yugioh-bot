@@ -3,7 +3,6 @@
 import * as React from "react";
 import { TriangleAlert } from "lucide-react";
 import type { CardPoolHealth } from "@yugidraft/shared/services";
-import { EffectCredit } from "./batch-bar";
 import { eraLabel } from "./effect-api";
 import styles from "./effect-search.module.css";
 
@@ -106,7 +105,6 @@ export function PoolHealth({ entries }: { entries: readonly PoolHealthEntry[] })
           )}
         </div>
       ))}
-      <EffectCredit />
     </section>
   );
 }
