@@ -6,7 +6,7 @@ This supersedes the decision in [ADR 0004](0004-alpha-access-clerk.md) to shelve
 
 Run one small discord.js Gateway process in its own container. Request only `Guilds`, `GuildMembers`, `GuildModeration`, and `AutoModerationExecution`. Enable the privileged Server Members intent in the Developer Portal. Do not request Message Content or Presence. The bot has no inbound HTTP port. The old player commands, port 4001 announce server, reminders, notification cleanup and duplicate jobs are removed permanently.
 
-Only literal `DISCORD_BOT_ENABLED=1` starts Discord or opens SQLite. Other values keep a healthy idle process. Roll back this service by setting `DISCORD_BOT_ENABLED=0` and recreating `bot`. This release provides the runtime and empty feature folders. It registers **zero commands**, which removes the old guild commands. It delivers the complete shared outbox payloads. Waitlist buttons still require Phase 1 handlers. No deploy ping is included. PR #400 stays open and is not merged.
+Only literal `DISCORD_BOT_ENABLED=1` starts Discord or opens SQLite. Other values keep a healthy idle process. Roll back this service by setting `DISCORD_BOT_ENABLED=0` and recreating `bot`. The integrated moderation, server, waitlist and community modules register **22 guild commands** (21 slash commands and User info), replacing the old guild commands. The runtime delivers complete shared outbox payloads and waitlist decision edits; the modules handle waitlist buttons. No deploy ping is included. PR #400 stays open and is not merged. The final invite permission integer is `1391841242358`; see the complete [setup and permission list](../deployment/discord-bot.md).
 
 ## Module contract
 

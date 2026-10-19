@@ -40,9 +40,24 @@ export function clearDiscordSubject(db: Database.Database, subject: {
   if (subject.siteUserId !== undefined) for (const row of linked) if (row.waitlist_signup_id !== null) {
     signups += db.prepare("delete from waitlist_signups where id=?").run(row.waitlist_signup_id).changes;
   }
-  const modActions = db.prepare(`delete from mod_actions where actor_user_id=? or target_user_id=?
-    or (? is not null and (actor_discord_id=? or target_discord_id=?))`).run(subject.siteUserId ?? null,
-    subject.siteUserId ?? null, subject.discordUserId ?? null, subject.discordUserId ?? null, subject.discordUserId ?? null).changes;
+  const identity = [subject.siteUserId ?? null, subject.siteUserId ?? null,
+    subject.discordUserId ?? null, subject.discordUserId ?? null, subject.discordUserId ?? null];
+  const matchesIdentity = `actor_user_id=? or target_user_id=?
+    or (? is not null and (actor_discord_id=? or target_discord_id=?))`;
+  // Lock snapshots and successful unlock markers are also operational state.
+  // Keep only channel recovery data, clearing FKs before account deletion so a
+  // cascade cannot lose a saved overwrite or resurrect a restored snapshot.
+  const retained = db.prepare(`update mod_actions set actor_user_id=null,actor_discord_id=null,
+    target_user_id=null,target_discord_id=null,reason=null,
+    params_json=case when action='lock_snapshot' then json_object(
+      'channelId',json_extract(params_json,'$.channelId'),
+      'previousOverwrite',json_extract(params_json,'$.previousOverwrite'))
+      else json_object('channelId',json_extract(params_json,'$.channelId'),
+        'snapshotId',json_extract(params_json,'$.snapshotId')) end
+    where (${matchesIdentity}) and (action='lock_snapshot' or (action='unlock' and result='success'))
+    returning id`).all(...identity) as { id: number }[];
+  for (const row of retained) outbox += db.prepare("delete from discord_outbox where mod_action_id=?").run(row.id).changes;
+  const modActions = retained.length + db.prepare(`delete from mod_actions where ${matchesIdentity}`).run(...identity).changes;
   if (subject.discordUserId) db.prepare("delete from mod_warnings where actor_discord_id=? or target_discord_id=?")
     .run(subject.discordUserId, subject.discordUserId);
   return { actions, outbox, modActions, signups };

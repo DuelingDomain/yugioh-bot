@@ -7,6 +7,7 @@ import { ChatInputCommandInteraction, ButtonInteraction, UserContextMenuCommandI
   Client, ClientUser, Events, PermissionFlagsBits as P } from "discord.js";
 import { openDatabase } from "@yugidraft/shared/db";
 import { recordModAction } from "@yugidraft/shared/discord-admin";
+import { deleteUserAccount } from "@yugidraft/shared/services";
 import { loadSharedAdminServices } from "../../runtime/shared.js";
 import { createAudit } from "../../runtime/audit.js";
 import { createDispatcher } from "../../runtime/dispatcher.js";
@@ -16,6 +17,7 @@ import { Cooldown } from "../../runtime/cooldown.js";
 import { createOutboxDelivery } from "../../runtime/outbox.js";
 import type { FeatureContext } from "../../runtime/types.js";
 import { moderation } from "./index.js";
+import { activeLock } from "./channels.js";
 
 const guild = "100000000000000001", bot = "100000000000000002", actor = "100000000000000003";
 const target = "100000000000000004", channel = "100000000000000005", owner = "100000000000000006";
@@ -218,13 +220,20 @@ it("purges recent messages with a user filter, skips old messages and handles on
 
 it.each([null, { id: guild, type: 0, allow: String(P.SendMessages | P.ViewChannel), deny: String(P.AddReactions) }])("restores the exact prior @everyone overwrite, including absence, after module restart", async previous => {
   const t = await setup(); t.state.overwrites = previous ? [previous] : [];
+  t.db.prepare("insert into users(id,discord_user_id,username,display_name) values(2,?,'moderator','Moderator')").run(actor);
   await t.command("lock", { channel, reason: "Incident" }); await t.button(t.confirmId());
   expect(BigInt(t.state.overwrites[0].deny) & P.SendMessages).toBe(P.SendMessages);
   t.context.cooldown = new Cooldown();
   await t.command("lock", { channel }); expect(t.response().content).toContain("already");
+  deleteUserAccount(t.db, 2);
+  expect(activeLock(t.context, channel)).toBeDefined();
+  expect(t.db.prepare("select actor_user_id,actor_discord_id,reason from mod_actions where action='lock_snapshot'").get())
+    .toEqual({ actor_user_id: null, actor_discord_id: null, reason: null });
   await t.restart();
-  await t.command("unlock", { channel }); await t.button(t.confirmId());
+  await t.command("unlock", { channel }, admin); await t.button(t.confirmId(), admin);
   expect(t.state.overwrites).toEqual(previous ? [previous] : []);
+  deleteUserAccount(t.context.db, 1);
+  expect(activeLock(t.context, channel)).toBeUndefined();
 });
 
 it("sets slowmode, validates bounds and refuses missing bot permissions", async () => {

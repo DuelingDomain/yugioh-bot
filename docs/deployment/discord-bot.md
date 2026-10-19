@@ -1,95 +1,137 @@
-# Admin Discord bot setup
+# Dueling Domain admin Discord bot
 
-The runtime includes shared outbox delivery. The feature modules are empty. Startup replaces the guild command list with an empty list and removes the old player commands. An enabled bot delivers queued waitlist alerts, decision edits and moderation logs. Waitlist button handlers still require Phase 1; keep production disabled until those features are ready. The owner decisions exclude a deploy ping.
+The bot runs in its own container and shares SQLite with web and worker. It registers 21 slash commands and the **User info** user context command in one configured guild. Old player commands, the announce HTTP server, reminder jobs, notification cleanup and duplicate Genesys sync have been removed. Worker still owns gameplay jobs. This release has no deploy ping.
 
-## Create the application
+## Developer Portal and invite
 
-1. Open the [Discord Developer Portal](https://discord.com/developers/applications). Use the existing Dueling Domain application if it has a bot user. Otherwise, create one. Copy the Application ID from General Information. Set it as `DISCORD_CLIENT_ID`.
-2. Open Bot. Reset the token and save it only in the VM's private `.env`. Set Public Bot off and Requires OAuth2 Code Grant off.
-3. Enable **Server Members Intent**. This is the privileged `GuildMembers` intent. Keep Presence Intent and Message Content Intent off. The code also requests `Guilds`, `GuildModeration`, and `AutoModerationExecution`. See [Discord's intent documentation](https://docs.discord.com/developers/events/gateway#privileged-intents).
-4. In Installation, allow Guild Install only. Turn User Install off. For a private bot, use a custom install link or no provided install link if the Portal requires it.
-5. In Discord, enable Developer Mode under User Settings → Advanced. Copy the target server ID.
-
-## Invite and set permissions
-
-Replace both placeholders, then open this URL as the server owner:
+1. Open the [Discord Developer Portal](https://discord.com/developers/applications). Reuse the Dueling Domain application with its bot user, or create an application. Copy General Information → Application ID to `DISCORD_CLIENT_ID`.
+2. Open **Bot**. Reset the token and save it in the private VM `.env`. Set **Public Bot** off and **Requires OAuth2 Code Grant** off.
+3. Enable **Server Members Intent**. This is the only privileged intent requested. Keep **Presence Intent** and **Message Content Intent** off. The runtime requests `Guilds`, `GuildMembers`, `GuildModeration` and `AutoModerationExecution`; member lookups use `GuildMembers`. Site presence for `/online` comes from SQLite, not Discord presence. See [Gateway intents](https://docs.discord.com/developers/events/gateway#privileged-intents).
+4. Under **Installation**, enable **Guild Install** only and disable **User Install**. For a private application, select a custom install link or no provided link if required by the Portal.
+5. Enable Discord Developer Mode under User Settings → Advanced. Copy the server ID to `DISCORD_GUILD_ID`. Open the invite below as the server owner, with both IDs replaced.
 
 ```text
-https://discord.com/oauth2/authorize?client_id=<DISCORD_CLIENT_ID>&scope=bot%20applications.commands&permissions=1391837965494&guild_id=<DISCORD_GUILD_ID>&disable_guild_select=true&integration_type=0
+https://discord.com/oauth2/authorize?client_id=<DISCORD_CLIENT_ID>&scope=bot%20applications.commands&permissions=1391841242358&guild_id=<DISCORD_GUILD_ID>&disable_guild_select=true&integration_type=0
 ```
 
-The scopes are `bot applications.commands`. The value **1391837965494** matches the complete permission list in the plan. It does not include Administrator. It is the OR of bits `1,2,4,5,7,10,11,13,14,15,16,28,34,38,40`, checked against [Discord's permission flags](https://docs.discord.com/developers/topics/permissions#bitwise-permission-flags).
+The scopes are **`bot applications.commands`**. The final permission integer is **`1391841242358`**. It combines the approved baseline with Add Reactions, Mention Everyone, Connect and Speak for the server permission editor and announcement role mentions. It excludes Administrator. The bits are `1,2,4,5,6,7,10,11,13,14,15,16,17,20,21,28,34,38,40`; see [Discord permission flags](https://docs.discord.com/developers/topics/permissions#bitwise-permission-flags).
 
-| Permission | Bit | Use |
+| Permission | Bit | Reason |
 | --- | ---: | --- |
-| Kick Members | 1 | Remove a member from the server. |
-| Ban Members | 2 | Ban and unban a member. |
-| Manage Channels | 4 | Create, edit, move and delete channels or categories. |
-| Manage Server | 5 | Manage native AutoMod rules. |
-| View Audit Log | 7 | Read the server audit log for moderation events. |
-| View Channels | 10 | Access the bot's destination channels. |
-| Send Messages | 11 | Send announcements and staff messages. |
-| Manage Messages | 13 | Delete messages during a purge. |
-| Embed Links | 14 | Send formatted alerts and card results. |
-| Attach Files | 15 | Attach card images or files. |
-| Read Message History | 16 | Fetch messages through REST for purge and message repair. |
-| Manage Roles | 28 | Manage lower roles and channel permission overwrites. |
-| Manage Threads | 34 | Lock, archive and manage threads. |
-| Send Messages in Threads | 38 | Reply inside a thread. |
-| Moderate Members | 40 | Apply and remove timeouts. |
+| Kick Members | 1 | `/kick`. |
+| Ban Members | 2 | `/ban` and `/unban`. |
+| Manage Channels | 4 | Channel/category management, slowmode and setup. |
+| Manage Server | 5 | Approved baseline for native AutoMod administration; no `/automod` command is included in these modules. |
+| Add Reactions | 6 | Allow the permission editor to set the `react` overwrite. |
+| View Audit Log | 7 | Approved moderation baseline for audit inspection. |
+| View Channels | 10 | Read destinations and inspect channel overwrites. |
+| Send Messages | 11 | Announcements, sign-up alerts and mod-log posts. |
+| Manage Messages | 13 | Purge and the `manage-messages` overwrite. |
+| Embed Links | 14 | Cards, alerts, reports and announcement embeds. |
+| Attach Files | 15 | Long online lists and permission reports. |
+| Read Message History | 16 | Purge scans and saved-message access. |
+| Mention Everyone | 17 | Mention a non-mentionable role explicitly selected and confirmed in `/announce`; edit the `mention-everyone` overwrite. Message parsing still blocks `@everyone` and `@here`. |
+| Connect | 20 | Allow the permission editor to set voice `connect`. The bot does not join voice. |
+| Speak | 21 | Allow the permission editor to set voice `speak`. |
+| Manage Roles | 28 | Role management, channel overwrites, private setup and lock/unlock. |
+| Manage Threads | 34 | Approved baseline for thread management; `/lock` and `/unlock` operate on parent channels. |
+| Send Messages in Threads | 38 | Setup repairs thread posting permissions and permits bot replies in threads. |
+| Moderate Members | 40 | `/timeout` and `/untimeout`. |
 
-In Server Settings → Roles, put the bot role directly below the owner role and above the roles it must manage. Discord permits the bot to manage only lower roles. It can grant only permissions it holds. Feature handlers must also check the actor's hierarchy before acting.
+In Server Settings → Roles, put the bot below the server owner's role and above roles it must manage. Both the actor and bot must rank above member/role targets. The guild owner can bypass only the actor hierarchy check. The bot can set only permissions it holds, and channel overwrites can remove permissions granted by the invite. Native AutoMod rules are managed in Discord's server settings in this release; there is no AutoMod event logger in the submitted modules.
 
-## Create channels and link owners
+## Link owners and run `/setup channels`
 
-Create private staff channels **#signups** and **#mod-log**. Use `DISCORD_WAITLIST_CHANNEL_ID` for #signups; the variable keeps the waitlist service name. Allow only owners and the bot to read #signups. Allow the intended staff and the bot to read #mod-log. Create the public **#announcements** channel. Give the bot View Channels, Send Messages and Embed Links in each destination. Channel overwrites can block the permissions in the invite.
+1. Each owner links Discord in the site's account settings. Put the linked account's application `users.id` in `OWNER_USER_IDS`, separated by commas. These are site IDs, not Discord IDs. Discord Administrator and server ownership alone do not grant bot owner access.
+2. Create a **Moderator** role below the bot and copy its ID to `DISCORD_MODERATOR_ROLE_ID`. Moderators can use moderation commands and User info. Only linked owners can use server tools, waitlist, announcements and reports; warning deletion is also owner-only. `/card` is available to everyone in the configured guild.
+3. Configure credentials, owner IDs and the shared database as below. Channel IDs can be empty during the first setup. Enable the test bot, deploy its commands and start it.
+4. In Server Settings → Integrations → Dueling Domain, permit linked owners to use owner commands. Those commands default to Administrator visibility; moderation defaults to Moderate Members visibility. Add the Moderator role override where needed. The bot checks current access again on each command, button and modal.
+5. As a linked owner, run **`/setup channels`**, review the preview, then Confirm within 60 seconds. It creates or repairs this layout:
 
-Create a **Moderator** role and copy its ID to `DISCORD_MODERATOR_ROLE_ID`. Optional #admin-status uses `DISCORD_STATUS_CHANNEL_ID`. No #deploys channel is required.
+   | Resource | Access |
+   | --- | --- |
+   | **Admin** category | Linked owners and bot. |
+   | **#signups** | Linked owners and bot; waitlist alerts and decision buttons. |
+   | **#mod-log** | Linked owners, bot and Moderator role. |
+   | **#online-now** | Linked owners and bot; reserved status destination. `/online` replies privately and does not maintain a pinned status message. |
+   | **#announcements**, outside Admin | Public reading; owner and bot posting. |
 
-Each owner must link Discord in the site's account settings. Put that account's application `users.id` in `OWNER_USER_IDS`. Do not put Discord IDs there. The server owner and Discord Administrator permission do not replace this link. Moderators can use moderation commands only; server management and waitlist actions require a linked owner.
+6. Copy the printed `DISCORD_WAITLIST_CHANNEL_ID`, `DISCORD_MOD_LOG_CHANNEL_ID`, `DISCORD_STATUS_CHANNEL_ID`, `DISCORD_ANNOUNCE_CHANNEL_ID` and Moderator role ID into the private environment. Setup prints values; it does not save them. Recreate the bot to load them. Set producer channel IDs before enabling automatic sign-up delivery.
 
-After Phase 1 command deployment, check Server Settings → Integrations → Dueling Domain. Admin commands default to Administrator visibility. Moderation commands default to Moderate Members visibility. Add a command access override for the Moderator role if needed. The server-side access guard still checks each interaction.
+Setup reuses unique names and replaces their parents and overwrites. Rename duplicate names or incompatible channel types first. It does not create the Moderator role. The invite omits thread creation permissions; if ordinary roles grant thread creation that the bot cannot deny, setup refuses before writing. Remove those grants and repeat setup. A Discord failure during a multi-step setup can leave completed steps; correct the cause and run setup again. Configured destination channels are protected from `/channel delete`.
 
-## VM environment
+## Environment
 
-Add these lines to the private VM `.env`. Use separate application credentials and a separate guild for a test run. Never put these values in a Docker build argument or a `NEXT_PUBLIC_` variable.
+Use a separate application, guild, Clerk instance and database for tests. Keep secrets in runtime environment only, outside Git and Docker build arguments. `DISCORD_CLIENT_ID` is the application ID; `DISCORD_APPLICATION_ID` is not read.
 
 ```dotenv
 DISCORD_BOT_ENABLED=0
 DISCORD_TOKEN=<bot-token>
 DISCORD_CLIENT_ID=<application-id>
 DISCORD_GUILD_ID=<server-id>
+OWNER_USER_IDS=<comma-separated-application-user-ids>
+CLERK_SECRET_KEY=<clerk-instance-secret>
 DISCORD_MODERATOR_ROLE_ID=<moderator-role-id>
-DISCORD_MOD_LOG_CHANNEL_ID=<mod-log-channel-id>
 DISCORD_WAITLIST_CHANNEL_ID=<signups-channel-id>
+DISCORD_MOD_LOG_CHANNEL_ID=<mod-log-channel-id>
+DISCORD_STATUS_CHANNEL_ID=<online-now-channel-id>
 DISCORD_ANNOUNCE_CHANNEL_ID=<announcements-channel-id>
-DISCORD_STATUS_CHANNEL_ID=
 DISCORD_ADMIN_SHOW_FULL_EMAIL=0
 DATABASE_PATH=/app/data/bot.sqlite
-CLERK_SECRET_KEY=<existing-production-clerk-secret>
-OWNER_USER_IDS=<application-user-ids-separated-by-commas>
+BOT_HEALTH_PATH=/tmp/yugidraft-bot-health.json
+NODE_OPTIONS=--max-old-space-size=160
+SENTRY_DSN=
+SENTRY_ENVIRONMENT=production
+SENTRY_RELEASE=<release-sha>
 ```
 
-Only literal `1` enables the bot. `DISCORD_CLIENT_ID` is the application's ID; do not use the plan's older `DISCORD_APPLICATION_ID` spelling. Emails stay masked. Compose passes these values explicitly to the bot, mounts `./data`, sets `BOT_HEALTH_PATH=/tmp/yugidraft-bot-health.json`, and sets `NODE_OPTIONS=--max-old-space-size=160`. The bot database must be the same file as web and worker. Compose uses a 256 MB memory limit and publishes no bot port.
+| Variable | Use |
+| --- | --- |
+| `DISCORD_BOT_ENABLED` | Only literal `1` starts the bot and deploys commands; `0` leaves a healthy idle process. |
+| `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID` | Bot login, application identity and single guild registration. |
+| `OWNER_USER_IDS` | Current linked site owner allow-list; empty grants no owner access. |
+| `CLERK_SECRET_KEY` | Runtime-only access to pending entries and invite/reject decisions. |
+| `DISCORD_MODERATOR_ROLE_ID` | Moderation tier; empty disables role-based access. |
+| `DISCORD_WAITLIST_CHANNEL_ID` | Private #signups destination. |
+| `DISCORD_MOD_LOG_CHANNEL_ID` | Shared audit/outbox destination. |
+| `DISCORD_STATUS_CHANNEL_ID` | Reserved #online-now ID; no automatic status publisher. |
+| `DISCORD_ANNOUNCE_CHANNEL_ID` | Same-guild text or announcement channel. Own posts are crossposted in announcement channels. |
+| `DISCORD_ADMIN_SHOW_FULL_EMAIL` | Keep `0` for masked addresses. Opt-in `1` can reveal trusted Clerk addresses in private lists and delivery; stored alert payloads and audit remain masked. |
+| `DATABASE_PATH` | Same absolute SQLite file for every service. Bot defaults to `/app/data/bot.sqlite` in Compose; match web's fixed path. |
+| `BOT_HEALTH_PATH` | Native override; Compose fixes a container-local heartbeat file. |
+| `NODE_OPTIONS` | Compose fixes the 160 MB heap cap; container memory limit is 256 MB. |
+| `SENTRY_DSN` | Optional error reporting; empty uses console reporting. |
+| `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE` | Error reporting environment and code revision. |
 
-For native development, export Node 22 in `PATH`, set an absolute checkout-local `DATABASE_PATH`, and choose a unique `BOT_HEALTH_PATH`. Keep native and VM database paths separate. Optional error reporting uses `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE`.
+Compose mounts `./data:/app/data`, drops all capabilities, sets `no-new-privileges`, publishes no bot port and allows 45 seconds to stop. `/card` reads `duel-engine/cards.cdb` beside SQLite. For native use, optional `DUEL_DATA_DIR` overrides that directory; Compose's default data mount supplies it without an override. Missing engine data falls back to `card_catalog`. No card lookup HTTP API is called. Normal catalog images use `https://images.ygoprodeck.com/images/cards/<passcode>.jpg`; pre-release and engine-only images use the existing Project Ignis base, `https://pics.projectignis.org:2096/pics/<passcode>.jpg`. The site image route stays protected. `SITE_DOMAIN` is not needed by the bot. The lean image omits the duel-server banlist module, so card footers say TCG status is unavailable.
 
-Web and worker keep their old gameplay Discord switch at `0` in Compose. Webhook join alerts continue there. The enabled bot polls `discord_outbox` every three seconds and sends the complete shared payload. It posts new messages and edits saved messages, checks the destination guild, disables all mentions, and preserves the stable post nonce. It claims one row at a time. SQLite limits all consumers to 30 claims per minute; the runtime also limits its attempts to 30 per rolling minute. Discord rate limits return to the shared retry service with their delay and pause further claims. Each claim uses a fresh REST manager so cached rate limits leave no wait timers at shutdown. Complete writes have a 30-second deadline within the container's 45-second stop grace. Permanent permission and payload errors stop that row. Phase 1 must separate the shared notifier switch from the old gameplay capabilities before enabling web outbox production. Do not enable the removed announce server.
+Automatic join/sign-up alerts also depend on the **web producer's** environment:
+
+```dotenv
+CLERK_WEBHOOK_SIGNING_SECRET=<clerk-endpoint-signing-secret>
+DISCORD_JOIN_REQUEST_ALERTS_ENABLED=1
+DISCORD_SIGNUP_ALERTS_ENABLED=0
+DISCORD_ADMIN_WEBHOOK_URL=<fallback-private-channel-webhook>
+DISCORD_ADMIN_DASHBOARD_URL=
+```
+
+The signing secret verifies Clerk `waitlistEntry.created` and optional `user.created` deliveries to the app host's `/api/webhooks/clerk`. Join alerts default on; sign-up alerts default off; only literal `1` enables either. Empty dashboard URL uses the Clerk Dashboard. The webhook URL is the fallback when the producer's `DISCORD_BOT_ENABLED` is off. See [join alert setup](discord-join-alerts.md). The existing Compose web and worker services retain `DISCORD_BOT_ENABLED=0`; enabling only the bot container does **not** switch web alerts to its durable outbox. `/waitlist` and its private decision buttons work independently. Automatic channel buttons require a later producer configuration change with the legacy gameplay switch separated; this integration does not change web source or enable its retired bot HTTP calls.
 
 ## Deploy commands and run
 
-The normal production workflow builds and pulls the `bot` image with the other services. It starts the bot after web. Gameplay health checks do not wait for Discord.
-
-For an enabled test guild, set `DISCORD_BOT_ENABLED=1` in the environment and run:
+Use Node 22. From the repository root, build shared before consumers:
 
 ```sh
-DOTENV_CONFIG_PATH="$PWD/.env" npm run commands:deploy --workspace=packages/bot
-DOTENV_CONFIG_PATH="$PWD/.env" npm run dev:bot
+export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
+npm run build --workspace=packages/shared
+npm run build --workspace=packages/bot
+DISCORD_BOT_ENABLED=1 DOTENV_CONFIG_PATH="$PWD/.env" npm run commands:deploy --workspace=packages/bot
+DISCORD_BOT_ENABLED=1 DOTENV_CONFIG_PATH="$PWD/.env" npm run dev:bot
 ```
 
-Run these commands from the repository root. The explicit dotenv path selects the root `.env` when npm changes to the bot workspace. They require `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, and `DISCORD_GUILD_ID`. The deploy script bulk replaces commands in that guild only. It never replaces global commands. Phase 0 deploys zero commands. If the old app has global commands from an earlier release, remove those separately through the global API after checking their origin; this script does not change them.
+For native use, set checkout-local absolute `DATABASE_PATH` and a unique `BOT_HEALTH_PATH`. The deploy script uses the same four-module registry as Gateway dispatch. It bulk-overwrites only `Routes.applicationGuildCommands(clientId, guildId)`: **22 guild commands** (21 slash commands plus User info), no global registration. The old guild player commands disappear. Old global commands, if present, need separate removal after their origin is checked.
 
-The production image deploys the same guild registry on every start. To repeat deployment with the running image:
+The normal deployment builds the bot image and starts it after web; gameplay health does not wait for Discord. The production CMD registers the guild commands on each enabled start. To repeat registration, inspect health and inspect logs:
 
 ```sh
 docker compose -f docker-compose.yml exec -T bot node packages/bot/dist/deploy-commands.js
@@ -97,15 +139,55 @@ docker compose -f docker-compose.yml exec -T bot node packages/bot/dist/healthch
 docker compose -f docker-compose.yml logs --tail=50 bot
 ```
 
-## Private test-server check
+## Command test checklist
 
-1. Use a separate test application and guild. Set all IDs to test resources and use a test SQLite file. Enable only Server Members as a privileged intent.
-2. Deploy the commands. Confirm that Phase 0 reports `Deployed 0 guild commands` and the old player commands disappear from the test guild.
-3. Start the bot. Confirm `[bot] ready` and a healthy file heartbeat. In the shared SQLite database, `select id, at, pid from bot_heartbeat;` must return row `id=1` with the bot PID and a recent Unix time in milliseconds. It updates every 30 seconds while the Gateway is ready. A disconnect removes the row on the next heartbeat; shutdown removes this process's row. A missing row or a timestamp older than 120 seconds means the bot is unavailable. Container PIDs are local to the bot; use the timestamp in the admin console.
-4. Stop with SIGTERM. Confirm a clean exit and removal of the file and database heartbeats. A started outbox write drains before SQLite closes; later rows stay unclaimed. Start with `DISCORD_BOT_ENABLED=0`; confirm `[bot] disabled` and a successful health check without Discord credentials.
-5. After Phase 1, run each command once. Check a linked owner, an unlinked member, a Moderator, a DM and another guild. Check confirmation expiry/cancel, hierarchy refusal, and #mod-log. Submit a test waitlist request and check #signups, its buttons, and the web decision edit.
+Use disposable resources in the private test guild. Confirm owner access, Moderator limits, unlinked-user refusal, DM/foreign-guild refusal and #mod-log records. Moderation mutations and confirmed server changes use a per-guild lock and three-second actor cooldown. Confirmations belong to the invoker, expire after 60 seconds and recheck access/hierarchy. Check Confirm, Cancel, expiry, a second actor and role revocation before confirmation. All actor replies are private except `/card`.
 
-The automated runtime integration tests use real SQLite with local Discord REST and WebSocket servers. They cover stored posts and edits, nonces, mention suppression, retries, rejected destinations, deleted edit targets, restart deduplication, heartbeat migration, process exit after rate limits, and shutdown with a stalled response body. They do not contact Discord. A live test-guild check requires the owner's test credentials.
+| Command | Check |
+| --- | --- |
+| `/timeout user duration [reason]` | Set `30m`, verify timeout and audit; refuse higher roles, owners, bot and durations over 28 days. `remove` clears. |
+| `/untimeout user [reason]` | Remove the timeout and verify it is absent. |
+| `/kick user [reason]` | Cancel first; then confirm a disposable member and verify removal. |
+| `/ban user [reason] [delete-message-days]` | Confirm a disposable member; verify ban and selected 0–7-day deletion. |
+| `/unban user-id [reason]` | Use its Discord ID; verify ban removal. |
+| `/purge count [user] [reason]` | Scan <=100 recent messages; confirm above 10; verify user filtering and that messages >=14 days old remain. |
+| `/warn user reason` | Verify durable warning, attempted DM, total and audit even with DMs closed. |
+| `/warnings user [page] [clear] [reason]` | Check ten-row pages; only an owner can clear an ID after confirmation. |
+| `/slowmode channel seconds [reason]` | Set seconds, verify channel, then set `0`; maximum is 21600. |
+| `/lock [channel] [reason]` | Confirm; verify @everyone cannot send and the full prior overwrite is saved. |
+| `/unlock [channel] [reason]` | Confirm; verify exact prior overwrite or its absence returns, including after bot restart. |
+| **User info** (user context menu) | Check join date, roles, warnings and five recent moderation actions; verify Moderator access. |
+| `/channel create` | Create each needed channel type; check private `roles` and linked-owner visibility. |
+| `/channel edit` | Change name/topic/slowmode/category/position/NSFW; verify `uncategorized` removes the parent. |
+| `/channel delete` | Cancel and confirm a disposable channel; configured destinations must be refused. |
+| `/category create`, `/category rename` | Verify category creation and changed name. |
+| `/category delete` | Confirm empty deletion; nonempty categories need `move-to` or `move-to-root`; preserve child overwrites. |
+| `/permissions view` | Check role/member allow and deny values; long output must attach a file. |
+| `/permissions set` | Choose exactly one role/member; confirm allow, deny and neutral for each supported bit; preserve other bits. |
+| `/role create`, `/role edit` | Check name, colour, hoist and mentionable; new roles have no server permissions. |
+| `/role delete` | Confirm a disposable lower role; refuse managed/@everyone and hierarchy violations. |
+| `/role give`, `/role take` | Verify membership changes; refuse protected member/role targets. |
+| `/setup channels` | Confirm layout and printed IDs; repeat without duplicates; check private channels, read-only announcements and ambiguous-name refusal. |
+| `/waitlist [page]` | Check pending Clerk entries, ten per page, masking, Previous/Refresh/Next and owner-only access. |
+| `/waitlist action:approve entry:<exact email or Clerk ID>` | Verify one Clerk invitation, decision audit and a queued edit. Repeat without a second Clerk call. |
+| `/waitlist action:reject entry:<exact email or Clerk ID>` | Reject a separate entry; verify conflict handling for an already approved entry. |
+| Waitlist **Approve / Reject** buttons | Verify same shared service, double press/race, Clerk 409 success, 5xx retry and retained buttons on failure; restart with queued work. |
+| `/announce [role]` | Fill modal title/body/optional HTTPS image; Cancel then Post preview; check role hierarchy, one-use expiry, selected-role-only mentions and announcement-channel crosspost. |
+| `/card name` | As an ordinary member, select catalog, pre-release and engine-only cards. Check public image URLs and labels, autocomplete, alternate arts and five-lookups-per-30-seconds limit. |
+| `/online` | Check private 120-second site presence list (up to 500 users), section labels and long-list attachment. Without the separate presence migration, expect `presence not available`. |
+| `/stats` | Check seven UTC days, distinct weekly users, duel/draft counts and live tables; replay forks excluded. Without presence columns, verify the play-only note. |
+
+When producer outbox delivery is configured, submit a controlled new waitlist entry and replay its Clerk webhook: expect one masked #signups alert with two buttons. Approve in Discord and verify the saved message is edited with actor/source/time and no buttons. Retry durable posts/edits after restart, test Discord 403/404/429, and verify mention suppression. The shared budget allows 30 outbox claims per minute; delivery polls every three seconds.
+
+Check `[bot] ready` and a recent SQLite `bot_heartbeat` row (`id=1`, millisecond timestamp; updated every 30 seconds). A missing row or one older than 120 seconds means unavailable. SIGTERM must drain started work and remove this process's file/database heartbeats. With `DISCORD_BOT_ENABLED=0`, startup and healthcheck must succeed without credentials or database access.
+
+## Admin console follow-up after both branches merge
+
+The separate, unmerged **`feat/admin-console`** route `/api/admin/console/waitlist/[id]` currently calls Clerk invite/reject directly. **After both branches merge, change that route to call `decideWaitlistEntry` from `@yugidraft/shared/services/waitlist-decisions`, with `source: "web"`, the site actor ID, exact Clerk entry ID and email.** Keep its session, owner, origin and input checks, result handling and cache invalidation. Otherwise the Discord message does not update after a web decision. See the [waitlist integration contract](../../packages/bot/src/features/waitlist/README.md#web-route-integration-still-required). This PR does not change the console route or public web access. Shared-service integration tests prove a web-source decision produces the Discord PATCH; the actual console HTTP route is not wired here. Leave PR #400 open for the owner.
+
+## Automated verification and limits
+
+Run all bot integration suites, touched shared/web tests, bot/shared/web TypeScript checks and the bot build. Tests use migrated SQLite and local Discord REST/Gateway and Clerk HTTP stubs; they do not contact the live services. No new unit tests are required. A live command acceptance check needs the owner's test application credentials. Docker is not available locally, so local container build and Compose acceptance are not performed; CI checks the deployment scripts.
 
 ## Disable or roll back
 
@@ -115,4 +197,4 @@ Set `DISCORD_BOT_ENABLED=0` in the VM `.env`, then recreate only the bot:
 docker compose -f docker-compose.yml up -d --no-build --no-deps --force-recreate bot
 ```
 
-The bot stays healthy and idle. It does not log in, deploy commands, open SQLite or poll the outbox. Existing registered commands remain visible until the next enabled command deployment; disable their command access in Integrations if required. Task B's notifier uses webhooks when its own process has the switch off. Once Phase 1 passes the switch to web, recreate web with the same disabled value to restore that fallback. Use the normal matched code/database rollback procedure for a full release rollback. The deployment workflow also accepts older releases that have no bot image.
+The bot remains healthy and idle, with no login, command registration, database or outbox work. Existing commands stay registered; restrict access in Integrations if necessary. The current web producer already uses the webhook fallback. If its configuration is changed later, disable its bot producer switch and recreate web to restore webhook delivery. For full code/database rollback, use the [matched release procedure](vm-runbook.md); the deployment script also accepts old releases with no bot image.

@@ -47,7 +47,9 @@ Lock snapshots are separate `lock_snapshot` audit records written before REST.
 Successful unlock refers to the snapshot ID, marking it restored. An uncertain
 lock failure leaves the snapshot available: use `/unlock` to restore it before
 trying `/lock` again. This also works after a bot restart. Preserve these audit
-records while a channel remains locked.
+records while a channel remains locked. Account deletion removes personal audit
+data and queued posts, but keeps anonymized lock snapshots and successful unlock
+markers so recovery remains correct.
 
 The existing feature registry already imports `moderation`. The context-menu
 definition uses a local type bridge because Phase 0 typed only slash command JSON.

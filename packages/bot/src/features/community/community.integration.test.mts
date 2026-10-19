@@ -260,15 +260,19 @@ it("searches engine and catalog, labels previews, renders a public Link card, an
   const cardToken = stub.command("card", [{ name: "name", type: 3, value: "12345" }], cardUser);
   const card = await stub.response(cardToken);
   expect(card.flags ?? 0).toBe(0);
-  expect(card.embeds[0]).toMatchObject({ title: "Preview Warrior", image: { url: "https://app.example.test/api/cards/12345/image" } });
+  expect(card.embeds[0]).toMatchObject({ title: "Preview Warrior", image: { url: "https://pics.projectignis.org:2096/pics/12345.jpg" } });
   expect(JSON.stringify(card.embeds)).toContain("Pre-release");
   expect(JSON.stringify(card.embeds)).toContain("LINK-3");
   expect(JSON.stringify(card.embeds)).toContain("2300");
   expect(JSON.stringify(card.embeds)).toContain("First effect.");
   expect(card.allowed_mentions).toMatchObject({ parse: [] });
-  for (let i=0; i<4; i++) await stub.response(stub.command("card", [{ name: "name", type: 3, value: "67890" }], cardUser));
+  for (let i=0; i<4; i++) {
+    const normal = await stub.response(stub.command("card", [{ name: "name", type: 3, value: "67890" }], cardUser));
+    expect(normal.embeds[0].image.url).toBe("https://images.ygoprodeck.com/images/cards/67890.jpg");
+  }
   expect((await stub.response(stub.command("card", [{ name: "name", type: 3, value: "67890" }], cardUser))).content).toContain("30");
   const pot = await stub.response(stub.command("card", [{ name: "name", type: 3, value: "Pot of Greed" }]));
+  expect(pot.embeds[0].image.url).toBe("https://pics.projectignis.org:2096/pics/55144522.jpg");
   expect(JSON.stringify(pot.embeds)).toContain("Forbidden");
   db.prepare(`insert into card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)
     values(55144522,'Pot of Greed','Spell Card','spell','Draw 2 cards.','x','x','[]',?),
@@ -394,4 +398,5 @@ it("keeps catalog lookup working when the optional duel-server package is absent
   expect(card.embeds[0].footer.text).toContain("TCG status unavailable");
   expect(card.embeds[0].fields).toBeUndefined();
   expect(card.embeds[0].description).toContain("Pre-release");
+  expect(card.embeds[0].image.url).toBe("https://pics.projectignis.org:2096/pics/99999.jpg");
 });

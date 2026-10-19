@@ -59,7 +59,9 @@ the shared mod-log outbox post. Setup can queue its own audit to the new mod-log
 before the environment value is set. Raw Discord errors are not stored or shown.
 
 Integration checks use real SQLite and a local HTTP Discord REST stub, including
-the approved bot permission integer `1391837965494` without Administrator.
+the original baseline permissions without Administrator. Use the combined
+permission integer in the [deployment guide](../../../../../docs/deployment/discord-bot.md)
+for the integrated release, including all editable permission bits.
 
 Build shared first (`npm run build --workspace=@yugidraft/shared` from the repository
 root). Then, from `packages/bot` with Node 22:

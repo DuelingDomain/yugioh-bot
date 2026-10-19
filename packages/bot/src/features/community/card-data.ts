@@ -5,7 +5,7 @@ import { CARD_ATTRIBUTES, CARD_RACES, CARD_TYPE_BITS as T, canonicalCardCode } f
 
 export interface CardRecord {
   id: number; name: string; type: string; race: string | null; attribute: string | null;
-  text: string; atk: number | null; def: number | null; level: number | null; prerelease: boolean; canonicalId: number;
+  text: string; atk: number | null; def: number | null; level: number | null; prerelease: boolean; engineOnly: boolean; canonicalId: number;
 }
 type EngineRow = { id: bigint; name: string; desc: string; ot: bigint; alias: bigint; type: bigint;
   atk: bigint; def: bigint; level: bigint; race: bigint; attribute: bigint };
@@ -36,7 +36,7 @@ export function cardReader() {
         const subtype = type & T.quickPlay ? "Quick-Play" : type & T.continuous ? "Continuous" : type & T.equip ? "Equip"
           : type & T.field ? "Field" : type & T.counter ? "Counter" : type & T.ritual ? "Ritual" : "Normal";
         const id = Number(row.id);
-        cards.set(id, { id, name: row.name, canonicalId: id, text: row.desc ?? "",
+        cards.set(id, { id, name: row.name, canonicalId: id, engineOnly: true, text: row.desc ?? "",
           type: monster ? [base, type & T.pendulum ? "Pendulum" : undefined, type & T.tuner ? "Tuner" : undefined,
             type & T.effect ? "Effect" : !base ? "Normal" : undefined, "Monster"].filter(Boolean).join(" ") : type & T.spell ? "Spell Card" : "Trap Card",
           race: monster ? CARD_RACES.filter(race => (row.race & BigInt(race.bit)) !== 0n).map(race => race.label).join("/") || null : subtype,
@@ -59,10 +59,17 @@ export function cardReader() {
       .all(/^\d+$/.test(query) ? Number(query) : -1, query, query, query) as CatalogRow[];
     const cards = new Map<number, CardRecord>(rows.map(row => [row.ygoprodeck_id, {
       id: row.ygoprodeck_id, name: row.name, type: row.type, race: row.race, attribute: row.attribute, text: row.effect_text ?? "",
-      atk: row.atk, def: row.def, level: row.level, prerelease: row.is_prerelease === 1, canonicalId: row.ygoprodeck_id,
+      atk: row.atk, def: row.def, level: row.level, prerelease: row.is_prerelease === 1, engineOnly: false, canonicalId: row.ygoprodeck_id,
     }]));
+    const catalogIdentityById = db.prepare("select is_prerelease from card_catalog where ygoprodeck_id=?");
     for (const card of engineCards(db).values()) {
-      if (cards.has(card.id) || card.name.toLowerCase().includes(folded) || String(card.id) === query) cards.set(card.id, card);
+      const catalog = cards.get(card.id);
+      if (catalog || card.name.toLowerCase().includes(folded) || String(card.id) === query) {
+        const catalogIdentity = catalog ? { is_prerelease: catalog.prerelease ? 1 : 0 }
+          : catalogIdentityById.get(card.id) as { is_prerelease: number } | undefined;
+        cards.set(card.id, { ...card, engineOnly: !catalogIdentity,
+          prerelease: card.prerelease || catalogIdentity?.is_prerelease === 1 });
+      }
     }
     const rank = (card: CardRecord) => String(card.id) === query || card.name.toLowerCase() === folded ? 0 : card.name.toLowerCase().startsWith(folded) ? 1 : 2;
     return [...cards.values()].sort((a,b) => rank(a)-rank(b) || a.name.localeCompare(b.name) || a.id-b.id);

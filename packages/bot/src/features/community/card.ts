@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { EmbedBuilder, MessageFlags, SlashCommandBuilder } from "discord.js";
+import { PROJECT_IGNIS_IMAGE_URL } from "@yugidraft/shared/services";
 import type { CommandModule } from "../../runtime/types.js";
 import { cardReader, type CardRecord } from "./card-data.js";
 import { PURPLE, GOLD, NO_MENTIONS, clip } from "./common.js";
@@ -23,15 +24,6 @@ async function loadBanlist(): Promise<Banlist | null> {
   return null;
 }
 
-function appOrigin(): string {
-  const value = process.env.SITE_DOMAIN?.trim() || "app.duelingdomain.com";
-  try {
-    const url = new URL(`https://${value}`);
-    if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) throw new Error("Invalid host");
-    return url.origin;
-  } catch { return "https://app.duelingdomain.com"; }
-}
-
 function cardEmbed(card: CardRecord, banlist: Banlist | null, canonicalId: number) {
   const link = /link/i.test(card.type), monster = /monster/i.test(card.type);
   const stat = (value: number | null) => value === null || value < 0 ? "?" : String(value);
@@ -39,7 +31,7 @@ function cardEmbed(card: CardRecord, banlist: Banlist | null, canonicalId: numbe
   const stats = monster ? `ATK/${stat(card.atk)} • ${link ? `LINK-${stat(card.level)}` : `DEF/${stat(card.def)}`}` : "";
   const embed = new EmbedBuilder().setTitle(clip(card.name, 256)).setColor(card.prerelease ? GOLD : PURPLE)
     .setDescription(clip([card.prerelease ? "**Pre-release**" : "", typeLine, stats, "", card.text || "Card text not available."].filter((line, i) => line || i === 3).join("\n"), 4096))
-    .setImage(`${appOrigin()}/api/cards/${card.id}/image`)
+    .setImage(`${card.prerelease || card.engineOnly ? PROJECT_IGNIS_IMAGE_URL : "https://images.ygoprodeck.com/images/cards"}/${card.id}.jpg`)
     .setFooter({ text: banlist ? `Dueling Domain • ${card.id} • ${banlist.id}` : `Dueling Domain • ${card.id} • TCG status unavailable (ban list module not installed).` });
   if (banlist) embed.addFields({ name: "TCG ban status", value: card.prerelease ? "Pre-release (not yet released)"
     : ({ 0: "Forbidden", 1: "Limited", 2: "Semi-limited" } as Record<number, string>)[banlist.limits[canonicalId]] ?? "Unlimited", inline: true });
