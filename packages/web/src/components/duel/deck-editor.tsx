@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { canonicalCardCode, type DeckCardInfo, type DuelDeck, type DuelDeckValidation, type DuelMode, type DuelSettings, type GenesysCard } from "@yugidraft/shared/duels";
+import { canonicalCardCode, capDeckSections, deckLeftOutMessages, type DeckCardInfo, type DuelDeck, type DuelDeckValidation, type DuelMode, type DuelSettings, type GenesysCard } from "@yugidraft/shared/duels";
 import { AlertTriangle, CheckCircle2, FileUp, Info, Loader2, X } from "lucide-react";
 import { cardArtUrl } from "./constants";
 import { cx, SheetButton } from "./sheet-ui";
@@ -14,7 +14,7 @@ import { canBeDeckMaster, isSpellOrTrapType, SPELL_TRAP_MASTER_MESSAGE, useDeckC
 import { SavedDeckPicker, useSavedDecks } from "./saved-deck-picker";
 import { createSavedDeck, listSavedDecks, prepareDeckTextImport } from "../decks/api";
 import { deckNameFromFile } from "../decks/import";
-import { modeLabel } from "../decks/model";
+import { modeLabel, sectionFullReason } from "../decks/model";
 import { GenesysBadge, GenesysCheck, GenesysMeter } from "../decks/genesys-ui";
 import { useGenesysDeckSummary } from "../decks/use-genesys-deck";
 import { findSavedDuplicate, pastedDeckName, prepareImportSave, uniqueDeckName } from "./import-save";
@@ -269,7 +269,11 @@ export function DeckEditor({
     saveQueue.current = saveQueue.current.then(() => saveImported(raw, baseName, seq)).catch(() => undefined);
   }
 
-  function applyImported(raw: DuelDeck, baseName: string, messages: string[] = []) {
+  function applyImported(source: DuelDeck, baseName: string, importedMessages: string[] = []) {
+    // The server already cuts an import to the limits (60 Main, 15 Extra, 15 Side); this keeps a section from passing them if it did not.
+    const capped = capDeckSections(source);
+    const raw = capped.deck;
+    const messages = [...importedMessages, ...deckLeftOutMessages(capped.leftOut).filter(line => !importedMessages.includes(line))];
     setSaveNote(null);
     queueSave(raw, baseName);
     const imported = mode === "domain"
@@ -327,6 +331,12 @@ export function DeckEditor({
 
   function addCard(code: number, addSection: "main" | "extra" | "side") {
     const section = addSection === "side" && !sideAllowed ? "main" : addSection;
+    // The hard stop: a full section takes no card.
+    const full = sectionFullReason(deck, section);
+    if (full) {
+      setParseError(full);
+      return;
+    }
     commitSelection({ ...selection, deck: { ...deck, [section]: [...deck[section], code] } });
   }
 
