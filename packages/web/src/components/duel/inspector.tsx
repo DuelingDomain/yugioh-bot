@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, type CSSProperties, type RefObject } from "react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
-import { CardBack } from "./card-face";
+import { CardBack, materialsTitle } from "./card-face";
 import { hasCardName, useDuelCardInfo } from "./card-info";
 import { cardTextStyle, useCardTextSize } from "./card-text-size";
 import { cardArtUrl, cardInspectLines, isHiddenCard } from "./constants";
@@ -145,7 +145,7 @@ export function cardExtraLines(card: DuelCard, equipLinks?: EquipLinks): string[
   }
   if (card.materials?.length) {
     extras.push(
-      `Materials: ${card.materials
+      `Materials (${card.materials.length}): ${card.materials
         .map((material) => (material.code == null ? "face-down" : (material.name ?? `Card ${material.code}`)))
         .join(", ")}`,
     );
@@ -160,12 +160,15 @@ export function CardInspector({
   target,
   onInspectCard,
   onActivateCard,
+  onViewMaterials,
   equipLinks,
   ownerOf,
 }: {
   target: InspectTarget | null;
   onInspectCard?: (card: DuelCard) => void;
   onActivateCard?: (card: DuelCard, anchor: HTMLElement) => void;
+  /** Opens the Materials view (the pile viewer) for an Xyz. Absent: the Materials line is text only. */
+  onViewMaterials?: (target: Extract<InspectTarget, { type: "pile" }>) => void;
   /** The equip links of the live board: adds "Equipped to ..." / "Equipped with ..." for a card on the field. */
   equipLinks?: EquipLinks;
   /** 3 and 4 seat tables: who owns the card shown. Absent: no owner line (1v1). */
@@ -220,6 +223,7 @@ export function CardInspector({
   }
 
   const extras = cardExtraLines(target.card, equipLinks);
+  const materials = target.card.code != null && !isHiddenCard(target.card) ? target.card.materials ?? [] : [];
 
   const owner = ownerOf?.(target.card) ?? null;
   return (
@@ -251,6 +255,18 @@ export function CardInspector({
             ),
           )}
         </ul>
+      ) : null}
+      {materials.length > 0 && onViewMaterials ? (
+        <div className={styles.materialsRow}>
+          <button
+            type="button"
+            className={styles.materialsButton}
+            data-testid="inspector-view-materials"
+            onClick={() => onViewMaterials({ type: "pile", title: materialsTitle(materials.length), cards: materials })}
+          >
+            View materials ({materials.length})
+          </button>
+        </div>
       ) : null}
     </>
   );

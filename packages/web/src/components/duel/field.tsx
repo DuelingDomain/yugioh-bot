@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type Component
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Link2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CardFace, cardFieldStats } from "./card-face";
+import { CardFace, cardFieldStats, materialsTitle } from "./card-face";
 import { CardActionMenu } from "./card-interactions";
 import { DECK_SURRENDER_ID, DECK_USE_ID, deckMenuOptions, deckOffersSurrender, useDeckSurrender } from "./deck-surrender";
 import { EquipChip, EquipLinksContext, useEquipRole } from "./equip-chip";
@@ -24,6 +24,7 @@ import {
   cardStatsText,
   isBattlePhase,
   isDefenseAt,
+  isFacedown,
   LOCATION_DECK,
   LOCATION_DMZONE,
   LOCATION_EXTRA,
@@ -193,6 +194,7 @@ export function ZoneSlot({
   linkSeq,
   linkId,
   onActivate,
+  onInspect,
   onHoverCard,
 }: {
   card: DuelCard | null;
@@ -217,6 +219,8 @@ export function ZoneSlot({
   /** Opponent side of the board (labels and marks face the other way). */
   flip?: boolean;
   onActivate: DuelActivateHandler;
+  /** Opens the Materials view when the material badge of an Xyz is clicked or tapped. Absent: the badge is only a count. */
+  onInspect?: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
 }) {
   const styles = useSkinStyles(baseStyles, "field");
@@ -229,7 +233,10 @@ export function ZoneSlot({
   const equipText = equipSentence(equipRole);
   // A face-up card whose effects are negated: the art is dimmed and marked (CardFace); the name says it too.
   const negated = card?.negated === true;
-  const name = [label, equipText, negated ? "Effects negated" : null].filter(Boolean).join(". ");
+  // A face-up Xyz shows a material badge (CardFace): a click or tap on it opens the list of its materials instead of acting on the card.
+  const materials = onInspect && card && card.code != null && !isFacedown(card.position) ? card.materials ?? [] : [];
+  const materialCount = card && card.code != null && !isFacedown(card.position) ? card.materials?.length ?? 0 : 0;
+  const name = [label, equipText, negated ? "Effects negated" : null, materialCount > 0 ? `${materialCount} ${materialCount === 1 ? "material" : "materials"}` : null].filter(Boolean).join(". ");
 
   return (
     <div
@@ -256,7 +263,14 @@ export function ZoneSlot({
         aria-label={name}
         aria-pressed={selected}
         // A ghost is the facing seat's card: a click on it acts on nothing (hover still previews it).
-        onClick={(event) => onActivate(keys, link === "taken" ? null : card, event.currentTarget)}
+        onClick={(event) => {
+          if (materials.length > 0 && event.target instanceof Element && event.target.closest("[data-materials-badge]")) {
+            event.stopPropagation();
+            onInspect?.({ type: "pile", title: materialsTitle(materials.length), cards: materials });
+            return;
+          }
+          onActivate(keys, link === "taken" ? null : card, event.currentTarget);
+        }}
         onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
         onMouseLeave={() => onHoverCard?.(null, null)}
         onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
@@ -660,6 +674,7 @@ export function monsterZoneProps(
     showStats: true,
     flip,
     onActivate: callbacks.onActivate,
+    onInspect: callbacks.onInspect,
     onHoverCard: callbacks.onHoverCard,
   };
 }
@@ -692,7 +707,7 @@ export function spellZoneProps(
 /** The props of one Extra Monster Zone (`left` is column 2, `right` column 4); the model gives card, keys and off id. */
 export function emzZoneProps(
   side: "left" | "right",
-  options: { card: DuelCard | null; keys: string[]; offId: string | undefined; flip: boolean; callbacks: Pick<FieldCallbacks, "legalKeys" | "selectedKeys" | "onActivate" | "onHoverCard"> },
+  options: { card: DuelCard | null; keys: string[]; offId: string | undefined; flip: boolean; callbacks: Pick<FieldCallbacks, "legalKeys" | "selectedKeys" | "onActivate" | "onHoverCard"> & Partial<Pick<FieldCallbacks, "onInspect">> },
 ): ZoneSlotProps {
   const { card, keys, offId, flip, callbacks } = options;
   return {
@@ -706,6 +721,7 @@ export function emzZoneProps(
     showStats: true,
     flip,
     onActivate: callbacks.onActivate,
+    onInspect: callbacks.onInspect,
     onHoverCard: callbacks.onHoverCard,
   };
 }
@@ -1106,6 +1122,7 @@ export const SeatField = memo(function SeatField({
         showStats
         flip={false}
         onActivate={onActivate}
+        onInspect={callbacks.onInspect}
         onHoverCard={onHoverCard}
       />
     );
