@@ -4,8 +4,6 @@ export function effectSearchEnabled(env: Record<string, string | undefined> = pr
   return env.NODE_ENV !== "production";
 }
 
-export const EFFECT_SEARCH_ATTRIBUTION = "Effect search powered by searchygo";
-
 /** Fast gate shared by the browser pool search and host; ordinary card names need no phrase reader. */
 export function mayReadEffect(text: string): boolean {
   if (/\b(?:combos?|partners?|staples?|cards for|goes with|related cards)\b|\bdeck\s*$/i.test(text)) return true;

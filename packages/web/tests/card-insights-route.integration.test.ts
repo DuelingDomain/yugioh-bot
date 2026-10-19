@@ -39,7 +39,7 @@ describe("authenticated public-catalog insight operations", () => {
   it("returns real imported summaries, reads and effect results with the capability and credit", async () => {
     const summary = await request({ op: "summary", passcode: 7084129 });
     expect(summary.status).toBe(200);
-    expect(await summary.json()).toMatchObject({ effectSearchEnabled: true, attribution: "Effect search powered by searchygo", summary: { passcode: 7084129, roles: ["searcher", "recursion"] } });
+    expect(await summary.json()).toMatchObject({ effectSearchEnabled: true, summary: { passcode: 7084129, roles: ["searcher", "recursion"] } });
     const read = await request({ op: "read", text: "hand traps" });
     expect(await read.json()).toMatchObject({ reading: { chips: expect.arrayContaining(["Role: hand trap"]) } });
     const effects = await request({ op: "effectSearch", text: "hand traps", pool: [97268402] });

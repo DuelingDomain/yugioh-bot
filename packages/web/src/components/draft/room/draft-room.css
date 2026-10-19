@@ -330,7 +330,6 @@
 }
 .dr .insp-note { margin: 0; color: var(--ink-3); font-size: 14px; line-height: 1.45; }
 .dr .insp-note em { color: var(--chain-ink); font-style: normal; }
-.dr .insp-credit { margin: 0; color: var(--ink-3); font-size: 11px; line-height: 1.4; }
 .dr .insp-fit {
   margin: 0;
   height: 1.45em;

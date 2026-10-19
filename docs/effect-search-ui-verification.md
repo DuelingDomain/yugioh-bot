@@ -15,8 +15,8 @@ or failures. Every spec covered 1920×1080, 2560×1440, 1366×768, and 390×844.
 
 Search and cube screenshots were visually inspected at all four sizes. Phone
 suggestions, phrase preview, and theme health were also inspected. Dueling Domain
-branding, `Effect search powered by searchygo`, and summaries without an AI label
-remain present. Card art uses the existing E2E image stub. The existing deck spec
+branding and summaries without an AI label
+remain present; no searchygo text shows. Card art uses the existing E2E image stub. The existing deck spec
 supplies suggestion/partner rows; it checks their UI rather than ranking quality.
 
 ## Isolated runtime

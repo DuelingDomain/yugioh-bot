@@ -44,7 +44,7 @@ it.each(["booster", "theme"] as const)("returns private flag-controlled pool rea
   const body = await response.json();
   expect(drafts.pool(draft.id, bot.playerId)[0].draftCardId).toBe(expectedBot.id);
   expect(body.effectSearchEnabled).toBe(true);
-  expect(body.attribution).toBe("Effect search powered by searchygo");
+  expect(body).not.toHaveProperty("attribution");
   expect(body.currentPack.length).toBeGreaterThan(0);
   const pool = drafts.pool(draft.id, human.playerId).map(card => card.catalogCardId);
   const insights = createCardInsightService(db);

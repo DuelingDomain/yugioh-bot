@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
-import { EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
 import { requireWebAccess } from "./web-access";
 import { getDb } from "./db";
 import { env } from "./env";
@@ -51,5 +50,5 @@ export async function readCubeEffectBody(request: Request, fields: readonly stri
 }
 
 export function cubeEffectResponse(data: object) {
-  return NextResponse.json({ effectSearchEnabled: true, attribution: EFFECT_SEARCH_ATTRIBUTION, ...data }, { headers: { "Cache-Control": "private, no-store" } });
+  return NextResponse.json({ effectSearchEnabled: true, ...data }, { headers: { "Cache-Control": "private, no-store" } });
 }

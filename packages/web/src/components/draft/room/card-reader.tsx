@@ -1,7 +1,6 @@
 "use client";
 
 import { memo } from "react";
-import { EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
 import { CardImg } from "./card-img";
 import { cardText, joinNames, statParts, tint, typeLine, type RoomCard } from "./room-model";
 
@@ -101,7 +100,6 @@ export const CardReader = memo(function CardReader(p: ReaderProps) {
             ) : null}
           </p>
         ) : null}
-        {p.fitsShown ? <p className="insp-credit">{EFFECT_SEARCH_ATTRIBUTION}</p> : null}
         {p.showWaiting && p.waitingOn.length ? (
           <p className="insp-note">
             Waiting on <em>{joinNames(p.waitingOn)}</em>.

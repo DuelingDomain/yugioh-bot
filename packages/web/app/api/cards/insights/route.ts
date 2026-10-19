@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createCardInsightService, readArchetypeGuide } from "@yugidraft/shared/services";
-import { EFFECT_SEARCH_ATTRIBUTION } from "@yugidraft/shared/cards/effects/capability";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -44,6 +43,6 @@ export async function POST(request: Request) {
       case "poolHealth": data = { health: service.poolHealth(input.cards, input) }; break;
       case "pickScore": data = { score: service.pickScore(input.candidate, input.pickedPool) }; break;
     }
-    return NextResponse.json({ effectSearchEnabled: true, attribution: EFFECT_SEARCH_ATTRIBUTION, ...data }, { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json({ effectSearchEnabled: true, ...data }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Effect search failed" }, { status: 400 }); }
 }

@@ -42,8 +42,8 @@ labelled candidate pools.
 The browser checks used 1920x1080, 2560x1440, 1366x768, and 390x844.
 They checked search, works-with, dates, cube batch import, phrase seeds, draft
 pools, theme lobbies, and smart picks. They checked stable hover positions,
-card badge separation, and summaries without an "AI" label. The credit stays:
-`Effect search powered by searchygo`.
+card badge separation, and summaries without an "AI" label. The UI shows no
+searchygo credit; it lives in `NOTICE`.
 
 Evidence remains in `.status/effect-search/eval.json`,
 `packages/e2e/.stack-8/test-results/`, and `/tmp/es-port-ui/`.

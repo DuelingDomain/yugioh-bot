@@ -23,8 +23,8 @@ Deck search keeps name results first and returns an independently paged effect
 group, reading chips and short reasons. Exact text bypasses the reader. Existing
 filters, artwork identity, admission flags, Genesys points/budget and pool scope
 remain in place. Summaries use ordinary card prose without an AI label. Source
-headers, root `NOTICE`, artifact `NOTICE.md` and the UI preserve
-`Effect search powered by searchygo`. Production defaults off unless
+headers, root `NOTICE` and artifact `NOTICE.md` preserve the searchygo credit;
+the UI shows none. Production defaults off unless
 `EFFECT_SEARCH=1`; nonproduction defaults on.
 
 ## Real-artifact evaluation

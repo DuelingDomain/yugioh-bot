@@ -90,7 +90,6 @@ Response:
 ```ts
 {
   effectSearchEnabled: true;
-  attribution: "Effect search powered by searchygo";
   phrase: string; targetCount: number; maxCopies: number;
   reading: Interpretation | null; // foundation query/chips shape
   era?: { medianYear: number; spread: number };
@@ -179,7 +178,6 @@ For theme drafts, after existing access and setup checks, the response adds:
 {
   errors: string[]; warnings: string[];
   effectSearchEnabled: true;
-  attribution: "Effect search powered by searchygo";
   poolHealth: Array<{ cubeId: number; cubeName: string; health: CardPoolHealth | null }>;
 }
 ```
@@ -210,8 +208,7 @@ fields and observations are absent. This route does not grant library access.
 
 ## UI requirements
 
-Show `Effect search powered by searchygo` when rendering description results,
-seed previews or health. Card summaries use ordinary prose with no AI label.
+Show no searchygo credit in the UI (owner decision 2026-10-19). Card summaries use ordinary prose with no AI label.
 Keep name search on its existing request path. The cube UI worker owns browser
 checks at 1920×1080, 2560×1440, 1366×768 and mobile width, including stationary
 hover geometry, non-overlapping badges, active-only purple/gold accents and

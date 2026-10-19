@@ -27,7 +27,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     await page.route("**/api/cards/insights", async (route) => {
       const body = route.request().postDataJSON() as { op?: string };
       if (body.op !== "worksWith") return route.fallback();
-      await route.fulfill({ json: { effectSearchEnabled: true, attribution: "Effect search powered by searchygo", cards: known.map((card, index) => ({
+      await route.fulfill({ json: { effectSearchEnabled: true, cards: known.map((card, index) => ({
         passcode: card.code, name: card.name, score: 10 - index, linkedCards: 2 - Math.min(index, 1), reason: `Negates monster effects, like ${index === 0 ? "Ash Blossom" : "Effect Veiler"}.`,
       })) } });
     });
@@ -85,7 +85,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     const reading = browser.getByRole("list", { name: "Effect reading" });
     const dateChip = reading.getByRole("button", { name: "Remove reading Released: before 2010" });
     await expect(dateChip).toBeVisible({ timeout: 30_000 });
-    await expect(browser.getByText("Effect search powered by searchygo", { exact: true })).toBeVisible();
+    await expect(browser).not.toContainText(/searchygo/i);
     await expect(browser).not.toContainText(/\bAI\b/);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     // The chip text does not run over its neighbours: no chip box crosses another.
@@ -151,7 +151,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844
       const body = route.request().postDataJSON() as { op?: string; archetype?: string; hook?: number };
       if (body.op !== "hookSearch") return route.fallback();
       hookRequest = body;
-      await route.fulfill({ json: { effectSearchEnabled: true, attribution: "Effect search powered by searchygo", cards: [] } });
+      await route.fulfill({ json: { effectSearchEnabled: true, cards: [] } });
     });
     await page.goto("/decks/new");
     const cardsTab = page.getByRole("tab", { name: "Cards", exact: true });
@@ -187,7 +187,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844
     expect(hookRequest).toMatchObject({ archetype: "Blue-Eyes", hook: 0 });
     await browser.getByRole("button", { name: "Remove Fits Dragon search" }).click();
     await expect(browser.getByRole("list", { name: "Works with" })).toHaveCount(0);
-    if (!phone) await expect(browser.getByText("Effect search powered by searchygo", { exact: true })).toBeVisible();
+    await expect(browser).not.toContainText(/searchygo/i);
     void testInfo;
   });
 }

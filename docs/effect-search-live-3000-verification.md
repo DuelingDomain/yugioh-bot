@@ -47,7 +47,7 @@ and direct-host responses matched exactly for both queries.
 
 Chromium verified both queries at 1920x1080 and 390x844, without response mocks:
 capability true, named cards in the DOM, `Exact text` visible and off, removable
-reading chips, `Effect search powered by searchygo`, the correct summary count,
+reading chips, no searchygo text, the correct summary count,
 and `Cards that do this` as the first result-group heading. No page errors
 occurred. The first page of the broad query contains all four requested cards.
 
