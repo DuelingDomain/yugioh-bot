@@ -13,6 +13,8 @@ import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type Duel
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { SurrenderModal } from "./surrender-modal";
+import { useTestDuelQuit } from "./test-duel-quit";
+import { testDuelReturnPath } from "@/components/decks/test-duel";
 import { DeckSurrenderContext, type DeckSurrenderValue } from "./deck-surrender";
 import { BugReportHeaderButton } from "../bug-report/bug-report-header-button";
 import { BugReportMenuButton } from "../bug-report/bug-report-menu-button";
@@ -307,12 +309,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const playerName = seatNamer((data?.session.seats ?? []).map((entry) => ({
     ...entry, displayName: forkControl?.origin.sourceSeats.find((source) => source.seat === entry.seat)?.displayName ?? entry.displayName,
   })));
-  useDuelLeaveGuard({
-    slug,
-    active: !forkMode && data?.session.status === "active" && !data.engine?.result &&
-      (!isMultiSeat(data?.engine) || !data.engine?.seats.some((seat) => seat.seat === data.mySeat && (seat.eliminated || seat.pendingElimination))),
-    role: data?.mySeat == null ? "spectator" : "player",
-  });
+  // A test duel from the deck editor has its own Quit dialog and returns to the editor when it ends.
+  const testDuel = data?.session.testDuel === true;
+  const duelLive = !forkMode && data?.session.status === "active" && !data.engine?.result &&
+    (!isMultiSeat(data?.engine) || !data.engine?.seats.some((seat) => seat.seat === data.mySeat && (seat.eliminated || seat.pendingElimination)));
+  useDuelLeaveGuard({ slug, active: duelLive && !testDuel, role: data?.mySeat == null ? "spectator" : "player" });
+  const exitRef = useRef<() => void>(() => router.replace("/duels"));
+  const testQuit = useTestDuelQuit({ slug, active: duelLive && testDuel && data?.mySeat != null, onQuit: () => exitRef.current() });
   const [busy, setBusy] = useState(false);
   const [forkChainBusy, setForkChainBusy] = useState(false);
   const inFlight = useRef(false);
@@ -1195,9 +1198,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // A fork is not left open behind the creator: leaving it closes it and goes back to the replay.
     if (forkControl) { endFork(); return; }
     leavingRoom.current = true;
-    if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
-    else router.replace("/duels");
+    const home = testDuel ? testDuelReturnPath(slug) : "/duels";
+    if (inDuelWindow) exitDuelWindow(slug, () => router.replace(home));
+    else router.replace(home);
   };
+  exitRef.current = exitDuel;
   // The Surrender confirm is a modal: the HUD flyout that held the button closes, so the modal owns Esc.
   const askSurrender = () => { hudState.close(); setConfirmSurrender(true); };
   // The Cancel duel confirm is a modal too: the flyout closes the same way.
@@ -1247,6 +1252,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     </> : null;
   const leaveControl = !forkMode && (data.mySeat == null || viewerOut) ?
     <button type="button" className={styles.tool} onClick={exitDuel}>Leave room</button> : null;
+  const testQuitControl = testDuel && canSurrender ?
+    <button type="button" className={styles.tool} data-testid="test-duel-quit" disabled={testQuit.busy || busy} onClick={testQuit.quit}>Quit</button> : null;
   const forkBusy = busy || catchingUp || Boolean(error);
   // A fork has no clock: the host sends none, and the table draws none even if one were sent.
   const shownClock = forkMode ? null : data.clock;
@@ -1316,6 +1323,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {forkMode ? null : <ReportButton slug={slug} />}
         {popOutControl}
         {leaveControl}
+        {testQuitControl}
         {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error) || tossLocked}
           onClick={askSurrender}>Surrender</Button> : null}
         {canCancel ? <Button type="button" variant="secondary" size="sm" disabled={busy || catchingUp || Boolean(error) || tossLocked}
@@ -1611,6 +1619,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       {forkMode ? null : <ReportButton slug={slug} />}
       {popOutControl}
       {leaveControl}
+      {testQuitControl}
       {hasResult && hideResult ? (
         <button type="button" className={styles.tool} onClick={() => setHideResult(false)}>
           <span>Show result</span>
@@ -1798,6 +1807,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       </Sheet>
       {surrenderModal}
       {cancelModal}
+      {testQuit.dialog}
       {showResult ? (
         <DuelResultScreen room={data} slug={slug} reducedMotion={preferences.reducedMotion}
           soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} onExit={exitDuel}
