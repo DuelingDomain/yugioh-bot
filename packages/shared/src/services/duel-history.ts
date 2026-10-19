@@ -3,7 +3,10 @@ import type { DuelHistoryOptions } from "../duels/index.js";
 import { isDuelFormat } from "../duels/settings.js";
 import { DuelServiceError } from "./duels.js";
 
-export const DUEL_LIST_ACCESS_SQL = `kind = 'play' and sandbox = 0 and (
+/** Deck-editor test duels are private practice. They never show in lists, history or counts. */
+export const NOT_TEST_DUEL_SQL = "coalesce(json_extract(setup_json, '$.testDuel'), 0) = 0";
+
+export const DUEL_LIST_ACCESS_SQL = `kind = 'play' and sandbox = 0 and ${NOT_TEST_DUEL_SQL} and (
   organizer_player_id = @viewer
   or exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer)
   or exists (select 1 from duel_invite_grants g where g.duel_id = duels.id and g.player_id = @viewer)
@@ -145,6 +148,8 @@ export function duelHistoryQuery(guildId: string, playerId: number, canSeeAll: b
   if (adminAll && status !== "any") { params.status = status; where.push("status = @status"); }
   if (!adminAll) {
     where.push(DUEL_LIST_ACCESS_SQL);
+  } else {
+    where.push(NOT_TEST_DUEL_SQL);
   }
   if (scope === "mine") where.push("exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer)");
   if (options.from !== undefined) {

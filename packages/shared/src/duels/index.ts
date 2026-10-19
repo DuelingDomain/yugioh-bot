@@ -617,6 +617,8 @@ export interface DuelSession {
   seriesId?: number | null;
   /** 1-based game number inside the series. */
   gameNumber?: number | null;
+  /** Deck-editor test duel against a bot. The room offers Quit and returns to the deck editor. */
+  testDuel?: boolean;
 }
 
 export interface DuelRoom {
