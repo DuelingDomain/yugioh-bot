@@ -366,7 +366,8 @@ export function createDuelHost(options: {
   const repairDeckCopies = () => deckCopies ??= createDeckCopyRepairService(options.db, repairEngine);
   const service = createDuelService(options.db, { rollDie: options.rollDie });
   const series = createDuelSeriesService(options.db, repairEngine);
-  const competitive = (session: DuelSession) => isCompetitiveDuel(session.ranked === true, series.forDuel(session.id)?.tournamentMatchId);
+  const competitive = (session: DuelSession) => !isReplayFork(session)
+    && isCompetitiveDuel(session.ranked === true, series.forDuel(session.id)?.tournamentMatchId);
   const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as EngineDataManifest;
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
   const localCardDataStatus = createLocalCardDataStatus(options.db, options.dataDirectory, { manifest, now: options.now });

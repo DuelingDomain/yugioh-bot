@@ -81,6 +81,8 @@ const CLOCK_DUE_CAP = 32;
 /** All play expires after this long without player input, regardless of the decision clock. */
 export const DUEL_LIVE_IDLE_AFTER_MS = 10 * 60 * 1000;
 export const DUEL_LIVE_IDLE_REASON = "No player activity for 10 minutes.";
+/** Preserve the existing discovery cutoff independently of the host's idle-close policy. */
+export const DUEL_LIVE_LIST_IDLE_AFTER_MS = 15 * 60 * 1000;
 
 // Keep the deploy installer's offline interruption and activity guard in sync with this predicate.
 const LIVE_IDLE_SQL = `kind = 'play' and status = 'active'
@@ -590,7 +592,7 @@ function serializeClock(clock: DuelClockState | null): string | null {
 
 function rowClock(row: DuelRow): DuelClockState | null {
   const clock = wrapSettingsError(() => parseStoredDuelClock(row.clock_json), 500);
-  if (!clock || row.ranked !== 1) return clock;
+  if (!clock || isReplayFork(row) || row.ranked !== 1) return clock;
   return rankedClock(clock);
 }
 
@@ -624,10 +626,15 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
   );
   const series = createSeriesStore(db);
   const tournamentMatchId = (row: Pick<DuelRow, "series_id">) => row.series_id === null ? null : series.byId(row.series_id)?.tournament_match_id;
-  const competitive = (row: Pick<DuelRow, "series_id" | "ranked">) => isCompetitiveDuel(row.ranked === 1, tournamentMatchId(row));
-  const rowSettings = (row: Pick<DuelRow, "settings_json" | "ranked" | "series_id">): DuelSettings =>
-    rankedDuelSettings(wrapSettingsError(() => parseStoredDuelSettings(row.settings_json), 500), row.ranked === 1, tournamentMatchId(row));
-  const writeHeartbeat = db.prepare<[number]>("insert into duel_host_heartbeat (id, last_tick_at) values (1, ?) on conflict(id) do update set last_tick_at = excluded.last_tick_at");
+  const competitive = (row: Pick<DuelRow, "kind" | "series_id" | "ranked">) => !isReplayFork(row)
+    && isCompetitiveDuel(row.ranked === 1, tournamentMatchId(row));
+  const rowSettings = (row: Pick<DuelRow, "kind" | "settings_json" | "ranked" | "series_id">): DuelSettings => {
+    const settings = wrapSettingsError(() => parseStoredDuelSettings(row.settings_json), 500);
+    return isReplayFork(row) ? settings : rankedDuelSettings(settings, row.ranked === 1, tournamentMatchId(row));
+  };
+  const writeHeartbeat = db.prepare<[number]>(`insert into duel_host_heartbeat (id, last_tick_at)
+    select 1, ? where exists (select 1 from duels where kind = 'play' and status = 'active' and ${COMPETITIVE_SQL})
+    on conflict(id) do update set last_tick_at = excluded.last_tick_at`);
   const insertDuel = db.prepare<[string, string, string, number, DuelMode, DuelMasterRule, string, string | null, DuelFormat, number, number]>(
     `
       insert into duels (guild_id, web_slug, name, organizer_player_id, mode, master_rule, status, settings_json, invite_code, format, best_of, ranked)
@@ -731,8 +738,10 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
 
   const checkedClock = (clock: DuelClockState | null, seatCount: number, row: DuelRow): DuelClockState | null => {
     if (clock === null) {
+      if (isReplayFork(row)) return null;
       if (row.ranked === 1) throw new DuelServiceError("Ranked duels require a clock", 400);
-      if (competitive(row) && rowSettings(row).turnSeconds > 0) throw new DuelServiceError("Timed competitive duels require a clock", 400);
+      // Tournament activation can precede the host's first engine view; its clock sweep initializes the bank.
+      if (row.status === "active" && competitive(row) && rowSettings(row).turnSeconds > 0) throw new DuelServiceError("Timed competitive duels require a clock", 400);
       return null;
     }
     const stored = wrapSettingsError(() => normalizeDuelClockState(clock));
@@ -1658,7 +1667,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     list(guildId, playerId, options) {
       if (options?.archived) return listHistory(guildId, playerId, { ...options, limit: options.limit ?? 100 }).duels;
       assertPlayerGuild(playerId, guildId);
-      const idleMs = options?.idleAfterMs ?? DUEL_LIVE_IDLE_AFTER_MS;
+      const idleMs = options?.idleAfterMs ?? DUEL_LIVE_LIST_IDLE_AFTER_MS;
       const idleSeconds = Math.max(0, Math.ceil(idleMs / 1000));
       return listLive
         .all({ guild: guildId, viewer: playerId, idle: `-${idleSeconds} seconds` })

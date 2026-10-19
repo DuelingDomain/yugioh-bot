@@ -2,8 +2,9 @@
 
 Status: Accepted (owner direction, 2026-10-19)
 
-A competitive game is ranked or belongs to a tournament match through its series. Competitive clock expiry is a loss.
+A competitive play game is ranked or belongs to a tournament match through its series. Competitive clock expiry is a loss.
 Ranked games use a 180-second bank; tournaments keep the organizer's bank, including unlimited.
+Replay forks are local sessions and never participate in competitive clocks, settlement or heartbeat recovery.
 
 Every play game has a ten-minute player-input idle backstop. For a competitive game, the host first attempts to settle
 its saved deadline without recovering an engine. If no loss can be settled, including a settlement error, the host
@@ -15,8 +16,8 @@ it interrupts casual idle rows and preserves competitive rows for the restarted 
 deploys forever because the host always has the no-winner backstop. Clock sweeps rotate through bounded batches so
 unsettleable rows do not starve newer games.
 
-The host persists a heartbeat each tick. Startup preserves a deadline at or before the previous heartbeat for a real
-loss. It excludes subsequent downtime from later deadlines, rebasing banks and committing a new heartbeat in one
+The host persists a heartbeat each tick while a competitive play game is active. Startup preserves a deadline at or
+before the previous heartbeat for a real loss. It excludes subsequent downtime from later deadlines, rebasing banks and committing a new heartbeat in one
 transaction. Ranked remaining time becomes the lesser of 180 seconds and live remaining time at the heartbeat;
 tournament banks retain their size. Each running clock starts at boot. Without a heartbeat, use live remaining time
 at boot and award no immediate win. Exhausted unproven clocks and legacy continue-at-zero freezes receive the existing
