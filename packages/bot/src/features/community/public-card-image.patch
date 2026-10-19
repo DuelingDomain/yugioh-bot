@@ -1,0 +1,11 @@
+diff --git a/packages/web/proxy.ts b/packages/web/proxy.ts
+--- a/packages/web/proxy.ts
++++ b/packages/web/proxy.ts
+@@ -6,6 +6,7 @@ const PUBLIC = ["/sign-in(.*)", "/sign-up(.*)", "/sso-callback(.*)", "/welcome-back",
+ const isPublic = createRouteMatcher(PUBLIC);
+ function beforeAuth(request: NextRequest): Response | null {
+   const path = request.nextUrl.pathname;
++  if (request.method === "GET" && /^\/api\/cards\/\d{1,10}\/image$/.test(path)) return NextResponse.next();
+   if (path === "/dev/fx-lab" && !fxLabEnabled()) return new NextResponse(null, { status: 404 });
+   if (path.startsWith("/api/test-auth/")) return isE2EAuthEnabled() ? NextResponse.next() : NextResponse.json({ error: "not_found" }, { status: 404 });
+   if ((request.method === "GET" && ["/api/auth/existing-player/start", "/api/auth/callback/discord"].includes(path))
