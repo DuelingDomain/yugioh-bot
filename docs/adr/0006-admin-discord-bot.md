@@ -6,7 +6,7 @@ This supersedes the decision in [ADR 0004](0004-alpha-access-clerk.md) to shelve
 
 Run one small discord.js Gateway process in its own container. Request only `Guilds`, `GuildMembers`, `GuildModeration`, and `AutoModerationExecution`. Enable the privileged Server Members intent in the Developer Portal. Do not request Message Content or Presence. The bot has no inbound HTTP port. The old player commands, port 4001 announce server, reminders, notification cleanup and duplicate jobs are removed permanently.
 
-Only literal `DISCORD_BOT_ENABLED=1` starts Discord or opens SQLite. Other values keep a healthy idle process. Roll back this service by setting `DISCORD_BOT_ENABLED=0` and recreating `bot`. This release provides the runtime and empty feature folders. It registers **zero commands**, which removes the old guild commands. It does not post alerts until Phase 1 installs a delivery hook. No deploy ping is included. PR #400 stays open and is not merged.
+Only literal `DISCORD_BOT_ENABLED=1` starts Discord or opens SQLite. Other values keep a healthy idle process. Roll back this service by setting `DISCORD_BOT_ENABLED=0` and recreating `bot`. This release provides the runtime and empty feature folders. It registers **zero commands**, which removes the old guild commands. It delivers the complete shared outbox payloads. Waitlist buttons still require Phase 1 handlers. No deploy ping is included. PR #400 stays open and is not merged.
 
 ## Module contract
 
@@ -35,48 +35,17 @@ Default acknowledgement is an ephemeral deferred reply before shared-service or 
 
 `confirmations.request(interaction, { summary, access, execute })` stores a 60-second nonce bound to the invoker and guild. Capture the exact confirmed payload in the closure; do not read options again. Confirmation rechecks access, consumes the nonce before execution, and applies a three-second actor cooldown with one operation at a time per guild. Use `destructive: true` for immediate actions that need that cooldown. Do not mark the request-for-confirmation command destructive; the confirmed operation takes the lock. Features must enforce actor/bot hierarchy, protected targets and command-specific limits before a mutation.
 
-## Task B boundary
+## Shared admin boundary
 
-Task B owns `@yugidraft/shared/discord-admin`, its package export, all tables and migrations, Clerk access and waitlist decisions. Task A does not change shared source. `runtime/shared.ts` is the one adapter to that export. An absent export logs one warning and disables privileged access. A broken installed export fails startup instead of silently substituting a stub.
+`@yugidraft/shared/discord-admin` owns access, audit and durable outbox state. `@yugidraft/shared/services/waitlist-decisions` owns Clerk decisions. The shared API is required at startup. `runtime/shared.ts` imports its real types and binds access, audit, `claimOutbox`, `markPosted` and `markFailed` to the bot database. Identity resolves through `users.discord_user_id`.
 
-The adapter calls these shared functions (the structural declarations are in `runtime/shared.ts`):
+`recordModAction` persists an action and queues its mod-log post in one transaction. `context.audit` calls this service once. The default poller delivers that stored body; handlers must not also post it directly.
 
-```ts
-adminAccess(db, discordUserId)
-// { siteUserId: number | null, isAdmin: boolean, ... }
-recordModAction(db, {
-  guildId, actorDiscordId, action, targetDiscordId?, reason?, params?,
-  result: "success" | "failure" | "denied"
-})
-claimOutbox(db, limit)
-markPosted(db, claimedRow, { messageId })
-markFailed(db, claimedRow)
-```
+Shared producers supply complete REST payloads in `discord_outbox.payload_json`, including waitlist embeds, buttons, decision edits and moderation logs. `DiscordOutboxRow` aliases the shared `ClaimedOutbox` type. Shared SQLite owns atomic claims, 60-second leases, fencing, durable retry, deduplication, poison-row isolation and a 30-claim-per-minute budget across processes.
 
-`recordModAction` persists an action and queues its mod-log post in one transaction. `context.audit` calls this service once. It does not also post directly. `runtime/audit.ts` exports `postAuditMessage` for the Phase 1 outbox renderer.
+`startBot` installs one poller automatically. It runs every three seconds and claims one row just before delivery. Each claimed row uses a fresh REST manager with a 10-second request timeout, immediate rate-limit rejection and no automatic retries. This avoids lingering timers from cached rate-limit handlers. A rate limit pauses further claims for the returned delay. The complete write, including its response body, has a 30-second deadline so shutdown fits within the container's 45-second grace period. The sender checks the channel's guild, suppresses all mentions, preserves nonces, and handles both `post` and `edit`. Missing edit targets are acknowledged with their existing ID. The poller stores fixed failure codes; it passes Discord retry delays to shared backoff and marks invalid payloads and rejected destinations permanent. It also caps local attempts to 30 per rolling minute.
 
-The agreed table name is **`discord_outbox`**. The claimed row contract used by the bot is:
-
-```ts
-interface DiscordOutboxRow {
-  id: number;
-  kind: string;
-  operation: "post" | "edit";
-  channel_id: string;
-  message_id: string | null;
-  payload_json: string;
-  idempotency_key: string;
-  lease_token: string;
-  lease_expires_at: number;
-  attempts: number;
-}
-```
-
-Task B may return additional columns. It owns atomic claiming, lease fencing, durable retry, deduplication, poison-row isolation and the shared 30-attempt-per-minute budget. The adapter marks each row posted or failed independently. It never implements SQL or schema changes itself.
-
-`runtime/outbox.ts` exports `startOutboxPoller({ shared, guildId, signal, deliver?, intervalMs? }): Stop`. The default interval is three seconds. There is no claim without a delivery function. The runtime also caps delivery attempts to 30 per rolling minute, prevents overlapping sweeps and drains a sweep on shutdown. Delivery returns `{ messageId }`. It must check that the destination belongs to the configured guild, enforce empty allowed mentions, handle `post` and `edit`, and check `signal` before network effects.
-
-The waitlist module can install this poller from its `start(context)` and return its stop callback. Its renderer owns embeds, waitlist buttons and message edits. It must also route the shared `mod_log` kind to the audit poster. `startBot` accepts an optional `deliverOutbox` hook for a composed renderer; choose one installation path so there is one consumer. Phase 0 supplies neither renderer and claims no rows.
+The optional `startBot.deliverOutbox(row, context)` hook can replace the default sender. It returns `{ messageId, channelId? }`. Custom senders must preserve guild checks, mention suppression, post nonces and bounded I/O. Feature modules must not install a second consumer. Shutdown stops claims, cancels channel lookups and drains a started write before closing SQLite.
 
 Web and worker keep their old gameplay Discord switch fixed to `0` in Compose. Phase 1 must separate those old web capabilities from the shared notifier switch before enabling the web outbox producer. Do not enable the removed 4001 path. Task B's notifier uses webhooks when its process has `DISCORD_BOT_ENABLED!=1`.
 
@@ -84,6 +53,6 @@ Web and worker keep their old gameplay Discord switch fixed to `0` in Compose. P
 
 The bot gets a separate ARM64 image in the production build, pull, promotion and retention lists. Rollback to older releases with no bot image remains supported. The image compiles only bot/shared and installs their production dependencies. It runs as `node`, with no capabilities, no new privileges, no published ports, a 256 MB memory limit and a 160 MB heap cap. The shared package still requires sharp for its own services; the bot has no direct sharp or cron dependency.
 
-Start after web. The bot heartbeat is container-local and checks Gateway readiness; disabled mode is healthy. Shutdown stops new dispatch, aborts work, stops feature hooks and polling, drains active interactions, destroys the client, closes SQLite and flushes observability. Gameplay deployment health checks do not wait for the bot.
+Start after web. The container-local file heartbeat checks Gateway readiness; disabled mode is healthy. The shared migration also creates `bot_heartbeat(id, at, pid)` with singleton `id=1`. The enabled bot writes a Unix millisecond timestamp and its container PID at startup and every 30 seconds while ready. It removes its row on a disconnected heartbeat or shutdown. The admin console reads recency from this table; a missing row or a timestamp older than 120 seconds means unavailable. A process crash leaves a stale timestamp. Disabled mode never opens SQLite. Shutdown stops new dispatch, aborts work, stops feature hooks and polling, drains active interactions, destroys the client, closes SQLite and flushes observability. Gameplay deployment health checks do not wait for the bot.
 
 Runtime integration tests use real SQLite and discord.js against local HTTP and WebSocket servers. They verify guild command replacement, exact intents, adapters, dispatch, mention suppression, guild refusal, health and shutdown. No new unit tests are added. A private test guild remains the owner acceptance check; see [setup](../deployment/discord-bot.md).

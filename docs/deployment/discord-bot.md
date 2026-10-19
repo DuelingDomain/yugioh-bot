@@ -1,6 +1,6 @@
 # Admin Discord bot setup
 
-Phase 0 installs the runtime only. The feature modules are empty. Startup replaces the guild command list with an empty list and removes the old player commands. It does not send waitlist alerts yet. Keep production disabled until the Phase 1 features are ready. The owner decisions exclude a deploy ping.
+The runtime includes shared outbox delivery. The feature modules are empty. Startup replaces the guild command list with an empty list and removes the old player commands. An enabled bot delivers queued waitlist alerts, decision edits and moderation logs. Waitlist button handlers still require Phase 1; keep production disabled until those features are ready. The owner decisions exclude a deploy ping.
 
 ## Create the application
 
@@ -74,7 +74,7 @@ Only literal `1` enables the bot. `DISCORD_CLIENT_ID` is the application's ID; d
 
 For native development, export Node 22 in `PATH`, set an absolute checkout-local `DATABASE_PATH`, and choose a unique `BOT_HEALTH_PATH`. Keep native and VM database paths separate. Optional error reporting uses `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE`.
 
-The Phase 0 web and worker services keep their old gameplay Discord switch at `0`. Webhook join alerts continue there. Phase 1 must wire the shared outbox producer without enabling the removed announce server. The bot does not claim `discord_outbox` rows until a Phase 1 renderer is installed.
+Web and worker keep their old gameplay Discord switch at `0` in Compose. Webhook join alerts continue there. The enabled bot polls `discord_outbox` every three seconds and sends the complete shared payload. It posts new messages and edits saved messages, checks the destination guild, disables all mentions, and preserves the stable post nonce. It claims one row at a time. SQLite limits all consumers to 30 claims per minute; the runtime also limits its attempts to 30 per rolling minute. Discord rate limits return to the shared retry service with their delay and pause further claims. Each claim uses a fresh REST manager so cached rate limits leave no wait timers at shutdown. Complete writes have a 30-second deadline within the container's 45-second stop grace. Permanent permission and payload errors stop that row. Phase 1 must separate the shared notifier switch from the old gameplay capabilities before enabling web outbox production. Do not enable the removed announce server.
 
 ## Deploy commands and run
 
@@ -101,11 +101,11 @@ docker compose -f docker-compose.yml logs --tail=50 bot
 
 1. Use a separate test application and guild. Set all IDs to test resources and use a test SQLite file. Enable only Server Members as a privileged intent.
 2. Deploy the commands. Confirm that Phase 0 reports `Deployed 0 guild commands` and the old player commands disappear from the test guild.
-3. Start the bot. Confirm `[bot] ready` and a healthy heartbeat. Before task B lands, one warning says that shared admin services are unavailable. The runtime must still start; privileged handlers remain unavailable.
-4. Stop with SIGTERM. Confirm a clean exit and heartbeat removal. Start with `DISCORD_BOT_ENABLED=0`; confirm `[bot] disabled` and a successful health check without Discord credentials.
+3. Start the bot. Confirm `[bot] ready` and a healthy file heartbeat. In the shared SQLite database, `select id, at, pid from bot_heartbeat;` must return row `id=1` with the bot PID and a recent Unix time in milliseconds. It updates every 30 seconds while the Gateway is ready. A disconnect removes the row on the next heartbeat; shutdown removes this process's row. A missing row or a timestamp older than 120 seconds means the bot is unavailable. Container PIDs are local to the bot; use the timestamp in the admin console.
+4. Stop with SIGTERM. Confirm a clean exit and removal of the file and database heartbeats. A started outbox write drains before SQLite closes; later rows stay unclaimed. Start with `DISCORD_BOT_ENABLED=0`; confirm `[bot] disabled` and a successful health check without Discord credentials.
 5. After Phase 1, run each command once. Check a linked owner, an unlinked member, a Moderator, a DM and another guild. Check confirmation expiry/cancel, hierarchy refusal, and #mod-log. Submit a test waitlist request and check #signups, its buttons, and the web decision edit.
 
-The automated runtime tests use a local Discord REST and WebSocket stub. They do not contact Discord. A live test-guild check requires the owner's test credentials.
+The automated runtime integration tests use real SQLite with local Discord REST and WebSocket servers. They cover stored posts and edits, nonces, mention suppression, retries, rejected destinations, deleted edit targets, restart deduplication, heartbeat migration, process exit after rate limits, and shutdown with a stalled response body. They do not contact Discord. A live test-guild check requires the owner's test credentials.
 
 ## Disable or roll back
 

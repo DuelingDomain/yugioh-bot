@@ -2,10 +2,13 @@ import { createServer } from "node:http";
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { Routes, SlashCommandBuilder } from "discord.js";
-import { openDatabase } from "@yugidraft/shared/db";
+import { openDatabase, migrate } from "@yugidraft/shared/db";
+import { enqueueOutbox, type OutboxRow } from "@yugidraft/shared/discord-admin";
 import { startBot } from "../../src/runtime/app.js";
 import { deployCommands } from "../../src/runtime/deploy.js";
 import type { FeatureModule } from "../../src/runtime/types.js";
@@ -17,7 +20,9 @@ const channelId = "100000000000000004";
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
-async function discordStub(options: { holdMessagePosts?: boolean; holdGuildFetch?: boolean } = {}) {
+async function discordStub(options: { holdMessagePosts?: boolean; holdMessageBody?: boolean; holdGuildFetch?: boolean;
+  channelGuildId?: string; messageStatus?: number; editStatus?: number;
+  globalRateLimit?: boolean; exhaustedMessageBucket?: boolean } = {}) {
   const requests: { method: string; path: string; body: any }[] = [];
   let socket: WebSocket | undefined;
   let sequence = 0;
@@ -41,9 +46,33 @@ async function discordStub(options: { holdMessagePosts?: boolean; holdGuildFetch
     else if (path.startsWith(`/guilds/${guildId}/members/`)) res.end(JSON.stringify({ user: { id: path.split("/").at(-1), username: "Tester" }, roles: ["moderator"], joined_at: new Date().toISOString() }));
     else if (path.includes("/commands")) res.end(JSON.stringify(body));
     else if (path.includes("/callback")) { res.removeHeader("content-type"); res.statusCode = 204; res.end(); }
+    else if (req.method === "GET" && path.startsWith("/channels/")) {
+      res.end(JSON.stringify({ id: path.split("/").at(-1), guild_id: options.channelGuildId ?? guildId, type: 0 }));
+    }
     else {
       if (options.holdMessagePosts && req.method === "POST" && path.startsWith("/channels/")) {
         await new Promise<void>(resolve => { releaseMessage = resolve; });
+      }
+      const status = req.method === "PATCH" ? options.editStatus : options.messageStatus;
+      if (path.startsWith("/channels/") && status && status >= 400) {
+        res.statusCode = status;
+        if (status === 429) {
+          res.setHeader("retry-after", "120");
+          if (options.globalRateLimit) res.setHeader("x-ratelimit-global", "true");
+        }
+        res.end(JSON.stringify({ code: status === 404 ? 10008 : 50013, message: "Private upstream error",
+          ...(status === 429 ? { retry_after: 120, global: options.globalRateLimit ?? false } : {}) }));
+        return;
+      }
+      if (options.exhaustedMessageBucket && req.method === "POST" && path.startsWith("/channels/")) {
+        res.setHeader("x-ratelimit-limit", "1"); res.setHeader("x-ratelimit-remaining", "0");
+        res.setHeader("x-ratelimit-reset-after", "120"); res.setHeader("x-ratelimit-bucket", "test-message-bucket");
+      }
+      if (options.holdMessageBody && req.method === "POST" && path.startsWith("/channels/")) {
+        res.write("{");
+        await new Promise<void>(resolve => { releaseMessage = resolve; });
+        res.end("}");
+        return;
       }
       res.end(JSON.stringify({ id: "100000000000000099", channel_id: channelId, content: "", author: { id: applicationId, username: "Bot", bot: true }, timestamp: new Date().toISOString(), attachments: [], embeds: [] }));
     }
@@ -112,6 +141,9 @@ it("connects with the exact intents, dispatches gateway interactions, refuses ot
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   const healthPath = join(directory, "heartbeat.json");
   const db = openDatabase(join(directory, "bot.sqlite"));
+  db.prepare("insert into bot_heartbeat(id,at,pid) values(1,0,999999)").run();
+  const monitor = openDatabase(join(directory, "bot.sqlite"));
+  cleanups.push(() => { monitor.close(); });
   let featureStopped = false;
   const feature: FeatureModule = { ...probe, async start() { return async () => { featureStopped = true; }; } };
   const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId,
@@ -119,6 +151,9 @@ it("connects with the exact intents, dispatches gateway interactions, refuses ot
   cleanups.push(() => bot.stop());
   expect(stub.intents).toBe(1 | 2 | 4 | 2097152);
   expect(JSON.parse(readFileSync(healthPath, "utf8"))).toMatchObject({ state: "ready", pid: process.pid });
+  expect(monitor.prepare("select * from bot_heartbeat").get()).toEqual({ id: 1, at: expect.any(Number), pid: process.pid });
+  migrate(monitor); migrate(monitor);
+  expect(monitor.prepare("select pid from bot_heartbeat").get()).toEqual({ pid: process.pid });
   stub.interaction({ data: { name: "probe", type: 1, id: applicationId, options: [] } });
   await expect.poll(() => stub.requests.find(request => request.method === "PATCH")?.body.content).toBe("Ready @everyone");
   expect(stub.requests.find(request => request.method === "PATCH")?.body.allowed_mentions).toEqual({ parse: [], replied_user: false });
@@ -133,6 +168,7 @@ it("connects with the exact intents, dispatches gateway interactions, refuses ot
   expect(featureStopped).toBe(true);
   expect(db.open).toBe(false);
   expect(existsSync(healthPath)).toBe(false);
+  expect(monitor.prepare("select * from bot_heartbeat").all()).toEqual([]);
 });
 
 it("routes button and modal prefixes and binds one-use confirmations to the invoker", async () => {
@@ -244,3 +280,210 @@ it("cancels a held startup guild request and closes SQLite before the server res
   expect(await result).toBeInstanceOf(Error);
   expect(existsSync(join(directory, "health.json"))).toBe(false);
 });
+
+function queueMessage(db: ReturnType<typeof openDatabase>, key: string, operation: "post" | "edit" = "post") {
+  return enqueueOutbox(db, { idempotencyKey: key, kind: "mod_log", channelId, operation,
+    ...(operation === "edit" ? { messageId: "100000000000000098" } : {}),
+    payload: { content: key, embeds: [{ description: "@everyone" }] } });
+}
+function outboxRow(db: ReturnType<typeof openDatabase>, id: number) {
+  return db.prepare<[number], OutboxRow>("select * from discord_outbox where id=?").get(id)!;
+}
+
+it("delivers stored post/edit bodies through the real shared outbox and skips terminal rows after restart", async () => {
+  const stub = await discordStub();
+  const directory = mkdtempSync(join(tmpdir(), "discord-outbox-"));
+  cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+  const path = join(directory, "bot.sqlite");
+  const db = openDatabase(path);
+  const postId = queueMessage(db, "durable-post");
+  const editId = queueMessage(db, "durable-edit", "edit");
+  const nonce = JSON.parse(outboxRow(db, postId).payload_json!).nonce;
+  // Even an old or malformed producer cannot enable mentions at the REST edge.
+  db.prepare("update discord_outbox set payload_json=json_set(payload_json,'$.allowed_mentions',json(?))")
+    .run(JSON.stringify({ parse: ["everyone"], users: [userId], roles: [guildId], replied_user: true }));
+  const options = { config: { token: "stub-token", clientId: applicationId, guildId, restApi: stub.api,
+    healthPath: join(directory, "health.json") }, modules: [] };
+  const bot = await startBot({ ...options, db });
+  cleanups.push(() => bot.stop());
+  await expect.poll(() => outboxRow(db, editId).status).toBe("posted");
+  for (const id of [postId, editId]) {
+    expect(outboxRow(db, id)).toMatchObject({ status: "posted", attempts: 1, payload_json: null,
+      channel_id: channelId, message_id: "100000000000000099" });
+  }
+  const messages = stub.requests.filter(request => request.method !== "GET" && request.path.startsWith(`/api/v10/channels/${channelId}/messages`));
+  expect(messages.map(request => request.method)).toEqual(["POST", "PATCH"]);
+  expect(messages[0].body).toMatchObject({ content: "durable-post", nonce, enforce_nonce: true,
+    allowed_mentions: { parse: [], users: [], roles: [], replied_user: false } });
+  expect(messages[1].path).toBe(`/api/v10/channels/${channelId}/messages/100000000000000098`);
+  expect(messages[1].body.allowed_mentions).toEqual(messages[0].body.allowed_mentions);
+  await bot.stop();
+  const restarted = await startBot({ ...options, db: openDatabase(path) });
+  cleanups.push(() => restarted.stop());
+  expect(stub.requests.filter(request => request.method === "POST" && request.path.includes("/channels/"))).toHaveLength(1);
+});
+
+it.each([
+  [429, "failed", "rate_limited"], [500, "failed", "transport"],
+  [400, "dead", "invalid_payload"], [403, "dead", "rejected"],
+] as const)("stores safe retry state for Discord HTTP %s", async (messageStatus, status, code) => {
+  const stub = await discordStub({ messageStatus });
+  const directory = mkdtempSync(join(tmpdir(), "discord-outbox-failure-"));
+  cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+  const db = openDatabase(join(directory, "bot.sqlite"));
+  const id = queueMessage(db, "retry-probe");
+  const before = Date.now();
+  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, restApi: stub.api,
+    healthPath: join(directory, "health.json") }, db, modules: [] });
+  cleanups.push(() => bot.stop());
+  await expect.poll(() => outboxRow(db, id).status).toBe(status);
+  const row = outboxRow(db, id);
+  expect(row).toMatchObject({ attempts: 1, last_error: code, lease_token: null });
+  expect(row.payload_json === null).toBe(status === "dead");
+  expect(JSON.stringify(row)).not.toContain("Private upstream error");
+  expect(row.available_at).toBeGreaterThanOrEqual(before + (messageStatus === 429 ? 120_000 : 1000));
+  expect(stub.requests.filter(request => request.method === "POST" && request.path.includes("/channels/"))).toHaveLength(1);
+});
+
+it("isolates invalid JSON and foreign-guild rows, then acknowledges a deleted edit target", async () => {
+  const stub = await discordStub({ channelGuildId: "100000000000000009" });
+  const directory = mkdtempSync(join(tmpdir(), "discord-outbox-refused-"));
+  cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+  const db = openDatabase(join(directory, "bot.sqlite"));
+  const invalid = queueMessage(db, "invalid");
+  db.prepare("update discord_outbox set payload_json='{' where id=?").run(invalid);
+  const foreign = queueMessage(db, "foreign");
+  const options = { config: { token: "stub-token", clientId: applicationId, guildId, restApi: stub.api,
+    healthPath: join(directory, "health.json") }, db, modules: [] };
+  const bot = await startBot(options);
+  cleanups.push(() => bot.stop());
+  await expect.poll(() => outboxRow(db, foreign).status).toBe("dead");
+  expect(outboxRow(db, invalid)).toMatchObject({ status: "dead", last_error: "invalid_payload", payload_json: null });
+  expect(outboxRow(db, foreign)).toMatchObject({ last_error: "rejected", payload_json: null });
+  expect(stub.requests.some(request => request.method === "POST" && request.path.includes("/channels/"))).toBe(false);
+
+  const deletedStub = await discordStub({ editStatus: 404 });
+  const deletedDb = openDatabase(join(directory, "deleted.sqlite"));
+  const deleted = queueMessage(deletedDb, "deleted", "edit");
+  const deletedBot = await startBot({ ...options, db: deletedDb,
+    config: { ...options.config, restApi: deletedStub.api, healthPath: join(directory, "deleted-health.json") } });
+  cleanups.push(() => deletedBot.stop());
+  await expect.poll(() => outboxRow(deletedDb, deleted).status).toBe("posted");
+  expect(outboxRow(deletedDb, deleted)).toMatchObject({ message_id: "100000000000000098", payload_json: null, attempts: 1 });
+});
+
+it("drains one claimed message on shutdown and leaves later rows pending", async () => {
+  const stub = await discordStub({ holdMessagePosts: true });
+  const directory = mkdtempSync(join(tmpdir(), "discord-outbox-drain-"));
+  cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+  const path = join(directory, "bot.sqlite");
+  const db = openDatabase(path);
+  const first = queueMessage(db, "held-post");
+  const second = queueMessage(db, "later-post");
+  const monitor = openDatabase(path);
+  cleanups.push(() => { monitor.close(); });
+  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, restApi: stub.api,
+    healthPath: join(directory, "health.json") }, db, modules: [] });
+  cleanups.push(async () => { stub.releaseMessage(); await bot.stop(); });
+  await expect.poll(() => stub.requests.some(request => request.body?.content === "held-post")).toBe(true);
+  let stopped = false;
+  const stopping = bot.stop().then(() => { stopped = true; });
+  await new Promise(resolve => setTimeout(resolve, 25));
+  expect(stopped).toBe(false);
+  expect(outboxRow(monitor, first).status).toBe("processing");
+  expect(outboxRow(monitor, second)).toMatchObject({ status: "pending", attempts: 0 });
+  stub.releaseMessage();
+  await stopping;
+  expect(outboxRow(monitor, first).status).toBe("posted");
+  expect(outboxRow(monitor, second)).toMatchObject({ status: "pending", attempts: 0 });
+});
+
+it("refreshes database health only while ready and does not clear another process's heartbeat", async () => {
+  const stub = await discordStub();
+  const directory = mkdtempSync(join(tmpdir(), "discord-heartbeat-"));
+  cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  cleanups.push(() => { vi.useRealTimers(); });
+  const db = openDatabase(join(directory, "bot.sqlite"));
+  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, restApi: stub.api,
+    healthPath: join(directory, "health.json") }, db, modules: [] });
+  cleanups.push(() => bot.stop());
+  db.prepare("update bot_heartbeat set at=0").run();
+  vi.advanceTimersByTime(30_000);
+  expect(db.prepare<[], { at: number }>("select at from bot_heartbeat").get()!.at).toBeGreaterThan(0);
+  // Exercise a real Gateway disconnect before the next heartbeat interval.
+  await bot.client.destroy();
+  vi.advanceTimersByTime(30_000);
+  expect(db.prepare("select * from bot_heartbeat").all()).toEqual([]);
+  db.prepare("insert into bot_heartbeat(id,at,pid) values(1,0,999999)").run();
+  const monitor = openDatabase(join(directory, "bot.sqlite"));
+  cleanups.push(() => { monitor.close(); });
+  await bot.stop();
+  expect(monitor.prepare("select pid from bot_heartbeat").get()).toEqual({ pid: 999999 });
+});
+
+it.each(["global", "bucket"])("exits without lingering REST timers after a %s rate limit", async kind => {
+  const stub = await discordStub(kind === "global"
+    ? { messageStatus: 429, globalRateLimit: true } : { exhaustedMessageBucket: true });
+  const directory = mkdtempSync(join(tmpdir(), "discord-outbox-exit-"));
+  cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+  const db = openDatabase(join(directory, "bot.sqlite"));
+  queueMessage(db, "first-exit-probe"); queueMessage(db, "second-exit-probe");
+  db.close();
+  const root = fileURLToPath(new URL("../../../../", import.meta.url));
+  const source = `
+    import { writeSync } from 'node:fs';
+    import { setTimeout as delay } from 'node:timers/promises';
+    import { openDatabase } from '@yugidraft/shared/db';
+    import { startBot } from './packages/bot/src/runtime/app.ts';
+    const db = openDatabase(${JSON.stringify(join(directory, "bot.sqlite"))});
+    const bot = await startBot({ db, modules: [], config: ${JSON.stringify({ token: "stub-token", clientId: applicationId,
+      guildId, restApi: stub.api, healthPath: join(directory, "health.json") })} });
+    while (['pending','processing'].includes(db.prepare('select status from discord_outbox where id=1').get().status)) await delay(10);
+    if (${JSON.stringify(kind)} === 'bucket') {
+      while (['pending','processing'].includes(db.prepare('select status from discord_outbox where id=2').get().status)) await delay(10);
+    }
+    const states = db.prepare('select status from discord_outbox order by id').all().map(row => row.status);
+    await bot.stop();
+    writeSync(1, JSON.stringify(states));
+  `;
+  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", source], {
+    cwd: root, stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", chunk => { stdout += chunk; });
+  child.stderr.on("data", chunk => { stderr += chunk; });
+  const closed = new Promise<number | null>(resolve => child.once("close", resolve));
+  try {
+    await expect.poll(() => stdout !== "" || child.exitCode !== null, { timeout: 5000 }).toBe(true);
+    await expect.poll(() => child.exitCode !== null, { timeout: 2000 }).toBe(true);
+    expect(await closed, stderr).toBe(0);
+    expect(JSON.parse(stdout)).toEqual(kind === "global" ? ["failed", "pending"] : ["posted", "posted"]);
+  } finally {
+    child.kill("SIGKILL");
+    await closed;
+  }
+}, 15_000);
+
+it("bounds a stalled response body within the container shutdown grace", async () => {
+  const stub = await discordStub({ holdMessageBody: true });
+  const directory = mkdtempSync(join(tmpdir(), "discord-outbox-body-"));
+  cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
+  const path = join(directory, "bot.sqlite");
+  const db = openDatabase(path);
+  const first = queueMessage(db, "slow-body");
+  const second = queueMessage(db, "later-body");
+  const monitor = openDatabase(path);
+  cleanups.push(() => { monitor.close(); });
+  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, restApi: stub.api,
+    healthPath: join(directory, "health.json") }, db, modules: [] });
+  cleanups.push(async () => { stub.releaseMessage(); await bot.stop(); });
+  await expect.poll(() => stub.requests.some(request => request.body?.content === "slow-body")).toBe(true);
+  const before = Date.now();
+  await bot.stop();
+  expect(Date.now() - before).toBeLessThan(40_000);
+  expect(outboxRow(monitor, first)).toMatchObject({ status: "failed", last_error: "transport", lease_token: null });
+  expect(outboxRow(monitor, second)).toMatchObject({ status: "pending", attempts: 0 });
+  expect(monitor.prepare("select * from bot_heartbeat").all()).toEqual([]);
+}, 40_000);

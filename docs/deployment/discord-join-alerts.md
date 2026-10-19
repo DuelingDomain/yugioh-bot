@@ -1,5 +1,7 @@
 # Discord join request alerts
 
+This guide describes webhook delivery with `DISCORD_BOT_ENABLED=0`. With the bot enabled in the producer process, the shared notifier queues durable messages for the bot runtime instead. See [bot setup](discord-bot.md) and the [shared API guide](../../packages/shared/src/discord-admin/README.md).
+
 The web service can send alerts to a private channel in Dueling Domain. It uses a
 channel webhook. It does not need a Discord bot. `DISCORD_BOT_ENABLED=0` can stay set.
 

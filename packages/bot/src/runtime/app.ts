@@ -1,14 +1,14 @@
 import { Client, Events, GatewayIntentBits, Options, Routes } from "discord.js";
 import { openDatabase } from "@yugidraft/shared/db";
 import { report } from "@yugidraft/shared/observability";
-import { writeHeartbeat, removeHeartbeat } from "./health.js";
+import { writeHeartbeat, removeHeartbeat, writeDatabaseHeartbeat, removeDatabaseHeartbeat } from "./health.js";
 import { createRegistry } from "./registry.js";
 import { createDispatcher } from "./dispatcher.js";
 import { loadSharedAdminServices, type SharedAdminServices, type DiscordOutboxRow } from "./shared.js";
 import { createAudit } from "./audit.js";
 import { ConfirmationStore } from "./confirm.js";
 import { Cooldown } from "./cooldown.js";
-import { startOutboxPoller } from "./outbox.js";
+import { createOutboxDelivery, startOutboxPoller, type OutboxDelivery } from "./outbox.js";
 import type { BotConfig, FeatureModule, Stop, FeatureContext } from "./types.js";
 
 export const BOT_INTENTS = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers,
@@ -18,8 +18,8 @@ export async function startBot(options: {
   config: BotConfig; modules: readonly FeatureModule[]; db?: FeatureContext["db"];
   signal?: AbortSignal;
   shared?: SharedAdminServices;
-  /** Phase 1 waitlist task supplies the renderer; no row is claimed without it. */
-  deliverOutbox?: (row: DiscordOutboxRow, context: FeatureContext) => Promise<{ messageId: string }>;
+  /** Optional custom sender; the default sends the complete shared REST payload. */
+  deliverOutbox?: (row: DiscordOutboxRow, context: FeatureContext) => Promise<OutboxDelivery>;
 }) {
   const { config, modules } = options;
   const registry = createRegistry(modules);
@@ -55,7 +55,8 @@ export async function startBot(options: {
     context?.confirmations.clear();
     try { await client.destroy(); } finally {
       client.rest.clearHashSweeper(); client.rest.clearHandlerSweeper();
-      db.close(); removeHeartbeat(config.healthPath);
+      try { removeDatabaseHeartbeat(db); }
+      finally { db.close(); removeHeartbeat(config.healthPath); }
     }
   })();
   try {
@@ -95,10 +96,17 @@ export async function startBot(options: {
       controller.signal.throwIfAborted();
     }
     stops.push(startOutboxPoller({ shared, guildId: config.guildId, signal: controller.signal,
-      ...(options.deliverOutbox ? { deliver: row => options.deliverOutbox!(row, context!) } : {}),
+      deliver: options.deliverOutbox ? row => options.deliverOutbox!(row, context!)
+        : createOutboxDelivery({ token: config.token, restApi: config.restApi,
+          guildId: config.guildId, signal: controller.signal }),
     }));
-    const beat = () => writeHeartbeat(config.healthPath, client.isReady() ? "ready" : "disconnected");
-    beat(); heartbeat = setInterval(beat, 30_000);
+    const beat = () => {
+      writeDatabaseHeartbeat(db, client.isReady());
+      writeHeartbeat(config.healthPath, client.isReady() ? "ready" : "disconnected");
+    };
+    beat(); heartbeat = setInterval(() => {
+      try { beat(); } catch (error) { report(error, { tags: { operation: "bot.heartbeat" } }); }
+    }, 30_000);
     accepting = true;
     return { client, context, stop };
   } catch (error) { await stop(); throw error; }
