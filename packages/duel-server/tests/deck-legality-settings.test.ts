@@ -2,7 +2,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import type { DuelDeck, DuelSettings } from "@yugidraft/shared/duels";
-import { TCG_2026_10_19_LIMITS, OCG_2026_07_LIMITS } from "../src/banlists/compiled.js";
+import { TCG_2026_10_19_LIMITS, OCG_2026_10_LIMITS } from "../src/banlists/compiled.js";
 import { inspectDeck, validateDeck } from "../src/deck-legality.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 
@@ -69,7 +69,7 @@ function tcgLegalFillers(count: number, exclude: number[] = []): number[] {
 }
 
 function ocgLegalFillers(count: number, exclude: number[] = []): number[] {
-  const listed = Object.keys(OCG_2026_07_LIMITS).map(Number);
+  const listed = Object.keys(OCG_2026_10_LIMITS).map(Number);
   return fillerSpells(count, [...exclude, ...listed]);
 }
 
@@ -176,7 +176,7 @@ describe("validateDeck settings banlist", () => {
     ).toThrow(/more than 1 copy of/i);
   });
 
-  it("allows three Ash Blossom on TCG October 19, 2026 and rejects the third on OCG July 2026", () => {
+  it("allows three Ash Blossom on TCG October 19, 2026 and rejects the third on OCG October 2026", () => {
     const three = [ASH_BLOSSOM, ASH_BLOSSOM, ASH_BLOSSOM];
     expect(() =>
       validateDeck(
@@ -191,9 +191,13 @@ describe("validateDeck settings banlist", () => {
         "normal",
         { main: [...three, ...ocgLegalFillers(37, three)], extra: [], side: [] },
         DATA,
-        settings({ banlist: "ocg-2026-07" }),
+        settings({ banlist: "ocg-2026-10" }),
       ),
     ).toThrow(/more than 2 copies of/i);
+    const shifter = { main: [91800273, ...ocgLegalFillers(39)], extra: [], side: [] };
+    expect(() => validateDeck("normal", shifter, DATA, settings({ banlist: "ocg-2026-07" }))).not.toThrow();
+    expect(() => validateDeck("normal", shifter, DATA, settings({ banlist: "ocg-2026-10" })))
+      .toThrow(/Dimension Shifter is forbidden/i);
   });
 
   it("treats Mind Master as unlimited on the pinned TCG list after the 2026-09-28 delay", () => {
