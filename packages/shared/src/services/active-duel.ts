@@ -25,6 +25,7 @@ export function createActiveDuelService(db: Database.Database): ActiveDuelServic
     join duels d on d.id = me.duel_id and d.guild_id = @guild
     left join duel_series s on s.id = d.series_id and s.guild_id = @guild
     where me.player_id = @viewer and me.is_bot = 0 and d.kind = 'play'
+      and coalesce(json_extract(d.setup_json, '$.testDuel'), 0) = 0
       and ${duelSeriesTournamentReadScope("d.series_id", "viewer.user_id")}
       and (d.status = 'active' or d.series_id is null or (
         s.status in ('active', 'between_games')
