@@ -12,19 +12,21 @@ import { buildProofPage } from "./proof-build.js";
  * The click in the browser becomes the answer, the answer goes to the real engine, and the Graveyard is checked. Run with
  *   PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs PROOF_DIR=/tmp/xyz-detach-proof DUEL_DATA_DIR=<engine data> \
  *     node --import tsx packages/web/e2e/xyz-detach-pick.playwright.ts
- * PROOF_CASE = 1v1-standard (default), 1v1-domain, ffa3-standard or ffa3-domain (the table needs MULTI_WASM / DOMAIN_MULTI_WASM).
- * PROOF_PICK = one (Tornado Dragon: detach 1, default) or two (Ryzeal Duo Drive: detach 2, Confirm; 1v1-standard only).
+ * PROOF_CASE = 1v1-standard (default), 1v1-domain, ffa3-standard or ffa3-domain (the table needs MULTI_WASM / DOMAIN_MULTI_WASM),
+ *   or tag (the Rooftop stage with the Duo Drive detach of two: the window must sit above the plates and Confirm must work).
+ * PROOF_PICK = one (Tornado Dragon: detach 1, default) or two (Ryzeal Duo Drive: detach 2, Confirm; 1v1-standard and tag only).
  * PROOF_WIDTH x PROOF_HEIGHT set the viewport; PROOF_TOUCH=1 taps.
  */
 const artifacts = resolve(process.env.PROOF_DIR ?? "/tmp/xyz-detach-proof");
 const kind = process.env.PROOF_CASE ?? "1v1-standard";
-const pick = process.env.PROOF_PICK ?? "one";
+const tag = kind === "tag";
+const pick = tag ? "two" : process.env.PROOF_PICK ?? "one";
 const width = Number(process.env.PROOF_WIDTH) || 1920;
 const height = Number(process.env.PROOF_HEIGHT) || 1080;
 const touch = process.env.PROOF_TOUCH === "1";
 await mkdir(artifacts, { recursive: true });
 
-const [format, mode] = kind.split("-").map((part, index) => (index === 0 ? part : part === "domain" ? "domain" : "normal")) as [DuelFormat, "normal" | "domain"];
+const [format, mode] = (tag ? ["1v1", "normal"] : kind.split("-").map((part, index) => (index === 0 ? part : part === "domain" ? "domain" : "normal"))) as [DuelFormat, "normal" | "domain"];
 const two = pick === "two";
 const opened = two ? await openDuoDrive() : null;
 const game = opened ? opened.game : await openDetachGame(mode, format);
@@ -55,7 +57,7 @@ try {
       const tile = (name: string) => page.locator(`[data-pile-card][aria-label^="${name},"]`);
       const evidence: Record<string, unknown> = { kind, pick, width, height, touch };
 
-      await page.goto(pathToFileURL(html).href);
+      await page.goto(`${pathToFileURL(html).href}${tag ? "?tag=1" : ""}`);
       const viewer = page.locator("[data-pile-viewer]");
       await viewer.waitFor({ state: "visible" });
       // The centred Materials window: art tiles for each material, over the board, inside the viewport.
@@ -67,6 +69,26 @@ try {
       const names = two ? ["Celtic Guardian", "Axe Raider", "Mystical Elf"] : [FIRST, SECOND];
       for (const name of names) assert.equal(await tile(name).count(), 1, `${name} is a tile`);
       assert.equal(await viewer.locator("img").count() >= names.length, true);
+      if (tag) {
+        // The Rooftop plates and HUD sit under the window: every point of the window, and every plate it covers, hits the window.
+        const stacking = await page.evaluate(() => {
+          const inWindow = (x: number, y: number) => document.elementFromPoint(x, y)?.closest("[data-pile-viewer]") != null;
+          const dialog = document.querySelector("[data-pile-viewer]")!.getBoundingClientRect();
+          const corners = [[0.1, 0.1], [0.9, 0.1], [0.1, 0.9], [0.9, 0.9], [0.5, 0.5]].map(([fx, fy]) => inWindow(dialog.x + dialog.width * fx, dialog.y + dialog.height * fy));
+          const hud = [...document.querySelectorAll("[data-team-plate], [data-camera-rail], [data-hub]")].map((el) => {
+            const r = el.getBoundingClientRect();
+            const x = r.x + r.width / 2, y = r.y + r.height / 2;
+            const visible = r.width > 0 && r.height > 0 && x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight;
+            const top = document.elementFromPoint(x, y);
+            return { name: el.getAttributeNames().find((a) => a.startsWith("data-")) ?? "?", visible, covered: top != null && !el.contains(top) };
+          });
+          return { corners, hud };
+        });
+        assert.deepEqual(stacking.corners, [true, true, true, true, true], "the window is above the Rooftop board");
+        assert.ok(stacking.hud.some((entry) => entry.visible), "the plates are on the page");
+        assert.deepEqual(stacking.hud.filter((entry) => entry.visible && !entry.covered), [], "no Rooftop plate or HUD is drawn over the window or its scrim");
+        evidence.stacking = stacking;
+      }
       await page.screenshot({ path: shot("1-window"), fullPage: true });
 
       if (two) {
@@ -77,6 +99,14 @@ try {
         await press(tile("Axe Raider"));
         assert.equal(await confirm.isDisabled(), false, "Confirm opens at the engine count");
         await page.screenshot({ path: shot("2-picked"), fullPage: true });
+        // Confirm is what a tap or a click reaches: inside the viewport, and nothing else on top of it.
+        const hit = await confirm.evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          return { reached: top != null && el.contains(top), inside: r.x >= 0 && r.y >= 0 && r.right <= innerWidth && r.bottom <= innerHeight };
+        });
+        assert.deepEqual(hit, { reached: true, inside: true }, "Confirm is on screen and nothing covers it");
+        evidence.confirm = hit;
         await press(confirm);
       } else {
         assert.equal(await page.locator("[data-pick-confirm]").count(), 0, "a single pick has no Confirm");
