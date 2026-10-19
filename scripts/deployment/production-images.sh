@@ -7,7 +7,7 @@ set -eu
 operation=${1:-}
 commit=${2:-}
 registry=ghcr.io/duelingdomain/yugioh-bot
-services='duel web worker ws'
+services='duel web worker ws bot'
 
 case "$operation" in
   pull|promote|preserve)
@@ -32,7 +32,11 @@ image_reference() {
 case "$operation" in
   pull|promote)
     references=${3:?Release digest file is required}
-    # Validate all four legs before any Docker operation, including disk inspection.
+    # Old releases have no bot image. The workflow requires its digest for releases with a bot service.
+    if ! awk '$1 == "bot" { found=1 } END { exit !found }' "$references"; then
+      services='duel web worker ws'
+    fi
+    # Validate every release image before any Docker operation, including disk inspection.
     for service in $services; do image_reference "$service" >/dev/null; done
     ;;
 esac

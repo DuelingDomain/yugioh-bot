@@ -174,6 +174,47 @@ services:
     depends_on:
       - ws
 
+  bot:
+    image: yugioh-bot-bot:latest
+    build:
+      context: .
+      target: bot
+    restart: unless-stopped
+    init: true
+    mem_limit: 256m
+    stop_grace_period: 45s
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    environment:
+      - NODE_OPTIONS=--max-old-space-size=160
+      - DISCORD_BOT_ENABLED=${DISCORD_BOT_ENABLED:-0}
+      - DISCORD_TOKEN=${DISCORD_TOKEN:-}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
+      - DISCORD_GUILD_ID=${DISCORD_GUILD_ID:-}
+      - DISCORD_MODERATOR_ROLE_ID=${DISCORD_MODERATOR_ROLE_ID:-}
+      - DISCORD_MOD_LOG_CHANNEL_ID=${DISCORD_MOD_LOG_CHANNEL_ID:-}
+      - DISCORD_WAITLIST_CHANNEL_ID=${DISCORD_WAITLIST_CHANNEL_ID:-}
+      - DISCORD_STATUS_CHANNEL_ID=${DISCORD_STATUS_CHANNEL_ID:-}
+      - DISCORD_ANNOUNCE_CHANNEL_ID=${DISCORD_ANNOUNCE_CHANNEL_ID:-}
+      - DISCORD_ADMIN_SHOW_FULL_EMAIL=${DISCORD_ADMIN_SHOW_FULL_EMAIL:-0}
+      - DATABASE_PATH=${DATABASE_PATH:-/app/data/bot.sqlite}
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY:-}
+      - OWNER_USER_IDS=${OWNER_USER_IDS:-}
+      - BOT_HEALTH_PATH=/tmp/yugidraft-bot-health.json
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - web
+    healthcheck:
+      test: ["CMD", "node", "packages/bot/dist/healthcheck.js"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
