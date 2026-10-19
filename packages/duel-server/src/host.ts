@@ -3170,7 +3170,7 @@ export function createDuelHost(options: {
           const { lowConfidenceReading } = await import("@yugidraft/shared/cards/effects");
           if (!result.effectTotal || lowConfidenceReading(query.text, result.reading ?? null)) {
             const { fallbackEffectReading } = await import("@yugidraft/shared/cards/effects/reading-fallback");
-            const user = options.db.prepare<[number], { user_id: number }>("SELECT user_id FROM players WHERE id=?").get(actor);
+            const user = options.db.prepare<[number], { user_id: string }>("SELECT discord_user_id AS user_id FROM players WHERE id=?").get(actor);
             if (user && await fallbackEffectReading(options.db, query.text, user.user_id)) result = search();
           }
         }

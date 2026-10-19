@@ -76,7 +76,7 @@ it("reruns hard phrases through the same scoped host filters after a fallback an
   const { interpret } = await import('@yugidraft/shared/cards/effects');
   const reading = interpret('hand traps that negate')!;
   state.fallback.mockImplementation(async (db: Database.Database, phrase: string, user: number) => {
-    expect(user).toBe(123);
+    expect(String(user)).toBe('123');
     db.prepare("INSERT OR REPLACE INTO effect_readings VALUES(?,'done',?,0)").run(phrase.toLowerCase(), JSON.stringify(reading.query));
     return reading;
   });
