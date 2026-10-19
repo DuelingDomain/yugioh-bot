@@ -524,6 +524,21 @@ export async function archiveDuel(slug: string): Promise<ReceivedDuelRoom> {
   return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(`/api/duels/${encodeURIComponent(slug)}/archive`, { method: "POST" })));
 }
 
+/** Deck editor "Test duel": a private, unranked duel against a practice bot with this deck. */
+export async function startTestDuel(input: {
+  mode: DuelMode;
+  deck: DuelDeck;
+  genesys?: { pointCap: number } | null;
+  shuffle: boolean;
+  goFirst: boolean;
+}): Promise<{ slug: string }> {
+  return parseBody(await fetch("/api/duels/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  }));
+}
+
 export async function cancelDuel(slug: string): Promise<ReceivedDuelRoom> {
   return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(`/api/duels/${encodeURIComponent(slug)}/cancel`, { method: "POST" })));
 }

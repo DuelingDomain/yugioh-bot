@@ -17,7 +17,7 @@ import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 import type { CardDataStatus } from "@yugidraft/shared/types";
 import { checkDiscordWebAccess, webAccessError, type WebAccessLevel } from "@/lib/discord-web-access";
 
-export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode" | SandboxHostOp;
+export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode" | SandboxHostOp;
 
 /** Read-only seat identity stays separate from creator identity. Unknown control flags fail closed. */
 export function readDuelControl(request: Request, room?: DuelRoom, allowed: "view" | "action" | "cards" | "none" = "none") {
@@ -190,6 +190,10 @@ export async function callDuelHost(input: {
   presetId?: string;
   /** start-preset only: four decimal strings (the core seed). */
   seed?: string[];
+  /** start-test-duel only: shuffle the deck, go first, and the Genesys cap of the deck's format. */
+  shuffle?: boolean;
+  goFirst?: boolean;
+  genesys?: { pointCap: number } | null;
   /** report only: the tester's note. */
   note?: string;
   cardQuery?: CardQuery;
@@ -259,6 +263,9 @@ export async function callDuelHost(input: {
   if (input.seat !== undefined) payload.seat = input.seat;
   if (input.presetId !== undefined) payload.presetId = input.presetId;
   if (input.seed !== undefined) payload.seed = input.seed;
+  if (input.shuffle !== undefined) payload.shuffle = input.shuffle;
+  if (input.goFirst !== undefined) payload.goFirst = input.goFirst;
+  if (input.genesys !== undefined) payload.genesys = input.genesys;
   if (input.note !== undefined) payload.note = input.note;
   if (input.cardQuery !== undefined) payload.cardQuery = input.cardQuery;
   if (input.mode !== undefined) payload.mode = input.mode;
