@@ -25,7 +25,8 @@
 ## Verified before PR creation
 
 - Node 22.23.3: shared, web, worker and E2E TypeScript checks passed.
-- Targeted Vitest suites: web 126, worker 8, shared 99 (233 total), all passed.
+- Targeted Vitest suites: web 126, worker 8, shared 103 (237 total), all passed.
 - Playwright: 2 feature flows plus 5 signed-cookie setup checks passed in slot 8 (3381/3383/4384/4385), with real SQLite and Clerk/Discord fetch-boundary stubs. All four ports closed at completion.
 - Production standalone build and Compose YAML/environment validation passed.
 - Independent design and code review approved; webhook-rotation backlog regression passed.
+- Existing copied-schema migration integration now verifies the two nullable presence fields and still checks every original user value.
