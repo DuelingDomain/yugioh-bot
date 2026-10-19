@@ -114,7 +114,7 @@ describe("Xyz materials in a pick", () => {
     expect(materialHostNotes(three)).toEqual([null, null, null]);
   });
 
-  it("show as a card list; picking two and Confirm answers with those materials", () => {
+  it("show in the Materials window; picking two and Confirm answers with those materials", () => {
     const prompt = detach(three);
     const onSubmit = vi.fn();
     function Panel() {
@@ -128,9 +128,10 @@ describe("Xyz materials in a pick", () => {
       );
     }
     render(<Panel />);
-    // The tiles carry the card name; the board bar ("0/2 selected" with no way to pick) is not shown.
-    const tiles = screen.getAllByRole("button", { name: /^\d\. / });
-    expect(tiles.map((tile) => tile.getAttribute("aria-label"))).toEqual(["1. Celtic Guardian", "2. Axe Raider", "3. Mystical Elf"]);
+    // The centred Materials window (a dialog) holds one tile per material; the generic strip is not shown.
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    const tiles = Array.from(document.querySelectorAll<HTMLElement>("[data-pile-card]"));
+    expect(tiles.map((tile) => tile.getAttribute("aria-label")?.split(",")[0])).toEqual(["Celtic Guardian", "Axe Raider", "Mystical Elf"]);
     const confirm = screen.getByRole("button", { name: "Confirm" }) as HTMLButtonElement;
     expect(confirm.disabled).toBe(true);
     fireEvent.click(tiles[0]);
@@ -140,7 +141,7 @@ describe("Xyz materials in a pick", () => {
     expect(onSubmit).toHaveBeenCalledWith({ selected: ["card:0", "card:2"] });
   });
 
-  it("list one at a time in a select/unselect (toggle) pick too", () => {
+  it("show in the Materials window in a select/unselect (toggle) pick too; each click is an answer", () => {
     const prompt: DuelPrompt = {
       id: "toggle", seat: 0, kind: "toggle", title: "Select the Xyz Material(s) to detach", min: 2, max: 2, finishable: false,
       options: three.map((option) => ({ ...option, id: option.id.replace("card", "select"), selected: false })),
@@ -157,7 +158,7 @@ describe("Xyz materials in a pick", () => {
       );
     }
     render(<Panel />);
-    const tiles = screen.getAllByRole("button", { name: /^\d\. / });
+    const tiles = Array.from(document.querySelectorAll<HTMLElement>("[data-pile-card]"));
     expect(tiles).toHaveLength(3);
     fireEvent.click(tiles[1]);
     expect(onSubmit).toHaveBeenCalledWith({ choice: "select:1" });
