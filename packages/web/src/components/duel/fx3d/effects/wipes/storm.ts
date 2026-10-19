@@ -37,7 +37,11 @@ export const buildStorm: WipeBuild = (ctx) => {
     return side === "opp" ? ROW_OPP_FALLBACK : ROW_YOU_FALLBACK;
   };
   const targetSide: "you" | "opp" = targets[0]?.side ?? (ctx.ownerSide === "you" ? "opp" : "you");
-  const rows = heavy ? [rowY("opp"), rowY("you")] : [rowY(targetSide)];
+  // Heavy Storm hits every Spell/Trap row: at a multi-seat table that is one line per field row of the board.
+  const fieldRows = ctx.scene.fields
+    ? ctx.fields.flatMap((f) => (f.st ? [(f.st.minY + f.st.maxY) / 2] : [])).filter((y, i, all) => all.findIndex((o) => Math.abs(o - y) < 40) === i)
+    : [];
+  const rows = heavy ? (fieldRows.length > 0 ? fieldRows : [rowY("opp"), rowY("you")]) : [rowY(targetSide)];
 
   // The gust front, in the world units of the demo (so it stays in step with the plan break times).
   const frontUv = (t: number): number => -0.12 + 1.3 * ramp(t, F0, F1);
@@ -51,22 +55,41 @@ export const buildStorm: WipeBuild = (ctx) => {
     ? [[0.82, 1, 0.95], [0.55, 0.9, 0.85], [1, 1, 1]]
     : [[1, 0.62, 0.82], [1, 0.9, 0.96], [0.75, 0.6, 1]];
   // Spawn left of the screen (a wide canvas shows more than the demo board).
-  const startX = Math.min(-640, bounds.minX - 80);
-  const startXF = Math.min(-660, bounds.minX - 100);
+  const span = ctx.focused ? ctx.focus : bounds;
+  // Aimed at one field of a multi-seat table: the gust starts at the left edge of that field and nothing flies past its
+  // right edge, so no streak or feather lands on the next field.
+  const startX = ctx.focused ? span.minX : Math.min(-640, span.minX - 80);
+  const startXF = ctx.focused ? span.minX : Math.min(-660, span.minX - 100);
+  const edgeX = span.maxX - 6;
+  /** The life (s) a particle that flies right from x0 may have so it ends inside the field (drag as the ballistic mode). */
+  const inside = (x0: number, vx: number, life: number, drag = 0): number => {
+    if (!ctx.focused || vx <= 0) return life;
+    const room = Math.max(0, edgeX - x0);
+    if (drag > 0) {
+      const k = (room * drag) / vx;
+      return k >= 1 ? life : Math.min(life, Math.max(0.12, -Math.log(1 - k) / drag));
+    }
+    return Math.min(life, Math.max(0.12, room / vx));
+  };
 
+  // Heavy Storm over a whole multi-seat table: the streaks of the demo (made for one board) would fill the canvas with a
+  // pale veil, so there are fewer, thinner and fainter streaks that stay on the Spell/Trap rows.
+  const wide = heavy && (!!ctx.scene.fields || !!ctx.scene.multiTable);
   const streaks = ctx.particles(
-    ctx.count(heavy ? 600 : 320),
+    ctx.count(wide ? 200 : heavy ? 600 : 320),
     () => {
-      const row = r() < 0.2 ? (r() * 2 - 1) * 330 : rows[Math.floor(r() * rows.length)] + (r() - 0.5) * 200;
+      const row = !wide && r() < 0.2 ? (r() * 2 - 1) * 330 : rows[Math.floor(r() * rows.length)] + (r() - 0.5) * (wide ? 110 : 200);
+      const x0 = startX - (ctx.focused ? 0 : r() * 60);
+      const vx = 1700 + r() * 1400;
       return {
-        p: [startX - r() * 60, row],
-        v: [1700 + r() * 1400, (r() - 0.5) * 140 + 70],
+        p: [x0, row],
+        v: [vx, (r() - 0.5) * 140 + 70],
         delay: F0 - 0.3 + r() * 1.3,
-        life: 0.5 + r() * 0.3,
-        size: 90 + r() * 140,
+        life: inside(x0, vx, 0.5 + r() * 0.3, 0.3),
+        size: wide ? 50 + r() * 70 : 90 + r() * 140,
         stretch: 0.12,
         shape: 1,
-        col: [...(heavy ? ([0.75, 1, 0.95] as const) : ([1, 0.86, 0.95] as const)), 0.3 + r() * 0.3] as [number, number, number, number],
+        col: [...(heavy ? ([0.75, 1, 0.95] as const) : ([1, 0.86, 0.95] as const)), (wide ? 0.12 : 0.3) + r() * (wide ? 0.12 : 0.3)] as [number, number, number, number],
       };
     },
     { drag: 0.3, P: [0, 0, 0.5, 0.1] },
@@ -81,11 +104,13 @@ export const buildStorm: WipeBuild = (ctx) => {
       const tgi = burst ? Math.floor((i - nF) / perCard) : -1;
       const tg = burst ? targets[tgi] : null;
       const fc = fCols[Math.floor(r() * fCols.length)];
+      const p: [number, number] = tg ? [tg.x + (r() - 0.5) * 80, tg.y + (r() - 0.5) * 100] : [startXF, rows[Math.floor(r() * rows.length)] + (r() - 0.5) * 240];
+      const v: [number, number] = tg ? [500 + r() * 800, (r() - 0.15) * 420] : [900 + r() * 900, (r() - 0.5) * 260 + 80];
       return {
-        p: tg ? [tg.x + (r() - 0.5) * 80, tg.y + (r() - 0.5) * 100] : [startXF, rows[Math.floor(r() * rows.length)] + (r() - 0.5) * 240],
-        v: tg ? [500 + r() * 800, (r() - 0.15) * 420] : [900 + r() * 900, (r() - 0.5) * 260 + 80],
+        p,
+        v,
         delay: tg ? hitOf(tgi) + 0.03 + r() * 0.12 : F0 - 0.1 + r() * 1.2,
-        life: 0.9 + r() * 0.7,
+        life: inside(p[0], v[0], 0.9 + r() * 0.7),
         size: 28 + r() * 32,
         rot: r() * 6.28,
         spin: (r() - 0.5) * 12,
@@ -132,16 +157,19 @@ export const buildStorm: WipeBuild = (ctx) => {
       const sky = ramp(t, 0.1, 0.6) * (1 - ramp(t, 1.9, D));
       const b = bump(t, F0, 2.0);
       P.uTint.value.setRGB(TINT[0], TINT[1], TINT[2]);
-      P.uTintAmt.value = (heavy ? 0.55 : 0.4) * sky;
-      P.uDarken.value = (heavy ? 0.3 : 0.12) * sky;
+      // At a multi-seat table the storm blends into the table: a lighter tint and clouds, so the plates and the other fields
+      // stay readable.
+      const multi = !!ctx.scene.fields || !!ctx.scene.multiTable;
+      P.uTintAmt.value = (heavy ? (multi ? 0.3 : 0.55) : 0.4) * sky;
+      P.uDarken.value = (heavy ? (multi ? 0.16 : 0.3) : 0.12) * sky;
       P.uVig.value = 0.25 + 0.25 * sky;
-      P.uClouds.value = heavy ? 0.4 * sky : 0;
+      P.uClouds.value = heavy ? (multi ? 0.1 : 0.4) * sky : 0;
       if (t > F0 - 0.12 && t < F1 + 0.3) P.uGust.value.set(ctx.uv(frontX(t), 0)[0], gustWidthUv, heavy ? 0.075 : 0.06);
       if (heavy) {
         P.uLens.value.set(0.6, 0.1 * b, 0.45 * b, 0);
         P.uAberr.value = 0.25 * b;
       }
-      soft.set(frontX(t), heavy ? 0 : rows[0], 360, 0.18 * bump(t, F0 - 0.1, F1 + 0.3), glowH);
+      soft.set(frontX(t), heavy ? 0 : rows[0], 360, (multi ? 0.08 : 0.18) * bump(t, F0 - 0.1, F1 + 0.3), glowH);
 
       streaks.setT(t);
       feathers.setT(t);
@@ -158,7 +186,8 @@ export const buildStorm: WipeBuild = (ctx) => {
         if (bt >= 0) {
           ck.u.uBreak.value = bt;
           ck.u.uStyle.value = 1;
-          ck.u.uWind.value.set(1, 0.3);
+          // Aimed at one field: the pieces of a card are blown a shorter way, so none lands on the next field.
+          ck.u.uWind.value.set(ctx.focused ? 0.4 : 1, 0.3);
           ck.u.uGrav.value = 120;
           ck.u.uSpin.value = 13;
           ck.u.uDelaySpan.value = 0.09;
