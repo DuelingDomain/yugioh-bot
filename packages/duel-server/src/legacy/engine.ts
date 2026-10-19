@@ -396,7 +396,6 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const appendLog = (text: string, audience: "all" | number = "all", privateText?: Record<number, string>): LogEntry => { // LEGACY-1V1: viewer-specific hint text
     const entry = { id: nextLogId++, text, audience, ...(privateText ? { privateText } : {}) }; // LEGACY-1V1: freeze eligible names at message time
     log.push(entry);
-    if (log.length > 400) log.splice(0, log.length - 400);
     return entry;
   };
   // Lines for cards that left the field this batch (log-lines.ts LogLine.leftField). A destroy event for the same
@@ -778,7 +777,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         lp,
         prompt: pending?.prompt ?? null,
         promptSeat: pending?.seat ?? null,
-        log: logAfter == null ? log : log.filter((entry) => entry.id > logAfter),
+        log: logAfter == null ? (history?.fullLog ? log : log.slice(-400)) : log.filter((entry) => entry.id > logAfter),
         events: eventsAfter == null ? events : events.filter((entry) => entry.id > eventsAfter),
         chain: chainMemory,
         result,

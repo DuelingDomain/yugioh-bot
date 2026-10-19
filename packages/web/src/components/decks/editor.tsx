@@ -1,5 +1,7 @@
 "use client";
 
+import { useBugReportDeck } from "../bug-report/room-store";
+
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
@@ -255,6 +257,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
   /** The server moved bad Extra cards to Main when it read this deck. Stays until dismissed or saved. */
   const [repair, setRepair] = useState<SavedDeckView["extraDeckRepair"] | null>(null);
   const [hand, setHand] = useState<TestHand | null>(null);
+  useBugReportDeck(savedId ?? (typeof routeId === "number" ? routeId : null), formatOf(mode, genesys != null), selection.deck, hand);
   const [masterDropping, setMasterDropping] = useState(false);
   const [hover, setHover] = useState<HoverTarget | null>(null);
   const [poolCards, setPoolCards] = useState<DeckCardInfo[] | null>(null);

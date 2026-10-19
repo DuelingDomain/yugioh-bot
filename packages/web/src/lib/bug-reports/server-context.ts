@@ -14,10 +14,12 @@ export interface ServerContextInput {
 
 export interface ReportDiagnostics {
   board: Record<string, unknown> | null;
-  /** Public log. The storage service keeps a bounded tail. */
+  /** Public log. All public entries are saved privately. */
   log: unknown[];
   attempts: number;
   source?: string;
+  moment?: Record<string, unknown>;
+  deck?: Record<string, unknown>;
   missingReason?: string;
 }
 
@@ -94,6 +96,7 @@ export async function buildReportContext(input: ServerContextInput): Promise<Ser
       }
       if (object(data.board) && Array.isArray(data.board.log)) {
         diagnostics.board = data.board;
+        if (object(data.moment)) diagnostics.moment = data.moment;
         diagnostics.log = data.board.log;
         if (typeof data.source === "string" && ["live", "cached", "stored"].includes(data.source)) diagnostics.source = data.source;
         // A valid empty log is possible before the first game event.

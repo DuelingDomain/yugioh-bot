@@ -225,6 +225,8 @@ export const DIAGNOSTICS_LIMIT = 200;
 
 /** Internal replay cursors. Filtering stored history before projection avoids formatting old private text. */
 export interface EngineViewHistory {
+  /** Internal diagnostics only. Normal live views retain their bounded tail. */
+  fullLog?: boolean;
   logAfter?: number;
   eventsAfter?: number;
 }
@@ -628,7 +630,6 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const appendLog = (text: string, audience: "all" | number = "all", privateText?: Record<number, string>): LogEntry => {
     const entry = { id: nextLogId++, text, audience, ...(privateText ? { privateText } : {}) };
     log.push(entry);
-    if (log.length > 400) log.splice(0, log.length - 400);
     return entry;
   };
   // Lines for cards that left the field this batch (log-lines.ts LogLine.leftField). A destroy event for the same
@@ -1265,7 +1266,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         lp: Array.from({ length: seatCount }, (_, index) => lpOf(index)),
         prompt: pending?.prompt ?? null,
         promptSeat: pending?.seat ?? null,
-        log: logAfter == null ? log : log.filter((entry) => entry.id > logAfter),
+        log: logAfter == null ? (history?.fullLog ? log : log.slice(-400)) : log.filter((entry) => entry.id > logAfter),
         events: eventsAfter == null ? events : events.filter((entry) => entry.id > eventsAfter),
         chain: chainMemory,
         result,
