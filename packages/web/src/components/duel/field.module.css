@@ -1309,21 +1309,18 @@
   bottom: auto;
 }
 
-.zone[data-side="opp"] .overlayBadge {
-  top: auto;
-  bottom: 3px;
-}
-
 .overlayBadge {
   position: absolute;
   top: 3px;
   right: 3px;
   z-index: 3;
-  display: grid;
-  place-items: center;
-  min-width: calc(var(--n4, 11px) * 1.5);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: calc(var(--n4, 11px) * 2.1);
   height: calc(var(--n4, 11px) * 1.5);
-  padding: 0 3px;
+  padding: 0 4px 0 3px;
   border: 1.5px solid var(--chain);
   border-radius: 999px;
   background: #140f04;
@@ -1333,7 +1330,62 @@
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1;
-  pointer-events: none;
+  /* The badge is a button in effect: a click or tap on it opens the Materials view (ZoneSlot reads data-materials-badge). Nothing moves on hover. */
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease-out,
+    border-color 0.15s ease-out;
+}
+
+.zone[data-side="opp"] .overlayBadge {
+  top: auto;
+  bottom: 3px;
+}
+
+/* A larger invisible hit area around the badge (the card is small); it stays inside the card frame. */
+.overlayBadge::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+}
+
+.overlayBadge b {
+  font-weight: 600;
+}
+
+.overlayIcon {
+  flex: none;
+  width: calc(var(--n4, 11px) * 1.05);
+  height: calc(var(--n4, 11px) * 1.05);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (hover: hover) {
+  .zoneHit:hover .overlayBadge:hover {
+    border-color: var(--chain-ink);
+    background: #241a07;
+  }
+}
+
+@media (pointer: coarse) {
+  .overlayBadge {
+    height: max(28px, calc(var(--n4, 11px) * 1.5));
+    min-width: 40px;
+    gap: 3px;
+  }
+
+  .overlayBadge::after {
+    inset: -2px;
+  }
+
+  .overlayIcon {
+    width: 14px;
+    height: 14px;
+  }
 }
 
 /* ATK / DEF plate on the card face. */

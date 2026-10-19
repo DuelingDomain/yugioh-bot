@@ -863,6 +863,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
                   legalKeys={legalKeys}
                   selectedKeys={selectedKeys}
                   onActivate={controller.onActivate}
+                  onInspect={controller.onInspect}
                   onHoverCard={controller.onHoverCard}
                 />
               );

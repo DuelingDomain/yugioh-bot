@@ -12,6 +12,21 @@ import {
 } from "./constants";
 import styles from "./field.module.css";
 
+/** The title of the Materials view (the pile viewer) of an Xyz with `count` attached cards. */
+export function materialsTitle(count: number): string {
+  return `Materials (${count})`;
+}
+
+/** Two stacked cards: the material mark of the badge. */
+function MaterialsIcon() {
+  return (
+    <svg className={styles.overlayIcon} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <rect x="4.5" y="1.5" width="9" height="11.5" rx="1.4" />
+      <path d="M2.5 4v9.4a1.4 1.4 0 0 0 1.4 1.4H11" />
+    </svg>
+  );
+}
+
 export function CardBack({
   className,
   kind = "deck",
@@ -59,7 +74,12 @@ export function CardFace({
       ) : (
         <CardBack kind={sleeve ?? (loc === LOCATION_EXTRA ? "extra" : "deck")} />
       )}
-      {overlays > 0 ? <span className={styles.overlayBadge}>{overlays}</span> : null}
+      {overlays > 0 ? (
+        <span className={styles.overlayBadge} data-materials-badge={overlays} title={materialsTitle(overlays)}>
+          <MaterialsIcon />
+          <b>{overlays}</b>
+        </span>
+      ) : null}
     </div>
   );
 }

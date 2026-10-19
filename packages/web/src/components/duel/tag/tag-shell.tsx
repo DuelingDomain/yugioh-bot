@@ -3,7 +3,7 @@
 import { multiTableTextStyle, tableTextBig, useCardTextSize, useMultiTableTextFloor } from "../card-text-size";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { teamOfSeat } from "@yugidraft/shared/duels";
-import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
+import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, materialsMenu, targetName } from "../card-interactions";
 import { isBattlePhase } from "../constants";
 import { DuelResultScreen } from "../duel-result";
 import { SeatField } from "../field";
@@ -568,6 +568,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
           busy={controller.busy}
           onClose={ui.closeMenu}
           tone={ui.menu.tone}
+          materials={materialsMenu(ui.menu.card, (target) => { ui.closeMenu(); controller.onInspect(target); })}
           onChoose={(option) => {
             if (!ui.menu || ui.menu.promptId !== prompt?.id || ui.menu.revision !== engine.revision) return;
             ui.closeMenu();

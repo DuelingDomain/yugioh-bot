@@ -84,7 +84,7 @@ import { hudPreview } from "./table/hud-preview";
 import { RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./table/hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./table/hud-shared";
 import { SEAT_TONE_HEX } from "./table/types";
-import { AttackConfirm, CardActionMenu, CardHoverInfo, PickRefusalHint, shakeRefusedCard, confirmSide, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
+import { AttackConfirm, CardActionMenu, CardHoverInfo, PickRefusalHint, shakeRefusedCard, confirmSide, materialsMenu, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
 import { DestroyFx } from "./destroy-fx";
 import { FxBoundary, MoveSourceBoundary } from "./fx-boundary";
 import { BattleFx, type BattleAim } from "./battle-fx";
@@ -1391,6 +1391,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     <CardInspector target={inspect}
       onInspectCard={(card) => setInspect({ type: "card", card })}
       onActivateCard={onInspectorActivate}
+      onViewMaterials={(target) => showInspector(target)}
       equipLinks={engine ? resolveEquipLinks(engine.seats) : undefined}
     />
   );
@@ -1751,6 +1752,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       {activeMenu ? <CardActionMenu anchor={activeMenu.anchor} title={activeMenu.title}
         options={activeMenu.options} busy={busy} onClose={closeMenu}
         tone={activeMenu.tone}
+        materials={materialsMenu(activeMenu.card, (target) => { closeMenu(); showInspector(target); })}
         onOptionHover={onMenuOptionHover}
         onChoose={(option) => {
           if (activeMenu.promptId !== prompt?.id || activeMenu.revision !== engine?.revision) return;

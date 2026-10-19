@@ -137,6 +137,7 @@ export function TagSide({
       target={startTarget}
       onInspectCard={(card) => ui.setInspect({ type: "card", card })}
       onActivateCard={(card, anchor) => controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor, true)}
+      onViewMaterials={controller.onInspect}
       equipLinks={resolveEquipLinks(engine.seats)}
       ownerOf={(card) => ({ name: nameOf(card.controller), tone: seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice })}
     />

@@ -69,7 +69,7 @@ describe("pile viewer detail", () => {
   it("lists the materials of a card with the text", () => {
     const material = card(5, { location: 0x80, name: "Material One" });
     view([card(0, { materials: [material] })]);
-    expect(screen.getByTestId("pile-card-text")).toHaveTextContent("Materials: Material One");
+    expect(screen.getByTestId("pile-card-text")).toHaveTextContent("Materials (1): Material One");
   });
 
   it("tells that a face-down card is hidden, with no text", () => {

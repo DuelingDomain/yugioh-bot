@@ -14,6 +14,7 @@ import {
   cardDetailsText,
   cardKindText,
   isHiddenCard,
+  isMaterialCard,
   LOCATION_EXTRA,
   zoneKey,
 } from "./constants";
@@ -96,8 +97,9 @@ function ordinal(n: number): string {
   }
 }
 
-function positionLine(index: number, total: number): string {
+function positionLine(index: number, total: number, attached: boolean): string {
   if (total <= 1) return "Only card";
+  if (attached) return `${index + 1} of ${total}`;
   if (index === 0) return `Top of pile · 1 of ${total}`;
   if (index === total - 1) return `Bottom of pile · ${total} of ${total}`;
   return `${ordinal(index + 1)} from top · ${index + 1} of ${total}`;
@@ -108,7 +110,7 @@ function positionLine(index: number, total: number): string {
  * The text comes from `useFilledCard` (a pile card that came without its effect text is looked up by passcode, as the
  * card panel does) and takes the viewer's card text size. It scrolls inside its own box, so it is never cut.
  */
-function PileDetail({ entry, total, styles, reserveChain }: { entry: Entry; total: number; styles: Record<string, string>; reserveChain: boolean }) {
+function PileDetail({ entry, total, styles, reserveChain, attached }: { entry: Entry; total: number; styles: Record<string, string>; reserveChain: boolean; attached: boolean }) {
   const marks = entry.marks;
   const textSize = useCardTextSize();
   const live = entry.card;
@@ -131,7 +133,7 @@ function PileDetail({ entry, total, styles, reserveChain }: { entry: Entry; tota
         <ChainMarkBadges marks={marks} styles={styles} size="detail" />
       </div>
       <div className={styles.previewBody}>
-        <span className={styles.previewPos}>{positionLine(entry.index, total)}</span>
+        <span className={styles.previewPos}>{positionLine(entry.index, total, attached)}</span>
         {marks.length > 0 || reserveChain ? (
           // While the pile holds a chain card, every card keeps this line (empty on the others): the detail never changes
           // height between cards, and the live region stays mounted, so a change of phase is announced.
@@ -212,17 +214,20 @@ export function PileViewer({
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [lookedNames, setLookedNames] = useState<ReadonlyMap<number, string>>(new Map());
 
+  // The Materials view of an Xyz is this viewer too: its cards sit in the Overlay location.
+  const attached = cards.length > 0 && cards.every(isMaterialCard);
   const entries = useMemo<Entry[]>(() => {
     // The marks are keyed by the card's place in `cards`; the list below is reversed, newest first.
     const marks = pileChainMarks(chainLinks ?? [], cards);
-    const newestFirst = [...cards].reverse();
+    // The materials of an Xyz keep the order they were attached in; a pile shows its top card first.
+    const newestFirst = attached ? [...cards] : [...cards].reverse();
     return newestFirst.map((card, index) => ({
       card,
       key: `${zoneKey(card.controller, card.location, card.sequence)}:${card.code ?? "x"}`,
       index,
       marks: marks.get(cards.length - 1 - index) ?? NO_MARKS,
     }));
-  }, [cards, chainLinks]);
+  }, [attached, cards, chainLinks]);
 
   const preview = entries.find((entry) => entry.key === hoverKey) ?? entries.find((entry) => entry.key === pinnedKey) ?? entries[0] ?? null;
   const tone = usableGlowToneForPile(cards);
@@ -359,7 +364,7 @@ export function PileViewer({
             ) : null}
             <span className={styles.count}>
               <b>{total}</b> {total === 1 ? "card" : "cards"}
-              {total > 1 ? <span className={styles.order}> · newest first</span> : null}
+              {total > 1 && !attached ? <span className={styles.order}> · newest first</span> : null}
             </span>
           </div>
           <button type="button" className={styles.close} onClick={onClose} aria-label={`Close ${title}`}>
@@ -368,14 +373,14 @@ export function PileViewer({
         </header>
 
         {preview ? (
-          <PileDetail key={preview.key} entry={preview} total={total} styles={styles} reserveChain={firstChainKey != null} />
+          <PileDetail key={preview.key} entry={preview} total={total} styles={styles} reserveChain={firstChainKey != null} attached={attached} />
         ) : (
           <div className={styles.preview} aria-live="polite">
             <p className={styles.empty}>This pile is empty.</p>
           </div>
         )}
 
-        <ul ref={gridRef} className={styles.grid} role="list" aria-label={`${title}, newest first`} onMouseLeave={() => setHoverKey(null)}>
+        <ul ref={gridRef} className={styles.grid} role="list" aria-label={attached ? title : `${title}, newest first`} onMouseLeave={() => setHoverKey(null)}>
           {entries.map((entry) => {
             const { card, key, index, marks } = entry;
             const hidden = isHiddenCard(card) || card.code == null;

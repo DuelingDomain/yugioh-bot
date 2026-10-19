@@ -10,7 +10,7 @@ import type { DuelCard } from "@yugidraft/shared/duels";
 import { isCustomDomain } from "@yugidraft/shared/duels";
 import { genesysLabel, genesysOf } from "../genesys";
 import { BattleFx } from "../battle-fx";
-import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
+import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, materialsMenu, targetName } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
 import { ownPromptOpen } from "../chain-narrate";
 import { projectChainNames } from "../chain-state";
@@ -474,6 +474,7 @@ function TableShellBody({
       target={inspectorTarget}
       onInspectCard={(card) => ui.setInspect({ type: "card", card })}
       onActivateCard={onInspectorActivate}
+      onViewMaterials={controller.onInspect}
       equipLinks={resolveEquipLinks(engine.seats)}
       ownerOf={(card) => ({ name: nameOf(card.controller), tone: toneOf(card.controller) })}
     />
@@ -979,6 +980,7 @@ function TableShellBody({
           busy={controller.busy}
           onClose={ui.closeMenu}
           tone={ui.menu.tone}
+          materials={materialsMenu(ui.menu.card, (target) => { ui.closeMenu(); controller.onInspect(target); })}
           onChoose={(option) => {
             if (!ui.menu || ui.menu.promptId !== prompt?.id || ui.menu.revision !== engine.revision) return;
             ui.closeMenu();
