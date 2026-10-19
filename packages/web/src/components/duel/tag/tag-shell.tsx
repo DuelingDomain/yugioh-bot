@@ -480,6 +480,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
                     leavingSeats={leavingOnlySeats(engine.seats)}
                     revealed={controller.revealed}
                     onInspectCard={hud ? rowPreview.show : (card) => ui.setInspect({ type: "info", card })}
+                    onHoverCard={hud ? rowPreview.show : undefined}
                     nameOf={nameOf}
                     seatTones={seatTones}
                     priority={priority}
@@ -500,7 +501,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
                         cancelable={flow.bar.cancelable}
                       />
                     ) : null}
-                    <TagPileViewer controller={controller} ui={ui} />
+                    <TagPileViewer controller={controller} ui={ui} onPeek={hud ? rowPreview.show : undefined} />
                     {banner && !hideResult ? (
                       <div className={styles.result} data-result={banner.outcome} role="dialog" aria-label="Duel result">
                         <div className={styles.resultCard}>

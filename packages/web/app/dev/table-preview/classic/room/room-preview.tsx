@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DuelRoomView } from "@/components/duel/room";
 import { classicStateId } from "../preview";
 import { solidFixture } from "@/components/duel/solid/fixtures/states";
+import { isXyzStateId, xyzRoom } from "./xyz-fixture";
 
 const SLUG = "classic-preview";
 
@@ -22,12 +23,13 @@ function installFixtureFetch(body: string) {
 }
 
 export function ClassicRoomPreview({ stateId, domain }: { stateId: string | null; domain: boolean }) {
-  const id = classicStateId(stateId);
+  const id = classicStateId(isXyzStateId(stateId) ? "chain" : stateId);
   const room = useMemo(() => {
-    const { room: base } = solidFixture(id);
+    const { room: plain } = solidFixture(id);
+    const base = isXyzStateId(stateId) ? xyzRoom(plain, stateId) : plain;
     if (domain) return base;
     return { ...base, session: { ...base.session, mode: "normal" as const } };
-  }, [id, domain]);
+  }, [id, stateId, domain]);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     const restore = installFixtureFetch(JSON.stringify(room));

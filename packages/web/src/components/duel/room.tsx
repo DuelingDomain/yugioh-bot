@@ -1700,13 +1700,17 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
         reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
         outSeats={outOrLeavingSeats(engine.seats)} leavingSeats={leavingOnlySeats(engine.seats)}
-        revealed={revealed} onInspectCard={inspectInfo} nameOf={playerName} />
+        revealed={revealed} onInspectCard={inspectInfo} onHoverCard={hud ? rowPreview.show : undefined} nameOf={playerName} />
       </RowPreviewBoundary>
       {pile ? (
         <PileViewer title={livePileTitle(pile, livePileCards(pile, engine, localSeat))} owner={pile.owner} open={pile.open}
           cards={livePileCards(pile, engine, localSeat)} onClose={closePile}
           onInspectCard={(card) => { setInspect({ type: "card", card }); if (pane !== "log") setPane("card"); }}
-          onHoverCard={(card) => { if (pane === "card" && !hud) setInspect({ type: "card", card }); }}
+          onHoverCard={(card) => {
+            // The window shows no card text: the HUD's left drawer follows the card under the pointer; the other layouts keep the Card tab.
+            if (hud) rowPreview.show(card?.code != null ? card : null);
+            else if (card && pane === "card") setInspect({ type: "card", card });
+          }}
           onActivateCard={onInspectorActivate}
           legalKeys={fieldLegalKeys} selectedKeys={selectedKeys} chainLinks={pileChainLinks}
           reducedMotion={preferences.reducedMotion} />
@@ -1899,7 +1903,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           logUnread={logUnread}
           preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hudState.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
-          previewHidden={pickHintShown || Boolean(pile?.open)}
+          previewHidden={pickHintShown}
           reducedMotion={preferences.reducedMotion}
           hoverAnchor={hover?.anchor ?? null}
           ownSeats={[localSeat]}

@@ -1236,8 +1236,6 @@ function optionCard(option: DuelPromptOption, seat: number): DuelCard {
   };
 }
 
-const noInspect = () => {};
-
 function pickStatus(prompt: DuelPrompt, chosen: number, confirm: boolean): string {
   const { min, max } = selectionBounds(prompt);
   if (max <= 1) {
@@ -1249,6 +1247,8 @@ function pickStatus(prompt: DuelPrompt, chosen: number, confirm: boolean): strin
   return `Choose ${min} to ${max} materials · ${chosen} chosen`;
 }
 
+const noInspect = () => {};
+
 function MaterialPicker({
   prompt,
   draft,
@@ -1258,6 +1258,8 @@ function MaterialPicker({
   reducedMotion,
   onSubmit,
   onCollapse,
+  onInspectCard,
+  onHoverCard,
 }: {
   prompt: DuelPrompt;
   draft: PromptDraft;
@@ -1267,6 +1269,8 @@ function MaterialPicker({
   reducedMotion: boolean;
   onSubmit: (answer: DuelAnswer) => void;
   onCollapse: () => void;
+  onInspectCard?: InspectCardHandler;
+  onHoverCard?: (card: DuelCardInfo | null) => void;
 }) {
   const cards = prompt.options.map((option) => optionCard(option, prompt.seat));
   const ids = prompt.options.map((option) => option.id);
@@ -1285,8 +1289,13 @@ function MaterialPicker({
       owner={owner}
       open
       onClose={onCollapse}
-      // A click on a card chooses it (pick below); the window shows the card text itself, so nothing goes to the inspector.
+      // A click on a card chooses it (pick below). The card text is not in the window: the left drawer shows the card under the pointer.
       onInspectCard={noInspect}
+      onHoverCard={(card) => {
+        const info = card == null ? null : prompt.options[cards.indexOf(card)]?.card ?? null;
+        if (onHoverCard) onHoverCard(info);
+        else if (info) onInspectCard?.(info);
+      }}
       reducedMotion={reducedMotion}
       pick={{
         ids,
@@ -1528,6 +1537,11 @@ export interface PromptCenterProps {
   revealed?: boolean;
   /** Hovering or focusing a card in a grid or a response row shows it in the left inspector. */
   onInspectCard?: InspectCardHandler;
+  /**
+   * The Xyz material window (a detach pick): the material under the pointer or focus, or null when it leaves. The HUD shells
+   * pass the hover preview here (the left drawer); left out, a hover goes to `onInspectCard` and a leave changes nothing.
+   */
+  onHoverCard?: (card: DuelCardInfo | null) => void;
   /** Display name of a seat. An opponent pick shows the name instead of the engine's "Player N". */
   nameOf?: (seat: number) => string;
   /**
@@ -2080,7 +2094,8 @@ export function PromptCenter(props: PromptCenterProps) {
     return (
       <div ref={layerRef} className={`${styles.layer} ${styles.layerFront}`}>
         <MaterialPicker prompt={prompt} draft={draft} busy={busy} mySeat={mySeat} nameOf={props.seatTones ? props.nameOf : undefined}
-          reducedMotion={reducedMotion} onSubmit={onSubmit} onCollapse={() => setCollapsed(true)} />
+          reducedMotion={reducedMotion} onSubmit={onSubmit} onCollapse={() => setCollapsed(true)}
+          onInspectCard={onInspectCard} onHoverCard={props.onHoverCard} />
       </div>
     );
   }
