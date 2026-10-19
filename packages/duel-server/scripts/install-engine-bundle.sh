@@ -193,6 +193,10 @@ con = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
 present = con.execute(
     "select 1 from sqlite_master where type = 'table' and name = 'duels'"
 ).fetchone()
+# Deck-editor test duels (a bot table) never hold a deploy.
+test_free = ""
+if present is not None and "setup_json" in [row[1] for row in con.execute("pragma table_info(duels)")]:
+    test_free = " and coalesce(json_extract(setup_json, '$.testDuel'), 0) = 0"
 if present is None:
     print(0)
 elif multi_seat_only:
@@ -200,10 +204,10 @@ elif multi_seat_only:
     if "format" not in columns:
         print(0)
     else:
-        n = con.execute("select count(*) from duels where status = 'active' and format != '1v1'").fetchone()[0]
+        n = con.execute("select count(*) from duels where status = 'active' and format != '1v1'" + test_free).fetchone()[0]
         print(n)
 else:
-    n = con.execute("select count(*) from duels where status = 'active'").fetchone()[0]
+    n = con.execute("select count(*) from duels where status = 'active'" + test_free).fetchone()[0]
     print(n)
 PY
 }
