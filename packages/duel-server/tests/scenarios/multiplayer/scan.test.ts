@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { currentEngineDataDirectory } from "../../engine-data-dir.js";
@@ -384,8 +385,13 @@ describeWithCores("corpus", corpus, () => {
     expect(missing.map((card) => `${card.code} ${card.name}`)).toEqual([]);
   });
 
-  it("only a few list entries are not flagged", () => {
-    const notFlagged = [...lists.keys()].filter((code) => !byCode.get(code)?.flagged);
+  it("only a few list entries are not flagged in official or retained prerelease scripts", () => {
+    const prereleaseDir = join(dir, "../pre-release");
+    const listedScripts = new Map([
+      ...cards,
+      ...(existsSync(prereleaseDir) ? scanCorpus(prereleaseDir) : []),
+    ].map((card) => [card.code, card]));
+    const notFlagged = [...lists.keys()].filter((code) => !listedScripts.get(code)?.flagged);
     expect(notFlagged.length).toBeLessThan(10);
   });
 });

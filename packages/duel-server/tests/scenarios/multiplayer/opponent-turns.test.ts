@@ -36,8 +36,8 @@ const TURN_COUNT_CARDS: Array<[number, string]> = [
 ];
 
 describe("the former turn-count bans are superseded by the owner rules", () => {
-  it("the forbidden list has no remaining turn-count bans", () => {
-    expect(MULTIPLAYER_FORBIDDEN.filter((entry) => entry.category === "turn-count")).toEqual([]);
+  it("only the unproved prerelease Time Chain remains restricted for turn counting", () => {
+    expect(MULTIPLAYER_FORBIDDEN.filter((entry) => entry.category === "turn-count").map((entry) => entry.code)).toEqual([100463005]);
   });
 
   it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("Swords of Revealing Light is legal at %s", (format) => {

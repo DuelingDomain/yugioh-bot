@@ -4981,7 +4981,7 @@
       "kind": "fix",
       "name": "Hecahands Tartaros",
       "classes": [],
-      "stockSha256": "455272f159de7d185db71cfb4e5b1c2d126fd25a158b39f331e23229db9cd754",
+      "stockSha256": "751913c0a7db760eb66dcf2211fa8173476708a97124bc93081970eaa4b24e36",
       "note": "Use real owner and handler seats for Fusion materials."
     },
     {
@@ -6351,7 +6351,7 @@
       "name": "Underworld Circle",
       "kind": "fix",
       "classes": [],
-      "stockSha256": "a50729536e1e88c68807d9bf912fa282f38280dc7276e2ef9ea9cbf926c2c1ab",
+      "stockSha256": "b25a85ca9ceaf460abf1e380bea19dfdd49504c8f6f02cd110a90a636c9383e7",
       "note": "R-COMMON-EACH-PLAYER: every living duelist must have five or more monsters in the GY. This condition does not declare an opponent. Tag checks each member."
     },
     {
@@ -8520,6 +8520,16 @@
         "effop",
         "spcon"
       ]
+    },
+    {
+      "code": 100459024,
+      "file": "c100459024.lua",
+      "name": "Spell Card \"Enemy Controller\"",
+      "kind": "fix",
+      "classes": [],
+      "stockPath": "pre-release/c100459024.lua",
+      "stockSha256": "783600b77e8e00f8f6d218f0c48c7792e57c336dda5ff40632914fc5a0871ba5",
+      "note": "A target can change control before resolution. Destroy it without assuming the extra Tribute effect exists; ignore a missing target."
     }
   ]
 }

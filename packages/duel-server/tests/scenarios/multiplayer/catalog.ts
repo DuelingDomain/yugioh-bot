@@ -764,6 +764,17 @@ export const GROUP_ONE: CatalogScenario[] = [
 
 /** Script evidence for the forbidden list (group c). The key is the passcode. */
 export const FORBIDDEN_EVIDENCE: Record<number, Evidence[]> = {
+  100459021: [{ file: "pre-release/c100459021.lua", line: 51, token: "Duel.SendtoHand(rg,rg:GetFirst():GetPreviousControler()" }],
+  101403004: [{ file: "pre-release/c101403004.lua", line: 82, token: "Duel.Damage(1-tp,800" }],
+  100458024: [{ file: "pre-release/c100458024.lua", line: 29, token: "s.name_list[0]" }],
+  100458041: [{ file: "pre-release/c100458041.lua", line: 37, token: "s.attr_list[0]" }],
+  100459025: [{ file: "pre-release/c100459025.lua", line: 29, token: "function s.condition" }],
+  100460030: [{ file: "pre-release/c100460030.lua", line: 44, token: "s.link_rating_list[0]" }],
+  100463005: [{ file: "pre-release/c100463005.lua", line: 87, token: "local bc1_ctrl=" }],
+  101403023: [{ file: "pre-release/c101403023.lua", line: 77, token: "Duel.Draw(1-turn_player" }],
+  101403040: [{ file: "pre-release/c101403040.lua", line: 81, token: "Duel.Recover(1-turn_player" }],
+  101403052: [{ file: "pre-release/c101403052.lua", line: 66, token: "local dg_self,dg_opp=" }],
+  101403061: [{ file: "pre-release/c101403061.lua", line: 36, token: "s.declared_names[0]" }],
   95308449: [ev(95308449, 12, "aux.GlobalCheck"), ev(95308449, 39, "tp==c:GetOwner()")],
   28566710: [ev(28566710, 64, "Duel.Win(0,WIN_REASON_LAST_TURN)"), ev(28566710, 66, "Duel.Win(1,WIN_REASON_LAST_TURN)")],
   37984331: [ev(37984331, 23, "Duel.Win(1-c:GetControler()")],
@@ -814,6 +825,24 @@ const OPPONENT_FIELD_LINES: Record<number, number> = {
 };
 
 export const CARD_RULE_EVIDENCE: Record<number, Evidence[]> = {
+  73443672: [{ file: "overlay/c73443672.lua", line: 41, token: "function s.condition" }],
+  39513225: [{ file: "overlay/c39513225.lua", line: 4, token: "mp_xyz_damage" }],
+  99505609: [{ file: "overlay/c99505609.lua", line: 1, token: "MPForEachDuelist" }],
+  100200294: [{ file: "pre-release/c100200294.lua", line: 35, token: "Duel.RegisterFlagEffect(ep" }],
+  100458033: [{ file: "pre-release/c100458033.lua", line: 50, token: "function s.selfspcon" }],
+  100459011: [{ file: "pre-release/c100459011.lua", line: 31, token: "Duel.RegisterFlagEffect(ec:GetReasonPlayer()" }],
+  100459023: [{ file: "pre-release/c100459023.lua", line: 31, token: "Duel.RegisterFlagEffect(prev_ctlr" }],
+  100459024: [{ file: "overlay/c100459024.lua", line: 23, token: "if extra_tribute_eff then extra_tribute_eff:Reset() end" }],
+  100458016: [{ file: "pre-release/c100458016.lua", line: 67, token: "Duel.RegisterFlagEffect(ec:GetReasonPlayer()" }],
+  100458017: [{ file: "pre-release/c100458017.lua", line: 74, token: "Duel.RegisterFlagEffect(ec:GetReasonPlayer()" }],
+  100458018: [{ file: "pre-release/c100458018.lua", line: 54, token: "Duel.RegisterFlagEffect(ec:GetReasonPlayer()" }],
+  100458019: [{ file: "pre-release/c100458019.lua", line: 63, token: "Duel.RegisterFlagEffect(ec:GetReasonPlayer()" }],
+  100458020: [{ file: "pre-release/c100458020.lua", line: 63, token: "Duel.RegisterFlagEffect(ec:GetReasonPlayer()" }],
+  100458021: [{ file: "pre-release/c100458021.lua", line: 29, token: "Duel.RegisterFlagEffect(ec:GetReasonPlayer()" }],
+  100458026: [{ file: "pre-release/c100458026.lua", line: 43, token: "Duel.RegisterFlagEffect(ec:GetReasonPlayer()" }],
+  101403001: [{ file: "pre-release/c101403001.lua", line: 50, token: "Duel.RegisterFlagEffect(tc:GetControler()" }],
+  101403002: [{ file: "pre-release/c101403002.lua", line: 48, token: "Duel.RegisterFlagEffect(tc:GetControler()" }],
+  101403003: [{ file: "pre-release/c101403003.lua", line: 51, token: "Duel.RegisterFlagEffect(tc:GetControler()" }],
   72892473: [{ file: "overlay/c72892473.lua", line: 23, token: "counts[seat]=#hg" }, { file: "overlay/c72892473.lua", line: 29, token: "Duel.Draw(p,counts[seat]" }],
   74519184: [{ file: "overlay/c74519184.lua", line: 16, token: "Duel.SelectMatchingCard(p,nil,p,LOCATION_HAND,0,2,2,nil)" }, { file: "overlay/c74519184.lua", line: 21, token: "Duel.Draw(p,2" }],
   33396948: [{ file: "overlay/c33396948.lua", line: 9, token: "s.check(g)" }, { file: "overlay/c33396948.lua", line: 11, token: "aux.MPKeyOfSeat(seat)" },
