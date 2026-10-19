@@ -30,7 +30,7 @@ const HAS_T3_FIX = /^(T3|P2M|D1)(\b|[-_.])/;
  * name exactly these. A Lua nil error in any other card is a NEW failure. Remove a code when the overlay covers the card
  * (known-issues.test.ts fails when a code is in the overlay manifest: a failure of an overlaid card is a regression, not this class).
  */
-export const LUA_1_TP_CARDS: readonly number[] = [1918087, 25131968, 27204311, 69811710];
+export const LUA_1_TP_CARDS: readonly number[] = [1918087, 25131968, 69811710];
 
 export const KNOWN_ISSUES: readonly KnownIssue[] = [
   {
@@ -56,7 +56,7 @@ export const KNOWN_ISSUES: readonly KnownIssue[] = [
   {
     sig: "lua-1-tp-nil",
     owner: "F1 (phase 3 Lua fold of 1-tp)",
-    title: "More than two duelists: the script of one of LUA_1_TP_CARDS computes `1-tp` (for example Nibiru c27204311.lua:38) and gets no duelist for tp 2 or 3, so Lua reads nil.",
+    title: "More than two duelists: the stock script of one of LUA_1_TP_CARDS computes `1-tp` and gets no duelist for tp 2 or 3, so Lua reads nil.",
     match: (failure, context) =>
       context.format !== "1v1" &&
       failure.invariant === "engine-throw" &&

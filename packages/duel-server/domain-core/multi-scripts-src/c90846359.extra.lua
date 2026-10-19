@@ -1,11 +1,14 @@
--- stock: the summon limit reads Duel.GetMatchingGroup(Card.IsFaceup,targetp or sump,LOCATION_MZONE,0,nil). Both values are folded: 1 means
--- EVERY opponent of the owner of the Trap, and a read of a field with the value 1 gives the monsters of all those opponents together (a bound
--- opponent narrows only the hand, the Deck and the Extra Deck), so the limit of one opponent would read the monsters of the others too.
--- The limit reads the field of the duelist that summons: the real seat of the controller of the card (it goes to its own field). A Special Summon
--- to the field of another duelist (sump and targetp differ) keeps the stock read.
+-- Restriction callbacks fold both summoner and receiver relative to the Trap.
+-- Read the exact receiver before the fold; a third player's Trap can see both as 1.
+-- A normal or flip summon has no receiver argument and stays on the card's field.
 function s.sumlimit(e,c,sump,sumtype,sumpos,targetp)
-	local seat=Duel.MPSeatOf(c)
-	if seat<0 or sump~=targetp then
+	local seat=Duel.MPSummonTargetSeat and Duel.MPSummonTargetSeat() or -1
+	if seat<0 and sump~=targetp then
+		local k=s.getrace(Duel.GetMatchingGroup(Card.IsFaceup,targetp or sump,LOCATION_MZONE,0,nil))
+		return k~=0 and c:GetRace()~=k
+	end
+	if seat<0 then seat=Duel.MPSeatOf(c) end
+	if seat<0 then
 		local k=s.getrace(Duel.GetMatchingGroup(Card.IsFaceup,targetp or sump,LOCATION_MZONE,0,nil))
 		return k~=0 and c:GetRace()~=k
 	end

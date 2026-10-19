@@ -527,7 +527,7 @@ export const RULES: readonly PatternRule[] = [
     cls: "F",
     ambiguous: false,
     tables: "all",
-    why: "Duel.Win(player, reason) has no defined result for more than two players (ADR-0002: all 'you win' cards are forbidden).",
+    why: "Duel.Win(player, reason) needs a multiplayer result rule. Only Exodia the Forbidden One is allowed (ADR-0002; owner 2026-10-18).",
     detect: (s) => callRule(s, "duel-win", (c) => c.owner === "Duel" && c.fn === "Win"),
   },
   {
@@ -1032,7 +1032,10 @@ export interface ListEntry {
 export function listIndex(): Map<number, ListEntry> {
   const index = new Map<number, ListEntry>();
   for (const entry of MULTIPLAYER_FORBIDDEN) index.set(entry.code, { list: "forbidden", name: entry.name, formats: entry.formats, tagDecision: entry.tagDecision });
-  for (const entry of MULTIPLAYER_CARD_RULES) index.set(entry.code, { list: "card-rule", name: entry.name });
+  // A proved FFA rule can coexist with a Tag ban. Keep that format restriction in the review report.
+  for (const entry of MULTIPLAYER_CARD_RULES) {
+    if (!index.has(entry.code)) index.set(entry.code, { list: "card-rule", name: entry.name });
+  }
   return index;
 }
 

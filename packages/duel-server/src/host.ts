@@ -280,7 +280,7 @@ function freshCoinTossGraceMs(view: DuelEngineView, afterEventId: number): numbe
 
 function freezeView(
   view: DuelEngineView,
-  result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string },
+  result: NonNullable<DuelEngineView["result"]>,
 ): DuelEngineView {
   return { ...view, prompt: null, prioritySeat: null, result,
     seats: view.seats.map((seat) => seat.pendingElimination ? { ...seat, pendingElimination: false } : seat) };
@@ -904,7 +904,9 @@ export function createDuelHost(options: {
     winnerSeat: number | null,
     reason: string,
   ): Promise<DuelFinalSnapshots> {
-    const result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string } = { winnerSeat, reason };
+    const publicView = await game.view(null);
+    const result: NonNullable<DuelEngineView["result"]> = { winnerSeat, reason,
+      ...(publicView.result?.victory === "exodia" ? { victory: "exodia" as const } : {}) };
     // Tag: a team wins. `winnerSeat` is the lowest seat of the team; `winnerTeam` names it.
     if (format === "tag") result.winnerTeam = winnerSeat === null ? null : teamOfSeat(format, winnerSeat);
     const seats: DuelEngineView[] = [];
@@ -912,7 +914,7 @@ export function createDuelHost(options: {
       seats.push(freezeView(await game.view(seat), result));
     }
     return {
-      public: freezeView(await game.view(null), result),
+      public: freezeView(publicView, result),
       seat0: seats[0],
       seat1: seats[1],
       seats,
@@ -1883,12 +1885,14 @@ export function createDuelHost(options: {
           // A concurrent worker may have failed since this build started. This worker must
           // still compare its boards so a valid pass can replace that failure.
           // Reproduce host finalization from the session after checking the engine winner.
-          const expected: NonNullable<DuelEngineView["result"]> = {
-            winnerSeat: source.session.winnerSeat, reason: source.session.resultReason ?? "Duel ended",
-            ...(source.session.format === "tag" ? { winnerTeam: source.session.winnerSeat === null ? null
-              : teamOfSeat("tag", source.session.winnerSeat) } : {}),
-          };
           const matchesView = (savedView: DuelEngineView, rebuilt: DuelEngineView): boolean => {
+            if (rebuilt.result?.victory !== savedView.result?.victory) return false;
+            const expected: NonNullable<DuelEngineView["result"]> = {
+              winnerSeat: source.session.winnerSeat, reason: source.session.resultReason ?? "Duel ended",
+              ...(source.session.format === "tag" ? { winnerTeam: source.session.winnerSeat === null ? null
+                : teamOfSeat("tag", source.session.winnerSeat) } : {}),
+              ...(rebuilt.result?.victory === "exodia" ? { victory: "exodia" } : {}),
+            };
             if (rebuilt.result && (rebuilt.result.winnerSeat !== expected.winnerSeat
               || (source.session.format === "tag" && rebuilt.result.winnerTeam !== expected.winnerTeam))) return false;
             return sameReplayBoard(savedView, freezeView(rebuilt, expected));

@@ -580,7 +580,13 @@ export interface DuelEngineView {
    * `winnerSeat` is the winning seat in 1v1 and FFA. In Tag it is the lowest seat of the winning team, and
    * `winnerTeam` names the team. Null means a draw.
    */
-  result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string } | null;
+  result: {
+    winnerSeat: number | null;
+    winnerTeam?: number | null;
+    reason: string;
+    /** Owner 2026-10-18: Exodia ends the whole table with winners and losers, without places. */
+    victory?: "exodia";
+  } | null;
 }
 
 export interface DuelSeat {

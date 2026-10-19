@@ -1,4 +1,11 @@
--- Chaos Emperor Dragon: all Tag hands are part of the global send. Keep the FFA ban.
+-- Owner 2026-10-18: FFA sends only your cards and the chosen opponent's cards.
+-- Keep the current card text: damage counts cards sent to that opponent's GY.
+if Duel.MPMode()==1 then
+	s.sgtg=aux.MPTarget(s.sgtg)
+	s.sgop=aux.MPOne(s.sgop)
+	return
+end
+-- Tag keeps the approved all-duelist send and damage to the opposing team.
 if Duel.MPMode()~=2 then return end
 local function mp_all_cards()
 	local g=Group.CreateGroup()

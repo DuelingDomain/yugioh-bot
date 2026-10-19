@@ -27,19 +27,17 @@ describe("opponent-turn scenario list", () => {
   });
 });
 
-// ADR-0002 Q1: the 4 turn-count cards stay banned at the free-for-all tables. In 1v1 they are legal. The list names Tag as legal too
-// (a partner turn does not count, so the cards are fair there): this test pins that as it is, see tests/host-table-legality.test.ts.
-const TURN_COUNT_BANS: Array<[number, string]> = [
+// The owner decisions of 2026-10-18 supersede the four historical FFA turn-count bans (ADR-0002 Q1).
+const TURN_COUNT_CARDS: Array<[number, string]> = [
   [22804644, "Doom Virus Dragon"],
   [21208154, "The Wicked Avatar"],
   [22888900, "Grisaille Prison"],
   [23746827, "Million-Century Ice Prison"],
 ];
 
-describe("the 4 turn-count cards stay banned after the R3 rule", () => {
-  it("the list has these 4 turn-count cards and no other", () => {
-    const listed = MULTIPLAYER_FORBIDDEN.filter((entry) => entry.category === "turn-count").map((entry) => [entry.code, entry.name]);
-    expect(listed.sort()).toEqual([...TURN_COUNT_BANS].sort());
+describe("the former turn-count bans are superseded by the owner rules", () => {
+  it("the forbidden list has no remaining turn-count bans", () => {
+    expect(MULTIPLAYER_FORBIDDEN.filter((entry) => entry.category === "turn-count")).toEqual([]);
   });
 
   it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("Swords of Revealing Light is legal at %s", (format) => {
@@ -47,12 +45,12 @@ describe("the 4 turn-count cards stay banned after the R3 rule", () => {
     expect(multiplayerForbiddenFor(format, 99999999, 72302403)).toBeUndefined();
   });
 
-  for (const [code, name] of TURN_COUNT_BANS) {
-    it(`${name} (${code}): banned at FFA3 and FFA4, legal in 1v1 and in Tag`, () => {
-      expect(multiplayerForbiddenFor("ffa3", code)?.category).toBe("turn-count");
-      expect(multiplayerForbiddenFor("ffa4", code)?.category).toBe("turn-count");
-      expect(multiplayerForbiddenFor("1v1", code)).toBeUndefined();
-      expect(multiplayerForbiddenFor("tag", code)).toBeUndefined();
+  for (const [code, name] of TURN_COUNT_CARDS) {
+    it(`${name} (${code}) and its aliases are legal in every format`, () => {
+      for (const format of ["1v1", "ffa3", "ffa4", "tag"] as const) {
+        expect(multiplayerForbiddenFor(format, code), format).toBeUndefined();
+        expect(multiplayerForbiddenFor(format, 99999999, code), `${format}: alias`).toBeUndefined();
+      }
     });
   }
 });
