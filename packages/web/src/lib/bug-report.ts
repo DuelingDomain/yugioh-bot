@@ -331,13 +331,102 @@ export function buildCommentBody(input: IssueBodyInput, redact: readonly string[
   return sections.join("\n\n");
 }
 
+// Routes under app/: [id] is one parameter, [...id] is a catch-all, and an empty child marks a route endpoint.
+// Match the whole route so a parameter that equals a fixed sibling name is still masked.
+const PUBLIC_ROUTE_CHILDREN: Readonly<Partial<Record<string, readonly string[]>>> = {
+  "": ["", "access", "api", "cubes", "dashboard", "decks", "dev", "draft", "drafts", "duels", "leaderboard", "login", "monitoring", "player", "settings", "sign-in", "sign-up", "sso-callback", "themes", "tournament", "tournaments", "welcome-back"],
+  "/api": ["account", "admin", "archetypes", "auth", "bug-reports", "cards", "cubes", "dashboard", "decks", "discord", "drafts", "duels", "leaderboard", "live", "lobby", "matches", "player", "players", "sets", "test-auth", "tournaments", "waitlist", "webhooks"],
+  "/api/account": ["delete", "refresh"],
+  "/api/admin": ["access", "bug-reports", "card-data-status", "duels"],
+  "/api/admin/bug-reports": ["", "[id]"],
+  "/api/admin/duels": ["[id]", "forks"],
+  "/api/admin/duels/[id]": ["replay"],
+  "/api/admin/duels/[id]/replay": ["", "fork"],
+  "/api/auth": ["callback", "existing-player", "session"],
+  "/api/auth/callback": ["discord"],
+  "/api/auth/existing-player": ["complete", "start", "ticket"],
+  "/api/bug-reports": ["", "precheck"],
+  "/api/cards": ["[id]", "resolve"],
+  "/api/cards/[id]": ["artworks", "image"],
+  "/api/cubes": ["", "[id]"],
+  "/api/cubes/[id]": ["", "cards", "ydk"],
+  "/api/decks": ["", "[id]", "artwork", "cards", "import"],
+  "/api/decks/cards": ["", "facets"],
+  "/api/decks/import": ["", "bulk", "preview"],
+  "/api/discord": ["channels"],
+  "/api/drafts": ["", "[id]"],
+  "/api/drafts/[id]": ["", "auto-start", "cancel", "claim-cube", "connection", "cubes", "deck-pool", "export", "invite", "join", "join-bot", "nudge", "pick", "players", "pool", "preflight", "ready", "start", "talk", "tournament", "visibility"],
+  "/api/drafts/[id]/cubes": ["", "[id]"],
+  "/api/drafts/[id]/invite": ["", "reset"],
+  "/api/drafts/[id]/players": ["[id]"],
+  "/api/duels": ["", "[id]", "active", "cards", "client-error", "preset", "series"],
+  "/api/duels/[id]": ["", "actions", "activity", "archive", "bot", "cancel", "cancel-waiting", "chain-mode", "connection", "debug-trace", "deck", "fork", "invite", "leave", "opening", "ready", "replay", "report", "seat", "series", "start", "surrender", "unready"],
+  "/api/duels/[id]/deck": ["", "validate"],
+  "/api/duels/[id]/fork": ["cancel", "restart"],
+  "/api/duels/[id]/series": ["first", "ready", "side", "unready"],
+  "/api/duels/series": ["[id]"],
+  "/api/duels/series/[id]": ["cancel"],
+  "/api/lobby": ["open"],
+  "/api/matches": ["[id]"],
+  "/api/matches/[id]": ["approve", "deny"],
+  "/api/player": ["[id]", "me"],
+  "/api/sets": ["", "[id]"],
+  "/api/test-auth": ["session", "sign-out"],
+  "/api/tournaments": ["", "[id]"],
+  "/api/tournaments/[id]": ["", "announce", "complete", "connection", "deck", "invite", "join", "join-bot", "kick", "leave", "matches", "reopen", "report", "standings", "visibility"],
+  "/api/tournaments/[id]/invite": ["", "reset"],
+  "/api/tournaments/[id]/matches": ["[id]"],
+  "/api/tournaments/[id]/matches/[id]": ["duel", "result"],
+  "/api/webhooks": ["clerk"],
+  "/cubes": ["", "[id]"],
+  "/decks": ["", "[id]", "draft", "new"],
+  "/decks/draft": ["[id]"],
+  "/dev": ["delete-account-preview", "fx-lab", "sign-in-preview", "solid-preview", "table-preview"],
+  "/dev/table-preview": ["", "classic", "ffa3", "ffa4", "pile", "tag"],
+  "/dev/table-preview/classic": ["", "room"],
+  "/draft": ["[id]"],
+  "/drafts": ["", "new"],
+  "/drafts/new": ["", "cube", "theme"],
+  "/duels": ["", "[id]", "dev-presets", "new"],
+  "/duels/[id]": ["", "replay"],
+  "/player": ["[id]"],
+  "/settings": ["", "account", "bug-reports", "card-data"],
+  "/settings/account": ["", "[...id]"],
+  "/sign-in": ["", "[...id]"],
+  "/sign-up": ["", "[...id]"],
+  "/themes": ["", "[id]"],
+  "/tournament": ["[id]"],
+  "/tournament/[id]": ["", "standings"],
+  "/tournaments": ["", "new"],
+};
+
+function publicPagePath(path: string): string {
+  const segments = path.split("/").filter(Boolean);
+  function matchRoute(parent: string, index: number): string[] | null {
+    const children = PUBLIC_ROUTE_CHILDREN[parent];
+    if (index === segments.length) return !children || children.includes("") ? [] : null;
+    const segment = segments[index]!;
+    if (!segment.startsWith("[") && children?.includes(segment)) {
+      const rest = matchRoute(`${parent}/${segment}`, index + 1);
+      if (rest) return [segment, ...rest];
+    }
+    if (children?.includes("[id]")) {
+      const rest = matchRoute(`${parent}/[id]`, index + 1);
+      if (rest) return ["[id]", ...rest];
+    }
+    if (children?.includes("[...id]")) return segments.slice(index).map(() => "[id]");
+    return null;
+  }
+  // Unknown routes also mask every segment after the first.
+  const masked = matchRoute("", 0) ?? segments.map((segment, index) => index === 0 ? segment : "[id]");
+  const trailingSlash = segments.length > 0 && path.endsWith("/") ? "/" : "";
+  return `/${masked.join("/")}${trailingSlash}`;
+}
+
 function reportSections(input: IssueBodyInput, redact: readonly string[]): string[] {
   const { context } = input;
-  // A public page reference must not identify a replay or the reporter's seat.
-  const slug = duelSlugFromPath(input.path);
-  const path = slug ? input.path.replace(`/duels/${slug}`, "/duels/[duel]") : input.path;
   const rows: Array<[string, string]> = [
-    ["Page", cell(path)],
+    ["Page", cell(publicPagePath(input.path))],
     ["Format", cell(context.format ? FORMAT_TEXT[context.format] : undefined)],
     ["Rules", cell(context.duelMode)],
     ["Turn", cell(context.turn)],
