@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { DUEL_LIVE_IDLE_AFTER_MS } from "./duels.js";
+import { DUEL_LIVE_LIST_IDLE_AFTER_MS } from "./duels.js";
 import { duelSeriesTournamentReadScope } from "./tournament-read-scope.js";
 
 export type LiveDuelState = "live" | "between" | "waiting";
@@ -114,7 +114,7 @@ export function createLiveNowService(db: Database.Database): LiveNowService {
       and (x.player_id is null or x.player_id != @viewer)
     order by x.seat
   `);
-  const idle = `-${Math.ceil(DUEL_LIVE_IDLE_AFTER_MS / 1000)} seconds`;
+  const idle = `-${Math.ceil(DUEL_LIVE_LIST_IDLE_AFTER_MS / 1000)} seconds`;
   const countInProgress = (guildId: string, playerId: number | null, options: { excludeSeated?: boolean; viewerUserId?: number } = {}) =>
     count.get({ guild: guildId, viewer: playerId, user: options.viewerUserId ?? null, idle, excludeSeated: options.excludeSeated ? 1 : 0 })?.n ?? 0;
 

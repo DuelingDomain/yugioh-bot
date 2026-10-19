@@ -1,19 +1,22 @@
 #!/bin/sh
 # Copy a prepared canonical duel-engine bundle into DUEL_DATA_DIR when the
 # pinned bundleVersion changed or required files are missing. Never writes
-# bot.sqlite or any path that already contains a database. Identical bundles
+# engine files into any path that already contains a database. Identical bundles
 # are left untouched so container restarts do not regenerate resources.
-# A different bundle is refused while duels.status = 'active' in the sibling
-# SQLite file (read-only). Staging uses a unique sibling directory; cutover
+# A different bundle is refused while recently active duels remain in the sibling
+# SQLite file. DUEL_IDLE_CLOSE=1 lets deploy interrupt idle duels after services stop;
+# preflight and ordinary container starts only read duel rows.
+# Staging uses a unique sibling directory; cutover
 # keeps the previous bundle until the new tree validates.
 #
 # The Standard and Domain multi cores (ocgcore.multi.wasm and ocgcore.multi-domain.wasm, for Tag and
 # 3/4-seat tables) are optional in the bundle and independent of manifest.json. Each is checked against
 # its .sha256 sidecar and installed with atomic renames even when manifest.json is identical. A changed
-# multi core is refused while a Tag or free-for-all duel is active. All checks precede any writes.
+# multi core is refused while a Tag or free-for-all duel is live. All checks precede engine writes.
 #
 # DUEL_PREFLIGHT=1 runs only the checks (bundle complete, multi core sidecar, active duels) and installs nothing.
 # The production deploy runs it before it resets the checkout and builds images, so a refusal changes nothing.
+# DUEL_IDLE_CLOSE=1 enables stale-duel writes only outside preflight, with web/duel/worker/ws stopped.
 set -eu
 
 src="${DUEL_BUNDLE_SRC:-}"
@@ -178,29 +181,83 @@ active_duel_count() {
     echo "python3 is required to refuse bundle replace while games are active" >&2
     return 2
   fi
-  python3 - "$dbfile" "$scope" <<'PY'
+  python3 - "$dbfile" "$scope" "${DUEL_PREFLIGHT:-}" "${DUEL_IDLE_CLOSE:-}" <<'PY'
 from pathlib import Path
+from datetime import datetime, timezone
 import sqlite3
 import sys
+import time
 
 path = Path(sys.argv[1]).resolve()
 multi_seat_only = sys.argv[2] == "multi-seat"
-con = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+preflight = bool(sys.argv[3])
+idle_close = not preflight and sys.argv[4] == "1"
+con = sqlite3.connect(path.as_uri() + ("?mode=rw" if idle_close else "?mode=ro"), uri=True, timeout=5)
 present = con.execute(
     "select 1 from sqlite_master where type = 'table' and name = 'duels'"
 ).fetchone()
 if present is None:
     print(0)
-elif multi_seat_only:
-    columns = [row[1] for row in con.execute("pragma table_info(duels)")]
-    if "format" not in columns:
-        print(0)
-    else:
-        n = con.execute("select count(*) from duels where status = 'active' and format != '1v1'").fetchone()[0]
-        print(n)
-else:
-    n = con.execute("select count(*) from duels where status = 'active'").fetchone()[0]
-    print(n)
+    sys.exit(0)
+columns = {row[1] for row in con.execute("pragma table_info(duels)")}
+scope = " and format != '1v1'" if multi_seat_only else ""
+if multi_seat_only and "format" not in columns:
+    print(0)
+    sys.exit(0)
+
+# Same predicate as shared/services/duels.ts LIVE_IDLE_SQL: all play input, regardless of the clock.
+# Idle competitive rows do not block replacement and stay unchanged for the restarted host.
+# Old schemas without activity fields remain conservatively protected.
+idle = "0"
+params = {}
+if {"kind", "ranked", "last_activity_at", "started_at", "created_at", "clock_json"} <= columns:
+    now = int(time.time() * 1000)
+    params = {"before": datetime.fromtimestamp((now - 600_000) / 1000, timezone.utc).isoformat(timespec="milliseconds")}
+    idle = """kind = 'play' and status = 'active'
+        and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday(:before)"""
+    if idle_close:
+        # The deploy stops web/duel/worker/ws before install. Recheck and close in one write transaction.
+        con.execute("begin immediate")
+        competitive = "ranked = 1"
+        if "series_id" in columns and con.execute("select 1 from sqlite_master where type = 'table' and name = 'duel_series'").fetchone():
+            competitive += " or exists (select 1 from duel_series s where s.id = duels.series_id and s.tournament_match_id is not null)"
+        ids = [row[0] for row in con.execute("select id from duels where " + idle + " and not (" + competitive + ")", params)]
+        for duel_id in ids:
+            # Mirrors finalizeTx(..., 'interrupted', null): no winner, rating or match result.
+            # Keep seed/setup/commands for replay; no engine is available for a fresh final board.
+            con.execute("""update duels set status = 'interrupted', ended_at = datetime('now'),
+                archived_at = coalesce(archived_at, datetime('now')), winner_player_id = null, winner_seat = null,
+                result_reason = 'No player activity for 10 minutes.', clock_json = null,
+                turn_count = json_extract(clock_json, '$.turn'),
+                snapshot_public_json = null, snapshot_seat0_json = null, snapshot_seat1_json = null,
+                snapshot_seats_json = null, snapshot_compacted_at = null
+                where id = ? and status = 'active'""", (duel_id,))
+            # Mirrors onGameFinished('interrupted'), including cancellation when its tournament has ended.
+            series = con.execute("""select id, tournament_match_id from duel_series
+                where status = 'active' and id = (select series_id from duels where id = ?)
+                  and ? = (select id from duels where series_id = duel_series.id
+                           order by game_number desc limit 1)""", (duel_id, duel_id)).fetchone()
+            if series:
+                series_id, match_id = series
+                tournament = con.execute("""select t.status from tournaments t
+                    join tournament_matches m on m.tournament_id = t.id where m.id = ?""", (match_id,)).fetchone()
+                if match_id is not None and (tournament is None or tournament[0] != "active"):
+                    con.execute("""update duel_series set status = 'cancelled', ended_at = datetime('now'),
+                        next_game_at = null where id = ?""", (series_id,))
+                    con.execute("""update duels set status = 'cancelled', ended_at = datetime('now'),
+                        archived_at = coalesce(archived_at, datetime('now')), winner_player_id = null,
+                        winner_seat = null, result_reason = 'Series cancelled', clock_json = null
+                        where series_id = ? and status = 'lobby'""", (series_id,))
+                else:
+                    con.execute("""update duel_series set status = 'between_games', next_game_at = null,
+                        side_ready0 = 0, side_ready1 = case when vs_bot = 1 then 1 else 0 end,
+                        first_chooser = null, first_choice = null where id = ?""", (series_id,))
+        con.commit()
+        if ids:
+            print(f"Interrupted {len(ids)} idle duel(s) before engine install.", file=sys.stderr)
+n = con.execute("select count(*) from duels where status = 'active' and not coalesce((" + idle + "), 0)" + scope, params).fetchone()[0]
+print(n)
+con.close()
 PY
 }
 

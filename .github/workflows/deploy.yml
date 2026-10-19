@@ -686,7 +686,8 @@ jobs:
              }
              check_prod_activity
              # Preflight, before anything on the VM changes: the install script of the new commit, run in check-only
-             # mode on the new bundle. It refuses while a duel is active and the bundle would be replaced (or, for a new
+             # mode on the new bundle. It ignores >10-minute idle duels regardless of their decision clock.
+             # It refuses while a live duel remains and the bundle would be replaced (or, for a new
              # multi core under an identical bundle, while a Tag or free-for-all duel is active). A refusal here leaves
              # the old checkout, the old images and the old containers as they were.
              bundle_src=$(mktemp -d /tmp/yugidraft-duel-engine-src.XXXXXX)
@@ -783,7 +784,9 @@ jobs:
              # Once schema work can begin, failure must leave traffic stopped. Never restart old binaries.
              trap cleanup EXIT
              DUELING_BACKUP_DIR="$release_dir/drained" python3 scripts/backup/dueling-backup
-             if ! DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
+             # With all gameplay services stopped, opt in to interrupting stale duels without winners before the guard.
+             # The earlier preflight and gameplay guard only read activity; replay journals survive cleanup.
+             if ! DUEL_IDLE_CLOSE=1 DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
                sh packages/duel-server/scripts/install-engine-bundle.sh; then
                exit 1
              fi

@@ -866,6 +866,11 @@ export function migrate(db: Database.Database) {
       primary key (duel_id, command_hash, error_index)
     );
 
+    create table if not exists duel_host_heartbeat (
+      id integer primary key check (id = 1),
+      last_tick_at integer not null
+    );
+
     create table if not exists duels (
       id integer primary key autoincrement,
       guild_id text not null,

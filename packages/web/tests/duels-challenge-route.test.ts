@@ -124,6 +124,24 @@ describe("POST /api/duels challenges", () => {
     expect(announcer.announce).not.toHaveBeenCalled();
   });
 
+  it.each([undefined, 0, 30, 240, 3600])("forces the ranked clock for open tables and challenges (requested bank=%s)", async turnSeconds => {
+    const s = seed();
+    const { POST } = await import("../app/api/duels/route");
+    for (const opponentPlayerId of [undefined, s.opponent]) {
+      const response = await POST(post({ name: "Ranked", mode: "normal", ranked: true, opponentPlayerId,
+        settings: { turnSeconds, timeout: "continue" } }) as never);
+      expect(response.status).toBe(201);
+      const body = await response.json();
+      expect(body.session.settings).toMatchObject({ turnSeconds: 180, timeout: "loss" });
+      const row = s.db.prepare("select settings_json from duels where web_slug = ?").get(body.session.slug) as { settings_json: string };
+      expect(JSON.parse(row.settings_json)).toMatchObject({ turnSeconds: 180, timeout: "loss" });
+      if (opponentPlayerId) {
+        const series = s.db.prepare("select settings_json from duel_series where id = ?").get(body.series.id) as { settings_json: string };
+        expect(JSON.parse(series.settings_json)).toMatchObject({ turnSeconds: 180, timeout: "loss" });
+      }
+    }
+  });
+
   it("rejects a bad best-of, a bad opponent and a self challenge", async () => {
     const s = seed();
     const { POST } = await import("../app/api/duels/route");
