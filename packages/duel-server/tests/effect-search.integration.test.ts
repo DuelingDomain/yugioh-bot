@@ -15,6 +15,18 @@ import { createHmac } from "node:crypto";
 import { seedIdentity } from "./helpers/identity.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
 
+const supportCases = ["elemental hero", "elemntal hero"].flatMap(target => [
+  ...["synergies", "synergy", "support", "supports", "combos", "partners", "staples", "deck", "related cards"].map(word => `${target} ${word}`),
+  `cards for ${target}`, `what goes with ${target}`, `synergy with ${target}`,
+]);
+const descriptorSupportCases = [
+  ['dragon deck', 'types', 'Dragon', 'The Melody of Awakening Dragon'],
+  ['dragons deck', 'types', 'Dragon', 'The Melody of Awakening Dragon'],
+  ['dark deck', 'attributes', 'DARK', 'Allure of Darkness'],
+  ['light deck', 'attributes', 'LIGHT', 'Sage with Eyes of Blue'],
+] as const;
+const deckEffectCases = ['dark monsters that search the deck', 'dark monsters that shuffle deck'];
+
 const effectCases: [string,string[],string[]][] = [
   ["1500 atk or less", ["Effect Veiler", "Ash Blossom & Joyous Spring"], ["Blue-Eyes White Dragon"]],
   ["atk 1500 or lower", ["Effect Veiler"], ["Blue-Eyes White Dragon"]],
@@ -410,6 +422,8 @@ const effectCases: [string,string[],string[]][] = [
   ]
 ];
 const nameCases: [string,string][] = [
+  ["blueeyes spirit", "Blue-Eyes Spirit Dragon"],
+  ["maskedhero dark", "Masked HERO Dark Law"],
   [
     "Ash Blossom",
     "Ash Blossom & Joyous Spring"
@@ -451,6 +465,8 @@ const nameCases: [string,string][] = [
     "Dark Hole"
   ]
 ];
+// Newest sort, five budgets, four formats, deck synergy, extra text and multi-attack.
+const expectedQueries = effectCases.length + supportCases.length + descriptorSupportCases.length + deckEffectCases.length + nameCases.length + 13;
 const cards = loadCardDatabase(engineDataDirectory);
 const byName = new Map([...cards.all()].map(card => [card.name,card]));
 const code = (name: string): number => { const card=byName.get(name); if (!card) throw new Error(`Eval card missing: ${name}`); return card.canonicalPasscode ?? card.code; };
@@ -489,7 +505,7 @@ beforeAll(() => {
 },20_000);
 
 afterAll(async()=>{
-  const report={queries:evaluatedQueries,expectedQueries:69,complete:evaluatedQueries===69,labeledTP,labeledFP,labeledFN,labeledTN,
+  const report={queries:evaluatedQueries,expectedQueries,complete:evaluatedQueries===expectedQueries,labeledTP,labeledFP,labeledFN,labeledTN,
     labeledPrecision:labeledTP+labeledFP ? labeledTP/(labeledTP+labeledFP) : null,
     labeledRecall:labeledTP+labeledFN ? labeledTP/(labeledTP+labeledFN) : null};
   const output=resolve(import.meta.dirname,'../../../.status/effect-search');mkdirSync(output,{recursive:true});
@@ -498,7 +514,7 @@ afterAll(async()=>{
   if(host)await host.close();db.close();cards.close();vi.unstubAllEnvs();
 });
 
-describe('69-query real-artifact effect/name/synergy/format evaluation',()=>{
+describe(`${expectedQueries}-query real-artifact effect/name/synergy/format evaluation`,()=>{
   it('installs a file-backed startup index with identical readings, dates and all-card effect scores', async () => {
     const directory = mkdtempSync(resolve(tmpdir(), 'effect-facet-process-'));
     const path = resolve(directory, 'shared.sqlite');
@@ -525,6 +541,45 @@ describe('69-query real-artifact effect/name/synergy/format evaluation',()=>{
     const result=present(search(text,[...include,...exclude].map(code)));
     checkLabels(result,include,exclude,text);
   });
+  it.each(supportCases)('support phrase: %s', text => {
+    evaluatedQueries++;
+    const include = ['Elemental HERO Stratos', 'Elemental HERO Shadow Mist'];
+    const exclude = ['Dark Magician', 'Blue-Eyes White Dragon'];
+    const result = search(text, [...include, ...exclude].map(code));
+    expect(result.reading?.query.supports?.archetypes).toEqual(['Elemental HERO']);
+    expect(result.reading?.query.text).toBe('');
+    expect(result.reading?.chips).toEqual(['Works with: "Elemental HERO"']);
+    expect(result.cards).toEqual([]);
+    expect(result.effectTotal).toBe(2);
+    checkLabels((result.effectHits ?? []).map(card => card.code), include, exclude, text);
+    const catalog = search(text);
+    expect(catalog.reading?.query.supports?.archetypes).toEqual(['Elemental HERO']);
+    expect(catalog.reading?.query.text).toBe('');
+    expect(catalog.effectTotal).toBeGreaterThan(0);
+    expect(catalog.effectHits?.length).toBeGreaterThan(0);
+  });
+  it('keeps meaningful text after a support phrase as a requirement', () => {
+    evaluatedQueries++;
+    const result = search('elemental hero synergies nonexistentword', ['Elemental HERO Stratos'].map(code));
+    expect(result.reading?.query.supports?.archetypes).toEqual(['Elemental HERO']);
+    expect(result.reading?.query.text).toBe('nonexistentword');
+    expect(result.effectTotal).toBe(0);
+  });
+  it.each(descriptorSupportCases)('support descriptor: %s', (text, key, value, name) => {
+    evaluatedQueries++;
+    const result = search(text, [name, 'Raigeki'].map(code));
+    expect(result.reading?.query.supports?.[key]).toEqual([value]);
+    expect(result.reading?.query.supports?.archetypes).toEqual([]);
+    expect(result.reading?.query.text).toBe('');
+    checkLabels((result.effectHits ?? []).map(card => card.code), [name], ['Raigeki'], text);
+  });
+  it.each(deckEffectCases)('keeps card descriptors on ordinary effects: %s', text => {
+    evaluatedQueries++;
+    const reading = cardEffectIndex(cards)!.readQuery(text);
+    expect(reading?.query.card.attributes).toEqual(['DARK']);
+    expect(reading?.query.supports).toBeUndefined();
+    expect(reading?.query.text).toBe('deck');
+  });
   it('newest spells orders the retained page by release date', () => {
     evaluatedQueries++;
     const pool = ['Monster Reborn', 'Twin Twisters', 'Raigeki'].map(code);
@@ -542,7 +597,9 @@ describe('69-query real-artifact effect/name/synergy/format evaluation',()=>{
   });
   it.each(nameCases)('name/alias/typo: %s',(text,name)=>{
     evaluatedQueries++;
-    const names=present(search(text,undefined,{scope:'name'})), all=present(search(text,undefined,{scope:'all'}));
+    const catalog=search(text,undefined,{scope:'all'});
+    expect(catalog.reading).toBeNull();
+    const names=present(search(text,undefined,{scope:'name'})), all=catalog.cards.map(card=>card.canonicalPasscode ?? card.code);
     checkLabels(names.filter(passcode=>all.includes(passcode)),[name],[],`${text} in both scopes`);
   });
   it.each([0,20,29,30,40])('Genesys budget %s excludes unknown/Link/Pendulum',(budget)=>{
