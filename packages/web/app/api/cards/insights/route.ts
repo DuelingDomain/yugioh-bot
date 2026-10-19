@@ -7,6 +7,8 @@ import { env } from "@/lib/env";
 import { effectSearchEnabled } from "@/lib/effect-search";
 import { readCardInsightRequest } from "@/lib/card-insights-api";
 import { apiErrorResponse } from "@/lib/api-errors";
+import { lowConfidenceReading } from "@yugidraft/shared/cards/effects";
+import { fallbackEffectReading } from "@yugidraft/shared/cards/effects/reading-fallback";
 
 export const runtime = "nodejs";
 
@@ -24,8 +26,18 @@ export async function POST(request: Request) {
     let data: object;
     switch (input.op) {
       case "summary": data = { summary: service.summary(input.passcode) }; break;
-      case "read": data = { reading: service.readQuery(input.text) }; break;
-      case "effectSearch": data = service.effectSearch(input.text, input.pool, input); break;
+      case "read": {
+        let reading = service.readQuery(input.text);
+        if (lowConfidenceReading(input.text, reading)) reading = await fallbackEffectReading(getDb(), input.text, actor.userId) ?? reading;
+        data = { reading }; break;
+      }
+      case "effectSearch": {
+        let result = service.effectSearch(input.text, input.pool, input);
+        if (!input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
+          if (await fallbackEffectReading(getDb(), input.text, actor.userId)) result = service.effectSearch(input.text, input.pool, input);
+        }
+        data = result; break;
+      }
       case "hookSearch": data = { cards: service.hookSearch(input.archetype, input.hook, input.pool, input) }; break;
       case "guide": data = { guide: readArchetypeGuide(getDb(), input.archetypes) }; break;
       case "worksWith": data = { cards: service.worksWith(input.passcode, input.pool, input) }; break;

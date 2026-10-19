@@ -1,8 +1,9 @@
 # CI effect tagging
 
 `.github/workflows/effect-tagging.yml` tags new or changed printed effects from
-the approved engine catalog. The application only imports the reviewed pinned
-artifact: it never calls a model or needs an Anthropic credential. Card text is
+the approved engine catalog. Card tagging in the application only imports the reviewed pinned
+artifact. The optional runtime phrase reader uses the same budget ledger;
+see the runtime reader section below. Card text is
 normalized and hashed using the [artifact contract](effect-search-artifact.md).
 Known artwork/remaps fold before comparison; named functional aliases retain
 their own identity. Tokens, empty effects and ordinary Normal Monsters are
@@ -86,8 +87,8 @@ unsettled reservations, including prior months. Missing, corrupt or conflicting
 durable state blocks live operation. Monthly totals must exactly equal complete
 settled reservation history. Do not prune or hand-edit this history. Protect
 the state branch against deletion and force replacement, preserve fast-forward
-writes by the workflow, and keep Git backups. Other consumers of the same API
-workspace are outside this pipeline's cap.
+writes by the workflow, and keep Git backups. The runtime phrase reader is included in this same cap. Other consumers of
+the same API workspace are outside it.
 
 Git Data API commits use structured JSON and a compare-and-swap revision;
 non-fast-forward updates fail. A reservation is committed, then submission
@@ -180,7 +181,8 @@ These checks need no API secret and issue no GitHub writes or paid requests.
   completed batches. It tags the approved catalog, rather than sending unreviewed
   engine PR input to the paid API. Engine update PRs do not wait for Batch completion.
 - Runtime APIs, `card_tags`, `card_tag_profiles`, `EFFECT_SEARCH=1`, the attribution
-  constant, and summary display are unchanged. No API key is needed at runtime.
+  constant, and summary display are unchanged. No API key is needed to search pinned tags. The optional hard-phrase reader
+uses a runtime key and the same durable ledger.
 
 Before publishing, CI evaluates all sixty engine queries against the generated
 pin. Any failed expected hit or exclusion fails the job; no lower score is
@@ -189,3 +191,42 @@ artifact was committed from a real model in local development: the integration
 suite exercises candidate generation, validation and dry run with fake responses.
 The owner must add `ANTHROPIC_API_KEY` and initialize the ledger before paid use.
 No secret is created by this change.
+
+
+## Optional runtime phrase reader
+
+Behind `EFFECT_SEARCH`, authenticated deck search and public-catalog insights may
+make one Messages POST for a low-confidence or empty rule reading. This never
+tags cards. It uses `claude-haiku-5-5`, disables thinking, limits output to 1,024
+tokens and validates JSON against the existing query vocabulary. Named cards and
+unsupported facets are rejected; archetypes must exist in the shared catalog.
+
+Configure `ANTHROPIC_API_KEY` and `EFFECT_TAGGING_LEDGER_TOKEN` (or `GITHUB_TOKEN`)
+in the calling server process. `EFFECT_TAGGING_LEDGER_REPOSITORY` (or
+`GITHUB_REPOSITORY`) is `owner/repo`. The token needs read and fast-forward write
+access to the existing `state/effect-tagging` branch. Runtime never initializes
+or replaces this branch. Missing credentials, missing/corrupt ledger, CAS
+conflict, exhausted budget, HTTP error, SQLite contention or the two-second
+end-to-end deadline silently preserve the deterministic result. Successful name
+searches, exact/name-only searches, empty explicit pools and chip edits skip it.
+No credential or user identity enters the prompt or spend ledger.
+
+The ledger schema and budget calculation live in shared `budget-ledger.ts`;
+the CI module re-exports them. Its optional `runtime` history is backward
+compatible with version 1. Each Messages request reserves $0.50256 before a
+separate durable submission-intent CAS: the worst standard tier on the model's
+full 1M context plus 1,024 output tokens. Actual input/output usage settles at
+$0.10/$0.50 per million up to 100K input, $0.50/$2.50 above it, rounded upward
+to a microdollar. Rates were checked against the official Haiku overview on
+2026-10-19. Runtime spends share the existing $10/month cap, not the CI $2/run
+cap. Every uncertain hold survives UTC month rollover. Runtime defers during
+the final minute of a UTC month and rechecks before POST and settlement.
+
+The shared SQLite `effect_readings` table permanently caches validated readings
+by normalized phrase. A durable phrase claim prevents duplicate POSTs across
+users, API routes, processes and restarts. Failed/uncertain paid attempts retain
+a terminal or pending claim and are never retried. Pre-submission failures may
+be retried, retaining any uncertain reservation. `effect_reading_limits` applies
+a sliding 20 attempts/user/hour and 100 attempts globally/hour; cached hits are
+free. User identities are hashed only for this local rate table. Never delete
+claims to retry uncertain spend. Search responses contain no model attribution.

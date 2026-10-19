@@ -341,6 +341,17 @@ export function migrate(db: Database.Database) {
 
     -- Effect artifacts have their own version and may include cards absent from
     -- the catalog/engine. Keep this cache independent of both identities.
+    create table if not exists effect_readings (
+      phrase text primary key,
+      state text not null check (state in ('pending','done')),
+      query_json text,
+      created_at integer not null
+    );
+    create table if not exists effect_reading_limits (
+      actor_hash text not null,
+      attempted_at integer not null
+    );
+    create index if not exists effect_reading_limits_time on effect_reading_limits(attempted_at);
     create table if not exists card_tags (
       passcode integer primary key check (passcode > 0 and passcode <= 4294967295),
       summary text not null,
