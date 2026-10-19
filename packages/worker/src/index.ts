@@ -36,6 +36,7 @@ const db = openDatabase(databasePath);
 const effects = effectsFromEnv(process.env);
 const healthPath = process.env.WORKER_HEALTH_PATH ?? "/tmp/yugidraft-worker-health.json";
 const writeHealth = () => writeFileSync(healthPath, JSON.stringify({ pid: process.pid, at: Date.now() }), { mode: 0o600 });
+const beat = db.prepare("insert into worker_heartbeat(id, at, pid) values (1, ?, ?) on conflict(id) do update set at = excluded.at, pid = excluded.pid");
 const draftTimer = createDraftTimer({ db, drafts: createDraftService(db), effects, startedAt });
 const tournamentTimer = createTournamentTimer({ db, matches: createMatchService(db), tournaments: createTournamentService(db), effects });
 const jobs = [
@@ -48,6 +49,8 @@ const jobs = [
     projectId: process.env.POSTHOG_PROJECT_ID ?? "",
   }), 10_000),
   createLoop(async () => { await draftTimer.tick(); writeHealth(); }, 1000),
+  // The admin console reads this row to show worker health; it warns when the row is older than 3 minutes.
+  createLoop(async () => { beat.run(Date.now(), process.pid); }, 30_000),
   createLoop(() => tournamentTimer.tick(), 60_000),
   createSetSync({
     db,

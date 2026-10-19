@@ -1,0 +1,11 @@
+/* System panel. 14px text; no figures. Colour only for state, through StatusLine. */
+.label { color: var(--ink-3); font: 400 14px/1.5 var(--f-ui); }
+.value { display: grid; gap: 4px; min-width: 0; font: 400 14px/1.5 var(--f-ui); font-variant-numeric: tabular-nums; }
+.line { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.sub { margin: 0; color: var(--ink-3); font: 400 14px/1.5 var(--f-ui); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.link { color: var(--ink); text-decoration: underline; text-decoration-color: var(--rule-hi); text-underline-offset: 3px; }
+.link:hover { text-decoration-color: var(--ink); }
+.link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
+.mono { font-family: var(--f-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+/* The row already has its rule; drop the one StatusLine draws above itself. */
+.value > .status.status { border-top: 0; padding-top: 0; font-size: 14px; }
