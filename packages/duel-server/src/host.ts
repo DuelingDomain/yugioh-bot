@@ -142,7 +142,7 @@ const DUEL_OPS = new Set([
   "engine-data-status", "capabilities", "view", "start", "respond", "deck", "validate-deck", "cards",
   "card-details", "card-artworks", "card-query", "card-facets", "surrender", "add-bot", "archive", "cancel",
   "replay", "owner-replay", "replay-fork", "fork-list", "fork-restart", "fork-cancel", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
-  "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset",
+  "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset", "start-test-duel",
   "report", "debug-trace", "bug-context", "bug-replay-frame", "chain-mode", "validate-deck-master",
 ]);
 
@@ -2219,6 +2219,80 @@ export function createDuelHost(options: {
     return { slug, session: room.session, room };
   }
 
+  /**
+   * Deck editor "Test duel": a private, unranked 1v1 against a practice bot with the player's own deck.
+   * `shuffle` off keeps the deck order (the first cards are the opening hand); `goFirst` off seats the player second.
+   * The table carries the `testDuel` mark, so lists, counts, history and deploy guards skip it. Quit uses the normal cancel.
+   */
+  async function startTestDuel(body: Record<string, unknown>, guildId: string, actor: number): Promise<unknown> {
+    const mode = body.mode;
+    if (mode !== "normal" && mode !== "domain") throw new RequestError("Duel mode must be normal or domain", 400);
+    if (body.shuffle !== undefined && typeof body.shuffle !== "boolean") throw new RequestError("Shuffle must be true or false", 400);
+    if (body.goFirst !== undefined && typeof body.goFirst !== "boolean") throw new RequestError("Go first must be true or false", 400);
+    const shuffle = body.shuffle !== false;
+    const goFirst = body.goFirst !== false;
+    let settings: DuelSettings;
+    try {
+      // No clock, and a deck in progress may be short: the engine rules and the format still apply.
+      settings = normalizeDuelSettings(mode, {
+        visibility: "private", validateDeck: false, shuffleDeck: shuffle, turnSeconds: 0,
+        ...(body.genesys ? { genesys: body.genesys } : {}),
+      }, "1v1");
+    } catch (error) {
+      if (error instanceof DuelSettingsError) throw new RequestError(error.message, 400);
+      throw error;
+    }
+    await validateDeckMasterWrite(mode, body.deck as DuelDeck);
+    const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
+    await validateSessionDeck(mode, deck, settings, "1v1");
+    let botDeck: DuelDeck;
+    try {
+      botDeck = buildPracticeBotDeck(mode, options.dataDirectory);
+    } catch (error) {
+      if (error instanceof PracticeBotError) throw new RequestError(error.message, 409);
+      throw error;
+    }
+    await validateSessionDeck(mode, botDeck, settings, "1v1");
+
+    // One test table per player: a new test replaces the one still open.
+    const stale = options.db.prepare<[string, number], { web_slug: string }>(`
+      select web_slug from duels where guild_id = ? and organizer_player_id = ? and kind = 'play'
+        and status in ('lobby', 'active') and coalesce(json_extract(setup_json, '$.testDuel'), 0) = 1
+    `).all(guildId, actor);
+    for (const { web_slug: old } of stale) {
+      try {
+        service.cancel(old, guildId, actor, await liveCancelTurn(old));
+        clearOpeningTimer(old);
+        await disposeGame(old);
+        await emitChange(old, guildId);
+      } catch {
+        // Already closed.
+      }
+    }
+
+    const created = service.create({
+      guildId, organizerPlayerId: actor, name: "Test duel", mode, settings, format: "1v1",
+      organizerSeat: goFirst ? 0 : 1, testDuel: true,
+    });
+    const slug = created.slug;
+    try {
+      service.setDeck(slug, guildId, actor, deck);
+      service.addPracticeBot(slug, guildId, actor, botDeck, goFirst ? 1 : 0);
+      await startGame(slug, guildId, actor);
+    } catch (error) {
+      games.delete(slug);
+      try {
+        service.cancel(slug, guildId, actor);
+      } catch {
+        // The table is already gone.
+      }
+      await disposeGame(slug);
+      throw error;
+    }
+    const room = await project(slug, guildId, actor, games.get(slug)?.game);
+    return { slug, session: room.session, room };
+  }
+
   /** One debug read of a view. A stuck worker never answers, so every read has a time limit. */
   async function readDebugView(slug: string, game: DuelGameWorker, seat: number | null): Promise<{ view: DuelEngineView | null; error?: string }> {
     try {
@@ -3139,6 +3213,7 @@ export function createDuelHost(options: {
       requireScenarios();
       return startPreset(body, guildId, actor);
     }
+    if (op === "start-test-duel") return startTestDuel(body, guildId, actor);
     if (op === "report" || op === "debug-trace") requireScenarios();
     if (op === "card-artworks") {
       if (!Array.isArray(body.codes) || body.codes.length !== 1
