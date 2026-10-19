@@ -926,7 +926,8 @@ export function createDuelHost(options: {
     winnerSeat: number | null,
     reason: string,
   ): Promise<DuelFinalSnapshots> {
-    const publicView = await game.view(null, { fullLog: true });
+    // Replay verification compares board state, not log history. Final snapshots keep the normal 400-entry tail.
+    const publicView = await game.view(null);
     const result: NonNullable<DuelEngineView["result"]> = { winnerSeat, reason,
       ...(publicView.result?.victory === "exodia" ? { victory: "exodia" as const } : {}) };
     // Tag: a team wins. `winnerSeat` is the lowest seat of the team; `winnerTeam` names it.

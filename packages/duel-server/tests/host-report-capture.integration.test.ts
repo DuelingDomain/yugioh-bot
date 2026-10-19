@@ -17,7 +17,7 @@ it('keeps an exact board and journal pair during the first action and after a la
   const session = duels.create({ guildId: 'capture', organizerPlayerId: ids[0]!, name: 'capture', mode: 'normal' });
   duels.takeSeat(session.slug, 'capture', ids[1]!);
   for (const id of ids) duels.setDeck(session.slug, 'capture', id, buildPracticeBotDeck('normal', DATA));
-  let revision = 0, running = true, blocked = false, hang = false;
+  let revision = 0, running = true, blocked = false, hang = false, fullLogReads = 0;
   let started!: () => void, release!: () => void;
   const entered = new Promise<void>(resolve => { started = resolve; });
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -27,7 +27,7 @@ it('keeps an exact board and journal pair during the first action and after a la
     prompt: seat === 0 ? { id: `p${revision}`, seat: 0, kind: 'choice', title: 'Act', context: { type: 'action', phase: 'main' }, options: [{ id: 'to_ep', label: 'End turn' }] } : null,
     log: Array.from({ length: revision === 0 ? 1 : 501 }, (_, index) => ({ id: index + 1, text: `Public revision ${revision} event ${index + 1}` })).slice(fullLog ? 0 : -400), events: [], chain: [], result: null });
   const worker: DuelGameWorker = { get running() { return running; }, async create() {},
-    async view(seat, history) { if (blocked || hang) return never(); return view(seat, history?.fullLog); },
+    async view(seat, history) { if (history?.fullLog) fullLogReads++; if (blocked || hang) return never(); return view(seat, history?.fullLog); },
     async answer() { blocked = true; started(); await gate; blocked = false; revision += 1; },
     async search() { return []; }, async close() { running = false; } };
   const secret = 'capture-integration';
@@ -42,6 +42,7 @@ it('keeps an exact board and journal pair during the first action and after a la
     expect((await post({ op: 'start' })).status).toBe(200);
     const observer = seedIdentity(db, { guildId: 'capture', userId: 103 });
     expect((await post({ op: 'view', playerId: observer.playerId })).status).toBe(200);
+    const readsBeforeMove = fullLogReads;
     const pending = post({ op: 'respond', command: { revision: 0, promptId: 'p0', answer: { choice: 'to_ep' } } });
     await entered;
     const overlap = await post({ op: 'bug-context' });
@@ -49,6 +50,7 @@ it('keeps an exact board and journal pair during the first action and after a la
     expect(overlap.data.moment).toMatchObject({ revision: 0, journalCount: 0 });
     release();
     expect((await pending).status).toBe(200);
+    expect(fullLogReads - readsBeforeMove).toBe(2); // One blocked report read and one accepted-command capture.
     // A cached spectator view is older than the accepted action. It must not receive today's journal count.
     hang = true;
     const timedOut = await post({ op: 'bug-context' });
@@ -61,5 +63,9 @@ it('keeps an exact board and journal pair during the first action and after a la
     const sameRevision = await post({ op: 'bug-context' });
     expect(sameRevision.data.board.log).toHaveLength(501);
     expect(sameRevision.data.moment).toMatchObject({ revision: 1, journalCount: 1 });
+    hang = false;
+    expect((await post({ op: 'surrender' })).status).toBe(200);
+    const final = db.prepare('select snapshot_public_json from duels where id = ?').get(session.id) as { snapshot_public_json: string };
+    expect(JSON.parse(final.snapshot_public_json).log).toEqual(view(null, true).log.slice(-400));
   } finally { release(); await host.close(); db.close(); }
 }, 10_000);

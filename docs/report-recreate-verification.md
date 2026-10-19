@@ -2,6 +2,35 @@
 
 Verified on 2026-10-19 from origin/main `0519c070a`, including PR #398.
 
+## Review corrections, 19 October 2026
+
+The review of `3c03f7273` required a hard log limit. These rules supersede
+references to a complete or full log below:
+
+- The top-level report log keeps the newest entries within 2 MiB and 10,000
+  entries. If storage removes entries or shortens an oversized entry, the saved
+  data has `logTruncated: true` and `logTotal` with the input entry count.
+- Both engines retain at most 10,000 log entries. Normal live views keep 400.
+- Final public snapshots keep 400 entries. Replay verification uses board
+  state and the command journal; it does not compare log history. A report
+  first captured after the duel ends uses this final log tail.
+- An accepted move already creates one full-log spectator view in
+  `persistAcceptedCommand`. That same view updates the report capture. The
+  other call at the cited line 2200 is in `startPreset`, not the move path.
+  The host integration test counts calls to protect this behavior.
+- The owner download says `Deck in the editor at report time (.ydk)` for an
+  editor capture. It says `Saved deck (.ydk)` for a saved deck capture.
+
+Before the change, the new checks failed for 20,000 stored entries, UTF-8 byte
+limits, one oversized entry, both engine retention limits, the final snapshot,
+and both deck labels. After the change, 28 integration tests passed across six
+files. The tests include 845 stored entries without loss, more than 21,000 real
+engine events on each engine, and real replay reconstruction and verification.
+All seven workspace typechecks passed with the cache disabled. No new unit
+tests were added. Commands used Node 22.23.3, `prlimit --core=0`, the existing
+no-environment-file preload, and the isolated `/tmp/report-local-all-engine`
+bundle. Source build output was removed after the checks.
+
 ## Safety
 
 The GitHub target is `DuelingDomain/yugioh-bot`. The code reads

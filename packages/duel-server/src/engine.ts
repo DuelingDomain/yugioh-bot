@@ -222,6 +222,8 @@ export function eliminationCodeOf(promptId: string): number | null {
 
 /** Entries the ring buffer keeps. */
 export const DIAGNOSTICS_LIMIT = 200;
+/** Public and private log entries retained for reports and replay deltas. Live views keep their last 400. */
+export const LOG_RETENTION_LIMIT = 10_000;
 
 /** Internal replay cursors. Filtering stored history before projection avoids formatting old private text. */
 export interface EngineViewHistory {
@@ -630,6 +632,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const appendLog = (text: string, audience: "all" | number = "all", privateText?: Record<number, string>): LogEntry => {
     const entry = { id: nextLogId++, text, audience, ...(privateText ? { privateText } : {}) };
     log.push(entry);
+    if (log.length > LOG_RETENTION_LIMIT) log.splice(0, log.length - LOG_RETENTION_LIMIT);
     return entry;
   };
   // Lines for cards that left the field this batch (log-lines.ts LogLine.leftField). A destroy event for the same
