@@ -7,7 +7,8 @@ function card(value: DuelCard | null): unknown {
   if (value === null) return null;
   return {
     zone: zone(value), code: value.code ?? null, position: value.position,
-    attack: value.attack ?? null, defense: value.defense ?? null,
+    attack: value.attack == null ? null : value.attack | 0,
+    defense: value.defense == null ? null : value.defense | 0,
     level: value.level ?? null, rank: value.rank ?? null,
     type: value.type ?? null, attribute: value.attribute ?? null, race: value.race ?? null,
     linkRating: value.linkRating ?? null, linkMarker: value.linkMarker ?? null,

@@ -418,6 +418,20 @@ it("compares gzip saved public and private boards through the codec", async () =
   const result = await post({ visibility: "public" }); expect(result.status).toBe(200); expect(result.body.verification).toBe("verified");
   expect(result.body.frames[0].view.seats[1].hand[0].code).toBeUndefined();
 });
+it.each(["attack", "defense"] as const)("normalizes saved unsigned %s when comparing rebuilt signed boards", async stat => {
+  cross();
+  for (const seat of [null, 0, 1]) changeSaved(seat, view => { view.seats[0]!.monsters[0]![stat] = 4294967294; });
+  configure = worker => {
+    const view = worker.view.bind(worker);
+    worker.view = async seat => {
+      const state = await view(seat);
+      state.seats[0]!.monsters[0]![stat] = -2;
+      return state;
+    };
+  };
+  expect(await post({ visibility: "public" })).toMatchObject({ status: 200, body: { verification: "verified" } });
+  expect(checks()).toEqual([{ bundle_version: "test-bundle", result: "verified", reason: null }]);
+});
 it.each([null, 0, 1])("refuses and caches a difference in saved projection %s", async seat => {
   cross(); changeSaved(seat, view => { view.seats[seat ?? 0]!.lp--; });
   const result = await post({ visibility: "public" });
