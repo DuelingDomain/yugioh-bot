@@ -2,11 +2,16 @@ import type {
   CardDataGapCard,
   CardDataSetGapStatus,
   CardDataStatus,
+  CardDataUpdateHistoryEntry,
   EngineDataSource,
   UpstreamSourceStatus,
 } from "@yugidraft/shared/types";
 
 export const SOURCE_ORDER: EngineDataSource[] = ["database", "scripts", "strings"];
+
+export function newestUpdates(entries: CardDataUpdateHistoryEntry[]): CardDataUpdateHistoryEntry[] {
+  return [...entries].sort((a, b) => b.date.localeCompare(a.date) || b.pullRequest.number - a.pullRequest.number);
+}
 
 export const SOURCE_LABEL: Record<EngineDataSource, string> = {
   database: "BabelCDB",
