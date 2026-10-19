@@ -257,7 +257,7 @@ export function ZoneSlot({
       <button
         type="button"
         className={styles.zoneHit}
-        aria-label={equipText ? `${label}. ${equipText}` : label}
+        aria-label={name}
         aria-pressed={selected}
         // A ghost is the facing seat's card: a click on it acts on nothing (hover still previews it).
         onClick={(event) => {
