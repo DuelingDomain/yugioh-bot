@@ -128,6 +128,8 @@ export type FxVictim = {
   code: number;
   defense: boolean;
   turned?: boolean;
+  /** Wipes: the angle (rad, counter-clockwise) the card copy stands at on screen; it replaces `defense` and `turned` for a card on a turned or tilted field. */
+  rot?: number;
   /** Old pieces: the card breaks here (ms from the start). Wipes: the card is gone from the field here. */
   atMs: number;
   /** Wipes: the canvas starts to draw this card (the page card hides here, about 40 ms earlier than any change). */

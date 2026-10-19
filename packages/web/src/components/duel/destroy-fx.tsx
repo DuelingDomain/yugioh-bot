@@ -10,7 +10,7 @@ import { pickBattleRoute } from "./fx3d/routing";
 import { getSharedFx3d, viewportToHost } from "./fx3d/shared";
 import type { FxField, FxPiles, FxRect, FxRows, FxScene, FxWorld } from "./fx3d/types";
 import { safeFxAnimate as safeAnimate } from "./safe-animate";
-import { artUpsideDown, screenPose, screenSize, zoneTurnsArt } from "./attack-fx";
+import { artUpsideDown, screenCorners, screenPose, screenSize, zoneTurnsArt } from "./attack-fx";
 import { duelFxClock } from "./fx-clock";
 import { chainEffectAt } from "./chain-beats";
 import { holdPromptReveal } from "./prompt-reveal";
@@ -58,7 +58,10 @@ type Planned = {
   releaseHold: () => void;
 };
 
-type WipeGhost = { box: Box; src: string; defense: boolean; takeMs: number; endMs: number };
+/** Where a card stands on screen: its four corners (top-left first, as the card is laid out) and its layout size. */
+type CardQuad = { q: [Pt, Pt, Pt, Pt]; w: number; h: number };
+type Pt = { x: number; y: number };
+type WipeGhost = { box: Box; src: string; defense: boolean; takeMs: number; endMs: number; quad: CardQuad | null; artTurned: boolean };
 
 function boxOf(el: Element): Box {
   const r = el.getBoundingClientRect();
@@ -74,6 +77,72 @@ function artBox(key: string): { box: Box; node: HTMLElement } | null {
   if (!node) return null;
   const box = boxOf(node.querySelector("[data-card-art]") ?? node);
   return box.width > 0 && box.height > 0 ? { box, node } : null;
+}
+
+/** The box of the card in a zone: the wrap of its art. A face-down card has one too, so a sleeve is measured the same way. */
+function cardHost(node: Element): HTMLElement | null {
+  const host = node.querySelector("[data-card-art]")?.parentElement ?? node.querySelector("[data-defense]");
+  return host instanceof HTMLElement ? host : null;
+}
+
+/**
+ * The corners of the card in a zone as they are on screen, with the turn of its seat field, the tilt of a 3D view and the
+ * Defense quarter turn of the card itself (the layout box of the art, moved by its own transform). Null if unreadable.
+ */
+function cardQuad(node: Element): CardQuad | null {
+  const host = cardHost(node);
+  const corners = host ? screenCorners(host) : null;
+  if (!host || !corners) return null;
+  const w = host.offsetWidth;
+  const h = host.offsetHeight;
+  if (!(w > 0 && h > 0)) return null;
+  const face = node.querySelector<HTMLElement>("[data-card-art]") ?? (host.firstElementChild as HTMLElement | null);
+  const tf = face ? getComputedStyle(face).transform : "none";
+  const m = tf && tf !== "none" ? new DOMMatrix(tf) : new DOMMatrix();
+  const at = (x: number, y: number): Pt => {
+    const p = m.transformPoint(new DOMPoint(x - w / 2, y - h / 2));
+    const u = 0.5 + p.x / w;
+    const v = 0.5 + p.y / h;
+    const [a, b, c, d] = corners;
+    return {
+      x: (1 - u) * (1 - v) * a.x + u * (1 - v) * b.x + u * v * c.x + (1 - u) * v * d.x,
+      y: (1 - u) * (1 - v) * a.y + u * (1 - v) * b.y + u * v * c.y + (1 - u) * v * d.y,
+    };
+  };
+  return { q: [at(0, 0), at(w, 0), at(w, h), at(0, h)], w, h };
+}
+
+/** A card quad as one pose: its middle, its true size (portrait) and the angle (rad, counter-clockwise) its top edge points to. */
+function quadPose(card: CardQuad): { cx: number; cy: number; w: number; h: number; angle: number } {
+  const [a, b, c, d] = card.q;
+  const edge = { x: (b.x - a.x + (c.x - d.x)) / 2, y: (b.y - a.y + (c.y - d.y)) / 2 };
+  return {
+    cx: (a.x + b.x + c.x + d.x) / 4,
+    cy: (a.y + b.y + c.y + d.y) / 4,
+    w: (Math.hypot(b.x - a.x, b.y - a.y) + Math.hypot(c.x - d.x, c.y - d.y)) / 2,
+    h: (Math.hypot(d.x - a.x, d.y - a.y) + Math.hypot(c.x - b.x, c.y - b.y)) / 2,
+    angle: -Math.atan2(edge.y, edge.x),
+  };
+}
+
+/** The CSS matrix3d that lays a `w` x `h` box (origin at its top-left corner) over the four corners `q`. */
+function quadMatrix({ q, w, h }: CardQuad): string {
+  const [p0, p1, p2, p3] = q;
+  const dx1 = p1.x - p2.x;
+  const dx2 = p3.x - p2.x;
+  const dx3 = p0.x - p1.x + p2.x - p3.x;
+  const dy1 = p1.y - p2.y;
+  const dy2 = p3.y - p2.y;
+  const dy3 = p0.y - p1.y + p2.y - p3.y;
+  const den = dx1 * dy2 - dx2 * dy1;
+  const g = den === 0 ? 0 : (dx3 * dy2 - dx2 * dy3) / den;
+  const k = den === 0 ? 0 : (dx1 * dy3 - dx3 * dy1) / den;
+  const a = p1.x - p0.x + g * p1.x;
+  const b = p3.x - p0.x + k * p3.x;
+  const d = p1.y - p0.y + g * p1.y;
+  const e = p3.y - p0.y + k * p3.y;
+  const n = [a / w, d / w, 0, g / w, b / h, e / h, 0, k / h, 0, 0, 1, 0, p0.x, p0.y, 0, 1];
+  return `matrix3d(${n.join(",")})`;
 }
 
 function codeOfNode(node: Element): number {
@@ -143,8 +212,8 @@ type Local = { o: { x: number; y: number }; turn: number; card: { w: number; h: 
 function fieldTurn(seat: number): number {
   for (let sequence = 0; sequence < 5; sequence += 1) {
     const found = artBox(zoneKey(seat, LOCATION_MZONE, sequence));
-    const art = found?.node.querySelector<HTMLElement>("[data-card-art]");
-    const pose = art?.parentElement ? screenPose(art.parentElement) : null;
+    const host = found ? cardHost(found.node) : null;
+    const pose = host ? screenPose(host) : null;
     if (!pose) continue;
     let turn = (-pose.turn * Math.PI) / 180;
     if (Math.cos(turn) < 0) turn += Math.PI;
@@ -160,15 +229,22 @@ function localFrame(seat: number): Local | null {
   if (turn === 0) return null;
   const centres: Array<{ x: number; y: number }> = [];
   let card: { w: number; h: number } | null = null;
+  let zoneCard: { w: number; h: number } | null = null;
   for (let sequence = 0; sequence < 5; sequence += 1) {
     const found = artBox(zoneKey(seat, LOCATION_MZONE, sequence));
     if (!found) continue;
     centres.push({ x: found.box.left + found.box.width / 2, y: found.box.top + found.box.height / 2 });
-    const art = found.node.querySelector<HTMLElement>("[data-card-art]") ?? found.node;
     if (card) continue;
-    const size: { w: number; h: number } | null = screenSize(art);
+    // The size of a card is the size of its own box (also a sleeve's); an empty zone is only the last resort, it is wider than a card.
+    const host = cardHost(found.node);
+    const size: { w: number; h: number } | null = host ? screenSize(host) : null;
     if (size) card = { w: Math.min(size.w, size.h), h: Math.max(size.w, size.h) };
+    else if (!zoneCard) {
+      const zoneSize = screenSize(found.node);
+      if (zoneSize) zoneCard = { w: Math.min(zoneSize.w, zoneSize.h), h: Math.max(zoneSize.w, zoneSize.h) };
+    }
   }
+  card = card ?? zoneCard;
   if (centres.length === 0 || !card) return null;
   const o = { x: centres.reduce((a, c) => a + c.x, 0) / centres.length, y: centres.reduce((a, c) => a + c.y, 0) / centres.length };
   return { o, turn, card };
@@ -191,8 +267,8 @@ function localBox(l: Local, box: Box, size: { w: number; h: number } = { w: l.ca
 
 /** One card art on a tilted field turned up side down relative to the frame (the field itself is not counted). */
 function turnedInFrame(l: Local, node: Element): boolean {
-  const art = node.querySelector<HTMLElement>("[data-card-art]");
-  const pose = art?.parentElement ? screenPose(art.parentElement) : null;
+  const host = cardHost(node);
+  const pose = host ? screenPose(host) : null;
   const field = pose ? (-pose.turn * Math.PI) / 180 : l.turn;
   return Math.cos(field + (zoneTurnsArt(node) ? Math.PI : 0) - l.turn) < 0;
 }
@@ -324,7 +400,7 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
   const host = getSharedFx3d()?.host.getBoundingClientRect();
   const toRect = (box: Box): FxRect => (host ? viewportToHost(box, host) : { x: box.left, y: box.top, w: box.width, h: box.height });
   const wipe = isWipePiece(group.piece);
-  const victims: Array<{ rect: FxRect; code: number; defense: boolean; turned: boolean; box: Box; event: DuelEvent; st: boolean; src: string; down: boolean; zone: { controller: number; location: number; sequence: number }; node: HTMLElement }> = [];
+  const victims: Array<{ rect: FxRect; code: number; defense: boolean; turned: boolean; rot?: number; box: Box; quad: CardQuad | null; event: DuelEvent; st: boolean; src: string; down: boolean; zone: { controller: number; location: number; sequence: number }; node: HTMLElement }> = [];
   for (const event of group.events) {
     // A destroy stands on the zone it was destroyed in; a banish or send is a move that leaves `from`.
     const zone = event.kind === "move" ? event.from : event.zone;
@@ -341,6 +417,7 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
       defense: found.node.getAttribute("data-defense") === "true",
       turned: artUpsideDown(found.node, found.node.querySelector<HTMLElement>("[data-card-art]")),
       box: found.box,
+      quad: cardQuad(found.node),
       event,
       st: zone.location !== LOCATION_MZONE,
       src,
@@ -399,6 +476,15 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
     const local = multi && hitSeats.length === 1 && (group.piece === "raigeki" || group.piece === "feather-duster" || group.piece === "banish-all") ? localFrame(hitSeats[0]) : null;
     const cardW = local ? local.card.w : sample ? Math.min(sample.box.width, sample.box.height) : Math.min(victims[0].box.width, victims[0].box.height);
     frame = multi ? multiFrame(group.piece, victims.map((v) => v.zone.controller), owner, seats, cardW, local) : null;
+    if (frame && !frame.local) {
+      // Fields of a multi-seat table stand turned (the plaza) or at an angle: each copy takes the middle, size and angle of the card it stands for.
+      for (const v of victims) {
+        if (!v.quad) continue;
+        const pose = quadPose(v.quad);
+        v.rect = toRect({ left: pose.cx - pose.w / 2, top: pose.cy - pose.h / 2, width: pose.w, height: pose.h });
+        v.rot = pose.angle + (zoneTurnsArt(v.node) ? Math.PI : 0);
+      }
+    }
     if (frame?.local) {
       const l = frame.local;
       for (const v of victims) {
@@ -460,7 +546,7 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
 
   const { scene, cues } = planScene({
     piece: group.piece,
-    victims: victims.map((v) => ({ rect: v.rect, code: v.code, defense: v.defense, turned: v.turned, st: v.st, pile: pileOf(v), side: frame?.slots.get(v.zone.controller) })),
+    victims: victims.map((v) => ({ rect: v.rect, code: v.code, defense: v.defense, turned: v.turned, rot: v.rot, st: v.st, pile: pileOf(v), side: frame?.slots.get(v.zone.controller) })),
     source: sourceTurned ? toRect(sourceTurned) : source ? toRect(source) : null,
     attacker: attackerFound ? toRect(attackerFound.box) : null,
     field: toRect(field),
@@ -496,7 +582,7 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
   if (three && wipe) scene.victims.forEach((victim, index) => {
     const v = victims[index];
     // A face-down victim gets a sleeve ghost (no src), so its zone is never blank before the canvas takes the card.
-    if (v.src || v.down) ghosts.push({ box: v.box, src: v.src, defense: v.defense, takeMs: victim.takeMs ?? 0, endMs: victim.endMs ?? victim.atMs });
+    if (v.src || v.down) ghosts.push({ box: v.box, src: v.src, defense: v.defense, takeMs: victim.takeMs ?? 0, endMs: victim.endMs ?? victim.atMs, quad: v.quad, artTurned: zoneTurnsArt(v.node) });
   });
   const planned: Planned = {
     key: `${group.key}:${group.events[0].id}`,
@@ -556,7 +642,11 @@ function wipeGhosts(planned: Planned): () => void {
     } else {
       Object.assign(img.style, { background: `#120e0c url("/duel/card-back-main-hd.webp") center / cover no-repeat`, border: "1px solid #b08a3e", boxSizing: "border-box" });
     }
-    if (ghost.defense) {
+    if (ghost.quad) {
+      // Laid over the four corners of the card as it stands on screen (field tilt, far side, Defense), not over its bounding box.
+      Object.assign(el.style, { left: "0", top: "0", width: `${ghost.quad.w}px`, height: `${ghost.quad.h}px`, transformOrigin: "0 0", transform: quadMatrix(ghost.quad), borderRadius: "4px" });
+      Object.assign(img.style, { width: "100%", height: "100%", objectFit: "cover", display: "block", ...(ghost.artTurned ? { rotate: "180deg" } : {}) });
+    } else if (ghost.defense) {
       Object.assign(img.style, {
         position: "absolute", left: "50%", top: "50%", width: `${ghost.box.height}px`, height: `${ghost.box.width}px`,
         transform: "translate(-50%, -50%) rotate(90deg)", objectFit: "cover",

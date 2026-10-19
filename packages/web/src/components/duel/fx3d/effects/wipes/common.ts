@@ -967,7 +967,7 @@ export function createWipeCtx(env: FxEnv, request: { seed?: number }, scene: FxS
     const cw = Math.max(8, Math.min(v.rect.w, v.rect.h) / u);
     const ch = Math.max(cw, Math.max(v.rect.w, v.rect.h) / u);
     const tex = (v.code > 0 ? env.art.peek(v.code) : null) ?? back;
-    const rot = (v.defense ? Math.PI / 2 : 0) + (v.turned ? Math.PI : 0);
+    const rot = v.rot ?? (v.defense ? Math.PI / 2 : 0) + (v.turned ? Math.PI : 0);
     const card = new WipeCard(world, tex, { x: p.x, y: p.y, rot, w: cw, h: ch, order: 10 + i });
     root.add(card.mesh);
     disposers.push(() => card.dispose());

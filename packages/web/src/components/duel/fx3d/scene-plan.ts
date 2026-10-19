@@ -203,7 +203,7 @@ export type SceneInput = {
   /** Spell/trap resolution: all cards finish breaking before any landing streak starts. */
   sequential?: boolean;
   piece: FxScenePiece;
-  victims: ReadonlyArray<{ rect: FxRect; code: number; defense: boolean; turned?: boolean; pile?: FxRect | null; st?: boolean; side?: "you" | "opp" }>;
+  victims: ReadonlyArray<{ rect: FxRect; code: number; defense: boolean; turned?: boolean; rot?: number; pile?: FxRect | null; st?: boolean; side?: "you" | "opp" }>;
   source: FxRect | null;
   attacker: FxRect | null;
   field: FxRect;
