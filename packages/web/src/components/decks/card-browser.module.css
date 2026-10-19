@@ -19,6 +19,7 @@
 .de-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 :global(.ms) .de-chips :global(.chip) { font: inherit; font-size: 12.5px; cursor: pointer; }
 .de-clrf { height: 26px; padding: 0 8px; font-size: 12.5px; }
+.guide { margin-bottom: 14px; }
 .de-count { color: var(--ink-3); font-size: 12.5px; }
 .de-count b { margin-right: 3px; color: var(--ink-2); font-size: 14px; font-weight: 400; }
 .de-res { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }

@@ -1,0 +1,72 @@
+/*
+ * "How it plays" panel: an archetype's game plan and what works with it. Colors come from the .ms tokens.
+ * Nothing here changes size, position or border on hover; a hook row only changes its text color.
+ */
+.panel {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-lo);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--ink-2);
+}
+.head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.title { display: flex; align-items: baseline; gap: 6px; min-width: 0; margin: 0; font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.3; }
+.title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gold-ink); font-weight: 500; }
+.fold {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.fold :global(svg) { width: 16px; height: 16px; }
+.fold:hover { color: var(--ink); }
+.fold:focus-visible, .more:focus-visible, .hookBtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.body { display: grid; gap: 8px; min-width: 0; }
+.plan { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+.plan[data-clamped] { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.more {
+  justify-self: start;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--pen-ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.more:hover { color: var(--ink); }
+.hooks { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.hookRow, .hookBtn {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.hookBtn { cursor: pointer; }
+.hookBtn:hover { color: var(--ink-2); background: rgb(239 231 213 / 0.05); }
+.hookBtn[aria-pressed="true"] { background: var(--pen-soft); color: var(--ink-2); box-shadow: inset 2px 0 0 var(--pen); }
+.hookText { display: block; }
+.hookText[data-clamped] { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.label { color: var(--ink); font-weight: 600; }
+.cue { color: var(--ink-4); }

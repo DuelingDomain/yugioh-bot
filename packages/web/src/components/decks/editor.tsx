@@ -23,6 +23,7 @@ import {
 import {
   AlertTriangle,
   ArrowDownUp,
+  BookOpen,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -71,12 +72,16 @@ import { useEditorViewport } from "./editor-viewport";
 import {
   BANLIST_CHOICES,
   banlistLabel,
+  cardArchetypes,
   loadEditorPrefs,
   saveEditorPrefs,
   type BrowserView,
 } from "./filter-model";
 import { deckNameFromFile, MAX_IMPORT_FILE_BYTES } from "./import";
 import { DeckImportPopover, Popover } from "./import-popover";
+import { HowItPlays } from "@/components/effect-search/how-it-plays";
+import { fetchGuide } from "./insights-api";
+import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
 import { OwnsPageBar, ShellMenuButton } from "@/components/layout/shell-bar";
 import { PageFrame } from "./page-frame";
 import { RegistrationMark, lockedNote } from "./registration";
@@ -559,6 +564,27 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
   const misplaced = useMemo(() => misplacedCards(deck, catalog), [deck, catalog]);
   const over = useMemo(() => new Set(problems.map((problem) => problem.key)), [problems]);
   const archetypes = facets?.archetypes ?? [];
+  // The archetype with the most cards in Main + Extra, at least six; a tie goes to the smaller archetype.
+  const deckArchetype = useMemo(() => {
+    const counts = new Map<CardArchetype, number>();
+    for (const code of [...deck.main, ...deck.extra]) {
+      for (const archetype of cardArchetypes(catalog.get(code)?.setcodes, archetypes)) counts.set(archetype, (counts.get(archetype) ?? 0) + 1);
+    }
+    let best: CardArchetype | null = null;
+    for (const [archetype, count] of counts) {
+      if (count < 6) continue;
+      if (!best || count > counts.get(best)! || (count === counts.get(best) && archetype.count < best.count)) best = archetype;
+    }
+    return best?.name ?? null;
+  }, [deck.main, deck.extra, catalog, archetypes]);
+  const [deckGuide, setDeckGuide] = useState<ArchetypeGuide | null>(null);
+  const [guideOpen, setGuideOpen] = useState(false);
+  useEffect(() => {
+    if (!insightsOn || !deckArchetype) { setDeckGuide(null); return; }
+    const controller = new AbortController();
+    void fetchGuide([deckArchetype], controller.signal).then((found) => { if (!controller.signal.aborted) setDeckGuide(found); }, () => { if (!controller.signal.aborted) setDeckGuide(null); });
+    return () => controller.abort();
+  }, [insightsOn, deckArchetype]);
 
   const poolCode = (code: number) => canonicalCardCode(code, catalog);
 
@@ -734,6 +760,15 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
     rememberCatalog([card]);
     setPartner({ code: card.code, name: card.name });
     // The search text named the card itself; the partners would not match it. Other filters stay.
+    setQuery((current) => ({ ...current, text: "", effectOmit: [] }));
+    setPhoneTab("cards");
+    setCardSheetOpen(false);
+  }
+
+  /** A hook of the deck's "How it plays" panel: the card list shows the cards that fit it. */
+  function findHookCards(guide: ArchetypeGuide, index: number) {
+    setGuideOpen(false);
+    setPartner({ code: -(index + 1), name: guide.hooks[index]?.label ?? guide.archetype, hook: { archetype: guide.archetype, index } });
     setQuery((current) => ({ ...current, text: "", effectOmit: [] }));
     setPhoneTab("cards");
     setCardSheetOpen(false);
@@ -1428,7 +1463,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
                 />
               ) : null}
               {genesysSummary && !isPhone && shownCode != null ? <button className={styles["de-flag"]} title={flag} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span className={styles["de-flagt"]}>{flag}</span></button> : genesysSummary && !isPhone ? <span className={styles["de-flag"]} aria-hidden="true" /> : null}
-              <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton></span>
+              <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton>{deckGuide ? <Popover label="How it plays" dialogLabel={`How ${deckGuide.archetype} plays`} icon={<BookOpen className="ic sm" aria-hidden />} open={guideOpen} onOpenChange={setGuideOpen}><HowItPlays guide={deckGuide} testId="deck-how-it-plays" onHook={(index) => findHookCards(deckGuide, index)} /></Popover> : null}</span>
               {isPhone ? historyControls : null}
             </div>
             {isPhone ? <ControlsLegend phone /> : null}

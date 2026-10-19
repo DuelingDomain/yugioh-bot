@@ -13,7 +13,7 @@ import type Database from "better-sqlite3";
 import { assertDuelForkAccess, assertOwnerReplaySourceAccess, assertReplayForkAccess, resolveOwnerPlayer, ReplayAccessError } from "@yugidraft/shared/access/owner-access";
 import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
 import { createGithubCardDataStatus } from "./github-card-data-status.js";
-import { CARD_LOOKUP_LIMIT, createCardLookupBudget, loadArtworkIdentityCatalog, createDeckCopyRepairService, findDuelEventTarget, createDuelSeriesService, createDeckTypeLookup, createDuelService, createReplayForkService, createTournamentDuelService, ReplayForkStorageError, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots, type DuelPrivateState } from "@yugidraft/shared/services";
+import { CARD_LOOKUP_LIMIT, readArchetypeGuide, createCardLookupBudget, loadArtworkIdentityCatalog, createDeckCopyRepairService, findDuelEventTarget, createDuelSeriesService, createDeckTypeLookup, createDuelService, createReplayForkService, createTournamentDuelService, ReplayForkStorageError, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots, type DuelPrivateState } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
   DuelCardInfo,
@@ -52,7 +52,7 @@ import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards, deckCardUnavailableReason } from "./card-search.js";
-import { effectSearchEnabled } from "@yugidraft/shared/cards/effects";
+import { effectSearchEnabled, readingArchetypes } from "@yugidraft/shared/cards/effects";
 import { cardEffectIndex, cardReleaseIndex, initializeCardEffectIndex } from "./card-effects.js";
 import { activeMultiScriptsHash, loadMultiScriptsFor, pinnedEngineVersion } from "./multi-scripts.js";
 import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
@@ -3163,7 +3163,10 @@ export function createDuelHost(options: {
         const query = parseCardQuery(body.cardQuery);
         const effects = enabled ? cardEffectIndex(catalog) ?? await initializeCardEffectIndex(options.db, catalog) : undefined;
         const releases = !enabled && (query.released || query.sort === "newest") ? cardReleaseIndex(options.db) : undefined;
-        return queryCards(catalog, query, cardRequestEntries(body, guildId, actor), await genesysAdmissionPoints(), { effects, releases, effectSearchEnabled: enabled });
+        const result = queryCards(catalog, query, cardRequestEntries(body, guildId, actor), await genesysAdmissionPoints(), { effects, releases, effectSearchEnabled: enabled });
+        // "How it plays" for an archetype reading; later pages do not repeat it.
+        const profile = enabled && result.reading && query.offset === 0 && (query.effectOffset ?? 0) === 0 ? readArchetypeGuide(options.db, readingArchetypes(result.reading)) : null;
+        return profile ? { ...result, profile } : result;
       } catch (error) {
         if (error instanceof CardQueryError) throw new RequestError(error.message, 400);
         throw error;

@@ -1,6 +1,7 @@
 import { isReleasedRange, type ReleasedRange, type CardReleaseInfo } from "../cards/effects/releases.js";
 import type { DuelCardInfo } from "./index.js";
 import type { Interpretation } from "../cards/effects/query.js";
+import type { ArchetypeGuide } from "../cards/effects/guide.js";
 
 /**
  * Structured card search for the deck editor. The duel host runs it over the engine catalog
@@ -243,6 +244,8 @@ export interface CardQueryResult {
   offset: number;
   effectSearchEnabled?: boolean;
   reading?: Interpretation | null;
+  /** "How it plays" for the archetype the reading names. Only on the first page. */
+  profile?: ArchetypeGuide;
   effectHits?: Array<DeckCardInfo & { altArtCount: number; score: number; reason: string }>;
   effectTotal?: number;
   effectOffset?: number;

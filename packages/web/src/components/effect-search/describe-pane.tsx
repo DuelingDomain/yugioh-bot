@@ -6,6 +6,7 @@ import type { CardSummary } from "@/lib/card-types";
 import { useResultNav } from "@/lib/hooks/use-result-nav";
 import { EffectCredit } from "./batch-bar";
 import { EraNote } from "./era-note";
+import { HowItPlays } from "./how-it-plays";
 import type { CardEra } from "@yugidraft/shared/cards/effects";
 import { effectSearch, EffectApiError, type EffectSearchResult } from "./effect-api";
 import { EffectRows, SelectAllShown, type RowCard } from "./effect-rows";
@@ -211,6 +212,7 @@ export function DescribePane({
           })}
         </ul>
       )}
+      {!exact && ready && result?.guide ? <HowItPlays guide={result.guide} testId="describe-how-it-plays" /> : null}
       <div className={styles.eraSlot} data-testid="era-note-space">
         {ready && sort === "match" && sessionEra ? <EraNote era={sessionEra} warning={session.warning} /> : null}
       </div>

@@ -1,6 +1,7 @@
 export * from "./constants.js";
 export * from "./card-catalog.js";
 export * from "./card-insights.js";
+export { readArchetypeGuide, readArchetypeHook } from "./card-insight-profiles.js";
 export * from "./genesys-points.js";
 export * from "./genesys-points-sync.js";
 export * from "./card-lookup-budget.js";

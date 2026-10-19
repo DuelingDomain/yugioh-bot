@@ -6,6 +6,7 @@ import { cardImageUrl } from "@/lib/card-image-url";
 import type { CardSummary } from "@/lib/card-types";
 import { EffectCredit } from "./batch-bar";
 import { EraNote } from "./era-note";
+import { HowItPlays } from "./how-it-plays";
 import { EffectApiError, type BatchEntry, type SeedCategory, type SeedPreview, type SeedRole, type SeedRow } from "./effect-api";
 import styles from "./effect-search.module.css";
 
@@ -205,6 +206,7 @@ export function PhraseSeed({
               ))}
             </ul>
           )}
+          {shown.guide && <HowItPlays guide={shown.guide} testId="seed-how-it-plays" />}
           {shown.era && <EraNote era={shown.era} warning={eraWarning} />}
           {shown.rows.length > 0 && (
             <ul className={styles.quotas} aria-label="Roles in the preview">

@@ -1,5 +1,5 @@
 import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
-import type { CardEra, RankedInsightCard } from "@yugidraft/shared/cards/effects";
+import type { ArchetypeGuide, CardEra, RankedInsightCard } from "@yugidraft/shared/cards/effects";
 import type { CardInsightFormat } from "@yugidraft/shared/services";
 import type { CardAdmissionContext } from "@/lib/card-admission-context";
 import { getDeckCards } from "./api";
@@ -59,6 +59,30 @@ function scopeBody(scope: InsightScope): Record<string, unknown> {
 /** Cards that work with one card. */
 export async function fetchWorksWith(passcode: number, scope: InsightScope, signal?: AbortSignal): Promise<RankedInsightCard[]> {
   return (await postInsights({ op: "worksWith", passcode, ...scopeBody(scope) }, signal)).cards;
+}
+
+/** Cards outside an archetype that fit one hook of its "How it plays" panel. */
+export async function fetchHookCards(archetype: string, hook: number, scope: InsightScope, signal?: AbortSignal): Promise<RankedInsightCard[]> {
+  return (await postInsights({ op: "hookSearch", archetype, hook, ...scopeBody(scope) }, signal)).cards;
+}
+
+const guides = new Map<string, Promise<ArchetypeGuide | null>>();
+
+/** "How it plays" for the first of these archetypes that has one. Kept after the first answer; a failed call is not kept. */
+export function fetchGuide(archetypes: readonly string[], signal?: AbortSignal): Promise<ArchetypeGuide | null> {
+  const key = archetypes.join("|").toLowerCase();
+  const known = guides.get(key);
+  if (known) return known;
+  const pending = (async () => {
+    const res = await fetch("/api/cards/insights", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "guide", archetypes }), signal });
+    if (res.status === 404) throw new InsightsDisabledError();
+    if (!res.ok) throw new Error(`Effect search is not available (${res.status}).`);
+    const data = (await res.json()) as { guide?: ArchetypeGuide | null };
+    return data.guide ?? null;
+  })();
+  guides.set(key, pending);
+  pending.catch(() => guides.delete(key));
+  return pending;
 }
 
 /** Card details for ranked cards, in rank order. A card the engine does not know is left out. */

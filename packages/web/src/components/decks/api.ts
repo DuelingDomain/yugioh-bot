@@ -181,7 +181,7 @@ export async function queryDeckCards(query: CardQuery, signal?: AbortSignal, con
   }
   return { cards: body.cards, total: body.total, offset: body.offset ?? query.offset,
     effectSearchEnabled: body.effectSearchEnabled, reading: body.reading, effectHits: body.effectHits,
-    effectTotal: body.effectTotal, effectOffset: body.effectOffset };
+    effectTotal: body.effectTotal, effectOffset: body.effectOffset, profile: body.profile };
 }
 
 export async function getDeckCardFacets(): Promise<CardFacets> {

@@ -1,5 +1,5 @@
 import type { CardInsightFormat, CardInsightOptions } from "@yugidraft/shared/services";
-import { isCardEra, isReleasedRange, type CardEra } from "@yugidraft/shared/cards/effects";
+import { MAX_HOOKS, isCardEra, isReleasedRange, type CardEra } from "@yugidraft/shared/cards/effects";
 import type { DuelDeck } from "@yugidraft/shared/duels";
 import { NextResponse } from "next/server";
 import { readJsonBody } from "./bug-reports/read-body";
@@ -15,6 +15,8 @@ export type CardInsightRequest =
   | { op: "read"; text: string }
   | ({ op: "effectSearch"; text: string } & Options)
   | ({ op: "worksWith"; passcode: number } & Options)
+  | ({ op: "hookSearch"; archetype: string; hook: number } & Options)
+  | { op: "guide"; archetypes: string[] }
   | ({ op: "suggest"; deck: DuelDeck | number[] } & Options)
   | { op: "poolHealth"; cards: number[]; era?: CardEra }
   | { op: "pickScore"; candidate: number; pickedPool: number[] };
@@ -24,6 +26,7 @@ const passcode = (value: unknown): value is number => typeof value === "number" 
 const codes = (value: unknown, max: number): value is number[] => Array.isArray(value) && value.length <= max && value.every(passcode);
 const format = (value: unknown): value is CardInsightFormat => typeof value === "string" && ["normal", "domain", "genesys", "genesys-domain"].includes(value);
 const text = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 512;
+const name = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 120;
 const integer = (value: unknown, min: number, max: number) => typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
 const deck = (value: unknown): value is DuelDeck | number[] => {
   if (codes(value, CARD_INSIGHT_SUGGEST_DECK_MAX)) return true;
@@ -39,7 +42,7 @@ export function parseCardInsightRequest(value: unknown): CardInsightRequest | nu
   const fields: Record<string, string[]> = {
     summary: ["passcode"], read: ["text"],
     effectSearch: ["text", ...optionKeys, "exact", "omittedChips"],
-    worksWith: ["passcode", ...optionKeys], suggest: ["deck", ...optionKeys],
+    worksWith: ["passcode", ...optionKeys], hookSearch: ["archetype", "hook", ...optionKeys], guide: ["archetypes"], suggest: ["deck", ...optionKeys],
     poolHealth: ["cards", "era"], pickScore: ["candidate", "pickedPool"],
   };
   if (!Object.hasOwn(fields, value.op)) return null;
@@ -47,6 +50,8 @@ export function parseCardInsightRequest(value: unknown): CardInsightRequest | nu
   if (!keys || Object.keys(value).some(key => key !== "op" && !keys.includes(key))) return null;
   if ((value.op === "summary" || value.op === "worksWith") && !passcode(value.passcode)) return null;
   if ((value.op === "read" || value.op === "effectSearch") && !text(value.text)) return null;
+  if (value.op === "hookSearch" && (!name(value.archetype) || !integer(value.hook, 0, MAX_HOOKS - 1))) return null;
+  if (value.op === "guide" && (!Array.isArray(value.archetypes) || value.archetypes.length < 1 || value.archetypes.length > 5 || !value.archetypes.every(name))) return null;
   if (value.op === "suggest" && !deck(value.deck)) return null;
   if (value.op === "poolHealth" && !codes(value.cards, CARD_INSIGHT_DECK_MAX)) return null;
   if (value.op === "pickScore" && (!passcode(value.candidate) || !codes(value.pickedPool, CARD_INSIGHT_DECK_MAX))) return null;
