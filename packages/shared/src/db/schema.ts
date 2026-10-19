@@ -1262,6 +1262,17 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "saved_decks", "genesys_json", "text");
 
   addColumnIfMissing(db, "users", "first_sign_in_at", "integer");
+  // Latest presence only: no browsing history, IDs, full URLs or query strings.
+  addColumnIfMissing(db, "users", "last_seen_at", "integer");
+  addColumnIfMissing(db, "users", "last_route", "text");
+  db.exec(`
+    create index if not exists users_last_seen_idx on users(last_seen_at) where last_seen_at is not null;
+    create table if not exists worker_heartbeat (
+      id integer primary key check (id = 1),
+      at integer not null,
+      pid integer
+    );
+  `);
 
   // Draft privacy follows identity migration so grants reference application users.
   // Adding the default also makes every existing draft private; codes stay lazy.

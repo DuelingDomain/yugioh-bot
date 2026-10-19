@@ -51,7 +51,7 @@
 <main class="privacy-copy" id="privacy">
   <p class="eyebrow">Dueling Domain</p>
   <h1>Privacy</h1>
-  <p class="privacy-date">Last updated: <time datetime="2026-10-17">17 October 2026</time></p>
+  <p class="privacy-date">Last updated: <time datetime="2026-10-19">19 October 2026</time></p>
 
   <h2>Who we are</h2>
   <p>Dueling Domain is an unofficial fan project. You can reach us at <a href="mailto:support@duelingdomain.com">support@duelingdomain.com</a>.</p>
@@ -74,6 +74,7 @@
   <h2>In the app</h2>
   <p>The app uses Clerk for sign-in with email and password or, optionally, Discord. Discord sign-in shares your Discord ID, username and avatar. Clerk handles your password and sign-in details; the app keeps your email address, username and Discord ID with your account so it can recognise you. If you played before the alpha opened, you can sign in with the same Discord account without a new invite: we confirm your Discord account with Discord, link it to your existing profile, and create your Clerk account then from the verified email address Discord gives us.</p>
   <p>The app also stores game data such as drafts, decks and matches so you can play and keep track of them.</p>
+  <p>Signed-in app pages send a heartbeat once a minute while the tab is visible. We store your latest last-seen time and current app section, such as Deck builder or Draft; for a game table we may also show the table type, such as 3-way duel. We do not store full page addresses, item IDs, query strings or browsing history for this feature. Admins can see your name and app section in a private admin console while you are online (seen in the last two minutes). We overwrite the previous values on each heartbeat and clear them after 24 hours without an update; account deletion clears them at once. Backups follow the retention period below.</p>
 
   <h2>Bug reports</h2>
   <p>When you use Report bug, we keep the report with your account. To track the fix, we also post the description you write and technical details (the page, duel state, screen size) as an issue on our public GitHub project. Names are removed from that issue, but anyone can read it, so do not put personal information in the description.</p>

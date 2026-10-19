@@ -6,6 +6,7 @@ import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFileSync, rmSync } from "node:fs";
 import { openDatabase } from "@yugidraft/shared/db";
+import { clearOldPresence } from "@yugidraft/shared/presence";
 import {
   createDraftService,
   createMatchService,
@@ -38,6 +39,8 @@ const writeHealth = () => writeFileSync(healthPath, JSON.stringify({ pid: proces
 const draftTimer = createDraftTimer({ db, drafts: createDraftService(db), effects, startedAt });
 const tournamentTimer = createTournamentTimer({ db, matches: createMatchService(db), tournaments: createTournamentService(db), effects });
 const jobs = [
+  // Presence keeps only the latest value and is dropped after 24 hours without an update.
+  createLoop(async () => clearOldPresence(db), 10 * 60_000),
   createLoop(() => drainProductEvents(db, {
     key: process.env.POSTHOG_KEY ?? "",
     host: process.env.POSTHOG_HOST,

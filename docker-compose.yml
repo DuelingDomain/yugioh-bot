@@ -132,6 +132,15 @@ services:
       # In-app Report bug button: the web server opens a GitHub issue per report. Without a token the report is only saved.
       - BUG_REPORT_GITHUB_TOKEN=${BUG_REPORT_GITHUB_TOKEN:-}
       - BUG_REPORT_GITHUB_REPO=${BUG_REPORT_GITHUB_REPO:-DuelingDomain/yugioh-bot}
+      # Admin console (/admin). Server-side only; each section shows "not configured" while its keys are empty.
+      - PRESENCE_ENABLED=${PRESENCE_ENABLED:-1}
+      - SENTRY_API_TOKEN=${SENTRY_API_TOKEN:-}
+      - SENTRY_ORG=${SENTRY_ORG:-}
+      - SENTRY_PROJECT=${SENTRY_PROJECT:-}
+      - POSTHOG_PERSONAL_API_KEY=${POSTHOG_PERSONAL_API_KEY:-}
+      - POSTHOG_PROJECT_ID=${POSTHOG_PROJECT_ID:-}
+      - POSTHOG_HOST=${POSTHOG_HOST:-}
+      - POSTHOG_DASHBOARD_URL=${POSTHOG_DASHBOARD_URL:-}
     volumes:
       - ./data:/app/data
     depends_on:
