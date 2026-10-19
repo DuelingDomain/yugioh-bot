@@ -17,6 +17,7 @@ packages/*/.next/
 packages/*/.next-*/
 packages/*/*.tsbuildinfo
 packages/*/coverage/
+packages/web/.extra-round-test-*/
 .superpowers/
 packages/duel-server/domain-core/.build/
 packages/duel-server/domain-core/.emsdk/
