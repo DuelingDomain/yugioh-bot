@@ -105,9 +105,33 @@ export interface SystemData {
   version: string | null;
   /** When this web process started: the best proxy for the last deploy. */
   startedAt: number;
-  cardData: { state: "up-to-date" | "behind" | "unknown"; headline: string } | null;
-  duelServer: { ok: boolean; detail: string | null };
-  worker: { ok: boolean; lastTickAt: number | null };
+  cardData: {
+    state: "up-to-date" | "behind" | "unknown";
+    headline: string;
+    /** Newest committed update snapshot (card-data-history.json), or null. */
+    lastUpdate?: { label: string; date: string; pullRequestNumber: number; pullRequestUrl: string } | null;
+    /** Newest pinned engine commit date (ISO), when the duel server answered. */
+    dataAsOf?: string | null;
+  } | null;
+  duelServer: {
+    ok: boolean;
+    detail: string | null;
+    /** Round trip of a cheap health call, ms. Null when it did not answer. */
+    latencyMs?: number | null;
+    /** Play tables with status active, counted from the database. */
+    activeTables?: number | null;
+  };
+  worker: {
+    ok: boolean;
+    lastTickAt: number | null;
+    /** True when the heartbeat is older than 3 minutes. */
+    stale?: boolean;
+    pid?: number | null;
+  };
+  /** Short SHA and GitHub link for `version`; null when the release is not a commit SHA. */
+  commit?: { short: string; url: string } | null;
+  /** SQLite file and write-ahead log size in bytes; null for an in-memory database. */
+  database?: { bytes: number; walBytes: number } | null;
 }
 
 export interface SectionDataMap {

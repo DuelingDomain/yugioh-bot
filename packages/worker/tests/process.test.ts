@@ -83,7 +83,10 @@ it("SIGTERM removes the heartbeat before a clean process exit", async () => {
     expect(await worker.exit).toEqual({code: 0});
     expect(existsSync(worker.health)).toBe(false);
     const check = openDatabase(join(root, "test.sqlite"));
-    try { expect(check.pragma("integrity_check")).toEqual([{integrity_check: "ok"}]); }
+    try {
+      expect(check.pragma("integrity_check")).toEqual([{integrity_check: "ok"}]);
+      expect(check.prepare("select pid, at > ? as fresh from worker_heartbeat where id = 1").get(Date.now() - 60_000)).toEqual({pid: worker.child.pid, fresh: 1});
+    }
     finally { check.close(); }
   } finally {
     if (!worker.stopped()) worker.child.kill("SIGKILL");
