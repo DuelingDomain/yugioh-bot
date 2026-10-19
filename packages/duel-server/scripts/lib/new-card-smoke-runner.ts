@@ -76,7 +76,7 @@ export async function runSmokeCase(test: SmokeCase, directory: string, limits: S
     const n = seatCountFor(test.format);
     const read = (g: EngineGame): NViews => ({ seats: Array.from({ length: n }, (_, seat) => g.view(seat)), spectator: g.view(null) });
     const expectedDecks = inventory(test, compiled.options.decks, directory);
-    const expectedCount = expectedDecks.reduce((sum, d) => sum + d.main.length + d.extra.length + (d.deckMaster ? 1 : 0), 0);
+    const ownerCounts = expectedDecks.map(d => d.main.length + d.extra.length + (d.deckMaster ? 1 : 0));
     const checker = new NChecker(test.format);
     let previousDiagnostics = game.diagnostics();
     const printed = new Map<number, string[]>();
@@ -103,6 +103,13 @@ export async function runSmokeCase(test: SmokeCase, directory: string, limits: S
       previousDiagnostics = diagnostics;
       if (twoChecker) violations.push(...twoChecker.check(step, { v0: views.seats[0]!, v1: views.seats[1]!, vs: views.spectator })
         .filter(v => !(placing && v.invariant.startsWith("conservation"))).map(v => ({ ...v, step })));
+      // FFA elimination removes all cards owned by the lost seat. Ownership
+      // stays with the initial inventory even when an effect moves a card to
+      // another player's field or hand. The host also projects eliminated FFA
+      // seats as empty at a terminal result. 1v1 keeps its terminal inventory.
+      const ffa = test.format === "ffa3" || test.format === "ffa4";
+      const expectedCount = ownerCounts.reduce((sum, count, seat) =>
+        sum + (ffa && views.spectator.seats[seat]!.eliminated ? 0 : count), 0);
       if (!placing && countCards(views) !== expectedCount) throw new Error(`card conservation: ${countCards(views)} cards, expected ${expectedCount}`);
       for (const seat of views.spectator.seats) if (!Number.isSafeInteger(seat.lp)) throw new Error(`integer LP: seat ${seat.seat} has ${seat.lp}`);
       if (violations.length) throw new Error(`${violations[0]!.invariant}: ${violations[0]!.message}`);

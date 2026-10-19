@@ -239,8 +239,13 @@ export class NChecker {
         // eliminates it, and the next turn skips it. So every turn but the last may belong to a seat alive at the previous check.
         let expected = this.prev.turnSeat;
         const steps = vs.turn - this.prev.turn;
+        // A player can lose in the new turn's Draw Phase. Its remaining
+        // phases still run for living players' responses (ADR-0002), so this
+        // last turn boundary can belong to that newly eliminated seat.
+        const lastPool = eliminatedNow.has(vs.turnSeat) && aliveBefore.includes(vs.turnSeat)
+          ? [...living, vs.turnSeat] : living;
         for (let i = 0; i < steps; i++) {
-          const pool = i < steps - 1 ? aliveBefore : living;
+          const pool = i < steps - 1 ? aliveBefore : lastPool;
           do expected = (expected + 1) % n;
           while (!pool.includes(expected));
         }
