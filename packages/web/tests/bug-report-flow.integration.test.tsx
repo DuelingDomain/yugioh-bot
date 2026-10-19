@@ -142,3 +142,23 @@ it("times out the submit and safely retries the same report through the real rou
   expect(publicIssues).toHaveLength(1);
   expect(database!.prepare("select count(*) as n from bug_reports").get()).toEqual({ n: 1 });
 });
+
+it.each([
+  ['editor', 'Deck in the editor at report time'],
+  [undefined, 'Saved deck'],
+] as const)('labels the owner deck download for source %s', async (source, label) => {
+  await setup();
+  const { createBugReportService } = await import('@yugidraft/shared/services');
+  const report = createBugReportService(database!).create({ guildId: 'integration-guild', playerId: 1,
+    path: '/decks/new', description: 'The deck editor lost the selected card.', context: {},
+    diagnostics: { board: null, log: [], attempts: 0,
+      deck: { source, format: 'normal', deck: { main: [69247929], extra: [], side: [] } } } });
+  const { default: Page } = await import('../app/(app)/settings/bug-reports/[id]/page');
+  render(await Page({ params: Promise.resolve({ id: String(report.id) }) }));
+  expect(screen.getByRole('link', { name: `${label} (.ydk)` })).toHaveAttribute('href', `/api/admin/bug-reports/${report.id}/deck`);
+  const { GET } = await import('../app/api/admin/bug-reports/[id]/deck/route');
+  const response = await GET(new Request('https://duel.example.test/api/admin/bug-reports/1/deck'),
+    { params: Promise.resolve({ id: String(report.id) }) });
+  expect(response.status).toBe(200);
+  expect(await response.text()).toContain('69247929');
+});

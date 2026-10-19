@@ -876,6 +876,7 @@ export function createDuelHost(options: {
     winnerSeat: number | null,
     reason: string,
   ): Promise<DuelFinalSnapshots> {
+    // Replay verification compares board state, not log history. Final snapshots keep the normal 400-entry tail.
     const result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string } = { winnerSeat, reason };
     // Tag: a team wins. `winnerSeat` is the lowest seat of the team; `winnerTeam` names it.
     if (format === "tag") result.winnerTeam = winnerSeat === null ? null : teamOfSeat(format, winnerSeat);
@@ -884,7 +885,7 @@ export function createDuelHost(options: {
       seats.push(freezeView(await game.view(seat), result));
     }
     return {
-      public: freezeView(await game.view(null, { fullLog: true }), result),
+      public: freezeView(await game.view(null), result),
       seat0: seats[0],
       seat1: seats[1],
       seats,

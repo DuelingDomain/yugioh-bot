@@ -18,7 +18,7 @@ export default async function BugReportPage({ params }: { params: Promise<{ id: 
   let report;
   try { report = createBugReportService(getDb()).get(id, access.guildId); }
   catch (error) { if (error instanceof BugReportServiceError && error.status === 404) notFound(); throw error; }
-  const capture = report.diagnostics as { moment?: unknown; deck?: { id?: number; format?: string; deck?: unknown } } | null;
+  const capture = report.diagnostics as { moment?: unknown; deck?: { id?: number; format?: string; source?: string; deck?: unknown } } | null;
   return <SheetRoot>
     <header className="page-h sheet-head"><div><h1 className="t-title">Report #{report.publicId}</h1><p className="page-sub">Owner access only</p></div></header>
     <div className="grid gap-4 p-4 text-sm">
@@ -33,7 +33,7 @@ export default async function BugReportPage({ params }: { params: Promise<{ id: 
         <p>Replays and Jump in are available after the duel ends.</p>
       </div> : null}
       {capture?.deck ? <div><p>Deck: {capture.deck.id ?? "Unsaved"} · Format: {capture.deck.format ?? "Unknown"}</p>
-        {capture.deck.deck ? <a className="underline" href={`/api/admin/bug-reports/${report.id}/deck`}>Download saved deck (.ydk)</a> : null}</div> : null}
+        {capture.deck.deck ? <a className="underline" href={`/api/admin/bug-reports/${report.id}/deck`}>{capture.deck.source === "editor" ? "Deck in the editor at report time" : "Saved deck"} (.ydk)</a> : null}</div> : null}
       <h2 className="font-semibold">Context and versions</h2><pre className="overflow-auto whitespace-pre-wrap">{JSON.stringify({ context: report.context, moment: capture?.moment }, null, 2)}</pre>
       <details><summary>Board and full public log</summary><pre className="overflow-auto whitespace-pre-wrap">{JSON.stringify(report.diagnostics, null, 2)}</pre></details>
       <a className="underline" href={`/api/admin/bug-reports/${report.id}`}>All saved data (JSON)</a>
