@@ -7,6 +7,7 @@ import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { callEngineDataStatus } from "@/lib/duel-host";
+import updateHistory from "@/lib/card-data-history.json";
 
 export const runtime = "nodejs";
 
@@ -18,7 +19,8 @@ export const runtime = "nodejs";
  *   catalog: { lastSuccessfulSyncAt, lastCardCachedAt, totalCards, revision, newestSets },
  *   gap: { recentSetsMissingFromEngineCount, recentSetsUnknownCount, recentSets, cachedCatalogMissingCount, cachedCatalogMissing, cachedCatalogIdMismatch },
  *   upstream: { checkedAt, expiresAt, sources: { database, scripts, strings }, babelCdbFiles: { status, files } },
- *   updateWorkflow: { lastRunStatus, lastRun, pullRequestStatus, openPullRequest }
+ *   updateWorkflow: { lastRunStatus, lastRun, pullRequestStatus, openPullRequest },
+ *   updateHistory: committed update snapshots, newest first (no GitHub lookup)
  * }
  * Engine source pins include repository/pinnedSha/pinnedCommitDate (the source's "data as of" date). Upstream sources
  * include status/defaultBranch/latestSha/latestCommitDate/behindCommits/behindDays/comparison.
@@ -54,7 +56,7 @@ export async function GET() {
     const player = createPlayerService(getDb()).findOrCreate(env.discordGuildId, actor.userId, actor.userName);
     const result = await callEngineDataStatus({ guildId: env.discordGuildId, playerId: player.id });
     if (!result.ok) return result.response;
-    const status: CardDataStatus = result.data;
+    const status: CardDataStatus = { ...result.data, updateHistory };
     return NextResponse.json(status, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     report(error, { tags: { operation: "[api/admin/card-data-status]" } });

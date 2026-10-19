@@ -7,6 +7,7 @@ import { StatusLine, SvButton } from "@/components/sheet";
 import { absoluteTime, relativeTime, summarize, type OverallState } from "@/lib/card-data-status-model";
 import { CatalogSection, EngineSection, WorkflowSection } from "./card-data-sections";
 import { CachedCatalogSection, GapSection } from "./card-data-gap";
+import { UpdateHistorySection } from "./card-data-history";
 import styles from "./card-data.module.css";
 
 const COLD_RETRY_MS = 5000;
@@ -132,6 +133,7 @@ export function CardDataStatusPanel() {
         <CatalogSection status={status} now={now} />
         <GapSection status={status} now={now} />
         <WorkflowSection status={status} now={now} />
+        <UpdateHistorySection entries={status.updateHistory} />
         <CachedCatalogSection status={status} />
       </div>
     </div>
