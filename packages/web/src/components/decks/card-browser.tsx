@@ -6,6 +6,7 @@ import { cardLimit, type CardArchetype, type CardQuery, type CardQueryResult, ty
 import { EFFECT_SEARCH_ATTRIBUTION, mayReadEffect } from "@yugidraft/shared/cards/effects/capability";
 import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
 import { HowItPlays } from "@/components/effect-search/how-it-plays";
+import { IntentHeading, RelaxHints } from "@/components/effect-search/search-intent";
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
 import { cn } from "@/lib/utils";
 import { artCountLabel } from "@/components/artwork/artwork-picker";
@@ -38,7 +39,7 @@ const SCOPE_CHOICES = [
 /** A search result. Server searches say how many other arts the card has; the pool list does not. */
 export type BrowserCard = DeckCardInfo & { altArtCount?: number; reason?: string };
 
-type Results = Pick<CardQueryResult, "effectSearchEnabled" | "reading" | "effectHits" | "effectTotal" | "profile"> & {
+type Results = Pick<CardQueryResult, "effectSearchEnabled" | "reading" | "effectHits" | "effectTotal" | "profile" | "relax"> & {
   key: string;
   cards: BrowserCard[];
   total: number;
@@ -298,6 +299,7 @@ export function CardBrowser({
     void fetchGuide([hookArchetype], controller.signal).then((found) => { if (!controller.signal.aborted) setHookGuide(found); }, () => undefined);
     return () => controller.abort();
   }, [hookArchetype]);
+  const intent = !partner && results?.key === key ? results.reading?.query?.intent : undefined;
   const searchGuide = !partner && results?.key === key ? results.profile ?? null : null;
   const shownGuide = hookArchetype ? (hookGuide && hookGuide.archetype.toLowerCase() === hookArchetype.toLowerCase() ? hookGuide : null) : searchGuide;
   function openHook(index: number) {
@@ -331,7 +333,10 @@ export function CardBrowser({
   /** The title above the first card of a group: partners of a card, or the effect hits under the name results. */
   function heading(position: number) {
     if (partner) return position === 0 ? <li className={styles.effectHeading}><h3>{partner.hook ? "Fits" : "Works with"} {partner.name}</h3><span>{total.toLocaleString("en-US")} {total === 1 ? "card" : "cards"}</span></li> : null;
-    return position === cards.length && effectCards.length > 0 ? <li className={styles.effectHeading}><h3>Cards that do this</h3><span>{effectTotal.toLocaleString("en-US")} matches</span></li> : null;
+    if (position !== cards.length || effectCards.length === 0) return null;
+    // "Cards like X" heads its own group; "How to beat X" already heads the page, so its cards are "Answers".
+    if (intent?.kind === "similar") return <li className={styles.effectHeading}><IntentHeading intent={intent} testId="intent-group-heading" /><span>{effectTotal.toLocaleString("en-US")} matches</span></li>;
+    return <li className={styles.effectHeading}><h3>{intent?.kind === "counters" ? "Cards that stop it" : "Cards that do this"}</h3><span>{effectTotal.toLocaleString("en-US")} matches</span></li>;
   }
 
   function worksButton(card: DeckCardInfo, className: string) {
@@ -497,6 +502,8 @@ export function CardBrowser({
             {stale ? <span className={styles.working}>Updating…</span> : null}
           </p>
 
+          {!partner && results?.key === key && !stale && !results.error && total > 0 && effectTotal === 0 && results.relax?.length ? <div className={styles.guide}><RelaxHints relax={results.relax} onRemove={(chip) => onQueryChange({ ...query, effectOmit: [...new Set([...(query.effectOmit ?? []), chip])] })} /></div> : null}
+          {intent?.kind === "counters" && !results?.error && !stale ? <div className={styles.guide}><IntentHeading intent={intent} count={effectTotal} /></div> : null}
           {shownGuide && !results?.error ? <div className={styles.guide}><HowItPlays guide={shownGuide} activeHook={partner?.hook?.index ?? null} onHook={onPartnerChange ? openHook : undefined} /></div> : null}
 
           {results?.error ? (
@@ -509,7 +516,7 @@ export function CardBrowser({
             </div>
           ) : results != null && total === 0 && effectTotal === 0 && !stale ? (
             <div className={styles.none}>
-              <p>{partner ? `No card that ${partner.hook ? "fits" : "works with"} ${partner.name} fits these filters.` : "No cards match."}</p>
+              {results.relax?.length && !partner ? <RelaxHints relax={results.relax} onRemove={(chip) => onQueryChange({ ...query, effectOmit: [...new Set([...(query.effectOmit ?? []), chip])] })} /> : <p>{partner ? `No card that ${partner.hook ? "fits" : "works with"} ${partner.name} fits these filters.` : "No cards match."}</p>}
               {chips.length > 0 ? (
                 <DeckButton size="sm" kind="quiet" onClick={() => onQueryChange(clearFilters(query))}>Clear filters</DeckButton>
               ) : null}
@@ -559,7 +566,7 @@ export function CardBrowser({
                         ) : count > 0 ? <span className={cn("num", styles["de-have"])} data-gx={genesys ? "" : undefined}>×{count}</span> : null}
                       </button>
                       {worksEnabled ? worksButton(card, styles.worksTile!) : null}
-                      {card.reason ? <p className={styles.effectReason}>{card.reason}</p> : null}
+                      {card.reason ? <p className={styles.tileReason} title={card.reason}>{card.reason}</p> : null}
                     </li>
                     </Fragment>
                   );
@@ -578,7 +585,7 @@ export function CardBrowser({
                         <strong>{card.name}</strong>{" "}
                         {card.unavailableReason ? <span>Unavailable: {card.unavailableReason}</span> : null}
                         <span>{cardDetailsText(card)}</span>
-                        {card.reason ? <span className={styles.effectReason}>{card.reason}</span> : null}{" "}
+                        {card.reason ? <span className={styles.effectReason} title={card.reason}>{card.reason}</span> : null}{" "}
                         <ArtChip otherArts={card.altArtCount ?? 0} />{" "}
                         {stats ? <span className={cn("num", styles.rowStats)}>{(card.type & TYPE_LINK) ? `ATK ${stats}` : stats}</span> : null}
                       </span>{" "}
