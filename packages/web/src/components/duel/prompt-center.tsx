@@ -2074,7 +2074,7 @@ export function PromptCenter(props: PromptCenterProps) {
   // Xyz materials to pick (a detach cost): the centred Materials window, with the card art, not the generic strip.
   if (isMaterialPickPrompt(prompt) && !aim) {
     return (
-      <div ref={layerRef} className={styles.layer}>
+      <div ref={layerRef} className={`${styles.layer} ${styles.layerFront}`}>
         <MaterialPicker prompt={prompt} draft={draft} busy={busy} mySeat={mySeat} nameOf={props.seatTones ? props.nameOf : undefined}
           reducedMotion={reducedMotion} onSubmit={onSubmit} onCollapse={() => setCollapsed(true)} />
       </div>
