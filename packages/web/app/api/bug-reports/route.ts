@@ -6,6 +6,7 @@ import { bugReportBaseUrl, bugReportRepo, commentOnIssue, createGithubIssue, get
 import { takeDuplicateCheckSlot } from "@/lib/bug-reports/precheck";
 import { readJsonBody } from "@/lib/bug-reports/read-body";
 import { buildReportContext } from "@/lib/bug-reports/server-context";
+import { reportRedactions } from "@/lib/bug-reports/redaction";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
@@ -96,6 +97,7 @@ export async function POST(request: Request) {
       description: report.description,
       expected: report.expected ?? null,
       context: report.context,
+      diagnostics: built.diagnostics,
       duplicateOf: target?.number ?? null,
     });
   } catch (error) {
@@ -103,6 +105,11 @@ export async function POST(request: Request) {
     reportError(error, { tags: { operation: "[api/bug-reports] save failed" } });
     return NextResponse.json({ error: "Could not save the report" }, { status: 500 });
   }
+  log(built.diagnostics.missingReason && built.duelVerified ? "warn" : "info", "[api/bug-reports] capture result", {
+    reportId: saved.id, attempts: built.diagnostics.attempts,
+    captured: built.diagnostics.board !== null, source: built.diagnostics.source ?? null,
+    reason: built.diagnostics.missingReason ?? null,
+  });
 
   const issueInput = {
     reportId: saved.id,
@@ -115,7 +122,9 @@ export async function POST(request: Request) {
   };
   // Removed from the text the player wrote (not from the whole issue): the Discord id, the session name, the stored
   // display name and the guild id. Bare "Unknown" and values under 3 characters are skipped by `redactText`.
-  const redact = [actor.discordUserId, actor.userName, player.displayName, guildId].filter((value): value is string => typeof value === "string");
+  const redact = [...reportRedactions(db, guildId), actor.discordUserId, actor.userName, player.displayName,
+    saved.submitter?.username, saved.submitter?.email,
+  ].filter((value): value is string => typeof value === "string");
 
   if (target) {
     reports.recordIssue(saved.id, guildId, { number: target.number, url: target.url });

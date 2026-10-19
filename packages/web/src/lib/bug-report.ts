@@ -38,6 +38,9 @@ export interface BugReportContext {
   userAgent?: string;
   viewport?: { width: number; height: number };
   timestamp?: string;
+  /** Fixed server messages. Never accepted from a browser request. */
+  logMissingReason?: string;
+  boardMissingReason?: string;
 }
 
 export interface BugReportRequest {
@@ -209,6 +212,12 @@ function parsePath(raw: unknown): string | null {
   return /^\/[A-Za-z0-9/_\-.[\]]*$/.test(path) && !path.includes("//") ? path : null;
 }
 
+/** A duel page can report before its client room store has loaded. General pages never imply a past duel. */
+export function duelSlugFromPath(path: string): string | undefined {
+  const slug = /^\/duels\/([A-Za-z0-9_-]{1,80})(?:\/replay)?\/?$/.exec(path)?.[1];
+  return slug === "new" ? undefined : slug;
+}
+
 /** Strict validation of the POST body. Unknown fields are refused, not ignored. */
 export function parseBugReportRequest(raw: unknown): ParseResult<BugReportRequest> {
   if (!isObject(raw)) return { ok: false, error: "Body must be a JSON object" };
@@ -239,6 +248,7 @@ export function parseBugReportRequest(raw: unknown): ParseResult<BugReportReques
   }
   const context = parseContext(raw.context);
   if (!context.ok) return context;
+  duelSlug = duelSlugFromPath(path) ?? duelSlug;
   return { ok: true, value: { description, expected, path, ...(duelSlug ? { duelSlug } : {}), context: context.value, ...(duplicateOf ? { duplicateOf } : {}) } };
 }
 
@@ -260,12 +270,15 @@ export function redactText(text: string, redact: readonly string[], replacement 
     .filter((value) => value.length >= 3 && !COMMON_NAMES.has(value.toLowerCase()))
     // Longest first, so "Seraphina Quill" goes before "Seraphina".
     .sort((a, b) => b.length - a.length);
-  let out = text;
+  // Earlier sanitizing may have split an email's @ with a zero-width space.
+  let out = clean(text);
   for (const value of values) {
     const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     out = out.replace(new RegExp(`(?<![${WORD_CHAR}])${escaped}(?![${WORD_CHAR}])`, "giu"), () => replacement);
   }
-  return out;
+  return out
+    .replace(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, replacement)
+    .replace(/\b\d{17,20}\b/g, replacement);
 }
 
 export function issueTitle(description: string, context: BugReportContext, redact: readonly string[] = []): string {
@@ -323,7 +336,7 @@ function reportSections(input: IssueBodyInput, redact: readonly string[]): strin
   const { context } = input;
   const seat = context.seat === undefined ? undefined : context.seat === null ? "spectator" : `seat ${context.seat + 1}`;
   const rows: Array<[string, string]> = [
-    ["Page", cell(input.path)],
+    ["Page", cell(redactText(input.path, redact))],
     ["Duel", cell(input.duelSlug)],
     ["Format", cell(context.format ? FORMAT_TEXT[context.format] : undefined)],
     ["Rules", cell(context.duelMode)],
@@ -338,7 +351,7 @@ function reportSections(input: IssueBodyInput, redact: readonly string[]): strin
     ["Sent at", cell(context.timestamp)],
   ];
   const table = ["| Field | Value |", "| --- | --- |", ...rows.filter(([, value]) => value !== "-").map(([key, value]) => `| ${key} | ${value} |`)].join("\n");
-  const log = (context.log ?? []).slice(-BUG_LOG_LINES).map((line) => sanitizeLine(line, LOG_LINE_MAX));
+  const log = (context.log ?? []).slice(-BUG_LOG_LINES).map((line) => sanitizeLine(redactText(line, redact), LOG_LINE_MAX));
   const sections = [
     "## Description",
     fence(sanitizeText(redactText(limitText(input.description), redact))),
@@ -349,6 +362,8 @@ function reportSections(input: IssueBodyInput, redact: readonly string[]): strin
     "## Recent log",
     log.length ? fence(log.join("\n")) : "_No duel log._",
   ];
+  if (context.logMissingReason) sections.push(`Log missing because ${context.logMissingReason}.`);
+  if (input.duelSlug && context.boardMissingReason) sections.push(`Board missing because ${context.boardMissingReason}.`);
   if (input.duelSlug && input.baseUrl) {
     sections.push("## Replay", `${input.baseUrl}/duels/${encodeURIComponent(input.duelSlug)}/replay (sign-in needed)`);
   }

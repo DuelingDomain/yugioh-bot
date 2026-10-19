@@ -157,6 +157,10 @@ interface BugDuelContext {
   livingPlayers: number | null;
   /** The newest spectator-view log lines, oldest first. */
   log: string[];
+  /** Full spectator snapshot. Saved privately with the report, never included in the public issue. */
+  board: DuelEngineView | null;
+  source: "live" | "cached" | "stored" | null;
+  missingReason?: string;
 }
 
 function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
@@ -2481,23 +2485,38 @@ export function createDuelHost(options: {
   async function bugContext(slug: string, guildId: string, actor: number): Promise<BugDuelContext> {
     const room = service.room(slug, guildId, actor, { includeStoredBoard: false });
     const { format, mode } = room.session;
-    const out: BugDuelContext = { format, mode, seat: room.mySeat, turn: null, phase: null, turnSeat: null, livingPlayers: null, log: [] };
+    const out: BugDuelContext = { format, mode, seat: room.mySeat, turn: null, phase: null, turnSeat: null, livingPlayers: null, log: [], board: null, source: null };
     let view: DuelEngineView | null = null;
     const live = games.get(slug);
     if (room.session.status === "active" && live?.game.running) {
       try {
         view = await withTimeout(live.game.view(null), debugReadTimeoutMs, "view spectator");
         rememberView(slug, null, view, live.game);
-      } catch {
+        out.source = "live";
+      } catch (error) {
         view = lastViews.get(slug)?.get(-1) ?? null;
+        if (view) out.source = "cached";
+        else out.missingReason = error instanceof Error && error.message.startsWith("view spectator timed out")
+          ? "the duel engine did not answer in time" : "the duel engine view failed";
       }
-    } else if (room.session.status === "completed" || room.session.status === "interrupted") {
+    }
+    if (!view && room.session.status === "active") {
+      view = lastViews.get(slug)?.get(-1) ?? null;
+      if (view) out.source = "cached";
+    }
+    if (!view) {
       const saved = options.db.prepare<[string, string], StoredDuelBoards>(
         "select snapshot_public_json from duels where web_slug = ? and guild_id = ?",
       ).get(slug, guildId);
       view = readStoredBoard(saved, null);
+      if (view) out.source = "stored";
     }
-    if (!view) return out;
+    if (!view) {
+      out.missingReason ??= room.session.status === "lobby" ? "the duel has not started" : "the duel has no saved board";
+      return out;
+    }
+    delete out.missingReason;
+    out.board = view;
     const gone = live?.surrendered ?? new Set<number>();
     out.turn = view.turn;
     out.phase = view.phase;

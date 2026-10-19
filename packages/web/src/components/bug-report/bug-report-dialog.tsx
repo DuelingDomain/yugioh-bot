@@ -249,7 +249,7 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
         {fieldErrors.expected ? <span id="bug-expected-error" role="alert" className="text-xs text-red-400">{fieldErrors.expected}</span> : null}
       </label>
       <p className="text-xs text-text-secondary">
-        We add the page, the last public log lines and your browser details. The report is public on GitHub. We never add your hand or your name.
+        Describe the problem. We save the board and the duel log with your report. A screenshot is optional.
       </p>
       {error ? <p role="alert" className="text-sm text-red-400">{error}</p> : null}
       <div className="flex gap-2">

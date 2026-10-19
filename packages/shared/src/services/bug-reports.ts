@@ -14,6 +14,12 @@ export class BugReportServiceError extends Error {
   }
 }
 
+export interface BugReportSubmitter {
+  userId: number;
+  username: string;
+  email: string | null;
+}
+
 export interface BugReport {
   id: number;
   guildId: string;
@@ -29,6 +35,10 @@ export interface BugReport {
   githubError: string | null;
   /** The issue number this report was added to as a +1, or null. */
   duplicateOf: number | null;
+  /** Private identity at submission time. Never passed to GitHub. */
+  submitter: BugReportSubmitter | null;
+  /** Server capture, including the board and full available public log. Owner access only. */
+  diagnostics: unknown;
 }
 
 export interface BugReportInput {
@@ -39,6 +49,7 @@ export interface BugReportInput {
   description: string;
   expected?: string | null;
   context: unknown;
+  diagnostics?: unknown;
   /** Set when the player said an open issue is the same bug: the report is saved and linked, no new issue. */
   duplicateOf?: number | null;
 }
@@ -67,6 +78,9 @@ function mapReport(row: any): BugReport {
     githubIssueUrl: row.github_issue_url ?? null,
     githubError: row.github_error ?? null,
     duplicateOf: row.duplicate_of ?? null,
+    submitter: row.submitter_json ? JSON.parse(row.submitter_json) : row.user_id != null
+      ? { userId: row.user_id, username: row.username, email: row.email ?? null } : null,
+    diagnostics: row.diagnostics_json ? JSON.parse(row.diagnostics_json) : null,
   };
 }
 
@@ -76,16 +90,23 @@ export function createBugReportService(db: Database.Database) {
     "select created_at from bug_reports where guild_id = ? and player_id = ? and created_at > ? order by created_at asc",
   );
   const insert = db.prepare(`
-    insert into bug_reports (guild_id, player_id, created_at, path, duel_slug, description, expected, context_json, duplicate_of)
-    values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    insert into bug_reports (guild_id, player_id, created_at, path, duel_slug, description, expected, context_json, duplicate_of, submitter_json, diagnostics_json)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const selectOne = db.prepare("select * from bug_reports where id = ? and guild_id = ?");
+  const identityJoin = "from bug_reports r join players p on p.id = r.player_id join users u on u.id = p.user_id";
+  const selectOne = db.prepare(`select r.*, u.id as user_id, u.username, u.email ${identityJoin} where r.id = ? and r.guild_id = ?`);
+  const submitter = db.prepare("select u.id as userId, u.username, u.email from players p join users u on u.id = p.user_id where p.id = ? and p.guild_id = ?");
+  const listReports = db.prepare(`select r.id, r.created_at, r.duel_slug, r.github_issue_number, r.github_issue_url,
+    r.github_error, r.submitter_json, u.id as user_id, u.username, u.email ${identityJoin}
+    where r.guild_id = ? and r.id < ? order by r.id desc limit ?`);
+  // Duplicate checks must not load hundreds of full board captures.
+  const candidateColumns = "id, guild_id, player_id, created_at, path, duel_slug, description, expected, context_json, github_issue_number, github_issue_url, github_error, duplicate_of, submitter_json";
   // Reports that own an issue (a +1 shares the issue of the report it joined, so it is left out).
   const withIssue = db.prepare(
-    "select * from bug_reports where guild_id = ? and github_issue_number is not null and duplicate_of is null order by id desc limit ?",
+    `select ${candidateColumns} from bug_reports where guild_id = ? and github_issue_number is not null and duplicate_of is null order by id desc limit ?`,
   );
   const withIssueInDuel = db.prepare(
-    "select * from bug_reports where guild_id = ? and duel_slug = ? and player_id <> ? and github_issue_number is not null and duplicate_of is null order by id desc limit ?",
+    `select ${candidateColumns} from bug_reports where guild_id = ? and duel_slug = ? and player_id <> ? and github_issue_number is not null and duplicate_of is null order by id desc limit ?`,
   );
   const issueOwner = db.prepare(
     "select 1 from bug_reports where guild_id = ? and github_issue_number = ? and duplicate_of is null",
@@ -127,6 +148,8 @@ export function createBugReportService(db: Database.Database) {
           throw new BugReportServiceError("Duel not found", 404);
         }
         assertWithinLimit(input.guildId, input.playerId, now, options.limit ?? BUG_REPORT_LIMIT);
+        const author = submitter.get(input.playerId, input.guildId) as BugReportSubmitter | undefined;
+        if (!author) throw new BugReportServiceError("Report submitter not found", 404);
         const info = insert.run(
           input.guildId,
           input.playerId,
@@ -137,6 +160,8 @@ export function createBugReportService(db: Database.Database) {
           input.expected ?? null,
           JSON.stringify(input.context ?? {}),
           input.duplicateOf ?? null,
+          JSON.stringify(author),
+          input.diagnostics == null ? null : JSON.stringify(input.diagnostics),
         );
         const player = db.prepare("select user_id from players where id=?").get(input.playerId) as { user_id: number };
         recordProductEvent(db, "bug_reported", player.user_id);
@@ -156,6 +181,21 @@ export function createBugReportService(db: Database.Database) {
     /** The newest reports that own a GitHub issue. The local source of duplicate candidates when GitHub cannot be read. */
     listWithIssue(guildId: string, limit = 200): BugReport[] {
       return (withIssue.all(guildId, limit) as unknown[]).map(mapReport);
+    },
+
+    /** Small owner-list rows; large board data is read only on the separate detail route. */
+    list(guildId: string, before = Number.MAX_SAFE_INTEGER, limit = 50) {
+      const rows = listReports.all(guildId, before, limit) as Array<{
+        id: number; created_at: string; duel_slug: string | null; github_issue_number: number | null;
+        github_issue_url: string | null; github_error: string | null; submitter_json: string | null;
+        user_id: number; username: string; email: string | null;
+      }>;
+      return rows.map(row => ({
+        id: row.id, createdAt: row.created_at, duelSlug: row.duel_slug,
+        githubIssueNumber: row.github_issue_number, githubIssueUrl: row.github_issue_url, githubError: row.github_error,
+        submitter: (row.submitter_json ? JSON.parse(row.submitter_json)
+          : { userId: row.user_id, username: row.username, email: row.email }) as BugReportSubmitter,
+      }));
     },
 
     /** Reports with an issue from other players in one duel, newest first. */
