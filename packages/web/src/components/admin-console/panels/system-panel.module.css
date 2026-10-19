@@ -9,3 +9,14 @@
 .mono { font-family: var(--f-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
 /* The row already has its rule; drop the one StatusLine draws above itself. */
 .value > .status.status { border-top: 0; padding-top: 0; font-size: 14px; }
+
+/* Disk bar and breakdown. */
+.bar { height: 6px; border-radius: 3px; background: var(--rule-lo); overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--chain-ink); }
+.bar[data-tone="warn"] > span { background: var(--warn-ink); }
+.bar[data-tone="fail"] > span { background: var(--loss-ink); }
+.breakdown { display: grid; gap: 2px; margin: 4px 0 0; }
+.breakdown > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; }
+.breakdown dt { color: var(--ink-3); }
+.breakdown dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.trend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

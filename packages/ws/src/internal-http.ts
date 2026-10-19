@@ -112,6 +112,11 @@ type BroadcastOptions = {
 export function createInternalHttpHandler(opts: BroadcastOptions) {
   return async function handle(req: Request): Promise<Response> {
     const url = new URL(req.url);
+    // Liveness for the admin System section. No secrets, no per-user data.
+    if (req.method === "GET" && url.pathname === "/health") {
+      const connections = (opts.io as { engine?: { clientsCount?: number } }).engine?.clientsCount;
+      return Response.json({ ok: true, uptime: Math.round(process.uptime()), connections: typeof connections === "number" ? connections : 0 });
+    }
     if (req.method !== "POST") return new Response("Not found", { status: 404 });
 
     const result = await readSignedRequest(req, { secret: opts.secret, purpose: "ws-broadcast", maxBytes: opts.maxBytes });
