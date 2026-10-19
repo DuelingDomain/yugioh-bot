@@ -41,7 +41,14 @@ export interface LiveDuel {
   formatLabel: string;
   status: "lobby" | "active";
   players: string[];
+  /** When the game began; null for a lobby that has not started. */
   startedAt: number | null;
+  /** When the table was opened. */
+  createdAt?: number;
+  /** Ranked or tournament game (counts for rating) against a casual one. */
+  ranked?: boolean;
+  /** Played with Genesys point rules. */
+  genesys?: boolean;
   /** Page the admin opens to watch, for example /duels/<slug>. */
   watchHref: string;
 }
@@ -51,6 +58,9 @@ export interface LiveDraft {
   status: "pending" | "active";
   players: string[];
   startedAt: number | null;
+  createdAt?: number;
+  /** "Round 2, pick 3" while the draft runs; null in the lobby. */
+  progress?: string | null;
   href: string;
 }
 export interface LiveData {

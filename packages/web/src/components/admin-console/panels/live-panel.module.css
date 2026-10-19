@@ -1,0 +1,20 @@
+/* Live panel. Two sizes: 14px text, 28px figures. Colours come from the page tokens. */
+.group { display: grid; gap: 10px; min-width: 0; }
+.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+.big { font: 600 28px/1.1 var(--f-disp); font-variant-numeric: tabular-nums; }
+.heading { margin: 0; color: var(--ink-2); font: 500 14px/1.4 var(--f-ui); }
+.name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+/* Lobbies have no live dot; the padding keeps their names in line with running rows. */
+.nameIdle { composes: name; padding-left: 11px; }
+.kind { min-width: 0; color: var(--ink-2); }
+.players { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
+.time { color: var(--ink-4); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.go { color: var(--chain-ink); text-align: right; }
+/* Phone rows: the sheet turns a row into the grid set by phoneAreas when its container is 620px or narrower. */
+@container (max-width: 620px) {
+  .name, .nameIdle { grid-area: nm; }
+  .kind { grid-area: kind; }
+  .players { grid-area: pl; white-space: normal; }
+  .time { grid-area: tm; text-align: right; }
+  .go { display: none; }
+}
