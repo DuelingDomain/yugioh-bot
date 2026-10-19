@@ -59,7 +59,7 @@ function Pane({ title, onClose, scrolls = true, children }: { title: string; onC
 }
 
 /** The plaza's drawers, in place of the floating HUD layer. Same props as `HudLayer`. */
-export function PlazaDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats }: HudLayerProps) {
+export function PlazaDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion }: HudLayerProps) {
   const { pane, setPane, close, pinned, pinAnchor } = hud;
   const bind = (id: HudPane) => ({
     open: pane === id,
@@ -133,9 +133,6 @@ export function PlazaDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones,
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
         extras={extras}
-        avoid={preview?.pinned === true ? hud.pinAnchor : null}
-        hoverAnchor={preview?.pinned === true ? null : hoverAnchor}
-        ownSeats={ownSeats}
         onClose={closePin}
       />
     </div>

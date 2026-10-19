@@ -271,15 +271,11 @@ export interface HudLayerProps {
   /** Hold the preview back (a pick refusal hint stands over its card). */
   previewHidden?: boolean;
   reducedMotion: boolean;
-  /** The element of the hovered card (the preview shows it): the card peek never covers it. */
-  hoverAnchor?: HTMLElement | null;
-  /** The seats of the viewer (and the partner in Tag): the card peek is as wide as the free room up to their field zones, so it never covers them. */
-  ownSeats?: readonly number[];
   /** The 4-way grid: the log, settings, chain and card panel are left-edge drawers (grid-edge.tsx) instead of the dock, the tower and the flyout, so the board keeps the whole width. */
   edge?: boolean;
 }
 
-export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats, edge = false }: HudLayerProps) {
+export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion, edge = false }: HudLayerProps) {
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   const extras = useMemo(() => (pinnedBoard ? cardExtraLines(pinnedBoard, equipLinks) : []), [pinnedBoard, equipLinks]);
   // The X button: the pin goes. With the keyboard, focus returns to the card that was clicked (a mouse click would only bring the hover peek back).
@@ -307,10 +303,6 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
         extras={extras}
-        avoid={preview?.pinned === true ? hud.pinAnchor : null}
-        hoverAnchor={preview?.pinned === true ? null : hoverAnchor}
-        ownSeats={ownSeats}
-        edge={edge}
         onClose={closePin}
       />
     </>

@@ -657,57 +657,50 @@
   .masterWrap[data-form="wide"] .masterAbility { display: none; }
 }
 
-/* ---------- hover preview: slides out from the left edge, beside the dock (never over its icons) ---------- */
+/* ---------- card inspector: a drawer that slides out from the left edge of the screen ---------- */
 /*
- * --ct is the effect text size (the Text size setting); the rest of the panel derives from it. The panel takes no
- * pointer events. It is wide (320 to 420 px): the card, the name and the facts stand side by side at the top, and the
- * effect text runs the full width under them, so the whole text reads with no scroll box at normal card lengths.
- * It may stand over the Deck Master plate while it shows a card (z-index above the plate), and it grows down to the bottom
- * of the layer; it stops short of the controls, the chain tower and the field zones of the viewer's own board (grid-preview.tsx
- * measures them and sets --pv-bottom, --pv-max-h and --pv-w). A text that does not fit shrinks the art to 104px (data-art="small"),
- * and a text that is longer even then scrolls inside the panel and takes the pointer only then (grid-preview.tsx).
+ * --ct is the effect text size (the Text size setting); the rest of the drawer derives from it. The drawer is attached to the left edge of the
+ * screen and lies over the board: it never moves or resizes it. It starts below the header pills (--pv-top) and is as tall as its content,
+ * up to the bottom of the layer. The card art is the largest part: as wide as the drawer, and as tall as the window leaves room for (the name, the
+ * lines and a few lines of text stand under it). A hover drawer takes no pointer events, so the board under it keeps working; a pinned one does
+ * (grid-preview.tsx). It stands over the closed drawer tabs of the edge (z-index above them), and under the menus and flyouts.
  */
 .preview {
   --pv-ct: calc(var(--ct, 15.5px) * 1.06);
-  /* The width the panel asks for (peek-layout.ts peekWidth says the same in JS): 22% of the window, 320 to 420 px. The shells keep the board right of
-     the narrower column (their --hud-left: 14vw, 220 to 284 px); the panel takes the free room beside the board, up to the own field zones (grid-preview.tsx). */
-  --pv-col-w: clamp(320px, 22vw, 420px);
-  --pv-reserve: 270px;
+  --pv-top: 54px;
+  --pv-w: min(88vw, clamp(300px, 24vw, 500px));
   position: absolute;
-  left: 72px;
-  /* --pv-bottom, --pv-max-h and --pv-w come from grid-preview.tsx: the free band of the real layout (below the chain tower, down to the controls). */
-  top: 50px;
-  /* Above the Deck Master plate and the chain panel's neighbours, below the flyouts. */
-  z-index: 34;
+  top: var(--pv-top);
+  left: 0;
+  z-index: 41;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  width: var(--pv-w, var(--pv-col-w));
-  max-height: var(--pv-max-h, max(300px, calc(100% - 50px - var(--pv-reserve))));
+  width: var(--pv-w);
+  max-height: calc(100% - var(--pv-top));
   padding: 14px 16px 16px;
   overflow: hidden;
-  border: 1px solid rgb(155 126 255 / 0.5);
-  border-radius: 14px;
+  border: 1px solid rgb(155 126 255 / 0.4);
+  border-left: 0;
+  border-radius: 0 14px 14px 0;
   background: rgb(9 15 29 / 0.98);
-  box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.85);
+  box-shadow: 0 0 28px rgb(0 0 0 / 0.55), 0 24px 60px -12px rgb(0 0 0 / 0.85);
   font-family: var(--duel-f-ui);
   color: var(--duel-ink);
   pointer-events: none;
-  transform: translateX(calc(-100% - 72px));
-  transition: transform 0.18s ease-out, visibility 0s linear 0.18s;
+  transform: translateX(-101%);
+  transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 0.2s;
   visibility: hidden;
 }
-/* grid-preview.tsx stands the panel on the bottom of its free band. */
-.preview[data-anchor="bottom"] { top: auto; bottom: var(--pv-bottom, 8px); }
-.preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.18s ease-out, visibility 0s; }
+.preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s; }
 .preview[data-motion="none"] { transition: none; }
-/* The art on top, then the name, the facts line and ATK / DEF. The art is the whole panel width, as tall as the band allows: it grows with the room of the
-   band (--pv-max-h, set by grid-preview.tsx; 280px is what the name, the lines and a few lines of text need) from 150px in a short band to the full
-   width in a tall one. A cut text shrinks it to about 60% first (data-art="small"). */
+/* The art on top (the largest part), then the name, the facts line and ATK / DEF. */
 .previewHead { display: flex; flex: none; flex-direction: column; align-items: stretch; gap: 10px; min-width: 0; }
 .previewArt {
   display: block;
   flex: none;
-  width: min(100%, max(150px, calc((var(--pv-max-h, 760px) - 280px) * 421 / 614)));
+  /* The drawer width, and no taller than the window leaves room for: the header (--pv-top) and ~300px for the name, the lines and some text. */
+  width: min(100%, calc((100dvh - var(--pv-top) - 300px) * 421 / 614));
   aspect-ratio: 421 / 614;
   height: auto;
   margin: 0 auto;
@@ -715,9 +708,6 @@
   object-fit: contain;
   background: transparent;
 }
-/* A text that still scrolls shrinks the art to this size first (the art goes only when it is squeezed to a sliver: data-squeezed). */
-.preview[data-art="small"] .previewArt { width: min(100%, max(130px, calc((var(--pv-max-h, 760px) - 280px) * 0.6 * 421 / 614))); }
-.preview[data-squeezed="true"] .previewArt { display: none; }
 .previewId { flex: none; min-width: 0; }
 .preview h3 { margin: 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
 .previewType { margin: 3px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); line-height: 1.35; }
@@ -738,8 +728,6 @@
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
-/* Only a text that does not fit scrolls, and only then it takes the pointer (a wheel scroll over it). */
-.previewText[data-overflow="true"] { padding-right: 6px; pointer-events: auto; }
 /* Inline flow, so a narrow panel wraps the line as one sentence instead of splitting it into columns. */
 .previewOwner { margin: 6px 0 0; line-height: 1.35; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.95); }
 .previewOwner i { display: inline-block; width: 0.6em; height: 0.6em; margin-right: 6px; vertical-align: 0.05em; border-radius: 50%; background: var(--seat-main, var(--duel-ink-3)); }
@@ -848,9 +836,6 @@
 }
 .edgeBody .tower { box-sizing: border-box; }
 
-/* The card peek slides out from the tabs (34px), not from the right of a dock (72px). */
-.preview[data-edge="true"] { left: 34px; }
-.preview[data-edge="true"]:not([data-open="true"]) { transform: translateX(calc(-100% - 34px)); }
 
 /* ---------- edge HUD bars: the turn controls in a slim row at the bottom right ---------- */
 /* The header pills ride 3px higher and the controls make a row of their own under the hand, so the board gets the whole height

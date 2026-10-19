@@ -587,11 +587,9 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     };
   }, [ownZoom]);
   // The chain strip moves the stage frame (its top, its scale): the field that was fitted moves with it, so the fit is made again (eased).
-  // The pinned peek counts by its side and its rect in steps of 16 px: the slide and a settled peek are one refit, and a peek that is a few px off never refits.
-  const peekKey = pinnedRect ? `${pinnedRect.x + pinnedRect.width / 2 < box.width / 2 ? "l" : "r"}${[pinnedRect.x, pinnedRect.y, pinnedRect.width, pinnedRect.height].map((v) => Math.round(v / 16)).join(",")}` : "0";
   // The seats of a table that regroups glide to their new places: a fit made before they stand still would aim at a field that is still moving.
   const regrouping = gliding && regroup;
-  const softKey = `${peekKey}|${hasChip ? 1 : 0}|${hubAt ? `${Math.round(hubAt.x)},${Math.round(hubAt.y)}` : ""}|${Math.round(chainInset)}|${regrouping ? "g" : "s"}`;
+  const softKey = `${hasChip ? 1 : 0}|${hubAt ? `${Math.round(hubAt.x)},${Math.round(hubAt.y)}` : ""}|${Math.round(chainInset)}|${regrouping ? "g" : "s"}`;
   const lastFitKey = useRef("");
   // A seat went out while the field was zoomed: the first fit after the glide is the refit to the new field.
   const afterRegroup = useRef(false);
@@ -627,12 +625,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     const avoid = cards.length > 0 ? [{ x: Math.min(...cards.map((r) => r.left)) - box.left, y: Math.min(...cards.map((r) => r.top)) - box.top, width: Math.max(...cards.map((r) => r.right)) - Math.min(...cards.map((r) => r.left)), height: box.bottom - Math.min(...cards.map((r) => r.top)) }] : [];
     // The chain strip across the top (a window with no room for it beside the field): the fit keeps clear of it.
     if (chainInset > 0 && !portrait) avoid.push({ x: 0, y: 0, width: box.width, height: chainInset + 8 });
-    // A card pinned in the peek is stable: the fit keeps clear of it (read from the DOM; the hover peek moves away by itself).
-    const pinned = document.querySelector<HTMLElement>(PINNED_PEEK);
-    if (pinned) {
-      const r = pinned.getBoundingClientRect();
-      if (r.width > 2 && r.height > 2) avoid.push({ x: r.left - box.left, y: r.top - box.top, width: r.width, height: r.height });
-    }
+    // A pinned card in the left drawer lies over the field: the fit ignores it, so the field never moves when a card is pinned.
     // The entry and a soft refit ease; a resize lands at once.
     const target = zoomFit(items, avoid, !was || !hard ? ROOF_ZOOM_MS : 0);
     setFitted(target);
