@@ -110,7 +110,8 @@ export interface TagDrawersProps {
   logUnread: number;
   preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean } | null;
   equipLinks?: EquipLinks;
-  previewHidden: boolean;
+  /** Hold the preview back (a pick refusal hint stands over its card). */
+  previewHidden?: boolean;
   reducedMotion: boolean;
   hoverAnchor?: HTMLElement | null;
   ownSeats?: readonly number[];

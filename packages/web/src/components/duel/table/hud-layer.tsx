@@ -218,7 +218,8 @@ export function usePinSync(hud: HudPaneState, seats: readonly DuelSeatView[] | u
  * `resetKey` (the prompt id) clears it when the prompt changes.
  */
 export function useRowPreview(resetKey: string | number | null) {
-  const [card, setCard] = useState<DuelCardInfo | null>(null);
+  // A prompt row gives card info; a card of the pile window (Graveyard, Materials) is a whole board card.
+  const [card, setCard] = useState<DuelCardInfo | DuelCard | null>(null);
   useEffect(() => setCard(null), [resetKey]);
   const leave = (event: MouseEvent<HTMLElement> | FocusEvent<HTMLElement>) => {
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setCard(null);
@@ -267,7 +268,8 @@ export interface HudLayerProps {
   /** The equip links of the live board: the pinned peek adds the same lines as the Card flyout (equip, counters, materials). */
   equipLinks?: EquipLinks;
   /** The pile viewer is open, or a pick hint is shown: the preview hides. An open card menu does not hide it. */
-  previewHidden: boolean;
+  /** Hold the preview back (a pick refusal hint stands over its card). */
+  previewHidden?: boolean;
   reducedMotion: boolean;
   /** The element of the hovered card (the preview shows it): the card peek never covers it. */
   hoverAnchor?: HTMLElement | null;

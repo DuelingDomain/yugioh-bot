@@ -7,23 +7,17 @@ import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardBack } from "./card-face";
 import { hasCardName, loadDuelCardInfo } from "./card-info";
-import { cardTextStyle, useCardTextSize } from "./card-text-size";
 import {
   cardArtUrl,
-  cardCombatText,
-  cardDetailsText,
-  cardKindText,
   isHiddenCard,
   isMaterialCard,
   LOCATION_EXTRA,
   zoneKey,
 } from "./constants";
 import { duelFontClasses } from "./fonts";
-import { useFilledCard } from "./filled-card";
 import { ChainGlyph } from "./chain-glyph";
 import type { ChainLinkState } from "./chain-state";
-import { cardExtraLines } from "./inspector";
-import { chainMarkLabel, pileChainMarks, type PileChainMark } from "./pile-chain-marks";
+import { pileChainMarks, type PileChainMark } from "./pile-chain-marks";
 import { useSkinStyles } from "./skin";
 import baseStyles from "./pile-viewer.module.css";
 import { UsableGlow } from "./usable-glow";
@@ -40,8 +34,11 @@ export type PileViewerProps = {
   onClose: () => void;
   /** A click on a card that is not legal right now: show it in the inspector. */
   onInspectCard: (card: DuelCard) => void;
-  /** The card under the pointer or focus: the left inspector follows it, as it does for board cards. */
-  onHoverCard?: (card: DuelCard) => void;
+  /**
+   * The card under the pointer or focus, or null when it leaves: the left drawer inspector follows it, as it does for board
+   * cards. The window itself shows no card text; the drawer is the one place for it.
+   */
+  onHoverCard?: (card: DuelCard | null) => void;
   /** Called instead of onInspectCard when the clicked card is legal in the current prompt. */
   onActivateCard?: (card: DuelCard, anchor: HTMLElement) => void;
   reducedMotion: boolean;
@@ -111,74 +108,6 @@ function cardName(card: DuelCard, looked?: ReadonlyMap<number, string>): string 
   return (hasCardName(card) ? card.name : looked?.get(card.code)) ?? card.name ?? `Card ${card.code}`;
 }
 
-function ordinal(n: number): string {
-  const mod100 = n % 100;
-  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
-  switch (n % 10) {
-    case 1: return `${n}st`;
-    case 2: return `${n}nd`;
-    case 3: return `${n}rd`;
-    default: return `${n}th`;
-  }
-}
-
-function positionLine(index: number, total: number, attached: boolean): string {
-  if (total <= 1) return "Only card";
-  if (attached) return `${index + 1} of ${total}`;
-  if (index === 0) return `Top of pile · 1 of ${total}`;
-  if (index === total - 1) return `Bottom of pile · ${total} of ${total}`;
-  return `${ordinal(index + 1)} from top · ${index + 1} of ${total}`;
-}
-
-/**
- * The detail of the card under the pointer, focus or last click: art, name, type lines and the FULL effect text.
- * The text comes from `useFilledCard` (a pile card that came without its effect text is looked up by passcode, as the
- * card panel does) and takes the viewer's card text size. It scrolls inside its own box, so it is never cut.
- */
-function PileDetail({ entry, total, styles, reserveChain, attached }: { entry: Entry; total: number; styles: Record<string, string>; reserveChain: boolean; attached: boolean }) {
-  const marks = entry.marks;
-  const textSize = useCardTextSize();
-  const live = entry.card;
-  const hidden = isHiddenCard(live) || live.code == null;
-  const card = useFilledCard(live);
-  const sleeve = live.location === LOCATION_EXTRA ? "extra" : "deck";
-  const details = hidden ? "" : cardDetailsText(card);
-  const kind = hidden ? "" : cardKindText(card);
-  const combat = hidden ? null : cardCombatText(card);
-  const text = hidden ? "" : card.description?.trim() ?? "";
-  const extras = hidden ? [] : cardExtraLines(card);
-  return (
-    <div className={styles.preview} aria-live="polite" data-card-text={textSize} style={cardTextStyle(textSize)}>
-      <div className={`${styles.previewArt} card-frame`}>
-        {hidden ? (
-          <CardBack kind={sleeve} className={styles.previewBack} />
-        ) : (
-          <img src={cardArtUrl(live.code as number, "full")} alt="" draggable={false} />
-        )}
-        <ChainMarkBadges marks={marks} styles={styles} size="detail" />
-      </div>
-      <div className={styles.previewBody}>
-        <span className={styles.previewPos}>{positionLine(entry.index, total, attached)}</span>
-        {marks.length > 0 || reserveChain ? (
-          // While the pile holds a chain card, every card keeps this line (empty on the others): the detail never changes
-          // height between cards, and the live region stays mounted, so a change of phase is announced.
-          <span className={styles.previewChain} data-testid="pile-chain-line" data-phase={marks[0]?.phase} aria-live="polite" aria-atomic="true">
-            {marks.length > 0 ? chainMarkLabel(marks) : "\u00a0"}
-          </span>
-        ) : null}
-        <h3 className={styles.previewName}>{hidden ? "Face-down card" : card.name ?? `Card ${live.code}`}</h3>
-        {details ? <p className={styles.previewDetails}>{details}</p> : null}
-        {kind && kind !== details ? <p className={styles.previewDetails}>{kind}</p> : null}
-        {combat ? <p className={styles.previewCombat}>{combat}</p> : null}
-      </div>
-      <div className={styles.previewText} data-testid="pile-card-text" tabIndex={0} role="region" aria-label="Card text">
-        {hidden ? <p>Face-down card. Its identity is not public.</p> : text ? <p>{text}</p> : null}
-        {extras.map((line) => <p key={line} className={styles.previewExtra}>{line}</p>)}
-      </div>
-    </div>
-  );
-}
-
 /** Scrolls the grid itself (no ancestor scrolls) so the card is fully in view, with room above it for its chain badge. */
 function scrollGridTo(grid: HTMLElement, card: HTMLElement): void {
   const gridBox = grid.getBoundingClientRect();
@@ -238,6 +167,8 @@ export function PileViewer({
   // pointer that crosses other cards on its way to the text never replaces the clicked card.
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
+  const hoverCbRef = useRef(onHoverCard);
+  hoverCbRef.current = onHoverCard;
   const [lookedNames, setLookedNames] = useState<ReadonlyMap<number, string>>(new Map());
 
   // The Materials view of an Xyz is this viewer too: its cards sit in the Overlay location.
@@ -260,7 +191,7 @@ export function PileViewer({
     });
   }, [attached, cards, chainLinks, pick?.ids]);
 
-  const preview = entries.find((entry) => entry.key === hoverKey) ?? entries.find((entry) => entry.key === pinnedKey) ?? entries[0] ?? null;
+  const activeKey = (entries.find((entry) => entry.key === hoverKey) ?? entries.find((entry) => entry.key === pinnedKey) ?? entries[0] ?? null)?.key ?? null;
   const tone = usableGlowToneForPile(cards);
   const anyLegal = entries.some((entry) => legalKeys?.has(zoneKey(entry.card.controller, entry.card.location, entry.card.sequence)));
 
@@ -303,7 +234,11 @@ export function PileViewer({
     };
   }, [open]);
 
-  const firstChainKey = entries.find((entry) => entry.marks.length > 0)?.key ?? null;
+  // The window closing (or a new pile) hands the drawer back: no card of a closed window stays shown.
+  useEffect(() => {
+    if (!open) return;
+    return () => hoverCbRef.current?.(null);
+  }, [open]);
 
   // Esc closes from anywhere (the trap keeps focus inside, but a stray focus must not strand the user).
   useEffect(() => {
@@ -386,13 +321,23 @@ export function PileViewer({
     else onInspectCard(card);
   }
 
+  // The pointer leaves the grid: the drawer goes back to the tile that still has focus, or closes.
+  function onGridLeave() {
+    setHoverKey(null);
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>("[data-pile-card]") : null;
+    const key = focused && gridRef.current?.contains(focused) ? focused.dataset.cardKey : null;
+    onHoverCard?.(entries.find((entry) => entry.key === key)?.card ?? null);
+  }
+
   const total = entries.length;
   return (
     <div className={cn(duelFontClasses, styles.root)} data-reduced={reducedMotion ? "true" : "false"} data-owner={owner} data-has-legal={anyLegal ? "true" : "false"}
       data-toned={ownerTag ? "true" : undefined}
       data-pick={pick ? "true" : undefined}
-      style={ownerTag ? ({ "--seat-main": ownerTag.tone.main, "--seat-ink": ownerTag.tone.ink } as CSSProperties) : undefined}>
-      <div className={styles.scrim} onClick={onClose} aria-hidden="true" />
+      data-attached={attached ? "true" : undefined}
+      style={{ ...(ownerTag ? { "--seat-main": ownerTag.tone.main, "--seat-ink": ownerTag.tone.ink } : null), "--pv-cols": Math.max(1, Math.min(3, total)) } as CSSProperties}>
+      {/* Modal: the scrim takes every click that would reach the board. A pile closes on it; a pick (the engine waits for an answer) only swallows it, and the close button hides the window. */}
+      <div className={styles.scrim} onClick={pick ? undefined : onClose} aria-hidden="true" />
       <aside
         ref={panelRef}
         className={styles.panel}
@@ -418,15 +363,7 @@ export function PileViewer({
           </button>
         </header>
 
-        {preview ? (
-          <PileDetail key={preview.key} entry={preview} total={total} styles={styles} reserveChain={firstChainKey != null} attached={attached} />
-        ) : (
-          <div className={styles.preview} aria-live="polite">
-            <p className={styles.empty}>This pile is empty.</p>
-          </div>
-        )}
-
-        <ul ref={gridRef} className={styles.grid} role="list" aria-label={attached ? title : `${title}, newest first`} onMouseLeave={() => setHoverKey(null)}>
+        <ul ref={gridRef} className={styles.grid} role="list" aria-label={attached ? title : `${title}, newest first`} onMouseLeave={onGridLeave}>
           {entries.map((entry) => {
             const { card, key, index, marks, id } = entry;
             const hidden = isHiddenCard(card) || card.code == null;
@@ -444,7 +381,7 @@ export function PileViewer({
                   data-legal={legal ? "true" : "false"}
                   data-selected={selected ? "true" : "false"}
                   data-pick-id={id}
-                  data-active={preview?.key === key ? "true" : "false"}
+                  data-active={activeKey === key ? "true" : "false"}
                   data-chain-link={marks.length > 0 ? marks[0].index : undefined}
                   aria-label={`${name}, ${index + 1} of ${total}${marks.length > 0 ? `, ${marks.map((mark) => `${mark.ariaLabel} ${mark.phase}`).join(", ")}` : ""}${legal || pick ? ", can be chosen" : ""}`}
                   aria-pressed={selected}
@@ -457,6 +394,7 @@ export function PileViewer({
                     setHoverKey(null);
                     onHoverCard?.(card);
                   }}
+                  onBlur={() => onHoverCard?.(null)}
                   onKeyDown={(event) => onCardKeyDown(event, index)}
                   onClick={(event) => onCardClick(event, key, card, legal, id)}
                 >

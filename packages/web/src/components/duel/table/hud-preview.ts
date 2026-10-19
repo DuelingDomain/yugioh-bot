@@ -15,7 +15,7 @@ export type HudPreview = { card: DuelCard | DuelCardInfo; owner: Owner | null; p
 export function hudPreview(
   hover: DuelCard | null,
   menuCard: DuelCard | null | undefined,
-  rowCard: DuelCardInfo | null,
+  rowCard: DuelCardInfo | DuelCard | null,
   ownerOf: (card: DuelCard) => Owner,
   pinned: DuelCard | DuelCardInfo | null = null,
 ): HudPreview | null {

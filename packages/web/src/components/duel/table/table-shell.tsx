@@ -848,6 +848,7 @@ function TableShellBody({
                     leavingSeats={leavingOnlySeats(engine.seats)}
                     revealed={controller.revealed}
                     onInspectCard={hud ? rowPreview.show : (card) => ui.setInspect({ type: "info", card })}
+                    onHoverCard={hud ? rowPreview.show : undefined}
                     nameOf={nameOf}
                     seatTones={seatTones}
                     priority={priority}
@@ -895,7 +896,11 @@ function TableShellBody({
                         cards={livePileCards(ui.pile, engine, viewerSeat)}
                         onClose={ui.closePile}
                         onInspectCard={(card) => inspectCard({ type: "card", card })}
-                        onHoverCard={(card) => { if (ui.pane === "card") ui.setInspect({ type: "card", card }); }}
+                        onHoverCard={(card) => {
+                          // The window shows no card text: the HUD's left drawer follows the card under the pointer.
+                          if (hud) rowPreview.show(card?.code != null ? card : null);
+                          else if (card && ui.pane === "card") ui.setInspect({ type: "card", card });
+                        }}
                         onActivateCard={onInspectorActivate}
                         legalKeys={controller.legalKeys}
                         selectedKeys={controller.selectedKeys}
@@ -960,7 +965,6 @@ function TableShellBody({
           logUnread={logUnread}
           preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
-          previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
           hoverAnchor={ui.hover?.anchor ?? null}
           ownSeats={[viewerSeat ?? layout.anchorSeat]}
