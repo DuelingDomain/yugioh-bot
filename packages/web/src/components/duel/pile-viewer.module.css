@@ -466,6 +466,15 @@
   translate: -34% -34%;
 }
 
+/* ---------- the left card drawer: the window is placed in the space right of it from the start, so the drawer never covers it
+   and the window does not move when the drawer opens on a hover (the width is the drawer's own, see `.preview` in grid-hud.module.css) ---------- */
+
+@media (min-width: 901px) {
+  .root {
+    padding-left: calc(min(88vw, clamp(300px, 24vw, 500px)) + var(--pv-pad));
+  }
+}
+
 /* ---------- phones: still centred, over the whole viewport ---------- */
 
 @media (max-width: 900px) {
