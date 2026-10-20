@@ -28,7 +28,8 @@ export interface CardEffectIndex {
   reason(code: number, reading: Interpretation): string;
 }
 
-const indexes = new WeakMap<CardDatabase, CardEffectIndex>();
+// The index reads release dates from its database, so it is only usable while that database is open.
+const indexes = new WeakMap<CardDatabase, { index: CardEffectIndex; db: Database.Database }>();
 
 /** Missing upstream artwork IDs can bridge by one unambiguous printed engine name. */
 export function createCanonicalEffectResolver(cards: CardDatabase): (passcode: number, name?: string) => number {
@@ -142,7 +143,7 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
     },
     popularity: code => facets.get(canonical(code))?.popularity ?? 0,
   };
-  indexes.set(cards, index);
+  indexes.set(cards, { index, db });
   return index;
 }
 
@@ -237,7 +238,8 @@ export async function initializeCardEffectIndex(db: Database.Database, cards: Ca
 }
 
 export function cardEffectIndex(cards: CardDatabase): CardEffectIndex | undefined {
-  return indexes.get(cards);
+  const installed = indexes.get(cards);
+  return installed?.db.open ? installed.index : undefined;
 }
 
 const releaseIndexes = new WeakMap<Database.Database, { revision: number; month: string; cards?: CardDatabase; releases: Map<number, ReleaseDates> }>();
