@@ -410,6 +410,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     reducedMotion: preferences.reducedMotion,
     ready: Boolean(data?.engine) && data?.session.status !== "lobby" && !ownWindowGate && !error,
     recovering: realtime.recovering,
+    skipOpening: testDuel,
   });
   // The card layers go while the connection recovers (their events are history when they return), except while
   // the opening deal plays: a focus or a socket retry in those seconds must not drop the cards still in flight.
