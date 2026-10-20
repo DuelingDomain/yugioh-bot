@@ -84,3 +84,25 @@ preload prevented application/build `.env*` reads; deployment copies excluded
 No environment file was inspected, no engine data was modified, and no process
 was killed by name. The deployed preload and service drop-ins retain the
 no-env-file-read guard and core limit.
+
+## Publish rule for `web-live`
+
+Never run `rsync` into `web-live` while the web unit is running. The running
+Next.js process loads chunks on demand (for example the hashed
+`better-sqlite3-<hash>` module). A half-copied folder gives
+`Cannot find module` errors, and :3000 answered "internal server error" for
+about one minute after the 2026-10-19 duel-start publish.
+
+Use this order for every publish:
+
+1. Build in `local-all` (`next build --webpack`, then `npm run package:standalone`).
+2. Stop the web unit: `systemctl --user stop yugidraft-web-local`.
+3. Copy: `rsync -a --delete --exclude '.env*' local-all/packages/web/.next/standalone/ web-live/`.
+4. Start the unit: `systemctl --user start yugidraft-web-local`, then check that
+   `http://localhost:3000/` answers 302.
+5. Restart `yugidraft-duel-server` in the same step when the duel server changed.
+
+The stop-to-start gap is a few seconds and is cleaner than a broken page. The
+other way is also allowed: `rsync` into a new folder (for example
+`web-live.next`), stop the unit, rename the folders, then start the unit. Copy
+nothing into a folder that a running process serves.
