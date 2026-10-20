@@ -690,9 +690,22 @@
   }
 }
 
-/* Floating HUD room (1v1): your hand reaches up over the front Spell/Trap row. Only the card's resting box takes
-   the pointer, never the picture that the hover grows over that row: when the pointer leaves the resting box the
-   card drops back, so a click always goes to the hand card or the zone you see, never both. */
+/* A hovered (or focused) card of your hand lies over the whole board: its strip rises over the zones, their glow and marks
+   (they sit in the zone's own stacking context, below this strip) and over a hovered zone (z-index 6). Layers above the whole
+   board (chain badges, the Deck Master emblem) are cut out by the card's box instead, see hand-cover.ts. */
+.stripBottom:has(.handLocal .handCard:hover, .handLocal .handCard :focus-visible) {
+  z-index: 8;
+}
+
+/* Inside that strip the hand also rises over the Deck Master badge floating at the tally's corner (z-index 3). */
+.stripBottom:has(.handLocal .handCard:hover, .handLocal .handCard :focus-visible) > .handRail {
+  z-index: 4;
+}
+
+/* Floating HUD room (1v1): your hand reaches up over the front Spell/Trap row. At rest only the card's resting box takes
+   the pointer, so a grown picture never blocks a field card it does not cover. While the card is hovered (it lies over the
+   field card now) its whole picture takes the pointer: a click anywhere on the visible card goes to the hand card, never to a
+   field card behind it. When the pointer leaves the picture the card drops back. */
 :global([data-hud="room"]) .handLocal .handCard .frame {
   pointer-events: none;
 }
@@ -706,6 +719,11 @@
 }
 
 @media (hover: hover) {
+  :global([data-hud="room"]) .handLocal .handCard .zone:hover .frame,
+  :global([data-hud="room"]) .handLocal .handCard .zone:has(:focus-visible) .frame {
+    pointer-events: auto;
+  }
+
   :global([data-hud="room"]) .handLocal .handCard .zone:hover .frame,
   :global([data-hud="room"]) .handLocal .handCard .zone:has(:focus-visible) .frame {
     transform: translateY(calc(var(--lh) * -0.04 - var(--hand-sink, 0px))) scale(var(--hand-hover, 2));
@@ -2822,9 +2840,17 @@
   translate: -50% 0;
 }
 
-/* Enlarged hand art can overlap the back row; clicks there belong to its zone button. */
+/* Enlarged hand art can overlap the back row; at rest clicks there belong to its zone button. A hovered (or focused) card of your
+   own hand lies over the field, so its whole picture takes the pointer: a click anywhere on the visible card goes to the card. */
 .sfHand .frame {
   pointer-events: none;
+}
+
+@media (hover: hover) {
+  .sfHand .handLocal .handCard .zone:hover .frame,
+  .sfHand .handLocal .handCard .zone:has(:focus-visible) .frame {
+    pointer-events: auto;
+  }
 }
 
 /* 3-way table: your hand is drawn as large as a board card (1.22 zone sizes tall, was 0.76), because the lane under your
