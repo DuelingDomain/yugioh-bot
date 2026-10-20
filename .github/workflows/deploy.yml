@@ -540,7 +540,7 @@ jobs:
                exit 1
              fi
              rm -rf "$installer"
-             # Pull all four immutable release digests before backups, retagging or stopping any service.
+             # Pull all five immutable release digests before backups, retagging or stopping any service.
              # Public GHCR packages need no VM login. A pull failure leaves live tags unchanged.
              sh "$DEPLOY_IMAGES" pull "$DEPLOY_COMMIT" "$DEPLOY_IMAGE_REFS"
              # Preserve matching rollback code/env and the actual container image IDs before checkout/promotion.

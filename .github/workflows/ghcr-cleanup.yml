@@ -26,6 +26,8 @@ jobs:
             const org = context.repo.owner;
             const sha = /^[0-9a-f]{40}$/;
             const release = /^release-[0-9a-f]{40}$/;
+            // Fixed release-tag cutover date; preserve the legacy rollback window across later runs.
+            const releaseTagCutover = Date.parse("2026-10-21T00:00:00Z");
             const manifestTypes = new Set([
               "application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json",
               "application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"
@@ -41,12 +43,15 @@ jobs:
                 const tags = version => version.metadata.container.tags;
                 versions.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id);
                 const kept = new Set(versions.filter(version => tags(version).some(tag => release.test(tag))).slice(0, 10).map(version => version.id));
+                const legacyKept = new Set(versions.filter(version => Date.parse(version.created_at) < releaseTagCutover && tags(version).some(tag => sha.test(tag))).slice(0, 10).map(version => version.id));
                 const candidates = versions.filter(version => {
                   const names = tags(version);
                   if (names.length === 0) return Date.parse(version.created_at) < cutoff;
                   // Owner tags, production/previous and rolling caches protect the whole version.
                   if (names.some(tag => !sha.test(tag) && !release.test(tag))) return false;
                   if (names.some(tag => release.test(tag))) return !kept.has(version.id);
+                  // Pre-cutover SHA versions may be healthy releases without release tags: keep the newest ten.
+                  if (Date.parse(version.created_at) < releaseTagCutover) return !legacyKept.has(version.id);
                   // Failed/cancelled/unreleased builds have no rollback value, but allow in-flight deploys a week.
                   return Date.parse(version.created_at) < cutoff;
                 });

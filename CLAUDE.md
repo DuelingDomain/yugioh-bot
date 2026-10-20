@@ -96,19 +96,22 @@ artifact IDs from the exact successful Test run and attempt, without rebuilding.
 and an amd64 bot image without publishing. Manual non-rollback Deploy still verifies Test and builds fresh images.
 The VM only pulls and retags them as local `:latest`, preserving `:prev`; its
 runtime Compose file has no build definitions and startup uses `--no-build`. Per-service registry
-`:buildcache` tags use `mode=max` except web (`mode=min`, excluding private map stages). Web reuses a
+`:buildcache` tags use `mode=max` except web (`mode=min`, excluding source-map stages). Web reuses a
 digest-pinned, sanitized `:nextcache` with no Turbopack folder. Only the CI unit web build enables
 `NEXT_BUILD_FS_CACHE=1`; Next/Turbo Actions caches save only on main pushes. Deploy uploads the exact
-private maps and records Sentry releases only after health checks; Test has no upload token or production
-environment. Healthy images get `release-<sha>` tags. Cleanup keeps ten healthy releases and ages
-unused SHA/untagged images after seven days, including bot. Manual rollback resolves the healthy
+source maps and records Sentry releases only after health checks; Test has no upload token or production
+environment. Healthy images get `release-<sha>` tags. Cleanup keeps ten healthy releases, including bot.
+SHA-only versions created before `2026-10-21T00:00:00Z` retain the old newest-ten-SHA rule.
+Unused SHA versions created at or after that cutover and all untagged versions expire after seven days.
+Manual rollback resolves the healthy
 release tag without rebuilding (legacy SHA fallback only for older refs). Each build records its output
 digest; production pulls
 that digest. The VM refuses an older or diverged SHA before the activity wait unless `rollback=true`.
 The lock still protects deploys and owner maintenance. Disk checks require 6 GiB free before pull.
 Retries keep the good `:prev`; only obsolete GHCR SHA tags are removed. Owner tags stay.
 See `docs/deployment/vm-runbook.md` for package visibility, weekly cleanup and recovery.
-Release artifacts expire after one day; dispatch a new run after expiry.
+Release artifacts, including source maps, are downloadable from this public repository and expire after
+one day; dispatch a new run after expiry.
 
 ### Duel resources and Docker
 

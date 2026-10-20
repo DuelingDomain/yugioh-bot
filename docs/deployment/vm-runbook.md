@@ -122,7 +122,7 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    The production public Clerk key is a repository variable/build arg. The Clerk secret
    stays in the VM runtime environment. Non-web targets no longer run the Next.js build.
    Each image has a separate `:buildcache` registry cache. Non-web images use `mode=max`;
-   web uses `mode=min` so its private source-map build stage cannot enter public intermediate layers.
+   web uses `mode=min` so its source-map build stage cannot enter public intermediate layers.
    Web imports a digest-pinned `:nextcache` image and exports only sanitized `.next/cache` after its build.
    Docker sets `NEXT_BUILD_FS_CACHE=0`, removes inherited Turbopack data before building, and removes
    and checks for Turbopack folders again before export. Source maps are removed in the same build layer.
@@ -142,10 +142,11 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    See [GitHub workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
    After successful VM health checks, the retain job tags each healthy digest as `release-<full SHA>` and
    advances `:production`/`:production-prev`. Weekly cleanup includes bot and keeps the newest ten
-   release-tagged versions, both production pointers, caches and owner tags. Unreleased SHA and untagged
-   versions are deleted only after seven days. Retained manifest children are also protected.
+   release-tagged versions, both production pointers, caches and owner tags. SHA-only versions created before
+   the fixed cutover `2026-10-21T00:00:00Z` keep the old newest-ten-SHA rule. Post-cutover unreleased SHA
+   versions and all untagged versions are deleted only after seven days. Retained manifest children are also protected.
    Manual `rollback=true` skips the image matrix. It resolves `release-<SHA>` to a digest before SSH;
-   only older refs whose Dockerfile predates private-map export may fall back to a legacy SHA tag.
+   only older refs whose Dockerfile predates source-map export may fall back to a legacy SHA tag.
    Release controls and digest artifacts expire after one day. After that, **Re-run failed jobs** can fail
    because its artifacts are gone. Dispatch a new **Deploy** run for the same tested SHA.
 4. The workflow SSHes into the VM and fetches the exact commit checked out on the runner. It also
@@ -277,8 +278,10 @@ with Compose; the duel target needs the prepared named engine context described 
    All release artifacts expire after one day. After expiry, dispatch a new **Deploy** run for that SHA;
    **Re-run failed jobs** cannot download expired artifacts.
 4. `.github/workflows/ghcr-cleanup.yml` runs each Sunday at 05:17 UTC. It has only `packages: write`.
-   It keeps the newest ten SHA versions per package, all `buildcache` and `nextcache` tags,
-   and every other non-SHA tag. It removes untagged versions only after seven days.
+   It keeps the newest ten release-tagged versions per package. SHA-only versions created before the fixed
+   cutover `2026-10-21T00:00:00Z` keep the old newest-ten-SHA rule; newer SHA-only versions expire after
+   seven days. All `buildcache`, `nextcache`, production pointers and owner tags remain protected.
+   It removes untagged versions only after seven days.
    It protects child manifests referenced by retained indexes. If a retained manifest cannot be read,
    it stops that package before deletion and continues with the next package. Cache layers and
    config blobs are never read at the manifest endpoint. Cleanup shares the production workflow queue to avoid build races.
@@ -717,7 +720,7 @@ Recovery bypasses the waitlist only for a server-proven Discord ID already in `u
 
 Create the web and server projects in the Sentry EU region. Keep DSNs empty until those projects are ready; empty values use console reporting. Set `SENTRY_DSN` and `SENTRY_ENVIRONMENT` in the protected VM `.env`. Web, ws, duel and worker receive these values through Compose; an independently run bot uses the same server setup.
 
-Set repository variables `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG` and `SENTRY_PROJECT` for source-map uploads. `SENTRY_PROJECT` accepts a comma-separated list; include the projects used by both the web server DSN and browser DSN when they differ. Set `SENTRY_AUTH_TOKEN` as a **production environment secret** with source-map upload access. Test and manual image builds receive no upload token and create no Sentry release. The web build generates exact maps with debug IDs, exports them locally to its one-day private image-digest artifact, then removes all maps from application files. Public web build caches use `mode=min`; `:nextcache` excludes maps and Turbopack data. After Test succeeds and VM health checks pass, Deploy transfers those exact maps through its healthy-deployment artifact. The `report-release` job uses the locked Sentry CLI to upload them, create/finalize the release and record its production deployment. Only that upload step receives `SENTRY_AUTH_TOKEN`; the token never enters a Docker build, VM or runtime environment. A reporting failure does not undo health checks or prevent the separate retain job from protecting healthy images. Older manual refs without private-map export skip map upload and Next cache publication.
+Set repository variables `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG` and `SENTRY_PROJECT` for source-map uploads. `SENTRY_PROJECT` accepts a comma-separated list; include the projects used by both the web server DSN and browser DSN when they differ. Set `SENTRY_AUTH_TOKEN` as a **production environment secret** with source-map upload access. Test and manual image builds receive no upload token and create no Sentry release. The web build generates exact maps with debug IDs, exports them locally to its one-day image-digest artifact, then removes all maps from application files. This repository is public; its Actions artifacts, including these source maps, are downloadable. Public web build caches use `mode=min`; `:nextcache` excludes maps and Turbopack data. After Test succeeds and VM health checks pass, Deploy transfers those exact maps through its healthy-deployment artifact. The `report-release` job uses the locked Sentry CLI to upload them, create/finalize the release and record its production deployment. Only that upload step receives `SENTRY_AUTH_TOKEN`; the token never enters a Docker build, VM or runtime environment. A reporting failure does not undo health checks or prevent the separate retain job from protecting healthy images. Older manual refs without source-map export skip map upload and Next cache publication.
 
 The production workflow sets `SENTRY_RELEASE` to the checked-out deploy SHA for the web build and every service. Application source maps are excluded from the Docker context. Dependency installation, non-web compilation and the web build each delete map files in the same Docker step that creates them, before any layer or public build cache is exported. Image builds have no upload token to persist. Browser reports use the exact public `/monitoring` tunnel. Reporting uses `sendDefaultPii: false`, a 0.05 trace sample rate and no replay; only application user IDs belong in identity. Request bodies, cookies, credentials and personal fields are redacted before sending.
 

@@ -10,19 +10,53 @@ import { parse } from 'yaml';
 const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), 'utf8'));
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const sha = n => n.toString(16).padStart(40, '0');
-const version = (id, tags, days = 30) => ({ id, name: `sha256:${sha(id)}`, created_at: new Date(Date.now() - days * 86400000).toISOString(), metadata: { container: { tags } } });
+const cleanupNow = Date.parse('2026-11-08T05:17:00Z');
+const version = (id, tags, days = 30) => ({ id, name: `sha256:${sha(id)}`, created_at: new Date(cleanupNow - days * 86400000).toISOString(), metadata: { container: { tags } } });
 
-async function cleanup(versions) {
+async function cleanup(versions, now = cleanupNow) {
   const deleted = [];
   const packages = [];
   const script = workflow('ghcr-cleanup').jobs.cleanup.steps[0].with.script;
-  await new AsyncFunction('github', 'context', 'core', 'fetch', script)({
+  await new AsyncFunction('github', 'context', 'core', 'fetch', 'Date', script)({
     paginate: async (_, { package_name }) => { packages.push(package_name); return structuredClone(versions); },
     request: async (_, { package_name, package_version_id }) => deleted.push([package_name, package_version_id]),
   }, { repo: { owner: 'example' } }, { info() {}, warning() {}, setFailed(message) { throw new Error(message); } },
-  async url => ({ ok: true, json: async () => url.includes('/token?') ? { token: 'fixture' } : {} }));
-  return { deleted: deleted.filter(([name]) => name === 'yugioh-bot-web').map(([, id]) => id), packages };
+  async url => ({ ok: true, json: async () => url.includes('/token?') ? { token: 'fixture' } : {} }),
+  { now: () => now, parse: Date.parse });
+  return { deleted: deleted.filter(([name]) => name === 'yugioh-bot-web').map(([, id]) => id), deletedByPackage: deleted, packages };
 }
+
+test('first weekly cleanup deletes zero pre-cutover healthy rollback versions in every service', async () => {
+  const firstRun = Date.parse('2026-10-25T05:17:00Z');
+  const legacy = Array.from({ length: 12 }, (_, i) => ({
+    ...version(i + 1, [sha(i + 1), ...(i === 10 ? ['production-prev'] : i === 11 ? ['production'] : [])]),
+    created_at: new Date(firstRun - (20 - i) * 86400000).toISOString(),
+  }));
+  const healthy = new Set(legacy.slice(-10).map(v => v.id));
+  const unused = Array.from({ length: 20 }, (_, i) => ({
+    ...version(100 + i, [sha(100 + i)]),
+    created_at: new Date(firstRun - (i % 4) * 86400000).toISOString(),
+  }));
+  const result = await cleanup([...legacy, ...unused], firstRun);
+  assert.deepEqual(result.packages.sort(), ['bot', 'duel', 'web', 'worker', 'ws'].map(service => `yugioh-bot-${service}`));
+  assert.equal(result.deletedByPackage.filter(([, id]) => healthy.has(id)).length, 0);
+  for (const service of result.packages) {
+    assert.deepEqual(result.deletedByPackage.filter(([name]) => name === service).map(([, id]) => id).sort((a, b) => a - b), [1, 2]);
+  }
+});
+
+test('cutover keeps ten legacy SHA versions while newer unused SHA versions age out after seven days', async () => {
+  const cutover = Date.parse('2026-10-21T00:00:00Z');
+  const legacy = Array.from({ length: 11 }, (_, i) => ({
+    ...version(i + 1, [sha(i + 1)]), created_at: new Date(cutover - (11 - i) * 1000).toISOString(),
+  }));
+  const result = await cleanup([...legacy, version(100, [sha(100)], 10),
+    { ...version(101, [sha(101)]), created_at: new Date(cutover).toISOString() },
+    version(102, [sha(102)], 7),
+    { ...version(103, [sha(103)]), created_at: new Date(cleanupNow - 7 * 86400000 - 1).toISOString() },
+    version(104, [], 8), version(105, [], 7)]);
+  assert.deepEqual(result.deleted.sort((a, b) => a - b), [1, 100, 101, 103, 104]);
+});
 
 test('unused SHA builds cannot evict the ten healthy release rollback targets', async () => {
   const releases = Array.from({ length: 11 }, (_, i) => version(i + 1, [sha(i + 1), `release-${sha(i + 1)}`], 50 - i));
