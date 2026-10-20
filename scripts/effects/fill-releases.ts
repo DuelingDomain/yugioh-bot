@@ -142,7 +142,14 @@ export async function refreshReleaseCandidate(options: Options) {
     report.releaseFlags = result.flags;
     // Publication permits only additions or evidenced earlier first prints.
     const publisherPath = "../ci/publish-effect-tags.mjs";
-    const { validateEffectCandidate } = await import(publisherPath);
+    const { validateEffectCandidate, releaseCorrectionLine } = await import(publisherPath);
+    const reportMd = join(options.outputDirectory, "report.md");
+    const previous = existsSync(reportMd) ? readFileSync(reportMd, "utf8") : "Effect release update.\n";
+    const names = new Map(result.rows.map(row => [row.id, row.name]));
+    const correctionLines = result.corrections.map(fact => releaseCorrectionLine(fact, names.get(fact.id))).join("\n");
+    const markdown = previous + `\nRelease months: ${result.filledCards} cards, ${result.filledMonths} months, ${result.newRecords} new IDs. No paid release calls.\n` +
+      (correctionLines ? `\nFirst-print corrections for review (earlier months only):\n${correctionLines}\n` : "");
+    writeFileSync(join(stage, "report.md"), markdown);
     writeFileSync(join(stage, "report.json"), JSON.stringify(report));
     validateEffectCandidate(options.root, stage);
     mkdirSync(options.outputDirectory, { recursive: true });
@@ -155,9 +162,7 @@ export async function refreshReleaseCandidate(options: Options) {
     const { rows: _rows, ...counts } = result;
     const summary = { status: "updated", ...counts };
     writeFileSync(join(options.outputDirectory, "releases-report.json"), JSON.stringify(summary, null, 2) + "\n");
-    const reportMd = join(options.outputDirectory, "report.md");
-    const previous = existsSync(reportMd) ? readFileSync(reportMd, "utf8") : "Effect release update.\n";
-    writeFileSync(reportMd, previous + `\nRelease months: ${result.filledCards} cards, ${result.filledMonths} months, ${result.newRecords} new IDs. No paid release calls.\n`);
+    copyFileSync(join(stage, "report.md"), reportMd);
     return summary;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);

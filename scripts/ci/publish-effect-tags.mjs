@@ -16,6 +16,12 @@ const identical = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // Same month and region floors as cleanReleaseMonth; publication has no package dependencies.
 const releaseMonth = (value, region) => typeof value === "string" && /^(?:19|20|21)\d{2}-(?:0[1-9]|1[0-2])$/.test(value) && Number(value.slice(0, 4)) >= (region === "tcg" ? 2002 : 1999);
+/** Literal review line shared by generation and publication validation. */
+export function releaseCorrectionLine(fact, name) {
+  const label = String(name).replace(/[\r\n|]/g, " ");
+  return `- ${label} (${fact.id}): ${String(fact.region).toUpperCase()} ${fact.previous} → ${fact.month}; misc: ${fact.sourceMonth ?? "unknown"}; first set: ${fact.firstSetMonth ?? "unknown"}.`;
+}
+
 export function validateAdditiveReleases(before, after, corrections = []) {
   const validId = id => Number.isSafeInteger(id) && id > 0 && id <= 0xffffffff;
   if (!Array.isArray(before) || !Array.isArray(after)) throw new Error("Invalid release arrays");
@@ -85,7 +91,14 @@ export function validateEffectCandidate(root, outputDirectory) {
   if (!identical(after.files.popularity, before.files.popularity) || !readFileSync(join(outputDirectory, DATA, "popularity.json.gz")).equals(readFileSync(join(root, DATA, "popularity.json.gz")))) throw new Error("Effect publication changed unrelated popularity data");
   decode(outputDirectory, after, "popularity");
   const releasesBefore = JSON.parse(decode(root, before, "releases")), releasesAfter = JSON.parse(decode(outputDirectory, after, "releases"));
-  validateAdditiveReleases(releasesBefore, releasesAfter, json(join(outputDirectory, "report.json")).releaseCorrections ?? []);
+  const corrections = json(join(outputDirectory, "report.json")).releaseCorrections ?? [];
+  if (!Array.isArray(corrections)) throw new Error("Invalid release corrections report");
+  if (corrections.length) {
+    const lines = new Set(readFileSync(join(outputDirectory, "report.md"), "utf8").split(/\r?\n/));
+    const byId = new Map(releasesAfter.map(row => [row.id, row]));
+    for (const fact of corrections) if (!byId.has(fact.id) || !lines.has(releaseCorrectionLine(fact, byId.get(fact.id).name))) throw new Error("Release correction missing from review report.md");
+  }
+  validateAdditiveReleases(releasesBefore, releasesAfter, corrections);
   if (after.files.releases.records !== releasesAfter.length) throw new Error("Invalid release record count");
   const releasesChanged = !identical(releasesBefore, releasesAfter);
   if (!releasesChanged && !identical(after.files.releases, before.files.releases)) throw new Error("Release descriptor changed without additive records");
