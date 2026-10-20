@@ -6,7 +6,7 @@ import { Socket } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
-  host: { handle: vi.fn(), close: vi.fn() },
+  host: { handle: vi.fn(), close: vi.fn(), warmStartResources: vi.fn() },
   cards: { search: vi.fn(), close: vi.fn() },
   db: { close: vi.fn() },
   server: null as Server | null,
