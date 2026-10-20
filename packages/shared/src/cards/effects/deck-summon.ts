@@ -13,6 +13,7 @@ interface Requirement {
 const normalized = (text: string) => text.replace(/[“”]/g, '"').replace(/[‐‑–]/g, "-").replace(/\s+/g, " ").trim();
 const whole = (value: number | undefined): value is number => value !== undefined && Number.isInteger(value) && value > 0;
 const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const contactProcedure = /^Must be either Fusion Summoned, or Special Summoned by sending the above monsters you control to the GY \(in which case you do not use "Polymerization"\)\./i;
 const attributePatterns = ATTRIBUTES.map(value => [value, new RegExp(`\\b${value}\\b`, "i")] as const);
 // Compile the vocabulary once; the parser never changes these expressions or their lastIndex.
 const typePatterns = [...MONSTER_TYPES].sort((a, b) => b.length - a.length)
@@ -53,7 +54,7 @@ function parseRequirement(text: string): Requirement | undefined {
   };
   take(/\bwith different (?:original )?names\b/i, () => { differentNames = true; });
   take(/,?\s*except Tokens\b/i, () => tests.push(card => !card.subtypes.includes("token")));
-  take(/\bnon[- ]Tuner\b/i, () => tests.push(card => !card.subtypes.includes("tuner")));
+  take(/\bnon[- ]Tuners?\b/i, () => tests.push(card => !card.subtypes.includes("tuner")));
   take(/\bnon[- ]Link\b/i, () => tests.push(card => !card.subtypes.includes("link")));
   take(/\bLevel (\d+)(?: or (lower|less|higher|more))?\b/i, match => {
     const level = Number(match[1]), bound = match[2]?.toLowerCase();
@@ -67,22 +68,48 @@ function parseRequirement(text: string): Requirement | undefined {
     const archetype = /\bmonsters?\b/i.test(text);
     tests.push(card => archetype ? materialArchetype(card, printedName) : compactEffectName(card.name) === name);
   });
-  for (const [attribute, pattern] of attributePatterns) take(pattern, () => tests.push(card => card.attribute === attribute));
+  const attributes: string[] = [];
+  for (const [attribute, pattern] of attributePatterns) take(pattern, () => attributes.push(attribute));
+  if (attributes.length) tests.push(card => attributes.includes(card.attribute ?? ""));
+  take(/(?:with )?(\d+) or (more|higher|less|lower) ATK/i, match => {
+    const atk = Number(match[1]);
+    tests.push(card => card.atk != null && (match[2] === "more" || match[2] === "higher" ? card.atk >= atk : card.atk <= atk));
+  });
   // Long names first prevents "Beast" from consuming "Beast-Warrior" or "Winged Beast".
   for (const [type, pattern] of typePatterns) take(pattern, () => tests.push(card => card.monsterType === type));
   for (const [subtype, pattern] of subtypePatterns) take(pattern, () => tests.push(card => card.subtypes.includes(subtype)));
   text = text.replace(/\bmonsters?\b/gi, " ").trim();
+  if (attributes.length > 1) text = text.replace(/\bor\b/gi, " ").trim();
   if (text) return;
   return { min, max, differentNames, matches: card => card.kind === "monster" && tests.every(test => test(card)) };
 }
 
 function taggedRequirement(filter: CardFilter): Requirement | undefined {
   if (filter.this_card) return;
-  const other = requirement(filter.other);
+  const other = requirement(/^\d+ or (?:more|higher|less|lower) ATK$/i.test(filter.other) ? `1 monster with ${filter.other}` : filter.other);
   if (!other) return;
   const structured = { ...filter, archetypes: [], other: "" };
   return { ...other, matches: card => other.matches(card) && (!filter.archetypes.length || filter.archetypes.some(name => materialArchetype(card, name)))
     && filterReachesCard(structured, card) };
+}
+
+function materialRequirements(raw: string): Requirement[] | undefined {
+  const text = normalized(raw);
+  const including = /^(\d+)(\+)? monsters, including (?:an? |1 )(.+)$/i.exec(text);
+  if (!including) { const single = requirement(text); return single && [single]; }
+  const count = Number(including[1]);
+  if (count < 2) return;
+  const rest = requirement(`${count - 1}${including[2] ?? ""} monsters`);
+  const specific = requirement(`1 ${including[3]}`);
+  return rest && specific ? [rest, specific] : undefined;
+}
+
+function taggedMaterials(filter: CardFilter): Requirement[] | undefined {
+  if (!/including/i.test(filter.other)) { const single = taggedRequirement(filter); return single && [single]; }
+  if (filter.this_card) return;
+  const groups = materialRequirements(filter.other);
+  const structured = taggedRequirement({ ...filter, other: "" });
+  return groups && structured ? groups.map(group => ({ ...group, matches: card => group.matches(card) && structured.matches(card) })) : undefined;
 }
 
 /** A '+' inside a quoted card name is not a separator between material groups. */
@@ -101,13 +128,14 @@ function printedRequirements(card: Card): Requirement[] | undefined {
   if (quoted) return;
   parts.push(line.slice(start).trim());
   if (parts.some(part => !/\b(?:monsters?|tuners?)\b|"/i.test(part))) return;
-  const groups = parts.map(requirement);
-  return groups.every((group): group is Requirement => !!group) ? groups : undefined;
+  const groups = parts.map(materialRequirements);
+  return groups.every((group): group is Requirement[] => !!group) ? groups.flat() : undefined;
 }
 
-function permitsStandardSummon(card: Card, method: string): boolean {
+function permitsStandardSummon(card: Card, method: string, contact = false): boolean {
   // Additional mandatory procedures are not proven by the ordinary printed material recipe.
-  const rest = normalized(card.text.replace(/\r\n?/g, "\n").split("\n").slice(1).join(" "));
+  let rest = normalized(card.text.replace(/\r\n?/g, "\n").split("\n").slice(1).join(" "));
+  if (contact) rest = rest.replace(contactProcedure, "");
   if (/\bcannot be (?:special|fusion|synchro|xyz|link) summoned\b/i.test(rest)) return false;
   if (/\b(?:can only|cannot|must)\b[^.]*\bsummon this card\b/i.test(rest)
     || /\b(?:summon this card|summoned)\b[^.]*\bunless\b/i.test(rest)) return false;
@@ -127,10 +155,10 @@ function fusionEffects(main: readonly Candidate[]): PreparedFusionEffect[] {
     if (enabler.card.kind !== "spell" || isExtraDeckCard(enabler.card)) continue;
     // Parsing the actual sentence prevents omitted tag conditions/costs from manufacturing a proof.
     const text = normalized(enabler.card.text);
-    const match = /^Fusion Summon 1 (.+?) from your Extra Deck, using (?:(\d+) )?monsters from your (hand or field|hand, Deck, or field|hand, field, or Deck) as Fusion Material\.\s*(.*)$/i.exec(text);
+    const match = /^Fusion Summon 1 (.+?) from your Extra Deck, using (?:(\d+) )?monsters from your (hand or field|hand, Deck, or field|hand, field, or Deck) as (?:Fusion )?Material\.\s*(.*)$/i.exec(text);
     if (!match) continue;
     let tail = match[4]!;
-    tail = tail.replace(/You cannot Special Summon monsters from the Extra Deck, except Fusion Monsters, the turn you activate this card\./i, "");
+    tail = tail.replace(/You cannot Special Summon (?:monsters )?from the Extra Deck, except Fusion Monsters, the turn you activate this card\./i, "");
     tail = tail.replace(/You can only activate 1 "[^"\n]+" per turn\./i, "");
     if (tail.trim()) continue;
     let target = match[1]!;
@@ -173,7 +201,8 @@ interface MainContext {
 
 function mainContext(main: readonly Candidate[]): MainContext {
   const monsters = main.map(item => item.card).filter(material => material.kind === "monster" && !isExtraDeckCard(material)
-    && !material.subtypes.includes("token") && !/\b(?:cannot|can't|can only)\b[^.!?\n]*\b(?:material|used for[^.!?\n]*summon)\b/i.test(material.text));
+    && !material.subtypes.includes("token") && !/\b(?:cannot|can't|can only)\b[^.!?\n]*\b(?:material|used for[^.!?\n]*summon)\b/i
+      .test(material.text.replace(/\byou cannot use other monsters you control as (?:Fusion )?Material\b/gi, "")));
   const byLevel = new Map<number, Card[]>();
   for (const card of monsters) if (whole(card.level)) {
     const cards = byLevel.get(card.level);
@@ -282,10 +311,15 @@ function summon(candidate: Candidate, context: MainContext): string | undefined 
   if (card.kind !== "monster" || !method || !tags?.materials.length || tags.materials.length > 16) return;
   if (method === "xyz" && !whole(card.rank) || method === "synchro" && !whole(card.level) || method === "link" && !whole(card.linkRating)) return;
   let monsters = method === "xyz" ? context.byLevel.get(card.rank!) : method === "synchro" ? synchroMonsters(context, card.level!) : context.monsters;
+  // Only this fully stated alternate procedure proves a contact Fusion from Main.
+  // Other procedures (including Spell/Trap Zone materials) still fail closed.
+  const contact = method === "fusion" && contactProcedure
+    .test(normalized(card.text.replace(/\r\n?/g, "\n").split("\n").slice(1).join(" ")));
   if (!monsters?.length || method === "xyz" && monsters.length < 2 || method === "link" && monsters.length < card.linkRating!
-    || method === "fusion" && !context.fusion.length) return;
-  const groups = printedRequirements(card), tagged = tags.materials.map(taggedRequirement);
-  if (!groups?.length || !tagged.every((group): group is Requirement => !!group) || !permitsStandardSummon(card, method)) return;
+    || method === "fusion" && !context.fusion.length && !contact) return;
+  const groups = printedRequirements(card), taggedGroups = tags.materials.map(taggedMaterials);
+  if (!groups?.length || !taggedGroups.every((group): group is Requirement[] => !!group) || !permitsStandardSummon(card, method, contact)) return;
+  const tagged = taggedGroups.flat();
   if ([...groups, ...tagged].some(group => group.differentNames)) {
     const names = new Set<string>();
     monsters = monsters.filter(material => {
@@ -295,7 +329,7 @@ function summon(candidate: Candidate, context: MainContext): string | undefined 
     });
   }
   const enablers = method === "fusion" ? context.fusion.filter(effect => effect.matches(candidate)) : [];
-  if (method === "fusion" && !enablers.length) return;
+  if (method === "fusion" && !enablers.length && !contact) return;
   const minimum = groups.reduce((sum, group) => sum + group.min, 0);
   const maximum = Math.min(monsters.length, groups.reduce((sum, group) => sum + group.max, 0), method === "synchro" ? card.level! : 60);
   const counts: number[] = [];
@@ -314,12 +348,12 @@ function summon(candidate: Candidate, context: MainContext): string | undefined 
   for (let count = minimum; count <= maximum; count++) {
     if (method === "link" && count !== card.linkRating || method === "xyz" && count < 2) continue;
     const fusion = method === "fusion" ? enablers.find(effect => effect.count === undefined || effect.count === count) : undefined;
-    if (method === "fusion" && !fusion) continue;
+    if (method === "fusion" && !fusion && !contact) continue;
     if (!distribution(0, count)) continue;
     if (method === "xyz") return `Makes Rank ${card.rank} with ${count} Level ${card.rank} monsters`;
     if (method === "synchro") return `Makes Level ${card.level} with ${count} Tuner and non-Tuner materials`;
     if (method === "link") return `Makes Link-${card.linkRating} with ${count} Main Deck monsters`;
-    return `Has all ${count} Fusion Materials and ${fusion!.name}`;
+    return contact ? `Has all ${count} materials for the printed alternate Fusion summon` : `Has all ${count} Fusion Materials and ${fusion!.name}`;
   }
   return;
 }

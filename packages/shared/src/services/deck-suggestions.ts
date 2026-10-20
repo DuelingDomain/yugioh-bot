@@ -11,6 +11,7 @@ import type { CardInsightOptions, CardInsightFormat } from "./card-insights.js";
 import type { InsightCatalog } from "./card-insight-catalog.js";
 import { readInsightProfiles } from "./card-insight-profiles.js";
 import { deckSuggestionCore, deckSuggestionHooks, deckSupportContext, scoreDeckSupport, prepareSuggestionHookMatching } from "./deck-suggestion-hooks.js";
+import { extraDeckRanking } from "./deck-suggestion-extra.js";
 
 export interface DeckSuggestionLegality {
   allowed: readonly number[];
@@ -99,7 +100,10 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
   const archetypes = core.archetypes;
   const names = new Set(anchors.map(({ card }) => compactEffectName(card.name)));
   const ranked = rows.map(() => [] as Entry[]);
+  const genericExtra: Entry[] = [];
+  const rankExtra = extraDeckRanking(main, archetypes, extraCards);
   const canSummon = createMainDeckSummonChecker(main);
+  const canSummonWithCore = createMainDeckSummonChecker(core.anchors);
   const genesys = opts.format.startsWith("genesys"), singleton = opts.format.endsWith("domain");
   let remaining = opts.genesysRemaining ?? 100;
   if (genesys) {
@@ -127,6 +131,15 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
     const item = (score: number, reason: string, linkedCards = 0): Entry => ({ passcode: id, name: card.name, score, linkedCards,
       reason: shortReason(reason.replace(/[\r\n]+/g, " ")), popularity: card.views, release: cardReleaseInfo(card),
       ...(singleton && master ? { deckMasterFit: true } : {}) });
+    if (extra) {
+      const fit = rankExtra(candidate);
+      if (fit.generic) {
+        // A pile of hand traps cannot justify an off-profile Link or Rank.
+        const coreSummon = canSummonWithCore(candidate);
+        if (coreSummon) retain(genericExtra, item(fit.score, coreSummon, fit.linkedCards), 3);
+      } else retain(ranked[2]!, item(fit.score, summon!, fit.linkedCards));
+      continue;
+    }
     const member = archetypes.find(archetype => belongsTo(card, archetype));
     let named: string | undefined;
     for (const name of tags?.supports.names ?? []) {
@@ -138,7 +151,6 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
       }
     }
     if (member || named) { retain(ranked[0]!, item(named ? 12 : 5, named ? `Names ${named}` : `Supports ${member}`, 1)); continue; }
-    if (extra) { retain(ranked[2]!, item(5, summon!, 1)); continue; }
     const staple = tags?.roles.find(role => role === "hand_trap" || role === "board_breaker" || role === "negation");
     if (staple) retain(ranked[3]!, item(1, tags?.summary || `Adds ${staple.replaceAll("_", " ")}`), 18);
     if (!fits.length || tags?.roles.includes("hand_trap")) continue;
@@ -158,6 +170,7 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
   const addOutside = (entry: Entry) => { if (rows[1]!.cards.length < 12 && !chosen.has(entry.passcode)) { chosen.add(entry.passcode); rows[1]!.cards.push(publicCard(entry)); } };
   for (const match of multi) if (match.hooks.some(at => usable[at])) addOutside(match.entry);
   for (let turn = 0; turn < 12; turn++) queues.forEach((queue, at) => { if (usable[at] && queue[turn]) addOutside(queue[turn]!); });
+  ranked[2]!.push(...genericExtra.slice(0, 12 - ranked[2]!.length));
   for (const at of [0, 2, 3]) rows[at]!.cards = ranked[at]!.map(publicCard);
   // Staples may occupy at most a quarter of the visible suggestions.
   rows[3]!.cards = rows[3]!.cards.filter(card => !chosen.has(card.passcode)).slice(0, Math.min(6, Math.floor(rows.slice(0, 3).reduce((n, row) => n + row.cards.length, 0) / 3)));
