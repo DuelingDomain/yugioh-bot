@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { SurrenderModal } from "./surrender-modal";
 import { useTestDuelQuit } from "./test-duel-quit";
-import { testDuelReturnPath } from "@/components/decks/test-duel";
+import { forgetTestDuelReturn, testDuelReturnPath } from "@/components/decks/test-duel";
 import { DeckSurrenderContext, type DeckSurrenderValue } from "./deck-surrender";
 import { BugReportHeaderButton } from "../bug-report/bug-report-header-button";
 import { BugReportMenuButton } from "../bug-report/bug-report-menu-button";
@@ -1199,6 +1199,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     if (forkControl) { endFork(); return; }
     leavingRoom.current = true;
     const home = testDuel ? testDuelReturnPath(slug) : "/duels";
+    if (testDuel) forgetTestDuelReturn(slug);
     if (inDuelWindow) exitDuelWindow(slug, () => router.replace(home));
     else router.replace(home);
   };
