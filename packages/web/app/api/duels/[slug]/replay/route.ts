@@ -1,4 +1,5 @@
 import { requireSandboxActor } from "@/lib/sandbox-access";
+import { replayResponse } from "@/lib/replay-response";
 import { NextResponse } from "next/server";
 import { callDuelHost, duelErrorResponse, readReplayQuery, requireDuelActor } from "@/lib/duel-host";
 import { assertDuelForkAccess } from "@/lib/replay-fork-access";
@@ -71,5 +72,5 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   // Recheck after the host wait, including allowlist changes for a marked fork.
   try { assertDuelForkAccess(slug, actor); actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false }); }
   catch (error) { return accessError(error); }
-  return noStore(NextResponse.json(result.data));
+  return replayResponse(result.data, request);
 }

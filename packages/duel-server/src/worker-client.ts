@@ -1,12 +1,11 @@
 import type { SandboxEngineSnapshot } from "./sandbox-snapshot.js";
+import type { ReplayWorkerOptions, ReplayWorkerResult } from "./replay-worker.js";
+import { workerResponseError } from "./worker-error.js";
 import type { DuelScriptError, DuelScriptFatalError } from "./script-errors.js";
 import { Worker } from "node:worker_threads";
 import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { EngineViewHistory, EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
 import type { DuelWorkerResponse, WorkerCreateTimings } from "./worker-protocol.js";
-import { EngineAnswerError } from "./prompts.js";
-import { EngineLoopError } from "./engine-loop-error.js";
-import { EngineResourceUnavailableError } from "./engine-resource-resolver.js";
 import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode, EngineIdentity } from "@yugidraft/shared/duels";
 
 const PROMPT_LOG_LIMIT = 5_000;
@@ -52,6 +51,8 @@ export interface WorkerDebugState {
 export interface DuelGameWorker {
   readonly running: boolean;
   create(options: GameOptions): Promise<void>;
+  /** Optional batched replay; test doubles and older adapters retain the journal transport. */
+  buildReplay?(options: ReplayWorkerOptions): Promise<ReplayWorkerResult>;
   view(seat: number | null, history?: EngineViewHistory): Promise<DuelEngineView>;
   answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void>;
   search(query: string, seat?: number): Promise<DuelCardInfo[]>;
@@ -88,10 +89,14 @@ export class GameWorker implements DuelGameWorker {
   /** Index of the oldest prompt in the ring. Writes never shift the retained entries. */
   private promptStart = 0;
 
+  private readonly table?: string | (() => string | undefined);
+
   private onScriptError?: (error: DuelScriptError) => void;
   private onFatalScriptError?: (error: DuelScriptFatalError) => void;
 
-  constructor(onScriptError?: (error: DuelScriptError) => void, onFatalScriptError?: (error: DuelScriptFatalError) => void) {
+  constructor(onScriptError?: (error: DuelScriptError) => void, onFatalScriptError?: (error: DuelScriptFatalError) => void,
+    options: { table?: string | (() => string | undefined) } = {}) {
+    this.table = options.table;
     this.onScriptError = onScriptError;
     this.onFatalScriptError = onFatalScriptError;
     const development = import.meta.url.endsWith(".ts");
@@ -123,11 +128,11 @@ export class GameWorker implements DuelGameWorker {
       if (!request) return;
       this.pending.delete(message.id);
       if (message.ok) request.resolve(message.value);
-      else request.reject(message.code === "ENGINE_UNAVAILABLE_FOR_SOURCE"
-        ? new EngineResourceUnavailableError("the worker cannot use the recorded engine resources")
-        : message.engineLoop ? new EngineLoopError() : message.answerError || message.code
-        ? new EngineAnswerError(message.error, message.code)
-        : new Error(message.error ?? "Engine rejected the request"));
+      else {
+        const error = workerResponseError(message);
+        if (!message.answerError && !message.code && !message.replayError) this.reportError(error);
+        request.reject(error);
+      }
     });
     this.worker.on("error", (error) => this.fail(error instanceof Error ? error : new Error(String(error))));
     this.worker.on("exit", (code) => this.fail(new Error(`Engine worker exited (${code})`)));
@@ -146,6 +151,13 @@ export class GameWorker implements DuelGameWorker {
   /** Loads the card data in the thread now (the thread is idle). */
   warm(dataDirectory: string): Promise<void> {
     return this.request({ op: "warm", dataDirectory }) as Promise<void>;
+  }
+
+  private reportError(error: Error) {
+    let table: string | undefined;
+    try { table = typeof this.table === "function" ? this.table() : this.table; } catch {}
+    // local-all uses its existing console reporting adapter.
+    console.error({ name: error.name, message: error.message, stack: error.stack, tags: table ? { table } : undefined });
   }
 
   private fail(error: Error) {
@@ -187,6 +199,10 @@ export class GameWorker implements DuelGameWorker {
       this.pending.set(id, { resolve: (value) => resolve(value as T), reject });
       this.worker.postMessage({ ...message, id });
     });
+  }
+
+  buildReplay(options: ReplayWorkerOptions): Promise<ReplayWorkerResult> {
+    return this.request({ op: "replay", options });
   }
 
   create(options: GameOptions): Promise<void> {

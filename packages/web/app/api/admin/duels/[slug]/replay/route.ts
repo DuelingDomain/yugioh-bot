@@ -1,3 +1,4 @@
+import { replayResponse } from "@/lib/replay-response";
 import { NextResponse } from "next/server";
 import { callDuelHost, readReplayQuery } from "@/lib/duel-host";
 import { requireOwnerReplaySource, requireReplayOwnerActor } from "@/lib/replay-fork-access";
@@ -41,5 +42,5 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     }
     return fallback ?? noStore(result.response);
   }
-  return noStore(NextResponse.json(result.data));
+  return replayResponse(result.data, request);
 }

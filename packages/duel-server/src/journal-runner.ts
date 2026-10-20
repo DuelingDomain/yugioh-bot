@@ -3,7 +3,7 @@ import {
   isEngineIdentity, isReplaySeed, isUnknownEngineChoice, sameEngineIdentity, seatCountFor, sourceEngineChoice,
   type DuelEngineView, type EngineIdentity, type ReplayJournalEntry, type ReplaySource,
 } from "@yugidraft/shared/duels";
-import { eliminationAtTurnEnd } from "./engine.js";
+import { eliminationAtTurnEnd, type EngineViewHistory } from "./engine.js";
 import { EngineLoopError } from "./engine-loop-error.js";
 import { savedFirstTurnDraw } from "./first-turn-draw.js";
 import { EngineResourceUnavailableError } from "./engine-resource-resolver.js";
@@ -55,10 +55,11 @@ export interface JournalRunOptions {
   /** Ordered entry count; neither a stored sequence ID, revision, nor visible frame number. */
   prefixCount: number;
   /** Create a detached worker with no prefix error recorder, automation, or registration. */
-  createWorker: () => DuelGameWorker;
+  createWorker: () => DuelGameWorker | Promise<DuelGameWorker>;
   /** Optional replay capture, including count 0 and private no-op commands. */
   onCheckpoint?: (checkpoint: JournalCheckpoint) => void | Promise<void>;
   checkpointSeat?: number | null;
+  checkpointHistory?: () => EngineViewHistory;
   target?: { revision: number; stateDigest?: string };
 }
 
@@ -170,7 +171,7 @@ function canonical(value: unknown): unknown {
 export async function runJournalPrefix(options: JournalRunOptions): Promise<JournalRunResult> {
   const created = creationOptions(options); // Check rules/resources/count before allocating a worker.
   let worker: DuelGameWorker;
-  try { worker = options.createWorker(); }
+  try { worker = await options.createWorker(); }
   catch (error) { throw new JournalRunnerError(error instanceof Error ? error.message : "Could not create an engine worker", "ENGINE_BUSY", error); }
   let stage = "engine";
   try {
@@ -178,7 +179,7 @@ export async function runJournalPrefix(options: JournalRunOptions): Promise<Jour
     const capture = async (prefixCount: number, input: ReplayJournalEntry | null, beforeRevision: number | null) => {
       if (!options.onCheckpoint) return;
       stage = "engine";
-      const view = await worker.view(options.checkpointSeat ?? null);
+      const view = await worker.view(options.checkpointSeat ?? null, options.checkpointHistory?.());
       stage = "capture";
       await options.onCheckpoint({ prefixCount, actorSeat: input?.seat ?? null, input, beforeRevision, view });
     };
@@ -186,7 +187,7 @@ export async function runJournalPrefix(options: JournalRunOptions): Promise<Jour
     for (let index = 0; index < options.prefixCount; index++) {
       const input = options.source.commands[index]!;
       stage = "engine";
-      const before = await worker.view(input.seat);
+      const before = await worker.view(input.seat, { logAfter: Number.MAX_SAFE_INTEGER, eventsAfter: Number.MAX_SAFE_INTEGER });
       if (before.revision !== input.command.revision || (!isPromptlessCommand(input.command.promptId) && before.prompt?.id !== input.command.promptId)) {
         mismatch("Journal replay did not reproduce the saved revision or prompt");
       }
