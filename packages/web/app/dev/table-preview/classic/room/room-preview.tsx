@@ -37,5 +37,5 @@ export function ClassicRoomPreview({ stateId, domain }: { stateId: string | null
     return restore;
   }, [room]);
   // The live page wraps the room in the app shell's padded main; the room's negative margins cancel that padding.
-  return ready ? <main className="min-h-screen bg-bg-deep p-4 text-text-primary sm:p-6 lg:p-8"><DuelRoomView slug={SLUG} windowed /></main> : null;
+  return ready ? <main className="min-h-screen bg-bg-deep p-4 text-text-primary sm:p-6 lg:p-8"><DuelRoomView slug={SLUG} windowed viewOverride={new URLSearchParams(window.location.search).get("view") === "3d" ? "3d" : undefined} /></main> : null;
 }
