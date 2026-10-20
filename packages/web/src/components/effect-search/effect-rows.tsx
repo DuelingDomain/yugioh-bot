@@ -4,6 +4,7 @@ import * as React from "react";
 import { Check, Info, Minus } from "lucide-react";
 import { cardImageUrl } from "@/lib/card-image-url";
 import type { CardSummary } from "@/lib/card-types";
+import { ReleaseMarks } from "../decks/release-marks";
 import { CardNotePopover } from "./card-note-popover";
 import { allShownSelected, type Batch, type Selectable } from "./selection";
 import styles from "./effect-search.module.css";
@@ -184,7 +185,7 @@ export function EffectRows({
                 <img src={cardImageUrl(card.id, "small")} alt="" loading="lazy" />
               </span>
               <div className={styles.text}>
-                <p className={styles.n}>{card.name}</p>
+                <p className={styles.n}>{card.name} <ReleaseMarks release={card.release} /></p>
                 <p className={styles.k}>{kindLine(card)}</p>
                 {card.reason ? (
                   <p className={styles.why} data-testid="effect-reason">

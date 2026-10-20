@@ -77,7 +77,7 @@ This is an npm workspaces + Turborepo monorepo with seven packages (see `docs/ar
 
 ### Deployment flow
 
-Every push to `main` runs all regular **Test** suites; a successful push run triggers **Deploy** for that
+Every push to `main` runs the **Test** unit suites and selects engine suites by changed paths (an unknown diff runs all suites); a successful push run triggers **Deploy** for that
 run's exact `head_sha`. PR, scheduled and manual Test runs never trigger production. The whole Deploy workflow queues
 with `cancel-in-progress: false` and `queue: max`; an older run cannot cancel a newer pending deploy. The `production`
 environment retains its main-only branch policy and environment secrets, with no required reviewers.

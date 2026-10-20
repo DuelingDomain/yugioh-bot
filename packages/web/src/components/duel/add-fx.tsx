@@ -152,6 +152,8 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
 
     let flightEnd = { dx: 0, dy: 0 };
     let liveFlight: ReturnType<typeof retargetFlight> | undefined;
+    // The flight starts from a timer that can run late: the card lands when that flight has really ended.
+    let flightAnim: Animation | null = null;
     track.after(delay + stageMs, () => {
       if (!alive) return;
       const current = findMoveDestination(plan.event);
@@ -171,7 +173,7 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
       }
       // A card goes into the opponent's hand face down unless the hand shows its face.
       const found = shownCode.current;
-      track.play(el, fly.fly, opts(phases.flyMs));
+      flightAnim = track.play(el, fly.fly, opts(phases.flyMs));
       if (!reduced) {
         liveFlight = retargetFlight({ event: plan.event, el, overlay, cx: flightCx, cy: flightCy,
           duration: phases.flyMs, endRot, fallback: () => handArrivalTarget(plan.event)?.rect });
@@ -194,7 +196,7 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
         );
       }
     });
-    const settle = () => {
+    const settleNow = () => {
       if (!alive) return;
       if (plan.handoff) { el.style.visibility = "hidden"; land(); doneRef.current(); return; }
       liveFlight?.finish();
@@ -250,6 +252,11 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
         }
       }));
       track.after(Math.max(phases.glowMs, CARD_FX.landFadeMs), () => doneRef.current());
+    };
+    const settle = () => {
+      const flight = flightAnim;
+      if (flight && flight.playState === "running") flight.finished.then(settleNow, settleNow);
+      else settleNow();
     };
     track.after(delay + stageMs + phases.flyMs, settle);
     return () => {

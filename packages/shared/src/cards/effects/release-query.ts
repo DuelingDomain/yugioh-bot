@@ -56,7 +56,7 @@ export function readReleaseQuery(input: string, now = new Date()): { text: strin
   };
   consume(/\b(?:last\s+(\d{1,2})\s+months?|new cards)\b/gi, m => {
     const months = m[1] ? Number(m[1]) : 3;
-    return months >= 1 && months <= 60 ? { range: recent(months), label: `last ${months} months`, ...(m[1] ? {} : { sort: "newest" as const }) } : undefined;
+    return months >= 1 && months <= 60 ? { range: m[1] ? recent(months) : { from: recent(months).from }, label: m[1] ? `last ${months} months` : "new and upcoming cards", ...(m[1] ? {} : { sort: "newest" as const }) } : undefined;
   });
   consume(/\bnewest(?:\s+first)?\b/gi, () => ({ sort: "newest" }));
   if (released || sort) text = text.replace(/\b(tcg|ocg)\b/i, region => {

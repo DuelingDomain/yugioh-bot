@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { createPrereleaseDateLookup } from "@yugidraft/shared/services";
 import { spawn } from "node:child_process";
 import { closeSync, mkdtempSync, openSync, readSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,13 +23,16 @@ export interface CardEffectIndex {
   size: number;
   staples?(format?: string, banlist?: string): FormatStaples;
   release(code: number): ReleaseDates;
+  /** Refresh once before a search; all per-card reads use this revision snapshot. */
+  releases(): ReadonlyMap<number, ReleaseDates>;
   readQuery(text: string, omitted?: readonly string[]): Interpretation | null;
   match(code: number, reading: Interpretation, usage?: FormatStaples): number | null;
   popularity(code: number): number;
   reason(code: number, reading: Interpretation, usage?: FormatStaples): string;
 }
 
-const indexes = new WeakMap<CardDatabase, CardEffectIndex>();
+// The index reads release dates from its database, so it is only usable while that database is open.
+const indexes = new WeakMap<CardDatabase, { index: CardEffectIndex; db: Database.Database }>();
 
 /** Missing upstream artwork IDs can bridge by one unambiguous printed engine name. */
 export function createCanonicalEffectResolver(cards: CardDatabase): (passcode: number, name?: string) => number {
@@ -48,6 +52,8 @@ export function createCanonicalEffectResolver(cards: CardDatabase): (passcode: n
 }
 
 function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { facets, releases, archetypes: profileArchetypes }: CardEffectFacets): CardEffectIndex {
+  let releaseSnapshot = cardReleaseIndex(db, cards);
+  const releaseDates = (code: number) => releaseSnapshot.get(code) ?? {};
   type PrintedType = Pick<Card, "kind" | "subtypes" | "monsterType" | "attribute">;
   const printedTypes = new Map<string, PrintedType>();
   const names = new Set<string>();
@@ -104,7 +110,8 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
   const index: CardEffectIndex = {
     size: facets.size,
     staples: (format, banlist) => formatStaples(format, banlist, db),
-    release: code => releases.get(canonical(code)) ?? {},
+    release: code => cardReleaseIndex(db, cards).get(canonical(code)) ?? {},
+    releases: () => releaseSnapshot = cardReleaseIndex(db, cards),
     readQuery: (text, omitted) => {
       if (names.has(compactEffectName(text))) return null;
       const deterministic=mayReadEffect(text)?interpret(text,findArchetypes):null;
@@ -120,14 +127,14 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
       if (!card) return null;
       const printed = printedTypes.get(`${card.type}:${card.race}:${card.attribute}`);
       if (!printed) return null;
-      const id = card.canonicalPasscode ?? card.code, dates = releases.get(id);
+      const id = card.canonicalPasscode ?? card.code, dates = releaseDates(id);
       current.text = card.description;
       current.id = id; current.name = card.name; current.kind = printed.kind; current.subtypes = printed.subtypes;
       current.monsterType = printed.monsterType; current.attribute = printed.attribute;
       current.level = card.type & (T.xyz | T.link) ? undefined : card.level;
       current.rank = card.type & T.xyz ? card.level : undefined; current.linkRating = card.type & T.link ? card.level : undefined;
       current.atk = card.attack >= 0 ? card.attack : null; current.def = card.defense >= 0 ? card.defense : null;
-      current.tcgDate = dates?.tcgDate; current.ocgDate = dates?.ocgDate;
+      current.tcgDate = dates?.tcgDate; current.ocgDate = dates?.ocgDate; current.prerelease = dates?.prerelease; current.upcomingDate = dates?.upcomingDate;
       const tags = facets.get(id), base = matchCard(current, tags, reading.query.intent?.kind === "archetype_role" ? {...reading.query, roles: []} : reading.query);
       if (base === null) return null;
       if (reading.query.intent?.kind === "staples") return usage.cards.size ? usage.cards.get(id)?.playShare ?? null
@@ -154,7 +161,7 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
     },
     popularity: code => facets.get(canonical(code))?.popularity ?? 0,
   };
-  indexes.set(cards, index);
+  indexes.set(cards, { index, db });
   return index;
 }
 
@@ -249,19 +256,25 @@ export async function initializeCardEffectIndex(db: Database.Database, cards: Ca
 }
 
 export function cardEffectIndex(cards: CardDatabase): CardEffectIndex | undefined {
-  return indexes.get(cards);
+  const installed = indexes.get(cards);
+  return installed?.db.open ? installed.index : undefined;
 }
 
-const releaseIndexes = new WeakMap<Database.Database, { revision: number; releases: Map<number, ReleaseDates> }>();
+const releaseIndexes = new WeakMap<Database.Database, { revision: number; cards?: CardDatabase; releases: Map<number, ReleaseDates> }>();
 /** Date sorting and filters remain available without parsing or retaining any effect tags. */
-export function cardReleaseIndex(db: Database.Database): ReadonlyMap<number, ReleaseDates> {
-  const revision = (db.prepare("SELECT revision FROM card_effect_revision WHERE id=1").get() as { revision: number }).revision;
+export function cardReleaseIndex(db: Database.Database, cards?: CardDatabase): ReadonlyMap<number, ReleaseDates> {
+  const revision = (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
   const cached = releaseIndexes.get(db);
-  if (cached?.revision === revision) return cached.releases;
+  if (cached?.revision === revision && (!cards || cached.cards === cards)) return cached.releases;
   const releases = new Map<number, ReleaseDates>();
   for (const row of db.prepare("SELECT passcode,tcg_date,ocg_date FROM card_release").iterate() as Iterable<{ passcode: number; tcg_date: string | null; ocg_date: string | null }>) {
     releases.set(row.passcode, { ...(row.tcg_date ? { tcgDate: row.tcg_date } : {}), ...(row.ocg_date ? { ocgDate: row.ocg_date } : {}) });
   }
-  releaseIndexes.set(db, { revision, releases });
+  const prereleaseDate = createPrereleaseDateLookup(db, cards?.dataDirectory, revision);
+  for (const card of cards?.all() ?? []) {
+    const code = card.canonicalPasscode ?? card.code;
+    releases.set(code, prereleaseDate(code, releases.get(code) ?? {}, card.prerelease));
+  }
+  releaseIndexes.set(db, { revision, cards, releases });
   return releases;
 }

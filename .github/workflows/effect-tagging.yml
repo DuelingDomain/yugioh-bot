@@ -78,9 +78,10 @@ jobs:
 
   tag:
     needs: validate
-    if: needs.validate.outputs.has_key == 'true' || inputs.dry_run == true || inputs.initialize_ledger == true
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Paid tagging updates the budget-ledger branch with compare-and-swap.
+    # The keyless free release fill does not write repository refs or use a token.
     permissions:
       contents: write
     outputs:
@@ -124,6 +125,10 @@ jobs:
             args+=(--recover-reservation "$RECOVER_RESERVATION" --recover-batch "$RECOVER_BATCH")
           fi
           prlimit --core=0 -- node --import tsx scripts/effects/tag-cards.ts "${args[@]}"
+      - name: Fill missing release months from the free bulk API
+        if: ${{ !inputs.dry_run && !inputs.initialize_ledger }}
+        continue-on-error: true
+        run: prlimit --core=0 -- npm run effects:fill-releases -- --output "$EFFECT_ARTIFACT_DIR"
       - name: Validate and apply only candidate data/pin constants in disposable checkout
         id: result
         run: |

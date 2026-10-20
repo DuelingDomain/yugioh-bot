@@ -88,3 +88,5 @@ export * from "./duel-snapshot-retention.js";
 export { createDeckTypeLookup } from "./deck-sections.js";
 export { createDeckCopyRepairService } from "./deck-copy-repair.js";
 export * from "./cube-era.js";
+
+export { createPrereleaseDateLookup } from "./card-release-dates.js";

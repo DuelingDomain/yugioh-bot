@@ -3462,7 +3462,7 @@ export function createDuelHost(options: {
         const query = parseCardQuery(body.cardQuery);
         query.format ??= query.excludeGenesysForbidden ? body.mode === "domain" ? "genesys-domain" : "genesys" : body.mode === "domain" ? "domain" : "normal";
         const effects = enabled ? cardEffectIndex(catalog) ?? await initializeCardEffectIndex(options.db, catalog) : undefined;
-        const releases = !enabled && (query.released || query.sort === "newest") ? cardReleaseIndex(options.db) : undefined;
+        const releases = !enabled && (query.released || query.sort === "newest") ? cardReleaseIndex(options.db, catalog) : undefined;
         const entries = cardRequestEntries(body, guildId, actor), points = await genesysAdmissionPoints();
         const formatReading = enabled && !query.exact && query.scope!=="name" ? effects?.readQuery(query.text,query.effectOmit)?.query.formatFilter : undefined;
         const mode=formatReading?.format==="domain"?"domain":"normal";

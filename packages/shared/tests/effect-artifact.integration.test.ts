@@ -149,11 +149,13 @@ describe("the pinned searchygo artifact and SQLite import", () => {
     db.prepare("INSERT INTO card_artworks(card_id,artwork_id,image_url,image_url_small,is_main) VALUES(46986414,46986420,'art','small',0)").run();
     importArtifact(db, { canonicalize: (code, name) => name === "Monster Reborn" ? 83764718 : code });
     expect(db.prepare("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=97268402").get()).toEqual({ tcg_date: "2010-08", ocg_date: "2010-04" });
-    expect(db.prepare("SELECT tcg_date,quality FROM card_release WHERE passcode=70781052").get()).toEqual({ tcg_date: null, quality: "placeholder" });
+    const releases = JSON.parse(gunzipSync(readFileSync(join(artifactDirectory, "releases.json.gz"))).toString());
+    const formerlyPlaceholder = releases.find((row: { id: number }) => row.id === 70781052);
+    expect(db.prepare("SELECT tcg_date,quality FROM card_release WHERE passcode=70781052").get()).toEqual({ tcg_date: formerlyPlaceholder.tcgDate, quality: formerlyPlaceholder.quality });
     expect(db.prepare("SELECT passcode FROM card_release WHERE passcode=83764718").get()).toEqual({ passcode: 83764718 });
     expect(db.prepare("SELECT tcg_date FROM card_release WHERE passcode=46986414").get()).toEqual({ tcg_date: "2002-03" });
     expect(db.prepare("SELECT passcode FROM card_release WHERE passcode=46986420").get()).toBeUndefined();
-    expect(db.prepare("SELECT COUNT(*) AS count FROM card_release").get()).toEqual({ count: 14383 });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM card_release").get()).toEqual({ count: pinnedManifest().files.releases.records });
   });
 
   it("is idempotent and preserves later Batch tags, including when replacing an older pin", async () => {

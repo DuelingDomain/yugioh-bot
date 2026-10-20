@@ -13,8 +13,8 @@ name: Test
 #   new-card-smoke  four real-engine smoke shards for the automatic card-data PR, followed by one sticky report.
 #   nduel-nightly  scheduled: the nduel fuzz (n2, n3, n4, tag) with --check-future, and the golden hash check.
 #
-# Pushes to main run all regular release suites before Deploy can start. Pull requests always run unit and
-# select cores, engine, engine-legacy, native and rule-coverage by changed paths (bot smoke also requests cores).
+# Pushes to main and pull requests always run unit and select cores, engine, engine-legacy, native and
+# rule-coverage by changed paths (bot smoke also requests cores). Unknown push ranges run all release suites.
 # A manual run runs all regular jobs,
 # including nduel-nightly unless nightly=false; bot smoke also needs its branch and new_card_smoke input.
 # The schedule runs cores and nduel-nightly only.
@@ -59,13 +59,14 @@ env:
 
 jobs:
   # Which layers a change can affect (scripts/ci/changed-layers.mjs). Pull requests diff from the merge base; pushes
-  # to main diff from the previous tip (github.event.before) for golden inputs, but always set engine=true.
+  # to main diff github.event.before..github.sha (the previous main tip / first parent for a merged PR).
   # Manual runs, the schedule and a push without a usable
   # diff set engine=true and golden=true.
   #   engine      the duel engine, its shared dependencies, e2e, the engine bundle inputs, the lockfile, the ADR-0002
   #               rules or this workflow changed: cores, engine, engine-legacy, native and rule-coverage run.
   #   golden      core patches/pins, overlays, native tooling or data pins changed: check golden in the native job.
-  # PR changes outside these paths (for example web-only UI changes) run only the unit jobs.
+  # Main also includes all shared paths, engine data bundles, Dockerfile and all .github/workflows files.
+  # Changes outside these paths (for example bot-only or web-only changes) run only the unit jobs.
   changes:
     name: Changed layers
     runs-on: ubuntu-latest
@@ -480,7 +481,7 @@ jobs:
 
   unit-packages:
     name: Unit packages and typecheck
-    needs: changes
+    # Start alongside web shards and change detection; no dependency on engine/cache jobs.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -488,7 +489,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: ${{ needs.changes.outputs.tests_only == 'true' && '0' || '1' }}
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -539,12 +540,22 @@ jobs:
           python3 -B scripts/ci/parallel_emxx_test.py
           python3 -B -m unittest discover -s scripts/deployment -p test_deploy_safety.py
 
+      # Keep tests-only PR selection without waiting for the separate changes job.
+      - name: Classify PR test changes
+        id: diff
+        if: github.event_name == 'pull_request'
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci/changed-layers.mjs
+
       - name: Select changed test files
         id: selection
-        if: needs.changes.outputs.tests_only == 'true'
+        if: steps.diff.outputs.tests_only == 'true'
         env:
-          BASE: ${{ needs.changes.outputs.base }}
-          HEAD: ${{ needs.changes.outputs.head }}
+          BASE: ${{ steps.diff.outputs.base }}
+          HEAD: ${{ steps.diff.outputs.head }}
         run: node scripts/ci/select-engine-tests.mjs
 
       # Needs the test:unit script of duel-server: the tests that load no wasm core.
@@ -743,7 +754,8 @@ jobs:
           RESULT: ${{ needs.engine-shards.result }}
           SMOKE_REPORT: ${{ needs.new-card-smoke-report.result }}
         run: |
-          test "$CHANGES" = success && { test "$REQUIRED" != true || test "$RESULT" = success; }
+          test "$CHANGES" = success
+          test "$REQUIRED" != true || test "$RESULT" = success
           test "$SMOKE_REPORT" = success || test "$SMOKE_REPORT" = skipped
 
   engine-legacy:

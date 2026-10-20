@@ -46,7 +46,7 @@ beforeAll(() => {
   db.prepare("UPDATE card_catalog SET genesys_revision='stale' WHERE ygoprodeck_id=990001").run();
   importCardEffectArtifact(db);
   const engine = new Database(join(directory, "cards.cdb"));
-  engine.exec(`CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER,type INTEGER,atk INTEGER,def INTEGER,level INTEGER,race INTEGER,attribute INTEGER,setcode INTEGER DEFAULT 0);
+  engine.exec(`CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER,type INTEGER,atk INTEGER,def INTEGER,level INTEGER,race INTEGER,attribute INTEGER,setcode INTEGER DEFAULT 0,ot INTEGER DEFAULT 3);
     CREATE TABLE texts(id INTEGER PRIMARY KEY,name TEXT,desc TEXT);`);
   const engineData = engine.prepare("INSERT INTO datas(id,alias,type,atk,def,level,race,attribute,setcode) VALUES(?,?,?,?,?,?,?,?,?)");
   engineData.run(97268402, 0, 4129, 0, 0, 1, 2, 16, 0);
@@ -255,20 +255,87 @@ describe("SQL insights over the real pinned artifact", () => {
     expect(service.effectSearch("Printed text", [97268402, 14558127], { exact: true, released: { to: "2014-12" } }).cards.map(card => card.passcode)).toEqual([97268402]);
   });
 
+  it("orders new cards and newest spells by month, then popularity", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-20T00:00:00Z"));
+    db.exec("SAVEPOINT release_order");
+    try {
+      const pool = [83764719, 47222536, 24094653];
+      for (const id of pool) db.prepare("UPDATE card_release SET tcg_date='2026-09' WHERE passcode=?").run(id);
+      db.prepare("UPDATE card_release SET tcg_date='2026-10' WHERE passcode=24094653").run();
+      db.prepare("UPDATE card_tags SET popularity=CASE passcode WHEN 83764719 THEN 1 WHEN 47222536 THEN 999999 ELSE 0 END WHERE passcode IN (83764719,47222536,24094653)").run();
+      db.prepare("UPDATE card_catalog SET effect_text=effect_text || ' blorptastic' WHERE ygoprodeck_id=83764719").run();
+      for (const text of ["new cards", "newest spells", "newest spells blorptastic"]) {
+        const hits = service.effectSearch(text, pool).cards;
+        expect(hits).toHaveLength(3);
+        expect(hits[0].passcode).toBe(24094653); // date before score and popularity
+        for (let i = 1; i < hits.length; i++) {
+          const a = hits[i - 1], b = hits[i];
+          const popularity = (id: number) => id === 47222536 ? 999999 : id === 83764719 ? 1 : 0;
+          expect((b.release!.date!.localeCompare(a.release!.date!)) || popularity(b.passcode) - popularity(a.passcode) || b.score - a.score).toBeLessThanOrEqual(0);
+        }
+      }
+      expect(service.effectSearch("newest spells", pool).cards.map(card => card.passcode)).toEqual([24094653, 47222536, 83764719]);
+      const scored = service.effectSearch("newest spells blorptastic", pool).cards;
+      expect(scored[1].passcode).toBe(47222536);
+      expect(scored[2].score).toBeGreaterThan(scored[1].score);
+    } finally { db.exec("ROLLBACK TO release_order; RELEASE release_order"); vi.useRealTimers(); }
+  });
+
   it("uses regional dates for newest and keeps upcoming and OCG-only releases", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-17T00:00:00Z"));
+    const engine = new Database(join(directory, "cards.cdb"));
+    const pending = [101403051, 101402001, 100461000];
+    for (const [id, name] of [[101403051, "The Immortal Sun God"], [101402001, "Earlier set fixture"], [100461000, "Diabellstar, the Seeker of Sinful Spoils"]] as const) {
+      engine.prepare("INSERT INTO datas(id,alias,type,ot) VALUES(?,0,2,?)").run(id, id === 101403051 ? 0x100 : 257);
+      engine.prepare("INSERT INTO texts(id,name,desc) VALUES(?,?,'Printed effect')").run(id, name);
+    }
+    db.exec("SAVEPOINT pending_order");
+    db.prepare("INSERT INTO card_release(passcode,ocg_date,quality,source_version) VALUES(101402001,'2026-10','ok','fixture')").run();
     try {
       const pool = [4474060, 14558127];
-      expect(service.effectSearch("newest monsters", pool).cards[0]?.passcode).toBe(14558127);
+      expect(service.effectSearch("newest monsters", pool).cards[0]?.passcode).toBe(4474060);
+      expect(service.effectSearch("newest TCG monsters", pool).cards[0]?.passcode).toBe(14558127);
       const ocg = service.effectSearch("newest OCG monsters", pool);
       expect(ocg.cards[0]).toMatchObject({ passcode: 4474060, release: { date: "2017-09", region: "ocg" } });
       expect(service.effectSearch("spells before 2026", [483]).cards).toMatchObject([{ passcode: 483, release: { date: "2025-04", region: "ocg" } }]);
       expect(service.effectSearch("spells TCG before 2026", [483]).cards).toEqual([]);
       expect(service.effectSearch("newest monsters", [27096833]).cards[0]?.release).toMatchObject({ date: "2026-11", upcoming: true });
       expect(service.effectSearch("last 3 months", [97268402, 27096833]).total).toBe(0);
-      expect(service.effectSearch("new cards", [97268402, 27096833]).total).toBe(0);
-    } finally { vi.useRealTimers(); }
+      expect(service.effectSearch("new cards", [97268402, 27096833]).total).toBe(1);
+      const newPool = [...pending, 27096833];
+      // Engine pre-releases lead regional imports, then month and engine set number decide ties.
+      expect(service.effectSearch("new cards", newPool).cards.map(card => card.passcode)).toEqual([100461000, 101403051, 101402001, 27096833]);
+      expect(service.effectSearch("new cards", newPool).cards[1].release).toMatchObject({ date: "2026-10", upcoming: true });
+      vi.setSystemTime(new Date("2026-12-01T00:00:00Z"));
+      expect(service.effectSearch("newest", newPool).cards.map(card => card.passcode)).toEqual([100461000, 27096833, 101403051, 101402001]);
+      expect(service.effectSearch("newest", [101403051]).cards[0].release?.upcoming).toBe(false);
+    } finally {
+      db.exec("ROLLBACK TO pending_order; RELEASE pending_order");
+      for (const id of pending) { engine.prepare("DELETE FROM datas WHERE id=?").run(id); engine.prepare("DELETE FROM texts WHERE id=?").run(id); }
+      engine.close(); vi.useRealTimers();
+    }
+  });
+
+  it("excludes anime, Rush and game-only engine rows from date searches", () => {
+    const engine = new Database(join(directory, "cards.cdb"));
+    db.prepare("INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at) VALUES(3999999901,'Skill fixture','Skill Card','skill','Skill text','image','small','[]',CURRENT_TIMESTAMP)").run();
+    db.prepare("INSERT INTO card_release(passcode,tcg_date,quality,source_version) VALUES(3999999901,'2026-10','ok','fixture')").run();
+    try {
+      expect(service.effectSearch("newest", [3999999901]).cards).toEqual([]);
+      expect(service.effectSearch("cards before 2027", [3999999901]).cards).toEqual([]);
+      for (const pool of [0, 4, 8, 512, 1024, 515]) {
+        engine.prepare("UPDATE datas SET ot=? WHERE id=97268402").run(pool);
+        expect(service.effectSearch("newest monsters", [97268402]).cards).toEqual([]);
+        expect(service.effectSearch("monsters before 2015", [97268402]).cards).toEqual([]);
+        expect(service.effectSearch("hand traps", [97268402]).cards).toHaveLength(1);
+      }
+    } finally {
+      engine.prepare("UPDATE datas SET ot=3 WHERE id=97268402").run(); engine.close();
+      db.prepare("DELETE FROM card_catalog WHERE ygoprodeck_id=3999999901").run();
+      db.prepare("DELETE FROM card_release WHERE passcode=3999999901").run();
+    }
   });
 
   it("uses a soft cube era preference and reports much newer cards", () => {
@@ -282,6 +349,12 @@ describe("SQL insights over the real pinned artifact", () => {
     const cube = [46986414, 89631139, 83764719, 24094653, 97268402, 7084129, 47222536];
     const health = service.poolHealth(cube);
     expect(health.era).toMatchObject({ medianYear: 2002, spread: 0 });
+    db.exec("SAVEPOINT regional_era");
+    try {
+      db.prepare("UPDATE card_release SET ocg_date='2099-01' WHERE passcode IN (46986414,89631139,83764719)").run();
+      expect(service.poolHealth([46986414, 89631139, 83764719]).era).toMatchObject({ medianYear: 2002, spread: 0 });
+      expect(service.effectSearch("newest", [46986414]).cards[0].release?.date).toBe("2099-01");
+    } finally { db.exec("ROLLBACK TO regional_era; RELEASE regional_era"); }
     expect(health.warnings).toContain("3 cards are much newer than the rest of this cube.");
     expect(service.poolHealth(cube, { era: { medianYear: 2002, spread: 1 } }).warnings).toContain("3 cards are much newer than the rest of this cube.");
     const seed = service.effectSearch("spell cards", [83764719, 47222536], { era: { medianYear: 2002, spread: 1 } });

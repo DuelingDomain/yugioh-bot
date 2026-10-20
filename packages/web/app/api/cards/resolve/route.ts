@@ -106,7 +106,7 @@ async function handlePOST(request: Request) {
     const details = new Map(catalog.findByIds(result.cards.map(card => card.passcode)).map(card => [card.ygoprodeckId, card]));
     const cards = result.cards.flatMap(hit => {
       const card = details.get(hit.passcode);
-      return card ? [{ ...toCardSummary(card), score: hit.score, reason: hit.reason }] : [];
+      return card ? [{ ...toCardSummary(card), score: hit.score, reason: hit.reason, release: hit.release }] : [];
     });
     return NextResponse.json({ ...result, cards, unknownIds, effectSearchEnabled: true, deckSuggestionsEnabled: deckSuggestionsEnabled() }, { headers: { "Cache-Control": "private, no-store" } });
   }
