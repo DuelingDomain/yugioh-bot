@@ -2361,6 +2361,8 @@ export function createDuelHost(options: {
     }
     const room = await project(slug, guildId, actor, games.get(slug)?.game);
     lap("projectMs");
+    // The next test duel (Quit, then Test duel again) finds a ready thread, too.
+    prepareSpareWorker();
     return { slug, session: room.session, room };
   }
 
