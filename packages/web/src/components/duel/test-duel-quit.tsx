@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/modal";
 import { useNavigationLeaveGuard, type LeaveIntercept } from "@/lib/hooks/navigation-leave-guard";
+import { markTestDuelLeft } from "@/components/decks/test-duel";
 import { cancelDuel } from "./api";
 import { SheetButton } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
@@ -53,6 +54,7 @@ export function useTestDuelQuit({ slug, active, onQuit }: { slug: string; active
     setError(null);
     try {
       await cancelDuel(slug);
+      markTestDuelLeft();
       setOpen(false);
       proceedRef.current = null;
       flushSync(() => setReleased(true));
