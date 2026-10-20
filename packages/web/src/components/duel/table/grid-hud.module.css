@@ -668,11 +668,11 @@
 .preview {
   --pv-ct: calc(var(--ct, 15.5px) * 1.06);
   --pv-top: 54px;
-  --pv-w: min(88vw, clamp(300px, 24vw, 500px));
+  --pv-w: var(--duel-drawer-w);
   position: absolute;
   top: var(--pv-top);
   left: 0;
-  z-index: 41;
+  z-index: var(--duel-z-drawer);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
