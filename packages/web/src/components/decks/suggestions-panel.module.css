@@ -6,16 +6,18 @@
 .status { min-width: 72px; color: var(--ink-4); font-size: 12px; text-align: right; }
 .note { margin: 0; color: var(--ink-3); font-size: 13px; line-height: 1.45; }
 .retry { padding: 0; border: 0; background: none; color: var(--pen-ink); font: inherit; text-decoration: underline; cursor: pointer; }
-.skeleton { height: 96px; border-radius: 8px; background: rgb(239 231 213 / 0.04); }
+.skeleton { height: 104px; border-radius: 8px; background: rgb(239 231 213 / 0.04); }
 
-.row { display: grid; gap: 7px; min-width: 0; }
+.row { display: grid; grid-template-rows: auto 1fr 22px; gap: 7px; min-width: 0; }
+.slots { position: relative; min-height: 104px; }
+.rowFooter { min-height: 22px; }
 .rowTitle { color: var(--ink-3); font-size: 12px; font-weight: 500; letter-spacing: 0.02em; }
-/* A short, fixed height, so a row does not change size when it goes from the hint to cards. */
-.hint { display: flex; align-items: center; box-sizing: border-box; height: 64px; margin: 0; padding: 0 14px; border: 1px dashed var(--rule-lo); border-radius: 8px; color: var(--ink-3); font-size: 12.5px; line-height: 1.4; }
+/* Hints occupy the same responsive tile grid as ready and loading rows. */
+.hint { position: absolute; inset: 0; display: flex; align-items: center; box-sizing: border-box; min-height: 104px; margin: 0; padding: 0 14px; border: 1px dashed var(--rule-lo); border-radius: 8px; color: var(--ink-3); font-size: 12.5px; line-height: 1.4; }
 
 /* Whole cards only: the columns share the panel width, so no card is ever cut at an edge. */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 232px), 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
-.cell { min-width: 0; }
+.cell { min-width: 0; min-height: 104px; }
 .more { justify-self: start; padding: 2px 0; border: 0; background: none; color: var(--pen-ink); font: inherit; font-size: 12.5px; cursor: pointer; }
 .more:hover { text-decoration: underline; }
 .more:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
