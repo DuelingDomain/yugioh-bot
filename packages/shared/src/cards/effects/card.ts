@@ -134,6 +134,8 @@ export interface Card {
   /** First release, as YYYY-MM-DD. */
   tcgDate?: string;
   ocgDate?: string;
+  prerelease?: boolean;
+  upcomingDate?: string;
   /** YGOPRODeck page views — a rough popularity signal used to break ranking ties. */
   views: number;
   url: string;

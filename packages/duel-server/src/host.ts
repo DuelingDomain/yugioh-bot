@@ -3381,7 +3381,7 @@ export function createDuelHost(options: {
         const enabled = effectSearchEnabled();
         const query = parseCardQuery(body.cardQuery);
         const effects = enabled ? cardEffectIndex(catalog) ?? await initializeCardEffectIndex(options.db, catalog) : undefined;
-        const releases = !enabled && (query.released || query.sort === "newest") ? cardReleaseIndex(options.db) : undefined;
+        const releases = !enabled && (query.released || query.sort === "newest") ? cardReleaseIndex(options.db, catalog) : undefined;
         const entries = cardRequestEntries(body, guildId, actor), points = await genesysAdmissionPoints();
         const search = () => queryCards(catalog, query, entries, points, { effects, releases, effectSearchEnabled: enabled });
         let result = search();

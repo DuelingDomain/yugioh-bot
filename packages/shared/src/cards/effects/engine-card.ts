@@ -17,7 +17,7 @@ export function engineInsightCard(card: DeckCardInfo, archetypes: ReadonlyMap<nu
   const subtypes = subtypeBits.filter(([, bit]) => (card.type & bit) !== 0).map(([type]) => type);
   if ((card.type & (T.spell | T.trap)) && subtypes.length === 0) subtypes.push("normal");
   return {
-    id: card.canonicalPasscode ?? card.code, name: card.name,
+    id: card.canonicalPasscode ?? card.code, name: card.name, prerelease: card.prerelease,
     kind: card.type & T.spell ? "spell" : card.type & T.trap ? "trap" : "monster",
     typeLine: "", subtypes,
     monsterType, attribute, level: card.type & (T.xyz | T.link) ? undefined : card.level,

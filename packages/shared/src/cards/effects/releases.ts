@@ -1,6 +1,6 @@
 /** Release facts from YGOPRODeck via LorenzoWhite/searchygo. See data/effects/NOTICE.md. */
-export interface ReleaseDates { tcgDate?: string; ocgDate?: string }
-/** Inclusive month bounds. No region means TCG with OCG fallback; explicit regions are strict. */
+export interface ReleaseDates { tcgDate?: string; ocgDate?: string; prerelease?: boolean; upcomingDate?: string }
+/** Inclusive month bounds. No region means the newest known month; explicit regions are strict. */
 export interface ReleasedRange { from?: string; to?: string; region?: "tcg" | "ocg" }
 export interface CardEra { medianYear: number; spread: number }
 export interface CardReleaseInfo extends ReleaseDates {
@@ -35,20 +35,29 @@ export function isCardEra(value: unknown): value is CardEra {
     typeof era.spread === "number" && Number.isFinite(era.spread) && era.spread >= 0 && era.spread <= 200;
 }
 export function selectedReleaseDate(card: ReleaseDates, region?: ReleasedRange["region"]): string | undefined {
-  return region === "ocg" ? card.ocgDate : region === "tcg" ? card.tcgDate : card.tcgDate ?? card.ocgDate;
+  if (region) return region === "ocg" ? card.ocgDate : card.tcgDate;
+  return [card.tcgDate, card.ocgDate, card.prerelease ? card.upcomingDate : undefined].filter((date): date is string => !!date).sort().at(-1);
 }
 export function cardReleaseInfo(card: ReleaseDates, region?: ReleasedRange["region"], now = new Date()): CardReleaseInfo {
-  const date = selectedReleaseDate(card, region);
-  return { ...(card.tcgDate ? { tcgDate: card.tcgDate } : {}), ...(card.ocgDate ? { ocgDate: card.ocgDate } : {}), ...(date ? { date, region: region ?? (card.tcgDate ? "tcg" : "ocg") } : {}), upcoming: !!date && date > now.toISOString().slice(0, 7) };
+  const date = selectedReleaseDate(card, region), currentMonth = now.toISOString().slice(0, 7);
+  const source = region ?? (date && date === card.tcgDate ? "tcg" : date && date === card.ocgDate ? "ocg" : undefined);
+  return {
+    ...(card.tcgDate ? { tcgDate: card.tcgDate } : {}), ...(card.ocgDate ? { ocgDate: card.ocgDate } : {}),
+    ...(card.prerelease ? { prerelease: true } : {}), ...(card.upcomingDate ? { upcomingDate: card.upcomingDate } : {}),
+    ...(date ? { date } : {}), ...(source ? { region: source } : {}),
+    upcoming: (!!date && date > currentMonth) || (!!card.prerelease && !region && (!date || date >= currentMonth)),
+  };
 }
 export function matchesReleased(card: ReleaseDates, range?: ReleasedRange): boolean {
   if (!range || (!range.from && !range.to)) return true;
   const date = selectedReleaseDate(card, range.region);
-  return date !== undefined && (!range.from || date >= range.from) && (!range.to || date <= range.to);
+  return date === undefined ? !!card.prerelease && !range.region && !range.to : (!range.from || date >= range.from) && (!range.to || date <= range.to);
 }
-/** Known months first, then unknowns. Always newest first. */
+/** Undated pre-release cards first, known months newest first, then unknowns. */
 export function compareNewest(left: ReleaseDates, right: ReleaseDates, region?: ReleasedRange["region"]): number {
   const a = selectedReleaseDate(left, region), b = selectedReleaseDate(right, region);
+  const upcomingA = !region && a === undefined && !!left.prerelease, upcomingB = !region && b === undefined && !!right.prerelease;
+  if (upcomingA !== upcomingB) return upcomingA ? -1 : 1;
   return a === b ? 0 : a === undefined ? 1 : b === undefined ? -1 : a > b ? -1 : 1;
 }
 export function deriveCardEra(cards: readonly ReleaseDates[]): CardEra | undefined {

@@ -14,6 +14,7 @@ import {
   type SpellTypeKey,
   type TrapTypeKey,
 } from "@yugidraft/shared/duels";
+import { compareNewest } from "@yugidraft/shared/cards/effects";
 import { compactEffectName, resolveEffectName } from "@yugidraft/shared/cards/effects/name-match";
 
 /**
@@ -181,18 +182,9 @@ function statFor(entry: Entry, sort: CardQuery["sort"]): number | null {
   return entry.card.defense < 0 ? -1 : entry.card.defense;
 }
 
-/** The card's release month for sorting: TCG first, OCG as the fallback; an explicit region uses only its own date. */
-function releaseMonth(card: DeckCardInfo, region?: "tcg" | "ocg"): string | undefined {
-  const release = card.release;
-  if (!release) return undefined;
-  return region === "tcg" ? release.tcgDate : region === "ocg" ? release.ocgDate : release.tcgDate ?? release.ocgDate;
-}
-
-/** Newest month first; cards with no date go last. */
+/** Match the host's region and undated Upcoming ordering. */
 function newestFirst(a: DeckCardInfo, b: DeckCardInfo, region?: "tcg" | "ocg"): number {
-  const left = releaseMonth(a, region);
-  const right = releaseMonth(b, region);
-  return left === right ? 0 : left === undefined ? 1 : right === undefined ? -1 : left > right ? -1 : 1;
+  return compareNewest({ ...a.release, prerelease: a.release?.prerelease ?? a.prerelease }, { ...b.release, prerelease: b.release?.prerelease ?? b.prerelease }, region);
 }
 
 function sortEntries(found: Entry[], query: CardQuery): Entry[] {

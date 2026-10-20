@@ -8,7 +8,7 @@ import { importCardEffectArtifact } from "@yugidraft/shared/cards/effects";
 import { createCardInsightService } from "@yugidraft/shared/services";
 import { emptyCardQuery, type CardQuery } from "@yugidraft/shared/duels";
 import { loadCardDatabase } from "../src/cards.js";
-import { cardEffectIndex, createCardEffectIndex, createCanonicalEffectResolver, initializeCardEffectIndex } from "../src/card-effects.js";
+import { cardEffectIndex, cardReleaseIndex, createCardEffectIndex, createCanonicalEffectResolver, initializeCardEffectIndex } from "../src/card-effects.js";
 import { queryCards } from "../src/card-search.js";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { createHmac } from "node:crypto";
@@ -653,6 +653,43 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
       createCardEffectIndex(db, cards); vi.useRealTimers();
     }
     expect(present(search('hand traps before 2015', ['Effect Veiler', 'Ash Blossom & Joyous Spring'].map(code), { effectOmit: ['Released: before 2015'] }))).toContain(code('Ash Blossom & Joyous Spring'));
+  });
+  it('ranks future OCG and undated pre-release cards before older TCG months in both search services', () => {
+    vi.stubEnv('EFFECT_SEARCH', '1');
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-20T00:00:00Z'));
+    const known = code('Raigeki'), unknown = code('Field Power Bonus');
+    const originals = db.prepare('SELECT * FROM card_release WHERE passcode IN (?,?)').all(known, unknown) as any[];
+    try {
+      db.prepare("UPDATE card_release SET tcg_date='2002-01',ocg_date='2026-12' WHERE passcode=?").run(known);
+      db.prepare('DELETE FROM card_release WHERE passcode=?').run(unknown);
+      createCardEffectIndex(db, cards);
+      const pool = [known, unknown];
+      const hits = search('new cards', pool).effectHits!;
+      expect(hits.map(hit => hit.code)).toEqual([unknown, known]);
+      expect(hits[0].release).toMatchObject({ upcoming: true });
+      expect(hits[0].release?.date).toBeUndefined();
+      expect(hits[1].release).toMatchObject({ date: '2026-12', region: 'ocg', upcoming: true });
+      expect(search('new cards TCG', pool).effectHits).toEqual([]);
+      const sql = createCardInsightService(db, { dataDirectory: engineDataDirectory });
+      expect(sql.effectSearch('new cards', pool).cards.map(card => card.passcode)).toEqual([unknown, known]);
+      expect(cardReleaseIndex(db, cards).get(unknown)?.upcomingDate).toBeUndefined();
+      db.prepare("INSERT INTO card_sets(set_name,set_code,card_count,synced_at,release_date) VALUES('Release integration set','REL',1,CURRENT_TIMESTAMP,'2026-11-01')").run();
+      db.prepare('UPDATE card_catalog SET card_sets_json=? WHERE ygoprodeck_id=?').run(JSON.stringify([{ set_name: 'Release integration set', set_code: 'REL-EN001' }]), unknown);
+      expect(cardReleaseIndex(db, cards).get(unknown)?.upcomingDate).toBe('2026-11');
+      expect(search('newest spells', pool).effectHits!.map(card => card.code)).toEqual([known, unknown]);
+      expect(search('new cards', pool).effectHits![1].release).toMatchObject({ date: '2026-11', upcoming: true });
+      expect(sql.effectSearch('new cards', pool).cards[1].release).toMatchObject({ date: '2026-11', upcoming: true });
+      db.prepare("UPDATE card_sets SET release_date='2020-01-01' WHERE set_code='REL'").run();
+      expect(search('new cards', pool).effectHits![0].release).toMatchObject({ upcoming: true });
+      expect(search('new cards', pool).effectHits![0].release?.date).toBeUndefined();
+    } finally {
+      db.prepare('DELETE FROM card_release WHERE passcode IN (?,?)').run(known, unknown);
+      const insert = db.prepare('INSERT INTO card_release(passcode,tcg_date,ocg_date,quality,source_version) VALUES(@passcode,@tcg_date,@ocg_date,@quality,@source_version)');
+      for (const row of originals) insert.run(row);
+      db.prepare("DELETE FROM card_sets WHERE set_code='REL'").run();
+      db.prepare("UPDATE card_catalog SET card_sets_json='[]' WHERE ygoprodeck_id=?").run(unknown);
+      createCardEffectIndex(db, cards); vi.useRealTimers();
+    }
   });
   it.each(nameCases)('name/alias/typo: %s',(text,name)=>{
     evaluatedQueries++;

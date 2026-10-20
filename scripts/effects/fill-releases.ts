@@ -77,7 +77,7 @@ function fill(rows: ReleaseRow[], cards: ApiCard[]) {
     }
   }
   return { rows, filledCards: filled.size, filledMonths, newRecords,
-    newest: rows.filter(row => filled.has(row.id)).sort((a, b) => (b.tcgDate ?? b.ocgDate ?? "").localeCompare(a.tcgDate ?? a.ocgDate ?? "") || a.id - b.id).slice(0, 10) };
+    newest: rows.filter(row => filled.has(row.id)).sort((a, b) => ([b.tcgDate, b.ocgDate].filter(Boolean).sort().at(-1) ?? "").localeCompare([a.tcgDate, a.ocgDate].filter(Boolean).sort().at(-1) ?? "") || a.id - b.id).slice(0, 10) };
 }
 
 /** Stage a complete candidate before replacing any tag output. Failure leaves tags usable. */

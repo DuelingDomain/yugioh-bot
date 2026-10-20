@@ -261,4 +261,4 @@ Use `--output` and `--cache` to select other directories. After applying, rebuil
 shared and its consumers, then restart them. Startup imports the new verified
 artifact version. `.status/effect-releases/releases-report.json` lists the counts
 and the ten newest filled records. Dates have month precision; default sorting
-uses TCG with OCG fallback. Explicit region filters use only that region.
+uses the newest known TCG or OCG month. Explicit region filters use only that region.
