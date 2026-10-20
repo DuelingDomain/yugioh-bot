@@ -124,6 +124,7 @@ it("checks every cached result with the real host and isolates mutations, actors
   } finally { state.db!.prepare("UPDATE card_catalog SET name='Silver''s Cry' WHERE ygoprodeck_id=87025064").run(); }
 });
 
+// This serial eviction proof crosses the signed host and scanner worker for 65 uncached requests.
 it("retains at most 64 completed results across module reloads and reuses only validated versions", async () => {
   const { loadDeckSuggestions } = await import("../src/lib/deck-suggestions");
   const input = (n: number) => ({ guildId: "configured-community", userId: "123", query: { op: "suggestRows" as const, format: "normal" as const,
@@ -136,7 +137,7 @@ it("retains at most 64 completed results across module reloads and reuses only v
   expect(state.suggestionResponses.at(-1)).toMatchObject({ notModified: true });
   expect((await reloaded.loadDeckSuggestions(input(0))).ok).toBe(true);
   expect(state.suggestionRequests.at(-1)?.suggestionVersion).toBeUndefined();
-});
+}, 30_000);
 
 it("fails closed on host outages and malformed conditional/result responses even with a cached result", async () => {
   const { loadDeckSuggestions } = await import("../src/lib/deck-suggestions");
