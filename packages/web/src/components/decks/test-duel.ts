@@ -58,9 +58,30 @@ export function editorReturnPath(value: string | null | undefined): string | nul
   return value != null && EDITOR_PATH.test(value) ? value : null;
 }
 
-/** True when this editor visit is the way back from a test duel. */
+const LEFT_KEY = "deck-test-duel:left:v1";
+/** Browser Back from the duel cannot carry a query, so Quit also leaves this short-lived note for the next editor visit. */
+const LEFT_TTL_MS = 60 * 1000;
+
+/** The player confirmed Quit in a test duel: the next editor visit, within a minute, is the way back. */
+export function markTestDuelLeft(): void {
+  try {
+    window.localStorage.setItem(LEFT_KEY, String(Date.now()));
+  } catch {
+    /* Without it Back shows the saved deck, not the unsaved edits. */
+  }
+}
+
+/** True when this editor visit is the way back from a test duel: the return query, or a fresh Quit note. The note is used once. */
 export function cameBackFromTestDuel(search: string): boolean {
-  return new URLSearchParams(search).get("from") === "test-duel";
+  let left = false;
+  try {
+    const at = Number(window.localStorage.getItem(LEFT_KEY));
+    window.localStorage.removeItem(LEFT_KEY);
+    left = Number.isFinite(at) && at > 0 && Date.now() - at <= LEFT_TTL_MS;
+  } catch {
+    /* No note. */
+  }
+  return left || new URLSearchParams(search).get("from") === "test-duel";
 }
 
 /** The copy belongs to one signed-in user: a shared browser never shows it to another account. */
