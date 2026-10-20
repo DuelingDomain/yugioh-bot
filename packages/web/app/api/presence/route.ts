@@ -1,4 +1,5 @@
 import { isPresenceRoute, recordPresence } from "@yugidraft/shared/presence";
+import { auth } from "@/lib/auth";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { webOrigin } from "@/lib/web-origin";
@@ -30,7 +31,9 @@ export async function POST(request: Request): Promise<Response> {
     }
     const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     if (!isPresenceRoute(payload?.route)) return Response.json({ error: "invalid_route" }, bad);
-    if (!recordPresence(getDb(), access.userId, access.userName, payload.route)) {
+    // The Discord avatar (https) shows in the admin console; the session already holds it.
+    const image = (await auth())?.user?.image ?? null;
+    if (!recordPresence(getDb(), access.userId, access.userName, payload.route, Date.now(), image)) {
       return Response.json({ error: "rate_limited" }, { status: 429, headers: { ...headers, "Retry-After": "30" } });
     }
     return new Response(null, { status: 204, headers });

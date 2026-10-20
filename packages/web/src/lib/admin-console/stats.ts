@@ -12,7 +12,7 @@ const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const dayOf = (text: string | null) => { const ms = dbTimeMs(text); return ms === null ? null : utcDay(ms); };
 
 /**
- * Seven UTC days ending today, counted from the shared SQLite file. Every query is bounded by the oldest day:
+ * Seven UTC days ending today (and the seven before, for the week-on-week change), counted from the shared SQLite file. Every query is bounded by the oldest day:
  *  - sign-ups: users.first_sign_in_at, the epoch ms of a person's first web sign-in. users.created_at is not used: it also
  *    covers Discord-only rows and test players that never signed in. A small, narrow table, scanned once per poll; no index added.
  *  - duels: the existing partial index duels_play_history_idx, (guild_id, julianday(coalesce(ended_at, created_at))) where kind = 'play'.
@@ -36,8 +36,11 @@ export const loadStats: SectionLoader<"stats"> = async ({ now }) => {
   }
 };
 
+/** Counts over the last 14 UTC days: the 7 shown, and the 7 before them for "vs last week". */
+const SPAN = DAYS * 2;
+
 export function computeStats(db: Database.Database, guild: string, now: number): StatsData {
-  const days = Array.from({ length: DAYS }, (_, i) => utcDay(now - (DAYS - 1 - i) * DAY_MS));
+  const days = Array.from({ length: SPAN }, (_, i) => utcDay(now - (SPAN - 1 - i) * DAY_MS));
   const from = days[0];
   const fromMs = Date.parse(`${from}T00:00:00.000Z`);
   const index = new Map(days.map((day, i) => [day, i]));
@@ -97,12 +100,20 @@ export function computeStats(db: Database.Database, guild: string, now: number):
   }
   series.activeUsers = active.map((set) => set.size);
 
-  const last = DAYS - 1;
   const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
+  const shown = {} as Record<StatKey, number[]>;
   const today = {} as Record<StatKey, number>;
   const last7Days = {} as Record<StatKey, number>;
-  for (const key of STAT_KEYS) { today[key] = series[key][last]; last7Days[key] = sum(series[key]); }
+  const previous7Days = {} as Record<StatKey, number>;
+  for (const key of STAT_KEYS) {
+    shown[key] = series[key].slice(DAYS);
+    today[key] = series[key][SPAN - 1];
+    last7Days[key] = sum(shown[key]);
+    previous7Days[key] = sum(series[key].slice(0, DAYS));
+  }
   // A person active on several days is one active user for the week.
-  last7Days.activeUsers = new Set(active.flatMap((set) => [...set])).size;
-  return { timezone: "UTC", days, series, today, last7Days };
+  const distinct = <T,>(sets: Set<T>[]) => new Set(sets.flatMap((set) => [...set])).size;
+  last7Days.activeUsers = distinct(active.slice(DAYS));
+  previous7Days.activeUsers = distinct(active.slice(0, DAYS));
+  return { timezone: "UTC", days: days.slice(DAYS), series: shown, today, last7Days, previous7Days };
 }

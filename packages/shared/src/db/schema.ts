@@ -1069,6 +1069,8 @@ export function migrate(db: Database.Database) {
       used_bytes integer not null
     );
   `);
+  addColumnIfMissing(db, "admin_presence", "online_since", "integer");
+  addColumnIfMissing(db, "admin_presence", "image_url", "text");
 }
 
 /**

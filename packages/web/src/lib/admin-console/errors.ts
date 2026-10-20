@@ -44,13 +44,17 @@ const num = (value: unknown): number | null => {
 };
 const text = (value: unknown, max: number): string | null => (typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null);
 
+/** Hourly event counts for the last 24 hours, oldest first, or null when Sentry sent no buckets. */
+function hourly(raw: Record<string, unknown>): number[] | null {
+  const stats = (raw.stats as Record<string, unknown> | undefined)?.["24h"];
+  if (!Array.isArray(stats)) return null;
+  return stats.slice(-24).map((bucket) => (Array.isArray(bucket) ? Math.max(0, num(bucket[1]) ?? 0) : 0));
+}
+
 /** Events in the last 24 hours: the hourly buckets when Sentry sends them, else the issue count. */
 function events24h(raw: Record<string, unknown>): number {
-  const stats = (raw.stats as Record<string, unknown> | undefined)?.["24h"];
-  if (Array.isArray(stats)) {
-    return stats.reduce<number>((sum, bucket) => sum + (Array.isArray(bucket) ? num(bucket[1]) ?? 0 : 0), 0);
-  }
-  return num(raw.count) ?? 0;
+  const buckets = hourly(raw);
+  return buckets ? buckets.reduce((sum, value) => sum + value, 0) : num(raw.count) ?? 0;
 }
 
 function toIssue(raw: unknown, config: Config, project: string): ErrorIssue | null {
@@ -69,6 +73,8 @@ function toIssue(raw: unknown, config: Config, project: string): ErrorIssue | nu
     culprit: text(r.culprit, 120),
     users: num(r.userCount),
     project: projectSlug,
+    firstSeen: text(r.firstSeen, 40),
+    ...(hourly(r) ? { hourly: hourly(r)! } : {}),
   };
 }
 

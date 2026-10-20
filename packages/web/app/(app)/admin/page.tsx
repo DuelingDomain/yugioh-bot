@@ -1,11 +1,14 @@
 import { notFound, redirect } from "next/navigation";
-import { SheetRoot } from "@/components/sheet";
+import { Martian_Mono, Schibsted_Grotesk } from "next/font/google";
 import { AdminConsole } from "@/components/admin-console/admin-console";
 import { isOwnerUser } from "@/lib/owner-access";
 import { auth } from "@/lib/auth";
 
 export const metadata = { title: "Admin console" };
 export const dynamic = "force-dynamic";
+
+const sans = Schibsted_Grotesk({ subsets: ["latin"], weight: ["400", "500", "600", "700"], display: "swap", variable: "--adm-sans" });
+const mono = Martian_Mono({ subsets: ["latin"], weight: ["400", "500"], display: "swap", variable: "--adm-mono" });
 
 export default async function AdminConsolePage() {
   const session = await auth();
@@ -14,14 +17,8 @@ export default async function AdminConsolePage() {
   if (!isOwnerUser(session.user.id)) notFound();
 
   return (
-    <SheetRoot>
-      <header className="page-h sheet-head">
-        <div>
-          <h1 className="t-title">Admin console</h1>
-          <p className="page-sub">Everything live in Dueling Domain, in one place</p>
-        </div>
-      </header>
+    <div className={`${sans.variable} ${mono.variable}`}>
       <AdminConsole />
-    </SheetRoot>
+    </div>
   );
 }

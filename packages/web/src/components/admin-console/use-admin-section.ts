@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
-import { SECTION_BY_ID } from "@/lib/admin-console/sections";
+import { POLL_MS } from "@/lib/admin-console/sections";
 import type { SectionDataMap, SectionId, SectionResult } from "@/lib/admin-console/types";
 
 export type LoadFailure = "forbidden" | "unauthorized" | "unavailable";
@@ -67,7 +67,7 @@ export function useAdminSection<K extends SectionId>(id: K): SectionSnapshot<K> 
     e.listeners.add(listener);
     if (e.listeners.size === 1) {
       void load(id);
-      e.timer = setInterval(() => { if (document.visibilityState === "visible") void load(id); }, SECTION_BY_ID[id].pollMs);
+      e.timer = setInterval(() => { if (document.visibilityState === "visible") void load(id); }, POLL_MS[id]);
     }
     return () => {
       e.listeners.delete(listener);

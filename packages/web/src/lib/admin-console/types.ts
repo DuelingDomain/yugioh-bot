@@ -1,6 +1,6 @@
 /**
- * The /admin data contract. One response type per section. A section worker may ADD optional
- * fields to its own data type; it must keep the fields the summary strip reads (marked STRIP).
+ * The /admin data contract. One response type per section, plus one person (people/<id>).
+ * New fields are optional so an older client or test fixture still reads a newer answer.
  * Times are epoch milliseconds unless the name says otherwise.
  */
 
@@ -14,25 +14,98 @@ export type SectionResult<T> =
 export const SECTION_IDS = ["online", "waitlist", "live", "stats", "errors", "usage", "system"] as const;
 export type SectionId = (typeof SECTION_IDS)[number];
 
-/* ---- online (owner of this file: base) ---- */
+/** How the app keys a person: the Discord ID on this local build (no users table). */
+export type UserKey = string;
+
+/* ---- online ---- */
+/** The duel table or draft a person is in now. */
+export interface PersonPlace {
+  kind: "duel" | "draft";
+  slug: string;
+  name: string;
+  /** /duels/<slug> or /draft/<slug>. */
+  href: string;
+  /** "4-way duel", "Duel lobby", "Draft", "Draft lobby". */
+  label: string;
+  status: string;
+}
+export interface OnlinePerson {
+  userId: UserKey;
+  name: string;
+  /** Null on this build: Discord sign-in only, no usernames. */
+  username: string | null;
+  /** https profile picture, or null for the initials circle. */
+  avatarUrl: string | null;
+  /** Friendly page label, for example "Deck builder" or "4-way duel". */
+  label: string;
+  lastSeenAt: number;
+  /** Start of the current online stretch; null when unknown. */
+  onlineSince: number | null;
+  current: PersonPlace | null;
+}
 export interface OnlineData {
-  /** STRIP: Online now. */
+  /** Online now. */
   count: number;
   windowSeconds: number;
-  users: { userId: string; name: string; label: string; lastSeenAt: number }[];
+  users: OnlinePerson[];
   bySection: { label: string; count: number }[];
 }
 
-/* ---- waitlist (Clerk; not on the local build) ---- */
+/* ---- one person (GET /api/admin/console/people/<userId>) ---- */
+export interface PersonActivity {
+  kind: "duel" | "draft";
+  name: string;
+  /** Replay for an ended duel, the table for an open one, the draft page for a draft. */
+  href: string;
+  /** "1v1 duel", "Tag duel", "Draft". */
+  what: string;
+  /** "Won", "Lost", "Draw", "Ended early", "Playing", "Lobby", "Completed", "Cancelled", "Drafting". */
+  outcome: string;
+  tone: "good" | "bad" | "live" | "quiet";
+  /** Last change: end, start or creation time. */
+  at: number | null;
+}
+export interface PersonDetail {
+  userId: UserKey;
+  name: string;
+  username: string | null;
+  avatarUrl: string | null;
+  online: boolean;
+  /** Friendly page label of the latest beat, or null when never seen. */
+  label: string | null;
+  lastSeenAt: number | null;
+  onlineSince: number | null;
+  /** First time seen as a player in the guild. */
+  joinedAt: number | null;
+  current: PersonPlace | null;
+  /** Newest first, at most 8. */
+  recent: PersonActivity[];
+  /** Duels and drafts started in the last 7 days. */
+  week: { duels: number; drafts: number };
+  /** Finished duels with a winner in the last 30 days. */
+  results: { wins: number; games: number };
+}
+
+/* ---- waitlist (Clerk) ---- */
 export interface WaitlistEntry { id: string; email: string; status: string; createdAt: number | null }
+export interface WaitlistDecision { id: string; email: string; status: "invited" | "rejected" | "completed"; at: number | null }
 export interface WaitlistData {
-  /** STRIP: Pending waitlist. */
+  /** Pending entries in Clerk. */
   pending: number;
   entries: WaitlistEntry[];
+  /** Latest decided entries, newest first (at most 5). Missing when Clerk did not answer that call. */
+  decided?: WaitlistDecision[];
 }
 
 /* ---- live duels and drafts ---- */
 export type LiveDuelFormat = "1v1" | "tag" | "ffa3" | "ffa4";
+export interface LiveSeat {
+  name: string;
+  avatarUrl: string | null;
+  bot: boolean;
+  /** users.id, so a click can open the person; null for a bot. */
+  userId: UserKey | null;
+}
 export interface LiveDuel {
   slug: string;
   name: string;
@@ -51,6 +124,14 @@ export interface LiveDuel {
   genesys?: boolean;
   /** Page the admin opens to watch, for example /duels/<slug>. */
   watchHref: string;
+  /** One entry per seat, seat order. Same names as `players`, plus picture and bot flag. */
+  seats?: LiveSeat[];
+  /** Turn number from the duel clock; null before the first turn or without a clock. */
+  turn?: number | null;
+  /** Seat whose turn it is (index into `seats`), or null. */
+  activeSeat?: number | null;
+  /** Last input on the table. */
+  lastActivityAt?: number | null;
 }
 export interface LiveDraft {
   slug: string;
@@ -62,11 +143,34 @@ export interface LiveDraft {
   /** "Round 2, pick 3" while the draft runs; null in the lobby. */
   progress?: string | null;
   href: string;
+  /** Same names as `players`, plus picture and bot flag. */
+  seats?: LiveSeat[];
+  /** "Theme" or "Booster". */
+  modeLabel?: string;
+  /** Source cube name, when the draft came from a cube. */
+  cubeName?: string | null;
+  /** Main-round picks made by the furthest player, and the main-round target per player. */
+  picksMade?: number;
+  picksTotal?: number;
+}
+/** A duel that finished in the last hour. */
+export interface EndedDuel {
+  slug: string;
+  name: string;
+  formatLabel: string;
+  ranked: boolean;
+  /** "mai_v beat sol.ring", "kaibaCorp won", "Draw", "Ended early". */
+  result: string;
+  turns: number | null;
+  endedAt: number;
+  replayHref: string;
 }
 export interface LiveData {
-  /** STRIP: Live duels = the entries with status "active". */
+  /** Live duels = the entries with status "active". */
   duels: LiveDuel[];
   drafts: LiveDraft[];
+  /** Newest first, at most 8. */
+  ended?: EndedDuel[];
 }
 
 /* ---- stats (UTC days) ---- */
@@ -78,9 +182,10 @@ export interface StatsData {
   days: string[];
   /** One number per day, same order as `days`. */
   series: Record<StatKey, number[]>;
-  /** STRIP: Sign-ups today = today.signups. */
   today: Record<StatKey, number>;
   last7Days: Record<StatKey, number>;
+  /** The seven days before `days`, for "vs last week". */
+  previous7Days?: Record<StatKey, number>;
 }
 
 /* ---- errors (Sentry) ---- */
@@ -91,6 +196,8 @@ export interface ErrorIssue {
   count: number;
   /** ISO time. */
   lastSeen: string;
+  /** ISO time of the first event, or null. An issue first seen in the last 24 hours is "new". */
+  firstSeen?: string | null;
   url: string;
   level: string | null;
   /** Short code location, for example "app/api/duels/route". */
@@ -99,10 +206,12 @@ export interface ErrorIssue {
   users?: number | null;
   /** Sentry project slug. */
   project?: string;
+  /** Events per hour for the last 24 hours, oldest first, when Sentry sends them. */
+  hourly?: number[];
 }
 export interface ErrorsData {
   issues: ErrorIssue[];
-  /** STRIP: Errors last 24 h = issues with an event in the last 24 hours. */
+  /** Error events in the last 24 hours. */
   last24h: number;
   /** Link to the Sentry project, or null. */
   dashboardUrl: string | null;
@@ -116,7 +225,9 @@ export interface UsageData {
   dashboardUrl: string | null;
   /** Daily visitors for the last 7 days, oldest first. The last one is today. */
   dauSeries?: number[];
-  /** Top pages today by views. Route templates only, for example "/duels/[slug]". */
+  /** Page views in the last 7 days. */
+  pageviews7d?: number | null;
+  /** Top pages of the last 7 days by views. Route templates only, for example "/duels/[slug]". */
   topPages?: { path: string; views: number }[];
 }
 
@@ -155,7 +266,7 @@ export interface SystemData {
   database?: { bytes: number; walBytes: number } | null;
   /** One row per service, in display order. */
   services?: ServiceHealth[];
-  /** STRIP (optional): services down or stale, plus one when disk space is at warn or fail. 0 = "All systems up". */
+  /** Services down or stale, plus one when disk space is at warn or fail. 0 = "All systems up". */
   problems?: number;
   /** Filesystem that holds the data volume. Null when the data directory cannot be read. */
   disk?: DiskStatus | null;

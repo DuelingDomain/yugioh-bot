@@ -8,7 +8,7 @@ const DAILY = `SELECT dateDiff('day', toDate(timestamp), today()) AS ago, count(
 FROM events WHERE event = '$pageview' AND timestamp >= today() - INTERVAL ${DAYS - 1} DAY GROUP BY ago ORDER BY ago`;
 const WEEKLY = `SELECT count(DISTINCT person_id) FROM events WHERE event = '$pageview' AND timestamp >= today() - INTERVAL ${DAYS - 1} DAY`;
 const TOP_PAGES = `SELECT properties.$pathname AS path, count() AS views FROM events
-WHERE event = '$pageview' AND timestamp >= today() AND properties.$pathname IS NOT NULL GROUP BY path ORDER BY views DESC LIMIT 5`;
+WHERE event = '$pageview' AND timestamp >= today() - INTERVAL ${DAYS - 1} DAY AND properties.$pathname IS NOT NULL GROUP BY path ORDER BY views DESC LIMIT 6`;
 
 interface Config { key: string; projectId: string; host: string; dashboardUrl: string | null }
 
@@ -64,10 +64,12 @@ const load = cachedLoader<UsageData>(90_000, async () => {
     const [daily, weekly, pages] = await Promise.all([hogql(config, DAILY), hogql(config, WEEKLY), hogql(config, TOP_PAGES)]);
     const dauSeries = new Array<number>(DAYS).fill(0);
     let pageviewsToday = 0;
+    let pageviews7d = 0;
     for (const [ago, visitors, views] of daily) {
       const a = num(ago);
       if (!Number.isInteger(a) || a < 0 || a >= DAYS) continue;
       dauSeries[DAYS - 1 - a] = num(visitors);
+      pageviews7d += num(views);
       if (a === 0) pageviewsToday = num(views);
     }
     const topPages = pages
@@ -77,6 +79,7 @@ const load = cachedLoader<UsageData>(90_000, async () => {
       dau: dauSeries[DAYS - 1],
       wau: num(weekly[0]?.[0]),
       pageviewsToday,
+      pageviews7d,
       dashboardUrl: config.dashboardUrl,
       dauSeries,
       topPages,
