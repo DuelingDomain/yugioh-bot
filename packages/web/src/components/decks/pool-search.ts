@@ -14,7 +14,7 @@ import {
   type SpellTypeKey,
   type TrapTypeKey,
 } from "@yugidraft/shared/duels";
-import { compareNewest } from "@yugidraft/shared/cards/effects";
+import { compareNewest } from "@yugidraft/shared/cards/effects/releases";
 import { compactEffectName, resolveEffectName } from "@yugidraft/shared/cards/effects/name-match";
 
 /**
