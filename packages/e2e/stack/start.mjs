@@ -129,6 +129,16 @@ const base = {
   DOTENV_CONFIG_QUIET: "true",
   OWNER_USER_IDS: ownerUserIds,
 };
+// E2E_ADMIN_CONSOLE=1: fake keys for the admin console. The fetch stub answers Clerk, Sentry and PostHog,
+// so no real call leaves the machine. Without the flag the sections show "not configured".
+const adminConsoleEnv = process.env.E2E_ADMIN_CONSOLE === "1" ? {
+  E2E_ADMIN_CONSOLE: "1",
+  CLERK_SECRET_KEY: "sk_test_e2e_not_real",
+  SENTRY_API_TOKEN: "e2e-sentry-token", SENTRY_ORG: "e2e", SENTRY_PROJECT: "web",
+  POSTHOG_PERSONAL_API_KEY: "e2e-posthog-key", POSTHOG_PROJECT_ID: "1",
+  POSTHOG_HOST: "https://eu.posthog.com", POSTHOG_DASHBOARD_URL: "https://eu.posthog.com/project/1",
+  SENTRY_RELEASE: "e2e0000",
+} : {};
 const serviceDirectory = (name) => {
   if (e2eSlot === undefined) return repoRoot;
   const directory = resolve(stackDir, name);
@@ -219,6 +229,7 @@ run("web", process.execPath, ["server.js"], {
     MULTIPLAYER_TABLES: process.env.E2E_MULTIPLAYER_TABLES ?? "1",
     CARD_IMAGE_CACHE_DIR: cardImageDir,
     DISCORD_BOT_ENABLED: "0", BOT_ANNOUNCE_URL: "", BOT_ANNOUNCE_SECRET: "",
+    ...adminConsoleEnv,
   },
 });
 

@@ -4,6 +4,8 @@ export interface ClerkUserJson {
   first_name: string | null;
   last_name: string | null;
   image_url: string | null;
+  /** False when image_url is Clerk's generated default picture. */
+  has_image?: boolean;
   external_id: string | null;
   private_metadata?: Record<string, unknown>;
   primary_email_address_id: string | null;
@@ -11,7 +13,7 @@ export interface ClerkUserJson {
   external_accounts: { provider: string; provider_user_id: string; verification: { status: string } | null }[];
 }
 
-export interface ClerkWaitlistEntryJson { id: string; email_address: string; status: string }
+export interface ClerkWaitlistEntryJson { id: string; email_address: string; status: string; /** Epoch ms. */ created_at?: number; /** Epoch ms. */ updated_at?: number }
 
 export class ClerkBackendError extends Error {
   constructor(
@@ -33,7 +35,11 @@ export interface ClerkBackend {
   updateUserExternalId(clerkUserId: string, externalId: string): Promise<ClerkUserJson>;
   updateUserMetadata(clerkUserId: string, input: { privateMetadata: Record<string, unknown> }): Promise<ClerkUserJson>;
   createWaitlistEntry(input: { emailAddress: string; notify: boolean }): Promise<ClerkWaitlistEntryJson>;
-  listWaitlistEntries(query: { query?: string; status?: string; offset?: number; limit?: number }): Promise<{ data: ClerkWaitlistEntryJson[]; totalCount: number }>;
+  listWaitlistEntries(query: { query?: string; status?: string; orderBy?: string; offset?: number; limit?: number }): Promise<{ data: ClerkWaitlistEntryJson[]; totalCount: number }>;
+  /** POST /waitlist_entries/{id}/invite. A 409 "already invited" resolves like a success. */
+  inviteWaitlistEntry(id: string): Promise<void>;
+  /** POST /waitlist_entries/{id}/reject. A 409 "already rejected" resolves like a success. */
+  rejectWaitlistEntry(id: string): Promise<void>;
   /** DELETE /users/{id}. A 404 means the user is already gone and resolves like a success. */
   deleteUser(clerkUserId: string): Promise<void>;
   deleteWaitlistEntriesByEmail(email: string): Promise<void>;
@@ -88,6 +94,11 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
     catch (error) { if (!(error instanceof ClerkBackendError) || error.status !== 404) throw error; }
   }
 
+  async function waitlistAction(id: string, action: "invite" | "reject", doneCode: string): Promise<void> {
+    try { await request(`/waitlist_entries/${encodeURIComponent(id)}/${action}`, "POST", action === "invite" ? {} : undefined); }
+    catch (error) { if (!(error instanceof ClerkBackendError) || error.status !== 409 || error.code !== doneCode) throw error; }
+  }
+
   return {
     getUser(clerkUserId) { return request(`/users/${encodeURIComponent(clerkUserId)}`); },
     async listUsers(query) {
@@ -131,10 +142,12 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
     },
     updateUserExternalId(clerkUserId, externalId) { return request(`/users/${encodeURIComponent(clerkUserId)}`, "PATCH", { external_id: externalId }); },
     updateUserMetadata(clerkUserId, input) { return request(`/users/${encodeURIComponent(clerkUserId)}/metadata`, "PATCH", { private_metadata: input.privateMetadata }); },
+    inviteWaitlistEntry(id) { return waitlistAction(id, "invite", "waitlist_entry_already_invited"); },
+    rejectWaitlistEntry(id) { return waitlistAction(id, "reject", "waitlist_entry_already_rejected"); },
     createWaitlistEntry(input) { return request("/waitlist_entries", "POST", { email_address: input.emailAddress, notify: input.notify }); },
     async listWaitlistEntries(query) {
       const params = new URLSearchParams();
-      for (const [key, value] of Object.entries(query)) if (value !== undefined) params.append(key, String(value));
+      for (const [key, value] of Object.entries(query)) if (value !== undefined) params.append(key === "orderBy" ? "order_by" : key, String(value));
       const result = await request<{ data: ClerkWaitlistEntryJson[]; total_count: number }>(queryPath("/waitlist_entries", params));
       return { data: result.data, totalCount: result.total_count };
     },
