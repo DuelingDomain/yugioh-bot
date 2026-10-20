@@ -22,8 +22,11 @@ const SOURCES: readonly CardDragSource[] = ["list", "master", "main", "extra", "
 const KIND_TYPE_PREFIX = `${CARD_DRAG_TYPE}-kind-`;
 const KINDS: readonly CardKind[] = ["extra", "spelltrap", "monster"];
 
+const FROM_TYPE_PREFIX = `${CARD_DRAG_TYPE}-from-`;
+
 export function writeCardDrag(event: DragEvent, drag: CardDrag, kind?: CardKind): void {
   event.dataTransfer.setData(CARD_DRAG_TYPE, JSON.stringify(drag));
+  event.dataTransfer.setData(`${FROM_TYPE_PREFIX}${drag.from}`, drag.from);
   if (kind) event.dataTransfer.setData(`${KIND_TYPE_PREFIX}${kind}`, kind);
   event.dataTransfer.setData("text/plain", String(drag.code));
   event.dataTransfer.effectAllowed = drag.from === "list" ? "copy" : "move";
@@ -37,6 +40,12 @@ export function hasCardDrag(event: DragEvent): boolean {
 export function dragCardKind(event: DragEvent): CardKind | null {
   const types = Array.from(event.dataTransfer.types);
   return KINDS.find((kind) => types.includes(`${KIND_TYPE_PREFIX}${kind}`)) ?? null;
+}
+
+/** Where the card in a drag comes from, readable while it moves, so a full section can refuse a card that is new to it. */
+export function dragCardFrom(event: DragEvent): CardDragSource | null {
+  const types = Array.from(event.dataTransfer.types);
+  return SOURCES.find((from) => types.includes(`${FROM_TYPE_PREFIX}${from}`)) ?? null;
 }
 
 export function readCardDrag(event: DragEvent): CardDrag | null {

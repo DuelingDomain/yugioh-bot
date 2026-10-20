@@ -32,10 +32,11 @@
    it paints over the prompt and the banners. The hover card and the menus are portals above the root and
    can still sit over it. The pile viewer mounts inside the board box, so it cannot rise above this layer:
    while it is open the layer is hidden (the :has rule at once, data-suspended from the frame loop as a
-   fallback for a browser without :has). */
+   fallback for a browser without :has). `visibility: hidden` alone is not enough: a placed slot or target sets `visibility: visible` itself, which wins
+   over the value it would inherit, so the badge and the callout kept drawing over the window. The opacity hides every child whatever it sets. */
 .front { z-index: var(--duel-z-chain); }
 .front[data-suspended="true"],
-:global([data-duel-fx-speed-root]):has(:global([data-pile-viewer])) .front { visibility: hidden; }
+:global([data-duel-fx-speed-root]):has(:global([data-pile-viewer])) .front { visibility: hidden; opacity: 0; pointer-events: none; }
 /* Portaled into the duel root: placed over the board box by the frame loop (translate, width, height). */
 .layer[data-portal="true"] { inset: auto; left: 0; top: 0; }
 /* The front layer is the board box, and nothing it draws leaves it: a badge at the top edge never paints over the room header. */

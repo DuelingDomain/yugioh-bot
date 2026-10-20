@@ -10,6 +10,8 @@ const realFetch = globalThis.fetch;
 const manualMode = process.env.E2E_MANUAL === "1";
 const prereleaseMode = process.env.E2E_PRERELEASE_CATALOG === "1";
 const sourceDir = process.env.E2E_CARD_IMAGE_SOURCE_DIR;
+// Admin console runs: Clerk waitlist, Sentry and PostHog answers (see admin-stubs.mjs).
+const adminStub = process.env.E2E_ADMIN_CONSOLE === "1" ? (await import("./admin-stubs.mjs")).adminStub : null;
 const JPEG = Buffer.from(
   "/9j/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAADAAIDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAQT/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCZAKQ//9k=",
   "base64",
@@ -17,6 +19,10 @@ const JPEG = Buffer.from(
 
 globalThis.fetch = async function e2eFetch(input, init) {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  if (adminStub) {
+    const answer = await adminStub(url, init);
+    if (answer) return answer;
+  }
   if (prereleaseMode && new URL(url).origin === "https://db.ygoprodeck.com" && new URL(url).pathname === "/api/v7/cardinfo.php") {
     return Response.json({ error: "No card matching your query was found in the database." }, { status: 400 });
   }

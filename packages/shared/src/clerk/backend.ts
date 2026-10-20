@@ -4,6 +4,8 @@ export interface ClerkUserJson {
   first_name: string | null;
   last_name: string | null;
   image_url: string | null;
+  /** False when image_url is Clerk's generated default picture. */
+  has_image?: boolean;
   external_id: string | null;
   private_metadata?: Record<string, unknown>;
   primary_email_address_id: string | null;
@@ -11,7 +13,7 @@ export interface ClerkUserJson {
   external_accounts: { provider: string; provider_user_id: string; verification: { status: string } | null }[];
 }
 
-export interface ClerkWaitlistEntryJson { id: string; email_address: string; status: string; /** Epoch ms. */ created_at?: number }
+export interface ClerkWaitlistEntryJson { id: string; email_address: string; status: string; /** Epoch ms. */ created_at?: number; /** Epoch ms. */ updated_at?: number }
 
 export class ClerkBackendError extends Error {
   constructor(

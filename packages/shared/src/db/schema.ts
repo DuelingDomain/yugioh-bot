@@ -1262,6 +1262,32 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "saved_decks", "genesys_json", "text");
 
   addColumnIfMissing(db, "users", "first_sign_in_at", "integer");
+  // Latest presence only: no browsing history, IDs, full URLs or query strings.
+  addColumnIfMissing(db, "users", "last_seen_at", "integer");
+  addColumnIfMissing(db, "users", "last_route", "text");
+  // Start of the current online stretch (epoch ms), so the admin console can say "online for 25 min".
+  addColumnIfMissing(db, "users", "online_since", "integer");
+  // Profile picture URL from Clerk, written at sign-in sync. The admin console shows it; null means initials.
+  addColumnIfMissing(db, "users", "image_url", "text");
+  db.exec(`
+    create index if not exists users_last_seen_idx on users(last_seen_at) where last_seen_at is not null;
+    create table if not exists worker_heartbeat (
+      id integer primary key check (id = 1),
+      at integer not null,
+      pid integer
+    );
+    -- Written by the worker every ~10 minutes (directory sizes are slow); the admin System section reads it.
+    create table if not exists disk_usage_snapshot (
+      id integer primary key check (id = 1),
+      at integer not null,
+      json text not null
+    );
+    -- One row per hour of filesystem used bytes, kept for 7 days, for the growth trend.
+    create table if not exists disk_usage_history (
+      at integer primary key,
+      used_bytes integer not null
+    );
+  `);
 
   // Shared admin state follows identity migration. No email text is stored in decisions.
   db.exec(`

@@ -119,7 +119,7 @@ async function fixture(presence = false, modules: FeatureModule[] = [community])
   const db = openDatabase(join(directory, "bot.sqlite"));
   db.prepare("insert into users(id,username,display_name,discord_user_id) values(1,'owner','Owner',?),(2,'user','User',?),(3,'other','Other admin',?)")
     .run(admin, "100000000000000011", other);
-  if (presence) db.exec("alter table users add column last_seen_at integer; alter table users add column last_route text;");
+  if (!presence) db.exec("drop index if exists users_last_seen_idx; alter table users drop column last_seen_at; alter table users drop column last_route;");
   const stub = await stubDiscord();
   const bot = await startBot({ config: { token: "stub", clientId: app, guildId: guild, announceChannelId: announce,
     modLogChannelId: log, restApi: stub.api, healthPath: join(directory, "health.json") }, db, modules });

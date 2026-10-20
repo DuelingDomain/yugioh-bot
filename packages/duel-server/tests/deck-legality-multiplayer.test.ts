@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import type { DuelDeck, DuelSettings } from "@yugidraft/shared/duels";
 import { MULTIPLAYER_FORBIDDEN, multiplayerForbiddenFor, type MultiplayerTable } from "../src/banlists/multiplayer.js";
+import { TCG_2026_10_19_LIMITS } from "../src/banlists/compiled.js";
 import { inspectDeck, validateDeck } from "../src/deck-legality.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 
@@ -39,7 +40,7 @@ const settings: DuelSettings = {
 function fillers(count: number): number[] {
   const db = new Database(join(DATA, "cards.cdb"), { readonly: true, fileMustExist: true });
   try {
-    const skip = new Set(MULTIPLAYER_FORBIDDEN.map((entry) => entry.code));
+    const skip = new Set([...MULTIPLAYER_FORBIDDEN.map((entry) => entry.code), ...Object.keys(TCG_2026_10_19_LIMITS).map(Number)]);
     const rows = db
       .prepare(
         `SELECT datas.id FROM datas JOIN texts USING (id)
@@ -104,8 +105,14 @@ describe("multiplayer forbidden list in deck validation", () => {
 
   it("flags an all-format card in Tag too", () => {
     const deck = deckWith(FINAL_COUNTDOWN);
-    for (const table of ["ffa3", "ffa4", "tag"] as const) {
-      expect(inspectDeck("normal", deck, DATA, settings, { table }).issues.length, table).toBe(1);
+    for (const banlist of ["none", "tcg-2026-10-19", "tcg-2026-11-11"]) {
+      const rules = { ...settings, banlist };
+      expect(inspectDeck("normal", deck, DATA, rules, { table: "1v1" }).issues).toEqual([]);
+      for (const table of ["ffa3", "ffa4", "tag"] as const) {
+        const issues = inspectDeck("normal", deck, DATA, rules, { table }).issues;
+        expect(issues.length, `${banlist} ${table}`).toBe(1);
+        expect(issues[0]?.message).toMatch(/Final Countdown is forbidden in/);
+      }
     }
   });
 

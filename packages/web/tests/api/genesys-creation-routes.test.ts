@@ -51,7 +51,7 @@ describe("Genesys creation API settings", () => {
       const { POST } = await import("../../app/api/duels/route");
       for (const pointCap of caps) {
         const response = await POST(request({ name: `Cap ${pointCap}`, mode, format,
-          settings: { genesys: { pointCap }, banlist: "tcg-2026-09" } }));
+          settings: { genesys: { pointCap }, banlist: "tcg-2026-10-19" } }));
         expect(response.status).toBe(201);
         const body = await response.json();
         expect(body.session).toMatchObject({ mode, format, settings: { genesys: { pointCap }, banlist: "none" } });
@@ -73,7 +73,7 @@ describe("Genesys creation API settings", () => {
   it.each(modes)("allows a %s Genesys tournament organizer to set and change the cap", async mode => {
     const { POST } = await import("../../app/api/tournaments/route");
     const created = await POST(request({ name: "Genesys Cup", format: "round_robin",
-      duelRules: { mode, settings: { genesys: {}, banlist: "tcg-2026-09" } } }));
+      duelRules: { mode, settings: { genesys: {}, banlist: "tcg-2026-10-19" } } }));
     expect(created.status).toBe(201);
     const tournament = await created.json();
     const tournaments = createTournamentDuelService(db);

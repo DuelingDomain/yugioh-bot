@@ -1,12 +1,17 @@
 "use client";
 
+import { useBugReportDeck } from "../bug-report/room-store";
+
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   canonicalCardCode,
+  capDeckSections,
   cardLimit,
+  deckLeftOutMessages,
+  deckSectionFullMessage,
   emptyCardQuery,
   type CardArchetype,
   type CardFacets,
@@ -103,9 +108,11 @@ import {
   importForLibrary,
   isNewDeckDirty,
   misplacedCards,
-  placeCard, placeCardAt,
+  overLimitSection,
+  placeCardAt,
   placementBlock,
   removeCard,
+  sectionFullReason,
   shuffled,
   snapshotOf,
   sortDeck,
@@ -255,6 +262,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
   /** The server moved bad Extra cards to Main when it read this deck. Stays until dismissed or saved. */
   const [repair, setRepair] = useState<SavedDeckView["extraDeckRepair"] | null>(null);
   const [hand, setHand] = useState<TestHand | null>(null);
+  useBugReportDeck(savedId ?? (typeof routeId === "number" ? routeId : null), formatOf(mode, genesys != null), selection.deck, hand);
   const [masterDropping, setMasterDropping] = useState(false);
   const [hover, setHover] = useState<HoverTarget | null>(null);
   const [poolCards, setPoolCards] = useState<DeckCardInfo[] | null>(null);
@@ -480,14 +488,22 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
     setFormatBanlist(next);
   }
 
-  function commit(next: DeckMasterSelection, nextMode: DuelMode = mode) {
-    if (busy || (next === selection && nextMode === mode)) return;
+  /** False when a section limit refused the change (the notice says which); true otherwise, also when nothing changed. */
+  function commit(next: DeckMasterSelection, nextMode: DuelMode = mode): boolean {
+    if (busy || (next === selection && nextMode === mode)) return true;
+    // The last line of defence: whatever the change is (add, move, copy, import, Deck Master), no section grows past its limit.
+    const full = overLimitSection(selection.deck, next.deck);
+    if (full) {
+      setNotice(deckSectionFullMessage(full));
+      return false;
+    }
     importGeneration.current += 1;
     setHistory((current) => ({ past: [...current.past.slice(-(HISTORY_LIMIT - 1)), { selection, mode }], future: [] }));
     setSelection(next);
     setMode(nextMode);
     setParseError(null);
     setSavedFlash(false);
+    return true;
   }
 
   /**
@@ -523,16 +539,24 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
     setSavedFlash(false);
   }
 
+  /** Undo and redo never bring back a section that is over its limit and bigger than the one on screen. */
+  function stepBlocked(step: Snapshot): boolean {
+    const full = overLimitSection(selection.deck, step.selection.deck);
+    if (!full) return false;
+    setNotice(deckSectionFullMessage(full));
+    return true;
+  }
+
   function undo() {
     const previous = history.past.at(-1);
-    if (busy || !previous) return;
+    if (busy || !previous || stepBlocked(previous)) return;
     setHistory({ past: history.past.slice(0, -1), future: [{ selection, mode }, ...history.future] });
     restore(previous);
   }
 
   function redo() {
     const next = history.future[0];
-    if (busy || !next) return;
+    if (busy || !next || stepBlocked(next)) return;
     setHistory({ past: [...history.past, { selection, mode }], future: history.future.slice(1) });
     restore(next);
   }
@@ -698,6 +722,13 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
     return false;
   }
 
+  /** The hard stop for every add: a full section takes no card, and the notice says so. */
+  function refuseFull(section: DeckSection): boolean {
+    const reason = sectionFullReason(selectionRef.current.deck, section);
+    if (reason) setNotice(reason);
+    return reason != null;
+  }
+
   function roomFor(card: DeckCardInfo): boolean {
     if (card.unavailableReason) {
       setNotice(`${card.name} is unavailable: ${card.unavailableReason}`);
@@ -734,7 +765,8 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
     if (!roomFor(card)) return;
     // An add goes to the section the card belongs in; Side is the only other choice.
     const to = wanted === "side" ? "side" : defaultAddSection(card);
-    commit(placeCard(selection, { code: card.code, from: "list" }, to));
+    if (refuseFull(to)) return;
+    commit(placeCardAt(selection, { code: card.code, from: "list" }, to).selection);
     const why = wanted && wanted !== to ? placementBlock(card, wanted) : null;
     if (why) setNotice(why);
   }
@@ -749,11 +781,14 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
       setNotice(why);
       return;
     }
+    // A move inside one section keeps its size; any other drop needs room in the target.
+    if (source.from !== to && refuseFull(to)) return;
     if (source.from === "list") {
       const card = catalog.get(source.code);
       if (card ? !roomFor(card) : !poolRoomFor(source.code)) return;
     }
     const placed = placeCardAt(selection, source, to, at);
+    if (placed.full) return;
     commit(placed.selection);
     // The placed copy is the selection, so the art picker swaps that copy.
     setSelected(placed.index >= 0 ? { section: to, code: source.code, index: placed.index } : { section: to, code: source.code });
@@ -818,7 +853,9 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
       return;
     }
     const to = source.section;
+    if (refuseFull(to)) return;
     const placed = placeCardAt(selection, { code: source.code, from: "list" }, to, source.index + 1);
+    if (placed.full) return;
     commit(placed.selection);
     setSelected({ section: to, code: source.code, index: placed.index });
     setInspectCode(source.code);
@@ -847,7 +884,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
     // Another art of the current Master (no copy of it waits in a section) replaces it and adds no copy.
     const swapsArt = deck.deckMaster != null && masterOrigin == null && copyKey(code, catalog) === copyKey(deck.deckMaster, catalog);
     if (card && !inDeck && !swapsArt && !roomFor(card)) return;
-    commit(chooseMaster(selection, code, section));
+    if (!commit(chooseMaster(selection, code, section))) return;
     setInspectCode(code);
     setSelected(null);
     // The notice region is a status line, so a screen reader hears the change.
@@ -869,10 +906,14 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
     requestAnimationFrame(() => { searchRef.current?.focus(); searchRef.current?.select(); });
   }
 
-  function applyImported(raw: DuelDeck, messages: string[] = []) {
-    if (allCodes(raw).length === 0) {
+  function applyImported(imported: DuelDeck, importedMessages: string[] = []) {
+    if (allCodes(imported).length === 0) {
       throw new Error("No cards found. Import a YDK deck or a ydke:// link.");
     }
+    // The server already cuts an import to the limits; this keeps a section from ever growing past them if it did not.
+    const capped = capDeckSections(imported);
+    const raw = capped.deck;
+    const messages = [...importedMessages, ...deckLeftOutMessages(capped.leftOut).filter(line => !importedMessages.includes(line))];
     const nextMode = raw.deckMaster != null ? "domain" : mode;
     if (nextMode !== mode) setFormatBanlist(formatOf(nextMode, genesys != null));
     importBase.current = selection;
@@ -1171,7 +1212,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
   function fixSection(from: "main" | "extra") {
     if (busy) return;
     const moved = (from === "extra" ? misplaced.inExtra : misplaced.inMain).length;
-    commit(fixMisplaced(selection, catalog, from));
+    if (!commit(fixMisplaced(selection, catalog, from))) return;
     setSelected(null);
     setSaveError(null);
     focusSection(from);
@@ -1444,7 +1485,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
             <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} warning={extraWarning} />
             <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, Ctrl+click a deck card, or use Side on a selected card." actions={clearButton("side", "Side")} />
           </main>
-          <CardBrowser mode={mode} genesys={genesysOn} id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={browserQuery} onQueryChange={(next) => setQuery(genesysOn ? { ...next, banlist: query.banlist, limits: query.limits } : next)} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
+          <CardBrowser mode={mode} genesys={genesysOn} id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={browserQuery} onQueryChange={(next) => setQuery(genesysOn ? { ...next, banlist: query.banlist, limits: query.limits } : next)} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} fullReason={(card) => sectionFullReason(deck, defaultAddSection(card))} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
         </div>
         {artMenu ? <DeckArtMenu key={`${artMenu.section}-${artMenu.index}`} target={artMenu} knownCount={altArtCount(artMenu.code, catalog) + 1} busy={artBusy} disabled={busy} onClose={() => setArtMenu(null)} onFamily={(family) => { void loadFamilyCards(family); }} onPick={(art, family) => { void pickMenuArtwork(art, family); }} /> : null}
         {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview card={shown} compact copySummary={inspected && !previewing ? <><CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? deckAllowance(poolMap, poolCode(inspected.code), forcedMap) : undefined} forced={forcedMap.get(poolCode(inspected.code)) ?? 0} />{genesysOn ? <GenesysCardLine card={inspected} /> : null}</> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}

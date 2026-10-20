@@ -366,23 +366,25 @@ describe("POST /api/bug-reports", () => {
     expect(githubCalls()[0]!.payload.body).not.toMatch(/unavailable to this account|not-found/);
   });
 
-  it("keeps only the last 400 diagnostic log entries", async () => {
+  it("keeps the whole public log and only the last 400 board log entries", async () => {
     const log = Array.from({ length: 900 }, (_, id) => ({ id, text: `Public event ${id}` }));
     callDuelHost.mockResolvedValue({ ok: true, data: { ...hostAnswer().data, board: { revision: 9, log } } });
     await (await route())(post(body()));
     const diagnostics = JSON.parse((await rows())[0]!.diagnostics_json);
-    expect(diagnostics.log).toEqual(log.slice(-400));
+    expect(diagnostics.log).toEqual(log);
     expect(diagnostics.board.log).toEqual(log.slice(-400));
     expect(diagnostics.logTruncated).toBe(true);
+    expect(diagnostics.logTotal).toBe(900);
   });
 
   it("caps diagnostic bytes and keeps the end of the log when a board is too large", async () => {
-    const log = Array.from({ length: 600 }, (_, id) => ({ id, text: `Event ${id} ` + "x".repeat(2000) }));
+    const log = Array.from({ length: 1500 }, (_, id) => ({ id, text: `Event ${id} ` + "x".repeat(2000) }));
     callDuelHost.mockResolvedValue({ ok: true, data: { ...hostAnswer().data, board: { large: "x".repeat(500_000), log } } });
     await (await route())(post(body()));
     const [row] = await rows();
-    expect(Buffer.byteLength(row!.diagnostics_json)).toBeLessThanOrEqual(256 * 1024);
+    expect(Buffer.byteLength(row!.diagnostics_json)).toBeLessThanOrEqual(2 * 1024 * 1024 + 1024);
     const diagnostics = JSON.parse(row!.diagnostics_json);
+    expect(diagnostics.log.length).toBeLessThan(log.length);
     expect(diagnostics.log.at(-1)).toEqual(log.at(-1));
     expect(diagnostics.board).toBeNull();
     expect(diagnostics.boardOmittedReason).toBe("the board exceeded the storage limit");
@@ -420,11 +422,11 @@ describe("POST /api/bug-reports", () => {
   });
 
   it("keeps the tail of one oversized log entry within the diagnostic byte limit", async () => {
-    const text = "x".repeat(300_000) + " final public event";
+    const text = "x".repeat(2_500_000) + " final public event";
     callDuelHost.mockResolvedValue({ ok: true, data: { board: { log: [{ text }] } } });
     await (await route())(post(body()));
     const [row] = await rows();
-    expect(Buffer.byteLength(row!.diagnostics_json)).toBeLessThanOrEqual(256 * 1024);
+    expect(Buffer.byteLength(row!.diagnostics_json)).toBeLessThanOrEqual(2 * 1024 * 1024 + 1024);
     const diagnostics = JSON.parse(row!.diagnostics_json);
     expect(diagnostics.log.at(-1).text).toMatch(/final public event$/);
     expect(diagnostics.logTruncated).toBe(true);

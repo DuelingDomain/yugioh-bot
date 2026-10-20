@@ -19,7 +19,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { CardDataStatus } from "@yugidraft/shared/types";
 
-export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode";
+export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode";
 
 /** Read-only seat identity stays separate from creator identity. Unknown control flags fail closed. */
 export function readDuelControl(request: Request, room?: DuelRoom, allowed: "view" | "action" | "cards" | "none" = "none") {
@@ -137,6 +137,7 @@ export function duelHostConfigProblem(cfg: { url: string; secret: string }): str
 
 export async function callDuelHost(input: {
   op: DuelHostOp;
+  reportId?: number;
   slug?: string;
   guildId: string;
   playerId: number;
@@ -189,7 +190,7 @@ export async function callDuelHost(input: {
   /** chain-mode only: the response switch position for the caller's own seat. */
   chainMode?: DuelChainMode;
 }): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse; retryable?: boolean }> {
-  const replayOp = input.op === "replay" || input.op === "owner-replay" || input.op === "replay-fork"
+  const replayOp = input.op === "bug-replay-frame" || input.op === "replay" || input.op === "owner-replay" || input.op === "replay-fork"
     || input.op === "fork-list" || input.op === "fork-restart" || input.op === "fork-cancel";
   const failure = (body: NonNullable<ReturnType<typeof hostErrorBody>>["body"], status: number): NextResponse => NextResponse.json({
     ...body, ...(replayOp && !body.code && status >= 500 ? { code: "ENGINE_BUSY" } : {}),
@@ -209,6 +210,7 @@ export async function callDuelHost(input: {
     guildId: input.guildId,
     playerId: input.playerId,
   };
+  if (input.reportId !== undefined) payload.reportId = input.reportId;
   if (input.userId !== undefined) payload.userId = input.userId;
   if (input.as !== undefined) payload.as = input.as;
   if (input.promptId !== undefined) payload.promptId = input.promptId;

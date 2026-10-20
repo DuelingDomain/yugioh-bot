@@ -103,6 +103,21 @@
       "types": "./dist/decks/index.d.ts",
       "source": "./src/decks/index.ts",
       "default": "./dist/decks/index.js"
+    },
+    "./presence": {
+      "types": "./dist/presence/index.d.ts",
+      "source": "./src/presence/index.ts",
+      "default": "./dist/presence/index.js"
+    },
+    "./presence/routes": {
+      "types": "./dist/presence/routes.d.ts",
+      "source": "./src/presence/routes.ts",
+      "default": "./dist/presence/routes.js"
+    },
+    "./admin": {
+      "types": "./dist/admin/index.d.ts",
+      "source": "./src/admin/index.ts",
+      "default": "./dist/admin/index.js"
     }
   },
   "scripts": {

@@ -7,22 +7,18 @@ import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardBack } from "./card-face";
 import { hasCardName, loadDuelCardInfo } from "./card-info";
-import { cardTextStyle, useCardTextSize } from "./card-text-size";
 import {
   cardArtUrl,
-  cardCombatText,
-  cardDetailsText,
-  cardKindText,
+  cardInspectLines,
   isHiddenCard,
+  isMaterialCard,
   LOCATION_EXTRA,
   zoneKey,
 } from "./constants";
 import { duelFontClasses } from "./fonts";
-import { useFilledCard } from "./filled-card";
 import { ChainGlyph } from "./chain-glyph";
 import type { ChainLinkState } from "./chain-state";
-import { cardExtraLines } from "./inspector";
-import { chainMarkLabel, pileChainMarks, type PileChainMark } from "./pile-chain-marks";
+import { pileChainMarks, type PileChainMark } from "./pile-chain-marks";
 import { useSkinStyles } from "./skin";
 import baseStyles from "./pile-viewer.module.css";
 import { UsableGlow } from "./usable-glow";
@@ -39,8 +35,11 @@ export type PileViewerProps = {
   onClose: () => void;
   /** A click on a card that is not legal right now: show it in the inspector. */
   onInspectCard: (card: DuelCard) => void;
-  /** The card under the pointer or focus: the left inspector follows it, as it does for board cards. */
-  onHoverCard?: (card: DuelCard) => void;
+  /**
+   * The card under the pointer or focus, or null when it leaves: the left drawer inspector follows it, as it does for board
+   * cards. The window itself shows no card text; the drawer is the one place for it.
+   */
+  onHoverCard?: (card: DuelCard | null) => void;
   /** Called instead of onInspectCard when the clicked card is legal in the current prompt. */
   onActivateCard?: (card: DuelCard, anchor: HTMLElement) => void;
   reducedMotion: boolean;
@@ -53,9 +52,34 @@ export type PileViewerProps = {
    * Left out, nothing is marked.
    */
   chainLinks?: readonly ChainLinkState[];
+  /**
+   * A pick: the engine asks the player to choose some of these cards (the Xyz materials of a detach cost). The window
+   * stays the same centred Materials window; a click on a card chooses it instead of inspecting it, and a bar at the foot
+   * says how many are needed, with Confirm when more than one is and Cancel when the engine allows it.
+   */
+  pick?: PileViewerPick;
 };
 
-type Entry = { card: DuelCard; key: string; index: number; marks: readonly PileChainMark[] };
+export type PileViewerPick = {
+  /** One prompt option id per entry of `cards`, in the same order: the option a click on that card chooses. */
+  ids: readonly string[];
+  selected: readonly string[];
+  /** A short line under each card's name (which Xyz it is under), or null; same order as `ids`. Left out, none. */
+  notes?: ReadonlyArray<string | null>;
+  /** The line at the foot: how many to choose and how many are chosen. */
+  status: string;
+  busy: boolean;
+  /** Confirm is shown (the engine needs more than one card). A single pick answers on the click. */
+  confirm: boolean;
+  /** The count rules hold: Confirm is enabled. */
+  ready: boolean;
+  cancelable: boolean;
+  onToggle: (id: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+};
+
+type Entry = { card: DuelCard; key: string; index: number; marks: readonly PileChainMark[]; id?: string };
 
 const NO_MARKS: readonly PileChainMark[] = [];
 
@@ -83,73 +107,6 @@ const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select
 function cardName(card: DuelCard, looked?: ReadonlyMap<number, string>): string {
   if (isHiddenCard(card) || card.code == null) return "Face-down card";
   return (hasCardName(card) ? card.name : looked?.get(card.code)) ?? card.name ?? `Card ${card.code}`;
-}
-
-function ordinal(n: number): string {
-  const mod100 = n % 100;
-  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
-  switch (n % 10) {
-    case 1: return `${n}st`;
-    case 2: return `${n}nd`;
-    case 3: return `${n}rd`;
-    default: return `${n}th`;
-  }
-}
-
-function positionLine(index: number, total: number): string {
-  if (total <= 1) return "Only card";
-  if (index === 0) return `Top of pile · 1 of ${total}`;
-  if (index === total - 1) return `Bottom of pile · ${total} of ${total}`;
-  return `${ordinal(index + 1)} from top · ${index + 1} of ${total}`;
-}
-
-/**
- * The detail of the card under the pointer, focus or last click: art, name, type lines and the FULL effect text.
- * The text comes from `useFilledCard` (a pile card that came without its effect text is looked up by passcode, as the
- * card panel does) and takes the viewer's card text size. It scrolls inside its own box, so it is never cut.
- */
-function PileDetail({ entry, total, styles, reserveChain }: { entry: Entry; total: number; styles: Record<string, string>; reserveChain: boolean }) {
-  const marks = entry.marks;
-  const textSize = useCardTextSize();
-  const live = entry.card;
-  const hidden = isHiddenCard(live) || live.code == null;
-  const card = useFilledCard(live);
-  const sleeve = live.location === LOCATION_EXTRA ? "extra" : "deck";
-  const details = hidden ? "" : cardDetailsText(card);
-  const kind = hidden ? "" : cardKindText(card);
-  const combat = hidden ? null : cardCombatText(card);
-  const text = hidden ? "" : card.description?.trim() ?? "";
-  const extras = hidden ? [] : cardExtraLines(card);
-  return (
-    <div className={styles.preview} aria-live="polite" data-card-text={textSize} style={cardTextStyle(textSize)}>
-      <div className={`${styles.previewArt} card-frame`}>
-        {hidden ? (
-          <CardBack kind={sleeve} className={styles.previewBack} />
-        ) : (
-          <img src={cardArtUrl(live.code as number, "full")} alt="" draggable={false} />
-        )}
-        <ChainMarkBadges marks={marks} styles={styles} size="detail" />
-      </div>
-      <div className={styles.previewBody}>
-        <span className={styles.previewPos}>{positionLine(entry.index, total)}</span>
-        {marks.length > 0 || reserveChain ? (
-          // While the pile holds a chain card, every card keeps this line (empty on the others): the detail never changes
-          // height between cards, and the live region stays mounted, so a change of phase is announced.
-          <span className={styles.previewChain} data-testid="pile-chain-line" data-phase={marks[0]?.phase} aria-live="polite" aria-atomic="true">
-            {marks.length > 0 ? chainMarkLabel(marks) : "\u00a0"}
-          </span>
-        ) : null}
-        <h3 className={styles.previewName}>{hidden ? "Face-down card" : card.name ?? `Card ${live.code}`}</h3>
-        {details ? <p className={styles.previewDetails}>{details}</p> : null}
-        {kind && kind !== details ? <p className={styles.previewDetails}>{kind}</p> : null}
-        {combat ? <p className={styles.previewCombat}>{combat}</p> : null}
-      </div>
-      <div className={styles.previewText} data-testid="pile-card-text" tabIndex={0} role="region" aria-label="Card text">
-        {hidden ? <p>Face-down card. Its identity is not public.</p> : text ? <p>{text}</p> : null}
-        {extras.map((line) => <p key={line} className={styles.previewExtra}>{line}</p>)}
-      </div>
-    </div>
-  );
 }
 
 /** Scrolls the grid itself (no ancestor scrolls) so the card is fully in view, with room above it for its chain badge. */
@@ -200,6 +157,7 @@ export function PileViewer({
   legalKeys,
   selectedKeys,
   chainLinks,
+  pick,
 }: PileViewerProps) {
   const styles = useSkinStyles(baseStyles, "pile");
   const headingId = useId();
@@ -210,21 +168,31 @@ export function PileViewer({
   // pointer that crosses other cards on its way to the text never replaces the clicked card.
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
+  const hoverCbRef = useRef(onHoverCard);
+  hoverCbRef.current = onHoverCard;
   const [lookedNames, setLookedNames] = useState<ReadonlyMap<number, string>>(new Map());
 
+  // The Materials view of an Xyz is this viewer too: its cards sit in the Overlay location.
+  const attached = cards.length > 0 && cards.every(isMaterialCard);
   const entries = useMemo<Entry[]>(() => {
     // The marks are keyed by the card's place in `cards`; the list below is reversed, newest first.
     const marks = pileChainMarks(chainLinks ?? [], cards);
-    const newestFirst = [...cards].reverse();
-    return newestFirst.map((card, index) => ({
-      card,
-      key: `${zoneKey(card.controller, card.location, card.sequence)}:${card.code ?? "x"}`,
-      index,
-      marks: marks.get(cards.length - 1 - index) ?? NO_MARKS,
-    }));
-  }, [cards, chainLinks]);
+    // The materials of an Xyz keep the order they were attached in; a pile shows its top card first.
+    const newestFirst = attached ? [...cards] : [...cards].reverse();
+    return newestFirst.map((card, index) => {
+      const id = pick?.ids[attached ? index : cards.length - 1 - index];
+      return {
+        card,
+        // Two Xyz can hold materials in the same overlay place: a pick keys its cards by the option they answer.
+        key: id != null ? `pick:${id}` : `${zoneKey(card.controller, card.location, card.sequence)}:${card.code ?? "x"}`,
+        index,
+        marks: marks.get(cards.length - 1 - index) ?? NO_MARKS,
+        id,
+      };
+    });
+  }, [attached, cards, chainLinks, pick?.ids]);
 
-  const preview = entries.find((entry) => entry.key === hoverKey) ?? entries.find((entry) => entry.key === pinnedKey) ?? entries[0] ?? null;
+  const activeKey = (entries.find((entry) => entry.key === hoverKey) ?? entries.find((entry) => entry.key === pinnedKey) ?? entries[0] ?? null)?.key ?? null;
   const tone = usableGlowToneForPile(cards);
   const anyLegal = entries.some((entry) => legalKeys?.has(zoneKey(entry.card.controller, entry.card.location, entry.card.sequence)));
 
@@ -267,7 +235,11 @@ export function PileViewer({
     };
   }, [open]);
 
-  const firstChainKey = entries.find((entry) => entry.marks.length > 0)?.key ?? null;
+  // The window closing (or a new pile) hands the drawer back: no card of a closed window stays shown.
+  useEffect(() => {
+    if (!open) return;
+    return () => hoverCbRef.current?.(null);
+  }, [open]);
 
   // Esc closes from anywhere (the trap keeps focus inside, but a stray focus must not strand the user).
   useEffect(() => {
@@ -295,6 +267,16 @@ export function PileViewer({
   }
 
   function onPanelKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    // A pick: 1..9 choose that material, as in the generic card list (PromptCenter and the tray ignore keys inside a dialog).
+    if (pick && !event.metaKey && !event.ctrlKey && !event.altKey && !event.nativeEvent.isComposing) {
+      const digit = /^[1-9]$/.test(event.key) ? Number(event.key) : /^Numpad[1-9]$/.test(event.key) ? Number(event.key.slice(6)) : null;
+      const id = digit != null ? pick.ids[digit - 1] : undefined;
+      if (id != null) {
+        event.preventDefault();
+        if (!event.repeat && !pick.busy) pick.onToggle(id);
+        return;
+      }
+    }
     if (event.key !== "Tab") return;
     const panel = panelRef.current;
     if (!panel) return;
@@ -329,19 +311,39 @@ export function PileViewer({
     focusEntry(next);
   }
 
-  function onCardClick(event: ReactMouseEvent<HTMLButtonElement>, key: string, card: DuelCard, legal: boolean) {
+  function onCardClick(event: ReactMouseEvent<HTMLButtonElement>, key: string, card: DuelCard, legal: boolean, id?: string) {
     // A click always selects the card into the detail (touch has no hover, and some browsers do not focus a tapped button).
     setPinnedKey(key);
+    if (pick && id != null) {
+      if (!pick.busy) pick.onToggle(id);
+      return;
+    }
     if (legal && onActivateCard) onActivateCard(card, event.currentTarget);
     else onInspectCard(card);
   }
 
+  // The pointer leaves the grid: the drawer goes back to the tile that still has focus, or closes.
+  function onGridLeave() {
+    setHoverKey(null);
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>("[data-pile-card]") : null;
+    const key = focused && gridRef.current?.contains(focused) ? focused.dataset.cardKey : null;
+    onHoverCard?.(entries.find((entry) => entry.key === key)?.card ?? null);
+  }
+
   const total = entries.length;
+  // Phones: the window shows the card text itself (the left drawer would cover the tiles). CSS shows this block under 901px only.
+  const activeEntry = entries.find((entry) => entry.key === activeKey) ?? null;
+  const detail = activeEntry && !isHiddenCard(activeEntry.card) && activeEntry.card.code != null
+    ? { card: activeEntry.card, ...cardInspectLines(activeEntry.card) }
+    : null;
   return (
     <div className={cn(duelFontClasses, styles.root)} data-reduced={reducedMotion ? "true" : "false"} data-owner={owner} data-has-legal={anyLegal ? "true" : "false"}
       data-toned={ownerTag ? "true" : undefined}
-      style={ownerTag ? ({ "--seat-main": ownerTag.tone.main, "--seat-ink": ownerTag.tone.ink } as CSSProperties) : undefined}>
-      <div className={styles.scrim} onClick={onClose} aria-hidden="true" />
+      data-pick={pick ? "true" : undefined}
+      data-attached={attached ? "true" : undefined}
+      style={{ ...(ownerTag ? { "--seat-main": ownerTag.tone.main, "--seat-ink": ownerTag.tone.ink } : null), "--pv-cols": Math.max(1, Math.min(3, total)) } as CSSProperties}>
+      {/* Modal: the scrim takes every click that would reach the board. A pile closes on it; a pick (the engine waits for an answer) only swallows it, and the close button hides the window. */}
+      <div className={styles.scrim} onClick={pick ? undefined : onClose} aria-hidden="true" />
       <aside
         ref={panelRef}
         className={styles.panel}
@@ -359,29 +361,21 @@ export function PileViewer({
             ) : null}
             <span className={styles.count}>
               <b>{total}</b> {total === 1 ? "card" : "cards"}
-              {total > 1 ? <span className={styles.order}> · newest first</span> : null}
+              {total > 1 && !attached ? <span className={styles.order}> · newest first</span> : null}
             </span>
           </div>
-          <button type="button" className={styles.close} onClick={onClose} aria-label={`Close ${title}`}>
+          <button type="button" className={styles.close} onClick={onClose} aria-label={pick ? "Hide to look at the board" : `Close ${title}`} title={pick ? "Hide to look at the board" : undefined}>
             <X size={18} strokeWidth={1.75} aria-hidden />
           </button>
         </header>
 
-        {preview ? (
-          <PileDetail key={preview.key} entry={preview} total={total} styles={styles} reserveChain={firstChainKey != null} />
-        ) : (
-          <div className={styles.preview} aria-live="polite">
-            <p className={styles.empty}>This pile is empty.</p>
-          </div>
-        )}
-
-        <ul ref={gridRef} className={styles.grid} role="list" aria-label={`${title}, newest first`} onMouseLeave={() => setHoverKey(null)}>
+        <ul ref={gridRef} className={styles.grid} role="list" aria-label={attached ? title : `${title}, newest first`} onMouseLeave={onGridLeave}>
           {entries.map((entry) => {
-            const { card, key, index, marks } = entry;
+            const { card, key, index, marks, id } = entry;
             const hidden = isHiddenCard(card) || card.code == null;
             const zone = zoneKey(card.controller, card.location, card.sequence);
-            const legal = legalKeys?.has(zone) ?? false;
-            const selected = selectedKeys?.has(zone) ?? false;
+            const legal = pick ? false : legalKeys?.has(zone) ?? false;
+            const selected = pick ? id != null && pick.selected.includes(id) : selectedKeys?.has(zone) ?? false;
             const name = cardName(card, lookedNames);
             return (
               <li key={key} className={styles.cell}>
@@ -392,9 +386,10 @@ export function PileViewer({
                   data-card-key={key}
                   data-legal={legal ? "true" : "false"}
                   data-selected={selected ? "true" : "false"}
-                  data-active={preview?.key === key ? "true" : "false"}
+                  data-pick-id={id}
+                  data-active={activeKey === key ? "true" : "false"}
                   data-chain-link={marks.length > 0 ? marks[0].index : undefined}
-                  aria-label={`${name}, ${index + 1} of ${total}${marks.length > 0 ? `, ${marks.map((mark) => `${mark.ariaLabel} ${mark.phase}`).join(", ")}` : ""}${legal ? ", can be chosen" : ""}`}
+                  aria-label={`${name}, ${index + 1} of ${total}${marks.length > 0 ? `, ${marks.map((mark) => `${mark.ariaLabel} ${mark.phase}`).join(", ")}` : ""}${legal || pick ? ", can be chosen" : ""}`}
                   aria-pressed={selected}
                   onMouseEnter={() => {
                     setHoverKey(key);
@@ -405,8 +400,9 @@ export function PileViewer({
                     setHoverKey(null);
                     onHoverCard?.(card);
                   }}
+                  onBlur={() => onHoverCard?.(null)}
                   onKeyDown={(event) => onCardKeyDown(event, index)}
-                  onClick={(event) => onCardClick(event, key, card, legal)}
+                  onClick={(event) => onCardClick(event, key, card, legal, id)}
                 >
                   <span className={styles.art}>
                     {hidden ? (
@@ -427,11 +423,36 @@ export function PileViewer({
                     <ChainMarkBadges marks={marks} styles={styles} size="thumb" />
                   </span>
                   <span className={styles.name}>{name}</span>
+                  {pick?.notes?.[pick.ids.indexOf(id ?? "")] ? <span className={styles.name} data-pick-note>{pick.notes[pick.ids.indexOf(id ?? "")]}</span> : null}
                 </button>
               </li>
             );
           })}
         </ul>
+
+        {detail ? (
+          <section className={styles.detail} data-testid="pile-detail" aria-live="polite">
+            <h3>{detail.card.name ?? cardName(detail.card, lookedNames)}</h3>
+            {detail.facts ? <p className={styles.detailFacts}>{detail.facts}{detail.combat ? ` · ${detail.combat}` : ""}</p> : null}
+            {detail.card.description ? <p className={styles.detailText}>{detail.card.description}</p> : null}
+          </section>
+        ) : null}
+
+        {pick ? (
+          <footer className={styles.pickBar} data-testid="pile-pick-bar">
+            <span className={styles.pickStatus} data-done={pick.ready ? "true" : "false"} aria-live="polite">{pick.status}</span>
+            {pick.cancelable ? (
+              <button type="button" className={styles.pickBtn} data-kind="quiet" data-pick-cancel disabled={pick.busy} onClick={pick.onCancel}>
+                Cancel
+              </button>
+            ) : null}
+            {pick.confirm ? (
+              <button type="button" className={styles.pickBtn} data-kind="primary" data-pick-confirm disabled={!pick.ready || pick.busy} onClick={pick.onConfirm}>
+                Confirm
+              </button>
+            ) : null}
+          </footer>
+        ) : null}
       </aside>
     </div>
   );

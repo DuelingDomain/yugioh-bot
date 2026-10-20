@@ -2,7 +2,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import type { DuelDeck, DuelSettings } from "@yugidraft/shared/duels";
-import { TCG_2026_09_LIMITS, OCG_2026_07_LIMITS } from "../src/banlists/compiled.js";
+import { TCG_2026_10_19_LIMITS, OCG_2026_10_LIMITS } from "../src/banlists/compiled.js";
 import { inspectDeck, validateDeck } from "../src/deck-legality.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 
@@ -13,7 +13,7 @@ const POT_OF_GREED = 55144522;
 const KURIBOH_TOKEN = 40703223;
 const BLUE_EYES_ULTIMATE = 23995346;
 const ASH_BLOSSOM = 14558127;
-const CALLED_BY_THE_GRAVE = 24224830;
+const BRANDED_OPENING = 36637374;
 const MIND_MASTER = 96782886;
 const POLYMERIZATION = 24094653;
 
@@ -64,12 +64,12 @@ function fillerSpells(count: number, exclude: number[] = []): number[] {
 }
 
 function tcgLegalFillers(count: number, exclude: number[] = []): number[] {
-  const banned = Object.keys(TCG_2026_09_LIMITS).map(Number);
+  const banned = Object.keys(TCG_2026_10_19_LIMITS).map(Number);
   return fillerSpells(count, [...exclude, ...banned]);
 }
 
 function ocgLegalFillers(count: number, exclude: number[] = []): number[] {
-  const listed = Object.keys(OCG_2026_07_LIMITS).map(Number);
+  const listed = Object.keys(OCG_2026_10_LIMITS).map(Number);
   return fillerSpells(count, [...exclude, ...listed]);
 }
 
@@ -97,7 +97,7 @@ function regionOnlyCard(region: "tcg" | "ocg"): { id: number; name: string } {
 function limitedAliasPair(): { primary: number; art: number; name: string } {
   const db = new Database(join(DATA, "cards.cdb"), { readonly: true, fileMustExist: true });
   try {
-    for (const [id, limit] of Object.entries(TCG_2026_09_LIMITS)) {
+    for (const [id, limit] of Object.entries(TCG_2026_10_19_LIMITS)) {
       if (limit !== 1) continue;
       const code = Number(id);
       const art = db
@@ -115,28 +115,51 @@ function limitedAliasPair(): { primary: number; art: number; name: string } {
 }
 
 describe("validateDeck settings banlist", () => {
-  it("rejects a forbidden TCG card including when the rest of the deck is otherwise legal", () => {
-    expect(() =>
-      validateDeck(
-        "normal",
-        { main: [POT_OF_GREED, ...tcgLegalFillers(39, [POT_OF_GREED])], extra: [], side: [] },
-        DATA,
-        settings({ banlist: "tcg-2026-09" }),
-      ),
-    ).toThrow(/pot of greed is forbidden/i);
+  it("rejects newly forbidden cards in a real Branded deck and retains the September list", () => {
+    // 40-card Branded Main Deck and 15-card Extra Deck, using released engine passcodes.
+    const deck: DuelDeck = {
+      main: [
+        62962630, 62962630, 62962630, // Aluber the Jester of Despia
+        68468459, 68468459, 68468459, // Fallen of Albaz
+        36577931, 81555617, 99456344, 45484331, 19096726, 25451383, 95515789, 45883110,
+        14558127, 14558127, 14558127, 97268402, 97268402, 97268402,
+        36637374, 36637374, 36637374, // Branded Opening: Unlimited -> Limited
+        44362883, 6498706, 6498706, 6498706, 48130397, 48130397, 48130397,
+        82738008, 82738008, 18973184, 81439173, 75500286,
+        24224830, // Called by the Grave: Limited -> Forbidden
+        29948294, 10045474, 10045474, 10045474,
+      ],
+      extra: [
+        87746184, 87746184, 87746184, // Albion the Branded Dragon: Unlimited -> Forbidden
+        70534340, 70534340, 44146295, 44146295, 24915933, 51409648,
+        72272462, 6855503, 11321089, 41373230, 1906812, 3410461,
+      ],
+      side: [],
+    };
+    expect(inspectDeck("normal", deck, DATA, settings({ banlist: "tcg-2026-09" })).issues).toEqual([]);
+    expect(() => validateDeck("normal", deck, DATA, settings({ banlist: "tcg-2026-09" }))).not.toThrow();
+    const { issues } = inspectDeck("normal", deck, DATA, settings({ banlist: "tcg-2026-10-19" }));
+    expect(issues.map((issue) => issue.message)).toEqual(expect.arrayContaining([
+      expect.stringMatching(/Called by the Grave is forbidden/i),
+      expect.stringMatching(/Albion the Branded Dragon is forbidden/i),
+      expect.stringMatching(/more than 1 copy of Branded Opening/i),
+    ]));
+    expect(() => validateDeck("normal", deck, DATA, settings({ banlist: "tcg-2026-10-19" }))).toThrow(/forbidden|more than 1 copy/i);
+    expect(() => validateDeck("normal", { main: [POT_OF_GREED, ...tcgLegalFillers(39)], extra: [], side: [] }, DATA,
+      settings({ banlist: "tcg-2026-10-19" }))).toThrow(/pot of greed is forbidden/i);
   });
 
   it("rejects two copies of a TCG limited card and allows one", () => {
-    const two = [CALLED_BY_THE_GRAVE, CALLED_BY_THE_GRAVE, ...tcgLegalFillers(38, [CALLED_BY_THE_GRAVE])];
+    const two = [BRANDED_OPENING, BRANDED_OPENING, ...tcgLegalFillers(38, [BRANDED_OPENING])];
     expect(() =>
-      validateDeck("normal", { main: two, extra: [], side: [] }, DATA, settings({ banlist: "tcg-2026-09" })),
+      validateDeck("normal", { main: two, extra: [], side: [] }, DATA, settings({ banlist: "tcg-2026-10-19" })),
     ).toThrow(/more than 1 copy of/i);
     expect(() =>
       validateDeck(
         "normal",
-        { main: [CALLED_BY_THE_GRAVE, ...tcgLegalFillers(39, [CALLED_BY_THE_GRAVE])], extra: [], side: [] },
+        { main: [BRANDED_OPENING, ...tcgLegalFillers(39, [BRANDED_OPENING])], extra: [], side: [] },
         DATA,
-        settings({ banlist: "tcg-2026-09" }),
+        settings({ banlist: "tcg-2026-10-19" }),
       ),
     ).not.toThrow();
   });
@@ -148,19 +171,19 @@ describe("validateDeck settings banlist", () => {
         "normal",
         { main: [pair.primary, pair.art, ...tcgLegalFillers(38, [pair.primary, pair.art])], extra: [], side: [] },
         DATA,
-        settings({ banlist: "tcg-2026-09" }),
+        settings({ banlist: "tcg-2026-10-19" }),
       ),
     ).toThrow(/more than 1 copy of/i);
   });
 
-  it("allows three Ash Blossom on TCG September 2026 and rejects the third on OCG July 2026", () => {
+  it("allows three Ash Blossom on TCG October 19, 2026 and rejects the third on OCG October 2026", () => {
     const three = [ASH_BLOSSOM, ASH_BLOSSOM, ASH_BLOSSOM];
     expect(() =>
       validateDeck(
         "normal",
         { main: [...three, ...tcgLegalFillers(37, three)], extra: [], side: [] },
         DATA,
-        settings({ banlist: "tcg-2026-09" }),
+        settings({ banlist: "tcg-2026-10-19" }),
       ),
     ).not.toThrow();
     expect(() =>
@@ -168,9 +191,13 @@ describe("validateDeck settings banlist", () => {
         "normal",
         { main: [...three, ...ocgLegalFillers(37, three)], extra: [], side: [] },
         DATA,
-        settings({ banlist: "ocg-2026-07" }),
+        settings({ banlist: "ocg-2026-10" }),
       ),
     ).toThrow(/more than 2 copies of/i);
+    const shifter = { main: [91800273, ...ocgLegalFillers(39)], extra: [], side: [] };
+    expect(() => validateDeck("normal", shifter, DATA, settings({ banlist: "ocg-2026-07" }))).not.toThrow();
+    expect(() => validateDeck("normal", shifter, DATA, settings({ banlist: "ocg-2026-10" })))
+      .toThrow(/Dimension Shifter is forbidden/i);
   });
 
   it("treats Mind Master as unlimited on the pinned TCG list after the 2026-09-28 delay", () => {
@@ -179,7 +206,7 @@ describe("validateDeck settings banlist", () => {
         "normal",
         { main: [MIND_MASTER, ...tcgLegalFillers(39, [MIND_MASTER])], extra: [], side: [] },
         DATA,
-        settings({ banlist: "tcg-2026-09" }),
+        settings({ banlist: "tcg-2026-10-19" }),
       ),
     ).not.toThrow();
   });
@@ -193,12 +220,12 @@ describe("validateDeck settings banlist", () => {
   it("applies a custom banlist to the separate Domain Deck Master", () => {
     const cyberStein = 69015963;
     const deck = { main: tcgLegalFillers(60), extra: [], side: [], deckMaster: cyberStein };
-    const { issues } = inspectDeck("domain", deck, DATA, settings({ banlist: "tcg-2026-09" }));
+    const { issues } = inspectDeck("domain", deck, DATA, settings({ banlist: "tcg-2026-10-19" }));
     expect(issues.flatMap((issue) => issue.cards)).toContainEqual(
       expect.objectContaining({ section: "deckMaster", index: 0, code: cyberStein }),
     );
     expect(inspectDeck("domain", deck, DATA, settings()).issues).toEqual([]);
-    expect(inspectDeck("domain", deck, DATA, settings({ banlist: "tcg-2026-09", validateDeck: false })).issues).toEqual([]);
+    expect(inspectDeck("domain", deck, DATA, settings({ banlist: "tcg-2026-10-19", validateDeck: false })).issues).toEqual([]);
   });
 });
 
@@ -314,22 +341,22 @@ describe("inspectDeck settings", () => {
       extra: [] as number[],
       side: [POT_OF_GREED],
     };
-    const { issues } = inspectDeck("normal", deck, DATA, settings({ banlist: "tcg-2026-09" }));
+    const { issues } = inspectDeck("normal", deck, DATA, settings({ banlist: "tcg-2026-10-19" }));
     expect(issues.some((issue) => /40-60/.test(issue.message))).toBe(true);
     const forbidden = issues.find((issue) => /pot of greed is forbidden/i.test(issue.message));
     expect(forbidden?.cards.map((card) => ({ section: card.section, index: card.index, code: card.code }))).toEqual([
       { section: "main", index: 0, code: POT_OF_GREED },
       { section: "side", index: 0, code: POT_OF_GREED },
     ]);
-    expect(() => validateDeck("normal", deck, DATA, settings({ banlist: "tcg-2026-09" }))).toThrow(/40-60/);
+    expect(() => validateDeck("normal", deck, DATA, settings({ banlist: "tcg-2026-10-19" }))).toThrow(/40-60/);
   });
 
   it("highlights only limited copies beyond the allowance", () => {
-    const two = [CALLED_BY_THE_GRAVE, CALLED_BY_THE_GRAVE, ...tcgLegalFillers(38, [CALLED_BY_THE_GRAVE])];
-    const { issues } = inspectDeck("normal", { main: two, extra: [], side: [] }, DATA, settings({ banlist: "tcg-2026-09" }));
+    const two = [BRANDED_OPENING, BRANDED_OPENING, ...tcgLegalFillers(38, [BRANDED_OPENING])];
+    const { issues } = inspectDeck("normal", { main: two, extra: [], side: [] }, DATA, settings({ banlist: "tcg-2026-10-19" }));
     const limited = issues.find((issue) => /more than 1 copy of/i.test(issue.message));
     expect(limited?.cards.map((card) => ({ section: card.section, index: card.index, code: card.code }))).toEqual([
-      { section: "main", index: 1, code: CALLED_BY_THE_GRAVE },
+      { section: "main", index: 1, code: BRANDED_OPENING },
     ]);
   });
 });

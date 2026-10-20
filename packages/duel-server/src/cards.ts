@@ -133,7 +133,9 @@ function loadFromDisk(root: string): LoadedCardDatabase {
   const deckCards = new Map<number, DeckCardInfo>();
   const pools = new Map<number, number>();
   try {
-    const dataRows = sqlite.prepare("SELECT * FROM datas").all() as Array<{
+    // Packed setcodes can exceed Number.MAX_SAFE_INTEGER. Preserve all 64 bits
+    // before unpacking them; rounding can change the lowest archetype code.
+    const dataRows = sqlite.prepare("SELECT * FROM datas").safeIntegers().all() as Array<{
       id: number | bigint;
       ot: number | bigint;
       alias: number | bigint;

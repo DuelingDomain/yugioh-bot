@@ -34,7 +34,7 @@ it("applies ordinary copy limits and the original banlist to mixed artworks", ()
   const inspect = (main: number[], banlist = "none") => inspectDeck("normal", { main, extra: [], side: [] }, dir,
     normalizeDuelSettings("normal", { banlist, cardPool: "both", startingHand: 1 }));
   expect(inspect([10, 11, 12, 12]).issues.some(i => /3 copies/.test(i.message))).toBe(true);
-  expect(inspect([55144523], "tcg-2026-09").issues.some(i => /forbidden|0 copies/i.test(i.message))).toBe(true);
+  expect(inspect([55144523], "tcg-2026-10-19").issues.some(i => /forbidden|0 copies/i.test(i.message))).toBe(true);
 });
 
 it("keeps Deck Master listed-name and listed-series domains identical for alternate art", () => {

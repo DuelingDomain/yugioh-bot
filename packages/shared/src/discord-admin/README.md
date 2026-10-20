@@ -87,4 +87,4 @@ The runtime consumes the outbox through the real exported functions. It checks t
 
 The shared migration creates `bot_heartbeat(id, at, pid)`. The enabled bot maintains singleton `id=1`: `at` is Unix time in milliseconds and `pid` is the PID inside the bot container. It upserts the row at startup and every 30 seconds while the Gateway is ready, and removes its own row on a disconnected heartbeat or shutdown. Disabled mode does not open SQLite. A crash leaves the last timestamp for stale-health detection.
 
-The admin console System section can read `select at, pid from bot_heartbeat where id=1`. Treat an absent row or an age above 120 seconds as unavailable. Use timestamp recency across containers; the PID is diagnostic data and is local to the bot container. Repeated migrations preserve the current row.
+The admin console System section can read `select at, pid from bot_heartbeat where id=1`. Treat an absent row or an age above 180 seconds as unavailable. Use timestamp recency across containers; the PID is diagnostic data and is local to the bot container. Repeated migrations preserve the current row.

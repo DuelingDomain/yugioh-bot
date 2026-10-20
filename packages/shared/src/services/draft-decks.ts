@@ -1,5 +1,6 @@
 import { report } from "../observability/index.js";
 import { isExtraDeckCard } from "../duels/extra-deck.js";
+import { DECK_SECTION_LIMITS } from "../duels/deck-limits.js";
 import type Database from "better-sqlite3";
 import type { DuelDeck } from "../duels/index.js";
 import type { CardIdentityCatalog } from "../duels/pool.js";
@@ -8,10 +9,10 @@ import { createSavedDeckService } from "./saved-decks.js";
 import { createTournamentDuelService, TournamentDuelError } from "./tournament-duels.js";
 
 /** A Main Deck holds at most this many cards in a draft tournament duel. */
-export const DRAFT_DECK_MAIN_MAX = 60;
+export const DRAFT_DECK_MAIN_MAX = DECK_SECTION_LIMITS.main;
 /** The Extra Deck and the Side Deck each hold at most this many cards. */
-export const DRAFT_DECK_EXTRA_MAX = 15;
-export const DRAFT_DECK_SIDE_MAX = 15;
+export const DRAFT_DECK_EXTRA_MAX = DECK_SECTION_LIMITS.extra;
+export const DRAFT_DECK_SIDE_MAX = DECK_SECTION_LIMITS.side;
 /** The size a Main Deck is trimmed to; a bigger auto deck still plays. */
 export const DRAFT_DECK_MAIN_TARGET = 40;
 
