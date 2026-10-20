@@ -255,6 +255,9 @@ if {"kind", "ranked", "last_activity_at", "started_at", "created_at", "clock_jso
         con.commit()
         if ids:
             print(f"Interrupted {len(ids)} idle duel(s) before engine install.", file=sys.stderr)
+# Deck-editor test duels (a bot table) never hold a deploy. They close by idle.
+if "setup_json" in columns:
+    scope += " and coalesce(json_extract(setup_json, '$.testDuel'), 0) = 0"
 n = con.execute("select count(*) from duels where status = 'active' and not coalesce((" + idle + "), 0)" + scope, params).fetchone()[0]
 print(n)
 con.close()
