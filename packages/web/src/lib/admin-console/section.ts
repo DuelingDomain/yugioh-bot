@@ -37,15 +37,26 @@ const NO_STORE = { "cache-control": "private, no-store" };
  * with a fixed message, so no detail leaks.
  */
 export function sectionRoute<K extends SectionId>(loader: SectionLoader<K>) {
-  return async function GET(request?: Request): Promise<Response> {
-    const actor = await requireWebAccess();
-    if (!actor.ok) return actor.response;
-    if (!isOwnerUser(actor.userId)) return NextResponse.json({ error: "not_found" }, { status: 404, headers: NO_STORE });
-    let result: SectionResult<SectionDataMap[K]>;
-    let query: URLSearchParams | undefined;
-    try { query = request ? new URL(request.url).searchParams : undefined; } catch { query = undefined; }
-    try { result = await loader({ userId: actor.userId, now: Date.now(), query }); }
-    catch { result = failed("This section could not be loaded."); }
-    return NextResponse.json(result, { headers: NO_STORE });
+  return async function GET(): Promise<Response> {
+    return answer(loader, undefined);
   };
+}
+
+/** Same as sectionRoute, for a section that reads options from the query string (today: ?tz=). */
+export function sectionRouteWithQuery<K extends SectionId>(loader: SectionLoader<K>) {
+  return async function GET(request: Request): Promise<Response> {
+    let query: URLSearchParams | undefined;
+    try { query = new URL(request.url).searchParams; } catch { query = undefined; }
+    return answer(loader, query);
+  };
+}
+
+async function answer<K extends SectionId>(loader: SectionLoader<K>, query: URLSearchParams | undefined): Promise<Response> {
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
+  if (!isOwnerUser(actor.userId)) return NextResponse.json({ error: "not_found" }, { status: 404, headers: NO_STORE });
+  let result: SectionResult<SectionDataMap[K]>;
+  try { result = await loader({ userId: actor.userId, now: Date.now(), query }); }
+  catch { result = failed("This section could not be loaded."); }
+  return NextResponse.json(result, { headers: NO_STORE });
 }
