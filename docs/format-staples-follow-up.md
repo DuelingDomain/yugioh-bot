@@ -23,16 +23,18 @@ another monster summoned from Deck in the same tagged effect. Any destruction
 includes battle destruction. Classic 1500-ATK recruiters receive a rank boost.
 Explicit recruiter/date/format readings take precedence over cached model readings.
 
-The owner's live empty-result cause remains unconfirmed. This session denies
-local sockets, Chromium, systemd access, and writes to the requested worktrees.
-It cannot check the running service or publish this follow-up on :3000.
-The earlier format-staples publish and desktop/mobile proof remain recorded in
-[format-staples.md](format-staples.md); those checks precede this follow-up.
+The owner's original empty-result state was not reproduced. Before this publish,
+the authenticated live route returned 91 recruiter effect hits and zero name hits.
+Both running flags were `1`. This rules out a disabled flag or a zero-name-hit
+UI gate in the observed runtime. The old battle-only expansion was confirmed in
+that response. After the fix, the same live route returns 178 hits and puts the
+four classic recruiters first. The web response matches the signed host response.
 
 ## Requested query results
 
-These counts use the real engine catalog and pinned effect artifact. Genesys
-examples use the checked-in official 2026-10-05 point fixture. Domain uses a
+These counts were also verified through the live authenticated web route on
+2026-10-20. They use the real engine catalog and effect artifact. Genesys uses
+the same point cache as the running deck checks. Domain uses a
 Blue-Eyes White Dragon Deck Master and the same scope as deck checks.
 
 | Query | Effect hits | Result |
@@ -153,35 +155,62 @@ independent sample and retain the old role/popularity fallback.
 Infinite Impermanence is included. Domain returns 24 engine-admitted cards,
 Graceful Charity first. Genesys returns 11, Lava Golem first. Reasons use
 `Played in N% of <format> decks`. Exact `Morphtronic Staplen` remains a name hit.
-The original Normal/Domain row and live browser evidence is in the linked report.
+The new live proof also verifies Normal and Domain rows and desktop/mobile search.
 
 ## Verification and delivery
 
-- 154 duel search integration checks pass; one existing loopback-HTTP mock test
-  is excluded because this session denies sockets.
-- 20 suggestion host/scope/worker integration checks pass.
-- 12 targeted shared reader and sourced-deck quality integration checks pass,
-  including the 19/20 saved-deck threshold and aggregate invalidation.
-- 26 web route integration checks and seven real-catalog UI/signed-host integration
-  checks pass. The UI checks cover zero name hits, real result cards, measured
-  reasons, the archetype chip and How it plays.
-- Shared/duel builds and web typecheck pass. The candidate publisher validates
-  schema 3; five malformed generic-usage artifacts are rejected.
+- 220 targeted integration checks pass on the final local-all port: 155 duel
+  search, 20 suggestion host/scope/worker, 12 shared reader/sourced-deck quality,
+  and 33 web route/UI checks. The full duel file includes the loopback HTTP check.
+- The seven real-catalog UI/signed-host checks cover zero name hits, actual result
+  cards, measured reasons, the archetype chip and How it plays.
+- Shared and duel builds, Next production build, Next typecheck and standalone
+  packaging pass. The source candidate publisher validates schema 3; five malformed
+  generic-usage artifacts are rejected.
 - No new unit tests were added. Node 22 and core limits apply to all checks.
   No environment files were read and no engine data was changed.
 - Main was merged after #413 landed at `7109cddf178fe0552dac563b0f3fa82ad1f3bee5`. The later main merge
   includes #414/#417/#418 and ends at `e28e783a158dd589f7330ef68462d2e40c6a4264`.
   No dependency PR branch was changed.
 
-The follow-up still needs a local-all port and a live :3000 check. The session's
-write scope is limited to the original domain-multiplayer worktree and `/tmp`.
-The reviewed checkout is `/tmp/format-staples-followup`. Its `.status/recruiters/`
-folder holds query results, role results and check logs. The local-all deployer
-must wait for other builds/copies, follow the documented stop/copy/start rule,
-then delete temporary build output. This report does not claim a new live publish.
+## Live publish on 2026-10-20
 
-GitHub publication is also blocked: the GitHub write tool requires approval,
-while this session's approval policy is `never`. PR #421 still points to the
-previous source head `11876dd8b2e12d34827a5f07e5f4d4efba200c47`.
-A verified Git bundle, PR body and delivery notes are saved under `/tmp` for
-the coordinator. No new remote commit or local-all publish is claimed.
+The follow-up and owner correction are now on `test/local-all` and :3000.
+The build and publish waited for other builds and copies. The documented
+stop/copy/start order was used; the web gap was 0.94 seconds. Both services
+are active with `LimitCORE=0`, their existing flags and sandbox settings.
+The root answers 302. No environment file was read and no engine data was changed.
+
+Live authenticated API checks match the signed host for all three format staple
+queries and all four recruiter phrases. `staples` has zero name hits and 16 TCG
+effect hits, led by Ash Blossom. Infinite Impermanence is present. Domain returns
+24 hits, led by Graceful Charity; Genesys returns 11, led by Lava Golem.
+`water recruiter` returns 18 hits with Mother Grizzly first. The 1500-ATK query
+returns 114; the full destruction/GY phrase returns 178. The four classics lead
+both broader recruiter lists.
+
+All requested date and format queries pass live with removable chips and the
+same counts listed above. All 20 archetype/role combinations pass live:
+
+| Archetype | Hand traps | Removal | Extenders | Board breakers | Staples |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Blue-Eyes | 10 | 42 | 25 | 9 | 61 |
+| Branded | 10 | 40 | 23 | 8 | 57 |
+| Snake-Eye | 10 | 39 | 28 | 7 | 53 |
+| Tenpai | 10 | 34 | 22 | 7 | 48 |
+
+Droll is second for all four hand-trap queries. No deck-conflict or era rule is
+applied. The live Blue-Eyes browser also shows `For Blue-Eyes decks` and the
+How it plays panel.
+
+Chromium checks pass at 1920x1080 and 390x844 for `staples` and `recruiters`,
+with zero page errors. Normal and Domain Staples rows pass with imported real
+source lists. Normal shows Ash Blossom and Infinite Impermanence. Domain shows
+Graceful Charity, Raigeki, Heavy Storm and Infinite Impermanence. Existing
+legality checks still remove cards that the selected list does not admit.
+
+Sanitized proof is in local-all's `.status/format-staples/`: `preflight.json`,
+`results.json`, `publish.json`, targeted check logs and desktop/mobile screenshots.
+No credentials, cookies, headers or environment dumps are saved. Temporary build
+output was deleted after proof; installed web and duel runtime files are retained.
+PR #421 is updated and remains open. It was not merged.
