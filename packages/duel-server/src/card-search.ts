@@ -25,7 +25,7 @@ import { BANLIST_NONE_ID, banlistLimitsFor } from "./banlists/index.js";
 import { cardArtworkFamily } from "./card-artworks.js";
 import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
 import type { CardDatabase } from "./cards.js";
-import { effectSearchEnabled, resolveEffectName, matchesReleased, compareNewest, cardReleaseInfo, type ReleaseDates } from "@yugidraft/shared/cards/effects";
+import { effectSearchEnabled, dateSearchEligible, resolveEffectName, matchesReleased, compareNewest, cardReleaseInfo, type ReleaseDates } from "@yugidraft/shared/cards/effects";
 import { cardEffectIndex, type CardEffectIndex } from "./card-effects.js";
 
 type Kind = "monster" | "spell" | "trap" | "other";
@@ -229,7 +229,7 @@ function compile(query: CardQuery, index: Index, genesysPoints?: ReadonlyMap<num
       checks.push(members);
     }
   }
-  if (query.sort === "newest" || query.released) checks.push(entry => (entry.card.ot & 3) !== 0 && (entry.card.ot & 0x600) === 0);
+  if (query.sort === "newest" || query.released) checks.push(entry => dateSearchEligible(entry.card.ot));
   if (query.pool !== "any") {
     const bit = query.pool === "tcg" ? CARD_POOL_TCG : CARD_POOL_OCG;
     checks.push((entry) => (entry.card.ot & bit) !== 0);
