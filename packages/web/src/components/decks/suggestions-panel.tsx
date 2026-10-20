@@ -12,6 +12,9 @@ import styles from "./suggestions-panel.module.css";
 /** Wait this long after the last deck change before asking again. */
 export const SUGGESTIONS_DEBOUNCE_MS = 600;
 
+/** A row shows this many cards. The rest wait behind "Show more". */
+export const SUGGESTIONS_ROW_PREVIEW = 4;
+
 const ROW_TITLES: Record<DeckSuggestionRow["id"], string> = {
   archetype: "Archetype support",
   outside: "Outside the archetype",
@@ -69,6 +72,7 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const latest = useRef({ deck, banlist, deckMaster, genesysRemaining, pool, mode, genesys });
   latest.current = { deck, banlist, deckMaster, genesysRemaining, pool, mode, genesys };
   const onCatalogRef = useRef(onCatalog);
@@ -127,7 +131,9 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
     body = (
       <>
         {!anyCards && loaded.rows.every((row) => row.state !== "hint") ? <p className={styles.note}>No suggestions for this deck yet.</p> : null}
-        {visible.map((row) => (
+        {visible.map((row) => {
+          const open = expanded.has(row.id);
+          return (
           <section key={row.id} className={styles.row} aria-labelledby={`suggest-${row.id}`}>
             <h3 id={`suggest-${row.id}`} className={styles.rowTitle}>{ROW_TITLES[row.id]}</h3>
             {row.state === "hint"
@@ -135,8 +141,9 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
               : row.cards.length === 0
                 ? <p className={styles.hint}>No Extra Deck card fits your Main Deck yet.</p>
                 : (
-                  <ul className={styles.strip}>
-                    {row.cards.map((card) => {
+                  <>
+                  <ul className={styles.grid}>
+                    {(open ? row.cards : row.cards.slice(0, SUGGESTIONS_ROW_PREVIEW)).map((card) => {
                       const count = deckCount(card);
                       return (
                         <li key={card.code} className={styles.cell}>
@@ -164,9 +171,17 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
                       );
                     })}
                   </ul>
+                  {row.cards.length > SUGGESTIONS_ROW_PREVIEW ? (
+                    <button type="button" className={styles.more} aria-expanded={open}
+                      onClick={() => setExpanded((now) => { const next = new Set(now); if (next.has(row.id)) next.delete(row.id); else next.add(row.id); return next; })}>
+                      {open ? "Show less" : `Show more (${row.cards.length - SUGGESTIONS_ROW_PREVIEW})`}
+                    </button>
+                  ) : null}
+                  </>
                 )}
           </section>
-        ))}
+          );
+        })}
       </>
     );
   }

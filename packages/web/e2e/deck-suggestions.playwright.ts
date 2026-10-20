@@ -217,7 +217,8 @@ try {
     insightRequests.length = 0;
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=${flag}`);
   };
-  const tileBoxes = () => panel.locator("button").evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => { const box = node.getBoundingClientRect(); return [Math.round(box.x), Math.round(box.y), Math.round(box.width), Math.round(box.height)]; }));
+  // Positions are relative to the panel, so a scroll of the list (hover scrolls a tile into view) is not a move.
+  const tileBoxes = () => panel.evaluate((root: HTMLElement) => { const base = root.getBoundingClientRect(); return [...root.querySelectorAll("button")].map((node) => { const box = node.getBoundingClientRect(); return [Math.round(box.x - base.x), Math.round(box.y - base.y), Math.round(box.width), Math.round(box.height)]; }); });
   const rowTitles = () => panel.locator("h3").allTextContents();
 
   // a. A small deck: three ready rows, the Extra row as a hint.
@@ -233,8 +234,14 @@ try {
   check("a", "the first answer took one request", insightRequests.length === 1, insightRequests.length);
   const whyHeights = await panel.locator("button span[class*=why]").evaluateAll((nodes: HTMLElement[]) => [...new Set(nodes.map((node) => Math.round(node.getBoundingClientRect().height)))]);
   check("a", "every reason has the same fixed height", whyHeights.length === 1, whyHeights);
-  const overflow = await panel.locator("button span[class*=why]").evaluateAll((nodes: HTMLElement[]) => nodes.filter((node) => node.scrollHeight - node.clientHeight > 1).length);
-  check("a", "a long reason is clamped, not grown", overflow > 0, `${overflow} clamped`);
+  // A very long reason is clamped to the same box and does not grow the tile.
+  const clamp = await panel.locator("button span[class*=why]").first().evaluate((node: HTMLElement) => {
+    const card = node.closest("button") as HTMLElement; const before = [card.getBoundingClientRect().height, node.getBoundingClientRect().height];
+    const text = node.textContent; node.textContent = "A very long reason that goes on and on about what this card does for the deck. ".repeat(8);
+    const after = [card.getBoundingClientRect().height, node.getBoundingClientRect().height, node.scrollHeight - node.clientHeight];
+    node.textContent = text; return { before, after };
+  });
+  check("a", "a long reason is clamped, not grown", clamp.after[2] > 0 && clamp.before[0] === clamp.after[0] && clamp.before[1] === clamp.after[1], clamp);
   const badges = await panel.locator("span[class*=de-lim]").count();
   const badgeOverlap = await panel.locator("button").evaluateAll((nodes: HTMLElement[]) => nodes.filter((node) => {
     const badge = node.querySelector("[class*=de-lim]") as HTMLElement | null;
@@ -251,8 +258,31 @@ try {
     const noScroll = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
     await shot(`small-${viewport.name}`);
     check("a", `no sideways page scroll at ${viewport.name}`, noScroll);
+    // Whole cards only: every card sits inside the panel, and no list scrolls sideways.
+    const clipped = await panel.evaluate((root: HTMLElement) => {
+      const box = root.getBoundingClientRect();
+      const cards = [...root.querySelectorAll("li > button")] as HTMLElement[];
+      const outside = cards.filter((node) => { const r = node.getBoundingClientRect(); return r.left < box.left - 0.5 || r.right > box.right + 0.5; }).length;
+      const scrolling = [...root.querySelectorAll("ul")].filter((list) => list.scrollWidth > list.clientWidth + 1).length;
+      const textCut = cards.filter((node) => { const name = node.querySelector("[class*=name]") as HTMLElement | null; const r = node.getBoundingClientRect(); return name ? name.getBoundingClientRect().right > r.right + 0.5 : false; }).length;
+      return { outside, scrolling, textCut, cards: cards.length };
+    });
+    check("a", `every card is whole inside the panel at ${viewport.name}`, clipped.outside === 0 && clipped.scrolling === 0 && clipped.textCut === 0 && clipped.cards > 0, clipped);
   }
   await page.setViewportSize({ width: 1920, height: 1080 });
+
+  // a2. A row shows 4 cards; "Show more (N)" opens the rest and "Show less" closes them.
+  const stapleCount = () => panel.locator('section[aria-labelledby="suggest-staples"] li > button').count();
+  check("a2", "a long row shows 4 cards by default", (await stapleCount()) === 4, await stapleCount());
+  const more = panel.locator('section[aria-labelledby="suggest-staples"] button[aria-expanded]');
+  check("a2", "the row offers Show more with the hidden count", (await more.innerText()).trim() === "Show more (2)", await more.innerText());
+  check("a2", "a row of 4 or less has no Show more", (await panel.locator('section[aria-labelledby="suggest-archetype"] button[aria-expanded]').count()) === 0);
+  await more.click();
+  check("a2", "Show more opens the rest of the row", (await stapleCount()) === 6, await stapleCount());
+  await shot("show-more-open");
+  check("a2", "the opened row stays whole inside the panel", await panel.evaluate((root: HTMLElement) => { const box = root.getBoundingClientRect(); return [...root.querySelectorAll("li > button")].every((node) => { const r = node.getBoundingClientRect(); return r.left >= box.left - 0.5 && r.right <= box.right + 0.5; }); }));
+  await more.click();
+  check("a2", "Show less closes the row again", (await stapleCount()) === 4, await stapleCount());
 
   // b. Hover moves nothing.
   await page.waitForTimeout(800);
