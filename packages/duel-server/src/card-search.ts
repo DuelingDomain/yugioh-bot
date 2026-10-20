@@ -229,6 +229,7 @@ function compile(query: CardQuery, index: Index, genesysPoints?: ReadonlyMap<num
       checks.push(members);
     }
   }
+  if (query.sort === "newest" || query.released) checks.push(entry => (entry.card.ot & 3) !== 0 && (entry.card.ot & 0x600) === 0);
   if (query.pool !== "any") {
     const bit = query.pool === "tcg" ? CARD_POOL_TCG : CARD_POOL_OCG;
     checks.push((entry) => (entry.card.ot & bit) !== 0);
@@ -313,14 +314,15 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const releaseFor = (entry: Entry): ReleaseDates => options.releases?.get(entry.card.canonicalPasscode ?? entry.card.code) ?? releaseIndex?.release(entry.card.canonicalPasscode ?? entry.card.code) ?? {};
   const effects = enabled ? releaseIndex : undefined;
   let reading = effects && !query.exact && query.scope !== "name" ? effects.readQuery(query.text, query.effectOmit) : null;
-  const checks = compile(reading ? { ...query, scope: "name" } : query, index, genesysPoints, releaseFor);
+  const datedQuery = { ...query, released: query.released ?? reading?.query.released, sort: query.sort === "match" && reading?.query.sort === "newest" ? "newest" as const : query.sort };
+  const checks = compile(reading ? { ...datedQuery, scope: "name" } : datedQuery, index, genesysPoints, releaseFor);
   const passes = (entry: Entry) => checks.every((check) => check(entry));
-  const effectChecks = reading ? compile({ ...query, text: "" }, index, genesysPoints, releaseFor) : [];
+  const effectChecks = reading ? compile({ ...datedQuery, text: "" }, index, genesysPoints, releaseFor) : [];
   const effectFound: Array<{ entry: Entry; score: number }> = [];
 
   const trimmed = query.text.trim();
   const exact = /^\d+$/.test(trimmed) ? index.byCode.get(Number(trimmed)) : undefined;
-  const exactPasses = exact != null && compile({ ...query, text: "" }, index, genesysPoints, releaseFor).every((check) => check(exact));
+  const exactPasses = exact != null && compile({ ...datedQuery, text: "" }, index, genesysPoints, releaseFor).every((check) => check(exact));
 
   const exactFamily = exact && exactPasses ? cardArtworkFamily(cards, exact.card.code)?.passcode : undefined;
   const found: Entry[] = [];
@@ -340,7 +342,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   if (exact && exactPasses) sorted.unshift(exact);
   // Alias/typo correction is an empty-result fallback, so successful name queries keep the same scan.
   if (!sorted.length && !query.exact && trimmed && !/^\d+$/.test(trimmed) && !/"/.test(trimmed) && !parseCardSearchTerms(trimmed).some(term => term.negate)) {
-    const filters = compile({ ...query, text: "" }, index, genesysPoints, releaseFor);
+    const filters = compile({ ...datedQuery, text: "" }, index, genesysPoints, releaseFor);
     const eligible = index.entries.filter(entry => !entry.hidden && filters.every(check => check(entry)));
     const compact = foldCardText(trimmed).replaceAll(" ", "");
     const aliases = eligible.filter(entry => entry.name.replaceAll(" ", "").includes(compact));
@@ -360,7 +362,13 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
     genesysPoints: genesysPoints?.get(entry.card.canonicalPasscode ?? entry.card.code) ?? null,
     ...(blocked.has(entry.card.code) ? { unavailableReason: blocked.get(entry.card.code)!.reason } : {}),
     altArtCount: cardArtworkFamily(cards, entry.card.code)!.artworks.length - 1 });
-  effectFound.sort((a, b) => (query.sort === "newest" || (query.sort === "match" && reading?.query.sort === "newest") ? compareNewest(releaseFor(a.entry), releaseFor(b.entry), query.released?.region ?? reading?.query.released?.region) : 0) || b.score - a.score || effects!.popularity(b.entry.card.code) - effects!.popularity(a.entry.card.code) || a.entry.card.code - b.entry.card.code);
+  const newest = datedQuery.sort === "newest";
+  effectFound.sort((a, b) => {
+    const popularity = () => effects!.popularity(b.entry.card.code) - effects!.popularity(a.entry.card.code);
+    return (newest ? compareNewest(releaseFor(a.entry), releaseFor(b.entry), datedQuery.released?.region) : 0)
+      || (newest ? popularity() : b.score - a.score)
+      || (newest ? b.score - a.score : popularity()) || a.entry.card.code - b.entry.card.code;
+  });
   const effectOffset = query.effectOffset ?? query.offset;
   const relax: Array<{ chip: string; count: number }> = [];
   if (reading && !effectFound.length && !sorted.length) {

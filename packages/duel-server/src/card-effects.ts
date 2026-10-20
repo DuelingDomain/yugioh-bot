@@ -257,7 +257,7 @@ export function cardReleaseIndex(db: Database.Database, cards?: CardDatabase): R
   const prereleaseDate = createPrereleaseDateLookup(db);
   for (const card of cards?.all() ?? []) {
     const code = card.canonicalPasscode ?? card.code;
-    if (card.prerelease && !releases.get(code)?.prerelease) releases.set(code, prereleaseDate(code, releases.get(code) ?? {}, true));
+    releases.set(code, prereleaseDate(code, releases.get(code) ?? {}, card.prerelease));
   }
   releaseIndexes.set(db, { revision, month, cards, releases });
   return releases;

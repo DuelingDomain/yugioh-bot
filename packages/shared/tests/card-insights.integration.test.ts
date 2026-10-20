@@ -46,7 +46,7 @@ beforeAll(() => {
   db.prepare("UPDATE card_catalog SET genesys_revision='stale' WHERE ygoprodeck_id=990001").run();
   importCardEffectArtifact(db);
   const engine = new Database(join(directory, "cards.cdb"));
-  engine.exec(`CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER,type INTEGER,atk INTEGER,def INTEGER,level INTEGER,race INTEGER,attribute INTEGER,setcode INTEGER DEFAULT 0);
+  engine.exec(`CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER,type INTEGER,atk INTEGER,def INTEGER,level INTEGER,race INTEGER,attribute INTEGER,setcode INTEGER DEFAULT 0,ot INTEGER DEFAULT 3);
     CREATE TABLE texts(id INTEGER PRIMARY KEY,name TEXT,desc TEXT);`);
   const engineData = engine.prepare("INSERT INTO datas(id,alias,type,atk,def,level,race,attribute,setcode) VALUES(?,?,?,?,?,?,?,?,?)");
   engineData.run(97268402, 0, 4129, 0, 0, 1, 2, 16, 0);
@@ -255,7 +255,7 @@ describe("SQL insights over the real pinned artifact", () => {
     expect(service.effectSearch("Printed text", [97268402, 14558127], { exact: true, released: { to: "2014-12" } }).cards.map(card => card.passcode)).toEqual([97268402]);
   });
 
-  it("orders new cards and newest spells by month, score, then popularity", () => {
+  it("orders new cards and newest spells by month, then popularity", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-20T00:00:00Z"));
     db.exec("SAVEPOINT release_order");
@@ -272,13 +272,13 @@ describe("SQL insights over the real pinned artifact", () => {
         for (let i = 1; i < hits.length; i++) {
           const a = hits[i - 1], b = hits[i];
           const popularity = (id: number) => id === 47222536 ? 999999 : id === 83764719 ? 1 : 0;
-          expect((b.release!.date!.localeCompare(a.release!.date!)) || b.score - a.score || popularity(b.passcode) - popularity(a.passcode)).toBeLessThanOrEqual(0);
+          expect((b.release!.date!.localeCompare(a.release!.date!)) || popularity(b.passcode) - popularity(a.passcode) || b.score - a.score).toBeLessThanOrEqual(0);
         }
       }
       expect(service.effectSearch("newest spells", pool).cards.map(card => card.passcode)).toEqual([24094653, 47222536, 83764719]);
       const scored = service.effectSearch("newest spells blorptastic", pool).cards;
-      expect(scored[1].passcode).toBe(83764719);
-      expect(scored[1].score).toBeGreaterThan(scored[2].score);
+      expect(scored[1].passcode).toBe(47222536);
+      expect(scored[2].score).toBeGreaterThan(scored[1].score);
     } finally { db.exec("ROLLBACK TO release_order; RELEASE release_order"); vi.useRealTimers(); }
   });
 
@@ -297,6 +297,18 @@ describe("SQL insights over the real pinned artifact", () => {
       expect(service.effectSearch("last 3 months", [97268402, 27096833]).total).toBe(0);
       expect(service.effectSearch("new cards", [97268402, 27096833]).total).toBe(1);
     } finally { vi.useRealTimers(); }
+  });
+
+  it("excludes anime, Rush and game-only engine rows from date searches", () => {
+    const engine = new Database(join(directory, "cards.cdb"));
+    try {
+      for (const pool of [0, 4, 8, 512, 1024, 515]) {
+        engine.prepare("UPDATE datas SET ot=? WHERE id=97268402").run(pool);
+        expect(service.effectSearch("newest monsters", [97268402]).cards).toEqual([]);
+        expect(service.effectSearch("monsters before 2015", [97268402]).cards).toEqual([]);
+        expect(service.effectSearch("hand traps", [97268402]).cards).toHaveLength(1);
+      }
+    } finally { engine.prepare("UPDATE datas SET ot=3 WHERE id=97268402").run(); engine.close(); }
   });
 
   it("uses a soft cube era preference and reports much newer cards", () => {

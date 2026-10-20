@@ -207,6 +207,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
         card.level = undefined; card.rank = undefined; card.linkRating = undefined;
       }
     }
+    if (engineCard && engineHasPool) card.dateSearchEligible = (engineCard.ot! & 3) !== 0 && (engineCard.ot! & 0x600) === 0;
     const dates = joined ? row as SuggestionRow : sourceReaders.release.get(canonicalCode);
     if (dates?.tcg_date) card.tcgDate = dates.tcg_date;
     if (dates?.ocg_date) card.ocgDate = dates.ocg_date;
@@ -237,6 +238,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     };
     if (row?.[15]) card.tcgDate = row[15];
     if (row?.[16]) card.ocgDate = row[16];
+    if (engineHasPool) card.dateSearchEligible = (engineCard[11]! & 3) !== 0 && (engineCard[11]! & 0x600) === 0;
     if ((engineCard[11] ?? 0) & 0x100) card.prerelease = true;
     Object.assign(card, prereleaseDate(card.id, card, card.prerelease));
     return row?.[13] ? { card, tags: JSON.parse(row[13]) as CardTags } : { card };
@@ -400,6 +402,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     card.level = finalLevel; card.rank = rank; card.linkRating = linkRating;
     if (row[19]) card.tcgDate = row[19];
     if (row[20]) card.ocgDate = row[20];
+    if (engineHasPool) card.dateSearchEligible = (row[23]! & 3) !== 0 && (row[23]! & 0x600) === 0;
     if ((row[23] ?? 0) & 0x100) card.prerelease = true;
     Object.assign(card, prereleaseDate(card.id, card, card.prerelease));
     return row[17] ? { card, tags: JSON.parse(row[17]) as CardTags } : { card };
