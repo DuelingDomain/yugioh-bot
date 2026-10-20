@@ -91,7 +91,7 @@ const LIMITS: Record<number, 0 | 1 | 2> = { [id("Pot of Extravagance")]: 0, [id(
 const FACETS = { archetypes: [], banlists: Object.fromEntries(DUEL_BANLIST_OPTIONS.map((option) => [option.id, LIMITS])) };
 
 // ---- Request log and answer control ---------------------------------------------------------------
-const insightRequests: { deck: { main: number[] }; at: number }[] = [];
+const insightRequests: { deck: { main: number[] }; pool?: number[]; at: number }[] = [];
 const control = { delayMs: 0, emptyRows: false, deck: "small" as "small" | "full" | "empty" };
 const json = (status: number, data: unknown) => ({ status, contentType: "application/json", body: JSON.stringify(data) });
 
@@ -121,7 +121,7 @@ async function api(method: string, url: URL, body: any) {
   }
   if (path === "/api/cards/insights" && method === "POST") {
     if (body.op === "suggestRows") {
-      insightRequests.push({ deck: body.deck, at: Date.now() });
+      insightRequests.push({ deck: body.deck, pool: body.pool, at: Date.now() });
       if (control.delayMs) await new Promise((done) => setTimeout(done, control.delayMs));
       const rows = ROW_FIXTURE(body.deck.main.length);
       return json(200, { rows: control.emptyRows ? rows.map(row => ({ ...row, cards: [] })) : rows, version: 1 });
@@ -221,6 +221,17 @@ try {
   // Positions are relative to the panel, so a scroll of the list (hover scrolls a tile into view) is not a move.
   const tileBoxes = () => panel.evaluate((root: HTMLElement) => { const base = root.getBoundingClientRect(); return [...root.querySelectorAll("button")].map((node) => { const box = node.getBoundingClientRect(); return [Math.round(box.x - base.x), Math.round(box.y - base.y), Math.round(box.width), Math.round(box.height)]; }); });
   const rowTitles = () => panel.locator("h3").allTextContents();
+
+  await page.goto(`${ORIGIN}/index.html?scenario=pool`);
+  await panel.locator("button").first().waitFor({ state: "visible", timeout: 15_000 });
+  check("pool", "initial pool asks once", insightRequests.length === 1);
+  await page.getByRole("button", { name: "Reorder pool", exact: true }).click();
+  await page.waitForTimeout(900);
+  check("pool", "pool order does not change the query", insightRequests.length === 1);
+  await page.getByRole("button", { name: "Replace pool card", exact: true }).click();
+  await page.waitForTimeout(1500);
+  check("pool", "same-size pool replacement sends a new query", insightRequests.length === 2, insightRequests.map(request => request.pool));
+  check("pool", "replacement query contains the changed pool", insightRequests.at(-1)?.pool?.includes(23995346) === true);
 
   // The list below keeps its content position on the initial response and when rows empty.
   const listTop = () => panel.evaluate((root: HTMLElement) => {
