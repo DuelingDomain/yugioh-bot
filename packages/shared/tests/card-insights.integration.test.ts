@@ -285,6 +285,14 @@ describe("SQL insights over the real pinned artifact", () => {
   it("uses regional dates for newest and keeps upcoming and OCG-only releases", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-17T00:00:00Z"));
+    const engine = new Database(join(directory, "cards.cdb"));
+    const pending = [101403051, 101402001, 100461000];
+    for (const [id, name] of [[101403051, "The Immortal Sun God"], [101402001, "Earlier set fixture"], [100461000, "Diabellstar, the Seeker of Sinful Spoils"]] as const) {
+      engine.prepare("INSERT INTO datas(id,alias,type,ot) VALUES(?,0,2,257)").run(id);
+      engine.prepare("INSERT INTO texts(id,name,desc) VALUES(?,?,'Printed effect')").run(id, name);
+    }
+    db.exec("SAVEPOINT pending_order");
+    db.prepare("INSERT INTO card_release(passcode,ocg_date,quality,source_version) VALUES(101402001,'2026-10','ok','fixture')").run();
     try {
       const pool = [4474060, 14558127];
       expect(service.effectSearch("newest monsters", pool).cards[0]?.passcode).toBe(4474060);
@@ -296,7 +304,18 @@ describe("SQL insights over the real pinned artifact", () => {
       expect(service.effectSearch("newest monsters", [27096833]).cards[0]?.release).toMatchObject({ date: "2026-11", upcoming: true });
       expect(service.effectSearch("last 3 months", [97268402, 27096833]).total).toBe(0);
       expect(service.effectSearch("new cards", [97268402, 27096833]).total).toBe(1);
-    } finally { vi.useRealTimers(); }
+      const newPool = [...pending, 27096833];
+      // Engine pre-releases lead regional imports, then month and engine set number decide ties.
+      expect(service.effectSearch("new cards", newPool).cards.map(card => card.passcode)).toEqual([100461000, 101403051, 101402001, 27096833]);
+      expect(service.effectSearch("new cards", newPool).cards[1].release).toMatchObject({ date: "2026-10", upcoming: true });
+      vi.setSystemTime(new Date("2026-12-01T00:00:00Z"));
+      expect(service.effectSearch("newest", newPool).cards.map(card => card.passcode)).toEqual([100461000, 27096833, 101403051, 101402001]);
+      expect(service.effectSearch("newest", [101403051]).cards[0].release?.upcoming).toBe(false);
+    } finally {
+      db.exec("ROLLBACK TO pending_order; RELEASE pending_order");
+      for (const id of pending) { engine.prepare("DELETE FROM datas WHERE id=?").run(id); engine.prepare("DELETE FROM texts WHERE id=?").run(id); }
+      engine.close(); vi.useRealTimers();
+    }
   });
 
   it("excludes anime, Rush and game-only engine rows from date searches", () => {

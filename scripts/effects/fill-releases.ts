@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { gunzipSync } from "node:zlib";
-import { cleanReleaseMonth } from "@yugidraft/shared/cards/effects";
+import { cleanReleaseMonth, isTcgSetCode } from "@yugidraft/shared/cards/effects";
 import { writeEffectArtifactCandidate } from "./artifact-output.js";
 
 export const RELEASE_ENDPOINT = "https://db.ygoprodeck.com/api/v7/cardinfo.php?misc=yes";
@@ -72,7 +72,7 @@ function fill(rows: ReleaseRow[], cards: ApiCard[], sets: ApiSet[]) {
     const month = (region: "tcg" | "ocg") => info.map(value => cleanReleaseMonth(region === "tcg" ? value.tcg_date : value.ocg_date, region)).filter((value): value is string => !!value).sort()[0];
     const sourceTcg = month("tcg"), ocg = month("ocg");
     // The set endpoint dates TCG sets. Never assign those months to the OCG.
-    const firstSetMonth = (card.card_sets ?? []).filter(set => !set.set_code || /-(?:EN|E|NA|EU|AE|SP|FR|DE|IT|PT)\d/i.test(set.set_code)).map(set => setDates.get(set.set_name)).filter((value): value is string => !!value).sort()[0];
+    const firstSetMonth = (card.card_sets ?? []).filter(set => isTcgSetCode(set.set_code)).map(set => setDates.get(set.set_name)).filter((value): value is string => !!value).sort()[0];
     const tcg = [sourceTcg, firstSetMonth].filter((value): value is string => !!value).sort()[0];
     if (firstSetMonth && ((sourceTcg && sourceTcg > firstSetMonth) || (family?.tcgDate && family.tcgDate > firstSetMonth))) flags.push({ id: family?.id ?? card.id, region: "tcg", sourceMonth: sourceTcg, storedMonth: family?.tcgDate ?? undefined, firstSetMonth });
     if (!tcg && !ocg) continue;

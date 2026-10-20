@@ -104,12 +104,12 @@ it("fills missing release months through bulk HTTP, keeps families and valid dat
   const good = before.find((row: any) => row.tcgDate && row.ocgDate && row.aliases.length);
   const reprint = before.find((row: any) => row.tcgDate && row.tcgDate > "2003-01" && row.id !== good.id);
   const api = await releaseEndpoint([
-    { id: missing.id, name: missing.name, misc_info: [{ tcg_date: "2026-10-18", ocg_date: "1998-01-01" }] },
+    { id: missing.id, name: missing.name, card_sets: [{ set_name: "Lettered print", set_code: "LTR-ENS10" }], misc_info: [{ tcg_date: "2026-10-18", ocg_date: "1998-01-01" }] },
     { id: good.id, name: good.name, card_images: good.aliases.map((id: number) => ({ id })), misc_info: [{ tcg_date: "2026-10-18", ocg_date: "2026-10-18" }] },
-    { id: reprint.id, name: reprint.name, card_sets: [{ set_name: "First print", set_code: "FIRST-EN001" }], misc_info: [{ tcg_date: "2027-03-01" }] },
+    { id: reprint.id, name: reprint.name, card_sets: [{ set_name: "First print", set_code: "FIRST-001" }, { set_name: "Lettered print", set_code: "LTR-ENS10" }, { set_name: "OCG print", set_code: "JP-JP001" }], misc_info: [{ tcg_date: "2027-03-01" }] },
     { id: 99999996, name: "Invalid placeholder fixture", misc_info: [{ tcg_date: "2001-12-01", ocg_date: "1998-12-01" }] },
     { id: 99999997, name: "New release fixture", misc_info: [{ tcg_date: "2026-11-01", ocg_date: "2026-10-01" }] },
-  ], 1, [{ set_name: "First print", set_code: "FIRST", tcg_date: "2003-01-01" }]);
+  ], 1, [{ set_name: "First print", set_code: "FIRST", tcg_date: "2003-01-01" }, { set_name: "Lettered print", set_code: "LTR", tcg_date: "2003-02-01" }, { set_name: "OCG print", set_code: "JP", tcg_date: "2002-01-01" }]);
   const { refreshReleaseCandidate } = await import("../fill-releases.js");
   const options = { root: rootPath, outputDirectory: join(context.directory, "candidate"), cacheDirectory: join(context.directory, "cache"), baseSha: "a".repeat(40), endpoint: api.endpoint, backoffMs: 1 };
   const result = await refreshReleaseCandidate(options);
@@ -120,7 +120,7 @@ it("fills missing release months through bulk HTTP, keeps families and valid dat
   expect(api.events.filter(event => event.includes("cardinfo"))).toEqual(Array(2).fill("GET /api/v7/cardinfo.php?misc=yes"));
   expect(api.events.filter(event => event.includes("cardsets"))).toHaveLength(1);
   const after = JSON.parse(gunzipSync(readFileSync(join(options.outputDirectory, data, "releases.json.gz"))).toString());
-  expect(after.find((row: any) => row.id === missing.id)).toEqual({ ...missing, tcgDate: "2026-10" });
+  expect(after.find((row: any) => row.id === missing.id)).toEqual({ ...missing, tcgDate: "2003-02" });
   expect(after.find((row: any) => row.id === good.id)).toEqual(good);
   expect(after.find((row: any) => row.id === reprint.id)).toEqual({ ...reprint, tcgDate: "2003-01" });
   expect(after.find((row: any) => row.id === 99999996)).toBeUndefined();

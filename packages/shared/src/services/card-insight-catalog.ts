@@ -54,7 +54,7 @@ const attributeNames = new Map<number, Card["attribute"]>(CARD_ATTRIBUTES.map(({
 export function createInsightCatalog(db: Database.Database, dataDirectory = deckEngineDataDirectory(db.name)) {
   const artwork = db.prepare<[number], { card_id: number }>("SELECT card_id FROM card_artworks WHERE artwork_id=?");
   const metadata = db.prepare<[number], CatalogRow>("SELECT * FROM card_catalog WHERE ygoprodeck_id=?");
-  const prereleaseDate = createPrereleaseDateLookup(db);
+  const prereleaseDate = createPrereleaseDateLookup(db, dataDirectory);
   const namedMetadata = db.prepare<[string], { ygoprodeck_id: number }>("SELECT ygoprodeck_id FROM card_catalog WHERE lower(trim(name))=? ORDER BY ygoprodeck_id LIMIT 1");
   const release = db.prepare<[number], { tcg_date: string | null; ocg_date: string | null }>("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=?");
   const tags = db.prepare<[number], { tags_json: string; popularity: number }>("SELECT tags_json,popularity FROM card_tags WHERE passcode=?");
