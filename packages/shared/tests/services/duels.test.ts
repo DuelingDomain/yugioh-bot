@@ -1309,3 +1309,15 @@ it.each(["completed", "interrupted"] as const)("records a live duel ending %s wi
     ]);
   } finally { app.db.close(); }
 });
+
+it("records no product events for a deck-editor test duel", () => {
+  const app = setup();
+  try {
+    const { slug } = readyDuel(app);
+    app.duels.setSetup(slug, "g1", { engine: "pinned", testDuel: true });
+    start(app, slug);
+    expect(app.db.prepare("select json_extract(setup_json,'$.testDuel') as t from duels where web_slug=?").get(slug)).toEqual({ t: 1 });
+    app.duels.complete(slug, "g1", 0, "Done", { public: board(null) });
+    expect(app.db.prepare("select name from product_events").all()).toEqual([]);
+  } finally { app.db.close(); }
+});

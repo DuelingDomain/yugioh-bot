@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { maskEmail } from "@/lib/admin-console/format";
-import type { WaitlistEntry } from "@/lib/admin-console/types";
+import type { WaitlistDecisionResponse, WaitlistEntry } from "@/lib/admin-console/types";
 import type { ConsoleActions } from "../admin-console";
 import { okData, type Snapshots } from "../model";
 import { Avatar, Icon, Notice, SectionHead, Since, StatusIcon } from "../parts";
@@ -11,15 +11,19 @@ import styles from "../admin-console.module.css";
 
 const SHOWN = 50;
 type Action = "approve" | "reject";
-type RowState = { kind: "confirm" | "pending" | "failed"; action: Action };
+type RowState = { kind: "confirm" | "pending" | "failed"; action: Action }
+  | { kind: "result"; message: string };
 
-async function send(id: string, action: Action): Promise<boolean> {
+async function send(id: string, action: Action): Promise<WaitlistDecisionResponse | null> {
   try {
     const res = await fetch(`/api/admin/console/waitlist/${encodeURIComponent(id)}`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }),
     });
-    return res.ok;
-  } catch { return false; }
+    const body = await res.json() as Partial<WaitlistDecisionResponse>;
+    if (!res.ok && !(res.status === 409 && body.status === "conflict")) return null;
+    if (!["ok", "already_decided", "conflict", "in_progress"].includes(body.status ?? "") || (body.decision !== "approve" && body.decision !== "reject")) return null;
+    return body as WaitlistDecisionResponse;
+  } catch { return null; }
 }
 
 const DECISION_WORD = { invited: "Invited", rejected: "Rejected", completed: "Signed up" } as const;
@@ -36,13 +40,18 @@ export function WaitlistView({ s, actions }: { s: Snapshots; actions: ConsoleAct
 
   async function run(entry: WaitlistEntry, action: Action) {
     set(entry.id, { kind: "pending", action });
-    if (await send(entry.id, action)) {
-      set(entry.id, null);
-      actions.toast(action === "approve" ? `${maskEmail(entry.email)} is approved. Invite sent.` : `${maskEmail(entry.email)} is rejected.`);
-      refreshSection("waitlist");
-    } else {
-      set(entry.id, { kind: "failed", action });
-    }
+    const outcome = await send(entry.id, action);
+    if (!outcome) { set(entry.id, { kind: "failed", action }); return; }
+    const messages: Record<WaitlistDecisionResponse["status"], string> = {
+      ok: outcome.decision === "approve" ? "Approved. Invite sent." : "Rejected.",
+      already_decided: outcome.decision === "approve" ? "Already approved. No new action was taken." : "Already rejected. No new action was taken.",
+      conflict: "Another decision is already set. Refresh before you try again.",
+      in_progress: "A decision is in progress. Wait, then refresh.",
+    };
+    const message = messages[outcome.status];
+    set(entry.id, { kind: "result", message });
+    actions.toast(message, outcome.status === "conflict" ? "crit" : undefined);
+    refreshSection("waitlist");
   }
 
   if (result && result.state !== "ok") {
@@ -91,6 +100,7 @@ export function WaitlistView({ s, actions }: { s: Snapshots; actions: ConsoleAct
                       <button type="button" className={`${styles.btn} ${styles.btnPrimary}`} disabled={busy} onClick={() => set(entry.id, { kind: "confirm", action: "approve" })} aria-label={`Approve ${label}`}><Icon name="check" />Approve</button>
                     </>
                   )}
+                  {state?.kind === "result" ? <p className={styles.aside} role="status">{state.message}</p> : null}
                   {state?.kind === "failed" ? <p className={styles.wlFail} role="alert">Could not {state.action} this person. Try again.</p> : null}
                 </div>
               </li>

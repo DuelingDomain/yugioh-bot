@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { ClerkBackendError, createClerkBackend } from "@yugidraft/shared/clerk";
-import { bustWaitlistCache } from "@/lib/admin-console/waitlist";
+import { decideWaitlistEntry, WaitlistDecisionError } from "@yugidraft/shared/services/waitlist-decisions";
+import { getDb } from "@/lib/db";
+import { bustWaitlistCache, loadWaitlist } from "@/lib/admin-console/waitlist";
 import { webOrigin } from "@/lib/existing-player";
 import { isOwnerUser } from "@/lib/owner-access";
 import { requireWebAccess } from "@/lib/web-access";
@@ -25,13 +26,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const secretKey = process.env.CLERK_SECRET_KEY;
   if (!secretKey) return json({ error: "not_configured" }, 503);
   try {
-    const backend = createClerkBackend({ secretKey });
-    if (action === "approve") await backend.inviteWaitlistEntry(id);
-    else await backend.rejectWaitlistEntry(id);
+    const list = await loadWaitlist({ userId: actor.userId, now: Date.now() });
+    if (list.state !== "ok") return json({ error: "clerk_unavailable" }, 502);
+    // Resolve identity from the server cache. Client email, actor and source fields are ignored.
+    const entry = list.data.entries.find((entry) => entry.id === id) ?? list.data.decided?.find((entry) => entry.id === id);
+    if (!entry) { bustWaitlistCache(); return json({ error: "not_found" }, 404); }
+    const result = await decideWaitlistEntry(getDb(), {
+      clerkEntryId: id, email: entry.email, decision: action, actor: { siteUserId: actor.userId }, source: "admin",
+    });
+    const status = result.status === "completed" ? "ok" : result.status;
+    bustWaitlistCache();
+    return json({ status, decision: result.action.decision }, status === "conflict" ? 409 : status === "in_progress" ? 202 : 200);
   } catch (error) {
-    if (error instanceof ClerkBackendError && error.status === 404) { bustWaitlistCache(); return json({ error: "not_found" }, 404); }
+    bustWaitlistCache();
+    if (error instanceof WaitlistDecisionError && error.code !== "clerk_unavailable") return json({ error: error.code }, error.status);
     return json({ error: "clerk_unavailable" }, 502);
   }
-  bustWaitlistCache();
-  return json({ ok: true }, 200);
 }

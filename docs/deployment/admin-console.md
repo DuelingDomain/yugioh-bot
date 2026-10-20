@@ -64,6 +64,10 @@ Only the latest value is stored per user (`users.last_seen_at`, `users.last_rout
 
 To turn it off, set `PRESENCE_ENABLED=0` and restart web.
 
+## Waitlist decisions
+
+The waitlist route resolves the entry email by ID from the cached Clerk list on the server and calls the shared `decideWaitlistEntry` service with the authenticated owner and source `admin`. Client email and actor fields are ignored. The same lease protects decisions from the console and Discord. The panel shows a short result for `ok`, `already_decided`, `conflict`, and `in_progress`, then refreshes the list. A decision queues a Discord edit when an alert exists; it creates no edit without an alert. The schema upgrade keeps existing decisions and outbox links while adding the `admin` source.
+
 ## Waitlist emails
 
 The browser hides waitlist emails until the owner chooses Show emails, but masking is a UI feature only. The waitlist JSON that `/api/admin/console/waitlist` sends to an owner's browser holds the full email addresses, so they are visible in the network tab. The route is for owners only (`OWNER_USER_IDS`); do not add anyone you would not trust with the waitlist.
