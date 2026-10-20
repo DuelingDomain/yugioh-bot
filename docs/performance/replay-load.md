@@ -18,29 +18,29 @@ Medians of three runs, milliseconds from navigation. “Paint” is the double-r
 
 | Format / open | Board DOM before | Board DOM after | Paint before | Paint after |
 | --- | ---: | ---: | ---: | ---: |
-| Long 1v1 / first | 7,351.5 | 2,214.8 | 7,360.9 | 2,906.6 |
-| Long 1v1 / cached | 6,917.0 | 1,220.9 | 7,048.7 | 2,862.8 |
-| FFA3 / first | 6,305.8 | 4,322.3 | 6,706.6 | 4,502.0 |
-| FFA3 / cached | 3,552.8 | 2,012.1 | 4,018.7 | 2,173.6 |
-| Tag / first | 3,874.5 | 2,089.8 | 3,950.7 | 2,172.0 |
-| Tag / cached | 2,884.6 | 1,297.9 | 2,989.6 | 1,382.0 |
+| Long 1v1 / first | 7,351.5 | 2,172.7 | 7,360.9 | 2,877.9 |
+| Long 1v1 / cached | 6,917.0 | 1,220.1 | 7,048.7 | 2,762.6 |
+| FFA3 / first | 6,305.8 | 4,358.7 | 6,706.6 | 4,551.3 |
+| FFA3 / cached | 3,552.8 | 2,040.2 | 4,018.7 | 2,202.8 |
+| Tag / first | 3,874.5 | 2,071.7 | 3,950.7 | 2,159.9 |
+| Tag / cached | 2,884.6 | 1,234.5 | 2,989.6 | 1,340.0 |
 
 Browser stages below show **before → after** in ms. Request start includes navigation, session/page work, bundle fetch and hydration; header wait includes host build/cache access, web serialization and first gzip output. Body-to-DOM includes client parsing and synchronous React/layout work. The later paint opportunity also includes pending browser layout.
 
 | Format / open | Navigation → API send | API send → headers | Body transfer | Body → board DOM |
 | --- | ---: | ---: | ---: | ---: |
-| Long 1v1 / first | 1,134.2 → 1,207.3 | 1,085.9 → 874.7 | 4,283.9 → 89.3 | 673.8 → 43.9 |
-| Long 1v1 / cached | 806.8 → 814.4 | 187.5 → 176.6 | 4,279.8 → 89.1 | 1,691.8 → 144.2 |
-| FFA3 / first | 778.2 → 816.5 | 1,019.7 → 781.3 | 1,324.9 → 26.4 | 3,258.7 → 2,690.9 |
-| FFA3 / cached | 396.1 → 409.4 | 121.3 → 114.4 | 1,329.8 → 27.6 | 1,707.0 → 1,463.4 |
-| Tag / first | 395.0 → 408.4 | 1,052.6 → 815.4 | 1,538.9 → 30.8 | 1,053.2 → 844.2 |
-| Tag / cached | 415.4 → 404.8 | 125.0 → 131.7 | 1,541.2 → 29.9 | 820.0 → 732.6 |
+| Long 1v1 / first | 1,134.2 → 1,168.0 | 1,085.9 → 897.7 | 4,283.9 → 89.6 | 673.8 → 43.7 |
+| Long 1v1 / cached | 806.8 → 792.3 | 187.5 → 177.4 | 4,279.8 → 88.9 | 1,691.8 → 161.5 |
+| FFA3 / first | 778.2 → 812.9 | 1,019.7 → 861.5 | 1,324.9 → 27.9 | 3,258.7 → 2,655.8 |
+| FFA3 / cached | 396.1 → 422.9 | 121.3 → 114.7 | 1,329.8 → 26.6 | 1,707.0 → 1,466.7 |
+| Tag / first | 395.0 → 401.3 | 1,052.6 → 818.2 | 1,538.9 → 30.0 | 1,053.2 → 834.8 |
+| Tag / cached | 415.4 → 404.1 | 125.0 → 133.2 | 1,541.2 → 29.5 | 820.0 → 692.5 |
 
 | Format | JSON bytes before | Wire bytes after (gzip) | Reduction |
 | --- | ---: | ---: | ---: |
-| Long 1v1 | 5,335,828 | 109,543 | 97.9% |
-| FFA3 | 1,652,248 | 32,415 | 98.0% |
-| Tag | 1,918,455 | 37,043 | 98.1% |
+| Long 1v1 | 5,335,828 | 109,531 | 97.9% |
+| FFA3 | 1,652,248 | 32,411 | 98.0% |
+| Tag | 1,918,455 | 37,042 | 98.1% |
 
 Initial encoded JS was 695,578 bytes before and 695,618 bytes after. Client bundle size did not explain the multi-second body transfer or layout cost, so no new lazy-loading boundary was added. The 1v1 DOM appears quickly after JSON, but its paint opportunity still follows browser layout. FFA3 retains a substantial layout cost; this work reduces it without changing the table design. Follow-up full-page profiles showed that even a stage with no seat fields could flush expensive layout, so the initial `clientWidth` profile alone does not identify every expensive subtree. Controlled CSS overrides of ring text size and hidden-canvas layout did not remove that remaining cost.
 
@@ -69,9 +69,13 @@ A representative first 240-command 1v1 build gave these server times. These are 
 | Host total, first build | 1,278.8 | 1,099.9 |
 | Host total, cached open | 74.6 | 69.2 |
 
+The diagnostic server traces were captured during batching; the final browser medians above also include the restored pre-worker source-rule validation.
+
 The simulation/encoding work after initialization fell from approximately 391 ms to 174 ms. Resource hashing, card load, core/Lua startup and the final comparison are retained. Repeat opens do not rerun the engine or final verification when source and resource/projection stamps match.
 
 ## Changes and bounds
+
+Saved rules are validated before worker acquisition, including unchecked owner replay requests. The special surrender test adapter keeps the original transport path so its injected create/view failures and proof binaries remain effective. A focused 12-case loss/rule/held-view regression run passes.
 
 - Run the existing journal runner, answer validation, frame projection and JSON encoding beside the engine in its detached worker. Return one bounded batch instead of several messages and a serialization-worker handoff per command. The host still verifies final boards before cache insertion or response. The fallback transport remains available for adapters.
 - Stream gzip from both authenticated web replay routes when the client accepts it. Keep identity responses, JSON shape, redaction, post-build access checks and `private, no-store`. No compressed-response cache is added.
@@ -103,7 +107,7 @@ The experiment writes `packages/e2e/.stack-7/replay-<label>-<repeat>.json`. Omit
 ## Validation
 
 - Production web build and duel-server/E2E typechecks pass on Node 22. E2E typechecking also passes with `packages/duel-server/dist` absent, matching the CI job; fixtures import the source engine helpers.
-- Five targeted real-engine integration files pass: **47 tests**, including the new detached-worker equivalence/lifecycle tests, current/legacy/pinned families, Normal/Domain, FFA3/FFA4/Tag, cursors, changed final boards, overflow/final-board fallback, a 1,500-command journal and fork recovery. Host replay event-loop p99 was 2.94 ms in the long-journal run.
+- Six targeted real-engine integration files pass: **82 tests**, including the new detached-worker equivalence/lifecycle tests, current/legacy/pinned families, Normal/Domain, FFA3/FFA4/Tag, cursors, changed final boards, overflow/final-board fallback, a 1,500-command journal and fork recovery. Host replay event-loop p99 was 1.24 ms in the long-journal run.
 - A separate run with two actual prepared bundle identities passes **3 cross-version tests**: current-package verification, edited-board rejection and unknown historical engine-family selection.
 - Clean browser access run: **3 replay E2E tests** plus 5 auth setup checks pass. These cover gzip/identity/q=0, private/public and per-seat projections, seated and nonseated owner access, compressed snapshot compaction, healthy/damaged/backwards seeking, all three seat fields, fly camera position and ring rotation after seeking.
 - A final helper check also passes all 3 replay E2E cases plus the performance probe through the owner route (6 additional measured opens).
