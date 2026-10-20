@@ -33,7 +33,7 @@ def main():
         and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday('now', '-10 minutes')"""
     query = """
         select
-            (select count(*) from duels where (status = 'active' and not coalesce(({idle}), 0))
+            (select count(*) from duels where (status = 'active' and not coalesce(({idle}), 0) and {not_test})
                 or (status = 'lobby' and opening_json is not null)),
             (select count(*) from drafts where status = 'active')
     """
@@ -59,7 +59,9 @@ def main():
                 columns = {row[1] for row in db.execute("pragma table_info(duels)")}
                 # Older schemas have no reliable idle evidence, so their active duels still block.
                 idle_sql = idle if {"kind", "last_activity_at", "started_at", "created_at", "clock_json"} <= columns else "0"
-                counts = db.execute(query.format(idle=idle_sql)).fetchone()
+                # Deck-editor test duels (a bot table) never hold a deploy. They close by idle.
+                not_test = "coalesce(json_extract(setup_json, '$.testDuel'), 0) = 0" if "setup_json" in columns else "1"
+                counts = db.execute(query.format(idle=idle_sql, not_test=not_test)).fetchone()
         except (OSError, sqlite3.Error) as error:
             print(f"{label}: cannot read gameplay activity ({error}).", file=sys.stderr)
             return 1

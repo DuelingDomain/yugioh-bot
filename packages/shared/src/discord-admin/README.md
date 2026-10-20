@@ -58,7 +58,7 @@ const result = await decideWaitlistEntry(db, {
   email, // From the trusted Clerk entry, required if there is no existing subject hash.
   decision: "approve", // or "reject"
   actor: { siteUserId }, // bot: { discordUserId, roles }
-  source: "web", // or "discord"
+  source: "admin", // also "web" or "discord"
 });
 ```
 
@@ -81,7 +81,7 @@ With web `DISCORD_ADMIN_OUTBOX_ENABLED=1` and `DISCORD_WAITLIST_CHANNEL_ID` conf
 Bot messages always mask email, even when the legacy full-email flag is set. Decisions store a subject hash and IDs, never email text. Posted/dead bodies are discarded; deciding also clears pending email text.
 `createWaitlistService(db).remove(email)` and `deleteUserAccount` clear related decisions, outbox rows, and dedupe claims. Linked signup IDs and Clerk subject IDs retain deletion links after an email change. Foreign keys cascade direct local waitlist deletion. Account deletion also removes related moderation rows and warnings.
 
-The runtime consumes the outbox through the real exported functions. It checks the destination guild and sends the stored body with all mentions disabled. Bot feature handlers use this common service. Web `/admin` still calls Clerk directly until PR #405 merges; after both PRs merge, connect its decisions to `decideWaitlistEntry`.
+The runtime consumes the outbox through the real exported functions. It checks the destination guild and sends the stored body with all mentions disabled. Bot feature handlers use this common service. Web `/admin` uses `decideWaitlistEntry` with the trusted site user and source `admin`. It resolves the email by entry ID from the server-side cached Clerk list, keeps owner and Origin checks, and invalidates the list after decisions. The panel distinguishes success, an existing decision, a conflicting decision, and a decision in progress.
 
 ## Bot heartbeat
 
