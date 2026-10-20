@@ -1,209 +1,142 @@
-# Release month fill and search verification
+# First-print dates and new-card order
 
-Verified on 2026-10-20 UTC. Source: `feat/effect-release-dates`, based on
-`feat/effect-search` at `9c8367efa`. Local site: `http://localhost:3000`.
-Nothing was pushed. Both worktrees are kept.
+Verified at 2026-10-20T03:56:46.979Z. Branch: `feat/effect-release-dates`.
+Local port: `test/local-all`. Site: http://localhost:3000.
+This report replaces the earlier month-fill report. Nothing was pushed.
 
-The daily job and the manual command fill missing months. They keep every good
-month. Unqualified date searches now use the newest known TCG or OCG month.
-“New cards” includes future months. Undated engine pre-release cards use a known
-current/future set month. If none is known, they sort first as Upcoming.
+## Result
 
-## Exact cause in the real catalog
+All 393 live “new cards” results were read. All pages pass the order
+check. There are zero unknown months and zero non-TCG/OCG engine entries.
+The ten Sun God cards are at positions 9–18. The Immortal Sun God is at 11.
+The six undated entries from the old report are absent. This includes Field
+Power Bonus, Crocodile and both undated King of Beasts entries.
 
-The new Sun God cards already had OCG `2026-10`, with no TCG month. Their API
-OCG date is `2026-10-31`. The pre-release IDs resolve to their own families;
-these cards did not lose a release record through a remap. They shared October
-with many popular cards. Month ties used score, then popularity. This put
-Helpoemer at position 43 and The Immortal Sun God at position 56.
-The old TCG-first selector did not select an old TCG date for these cards.
+## Date and order rules
 
-Two other faults affected the full result order: the default selector preferred
-TCG even when OCG was newer, and the “new cards” window ended at the current
-month. Six engine pre-release artwork IDs also had no usable release month.
-YGOPRODeck has no date for those IDs, and the local set cache has no release
-month for them. They now show Upcoming and sort first. No date is invented.
+- Keep the earliest known TCG month and the earliest known OCG month.
+  Later source dates cannot replace an earlier known print.
+- Compare misc_info with the card's first dated set appearance. Match the
+  product name. A reused product code is not a product identity.
+- Read legacy codes such as MFC-077 and lettered codes such as NECH-ENS10.
+  The set endpoint supplies TCG dates. Do not assign those dates to OCG.
+- Flag source or stored dates later than the first known set appearance.
+  Publication permits an earlier correction only with matching source evidence.
+- Unknown months are never Upcoming. They fail a bounded date search and sort
+  last in newest searches. Engine pre-release status does not supply a month.
+- Pending first prints lead released cards. A known future first print in all
+  known regions qualifies. In the current month, the engine pre-release bit
+  must also be present. Old pre-release bits lose this priority after the month.
+- In each group, use the newest regional first-print month, then the original
+  engine set number, then popularity. The month is the newer of the earliest
+  TCG and OCG months. A named region selects only that region.
+- Use engine set order for the month tie. The catalog has no stable insertion
+  time. cached_at changes during sync. Preserve the original set number through
+  verified passcode remaps. Use the earliest source set if several IDs map to
+  one card. Cards without set provenance use popularity for this tie.
+- A future first TCG release can still show Upcoming after an earlier OCG
+  release. In an unqualified search, that card remains in the released group.
+- Date searches exclude anime, Rush, video-game-only and skill cards. Existing
+  filters still apply. The effect-off path still needs no effect index.
 
-The card named “The Winged Dragon of Ra - Immortal Phoenix” is a different,
-released card: TCG `2016-04`, OCG `2015-12`. “Immortal Phoenix Gearfried” has
-TCG `2020-06`, OCG `2019-09`. No new unreleased Phoenix entry was found in the
-real engine/API data. The new card in this family is “The Immortal Sun God”.
+## Diabellstar source check
 
-The Sun God cards remain in the October group under the owner's month/score/
-popularity rule. They cannot lead cards dated November 2026 or 2027. Their
-current-month engine pre-release status now supplies Upcoming, plus OCG.
+“Diabellstar, the Seeker of Sinful Spoils” (100461000) is a new card. Its OCG
+first-print month is 2027-03. Konami lists it as the new card in the
+[Complete File product](https://www.yugioh-card.com/asia/product/complete-file-seeker-of-sinful-spoils/),
+with shipping from late March 2027. The same product also has reprints.
+“Diabellstar the Black Witch” (72270339) is a separate card. Its retained first
+months are TCG 2023-10 and OCG 2023-07. The new card's month was kept.
+Konami dates [Immortal Phoenix](https://www.yugioh-card.com/japan/products/imph/)
+to 2026-10-31. The API month for the Sun God cards agrees with this date.
+The [YGOPRODeck API guide](https://ygoprodeck.com/api-guide/) defines misc_info
+release dates as original regional releases. Actual earlier set evidence wins.
 
-| Card | Month | Before position | After position | After marks |
-| --- | --- | ---: | ---: | --- |
-| The Sun God's Poet - Helpoemer | 2026-10 | 43 | 75 | Upcoming, OCG |
-| The Sun God's Destructor - Makyura | 2026-10 | 47 | 79 | Upcoming, OCG |
-| The Immortal Sun God | 2026-10 | 56 | 88 | Upcoming, OCG |
-| The Sun God's Steelcage - Lava Golem | 2026-10 | 63 | 95 | Upcoming, OCG |
-| The Sun God of Darkness - The Winged Dragon of Ra | 2026-10 | 65 | 97 | Upcoming, OCG |
-| The Sun God's Terror Machine - Gil Garth | 2026-10 | 66 | 98 | Upcoming, OCG |
-| The Sun God Leading Down into Darkness | 2026-10 | 73 | 105 | Upcoming, OCG |
-| The Sun God's Torture Device - Viser Des Shock | 2026-10 | 79 | 111 | Upcoming, OCG |
-| The Sun God's Protector - Egyptian God Slime | 2026-10 | 82 | 114 | Upcoming, OCG |
-| Sun God Domination | 2026-10 | 85 | 117 | Upcoming, OCG |
+## Counts
 
-## First 15 real results before the change
-
-The authenticated web API returned 365 cards. The table lists release marks.
-
-| Position | Card | Month | Marks |
-| ---: | --- | --- | --- |
-| 1 | Verre, the Maid of Endymion | 2026-10 | None |
-| 2 | The Great Gallant Bandit | 2026-10 | None |
-| 3 | Ars Magna of Infinity and Finity | 2026-10 | None |
-| 4 | Clown Crew Cappello | 2026-10 | None |
-| 5 | Mikumari the Sealing Deity Ashtra | 2026-10 | None |
-| 6 | Theorealize Medius | 2026-10 | None |
-| 7 | Ars Magna of Purification and Corruption | 2026-10 | None |
-| 8 | Akasuna the Battle Ashtra | 2026-10 | None |
-| 9 | Medicurius the Power Patron of Illusions | 2026-10 | None |
-| 10 | Yoa the Plague Deity Ashtra | 2026-10 | None |
-| 11 | Ars Magna of Unification and Separation | 2026-10 | None |
-| 12 | Ars Magna - "Citrinitas" | 2026-10 | None |
-| 13 | Red-Eyes Black Dragon Exceed | 2026-10 | None |
-| 14 | Dark Time Wizard | 2026-10 | None |
-| 15 | Ashtraya Mikumari-no-Mikoto | 2026-10 | None |
-
-## First 15 real results after the change
-
-The same authenticated web API returned 399 cards. Every result page was read.
-All 399 cards passed month order, then score, then popularity checks. Undated
-Upcoming cards precede known months. Existing structural filters still apply.
-
-| Position | Card | Month | Marks |
-| ---: | --- | --- | --- |
-| 1 | Field Power Bonus | Unknown | Upcoming |
-| 2 | Buster Blader, the One Who Surpasses the Limits | Unknown | Upcoming |
-| 3 | The King of Beasts that Rises from the Valley of Flames | Unknown | Upcoming |
-| 4 | Salamangreat Shrine | Unknown | Upcoming |
-| 5 | The King of Beasts that Rises from the Valley of Flames | Unknown | Upcoming |
-| 6 | Crocodile | Unknown | Upcoming |
-| 7 | Diabellstar, the Seeker of Sinful Spoils | 2027-03 | Upcoming, OCG |
-| 8 | Hope for the Future | 2027-02 | Upcoming |
-| 9 | Wicked Canon | 2027-02 | Upcoming |
-| 10 | Deep-Eyes White Dragon, the Blue Abyss | 2026-11 | Upcoming |
-| 11 | Blue-Eyes White Dragon, the White Phantom Beast | 2026-11 | Upcoming |
-| 12 | Starving Venom Fusion Dragon of the Four Heavenly Dragons | 2026-11 | Upcoming |
-| 13 | Revolution Cyber Dragon | 2026-11 | Upcoming |
-| 14 | Dark Rebellion Xyz Dragon of the Four Heavenly Dragons | 2026-11 | Upcoming |
-| 15 | Red Nova Dragon - Burning Soul | 2026-11 | Upcoming |
-
-## Real API fill
-
-The real bulk response was fetched at `2026-10-20T03:19:30.264Z`. It contained
-14,618 card records. Its source hash matches the release descriptor in the
-published local artifact. The interrupted run had already applied it; this run
-kept that work. A repeat manual fill used the cache and added zero more dates.
-
-- Cards given dates: **157**.
-- Region months added: **184**.
-- New release IDs: **156**.
-- Existing records filled: **1**.
-- Existing good months changed: **0**.
-- Release records: **14,383 → 14,539**.
-- Release records with neither month: **7**.
-- AI or paid calls for release dates: **0**.
-
-Ten newest filled cards, using the newest known region month:
-
-| Card | TCG month | OCG month |
-| --- | --- | --- |
-| Gandora-X the Blackmetal Rampaging Dragon | Unknown | 2026-12 |
-| Time Chain | Unknown | 2026-12 |
-| Warrior's Devotion | Unknown | 2026-12 |
-| Ancient Ruler Rises | 2023-03 | Unknown |
-| Archfiend's Conscription | 2023-03 | Unknown |
-| Archfiend's Promotion | 2023-03 | Unknown |
-| Cloudy Skies of Grey | 2023-03 | Unknown |
-| Cold-Blooded Tactician | 2023-03 | Unknown |
-| Dark Creation | 2023-03 | Unknown |
-| Dark Unity | 2023-03 | Unknown |
-
-The three December fills are absent from the current engine catalog. A release
-record alone cannot make an absent engine card appear in search results.
-
-## Checks
-
-- Existing mocked HTTP integration covers a missing card fill, preserved good
-  dates, bad placeholders, artwork families, cache reuse, retry, API failure
-  while tagging still publishes, and refusal of non-additive publication.
-- The source publication/artifact/search batch passed 199 tests. The final
-  search/insight batch passed 163 tests. These batches overlap.
-- Source web routes and components passed 43 tests. The browser-safe import
-  correction passed its five route checks. No new unit test file was added.
-- Local search evaluation passed all 111 queries: 158 labelled matches,
-  145 labelled exclusions, zero false positives or false negatives.
-- Local engine search passed 118 tests. Local SQL insights passed 21 tests,
-  including optimized streaming and snapshot checks. Local web checks passed
-  49 tests. Script TypeScript checks passed.
-- Shared, duel-server, and web were built in that order on Node 22.23.3.
-  Next webpack compilation, TypeScript, static generation, and standalone
-  packaging passed. The new browser import uses the narrow release export.
-- Standalone web and its effect assets were copied with rsync to `web-live`.
-  Both `yugidraft-duel-server` and `yugidraft-web-local` were restarted directly
-  and are active. Both have `LimitCORE=0`.
-- The new artifact version is
-  `5b8577e3697803fbabce723eef66ee701830cdaef84ef74c308bcd126c1c176b`.
+- Source: 14618 cards and 1035 sets.
+- Follow-up data: 29 cards changed; 28 months moved earlier;
+  1 missing month filled. Zero months moved later.
+- Release records: 14539 → 14539. Seven records still have neither month.
+- Source dates later than first set appearance: 28 flagged.
+- Stored dates later than known source or first-set evidence: zero.
+- Repeat fill: unchanged; zero date changes.
+- Paid release calls: zero.
+- Artifact: `51f616c1868b1850ef887756307759cac3f0f4a3191d9c73431e359f6d05a3f5`.
   Its import is present in the live shared database.
-- Authenticated live checks also confirmed newest order for “newest spells”,
-  “newest OCG spells”, and “new cards TCG”. Explicit regions select only their
-  own months. Desktop 1920×1080 and mobile 390×844 showed Upcoming and OCG;
-  neither browser had a page error.
 
-The port keeps the local catalog's optimized object, tuple and attached-database
-read paths. Each path retains the engine's pre-release bit. Older test fixtures
-without that column use zero. The port also keeps existing pre-release labels
-where the Upcoming mark does not apply.
+## First 25 live results
 
-## Commands and limits
+| Position | Card | Month | Marks |
+| ---: | --- | --- | --- |
+| 1 | Diabellstar, the Seeker of Sinful Spoils | 2027-03 | Upcoming, OCG |
+| 2 | Hope for the Future | 2027-02 | Upcoming |
+| 3 | Wicked Canon | 2027-02 | Upcoming |
+| 4 | Divine Anima Infinity the Creation Cubic Overlord | 2026-11 | Upcoming, OCG |
+| 5 | Alditia Hell Blaze the Burning Cubic Lord | 2026-11 | Upcoming, OCG |
+| 6 | Pritima the Infinity Cubic Vessel | 2026-11 | Upcoming, OCG |
+| 7 | Cubic Bodhi | 2026-11 | Upcoming, OCG |
+| 8 | Abyss Vagrada the Abyssal Cubic Lord | 2026-11 | Upcoming, OCG |
+| 9 | The Sun God's Poet - Helpoemer | 2026-10 | Upcoming, OCG |
+| 10 | The Sun God's Destructor - Makyura | 2026-10 | Upcoming, OCG |
+| 11 | The Immortal Sun God | 2026-10 | Upcoming, OCG |
+| 12 | The Sun God's Steelcage - Lava Golem | 2026-10 | Upcoming, OCG |
+| 13 | The Sun God of Darkness - The Winged Dragon of Ra | 2026-10 | Upcoming, OCG |
+| 14 | The Sun God's Terror Machine - Gil Garth | 2026-10 | Upcoming, OCG |
+| 15 | The Sun God Leading Down into Darkness | 2026-10 | Upcoming, OCG |
+| 16 | The Sun God's Torture Device - Viser Des Shock | 2026-10 | Upcoming, OCG |
+| 17 | The Sun God's Protector - Egyptian God Slime | 2026-10 | Upcoming, OCG |
+| 18 | Sun God Domination | 2026-10 | Upcoming, OCG |
+| 19 | Maluth the White Crow Knight | 2026-10 | Upcoming, OCG |
+| 20 | Reindsurm Gigalovendra | 2026-10 | Upcoming, OCG |
+| 21 | Fire Fiend of the White Crow Forest | 2026-10 | Upcoming, OCG |
+| 22 | Bunnillin: Mocha MOD | 2026-10 | Upcoming, OCG |
+| 23 | Karin the Celestial Sage of the Highest Heights | 2026-10 | Upcoming, OCG |
+| 24 | Javelin Beetle of the Alliance | 2026-10 | Upcoming, OCG |
+| 25 | The Secret Crane Princess Who Returns A Favor | 2026-10 | Upcoming, OCG |
 
-Run the same free fill by hand, then rebuild consumers and restart them:
+## Verification and publication
 
-```bash
-export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
-prlimit --core=0 -- npm run effects:fill-releases -- --apply
-```
-
-The script uses one bulk GET per refresh, a 24-hour disk cache, at most three
-attempts, and a 30-second timeout per attempt. Backoff starts at one and two
-seconds. Retry-After can extend a wait to at most 60 seconds. API or validation
-failure skips only the release step. Tag publication remains usable. This is
-below the documented API request limit. See the
-[YGOPRODeck API guide](https://ygoprodeck.com/api-guide/).
-
-Dates have month precision. TCG years start at 2002; OCG years start at 1999.
-Good dates stay fixed. Bad old dates that still pass those rules are not
-corrected. No region means the latest known month. A named region is strict.
-“Last N months” retains its upper bound; “new cards” has no future upper bound.
-Current-month Upcoming also uses the engine pre-release flag; month data alone
-cannot tell which day a card will be released. A set fallback is a display/search
-month, not an invented TCG/OCG fact. Both date caches refresh after a catalog
-update or a UTC month change.
-
-All Node commands used `prlimit --core=0`. Environment-file reads were disabled
-with the existing preload. No environment file was inspected. No
-`data/duel-engine*` path was written. Duel-server dist was kept during builds.
-The preload directory was kept. Its file hash is unchanged:
-`aabcf55ab65ce842da9cf0d0b15121371d1e7f615138267fefa3e790953fcb95`.
-No process was killed by name. No stash, hard reset, push or remote message was
-used.
+- Source: 97 checks across four existing integration files and 118 engine
+  search checks passed. The changed artifact then passed all 25 artifact checks.
+  These batches overlap. No new unit test file was added.
+- Local port: 52 shared search/SQL checks, 118 engine checks and 26 web checks
+  passed. Four existing SQL tests were skipped by their existing conditions.
+- The SQL port keeps its object, tuple and attached-database read paths.
+- Shared, duel-server and web were built in that order with Node 22.23.3.
+  Web compilation, TypeScript, static generation and standalone packaging passed.
+- Standalone output and effect assets were copied to web-live with rsync.
+  Both yugidraft-duel-server and yugidraft-web-local were restarted and are active.
+  Each service has LimitCORE=0. The web service completed its stop timeout.
+- Authenticated checks: new cards (393 results), newest spells (2894),
+  newest OCG spells (2894), and new cards TCG (257). All checked pages are ordered.
+  Every new-cards page was checked. The other three queries checked the first page.
+- Browser checks at 1920×1080 and 390×844 show Upcoming and OCG. Zero page errors.
+- Evidence: local-all/.status/first-print/live-after.json, prove-current.mjs,
+  new-cards-1920.png and new-cards-390.png. The JSON has all 393 result rows.
+  Source fill reports and change-counts.json are in release-dates/.status/first-print/.
 
 ## Commits
 
-All commits have the owner-requested co-author and session trailers.
+All commits have the required co-author and session trailers.
 
 | Step | Feature branch | test/local-all |
 | --- | --- | --- |
-| Approved plan | `8695fa558` | `5045031a4` |
-| Daily/manual additive fill | `cac7c2279` | `2e51ebbcc` |
-| Real API dates | `4ea6bb2da` | `13f369ff9` |
-| Newest region and Upcoming rules | `d2ec332ec` | `23668273a` |
-| Month-change cache | `da6d8d6b4` | `1dcb92071` |
-| Browser-safe helpers | `5476f2f0c` | `9b6f22405` |
+| Earliest prints and audit | e432e1a91 | 0d5f9e46b |
+| Unknown marks, set ties, official pools | fb42271ef | 70934edbd |
+| First 27 corrections and one fill | ea66b00e0 | 6762f1e2e |
+| Product-name match | 459d9f339 | 9d05d2e64 |
+| Cached skill-card exclusion | a05053792 | 4fb69acfa |
+| Pending priority, retained set order, legacy codes | 849eced1e | a7aebe2b4 |
+| Des Koala first print | 4bff32f6b | 5dcdb8634 |
 
-Live evidence is in `local-all/.status/effect-releases/`: before/after JSON,
-`live-query-checks.json`, two screenshots, and the verification scripts.
+## Limits
+
+All Node commands used Node 22.23.3 and prlimit --core=0. No environment file
+was read. The existing preload blocked environment-file reads and was kept.
+Its SHA-256 is unchanged:
+`aabcf55ab65ce842da9cf0d0b15121371d1e7f615138267fefa3e790953fcb95`.
+No data/duel-engine* path was written. Duel-server dist was kept during builds.
+Other local builds were allowed to finish first. Long jobs were kept in the
+foreground and monitored. Services were restarted through systemd. No process
+was killed by name. No stash, hard reset or push was used.
