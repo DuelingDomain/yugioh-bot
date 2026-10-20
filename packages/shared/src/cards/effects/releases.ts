@@ -64,10 +64,9 @@ export function matchesReleased(card: ReleaseDates, range?: ReleasedRange): bool
 }
 /** Pending first prints lead regional imports and released cards. Each group uses
  * month, then engine set number. Unknown months stay last, without priority. */
-export function compareNewest(left: ReleaseDates, right: ReleaseDates, region?: ReleasedRange["region"]): number {
+export function compareNewest(left: ReleaseDates, right: ReleaseDates, region: ReleasedRange["region"], currentMonth: string): number {
   const a = selectedReleaseDate(left, region), b = selectedReleaseDate(right, region);
-  const month = new Date().toISOString().slice(0, 7);
-  const pending = Number(pendingFirstPrint(right, b, region, month)) - Number(pendingFirstPrint(left, a, region, month));
+  const pending = Number(pendingFirstPrint(right, b, region, currentMonth)) - Number(pendingFirstPrint(left, a, region, currentMonth));
   const byMonth = a === b ? 0 : a === undefined ? 1 : b === undefined ? -1 : a > b ? -1 : 1;
   return pending || byMonth || (a && b ? (right.setOrder ?? 0) - (left.setOrder ?? 0) : 0);
 }

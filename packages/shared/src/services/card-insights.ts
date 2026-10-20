@@ -70,9 +70,9 @@ const allowed = ({ card }: Candidate, options: CardInsightOptions) => {
   if (options.format !== "genesys" && options.format !== "genesys-domain") return true;
   return !isBarredFromGenesys(card) && card.genesysPoints !== undefined && card.genesysPoints <= (options.genesysRemaining ?? Infinity);
 };
-const retain = (ranked: Retained[], result: RankedInsightCard, candidate: Candidate, limit: number, opts: CardInsightOptions = {}) => {
+const retain = (ranked: Retained[], result: RankedInsightCard, candidate: Candidate, limit: number, currentMonth: string, opts: CardInsightOptions = {}) => {
   const comparePage = (a: Retained, b: Retained) => opts.sort === "newest"
-    ? compareNewest(a.releaseDates, b.releaseDates, opts.released?.region) || b.popularity - a.popularity || b.score - a.score || a.passcode - b.passcode
+    ? compareNewest(a.releaseDates, b.releaseDates, opts.released?.region, currentMonth) || b.popularity - a.popularity || b.score - a.score || a.passcode - b.passcode
     : compare(a, b);
   const entry = { ...result, release: cardReleaseInfo(candidate.card, opts.released?.region), popularity: candidate.card.views, releaseDates: candidate.card };
   if (ranked.length === limit && comparePage(entry, ranked[ranked.length - 1]!) >= 0) return;
@@ -127,6 +127,7 @@ export function createCardInsightService(db: Database.Database, options: {
   };
   const rank = (catalog: InsightCatalog, deck: readonly Candidate[], pool: readonly number[] | undefined, opts: CardInsightOptions): { cards: RankedInsightCard[]; total: number } => {
     if (!deck.length) return { cards: [], total: 0 };
+    const currentMonth = new Date().toISOString().slice(0, 7);
     const owned = new Set(deck.map(candidate => candidate.card.id));
     const master = domain(opts.format) && opts.deckMaster !== undefined ? catalog.candidate(opts.deckMaster) : undefined;
     if (master) owned.add(master.card.id);
@@ -139,7 +140,7 @@ export function createCardInsightService(db: Database.Database, options: {
       result.score += cardEraBoost(candidate.card, opts.era);
       total++;
       if (master) result.deckMasterFit = cardSynergy(master, candidate).score > 0;
-      retain(ranked, result, candidate, limitOf(opts.limit), opts);
+      retain(ranked, result, candidate, limitOf(opts.limit), currentMonth, opts);
     }
     return { cards: withoutPopularity(ranked), total };
   };
@@ -160,6 +161,7 @@ export function createCardInsightService(db: Database.Database, options: {
   });
 
   const searchEffects = (text: string, pool: readonly number[] | undefined, opts: CardInsightOptions): CardEffectSearchResult => {
+      const currentMonth = new Date().toISOString().slice(0, 7);
       if (opts.exact) return withCatalog(catalog => {
         const literal = text.trim().toLowerCase(), ranked: Retained[] = [];
         const master = domain(opts.format) && opts.deckMaster !== undefined ? catalog.candidate(opts.deckMaster) : undefined;
@@ -168,7 +170,7 @@ export function createCardInsightService(db: Database.Database, options: {
           if (!allowed(candidate, opts) || !`${candidate.card.pendulumText ?? ""}\n${candidate.card.text}`.toLowerCase().includes(literal)) continue;
           total++;
           retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: 0, linkedCards: 0, reason: shortReason(`Text: ${text.trim()}`),
-            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), opts);
+            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), currentMonth, opts);
         }
         return { reading: null, cards: withoutPopularity(ranked), total };
       });
@@ -207,7 +209,7 @@ export function createCardInsightService(db: Database.Database, options: {
           retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + cardEraBoost(candidate.card, opts.era), linkedCards: 0, reason: counter && archetype ? counterLink(counter, archetype, candidate)!.reason
             : similar ? shortReason(`Similar ${candidate.tags?.roles.find(role => similar.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${similar.card.name}`)
             : effectMatchReason(candidate.card, candidate.tags, reading.query, candidate.tags?.summary),
-            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), effective);
+            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), currentMonth, effective);
         }
         const relax: Array<{ chip: string; count: number }> = [];
         if (!total) {
@@ -240,6 +242,7 @@ export function createCardInsightService(db: Database.Database, options: {
     },
     /** Cards outside an archetype that fit one hook of its "How it plays" panel. */
     hookSearch(archetype: string, hookIndex: number, pool?: readonly number[], opts: CardInsightOptions = {}): RankedInsightCard[] {
+      const currentMonth = new Date().toISOString().slice(0, 7);
       const found = readArchetypeHook(db, archetype, hookIndex);
       if (!found || pool?.length === 0) return [];
       const query = hookQuery(found.hook, found.archetype), phrases = found.hook.phrases.map(phrase => phrase.toLowerCase());
@@ -254,7 +257,7 @@ export function createCardInsightService(db: Database.Database, options: {
           const score = matchCard(card, candidate.tags, query);
           if (score === null) continue;
           retain(ranked, { passcode: card.id, name: card.name, score: score + cardEraBoost(card, opts.era), linkedCards: 0, reason: found.hook.label,
-            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limit, opts);
+            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limit, currentMonth, opts);
         }
         return withoutPopularity(ranked);
       });
