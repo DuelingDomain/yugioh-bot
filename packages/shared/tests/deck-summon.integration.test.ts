@@ -35,6 +35,10 @@ const rows: Array<[number, string, string, number | null, string | null, string,
   [65741786, "I:P Masquerena", "Cyberse / Link / Effect Monster", 2, "DARK", "2 non-Link Monsters\nDuring your opponent's Main Phase: You can Link Summon.", null],
   [29301450, "S:P Little Knight", "Warrior / Link / Effect Monster", 2, "DARK", "2 Effect Monsters\nIf this card is Link Summoned: You can banish 1 card.", null],
   [4280258, "Apollousa, Bow of the Goddess", "Fairy / Link / Effect Monster", 4, "WIND", "2+ monsters with different names, except Tokens\nYou can only control 1 Apollousa.", null],
+  [40854197, "Elemental HERO Absolute Zero", "Warrior / Fusion / Effect Monster", 8, "WATER", '1 "HERO" monster + 1 WATER monster\nMust be Fusion Summoned.', "HERO"],
+  [18548966, "Heroic Challenger - Morning Star", "Warrior / Effect Monster", 4, "EARTH", "If you control 2 or more Warrior monsters, you can Special Summon this card.", "Heroic"],
+  [18063928, "Tin Goldfish", "Machine / Effect Monster", 4, "WATER", "When this card is Normal Summoned: You can Special Summon 1 Level 4 monster from your hand.", null],
+  [40044918, "Elemental HERO Stratos", "Warrior / Effect Monster", 4, "WIND", "When this card is Normal or Special Summoned: You can add 1 HERO monster from your Deck to your hand.", "Elemental HERO"],
 ];
 
 beforeAll(() => {
@@ -57,6 +61,7 @@ beforeAll(() => {
     [990107, "2 Level 8 monsters\nYou can only Xyz Summon this card by using monsters with different names.", "Dragon / Xyz / Effect Monster", 8, tags([{ ...NO_FILTER, level_min: 8, level_max: 8 }])],
     [990108, "2 Tuners + 1 non-Tuner monster", "Dragon / Synchro / Effect Monster", 6, tags([{ ...NO_FILTER, subtypes: ["tuner"], other: "2" }, { ...NO_FILTER, other: "non-Tuner" }])],
     [990109, "1 Tuner + 2 non-Tuner monsters", "Dragon / Synchro / Effect Monster", 8, tags([{ ...NO_FILTER, subtypes: ["tuner"] }, { ...NO_FILTER, other: "2 non-Tuner monsters" }])],
+    [990111, "2 Effect Monsters", "Warrior / Link / Effect Monster", 2, tags([{ ...NO_FILTER, archetypes: ["HERO"] }, { ...NO_FILTER, attributes: ["WATER"] }])],
   ];
   for (const [id, text, type, level, tagged] of fixtures) {
     insert.run(id, `Summon fixture ${id}`, type, text, "LIGHT", level, null);
@@ -75,6 +80,13 @@ const candidate = (code: number) => catalog.candidate(code)!;
 const summon = (code: number, main: number[]) => canSummonFromMain(candidate(code), main.map(candidate));
 
 describe("complete Extra Deck recipes through the SQL catalog and pinned effect artifact", () => {
+  it("distinguishes printed HERO material requirements from similarly named Heroic monsters", () => {
+    expect(summon(40854197, [18548966, 18063928, 24094653])).toBeUndefined();
+    expect(summon(40854197, [40044918, 18063928, 24094653])).toBeTruthy();
+    expect(summon(990111, [18548966, 18063928])).toBeUndefined();
+    expect(summon(990111, [40044918, 18063928])).toBeTruthy();
+  });
+
   it("requires enough distinct same-Level Main Deck copies for Xyz recipes", () => {
     expect(summon(63767246, [89631139])).toBeUndefined();
     expect(summon(63767246, [89631139, 89631139])).toMatch(/8/);

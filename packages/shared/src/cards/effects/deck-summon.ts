@@ -18,6 +18,9 @@ const attributePatterns = ATTRIBUTES.map(value => [value, new RegExp(`\\b${value
 const typePatterns = [...MONSTER_TYPES].sort((a, b) => b.length - a.length)
   .map(value => [value, new RegExp(`(?:^|\\s)${escaped(value)}(?:-Type)?(?=\\s|$)`, "i")] as const);
 const subtypePatterns = SUBTYPES.map(value => [value, new RegExp(`\\b${escaped(value)}${value === "tuner" ? "s?" : ""}\\b`, "i")] as const);
+// Printed archetype spelling matters: "HERO" does not include "Heroic".
+// Exact catalog membership also covers names whose English spelling is exceptional.
+const materialArchetype = (card: Card, name: string) => card.archetype?.toLowerCase() === name.toLowerCase() || card.name.includes(name);
 
 /** Deliberately small grammar: every character must be consumed before a restriction is trusted. */
 function requirement(raw: string): Requirement | undefined {
@@ -45,10 +48,10 @@ function requirement(raw: string): Requirement | undefined {
   });
   // Quoted text followed by "monster(s)" is an archetype; an otherwise bare quoted name is exact.
   take(/"([^"\n]+)"/i, match => {
-    const name = compactEffectName(match[1]!);
+    const printedName = match[1]!;
+    const name = compactEffectName(printedName);
     const archetype = /\bmonsters?\b/i.test(text);
-    tests.push(card => archetype ? compactEffectName(card.name).includes(name)
-      || compactEffectName(card.archetype ?? "") === name : compactEffectName(card.name) === name);
+    tests.push(card => archetype ? materialArchetype(card, printedName) : compactEffectName(card.name) === name);
   });
   for (const [attribute, pattern] of attributePatterns) take(pattern, () => tests.push(card => card.attribute === attribute));
   // Long names first prevents "Beast" from consuming "Beast-Warrior" or "Winged Beast".
@@ -63,8 +66,9 @@ function taggedRequirement(filter: CardFilter): Requirement | undefined {
   if (filter.this_card) return;
   const other = requirement(filter.other);
   if (!other) return;
-  const structured = { ...filter, other: "" };
-  return { ...other, matches: card => other.matches(card) && filterReachesCard(structured, card) };
+  const structured = { ...filter, archetypes: [], other: "" };
+  return { ...other, matches: card => other.matches(card) && (!filter.archetypes.length || filter.archetypes.some(name => materialArchetype(card, name)))
+    && filterReachesCard(structured, card) };
 }
 
 /** A '+' inside a quoted card name is not a separator between material groups. */

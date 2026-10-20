@@ -16,7 +16,7 @@ import type {
   DuelMode,
   DuelSettings,
 } from "@yugidraft/shared/duels";
-import { assertExtraDeckCards, ExtraDeckCardError as SharedExtraDeckCardError, isExtraDeckCard, canonicalCardCode, checkDeckAgainstPool, checkGenesysDeck, mapDeckCodes } from "@yugidraft/shared/duels";
+import { assertExtraDeckCards, ExtraDeckCardError as SharedExtraDeckCardError, isExtraDeckCard, canonicalCardCode, checkDeckAgainstPool, checkGenesysDeck, isGenesysForbiddenType, mapDeckCodes } from "@yugidraft/shared/duels";
 import { banlistLimitsFor, type BanlistLimit } from "./banlists/index.js";
 import { MULTIPLAYER_TABLE_LABEL, multiplayerForbiddenFor, type MultiplayerTable } from "./banlists/multiplayer.js";
 import { cardBlockIndex, loadCardBlockList, type CardBlockEntry } from "./card-block-list.js";
@@ -801,6 +801,9 @@ export function deckSuggestionScope(
   let masterIdentity: string | undefined;
   if (mode === "domain" && masterCode !== undefined) {
     if (!master) fail(`Unknown card ${masterCode}`);
+    if (settings.genesys && isGenesysForbiddenType(master)) {
+      fail("Genesys does not allow Link or Pendulum Monsters, including the Deck Master.");
+    }
     const problem = deckMasterTypeProblem(master) ?? cardPoolMessage(master, settings.cardPool) ?? cardScriptMessage(master, catalog);
     if (problem) fail(problem);
     const block = blocked.get(master.id);
@@ -815,6 +818,7 @@ export function deckSuggestionScope(
   const limits: Record<number, number> = {};
   for (const card of mode === "domain" && !domain ? [] : catalog.cards.values()) {
     if (canonicalCardCode(card.id, catalog.cards) !== card.id || blocked.has(card.id)) continue;
+    if (settings.genesys && isGenesysForbiddenType(card)) continue;
     const section = isExtraDeckMonster(card) ? "extra" : "main";
     if (engineLoadableMessage(card, section, catalog, settings.cardPool)) continue;
     const identity = componentOf(card, prepared.identities);
