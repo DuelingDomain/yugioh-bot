@@ -20,7 +20,7 @@ const COVER_REACH = 40;
  * The loop runs while the card grows or shrinks and stops once nothing moved for a few frames; the tracker then re-checks at a
  * slow pace while the card stays hovered (a layer may be remounted or the board resized without any event).
  */
-type Layer = { wrap: { current: HTMLElement | null }; shown: string };
+type Layer = { wrap: { current: HTMLElement | null } };
 
 /** Frames without any box change before the fast loop stops. */
 const STILL_FRAMES = 3;
@@ -39,8 +39,8 @@ const hovered = (el: HTMLElement) => el.matches(":hover, :focus-visible, :has(:f
 
 function setCut(layer: Layer, value: string) {
   const el = layer.wrap.current;
-  if (!el || value === layer.shown) return;
-  layer.shown = value;
+  // Compare with the element itself: a layer remounted during a hover (a new element) has no hole yet.
+  if (!el || value === el.style.getPropertyValue("--hand-cut")) return;
   if (value) el.style.setProperty("--hand-cut", value);
   else el.style.removeProperty("--hand-cut");
 }
@@ -143,7 +143,7 @@ function uninstall() {
 export function useHandCover(wrap: { current: HTMLElement | null }, enabled: boolean): void {
   useEffect(() => {
     if (!enabled) return;
-    const layer: Layer = { wrap, shown: "" };
+    const layer: Layer = { wrap };
     if (layers.size === 0) install();
     layers.add(layer);
     // A layer mounted while a card is hovered gets its hole at once.
