@@ -22,7 +22,7 @@ import roomStyles from "../room.module.css";
 import { SeriesBanner } from "../series-banner";
 import { useIsNarrow } from "../side-panel";
 import { resolveBattleStep, StationTrack } from "../station-track";
-import { RowPreviewBoundary, useHudEscape, useHudPane, usePinFollowsHover, usePinSync, useRowPreview } from "../table/hud-layer";
+import { RowPreviewBoundary, useHudEscape, useHudPane, useDrawerPin, usePinFollowsHover, usePinSync, useRowPreview } from "../table/hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "../table/hud-shared";
 import { useForkLabels } from "../table/fork-labels";
 import { MasterBadgeContext, type MasterBadgeSource } from "../master-badge";
@@ -156,12 +156,6 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   const hudState = useHudPane({ camera: true, cardPane: false, initialPane: replayCarry?.current.hudPane });
   // The phone layout pins a tapped card in the same left drawer as the wide shells; the tab sheet keeps Log, Settings and Masters.
   const [phoneCard, setPhoneCard] = useState<DuelCard | DuelCardInfo | null>(null);
-  useEffect(() => {
-    if (!phoneCard) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setPhoneCard(null); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [phoneCard]);
   const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard, onTapCard: narrow ? setPhoneCard : undefined });
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
@@ -183,7 +177,8 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   useHudEscape(hudState, hud, suspended);
   usePinSync(hudState, engine.seats);
   usePinFollowsHover(hud, hudState.pinned, ui.hover?.card, hudState.pinCard);
-  const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
+  // An open flyout, a pinned card or the pinned phone drawer holds only Esc (it closes it).
+  const hudOpen = (hud && (hudState.pane != null || hudState.pinned != null)) || (narrow && phoneCard != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
   // A replay suspends input while another card view loads: the open flyout stays (the table is hidden and inert meanwhile).
@@ -276,6 +271,8 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
 
   const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
+  // The phone drawer pin: Esc, a press outside, a new prompt and the board sync (see useDrawerPin).
+  useDrawerPin(narrow ? phoneCard : null, setPhoneCard, { seats: engine.seats, suspended, promptId: prompt?.id ?? null, promptMine });
   const centeredUnrevealed = centered && !controller.revealed;
   // No prompt moves the camera: a close-up stays through a target pick too. A field with targets that is out of view gets a hint on
   // its nameplate pill (tag-stage.tsx); the viewer presses the pill to look at it.
