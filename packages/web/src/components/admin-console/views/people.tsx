@@ -88,7 +88,7 @@ function Detail({ userId, fallback, live, onClose, open }: { userId: UserKey | n
 }
 
 export function PeopleView({ s, actions, selected, sheetOpen, onCloseSheet, filterRef }: {
-  s: Snapshots; actions: ConsoleActions; selected: number | null; sheetOpen: boolean; onCloseSheet: () => void; filterRef: RefObject<HTMLInputElement | null>;
+  s: Snapshots; actions: ConsoleActions; selected: UserKey | null; sheetOpen: boolean; onCloseSheet: () => void; filterRef: RefObject<HTMLInputElement | null>;
 }) {
   const online = okData(s.online);
   const live = okData(s.live);

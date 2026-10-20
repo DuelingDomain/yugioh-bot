@@ -114,7 +114,7 @@ export function computeStats(db: Database.Database, guild: string, now: number):
     previous7Days[key] = sum(series[key].slice(0, DAYS));
   }
   // A person active on several days is one active user for the week.
-  const distinct = (sets: Set<number>[]) => new Set(sets.flatMap((set) => [...set])).size;
+  const distinct = <T,>(sets: Set<T>[]) => new Set(sets.flatMap((set) => [...set])).size;
   last7Days.activeUsers = distinct(active.slice(DAYS));
   previous7Days.activeUsers = distinct(active.slice(0, DAYS));
   return { timezone: "UTC", days: days.slice(DAYS), series: shown, today, last7Days, previous7Days };
