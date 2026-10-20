@@ -1,0 +1,2416 @@
+{
+  "sourceUrl": "https://db.ygoprodeck.com/api/v7/cardinfo.php",
+  "retrievedAt": "2026-10-19T23:48:46.161621+00:00",
+  "responseSha256": "3c165f5bc0bb967dbd382e2fb9d6efbc3bcd1f6dfbd85c3fe20499209112da8e",
+  "selection": "All cards appearing in any source full deck, selected by primary or artwork passcode before evaluation. Only metadata is copied; expected relevance IDs are unchanged.",
+  "cards": [
+    {
+      "id": 3410461,
+      "name": "Alba-Lenatus the Abyss Dragon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "attribute": "DARK",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 2500,
+      "def": 2500,
+      "desc": "1 \"Fallen of Albaz\" + 1+ Dragon monsters\r\nCannot be used as Fusion Material. Must be either Fusion Summoned, or Special Summoned by sending the above cards from any Monster Zones to the GY. This card can attack monsters a number of times each Battle Phase, up to the number of materials used for it. Once per turn, during the End Phase, if this card is in the GY because it was sent there this turn: You can add 1 \"Polymerization\" Normal Spell or \"Fusion\" Normal Spell from your Deck to your hand.",
+      "artworkPasscodes": [
+        3410461
+      ]
+    },
+    {
+      "id": 87746184,
+      "name": "Albion the Branded Dragon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Branded",
+      "attribute": "DARK",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 2500,
+      "def": 2000,
+      "desc": "\"Fallen of Albaz\" + 1 LIGHT monster\r\nIf this card is Fusion Summoned: You can Fusion Summon 1 Level 8 or lower Fusion Monster from your Extra Deck, except \"Albion the Branded Dragon\", by banishing Fusion Materials mentioned on it from your hand, field, and/or GY. During the End Phase, if this card is in the GY because it was sent there this turn: You can add to your hand or Set 1 \"Branded\" Spell/Trap directly from your Deck. You can only use each effect of \"Albion the Branded Dragon\" once per turn.",
+      "artworkPasscodes": [
+        87746184
+      ]
+    },
+    {
+      "id": 25451383,
+      "name": "Albion the Shrouded Dragon",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "attribute": "DARK",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 2500,
+      "def": 2000,
+      "desc": "This card's name becomes \"Fallen of Albaz\" while on the field or in the GY. If this card is in your hand or GY: You can send 1 \"Fallen of Albaz\" or 1 \"Branded\" Spell/Trap from your hand or Deck to the GY; apply the following effect based on where you sent it from.\r\n● Hand: Special Summon this card.\r\n● Deck: Place this card on the bottom of the Deck, then, if you placed this card from your hand, draw 1 card.\r\nYou can only use this effect of \"Albion the Shrouded Dragon\" once per turn.",
+      "artworkPasscodes": [
+        25451383
+      ]
+    },
+    {
+      "id": 62962630,
+      "name": "Aluber the Jester of Despia",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Despia",
+      "attribute": "DARK",
+      "race": "Fairy",
+      "level": 4,
+      "atk": 1800,
+      "def": 0,
+      "desc": "If this card is Normal or Special Summoned: You can add 1 \"Branded\" Spell/Trap from your Deck to your hand. If a face-up Fusion Monster you control is destroyed by battle, or leaves the field because of an opponent's card effect, while this card is in your GY: You can target 1 Effect Monster your opponent controls; Special Summon this card, and if you do, negate the targeted monster's effects until the end of this turn. You can only use 1 \"Aluber the Jester of Despia\" effect per turn, and only once that turn.",
+      "artworkPasscodes": [
+        62962630
+      ]
+    },
+    {
+      "id": 25862681,
+      "name": "Ancient Fairy Dragon",
+      "type": "Synchro Monster",
+      "frameType": "synchro",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 7,
+      "atk": 2100,
+      "def": 3000,
+      "desc": "1 Tuner + 1+ non-Tuner monsters\r\nDuring your Main Phase: You can Special Summon 1 Level 4 or lower monster from your hand. You cannot conduct your Battle Phase the turn you activate this effect. During your Main Phase: You can destroy as many cards in the Field Zones as possible (min. 1), and if you do, gain 1000 LP, then you can add 1 Field Spell with a different name than the destroyed card(s), from your Deck to your hand. You can only use each effect of \"Ancient Fairy Dragon\" once per turn.",
+      "artworkPasscodes": [
+        25862681
+      ]
+    },
+    {
+      "id": 48539234,
+      "name": "Appropriate",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "race": "Continuous",
+      "desc": "Activate only when your opponent draws a card(s) outside of either Draw Phase. After that, each time your opponent draws a card(s) outside of either Draw Phase, immediately draw 2 cards.",
+      "artworkPasscodes": [
+        48539234
+      ]
+    },
+    {
+      "id": 34267821,
+      "name": "Artifact Lancea",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Artifact",
+      "attribute": "LIGHT",
+      "race": "Fairy",
+      "level": 5,
+      "atk": 1700,
+      "def": 2300,
+      "desc": "You can Set this card from your hand to your Spell & Trap Zone as a Spell. During your opponent's turn, if this Set card in the Spell & Trap Zone is destroyed and sent to your GY: Special Summon it. During your opponent's turn (Quick Effect): You can Tribute this card from your hand or face-up field; neither player can banish cards for the rest of this turn.",
+      "artworkPasscodes": [
+        34267821
+      ]
+    },
+    {
+      "id": 14558127,
+      "name": "Ash Blossom & Joyous Spring",
+      "type": "Tuner Monster",
+      "frameType": "effect",
+      "attribute": "FIRE",
+      "race": "Zombie",
+      "level": 3,
+      "atk": 0,
+      "def": 1800,
+      "desc": "When a card or effect is activated that includes any of these effects (Quick Effect): You can discard this card; negate that effect.\r\n● Add a card from the Deck to the hand.\r\n● Special Summon from the Deck.\r\n● Send a card from the Deck to the GY.\r\nYou can only use this effect of \"Ash Blossom & Joyous Spring\" once per turn.",
+      "artworkPasscodes": [
+        14558127,
+        14558128
+      ]
+    },
+    {
+      "id": 46396218,
+      "name": "Azamina Ilia Silvia",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Azamina",
+      "attribute": "DARK",
+      "race": "Illusion",
+      "level": 6,
+      "atk": 1900,
+      "def": 1500,
+      "desc": "1 Illusion monster + 1 LIGHT Spellcaster monster\r\nAny battle damage your \"Azamina\" monsters, except \"Azamina Ilia Silvia\", inflicts to your opponent is doubled. You can only use each of the following effects of \"Azamina Ilia Silvia\" once per turn. When your opponent activates a card or effect (Quick Effect): You can Tribute this card; negate that effect. If this card is destroyed by battle or card effect: You can add 1 \"Sinful Spoils\" Trap from your Deck to your hand.",
+      "artworkPasscodes": [
+        46396218
+      ]
+    },
+    {
+      "id": 73391962,
+      "name": "Azamina Mu Rcielago",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Azamina",
+      "attribute": "DARK",
+      "race": "Illusion",
+      "level": 6,
+      "atk": 2000,
+      "def": 2400,
+      "desc": "1 Illusion monster + 1 LIGHT Spellcaster monster\r\nMonsters your opponent controls lose 500 ATK/DEF for each \"Azamina\" monster you control. You can only use each of the following effects of \"Azamina Mu Rcielago\" once per turn. If this card is Fusion Summoned: You can add 1 \"Azamina\" or \"Sinful Spoils\" card from your Deck to your hand. If this card is destroyed by battle or card effect: You can add 1 \"Sinful Spoils\" Spell from your Deck to your hand.",
+      "artworkPasscodes": [
+        73391962
+      ]
+    },
+    {
+      "id": 95515789,
+      "name": "Blazing Cartesia, the Virtuous",
+      "type": "Tuner Monster",
+      "frameType": "effect",
+      "attribute": "LIGHT",
+      "race": "Spellcaster",
+      "level": 4,
+      "atk": 1500,
+      "def": 1500,
+      "desc": "If you control \"Fallen of Albaz\" or it is in your GY: You can Special Summon this card from your hand. During the Main Phase (Quick Effect): You can Fusion Summon 1 Level 8 or higher Fusion Monster from your Extra Deck, using monsters from your hand or field as material. During the End Phase, if a Fusion Monster(s) was sent to your GY this turn: You can add this card from the GY to your hand. You can only use each effect of \"Blazing Cartesia, the Virtuous\" once per turn.",
+      "artworkPasscodes": [
+        95515789
+      ]
+    },
+    {
+      "id": 30576089,
+      "name": "Blue-Eyes Jet Dragon",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Blue-Eyes",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 3000,
+      "def": 0,
+      "desc": "Other cards you control cannot be destroyed by your opponent's card effects. You can only use each of the following effects of \"Blue-Eyes Jet Dragon\" once per turn, and can only activate them while \"Blue-Eyes White Dragon\" is on your field or in your GY. If a card(s) on the field is destroyed by battle or card effect: You can Special Summon this card from the GY (if it was there when the card was destroyed) or hand (even if not). At the start of the Damage Step, if this card battles: You can target 1 card your opponent controls; return it to the hand.",
+      "artworkPasscodes": [
+        30576089
+      ]
+    },
+    {
+      "id": 59822133,
+      "name": "Blue-Eyes Spirit Dragon",
+      "type": "Synchro Monster",
+      "frameType": "synchro",
+      "archetype": "Blue-Eyes",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 9,
+      "atk": 2500,
+      "def": 3000,
+      "desc": "1 Tuner + 1 or more non-Tuner \"Blue-Eyes\" monsters\r\nNeither player can Special Summon 2 or more monsters at the same time. Once per turn, during either player's turn, when an effect of a card in the Graveyard is activated: You can negate the activation. During either player's turn: You can Tribute this Synchro Summoned card; Special Summon 1 LIGHT Dragon-Type Synchro Monster from your Extra Deck in Defense Position, except \"Blue-Eyes Spirit Dragon\", but destroy it during the End Phase of this turn.",
+      "artworkPasscodes": [
+        59822133
+      ]
+    },
+    {
+      "id": 11443677,
+      "name": "Blue-Eyes Tyrant Dragon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Blue-Eyes",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 3400,
+      "def": 2900,
+      "desc": "\"Blue-Eyes White Dragon\" + 1 Dragon monster\r\nMust first be either Fusion Summoned, or Special Summoned from your Extra Deck by Tributing 1 \"Blue-Eyes White Dragon\" equipped with a Fusion Monster. Unaffected by Trap Cards or effects. This card can attack all monsters your opponent controls, once each. Once per turn, at the end of the Damage Step, if this card battled: You can target 1 Trap in your GY; Set it to your Spell & Trap Zone.",
+      "artworkPasscodes": [
+        11443677
+      ]
+    },
+    {
+      "id": 89604813,
+      "name": "Blue-Eyes Ultimate Spirit Dragon",
+      "type": "Synchro Monster",
+      "frameType": "synchro",
+      "archetype": "Blue-Eyes",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 12,
+      "atk": 3500,
+      "def": 4000,
+      "desc": "2+ Tuners + 1 non-Tuner \"Blue-Eyes\" monster\r\nYour opponent cannot banish cards from your GY. You can only use each of the following effects of \"Blue-Eyes Ultimate Spirit Dragon\" once per turn. When a card or effect is activated on the field (Quick Effect): You can negate the activation, and if you do, this card gains 1000 ATK until the end of this turn. If this card is destroyed by battle or card effect: You can Special Summon 1 LIGHT Dragon monster from your GY, except \"Blue-Eyes Ultimate Spirit Dragon\".",
+      "artworkPasscodes": [
+        89604813
+      ]
+    },
+    {
+      "id": 89631139,
+      "name": "Blue-Eyes White Dragon",
+      "type": "Normal Monster",
+      "frameType": "normal",
+      "archetype": "Blue-Eyes",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 3000,
+      "def": 2500,
+      "desc": "This legendary dragon is a powerful engine of destruction. Virtually invincible, very few have faced this awesome creature and lived to tell the tale.",
+      "artworkPasscodes": [
+        89631139,
+        89631140,
+        89631141,
+        89631142,
+        89631143,
+        89631144,
+        89631145,
+        89631146
+      ]
+    },
+    {
+      "id": 85106525,
+      "name": "Bonfire",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "Add 1 Level 4 or lower Pyro monster from your Deck to your hand. You can only activate 1 \"Bonfire\" per turn.",
+      "artworkPasscodes": [
+        85106525
+      ]
+    },
+    {
+      "id": 6763530,
+      "name": "Branded Banishment",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "archetype": "Branded",
+      "race": "Normal",
+      "desc": "Target 1 \"Despia\" monster or 1 Level 8 or higher Fusion Monster in your GY; Special Summon it, then you can apply this effect.\r\n● Fusion Summon 1 Level 8 or higher Fusion Monster from your Extra Deck, by banishing Fusion Materials listed on it from either field.\r\nYou can only activate 1 \"Branded Banishment\" per turn.",
+      "artworkPasscodes": [
+        6763530
+      ]
+    },
+    {
+      "id": 32756828,
+      "name": "Branded Beast",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "archetype": "Branded",
+      "race": "Continuous",
+      "desc": "Once per turn, during the Main Phase, if you control a \"Bystial\" monster: You can Tribute 1 Dragon monster, then target 1 card your opponent controls; destroy it. During the End Phase: You can target 1 \"Branded\" Continuous Spell/Trap in your GY; place it face-up on your field. You can only use this effect of \"Branded Beast\" once per turn.",
+      "artworkPasscodes": [
+        32756828
+      ]
+    },
+    {
+      "id": 44362883,
+      "name": "Branded Fusion",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Branded",
+      "race": "Normal",
+      "desc": "Fusion Summon 1 Fusion Monster that mentions \"Fallen of Albaz\" as material from your Extra Deck, using 2 monsters from your hand, Deck, or field as material. You cannot Special Summon from the Extra Deck, except Fusion Monsters, the turn you activate this card. You can only activate 1 \"Branded Fusion\" per turn.",
+      "artworkPasscodes": [
+        44362883
+      ]
+    },
+    {
+      "id": 29948294,
+      "name": "Branded in High Spirits",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Branded",
+      "race": "Quick-Play",
+      "desc": "Reveal 1 monster in your hand and send 1 Level 8 Fusion Monster from your Extra Deck to the GY with the same Type that has 2500 ATK or DEF, then you can apply this effect.\r\n● Discard the revealed monster, and if you do, add 1 \"Fallen of Albaz\", or 1 monster that mentions it, from your Deck to your hand.\r\nDuring the End Phase, if a Fusion Monster was sent to your GY this turn: You can add this card from the GY to your hand. You can only use 1 \"Branded in High Spirits\" effect per turn, and only once that turn.",
+      "artworkPasscodes": [
+        29948294
+      ]
+    },
+    {
+      "id": 82738008,
+      "name": "Branded in Red",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Branded",
+      "race": "Quick-Play",
+      "desc": "Target 1 \"Despia\" monster or \"Fallen of Albaz\" in your GY; add it to your hand, then you can apply the following effect.\r\n● Fusion Summon 1 Level 8 or higher Fusion Monster from your Extra Deck, by banishing Fusion Materials mentioned on it from your hand or field, but it cannot attack directly this turn.\r\nYou can only activate 1 \"Branded in Red\" per turn.",
+      "artworkPasscodes": [
+        82738008
+      ]
+    },
+    {
+      "id": 18973184,
+      "name": "Branded Lost",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Branded",
+      "race": "Continuous",
+      "desc": "The activation of your cards and effects that include an effect that Fusion Summons a Fusion Monster cannot be negated, also your opponent cannot activate cards or effects when a monster is Fusion Summoned this way. If you Fusion Summon a Fusion Monster: You can add 1 \"Fallen of Albaz\", or 1 monster that mentions it, from your Deck to your hand. You can only use this effect of \"Branded Lost\" once per turn.",
+      "artworkPasscodes": [
+        18973184
+      ]
+    },
+    {
+      "id": 36637374,
+      "name": "Branded Opening",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Branded",
+      "race": "Quick-Play",
+      "desc": "Discard 1 card, then take 1 \"Despia\" monster from your Deck, and either add it to your hand or Special Summon it in Defense Position, also for the rest of this turn after this card resolves, you cannot Special Summon monsters from the Extra Deck, except Fusion Monsters. If a Fusion Monster(s) you control would be destroyed by card effect, you can banish this card from your GY instead. You can only use each effect of \"Branded Opening\" once per turn.",
+      "artworkPasscodes": [
+        36637374
+      ]
+    },
+    {
+      "id": 34090915,
+      "name": "Branded Regained",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Branded",
+      "race": "Continuous",
+      "desc": "If a LIGHT or DARK monster(s) is banished (except during the Damage Step): You can target 1 of those monsters; place that monster on the bottom of the Deck, and if you do, draw 1 card. You can only use this effect of \"Branded Regained\" once per turn. Once per turn, if your opponent Normal or Special Summons a monster (except during the Damage Step): You can target 1 \"Bystial\" monster in your GY; Special Summon it. You can only activate this effect of \"Branded Regained\" once per Chain.",
+      "artworkPasscodes": [
+        34090915
+      ]
+    },
+    {
+      "id": 17751597,
+      "name": "Branded Retribution",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "archetype": "Branded",
+      "race": "Counter",
+      "desc": "When a Spell/Trap Card, or monster effect, is activated that includes an effect that Special Summons a monster(s): Return to the Extra Deck, 1 face-up Fusion Monster you control, or 2 Fusion Monsters in your GY, that mention \"Fallen of Albaz\" as material, and if you do, negate the activation, and if you do that, destroy that card. You can banish this card from your GY, then target 1 \"Branded\" Spell/Trap in your GY, except \"Branded Retribution\"; add it to your hand. You can only use 1 \"Branded Retribution\" effect per turn, and only once that turn.",
+      "artworkPasscodes": [
+        17751597
+      ]
+    },
+    {
+      "id": 72656408,
+      "name": "Bystial Baldrake",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Bystial",
+      "attribute": "DARK",
+      "race": "Dragon",
+      "level": 6,
+      "atk": 2500,
+      "def": 2000,
+      "desc": "You can target 1 LIGHT or DARK monster in either GY; banish it, and if you do, Special Summon this card from your hand. This is a Quick Effect if your opponent controls a monster. If your opponent Special Summons a Ritual, Fusion, Synchro, Xyz, and/or Link Monster(s) (except during the Damage Step): You can Tribute 1 other LIGHT or DARK monster, then target 1 of those Special Summoned monsters; banish it. You can only use each effect of \"Bystial Baldrake\" once per turn.",
+      "artworkPasscodes": [
+        72656408
+      ]
+    },
+    {
+      "id": 27572350,
+      "name": "Bystial Dis Pater",
+      "type": "Synchro Monster",
+      "frameType": "synchro",
+      "archetype": "Bystial",
+      "attribute": "DARK",
+      "race": "Dragon",
+      "level": 10,
+      "atk": 3500,
+      "def": 3500,
+      "desc": "1 Tuner + 1+ non-Tuner Dragon monsters\r\nYou can target 1 banished LIGHT or DARK monster; Special Summon it to your field. When your opponent activates a monster effect (Quick Effect): You can target 1 banished card; shuffle it into the Deck, then if you shuffled it into your Deck, destroy that monster, or if you shuffled it into your opponent's Deck, negate that activated effect. You can only use each effect of \"Bystial Dis Pater\" once per turn.",
+      "artworkPasscodes": [
+        27572350
+      ]
+    },
+    {
+      "id": 6637331,
+      "name": "Bystial Druiswurm",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Bystial",
+      "attribute": "DARK",
+      "race": "Dragon",
+      "level": 6,
+      "atk": 2500,
+      "def": 2000,
+      "desc": "You can target 1 LIGHT or DARK monster in either GY; banish it, and if you do, Special Summon this card from your hand. This is a Quick Effect if your opponent controls a monster. If this card is sent from the field to the GY: You can target 1 Special Summoned monster your opponent controls; send it to the GY. You can only use each effect of \"Bystial Druiswurm\" once per turn.",
+      "artworkPasscodes": [
+        6637331
+      ]
+    },
+    {
+      "id": 33854624,
+      "name": "Bystial Magnamhut",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Bystial",
+      "attribute": "DARK",
+      "race": "Dragon",
+      "level": 6,
+      "atk": 2500,
+      "def": 2000,
+      "desc": "You can target 1 LIGHT or DARK monster in either GY; banish it, and if you do, Special Summon this card from your hand. This is a Quick Effect if your opponent controls a monster. If this card is Special Summoned: You can activate this effect; during the End Phase of this turn, add 1 Dragon monster from your Deck or GY to your hand, except \"Bystial Magnamhut\". You can only use each effect of \"Bystial Magnamhut\" once per turn.",
+      "artworkPasscodes": [
+        33854624
+      ]
+    },
+    {
+      "id": 60242223,
+      "name": "Bystial Saronir",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Bystial",
+      "attribute": "DARK",
+      "race": "Dragon",
+      "level": 6,
+      "atk": 2500,
+      "def": 2000,
+      "desc": "You can target 1 LIGHT or DARK monster in either GY; banish it, and if you do, Special Summon this card from your hand. This is a Quick Effect if your opponent controls a monster. If this card is sent to the GY: You can send 1 \"Bystial\" monster or 1 \"Branded\" Spell/Trap from your Deck to the GY, except \"Bystial Saronir\". You can only use each effect of \"Bystial Saronir\" once per turn.",
+      "artworkPasscodes": [
+        60242223
+      ]
+    },
+    {
+      "id": 24224830,
+      "name": "Called by the Grave",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Quick-Play",
+      "desc": "Target 1 monster in your opponent's GY; banish it, and if you do, until the end of the next turn, its effects are negated, as well as the activated effects and effects on the field of monsters with the same original name.",
+      "artworkPasscodes": [
+        24224830
+      ]
+    },
+    {
+      "id": 57953380,
+      "name": "Card of Safe Return",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Continuous",
+      "desc": "When a monster is Special Summoned from your Graveyard, you can draw 1 card.",
+      "artworkPasscodes": [
+        57953380
+      ]
+    },
+    {
+      "id": 12021072,
+      "name": "Child's Play",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Continuous",
+      "desc": "Each time your opponent Summons a monster(s), gain 300 LP. Your monsters cannot be destroyed by battle while you have 10,000 or more LP.",
+      "artworkPasscodes": [
+        12021072
+      ]
+    },
+    {
+      "id": 63436931,
+      "name": "Crimson Dragon",
+      "type": "Synchro Monster",
+      "frameType": "synchro",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 12,
+      "atk": 0,
+      "def": 0,
+      "desc": "1 Tuner + 1+ non-Tuner monsters\r\nIf this card is Special Summoned: You can add 1 Spell/Trap that mentions \"Crimson Dragon\" from your Deck to your hand. (Quick Effect): You can target 1 Level 7 or higher Synchro Monster on the field, except \"Crimson Dragon\"; return this card to the Extra Deck, and if you do, Special Summon 1 Dragon Synchro Monster from your Extra Deck with the same Level as the targeted monster. (This is treated as a Synchro Summon.) You can only use each effect of \"Crimson Dragon\" once per turn.",
+      "artworkPasscodes": [
+        63436931
+      ]
+    },
+    {
+      "id": 50277355,
+      "name": "Cross-Sheep",
+      "type": "Link Monster",
+      "frameType": "link",
+      "attribute": "EARTH",
+      "race": "Beast",
+      "level": null,
+      "atk": 700,
+      "def": null,
+      "desc": "2 monsters with different names\r\nIf a monster is Special Summoned to a zone this card points to: You can apply the following effects, in sequence, based on the card types of the monster(s) this card points to.\r\n● Ritual: Draw 2 cards, then discard 2 cards. ● Fusion: Special Summon 1 Level 4 or lower monster from your GY. ● Synchro: All monsters you control gain 700 ATK. ● Xyz: All monsters your opponent controls lose 700 ATK.\r\nYou can only use this effect of \"Cross-Sheep\" once per turn.",
+      "artworkPasscodes": [
+        50277355
+      ]
+    },
+    {
+      "id": 65681983,
+      "name": "Crossout Designator",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Quick-Play",
+      "desc": "Declare 1 card name; banish 1 of that declared card from your Main Deck, and if you do, negate its effects, as well as the activated effects and effects on the field of cards with the same original name, until the end of this turn. You can only activate 1 \"Crossout Designator\" per turn.",
+      "artworkPasscodes": [
+        65681983
+      ]
+    },
+    {
+      "id": 24508238,
+      "name": "D.D. Crow",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "D.D.",
+      "attribute": "DARK",
+      "race": "Winged Beast",
+      "level": 1,
+      "atk": 100,
+      "def": 100,
+      "desc": "(Quick Effect): You can discard this card to the GY, then target 1 card in your opponent's GY; banish that target.",
+      "artworkPasscodes": [
+        24508238
+      ]
+    },
+    {
+      "id": 53129443,
+      "name": "Dark Hole",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Hole",
+      "race": "Normal",
+      "desc": "Destroy all monsters on the field.",
+      "artworkPasscodes": [
+        53129443
+      ]
+    },
+    {
+      "id": 41350417,
+      "name": "Dark Magical Curtain",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Prophecy",
+      "race": "Quick-Play",
+      "desc": "Each player can Special Summon 1 DARK Spellcaster monster from their hand or Deck (but neither player can activate their effects this turn), then if you Special Summoned a monster whose original name is \"Dark Magician\" or \"Dark Magician Girl\", you can add 1 Spell/Trap that mentions \"Dark Magician\" from your Deck to your hand, except \"Dark Magical Curtain\". You can only activate 1 \"Dark Magical Curtain\" per turn.",
+      "artworkPasscodes": [
+        41350417
+      ]
+    },
+    {
+      "id": 46986414,
+      "name": "Dark Magician",
+      "type": "Normal Monster",
+      "frameType": "normal",
+      "archetype": "Dark Magician",
+      "attribute": "DARK",
+      "race": "Spellcaster",
+      "level": 7,
+      "atk": 2500,
+      "def": 2100,
+      "desc": "''The ultimate wizard in terms of attack and defense.''",
+      "artworkPasscodes": [
+        46986414,
+        46986415,
+        46986416,
+        46986417,
+        46986418,
+        46986419,
+        36996508,
+        46986420,
+        46986421
+      ]
+    },
+    {
+      "id": 59400890,
+      "name": "Dark Magician of Destruction",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Magician",
+      "attribute": "DARK",
+      "race": "Spellcaster",
+      "level": 8,
+      "atk": 2800,
+      "def": 2600,
+      "desc": "\"Dark Magician\" + 1 LIGHT or DARK monster\r\nMust be either Fusion Summoned, or Special Summoned (from your Extra Deck) during the turn a Spell Card or effect is activated, by banishing 1 Level 6 or higher DARK Spellcaster monster you control as material. You can only Special Summon \"Dark Magician of Destruction\" once per turn this way, no matter which method you use. This card's name becomes \"Dark Magician\" while on the field or in the GY. If this card is Special Summoned: You can add 1 \"Dark Magician\" or 1 card that mentions it from your Deck to your hand.",
+      "artworkPasscodes": [
+        59400890
+      ]
+    },
+    {
+      "id": 88570003,
+      "name": "Dark Magician, the Pharaoh's Servant",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Dark Magician",
+      "attribute": "DARK",
+      "race": "Spellcaster",
+      "level": 7,
+      "atk": 2500,
+      "def": 2100,
+      "desc": "This card's name becomes \"Dark Magician\" while on the field or in the GY. You can only use 1 of the following effects of \"Dark Magician, the Pharaoh's Servant\" per turn, and only once that turn. If this card is in your hand: You can reveal 1 Spell in your hand; Special Summon this card, then you can Set 1 Spell/Trap that mentions \"Dark Magician\" from your Deck. (Quick Effect): You can discard 1 Spell; destroy all Spells/Traps your opponent controls.",
+      "artworkPasscodes": [
+        88570003
+      ]
+    },
+    {
+      "id": 66328392,
+      "name": "Deception of the Sinful Spoils",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Sinful Spoils",
+      "race": "Continuous",
+      "desc": "You can Tribute 1 monster from your hand or field; add 1 \"Azamina\" card from your Deck to your hand. If a monster(s) is sent to your opponent's GY, and you control an \"Azamina\" monster (except during the Damage Step): You can make your opponent lose 1500 LP, and if you do, gain 1500 LP. During the End Phase, if this card is in the GY because it was sent there from the Spell & Trap Zone this turn while face-up: You can Set it. You can only use each effect of \"Deception of the Sinful Spoils\" once per turn.",
+      "artworkPasscodes": [
+        66328392
+      ]
+    },
+    {
+      "id": 70485614,
+      "name": "Decisive Battle of Golgonda",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Continuous",
+      "desc": "This card's name becomes \"Great Sand Sea - Gold Golgonda\" while on the field or in the GY. Once per turn, if a card(s) you control would be destroyed by battle or card effect, you can send 1 Fusion Monster that mentions \"Fallen of Albaz\" as material from your Extra Deck to the GY, instead. During the End Phase, if you have \"Fallen of Albaz\" on your field or in your GY: You can Special Summon 1 \"Springans\" monster from your hand or Deck. You can only use this effect of \"Decisive Battle of Golgonda\" once per turn.",
+      "artworkPasscodes": [
+        70485614
+      ]
+    },
+    {
+      "id": 53971455,
+      "name": "Despian Luluwalilith",
+      "type": "Synchro Monster",
+      "frameType": "synchro",
+      "archetype": "Despia",
+      "attribute": "LIGHT",
+      "race": "Spellcaster",
+      "level": 12,
+      "atk": 2500,
+      "def": 2500,
+      "desc": "1 Level 4 Tuner + 1+ non-Tuner monsters\r\nOnce per turn, if a card(s) leaves the Extra Deck (except during the Damage Step): You can make all monsters you currently control gain 500 ATK (permanently), then you can negate the effects of 1 face-up card on the field, until the end of this turn. During the End Phase, if this card is in the GY because it was sent there this turn: You can Special Summon 1 LIGHT Spellcaster monster from your hand or Deck whose ATK equals its own DEF. You can only use this effect of \"Despian Luluwalilith\" once per turn.",
+      "artworkPasscodes": [
+        53971455
+      ]
+    },
+    {
+      "id": 72272462,
+      "name": "Despian Quaeritis",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Despia",
+      "attribute": "LIGHT",
+      "race": "Fiend",
+      "level": 8,
+      "atk": 2500,
+      "def": 2500,
+      "desc": "1 \"Despia\" monster + 1 LIGHT or DARK monster\r\nDuring the Main Phase (Quick Effect): You can change the ATK of all monsters currently on the field to 0 until the end of this turn, except Level 8 or higher Fusion Monsters. If this face-up card in its owner's control leaves the field because of an opponent's card effect: You can add to your hand, or Special Summon, 1 \"Fallen of Albaz\" or 1 \"Despia\" monster, from your Deck. You can only use each effect of \"Despian Quaeritis\" once per turn.",
+      "artworkPasscodes": [
+        72272462
+      ]
+    },
+    {
+      "id": 36577931,
+      "name": "Despian Tragedy",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Despia",
+      "attribute": "DARK",
+      "race": "Fairy",
+      "level": 1,
+      "atk": 400,
+      "def": 400,
+      "desc": "If this card is sent to the GY, or banished, by a card effect: You can add 1 \"Despia\" monster from your Deck to your hand, except \"Despian Tragedy\". You can banish this card from your GY, then target 1 \"Branded\" Spell/Trap in your GY; Set it to your field. You can only use 1 \"Despian Tragedy\" effect per turn, and only once that turn.",
+      "artworkPasscodes": [
+        36577931
+      ]
+    },
+    {
+      "id": 63362460,
+      "name": "Destiny HERO - Celestial",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Destiny HERO",
+      "attribute": "DARK",
+      "race": "Warrior",
+      "level": 4,
+      "atk": 1600,
+      "def": 1400,
+      "desc": "When this card declares an attack: You can target 1 face-up Spell your opponent controls; destroy it, and if you do, inflict 500 damage to your opponent. While you have no cards in your hand, except the turn this card was sent to the GY: You can banish this card and 1 \"Destiny HERO\" monster from your GY; draw 2 cards. You can only use this effect of \"Destiny HERO - Celestial\" once per turn.",
+      "artworkPasscodes": [
+        63362460
+      ]
+    },
+    {
+      "id": 81866673,
+      "name": "Destiny HERO - Dasher",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Destiny HERO",
+      "attribute": "DARK",
+      "race": "Warrior",
+      "level": 6,
+      "atk": 2100,
+      "def": 1000,
+      "desc": "Once per turn: You can Tribute 1 other monster; this card gains 1000 ATK until the End Phase. If this card attacks, change it to Defense Position at the end of the Battle Phase. One time only, when you draw a Monster Card during your Draw Phase while this card is in your Graveyard: You can reveal it; Special Summon it. This card must be in the Graveyard to activate and to resolve this effect.",
+      "artworkPasscodes": [
+        81866673
+      ]
+    },
+    {
+      "id": 60461804,
+      "name": "Destiny HERO - Destroyer Phoenix Enforcer",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Destiny HERO",
+      "attribute": "DARK",
+      "race": "Warrior",
+      "level": 8,
+      "atk": 2500,
+      "def": 2100,
+      "desc": "1 Level 6 or higher \"HERO\" monster + 1 \"Destiny HERO\" monster\r\nMonsters your opponent controls lose 200 ATK for each \"HERO\" card in your GY. You can only use each of the following effects of \"Destiny HERO - Destroyer Phoenix Enforcer\" once per turn. (Quick Effect): You can destroy both 1 card you control and 1 card on the field. If this card is destroyed by battle or card effect: You can activate this effect; Special Summon 1 \"Destiny HERO\" monster from your GY during the Standby Phase of the next turn.",
+      "artworkPasscodes": [
+        60461804
+      ]
+    },
+    {
+      "id": 8264361,
+      "name": "Dharc the Dark Charmer, Gloomy",
+      "type": "Link Monster",
+      "frameType": "link",
+      "archetype": "Charmer",
+      "attribute": "DARK",
+      "race": "Spellcaster",
+      "level": null,
+      "atk": 1850,
+      "def": null,
+      "desc": "2 monsters, including a DARK monster\r\n(This card is always treated as a \"Familiar-Possessed\" card.)\r\nYou can target 1 DARK monster in your opponent's GY; Special Summon it to your zone this card points to. If this Link Summoned card is destroyed by battle, or is destroyed by an opponent's card effect while in its owner's Monster Zone: You can add 1 DARK monster with 1500 or less DEF from your Deck to your hand. You can only use each effect of \"Dharc the Dark Charmer, Gloomy\" once per turn.",
+      "artworkPasscodes": [
+        8264361
+      ]
+    },
+    {
+      "id": 72270339,
+      "name": "Diabellstar the Black Witch",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Diabellstar",
+      "attribute": "DARK",
+      "race": "Spellcaster",
+      "level": 7,
+      "atk": 2500,
+      "def": 2000,
+      "desc": "You can Special Summon this card (from your hand) by sending 1 card from your hand or field to the GY. You can only Special Summon \"Diabellstar the Black Witch\" once per turn this way. You can only use each of the following effects of \"Diabellstar the Black Witch\" once per turn. If this card is Normal or Special Summoned: You can Set 1 \"Sinful Spoils\" Spell/Trap directly from your Deck. During your opponent's turn, if this card is sent from its owner's hand or field to the GY: You can send 1 card from your hand or field to the GY, and if you do, Special Summon this card.",
+      "artworkPasscodes": [
+        72270339
+      ]
+    },
+    {
+      "id": 53639887,
+      "name": "Divine Temple of the Snake-Eye",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Snake-Eye",
+      "race": "Field",
+      "desc": "When this card is activated: You can place 1 \"Snake-Eye\" monster from your hand, Deck, or GY face-up in its owner's Spell & Trap Zone as a Continuous Spell. Level 1 FIRE monsters you control gain 1100 ATK. Once per turn, if your opponent Normal or Special Summons a monster(s) (except during the Damage Step): You can target 1 Monster Card on the field treated as a Continuous Spell; Special Summon it to your field. You can only activate 1 \"Divine Temple of the Snake-Eye\" per turn.",
+      "artworkPasscodes": [
+        53639887
+      ]
+    },
+    {
+      "id": 60303688,
+      "name": "Dogmatika Ecclesia, the Virtuous",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Dogmatika",
+      "attribute": "LIGHT",
+      "race": "Spellcaster",
+      "level": 4,
+      "atk": 1500,
+      "def": 1500,
+      "desc": "Cannot be destroyed by battle with a monster Special Summoned from the Extra Deck. You can only use each of the following effects of \"Dogmatika Ecclesia, the Virtuous\" once per turn. If a monster Special Summoned from the Extra Deck is on the field: You can Special Summon this card from your hand. If this card is Normal or Special Summoned: You can activate this effect; add 1 \"Dogmatika\" card from your Deck to your hand, except \"Dogmatika Ecclesia, the Virtuous\", also you cannot Special Summon monsters from the Extra Deck for the rest of this turn.",
+      "artworkPasscodes": [
+        60303688
+      ]
+    },
+    {
+      "id": 69680031,
+      "name": "Dogmatika Fleurdelis, the Knighted",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Dogmatika",
+      "attribute": "LIGHT",
+      "race": "Spellcaster",
+      "level": 8,
+      "atk": 2500,
+      "def": 2500,
+      "desc": "During the Main Phase, if a monster Special Summoned from the Extra Deck is on the field (Quick Effect): You can Special Summon this card from your hand, then, if you control another \"Dogmatika\" monster, you can negate the effects of 1 face-up monster on the field, until the end of this turn. When your \"Dogmatika\" monster declares an attack: You can make all \"Dogmatika\" monsters you currently control gain 500 ATK. You can only use each effect of \"Dogmatika Fleurdelis, the Knighted\" once per turn.",
+      "artworkPasscodes": [
+        69680031
+      ]
+    },
+    {
+      "id": 40366667,
+      "name": "Dominus Impulse",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "archetype": "Dominus",
+      "race": "Normal",
+      "desc": "If your opponent controls a card, you can activate this card from your hand. When a card or effect is activated that includes an effect that Special Summons a monster(s): Negate that effect, then if you have a Trap in your GY, destroy that card. If you activated this card from your hand, you cannot activate the effects of LIGHT, EARTH, and WIND monsters for the rest of this Duel. You can only activate 1 \"Dominus Impulse\" per turn.",
+      "artworkPasscodes": [
+        40366667
+      ]
+    },
+    {
+      "id": 97045737,
+      "name": "Dominus Purge",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "archetype": "Dominus",
+      "race": "Normal",
+      "desc": "If your opponent controls a card, you can activate this card from your hand. When a card or effect is activated that includes an effect that adds a card(s) from the Deck to the hand: Negate that effect, then if you have a Trap in your GY, destroy that card. If you activated this card from your hand, you cannot activate the effects of DARK, WATER, and FIRE monsters for the rest of this Duel. You can only activate 1 \"Dominus Purge\" per turn.",
+      "artworkPasscodes": [
+        97045737
+      ]
+    },
+    {
+      "id": 6325660,
+      "name": "Dominus Spark",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "archetype": "Dominus",
+      "race": "Normal",
+      "desc": "During the turn in which your opponent has activated a monster effect in the hand or GY, you can activate this card from your hand. Target 1 monster your opponent controls; banish it, then if you have no Traps in your GY, your opponent can Special Summon 1 monster from their hand. If you activated this card from your hand, you cannot activate the effects of EARTH, WATER, FIRE, and WIND monsters for the rest of this Duel. You can only activate 1 \"Dominus Spark\" per turn.",
+      "artworkPasscodes": [
+        6325660
+      ]
+    },
+    {
+      "id": 85442146,
+      "name": "Dragon's Mind",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "race": "Counter",
+      "desc": "When a Spell/Trap Card, or monster effect, is activated while you control a monster with 2500 original ATK or DEF: Negate the activation, and if you do, destroy that card. If this card is in your GY: You can pay 2500 LP; Set this card, but banish it when it leaves the field. You can only use each effect of \"Dragon's Mind\" once per turn.",
+      "artworkPasscodes": [
+        85442146
+      ]
+    },
+    {
+      "id": 26700718,
+      "name": "Dramatic Snake-Eye Chase",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Snake-Eye",
+      "race": "Quick-Play",
+      "desc": "Place 1 \"Diabellstar\" monster from your hand, Deck, or GY face-up in its owner's Spell & Trap Zone as a Continuous Spell. During the End Phase: You can banish this card from your GY, then target 1 Monster Card treated as a Continuous Spell you control; Special Summon it. You can only use each effect of \"Dramatic Snake-Eye Chase\" once per turn.",
+      "artworkPasscodes": [
+        26700718
+      ]
+    },
+    {
+      "id": 94145021,
+      "name": "Droll & Lock Bird",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "attribute": "WIND",
+      "race": "Spellcaster",
+      "level": 1,
+      "atk": 0,
+      "def": 0,
+      "desc": "If a card(s) is added from the Main Deck to your opponent's hand, except during the Draw Phase (Quick Effect): You can send this card from your hand to the GY; for the rest of this turn, cards cannot be added from either player's Main Deck to the hand.",
+      "artworkPasscodes": [
+        94145021,
+        94145022
+      ]
+    },
+    {
+      "id": 78397661,
+      "name": "Ecclesia and the Dark Dragon",
+      "type": "Synchro Monster",
+      "frameType": "synchro",
+      "archetype": "Ecclesia",
+      "attribute": "LIGHT",
+      "race": "Spellcaster",
+      "level": 8,
+      "atk": 2500,
+      "def": 2500,
+      "desc": "1 Tuner + 1+ non-Tuners\r\nDuring the Main Phase (Quick Effect): You can banish this card (until the End Phase), and if you do, Special Summon 1 \"Fallen of Albaz\" or 1 Level 4 or lower monster that mentions it from your Deck or GY. If this card is in your GY: You can target 1 Level 8 Fusion Monster in your GY or banishment and 1 card on the field; shuffle both of those cards and this card into the Deck. You can only use each effect of \"Ecclesia and the Dark Dragon\" once per turn.",
+      "artworkPasscodes": [
+        78397661
+      ]
+    },
+    {
+      "id": 97268402,
+      "name": "Effect Veiler",
+      "type": "Tuner Monster",
+      "frameType": "effect",
+      "attribute": "LIGHT",
+      "race": "Spellcaster",
+      "level": 1,
+      "atk": 0,
+      "def": 0,
+      "desc": "During your opponent's Main Phase (Quick Effect): You can send this card from your hand to the GY, then target 1 Effect Monster your opponent controls; negate the effects of that face-up monster your opponent controls, until the end of this turn.",
+      "artworkPasscodes": [
+        97268402
+      ]
+    },
+    {
+      "id": 45675980,
+      "name": "Etude of the Branded",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "archetype": "Branded",
+      "race": "Continuous",
+      "desc": "During either player's turn, you can: Immediately after this effect resolves, Synchro Summon 1 Synchro Monster, using monsters you control as material, including a Dragon monster. You can only use this effect of \"Etude of the Branded\" once per turn. While you control a \"Bystial\" monster, banish any monsters that would be sent to your opponent's GY as Tributes for their Ritual Summon, or as material for their Fusion, Synchro, or Link Summon.",
+      "artworkPasscodes": [
+        45675980
+      ]
+    },
+    {
+      "id": 68468459,
+      "name": "Fallen of Albaz",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Dogmatika",
+      "attribute": "DARK",
+      "race": "Dragon",
+      "level": 4,
+      "atk": 1800,
+      "def": 0,
+      "desc": "If this card is Normal or Special Summoned (except during the Damage Step): You can discard 1 card; Fusion Summon 1 Fusion Monster from your Extra Deck, using monsters on either field as Fusion Material, including this card, but you cannot use other monsters you control as Fusion Material. You can only use this effect of \"Fallen of Albaz\" once per turn.",
+      "artworkPasscodes": [
+        68468459
+      ]
+    },
+    {
+      "id": 73819701,
+      "name": "Fallen of the White Dragon",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "attribute": "DARK",
+      "race": "Dragon",
+      "level": 4,
+      "atk": 1800,
+      "def": 0,
+      "desc": "(This card is always treated as \"Fallen of Albaz\".)\r\nIf this card is in your hand: You can send 1 monster that mentions \"Fallen of Albaz\" from your Extra Deck to the GY; Special Summon this card, also you cannot Special Summon from the Extra Deck for the rest of this turn, except Level 8 Fusion or Synchro Monsters. If this card is Normal or Special Summoned: You can Special Summon 1 \"Ecclesia\" monster from your hand, Deck, or GY. You can only use each effect of \"Fallen of the White Dragon\" once per turn.",
+      "artworkPasscodes": [
+        73819701
+      ]
+    },
+    {
+      "id": 81439173,
+      "name": "Foolish Burial",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "Send 1 monster from your Deck to the GY.",
+      "artworkPasscodes": [
+        81439173,
+        81439174
+      ]
+    },
+    {
+      "id": 24299458,
+      "name": "Forbidden Droplet",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Forbidden",
+      "race": "Quick-Play",
+      "desc": "Send any number of other cards from your hand and/or field to the GY; choose that many Effect Monsters your opponent controls, and until the end of this turn, their ATK is halved, also their effects are negated. In response to this card's activation, your opponent cannot activate cards, or the effects of cards, with the same original type (Monster/Spell/Trap) as the cards sent to the GY to activate this card. You can only activate 1 \"Forbidden Droplet\" per turn.",
+      "artworkPasscodes": [
+        24299458
+      ]
+    },
+    {
+      "id": 52947044,
+      "name": "Fusion Destiny",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Destiny HERO",
+      "race": "Normal",
+      "desc": "Fusion Summon 1 Fusion Monster from your Extra Deck that lists a \"Destiny HERO\" monster as material, using monsters from your hand or Deck as Fusion Material, but destroy it during the End Phase of the next turn, also for the rest of this turn after this card resolves, you cannot Special Summon monsters, except DARK \"HERO\" monsters. You can only activate 1 \"Fusion Destiny\" per turn.",
+      "artworkPasscodes": [
+        52947044
+      ]
+    },
+    {
+      "id": 73642296,
+      "name": "Ghost Belle & Haunted Mansion",
+      "type": "Tuner Monster",
+      "frameType": "effect",
+      "attribute": "EARTH",
+      "race": "Zombie",
+      "level": 3,
+      "atk": 0,
+      "def": 1800,
+      "desc": "When a card or effect is activated that includes any of these effects (Quick Effect): You can discard this card; negate that activation.\r\n● Add a card(s) from the GY to the hand, Deck, and/or Extra Deck.\r\n● Special Summon a Monster Card(s) from the GY.\r\n● Banish a card(s) from the GY.\r\nYou can only use this effect of \"Ghost Belle & Haunted Mansion\" once per turn.",
+      "artworkPasscodes": [
+        73642296,
+        73642297
+      ]
+    },
+    {
+      "id": 59438930,
+      "name": "Ghost Ogre & Snow Rabbit",
+      "type": "Tuner Monster",
+      "frameType": "effect",
+      "attribute": "LIGHT",
+      "race": "Psychic",
+      "level": 3,
+      "atk": 0,
+      "def": 1800,
+      "desc": "When a monster on the field activates its effect, or when a Spell/Trap that is already face-up on the field activates its effect (Quick Effect): You can send this card from your hand or field to the GY; destroy that card on the field. You can only use this effect of \"Ghost Ogre & Snow Rabbit\" once per turn.",
+      "artworkPasscodes": [
+        59438930,
+        59438931
+      ]
+    },
+    {
+      "id": 42703248,
+      "name": "Giant Trunade",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "Return all Spell and Trap Cards on the field to the hand.",
+      "artworkPasscodes": [
+        42703248
+      ]
+    },
+    {
+      "id": 75500286,
+      "name": "Gold Sarcophagus",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "Banish 1 card from your Deck, face-up. During your second Standby Phase after this card's activation, add that card to the hand.",
+      "artworkPasscodes": [
+        75500286
+      ]
+    },
+    {
+      "id": 79571449,
+      "name": "Graceful Charity",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "Draw 3 cards, then discard 2 cards.",
+      "artworkPasscodes": [
+        79571449
+      ]
+    },
+    {
+      "id": 24915933,
+      "name": "Granguignol the Dusk Dragon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "attribute": "LIGHT",
+      "race": "Spellcaster",
+      "level": 8,
+      "atk": 2500,
+      "def": 2500,
+      "desc": "\"Blazing Cartesia, the Virtuous\" + 1 LIGHT or DARK monster\r\nIf this card is Fusion Summoned: You can send 1 Level 6 or higher LIGHT or DARK monster from your Deck or Extra Deck to the GY. If a monster is Special Summoned by your opponent's activated monster effect (except during the Damage Step): You can banish this card from your field or GY; Special Summon 1 \"Dogmatika\" monster from your Deck or 1 \"Despia\" monster from your Extra Deck. You can only use each effect of \"Granguignol the Dusk Dragon\" once per turn.",
+      "artworkPasscodes": [
+        24915933
+      ]
+    },
+    {
+      "id": 45883110,
+      "name": "Guiding Quem, the Virtuous",
+      "type": "Tuner Monster",
+      "frameType": "effect",
+      "archetype": "Despia",
+      "attribute": "LIGHT",
+      "race": "Spellcaster",
+      "level": 4,
+      "atk": 1500,
+      "def": 1500,
+      "desc": "(This card is always treated as a \"Dogmatika\" and \"Despia\" card.)\r\nIf this card is Normal or Special Summoned: You can send 1 \"Fallen of Albaz\" or 1 card that mentions it from your Deck to the GY. If a card(s) leaves the Extra Deck (except during the Damage Step): You can target 1 \"Fallen of Albaz\", or 1 monster that mentions it, in your GY, except \"Guiding Quem, the Virtuous\"; Special Summon it. You can only use each effect of \"Guiding Quem, the Virtuous\" once per turn.",
+      "artworkPasscodes": [
+        45883110
+      ]
+    },
+    {
+      "id": 18144507,
+      "name": "Harpie's Feather Duster",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Harpie",
+      "race": "Normal",
+      "desc": "Destroy all Spell and Trap Cards your opponent controls.",
+      "artworkPasscodes": [
+        18144507,
+        18144506
+      ]
+    },
+    {
+      "id": 24361622,
+      "name": "Hieratic Seal of the Heavenly Spheres",
+      "type": "Link Monster",
+      "frameType": "link",
+      "archetype": "Hieratic",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 0,
+      "atk": 0,
+      "def": null,
+      "desc": "2 Dragon monsters\r\nOnce per opponent's turn, if this card is in the Extra Monster Zone (Quick Effect): You can Tribute 1 monster from your hand or field; return 1 face-up card on the field to the hand. If this card is Tributed: Special Summon 1 Dragon monster from your hand or Deck, but make its ATK/DEF 0. You can only use this effect of \"Hieratic Seal of the Heavenly Spheres\" once per turn.",
+      "artworkPasscodes": [
+        24361622
+      ]
+    },
+    {
+      "id": 48815792,
+      "name": "Hiita the Fire Charmer, Ablaze",
+      "type": "Link Monster",
+      "frameType": "link",
+      "archetype": "Charmer",
+      "attribute": "FIRE",
+      "race": "Spellcaster",
+      "level": null,
+      "atk": 1850,
+      "def": null,
+      "desc": "2 monsters, including a FIRE monster\r\n(This card is always treated as a \"Familiar-Possessed\" card.)\r\nYou can target 1 FIRE monster in your opponent's GY; Special Summon it to your zone this card points to. If this Link Summoned card is destroyed by battle, or is destroyed by an opponent's card effect while in its owner's Monster Zone: You can add 1 FIRE monster with 1500 or less DEF from your Deck to your hand. You can only use each effect of \"Hiita the Fire Charmer, Ablaze\" once per turn.",
+      "artworkPasscodes": [
+        48815792
+      ]
+    },
+    {
+      "id": 65741786,
+      "name": "I:P Masquerena",
+      "type": "Link Monster",
+      "frameType": "link",
+      "attribute": "DARK",
+      "race": "Cyberse",
+      "level": null,
+      "atk": 800,
+      "def": null,
+      "desc": "2 non-Link Monsters\r\nDuring your opponent's Main Phase, you can (Quick Effect): Immediately after this effect resolves, Link Summon 1 Link Monster using materials you control, including this card. You can only use this effect of \"I:P Masquerena\" once per turn. A Link Monster that used this card as material cannot be destroyed by your opponent's card effects.",
+      "artworkPasscodes": [
+        65741786,
+        65741787
+      ]
+    },
+    {
+      "id": 55273560,
+      "name": "Incredible Ecclesia, the Virtuous",
+      "type": "Tuner Monster",
+      "frameType": "effect",
+      "attribute": "LIGHT",
+      "race": "Spellcaster",
+      "level": 4,
+      "atk": 1500,
+      "def": 1500,
+      "desc": "If your opponent controls more monsters than you do, you can Special Summon this card (from your hand). You can only Special Summon \"Incredible Ecclesia, the Virtuous\" once per turn this way. You can only use each of the following effects of \"Incredible Ecclesia, the Virtuous\" once per turn. During the Main Phase (Quick Effect): You can Tribute this card; Special Summon 1 \"Swordsoul\" monster or 1 \"Fallen of Albaz\" from your hand or Deck. During the End Phase, if a Fusion Monster(s) was sent to your GY this turn: Add this card from the GY to your hand.",
+      "artworkPasscodes": [
+        55273560
+      ]
+    },
+    {
+      "id": 10045474,
+      "name": "Infinite Impermanence",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "race": "Normal",
+      "desc": "Target 1 face-up monster your opponent controls; negate its effects (until the end of this turn), then, if this card was Set before activation and is on the field at resolution, for the rest of this turn all other Spell/Trap effects in this column are negated. If you control no cards, you can activate this card from your hand.",
+      "artworkPasscodes": [
+        10045474
+      ]
+    },
+    {
+      "id": 17209452,
+      "name": "Kewl Tune Rotary",
+      "type": "Tuner Monster",
+      "frameType": "effect",
+      "archetype": "Kewl Tune",
+      "attribute": "LIGHT",
+      "race": "Cyberse",
+      "level": 1,
+      "atk": 100,
+      "def": 800,
+      "desc": "If this card on the field would be used as Synchro Material, 1 Tuner in your hand can be used as 1 of the other materials. You can only use each of the following effects of \"Kewl Tune Rotary\" once per turn. You can reveal this card and 1 Tuner in your hand; immediately after this effect resolves, Normal Summon 1 Tuner. If this card is sent to the GY as Synchro Material: You can activate 1 of these effects;\r\n● Place 1 card from your opponent's GY on the bottom of their Deck.\r\n● Look at your opponent's hand, then you can add 1 \"Kewl Tune\" Spell/Trap from your Deck to your hand.",
+      "artworkPasscodes": [
+        17209452
+      ]
+    },
+    {
+      "id": 72578374,
+      "name": "Khaos Starsource Dragon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 2500,
+      "def": 2500,
+      "desc": "1 LIGHT or DARK Dragon monster + 1 Dragon monster\r\nIf this card is Fusion Summoned: You can target cards your opponent controls, up to the number of LIGHT and DARK monsters used as this card's material; destroy them. If this card is banished: You can target 1 Level 4 LIGHT or DARK Dragon monster you control; its Level becomes 8. You can only use each effect of \"Khaos Starsource Dragon\" once per turn.",
+      "artworkPasscodes": [
+        72578374
+      ]
+    },
+    {
+      "id": 35405755,
+      "name": "Kurikara Divincarnate",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "attribute": "FIRE",
+      "race": "Fairy",
+      "level": 1,
+      "atk": 1500,
+      "def": 1500,
+      "desc": "Cannot be Normal Summoned/Set. Must be Special Summoned (from your hand) by Tributing all face-up monsters on the field that activated their effects this turn in your opponent's Monster Zone. Gains 1500 ATK for each monster Tributed to Special Summon this card. During your End Phase: You can target 1 monster in your opponent's GY; Special Summon it to your field. You can only use this effect of \"Kurikara Divincarnate\" once per turn.",
+      "artworkPasscodes": [
+        35405755
+      ]
+    },
+    {
+      "id": 33599853,
+      "name": "Light and Darkness Ritual",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Light and Darkness Ritual",
+      "race": "Ritual",
+      "desc": "This card can be used to Ritual Summon \"Magician of Dark Chaos - Black Chaos\" or \"Black Luster Soldier - Soldier of Light and Darkness\". You must also Tribute monsters from your hand or field, and/or banish monsters from your GY, whose total Levels equal or exceed its Level. If this card is in your GY: You can add this card and 1 card that mentions \"Light and Darkness Ritual\" from your GY to your hand. You can only use this effect of \"Light and Darkness Ritual\" once per turn.",
+      "artworkPasscodes": [
+        33599853
+      ]
+    },
+    {
+      "id": 14532163,
+      "name": "Lightning Storm",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Cyclone",
+      "race": "Normal",
+      "desc": "If you control no face-up cards: Activate 1 of these effects;\r\n● Destroy all Attack Position monsters your opponent controls.\r\n● Destroy all Spells and Traps your opponent controls.\r\nYou can only activate 1 \"Lightning Storm\" per turn.",
+      "artworkPasscodes": [
+        14532163
+      ]
+    },
+    {
+      "id": 10515412,
+      "name": "Lightstorm Dragon",
+      "type": "Synchro Monster",
+      "frameType": "synchro",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 9,
+      "atk": 2700,
+      "def": 3000,
+      "desc": "1 Tuner + 1+ non-Tuner monsters\r\nIf this card is Special Summoned: You can target Spells/Traps on the field up to the number of Normal Monsters in your GY +1; destroy them. If this card is destroyed by battle or card effect: You can target 1 Spell/Trap in your GY; Set it, but it cannot be activated unless you control a Normal Monster. You can only use each effect of \"Lightstorm Dragon\" once per turn.",
+      "artworkPasscodes": [
+        10515412
+      ]
+    },
+    {
+      "id": 41999284,
+      "name": "Linkuriboh",
+      "type": "Link Monster",
+      "frameType": "link",
+      "archetype": "Kuriboh",
+      "attribute": "DARK",
+      "race": "Cyberse",
+      "level": 0,
+      "atk": 300,
+      "def": null,
+      "desc": "1 Level 1 Monster\r\nWhen an opponent's monster declares an attack: You can Tribute this card; change that opponent's monster's ATK to 0, until the end of this turn. If this card is in your GY (Quick Effect): You can Tribute 1 Level 1 monster; Special Summon this card. You can only use this effect of \"Linkuriboh\" once per turn.",
+      "artworkPasscodes": [
+        41999284
+      ]
+    },
+    {
+      "id": 74003290,
+      "name": "Lost Wind",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "race": "Normal",
+      "desc": "Target 1 face-up Special Summoned monster on the field; negate its effects, also its original ATK is halved. If a monster is Special Summoned from your opponent's Extra Deck, while this card is in your GY (except during the Damage Step): You can Set this card, but banish it when it leaves the field.",
+      "artworkPasscodes": [
+        74003290
+      ]
+    },
+    {
+      "id": 70534340,
+      "name": "Lubellion the Searing Dragon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Albaz Dragon",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 2500,
+      "def": 3000,
+      "desc": "1 DARK monster + \"Fallen of Albaz\"\r\nIf this card is Fusion Summoned: You can discard 1 card; Fusion Summon 1 Level 8 or lower Fusion Monster from your Extra Deck, except \"Lubellion the Searing Dragon\", by shuffling Fusion Materials mentioned on it into the Deck, from your monsters on the field, GY, and/or face-up banished cards. For the rest of this turn, this card cannot attack, also you cannot Special Summon from the Extra Deck, except Fusion Monsters. You can only use this effect of \"Lubellion the Searing Dragon\" once per turn.",
+      "artworkPasscodes": [
+        70534340
+      ]
+    },
+    {
+      "id": 44001993,
+      "name": "Magician of Dark Chaos - Black Chaos",
+      "type": "Ritual Effect Monster",
+      "frameType": "ritual",
+      "archetype": "Light and Darkness Ritual",
+      "attribute": "DARK",
+      "race": "Spellcaster",
+      "level": 8,
+      "atk": 2800,
+      "def": 2600,
+      "desc": "You can Ritual Summon this card with \"Light and Darkness Ritual\". Unaffected by your opponent's activated effects, unless they target this card, also Spells/Traps you control cannot be destroyed, or banished, by your opponent's card effects. You can only use each of the following effects of \"Magician of Dark Chaos - Black Chaos\" once per turn. If this card is Special Summoned: You can add 1 Spell from your GY to your hand. You can target 1 card your opponent controls; banish it face-down.",
+      "artworkPasscodes": [
+        44001993
+      ]
+    },
+    {
+      "id": 97631303,
+      "name": "Magicians' Souls",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Dark Magician",
+      "attribute": "DARK",
+      "race": "Spellcaster",
+      "level": 1,
+      "atk": 0,
+      "def": 0,
+      "desc": "You can send up to 2 Spells/Traps from your hand and/or field to the GY; draw that many cards. If this card is in your hand: You can send 1 Level 6 or higher Spellcaster monster from your Deck to the GY, then activate 1 of these effects;\r\n● Special Summon this card.\r\n● Send this card to the GY, then, you can Special Summon 1 \"Dark Magician\" or 1 \"Dark Magician Girl\" from your GY.\r\nYou can only use each effect of \"Magicians' Souls\" once per turn.",
+      "artworkPasscodes": [
+        97631303
+      ]
+    },
+    {
+      "id": 17947697,
+      "name": "Maiden of White",
+      "type": "Tuner Monster",
+      "frameType": "effect",
+      "attribute": "LIGHT",
+      "race": "Spellcaster",
+      "level": 1,
+      "atk": 0,
+      "def": 0,
+      "desc": "You can send this card from your hand or field to the GY; place 1 \"True Light\" from your hand, Deck, or GY, face-up in your Spell & Trap Zone. If you Special Summon \"Blue-Eyes White Dragon\" while this card is in your GY (except during the Damage Step): You can Special Summon this card. When a card or effect is activated that targets this card on the field, or when this card is targeted for an attack (Quick Effect): You can Special Summon 1 \"Blue-Eyes White Dragon\" or 1 Level 1 LIGHT Tuner from your GY. You can only use each effect of \"Maiden of White\" once per turn.",
+      "artworkPasscodes": [
+        17947697
+      ]
+    },
+    {
+      "id": 43219114,
+      "name": "Majesty of the White Dragons",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "race": "Normal",
+      "desc": "Show up to 3 of the \"Blue-Eyes White Dragon\" in your hand, face-up Monster Zone, and/or GY, then destroy an equal number of cards your opponent controls. You can banish this card from your GY; Ritual Summon 1 Ritual Monster from your hand, by Tributing \"Blue-Eyes White Dragon(s)\" from your hand or field whose total Levels equal its Level. You can only use each effect of \"Majesty of the White Dragons\" once per turn.",
+      "artworkPasscodes": [
+        43219114
+      ]
+    },
+    {
+      "id": 6855503,
+      "name": "Masquerade the Blazing Dragon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Despia",
+      "attribute": "DARK",
+      "race": "Fiend",
+      "level": 8,
+      "atk": 2500,
+      "def": 2000,
+      "desc": "1 \"Despia\" monster + 1 LIGHT or DARK monster\r\nWhile you control this Fusion Summoned card, your opponent must pay 600 LP to activate cards or effects. If your opponent controls a Ritual, Fusion, Synchro, Xyz, or Link Monster, while this card is in your GY (Quick Effect): You can Special Summon this card, but banish it when it leaves the field. You can only use this effect of \"Masquerade the Blazing Dragon\" once per turn.",
+      "artworkPasscodes": [
+        6855503
+      ]
+    },
+    {
+      "id": 24382602,
+      "name": "Mausoleum of White",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Field",
+      "desc": "During your Main Phase, you can Normal Summon 1 Level 1 LIGHT Tuner in addition to your Normal Summon/Set. (You can only gain this effect once per turn.) Once per turn: You can target 1 face-up monster you control; send 1 Normal Monster from your hand or Deck to the GY, and if you do, the targeted monster gains ATK/DEF equal to the Level of the monster sent to the GY x 100, until the end of this turn (even if this card leaves the field). You can banish this card from your GY; add 1 \"Burst Stream of Destruction\" from your Deck to your hand.",
+      "artworkPasscodes": [
+        24382602
+      ]
+    },
+    {
+      "id": 89812483,
+      "name": "Max Metalmorph",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "archetype": "Metalmorph",
+      "race": "Normal",
+      "desc": "Tribute 1 face-up monster; Special Summon 1 monster that cannot be Normal Summoned/Set and mentions \"Max Metalmorph\" from your hand, Deck, or GY, then you can equip this card to it with the following effect.\r\n● The equipped monster gains 400 ATK/DEF, it cannot be destroyed by Spell or monster effects, also your opponent cannot target it with monster effects or Spell Cards or effects.\r\nYou can only activate 1 \"Max Metalmorph\" per turn.",
+      "artworkPasscodes": [
+        89812483
+      ]
+    },
+    {
+      "id": 29157292,
+      "name": "Metal Illusionist",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "attribute": "LIGHT",
+      "race": "Spellcaster",
+      "level": 1,
+      "atk": 0,
+      "def": 0,
+      "desc": "Increase this card's Level by 4 during your opponent's turn only. You can only use each of the following effects of \"Metal Illusionist\" once per turn. If this card is Normal or Special Summoned: You can Set 1 \"Metalmorph\" Trap from your Deck, then if \"Max Metalmorph\" is in your GY, you can draw 1 card. You can declare 1 other Monster Type; this card becomes that Type, until the end of your opponent's turn.",
+      "artworkPasscodes": [
+        29157292
+      ]
+    },
+    {
+      "id": 44146295,
+      "name": "Mirrorjade the Iceblade Dragon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Albaz Dragon",
+      "attribute": "DARK",
+      "race": "Wyrm",
+      "level": 8,
+      "atk": 3000,
+      "def": 2500,
+      "desc": "\"Fallen of Albaz\" + 1 Fusion, Synchro, Xyz, or Link Monster\r\nYou can only control 1 \"Mirrorjade the Iceblade Dragon\". Once per turn (Quick Effect): You can send 1 Fusion Monster from your Extra Deck to the GY that mentions \"Fallen of Albaz\" as material; banish 1 monster on the field, also this card cannot use this effect next turn. If this Fusion Summoned card in its owner's control leaves the field because of an opponent's card: You can destroy all monsters your opponent controls during the End Phase of this turn.",
+      "artworkPasscodes": [
+        44146295
+      ]
+    },
+    {
+      "id": 83764719,
+      "name": "Monster Reborn",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "Target 1 monster in either GY; Special Summon it.",
+      "artworkPasscodes": [
+        83764719,
+        83764718
+      ]
+    },
+    {
+      "id": 42141493,
+      "name": "Mulcharmy Fuwalos",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Mulcharmy",
+      "attribute": "WIND",
+      "race": "Winged Beast",
+      "level": 4,
+      "atk": 100,
+      "def": 600,
+      "desc": "If you control no cards (Quick Effect): You can discard this card; apply these effects this turn.\r\n● Each time your opponent Special Summons a monster(s) from the Deck and/or Extra Deck, immediately draw 1 card.\r\n● Once, during this End Phase, if the number of cards in your hand is more than the number of cards your opponent controls +6, you must randomly shuffle cards from your hand into the Deck so the number in your hand equals the number your opponent controls +6.\r\nYou can only activate 1 other \"Mulcharmy\" monster effect, the turn you activate this effect.",
+      "artworkPasscodes": [
+        42141493
+      ]
+    },
+    {
+      "id": 84192580,
+      "name": "Mulcharmy Purulia",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Mulcharmy",
+      "attribute": "WATER",
+      "race": "Aqua",
+      "level": 4,
+      "atk": 100,
+      "def": 600,
+      "desc": "If you control no cards (Quick Effect): You can discard this card; apply these effects this turn.\r\n● Each time your opponent Normal or Special Summons a monster(s) from the hand, immediately draw 1 card.\r\n● Once, during this End Phase, if the number of cards in your hand is more than the number of cards your opponent controls +6, you must randomly shuffle cards from your hand into the Deck so the number in your hand equals the number your opponent controls +6.\r\nYou can only activate 1 other \"Mulcharmy\" monster effect, the turn you activate this effect.",
+      "artworkPasscodes": [
+        84192580
+      ]
+    },
+    {
+      "id": 1984618,
+      "name": "Nadir Servant",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "Send 1 monster from your Extra Deck to the GY, then add 1 \"Dogmatika\" monster or \"Fallen of Albaz\" from your Deck or GY to your hand, that has ATK less than or equal to that sent monster in the GY, also, for the rest of this turn after this card resolves, you cannot Special Summon monsters from the Extra Deck. You can only activate 1 \"Nadir Servant\" per turn.",
+      "artworkPasscodes": [
+        1984618
+      ]
+    },
+    {
+      "id": 56532353,
+      "name": "Neo Blue-Eyes Ultimate Dragon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Blue-Eyes",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 12,
+      "atk": 4500,
+      "def": 3800,
+      "desc": "\"Blue-Eyes White Dragon\" + \"Blue-Eyes White Dragon\" + \"Blue-Eyes White Dragon\"\nAt the end of the Damage Step, if this is the only face-up card you control, and this Fusion Summoned card attacked: You can send 1 \"Blue-Eyes\" Fusion Monster from your Extra Deck to the Graveyard; this card can attack again in a row. You can use this effect of \"Neo Blue-Eyes Ultimate Dragon\" up to twice per turn. During either player's turn, when a card or effect is activated that targets a \"Blue-Eyes\" monster(s) you control: You can banish this card from your Graveyard; negate the activation, and if you do, destroy that card.",
+      "artworkPasscodes": [
+        56532353
+      ]
+    },
+    {
+      "id": 54332792,
+      "name": "Neo Kaiser Sea Horse",
+      "type": "Tuner Monster",
+      "frameType": "effect",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 4,
+      "atk": 1700,
+      "def": 1650,
+      "desc": "If you control \"Blue-Eyes White Dragon\": You can Special Summon this card from your hand. You can target 1 LIGHT Tuner you control; increase or decrease its Level by 1. If this card is sent from the field to the GY: You can send 1 \"Blue-Eyes\" monster or 1 monster that mentions \"Blue-Eyes White Dragon\" from your Deck to the GY, except \"Neo Kaiser Sea Horse\". You can only use each effect of \"Neo Kaiser Sea Horse\" once per turn.",
+      "artworkPasscodes": [
+        54332792
+      ]
+    },
+    {
+      "id": 27204311,
+      "name": "Nibiru, the Primal Being",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "attribute": "LIGHT",
+      "race": "Rock",
+      "level": 11,
+      "atk": 3000,
+      "def": 600,
+      "desc": "During the Main Phase, if your opponent Normal or Special Summoned 5 or more monsters this turn (Quick Effect): You can Tribute as many face-up monsters on the field as possible, and if you do, Special Summon this card from your hand, then Special Summon 1 \"Primal Being Token\" (Rock/LIGHT/Level 11/ATK ?/DEF ?) to your opponent's field. (This Token's ATK/DEF become the combined original ATK/DEF of the Tributed monsters.) You can only use this effect of \"Nibiru, the Primal Being\" once per turn.",
+      "artworkPasscodes": [
+        27204311
+      ]
+    },
+    {
+      "id": 74191942,
+      "name": "Painful Choice",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "Select 5 cards from your Deck and show them to your opponent. Your opponent selects 1 card among them. Add that card to your hand and discard the remaining cards to the Graveyard.",
+      "artworkPasscodes": [
+        74191942
+      ]
+    },
+    {
+      "id": 24094653,
+      "name": "Polymerization",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "Fusion Summon 1 Fusion Monster from your Extra Deck, using monsters from your hand or field as Fusion Material.",
+      "artworkPasscodes": [
+        24094653,
+        27847700
+      ]
+    },
+    {
+      "id": 55144522,
+      "name": "Pot of Greed",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Greed",
+      "race": "Normal",
+      "desc": "Draw 2 cards.",
+      "artworkPasscodes": [
+        55144522
+      ]
+    },
+    {
+      "id": 98476659,
+      "name": "Pot of Sloth",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Greed",
+      "race": "Normal",
+      "desc": "Draw cards equal to the number of cards your opponent controls, then if you drew 2 or more cards, place cards from your hand on the bottom of the Deck in any order, equal to the number you drew -1. For the rest of this turn after this card resolves, you cannot activate \"Pot of Sloth\".",
+      "artworkPasscodes": [
+        98476659
+      ]
+    },
+    {
+      "id": 61677004,
+      "name": "Predaplant Darlingtonia Cobra",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Predaplant",
+      "attribute": "DARK",
+      "race": "Plant",
+      "level": 3,
+      "atk": 1000,
+      "def": 1500,
+      "desc": "If this card is Special Summoned by the effect of a \"Predaplant\" monster: You can add 1 \"Polymerization\" Spell Card or \"Fusion\" Spell Card from your Deck to your hand. You can only use this effect of \"Predaplant Darlingtonia Cobra\" once per Duel.",
+      "artworkPasscodes": [
+        61677004
+      ]
+    },
+    {
+      "id": 35272499,
+      "name": "Predaplant Ophrys Scorpio",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Predaplant",
+      "attribute": "DARK",
+      "race": "Plant",
+      "level": 3,
+      "atk": 1200,
+      "def": 800,
+      "desc": "If this card is Normal or Special Summoned: You can send 1 monster from your hand to the GY; Special Summon 1 \"Predaplant\" monster from your Deck, except \"Predaplant Ophrys Scorpio\". You can only use this effect of \"Predaplant Ophrys Scorpio\" once per turn.",
+      "artworkPasscodes": [
+        35272499
+      ]
+    },
+    {
+      "id": 70369116,
+      "name": "Predaplant Verte Anaconda",
+      "type": "Link Monster",
+      "frameType": "link",
+      "archetype": "Predaplant",
+      "attribute": "DARK",
+      "race": "Plant",
+      "level": null,
+      "atk": 500,
+      "def": null,
+      "desc": "2 Effect Monsters\r\nYou can target 1 face-up monster on the field; it becomes DARK until the end of this turn. You can pay 2000 LP and send 1 \"Fusion\" or \"Polymerization\" Normal or Quick-Play Spell from your Deck to the GY; this effect becomes that Spell's effect when that card is activated, also, you cannot Special Summon monsters for the rest of this turn. You can only use each effect of \"Predaplant Verte Anaconda\" once per turn.",
+      "artworkPasscodes": [
+        70369116
+      ]
+    },
+    {
+      "id": 63198739,
+      "name": "Primite Dragon Ether Beryl",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Primite",
+      "attribute": "EARTH",
+      "race": "Dragon",
+      "level": 4,
+      "atk": 1600,
+      "def": 0,
+      "desc": "If this card is Normal Summoned: You can Set 1 \"Primite\" Spell/Trap from your Deck. You can only use each of the following effects of \"Primite Dragon Ether Beryl\" once per turn. You can Tribute this card; send 1 Normal Monster from your Deck to the GY. During your Standby Phase, if you have a Normal Monster in your field or GY: You can add this card from the GY to your hand.",
+      "artworkPasscodes": [
+        63198739
+      ]
+    },
+    {
+      "id": 29095457,
+      "name": "Primite Drillbeam",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Primite",
+      "race": "Quick-Play",
+      "desc": "Reveal 1 \"Primite\" card, or 1 Normal Monster, in your hand, except \"Primite Drillbeam\" (or if you control a Normal Monster or a Level 5 or higher \"Primite\" monster, except a Token, you can activate this effect without revealing a card), then target 1 face-up card on the field; negate its effects, and if you do, banish it. During your Main Phase, if you control a \"Primite\" monster: You can Set this card from your GY. You can only use each effect of \"Primite Drillbeam\" once per turn.",
+      "artworkPasscodes": [
+        29095457
+      ]
+    },
+    {
+      "id": 56506740,
+      "name": "Primite Lordly Lode",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Primite",
+      "race": "Continuous",
+      "desc": "When this card is activated: Add 1 \"Primite\" card from your Deck to your hand, except \"Primite Lordly Lode\". You can declare 1 Normal Monster Card name; Special Summon 1 declared Normal Monster from your hand, Deck, or GY in Defense Position, also you cannot activate the effects of Special Summoned monsters on the field this turn. You can only use each effect of \"Primite Lordly Lode\" once per turn. Normal Monsters and \"Primite\" monsters you control gain 300 ATK for each Normal Monster with different names in your GY.",
+      "artworkPasscodes": [
+        56506740
+      ]
+    },
+    {
+      "id": 43711255,
+      "name": "Prohibition",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Continuous",
+      "desc": "Activate by declaring 1 card name. Cards with that name, and their effects, cannot be used. Cards already on the field are not affected (including face-down cards).",
+      "artworkPasscodes": [
+        43711255
+      ]
+    },
+    {
+      "id": 2772337,
+      "name": "Promethean Princess, Bestower of Flames",
+      "type": "Link Monster",
+      "frameType": "link",
+      "attribute": "FIRE",
+      "race": "Fiend",
+      "level": null,
+      "atk": 2700,
+      "def": null,
+      "desc": "2+ Effect Monsters\r\nYou cannot Special Summon monsters, except FIRE monsters. You can only use each of the following effects of \"Promethean Princess, Bestower of Flames\" once per turn. During your Main Phase: You can Special Summon 1 FIRE monster from your GY. If a monster(s) is Special Summoned to your opponent's field, while this card is in your GY (except during the Damage Step): You can target 1 FIRE monster you control and 1 monster your opponent controls; destroy them, and if you do, Special Summon this card.",
+      "artworkPasscodes": [
+        2772337
+      ]
+    },
+    {
+      "id": 12580477,
+      "name": "Raigeki",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "Destroy all monsters your opponent controls.",
+      "artworkPasscodes": [
+        12580477
+      ]
+    },
+    {
+      "id": 74677422,
+      "name": "Red-Eyes Black Dragon",
+      "type": "Normal Monster",
+      "frameType": "normal",
+      "archetype": "Red-Eyes",
+      "attribute": "DARK",
+      "race": "Dragon",
+      "level": 7,
+      "atk": 2400,
+      "def": 2000,
+      "desc": "''A ferocious dragon with a deadly attack.''",
+      "artworkPasscodes": [
+        74677422,
+        74677423,
+        74677424,
+        74677425,
+        74677426,
+        74677427
+      ]
+    },
+    {
+      "id": 80870883,
+      "name": "Red-Eyes Black Fullmetal Dragon",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Red-Eyes",
+      "attribute": "DARK",
+      "race": "Machine",
+      "level": 8,
+      "atk": 3400,
+      "def": 2400,
+      "desc": "Cannot be Normal Summoned/Set. Must first be Special Summoned with \"Max Metalmorph\" that was activated by Tributing a Level 5 or higher Dragon monster. You can reveal this card in your hand; Set 1 \"Metalmorph\" Trap from your Deck, and if you do, shuffle this card into the Deck. When your opponent activates a card or effect (Quick Effect): You can negate the activation, then you can inflict damage to your opponent equal to the original ATK of 1 Attack Position monster your opponent controls. You can only use each effect of \"Red-Eyes Black Fullmetal Dragon\" once per turn.",
+      "artworkPasscodes": [
+        80870883
+      ]
+    },
+    {
+      "id": 37818794,
+      "name": "Red-Eyes Dark Dragoon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Red-Eyes",
+      "attribute": "DARK",
+      "race": "Spellcaster",
+      "level": 8,
+      "atk": 3000,
+      "def": 2500,
+      "desc": "\"Dark Magician\" + \"Red-Eyes Black Dragon\" or 1 Dragon Effect Monster\r\nCannot be destroyed by card effects. Neither player can target this card with card effects. During your Main Phase: You can destroy 1 monster your opponent controls, and if you do, inflict damage to your opponent equal to that monster's original ATK. You can use this effect a number of times per turn up to the number of Normal Monsters used as Fusion Material for this card. Once per turn, when a card or effect is activated (Quick Effect): You can discard 1 card; negate the activation, and if you do, destroy that card, and if you do that, this card gains 1000 ATK.",
+      "artworkPasscodes": [
+        37818794
+      ]
+    },
+    {
+      "id": 6172122,
+      "name": "Red-Eyes Fusion",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Red-Eyes",
+      "race": "Normal",
+      "desc": "Fusion Summon 1 Fusion Monster that lists a \"Red-Eyes\" monster as material from your Extra Deck, using monsters from your hand, Deck, or field as Fusion Materials, and if you do, its name becomes \"Red-Eyes B. Dragon\". You cannot Normal or Special Summon other monsters the turn you activate this card. You can only activate 1 \"Red-Eyes Fusion\" per turn.",
+      "artworkPasscodes": [
+        6172122
+      ]
+    },
+    {
+      "id": 51409648,
+      "name": "Rindbrumm the Striking Dragon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Albaz Dragon",
+      "attribute": "DARK",
+      "race": "Winged Beast",
+      "level": 8,
+      "atk": 2500,
+      "def": 2000,
+      "desc": "\"Fallen of Albaz\" + 1 Beast, Beast-Warrior, or Winged Beast monster\r\nWhen a Fusion, Synchro, Xyz, or Link Monster's effect is activated (Quick Effect): You can negate that effect, then you can return 1 monster from the field to the hand. During your opponent's turn, while this card is in your GY (Quick Effect): You can target 1 \"Fallen of Albaz\" in your GY; Special Summon either that monster or this card, and banish the other. You can only use each effect of \"Rindbrumm the Striking Dragon\" once per turn.",
+      "artworkPasscodes": [
+        51409648
+      ]
+    },
+    {
+      "id": 17725109,
+      "name": "Roar of the Blue-Eyed Dragons",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "Special Summon in Defense Position, 1 \"Blue-Eyes\" monster from your Deck, GY, or banishment (but if you control no \"Blue-Eyes White Dragon\", you can only Special Summon \"Blue-Eyes White Dragon\" with this effect), also you cannot Special Summon from the Extra Deck for the rest of this turn, except Dragon monsters. You can banish this card from your GY; Fusion Summon 1 Fusion Monster from your Extra Deck, using monsters from your hand or field, including a \"Blue-Eyes\" monster. You can only use 1 \"Roar of the Blue-Eyed Dragons\" effect per turn, and only once that turn.",
+      "artworkPasscodes": [
+        17725109
+      ]
+    },
+    {
+      "id": 29301450,
+      "name": "S:P Little Knight",
+      "type": "Link Monster",
+      "frameType": "link",
+      "attribute": "DARK",
+      "race": "Warrior",
+      "level": null,
+      "atk": 1600,
+      "def": null,
+      "desc": "2 Effect Monsters\r\nIf this card is Link Summoned using a Fusion, Synchro, Xyz, or Link Monster as material: You can target 1 card on the field or in either GY; banish it, also your monsters cannot attack directly this turn. When your opponent activates a card or effect (Quick Effect): You can target 2 face-up monsters on the field, including a monster you control; banish both until the End Phase. You can only use each effect of \"S:P Little Knight\" once per turn.",
+      "artworkPasscodes": [
+        29301450
+      ]
+    },
+    {
+      "id": 8240199,
+      "name": "Sage with Eyes of Blue",
+      "type": "Tuner Monster",
+      "frameType": "effect",
+      "archetype": "Blue-Eyes",
+      "attribute": "LIGHT",
+      "race": "Spellcaster",
+      "level": 1,
+      "atk": 0,
+      "def": 1500,
+      "desc": "When this card is Normal Summoned: You can add 1 Level 1 LIGHT Tuner from your Deck to your hand, except \"Sage with Eyes of Blue\". You can discard this card, then target 1 Effect Monster you control; send it to the GY, and if you do, Special Summon 1 \"Blue-Eyes\" monster from your Deck. You can only use this effect of \"Sage with Eyes of Blue\" once per turn.",
+      "artworkPasscodes": [
+        8240199
+      ]
+    },
+    {
+      "id": 57134592,
+      "name": "Salamangreat Raging Phoenix",
+      "type": "Link Monster",
+      "frameType": "link",
+      "archetype": "Salamangreat",
+      "attribute": "FIRE",
+      "race": "Cyberse",
+      "level": null,
+      "atk": 2800,
+      "def": null,
+      "desc": "2+ FIRE Effect Monsters\r\nIf this card is Link Summoned using \"Salamangreat Raging Phoenix\" as material: You can add 1 \"Salamangreat\" card from your Deck to your hand. If a face-up FIRE monster(s) you control is destroyed by battle or card effect while this card is in your GY: You can target 1 of those monsters; Special Summon this card, and if you do, this card gains ATK equal to that monster's ATK. You can only use each effect of \"Salamangreat Raging Phoenix\" once per turn.",
+      "artworkPasscodes": [
+        57134592
+      ]
+    },
+    {
+      "id": 46565218,
+      "name": "Santa Claws",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "attribute": "LIGHT",
+      "race": "Fiend",
+      "level": 6,
+      "atk": 1200,
+      "def": 2500,
+      "desc": "You can Special Summon this card (from your hand) to your opponent's field in Defense Position, by Tributing 1 monster they control. If Summoned this way, once, during the End Phase of this turn: You can draw 1 card.",
+      "artworkPasscodes": [
+        46565218
+      ]
+    },
+    {
+      "id": 68462976,
+      "name": "Secret Village of the Spellcasters",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Field",
+      "desc": "If only you control a Spellcaster monster, your opponent cannot activate Spell Cards. If you control no Spellcaster monsters, you cannot activate Spell Cards.",
+      "artworkPasscodes": [
+        68462976
+      ]
+    },
+    {
+      "id": 45819647,
+      "name": "Selene, Queen of the Master Magicians",
+      "type": "Link Monster",
+      "frameType": "link",
+      "archetype": "Endymion",
+      "attribute": "LIGHT",
+      "race": "Spellcaster",
+      "level": null,
+      "atk": 1850,
+      "def": null,
+      "desc": "2+ monsters, including a Spellcaster monster\r\nIf this card is Link Summoned: Place Spell Counters on this card, equal to the number of Spells on the field and in the GYs. While an \"Endymion\" card(s) is on the field, your opponent's monsters cannot target this card for attacks. Once per turn, during the Main Phase (Quick Effect): You can remove 3 Spell Counters from your field; Special Summon 1 Spellcaster monster from your hand or GY in Defense Position, to your zone this card points to.",
+      "artworkPasscodes": [
+        45819647
+      ]
+    },
+    {
+      "id": 24081957,
+      "name": "Sinful Spoils of Subversion - Snake-Eye",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "Target 1 face-up monster on the field; place it face-up in its owner's Spell & Trap Zone as a Continuous Spell. You can only activate 1 \"Sinful Spoils of Subversion - Snake-Eye\" per turn.",
+      "artworkPasscodes": [
+        24081957
+      ]
+    },
+    {
+      "id": 24088928,
+      "name": "Skull Archfiend of Chaos",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Light and Darkness Ritual",
+      "attribute": "DARK",
+      "race": "Fiend",
+      "level": 6,
+      "atk": 2500,
+      "def": 1200,
+      "desc": "If this card is in your hand or GY: You can target 3 other cards in the GYs and/or face-up banishment, including a card that mentions \"Light and Darkness Ritual\"; place them on the bottom of the Deck in any order, and if you do, Special Summon this card. If this card is sent to the GY: You can send 1 Ritual Spell from your hand or Deck to the GY; add 1 Ritual Monster whose name is mentioned on that card from your Deck to your hand. You can only use each effect of \"Skull Archfiend of Chaos\" once per turn.",
+      "artworkPasscodes": [
+        24088928
+      ]
+    },
+    {
+      "id": 9674034,
+      "name": "Snake-Eye Ash",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Snake-Eye",
+      "attribute": "FIRE",
+      "race": "Pyro",
+      "level": 1,
+      "atk": 800,
+      "def": 1000,
+      "desc": "If this card is Normal or Special Summoned: You can add 1 Level 1 FIRE monster from your Deck to your hand. You can send 2 face-up cards you control to the GY, including this card; Special Summon 1 \"Snake-Eye\" monster from your hand or Deck, except \"Snake-Eye Ash\". You can only use each effect of \"Snake-Eye Ash\" once per turn.",
+      "artworkPasscodes": [
+        9674034
+      ]
+    },
+    {
+      "id": 45663742,
+      "name": "Snake-Eye Oak",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Snake-Eye",
+      "attribute": "FIRE",
+      "race": "Pyro",
+      "level": 1,
+      "atk": 900,
+      "def": 200,
+      "desc": "If this card is Normal or Special Summoned: You can target 1 of your Level 1 FIRE monsters that is banished or in your GY; either add it to your hand or Special Summon it. You can send 2 face-up cards you control to the GY, including this card; Special Summon 1 \"Snake-Eye\" monster from your hand or Deck, except \"Snake-Eye Oak\". You can only use each effect of \"Snake-Eye Oak\" once per turn.",
+      "artworkPasscodes": [
+        45663742
+      ]
+    },
+    {
+      "id": 27260347,
+      "name": "Snake-Eyes Diabellstar",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Snake-Eye",
+      "attribute": "FIRE",
+      "race": "Spellcaster",
+      "level": 8,
+      "atk": 2800,
+      "def": 2600,
+      "desc": "When an attack is declared involving this card and an opponent's monster: You can place this card from the field, and that opponent's monster, face-up in their owners' Spell & Trap Zones as Continuous Spells. While this card is a Continuous Spell: You can target 1 FIRE monster in your GY, except \"Snake-Eyes Diabellstar\"; place it face-up in its owner's Spell & Trap Zone as a Continuous Spell, and if you do, Special Summon this card. You can only use each effect of \"Snake-Eyes Diabellstar\" once per turn.",
+      "artworkPasscodes": [
+        27260347
+      ]
+    },
+    {
+      "id": 58071334,
+      "name": "Snake-Eyes Doomed Dragon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "-Eyes Dragon",
+      "attribute": "FIRE",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 3000,
+      "def": 2500,
+      "desc": "1 \"Snake-Eye\" monster + 1 Illusion monster\r\nMust be either Fusion Summoned, or Special Summoned by sending 2 face-up Monster Cards from your Spell & Trap Zone to the GY. If this card is Special Summoned: You can target 1 face-up monster on the field; place it face-up in its owner's Spell & Trap Zone as a Continuous Spell. You can only use this effect of \"Snake-Eyes Doomed Dragon\" once per turn.",
+      "artworkPasscodes": [
+        58071334
+      ]
+    },
+    {
+      "id": 48452496,
+      "name": "Snake-Eyes Flamberge Dragon",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Snake-Eye",
+      "attribute": "FIRE",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 3000,
+      "def": 2500,
+      "desc": "You can target 1 face-up monster on the field or in either GY; place it face-up in its owner's Spell & Trap Zone as a Continuous Spell. During your opponent's turn (Quick Effect): You can target 1 Monster Card treated as a Continuous Spell on the field; Special Summon it to your field. If this card is sent from the hand or field to the GY: You can Special Summon 2 Level 1 FIRE monsters from your GY. You can only use each effect of \"Snake-Eyes Flamberge Dragon\" once per turn.",
+      "artworkPasscodes": [
+        48452496
+      ]
+    },
+    {
+      "id": 90241276,
+      "name": "Snake-Eyes Poplar",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Snake-Eye",
+      "attribute": "FIRE",
+      "race": "Pyro",
+      "level": 1,
+      "atk": 700,
+      "def": 200,
+      "desc": "If this card is added to your hand, except by drawing it: You can Special Summon this card. If this card is Normal or Special Summoned: You can add 1 \"Snake-Eye\" Spell/Trap from your Deck to your hand. If this card is sent to the GY: You can target 1 FIRE monster in your GY; place it face-up in its owner's Spell & Trap Zone as a Continuous Spell. You can only use each effect of \"Snake-Eyes Poplar\" once per turn.",
+      "artworkPasscodes": [
+        90241276
+      ]
+    },
+    {
+      "id": 78114463,
+      "name": "Solemn Accusation",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "archetype": "Solemn",
+      "race": "Counter",
+      "desc": "You can activate this card the turn it was Set, by revealing 1 other face-down Trap you control. When a Spell/Trap Card is activated: You can activate 1 of these effects;\r\n● Pay 1500 LP; negate the activation, and if you do, destroy it, and if you do that, neither player can activate cards, or the effects of cards, with the same original name as that destroyed card for the rest of this turn.\r\n● Pay 3000 LP; negate the activation, and if you do, banish it, then your opponent banishes all cards from their hand and Deck with the same original name as that banished card.",
+      "artworkPasscodes": [
+        78114463
+      ]
+    },
+    {
+      "id": 41420027,
+      "name": "Solemn Judgment",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "archetype": "Solemn",
+      "race": "Counter",
+      "desc": "When a monster(s) would be Summoned, OR a Spell/Trap Card is activated: Pay half your LP; negate the Summon or activation, and if you do, destroy that card.",
+      "artworkPasscodes": [
+        41420027
+      ]
+    },
+    {
+      "id": 68073522,
+      "name": "Soul Absorption",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Continuous",
+      "desc": "If a card(s) is banished: Gain 500 LP for each.",
+      "artworkPasscodes": [
+        68073522
+      ]
+    },
+    {
+      "id": 54447022,
+      "name": "Soul Charge",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "Target any number of monsters in your GY; Special Summon them, and if you do, you lose 1000 LP for each monster Special Summoned by this effect. You cannot conduct your Battle Phase the turn you activate this card. You can only activate 1 \"Soul Charge\" per turn.",
+      "artworkPasscodes": [
+        54447022
+      ]
+    },
+    {
+      "id": 51481927,
+      "name": "Spell Absorption",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Continuous",
+      "desc": "Each time a Spell Card is activated, gain 500 LP immediately after it resolves.",
+      "artworkPasscodes": [
+        51481927
+      ]
+    },
+    {
+      "id": 42097666,
+      "name": "Spirit with Eyes of Blue",
+      "type": "Link Monster",
+      "frameType": "link",
+      "archetype": "with Eyes of Blue",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": null,
+      "atk": 300,
+      "def": null,
+      "desc": "1 Level 4 or lower Dragon or Spellcaster monster\r\nYou cannot Special Summon, except Dragon monsters. You can only use each of the following effects of \"Spirit with Eyes of Blue\" once per turn. If this card is Link Summoned: You can take 1 \"Mausoleum of White\" from your Deck and either add it to your hand or send it to the GY. You can Tribute this card; Special Summon 1 \"Blue-Eyes\" monster from your hand or GY, but if you Special Summoned an Effect Monster from your GY by this effect, it cannot attack and its effects are negated.",
+      "artworkPasscodes": [
+        42097666
+      ]
+    },
+    {
+      "id": 45484331,
+      "name": "Springans Kitt",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Springans",
+      "attribute": "DARK",
+      "race": "Beast",
+      "level": 4,
+      "atk": 1700,
+      "def": 1000,
+      "desc": "If you have a Fusion Monster that mentions \"Fallen of Albaz\" as material on your field or in your GY: You can Special Summon this card from your hand. If this card is Normal or Special Summoned: You can add to your hand, 1 of your \"Branded\" Spells/Traps that is banished or in your Deck or GY, then place 1 card from your hand on the bottom of the Deck. You can only use each effect of \"Springans Kitt\" once per turn.",
+      "artworkPasscodes": [
+        45484331
+      ]
+    },
+    {
+      "id": 76636978,
+      "name": "Stardust Dragon - Victim Sanctuary",
+      "type": "Synchro Monster",
+      "frameType": "synchro",
+      "archetype": "Stardust",
+      "attribute": "WIND",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 2500,
+      "def": 2000,
+      "desc": "1 Tuner + 1+ non-Tuners\r\nWhen your opponent activates a card or effect in response to your card or effect activation (Quick Effect): You can Tribute this card; negate the activation of your opponent's card or effect, and if you do, destroy that card. If a monster(s) in your possession was Tributed this turn (Quick Effect): You can banish this card from your GY; Special Summon 1 \"Stardust\" Synchro Monster from your Extra Deck. You can only use each effect of \"Stardust Dragon - Victim Sanctuary\" once per turn, and cannot activate more than 1 in the same Chain.",
+      "artworkPasscodes": [
+        76636978
+      ]
+    },
+    {
+      "id": 26268488,
+      "name": "Stardust Sifr Divine Dragon",
+      "type": "Synchro Monster",
+      "frameType": "synchro",
+      "archetype": "Stardust",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 12,
+      "atk": 4000,
+      "def": 4000,
+      "desc": "1 Tuner Synchro Monster + 2 or more non-Tuner Synchro Monsters\nMust be Synchro Summoned and cannot be Special Summoned by other ways. The first time each card you control would be destroyed each turn, by battle or card effect, it is not destroyed. Once per turn, during either player's turn, when your opponent activates a monster effect: You can negate that effect, and if you do, destroy 1 card on the field. You can banish this card from your Graveyard, then target 1 Level 8 or lower \"Stardust\" monster in your Graveyard; Special Summon it.",
+      "artworkPasscodes": [
+        26268488
+      ]
+    },
+    {
+      "id": 74892653,
+      "name": "Stardust Warrior",
+      "type": "Synchro Monster",
+      "frameType": "synchro",
+      "archetype": "Stardust",
+      "attribute": "WIND",
+      "race": "Warrior",
+      "level": 10,
+      "atk": 3000,
+      "def": 2500,
+      "desc": "1 Tuner Synchro Monster + 1 or more non-Tuner Synchro Monsters\nDuring either player's turn, if your opponent would Special Summon a monster(s): You can Tribute this card; negate the Summon, and if you do, destroy that monster(s). During the End Phase, if this effect was activated this turn (and was not negated): You can Special Summon this card from your Graveyard. If this card is destroyed by battle, or if this face-up card you control leaves the field because of an opponent's card effect: You can Special Summon 1 Level 8 or lower \"Warrior\" Synchro Monster from your Extra Deck. (This Special Summon is treated as a Synchro Summon.)",
+      "artworkPasscodes": [
+        74892653
+      ]
+    },
+    {
+      "id": 41209827,
+      "name": "Starving Venom Fusion Dragon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Venom",
+      "attribute": "DARK",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 2800,
+      "def": 2000,
+      "desc": "2 DARK monsters on the field, except Tokens\nIf this card is Fusion Summoned: You can make this card gain ATK equal to 1 opponent's Special Summoned monster, until the end of this turn. Once per turn: You can target 1 Level 5 or higher monster your opponent controls; until the End Phase, this card's name becomes that monster's original name, and replace this effect with that monster's original effects. If this Fusion Summoned card is destroyed: You can destroy all your opponent's Special Summoned monsters.",
+      "artworkPasscodes": [
+        41209827,
+        41209828
+      ]
+    },
+    {
+      "id": 423585,
+      "name": "Summoner Monk",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "attribute": "DARK",
+      "race": "Spellcaster",
+      "level": 4,
+      "atk": 800,
+      "def": 1600,
+      "desc": "While this card is face-up on the field, it cannot be Tributed. If this card is Normal or Flip Summoned: Change this card to Defense Position. Once per turn: You can discard 1 Spell; Special Summon 1 Level 4 monster from your Deck, but that monster cannot attack this turn.",
+      "artworkPasscodes": [
+        423585
+      ]
+    },
+    {
+      "id": 48130397,
+      "name": "Super Polymerization",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Quick-Play",
+      "desc": "Discard 1 card; Fusion Summon 1 Fusion Monster from your Extra Deck, using monsters from either field as Fusion Material. Neither player can activate cards or effects in response to this card's activation.",
+      "artworkPasscodes": [
+        48130397
+      ]
+    },
+    {
+      "id": 32731036,
+      "name": "The Bystial Lubellion",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Bystial",
+      "attribute": "LIGHT",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 2500,
+      "def": 3000,
+      "desc": "Cannot be Normal Summoned/Set. Must be Special Summoned (from your hand or GY) by Tributing 1 Level 6 or higher DARK Dragon monster. You can only Special Summon \"The Bystial Lubellion\" once per turn this way. You can send this card from your hand to the GY; add 1 \"Bystial\" monster from your Deck to your hand, except \"The Bystial Lubellion\". During your Main Phase: You can place 1 \"Branded\" Continuous Spell/Trap from your Deck face-up on your field. You can only use each effect of \"The Bystial Lubellion\" once per turn.",
+      "artworkPasscodes": [
+        32731036
+      ]
+    },
+    {
+      "id": 76666602,
+      "name": "The Dragon that Devours the Dogma",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "archetype": "Albaz Dragon",
+      "attribute": "DARK",
+      "race": "Beast",
+      "level": 8,
+      "atk": 3000,
+      "def": 2500,
+      "desc": "\"Fallen of Albaz\" + 1 LIGHT or DARK monster + 1 Effect Monster\r\nWhile an \"Ecclesia\" monster is on the field or in either GY, this card gains 500 ATK, also it is unaffected by other cards' effects. You can only use each of the following effects of \"The Dragon that Devours the Dogma\" once per turn. If this card is Special Summoned: You can shuffle up to 2 cards from any GY(s) and/or banishment into the Deck. During the End Phase, if this card is in the GY because it was sent there this turn: You can add 1 \"Dogmatika\" or \"Tri-Brigade\" card from your Deck to your hand.",
+      "artworkPasscodes": [
+        76666602
+      ]
+    },
+    {
+      "id": 30271097,
+      "name": "The Fallen & The Virtuous",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Branded",
+      "race": "Quick-Play",
+      "desc": "(This card is always treated as a \"Branded\" and \"Dogmatika\" card.)\r\nActivate 1 of these effects;\r\n● Send 1 monster that mentions \"Fallen of Albaz\" from your Extra Deck to the GY, then target 1 face-up card on the field; destroy it.\r\n● If you have an \"Ecclesia\" monster in your field or GY: Target 1 monster in either GY; Special Summon it to your field.\r\nYou can only activate 1 \"The Fallen & The Virtuous\" per turn.",
+      "artworkPasscodes": [
+        30271097
+      ]
+    },
+    {
+      "id": 94845588,
+      "name": "The Hallowed Azamina",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Azamina",
+      "race": "Normal",
+      "desc": "Reveal 1 \"Azamina\" Fusion Monster in your Extra Deck, and for every 4 Levels it has (round down), send 1 \"Sinful Spoils\" card from your hand and/or field to the GY (if face-down, reveal it), then Special Summon that revealed monster. (This is treated as a Fusion Summon.) If this card is in the GY: You can target 1 \"Azamina\" monster you control or in your GY; shuffle it into the Deck, and if you do, add this card to your hand. You can only use this effect of \"The Hallowed Azamina\" once per turn.",
+      "artworkPasscodes": [
+        94845588
+      ]
+    },
+    {
+      "id": 10000080,
+      "name": "The Winged Dragon of Ra - Sphere Mode",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Egyptian God",
+      "attribute": "DIVINE",
+      "race": "Divine-Beast",
+      "level": 10,
+      "atk": -1,
+      "def": -1,
+      "desc": "Cannot be Special Summoned. Requires 3 Tributes from either side of the field to Normal Summon to that side of the field (cannot be Normal Set), then shift control to this card's owner during the End Phase of the next turn. Cannot attack. Your opponent cannot target this card for attacks or by card effects. You can Tribute this card; Special Summon 1 \"The Winged Dragon of Ra\" from your hand or Deck, ignoring its Summoning conditions, and if you do, its ATK/DEF become 4000.",
+      "artworkPasscodes": [
+        10000080
+      ]
+    },
+    {
+      "id": 15216188,
+      "name": "Time Engine",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "archetype": "Metalmorph",
+      "race": "Normal",
+      "desc": "(This card is always treated as a \"Metalmorph\" card.)\r\nIf a monster(s) you control is destroyed by battle or an opponent's card effect: Target 1 of those monsters; Special Summon it, then if you Special Summoned a Level 5 or higher Machine monster by this effect and have a \"Metalmorph\" Trap on your field or GY, except this card on the field, you can apply this effect.\r\n● Destroy as many monsters your opponent controls as possible, then you can inflict damage to your opponent, equal to that Special Summoned monster's original ATK.",
+      "artworkPasscodes": [
+        15216188
+      ]
+    },
+    {
+      "id": 41373230,
+      "name": "Titaniklad the Ash Dragon",
+      "type": "Fusion Monster",
+      "frameType": "fusion",
+      "attribute": "DARK",
+      "race": "Dragon",
+      "level": 8,
+      "atk": 2500,
+      "def": 2500,
+      "desc": "\"Fallen of Albaz\" + 1 monster with 2500 or more ATK\r\nGains ATK equal to the combined original Levels of the monsters used for its Fusion Summon x 100. After this card is Fusion Summoned, for the rest of this turn, it is unaffected by the activated effects of any other monsters Special Summoned from the Extra Deck. During the End Phase, if this card is in the GY because it was sent there this turn: You can add to your hand, or Special Summon, 1 \"Fallen of Albaz\" or \"Dogmatika\" monster from your Deck. You can only use this effect of \"Titaniklad the Ash Dragon\" once per turn.",
+      "artworkPasscodes": [
+        41373230
+      ]
+    },
+    {
+      "id": 19096726,
+      "name": "Tri-Brigade Mercourier",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Tri-Brigade",
+      "attribute": "DARK",
+      "race": "Winged Beast",
+      "level": 4,
+      "atk": 800,
+      "def": 0,
+      "desc": "When your opponent activates a monster effect, while you control a Fusion Monster that mentions \"Fallen of Albaz\" as material (Quick Effect): You can send this card from your hand or face-up field to the GY; negate that effect. If this card is banished: You can add from your Deck to your hand, 1 \"Fallen of Albaz\", or 1 monster that mentions it, except \"Tri-Brigade Mercourier\". You can only use each effect of \"Tri-Brigade Mercourier\" once per turn.",
+      "artworkPasscodes": [
+        19096726
+      ]
+    },
+    {
+      "id": 19304410,
+      "name": "Tri-Brigade Springans Kitt",
+      "type": "Effect Monster",
+      "frameType": "effect",
+      "archetype": "Springans",
+      "attribute": "LIGHT",
+      "race": "Beast",
+      "level": 4,
+      "atk": 1700,
+      "def": 1000,
+      "desc": "If you control a \"Tri-Brigade\" or \"Springans\" monster, except \"Tri-Brigade Springans Kitt\": You can Special Summon this card from your hand. If this card is sent to the GY: You can Special Summon 1 of the following monsters from your GY in Defense Position, except \"Tri-Brigade Springans Kitt\".\r\n● \"Tri-Brigade\" monster ● \"Springans\" monster\r\n● \"Fallen of Albaz\" or 1 monster that mentions it\r\nYou can only use each effect of \"Tri-Brigade Springans Kitt\" once per turn.",
+      "artworkPasscodes": [
+        19304410
+      ]
+    },
+    {
+      "id": 25311006,
+      "name": "Triple Tactics Talent",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "race": "Normal",
+      "desc": "If your opponent has activated a monster effect during your Main Phase this turn: Activate 1 of these effects;\r\n● Draw 2 cards.\r\n● Take control of 1 monster your opponent controls until the End Phase.\r\n● Look at your opponent's hand, and choose 1 card from it to shuffle into the Deck.\r\nYou can only activate 1 \"Triple Tactics Talent\" per turn.",
+      "artworkPasscodes": [
+        25311006
+      ]
+    },
+    {
+      "id": 62089826,
+      "name": "True Light",
+      "type": "Trap Card",
+      "frameType": "trap",
+      "archetype": "Blue-Eyes",
+      "race": "Continuous",
+      "desc": "Your opponent cannot target \"Blue-Eyes White Dragon\" in your Monster Zone with card effects. If this face-up card is sent from the Spell & Trap Zone to the GY: Destroy all monsters you control. You can only use the following effect of \"True Light\" once per turn. You can activate 1 of these effects;\r\n● Special Summon 1 \"Blue-Eyes White Dragon\" from your hand or GY.\r\n● Set 1 Spell/Trap directly from your Deck, that specifically lists \"Blue-Eyes White Dragon\" in its text, with a different name from the cards you control and in your GY.",
+      "artworkPasscodes": [
+        62089826
+      ]
+    },
+    {
+      "id": 4993187,
+      "name": "W:P Fancy Ball",
+      "type": "Link Monster",
+      "frameType": "link",
+      "archetype": "P",
+      "attribute": "DARK",
+      "race": "Cyberse",
+      "level": null,
+      "atk": 2400,
+      "def": null,
+      "desc": "2+ Effect Monsters\r\nWhen your opponent activates a monster effect on the field or GY (Quick Effect): You can banish this card that was Special Summoned this turn until the End Phase; negate that effect, and if you do, banish it. During your opponent's Main Phase, you can (Quick Effect): Immediately after this effect resolves, Link Summon 1 Link Monster, and if this card you control would be used as material for that Link Summon, you can also use 1 Link-2 or lower monster your opponent controls. Neither player can activate the effects of Link Monsters in response to this effect's activation. You can only use each effect of \"W:P Fancy Ball\" once per turn.",
+      "artworkPasscodes": [
+        4993187
+      ]
+    },
+    {
+      "id": 80845034,
+      "name": "WANTED: Seeker of Sinful Spoils",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "Sinful Spoils",
+      "race": "Quick-Play",
+      "desc": "Add 1 \"Diabellstar\" monster from your Deck or GY to your hand. During your Main Phase: You can banish this card from your GY, then target 1 of your \"Sinful Spoils\" Spells/Traps that is banished or in your GY, except \"WANTED: Seeker of Sinful Spoils\"; place it on the bottom of the Deck, then draw 1 card. You can only use each effect of \"WANTED: Seeker of Sinful Spoils\" once per turn.",
+      "artworkPasscodes": [
+        80845034
+      ]
+    },
+    {
+      "id": 80326401,
+      "name": "Wishes for Eyes of Blue",
+      "type": "Spell Card",
+      "frameType": "spell",
+      "archetype": "with Eyes of Blue",
+      "race": "Normal",
+      "desc": "Discard 1 card; add 1 Level 1 LIGHT Tuner, and 1 Spell/Trap that mentions \"Blue-Eyes White Dragon\", from your Deck to your hand, except \"Wishes for Eyes of Blue\". You can banish this card from your GY, then target 1 \"Blue-Eyes White Dragon\" you control; equip 1 \"Blue-Eyes\" monster from your Extra Deck to it as an Equip Spell that gives it 400 ATK. You can only use each effect of \"Wishes for Eyes of Blue\" once per turn.",
+      "artworkPasscodes": [
+        80326401
+      ]
+    },
+    {
+      "id": 45112597,
+      "name": "Worldsea Dragon Zealantis",
+      "type": "Link Monster",
+      "frameType": "link",
+      "attribute": "WATER",
+      "race": "Sea Serpent",
+      "level": null,
+      "atk": 2500,
+      "def": null,
+      "desc": "1+ Effect Monsters\r\nYou can only control 1 \"Worldsea Dragon Zealantis\". You can only use each of the following effects of \"Worldsea Dragon Zealantis\" once per turn. During your Main Phase: You can banish all monsters on the field, then Special Summon as many monsters as possible that were banished by this effect, to their owners' fields, face-up, or in face-down Defense Position. During the Battle Phase (Quick Effect): You can destroy cards on the field up to the number of co-linked monsters on the field.",
+      "artworkPasscodes": [
+        45112597
+      ]
+    }
+  ]
+}

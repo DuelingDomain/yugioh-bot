@@ -1,8 +1,10 @@
 import Database from "better-sqlite3";
 import { migrate } from "../src/db/schema.js";
 import { gunzipSync } from "node:zlib";
-import { readFileSync } from "node:fs";
-import { describe, expect, it, vi } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
 import { interpret, buildArchetypeMatcher } from "../src/cards/effects/query.js";
 import { matchCard } from "../src/cards/effects/effect-match.js";
@@ -352,6 +354,150 @@ it.each([
   } finally { await context.close(); }
 });
 
+
+// Opt-in full-catalog quality evaluation: the external engine bundle is opened read-only.
+// Run with DECK_SUGGESTIONS_ENGINE_DIRECTORY=/path/to/engine and -t "sourced deck suggestion".
+// The fixture's expected universe is fixed before ranking. It never supplies a candidate pool.
+const suggestionEngineDirectory = process.env.DECK_SUGGESTIONS_ENGINE_DIRECTORY ?? process.env.DUEL_DATA_DIR;
+const suggestionFixture = JSON.parse(readFileSync(new URL("./fixtures/deck-suggestions-quality.json", import.meta.url), "utf8")) as {
+  fixtures: Array<{
+    id: string;
+    format: "normal" | "domain";
+    fullDeck: import("../src/duels/index.js").DuelDeck;
+    trimmedDeck: import("../src/duels/index.js").DuelDeck;
+    source: { url: string; retrievedAt: string };
+    expectedOmittedListCards: Array<{ passcode: number; name: string }>;
+    genericSupport: Array<{ passcode: number; name: string; reason: string }>;
+  }>;
+};
+
+describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDirectory}/cards.cdb`))("sourced deck suggestion quality over the real full catalog", () => {
+  let directory: string | undefined;
+  let database: Database.Database;
+  let catalog: ReturnType<typeof import("../src/services/card-insight-catalog.js").createInsightCatalog>;
+  let service: ReturnType<typeof import("../src/services/card-insights.js").createCardInsightService>;
+  let tcg: Set<number>;
+  let scopeFor: (mode: "normal" | "domain", directory: string, settings: import("../src/duels/settings.js").DuelSettings, options: { deckMaster?: number }) => import("../src/services/deck-suggestions.js").DeckSuggestionLegality;
+  const reports: unknown[] = [];
+
+  beforeAll(async () => {
+    const { loadDeckSuggestionQualityCatalog } = await import("./fixtures/deck-suggestions-quality.js");
+    const { createInsightCatalog } = await import("../src/services/card-insight-catalog.js");
+    const { createCardInsightService } = await import("../src/services/card-insights.js");
+    // URL import keeps this cross-package evaluation adapter outside the shared build root.
+    const { deckSuggestionScope } = await import(new URL("../../duel-server/src/deck-legality.ts", import.meta.url).href);
+    directory = mkdtempSync(join(tmpdir(), "deck-suggestions-quality-"));
+    const loaded = loadDeckSuggestionQualityCatalog(suggestionEngineDirectory!, join(directory, "catalog.sqlite"));
+    database = loaded.db;
+    catalog = createInsightCatalog(database, suggestionEngineDirectory);
+    service = createCardInsightService(database, { dataDirectory: suggestionEngineDirectory, catalog });
+    const engine = new Database(join(suggestionEngineDirectory!, "cards.cdb"), { readonly: true, fileMustExist: true });
+    try {
+      tcg = new Set((engine.prepare("SELECT id FROM datas WHERE (ot & 2) <> 0 AND (ot & 0x1238) = 0").all() as { id: number }[]).map(row => row.id));
+    } finally { engine.close(); }
+    scopeFor = deckSuggestionScope;
+    expect(loaded.cards).toBeGreaterThan(10_000);
+    expect(loaded.imported.coverage.taggedCards).toBeGreaterThan(10_000);
+    console.info(JSON.stringify({ evaluation: "deck-suggestions", catalogCards: loaded.cards, artifactVersion: loaded.imported.version }));
+  }, 60_000);
+
+  afterAll(() => {
+    try {
+      if (process.env.DECK_SUGGESTIONS_EVAL_OUTPUT) writeFileSync(process.env.DECK_SUGGESTIONS_EVAL_OUTPUT, JSON.stringify(reports, null, 2) + "\n");
+    } finally {
+      catalog?.close();
+      database?.close();
+      if (directory) rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each(suggestionFixture.fixtures)("measures $id precision without restricting candidates to expected cards", async fixture => {
+    const { defaultDuelSettings } = await import("../src/duels/settings.js");
+    const mode = fixture.format === "domain" ? "domain" : "normal";
+    const settings = defaultDuelSettings(mode);
+    const master = fixture.trimmedDeck.deckMaster;
+    const legality = scopeFor(mode, suggestionEngineDirectory!, settings, { deckMaster: master });
+    expect(legality.allowed.length, `${fixture.id}: authoritative admission universe`).toBeGreaterThan(1_000);
+    const admitted = new Set(legality.allowed);
+    const canonical = (code: number) => catalog.canonical(code);
+    const expected = new Set([...fixture.expectedOmittedListCards, ...fixture.genericSupport].map(card => canonical(card.passcode)));
+    const group = (code: number) => legality.copyGroups?.[canonical(code)] ?? canonical(code);
+    const options = { format: fixture.format, deckMaster: master, banlist: settings.banlist, legality };
+    const scenarios = [
+      { id: "trimmed", deck: fixture.trimmedDeck },
+      // Published main count restores >=40 while missing Extra Deck cards stay missing.
+      { id: "full-main", deck: { ...fixture.trimmedDeck, main: fixture.fullDeck.main.filter(code => fixture.format !== "domain" || canonical(code) !== canonical(master!)) } },
+    ];
+    for (const scenario of scenarios) {
+      const result = service.suggestRows(scenario.deck, options);
+      expect(result.rows.map(row => row.id)).toEqual(["archetype", "outside", "extra", "staples"]);
+      expect(result.version.length).toBeGreaterThan(0);
+      const shown = result.rows.flatMap(row => row.cards);
+      const held = new Map<number, number>();
+      for (const code of [...scenario.deck.main, ...scenario.deck.extra, ...scenario.deck.side, ...(master ? [master] : [])]) held.set(group(code), (held.get(group(code)) ?? 0) + 1);
+      const illegal = shown.filter(card => !admitted.has(card.passcode) || (held.get(group(card.passcode)) ?? 0) + 1 > (legality.limits[card.passcode] ?? (fixture.format === "domain" ? 1 : 3)));
+      const owned = new Set([...scenario.deck.main, ...scenario.deck.extra, ...scenario.deck.side, ...(master ? [master] : [])].map(canonical));
+      const staples = result.rows.find(row => row.id === "staples")!;
+      const outside = result.rows.find(row => row.id === "outside")!;
+      const archetype = result.rows.find(row => row.id === "archetype")!;
+      if (fixture.id === "branded") {
+        expect.soft(archetype.cards.map(card => card.name), "Branded: remove links to unrelated side cards").not.toEqual(expect.arrayContaining(["Black Chaos"]));
+        expect.soft(archetype.cards.filter(card => ["Black Chaos", "Griffoh", "Mind Shuffle", "The Golden Swordsoul"].includes(card.name))).toEqual([]);
+        expect.soft(archetype.cards.slice(0, 4).every(card => !card.reason.startsWith("Names ")), "Branded: members and direct support before name-only links").toBe(true);
+      }
+      const firstEight = outside.cards.slice(0, 8);
+      const topEightHits = firstEight.filter(card => expected.has(card.passcode)).length;
+      const report = {
+        deck: fixture.id, scenario: scenario.id, source: fixture.source,
+        expectedPasscodes: [...expected].sort((a, b) => a - b),
+        outsideTop8: { hits: topEightHits, returned: firstEight.length, precision: firstEight.length ? topEightHits / firstEight.length : null, pass: topEightHits >= 5 },
+        staplesShare: shown.length ? staples.cards.length / shown.length : 0,
+        illegal: illegal.map(card => ({ passcode: card.passcode, name: card.name })),
+        rows: result.rows.map(row => {
+          const hits = row.cards.filter(card => expected.has(card.passcode)).length;
+          return { id: row.id, state: row.state, hits, returned: row.cards.length, precision: row.cards.length ? hits / row.cards.length : null,
+            cards: row.cards.map(card => ({ passcode: card.passcode, name: card.name, score: card.score, linkedCards: card.linkedCards, reason: card.reason, expected: expected.has(card.passcode) })) };
+        }),
+      };
+      reports.push(report);
+      console.info(JSON.stringify({ ...report, expectedPasscodes: undefined, rows: report.rows.map(({ cards, ...row }) => ({ ...row, cards: cards.map(card => `${card.expected ? "+" : "-"}${card.name}`) })) }));
+      expect.soft(illegal, `${fixture.id}/${scenario.id}: zero illegal recommendations`).toEqual([]);
+      expect.soft(new Set(shown.map(card => card.passcode)).size, `${fixture.id}/${scenario.id}: no duplicate recommendations`).toBe(shown.length);
+      expect.soft(shown.filter(card => owned.has(card.passcode)), `${fixture.id}/${scenario.id}: only absent cards`).toEqual([]);
+      if (fixture.format === "normal") expect.soft(shown.filter(card => !tcg.has(card.passcode)), `${fixture.id}: TCG only in Standard`).toEqual([]);
+      expect.soft(shown.filter(card => card.name === 'Spell Card "Monster Reborn"'), `${fixture.id}: canonical revival recommendation only`).toEqual([]);
+      expect.soft(staples.cards.length).toBeLessThanOrEqual(6);
+      expect.soft(report.staplesShare).toBeLessThanOrEqual(0.25);
+      for (const row of result.rows) {
+        expect.soft(row.cards.length).toBeLessThanOrEqual(row.id === "staples" ? 6 : 12);
+        for (const card of row.cards) {
+          expect.soft(card).toMatchObject({ passcode: expect.any(Number), name: expect.any(String), score: expect.any(Number), linkedCards: expect.any(Number), reason: expect.any(String) });
+          expect.soft(card.reason).not.toMatch(/[\r\n]/);
+        }
+      }
+      const extra = result.rows.find(row => row.id === "extra")!;
+      if (scenario.id === "trimmed") {
+        expect.soft(extra).toMatchObject({ state: "hint", cards: [], hint: "Add 40 Main Deck cards.", minimumMainCards: 40, mainCards: 32 });
+        expect.soft(topEightHits, `${fixture.id}: at least 5 expected cards in first 8 Outside cards`).toBeGreaterThanOrEqual(5);
+        const first = firstEight[0];
+        if (first) {
+          const pooled = service.suggestRows(scenario.deck, { ...options, pool: [first.passcode] });
+          expect.soft(pooled.rows.find(row => row.id === "outside")!.cards.map(card => card.passcode), `${fixture.id}: pool keeps global hook specificity`).toEqual([first.passcode]);
+          expect.soft(pooled.rows.flatMap(row => row.cards).every(card => card.passcode === first.passcode)).toBe(true);
+        }
+      } else {
+        expect.soft(extra.state).toBe("ready");
+        const generic = extra.cards.filter(card => card.score < 200);
+        expect.soft(generic.length, `${fixture.id}: at most three generic Extra options`).toBeLessThanOrEqual(3);
+        expect.soft(extra.cards.slice(-generic.length || extra.cards.length).every(card => card.score < 200), `${fixture.id}: generic Extra options come last`).toBe(true);
+        const required = fixture.id === "blue-eyes" ? [89604813, 2129638]
+          : fixture.id === "branded" ? [70534340] : [];
+        expect.soft(extra.cards.map(card => card.passcode), `${fixture.id}: summonable engine monsters lead Extra`).toEqual(expect.arrayContaining(required));
+        expect.soft(result.rows[0]!.cards.every(card => !catalog.candidate(card.passcode)!.card.subtypes.some(type => ["fusion", "synchro", "xyz", "link"].includes(type))), `${fixture.id}: Extra monsters use the Extra row`).toBe(true);
+      }
+    }
+  }, 60_000);
+});
 
 it('bounds the caller while a slow reservation finishes and is released without cancelling CAS', async () => {
   const context = await readerFixture();

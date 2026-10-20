@@ -2,7 +2,8 @@
 // (GPL-3.0): src/classes/domain.py, deckChecker.py, textParsers/archetypes.py.
 // Official format: https://www.domainformat.com/rules and /deckvalidator.
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import Database from "better-sqlite3";
 import type {
@@ -15,10 +16,10 @@ import type {
   DuelMode,
   DuelSettings,
 } from "@yugidraft/shared/duels";
-import { assertExtraDeckCards, ExtraDeckCardError as SharedExtraDeckCardError, isExtraDeckCard, canonicalCardCode, checkDeckAgainstPool, checkGenesysDeck, mapDeckCodes } from "@yugidraft/shared/duels";
+import { DUEL_BANLIST_OPTIONS, assertExtraDeckCards, ExtraDeckCardError as SharedExtraDeckCardError, isExtraDeckCard, canonicalCardCode, checkDeckAgainstPool, checkGenesysDeck, isGenesysForbiddenType, mapDeckCodes } from "@yugidraft/shared/duels";
 import { banlistLimitsFor, type BanlistLimit } from "./banlists/index.js";
 import { MULTIPLAYER_TABLE_LABEL, multiplayerForbiddenFor, type MultiplayerTable } from "./banlists/multiplayer.js";
-import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
+import { cardBlockIndex, loadCardBlockList, type CardBlockEntry } from "./card-block-list.js";
 
 export type { MultiplayerTable };
 
@@ -202,7 +203,10 @@ interface Domain {
 }
 
 interface Catalog {
-  mtime: number;
+  sourceStamp: string;
+  /** Complete database content, including stats used by recommendation ranking and summon checks. */
+  cdbVersion: string;
+  metadataVersion: string;
   cards: Map<number, EngineCard>;
   hexName: Map<number, string>;
   nameHex: Map<string, number>;
@@ -212,6 +216,7 @@ interface Catalog {
 }
 
 const catalogs = new Map<string, Catalog>();
+const MAX_LOADED_CATALOGS = 4;
 
 function fail(message: string): never {
   throw new DeckLegalityError(message);
@@ -302,15 +307,37 @@ function indexScripts(directory: string): Map<number, string> {
   return scripts;
 }
 
+/** Hash only on catalog reload, with bounded temporary memory for the full engine database. */
+function cardDatabaseVersion(path: string): string {
+  const digest = createHash("sha256");
+  const fd = openSync(path, "r");
+  const bytes = Buffer.allocUnsafe(64 * 1024);
+  try {
+    for (let length; (length = readSync(fd, bytes, 0, bytes.length, null)) > 0;) digest.update(bytes.subarray(0, length));
+    return digest.digest("hex");
+  } finally { closeSync(fd); }
+}
+
 function loadCatalog(dataDirectory: string): Catalog {
   const root = resolve(dataDirectory);
   const cdbPath = join(root, "cards.cdb");
   const stringsPath = join(root, "strings.conf");
   if (!existsSync(cdbPath)) fail(`Cannot read engine card database at ${cdbPath}`);
   if (!existsSync(stringsPath)) fail(`Cannot read engine strings.conf at ${stringsPath}`);
-  const mtime = statSync(cdbPath).mtimeMs;
+  const constantsFiles = ["card_counter_constants.lua", "archetype_setcode_constants.lua"];
+  const metadataPaths = [stringsPath, ...constantsFiles.map(file => join(root, "card-scripts", file))];
+  const stamp = (path: string) => {
+    if (!existsSync(path)) return "missing";
+    const source = statSync(path, { bigint: true });
+    return [source.dev, source.ino, source.size, source.mtimeNs, source.ctimeNs].join(":");
+  };
+  const sourceStamp = [cdbPath, ...metadataPaths].map(stamp).join("|");
   const cached = catalogs.get(root);
-  if (cached && cached.mtime === mtime) return cached;
+  if (cached && cached.sourceStamp === sourceStamp) {
+    catalogs.delete(root); catalogs.set(root, cached);
+    return cached;
+  }
+  const cdbVersion = cardDatabaseVersion(cdbPath);
 
   const db = new Database(cdbPath, { readonly: true, fileMustExist: true });
   db.defaultSafeIntegers(true);
@@ -360,20 +387,25 @@ function loadCatalog(dataDirectory: string): Catalog {
     if (!card.identityNames.includes(original.name.toLowerCase())) card.identityNames.push(original.name.toLowerCase());
   }
 
-  const { hexName, nameHex } = parseSetnames(readFileSync(stringsPath, "utf8"));
+  const stringsSource = readFileSync(stringsPath, "utf8");
+  const metadataDigest = createHash("sha256").update(JSON.stringify(["strings.conf", stringsSource]));
+  const { hexName, nameHex } = parseSetnames(stringsSource);
   const scriptsDir = join(root, "card-scripts");
   const constants = new Map<string, number>();
   const scripts = existsSync(scriptsDir) ? indexScripts(scriptsDir) : new Map<number, string>();
   if (existsSync(scriptsDir)) {
-    for (const file of ["card_counter_constants.lua", "archetype_setcode_constants.lua"]) {
+    for (const file of constantsFiles) {
       const path = join(scriptsDir, file);
-      if (existsSync(path)) parseLuaConstants(readFileSync(path, "utf8"), constants);
+      const source = existsSync(path) ? readFileSync(path, "utf8") : null;
+      metadataDigest.update(JSON.stringify([file, source]));
+      if (source !== null) parseLuaConstants(source, constants);
     }
   }
 
   const quoteCardNames = [...new Set([...cards.values()].map((card) => card.name).filter((name) => name.includes('"')))];
-  const catalog: Catalog = { mtime, cards, hexName, nameHex, constants, scripts, quoteCardNames };
+  const catalog: Catalog = { sourceStamp, cdbVersion, metadataVersion: metadataDigest.digest("hex"), cards, hexName, nameHex, constants, scripts, quoteCardNames };
   catalogs.set(root, catalog);
+  if (catalogs.size > MAX_LOADED_CATALOGS) catalogs.delete(catalogs.keys().next().value!);
   return catalog;
 }
 
@@ -699,6 +731,131 @@ function engineLoadableMessage(
     (pool ? cardPoolMessage(card, pool) : undefined) ??
     (pool !== undefined ? cardScriptMessage(card, catalog) : undefined)
   );
+}
+
+export interface DeckSuggestionScope {
+  allowed: number[];
+  limits: Record<number, number>;
+  /** Permanently treated-as names share the validator's copy count, beyond alternate artwork. */
+  copyGroups?: Record<number, number>;
+  version: string;
+}
+
+interface SuggestionIdentities {
+  identities: ReturnType<typeof identityIndex>;
+  copyGroups: Record<number, number>;
+  version: string;
+}
+const suggestionIdentities = new WeakMap<Catalog, SuggestionIdentities>();
+const suggestionScopes = new WeakMap<Catalog, Map<string, DeckSuggestionScope>>();
+const MAX_SUGGESTION_SCOPES = 32;
+
+function suggestionIdentityIndex(catalog: Catalog): SuggestionIdentities {
+  const cached = suggestionIdentities.get(catalog);
+  if (cached) return cached;
+  const identities = identityIndex(catalog);
+  const representatives = new Map<string, number>();
+  const digest = createHash("sha256").update(catalog.cdbVersion).update(catalog.metadataVersion);
+  for (const card of catalog.cards.values()) {
+    const key = componentOf(card, identities);
+    const code = canonicalCardCode(card.id, catalog.cards);
+    representatives.set(key, Math.min(code, representatives.get(key) ?? code));
+  }
+  digest.update(JSON.stringify([[...catalog.hexName], [...catalog.nameHex], [...catalog.constants], [...catalog.scripts.keys()]]));
+  const copyGroups: Record<number, number> = {};
+  for (const card of catalog.cards.values()) {
+    const code = canonicalCardCode(card.id, catalog.cards);
+    const representative = representatives.get(componentOf(card, identities))!;
+    if (code !== representative) copyGroups[code] = representative;
+  }
+  const value = { identities, copyGroups, version: digest.digest("hex") };
+  suggestionIdentities.set(catalog, value);
+  return value;
+}
+
+/** Candidate admission uses the same sources and helpers as inspectDeck; it never needs a complete deck. */
+export function deckSuggestionScope(
+  mode: DuelMode,
+  dataDirectory: string,
+  settings: DuelSettings,
+  options: { deckMaster?: number; cardBlocks?: readonly CardBlockEntry[] } = {},
+): DeckSuggestionScope {
+  if (mode !== "normal" && mode !== "domain") fail(`Unknown duel mode ${String(mode)}`);
+  let listed: ReturnType<typeof banlistLimitsFor>;
+  try { listed = banlistLimitsFor(settings.banlist); }
+  catch { fail(`Unknown banlist ${settings.banlist}`); }
+  // Genesys admission deliberately ignores competitive banlists, as inspectDeck does.
+  if (settings.genesys) listed = null;
+  const catalog = loadCatalog(dataDirectory);
+  const prepared = suggestionIdentityIndex(catalog);
+  const entries = options.cardBlocks ?? loadCardBlockList(undefined, dataDirectory);
+  const remaps = loadCardPasscodeRemaps(dataDirectory);
+  const masterCode = options.deckMaster === undefined ? undefined : remaps.get(options.deckMaster) ?? options.deckMaster;
+  const master = mode === "domain" && masterCode !== undefined ? readCard(catalog, masterCode) : undefined;
+  const masterScript = master ? catalog.scripts.get(canonicalCardCode(master.id, catalog.cards)) : undefined;
+  const scriptVersion = masterScript ? createHash("sha256").update(readFileSync(masterScript)).digest("hex") : null;
+  const key = JSON.stringify([mode, settings.cardPool, settings.banlist, !!settings.genesys, masterCode, scriptVersion, entries]);
+  let cache = suggestionScopes.get(catalog);
+  if (!cache) { cache = new Map(); suggestionScopes.set(catalog, cache); }
+  const cached = cache.get(key);
+  if (cached) {
+    cache.delete(key); cache.set(key, cached);
+    return cached;
+  }
+
+  const blocked = cardBlockIndex(catalog.cards, entries, dataDirectory);
+  // Compute per-name limits in one catalog pass, matching listedLimitForIdentity without a quadratic scan.
+  const groupLimits = new Map<string, number>();
+  if (listed) for (const card of catalog.cards.values()) {
+    const group = componentOf(card, prepared.identities);
+    for (const code of [card.id, card.alias]) {
+      if (code && Object.hasOwn(listed, code)) groupLimits.set(group, Math.min(listed[code]!, groupLimits.get(group) ?? 3));
+    }
+  }
+
+  let domain: Domain | undefined;
+  let masterIdentity: string | undefined;
+  if (mode === "domain" && masterCode !== undefined) {
+    if (!master) fail(`Unknown card ${masterCode}`);
+    if (settings.genesys && isGenesysForbiddenType(master)) {
+      fail("Genesys does not allow Link or Pendulum Monsters, including the Deck Master.");
+    }
+    const problem = deckMasterTypeProblem(master) ?? cardPoolMessage(master, settings.cardPool) ?? cardScriptMessage(master, catalog);
+    if (problem) fail(problem);
+    const block = blocked.get(master.id);
+    if (block) fail(`${master.name} is unavailable: ${block.reason}`);
+    masterIdentity = componentOf(master, prepared.identities);
+    if (groupLimits.get(masterIdentity) === 0) fail(`${master.name} is forbidden`);
+    domain = buildDomain(master, catalog);
+  }
+
+  const formatMax = mode === "domain" ? 1 : 3;
+  const printedRegion = DUEL_BANLIST_OPTIONS.find(list => list.id === settings.banlist)?.region === "ocg" ? OT_OCG : OT_TCG;
+  const allowed: number[] = [];
+  const limits: Record<number, number> = {};
+  for (const card of mode === "domain" && !domain ? [] : catalog.cards.values()) {
+    if (canonicalCardCode(card.id, catalog.cards) !== card.id || blocked.has(card.id)) continue;
+    // Normal suggestions follow the selected banlist's printed region.
+    if (mode === "normal" && (card.ot & printedRegion) === 0) continue;
+    if (settings.genesys && isGenesysForbiddenType(card)) continue;
+    const section = isExtraDeckMonster(card) ? "extra" : "main";
+    if (engineLoadableMessage(card, section, catalog, settings.cardPool)) continue;
+    const identity = componentOf(card, prepared.identities);
+    if (identity === masterIdentity || (domain && isMonster(card) && !inDomain(card, domain, catalog))) continue;
+    const limit = Math.min(formatMax, groupLimits.get(identity) ?? formatMax);
+    if (limit === 0) continue;
+    allowed.push(card.id);
+    if (limit < formatMax) limits[card.id] = limit;
+  }
+  allowed.sort((a, b) => a - b);
+  const copyGroups = prepared.copyGroups;
+  const version = createHash("sha256").update(JSON.stringify([
+    "deck-suggestion-scope-v1", prepared.version, key, listed, allowed, limits, copyGroups,
+  ])).digest("hex");
+  const value = { allowed, limits, ...(Object.keys(copyGroups).length ? { copyGroups } : {}), version };
+  cache.set(key, value);
+  if (cache.size > MAX_SUGGESTION_SCOPES) cache.delete(cache.keys().next().value!);
+  return value;
 }
 
 function resolveSection(

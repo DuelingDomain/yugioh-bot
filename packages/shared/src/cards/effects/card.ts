@@ -121,6 +121,8 @@ export interface Card {
   text: string;
   pendulumText?: string;
   archetype?: string;
+  /** All exact engine setcode memberships; `archetype` keeps the API's primary label. */
+  archetypes?: string[];
   /** Absent when the card is not on that game's Forbidden & Limited list. */
   banTcg?: BanStatus;
   banOcg?: BanStatus;

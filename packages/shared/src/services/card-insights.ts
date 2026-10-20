@@ -9,11 +9,12 @@ import { belongsTo, cardSynergy, filterReachesCard, hookQuery, scoreForDeck, typ
 import { readingArchetypes, type ArchetypeGuide } from "../cards/effects/guide.js";
 import { normalizeImportedCardName } from "./card-name-match.js";
 import { cachedEffectReading, effectArchetypes } from "../cards/effects/reading-cache.js";
-import { intentReading, cardSimilarity, counterProfileFromHooks, counterLink } from "../cards/effects/search-intents.js";
+import { intentReading, searchIntentTarget, cardSimilarity, counterProfileFromHooks, counterLink } from "../cards/effects/search-intents.js";
 import { effectMatchReason, softTextScore, shortReason } from "../cards/effects/search-reasons.js";
 import { ArchetypeProfile } from "../cards/effects/synergy.js";
 import { createInsightCatalog, type InsightCatalog } from "./card-insight-catalog.js";
 import { readArchetypeGuide, readArchetypeHook, readInsightProfiles } from "./card-insight-profiles.js";
+import { suggestDeckRows, type DeckSuggestionOptions, type DeckSuggestionLegality } from "./deck-suggestions.js";
 
 export type CardInsightFormat = "normal" | "domain" | "genesys" | "genesys-domain";
 export interface CardInsightOptions {
@@ -26,6 +27,8 @@ export interface CardInsightOptions {
   exact?: boolean;
   omittedChips?: readonly string[];
   deckMaster?: number;
+  /** Server-only context for deterministic outside-archetype search. */
+  suggestionContext?: { deck?: DuelDeck; legality: DeckSuggestionLegality; banlist?: string; exclude?: readonly number[] };
 }
 export interface CardInsightSummary {
   passcode: number;
@@ -113,6 +116,7 @@ export function createCardInsightService(db: Database.Database, options: {
       return card && id !== undefined ? { id, name: card.name } : undefined;
     }, name => resolveEffectName([...effectArchetypes(db)].map(name => ({ name })), name)?.name);
     if (intent) return intent;
+    if (searchIntentTarget(text)?.kind === "outside") return null;
     const cached = cachedEffectReading(db, text);
     if (cached) return cached;
     if (!target) return interpret(text, matcher);
@@ -170,12 +174,25 @@ export function createCardInsightService(db: Database.Database, options: {
         return { reading: null, cards: withoutPopularity(ranked), total };
       });
       const initial = readQuery(text);
-      const reading = initial ? omitReadingChips(initial, opts.omittedChips) : null;
+      const reading = initial?.query.intent?.kind === "outside" ? initial : initial ? omitReadingChips(initial, opts.omittedChips) : null;
       if (!reading || pool?.length === 0) return { reading, cards: [], total: 0, relax: [] };
       const target = cachedEffectReading(db, text) ? undefined : synergyTarget(text), anchor = target && !opts.omittedChips?.includes(initial!.chips[0]!) ? resolveTarget(target) : undefined;
       const effective = { ...opts, sort: opts.sort ?? reading.query.sort,
         released: { ...opts.released, region: opts.released?.region ?? reading.query.released?.region } };
       return withCatalog(catalog => {
+        if (reading.query.intent?.kind === "outside") {
+          const archetype = reading.query.intent.archetype;
+          const inferredMain: number[] = [];
+          if (!opts.suggestionContext?.deck) for (const { card } of catalog.suggestionCandidates()) {
+            if (card.kind !== "monster" || isExtraDeckCard(card) || !belongsTo(card, archetype)) continue;
+            inferredMain.push(card.id);
+            if (inferredMain.length === 60) break;
+          }
+          const deck = opts.suggestionContext?.deck ?? { main: inferredMain, extra: [], side: [] };
+          const rows = suggestDeckRows(db, catalog, deck, { ...opts, ...opts.suggestionContext, format: opts.format ?? "normal", pool }, options.dataDirectory);
+          const cards = rows.rows[1]!.cards;
+          return { reading, cards, total: cards.length };
+        }
         if (anchor !== undefined) {
           const candidate = catalog.candidate(anchor);
           return { reading, ...rank(catalog, candidate ? [candidate] : [], pool, effective) };
@@ -266,6 +283,9 @@ export function createCardInsightService(db: Database.Database, options: {
         const master = opts.deckMaster ?? (!Array.isArray(deck) ? (deck as DuelDeck).deckMaster : undefined);
         return rank(catalog, anchors, opts.pool, { ...opts, deckMaster: master }).cards;
       });
+    },
+    suggestRows(deck: DuelDeck, opts: DeckSuggestionOptions) {
+      return withCatalog(catalog => suggestDeckRows(db, catalog, deck, opts, options.dataDirectory));
     },
     poolHealth(codes: readonly number[], opts: { era?: CardEra } = {}): CardPoolHealth {
       return withCatalog(catalog => {

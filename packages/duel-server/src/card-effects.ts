@@ -98,6 +98,9 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
       return reading ? omitReadingChips(reading, omitted) : null;
     },
     match: (code, reading) => {
+      // Deck-aware outside searches are ranked by the web Suggestion service.
+      // The generic matcher must never widen that intent to every card.
+      if (reading.query.intent?.kind === "outside") return null;
       const card = cards.deckCard(code);
       if (!card) return null;
       const printed = printedTypes.get(`${card.type}:${card.race}:${card.attribute}`);

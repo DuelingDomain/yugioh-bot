@@ -2,16 +2,17 @@ import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
-import { CardFetchLimitError, createCardLookupBudget, createDraftService, createDeckTypeLookup, createCardCatalogService, createCardInsightService, loadArtworkIdentityCatalog, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo } from "@yugidraft/shared/services";
+import { CardFetchLimitError, createCardLookupBudget, createDraftService, createDeckTypeLookup, createCardCatalogService, createCardInsightService, loadArtworkIdentityCatalog, isExtraDeckFrame, normalizeImportedCardName, rankCardsByTypo, parseDeckSuggestionQuery, type CardEffectSearchResult } from "@yugidraft/shared/services";
 import { toCardCounts } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
 import { CardListError } from "@/lib/card-list-parser";
 import { prepareCubeListImport } from "@/lib/cube-list-import";
 import { parseCardInsightRequest } from "@/lib/card-insights-api";
-import { effectSearchEnabled } from "@/lib/effect-search";
+import { effectSearchEnabled, deckSuggestionsEnabled } from "@/lib/effect-search";
+import { loadDeckSuggestions } from "@/lib/deck-suggestions";
 import { env } from "@/lib/env";
 import { ensureCatalogCards } from "@/lib/cube-pool";
-import { lowConfidenceReading } from "@yugidraft/shared/cards/effects";
+import { lowConfidenceReading, searchIntentTarget } from "@yugidraft/shared/cards/effects";
 import { fallbackEffectReading } from "@yugidraft/shared/cards/effects/reading-fallback";
 
 export const runtime = "nodejs";
@@ -75,10 +76,21 @@ async function handlePOST(request: Request) {
     const input = parseCardInsightRequest(body);
     if (input?.op !== "effectSearch") return NextResponse.json({ error: "Invalid effect search request" }, { status: 400 });
     const db = getDb();
-    const service = createCardInsightService(db);
-    let result = service.effectSearch(input.text, input.pool, input);
-    if (!input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
-      if (await fallbackEffectReading(db, input.text, actor.userId)) result = service.effectSearch(input.text, input.pool, input);
+    const outside = !input.exact && searchIntentTarget(input.text)?.kind === "outside";
+    if (outside && !deckSuggestionsEnabled()) return NextResponse.json({ deckSuggestionsEnabled: false, error: "deck_suggestions_disabled" }, { status: 404 });
+    let result: CardEffectSearchResult;
+    if (outside) {
+      const query = parseDeckSuggestionQuery(input);
+      if (!query || query.op !== "effectSearch") return NextResponse.json({ error: "Invalid outside search context" }, { status: 400 });
+      const loaded = await loadDeckSuggestions({ guildId: env.discordGuildId, userId: actor.userId, query });
+      if (!loaded.ok) return loaded.response;
+      result = loaded.result;
+    } else {
+      const service = createCardInsightService(db);
+      result = service.effectSearch(input.text, input.pool, input);
+      if (!input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
+        if (await fallbackEffectReading(db, input.text, actor.userId)) result = service.effectSearch(input.text, input.pool, input);
+      }
     }
     const catalog = createCardCatalogService(db, { memberId: actor.userId });
     // Only explicit pools may need remote display metadata; cap lookups on this debounced path.
@@ -92,7 +104,7 @@ async function handlePOST(request: Request) {
       const card = details.get(hit.passcode);
       return card ? [{ ...toCardSummary(card), score: hit.score, reason: hit.reason }] : [];
     });
-    return NextResponse.json({ ...result, cards, unknownIds, effectSearchEnabled: true }, { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json({ ...result, cards, unknownIds, effectSearchEnabled: true, deckSuggestionsEnabled: deckSuggestionsEnabled() }, { headers: { "Cache-Control": "private, no-store" } });
   }
   const setNames = Array.isArray(body.setNames) ? body.setNames.filter((s): s is string => typeof s === "string") : [];
   const customCardIds = Array.isArray(body.customCardIds)
