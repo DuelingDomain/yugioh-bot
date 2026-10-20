@@ -87,8 +87,10 @@ are omitted because they cannot reuse the original admission predicate safely.
 ## Archetype roles
 
 One list shows native role cards first, with `<archetype> card` as the reason.
-Compatible generic cards follow. Their rank uses labeled archetype deck shares
-when at least three decks are available, then format play share. The reason is
+Generic cards follow. Their rank uses labeled archetype deck shares
+when at least three decks are available, then format play share. Equal archetype
+shares use format play share as the next rank. No deck-conflict or era score
+changes this order. The reason is
 `Run in N% of <archetype> decks` or `Format staple`. The chip reads
 `For <archetype> decks`, and the How it plays panel remains available.
 
@@ -102,15 +104,14 @@ staples. Representative first results:
 | Snake-Eye | Ash Blossom & Joyous Spring | Snake-Eyes Vengeance Dragon |
 | Tenpai | Ash Blossom & Joyous Spring | Ghost Ogre & Snow Rabbit |
 
-Branded has three labeled TCG decks: Ash Blossom runs in 100%, Effect Veiler in
-33%, and Super Polymerization in 67%. The other requested TCG archetypes lack a
+Branded has three labeled TCG decks: Ash Blossom and Droll & Lock Bird each run
+in 100%, Effect Veiler in 33%, and Super Polymerization in 67%. The other requested TCG archetypes lack a
 three-deck cohort, so their generic rows use format shares. These small recent
 samples are estimates. They are not a claim about every deck in the format.
 
-Conservative tag checks exclude symmetric search locks from archetypes with
-multiple searchers, including Droll from Blue-Eyes, Branded and Snake-Eye.
-They also exclude detected symmetric GY banishment in GY plans. Other conflicts
-are left alone when tags do not establish them.
+The owner correction removes all own-deck conflict checks. Droll remains eligible
+for Blue-Eyes, Branded, Snake-Eye and Tenpai. Search-heavy and GY-based plans
+neither drop nor demote cards. Real play share sets the generic rank.
 
 Schema version 2 adds exact archetype denominators and up to 40 generic card
 counts per archetype. The data stays below 500 KB and uses the existing bounded,

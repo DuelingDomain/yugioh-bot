@@ -49,7 +49,7 @@ describe.skipIf(!directory || !existsSync(`${directory}/cards.cdb`))("Name + tex
   it.each([
     ["recruiters","Mother Grizzly"], ["water recruiter","Mother Grizzly"],
     ["recruiters 1500 atk or less","Mystic Tomato"], ["staples","Ash Blossom & Joyous Spring"],
-    ["Blue-Eyes hand traps","Infinite Impermanence"], ["Branded removal","Branded Beast"],
+    ["Blue-Eyes hand traps","Infinite Impermanence"], ["Blue-Eyes hand traps","Droll & Lock Bird"], ["Branded removal","Branded Beast"],
   ])("shows real effect hits with zero name hits: %s",async(text,name)=>{
     render(<CardBrowser query={{...emptyCardQuery(),text}} onQueryChange={vi.fn()} archetypes={[]} limits={null}
       view="grid" onViewChange={vi.fn()} deckCount={()=>0} inspectCode={null} onInspect={vi.fn()} onHover={vi.fn()}

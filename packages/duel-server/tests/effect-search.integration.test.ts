@@ -892,7 +892,7 @@ it.each(['Blue-Eyes','Branded','Snake-Eye','Tenpai Dragon'])('finds generic and 
   expect(data.reading?.query.intent?.kind).toBe('archetype_role');
   expect(data.reading?.chips).toContain(`For ${archetype} decks`);
   expect(data.effectHits?.map(card=>card.name)).toEqual(expect.arrayContaining(['Ash Blossom & Joyous Spring','Infinite Impermanence']));
-  if(archetype!=='Tenpai Dragon')expect(data.effectHits?.map(card=>card.name)).not.toContain('Droll & Lock Bird');
+  expect(data.effectHits?.map(card=>card.name)).toContain('Droll & Lock Bird');
 });
 it('reads a plain released year as a full year', () => {
   expect(cardEffectIndex(cards)!.readQuery('released 2024')?.query.released).toEqual({from:'2024-01',to:'2024-12'});
@@ -994,4 +994,23 @@ it('uses signed host Domain admission and preserves the archetype play guide',as
   expect((await post({text:'Domain legal',limit:30})).effectTotal).toBe(0);
   const blue=await post({text:'Blue-Eyes removal',limit:30});
   expect(blue.profile?.archetype).toBe('Blue-Eyes');
+});
+
+
+it.each(['Blue-Eyes','Branded','Snake-Eye','Tenpai Dragon'])('ranks generic %s hand traps only by measured archetype then format shares in both readers',async archetype=>{
+  const {formatStaples,archetypePlayShare}=await import('@yugidraft/shared/cards/effects');
+  const usage=formatStaples('normal');
+  const pool=['Ash Blossom & Joyous Spring','Droll & Lock Bird','Ghost Ogre & Snow Rabbit','Effect Veiler','Infinite Impermanence'].map(code);
+  const expected=[...pool].sort((a,b)=>{
+    const left=archetypePlayShare(usage,archetype,a)??0,right=archetypePlayShare(usage,archetype,b)??0;
+    return Number(right>0)-Number(left>0) || right-left || usage.cards.get(b)!.playShare-usage.cards.get(a)!.playShare;
+  });
+  const host=search(`${archetype} hand traps`,pool).effectHits!;
+  const sql=createCardInsightService(db,{dataDirectory:engineDataDirectory});
+  const shared=sql.effectSearch(`${archetype} hand traps`,pool,{era:{medianYear:2010,spread:1}}).cards;
+  expect(host.map(card=>card.code)).toEqual(expected);
+  expect(shared.map(card=>card.passcode)).toEqual(expected);
+  expect(host.find(card=>card.name==='Droll & Lock Bird')).toBeTruthy();
+  expect(shared.find(card=>card.name==='Droll & Lock Bird')).toBeTruthy();
+  expect(shared.map(card=>card.score)).toEqual(host.map(card=>card.score));
 });

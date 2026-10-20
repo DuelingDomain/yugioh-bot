@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { join, resolve } from "node:path";
 import {
-  rankArchetypeRole, roleContext, type RoleContext, formatStaples, type FormatStaples, buildArchetypeMatcher, engineInsightCard, interpret, matchCard, omitReadingChips, mayReadEffect,
+  rankArchetypeRole, formatStaples, type FormatStaples, buildArchetypeMatcher, engineInsightCard, interpret, matchCard, omitReadingChips, mayReadEffect,
   compactEffectName, resolveEffectName, cachedEffectReading, intentReading, cardSimilarity, counterProfileFromHooks, counterLink,
   softTextScore, effectMatchReason, shortReason, ArchetypeProfile,
   type ReleaseDates,
@@ -70,7 +70,7 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
   const summary = db.prepare<[number], { summary: string; tags_json: string }>("SELECT summary,tags_json FROM card_tags WHERE passcode=?");
   const profileRow = db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE");
   const defaultUsage = formatStaples();
-  const contexts = new WeakMap<Interpretation, { role?: { context: RoleContext; members: Set<number> }; anchor?: { card: Card; tags?: import("@yugidraft/shared/cards/effects").MatchTags }; counter?: import("@yugidraft/shared/cards/effects").CounterProfile }>();
+  const contexts = new WeakMap<Interpretation, { role?: { members: Set<number> }; anchor?: { card: Card; tags?: import("@yugidraft/shared/cards/effects").MatchTags }; counter?: import("@yugidraft/shared/cards/effects").CounterProfile }>();
   const context = (reading: Interpretation) => {
     let result = contexts.get(reading);
     if (result) return result;
@@ -78,14 +78,14 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
     const intent = reading.query.intent;
     if (intent?.kind === "archetype_role") {
       const codes=[...cards.setnames()].filter(([,name])=>compactEffectName(name)===compactEffectName(intent.archetype)).map(([code])=>code);
-      const members=new Set<number>(); const native: Array<{tags?:import("@yugidraft/shared/cards/effects").MatchTags}>=[];
+      const members=new Set<number>();
       for (const card of cards.all()) {
         const raw=cards.deckCard(card.code);
         if (raw && (codes.some(code=>inArchetype(raw.setcodes,code)) || compactEffectName(card.name).includes(compactEffectName(intent.archetype)))) {
-          members.add(canonical(card.code)); native.push({tags:facets.get(canonical(card.code))});
+          members.add(canonical(card.code));
         }
       }
-      result.role={members,context:roleContext(native)};
+      result.role={members};
     } else if (intent?.kind === "similar") {
       const anchor = cards.deckCard(intent.passcode);
       if (anchor) result.anchor = { card: engineInsightCard(anchor), tags: facets.get(canonical(intent.passcode)) };
@@ -134,7 +134,7 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
         : tags?.roles.some(role => ["hand_trap", "board_breaker", "negation"].includes(role)) ? 1 : null;
       const { anchor, counter, role } = context(reading);
       const candidate = { card: current, tags };
-      if (reading.query.intent?.kind === "archetype_role" && role) return rankArchetypeRole(current,tags,reading.query.intent.archetype,reading.query.intent.role,role.members.has(id),role.context,usage)?.score??null;
+      if (reading.query.intent?.kind === "archetype_role" && role) return rankArchetypeRole(current,tags,reading.query.intent.archetype,reading.query.intent.role,role.members.has(id),usage)?.score??null;
       const score = reading.query.intent?.kind === "similar" ? (anchor ? cardSimilarity(anchor, candidate) : null)
         : reading.query.intent?.kind === "counters" ? (counter ? counterLink(counter, reading.query.intent.archetype, candidate)?.score ?? null : null) : base;
       return score === null ? null : score + softTextScore(current, reading.query.text);
@@ -143,7 +143,7 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
       const raw = cards.deckCard(code);
       if (!raw) return "Matches your search";
       const card = engineInsightCard(raw), tags = facets.get(canonical(code)), ctx = context(reading);
-      if (reading.query.intent?.kind === "archetype_role" && ctx.role) return rankArchetypeRole(card,tags,reading.query.intent.archetype,reading.query.intent.role,ctx.role.members.has(canonical(code)),ctx.role.context,usage)?.reason??"Matches your search";
+      if (reading.query.intent?.kind === "archetype_role" && ctx.role) return rankArchetypeRole(card,tags,reading.query.intent.archetype,reading.query.intent.role,ctx.role.members.has(canonical(code)),usage)?.reason??"Matches your search";
       if (reading.query.intent?.kind === "counters" && ctx.counter) return counterLink(ctx.counter, reading.query.intent.archetype, { card, tags })?.reason ?? "Disrupts this plan";
       if (reading.query.intent?.kind === "similar") return shortReason(`Similar ${tags?.roles.find(role => ctx.anchor?.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${reading.query.intent.name}`);
       // The compact facets drop each action's note and condition; one stored record is read for the retained card only.

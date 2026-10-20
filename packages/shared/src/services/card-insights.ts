@@ -1,5 +1,5 @@
 import {rankArchetypeRole} from "../cards/effects/role-ranking.js";
-import {roleContext,archetypeMember} from "../cards/effects/archetype-roles.js";
+import {archetypeMember} from "../cards/effects/archetype-roles.js";
 import { describeFormat } from "../cards/effects/format-query.js";
 import { formatStaples, stapleReason } from "../cards/effects/staples.js";
 import { cardEraBoost, deriveCardEra, matchesReleased, compareNewest, cardReleaseInfo, selectedReleaseDate, type ReleasedRange, type CardEra, type ReleaseDates } from "../cards/effects/releases.js";
@@ -212,8 +212,6 @@ export function createCardInsightService(db: Database.Database, options: {
         const ranked: Retained[] = [];
         const staples = formatStaples(reading.query.formatFilter?.format??opts.format, opts.suggestionContext?.banlist, db);
         const roleIntent=reading.query.intent?.kind==="archetype_role"?reading.query.intent:undefined;
-        function* native() { for (const candidate of catalog.suggestionCandidates()) if (roleIntent && archetypeMember(candidate.card,roleIntent.archetype)) yield candidate; }
-        const context=roleIntent?roleContext(native()):undefined;
         const similar = reading.query.intent?.kind === "similar" ? catalog.candidate(reading.query.intent.passcode) : undefined;
         const archetype = reading.query.intent?.kind === "counters" ? reading.query.intent.archetype : undefined;
         const row = archetype ? db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE").get(archetype) : undefined;
@@ -222,7 +220,7 @@ export function createCardInsightService(db: Database.Database, options: {
         const match = (candidate: Candidate, query = reading.query): number | null => {
           if (query.formatFilter && !opts.formatAdmission?.(candidate.card)) return null;
           if (matchCard(candidate.card, candidate.tags, query.intent?.kind === "archetype_role" ? {...query, roles: []} : query) === null) return null;
-          if (query.intent?.kind === "archetype_role") return context?rankArchetypeRole(candidate.card,candidate.tags,query.intent.archetype,query.intent.role,archetypeMember(candidate.card,query.intent.archetype),context,staples)?.score??null:null;
+          if (query.intent?.kind === "archetype_role") return rankArchetypeRole(candidate.card,candidate.tags,query.intent.archetype,query.intent.role,archetypeMember(candidate.card,query.intent.archetype),staples)?.score??null;
           if (query.intent?.kind === "staples") return staples.cards.size ? staples.cards.get(candidate.card.id)?.playShare ?? null
             : candidate.tags?.roles.some(role => ["hand_trap", "board_breaker", "negation"].includes(role)) ? 1 : null;
           const base = matchCard(candidate.card, candidate.tags, query);
@@ -238,7 +236,7 @@ export function createCardInsightService(db: Database.Database, options: {
           const score = match(candidate);
           if (score === null) continue;
           total++;
-          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + cardEraBoost(candidate.card, opts.era), linkedCards: 0, reason: roleIntent && context ? rankArchetypeRole(candidate.card,candidate.tags,roleIntent.archetype,roleIntent.role,archetypeMember(candidate.card,roleIntent.archetype),context,staples)!.reason : reading.query.intent?.kind === "staples" && staples.cards.size ? stapleReason(staples.cards.get(candidate.card.id)!, staples.label) : counter && archetype ? counterLink(counter, archetype, candidate)!.reason
+          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + (roleIntent ? 0 : cardEraBoost(candidate.card, opts.era)), linkedCards: 0, reason: roleIntent ? rankArchetypeRole(candidate.card,candidate.tags,roleIntent.archetype,roleIntent.role,archetypeMember(candidate.card,roleIntent.archetype),staples)!.reason : reading.query.intent?.kind === "staples" && staples.cards.size ? stapleReason(staples.cards.get(candidate.card.id)!, staples.label) : counter && archetype ? counterLink(counter, archetype, candidate)!.reason
             : similar ? shortReason(`Similar ${candidate.tags?.roles.find(role => similar.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${similar.card.name}`)
             : effectMatchReason(candidate.card, candidate.tags, reading.query, candidate.tags?.summary),
             ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), effective);
