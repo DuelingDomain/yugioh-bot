@@ -35,7 +35,7 @@ test("measure long and multi-seat replay open", async ({ browser }, testInfo) =>
         });
         observer.observe(document, { childList: true, subtree: true });
       });
-      const responsePromise = page.waitForResponse(response => response.url().includes(`/api/duels/${fixture.slug}/replay?`));
+      const responsePromise = page.waitForResponse(response => response.url().includes(`/duels/${fixture.slug}/replay?`));
       const at = performance.now();
       await page.goto(`/duels/${fixture.slug}/replay`);
       const response = await responsePromise;
@@ -51,7 +51,7 @@ test("measure long and multi-seat replay open", async ({ browser }, testInfo) =>
       const paintMs = await page.evaluate(() => (window as any).__replayPaintMs);
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const resources = await page.evaluate(() => performance.getEntriesByType("resource").map((entry: any) => ({ name: entry.name, startTime: entry.startTime, responseStart: entry.responseStart, responseEnd: entry.responseEnd, duration: entry.duration, bytes: entry.encodedBodySize, decoded: entry.decodedBodySize })));
-      const api = resources.find(entry => entry.name.includes(`/api/duels/${fixture.slug}/replay?`));
+      const api = resources.find(entry => entry.name.includes(`/duels/${fixture.slug}/replay?`));
       const js = resources.filter(entry => entry.name.includes("/_next/") && entry.name.includes(".js"));
       const geometry = await page.locator("[data-field-cracks]").evaluateAll(nodes => nodes.map(node => ({ stage: node.getAttribute("data-stage"), style: node.getAttribute("style") })));
       const body = await bodyPromise;

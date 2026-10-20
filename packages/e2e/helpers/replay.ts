@@ -2,9 +2,9 @@ import Database from "better-sqlite3";
 import { dbPath, duelDataDir, guildId } from "../stack/env.mjs";
 import { createDuelService } from "@yugidraft/shared/services";
 import { defaultDuelSettings, seatCountFor, type DuelFormat } from "@yugidraft/shared/duels";
-import { createEngineGame } from "../../duel-server/dist/engine.js";
-import { getCurrentEngineResources } from "../../duel-server/dist/engine-resource-resolver.js";
-import { chooseSurrenderedAnswer } from "../../duel-server/dist/practice-bot.js";
+import { createEngineGame } from "../../duel-server/src/engine.js";
+import { getCurrentEngineResources } from "../../duel-server/src/engine-resource-resolver.js";
+import { chooseSurrenderedAnswer } from "../../duel-server/src/practice-bot.js";
 
 export interface ReplayFixture {
   slug: string; format: DuelFormat; commands: number; journalBytes: number; snapshotBytes: number; readMs: number;
