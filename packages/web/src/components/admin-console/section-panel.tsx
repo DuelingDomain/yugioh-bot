@@ -21,7 +21,7 @@ export function SectionPanel<K extends SectionId>({ id, children }: { id: K; chi
   const { result, fetchedAt, failure, reload } = useAdminSection(id);
   const stale = failure !== null && result !== null;
   return (
-    <section id={id} className={styles.panel} data-span={def.span} aria-labelledby={`${id}-title`} aria-busy={result === null && failure === null}>
+    <section id={id} className={styles.panel} data-panel={id} data-span={def.span} aria-labelledby={`${id}-title`} aria-busy={result === null && failure === null}>
       <header className={styles.panelHead}>
         <div>
           <h2 id={`${id}-title`} className={styles.panelTitle}>{def.title}</h2>

@@ -11,7 +11,7 @@ All keys are read on the web server only. They are never sent to the browser and
 | Section | Shows | Source | Needs |
 | --- | --- | --- | --- |
 | Online now | Signed-in people seen in the last 2 minutes, the page each one is on, a count per page group | `users.last_seen_at` / `users.last_route` (SQLite) | Nothing (on by default) |
-| Waitlist | Pending sign-up requests, masked emails, Approve and Reject with a confirm step | Clerk waitlist API | `CLERK_SECRET_KEY` |
+| Waitlist | Pending sign-up requests, emails masked in the UI (see Waitlist emails), Approve and Reject with a confirm step | Clerk waitlist API | `CLERK_SECRET_KEY` |
 | Live duels and drafts | Open and running tables and drafts, newest first, with links | SQLite | `DISCORD_GUILD_ID` |
 | Stats | Sign-ups, active users, duels and drafts started and finished: today and the last 7 days. Days are UTC | SQLite | `DISCORD_GUILD_ID` |
 | Errors | Error count for the last 24 hours and the latest issues | Sentry API | `SENTRY_API_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` |
@@ -44,7 +44,7 @@ Compose passes all of these to the `web` service. Put them in the VM `.env` (see
 | `POSTHOG_HOST` | Usage section | Optional. The EU ingest host (`eu.i.posthog.com`) is mapped to the API host (`eu.posthog.com`) |
 | `POSTHOG_DASHBOARD_URL` | Usage section | Optional. The "Open PostHog" link |
 
-The worker must run the new build too. It writes a heartbeat row on each health tick and clears old presence every 10 minutes. Until it runs, System shows "No heartbeat yet" for the worker. The worker also measures disk use (the database folder, `CARD_IMAGE_CACHE_DIR`, `DUEL_DATA_DIR` and the backups) and stores a snapshot in SQLite (`disk_usage_snapshot`, `disk_usage_history`); the web only reads it. The worker container needs read access to those folders. Until the first snapshot, the disk line is empty.
+The worker must run the new build too. It writes a heartbeat row on each health tick and clears old presence every 10 minutes. The disk measurement runs once an hour, because it walks the whole data folder including the image cache. Until it runs, System shows "No heartbeat yet" for the worker. The worker also measures disk use (the database folder, `CARD_IMAGE_CACHE_DIR`, `DUEL_DATA_DIR` and the backups) and stores a snapshot in SQLite (`disk_usage_snapshot`, `disk_usage_history`); the web only reads it. The worker container needs read access to those folders. Until the first snapshot, the disk line is empty.
 
 ## Create the keys
 
@@ -56,14 +56,18 @@ Restart the web service after a change: the variables are read at run time.
 
 ## Presence and privacy
 
-Signed-in pages send a small heartbeat every 60 seconds while the tab is visible. It sends only a page template from a fixed list (for example `/duels/[slug]`), never a full URL, query or ID. The server accepts at most one heartbeat per user every 30 seconds.
+Signed-in pages send a small heartbeat every 60 seconds while the tab is visible. It sends only a page template from a fixed list (for example `/duels/[slug]`), never a full URL, query or ID. The server accepts at most one heartbeat per user every 30 seconds, or every 10 seconds when the page template changed, so the Online now label follows navigation.
 
 Only the latest value is stored per user (`users.last_seen_at`, `users.last_route`). The worker deletes values older than 24 hours. Deleting an account clears them at once. The table type shown for duels ("4-way duel") is looked up on the server from the user's open table; it is not sent by the browser. The privacy page says this.
 
 To turn it off, set `PRESENCE_ENABLED=0` and restart web.
 
+## Waitlist emails
+
+The browser hides waitlist emails until the owner chooses Show emails, but masking is a UI feature only. The waitlist JSON that `/api/admin/console/waitlist` sends to an owner's browser holds the full email addresses, so they are visible in the network tab. The route is for owners only (`OWNER_USER_IDS`); do not add anyone you would not trust with the waitlist.
+
 ## Local checks
 
 - Integration tests: `npx vitest run packages/web/tests/admin-console -c packages/web/vitest.config.ts`. They use a real SQLite file and stub Clerk, Sentry and PostHog at the network edge.
-- Browser test: `E2E_ADMIN_CONSOLE=1 E2E_OWNER_USER_IDS=101 E2E_SLOT=N E2E_WORKERS=1 npx playwright test admin-console -c packages/e2e/playwright.config.ts`. `E2E_ADMIN_CONSOLE=1` gives the stack fake keys and a fetch stub (`packages/e2e/stack/admin-stubs.mjs`) for Clerk, Sentry and PostHog. `E2E_OWNER_USER_IDS=101` makes the first test player the owner.
+- Browser test: `E2E_ADMIN_CONSOLE=1 E2E_OWNER_USER_IDS=101 E2E_SLOT=N E2E_WORKERS=1 npx playwright test tests/admin-console.spec -c packages/e2e/playwright.config.ts`. `E2E_ADMIN_CONSOLE=1` gives the stack fake keys and a fetch stub (`packages/e2e/stack/admin-stubs.mjs`) for Clerk, Sentry and PostHog. `E2E_OWNER_USER_IDS=101` makes the first test player the owner.
 - The Sentry and PostHog calls were checked against fakes only. Check each panel once with the real keys after the first deploy.

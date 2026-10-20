@@ -170,7 +170,7 @@ export interface ServiceHealth {
   latencyMs?: number | null;
   lastBeatAt?: number | null;
 }
-/** Snapshot the worker stores every ~10 minutes (packages/worker/src/disk-usage.ts). */
+/** Snapshot the worker stores every hour (packages/worker/src/disk-usage.ts). */
 export interface DiskBreakdown {
   measuredAt: number;
   dataBytes: number;

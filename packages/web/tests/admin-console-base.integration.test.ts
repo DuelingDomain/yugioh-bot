@@ -32,6 +32,10 @@ it("stores only the latest route template and rate-limits a second beat", async 
   expect(second.status).toBe(429);
   expect(second.headers.get("retry-after")).toBe("30");
   expect(db.prepare("select last_route r from users where id=1").get()).toEqual({ r: "/decks/new" });
+  // A changed route is let through after 10 s, so the label follows the person.
+  db.prepare("update users set last_seen_at = last_seen_at - 11000 where id=1").run();
+  expect((await post(beat("/draft/[slug]"))).status).toBe(204);
+  expect(db.prepare("select last_route r from users where id=1").get()).toEqual({ r: "/draft/[slug]" });
 });
 it.each(["/duels/abc-123", "/decks/new?x=1", 5, null])("refuses an unknown route %j", async (route) => {
   expect((await post(beat(route))).status).toBe(400);

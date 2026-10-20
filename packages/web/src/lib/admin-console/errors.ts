@@ -7,7 +7,7 @@ const TIMEOUT_MS = 5_000;
 const SLUG = /^[A-Za-z0-9._-]+$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-interface Config { token: string; org: string; projects: string[]; base: string }
+interface Config { token: string; org: string; projects: string[]; base: string; ui: string }
 
 function readConfig(): Config | string {
   const token = process.env.SENTRY_API_TOKEN?.trim();
@@ -22,7 +22,10 @@ function readConfig(): Config | string {
     if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("protocol");
     base = url.origin;
   } catch { return "SENTRY_BASE_URL must be a web address."; }
-  return { token: token!, org: org!, projects, base };
+  // Sentry SaaS (sentry.io, de.sentry.io, us.sentry.io) serves the API on the region host but the web UI on <org>.sentry.io.
+  const host = new URL(base).hostname;
+  const ui = host === "sentry.io" || host.endsWith(".sentry.io") ? `https://${org}.sentry.io` : `${base}/organizations/${org}`;
+  return { token: token!, org: org!, projects, base, ui };
 }
 
 async function sentryGet(config: Config, path: string): Promise<unknown> {
@@ -61,7 +64,7 @@ function toIssue(raw: unknown, config: Config, project: string): ErrorIssue | nu
     id, title,
     count: events24h(r),
     lastSeen: text(r.lastSeen, 40) ?? "",
-    url: `${config.base}/organizations/${config.org}/issues/${id}/`,
+    url: `${config.ui}/issues/${id}/`,
     level: text(r.level, 20),
     culprit: text(r.culprit, 120),
     users: num(r.userCount),
@@ -108,7 +111,7 @@ const load = cachedLoader<ErrorsData>(60_000, async () => {
     return ok({
       issues,
       last24h: total ?? recent.reduce((sum, issue) => sum + issue.count, 0),
-      dashboardUrl: `${config.base}/organizations/${config.org}/projects/${config.projects[0]}/`,
+      dashboardUrl: `${config.ui}/projects/${config.projects[0]}/`,
     });
   } catch {
     return failed("Sentry did not answer");

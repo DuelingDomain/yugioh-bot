@@ -70,7 +70,7 @@ export async function measureDiskUsage(input: { dataDir: string; databasePath: s
   };
 }
 
-/** Every 10 minutes: store the directory breakdown. Every hour: one used-space point, kept 7 days. */
+/** Every hour: store the directory breakdown and one used-space point, kept 7 days. The walk covers the whole data folder, including the image cache, so it runs rarely. */
 export function createDiskUsage(input: Parameters<typeof measureDiskUsage>[0] & { db: Database.Database }) {
   const saveSnapshot = input.db.prepare("insert into disk_usage_snapshot(id, at, json) values (1, ?, ?) on conflict(id) do update set at = excluded.at, json = excluded.json");
   const newest = input.db.prepare("select max(at) at from disk_usage_history");
@@ -80,10 +80,10 @@ export function createDiskUsage(input: Parameters<typeof measureDiskUsage>[0] & 
     const snapshot = await measureDiskUsage(input);
     saveSnapshot.run(snapshot.measuredAt, JSON.stringify(snapshot));
     const last = (newest.get() as { at: number | null }).at;
-    if (last === null || snapshot.measuredAt - last >= HOUR_MS) {
+    if (last === null || snapshot.measuredAt - last >= HOUR_MS - 5 * 60_000) {
       const disk = await statfs(input.dataDir);
       addPoint.run(snapshot.measuredAt, (disk.blocks - disk.bfree) * disk.bsize);
     }
     prune.run(snapshot.measuredAt - KEEP_MS);
-  }, 10 * 60_000);
+  }, HOUR_MS);
 }

@@ -6,5 +6,13 @@
 .week { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
 .total { color: var(--ink-3); font: 400 14px/1.3 var(--f-ui); font-variant-numeric: tabular-nums; text-align: right; }
 .note { margin: 0; color: var(--ink-4); font: 400 14px/1.5 var(--f-ui); max-width: 72ch; }
+@media (min-width: 1500px) { .grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 @media (max-width: 1100px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 560px) { .grid { grid-template-columns: minmax(0, 1fr); } .card { padding: 14px 16px; } }
+/* Phone: two small cards per row. */
+@media (max-width: 560px) {
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .card { gap: 6px; padding: 12px; }
+  .figure { font-size: 24px; }
+  .week { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .total { text-align: left; font-size: 13px; }
+}

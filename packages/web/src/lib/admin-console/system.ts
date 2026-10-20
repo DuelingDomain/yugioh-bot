@@ -54,8 +54,9 @@ const cardDataStatus = cachedLoader<CardData>(60_000, async () => {
 async function duelServer(userId: number, db: ReturnType<typeof getDb>): Promise<{ health: SystemData["duelServer"]; actor: typeof cardDataActor }> {
   const activeTables = (db.prepare("select count(*) n from duels where kind = 'play' and status = 'active'").get() as { n: number }).n;
   if (!env.discordGuildId) return { health: { ok: false, detail: "DISCORD_GUILD_ID is not set, so the duel server cannot be asked.", latencyMs: null, activeTables }, actor: null };
-  const user = db.prepare("select coalesce(display_name, username, 'Admin') name from users where id = ?").get(userId) as { name: string } | undefined;
-  const player = createPlayerService(db).findOrCreate(env.discordGuildId, userId, user?.name ?? "Admin");
+  // Read-only lookup: a System poll must not take a write lock. An admin who never played has no player row, so the probe is skipped.
+  const player = createPlayerService(db).findByGuildAndUser(env.discordGuildId, userId);
+  if (!player) return { health: { ok: true, detail: "Not probed yet: this admin has no player profile in the guild.", latencyMs: null, activeTables }, actor: null };
   const actor = { guildId: env.discordGuildId, playerId: player.id };
   const started = Date.now();
   const result = await within(callDuelHost({ op: "capabilities", ...actor }), HOST_TIMEOUT_MS);
@@ -212,7 +213,7 @@ export const loadSystem: SectionLoader<"system"> = async ({ userId, now }) => {
   const services: ServiceHealth[] = [
     { id: "web", label: "Web", state: "up", detail: `Up ${duration((now - STARTED_AT) / 1000)}.`, latencyMs: null },
     { id: "duel", label: "Duel server", state: duel.ok ? ((duel.latencyMs ?? 0) > SLOW_MS ? "stale" : "up") : "down", latencyMs: duel.latencyMs ?? null,
-      detail: duel.ok ? `${duel.activeTables ?? 0} active ${duel.activeTables === 1 ? "table" : "tables"}${(duel.latencyMs ?? 0) > SLOW_MS ? ". Slow answer" : ""}.` : duel.detail ?? "Not reachable." },
+      detail: duel.ok ? (duel.detail ?? `${duel.activeTables ?? 0} active ${duel.activeTables === 1 ? "table" : "tables"}${(duel.latencyMs ?? 0) > SLOW_MS ? ". Slow answer" : ""}.`) : duel.detail ?? "Not reachable." },
     { id: "worker", label: "Worker", state: worker.lastTickAt === null ? "down" : worker.ok ? "up" : "stale", lastBeatAt: worker.lastTickAt,
       detail: worker.lastTickAt === null ? "No heartbeat yet. The worker has not run against this database." : worker.ok ? "Alive." : "No heartbeat for over 3 minutes. The worker may be down." },
     ws,

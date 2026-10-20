@@ -18,13 +18,15 @@ interface Entry {
   listeners: Set<() => void>;
   timer: ReturnType<typeof setInterval> | null;
   inflight: boolean;
+  /** A refresh was asked for while a request was running; run one more when it ends. */
+  again: boolean;
 }
 const EMPTY: SectionSnapshot<SectionId> = { result: null, fetchedAt: null, failure: null };
 const entries = new Map<SectionId, Entry>();
 
 function entry(id: SectionId): Entry {
   let found = entries.get(id);
-  if (!found) { found = { snapshot: EMPTY, listeners: new Set(), timer: null, inflight: false }; entries.set(id, found); }
+  if (!found) { found = { snapshot: EMPTY, listeners: new Set(), timer: null, inflight: false, again: false }; entries.set(id, found); }
   return found;
 }
 function publish(e: Entry, snapshot: SectionSnapshot<SectionId>) {
@@ -34,7 +36,7 @@ function publish(e: Entry, snapshot: SectionSnapshot<SectionId>) {
 
 async function load(id: SectionId) {
   const e = entry(id);
-  if (e.inflight) return;
+  if (e.inflight) { e.again = true; return; }
   e.inflight = true;
   try {
     const res = await fetch(`/api/admin/console/${id}`, { cache: "no-store" });
@@ -46,6 +48,7 @@ async function load(id: SectionId) {
     publish(e, { ...e.snapshot, failure: "unavailable" });
   } finally {
     e.inflight = false;
+    if (e.again) { e.again = false; void load(id); }
   }
 }
 

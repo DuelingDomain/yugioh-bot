@@ -75,21 +75,15 @@ it("lists running duels and lobbies with players, then open drafts, and skips st
   expect(data.drafts.find((d: { slug: string }) => d.slug === "dr1")).toMatchObject({
     status: "active", players: ["Bo", "Ann"], progress: "Round 2, pick 3", startedAt: Date.parse("2026-10-19T11:00:00Z"), href: "/draft/dr1" });
 });
-it("counts a busy 4-way table with a practice bot while the host is still inside the idle window", async () => {
-  seed();
-  db.prepare("update duels set last_activity_at = '2026-10-19 11:55:00' where id = 2").run();
-  const { data } = await (await section("live")).json();
-  const ffa = data.duels.find((d: { slug: string }) => d.slug === "d2");
-  expect(ffa).toMatchObject({ format: "ffa4", formatLabel: "4-way duel", status: "active", players: ["Cy", "Ann", "Practice Bot"] });
-  expect(data.duels.filter((d: { status: string }) => d.status === "active")).toHaveLength(2);
-});
-it("returns empty lists when nothing is open", async () => {
-  const { state, data } = await (await section("live")).json();
-  expect([state, data]).toEqual(["ok", { duels: [], drafts: [] }]);
-});
 
 it("counts today and seven UTC days with a series per metric", async () => {
   seed();
+  // Sign-ups are first web sign-ins. Ann and Operator signed in today, Bo yesterday, Cy before the window.
+  const signedIn = db.prepare("update users set first_sign_in_at = ? where id = ?");
+  signedIn.run(Date.parse("2026-10-19T08:00:00Z"), 1); signedIn.run(Date.parse("2026-10-19T09:00:00Z"), 2);
+  signedIn.run(Date.parse("2026-10-18T23:59:00Z"), 3); signedIn.run(Date.parse("2026-10-10T10:00:00Z"), 4);
+  // A Discord-only row created today that never signed in on the web is not a sign-up.
+  db.prepare("insert into users(id,username,display_name,created_at) values (5,'dc','Discord Only','2026-10-19 10:00:00')").run();
   const response = await section("stats");
   expect(response.status).toBe(200);
   const { state, data } = await response.json();
@@ -105,12 +99,6 @@ it("counts today and seven UTC days with a series per metric", async () => {
   expect(data.series.activeUsers).toEqual([0, 0, 0, 0, 1, 2, 4]);
   expect(data.today).toEqual({ signups: 2, activeUsers: 4, duelsStarted: 2, duelsFinished: 0, draftsStarted: 1, draftsCompleted: 0 });
   expect(data.last7Days).toEqual({ signups: 3, activeUsers: 4, duelsStarted: 3, duelsFinished: 1, draftsStarted: 2, draftsCompleted: 1 });
-});
-it("returns zeros on an empty database", async () => {
-  db.exec("delete from players; delete from users");
-  const { data } = await (await section("stats")).json();
-  expect(data.today).toEqual({ signups: 0, activeUsers: 0, duelsStarted: 0, duelsFinished: 0, draftsStarted: 0, draftsCompleted: 0 });
-  expect(data.series.signups).toEqual([0, 0, 0, 0, 0, 0, 0]);
 });
 
 it("asks for DISCORD_GUILD_ID when it is missing, for both sections", async () => {

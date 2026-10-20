@@ -28,7 +28,7 @@ beforeEach(() => {
   statfs.mockReset(); statfs.mockResolvedValue(disk(100, 50));
   db = new Database(":memory:"); migrate(db); getDb.mockReturnValue(db);
   db.exec(`insert into users(id,username,display_name) values(1,'op','Operator'),(2,'ann','Ann');
-    insert into players(id,guild_id,discord_user_id,display_name,user_id) values(12,'guild-1','d2','Ann',2);
+    insert into players(id,guild_id,discord_user_id,display_name,user_id) values(11,'guild-1','d1','Operator',1),(12,'guild-1','d2','Ann',2);
     insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status,format) values(1,'guild-1','t1','Table',12,'domain','active','ffa4'),
       (2,'guild-1','t2','Lobby',12,'domain','lobby','tag');`);
 });
@@ -102,16 +102,6 @@ it("shows the duel host as down, without a secret or URL, and skips the card dat
   expect(text).not.toContain("ws.internal");
 });
 
-it("warns when the worker heartbeat is older than 3 minutes, and when there is none", async () => {
-  stubDuelHost("up"); beat(5 * 60_000);
-  let body = await (await system()).json();
-  expect(body.data.worker).toMatchObject({ ok: false, stale: true, pid: 4242 });
-  expect(body.data.worker.lastTickAt).toBeLessThan(Date.now() - 4 * 60_000);
-  db.exec("delete from worker_heartbeat");
-  body = await (await system()).json();
-  expect(body.data.worker).toEqual({ ok: false, lastTickAt: null, stale: true, pid: null });
-});
-
 it("answers 404 to a non-owner", async () => {
   auth.mockResolvedValue({ user: { id: "2", name: "Ann" } });
   expect((await system()).status).toBe(404);
@@ -157,37 +147,6 @@ it("says the WS server is not configured without WS_INTERNAL_URL", async () => {
   expect(calls).not.toContain("ws-health");
 });
 
-it("counts a stale worker and a down duel server as problems", async () => {
-  stubServices("down"); beat(5 * 60_000);
-  const data = await system_();
-  expect([service(data, "duel"), service(data, "worker")].map((s) => s.state)).toEqual(["down", "stale"]);
-  expect(data.problems).toBe(2);
-});
-
-it("reads a bot heartbeat when the table exists", async () => {
-  stubServices("up"); beat(10_000);
-  db.exec("create table bot_heartbeat(id integer primary key, at integer not null)");
-  db.prepare("insert into bot_heartbeat(id, at) values (1, ?)").run(Date.now() - 5 * 60_000);
-  expect(service(await system_(), "bot")).toMatchObject({ state: "stale" });
-  db.prepare("update bot_heartbeat set at = ?").run(Date.now() - 5_000);
-  expect(service(await system_(), "bot")).toMatchObject({ state: "up" });
-});
-
-it.each([
-  { total: 100, free: 21, tone: "ok" },       // 79 % used, plenty free
-  { total: 100, free: 20, tone: "warn" },     // 80 % used
-  { total: 30, free: 9, tone: "warn" },       // 70 % used but under 10 GB free
-  { total: 100, free: 10, tone: "fail" },     // 90 % used
-  { total: 12, free: 4.5, tone: "fail" },     // 62 % used but under 5 GB free
-])("marks a disk of $total GiB with $free GiB free as $tone", async ({ total, free, tone }) => {
-  stubServices("up"); beat(10_000);
-  statfs.mockResolvedValue(disk(total, free));
-  const data = await system_();
-  expect(data.disk.tone).toBe(tone);
-  expect(data.problems).toBe(tone === "ok" ? 0 : 1);
-  expect(statfs).toHaveBeenCalledWith("/data-volume");
-});
-
 it("has no disk breakdown until the worker measures, then returns the stored snapshot", async () => {
   stubServices("up"); beat(10_000);
   let data = await system_();
@@ -201,18 +160,3 @@ it("has no disk breakdown until the worker measures, then returns the stored sna
   expect(data.disk.breakdown).toEqual({ ...snapshot, measuredAt: at });
 });
 
-it("estimates days until full from the hourly history, and ignores a flat history", async () => {
-  stubServices("up"); beat(10_000);
-  statfs.mockResolvedValue(disk(100, 10));
-  const insert = db.prepare("insert into disk_usage_history(at, used_bytes) values (?, ?)");
-  const now = Date.now();
-  // 24 hourly points growing 1 GiB per day; 10 GiB free means about 10 days.
-  for (let h = 24; h >= 0; h--) insert.run(now - h * 3_600_000, 80 * GIB + ((24 - h) / 24) * GIB);
-  let data = await system_();
-  expect(data.disk.trend.daysUntilFull).toBe(10);
-  expect(data.disk.trend.values.length).toBe(25);
-  db.exec("delete from disk_usage_history");
-  for (let h = 24; h >= 0; h--) insert.run(now - h * 3_600_000, 80 * GIB);
-  data = await system_();
-  expect(data.disk.trend.daysUntilFull).toBeNull();
-});

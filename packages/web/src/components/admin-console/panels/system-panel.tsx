@@ -71,7 +71,7 @@ function Disk({ disk, now }: { disk: DiskStatus; now: number }) {
           </dl>
           <p className={styles.sub}>Measured {ago(b.measuredAt, now)}</p>
         </>
-      ) : <p className={styles.sub}>Not measured yet. The worker measures the data folders every 10 minutes.</p>}
+      ) : <p className={styles.sub}>Not measured yet. The worker measures the data folders once an hour.</p>}
       {disk.trend && disk.trend.values.length > 1 ? (
         <p className={`${styles.sub} ${styles.trend}`}>
           <Sparkline values={disk.trend.values} label="Used space over the last 7 days" width={120} height={28} />

@@ -26,7 +26,7 @@ export function OnlinePanel() {
             {rows.length === 0 ? <EmptyNote>Nobody is online.</EmptyNote> : (
               <FloorList aria-label="People online">
                 {rows.map((u) => (
-                  <FloorRow key={u.userId} cols="minmax(0,1fr) minmax(0,1fr) 84px" phoneCols="minmax(0,1fr) auto" phoneAreas={'"nm seen" "sec sec"'}>
+                  <FloorRow key={u.userId} cols="minmax(0,1fr) minmax(0,1fr) 84px" phoneCols="auto minmax(0,1fr)" phoneAreas={'"nm nm" "sec seen"'}>
                     <span className={styles.rowName}><LiveDot className="" /> {u.name}</span>
                     <span className={styles.rowSection}>{u.label}</span>
                     <span className={styles.rowSeen}>{ago(u.lastSeenAt, now)}</span>

@@ -13,7 +13,8 @@ const dayOf = (text: string | null) => { const ms = dbTimeMs(text); return ms ==
 
 /**
  * Seven UTC days ending today, counted from the shared SQLite file. Every query is bounded by the oldest day:
- *  - sign-ups: users.created_at (a small, narrow table, scanned once per poll; no index added).
+ *  - sign-ups: users.first_sign_in_at, the epoch ms of a person's first web sign-in. users.created_at is not used: it also
+ *    covers Discord-only rows and test players that never signed in. A small, narrow table, scanned once per poll; no index added.
  *  - duels: the existing partial index duels_play_history_idx, (guild_id, julianday(coalesce(ended_at, created_at))) where kind = 'play'.
  *    The range covers every duel created or ended in the window. Replay forks are never counted.
  *  - drafts: drafts_guild_status_created_idx narrows to the guild; started_at/ended_at have no index, so those rows are
@@ -51,8 +52,8 @@ export function computeStats(db: Database.Database, guild: string, now: number):
     if (i !== undefined && userId !== null) active[i].add(userId);
   };
 
-  for (const row of db.prepare("select created_at from users where created_at >= ?").all(from) as { created_at: string }[]) {
-    bump("signups", dayOf(row.created_at));
+  for (const row of db.prepare("select first_sign_in_at from users where first_sign_in_at >= ?").all(fromMs) as { first_sign_in_at: number }[]) {
+    bump("signups", utcDay(row.first_sign_in_at));
   }
 
   const duels = db.prepare(`
