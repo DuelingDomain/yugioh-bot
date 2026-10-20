@@ -257,6 +257,24 @@ describe("host Genesys admission", () => {
     expect(result.status).toBe(400);
     expect(result.data.error).toMatch(/pointCap/);
   });
+
+  it("refuses a deck list over 60/15/15 before any card lookup, and bounds a check-only read", async () => {
+    const t = room("normal", "1v1");
+    const long = (count: number) => Array.from({ length: count }, (_, index) => 1000 + index);
+    const deck = genesysDeck("normal");
+    for (const [field, count, label] of [["main", 61, "Main deck"], ["extra", 16, "Extra deck"], ["side", 16, "Side deck"]] as const) {
+      const big = { ...deck, [field]: long(count) };
+      for (const body of [{ op: "start-test-duel", mode: "normal", deck: big }, { op: "deck", mode: "normal", deck: big }]) {
+        const result = await t.post(body);
+        expect(result.status).toBe(400);
+        expect(result.data.error).toContain(label);
+      }
+    }
+    // A check-only read may show a slightly oversized deck as rule messages, but a huge list is still refused.
+    const huge = await t.post({ op: "validate-deck", mode: "normal", deck: { ...deck, main: long(500) } });
+    expect(huge.status).toBe(400);
+    expect(huge.data.error).toContain("Main deck");
+  });
 });
 
 

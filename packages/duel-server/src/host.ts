@@ -577,6 +577,22 @@ export function createDuelHost(options: {
     validateDeck(mode, deck, options.dataDirectory, settings, checks);
   }
 
+  /**
+   * Refuses a deck list that is too long before any card lookup runs. A check-only read gets room to show an oversized
+   * deck as a rule message, but still has a bound, so a huge list never starts a flood of lookups.
+   */
+  function assertDeckListSize(deck: unknown, checkOnly = false): void {
+    if (typeof deck !== "object" || deck === null) return;
+    const room = checkOnly ? 4 : 1;
+    const limits = [["main", "Main deck", 60], ["extra", "Extra deck", 15], ["side", "Side deck", 15]] as const;
+    for (const [key, label, max] of limits) {
+      const list = (deck as Record<string, unknown>)[key];
+      if (Array.isArray(list) && list.length > max * room) {
+        throw new RequestError(`${label} cannot have more than ${max * room} cards`, 400);
+      }
+    }
+  }
+
   async function validateDeckMasterWrite(mode: DuelMode, deck: DuelDeck): Promise<void> {
     if (mode !== "domain" || deck?.deckMaster === undefined) return;
     // Resolve imports and artwork ids, but do not require a complete library deck.
@@ -2242,6 +2258,7 @@ export function createDuelHost(options: {
       if (error instanceof DuelSettingsError) throw new RequestError(error.message, 400);
       throw error;
     }
+    assertDeckListSize(body.deck);
     await validateDeckMasterWrite(mode, body.deck as DuelDeck);
     const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
     await validateSessionDeck(mode, deck, settings, "1v1");
@@ -3283,6 +3300,7 @@ export function createDuelHost(options: {
         if (error instanceof DuelSettingsError) throw new RequestError(error.message, 400);
         throw error;
       }
+      assertDeckListSize(body.deck, true);
       const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
       let draftPool: InspectDeckOptions["draftPool"];
       if (body.draftId !== undefined && body.draftId !== null) {
@@ -3527,6 +3545,7 @@ export function createDuelHost(options: {
       if (!info.playerIds.includes(actor)) throw new RequestError("Only the players of this series can do that", 403);
       if (op === "series-side") {
         if (info.status !== "between_games") throw new RequestError("Side decking is only open between games", 409);
+        assertDeckListSize(body.deck);
         await validateDeckMasterWrite(room.session.mode, body.deck as DuelDeck);
         // Like check-deck, unresolved ids stay as sent so validateSessionDeck can report them.
         const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
@@ -3605,6 +3624,7 @@ export function createDuelHost(options: {
         }
       }
       const settings = room.session.settings;
+      assertDeckListSize(body.deck, op === "validate-deck");
       if (op === "deck") {
         await validateDeckMasterWrite(room.session.mode, body.deck as DuelDeck);
       }
