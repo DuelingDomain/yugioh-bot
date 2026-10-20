@@ -1,3 +1,5 @@
+import {readFormatQuery} from "./format-query.js";
+import {readReleaseQuery} from "./release-query.js";
 import type { Card } from "./card.js";
 import type { MatchTags } from "./effect-match.js";
 import { matchCard } from "./effect-match.js";
@@ -17,9 +19,21 @@ export const searchIntentTarget = (text: string): { kind: "similar" | "counters"
 };
 
 export function intentReading(text: string, card: (name: string) => { id: number; name: string } | undefined, archetype: (name: string) => string | undefined): Interpretation | null {
-  if (/^(?:(?:best|format|generic|popular|current|tcg|domain|genesys)\s+)*(?:staples?|hand[- ]?traps)(?:\s+(?:for (?:this|the) format|this format))?[?.!]*$/i.test(text.trim())) {
-    const query = { intent: { kind: "staples" as const }, card: { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] }, roles: [], quick: false, text: "" };
+  const format=readFormatQuery(text), release=readReleaseQuery(format.text);
+  const facets={...(format.filter?{formatFilter:format.filter}:{}),...(release.released?{released:release.released,releaseLabel:release.releaseLabel}:{}),...(release.sort?{sort:release.sort}:{})};
+  text=release.text;
+  if (!(release.released && /^hand[- ]?traps$/i.test(text.trim())) && /^(?:(?:best|format|generic|popular|current|tcg|domain|genesys)\s+)*(?:staples?|hand[- ]?traps)(?:\s+(?:for (?:this|the) format|this format))?[?.!]*$/i.test(text.trim())) {
+    const query = { ...facets, intent: { kind: "staples" as const }, card: { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] }, roles: /hand[- ]?traps/i.test(text) ? ["hand_trap" as const] : [], quick: false, text: "" };
     return { query, chips: describe(query) };
+  }
+  const rolePhrase=/^(.+?)\s+(hand[- ]?traps?|staples?|removal|extenders?|board[- ]?breakers?|negation|searchers?)\s*[?.!]*$/i.exec(text.trim());
+  if (rolePhrase) {
+    const target=archetype(rolePhrase[1]!.replace(/\s+deck$/i,"")), roleWord=rolePhrase[2]!.toLowerCase().replace(/[- ]/g,"");
+    const role: import("./archetype-roles.js").ArchetypeRole = roleWord.startsWith("handtrap")?"hand_trap":roleWord.startsWith("boardbreaker")?"board_breaker":roleWord.startsWith("extender")?"extender":roleWord.startsWith("searcher")?"searcher":roleWord.startsWith("staple")?"staples":roleWord === "removal"?"removal":"negation";
+    if (target) {
+      const query={...facets,intent:{kind:"archetype_role" as const,archetype:target,role},card:{kinds:[],subtypes:[],types:[],attributes:[],archetypes:[]},roles:role==="staples"?[]:[role],quick:false,text:""};
+      return {query,chips:describe(query)};
+    }
   }
   const parsed = searchIntentTarget(text);
   if (!parsed) return null;
@@ -28,7 +42,7 @@ export function intentReading(text: string, card: (name: string) => { id: number
   const intent = anchor ? { kind: "similar" as const, passcode: anchor.id, name: anchor.name }
     : target ? parsed.kind === "outside" ? { kind: "outside" as const, archetype: target } : { kind: "counters" as const, archetype: target } : undefined;
   if (!intent) return null;
-  const query = { intent, card: { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] }, roles: [], quick: false, text: "" };
+  const query = { ...facets, intent, card: { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] }, roles: [], quick: false, text: "" };
   return { query, chips: describe(query) };
 }
 

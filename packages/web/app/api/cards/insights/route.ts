@@ -1,3 +1,4 @@
+import {loadFormatEffectSearch} from "@/lib/format-effect-search";
 import { NextResponse } from "next/server";
 import { createCardInsightService, parseDeckSuggestionQuery, readArchetypeGuide } from "@yugidraft/shared/services";
 import { requireWebAccess } from "@/lib/web-access";
@@ -7,7 +8,7 @@ import { effectSearchEnabled, deckSuggestionsEnabled } from "@/lib/effect-search
 import { loadDeckSuggestions } from "@/lib/deck-suggestions";
 import { readCardInsightRequest } from "@/lib/card-insights-api";
 import { apiErrorResponse } from "@/lib/api-errors";
-import { lowConfidenceReading, searchIntentTarget } from "@yugidraft/shared/cards/effects";
+import { lowConfidenceReading, searchIntentTarget, readFormatQuery } from "@yugidraft/shared/cards/effects";
 import { fallbackEffectReading } from "@yugidraft/shared/cards/effects/reading-fallback";
 
 export const runtime = "nodejs";
@@ -30,6 +31,10 @@ export async function POST(request: Request) {
       const found = await loadDeckSuggestions({ guildId: env.discordGuildId, userId: actor.userId, query });
       if (!found.ok) return found.response;
       return NextResponse.json({ effectSearchEnabled: true, deckSuggestionsEnabled: true, ...found.result }, { headers: { "Cache-Control": "private, no-store" } });
+    }
+    if (input.op==="effectSearch" && !input.exact && readFormatQuery(input.text).filter) {
+      const loaded=await loadFormatEffectSearch(input); if(!loaded.ok)return loaded.response;
+      return NextResponse.json({effectSearchEnabled:true,...loaded.result},{headers:{"Cache-Control":"private, no-store"}});
     }
     const service = createCardInsightService(getDb());
     let data: object;

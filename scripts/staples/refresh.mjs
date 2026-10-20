@@ -52,7 +52,7 @@ for (const [format, category] of Object.entries(categories)) {
     const sample = aggregate(decks, metadata, generic);
     if (sample.deckCount < POLICY.minimumDecks || sample.archetypeCount < 3 || !sample.cards.length) throw Error('Insufficient format data');
     const proposed = { ...sample, sources };
-    const check = { schemaVersion: 1, generatedAt: new Date().toISOString(), policy: POLICY, formats: { [format]: proposed } };
+    const check = { schemaVersion: 2, generatedAt: new Date().toISOString(), policy: POLICY, formats: { [format]: proposed } };
     validateArtifact({ ...check, version: sha(check) });
     formats[format] = proposed;
     evidence[format] = decks; refreshed++;
@@ -60,7 +60,7 @@ for (const [format, category] of Object.entries(categories)) {
   } catch (error) { console.error(`${format}: retain prior sample: ${error.message}`); }
 }
 if (!refreshed) throw Error('No source refreshed');
-const identity = { schemaVersion: 1, generatedAt: new Date().toISOString(), policy: POLICY, formats };
+const identity = { schemaVersion: 2, generatedAt: new Date().toISOString(), policy: POLICY, formats };
 const result = validateArtifact({ ...identity, version: sha(identity) });
 mkdirSync(resolve(output, '..'), { recursive: true });
 writeFileSync(output, JSON.stringify(result, null, 2)+'\n');

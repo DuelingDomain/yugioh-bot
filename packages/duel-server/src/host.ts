@@ -3275,9 +3275,14 @@ export function createDuelHost(options: {
         const effects = enabled ? cardEffectIndex(catalog) ?? await initializeCardEffectIndex(options.db, catalog) : undefined;
         const releases = !enabled && (query.released || query.sort === "newest") ? cardReleaseIndex(options.db) : undefined;
         const entries = cardRequestEntries(body, guildId, actor), points = await genesysAdmissionPoints();
-        const search = () => queryCards(catalog, query, entries, points, { effects, releases, effectSearchEnabled: enabled });
+        const formatReading = enabled && !query.exact && query.scope!=="name" ? effects?.readQuery(query.text,query.effectOmit)?.query.formatFilter : undefined;
+        const mode=formatReading?.format==="domain"?"domain":"normal";
+        const formatAllowed=formatReading?.format ? new Set(deckSuggestionScope(mode,options.dataDirectory,
+          normalizeDuelSettings(mode, formatReading.format==="genesys"?{genesys:{}}:{banlist:query.banlist==="none"?"none":query.banlist}),
+          {deckMaster:query.deckMaster,cardBlocks:cardRequestEntries({...body,mode},guildId,actor)}).allowed):undefined;
+        const search = () => queryCards(catalog, query, entries, points, { effects, releases, effectSearchEnabled: enabled, formatAllowed });
         let result = search();
-        if (enabled && !query.exact && query.scope !== "name" && query.text.trim() && query.passcodes?.length !== 0 && !query.effectOmit?.length && !result.total && result.reading?.query.intent?.kind !== "staples") {
+        if (enabled && !query.exact && query.scope !== "name" && query.text.trim() && query.passcodes?.length !== 0 && !query.effectOmit?.length && !result.total && !result.reading?.query.intent && !result.reading?.query.formatFilter && !result.reading?.query.recruiter && !result.reading?.query.released && !result.reading?.query.sort) {
           const { lowConfidenceReading } = await import("@yugidraft/shared/cards/effects");
           if (!result.effectTotal || lowConfidenceReading(query.text, result.reading ?? null)) {
             const { fallbackEffectReading } = await import("@yugidraft/shared/cards/effects/reading-fallback");

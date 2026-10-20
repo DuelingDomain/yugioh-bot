@@ -1,3 +1,4 @@
+import {loadFormatEffectSearch} from "@/lib/format-effect-search";
 import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
@@ -12,7 +13,7 @@ import { effectSearchEnabled, deckSuggestionsEnabled } from "@/lib/effect-search
 import { loadDeckSuggestions } from "@/lib/deck-suggestions";
 import { env } from "@/lib/env";
 import { ensureCatalogCards } from "@/lib/cube-pool";
-import { lowConfidenceReading, searchIntentTarget } from "@yugidraft/shared/cards/effects";
+import { lowConfidenceReading, searchIntentTarget, readFormatQuery } from "@yugidraft/shared/cards/effects";
 import { fallbackEffectReading } from "@yugidraft/shared/cards/effects/reading-fallback";
 
 export const runtime = "nodejs";
@@ -85,6 +86,9 @@ async function handlePOST(request: Request) {
       const loaded = await loadDeckSuggestions({ guildId: env.discordGuildId, userId: actor.userId, query });
       if (!loaded.ok) return loaded.response;
       result = loaded.result;
+    } else if (!input.exact && readFormatQuery(input.text).filter) {
+      const loaded=await loadFormatEffectSearch(input); if(!loaded.ok)return loaded.response;
+      result=loaded.result;
     } else {
       const service = createCardInsightService(db);
       result = service.effectSearch(input.text, input.pool, input);

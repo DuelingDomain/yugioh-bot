@@ -125,7 +125,7 @@ export function CardBrowser({
   /** The deck, for the Suggestions rows that show while the search box is empty. Not given: no rows. */
   suggest?: BrowserSuggest;
 }) {
-  const key = `${mode}:${genesys}:${partner ? `w${partner.code}:` : ""}${queryKey(query)}`;
+  const key = `${mode}:${genesys}:${suggest?.deckMaster??""}:${partner ? `w${partner.code}:` : ""}${queryKey(query)}`;
   const [results, setResults] = useState<Results | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -220,10 +220,10 @@ export function CardBrowser({
           const current = latest.current;
           // Immediate local name results keep drafting responsive. Only the additional effect group is remote.
           const wantsEffects = !current.exact && current.scope !== "name" && mayReadEffect(current.text);
-          void queryDeckCards({ ...current, format: genesys ? mode === "domain" ? "genesys-domain" : "genesys" : mode, ...(wantsEffects ? {} : { exact: true }), passcodes: poolCards.map(card => card.canonicalPasscode ?? card.code), offset: 0, effectOffset: 0, limit: PAGE }, controller.signal, { mode }).then(result => {
+          void queryDeckCards({ ...current, format: genesys ? mode === "domain" ? "genesys-domain" : "genesys" : mode, deckMaster: suggest?.deckMaster ?? undefined, ...(wantsEffects ? {} : { exact: true }), passcodes: poolCards.map(card => card.canonicalPasscode ?? card.code), offset: 0, effectOffset: 0, limit: PAGE }, controller.signal, { mode }).then(result => {
             if (controller.signal.aborted) return;
             capabilityRef.current?.(result.effectSearchEnabled === true);
-            const names = result.reading?.query.intent?.kind === "staples" ? result.cards : result.reading ? queryPoolCards(poolCards, { ...current, scope: "name" }, (code) => archetypesRef.current.find((item) => item.codes.includes(code))?.name) : found;
+            const names = (result.reading?.query.intent || result.reading?.query.formatFilter || result.reading?.query.recruiter) ? result.cards : result.reading ? queryPoolCards(poolCards, { ...current, scope: "name" }, (code) => archetypesRef.current.find((item) => item.codes.includes(code))?.name) : found;
             setResults({ ...result, key, cards: names, total: names.length, error: null });
             onCatalogRef.current(result.effectHits ?? []);
           }).catch(() => { /* Pool names remain available during host outages. */ });
@@ -234,7 +234,7 @@ export function CardBrowser({
     }
     setLoading(true);
     const timer = window.setTimeout(() => {
-      void queryDeckCards({ ...latest.current, format: genesys ? mode === "domain" ? "genesys-domain" : "genesys" : mode, offset: 0, effectOffset: 0, limit: PAGE }, controller.signal, { mode }).then(
+      void queryDeckCards({ ...latest.current, format: genesys ? mode === "domain" ? "genesys-domain" : "genesys" : mode, deckMaster: suggest?.deckMaster ?? undefined, offset: 0, effectOffset: 0, limit: PAGE }, controller.signal, { mode }).then(
         (result) => {
           if (controller.signal.aborted) return;
           capabilityRef.current?.(result.effectSearchEnabled === true);
@@ -270,7 +270,7 @@ export function CardBrowser({
     moreController.current = controller;
     setLoadingMore(true);
     const pageKey = results.key;
-    void queryDeckCards({ ...latest.current, format: genesys ? mode === "domain" ? "genesys-domain" : "genesys" : mode, ...(poolCards ? { passcodes: poolCards.map(card => card.canonicalPasscode ?? card.code) } : {}), offset: results.cards.length, effectOffset: results.effectHits?.length ?? 0, limit: PAGE }, controller.signal, { mode }).then(
+    void queryDeckCards({ ...latest.current, format: genesys ? mode === "domain" ? "genesys-domain" : "genesys" : mode, deckMaster: suggest?.deckMaster ?? undefined, ...(poolCards ? { passcodes: poolCards.map(card => card.canonicalPasscode ?? card.code) } : {}), offset: results.cards.length, effectOffset: results.effectHits?.length ?? 0, limit: PAGE }, controller.signal, { mode }).then(
       (result) => {
         if (controller.signal.aborted) return;
         setResults((prev) => (prev && prev.key === pageKey

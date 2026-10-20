@@ -26,6 +26,8 @@ beforeAll(() => {
   createPlayerService(state.db).findOrCreate("configured-community", 123, "Yugi");
   createPlayerService(state.db).findOrCreate("configured-community", 124, "Joey");
   directory = createHostDataFixture([
+    {code:57839750,name:"Mother Grizzly",type:0x21},
+    {code:83011278,name:"Mystic Tomato",type:0x21},
     {code:14558127,name:"Ash Blossom & Joyous Spring",type:0x21},
     {code:97268402,name:"Effect Veiler",type:0x21},
     {code:89631139,name:"Blue-Eyes White Dragon",type:0x11},
@@ -205,4 +207,18 @@ it("reruns hard phrases through the same scoped host filters after a fallback an
   const off = await (await post({ text: 'another difficult phrase' })).json();
   expect(off).not.toHaveProperty('relax');
   expect(state.fallback).not.toHaveBeenCalled();
+});
+
+it.each([['recruiters','Mother Grizzly'],['staples','Ash Blossom & Joyous Spring']])('keeps effect hits when %s has zero name hits', async (text,name)=>{
+ const response=await post({text,scope:'all'});expect(response.status).toBe(200);
+ const data=await response.json();expect(data.effectSearchEnabled).toBe(true);expect(data.total).toBe(0);expect(data.effectTotal).toBeGreaterThan(0);
+ expect(data.effectHits.map((card:DeckCardInfo)=>card.name)).toContain(name);
+});
+it('routes format searches through the signed host from both web entry points',async()=>{
+ const deck=await post({text:'TCG only',limit:120});expect(deck.status).toBe(200);const expected=await deck.json();
+ const {POST}=await import('../app/api/cards/insights/route');
+ const response=await POST(new Request('http://web/api/cards/insights',{method:'POST',body:JSON.stringify({op:'effectSearch',text:'TCG only',limit:120})}));
+ expect(response.status).toBe(200);const found=await response.json();
+ expect(found.total).toBe(expected.effectTotal);expect(found.cards.map((card:{passcode:number})=>card.passcode)).toEqual(expected.effectHits.map((card:DeckCardInfo)=>card.code));
+ expect(found.reading.chips).toContain('Pool: TCG only');
 });

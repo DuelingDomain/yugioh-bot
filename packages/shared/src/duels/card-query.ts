@@ -186,6 +186,7 @@ export interface CardQuery {
   exact?: boolean;
   /** Reading chips removed by the player, identified by their displayed label. */
   effectOmit?: string[];
+  deckMaster?: number;
   format?: "normal" | "domain" | "genesys" | "genesys-domain";
   /** Independently page the additional effect group (default: offset). */
   effectOffset?: number;
@@ -378,6 +379,7 @@ export function parseCardQuery(raw: unknown): CardQuery {
     ...(raw.passcodes !== undefined ? { passcodes: [...new Set(raw.passcodes as number[])] } : {}),
     ...(raw.genesysPoints !== undefined ? { genesysPoints: pickRange(raw.genesysPoints, 1000, "Genesys points") } : {}),
     ...(raw.excludeGenesysForbidden !== undefined ? { excludeGenesysForbidden: raw.excludeGenesysForbidden } : {}),
+    ...(raw.deckMaster !== undefined ? {deckMaster:pickInt(raw.deckMaster,1,0xffffffff,0,"Deck Master")} : {}),
     ...(raw.format !== undefined ? { format: pick(raw.format, ["normal", "domain", "genesys", "genesys-domain"] as const, "normal", "format") } : {}),
     text,
     scope: pick(raw.scope, ["all", "name"] as const, base.scope, "scope"),

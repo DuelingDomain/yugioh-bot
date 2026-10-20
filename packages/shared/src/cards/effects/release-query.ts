@@ -47,6 +47,9 @@ export function readReleaseQuery(input: string, now = new Date()): { text: strin
     const single = m[1]!.toLowerCase() === "in";
     return { range: before ? { to: `${year - 1}-12` } : single ? { from: `${year}-01`, to: `${year}-12` } : { from: `${year}-01` }, label: `${before ? "before" : single ? "in" : m[1]!.toLowerCase()} ${year}` };
   });
+  consume(/\breleased\s+(\d{4})\b/gi, m => {
+    const year=Number(m[1]); return yearValid(year)?{range:{from:`${year}-01`,to:`${year}-12`},label:`in ${year}`}:undefined;
+  });
   const recent = (months: number) => {
     const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - months, 1));
     return { from: date.toISOString().slice(0, 7), to: now.toISOString().slice(0, 7) };

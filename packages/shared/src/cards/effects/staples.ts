@@ -3,24 +3,31 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import * as z from "zod";
+import { compactEffectName } from "./name-match.js";
 import type Database from "better-sqlite3";
 const count = z.int().min(1);
 const Usage = z.object({ passcode: z.int().min(1).max(0xffffffff), name: z.string().max(160), decks: count, copies: count,
   archetypes: z.record(z.string(), count), playShare: z.number().min(0.1).max(1), averageCopies: z.number().min(1).max(3) }).strict();
 const Sample = z.object({ deckCount: z.int().min(20), archetypeCount: z.int().min(3), cards: z.array(Usage).max(80),
+  archetypeDeckCounts: z.record(z.string(),count),
+  archetypeUsage: z.record(z.string(),z.array(z.object({passcode:z.int().min(1).max(0xffffffff),decks:count}).strict()).max(40)),
   sources: z.array(z.object({ url: z.url(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).min(1).max(5) }).strict();
-const Artifact = z.object({ schemaVersion: z.literal(1), generatedAt: z.iso.datetime(),
+const Artifact = z.object({ schemaVersion: z.literal(2), generatedAt: z.iso.datetime(),
   policy: z.object({ minimumDecks: z.literal(20), minimumShare: z.literal(0.1), minimumArchetypes: z.literal(3), maximumArchetypeShare: z.literal(0.6) }).strict(),
   formats: z.object({ tcg: Sample.optional(), domain: Sample.optional(), genesys: Sample.optional(), "genesys-domain": Sample.optional() }).strict(), version: z.string() }).strict();
 export type StapleUsage = z.infer<typeof Usage>;
-export interface FormatStaples { version: string; label: string; cards: ReadonlyMap<number, StapleUsage> }
+export interface FormatStaples { version: string; label: string; cards: ReadonlyMap<number, StapleUsage>; archetypes: ReadonlyMap<string,{decks:number;cards:ReadonlyMap<number,number>}> }
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const bytes = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../../data/staples/usage.json"));
 if (bytes.length > 500_000) throw Error("Staple artifact too large");
-const artifact = Artifact.parse(JSON.parse(bytes.toString()));
-const { version, ...identity } = artifact;
+const rawArtifact = JSON.parse(bytes.toString());
+const { version, ...identity } = rawArtifact;
 if (hash(identity) !== version) throw Error("Staple artifact integrity failed");
+const artifact = Artifact.parse(rawArtifact);
 for (const sample of Object.values(artifact.formats)) {
+  if (Object.keys(sample.archetypeDeckCounts).length !== sample.archetypeCount || Object.keys(sample.archetypeUsage).length !== sample.archetypeCount
+    || Object.values(sample.archetypeDeckCounts).reduce((a,b)=>a+b,0)!==sample.deckCount) throw Error("Invalid archetype denominators");
+  for (const [name,rows] of Object.entries(sample.archetypeUsage)) if (!sample.archetypeDeckCounts[name] || new Set(rows.map(row=>row.passcode)).size!==rows.length || rows.some(row=>row.decks>sample.archetypeDeckCounts[name]!)) throw Error("Invalid archetype usage");
   const ids = new Set<number>();
   for (const card of sample.cards) {
     if (ids.has(card.passcode) || card.playShare !== card.decks/sample.deckCount || card.averageCopies !== card.copies/card.decks
@@ -97,5 +104,12 @@ export function formatStaples(format = "normal", banlist?: string, db?: Database
   const local = db ? savedUsage(db) : undefined, localCards = local?.formats.get(key);
   // A private cohort is an independent source. Public samples remain the stable default.
   const cards = localCards ?? sample?.cards ?? [];
-  return { version: `${version}:${localCards ? local!.key : "public"}`, label: key === "tcg" ? "TCG" : key === "domain" ? "Domain" : key === "genesys" ? "Genesys" : key === "genesys-domain" ? "Genesys Domain" : "OCG", cards: new Map(cards.map(row=>[row.passcode,row])) };
+  return { version: `${version}:${localCards ? local!.key : "public"}`, label: key === "tcg" ? "TCG" : key === "domain" ? "Domain" : key === "genesys" ? "Genesys" : key === "genesys-domain" ? "Genesys Domain" : "OCG", cards: new Map(cards.map(row=>[row.passcode,row])),
+    archetypes: new Map(localCards ? [] : Object.entries(sample?.archetypeDeckCounts??{}).map(([name,decks])=>[compactEffectName(name),{decks,cards:new Map((sample?.archetypeUsage[name]??[]).map(row=>[row.passcode,row.decks]))}])) };
+}
+
+/** Only labeled cohorts of at least three decks support a per-archetype percentage. */
+export function archetypePlayShare(usage: FormatStaples, archetype: string, passcode: number): number | undefined {
+  const sample=usage.archetypes.get(compactEffectName(archetype));
+  return sample && sample.decks>=3 ? (sample.cards.get(passcode)??0)/sample.decks : undefined;
 }

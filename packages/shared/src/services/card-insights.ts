@@ -1,6 +1,9 @@
+import {rankArchetypeRole} from "../cards/effects/role-ranking.js";
+import {roleContext,archetypeMember} from "../cards/effects/archetype-roles.js";
 import { formatStaples, stapleReason } from "../cards/effects/staples.js";
 import { cardEraBoost, deriveCardEra, matchesReleased, compareNewest, cardReleaseInfo, selectedReleaseDate, type ReleasedRange, type CardEra, type ReleaseDates } from "../cards/effects/releases.js";
 import type Database from "better-sqlite3";
+import type { Card } from "../cards/effects/card.js";
 import type { DuelDeck } from "../duels/index.js";
 import { isBarredFromGenesys, isExtraDeckCard } from "../cards/effects/card.js";
 import { buildArchetypeMatcher, describe, interpret, omitReadingChips, type Interpretation } from "../cards/effects/query.js";
@@ -19,6 +22,8 @@ import { suggestDeckRows, type DeckSuggestionOptions, type DeckSuggestionLegalit
 
 export type CardInsightFormat = "normal" | "domain" | "genesys" | "genesys-domain";
 export interface CardInsightOptions {
+  /** Internal format predicate supplied by an authoritative host; never accepted from HTTP. */
+  formatAdmission?: (candidate: Card) => boolean;
   released?: ReleasedRange;
   sort?: "match" | "newest";
   era?: CardEra;
@@ -118,9 +123,11 @@ export function createCardInsightService(db: Database.Database, options: {
     }, name => resolveEffectName([...effectArchetypes(db)].map(name => ({ name })), name)?.name);
     if (intent) return intent;
     if (searchIntentTarget(text)?.kind === "outside") return null;
+    const deterministic=interpret(text,matcher);
+    if (deterministic && (deterministic.query.recruiter || deterministic.query.formatFilter || deterministic.query.released || deterministic.query.sort)) return deterministic;
     const cached = cachedEffectReading(db, text);
     if (cached) return cached;
-    if (!target) return interpret(text, matcher);
+    if (!target) return deterministic;
     const named = resolveTarget(target);
     const name = named === undefined ? undefined : (db.prepare("SELECT name FROM card_catalog WHERE ygoprodeck_id=?").get(named) as { name: string } | undefined)?.name;
     if (!name) return interpret(`${target} support`, matcher);
@@ -199,13 +206,19 @@ export function createCardInsightService(db: Database.Database, options: {
           return { reading, ...rank(catalog, candidate ? [candidate] : [], pool, effective) };
         }
         const ranked: Retained[] = [];
-        const staples = formatStaples(opts.format, opts.suggestionContext?.banlist, db);
+        const staples = formatStaples(reading.query.formatFilter?.format??opts.format, opts.suggestionContext?.banlist, db);
+        const roleIntent=reading.query.intent?.kind==="archetype_role"?reading.query.intent:undefined;
+        function* native() { for (const candidate of catalog.suggestionCandidates()) if (roleIntent && archetypeMember(candidate.card,roleIntent.archetype)) yield candidate; }
+        const context=roleIntent?roleContext(native()):undefined;
         const similar = reading.query.intent?.kind === "similar" ? catalog.candidate(reading.query.intent.passcode) : undefined;
         const archetype = reading.query.intent?.kind === "counters" ? reading.query.intent.archetype : undefined;
         const row = archetype ? db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE").get(archetype) : undefined;
         let counter: ReturnType<typeof counterProfileFromHooks> | undefined;
         try { if (row) counter = counterProfileFromHooks(ArchetypeProfile.parse({ plan: row.plan, hooks: JSON.parse(row.hooks_json) })); } catch { /* Optional profile: fail closed. */ }
         const match = (candidate: Candidate, query = reading.query): number | null => {
+          if (query.formatFilter && !opts.formatAdmission?.(candidate.card)) return null;
+          if (matchCard(candidate.card, candidate.tags, query.intent?.kind === "archetype_role" ? {...query, roles: []} : query) === null) return null;
+          if (query.intent?.kind === "archetype_role") return context?rankArchetypeRole(candidate.card,candidate.tags,query.intent.archetype,query.intent.role,archetypeMember(candidate.card,query.intent.archetype),context,staples)?.score??null:null;
           if (query.intent?.kind === "staples") return staples.cards.size ? staples.cards.get(candidate.card.id)?.playShare ?? null
             : candidate.tags?.roles.some(role => ["hand_trap", "board_breaker", "negation"].includes(role)) ? 1 : null;
           const base = matchCard(candidate.card, candidate.tags, query);
@@ -221,7 +234,7 @@ export function createCardInsightService(db: Database.Database, options: {
           const score = match(candidate);
           if (score === null) continue;
           total++;
-          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + cardEraBoost(candidate.card, opts.era), linkedCards: 0, reason: reading.query.intent?.kind === "staples" && staples.cards.size ? stapleReason(staples.cards.get(candidate.card.id)!, staples.label) : counter && archetype ? counterLink(counter, archetype, candidate)!.reason
+          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + cardEraBoost(candidate.card, opts.era), linkedCards: 0, reason: roleIntent && context ? rankArchetypeRole(candidate.card,candidate.tags,roleIntent.archetype,roleIntent.role,archetypeMember(candidate.card,roleIntent.archetype),context,staples)!.reason : reading.query.intent?.kind === "staples" && staples.cards.size ? stapleReason(staples.cards.get(candidate.card.id)!, staples.label) : counter && archetype ? counterLink(counter, archetype, candidate)!.reason
             : similar ? shortReason(`Similar ${candidate.tags?.roles.find(role => similar.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${similar.card.name}`)
             : effectMatchReason(candidate.card, candidate.tags, reading.query, candidate.tags?.summary),
             ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), effective);

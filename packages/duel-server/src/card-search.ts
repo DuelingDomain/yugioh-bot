@@ -1,5 +1,6 @@
 import {
   DUEL_BANLIST_OPTIONS,
+  PINNED_TCG_BANLIST_ID, PINNED_OCG_BANLIST_ID, DEFAULT_GENESYS_POINT_CAP,
   CARD_POOL_OCG,
   CARD_POOL_TCG,
   CARD_TYPE_BITS as T,
@@ -25,7 +26,7 @@ import { BANLIST_NONE_ID, banlistLimitsFor } from "./banlists/index.js";
 import { cardArtworkFamily } from "./card-artworks.js";
 import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
 import type { CardDatabase } from "./cards.js";
-import { effectSearchEnabled, formatStaples, stapleReason, resolveEffectName, matchesReleased, compareNewest, cardReleaseInfo, type ReleaseDates } from "@yugidraft/shared/cards/effects";
+import { effectSearchEnabled, describeFormat, formatStaples, stapleReason, resolveEffectName, matchesReleased, compareNewest, cardReleaseInfo, type ReleaseDates } from "@yugidraft/shared/cards/effects";
 import { cardEffectIndex, type CardEffectIndex } from "./card-effects.js";
 
 type Kind = "monster" | "spell" | "trap" | "other";
@@ -305,7 +306,7 @@ function sortEntries(found: Entry[], query: CardQuery, member: Matcher | null, r
 }
 
 /** Runs a validated deck-editor query over the engine catalog. */
-export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>, options: { effects?: CardEffectIndex; releases?: ReadonlyMap<number, ReleaseDates>; effectSearchEnabled?: boolean } = {}): CardQueryResult {
+export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>, options: { effects?: CardEffectIndex; releases?: ReadonlyMap<number, ReleaseDates>; effectSearchEnabled?: boolean; formatAllowed?: ReadonlySet<number> } = {}): CardQueryResult {
   const index = indexFor(cards);
   const blocked = blocksFor(cards, entries);
   const enabled = options.effectSearchEnabled ?? effectSearchEnabled();
@@ -313,10 +314,31 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const releaseFor = (entry: Entry): ReleaseDates => options.releases?.get(entry.card.canonicalPasscode ?? entry.card.code) ?? releaseIndex?.release(entry.card.canonicalPasscode ?? entry.card.code) ?? {};
   const effects = enabled ? releaseIndex : undefined;
   let reading = effects && !query.exact && query.scope !== "name" ? effects.readQuery(query.text, query.effectOmit) : null;
-  const staples = effects?.staples?.(query.format, query.banlist) ?? formatStaples(query.format, query.banlist);
+  const staples = effects?.staples?.(reading?.query.formatFilter?.format??query.format, query.banlist) ?? formatStaples(reading?.query.formatFilter?.format??query.format, query.banlist);
+  const format=reading?.query.formatFilter;
+  const filterBanlist=format?.region === "ocg" ? query.banlist.startsWith("ocg")?query.banlist:PINNED_OCG_BANLIST_ID
+    : format?.region === "tcg" ? query.banlist.startsWith("tcg")?query.banlist:PINNED_TCG_BANLIST_ID
+    : query.banlist === "none" ? PINNED_TCG_BANLIST_ID : query.banlist;
+  const formatChecks: Matcher[]=[];
+  if (format) {
+    const extra={...query,text:"",pool:format.region??(format.format==="genesys"?"tcg":query.pool),banlist:filterBanlist,
+      limits:format.limit===undefined?[]:[LIMIT_STATUS[format.limit]],excludeGenesysForbidden:format.format==="genesys",
+      genesysPoints:format.format==="genesys"?{min:0,max:Math.min(Math.floor(DEFAULT_GENESYS_POINT_CAP/(format.copies??1)),format.genesysMax??Infinity)}:undefined} satisfies CardQuery;
+    formatChecks.push(...compile(extra,index,genesysPoints,releaseFor));
+    if (format.format==="domain") formatChecks.push(entry=>options.formatAllowed?.has(entry.card.canonicalPasscode??entry.card.code)??false);
+    if (format.format==="genesys" && options.formatAllowed) formatChecks.push(entry=>options.formatAllowed!.has(entry.card.canonicalPasscode??entry.card.code));
+  }
+  const semantic = !!(reading?.query.intent || reading?.query.formatFilter || reading?.query.recruiter);
+  const formatReason = (entry: Entry, reason: string): string => {
+    if (!format) return reason;
+    const labels=describeFormat(format).map(label=>label.replace(/^(?:Pool|Limit): /,""));
+    if (format.format==="genesys") labels.push(`${genesysPoints?.get(entry.card.canonicalPasscode??entry.card.code)} points`);
+    if (format.limit!==undefined) labels.push(DUEL_BANLIST_OPTIONS.find(list=>list.id===filterBanlist)?.label??filterBanlist);
+    return (reading?.query.intent?.kind==="archetype_role"?`${reason} · `:"")+labels.join(" · ");
+  };
   const checks = compile(reading ? { ...query, scope: "name" } : query, index, genesysPoints, releaseFor);
-  const passes = (entry: Entry) => checks.every((check) => check(entry));
-  const effectChecks = reading ? compile({ ...query, text: "" }, index, genesysPoints, releaseFor) : [];
+  const passes = (entry: Entry) => checks.every((check) => check(entry)) && formatChecks.every(check=>check(entry));
+  const effectChecks = reading ? [...compile({ ...query, text: "" }, index, genesysPoints, releaseFor),...formatChecks] : [];
   const effectFound: Array<{ entry: Entry; score: number }> = [];
 
   const trimmed = query.text.trim();
@@ -327,10 +349,9 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const found: Entry[] = [];
   for (const entry of index.entries) {
     if (entry.hidden || entry === exact || (exactFamily !== undefined && cardArtworkFamily(cards, entry.card.code)?.passcode === exactFamily)) continue;
-    if (passes(entry) && (reading?.query.intent?.kind !== "staples" || entry.name === foldCardText(query.text))) found.push(entry);
+    if (passes(entry) && (!semantic || entry.name === foldCardText(query.text))) found.push(entry);
     else if (reading && effectChecks.every(check => check(entry))) {
-      const played = staples.cards.get(entry.card.canonicalPasscode ?? entry.card.code);
-      const score = reading.query.intent?.kind === "staples" && staples.cards.size ? played?.playShare ?? null : effects!.match(entry.card.code, reading);
+      const score = effects!.match(entry.card.code, reading, staples);
       if (score !== null) effectFound.push({ entry, score });
     }
   }
@@ -341,7 +362,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   // An exact passcode leads, even for an alternate artwork that the list otherwise hides.
   if (exact && exactPasses) sorted.unshift(exact);
   // Alias/typo correction is an empty-result fallback, so successful name queries keep the same scan.
-  if (reading?.query.intent?.kind !== "staples" && !sorted.length && !query.exact && trimmed && !/^\d+$/.test(trimmed) && !/"/.test(trimmed) && !parseCardSearchTerms(trimmed).some(term => term.negate)) {
+  if (!semantic && !sorted.length && !query.exact && trimmed && !/^\d+$/.test(trimmed) && !/"/.test(trimmed) && !parseCardSearchTerms(trimmed).some(term => term.negate)) {
     const filters = compile({ ...query, text: "" }, index, genesysPoints, releaseFor);
     const eligible = index.entries.filter(entry => !entry.hidden && filters.every(check => check(entry)));
     const compact = foldCardText(trimmed).replaceAll(" ", "");
@@ -383,7 +404,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
     total: sorted.length,
     offset: query.offset,
     effectSearchEnabled: enabled,
-    ...(enabled ? { reading, effectHits: effectFound.slice(effectOffset, effectOffset + Math.min(query.limit, 30)).map(({ entry, score }) => ({ ...decorate(entry), score, reason: reading?.query.intent?.kind === "staples" && staples.cards.size ? stapleReason(staples.cards.get(entry.card.canonicalPasscode ?? entry.card.code)!, staples.label) : effects!.reason(entry.card.code, reading!) })), effectTotal: effectFound.length, effectOffset, relax: relax.slice(0, 2) } : {}),
+    ...(enabled ? { reading, effectHits: effectFound.slice(effectOffset, effectOffset + Math.min(query.limit, 30)).map(({ entry, score }) => ({ ...decorate(entry), score, reason: formatReason(entry, reading?.query.intent?.kind === "staples" && staples.cards.size ? stapleReason(staples.cards.get(entry.card.canonicalPasscode ?? entry.card.code)!, staples.label) : effects!.reason(entry.card.code, reading!, staples)) })), effectTotal: effectFound.length, effectOffset, relax: relax.slice(0, 2) } : {}),
   };
 }
 

@@ -17,3 +17,8 @@ export * from "./search-reasons.js";
 export { Weakness, Answer, CounterProfile, cardNamedLike, readCounterProfile, findCounters, MAX_WEAKNESSES, MAX_ANSWERS, type Counter, type WeaknessResult, type CounteredArchetype, type Timing } from "./counters.js";
 
 export * from "./staples.js";
+
+export * from "./archetype-roles.js";
+export * from "./format-query.js";
+
+export * from "./role-ranking.js";
