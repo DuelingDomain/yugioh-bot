@@ -87,9 +87,9 @@ it("lists every duel that started today (UTC without tz), newest first, with sea
   for (const d of data.duels) expect(d.href).toMatch(/^\/duels\/[a-z0-9-]+(\/replay)?$/);
 });
 
-it("uses the browser day from ?tz= (minutes east of UTC): Tag partners win together, an interrupted duel has no winner", async () => {
+it("uses the browser day from ?start= (local midnight): Tag partners win together, an interrupted duel has no winner", async () => {
   seed();
-  const { data } = await (await today("?tz=-240")).json();
+  const { data } = await (await today(`?tz=-240&start=${Date.parse("2026-10-19T04:00:00Z")}`)).json();
   expect(data).toMatchObject({ tzOffsetMinutes: -240, dayStart: Date.parse("2026-10-19T04:00:00Z"), counts: { all: 8, oneVsOne: 4, multi: 4, ranked: 1 } });
   expect(data.duels.map((d: { slug: string }) => d.slug)).toEqual(["t4", "t5", "t8", "t1", "t6", "t7", "t2", "t3"]);
   const tag = data.duels.find((d: { slug: string }) => d.slug === "t2");
@@ -97,6 +97,20 @@ it("uses the browser day from ?tz= (minutes east of UTC): Tag partners win toget
   const cut = data.duels.find((d: { slug: string }) => d.slug === "t3");
   expect(cut).toMatchObject({ result: "interrupted", href: "/duels/t3/replay", turns: null });
   expect(cut.seats.every((s: { outcome: unknown }) => s.outcome === null)).toBe(true);
+});
+
+it("prefers ?start= over ?tz= on a daylight-saving day, and falls back to ?tz= for a start outside now - 26 h to now", async () => {
+  seed();
+  // The night clocks go back: midnight was at UTC+2, now the offset is UTC+1. tz alone would start the day an hour late.
+  const dst = Date.parse("2026-10-19T22:00:00Z");
+  const { data } = await (await today(`?tz=60&start=${dst}`)).json();
+  expect(data).toMatchObject({ tzOffsetMinutes: 60, dayStart: dst });
+  // t2 started at 22:00 UTC: in the day by start, not by tz (23:00 UTC).
+  expect(data.duels.map((d: { slug: string }) => d.slug)).toContain("t2");
+  for (const bad of [String(NOW + 60_000), String(NOW - 27 * 3_600_000), "-5", "1e12", "abc"]) {
+    const body = await (await today(`?tz=60&start=${bad}`)).json();
+    expect(body.data.dayStart, bad).toBe(Date.parse("2026-10-19T23:00:00Z"));
+  }
 });
 
 it.each([["?tz=abc", 0], ["?tz=1.5", 0], ["?tz=-9999", -840], ["?tz=1000", 840], ["?tz=330", 330], ["?tz=", 0]])("reads tz %s as %i minutes", async (query, minutes) => {

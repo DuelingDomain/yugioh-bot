@@ -13,6 +13,8 @@ export const PRESENCE_ROUTES = {
   "/settings/bug-reports": "Bug reports", "/settings/card-data": "Card data",
 } as const;
 export type PresenceRoute = keyof typeof PRESENCE_ROUTES;
+/** Pages where the person sits at a table. Leaving one of them must end "in a duel" / "drafting" at once. */
+export const TABLE_PRESENCE_ROUTES: readonly PresenceRoute[] = ["/duels/[slug]", "/draft/[slug]", "/decks/draft/[slug]"];
 export function isPresenceRoute(value: unknown): value is PresenceRoute {
   return typeof value === "string" && Object.hasOwn(PRESENCE_ROUTES, value);
 }

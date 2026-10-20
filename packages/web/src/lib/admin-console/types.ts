@@ -163,7 +163,7 @@ export interface LiveData {
   drafts: LiveDraft[];
 }
 
-/* ---- today (GET /api/admin/console/today?tz=<minutes east of UTC>) ---- */
+/* ---- today (GET /api/admin/console/today?tz=<minutes east of UTC>&start=<local midnight, epoch ms>) ---- */
 /** How a seat did in a duel of today. Null while the duel runs, or when it ended without a result. */
 export type SeatOutcome = "won" | "lost" | "draw" | null;
 export interface TodaySeat extends LiveSeat {
@@ -202,7 +202,7 @@ export interface TodayCounts {
 export interface TodayData {
   /** Minutes east of UTC that set "today" (from the browser, clamped to ±840). 0 = UTC. */
   tzOffsetMinutes: number;
-  /** Start of today in that offset (epoch ms). */
+  /** Start of today (epoch ms): the browser's local midnight (`start`), else midnight at `tzOffsetMinutes`. */
   dayStart: number;
   /** Duels that started today, by filter. `duels` holds at most `limit` of them. */
   counts: TodayCounts;

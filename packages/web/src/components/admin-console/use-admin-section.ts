@@ -34,11 +34,16 @@ function publish(e: Entry, snapshot: SectionSnapshot<SectionId>) {
   e.listeners.forEach((l) => l());
 }
 
-/** Request URL per section. "today" sends the browser's UTC offset (minutes east of UTC) so the day starts at local midnight. */
+/**
+ * Request URL per section. "today" sends local midnight as epoch ms (`start`), which is right on a daylight-saving day,
+ * and the current UTC offset (`tz`, minutes east of UTC) for the "Since 00:00 UTC±h" label.
+ */
 function urlOf(id: SectionId): string {
   if (id !== "today") return `/api/admin/console/${id}`;
-  const tz = -new Date().getTimezoneOffset();
-  return `/api/admin/console/today?tz=${Number.isFinite(tz) ? Math.round(tz) : 0}`;
+  const now = new Date();
+  const tz = -now.getTimezoneOffset();
+  const start = new Date(now).setHours(0, 0, 0, 0);
+  return `/api/admin/console/today?tz=${Number.isFinite(tz) ? Math.round(tz) : 0}&start=${Number.isFinite(start) ? start : ""}`;
 }
 
 async function load(id: SectionId) {

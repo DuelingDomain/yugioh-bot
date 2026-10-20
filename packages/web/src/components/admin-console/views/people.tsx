@@ -130,7 +130,7 @@ export function PeopleView({ s, actions, selected, sheetOpen, onCloseSheet, filt
         </label>
         <div className={styles.seg} role="group" aria-label="Filter by activity">
           {FILTERS.map(([key, label]) => (
-            <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}<span>{counts[key]}</span></button>
+            <button key={key} type="button" aria-pressed={filter === key} aria-label={`${label}, ${counts[key]}`} onClick={() => setFilter(key)}>{label}<span>{counts[key]}</span></button>
           ))}
         </div>
       </div>
