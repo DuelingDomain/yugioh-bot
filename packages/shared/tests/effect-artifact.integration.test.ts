@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import Database from "better-sqlite3";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { openDatabase } from "../src/db/connection.js";
 import { applyEngineCardRemaps } from "../src/db/card-passcode-remaps.js";
 import * as artifactStreams from "../src/cards/effects/artifact-stream.js";
