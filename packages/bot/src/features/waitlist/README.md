@@ -28,23 +28,23 @@ Successful decisions use `decideWaitlistEntry`; this service also writes the mod
 
 Before returning a prepared claim, the feature checks its persisted lease, payload and action again. This prevents a web decision or privacy deletion during enrichment from sending an old actionable alert. A web decision before posting is rendered as a final decision on the first post.
 
-## Web route integration still required
+## Web route integration
 
-Web `/admin` still calls Clerk invite/reject directly until the admin console in **PR #405** merges. After both PR #405 and PR #407 merge, replace those calls with the shared decision service so web decisions update the Discord message and audit. This follow-up retains the existing web access checks.
+Web `/admin` calls the shared decision service with its authenticated site user and source `admin`, so a web decision updates the matching Discord message and audit. It retains owner and Origin checks, resolves email by ID from the server-side cached Clerk list, and clears the cache after a decision.
 
-When the admin-console route is integrated, retain its session, owner, origin and input checks. Resolve the exact Clerk entry to obtain its email, then replace the direct invite/reject call with:
+The admin-console route retains its session, owner, Origin and input checks, resolves the exact Clerk entry email on the server, then calls:
 
 ```ts
 const result = await decideWaitlistEntry(getDb(), {
   clerkEntryId: entry.id,
-  email: entry.email_address,
+  email: entry.email,
   decision: action,
   actor: { siteUserId: actor.userId },
-  source: "web",
-}, backend);
+  source: "admin",
+});
 ```
 
-Import the service from `@yugidraft/shared/services/waitlist-decisions`. Treat `completed` and `already_decided` as success; handle `in_progress` and `conflict` explicitly and keep cache invalidation. The email is necessary for web-first decisions which have no existing alert identity. The integration test calls this same service with `source: "web"` and verifies the real Phase 0 poller issues a Discord PATCH and sets `discord_updated_at`. An HTTP test of the actual `/admin` route remains blocked until that route is present and connected.
+Import the service from `@yugidraft/shared/services/waitlist-decisions`. Treat `completed` and `already_decided` as success; handle `in_progress` and `conflict` explicitly and keep cache invalidation. The email is necessary for web-first decisions which have no existing alert identity. The bot integration test calls this same service with `source: "web"` and verifies the real Phase 0 poller issues a Discord PATCH and sets `discord_updated_at`. Web route integration tests verify admin decisions enqueue an edit when an alert message exists, enqueue no edit without an alert, ignore client identity fields, and return all four decision outcomes.
 
 ## Verification
 

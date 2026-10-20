@@ -26,6 +26,38 @@ for (const mode of ["classic", "3d"] as const) {
   });
 }
 
+for (const mode of ["classic", "3d"] as const) {
+  test(`${mode}: a hovered hand card lies over the Deck Master emblem`, async ({ player }) => {
+    const { page } = await player("p5");
+    await startBotDuel(page);
+    const url = new URL(page.url());
+    url.searchParams.set("view", mode);
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto(url.toString());
+    await expectReadyToAct(page);
+    const emblem = page.locator('[data-testid="dm-badge-wrap"][data-local="true"]');
+    const first = yourHand(page).locator("[data-hand-card]").first();
+    await first.hover();
+    // The hovered card grows over the emblem: at the middle of the shared area the page must not hit the emblem.
+    await expect.poll(() => page.evaluate(() => {
+      const wrap = document.querySelector('[data-testid="dm-badge-wrap"][data-local="true"]');
+      const card = document.querySelector('[data-hand-seat][data-side="you"] [data-hand-card] [data-card-frame]');
+      if (!wrap || !card) return "missing";
+      const a = wrap.getBoundingClientRect();
+      const b = card.getBoundingClientRect();
+      const left = Math.max(a.left, b.left), right = Math.min(a.right, b.right), top = Math.max(a.top, b.top), bottom = Math.min(a.bottom, b.bottom);
+      if (right <= left || bottom <= top) return "no overlap";
+      return document.elementFromPoint((left + right) / 2, (top + bottom) / 2)?.closest('[data-testid="dm-badge-wrap"]') ? "emblem on top" : "card on top";
+    })).toBe("card on top");
+    // The emblem is whole again once the pointer leaves, and its own click still works.
+    await page.mouse.move(5, 5);
+    await expect.poll(() => emblem.evaluate((el) => getComputedStyle(el).clipPath)).toBe("none");
+    await emblem.getByTestId("dm-badge").click();
+    await expect(page.getByTestId("dm-badge-pop")).toBeVisible();
+    expect((await page.request.post(`/api/duels/${url.pathname.split("/").at(-1)}/surrender`)).ok()).toBe(true);
+  });
+}
+
 test("the Deck Master keyboard shortcut moves focus into the pop-over", async ({ player }) => {
   const { page } = await player("p5");
   await startBotDuel(page);

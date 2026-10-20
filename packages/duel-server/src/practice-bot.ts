@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { randomInt } from "node:crypto";
 import { join } from "node:path";
 import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelMode, DuelPrompt, DuelPromptOption } from "@yugidraft/shared/duels";
 
@@ -34,6 +35,19 @@ export function buildPracticeBotDeck(mode: DuelMode, dataDirectory: string): Due
   } finally {
     db.close();
   }
+}
+
+/**
+ * The bot deck in random order. The bot deck is built strongest first, and the engine keeps a deck list in order when a
+ * player turns Shuffle off, so a test duel shuffles the bot list here and the setting only changes the player's deck.
+ */
+export function shufflePracticeBotDeck(deck: DuelDeck): DuelDeck {
+  const main = [...deck.main];
+  for (let index = main.length - 1; index > 0; index--) {
+    const other = randomInt(index + 1);
+    [main[index], main[other]] = [main[other]!, main[index]!];
+  }
+  return { ...deck, main };
 }
 
 /** What a bot may know about the table when it picks a seat: who is still in the duel and their LP. */
