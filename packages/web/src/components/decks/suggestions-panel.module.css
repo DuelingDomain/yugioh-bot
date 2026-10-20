@@ -10,19 +10,23 @@
 
 .row { display: grid; gap: 7px; min-width: 0; }
 .rowTitle { color: var(--ink-3); font-size: 12px; font-weight: 500; letter-spacing: 0.02em; }
-/* The same height as a card, so a row does not change size when it goes from the hint to cards. */
-.hint { display: flex; align-items: center; box-sizing: border-box; height: 80px; margin: 0; padding: 0 14px; border: 1px dashed var(--rule-lo); border-radius: 8px; color: var(--ink-3); font-size: 12.5px; line-height: 1.4; }
+/* A short, fixed height, so a row does not change size when it goes from the hint to cards. */
+.hint { display: flex; align-items: center; box-sizing: border-box; height: 64px; margin: 0; padding: 0 14px; border: 1px dashed var(--rule-lo); border-radius: 8px; color: var(--ink-3); font-size: 12.5px; line-height: 1.4; }
 
-.strip { display: flex; gap: 8px; margin: 0; padding: 0 0 8px; list-style: none; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: thin; scrollbar-color: rgb(181 153 99 / 0.3) transparent; }
-.cell { flex: none; width: 196px; scroll-snap-align: start; }
-.card { position: relative; display: flex; align-items: center; gap: 9px; box-sizing: border-box; width: 100%; height: 80px; padding: 3px 8px 3px 3px; border: 0; border-radius: 8px; background: rgb(239 231 213 / 0.035); color: inherit; text-align: left; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.09); cursor: grab; transition: box-shadow 140ms var(--ease), background-color 140ms var(--ease); }
+/* Whole cards only: the columns share the panel width, so no card is ever cut at an edge. */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 232px), 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.cell { min-width: 0; }
+.more { justify-self: start; padding: 2px 0; border: 0; background: none; color: var(--pen-ink); font: inherit; font-size: 12.5px; cursor: pointer; }
+.more:hover { text-decoration: underline; }
+.more:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.card { position: relative; display: flex; align-items: center; gap: 10px; box-sizing: border-box; width: 100%; height: 104px; padding: 4px 10px 4px 4px; border: 0; border-radius: 8px; background: rgb(239 231 213 / 0.035); color: inherit; text-align: left; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.09); cursor: grab; transition: box-shadow 140ms var(--ease), background-color 140ms var(--ease); }
 .card:hover { background: rgb(239 231 213 / 0.06); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.32); }
 .card:active { cursor: grabbing; }
 .card[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--pen), 0 0 0 5px var(--pen-soft); }
 .card:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .card[data-un] { opacity: 0.6; }
 
-.art { position: relative; flex: none; width: 48px; aspect-ratio: 59 / 86; border-radius: 4px; overflow: hidden; background: var(--panel-3); }
+.art { position: relative; flex: none; width: 64px; aspect-ratio: 59 / 86; border-radius: 4px; overflow: hidden; background: var(--panel-3); }
 .art img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
 
 .text { display: grid; flex: 1; align-content: center; gap: 2px; min-width: 0; height: 100%; }
