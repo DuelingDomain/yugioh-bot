@@ -58,6 +58,21 @@ async function post(suggestionQuery: unknown, extra: Record<string, unknown> = {
 }
 
 describe("signed deterministic deck suggestion computation", () => {
+  it("bounds ten parallel uncached scans globally and per player, then releases admission", async () => {
+    const actors = Array.from({ length: 10 }, (_, n) => seedIdentity(db, { name: `Parallel ${n}` }));
+    const results = await Promise.all(actors.map((actor, n) => post(
+      { op: "suggestRows", deck: { ...deck, side: [500000000 + n] } }, actor,
+    )));
+    expect(results.filter(result => result.status === 200)).toHaveLength(2);
+    expect(results.filter(result => result.status === 429)).toHaveLength(8);
+    const samePlayer = await Promise.all(Array.from({ length: 10 }, (_, n) => post(
+      { op: "suggestRows", deck: { ...deck, side: [500000020 + n] } },
+    )));
+    expect(samePlayer.filter(result => result.status === 200)).toHaveLength(1);
+    expect(samePlayer.filter(result => result.status === 429)).toHaveLength(9);
+    expect((await post({ op: "suggestRows", deck })).status).toBe(200);
+  });
+
   it("returns exact service rows and the same Outside row without retaining host result entries", async () => {
     const rows = await post({ op: "suggestRows", deck });
     expect(rows.status).toBe(200);
@@ -74,6 +89,7 @@ describe("signed deterministic deck suggestion computation", () => {
     expect(registry?.get(db)?.size ?? 0).toBe(0);
     expect((await post({ op: "effectSearch", text: "outside Blue-Eyes", deck, exclude: [SILVER] })).data.result.cards).toEqual([]);
   });
+
 
   it("returns a conditional response only for the entire unchanged query and live metadata", async () => {
     const query = { op: "suggestRows", deck };
