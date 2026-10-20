@@ -140,7 +140,7 @@ reservation IDs and accepted tag/profile digests. Generated profile rows retain 
 the Batch generation rather than claimed as verbatim upstream bytes. Schema
 adapters retain their upstream source headers.
 
-Before publication, CI verifies the strict five-file allowlist (manifest, tags, source hashes, profiles, and artifact pin source), builds the
+Before publication, CI verifies the strict six-file allowlist (manifest, tags, source hashes, profiles, releases, and artifact pin source), builds the
 candidate shared package, runs real-artifact SQLite tests and evaluates the
 prepared engine's 60-query search fixture against that candidate. The publisher
 then revalidates data and pin-only code changes in a fresh checkout. It opens or
@@ -229,6 +229,43 @@ a terminal or pending claim and are never retried. Pre-submission failures relea
 a sliding 20 attempts/user/hour and 100 attempts globally/hour; cached hits are
 free. User identities are hashed only for this local rate table. Never delete
 claims to retry uncertain spend. Search responses contain no model attribution.
+
+
+## Daily release months
+
+The daily job also fills missing release months from the free
+[YGOPRODeck bulk API](https://ygoprodeck.com/api-guide/). This step makes no AI
+or paid calls and runs even when the tagging key is absent. Explicit workflow
+dry runs and ledger initialization skip it. The command reuses a 24-hour local disk cache. Disposable CI runs fetch fresh data
+and do not upload a separate bulk-response Actions cache.
+It makes one card and one set bulk GET per refresh, with at most three attempts, a 30-second
+request timeout, a 200 MB limit per response (header and streaming bytes), exponential backoff, and a bounded Retry-After wait. An API or
+validation failure skips the release step and retains the tag candidate.
+
+Missing months are filled; valid months may move earlier to a first print, never later.
+TCG years start at 2002; OCG years start at 1999. Names, aliases, quality flags,
+tags, and popularity stay intact.
+Existing artwork aliases and unique printed names select the original family.
+The existing local importer applies engine pre-release remaps. Publication
+checks every old release record and refuses deletions or later-month changes.
+An earlier valid month requires matching misc or first-set evidence in `report.json`
+and a visible per-card line in `report.md`, which becomes the pull request body.
+The free source is evidence for human review, not independent verification.
+Publication also permits new IDs and date fills, including an update with no new tags.
+
+Run the same free step by hand from the checkout used by the local server:
+
+```bash
+node --version # Node 22 is required
+prlimit --core=0 -- npm run effects:fill-releases -- --apply
+```
+
+Without `--apply`, the command writes a candidate under `.status/effect-releases`.
+Use `--output` and `--cache` to select other directories. After applying, rebuild
+shared and its consumers, then restart them. Startup imports the new verified
+artifact version. `.status/effect-releases/releases-report.json` lists the counts
+and the ten newest filled records. Dates have month precision; default sorting
+uses the newest known TCG or OCG month. Explicit region filters use only that region.
 
 
 ## Final review: runtime reservation recovery

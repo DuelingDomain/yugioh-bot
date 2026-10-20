@@ -1,4 +1,6 @@
 import Database from "better-sqlite3";
+import { createPrereleaseDateLookup } from "./card-release-dates.js";
+import { dateSearchEligible } from "../cards/effects/releases.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deckEngineDataDirectory } from "./card-artworks.js";
@@ -17,7 +19,7 @@ interface CatalogRow {
   tags_json?: string | null; popularity?: number | null;
 }
 interface EngineRow {
-  id: number; alias: number; type: number; name: string; desc?: string;
+  id: number; alias: number; type: number; name: string; desc?: string; ot?: number;
   atk?: number; def?: number; level?: number; race?: number; attribute?: number;
   /** Cast to TEXT by SQLite so packed 64-bit setcodes are never rounded through a JS number. */
   setcode?: string;
@@ -29,13 +31,13 @@ interface SuggestionRow extends CatalogRow {
   ocg_date: string | null;
 }
 type EngineTuple = [id: number, alias: number, type: number, name: string, desc: string, setcode: string,
-  atk: number, def: number, level: number, race: number, attribute: number];
+  atk: number, def: number, level: number, race: number, attribute: number, ot: number | null];
 type SuggestionTuple = [passcode: number, cachedId: number | null, name: string | null, type: string | null, frame: string | null,
   text: string | null, attribute: string | null, level: number | null, atk: number | null, def: number | null,
   archetype: string | null, points: number | null, revision: string | null, tags: string | null, popularity: number | null,
   tcgDate: string | null, ocgDate: string | null, artworkParent: number | null];
 const engineObject = (row: EngineTuple): EngineRow => ({ id: row[0], alias: row[1], type: row[2], name: row[3], desc: row[4], setcode: row[5],
-  atk: row[6], def: row[7], level: row[8], race: row[9], attribute: row[10] });
+  atk: row[6], def: row[7], level: row[8], race: row[9], attribute: row[10], ot: row[11] ?? undefined });
 const suggestionObject = (row: SuggestionTuple): SuggestionRow => ({ passcode: row[0], ygoprodeck_id: row[1]!, name: row[2]!, type: row[3]!, frame_type: row[4]!,
   effect_text: row[5], attribute: row[6], level: row[7], atk: row[8], def: row[9], archetype: row[10], genesys_points: row[11], genesys_revision: row[12],
   tags_json: row[13], popularity: row[14], tcg_date: row[15], ocg_date: row[16], artwork_parent: row[17] });
@@ -44,7 +46,7 @@ type JoinedSuggestionTuple = [id: number, alias: number | null, type: number | n
   atk: number | null, def: number | null, level: number | null, race: number | null, attribute: number | null,
   cachedId: number | null, cachedType: string | null, cachedFrame: string | null, archetype: string | null,
   points: number | null, revision: string | null, tags: string | null, popularity: number | null,
-  tcgDate: string | null, ocgDate: string | null, artworkParent: number | null, engineName: string | null];
+  tcgDate: string | null, ocgDate: string | null, artworkParent: number | null, engineName: string | null, ot: number | null];
 const codeValid = (value: number) => Number.isInteger(value) && value > 0 && value <= 0xffffffff;
 const raceNames = new Map<number, string>(CARD_RACES.map(({ bit, label }) => [bit, label]));
 const attributeNames = new Map<number, Card["attribute"]>(CARD_ATTRIBUTES.map(({ bit, label }) => [bit, label]));
@@ -53,6 +55,7 @@ const attributeNames = new Map<number, Card["attribute"]>(CARD_ATTRIBUTES.map(({
 export function createInsightCatalog(db: Database.Database, dataDirectory = deckEngineDataDirectory(db.name)) {
   const artwork = db.prepare<[number], { card_id: number }>("SELECT card_id FROM card_artworks WHERE artwork_id=?");
   const metadata = db.prepare<[number], CatalogRow>("SELECT * FROM card_catalog WHERE ygoprodeck_id=?");
+  let prereleaseDate: ReturnType<typeof createPrereleaseDateLookup>;
   const namedMetadata = db.prepare<[string], { ygoprodeck_id: number }>("SELECT ygoprodeck_id FROM card_catalog WHERE lower(trim(name))=? ORDER BY ygoprodeck_id LIMIT 1");
   const release = db.prepare<[number], { tcg_date: string | null; ocg_date: string | null }>("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=?");
   const tags = db.prepare<[number], { tags_json: string; popularity: number }>("SELECT tags_json,popularity FROM card_tags WHERE passcode=?");
@@ -72,6 +75,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
   // This handle lives for one operation and scans forward. The driver's 16 MiB
   // default would retain most of the engine database after every full scan.
   engine?.pragma("cache_size=-256");
+  let engineOt = "NULL";
   let engineFind: Database.Statement<[number], EngineRow> | undefined;
   let engineNamed: Database.Statement<[string], { id: number }> | undefined;
   let engineStream: Database.Statement<[], EngineRow> | undefined;
@@ -114,8 +118,9 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     try {
       const columns = new Set((engine.prepare("PRAGMA table_info(datas)").all() as { name: string }[]).map(row => row.name));
       const texts = new Set((engine.prepare("PRAGMA table_info(texts)").all() as { name: string }[]).map(row => row.name));
+      engineOt = columns.has("ot") ? "d.ot" : "NULL";
       if (columns.has("type") && texts.has("name")) {
-        const select = `SELECT d.id,${columns.has("alias") ? "d.alias" : "0 AS alias"},d.type,t.name${texts.has("desc") ? ",t.desc" : ""}${columns.has("setcode") ? ",CAST(d.setcode AS TEXT) AS setcode" : ""}${["atk", "def", "level", "race", "attribute"].filter(field => columns.has(field)).map(field => `,d.${field}`).join("")} FROM datas d JOIN texts t USING(id)`;
+        const select = `SELECT d.id,${columns.has("alias") ? "d.alias" : "0 AS alias"},d.type,t.name${texts.has("desc") ? ",t.desc" : ""}${columns.has("setcode") ? ",CAST(d.setcode AS TEXT) AS setcode" : ""}${["atk", "def", "level", "race", "attribute"].filter(field => columns.has(field)).map(field => `,d.${field}`).join("")},${engineOt} AS ot FROM datas d JOIN texts t USING(id)`;
         engineFind = engine.prepare(`${select} WHERE d.id=?`);
         engineNamed = engine.prepare(`SELECT d.id FROM datas d JOIN texts t USING(id) WHERE lower(trim(t.name))=? ORDER BY d.id LIMIT 1`);
         engineStream = engine.prepare(`${select} ORDER BY d.id`);
@@ -144,6 +149,15 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       return code;
     }
     return raw;
+  };
+  // Apply the same release facts after every normalization path, including the
+  // tuple streams used by suggestions. The lookup is a pure operation snapshot.
+  const applyReleaseDates = (card: Card, ot?: number, printedType = card.typeLine) => {
+    if (ot !== undefined) card.prerelease = !!(ot & 0x100);
+    card.dateSearchEligible = ot === undefined
+      ? !/(?:skill|rush|anime|video[_ ]?game)/.test(printedType.toLowerCase().replaceAll("-", "_"))
+      : dateSearchEligible(ot);
+    Object.assign(card, prereleaseDate(card.id, card, card.prerelease));
   };
   const normalize = (row: CatalogRow, canonicalCode = canonical(row.ygoprodeck_id), initialEngine?: EngineRow, joined = false, sourceReaders = readers): Candidate => {
     // A canonical row wins over alternate metadata and receives canonical tags.
@@ -205,6 +219,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     const dates = joined ? row as SuggestionRow : sourceReaders.release.get(canonicalCode);
     if (dates?.tcg_date) card.tcgDate = dates.tcg_date;
     if (dates?.ocg_date) card.ocgDate = dates.ocg_date;
+    applyReleaseDates(card, engineCard?.ot ?? undefined, `${source.type} ${source.frame_type}`);
     return { card, ...(tagged?.tags_json ? { tags: JSON.parse(tagged.tags_json) as CardTags } : {}) };
   };
   const normalizeEngine = (row: SuggestionTuple | undefined, engineCard: EngineTuple): Candidate => {
@@ -231,6 +246,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     };
     if (row?.[15]) card.tcgDate = row[15];
     if (row?.[16]) card.ocgDate = row[16];
+    applyReleaseDates(card, engineCard[11] ?? undefined, `${row?.[3] ?? ""} ${row?.[4] ?? ""}`);
     return row?.[13] ? { card, tags: JSON.parse(row[13]) as CardTags } : { card };
   };
   let suggestionRows: Database.Statement<[], SuggestionRow> | undefined;
@@ -341,7 +357,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     joinedRows = engine!.prepare<[], JoinedSuggestionTuple>(`
       SELECT d.id,d.alias,d.type,CASE WHEN c.ygoprodeck_id IS NULL THEN t.name ELSE c.name END,
         COALESCE(NULLIF(c.effect_text,''),t.desc,''),CAST(d.setcode AS TEXT),d.atk,d.def,d.level,d.race,d.attribute,
-        ${applicationFields},CASE WHEN d.alias<>0 THEN t.name END
+        ${applicationFields},CASE WHEN d.alias<>0 THEN t.name END,${engineOt}
       FROM datas d JOIN texts t USING(id)
         LEFT JOIN insight_app.card_catalog c ON c.ygoprodeck_id=d.id
         LEFT JOIN insight_app.card_tags tag ON tag.passcode=d.id
@@ -349,7 +365,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
         LEFT JOIN insight_app.card_artworks a ON a.artwork_id=d.id
       UNION ALL
       SELECT c.ygoprodeck_id,NULL,NULL,c.name,COALESCE(c.effect_text,''),NULL,NULL,NULL,NULL,NULL,NULL,
-        ${applicationFields},NULL
+        ${applicationFields},NULL,NULL
       FROM insight_app.card_catalog c
         LEFT JOIN insight_app.card_tags tag ON tag.passcode=c.ygoprodeck_id
         LEFT JOIN insight_app.card_release r ON r.passcode=c.ygoprodeck_id
@@ -392,11 +408,12 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     card.level = finalLevel; card.rank = rank; card.linkRating = linkRating;
     if (row[19]) card.tcgDate = row[19];
     if (row[20]) card.ocgDate = row[20];
+    applyReleaseDates(card, row[23] ?? undefined, `${row[12] ?? ""} ${row[13] ?? ""}`);
     return row[17] ? { card, tags: JSON.parse(row[17]) as CardTags } : { card };
   };
   const joinedEngineObject = (row: JoinedSuggestionTuple): EngineRow => ({
     id: row[0], alias: row[1]!, type: row[2]!, name: row[22] ?? row[3], desc: row[4], setcode: row[5] ?? undefined,
-    atk: row[6]!, def: row[7]!, level: row[8]!, race: row[9]!, attribute: row[10]!,
+    atk: row[6]!, def: row[7]!, level: row[8]!, race: row[9]!, attribute: row[10]!, ot: row[23] ?? undefined,
   });
   function* attachedSuggestionCandidates(): Generator<Candidate> {
     const stream = attachedSuggestionStream();
@@ -439,6 +456,19 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       engine!.exec("ROLLBACK");
     }
   }
+  const candidateFor = (code: number): Candidate | undefined => {
+    const canonicalCode = canonical(code);
+    const row = metadata.get(canonicalCode) ?? metadata.get(code);
+    if (row) return normalize(row, canonicalCode);
+    // An explicit public engine passcode is usable before the lazy image/API
+    // cache has seen it. This fallback never inserts a cache row or guesses cost.
+    const engineCard = engineFind?.get(canonicalCode);
+    return engineCard ? normalize({
+      ygoprodeck_id: canonicalCode, name: engineCard.name, type: "", frame_type: "",
+      effect_text: engineCard.desc ?? "", attribute: null, level: null, atk: null, def: null,
+      archetype: null, genesys_points: null, genesys_revision: null,
+    }, canonicalCode) : undefined;
+  };
   return {
     canonical: (raw: number): number => canonical(raw),
     /** A recommendation family is not a rules identity: retrains still have separate copy limits. */
@@ -448,7 +478,9 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       const name = wrapped[1]!.trim().toLowerCase();
       const code = engineNamed?.get(name)?.id ?? namedMetadata.get(name)?.ygoprodeck_id;
       if (code === undefined) return candidate.card.id;
-      const original = this.candidate(code);
+      // Reuse the active operation's date snapshot during a streaming scan.
+      prereleaseDate ??= createPrereleaseDateLookup(db, dataDirectory);
+      const original = candidateFor(code);
       return original?.card.kind === candidate.card.kind ? original.card.id : candidate.card.id;
     },
     /** Startup readers can fold uncached engine artworks and legacy remaps too. */
@@ -457,23 +489,15 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       if (engineFind) for (const row of engine!.prepare<[], { id: number }>("SELECT id FROM datas").iterate()) yield row.id;
     },
     candidate(code: number): Candidate | undefined {
-      const canonicalCode = canonical(code);
-      const row = metadata.get(canonicalCode) ?? metadata.get(code);
-      if (row) return normalize(row, canonicalCode);
-      // An explicit public engine passcode is usable before the lazy image/API
-      // cache has seen it. This fallback never inserts a cache row or guesses cost.
-      const engineCard = engineFind?.get(canonicalCode);
-      return engineCard ? normalize({
-        ygoprodeck_id: canonicalCode, name: engineCard.name, type: "", frame_type: "",
-        effect_text: engineCard.desc ?? "", attribute: null, level: null, atk: null, def: null,
-        archetype: null, genesys_points: null, genesys_revision: null,
-      }, canonicalCode) : undefined;
+      prereleaseDate = createPrereleaseDateLookup(db, dataDirectory);
+      return candidateFor(code);
     },
     *candidates(pool?: readonly number[]): Generator<Candidate> {
+      prereleaseDate = createPrereleaseDateLookup(db, dataDirectory);
       if (pool !== undefined) {
         const seen = new Set<number>();
         for (const code of pool) {
-          const candidate = this.candidate(code);
+          const candidate = candidateFor(code);
           if (candidate && !seen.has(candidate.card.id)) { seen.add(candidate.card.id); yield candidate; }
         }
         return;
@@ -490,6 +514,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     },
     /** Suggestions must also see public engine cards absent from the lazy display cache. */
     *suggestionCandidates(pool?: readonly number[]): Generator<Candidate> {
+      prereleaseDate = createPrereleaseDateLookup(db, dataDirectory);
       if (pool !== undefined) { yield* this.candidates(pool); return; }
       if (engineTuples && !db.inTransaction && !engine!.inTransaction && db.name !== ":memory:" && db.name !== "" && existsSync(db.name)) {
         yield* attachedSuggestionCandidates(); return;

@@ -25,11 +25,11 @@ const profileFixture: ArchetypeProfile = { plan: "Uses Fiends to build a field."
 const rowsInPinnedProfiles = () => gunzipSync(readFileSync(join(rootPath, "packages/shared/data/effects/profiles.jsonl.gz"))).toString().trim().split("\n").length;
 const profileCards = () => changedCards().map(card => ({ ...card, archetype: "CI Fiends" }));
 
-function resignCandidate(output: string) {
+function resignCandidate(output: string, key = "profiles") {
   const data = join(output, "packages/shared/data/effects"), sha = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
   const manifest = JSON.parse(readFileSync(join(data, "manifest.json"), "utf8"));
-  const compressed = readFileSync(join(data, "profiles.jsonl.gz")), raw = gunzipSync(compressed);
-  Object.assign(manifest.files.profiles, { bytes: raw.length, sha256: sha(raw), gzipBytes: compressed.length, gzipSha256: sha(compressed), records: raw.toString().trim().split("\n").length });
+  const compressed = readFileSync(join(data, key === "releases" ? "releases.json.gz" : "profiles.jsonl.gz")), raw = gunzipSync(compressed);
+  Object.assign(manifest.files[key], { bytes: raw.length, sha256: sha(raw), gzipBytes: compressed.length, gzipSha256: sha(compressed), records: key === "releases" ? JSON.parse(raw.toString()).length : raw.toString().trim().split("\n").length });
   const { artifactVersion: _old, ...identity } = manifest;
   manifest.artifactVersion = sha(JSON.stringify(identity));
   const bytes = JSON.stringify(manifest, null, 2) + "\n";
@@ -81,6 +81,98 @@ async function endpoint(options: { uncertain?: boolean; badTags?: boolean; parti
   const address = server.address() as { port: number };
   return { baseUrl: `http://127.0.0.1:${address.port}`, events, batches };
 }
+
+async function releaseEndpoint(data: unknown[], failures = 0, sets: unknown[] = []) {
+  const events: string[] = [];
+  const server = createServer((request, response) => {
+    events.push(`${request.method} ${request.url}`);
+    response.setHeader("content-type", "application/json");
+    if (request.url === "/api/v7/cardsets.php") { response.end(JSON.stringify(sets)); return; }
+    response.statusCode = events.filter(event => event.includes("cardinfo")).length <= failures ? 503 : 200;
+    response.end(JSON.stringify({ data }));
+  });
+  servers.push(server);
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  return { events, endpoint: `http://127.0.0.1:${(server.address() as { port: number }).port}/api/v7/cardinfo.php?misc=yes` };
+}
+
+it.each(["cardinfo", "cardsets"].flatMap(endpoint => ["length", "stream"].map(mode => ({ endpoint, mode }))))("skips an oversized $endpoint HTTP $mode response", async ({ endpoint, mode }) => {
+  const directory = mkdtempSync(join(tmpdir(), "effect-release-size-")); roots.push(directory);
+  const server = createServer((request, response) => {
+    if (!request.url?.includes(endpoint)) { response.end(JSON.stringify({ data: [{ id: 99999997, name: "Fixture" }] })); return; }
+    if (mode === "length") { response.setHeader("content-length", 200 * 1024 * 1024 + 1); response.flushHeaders(); return; }
+    const chunk = Buffer.alloc(1024 * 1024, " ");
+    let remaining = 201;
+    const write = () => {
+      while (remaining-- > 0) if (!response.write(chunk)) { response.once("drain", write); return; }
+      response.end();
+    };
+    write();
+  });
+  servers.push(server);
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const { refreshReleaseCandidate } = await import("../fill-releases.js");
+  const result = await refreshReleaseCandidate({ root: rootPath, outputDirectory: join(directory, "candidate"), cacheDirectory: join(directory, "cache"), baseSha: "a".repeat(40),
+    endpoint: `http://127.0.0.1:${(server.address() as { port: number }).port}/api/v7/cardinfo.php?misc=yes`, backoffMs: 1 });
+  expect(result).toEqual(expect.objectContaining({ status: "skipped", reason: "YGOPRODeck response exceeds 200 MB limit" }));
+}, 30_000);
+
+it("fills missing release months through bulk HTTP, keeps families and valid dates, and rejects non-additive publication", async () => {
+  const context = await setup();
+  const data = "packages/shared/data/effects";
+  const before = JSON.parse(gunzipSync(readFileSync(join(rootPath, data, "releases.json.gz"))).toString());
+  const missing = before.find((row: any) => row.tcgDate === null);
+  const good = before.find((row: any) => row.tcgDate && row.ocgDate && row.aliases.length);
+  const reprint = before.find((row: any) => row.tcgDate && row.tcgDate > "2003-01" && row.id !== good.id);
+  const api = await releaseEndpoint([
+    { id: missing.id, name: missing.name, card_sets: [{ set_name: "Lettered print", set_code: "LTR-ENS10" }], misc_info: [{ tcg_date: "2026-10-18", ocg_date: "1998-01-01" }] },
+    { id: good.id, name: good.name, card_images: good.aliases.map((id: number) => ({ id })), misc_info: [{ tcg_date: "2026-10-18", ocg_date: "2026-10-18" }] },
+    { id: reprint.id, name: reprint.name, card_sets: [{ set_name: "First print", set_code: "FIRST-001" }, { set_name: "Lettered print", set_code: "LTR-ENS10" }, { set_name: "OCG print", set_code: "JP-JP001" }], misc_info: [{ tcg_date: "2027-03-01" }] },
+    { id: 99999996, name: "Invalid placeholder fixture", misc_info: [{ tcg_date: "2001-12-01", ocg_date: "1998-12-01" }] },
+    { id: 99999997, name: "New release fixture", misc_info: [{ tcg_date: "2026-11-01", ocg_date: "2026-10-01" }] },
+  ], 1, [{ set_name: "First print", set_code: "FIRST", tcg_date: "2003-01-01" }, { set_name: "Lettered print", set_code: "LTR", tcg_date: "2003-02-01" }, { set_name: "OCG print", set_code: "JP", tcg_date: "2002-01-01" }]);
+  const { refreshReleaseCandidate } = await import("../fill-releases.js");
+  const options = { root: rootPath, outputDirectory: join(context.directory, "candidate"), cacheDirectory: join(context.directory, "cache"), baseSha: "a".repeat(40), endpoint: api.endpoint, backoffMs: 1 };
+  const result = await refreshReleaseCandidate(options);
+  expect(result.status).toBe("updated");
+  expect(result.filledCards).toBe(3);
+  expect(result.corrections).toEqual([expect.objectContaining({ id: reprint.id, region: "tcg", previous: reprint.tcgDate, month: "2003-01", firstSetMonth: "2003-01" })]);
+  expect(result.flags).toEqual(expect.arrayContaining([expect.objectContaining({ id: reprint.id, region: "tcg", sourceMonth: "2027-03", firstSetMonth: "2003-01" })]));
+  expect(api.events.filter(event => event.includes("cardinfo"))).toEqual(Array(2).fill("GET /api/v7/cardinfo.php?misc=yes"));
+  expect(api.events.filter(event => event.includes("cardsets"))).toHaveLength(1);
+  const after = JSON.parse(gunzipSync(readFileSync(join(options.outputDirectory, data, "releases.json.gz"))).toString());
+  expect(after.find((row: any) => row.id === missing.id)).toEqual({ ...missing, tcgDate: "2003-02" });
+  expect(after.find((row: any) => row.id === good.id)).toEqual(good);
+  expect(after.find((row: any) => row.id === reprint.id)).toEqual({ ...reprint, tcgDate: "2003-01" });
+  expect(after.find((row: any) => row.id === 99999996)).toBeUndefined();
+  expect(after.filter((row: any) => good.aliases.includes(row.id))).toEqual(before.filter((row: any) => good.aliases.includes(row.id)));
+  const publisherPath = "../../ci/publish-effect-tags.mjs";
+  const { validateEffectCandidate } = await import(publisherPath);
+  expect(validateEffectCandidate(rootPath, options.outputDirectory).changed).toBe(true);
+  const reviewPath = join(options.outputDirectory, "report.md"), review = readFileSync(reviewPath, "utf8");
+  expect(review).toContain(`${reprint.name} (${reprint.id}): TCG ${reprint.tcgDate} → 2003-01`);
+  writeFileSync(reviewPath, "Release update without correction details.\n");
+  expect(() => validateEffectCandidate(rootPath, options.outputDirectory)).toThrow(/correction missing.*report.md/i);
+  writeFileSync(reviewPath, review);
+  await refreshReleaseCandidate(options);
+  expect(api.events).toHaveLength(3); // persistent bulk cache; no per-card calls
+  const original = readFileSync(join(options.outputDirectory, data, "releases.json.gz"));
+  for (const mutate of [
+    (rows: any[]) => { rows.find(row => row.id === good.id).tcgDate = "2026-10"; },
+    (rows: any[]) => { rows.find(row => row.id === good.id).tcgDate = "2002-01"; }, // earlier needs evidence
+    (rows: any[]) => { rows.find(row => row.id === reprint.id).tcgDate = "2003-02"; }, // must match evidence
+    (rows: any[]) => { rows.find(row => row.id === good.id).name += " changed"; },
+    (rows: any[]) => { rows.splice(rows.findIndex(row => row.id === good.id), 1); },
+    (rows: any[]) => { rows.push(rows[0]); },
+    (rows: any[]) => { rows.find(row => row.id === 99999997).aliases.push(good.id); },
+    (rows: any[]) => { rows.find(row => row.id === 99999997).id = good.aliases[0]; },
+  ]) {
+    const rows = JSON.parse(gunzipSync(original).toString()); mutate(rows);
+    writeFileSync(join(options.outputDirectory, data, "releases.json.gz"), gzipSync(JSON.stringify(rows) + "\n"));
+    resignCandidate(options.outputDirectory, "releases");
+    expect(() => validateEffectCandidate(rootPath, options.outputDirectory)).toThrow(/release|additive/i);
+  }
+}, 30_000);
 
 describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", { timeout: 30_000 }, () => {
   it("defaults to a keyless dry run with no API or durable-state mutation", async () => {
@@ -259,6 +351,11 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     writeFileSync(join(output, "report.json"), JSON.stringify(report));
     const publisherPath = "../../ci/publish-effect-tags.mjs";
     const { validateEffectCandidate } = await import(publisherPath);
+    const { refreshReleaseCandidate } = await import("../fill-releases.js");
+    const down = await releaseEndpoint([], 99);
+    const skipped = await refreshReleaseCandidate({ root: rootPath, outputDirectory: output, cacheDirectory: join(context.directory, "cache"), baseSha: "a".repeat(40), endpoint: down.endpoint, backoffMs: 1 });
+    expect(skipped.status).toBe("skipped");
+    expect(down.events).toHaveLength(3);
     expect(validateEffectCandidate(rootPath, output).changed).toBe(true);
     const releasePath = join(output, "packages/shared/data/effects/releases.json.gz");
     const releaseBytes = readFileSync(releasePath);

@@ -55,6 +55,21 @@ describe("effect reader over the pinned searchygo artifact", () => {
     expect(interpret("before 1900")).toBeNull();
   });
 
+  it("uses the latest region month, includes future cards, and keeps region filters strict", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-20T00:00:00Z"));
+    try {
+      const query = interpret("new cards")!.query;
+      const base = { id: 1, name: "Release integration", kind: "spell", subtypes: [], text: "", views: 0 } as unknown as Card;
+      expect(query.released).toEqual({ from: "2026-07" });
+      expect(matchCard({ ...base, tcgDate: "2016-04", ocgDate: "2026-12" }, undefined, query)).not.toBeNull();
+      expect(matchCard({ ...base, tcgDate: "2016-04", ocgDate: "2026-12" }, undefined, interpret("new cards TCG")!.query)).toBeNull();
+      expect(matchCard({ ...base, prerelease: true }, undefined, query)).toBeNull();
+      expect(matchCard(base, undefined, query)).toBeNull();
+      expect(interpret("last 3 months")!.query.released).toEqual({ from: "2026-07", to: "2026-10" });
+    } finally { vi.useRealTimers(); }
+  });
+
   it("keeps ATK effect verbs and complete date phrases", () => {
     for (const text of ["gain 1000 ATK", "cards that increase 2000 ATK"]) {
       expect(interpret(text)?.query.does?.verbs).toContain("change_atk_def");
