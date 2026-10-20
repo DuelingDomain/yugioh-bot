@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
-import type { DuelRoom } from "@yugidraft/shared/duels";
+import { isReplayFork } from "@yugidraft/shared/duels";
+import type { DuelDeck, DuelRoom } from "@yugidraft/shared/duels";
 
 /**
  * The duel room on screen, for the Report bug entries. The floating button lives in the app shell, above every page,
@@ -15,6 +16,9 @@ export function getBugReportRoom(): DuelRoom | null {
 export function useBugReportRoom(room: DuelRoom | null): void {
   useEffect(() => {
     current = room;
+    if (room && !isReplayFork(room.session)) {
+      try { sessionStorage.setItem("bug-report-last-duel", JSON.stringify({ slug: room.session.slug, at: Date.now() })); } catch { /* Storage can be disabled. */ }
+    }
     return () => {
       if (current === room) current = null;
     };
@@ -48,4 +52,23 @@ export function useBugReportHeaderHost(): void {
 /** True while a duel header has the button. The server render and the first client render both say false. */
 export function useBugReportHeaderHosted(): boolean {
   return useSyncExternalStore(subscribe, () => headerHosts > 0, () => false);
+}
+
+/** A recent visit is a suggestion only. The server must check access to the duel again. */
+export function getRecentBugDuel(): { slug: string; at: number } | null {
+  try {
+    const entry = JSON.parse(sessionStorage.getItem("bug-report-last-duel") ?? "null");
+    const age = Date.now() - entry?.at;
+    return /^[A-Za-z0-9_-]{1,80}$/.test(entry?.slug) && age >= 0 && age <= 10 * 60_000 ? entry : null;
+  } catch { return null; }
+}
+
+let deckContext: { deckId?: number; deckFormat?: string; deckSnapshot?: { deck: DuelDeck; testHand: { drawn: number[]; pile: number[] } | null } } = {};
+export const getBugReportDeck = () => deckContext;
+export function useBugReportDeck(deckId: number | null, deckFormat: string, deck: DuelDeck, testHand: { drawn: number[]; pile: number[] } | null): void {
+  useEffect(() => {
+    const next = { ...(deckId ? { deckId } : {}), deckFormat, deckSnapshot: { deck, testHand } };
+    deckContext = next;
+    return () => { if (deckContext === next) deckContext = {}; };
+  }, [deckId, deckFormat, deck, testHand]);
 }

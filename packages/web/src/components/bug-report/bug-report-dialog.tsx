@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { BUG_TEXT_MAX, validateBugText, type BugFieldErrors } from "@/lib/bug-report";
 import { DURATION, usePresence } from "@/lib/motion";
+import { getRecentBugDuel } from "./room-store";
 import type { CollectedContext } from "./context";
 
 type Result = { id: number; issue: { number: number; url: string } | null; duplicate: boolean };
@@ -69,6 +70,8 @@ async function precheck(payload: unknown, cancel: AbortSignal): Promise<{ knownL
 }
 
 function ReportForm({ collect, onClose, open }: { collect: () => CollectedContext; onClose: () => void; open: boolean }) {
+  const [recent] = useState(() => collect().duelSlug ? null : getRecentBugDuel());
+  const [attachRecent, setAttachRecent] = useState(true);
   const [description, setDescription] = useState("");
   const [expected, setExpected] = useState("");
   const [step, setStep] = useState<Step>("write");
@@ -147,6 +150,7 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
     submitting.current = true;
     try {
       snapshot.current = collect();
+      if (!snapshot.current.duelSlug && attachRecent && recent && Date.now() - recent.at <= 10 * 60_000) snapshot.current.duelSlug = recent.slug;
       setStep("checking");
       cancelCheck.current = new AbortController();
       const checked = await precheck({ description, expected, ...snapshot.current }, cancelCheck.current.signal);
@@ -253,6 +257,10 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
           aria-describedby={fieldErrors.expected ? "bug-expected-error" : undefined} className={FIELD} />
         {fieldErrors.expected ? <span id="bug-expected-error" role="alert" className="text-xs text-red-400">{fieldErrors.expected}</span> : null}
       </label>
+      {recent ? <label className="flex items-center gap-2 text-sm text-text-secondary">
+        <input type="checkbox" checked={attachRecent} onChange={event => setAttachRecent(event.target.checked)} />
+        Attach my last duel
+      </label> : null}
       <p className="text-xs text-text-secondary">
         Describe the problem. We save the board and the duel log with your report. A screenshot is optional.
       </p>
