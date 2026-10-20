@@ -564,8 +564,10 @@ export function CardBrowser({
                         <CardArt code={card.code} name={card.name} />
                         {genesys && !pool ? <GenesysBadge card={card} variant="browse" lift={Boolean(card.unavailableReason)} /> : <LimitBadge limit={limit} />}
                         <ArtChip otherArts={card.altArtCount ?? 0} corner />
-                        {card.prerelease && !card.release?.upcoming ? <span className={styles.prerelease}><PrereleaseLabel /></span> : null}
-                        <ReleaseMarks release={card.release} tile />
+                        <span className={styles.tileMarks}>
+                          {card.prerelease && !card.release?.upcoming ? <PrereleaseLabel /> : null}
+                          <ReleaseMarks release={card.release} />
+                        </span>
                         {card.unavailableReason ? <span className={styles.unavailable}>Unavailable</span> : null}
                         {pool ? (
                           <span className={cn("num", styles["de-left"])} data-zero={left <= 0 ? "true" : undefined} title="Copies left in your pool">{left} left</span>
