@@ -5,6 +5,8 @@ import { buildReplayData, type ReplayBuildData, type ReplayBuildOptions } from "
 import type { DuelGameWorker } from "./worker-client.js";
 import type { DuelWorkerRequest, DuelWorkerResponse } from "./worker-protocol.js";
 
+export { ReplayBuildError } from "./replay-builder.js";
+
 /** Only data crosses the worker boundary. Verification and authorization remain in the host. */
 export type ReplayWorkerOptions = Omit<ReplayBuildOptions,
   "codec" | "createWorker" | "signal" | "encodeView" | "verifyFinalViews">;

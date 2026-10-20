@@ -23,8 +23,8 @@ export type ReplayBuildErrorCode = ReplayErrorCode | "REPLAY_TOO_LARGE";
 
 export class ReplayBuildError extends Error {
   readonly status: number;
-  constructor(message: string, readonly code: ReplayBuildErrorCode, readonly familyFailed = false) {
-    super(message); this.status = code === "REPLAY_TOO_LARGE" ? 413 : code === "ENGINE_BUSY" ? 503 : 409;
+  constructor(message: string, readonly code: ReplayBuildErrorCode, readonly familyFailed = false, cause?: unknown) {
+    super(message, { cause }); this.status = code === "REPLAY_TOO_LARGE" ? 413 : code === "ENGINE_BUSY" ? 503 : 409;
   }
 }
 
@@ -34,11 +34,11 @@ export function replayBuildError(error: unknown): ReplayBuildError {
     return new ReplayBuildError(error.message, "ENGINE_UNAVAILABLE_FOR_SOURCE");
   }
   if (error instanceof JournalRunnerError && error.code !== "ENGINE_BUSY") {
-    return new ReplayBuildError("Replay could not reproduce this duel. Use the saved final board if available.", "REPLAY_MISMATCH");
+    return new ReplayBuildError("Replay could not reproduce this duel. Use the saved final board if available.", "REPLAY_MISMATCH", false, error.cause);
   }
   // Worker and filesystem errors may contain private paths. Keep the external message fixed.
   return new ReplayBuildError(error instanceof EngineLoopError ? "Replay engine stopped at its process limit." : "Replay engine is temporarily unavailable.", "ENGINE_BUSY",
-    error instanceof EngineLoopError || (error instanceof JournalRunnerError && error.familyFailed));
+    error instanceof EngineLoopError || (error instanceof JournalRunnerError && error.familyFailed), error);
 }
 
 export interface ReplayBuildOptions {
@@ -190,6 +190,7 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
         if (!worker.running && failure.code === "ENGINE_BUSY") throw new ReplayBuildError(failure.message, failure.code, true);
         throw error;
       }
+      if (expired) throw new ReplayBuildError("Replay timed out.", "ENGINE_BUSY");
       check();
       options.verifyFinalViews?.(result.finalViews);
       return result.data;

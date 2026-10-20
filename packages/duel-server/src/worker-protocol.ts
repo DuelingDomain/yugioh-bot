@@ -54,4 +54,4 @@ export type DuelWorkerRequest =
 
 export type DuelWorkerResponse =
   | { id: number; ok: true; value?: ReplayWorkerResult | DuelEngineView | DuelCardInfo[] | EngineDiagnostic[] | boolean; createTimings?: WorkerCreateTimings; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] }
-  | { id: number; ok: false; replayError?: { code: ReplayBuildErrorCode; familyFailed: boolean }; error: string; message?: string; name?: string; stack?: string; answerError?: true; engineLoop?: true; code?: DuelErrorCode | "ENGINE_UNAVAILABLE_FOR_SOURCE"; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] };
+  | { id: number; ok: false; replayError?: { code: ReplayBuildErrorCode; familyFailed: boolean; diagnostic?: { message: string; name: string; stack?: string } }; error: string; message?: string; name?: string; stack?: string; answerError?: true; engineLoop?: true; code?: DuelErrorCode | "ENGINE_UNAVAILABLE_FOR_SOURCE"; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] };

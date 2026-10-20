@@ -15,3 +15,14 @@ Alternatives: a warm-worker pool uses persistent RAM and still sends per-command
 - [x] Compress authenticated ordinary and owner replay responses without HTTP caching.
 - [x] Repeat local and rate-limited browser measurements; verify private/owner/public projections, changed boards, overflow and cross-version replay with targeted integration/E2E suites.
 Delivery: remove temporary instrumentation and engine build output, commit, push, open the PR with timings, wait for CI, and leave it unmerged. The PR checks and final report record delivery status.
+
+## PR review follow-up
+
+Keep the bounded result path if a real 12–16 MiB replay stays below 70% of the default worker heap and below 100 ms maximum host event-loop delay. Measure the worker at frame encoding, engine dispatch, final-view capture and after result posting. Preserve unexpected error causes for host reporting while keeping public messages fixed. Load replay modules only for replay requests. Latch field mounting after the first positive stage scale. Check the build deadline before final verification. Extend existing real-worker and browser integration cases; add no unit tests.
+
+- [x] Measure a 420-command, 422-frame owner reveal replay near the cap.
+- [x] Preserve original unexpected errors and load replay modules on demand.
+- [x] Keep mounted fields through a zero-size stage; reject expired batches before verification.
+- [x] Run targeted integration checks and browser checks: 45 server tests, 8 browser/auth checks, duel-server/E2E typechecks and production web build pass.
+
+Delivery continues with push, green CI and the requested local-all port. The PR body and final report record those delivery results.

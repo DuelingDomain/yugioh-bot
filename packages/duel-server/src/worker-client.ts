@@ -131,7 +131,15 @@ export class GameWorker implements DuelGameWorker {
       if (message.ok) request.resolve(message.value);
       else {
         const error = workerResponseError(message);
-        if (!message.answerError && !message.code && !message.replayError) this.reportError(error);
+        const diagnostic = message.replayError?.diagnostic;
+        if (diagnostic) {
+          const original = new Error(diagnostic.message);
+          original.name = diagnostic.name;
+          if (diagnostic.stack) original.stack = diagnostic.stack;
+          this.reportError(original);
+        } else if (message.replayError ? message.replayError.code === "ENGINE_BUSY" : !message.answerError && !message.code) {
+          this.reportError(error);
+        }
         request.reject(error);
       }
     });

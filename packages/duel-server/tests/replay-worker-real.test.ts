@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { buildReplayData, buildReplayFrames } from "../src/replay-builder.js";
 import { createReplayCursorCodec, replaySourceVersion } from "../src/replay-cursor.js";
 import { GameWorker } from "../src/worker-client.js";
@@ -35,6 +35,7 @@ describeWithCores("detached replay worker", [needs.cards(DATA), needs.scripts(DA
   it("preserves size, command and resource failures across the worker boundary", async () => {
     const { source, resources } = acceptanceSource({ mode: "normal", format: "1v1", engine: "pinned" });
     const input = { source, resources, sourceVersion: replaySourceVersion(source), dataSeat: null, finalView: null };
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
     for (const [options, code] of [
       [{ ...input, maxBytes: 1 }, "REPLAY_TOO_LARGE"],
       [{ ...input, source: { ...source, commands: source.commands.map(command => ({ ...command, command: { ...command.command, revision: 999 } })) } }, "REPLAY_MISMATCH"],
@@ -45,6 +46,19 @@ describeWithCores("detached replay worker", [needs.cards(DATA), needs.scripts(DA
       finally { await worker.close(); }
       expect(worker.running).toBe(false);
     }
+    expect(diagnostic).not.toHaveBeenCalled();
+    const worker = new GameWorker(undefined, undefined, { table: "replay-source" });
+    try {
+      const error = await worker.buildReplay({ ...input, source: { ...source, engineIdentity: null },
+        resources: { ...resources, engineIdentity: undefined, dataDirectory: "/tmp/replay-missing-cards" } })
+        .catch(error => error as Error);
+      expect(error).toMatchObject({ code: "ENGINE_BUSY", message: "Replay engine is temporarily unavailable." });
+      const events = diagnostic.mock.calls.map(([event]) => event);
+      expect(events).toContainEqual(expect.objectContaining({
+        message: expect.stringContaining("replay-missing-cards"), stack: expect.stringContaining("cards.ts"),
+        tags: { table: "replay-source" },
+      }));
+    } finally { await worker.close(); diagnostic.mockRestore(); }
   }, 30_000);
 
   it("terminates a detached build on cancellation", async () => {
