@@ -106,3 +106,18 @@ The stop-to-start gap is a few seconds and is cleaner than a broken page. The
 other way is also allowed: `rsync` into a new folder (for example
 `web-live.next`), stop the unit, rename the folders, then start the unit. Copy
 nothing into a folder that a running process serves.
+
+## Final review publish on 2026-10-20
+
+The four PR 412 fixes are now on `test/local-all` and :3000. The source CI
+passed at `157fad4f9`. This publish used the stop/rsync/start rule above, with a
+systemd reference to keep the transient web unit loaded. The gap was 0.49 s.
+The duel build completed in a staging directory before replacing its dist.
+The temporary sandbox allowlist was restored from the web process after duel
+restart. Both services retain the existing preload and LimitCORE=0.
+
+The live owner API and desktop/mobile browser checks passed again: 183 hits for
+`hand trap`, 48 for `hand traps that negate`, correct cards/chips/counts and no
+page errors. The stale visible-attribution assertion in the local harness was
+changed to require no attribution. Temporary build output was then deleted.
+See [the final review record](effect-search-final-review-verification.md).
