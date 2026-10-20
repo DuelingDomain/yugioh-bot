@@ -87,6 +87,10 @@ export interface PersonDetail {
 }
 
 /* ---- waitlist (Clerk) ---- */
+export interface WaitlistDecisionResponse {
+  status: "ok" | "already_decided" | "conflict" | "in_progress";
+  decision: "approve" | "reject";
+}
 export interface WaitlistEntry { id: string; email: string; status: string; createdAt: number | null }
 export interface WaitlistDecision { id: string; email: string; status: "invited" | "rejected" | "completed"; at: number | null }
 export interface WaitlistData {
