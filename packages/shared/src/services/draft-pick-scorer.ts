@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { DraftCard } from "../types/index.js";
+import { effectSearchEnabled } from "../cards/effects/capability.js";
 import { isExtraDeckCard } from "../cards/effects/card.js";
 import { filterReachesCard, type Candidate } from "../cards/effects/synergy.js";
 import { createInsightCatalog } from "./card-insight-catalog.js";
@@ -95,6 +96,13 @@ export function rankDraftPicks(db: Database.Database, options: readonly DraftCar
   mainTarget: number; extraTarget: number | null; seed: ShuffleSeed;
 }): RankedDraftPick[] {
   if (!options.length) return [];
+  if (!effectSearchEnabled()) {
+    // The former bot and expired-pick policy makes exactly one uniform draw.
+    // Only the first row is used for the pick; do not read effect tags or scores.
+    const selected = Math.floor(Math.random() * options.length);
+    return [options[selected]!, ...options.slice(0, selected), ...options.slice(selected + 1)]
+      .map(option => ({ ...option, score: 0, pickScore: 0 }));
+  }
   const catalog = createInsightCatalog(db);
   try {
     const pool = pickedPool.map(code => catalog.candidate(code)).filter((card): card is Candidate => card !== undefined);

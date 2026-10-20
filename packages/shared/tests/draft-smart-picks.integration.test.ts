@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
 import { migrate } from "../src/db/schema.js";
 import { createDraftService } from "../src/services/drafts.js";
@@ -13,6 +13,7 @@ import * as pickScorer from "../src/services/draft-pick-scorer.js";
 import * as insightCatalog from "../src/services/card-insight-catalog.js";
 
 const databases: Database.Database[] = [];
+beforeEach(() => { vi.stubEnv("EFFECT_SEARCH", "1"); });
 afterEach(() => { for (const db of databases.splice(0)) db.close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 const now = new Date("2030-01-01T00:00:00Z");
 
@@ -90,8 +91,7 @@ it("keeps rankings stable after restart, reports actual pool links, and prefers 
   }
 });
 
-it.each(["0", "1"])("bots and timeouts take supported Extra monsters from mixed booster cubes (EFFECT_SEARCH=%s)", flag => {
-  vi.stubEnv("EFFECT_SEARCH", flag);
+it("bots and timeouts take supported Extra monsters from mixed booster cubes with effect search on", () => {
   const { db, seats, drafts } = setup(4);
   db.prepare("DELETE FROM card_tags").run();
   db.prepare("UPDATE card_catalog SET archetype=NULL").run();
@@ -296,4 +296,31 @@ it.each(["synchro", "xyz", "link", "fusion", "trishula", "trishula_ready", "link
   expect(drafts.expireCurrentPickStep(draft.id, new Date(expiry)).autoPickedPlayerIds).toHaveLength(2);
   expect(drafts.findById(draft.id).status).toBe("completed");
   for (const seat of seats.slice(0, 2)) expect(drafts.pool(draft.id, seat.playerId).at(-1)?.catalogCardId).toBe(expected);
+});
+
+
+it.each(['0', 'unset-production'])('restores the old random bot and timeout picks when effect search is %s', flag => {
+  if (flag === '0') vi.stubEnv('EFFECT_SEARCH', '0');
+  else { vi.stubEnv('EFFECT_SEARCH', undefined); vi.stubEnv('NODE_ENV', 'production'); }
+  const { db, drafts, draft, seats } = setup();
+  drafts.start(draft.id, now);
+  db.prepare("UPDATE card_tags SET tags_json='invalid JSON'").run();
+  const catalogs = vi.spyOn(insightCatalog, 'createInsightCatalog');
+  const random = vi.spyOn(Math, 'random').mockReturnValue(0.75);
+  const expected = (player: number) => {
+    const choices = drafts.pickOptions(draft.id, player);
+    return choices[Math.floor(0.75 * choices.length)].id;
+  };
+  const bot = seats[0].playerId, botChoice = expected(bot);
+  const ranked = drafts.rankPickOptions(draft.id, bot);
+  expect(ranked[0].id).toBe(botChoice);
+  expect(ranked.every(card => card.pickScore === 0 && !card.fitsYourPool)).toBe(true);
+  drafts.pickCard(draft.id, bot, ranked[0].id, 'auto', now);
+  const timeoutPlayers = seats.slice(1).map(seat => seat.playerId);
+  const timeoutChoices = timeoutPlayers.map(expected);
+  expect(drafts.expireCurrentPickStep(draft.id, new Date(drafts.findById(draft.id).pickDeadlineAt!)).autoPickedPlayerIds).toEqual(timeoutPlayers);
+  expect(timeoutPlayers.map(player => drafts.pool(draft.id, player)[0].draftCardId)).toEqual(timeoutChoices);
+  expect(drafts.pool(draft.id, bot)[0].draftCardId).toBe(botChoice);
+  expect(catalogs).not.toHaveBeenCalled();
+  expect(random).toHaveBeenCalledTimes(8);
 });

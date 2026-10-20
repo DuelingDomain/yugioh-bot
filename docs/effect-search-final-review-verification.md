@@ -39,3 +39,11 @@ rollover before POST, paid timeouts and live-CI expiry of old reserved rows.
 The token check proves missing/blank dedicated tokens make no HTTP request,
 even when `GITHUB_TOKEN` is present. Owner setup is in `effect-tagging.md` and
 the PR 412 description.
+
+
+## Flag-off picks
+
+The integration test checks explicit `EFFECT_SEARCH=0` and the production
+unset default. Each eight-seat pick step makes exactly eight uniform random
+draws. Bot and expired-pick cards match the former policy, even with corrupt
+effect tags. The flag-on draft scenarios keep using the scored policy.
