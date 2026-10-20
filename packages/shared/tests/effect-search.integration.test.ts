@@ -4,7 +4,7 @@ import { gunzipSync } from "node:zlib";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
 import { interpret, buildArchetypeMatcher } from "../src/cards/effects/query.js";
 import { matchCard } from "../src/cards/effects/effect-match.js";
@@ -271,7 +271,7 @@ it('declines before spending near UTC rollover and when rollover occurs during a
     } };
     expect(await context.read('crossed rollover', 'user', { store: crossing })).toBeNull();
     expect(context.calls()).toBe(0);
-    expect(context.budgetUsed(context.durable(), '2026-11')).toBe(context.READING_RESERVATION_MICROS);
+    expect(context.budgetUsed(context.durable(), '2026-11')).toBe(0);
   } finally { await context.close(); }
 });
 
@@ -497,4 +497,81 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
       }
     }
   }, 60_000);
+});
+
+it('finishes through a slow durable GitHub store without leaving a reserved row', async () => {
+  const context = await readerFixture();
+  const { createServer } = await import('node:http');
+  const { RuntimeLedgerStore } = await import('../src/cards/effects/reading-fallback.js');
+  let head = 'a'.repeat(40), serial = 0;
+  const ledgers = new Map([[head, context.createEmptyLedger()]]);
+  const blobs = new Map<string, string>(), trees = new Map<string, string>();
+  const commits = new Map<string, { parent: string; tree: string }>();
+  const nextSha = () => (++serial).toString(16).padStart(40, '0');
+  const server = createServer(async (request, response) => {
+    let raw = ''; for await (const chunk of request) raw += chunk;
+    const body = raw ? JSON.parse(raw) : null;
+    const path = request.url!.replace('/repos/fixture/repo/', '');
+    let result: unknown;
+    if (path === 'git/ref/heads/state/effect-tagging') result = { object: { sha: head } };
+    else if (path.startsWith('contents/ledger.json?ref=')) {
+      const bytes = JSON.stringify(ledgers.get(decodeURIComponent(path.split('=')[1])));
+      const sha = nextSha(); blobs.set(sha, bytes); result = { sha, size: Buffer.byteLength(bytes) };
+    } else if (request.method === 'GET' && path.startsWith('git/blobs/')) {
+      const bytes = blobs.get(path.split('/').at(-1)!)!;
+      result = { encoding: 'base64', content: Buffer.from(bytes).toString('base64'), size: Buffer.byteLength(bytes) };
+    } else if (request.method === 'GET' && path.startsWith('git/commits/')) result = { tree: { sha: 'b'.repeat(40) } };
+    else if (path === 'git/blobs') { const sha = nextSha(); blobs.set(sha, body.content); result = { sha }; }
+    else if (path === 'git/trees') { const sha = nextSha(); trees.set(sha, body.tree[0].sha); result = { sha }; }
+    else if (path === 'git/commits') { const sha = nextSha(); commits.set(sha, { parent: body.parents[0], tree: body.tree }); result = { sha }; }
+    else if (path === 'git/refs/heads/state/effect-tagging') {
+      const commit = commits.get(body.sha)!;
+      if (commit.parent !== head || body.force) { response.writeHead(422); response.end('{}'); return; }
+      head = body.sha; ledgers.set(head, JSON.parse(blobs.get(trees.get(commit.tree)!)!)); result = { object: { sha: head } };
+    } else { response.writeHead(404); response.end('{}'); return; }
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    response.setHeader('content-type', 'application/json'); response.end(JSON.stringify(result));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const port = (server.address() as import('node:net').AddressInfo).port;
+    const store = new RuntimeLedgerStore('fixture/repo', 'fixture-token', undefined, { baseUrl: `http://127.0.0.1:${port}`, allowLoopback: true });
+    expect(await context.read('slow GitHub store', 'user', { store })).not.toBeNull();
+    expect(context.calls()).toBe(1);
+    expect(ledgers.get(head)!.runtime?.map(row => row.state)).toEqual(['settled']);
+  } finally {
+    await new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); });
+    await context.close();
+  }
+}, 60000);
+
+it.each(['reserve-response-lost', 'intent-conflict', 'intent-response-lost'])('releases unpaid liability after %s', async failure => {
+  const context = await readerFixture();
+  let writes = 0;
+  const store = { ...context.store, compareAndSwap: async (revision: string | undefined, next: import('../src/cards/effects/budget-ledger.js').Ledger) => {
+    writes++;
+    if (writes === 2 && failure === 'intent-conflict') throw new Error('CAS conflict');
+    const result = await context.store.compareAndSwap(revision, next);
+    if ((writes === 1 && failure === 'reserve-response-lost') || (writes === 2 && failure === 'intent-response-lost')) throw new Error('Lost response');
+    return result;
+  } };
+  try {
+    expect(await context.read(`unpaid ${failure}`, 'user', { store })).toBeNull();
+    expect(context.calls()).toBe(0);
+    expect(context.durable().runtime).toEqual([]);
+    expect(context.db.prepare('SELECT phrase FROM effect_readings').all()).toEqual([]);
+  } finally { await context.close(); }
+});
+
+
+it.each([undefined, '', '   '])('requires the dedicated runtime token (%s) even when GITHUB_TOKEN is set', async token => {
+  const context = await readerFixture();
+  const network = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('No network is permitted'));
+  try {
+    expect(await context.read('no dedicated token', 'user', { store: undefined,
+      env: { GITHUB_TOKEN: 'broad-token-must-not-be-used', GITHUB_REPOSITORY: 'fixture/repo', EFFECT_TAGGING_LEDGER_TOKEN: token } })).toBeNull();
+    expect(network).not.toHaveBeenCalled();
+    expect(context.calls()).toBe(0);
+    expect(context.db.prepare('SELECT phrase FROM effect_readings').all()).toEqual([]);
+  } finally { network.mockRestore(); await context.close(); }
 });

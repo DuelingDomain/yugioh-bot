@@ -89,3 +89,13 @@ The isolated browser stack runs `draft-smart-picks.spec.ts` at 1920×1080,
 2560×1440, 1366×768 and 390×844. It checks the live pick response, stationary
 hover geometry and horizontal overflow, then deletes its draft, bot identity
 and fixture catalog rows. See `packages/e2e/README.md` for stack setup.
+
+
+## Flag-off policy
+
+When `EFFECT_SEARCH=0` (or unset in production), bots and expired human picks
+use the former policy: one uniform `Math.random()` draw from the current legal
+options. This path does not read effect tags or build an insight catalog. With
+effect search on, the existing scorer and seeded variation still apply.
+The integration check uses corrupt tag JSON to prove the off path never reads
+it, and checks the exact selected cards for the bot and seven expired seats.
