@@ -1072,6 +1072,18 @@ it('ranks native cards before compatible measured cards for each requested arche
   mkdirSync('.status/recruiters',{recursive:true});
   writeFileSync('.status/recruiters/role-results.json',JSON.stringify(evidence,null,2));
 });
+it.each([
+  ['rank-up-magic limited',"Rank-Up-Magic Limited Barian's Force"],
+  ['rank up magic limited',"Rank-Up-Magic Limited Barian's Force"],
+])('preserves a matching card name containing limit words: %s',(text,name)=>{
+  const result=search(text);
+  expect(result.cards.map(card=>card.name)).toContain(name);
+  expect(result.reading?.query.formatFilter).toBeUndefined();
+});
+it.each(['limited','semi-limited','unlimited'])('keeps standalone limit chips: %s',text=>{
+  expect(search(text).reading?.query.formatFilter?.limit).toBeDefined();
+});
+
 it('loads staple usage only for usage intents and reuses public format maps',async()=>{
   const effects=cardEffectIndex(cards)!;
   const calls=vi.spyOn(effects,'staples');

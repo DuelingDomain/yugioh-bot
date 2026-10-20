@@ -20,7 +20,7 @@ export function readFormatQuery(input: string): { text: string; filter?: EffectF
   take(/\b(tcg|ocg)\s+only\b/gi, m => { filter.region=m[1]!.toLowerCase() as "tcg"|"ocg"; });
   take(/\b(?:legal\s+in\s+)?genesys(?:\s+legal)?\b/gi, () => { filter.format="genesys"; });
   take(/\b(?:legal\s+in\s+domain|domain\s+legal)\b/gi, () => { filter.format="domain"; });
-  take(/\b(semi[- ]limited|unlimited|limited)\b/gi, m => { filter.limit=/^semi/i.test(m[1]!)?2:/^unlimited$/i.test(m[1]!)?3:1; });
+  take(/^\s*(semi[- ]limited|unlimited|limited)\s*$/gi, m => { filter.limit=/^semi/i.test(m[1]!)?2:/^unlimited$/i.test(m[1]!)?3:1; });
   return { text:text.replace(/\s+/g," ").trim(), ...(Object.keys(filter).length?{filter}:{}) };
 }
 export function describeFormat(filter?: EffectFormatFilter): string[] {
