@@ -57,12 +57,12 @@ beforeAll(() => {
     engineData.run(id, id === 7084131 ? 7084129 : 0, 33, 1600, 100, 3, 2, 32, 0x123);
     engine.prepare("INSERT INTO texts VALUES(?,'Magician''s Rod','Add a card that mentions \"Dark Magician\".')").run(id);
   }
-  for (const id of [990010, 990011]) {
-    engineData.run(id, 0, 17, 1000, 1000, 4, 2, 32, 0x123);
+  for (const id of [990010, 990011, 990012]) {
+    engineData.run(id, 0, 17, 1000, 1000, 4, 2, 32, id === 990011 ? 0x1240123 : id === 990012 ? 0x124 : 0x123);
     engine.prepare("INSERT INTO texts VALUES(?,?,'Normal Monster text')").run(id, `Engine-only archetype monster ${id}`);
   }
   engine.close();
-  writeFileSync(join(directory, "strings.conf"), "!setname 0x123 Dark Magician\n");
+  writeFileSync(join(directory, "strings.conf"), "!setname 0x123 Dark Magician\n!setname 0x124 Second setcode\n");
   service = createCardInsightService(db, { dataDirectory: directory });
 });
 
@@ -123,7 +123,7 @@ describe("SQL insights over the real pinned artifact", () => {
     const catalog = createInsightCatalog(db, directory);
     try {
       const expected = new Map([...catalog.candidates()].map(candidate => [candidate.card.id, candidate]));
-      for (const code of [97268402, 46986414, 7084129, 7084131, 990010, 990011]) {
+      for (const code of [97268402, 46986414, 7084129, 7084131, 990010, 990011, 990012]) {
         const candidate = catalog.candidate(code)!;
         if (!expected.has(candidate.card.id)) expected.set(candidate.card.id, candidate);
       }
@@ -132,6 +132,7 @@ describe("SQL insights over the real pinned artifact", () => {
       expect(catalog.suggestionCount()).toBe(expected.size);
       expect([...catalog.suggestionCandidates([7084131, 7084129, 990011])]).toEqual([...catalog.candidates([7084131, 7084129, 990011])]);
       expect(catalog.candidate(990010)?.card).toMatchObject({ tcgDate: "2020-01", ocgDate: "2019-12", archetype: "Dark Magician" });
+      expect(catalog.candidate(990011)?.card.archetypes).toEqual(["Dark Magician", "Second setcode"]);
       const partial = catalog.suggestionCandidates();
       expect(partial.next().done).toBe(false);
       partial.return(undefined);
@@ -182,6 +183,10 @@ describe("SQL insights over the real pinned artifact", () => {
     });
     expect(result.rows[0]!.cards.map(card => card.passcode)).toEqual([990010]);
     expect(db.prepare("SELECT 1 FROM card_catalog WHERE ygoprodeck_id=990010").get()).toBeUndefined();
+    const secondary = service.suggestRows({ main: [990011, 990011], extra: [], side: [] }, {
+      format: "normal", legality: { allowed: [990012], limits: {}, version: "secondary-setcode" },
+    });
+    expect(secondary.rows[0]!.cards.map(card => card.passcode)).toEqual([990012]);
   });
 
   it("batches pack fit scores and reasons without changing the pickScore contract", () => {

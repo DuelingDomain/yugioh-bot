@@ -2,8 +2,7 @@ import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { DuelDeck } from "../duels/index.js";
 import { isExtraDeckCard, isBarredFromGenesys } from "../cards/effects/card.js";
-import { belongsTo, type Candidate, type RankedInsightCard } from "../cards/effects/synergy.js";
-import { compactEffectName } from "../cards/effects/name-match.js";
+import { type RankedInsightCard } from "../cards/effects/synergy.js";
 import { shortReason } from "../cards/effects/search-reasons.js";
 import { matchesReleased, cardReleaseInfo } from "../cards/effects/releases.js";
 import { createMainDeckSummonChecker } from "../cards/effects/deck-summon.js";
@@ -12,6 +11,7 @@ import type { InsightCatalog } from "./card-insight-catalog.js";
 import { readInsightProfiles } from "./card-insight-profiles.js";
 import { deckSuggestionCore, deckSuggestionHooks, deckSupportContext, scoreDeckSupport, prepareSuggestionHookMatching } from "./deck-suggestion-hooks.js";
 import { extraDeckRanking } from "./deck-suggestion-extra.js";
+import { archetypeDeckRanking } from "./deck-suggestion-archetype.js";
 
 export interface DeckSuggestionLegality {
   allowed: readonly number[];
@@ -87,18 +87,18 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
   for (const [code, count] of owned) held.set(group(code), (held.get(group(code)) ?? 0) + count);
   const pool = opts.pool && counts(opts.pool, canonical), excluded = new Set(opts.exclude?.map(canonical));
   const main = deck.main.flatMap(code => { const card = catalog.candidate(code); return card ? [card] : []; });
-  const anchors = [...new Map(main.map(card => [card.card.id, card])).values()];
   const core = deckSuggestionCore(main);
+  const rowCore = deckSuggestionCore(main, true);
   const supportMain = core.anchors;
   const extraCards = deck.extra.flatMap(code => { const card = catalog.candidate(code); return card ? [card] : []; });
   const profiles = readInsightProfiles(db, core.anchors.filter(({ card }) => card.archetype && core.archetypes.includes(card.archetype)));
   const hooks = deckSuggestionHooks(main, profiles, extraCards);
   const supportContext = deckSupportContext(supportMain, extraCards, core.archetypes);
+  const rankArchetype = archetypeDeckRanking(main, rowCore.archetypes, supportContext);
   const matchingHooks = prepareSuggestionHookMatching(hooks, supportMain, extraCards);
   const queues = hooks.map(() => [] as Entry[]), matches = hooks.map(() => 0);
   const multi: Array<{ entry: Entry; hooks: number[] }> = [];
-  const archetypes = core.archetypes;
-  const names = new Set(anchors.map(({ card }) => compactEffectName(card.name)));
+  const archetypes = rowCore.archetypes;
   const ranked = rows.map(() => [] as Entry[]);
   const genericExtra: Entry[] = [];
   const rankExtra = extraDeckRanking(main, archetypes, extraCards);
@@ -140,17 +140,12 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
       } else retain(ranked[2]!, item(fit.score, summon!, fit.linkedCards));
       continue;
     }
-    const member = archetypes.find(archetype => belongsTo(card, archetype));
-    let named: string | undefined;
-    for (const name of tags?.supports.names ?? []) {
-      if (names.has(compactEffectName(name))) { named = name; break; }
+    const archetype = rankArchetype(candidate);
+    if (archetype.rank) {
+      const fit = archetype.rank;
+      retain(ranked[0]!, item(fit.score, fit.reason, fit.linkedCards)); continue;
     }
-    if (named === undefined && (card.text.includes('"') || card.text.includes("“"))) {
-      for (const match of card.text.matchAll(/["“]([^"”]+)["”]/g)) {
-        if (names.has(compactEffectName(match[1]!))) { named = match[1]!; break; }
-      }
-    }
-    if (member || named) { retain(ranked[0]!, item(named ? 12 : 5, named ? `Names ${named}` : `Supports ${member}`, 1)); continue; }
+    if (archetype.claimed) continue;
     const staple = tags?.roles.find(role => role === "hand_trap" || role === "board_breaker" || role === "negation");
     if (staple) retain(ranked[3]!, item(1, tags?.summary || `Adds ${staple.replaceAll("_", " ")}`), 18);
     if (!fits.length || tags?.roles.includes("hand_trap")) continue;

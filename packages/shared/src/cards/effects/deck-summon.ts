@@ -21,7 +21,8 @@ const typePatterns = [...MONSTER_TYPES].sort((a, b) => b.length - a.length)
 const subtypePatterns = SUBTYPES.map(value => [value, new RegExp(`\\b${escaped(value)}${value === "tuner" ? "s?" : ""}\\b`, "i")] as const);
 // Printed archetype spelling matters: "HERO" does not include "Heroic".
 // Exact catalog membership also covers names whose English spelling is exceptional.
-const materialArchetype = (card: Card, name: string) => card.archetype?.toLowerCase() === name.toLowerCase() || card.name.includes(name);
+const materialArchetype = (card: Card, name: string) => [card.archetype, ...(card.archetypes ?? [])]
+  .some(archetype => archetype?.toLowerCase() === name.toLowerCase()) || card.name.includes(name);
 // Recipes contain only printed restrictions. Their predicates read the current
 // material card; this small cache holds no deck, catalog card, or summon proof.
 const recipes = new Map<string, Requirement>();
