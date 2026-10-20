@@ -61,8 +61,8 @@ type Props = {
 
 /** One request key for the deck and its scope. The order of the cards does not matter. */
 function requestKey(props: Pick<Props, "mode" | "genesys" | "pool"> & BrowserSuggest): string {
-  const sorted = (codes: number[]) => [...codes].sort((a, b) => a - b).join(",");
-  return JSON.stringify([props.mode, props.genesys, props.banlist ?? "", props.deckMaster ?? 0, props.genesysRemaining ?? -1, props.pool?.length ?? -1, sorted(props.deck.main), sorted(props.deck.extra), sorted(props.deck.side)]);
+  const sorted = (codes: readonly number[]) => [...codes].sort((a, b) => a - b).join(",");
+  return JSON.stringify([props.mode, props.genesys, props.banlist ?? "", props.deckMaster ?? 0, props.genesysRemaining ?? -1, props.pool === undefined ? null : sorted(props.pool), sorted(props.deck.main), sorted(props.deck.extra), sorted(props.deck.side)]);
 }
 
 /**
