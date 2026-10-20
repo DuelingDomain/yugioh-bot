@@ -58,7 +58,7 @@ describe("authenticated public-catalog insight operations", () => {
     expect(data.rows.map((row: { id: string }) => row.id)).toEqual(["archetype", "outside", "extra", "staples"]);
     expect(data.rows[2]).toMatchObject({ state: "hint", minimumMainCards: 40 });
     expect(data.rows[0].cards[0].passcode).toBe(7084129);
-    expect(state.admission).toHaveBeenCalledWith(expect.objectContaining({ guildId: "configured-community", userId: 123, query: expect.objectContaining({ format: "normal" }) }));
+    expect(state.admission).toHaveBeenCalledWith(expect.objectContaining({ guildId: "configured-community", userId: "123", query: expect.objectContaining({ format: "normal" }) }));
     for (const invalid of [{ legality: {} }, { banlist: "client-list" }, { exclude: [0] }, { cache: false }]) {
       expect((await request({ ...body, ...invalid })).status).toBe(400);
     }

@@ -12,12 +12,12 @@ import { cardScriptHash } from "../src/card-script-hash.js";
 import { loadCardDatabase } from "../src/cards.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 import { seedIdentity } from "./helpers/identity.js";
-import { signedHeaders } from "./helpers/signed-request.js";
+import { createHmac } from "node:crypto";
 
 const SECRET = "deck-suggestions-signed-integration";
 const BLUE = 89631139, SILVER = 87025064, LINK = 990003, PENDULUM = 990004;
 const deck = { main: [BLUE, BLUE, BLUE], extra: [], side: [] };
-let directory: string, db: Database.Database, host: DuelHost, playerId: number, userId: number;
+let directory: string, db: Database.Database, host: DuelHost, playerId: number, userId: string;
 
 beforeAll(() => {
   directory = createHostDataFixture([
@@ -46,10 +46,14 @@ beforeEach(() => {
 });
 afterEach(async () => { await host.close(); db.close(); vi.unstubAllEnvs(); });
 
+function signedHeaders(raw: string, secret: string): Record<string, string> {
+  return { "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") };
+}
+
 async function post(suggestionQuery: unknown, extra: Record<string, unknown> = {}, secret = SECRET) {
   const raw = JSON.stringify({ guildId: "g", playerId, userId, op: "deck-suggestions", suggestionQuery, ...extra });
   const response = await host.handle(new Request("http://local/internal/duel", { method: "POST", body: raw,
-    headers: await signedHeaders(raw, secret, "http://local/internal/duel", "duel-host") }));
+    headers: signedHeaders(raw, secret) }));
   return { status: response.status, data: await response.json() as any };
 }
 
@@ -109,7 +113,7 @@ describe("signed deterministic deck suggestion computation", () => {
   it("rechecks signatures, live guild membership and session assertions before conditional replies", async () => {
     const query = { op: "suggestRows", deck }, first = await post(query);
     expect((await post(query, {}, "wrong-secret")).status).toBe(401);
-    for (const actor of [{ guildId: "other" }, { playerId: 999999 }, { userId: userId + 1 }, { userId: "1" }]) {
+    for (const actor of [{ guildId: "other" }, { playerId: 999999 }, { userId: `${userId}9` }, { userId: "1" }]) {
       expect((await post(query, { suggestionVersion: first.data.contextVersion, ...actor })).status).toBe(403);
     }
     db.prepare("DELETE FROM players WHERE id=?").run(playerId);

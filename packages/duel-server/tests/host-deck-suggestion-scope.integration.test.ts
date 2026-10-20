@@ -8,7 +8,7 @@ import { cardScriptHash } from "../src/card-script-hash.js";
 import { loadCardDatabase } from "../src/cards.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 import { seedIdentity } from "./helpers/identity.js";
-import { signedHeaders } from "./helpers/signed-request.js";
+import { createHmac } from "node:crypto";
 
 const SECRET = "suggestion-scope-test";
 const MASTER = 1001;
@@ -95,10 +95,14 @@ beforeEach(() => {
 });
 afterEach(async () => { await host.close(); db.close(); vi.unstubAllEnvs(); });
 
+function signedHeaders(raw: string, secret: string): Record<string, string> {
+  return { "x-announce-signature": "sha256=" + createHmac("sha256", secret).update(raw).digest("hex") };
+}
+
 async function post(body: Record<string, unknown>) {
   const raw = JSON.stringify({ guildId: "g", playerId, op: "suggestion-scope", ...body });
   const response = await host.handle(new Request("http://local/internal/duel", { method: "POST", body: raw,
-    headers: { ...await signedHeaders(raw, SECRET, "http://local/internal/duel", "duel-host") } }));
+    headers: { ...signedHeaders(raw, SECRET) } }));
   return { status: response.status, data: await response.json() as Scope & { error?: string } };
 }
 

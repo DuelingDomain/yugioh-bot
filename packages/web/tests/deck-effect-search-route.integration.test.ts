@@ -11,7 +11,7 @@ import { emptyCardQuery, type DeckCardInfo } from "@yugidraft/shared/duels";
 import { queryPoolCards } from "../src/components/decks/pool-search";
 
 const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn(), fallback: vi.fn(),
-  suggestionRequests: [] as Array<{ userId: number; suggestionQuery: unknown; suggestionVersion?: string }>, suggestionResponses: [] as Array<Record<string, unknown>> }));
+  suggestionRequests: [] as Array<{ userId: string; suggestionQuery: unknown; suggestionVersion?: string }>, suggestionResponses: [] as Array<Record<string, unknown>> }));
 vi.mock("@yugidraft/shared/cards/effects/reading-fallback", () => ({ fallbackEffectReading: state.fallback }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db }));
 vi.mock("@/lib/auth", () => ({ auth: state.auth }));
@@ -21,6 +21,7 @@ let directory: string, host: DuelHost;
 beforeAll(() => {
   state.db = new Database(":memory:");migrate(state.db);importCardEffectArtifact(state.db);
   state.db.prepare("INSERT INTO players(guild_id,discord_user_id,display_name) VALUES('configured-community','123','Yugi')").run();
+  state.db.prepare("INSERT INTO players(guild_id,discord_user_id,display_name) VALUES('configured-community','124','Joey')").run();
   directory = createHostDataFixture([
     {code:14558127,name:"Ash Blossom & Joyous Spring",type:0x21},
     {code:97268402,name:"Effect Veiler",type:0x21},
@@ -101,7 +102,7 @@ it("uses the same Outside row through the signed deck-search and insight entry p
 it("checks every cached result with the real host and isolates mutations, actors and metadata revisions", async () => {
   const { loadDeckSuggestions } = await import("../src/lib/deck-suggestions");
   const query: Extract<DeckSuggestionQuery, { op: "suggestRows" }> = { op: "suggestRows", format: "normal", deck: { main: [89631139, 89631139, 89631139], extra: [], side: [97268402, 14558127] } };
-  const input = { guildId: "configured-community", userId: 123, query };
+  const input = { guildId: "configured-community", userId: "123", query };
   const first = await loadDeckSuggestions(input);
   expect(first.ok).toBe(true);
   if (!first.ok) return;
@@ -111,8 +112,8 @@ it("checks every cached result with the real host and isolates mutations, actors
   if (repeated.ok) expect(repeated.result.rows[1].cards[0].name).toBe("Silver's Cry");
   expect(state.suggestionRequests.at(-1)?.suggestionVersion).toMatch(/^[a-f0-9]{64}$/);
   expect(state.suggestionResponses.at(-1)).toMatchObject({ notModified: true });
-  expect((await loadDeckSuggestions({ ...input, userId: 124 })).ok).toBe(true);
-  expect(state.suggestionRequests.at(-1)?.userId).toBe(124);
+  expect((await loadDeckSuggestions({ ...input, userId: "124" })).ok).toBe(true);
+  expect(state.suggestionRequests.at(-1)?.userId).toBe("124");
   expect(state.suggestionRequests.at(-1)?.suggestionVersion).toBeUndefined();
   state.db!.prepare("UPDATE card_catalog SET name='Updated Silver Cry' WHERE ygoprodeck_id=87025064").run();
   try {
@@ -125,7 +126,7 @@ it("checks every cached result with the real host and isolates mutations, actors
 
 it("retains at most 64 completed results across module reloads and reuses only validated versions", async () => {
   const { loadDeckSuggestions } = await import("../src/lib/deck-suggestions");
-  const input = (n: number) => ({ guildId: "configured-community", userId: 123, query: { op: "suggestRows" as const, format: "normal" as const,
+  const input = (n: number) => ({ guildId: "configured-community", userId: "123", query: { op: "suggestRows" as const, format: "normal" as const,
     deck: { main: [89631139, 89631139, 89631139], extra: [], side: [] }, exclude: [500000000 + n] } });
   for (let n = 0; n < 65; n++) expect((await loadDeckSuggestions(input(n))).ok).toBe(true);
   vi.resetModules();
@@ -139,7 +140,7 @@ it("retains at most 64 completed results across module reloads and reuses only v
 
 it("fails closed on host outages and malformed conditional/result responses even with a cached result", async () => {
   const { loadDeckSuggestions } = await import("../src/lib/deck-suggestions");
-  const input = { guildId: "configured-community", userId: 123, query: { op: "suggestRows" as const, format: "normal" as const,
+  const input = { guildId: "configured-community", userId: "123", query: { op: "suggestRows" as const, format: "normal" as const,
     deck: { main: [89631139, 89631139, 89631139], extra: [], side: [] }, exclude: [500000099] } };
   expect((await loadDeckSuggestions(input)).ok).toBe(true);
   vi.stubGlobal("fetch", async () => { throw new Error("host unavailable"); });
