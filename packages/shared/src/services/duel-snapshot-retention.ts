@@ -22,7 +22,7 @@ export function duelSnapshotRetentionConfig() {
 interface RetentionRow extends StoredDuelBoards {
   id: number; format: string; status: string; kind: string; ended_at: string; clock_json: string | null;
 }
-type Phase = "turn-backfill" | "fork-delete" | "compaction";
+type Phase = "turn-backfill" | "fork-delete" | "test-duel-delete" | "compaction";
 export interface DuelSnapshotRetentionOptions {
   now?: number | (() => number);
   batchSize?: number;
@@ -58,7 +58,7 @@ export async function runDuelSnapshotRetention(db: Database.Database, options: D
   const timeSource = options.now;
   const currentTime = typeof timeSource === "function" ? timeSource : () => timeSource ?? Date.now();
   const time = currentTime();
-  const stats = { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false,
+  const stats = { backfilled: 0, compacted: 0, deletedForks: 0, deletedTestDuels: 0, busy: false, backlogDone: false,
     turnCursor: options.turnCursor ?? 0, turnBackfillResumeAt: options.turnBackfillResumeAt ?? 0,
     turnBackfillDone: !turnBackfillEnabled() || time < (options.turnBackfillResumeAt ?? 0) };
   const stopped = () => options.stopped?.() === true;
@@ -68,6 +68,7 @@ export async function runDuelSnapshotRetention(db: Database.Database, options: D
   const config = duelSnapshotRetentionConfig();
   const cutoff = new Date(time - config.days * DAY_MS).toISOString();
   const forkCutoff = new Date(time - 7 * DAY_MS).toISOString();
+  const testDuelCutoff = new Date(time - DAY_MS).toISOString();
   const stamp = new Date(time).toISOString();
   const size = Math.min(MAX_BATCH_ROWS, Math.max(1, Math.floor(options.batchSize ?? MAX_BATCH_ROWS)));
   const batches = Math.min(MAX_SWEEP_BATCHES, Math.max(1, Math.floor(options.maxBatches ?? MAX_SWEEP_BATCHES)));
@@ -120,6 +121,27 @@ export async function runDuelSnapshotRetention(db: Database.Database, options: D
       }
     } catch (error) { report("turn-backfill", error); }
   }
+  // Deck-editor test duels are private practice and keep nothing. A finished one goes after a day, with its seats,
+  // commands and snapshots (they cascade). This does not depend on the snapshot compaction switch.
+  const testDuelGuard = `${terminalGuard} and kind='play' and series_id is null and coalesce(json_extract(setup_json,'$.testDuel'),0)=1
+    and julianday(coalesce(ended_at,created_at)) < julianday(?)`;
+  try {
+    if (Number(db.pragma("foreign_keys", { simple: true })) === 1) {
+      const rows = db.prepare<[string, number], { id: number; slug: string; guildId: string; creatorPlayerId: number }>(
+        `select id,web_slug as slug,guild_id as guildId,organizer_player_id as creatorPlayerId from duels where ${testDuelGuard}
+          order by julianday(coalesce(ended_at,created_at)),id limit ?`).all(testDuelCutoff, size);
+      const remove = db.prepare<[number, string]>(`delete from duels where id=? and ${testDuelGuard}`);
+      for (const row of rows) {
+        await pause(0);
+        if (stopped()) return stats;
+        if (options.isForkBusy?.(row.slug, row.guildId, row.creatorPlayerId)) continue;
+        if (Number(db.pragma("foreign_keys", { simple: true })) !== 1) break;
+        try { stats.deletedTestDuels += withoutBusyWait(db, () => db.transaction(() => remove.run(row.id, testDuelCutoff).changes).immediate()); }
+        catch (error) { report("test-duel-delete", error); if (isBusy(error)) break; }
+        await pause(100);
+      }
+    }
+  } catch (error) { report("test-duel-delete", error); }
   if (stopRetention()) {
     stats.backlogDone = !stopped() && !stats.busy && stats.turnBackfillDone;
     return stats;

@@ -3921,7 +3921,7 @@ export function createDuelHost(options: {
     }).then(stats => {
       turnBackfillCursor = stats.turnCursor;
       turnBackfillResumeAt = stats.turnBackfillResumeAt;
-      if (stats.backfilled || stats.compacted || stats.deletedForks || stats.busy || (stats.backlogDone && !retentionBacklogDone)) {
+      if (stats.backfilled || stats.compacted || stats.deletedForks || stats.deletedTestDuels || stats.busy || (stats.backlogDone && !retentionBacklogDone)) {
         console.info("[duel] snapshot retention pass", stats);
       }
       retentionBacklogDone = stats.backlogDone;
