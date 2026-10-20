@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { migrate } from "../src/db/schema.js";
 import { gunzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
 import { interpret, buildArchetypeMatcher } from "../src/cards/effects/query.js";
 import { matchCard } from "../src/cards/effects/effect-match.js";
@@ -415,4 +415,17 @@ it.each(['reserve-response-lost', 'intent-conflict', 'intent-response-lost'])('r
     expect(context.durable().runtime).toEqual([]);
     expect(context.db.prepare('SELECT phrase FROM effect_readings').all()).toEqual([]);
   } finally { await context.close(); }
+});
+
+
+it.each([undefined, '', '   '])('requires the dedicated runtime token (%s) even when GITHUB_TOKEN is set', async token => {
+  const context = await readerFixture();
+  const network = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('No network is permitted'));
+  try {
+    expect(await context.read('no dedicated token', 'user', { store: undefined,
+      env: { GITHUB_TOKEN: 'broad-token-must-not-be-used', GITHUB_REPOSITORY: 'fixture/repo', EFFECT_TAGGING_LEDGER_TOKEN: token } })).toBeNull();
+    expect(network).not.toHaveBeenCalled();
+    expect(context.calls()).toBe(0);
+    expect(context.db.prepare('SELECT phrase FROM effect_readings').all()).toEqual([]);
+  } finally { network.mockRestore(); await context.close(); }
 });

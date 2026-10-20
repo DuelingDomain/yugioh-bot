@@ -201,7 +201,7 @@ tags cards. It uses `claude-haiku-5-5`, disables thinking, limits output to 1,02
 tokens and validates JSON against the existing query vocabulary. Named cards and
 unsupported facets are rejected; archetypes must exist in the shared catalog.
 
-Configure `ANTHROPIC_API_KEY` and `EFFECT_TAGGING_LEDGER_TOKEN` (or `GITHUB_TOKEN`)
+Configure `ANTHROPIC_API_KEY` and `EFFECT_TAGGING_LEDGER_TOKEN`
 in the calling server process. `EFFECT_TAGGING_LEDGER_REPOSITORY` (or
 `GITHUB_REPOSITORY`) is `owner/repo`. The token needs read and fast-forward write
 access to the existing `state/effect-tagging` branch. Runtime never initializes
@@ -225,8 +225,7 @@ the final minute of a UTC month and rechecks before POST and settlement.
 The shared SQLite `effect_readings` table permanently caches validated readings
 by normalized phrase. A durable phrase claim prevents duplicate POSTs across
 users, API routes, processes and restarts. Failed/uncertain paid attempts retain
-a terminal or pending claim and are never retried. Pre-submission failures may
-be retried, retaining any uncertain reservation. `effect_reading_limits` applies
+a terminal or pending claim and are never retried. Pre-submission failures release their reservation and may be retried. `effect_reading_limits` applies
 a sliding 20 attempts/user/hour and 100 attempts globally/hour; cached hits are
 free. User identities are hashed only for this local rate table. Never delete
 claims to retry uncertain spend. Search responses contain no model attribution.
@@ -243,3 +242,43 @@ removes runtime rows still in `reserved` after more than one hour. It preserves
 recent rows, all `submission_started` rows and the complete settled history.
 A process whose reservation CI removed cannot commit its stale intent CAS.
 After a paid attempt starts, uncertain spend remains held and cannot be retried.
+
+
+## Owner setup: runtime ledger token
+
+The runtime does not use `GITHUB_TOKEN`. Without a nonblank
+`EFFECT_TAGGING_LEDGER_TOKEN`, it makes no ledger request or paid call.
+Pinned search and rule readings still work.
+
+1. Use a GitHub organization member account with repository Write access and
+   no rule bypass role. Open the profile menu > Settings > Developer settings >
+   Personal access tokens > Fine-grained tokens > Generate new token.
+2. Name it `effect-runtime-ledger`. Set a short expiration. Select resource
+   owner `DuelingDomain`.
+3. Under Repository access, choose Only select repositories. Select only
+   `DuelingDomain/yugioh-bot`.
+4. Under Repository permissions, set Contents to Read and write. Keep the
+   required Metadata read permission. Add no other permissions. Generate the
+   token. If approval is required, an organization owner must approve it under
+   Organization Settings > Personal access tokens > Pending requests.
+5. In the repository, open Settings > Rules > Rulesets > New ruleset > New
+   branch ruleset. Name it `protect-main-from-runtime`. Set Enforcement to
+   Active. Target `main`. Select Require a pull request before merging, Require
+   approvals (at least 1), Block force pushes, and Restrict deletions. The token
+   account and its roles/teams must have no bypass entry. Save the ruleset.
+6. Protect `state/effect-tagging` from force pushes and deletion with a separate
+   active branch ruleset. Allow normal fast-forward updates; a PR requirement
+   on this branch would block ledger CAS. Use the existing ledger; never reset it.
+7. Put the token in the runtime secret manager as `EFFECT_TAGGING_LEDGER_TOKEN`.
+   Set `EFFECT_TAGGING_LEDGER_REPOSITORY=DuelingDomain/yugioh-bot`. Restart the
+   calling web/duel services. Add the runtime `ANTHROPIC_API_KEY` only after
+   token approval and branch protection are complete. Do not give these services
+   a general `GITHUB_TOKEN`. The Actions tagging job keeps its own job token.
+
+GitHub fine-grained tokens support repository and permission limits, not a
+single file or branch limit. This code writes only `ledger.json` on
+`state/effect-tagging`; branch rules protect `main`. A PAT alone cannot enforce
+that file allowlist. Keep the runtime key unset if these controls are incomplete.
+
+Sources: [GitHub token setup](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens),
+[GitHub branch rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository).
