@@ -11,6 +11,35 @@ import { cleanReleaseMonth, isTcgSetCode } from "@yugidraft/shared/cards/effects
 import { writeEffectArtifactCandidate } from "./artifact-output.js";
 
 export const RELEASE_ENDPOINT = "https://db.ygoprodeck.com/api/v7/cardinfo.php?misc=yes";
+const MAX_RESPONSE_BYTES = 200 * 1024 * 1024;
+class BulkResponseTooLarge extends Error {}
+
+/** Bound advertised and decoded stream bytes, including responses without a length. */
+async function boundedResponseText(response: Response): Promise<string> {
+  const length = response.headers.get("content-length");
+  if (length && Number(length) > MAX_RESPONSE_BYTES) {
+    await response.body?.cancel();
+    throw new BulkResponseTooLarge("YGOPRODeck response exceeds 200 MB limit");
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader(), decoder = new TextDecoder(), parts: string[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_RESPONSE_BYTES) {
+        await reader.cancel();
+        throw new BulkResponseTooLarge("YGOPRODeck response exceeds 200 MB limit");
+      }
+      parts.push(decoder.decode(value, { stream: true }));
+    }
+    parts.push(decoder.decode());
+    return parts.join("");
+  } finally { reader.releaseLock(); }
+}
+
 const DATA = "packages/shared/data/effects", sha = (value: string) => createHash("sha256").update(value).digest("hex");
 export interface ReleaseRow { id: number; name: string; aliases: number[]; tcgDate: string | null; ocgDate: string | null; quality: string }
 interface ApiSet { set_name: string; set_code?: string; tcg_date?: string }
@@ -41,16 +70,16 @@ async function bulk(options: Options): Promise<Bulk> {
         await response.body?.cancel();
         throw new Error(`YGOPRODeck HTTP ${response.status}`);
       }
-      const text = await response.text();
+      const text = await boundedResponseText(response);
       const setResponse = await fetch(new URL("cardsets.php", endpoint), { signal: AbortSignal.timeout(options.timeoutMs ?? 30_000) });
       if (!setResponse.ok) throw new Error(`YGOPRODeck set HTTP ${setResponse.status}`);
-      const setText = await setResponse.text();
+      const setText = await boundedResponseText(setResponse);
       const value: Bulk = { endpoint, fetchedAt: Date.now(), sourceSha256: sha(text + "\n" + setText), cards: JSON.parse(text).data, sets: JSON.parse(setText) };
       if (!validBulk(value, endpoint)) throw new Error("Invalid YGOPRODeck bulk response");
       mkdirSync(options.cacheDirectory, { recursive: true });
       writeFileSync(cache + ".tmp", JSON.stringify(value)); renameSync(cache + ".tmp", cache);
       return value;
-    } catch (error) { failure = error; delay = Math.min(60_000, Math.max(delay, (options.backoffMs ?? 1_000) * 2 ** attempt)); }
+    } catch (error) { if (error instanceof BulkResponseTooLarge) throw error; failure = error; delay = Math.min(60_000, Math.max(delay, (options.backoffMs ?? 1_000) * 2 ** attempt)); }
   }
   throw failure;
 }
