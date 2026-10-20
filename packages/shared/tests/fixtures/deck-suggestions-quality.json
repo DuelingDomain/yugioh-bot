@@ -1,0 +1,2165 @@
+{
+  "schemaVersion": 1,
+  "relevancePolicy": {
+    "frozenBeforeRanking": true,
+    "expected": "Every omitted published-list card, plus only the independently reasoned genericSupport entries. A source omission remains in the expected universe even if its format legality has changed; legality is measured separately.",
+    "precision": "For each returned row, relevant returned unique canonical passcodes divided by returned count. Unlisted potentially good alternatives remain misses; no expected IDs are added after inspecting output.",
+    "outsideQualityGate": "At least 5 expected passcodes among the first 8 Outside row cards, independently for every deck scenario.",
+    "otherQualityGates": "Staples at most 25% of total returned cards and at most 6; zero cards outside authoritative host legality or over copy/pool limits; no duplicate shown passcodes.",
+    "scope": "Full catalog from the real engine plus pinned artifact; expected sets never restrict candidate pool."
+  },
+  "acquisitionLimitations": [
+    "Canonical YGOPRODeck pages were fetched with a browser User-Agent because bare numeric page URL returned HTTP 403. Full passcode arrays were available in successful canonical HTML responses.",
+    "Domain source is community-authored and older; no tournament claim is attached to it.",
+    "Domain source does not explicitly assign a Deck Master; the derived scenario declares its own choice.",
+    "Historic tournament source legality is not assumed current. The evaluation uses the application's pinned host banlist and Domain admission policy.",
+    "Domain scenario was corrected to follow the existing sole-Side-card import convention after finding that an Albaz master could not also be a Main Deck Fusion material. Frozen generic relevance IDs were preserved; omitted source cards were recomputed for that input correction."
+  ],
+  "fixtures": [
+    {
+      "id": "blue-eyes",
+      "format": "normal",
+      "source": {
+        "url": "https://ygoprodeck.com/deck/primite-blue-eyes-734333/",
+        "retrievedAt": "2026-10-19T23:41:32.585287+00:00",
+        "htmlSha256": "06c0ca89a12270593391d6ec20a70034af6152c91658f716536891c213d440c8",
+        "title": "Primite Blue-Eyes",
+        "author": "Marco Tonto",
+        "category": "Tournament Meta Decks (TCG)",
+        "event": "Montevideo WCQ Regional",
+        "eventDate": "2026-09-12",
+        "placement": "Top 8",
+        "extraction": "Literal maindeckjs/extradeckjs/sidedeckjs passcode arrays in retrieved HTML; source card names from data-cardname attributes.",
+        "selection": "Recent 2026 curated tournament deck found by web search; not a claim that this is the newest published deck."
+      },
+      "fullDeck": {
+        "main": [
+          89631139,
+          89631139,
+          30576089,
+          17947697,
+          17947697,
+          17947697,
+          8240199,
+          8240199,
+          8240199,
+          54332792,
+          63198739,
+          63198739,
+          63198739,
+          17209452,
+          42141493,
+          42141493,
+          42141493,
+          14558128,
+          14558128,
+          14558128,
+          73642296,
+          59438930,
+          97268402,
+          94145021,
+          94145021,
+          33854624,
+          6637331,
+          80326401,
+          80326401,
+          80326401,
+          17725109,
+          24382602,
+          56506740,
+          56506740,
+          29095457,
+          68462976,
+          65681983,
+          24224830,
+          10045474,
+          10045474,
+          10045474,
+          97045737,
+          97045737,
+          43219114,
+          62089826
+        ],
+        "extra": [
+          59822133,
+          59822133,
+          59822133,
+          89604813,
+          10515412,
+          76636978,
+          74892653,
+          26268488,
+          25862681,
+          63436931,
+          56532353,
+          11443677,
+          24361622,
+          42097666,
+          42097666
+        ],
+        "side": [
+          46565218,
+          46565218,
+          84192580,
+          84192580,
+          27204311,
+          27204311,
+          18144507,
+          14532163,
+          14532163,
+          43711255,
+          43711255,
+          43711255,
+          85442146,
+          85442146,
+          41420027
+        ]
+      },
+      "trimmedDeck": {
+        "main": [
+          89631139,
+          89631139,
+          30576089,
+          17947697,
+          17947697,
+          17947697,
+          8240199,
+          8240199,
+          8240199,
+          54332792,
+          42141493,
+          42141493,
+          42141493,
+          14558128,
+          14558128,
+          14558128,
+          73642296,
+          59438930,
+          94145021,
+          94145021,
+          80326401,
+          80326401,
+          80326401,
+          17725109,
+          24382602,
+          10045474,
+          10045474,
+          10045474,
+          97045737,
+          97045737,
+          43219114,
+          62089826
+        ],
+        "extra": [
+          59822133,
+          11443677
+        ],
+        "side": []
+      },
+      "trimNote": "Remove declared support/staple/package cards to 32 Main Deck cards, retain Extra Deck anchors, clear side. This is an evaluation scenario derived from the published list, not a claimed tournament list.",
+      "removedFromMain": [
+        {
+          "passcode": 63198739,
+          "name": "Primite Dragon Ether Beryl",
+          "copies": 3
+        },
+        {
+          "passcode": 17209452,
+          "name": "Kewl Tune Rotary",
+          "copies": 1
+        },
+        {
+          "passcode": 33854624,
+          "name": "Bystial Magnamhut",
+          "copies": 1
+        },
+        {
+          "passcode": 6637331,
+          "name": "Bystial Druiswurm",
+          "copies": 1
+        },
+        {
+          "passcode": 56506740,
+          "name": "Primite Lordly Lode",
+          "copies": 2
+        },
+        {
+          "passcode": 29095457,
+          "name": "Primite Drillbeam",
+          "copies": 1
+        },
+        {
+          "passcode": 68462976,
+          "name": "Secret Village of the Spellcasters",
+          "copies": 1
+        },
+        {
+          "passcode": 65681983,
+          "name": "Crossout Designator",
+          "copies": 1
+        },
+        {
+          "passcode": 24224830,
+          "name": "Called by the Grave",
+          "copies": 1
+        },
+        {
+          "passcode": 97268402,
+          "name": "Effect Veiler",
+          "copies": 1
+        }
+      ],
+      "expectedOmittedListCards": [
+        {
+          "passcode": 63198739,
+          "name": "Primite Dragon Ether Beryl",
+          "section": "main",
+          "copies": 3
+        },
+        {
+          "passcode": 17209452,
+          "name": "Kewl Tune Rotary",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 97268402,
+          "name": "Effect Veiler",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 33854624,
+          "name": "Bystial Magnamhut",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 6637331,
+          "name": "Bystial Druiswurm",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 56506740,
+          "name": "Primite Lordly Lode",
+          "section": "main",
+          "copies": 2
+        },
+        {
+          "passcode": 29095457,
+          "name": "Primite Drillbeam",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 68462976,
+          "name": "Secret Village of the Spellcasters",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 65681983,
+          "name": "Crossout Designator",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 24224830,
+          "name": "Called by the Grave",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 59822133,
+          "name": "Blue-Eyes Spirit Dragon",
+          "section": "extra",
+          "copies": 2
+        },
+        {
+          "passcode": 89604813,
+          "name": "Blue-Eyes Ultimate Spirit Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 10515412,
+          "name": "Lightstorm Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 76636978,
+          "name": "Stardust Dragon - Victim Sanctuary",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 74892653,
+          "name": "Stardust Warrior",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 26268488,
+          "name": "Stardust Sifr Divine Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 25862681,
+          "name": "Ancient Fairy Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 63436931,
+          "name": "Crimson Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 56532353,
+          "name": "Neo Blue-Eyes Ultimate Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 24361622,
+          "name": "Hieratic Seal of the Heavenly Spheres",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 42097666,
+          "name": "Spirit with Eyes of Blue",
+          "section": "extra",
+          "copies": 2
+        },
+        {
+          "passcode": 46565218,
+          "name": "Santa Claws",
+          "section": "side",
+          "copies": 2
+        },
+        {
+          "passcode": 84192580,
+          "name": "Mulcharmy Purulia",
+          "section": "side",
+          "copies": 2
+        },
+        {
+          "passcode": 27204311,
+          "name": "Nibiru, the Primal Being",
+          "section": "side",
+          "copies": 2
+        },
+        {
+          "passcode": 18144507,
+          "name": "Harpie's Feather Duster",
+          "section": "side",
+          "copies": 1
+        },
+        {
+          "passcode": 14532163,
+          "name": "Lightning Storm",
+          "section": "side",
+          "copies": 2
+        },
+        {
+          "passcode": 43711255,
+          "name": "Prohibition",
+          "section": "side",
+          "copies": 3
+        },
+        {
+          "passcode": 85442146,
+          "name": "Dragon's Mind",
+          "section": "side",
+          "copies": 2
+        },
+        {
+          "passcode": 41420027,
+          "name": "Solemn Judgment",
+          "section": "side",
+          "copies": 1
+        }
+      ],
+      "genericSupport": [
+        {
+          "passcode": 41620959,
+          "name": "Dragon Shrine",
+          "reason": "Sends Blue-Eyes White Dragon to the GY and can send a second Dragon because it is Normal.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Send 1 Dragon monster from your Deck to the GY, then, if that monster in your GY is a Dragon Normal Monster, you can send 1 more Dragon monster from your Deck to the GY. You can only activate 1 \"Dragon Shrine\" per turn."
+          }
+        },
+        {
+          "passcode": 6853254,
+          "name": "Return of the Dragon Lords",
+          "reason": "Revives the Level 8 Dragon core and protects Dragons from destruction.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Target 1 Level 7 or 8 Dragon monster in your GY; Special Summon it. If a Dragon monster(s) you control would be destroyed by battle or card effect, you can banish this card from your GY instead."
+          }
+        },
+        {
+          "passcode": 87025064,
+          "name": "Silver's Cry",
+          "reason": "Revives Blue-Eyes White Dragon, a Dragon Normal Monster.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Target 1 Dragon Normal Monster in your GY; Special Summon that target. You can only activate 1 \"Silver's Cry\" per turn."
+          }
+        },
+        {
+          "passcode": 38120068,
+          "name": "Trade-In",
+          "reason": "Converts a Level 8 Blue-Eyes monster in hand into two draws.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Discard 1 Level 8 monster; draw 2 cards."
+          }
+        },
+        {
+          "passcode": 48800175,
+          "name": "The Melody of Awakening Dragon",
+          "reason": "Searches Blue-Eyes White Dragon or Blue-Eyes Jet Dragon using their printed ATK/DEF.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Discard 1 card; add up to 2 Dragon monsters with 3000 or more ATK and 2500 or less DEF from your Deck to your hand."
+          }
+        },
+        {
+          "passcode": 10667321,
+          "name": "Ancient Rules",
+          "reason": "Special Summons Blue-Eyes White Dragon from hand as a high-Level Normal Monster.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Special Summon 1 Level 5 or higher Normal Monster from your hand."
+          }
+        },
+        {
+          "passcode": 62265044,
+          "name": "Dragon Ravine",
+          "reason": "Discards a card and sends a Dragon from Deck to GY for the Dragon revival plan.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Once per turn: You can discard 1 card, then activate 1 of these effects;\r\n● Add 1 Level 4 or lower \"Dragunity\" monster from your Deck to your hand.\r\n● Send 1 Dragon monster from your Deck to the GY."
+          }
+        },
+        {
+          "passcode": 83764718,
+          "name": "Monster Reborn",
+          "reason": "Revives a Dragon or another material from either GY.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Target 1 monster in either GY; Special Summon it."
+          }
+        },
+        {
+          "passcode": 81439173,
+          "name": "Foolish Burial",
+          "reason": "Sends a chosen Dragon from Deck to GY for the revival plan.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Send 1 monster from your Deck to the GY."
+          }
+        }
+      ],
+      "names": {
+        "6637331": "Bystial Druiswurm",
+        "8240199": "Sage with Eyes of Blue",
+        "10045474": "Infinite Impermanence",
+        "10515412": "Lightstorm Dragon",
+        "11443677": "Blue-Eyes Tyrant Dragon",
+        "14532163": "Lightning Storm",
+        "14558128": "Ash Blossom & Joyous Spring",
+        "17209452": "Kewl Tune Rotary",
+        "17725109": "Roar of the Blue-Eyed Dragons",
+        "17947697": "Maiden of White",
+        "18144507": "Harpie's Feather Duster",
+        "24224830": "Called by the Grave",
+        "24361622": "Hieratic Seal of the Heavenly Spheres",
+        "24382602": "Mausoleum of White",
+        "25862681": "Ancient Fairy Dragon",
+        "26268488": "Stardust Sifr Divine Dragon",
+        "27204311": "Nibiru, the Primal Being",
+        "29095457": "Primite Drillbeam",
+        "30576089": "Blue-Eyes Jet Dragon",
+        "33854624": "Bystial Magnamhut",
+        "41420027": "Solemn Judgment",
+        "42097666": "Spirit with Eyes of Blue",
+        "42141493": "Mulcharmy Fuwalos",
+        "43219114": "Majesty of the White Dragons",
+        "43711255": "Prohibition",
+        "46565218": "Santa Claws",
+        "54332792": "Neo Kaiser Sea Horse",
+        "56506740": "Primite Lordly Lode",
+        "56532353": "Neo Blue-Eyes Ultimate Dragon",
+        "59438930": "Ghost Ogre & Snow Rabbit",
+        "59822133": "Blue-Eyes Spirit Dragon",
+        "62089826": "True Light",
+        "63198739": "Primite Dragon Ether Beryl",
+        "63436931": "Crimson Dragon",
+        "65681983": "Crossout Designator",
+        "68462976": "Secret Village of the Spellcasters",
+        "73642296": "Ghost Belle & Haunted Mansion",
+        "74892653": "Stardust Warrior",
+        "76636978": "Stardust Dragon - Victim Sanctuary",
+        "80326401": "Wishes for Eyes of Blue",
+        "84192580": "Mulcharmy Purulia",
+        "85442146": "Dragon's Mind",
+        "89604813": "Blue-Eyes Ultimate Spirit Dragon",
+        "89631139": "Blue-Eyes White Dragon",
+        "94145021": "Droll & Lock Bird",
+        "97045737": "Dominus Purge",
+        "97268402": "Effect Veiler"
+      }
+    },
+    {
+      "id": "branded",
+      "format": "normal",
+      "source": {
+        "url": "https://ygoprodeck.com/deck/despia-branded-737756",
+        "retrievedAt": "2026-10-19T23:41:32.586040+00:00",
+        "htmlSha256": "1477baf07965e3e39d3d9cecf80265b309c2b402f6c6ba8dbfdcd9b429551230",
+        "title": "Despia Branded",
+        "author": "David Diniz",
+        "category": "Tournament Meta Decks (TCG)",
+        "event": "Rio De Janeiro WCQ Regional",
+        "eventDate": "2026-09-27",
+        "placement": "1st Place",
+        "extraction": "Literal maindeckjs/extradeckjs/sidedeckjs passcode arrays in retrieved HTML; source card names from data-cardname attributes.",
+        "selection": "Recent 2026 curated tournament deck found by web search; not a claim that this is the newest published deck."
+      },
+      "fullDeck": {
+        "main": [
+          62962630,
+          62962630,
+          62962630,
+          73819701,
+          73819701,
+          68468459,
+          95515789,
+          95515789,
+          45883110,
+          55273560,
+          55273560,
+          60303688,
+          19304410,
+          19096726,
+          24088928,
+          44001993,
+          42141493,
+          42141493,
+          42141493,
+          94145021,
+          94145021,
+          44362883,
+          29948294,
+          29948294,
+          36637374,
+          36637374,
+          36637374,
+          1984618,
+          1984618,
+          1984618,
+          30271097,
+          30271097,
+          30271097,
+          33599853,
+          48130397,
+          48130397,
+          48130397,
+          24224830,
+          75500286,
+          17751597
+        ],
+        "extra": [
+          72272462,
+          87746184,
+          87746184,
+          44146295,
+          70534340,
+          3410461,
+          24915933,
+          41373230,
+          51409648,
+          76666602,
+          76666602,
+          41209827,
+          72578374,
+          53971455,
+          78397661
+        ],
+        "side": [
+          34267821,
+          34267821,
+          34267821,
+          14558128,
+          14558128,
+          14558128,
+          18144507,
+          24299458,
+          24299458,
+          24299458,
+          98476659,
+          98476659,
+          98476659,
+          6325660,
+          6325660
+        ]
+      },
+      "trimmedDeck": {
+        "main": [
+          62962630,
+          62962630,
+          62962630,
+          73819701,
+          73819701,
+          68468459,
+          95515789,
+          95515789,
+          45883110,
+          55273560,
+          55273560,
+          60303688,
+          19304410,
+          19096726,
+          24088928,
+          44001993,
+          42141493,
+          42141493,
+          42141493,
+          94145021,
+          94145021,
+          44362883,
+          29948294,
+          29948294,
+          36637374,
+          36637374,
+          36637374,
+          30271097,
+          30271097,
+          30271097,
+          33599853,
+          17751597
+        ],
+        "extra": [
+          87746184,
+          44146295,
+          24915933
+        ],
+        "side": []
+      },
+      "trimNote": "Remove declared support/staple/package cards to 32 Main Deck cards, retain Extra Deck anchors, clear side. This is an evaluation scenario derived from the published list, not a claimed tournament list.",
+      "removedFromMain": [
+        {
+          "passcode": 1984618,
+          "name": "Nadir Servant",
+          "copies": 3
+        },
+        {
+          "passcode": 48130397,
+          "name": "Super Polymerization",
+          "copies": 3
+        },
+        {
+          "passcode": 75500286,
+          "name": "Gold Sarcophagus",
+          "copies": 1
+        },
+        {
+          "passcode": 24224830,
+          "name": "Called by the Grave",
+          "copies": 1
+        }
+      ],
+      "expectedOmittedListCards": [
+        {
+          "passcode": 1984618,
+          "name": "Nadir Servant",
+          "section": "main",
+          "copies": 3
+        },
+        {
+          "passcode": 48130397,
+          "name": "Super Polymerization",
+          "section": "main",
+          "copies": 3
+        },
+        {
+          "passcode": 24224830,
+          "name": "Called by the Grave",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 75500286,
+          "name": "Gold Sarcophagus",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 72272462,
+          "name": "Despian Quaeritis",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 87746184,
+          "name": "Albion the Branded Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 70534340,
+          "name": "Lubellion the Searing Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 3410461,
+          "name": "Alba-Lenatus the Abyss Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 41373230,
+          "name": "Titaniklad the Ash Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 51409648,
+          "name": "Rindbrumm the Striking Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 76666602,
+          "name": "The Dragon that Devours the Dogma",
+          "section": "extra",
+          "copies": 2
+        },
+        {
+          "passcode": 41209827,
+          "name": "Starving Venom Fusion Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 72578374,
+          "name": "Khaos Starsource Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 53971455,
+          "name": "Despian Luluwalilith",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 78397661,
+          "name": "Ecclesia and the Dark Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 34267821,
+          "name": "Artifact Lancea",
+          "section": "side",
+          "copies": 3
+        },
+        {
+          "passcode": 14558128,
+          "name": "Ash Blossom & Joyous Spring",
+          "section": "side",
+          "copies": 3
+        },
+        {
+          "passcode": 18144507,
+          "name": "Harpie's Feather Duster",
+          "section": "side",
+          "copies": 1
+        },
+        {
+          "passcode": 24299458,
+          "name": "Forbidden Droplet",
+          "section": "side",
+          "copies": 3
+        },
+        {
+          "passcode": 98476659,
+          "name": "Pot of Sloth",
+          "section": "side",
+          "copies": 3
+        },
+        {
+          "passcode": 6325660,
+          "name": "Dominus Spark",
+          "section": "side",
+          "copies": 2
+        }
+      ],
+      "genericSupport": [
+        {
+          "passcode": 24094653,
+          "name": "Polymerization",
+          "reason": "Fusion Summons using the Branded deck's Fusion materials.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Fusion Summon 1 Fusion Monster from your Extra Deck, using monsters from your hand or field as Fusion Material."
+          }
+        },
+        {
+          "passcode": 48130397,
+          "name": "Super Polymerization",
+          "reason": "Fusion Summons with either field, including DARK materials for Starving Venom Fusion Dragon.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Discard 1 card; Fusion Summon 1 Fusion Monster from your Extra Deck, using monsters from either field as Fusion Material. Neither player can activate cards or effects in response to this card's activation."
+          }
+        },
+        {
+          "passcode": 6498706,
+          "name": "Fusion Deployment",
+          "reason": "Reveals Albion the Branded Dragon to summon its specifically named Fallen of Albaz material.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Reveal 1 Fusion Monster in your Extra Deck and Special Summon, from your hand or Deck, 1 of the Fusion Materials whose name is specifically listed on that card. You cannot Special Summon monsters from the Extra Deck, except Fusion Monsters, the turn you activate this card. You can only activate 1 \"Fusion Deployment\" per turn.\r\n\r\n* The above text is unofficial and describes the card's functionality in the OCG."
+          }
+        },
+        {
+          "passcode": 17194258,
+          "name": "Fusion Conscription",
+          "reason": "Reveals Albion the Branded Dragon to add its named Fallen of Albaz material, subject to its same-turn restriction.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Reveal 1 Fusion Monster in your Extra Deck and add 1 of the Fusion Materials whose name is specifically listed on that card from your Deck or Graveyard to your hand, and if you do, for the rest of this turn after this card resolves, you cannot Normal Summon/Set or Special Summon monsters with the added monster's name, also your monsters with that name cannot activate their effects. You can only activate 1 \"Fusion Conscription\" per turn."
+          }
+        },
+        {
+          "passcode": 48048590,
+          "name": "Keeper of Dragon Magic",
+          "reason": "Searches Branded Fusion and can revive a named material shown by a Fusion Monster.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "If this card is Normal or Special Summoned: You can discard 1 card; add 1 \"Polymerization\" Normal Spell or \"Fusion\" Normal Spell from your Deck to your hand. You can reveal 1 Fusion Monster in your Extra Deck; Special Summon 1 of the Fusion Materials mentioned on that monster from your GY, in face-down Defense Position. You can only use each effect of \"Keeper of Dragon Magic\" once per turn. You cannot Special Summon monsters from the Extra Deck, except Fusion Monsters, the turn you activate either of this card's effects."
+          }
+        },
+        {
+          "passcode": 15717011,
+          "name": "The Light - Hex-Sealed Fusion",
+          "reason": "Can substitute for the named Fallen of Albaz material and make a LIGHT Fusion such as Albion.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "You can substitute this card for any 1 Fusion Material Monster, but the other Fusion Material Monster(s) must be correct. You can Tribute Fusion Material Monsters on the field, including this face-up card; Special Summon 1 corresponding LIGHT Fusion Monster from your Extra Deck."
+          }
+        },
+        {
+          "passcode": 71490127,
+          "name": "Dragon's Mirror",
+          "reason": "Fusion Summons a Dragon Fusion such as Albion by banishing the listed materials from field or GY.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Fusion Summon 1 Dragon Fusion Monster from your Extra Deck, by banishing Fusion Materials listed on it from your field or GY."
+          }
+        },
+        {
+          "passcode": 81223446,
+          "name": "Necro Fusion",
+          "reason": "Fusion Summons from GY materials during a later turn, supporting the Fusion deck's recursion.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Fusion Summon 1 Fusion Monster from your Extra Deck, by banishing Fusion Materials mentioned on it from your GY face-down, but it cannot attack this turn."
+          }
+        },
+        {
+          "passcode": 76647978,
+          "name": "Ultra Polymerization",
+          "reason": "Fusion Summons from field materials and later revives both materials.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Pay 2000 LP; Fusion Summon 1 Fusion Monster from your Extra Deck, using 2 monsters you control as Fusion Materials. Neither player can activate cards or effects in response to this card's activation. You can banish this card from your GY, then target 1 Fusion Monster that was Fusion Summoned with this card's effect; Special Summon all its listed Fusion Materials used for its Fusion Summon from your GY, but change their ATK/DEF to 0, also they have their effects negated.\r\n\r\n* The above text is unofficial and describes the card's functionality in the OCG."
+          }
+        },
+        {
+          "passcode": 11827244,
+          "name": "Magicalized Fusion",
+          "reason": "Fusion Summons a Spellcaster Fusion such as Granguignol using field/GY materials.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Fusion Summon 1 Spellcaster Fusion Monster from your Extra Deck, by banishing Fusion Materials mentioned on it from your field or GY. You can only activate 1 \"Magicalized Fusion\" per turn."
+          }
+        }
+      ],
+      "names": {
+        "1984618": "Nadir Servant",
+        "3410461": "Alba-Lenatus the Abyss Dragon",
+        "6325660": "Dominus Spark",
+        "14558128": "Ash Blossom & Joyous Spring",
+        "17751597": "Branded Retribution",
+        "18144507": "Harpie's Feather Duster",
+        "19096726": "Tri-Brigade Mercourier",
+        "19304410": "Tri-Brigade Springans Kitt",
+        "24088928": "Skull Archfiend of Chaos",
+        "24224830": "Called by the Grave",
+        "24299458": "Forbidden Droplet",
+        "24915933": "Granguignol the Dusk Dragon",
+        "29948294": "Branded in High Spirits",
+        "30271097": "The Fallen & The Virtuous",
+        "33599853": "Light and Darkness Ritual",
+        "34267821": "Artifact Lancea",
+        "36637374": "Branded Opening",
+        "41209827": "Starving Venom Fusion Dragon",
+        "41373230": "Titaniklad the Ash Dragon",
+        "42141493": "Mulcharmy Fuwalos",
+        "44001993": "Magician of Dark Chaos - Black Chaos",
+        "44146295": "Mirrorjade the Iceblade Dragon",
+        "44362883": "Branded Fusion",
+        "45883110": "Guiding Quem, the Virtuous",
+        "48130397": "Super Polymerization",
+        "51409648": "Rindbrumm the Striking Dragon",
+        "53971455": "Despian Luluwalilith",
+        "55273560": "Incredible Ecclesia, the Virtuous",
+        "60303688": "Dogmatika Ecclesia, the Virtuous",
+        "62962630": "Aluber the Jester of Despia",
+        "68468459": "Fallen of Albaz",
+        "70534340": "Lubellion the Searing Dragon",
+        "72272462": "Despian Quaeritis",
+        "72578374": "Khaos Starsource Dragon",
+        "73819701": "Fallen of the White Dragon",
+        "75500286": "Gold Sarcophagus",
+        "76666602": "The Dragon that Devours the Dogma",
+        "78397661": "Ecclesia and the Dark Dragon",
+        "87746184": "Albion the Branded Dragon",
+        "94145021": "Droll & Lock Bird",
+        "95515789": "Blazing Cartesia, the Virtuous",
+        "98476659": "Pot of Sloth"
+      }
+    },
+    {
+      "id": "snake-eye",
+      "format": "normal",
+      "source": {
+        "url": "https://ygoprodeck.com/deck/dark-magician-azamina-snake-eye-734878/",
+        "retrievedAt": "2026-10-19T23:41:32.586641+00:00",
+        "htmlSha256": "854f5839f282de30927ae8345f4bf3bf420c3dd30090771a7872286ae6d41d48",
+        "title": "Dark Magician Azamina Snake-Eye",
+        "author": "Julia G.",
+        "category": "Tournament Meta Decks (TCG)",
+        "event": "Poznań WCQ Regional",
+        "eventDate": "2026-09-26",
+        "placement": "2nd Place",
+        "extraction": "Literal maindeckjs/extradeckjs/sidedeckjs passcode arrays in retrieved HTML; source card names from data-cardname attributes.",
+        "selection": "Recent 2026 curated tournament deck found by web search; not a claim that this is the newest published deck."
+      },
+      "fullDeck": {
+        "main": [
+          9674034,
+          9674034,
+          9674034,
+          48452496,
+          45663742,
+          90241276,
+          90241276,
+          27260347,
+          72270339,
+          72270339,
+          72270339,
+          88570003,
+          97631303,
+          42141493,
+          42141493,
+          42141493,
+          14558128,
+          14558128,
+          14558128,
+          94145021,
+          94145021,
+          80845034,
+          80845034,
+          80845034,
+          53639887,
+          26700718,
+          66328392,
+          66328392,
+          94845588,
+          85106525,
+          25311006,
+          41350417,
+          41350417,
+          24299458,
+          24299458,
+          24299458,
+          24224830,
+          40366667,
+          40366667,
+          40366667
+        ],
+        "extra": [
+          59400890,
+          73391962,
+          46396218,
+          58071334,
+          45112597,
+          57134592,
+          2772337,
+          48815792,
+          45819647,
+          8264361,
+          4993187,
+          65741786,
+          29301450,
+          50277355,
+          41999284
+        ],
+        "side": [
+          35405755,
+          84192580,
+          84192580,
+          84192580,
+          24508238,
+          24508238,
+          18144507,
+          24081957,
+          14532163,
+          14532163,
+          98476659,
+          98476659,
+          78114463,
+          78114463,
+          41420027
+        ]
+      },
+      "trimmedDeck": {
+        "main": [
+          9674034,
+          9674034,
+          9674034,
+          48452496,
+          45663742,
+          90241276,
+          90241276,
+          27260347,
+          72270339,
+          72270339,
+          72270339,
+          88570003,
+          97631303,
+          42141493,
+          42141493,
+          42141493,
+          14558128,
+          14558128,
+          14558128,
+          80845034,
+          80845034,
+          80845034,
+          53639887,
+          26700718,
+          66328392,
+          66328392,
+          94845588,
+          41350417,
+          41350417,
+          40366667,
+          40366667,
+          40366667
+        ],
+        "extra": [
+          41999284,
+          65741786
+        ],
+        "side": []
+      },
+      "trimNote": "Remove declared support/staple/package cards to 32 Main Deck cards, retain Extra Deck anchors, clear side. This is an evaluation scenario derived from the published list, not a claimed tournament list.",
+      "removedFromMain": [
+        {
+          "passcode": 85106525,
+          "name": "Bonfire",
+          "copies": 1
+        },
+        {
+          "passcode": 24224830,
+          "name": "Called by the Grave",
+          "copies": 1
+        },
+        {
+          "passcode": 25311006,
+          "name": "Triple Tactics Talent",
+          "copies": 1
+        },
+        {
+          "passcode": 24299458,
+          "name": "Forbidden Droplet",
+          "copies": 3
+        },
+        {
+          "passcode": 94145021,
+          "name": "Droll & Lock Bird",
+          "copies": 2
+        }
+      ],
+      "expectedOmittedListCards": [
+        {
+          "passcode": 94145021,
+          "name": "Droll & Lock Bird",
+          "section": "main",
+          "copies": 2
+        },
+        {
+          "passcode": 85106525,
+          "name": "Bonfire",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 25311006,
+          "name": "Triple Tactics Talent",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 24299458,
+          "name": "Forbidden Droplet",
+          "section": "main",
+          "copies": 3
+        },
+        {
+          "passcode": 24224830,
+          "name": "Called by the Grave",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 59400890,
+          "name": "Dark Magician of Destruction",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 73391962,
+          "name": "Azamina Mu Rcielago",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 46396218,
+          "name": "Azamina Ilia Silvia",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 58071334,
+          "name": "Snake-Eyes Doomed Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 45112597,
+          "name": "Worldsea Dragon Zealantis",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 57134592,
+          "name": "Salamangreat Raging Phoenix",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 2772337,
+          "name": "Promethean Princess, Bestower of Flames",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 48815792,
+          "name": "Hiita the Fire Charmer, Ablaze",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 45819647,
+          "name": "Selene, Queen of the Master Magicians",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 8264361,
+          "name": "Dharc the Dark Charmer, Gloomy",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 4993187,
+          "name": "W:P Fancy Ball",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 29301450,
+          "name": "S:P Little Knight",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 50277355,
+          "name": "Cross-Sheep",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 35405755,
+          "name": "Kurikara Divincarnate",
+          "section": "side",
+          "copies": 1
+        },
+        {
+          "passcode": 84192580,
+          "name": "Mulcharmy Purulia",
+          "section": "side",
+          "copies": 3
+        },
+        {
+          "passcode": 24508238,
+          "name": "D.D. Crow",
+          "section": "side",
+          "copies": 2
+        },
+        {
+          "passcode": 18144507,
+          "name": "Harpie's Feather Duster",
+          "section": "side",
+          "copies": 1
+        },
+        {
+          "passcode": 24081957,
+          "name": "Sinful Spoils of Subversion - Snake-Eye",
+          "section": "side",
+          "copies": 1
+        },
+        {
+          "passcode": 14532163,
+          "name": "Lightning Storm",
+          "section": "side",
+          "copies": 2
+        },
+        {
+          "passcode": 98476659,
+          "name": "Pot of Sloth",
+          "section": "side",
+          "copies": 2
+        },
+        {
+          "passcode": 78114463,
+          "name": "Solemn Accusation",
+          "section": "side",
+          "copies": 2
+        },
+        {
+          "passcode": 41420027,
+          "name": "Solemn Judgment",
+          "section": "side",
+          "copies": 1
+        }
+      ],
+      "genericSupport": [
+        {
+          "passcode": 85106525,
+          "name": "Bonfire",
+          "reason": "Searches Snake-Eye Ash or Snake-Eyes Poplar, both low-Level Pyro monsters.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Add 1 Level 4 or lower Pyro monster from your Deck to your hand. You can only activate 1 \"Bonfire\" per turn."
+          }
+        },
+        {
+          "passcode": 2295440,
+          "name": "One for One",
+          "reason": "Special Summons a Level 1 Snake-Eye monster from hand or Deck.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Send 1 monster from your hand to the GY; Special Summon 1 Level 1 monster from your hand or Deck."
+          }
+        },
+        {
+          "passcode": 51405049,
+          "name": "Where Arf Thou?",
+          "reason": "A Level 1 Snake-Eye on field enables another Level 1 search.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "If you control a Level 1 monster: Add 1 Level 1 monster from your Deck to your hand. During the End Phase of this turn, take 2000 damage if you did not Normal Summon the added monster, or a card with the same name, after activating this card."
+          }
+        },
+        {
+          "passcode": 42516299,
+          "name": "Fire Recovery",
+          "reason": "Revives a FIRE Snake-Eye and recycles FIRE resources.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Target 1 FIRE monster in your GY; send 1 card from your hand to the GY, and if you do, Special Summon the targeted monster. You can banish this card from your GY, then target 3 of your FIRE monsters that are banished and/or in your GY; shuffle them into the Deck, then draw 1 card. You can only use this effect of \"Fire Recovery\" once per turn."
+          }
+        },
+        {
+          "passcode": 74845897,
+          "name": "Rekindling",
+          "reason": "Revives Snake-Eyes Poplar, whose printed FIRE/200 DEF matches Rekindling.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Special Summon from your GY as many FIRE monsters as possible with 200 DEF, but banish them during the End Phase of this turn."
+          }
+        },
+        {
+          "passcode": 81439173,
+          "name": "Foolish Burial",
+          "reason": "Sends Snake-Eyes Poplar from Deck to GY to trigger its face-up Spell/Trap placement effect.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Send 1 monster from your Deck to the GY."
+          }
+        },
+        {
+          "passcode": 83764718,
+          "name": "Monster Reborn",
+          "reason": "Revives a FIRE monster as Link material or for its on-field effect.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Target 1 monster in either GY; Special Summon it."
+          }
+        },
+        {
+          "passcode": 11654067,
+          "name": "Fire Ejection",
+          "reason": "Sends Pyro Snake-Eyes Poplar from Deck to GY, enabling its placement effect.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Send 1 Pyro monster from your Deck to the GY, then, if you sent a \"Volcanic\" monster to the GY, you can apply 1 of these effects.\r\n● Inflict damage to your opponent equal to its Level x 100.\r\n● Special Summon 1 \"Bomb Token\" (Pyro/FIRE/Level 1/ATK 1000/DEF 1000) to your opponent's field. Each time 1 is destroyed, its controller takes 500 damage.\r\nYou can only activate 1 \"Fire Ejection\" per turn."
+          }
+        }
+      ],
+      "names": {
+        "2772337": "Promethean Princess, Bestower of Flames",
+        "4993187": "W:P Fancy Ball",
+        "8264361": "Dharc the Dark Charmer, Gloomy",
+        "9674034": "Snake-Eye Ash",
+        "14532163": "Lightning Storm",
+        "14558128": "Ash Blossom & Joyous Spring",
+        "18144507": "Harpie's Feather Duster",
+        "24081957": "Sinful Spoils of Subversion - Snake-Eye",
+        "24224830": "Called by the Grave",
+        "24299458": "Forbidden Droplet",
+        "24508238": "D.D. Crow",
+        "25311006": "Triple Tactics Talent",
+        "26700718": "Dramatic Snake-Eye Chase",
+        "27260347": "Snake-Eyes Diabellstar",
+        "29301450": "S:P Little Knight",
+        "35405755": "Kurikara Divincarnate",
+        "40366667": "Dominus Impulse",
+        "41350417": "Dark Magical Curtain",
+        "41420027": "Solemn Judgment",
+        "41999284": "Linkuriboh",
+        "42141493": "Mulcharmy Fuwalos",
+        "45112597": "Worldsea Dragon Zealantis",
+        "45663742": "Snake-Eye Oak",
+        "45819647": "Selene, Queen of the Master Magicians",
+        "46396218": "Azamina Ilia Silvia",
+        "48452496": "Snake-Eyes Flamberge Dragon",
+        "48815792": "Hiita the Fire Charmer, Ablaze",
+        "50277355": "Cross-Sheep",
+        "53639887": "Divine Temple of the Snake-Eye",
+        "57134592": "Salamangreat Raging Phoenix",
+        "58071334": "Snake-Eyes Doomed Dragon",
+        "59400890": "Dark Magician of Destruction",
+        "65741786": "I:P Masquerena",
+        "66328392": "Deception of the Sinful Spoils",
+        "72270339": "Diabellstar the Black Witch",
+        "73391962": "Azamina Mu Rcielago",
+        "78114463": "Solemn Accusation",
+        "80845034": "WANTED: Seeker of Sinful Spoils",
+        "84192580": "Mulcharmy Purulia",
+        "85106525": "Bonfire",
+        "88570003": "Dark Magician, the Pharaoh's Servant",
+        "90241276": "Snake-Eyes Poplar",
+        "94145021": "Droll & Lock Bird",
+        "94845588": "The Hallowed Azamina",
+        "97631303": "Magicians' Souls",
+        "98476659": "Pot of Sloth"
+      }
+    },
+    {
+      "id": "domain",
+      "format": "domain",
+      "source": {
+        "url": "https://ygoprodeck.com/deck/branded-domain-671336",
+        "retrievedAt": "2026-10-19T23:41:32.587266+00:00",
+        "htmlSha256": "5114fb32de5bb3e30550b74d7a5bee31486980f02ccfb788ba6a109f17469ca4",
+        "title": "Branded Domain",
+        "author": "PohatuEnjoyer",
+        "category": "Domain Format Decks",
+        "event": null,
+        "eventDate": null,
+        "placement": null,
+        "extraction": "Literal maindeckjs/extradeckjs/sidedeckjs passcode arrays in retrieved HTML; source card names from data-cardname attributes.",
+        "selection": "Published community list explicitly categorized as Domain Format Decks; not tournament evidence."
+      },
+      "fullDeck": {
+        "main": [
+          25451383,
+          62962630,
+          95515789,
+          72656408,
+          6637331,
+          33854624,
+          60242223,
+          36577931,
+          63362460,
+          81866673,
+          60303688,
+          69680031,
+          68468459,
+          45883110,
+          55273560,
+          29157292,
+          61677004,
+          35272499,
+          80870883,
+          45484331,
+          423585,
+          32731036,
+          10000080,
+          19096726,
+          46986414,
+          74677422,
+          44362883,
+          29948294,
+          82738008,
+          18973184,
+          36637374,
+          34090915,
+          57953380,
+          12021072,
+          53129443,
+          70485614,
+          81439173,
+          52947044,
+          42703248,
+          79571449,
+          18144506,
+          83764718,
+          74191942,
+          24094653,
+          55144522,
+          12580477,
+          6172122,
+          24081957,
+          68073522,
+          54447022,
+          51481927,
+          48130397,
+          48539234,
+          6763530,
+          32756828,
+          17751597,
+          45675980,
+          74003290,
+          89812483,
+          15216188
+        ],
+        "extra": [
+          3410461,
+          87746184,
+          72272462,
+          60461804,
+          24915933,
+          70534340,
+          44146295,
+          37818794,
+          41209827,
+          76666602,
+          41373230,
+          27572350,
+          53971455,
+          70369116,
+          29301450
+        ],
+        "side": [
+          6855503
+        ]
+      },
+      "trimmedDeck": {
+        "main": [
+          25451383,
+          62962630,
+          95515789,
+          36577931,
+          60303688,
+          69680031,
+          45883110,
+          55273560,
+          45484331,
+          423585,
+          32731036,
+          19096726,
+          44362883,
+          29948294,
+          82738008,
+          18973184,
+          36637374,
+          34090915,
+          70485614,
+          24094653,
+          6172122,
+          24081957,
+          54447022,
+          48130397,
+          48539234,
+          6763530,
+          32756828,
+          17751597,
+          45675980,
+          74003290,
+          15216188,
+          68468459
+        ],
+        "extra": [
+          87746184,
+          44146295,
+          24915933
+        ],
+        "side": [],
+        "deckMaster": 6855503
+      },
+      "trimNote": "Remove declared support/staple/package cards to 32 Main Deck cards, retain Extra Deck anchors, clear side. This is an evaluation scenario derived from the published list, not a claimed tournament list.",
+      "removedFromMain": [
+        {
+          "passcode": 72656408,
+          "name": "Bystial Baldrake",
+          "copies": 1
+        },
+        {
+          "passcode": 6637331,
+          "name": "Bystial Druiswurm",
+          "copies": 1
+        },
+        {
+          "passcode": 33854624,
+          "name": "Bystial Magnamhut",
+          "copies": 1
+        },
+        {
+          "passcode": 63362460,
+          "name": "Destiny HERO - Celestial",
+          "copies": 1
+        },
+        {
+          "passcode": 81866673,
+          "name": "Destiny HERO - Dasher",
+          "copies": 1
+        },
+        {
+          "passcode": 29157292,
+          "name": "Metal Illusionist",
+          "copies": 1
+        },
+        {
+          "passcode": 61677004,
+          "name": "Predaplant Darlingtonia Cobra",
+          "copies": 1
+        },
+        {
+          "passcode": 35272499,
+          "name": "Predaplant Ophrys Scorpio",
+          "copies": 1
+        },
+        {
+          "passcode": 80870883,
+          "name": "Red-Eyes Black Fullmetal Dragon",
+          "copies": 1
+        },
+        {
+          "passcode": 10000080,
+          "name": "The Winged Dragon of Ra - Sphere Mode",
+          "copies": 1
+        },
+        {
+          "passcode": 46986414,
+          "name": "Dark Magician",
+          "copies": 1
+        },
+        {
+          "passcode": 74677422,
+          "name": "Red-Eyes Black Dragon",
+          "copies": 1
+        },
+        {
+          "passcode": 57953380,
+          "name": "Card of Safe Return",
+          "copies": 1
+        },
+        {
+          "passcode": 12021072,
+          "name": "Child's Play",
+          "copies": 1
+        },
+        {
+          "passcode": 53129443,
+          "name": "Dark Hole",
+          "copies": 1
+        },
+        {
+          "passcode": 81439173,
+          "name": "Foolish Burial",
+          "copies": 1
+        },
+        {
+          "passcode": 52947044,
+          "name": "Fusion Destiny",
+          "copies": 1
+        },
+        {
+          "passcode": 42703248,
+          "name": "Giant Trunade",
+          "copies": 1
+        },
+        {
+          "passcode": 79571449,
+          "name": "Graceful Charity",
+          "copies": 1
+        },
+        {
+          "passcode": 18144506,
+          "name": "Harpie's Feather Duster",
+          "copies": 1
+        },
+        {
+          "passcode": 83764718,
+          "name": "Monster Reborn",
+          "copies": 1
+        },
+        {
+          "passcode": 74191942,
+          "name": "Painful Choice",
+          "copies": 1
+        },
+        {
+          "passcode": 55144522,
+          "name": "Pot of Greed",
+          "copies": 1
+        },
+        {
+          "passcode": 12580477,
+          "name": "Raigeki",
+          "copies": 1
+        },
+        {
+          "passcode": 68073522,
+          "name": "Soul Absorption",
+          "copies": 1
+        },
+        {
+          "passcode": 51481927,
+          "name": "Spell Absorption",
+          "copies": 1
+        },
+        {
+          "passcode": 89812483,
+          "name": "Max Metalmorph",
+          "copies": 1
+        },
+        {
+          "passcode": 60242223,
+          "name": "Bystial Saronir",
+          "copies": 1
+        }
+      ],
+      "expectedOmittedListCards": [
+        {
+          "passcode": 72656408,
+          "name": "Bystial Baldrake",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 6637331,
+          "name": "Bystial Druiswurm",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 33854624,
+          "name": "Bystial Magnamhut",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 63362460,
+          "name": "Destiny HERO - Celestial",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 81866673,
+          "name": "Destiny HERO - Dasher",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 29157292,
+          "name": "Metal Illusionist",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 61677004,
+          "name": "Predaplant Darlingtonia Cobra",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 35272499,
+          "name": "Predaplant Ophrys Scorpio",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 80870883,
+          "name": "Red-Eyes Black Fullmetal Dragon",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 10000080,
+          "name": "The Winged Dragon of Ra - Sphere Mode",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 46986414,
+          "name": "Dark Magician",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 74677422,
+          "name": "Red-Eyes Black Dragon",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 57953380,
+          "name": "Card of Safe Return",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 12021072,
+          "name": "Child's Play",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 53129443,
+          "name": "Dark Hole",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 81439173,
+          "name": "Foolish Burial",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 52947044,
+          "name": "Fusion Destiny",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 42703248,
+          "name": "Giant Trunade",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 79571449,
+          "name": "Graceful Charity",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 18144506,
+          "name": "Harpie's Feather Duster",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 83764718,
+          "name": "Monster Reborn",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 74191942,
+          "name": "Painful Choice",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 55144522,
+          "name": "Pot of Greed",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 12580477,
+          "name": "Raigeki",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 68073522,
+          "name": "Soul Absorption",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 51481927,
+          "name": "Spell Absorption",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 89812483,
+          "name": "Max Metalmorph",
+          "section": "main",
+          "copies": 1
+        },
+        {
+          "passcode": 3410461,
+          "name": "Alba-Lenatus the Abyss Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 72272462,
+          "name": "Despian Quaeritis",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 60461804,
+          "name": "Destiny HERO - Destroyer Phoenix Enforcer",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 70534340,
+          "name": "Lubellion the Searing Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 37818794,
+          "name": "Red-Eyes Dark Dragoon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 41209827,
+          "name": "Starving Venom Fusion Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 76666602,
+          "name": "The Dragon that Devours the Dogma",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 41373230,
+          "name": "Titaniklad the Ash Dragon",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 27572350,
+          "name": "Bystial Dis Pater",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 53971455,
+          "name": "Despian Luluwalilith",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 70369116,
+          "name": "Predaplant Verte Anaconda",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 29301450,
+          "name": "S:P Little Knight",
+          "section": "extra",
+          "copies": 1
+        },
+        {
+          "passcode": 6855503,
+          "name": "Masquerade the Blazing Dragon",
+          "section": "side",
+          "copies": 1
+        },
+        {
+          "passcode": 60242223,
+          "name": "Bystial Saronir",
+          "copies": 1,
+          "section": "main"
+        }
+      ],
+      "genericSupport": [
+        {
+          "passcode": 24094653,
+          "name": "Polymerization",
+          "reason": "Fusion Summons using the deck's Fusion materials.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Fusion Summon 1 Fusion Monster from your Extra Deck, using monsters from your hand or field as Fusion Material."
+          }
+        },
+        {
+          "passcode": 48130397,
+          "name": "Super Polymerization",
+          "reason": "Fusion Summons using either field for the deck's Fusion strategy.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Discard 1 card; Fusion Summon 1 Fusion Monster from your Extra Deck, using monsters from either field as Fusion Material. Neither player can activate cards or effects in response to this card's activation."
+          }
+        },
+        {
+          "passcode": 6498706,
+          "name": "Fusion Deployment",
+          "reason": "Reveals Albion the Branded Dragon to summon its specifically named Fallen of Albaz material.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Reveal 1 Fusion Monster in your Extra Deck and Special Summon, from your hand or Deck, 1 of the Fusion Materials whose name is specifically listed on that card. You cannot Special Summon monsters from the Extra Deck, except Fusion Monsters, the turn you activate this card. You can only activate 1 \"Fusion Deployment\" per turn.\r\n\r\n* The above text is unofficial and describes the card's functionality in the OCG."
+          }
+        },
+        {
+          "passcode": 17194258,
+          "name": "Fusion Conscription",
+          "reason": "Adds a named Fallen of Albaz material shown on Albion, subject to its same-turn restriction.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Reveal 1 Fusion Monster in your Extra Deck and add 1 of the Fusion Materials whose name is specifically listed on that card from your Deck or Graveyard to your hand, and if you do, for the rest of this turn after this card resolves, you cannot Normal Summon/Set or Special Summon monsters with the added monster's name, also your monsters with that name cannot activate their effects. You can only activate 1 \"Fusion Conscription\" per turn."
+          }
+        },
+        {
+          "passcode": 48048590,
+          "name": "Keeper of Dragon Magic",
+          "reason": "Searches Branded Fusion and revives a named material shown by a Fusion Monster.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "If this card is Normal or Special Summoned: You can discard 1 card; add 1 \"Polymerization\" Normal Spell or \"Fusion\" Normal Spell from your Deck to your hand. You can reveal 1 Fusion Monster in your Extra Deck; Special Summon 1 of the Fusion Materials mentioned on that monster from your GY, in face-down Defense Position. You can only use each effect of \"Keeper of Dragon Magic\" once per turn. You cannot Special Summon monsters from the Extra Deck, except Fusion Monsters, the turn you activate either of this card's effects."
+          }
+        },
+        {
+          "passcode": 15717011,
+          "name": "The Light - Hex-Sealed Fusion",
+          "reason": "Substitutes for named Fallen of Albaz and can summon LIGHT Albion.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "You can substitute this card for any 1 Fusion Material Monster, but the other Fusion Material Monster(s) must be correct. You can Tribute Fusion Material Monsters on the field, including this face-up card; Special Summon 1 corresponding LIGHT Fusion Monster from your Extra Deck."
+          }
+        },
+        {
+          "passcode": 71490127,
+          "name": "Dragon's Mirror",
+          "reason": "Fusion Summons a Dragon Fusion such as Albion from field/GY materials.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Fusion Summon 1 Dragon Fusion Monster from your Extra Deck, by banishing Fusion Materials listed on it from your field or GY."
+          }
+        },
+        {
+          "passcode": 81223446,
+          "name": "Necro Fusion",
+          "reason": "Fusion Summons using the deck's GY materials on a later turn.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Fusion Summon 1 Fusion Monster from your Extra Deck, by banishing Fusion Materials mentioned on it from your GY face-down, but it cannot attack this turn."
+          }
+        },
+        {
+          "passcode": 76647978,
+          "name": "Ultra Polymerization",
+          "reason": "Fusion Summons from field materials and can revive its two materials.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Pay 2000 LP; Fusion Summon 1 Fusion Monster from your Extra Deck, using 2 monsters you control as Fusion Materials. Neither player can activate cards or effects in response to this card's activation. You can banish this card from your GY, then target 1 Fusion Monster that was Fusion Summoned with this card's effect; Special Summon all its listed Fusion Materials used for its Fusion Summon from your GY, but change their ATK/DEF to 0, also they have their effects negated.\r\n\r\n* The above text is unofficial and describes the card's functionality in the OCG."
+          }
+        },
+        {
+          "passcode": 11827244,
+          "name": "Magicalized Fusion",
+          "reason": "Fusion Summons Spellcaster Granguignol from field/GY materials.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Fusion Summon 1 Spellcaster Fusion Monster from your Extra Deck, by banishing Fusion Materials mentioned on it from your field or GY. You can only activate 1 \"Magicalized Fusion\" per turn."
+          }
+        },
+        {
+          "passcode": 81439173,
+          "name": "Foolish Burial",
+          "reason": "Sends Despian Tragedy to GY by card effect to activate its Despia search.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Send 1 monster from your Deck to the GY."
+          }
+        },
+        {
+          "passcode": 83764718,
+          "name": "Monster Reborn",
+          "reason": "Revives Fallen of Albaz and other Fusion resources from either GY.",
+          "evidence": {
+            "kind": "printed-card-text",
+            "source": "read-only Project Ignis cards.cdb snapshot (2026-10-07)",
+            "text": "Target 1 monster in either GY; Special Summon it."
+          }
+        }
+      ],
+      "names": {
+        "423585": "Summoner Monk",
+        "3410461": "Alba-Lenatus the Abyss Dragon",
+        "6172122": "Red-Eyes Fusion",
+        "6637331": "Bystial Druiswurm",
+        "6763530": "Branded Banishment",
+        "6855503": "Masquerade the Blazing Dragon",
+        "10000080": "The Winged Dragon of Ra - Sphere Mode",
+        "12021072": "Child's Play",
+        "12580477": "Raigeki",
+        "15216188": "Time Engine",
+        "17751597": "Branded Retribution",
+        "18144506": "Harpie's Feather Duster",
+        "18973184": "Branded Lost",
+        "19096726": "Tri-Brigade Mercourier",
+        "24081957": "Sinful Spoils of Subversion - Snake-Eye",
+        "24094653": "Polymerization",
+        "24915933": "Granguignol the Dusk Dragon",
+        "25451383": "Albion the Shrouded Dragon",
+        "27572350": "Bystial Dis Pater",
+        "29157292": "Metal Illusionist",
+        "29301450": "S:P Little Knight",
+        "29948294": "Branded in High Spirits",
+        "32731036": "The Bystial Lubellion",
+        "32756828": "Branded Beast",
+        "33854624": "Bystial Magnamhut",
+        "34090915": "Branded Regained",
+        "35272499": "Predaplant Ophrys Scorpio",
+        "36577931": "Despian Tragedy",
+        "36637374": "Branded Opening",
+        "37818794": "Red-Eyes Dark Dragoon",
+        "41209827": "Starving Venom Fusion Dragon",
+        "41373230": "Titaniklad the Ash Dragon",
+        "42703248": "Giant Trunade",
+        "44146295": "Mirrorjade the Iceblade Dragon",
+        "44362883": "Branded Fusion",
+        "45484331": "Springans Kitt",
+        "45675980": "Etude of the Branded",
+        "45883110": "Guiding Quem, the Virtuous",
+        "46986414": "Dark Magician",
+        "48130397": "Super Polymerization",
+        "48539234": "Appropriate",
+        "51481927": "Spell Absorption",
+        "52947044": "Fusion Destiny",
+        "53129443": "Dark Hole",
+        "53971455": "Despian Luluwalilith",
+        "54447022": "Soul Charge",
+        "55144522": "Pot of Greed",
+        "55273560": "Incredible Ecclesia, the Virtuous",
+        "57953380": "Card of Safe Return",
+        "60242223": "Bystial Saronir",
+        "60303688": "Dogmatika Ecclesia, the Virtuous",
+        "60461804": "Destiny HERO - Destroyer Phoenix Enforcer",
+        "61677004": "Predaplant Darlingtonia Cobra",
+        "62962630": "Aluber the Jester of Despia",
+        "63362460": "Destiny HERO - Celestial",
+        "68073522": "Soul Absorption",
+        "68468459": "Fallen of Albaz",
+        "69680031": "Dogmatika Fleurdelis, the Knighted",
+        "70369116": "Predaplant Verte Anaconda",
+        "70485614": "Decisive Battle of Golgonda",
+        "70534340": "Lubellion the Searing Dragon",
+        "72272462": "Despian Quaeritis",
+        "72656408": "Bystial Baldrake",
+        "74003290": "Lost Wind",
+        "74191942": "Painful Choice",
+        "74677422": "Red-Eyes Black Dragon",
+        "76666602": "The Dragon that Devours the Dogma",
+        "79571449": "Graceful Charity",
+        "80870883": "Red-Eyes Black Fullmetal Dragon",
+        "81439173": "Foolish Burial",
+        "81866673": "Destiny HERO - Dasher",
+        "82738008": "Branded in Red",
+        "83764718": "Monster Reborn",
+        "87746184": "Albion the Branded Dragon",
+        "89812483": "Max Metalmorph",
+        "95515789": "Blazing Cartesia, the Virtuous"
+      },
+      "deckMasterScenario": {
+        "passcode": 6855503,
+        "name": "Masquerade the Blazing Dragon",
+        "isSourceClaim": false,
+        "reason": "The source does not explicitly label a Deck Master. This scenario selects its sole Side Deck card, matching the existing Domain bulk-import convention; Fallen of Albaz remains a Main Deck Fusion material.",
+        "correction": "Initial scenario incorrectly assigned Fallen of Albaz to the Deck Master Zone while generic relevance assumed he remained in Main. Corrected the input by restoring Albaz and omitting Bystial Saronir instead to keep 32 Main cards. Generic expected passcodes are unchanged; source omissions follow the corrected scenario."
+      }
+    }
+  ]
+}

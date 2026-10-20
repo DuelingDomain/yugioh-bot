@@ -10,8 +10,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import { openDatabase } from "@yugidraft/shared/db";
 import { startBot } from "../../runtime/app.js";
 import { deployCommands } from "../../runtime/deploy.js";
+import { readConfig } from "../../runtime/config.js";
 import { community } from "./index.js";
 
+const dataGuild = "100000000000000010";
 const guild = "100000000000000001", app = "100000000000000002", admin = "100000000000000003";
 const channel = "100000000000000004", other = "100000000000000005", announce = "100000000000000006";
 const role = "100000000000000007", highRole = "100000000000000008", log = "100000000000000009";
@@ -110,10 +112,14 @@ async function stubDiscord() {
   };
 }
 
-async function fixture(presence = false, modules: FeatureModule[] = [community]) {
+async function fixture(presence = false, modules: FeatureModule[] = [community], options: { botGuildId?: string } = { botGuildId: guild }) {
   const directory = mkdtempSync(join(tmpdir(), "bot-community-"));
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   vi.stubEnv("DISCORD_BOT_ENABLED", "1"); vi.stubEnv("OWNER_USER_IDS", "1,3");
+  vi.stubEnv("DISCORD_TOKEN", "stub"); vi.stubEnv("DISCORD_CLIENT_ID", app);
+  vi.stubEnv("DISCORD_GUILD_ID", options.botGuildId ? dataGuild : guild);
+  vi.stubEnv("DISCORD_BOT_GUILD_ID", options.botGuildId);
+  vi.stubEnv("DISCORD_ANNOUNCE_CHANNEL_ID", announce);
   vi.stubEnv("DISCORD_MOD_LOG_CHANNEL_ID", log); vi.stubEnv("SITE_DOMAIN", "app.example.test");
   vi.stubEnv("DUEL_DATA_DIR", join(directory, "duel-engine"));
   const db = openDatabase(join(directory, "bot.sqlite"));
@@ -121,8 +127,7 @@ async function fixture(presence = false, modules: FeatureModule[] = [community])
     .run(admin, "100000000000000011", other);
   if (!presence) db.exec("drop index if exists users_last_seen_idx; alter table users drop column last_seen_at; alter table users drop column last_route;");
   const stub = await stubDiscord();
-  const bot = await startBot({ config: { token: "stub", clientId: app, guildId: guild, announceChannelId: announce,
-    modLogChannelId: log, restApi: stub.api, healthPath: join(directory, "health.json") }, db, modules });
+  const bot = await startBot({ config: { ...readConfig(), restApi: stub.api, healthPath: join(directory, "health.json") }, db, modules });
   cleanups.push(() => bot.stop());
   return { directory, db, stub, bot };
 }
@@ -135,9 +140,10 @@ async function preview(stub: Awaited<ReturnType<typeof stubDiscord>>, options: u
   return message.components[0].components as { label: string; custom_id: string }[];
 }
 
-it("deploys four guild commands with public card access and admin defaults", async () => {
-  const { stub } = await fixture();
-  await deployCommands({ token: "stub", clientId: app, guildId: guild, restApi: stub.api }, [community]);
+it.each([undefined, "", guild])("deploys guild commands with bot guild override %s and admin defaults", async botGuildId => {
+  const { stub, bot } = await fixture(false, [community], { botGuildId });
+  await deployCommands(bot.context.config, [community]);
+  expect(stub.requests.find(r => r.method === "PUT")!.path).toBe(`/applications/${app}/guilds/${guild}/commands`);
   const definitions = stub.requests.find(r => r.method === "PUT")!.body;
   expect(definitions.map((c: any) => c.name).sort()).toEqual(["announce", "card", "online", "stats"]);
   expect(definitions.find((c: any) => c.name === "card")).toMatchObject({ default_member_permissions: null, contexts: [0], options: [{ name: "name", autocomplete: true }] });
@@ -293,34 +299,38 @@ it("guards absent presence columns for both private reports", async () => {
   for (const callback of stub.requests.filter(r => r.body?.type === 5)) expect(callback.body.data.flags).toBe(64);
 });
 
-it("matches admin UTC counts, distinct active users, live filters and section labels", async () => {
-  const { stub, db } = await fixture(true);
+it("registers in the bot guild and keeps site reports and duel labels in the data guild", async () => {
+  const { stub, db, bot } = await fixture(true);
+  await deployCommands(bot.context.config, [community]);
+  expect(stub.requests.find(r => r.method === "PUT")!.path).toBe(`/applications/${app}/guilds/${guild}/commands`);
   const now = Date.now(), today = new Date(now).toISOString().slice(0,10), yesterday = new Date(now-86400000).toISOString().slice(0,10);
   db.prepare("update users set created_at=? where id in (1,2)").run(`${today} 00:00:00`);
   db.prepare("update users set created_at=? where id=3").run(`${yesterday}T00:00:00.000Z`);
   db.prepare("update users set last_seen_at=?,last_route='/decks/new' where id=1").run(now-120000);
   db.prepare("update users set last_seen_at=?,last_route='/duels/[slug]' where id=2").run(now-1000);
   db.prepare("update users set last_seen_at=?,last_route='/settings' where id=3").run(now-120001);
-  db.prepare("insert into players(id,guild_id,user_id,display_name) values(1,?,1,'Owner'),(2,?,2,'User')").run(guild,guild);
+  db.prepare("insert into players(id,guild_id,user_id,display_name) values(1,?,1,'Owner'),(2,?,2,'User')").run(dataGuild,dataGuild);
   const duel = db.prepare(`insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status,format,kind,created_at,started_at,ended_at,last_activity_at,archived_at)
     values(?,?,?,?,1,'match',?,?,?,?,?,?,?,?)`);
-  duel.run(1,guild,'live','Live tag','active','tag','play',`${today} 00:00:00`,new Date(now-60000).toISOString(),null,new Date(now-1000).toISOString(),null);
-  duel.run(2,guild,'complete','Done','completed','1v1','play',`${yesterday} 00:00:00`,`${yesterday}T01:00:00Z`,`${today}T00:00:00Z`,null,null);
-  duel.run(3,guild,'fork','Replay','active','ffa4','replay-fork',`${today} 00:00:00`,`${today}T00:00:00Z`,null,new Date(now).toISOString(),null);
-  duel.run(4,guild,'stale','Idle','active','ffa3','play',`${today} 00:00:00`,new Date(now-600001).toISOString(),null,new Date(now-600001).toISOString(),null);
-  duel.run(5,guild,'waiting','Waiting','lobby','1v1','play',`${today} 00:00:00`,null,null,new Date(now).toISOString(),null);
-  duel.run(6,other,'foreign','Foreign','active','ffa4','play',`${today} 00:00:00`,new Date(now).toISOString(),null,new Date(now).toISOString(),null);
-  db.exec("insert into duel_seats(duel_id,seat,player_id,is_bot) values(1,0,2,0),(2,0,1,0),(4,0,1,0)");
+  duel.run(1,dataGuild,'live','Live tag','active','tag','play',`${today} 00:00:00`,new Date(now-60000).toISOString(),null,new Date(now-1000).toISOString(),null);
+  duel.run(2,dataGuild,'complete','Done','completed','1v1','play',`${yesterday} 00:00:00`,`${yesterday}T01:00:00Z`,`${today}T00:00:00Z`,null,null);
+  duel.run(3,dataGuild,'fork','Replay','active','ffa4','replay-fork',`${today} 00:00:00`,`${today}T00:00:00Z`,null,new Date(now).toISOString(),null);
+  duel.run(4,dataGuild,'stale','Idle','active','ffa3','play',`${today} 00:00:00`,new Date(now-600001).toISOString(),null,new Date(now-600001).toISOString(),null);
+  duel.run(5,dataGuild,'waiting','Waiting','lobby','1v1','play',`${today} 00:00:00`,null,null,new Date(now).toISOString(),null);
+  duel.run(6,guild,'foreign','Foreign','active','ffa4','play',`${today} 00:00:00`,new Date(now).toISOString(),null,new Date(now).toISOString(),null);
+  db.exec("insert into duel_seats(duel_id,seat,player_id,is_bot) values(1,0,2,0),(2,0,1,0),(4,0,1,0),(6,0,2,0)");
   db.prepare(`insert into drafts(id,guild_id,channel_id,name,status,created_by_user_id,web_slug,created_at,started_at,ended_at)
     values(1,?,'c','Draft','completed','1','done',?,?,?),(2,?,'c','Old lobby','pending','1','old',?,null,null),(3,?,'c','Active','active','1','active',?,?,null)`)
-    .run(guild,`${yesterday} 00:00:00`,`${yesterday} 00:00:00`,`${today} 00:00:00`,guild,new Date(now-86400001).toISOString(),guild,`${today} 00:00:00`,`${today} 00:00:00`);
+    .run(dataGuild,`${yesterday} 00:00:00`,`${yesterday} 00:00:00`,`${today} 00:00:00`,dataGuild,new Date(now-86400001).toISOString(),dataGuild,`${today} 00:00:00`,`${today} 00:00:00`);
   db.exec("insert into draft_players(draft_id,player_id) values(1,1),(3,1)");
   const clock = vi.spyOn(Date,"now").mockReturnValue(now);
   const online = await stub.response(stub.command("online"));
   expect(JSON.stringify(online)).toContain("Deck builder");
   expect(JSON.stringify(online)).toContain("Tag duel");
+  expect(JSON.stringify(online)).not.toContain("4-way duel");
   expect(JSON.stringify(online)).not.toContain("Other admin");
   const stats = await stub.response(stub.command("stats"));
+  expect(db.prepare("select distinct guild_id from mod_actions where action in ('online','stats')").all()).toEqual([{ guild_id: guild }]);
   clock.mockRestore();
   const fields = stats.embeds[0].fields;
   expect(fields.find((f: any) => f.name === "Sign-ups").value).toBe("Today: 2\n7 days: 3");

@@ -11,6 +11,7 @@ import {
   SavedDeckServiceError,
   TournamentDuelError,
   type DuelService,
+  type DeckSuggestionQuery,
 } from "@yugidraft/shared/services";
 import { isReplayFork, seatCountFor, type CardQuery, type DuelChainMode, type DuelCommand, type DuelDeck, type DuelFirstChoice,
   type DuelFormat, type DuelMasterRule, type DuelMode, type DuelRpsMove, type DuelRoom, type ReplayForkRequest, type ReplayUnverifiedReason } from "@yugidraft/shared/duels";
@@ -19,7 +20,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { CardDataStatus } from "@yugidraft/shared/types";
 
-export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode";
+export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "suggestion-scope" | "deck-suggestions" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode";
 
 /** Read-only seat identity stays separate from creator identity. Unknown control flags fail closed. */
 export function readDuelControl(request: Request, room?: DuelRoom, allowed: "view" | "action" | "cards" | "none" = "none") {
@@ -185,6 +186,13 @@ export async function callDuelHost(input: {
   format?: DuelFormat;
   masterRule?: DuelMasterRule;
   settings?: unknown;
+  /** suggestion-scope only: deck-building format, separate from the duel table format. */
+  suggestionFormat?: "normal" | "domain" | "genesys" | "genesys-domain";
+  /** deck-suggestions only: strict public query and a completed web result's context version. */
+  suggestionQuery?: DeckSuggestionQuery;
+  suggestionVersion?: string;
+  banlist?: string;
+  deckMaster?: number;
   /** check-deck only: the server loads this player's durable draft pool. */
   draftId?: number | null;
   /** Rock-paper-scissors move for `opening-pick`. */
@@ -249,6 +257,11 @@ export async function callDuelHost(input: {
   if (input.format !== undefined) payload.format = input.format;
   if (input.masterRule !== undefined) payload.masterRule = input.masterRule;
   if (input.settings !== undefined) payload.settings = input.settings;
+  if (input.suggestionFormat !== undefined) payload.suggestionFormat = input.suggestionFormat;
+  if (input.suggestionQuery !== undefined) payload.suggestionQuery = input.suggestionQuery;
+  if (input.suggestionVersion !== undefined) payload.suggestionVersion = input.suggestionVersion;
+  if (input.banlist !== undefined) payload.banlist = input.banlist;
+  if (input.deckMaster !== undefined) payload.deckMaster = input.deckMaster;
   if (input.move !== undefined) payload.move = input.move;
   if (input.choice !== undefined) payload.choice = input.choice;
   if (input.chainMode !== undefined) payload.mode = input.chainMode;

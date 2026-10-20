@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
-import { createCardInsightService, readArchetypeGuide } from "@yugidraft/shared/services";
+import { createCardInsightService, parseDeckSuggestionQuery, readArchetypeGuide } from "@yugidraft/shared/services";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { effectSearchEnabled } from "@/lib/effect-search";
+import { effectSearchEnabled, deckSuggestionsEnabled } from "@/lib/effect-search";
+import { loadDeckSuggestions } from "@/lib/deck-suggestions";
 import { readCardInsightRequest } from "@/lib/card-insights-api";
 import { apiErrorResponse } from "@/lib/api-errors";
-import { lowConfidenceReading } from "@yugidraft/shared/cards/effects";
+import { lowConfidenceReading, searchIntentTarget } from "@yugidraft/shared/cards/effects";
 import { fallbackEffectReading } from "@yugidraft/shared/cards/effects/reading-fallback";
 
 export const runtime = "nodejs";
@@ -20,19 +21,28 @@ export async function POST(request: Request) {
   const body = await readCardInsightRequest(request);
   if (!body.ok) return body.response;
   try {
-    const service = createCardInsightService(getDb());
     const input = body.value;
+    const outside = (input.op === "effectSearch" || input.op === "read") && !("exact" in input && input.exact) && searchIntentTarget(input.text)?.kind === "outside";
+    if ((input.op === "suggestRows" || outside) && !deckSuggestionsEnabled()) return NextResponse.json({ deckSuggestionsEnabled: false, error: "deck_suggestions_disabled" }, { status: 404, headers: { "Cache-Control": "private, no-store" } });
+    if (input.op === "suggestRows" || (input.op === "effectSearch" && outside)) {
+      const query = parseDeckSuggestionQuery(input);
+      if (!query) return NextResponse.json({ error: "Invalid deck suggestion query" }, { status: 400 });
+      const found = await loadDeckSuggestions({ guildId: env.discordGuildId, userId: actor.userId, query });
+      if (!found.ok) return found.response;
+      return NextResponse.json({ effectSearchEnabled: true, deckSuggestionsEnabled: true, ...found.result }, { headers: { "Cache-Control": "private, no-store" } });
+    }
+    const service = createCardInsightService(getDb());
     let data: object;
     switch (input.op) {
       case "summary": data = { summary: service.summary(input.passcode) }; break;
       case "read": {
         let reading = service.readQuery(input.text);
-        if (lowConfidenceReading(input.text, reading)) reading = await fallbackEffectReading(getDb(), input.text, actor.userId) ?? reading;
+        if (!outside && lowConfidenceReading(input.text, reading)) reading = await fallbackEffectReading(getDb(), input.text, actor.userId) ?? reading;
         data = { reading }; break;
       }
       case "effectSearch": {
         let result = service.effectSearch(input.text, input.pool, input);
-        if (!input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
+        if (!outside && !input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
           if (await fallbackEffectReading(getDb(), input.text, actor.userId)) result = service.effectSearch(input.text, input.pool, input);
         }
         data = result; break;
@@ -44,6 +54,6 @@ export async function POST(request: Request) {
       case "poolHealth": data = { health: service.poolHealth(input.cards, input) }; break;
       case "pickScore": data = { score: service.pickScore(input.candidate, input.pickedPool) }; break;
     }
-    return NextResponse.json({ effectSearchEnabled: true, ...data }, { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json({ effectSearchEnabled: true, deckSuggestionsEnabled: deckSuggestionsEnabled(), ...data }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return apiErrorResponse(error, "card insights"); }
 }

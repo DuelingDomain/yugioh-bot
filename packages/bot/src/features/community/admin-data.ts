@@ -27,17 +27,17 @@ export function hasPresence(db: Database.Database, route = false): boolean {
 }
 
 export interface OnlineUser { userId: number; name: string; label: string; lastSeenAt: number }
-export function listOnline(db: Database.Database, now: number) {
+export function listOnline(db: Database.Database, now: number, guild: string) {
   if (!hasPresence(db, true)) return null;
   const rows = db.prepare(`select id,display_name,username,last_seen_at,last_route from users
     where last_seen_at >= ? order by last_seen_at desc limit 500`).all(now - 120_000) as
     { id: number; display_name: string; username: string; last_seen_at: number; last_route: string | null }[];
   const duelLabel = db.prepare(`select d.status,d.format from duels d
     join duel_seats s on s.duel_id=d.id join players p on p.id=s.player_id
-    where p.user_id=? and d.status in ('lobby','active') and d.kind='play' order by d.id desc limit 1`);
+    where p.user_id=? and d.guild_id=? and p.guild_id=? and d.status in ('lobby','active') and d.kind='play' order by d.id desc limit 1`);
   const users: OnlineUser[] = rows.map(row => {
     const route = isPresenceRoute(row.last_route) ? row.last_route : "/app";
-    const duel = route === "/duels/[slug]" ? duelLabel.get(row.id) as { status: string; format: string } | undefined : undefined;
+    const duel = route === "/duels/[slug]" ? duelLabel.get(row.id,guild,guild) as { status: string; format: string } | undefined : undefined;
     const label = duel ? duel.status === "lobby" ? "Duel lobby" : FORMAT_LABEL[duel.format as Format] ?? "Duel" : PRESENCE_ROUTES[route];
     return { userId: row.id, name: row.display_name || row.username, label, lastSeenAt: row.last_seen_at };
   });

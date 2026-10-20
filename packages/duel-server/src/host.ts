@@ -1,5 +1,5 @@
 import { ExpectedError, errorResponseBody, log, report } from "@yugidraft/shared/observability";
-import { createBugReportService, createStoredBoardReader, readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, DUEL_LIVE_IDLE_REASON, type StoredDuelBoards } from "@yugidraft/shared/services";
+import { createBugReportService, createStoredBoardReader, readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, DUEL_LIVE_IDLE_REASON, parseDeckSuggestionQuery, type StoredDuelBoards } from "@yugidraft/shared/services";
 import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
@@ -38,7 +38,7 @@ import type {
   ReplayErrorCode,
 } from "@yugidraft/shared/duels";
 import {
-  CardQueryError, DuelSettingsError, deckCardCounts, duel1v1EngineForMode, isFirstChoice, isReplayFork, isReplaySeed, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
+  CardQueryError, DUEL_BANLIST_OPTIONS, DuelSettingsError, deckCardCounts, duel1v1EngineForMode, isFirstChoice, isReplayFork, isReplaySeed, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
   COIN_TIMING, COIN_CHAIN_BEAT_MAX_MS, MIN_DUEL_FX_SPEED, coinTossDurationMs,
   CHAIN_MODE_JOURNAL_LIMIT, CHAIN_MODE_PROMPT_PREFIX, chainModeOf, isDuelChainMode, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_OPENING_REVEAL_MS, DUEL_RPS_MOVES,
   isCompetitiveDuel,
@@ -49,14 +49,15 @@ import { ENGINE_LOOP_REASON, EngineLoopError } from "./engine-loop-error.js";
 import { validateAnswer } from "./answer-validation.js";
 import { RequestError } from "./request-error.js";
 import { WorkerPool, type WorkerReservation } from "./worker-pool.js";
+import { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
 import { workerLimitsFromEnv } from "./config.js";
 import { GameWorker, limitWorkerOperations, type DuelGameWorker, type LimitedGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
-import { DeckLegalityError, ExtraDeckCardError, inspectDeck, validateDeck, validateExtraDeckTypes, validateDeckMasterType, type InspectDeckOptions } from "./deck-legality.js";
+import { DeckLegalityError, ExtraDeckCardError, deckSuggestionScope, inspectDeck, validateDeck, validateExtraDeckTypes, validateDeckMasterType, type InspectDeckOptions } from "./deck-legality.js";
 import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards, deckCardUnavailableReason } from "./card-search.js";
-import { effectSearchEnabled, readingArchetypes } from "@yugidraft/shared/cards/effects";
+import { deckSuggestionsEnabled, effectSearchEnabled, readingArchetypes } from "@yugidraft/shared/cards/effects";
 import { cardEffectIndex, cardReleaseIndex, initializeCardEffectIndex } from "./card-effects.js";
 import { activeMultiScriptsHash, loadMultiScriptsFor, pinnedEngineVersion } from "./multi-scripts.js";
 import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
@@ -144,8 +145,17 @@ const DUEL_OPS = new Set([
   "card-details", "card-artworks", "card-query", "card-facets", "surrender", "add-bot", "archive", "cancel",
   "replay", "owner-replay", "replay-fork", "fork-list", "fork-restart", "fork-cancel", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
   "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset", "start-test-duel", "warm-test-duel",
-  "report", "debug-trace", "bug-context", "bug-replay-frame", "chain-mode", "validate-deck-master",
+  "report", "debug-trace", "bug-context", "bug-replay-frame", "chain-mode", "validate-deck-master", "suggestion-scope", "deck-suggestions",
 ]);
+
+/** Cache identities treat numeric card lists as multisets; the scorer receives the original order. */
+function suggestionQueryIdentity(value: unknown): unknown {
+  if (Array.isArray(value)) return value.every(item => typeof item === "number")
+    ? [...value].sort((a, b) => a - b) : value.map(suggestionQueryIdentity);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value)
+    .sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => [key, suggestionQueryIdentity(item)]));
+  return value;
+}
 
 /** What the `bug-context` op answers: public duel facts only. */
 interface BugDuelContext {
@@ -418,6 +428,8 @@ export function createDuelHost(options: {
   const recordScriptError = createScriptErrorRecorder(options.db, undefined, autoBlocks);
   const limits = workerLimitsFromEnv();
   const pool = new WorkerPool(options.maxWorkers ?? limits.maxWorkers, options.maxTablesPerPlayer ?? limits.maxTablesPerPlayer);
+  const suggestionWorkers = new DeckSuggestionWorkers(options.db, options.dataDirectory);
+  const suggestingPlayers = new Set<number>();
   const reservations = new Map<DuelGameWorker, { release: WorkerReservation; session?: DuelSession }>();
   const reservedTableState = options.db.prepare<[number], { status: string; archived_at: string | null }>(
     "select status, archived_at from duels where id = ?",
@@ -3358,6 +3370,61 @@ export function createDuelHost(options: {
         ...(lookupBudget ? { lookupRemaining: lookupBudget.remaining, lookupLimited: [...lookupLimitedCodes] } : {}),
       };
     }
+    if (op === "deck-suggestions") {
+      if (!deckSuggestionsEnabled()) throw new RequestError("Deck suggestions are disabled", 404);
+      const player = options.db.prepare<[number, string], { user_id: number }>(`
+        SELECT p.user_id FROM players p JOIN users u ON u.id=p.user_id WHERE p.id=? AND p.guild_id=?
+      `).get(actor, guildId);
+      if (!player || (body.userId !== undefined && (!Number.isSafeInteger(body.userId) || body.userId !== player.user_id))) {
+        throw new RequestError("Authenticated guild player is required", 403);
+      }
+      const query = parseDeckSuggestionQuery(body.suggestionQuery);
+      if (!query) throw new RequestError("Invalid deck suggestion query", 400);
+      if (body.suggestionVersion !== undefined && (typeof body.suggestionVersion !== "string" || !/^[a-f0-9]{64}$/i.test(body.suggestionVersion))) {
+        throw new RequestError("Suggestion version must be a SHA-256 digest", 400);
+      }
+      // Reject before normalizing cards or preparing a catalog-wide legality scope.
+      if (suggestingPlayers.has(actor) || suggestingPlayers.size >= 2) {
+        throw new RequestError("Deck suggestions are busy. Try again shortly.", 429);
+      }
+      suggestingPlayers.add(actor);
+      try {
+        const mode = query.format.endsWith("domain") ? "domain" : "normal";
+        const settings = normalizeDuelSettings(mode, { ...(query.banlist === undefined ? {} : { banlist: query.banlist }),
+          ...(query.format.startsWith("genesys") ? { genesys: {} } : {}) });
+        const rawMaster = query.deckMaster ?? query.deck?.deckMaster;
+        const master = rawMaster === undefined ? undefined
+          : (await normalizeCardCodes([rawMaster], options.dataDirectory, options.db, { cacheOnly: true })).get(rawMaster) ?? rawMaster;
+        const legality = deckSuggestionScope(mode, options.dataDirectory, settings, { deckMaster: master, cardBlocks: admissionEntries(mode, "1v1") });
+        const revision = (options.db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
+        const pointsRevision = (options.db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
+        const contextVersion = createHash("sha256").update(JSON.stringify([
+          "deck-suggestions-host-v3", suggestionQueryIdentity(query), legality.version, revision, pointsRevision ?? null, new Date().toISOString().slice(0, 7),
+        ])).digest("hex");
+        if (typeof body.suggestionVersion === "string" && body.suggestionVersion.toLowerCase() === contextVersion) {
+          return { contextVersion, notModified: true };
+        }
+        const result = await suggestionWorkers.run({ query, legality, deckMaster: master });
+        return { contextVersion, result };
+      } finally { suggestingPlayers.delete(actor); }
+    }
+    if (op === "suggestion-scope") {
+      if (typeof body.suggestionFormat !== "string" || !["normal", "domain", "genesys", "genesys-domain"].includes(body.suggestionFormat)) {
+        throw new RequestError("Unknown suggestion format", 400);
+      }
+      if (body.banlist !== undefined && !DUEL_BANLIST_OPTIONS.some(option => option.id === body.banlist)) {
+        throw new RequestError("banlist must be a known versioned id", 400);
+      }
+      if (body.deckMaster !== undefined && (!Number.isSafeInteger(body.deckMaster) || Number(body.deckMaster) <= 0 || Number(body.deckMaster) > 0xffffffff)) {
+        throw new RequestError("Deck Master must be a positive card passcode", 400);
+      }
+      const mode = body.suggestionFormat === "domain" || body.suggestionFormat === "genesys-domain" ? "domain" : "normal";
+      const genesys = body.suggestionFormat === "genesys" || body.suggestionFormat === "genesys-domain";
+      const settings = normalizeDuelSettings(mode, { ...(body.banlist !== undefined ? { banlist: body.banlist } : {}), ...(genesys ? { genesys: {} } : {}) });
+      const master = body.deckMaster === undefined ? undefined
+        : (await normalizeCardCodes([body.deckMaster as number], options.dataDirectory, options.db, { cacheOnly: true })).get(body.deckMaster as number) ?? body.deckMaster as number;
+      return deckSuggestionScope(mode, options.dataDirectory, settings, { deckMaster: master, cardBlocks: admissionEntries(mode, "1v1") });
+    }
     if (op === "validate-deck-master") {
       if (body.mode !== "normal" && body.mode !== "domain") throw new RequestError("Duel mode must be normal or domain", 400);
       await validateDeckMasterWrite(body.mode, body.deck as DuelDeck);
@@ -4017,8 +4084,8 @@ export function createDuelHost(options: {
           // A test duel start has its own queue: card searches of the editor must not hold it back.
           : body.op === "start-test-duel" ? `test-duel:${body.guildId}:${body.playerId}`
           : typeof body.slug === "string" ? body.slug : "catalog";
-        // Card queries and diagnostics skip the queue: remote ledger/status work
-        // must never hold the shared catalog queue.
+        // Card queries, suggestion scans and diagnostics skip the catalog queue.
+        // Remote ledger/status work must never hold other card editor requests.
         const bounded = ["bug-replay-frame", "replay", "owner-replay", "replay-fork", "fork-restart", "fork-cancel", "fork-list"].includes(String(body.op));
         const deadline = new AbortController();
         const ctl = { abandoned: false, ...(bounded ? { signal: deadline.signal } : {}) };
@@ -4028,7 +4095,7 @@ export function createDuelHost(options: {
             deadline.abort(error); reject(error);
           }, Math.min(28_000, options.replayRequestTimeoutMs ?? 28_000));
         }) : undefined;
-        const queued = (body.op === "card-query" || body.op === "debug-trace" || body.op === "bug-context" || body.op === "bug-replay-frame" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body, ctl) : enqueue(key, () => operate(body, ctl)));
+        const queued = (body.op === "deck-suggestions" || body.op === "card-query" || body.op === "debug-trace" || body.op === "bug-context" || body.op === "bug-replay-frame" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body, ctl) : enqueue(key, () => operate(body, ctl)));
         const rendered = (async () => {
           const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
           if (fork) assertReplayForkAccess(options.db, body.slug as string, { guildId: body.guildId as string,
@@ -4083,6 +4150,7 @@ export function createDuelHost(options: {
       await replayCache.settle();
       replayCache.clear();
       await replayJsonEncoder.close();
+      await suggestionWorkers.close();
       await engineResourceCache.close();
     },
   };

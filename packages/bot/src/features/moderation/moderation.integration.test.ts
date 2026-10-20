@@ -88,7 +88,7 @@ async function setup() {
   client.rest.setToken("stub-token"); client.user = gatewayObject<ClientUser>(ClientUser, client, { id: bot, username: "Bot", discriminator: "0", bot: true });
   cleanup.push(async () => { await client.destroy(); client.rest.clearHashSweeper(); client.rest.clearHandlerSweeper(); });
   const shared = await loadSharedAdminServices(db);
-  const context: FeatureContext = { db, client, rest: client.rest, config: { token: "stub-token", clientId: bot, guildId: guild, moderatorRoleId: modRole, modLogChannelId: modLogChannel, healthPath: join(dir, "health.json"), restApi: api },
+  const context: FeatureContext = { db, client, rest: client.rest, config: { token: "stub-token", clientId: bot, guildId: guild, dataGuildId: guild, moderatorRoleId: modRole, modLogChannelId: modLogChannel, healthPath: join(dir, "health.json"), restApi: api },
     shared, signal: new AbortController().signal, cooldown: new Cooldown(), audit: createAudit(shared, guild) };
   const stop = await moderation.start?.(context); if (stop) cleanup.push(stop);
   const dispatch = createDispatcher(createRegistry([moderation]), context);

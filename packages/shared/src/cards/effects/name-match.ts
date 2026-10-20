@@ -1,7 +1,12 @@
 import { normalizeImportedCardName, rankCardsByTypo } from "../../services/card-name-match.js";
 
 /** Shared catalog folding, additionally allowing the compact aliases players type. */
-export const compactEffectName = (name: string): string => normalizeImportedCardName(name).replaceAll(" ", "");
+export const compactEffectName = (name: string): string => {
+  // ASCII has no compatibility decomposition or combining marks. Avoid the
+  // Unicode search pipeline for ordinary printed names in the streaming scan.
+  if (!/[^\x00-\x7f]/.test(name)) return name.toLowerCase().replace(/[^a-z0-9&]+/g, "");
+  return normalizeImportedCardName(name).replaceAll(" ", "");
+};
 
 export function resolveEffectName<T extends { name: string }>(entries: readonly T[], text: string): T | undefined {
   const key = compactEffectName(text);

@@ -6,7 +6,7 @@ if (process.env.DISCORD_BOT_ENABLED !== "1") {
 } else {
   const token = process.env.DISCORD_TOKEN;
   const clientId = process.env.DISCORD_CLIENT_ID;
-  const guildId = process.env.DISCORD_GUILD_ID;
+  const guildId = process.env.DISCORD_BOT_GUILD_ID?.trim() || process.env.DISCORD_GUILD_ID;
   if (!token || !clientId || !guildId) {
     throw new Error("DISCORD_TOKEN, DISCORD_CLIENT_ID, and DISCORD_GUILD_ID are required");
   }

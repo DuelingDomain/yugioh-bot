@@ -7,6 +7,7 @@ import { cardLimit, type CardArchetype, type CardQuery, type CardQueryResult, ty
 import { mayReadEffect } from "@yugidraft/shared/cards/effects/capability";
 import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
 import { HowItPlays } from "@/components/effect-search/how-it-plays";
+import { useDeckSuggestionsEnabled } from "@/components/effect-search/capability-context";
 import { IntentHeading, RelaxHints } from "@/components/effect-search/search-intent";
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ import { ReleaseMarks } from "./release-marks";
 import { LimitBadge, limitName } from "./limit-badge";
 import { cardKind, type BanlistLimits } from "./model";
 import { queryPoolCards } from "./pool-search";
+import { SuggestionsPanel, type BrowserSuggest } from "./suggestions-panel";
 import styles from "./card-browser.module.css";
 
 const PAGE = 60;
@@ -90,6 +92,7 @@ export function CardBrowser({
   partner = null,
   onPartnerChange,
   onWorksWith,
+  suggest,
 }: {
   id?: string;
   mode?: DuelMode;
@@ -120,6 +123,8 @@ export function CardBrowser({
   onPartnerChange?: (partner: BrowserPartner | null) => void;
   /** A card asked for its partners (hover button, W key, long press). Not given: the entry points stay off. */
   onWorksWith?: (card: DeckCardInfo) => void;
+  /** The deck, for the Suggestions rows that show while the search box is empty. Not given: no rows. */
+  suggest?: BrowserSuggest;
 }) {
   const key = `${mode}:${partner ? `w${partner.code}:` : ""}${queryKey(query)}`;
   const [results, setResults] = useState<Results | null>(null);
@@ -148,6 +153,9 @@ export function CardBrowser({
   // The ranked partners of the last card, so a filter or a typed letter narrows the same list without asking again.
   const partnersCache = useRef<{ code: number; scope: string; cards: InsightCard[] } | null>(null);
   const press = useTileLongPress<DeckCardInfo>((card) => onWorksWith?.(card));
+  // Suggestions need the server flag; a 404 from the server turns them off for this page.
+  const [suggestionsDenied, setSuggestionsDenied] = useState(false);
+  const suggestionsOn = useDeckSuggestionsEnabled() && !suggestionsDenied && suggest != null;
 
   function pointAt(card: DeckCardInfo | null) {
     listHover.current = card != null;
@@ -344,6 +352,21 @@ export function CardBrowser({
     return <li className={styles.effectHeading}><h3>{intent?.kind === "counters" ? "Cards that stop it" : "Cards that do this"}</h3><span>{effectTotal.toLocaleString("en-US")} matches</span></li>;
   }
 
+  /** A Suggestions tile takes the same clicks, drags and hover as a result tile. */
+  function suggestionProps(card: DeckCardInfo) {
+    return {
+      draggable: !card.unavailableReason,
+      "aria-pressed": inspectCode === card.code,
+      onClick: (event: MouseEvent<HTMLButtonElement>) => { event.currentTarget.focus(); onInspect(card); },
+      onPointerEnter: (event: PointerEvent) => { if (event.pointerType !== "touch") pointAt(card); },
+      onPointerLeave: () => pointAt(null),
+      onDoubleClick: () => { if (!card.unavailableReason) onAdd(card); },
+      onContextMenu: (event: MouseEvent) => { event.preventDefault(); if (!card.unavailableReason) onAdd(card); },
+      onKeyDown: (event: KeyboardEvent) => onTileKey(event, card),
+      onDragStart: (event: DragEvent) => { if (card.unavailableReason) { event.preventDefault(); return; } onInspect(card, false); writeCardDrag(event, { code: card.code, from: "list" }, cardKind(card)); },
+    };
+  }
+
   function worksButton(card: DeckCardInfo, className: string) {
     return (
       <button type="button" className={className} tabIndex={-1} aria-label={`Find cards that work with ${card.name}`} title="Find cards that work with this (W)" onClick={() => onWorksWith?.(card)}>
@@ -501,6 +524,20 @@ export function CardBrowser({
 
       <div className={styles.body}>
         <div ref={scrollRef} className={styles.results} aria-busy={stale || undefined}>
+          {suggest && suggestionsOn ? (
+            <SuggestionsPanel
+              active={!partner && query.text.trim() === "" && (!pool || poolCards != null)}
+              suggest={suggest}
+              mode={mode}
+              genesys={genesys}
+              pool={poolCards ? poolCards.map((card) => card.canonicalPasscode ?? card.code) : undefined}
+              cardProps={suggestionProps}
+              deckCount={deckCount}
+              limit={(card) => (pool || genesys || !limits ? 3 : cardLimit(limits, card))}
+              onCatalog={(found) => onCatalogRef.current(found)}
+              onDisabled={() => setSuggestionsDenied(true)}
+            />
+          ) : null}
           <p className={styles["de-count"]} aria-live="polite">
             <span className={partner ? undefined : "num"}>{countText}</span>{" "}
             {stale ? <span className={styles.working}>Updating…</span> : null}

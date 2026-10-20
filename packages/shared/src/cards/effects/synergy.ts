@@ -358,8 +358,10 @@ export function filterReachesCard(filter: CardFilter, card: Card): boolean {
   const prepared = preparedFilters.get(filter), target = preparedCards.get(card);
   if (prepared ? prepared.subtypeGroups.some(group => !group.some(type => (card.subtypes as string[]).includes(type)))
     || !prepared.subtypeAll.every(type => (card.subtypes as string[]).includes(type)) : !matchesSubtypes(card, filter.subtypes)) return false;
-  const name = target?.name ?? compactEffectName(card.name);
-  if (filter.names.length && !(prepared ? prepared.names.has(name) : filter.names.some(value => compactEffectName(value) === name))) return false;
+  if (filter.names.length) {
+    const name = target?.name ?? compactEffectName(card.name);
+    if (!(prepared ? prepared.names.has(name) : filter.names.some(value => compactEffectName(value) === name))) return false;
+  }
   if (filter.archetypes.length && !(prepared && target
     ? prepared.archetypes.some(value => target.lowerArchetype === value || target.lowerName.includes(value))
     : filter.archetypes.some(value => belongsTo(card, value)))) return false;
