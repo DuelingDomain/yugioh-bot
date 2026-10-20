@@ -1210,6 +1210,8 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     const player = db.prepare("select user_id from players where id=?").get(row.organizer_player_id) as { user_id: number };
     const format = rowFormat(row);
     const setup = parseSetup(row.setup_json, row.kind, format);
+    // A deck-editor test duel is practice, not product use: it stays out of the counts.
+    if (setup?.testDuel) return;
     recordProductEvent(db, name, player.user_id, {
       mode: row.mode as DuelMode, format, seatCount: seatCountFor(format),
       engine: setup?.engineIdentity?.coreFamily ?? setup?.engine,
