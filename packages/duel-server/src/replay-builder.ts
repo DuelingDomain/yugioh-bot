@@ -6,6 +6,7 @@ import { eliminationCodeOf } from "./engine.js";
 import { JournalRunnerError, runJournalPrefix, type JournalResources, type JournalTargetViews } from "./journal-runner.js";
 import { replayFrameId, replayPrefixHashes, type ReplayCursorCodec, type ReplayCursorClaims } from "./replay-cursor.js";
 import { ReplayJsonEncoder, type SerializedReplayView } from "./replay-json.js";
+import type { ReplayWorkerResult } from "./replay-worker.js";
 import type { DuelGameWorker } from "./worker-client.js";
 
 // More than three times the largest measured real projection; numeric measurements live in the replay-fork spec.
@@ -168,16 +169,39 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
   const check = () => { options.signal?.throwIfAborted(); };
   const work = async () => {
     check();
+    worker = await options.createWorker(workerSignal);
+    if (expired || workerSignal.aborted) {
+      try { await worker.close(); } catch { /* Preserve the deadline/cancellation failure. */ }
+      workerSignal.throwIfAborted();
+      throw new ReplayBuildError("Replay timed out.", "ENGINE_BUSY");
+    }
+    if (worker.buildReplay) {
+      // Whitelist data: buildReplayFrames callers may also carry a codec with functions.
+      let result: ReplayWorkerResult;
+      try { result = await worker.buildReplay({ source, sourceVersion, dataSeat, resources: options.resources,
+        manualLossAnswersAfter: options.manualLossAnswersAfter, reveal: options.reveal, finalView: options.finalView,
+        maxBytes: options.maxBytes, timeoutMs: options.timeoutMs, retainStepsOnOverflow: options.retainStepsOnOverflow }); }
+      catch (error) {
+        const failure = replayBuildError(error);
+        // A crashed/OOM worker may belong to an unknown historical engine family. Let the
+        // host try the other installed family, just as the journal transport does.
+        if (!worker.running && failure.code === "ENGINE_BUSY") throw new ReplayBuildError(failure.message, failure.code, true);
+        throw error;
+      }
+      check();
+      options.verifyFinalViews?.(result.finalViews);
+      return result.data;
+    }
     const result = await runJournalPrefix({ source, resources: options.resources, prefixCount: source.commands.length,
       manualLossAnswersAfter: options.manualLossAnswersAfter,
       createWorker: async () => {
-        worker = await options.createWorker(workerSignal);
+        // Adapters without batched execution use the same reserved worker.
         if (expired || workerSignal.aborted) {
-          try { await worker.close(); } catch { /* Keep the request failure. */ }
+          try { await worker!.close(); } catch { /* Keep the request failure. */ }
           workerSignal.throwIfAborted();
           throw new ReplayBuildError("Replay timed out.", "ENGINE_BUSY");
         }
-        return worker;
+        return worker!;
       }, checkpointSeat: dataSeat,
       checkpointHistory: () => ({ logAfter: seen.log, eventsAfter: seen.events }),
       onCheckpoint: async ({ view, input, actorSeat, beforeRevision, prefixCount }) => {

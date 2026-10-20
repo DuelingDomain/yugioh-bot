@@ -709,6 +709,8 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     return () => cancelAnimationFrame(frame);
   }, [rivalSeatKey, zoom.view, box.width, box.height, rootRef]);
 
+  const mountFields = !replay || k > 0;
+
   return (
     <div
       ref={rootRef}
@@ -748,17 +750,20 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
         ) : null}
         <div ref={perspRef} className={styles.persp} data-view-layer>
           <div ref={worldRef} className={styles.world} data-world>
-            {threeWay && cityOn ? <FlyCity /> : null}
+            {threeWay && cityOn && mountFields ? <FlyCity /> : null}
             <div className={styles.wstage}>
-              <Plaza
-                layout={play}
-                poses={poses}
-                fly={fly}
-                hidden={outSet}
-                exits={exits.map((exit) => ({ seat: exit.seat, tone: tones.get(exit.seat) ?? "violet", pose: exit.pose }))}
-                glide={gliding && regroup}
-                reducedMotion={reducedMotion}
-              />
+              {/* Keep camera refs and the counterrotated ring mounted before the first fit. */}
+              {mountFields ? (
+                <Plaza
+                  layout={play}
+                  poses={poses}
+                  fly={fly}
+                  hidden={outSet}
+                  exits={exits.map((exit) => ({ seat: exit.seat, tone: tones.get(exit.seat) ?? "violet", pose: exit.pose }))}
+                  glide={gliding && regroup}
+                  reducedMotion={reducedMotion}
+                />
+              ) : null}
               {ring && !portrait && threeWay ? (
                 <TurnRing
                   layout={play}
@@ -770,129 +775,137 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
                   locked={locked}
                 />
               ) : null}
-              {exits.map((exit) => (
-                <ExitingSeat
-                  key={`exit${exit.seat}`}
-                  pose={exit.pose}
-                  tone={tones.get(exit.seat) ?? "violet"}
-                  view={exit.view}
-                  masterRule={masterRule}
-                  faceUpHand={exit.faceUpHand}
-                  angleOffsetDeg={flyYaw}
-                  reducedMotion={reducedMotion}
-                  onDone={() => finish(exit.seat)}
-                />
-              ))}
-              {play.slots.map((slot) => {
-                const pose = poses.get(slot.seat);
-                if (!pose || outSet.has(slot.seat)) return null;
-                const place = play.slots.indexOf(slot);
-                const self = slot.relation === "self";
-                const you = pose.slot ? pose.slot === "home" : place === 0;
-                const field: Omit<SeatFieldProps, "angleDeg" | "scale"> = {
-                  engine,
-                  seat: slot.seat,
-                  viewerSeat,
-                  masterRule,
-                  side: you ? "you" : "opp",
-                  tone: slot.tone,
-                  density: you ? "full" : "rival",
-                  hand: self && !looking ? "face" : "backs",
-                  emz: "own",
-                  ...(emzLinks?.has(slot.seat) ? { emzLink: emzLinks.get(slot.seat) } : {}),
-                  showTally: false,
-                  usable: !looking && (slot.relation === "self" || slot.relation === "opponent"),
-                  name: nameOf(slot.seat),
-                  legalKeys,
-                  selectedKeys,
-                  reducedMotion,
-                  onActivate: controller.onActivate,
-                  onInspect: controller.onInspect,
-                  onHoverCard: controller.onHoverCard,
-                };
-                const enlarged = viewCamera.mode === "focus" && viewCamera.focusSeat === slot.seat;
-                const reach = plaza3 && !fly && !locked && !out.includes(slot.seat)
-                  ? { label: `${nameOf(slot.seat)}${forkLabels ? (slot.relation === "self" ? " (acting)" : "") : slot.seat === layout.anchorSeat && !replay ? " (you)" : ""}'s field`, onToggle: () => dispatchCamera({ type: "enlarge", seat: slot.seat }) }
-                  : undefined;
-                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding && regroup} enlarged={enlarged} reach={reach} targeted={targetSeat === slot.seat} />;
-              })}
+              {mountFields ? (
+                <>
+                  {exits.map((exit) => (
+                    <ExitingSeat
+                      key={`exit${exit.seat}`}
+                      pose={exit.pose}
+                      tone={tones.get(exit.seat) ?? "violet"}
+                      view={exit.view}
+                      masterRule={masterRule}
+                      faceUpHand={exit.faceUpHand}
+                      angleOffsetDeg={flyYaw}
+                      reducedMotion={reducedMotion}
+                      onDone={() => finish(exit.seat)}
+                    />
+                  ))}
+                  {play.slots.map((slot) => {
+                    const pose = poses.get(slot.seat);
+                    if (!pose || outSet.has(slot.seat)) return null;
+                    const place = play.slots.indexOf(slot);
+                    const self = slot.relation === "self";
+                    const you = pose.slot ? pose.slot === "home" : place === 0;
+                    const field: Omit<SeatFieldProps, "angleDeg" | "scale"> = {
+                      engine,
+                      seat: slot.seat,
+                      viewerSeat,
+                      masterRule,
+                      side: you ? "you" : "opp",
+                      tone: slot.tone,
+                      density: you ? "full" : "rival",
+                      hand: self && !looking ? "face" : "backs",
+                      emz: "own",
+                      ...(emzLinks?.has(slot.seat) ? { emzLink: emzLinks.get(slot.seat) } : {}),
+                      showTally: false,
+                      usable: !looking && (slot.relation === "self" || slot.relation === "opponent"),
+                      name: nameOf(slot.seat),
+                      legalKeys,
+                      selectedKeys,
+                      reducedMotion,
+                      onActivate: controller.onActivate,
+                      onInspect: controller.onInspect,
+                      onHoverCard: controller.onHoverCard,
+                    };
+                    const enlarged = viewCamera.mode === "focus" && viewCamera.focusSeat === slot.seat;
+                    const reach = plaza3 && !fly && !locked && !out.includes(slot.seat)
+                      ? { label: `${nameOf(slot.seat)}${forkLabels ? (slot.relation === "self" ? " (acting)" : "") : slot.seat === layout.anchorSeat && !replay ? " (you)" : ""}'s field`, onToggle: () => dispatchCamera({ type: "enlarge", seat: slot.seat }) }
+                      : undefined;
+                    return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding && regroup} enlarged={enlarged} reach={reach} targeted={targetSeat === slot.seat} />;
+                  })}
+                </>
+              ) : null}
             </div>
           </div>
         </div>
         <svg ref={tetherRef} className={styles.tethers} viewBox="0 0 1100 860" aria-hidden="true" />
-        {[
-          // A seat that left keeps its panel where its place stays (a 4-way table); where the seats regroup (a 3-way
-          // table, face to face) the panel of the seat that left fades away and is gone.
-          ...play.slots.map((slot) => ({ slot, place: play.slots.indexOf(slot), exit: false, from: play })),
-          ...exits.flatMap((exit) => {
-            const slot = layout.slots.find((entry) => entry.seat === exit.seat);
-            return slot && !play.slots.includes(slot) ? [{ slot, place: layout.slots.indexOf(slot), exit: true, from: layout }] : [];
-          }),
-        ].map(({ slot, place, exit, from }) => {
-          const view = engine.seats.find((entry) => entry.seat === slot.seat);
-          if (!view) return null;
-          // In the fly-in view a panel follows its board; a seat that left has none, so its panel waits for the flat view.
-          if (fly && !exit && outSet.has(slot.seat)) return null;
-          // The panel of a seat that is leaving fades where it was docked: it keeps the anchor it had before the seats regrouped.
-          const anchor = exit ? heldAnchors.current.get(slot.seat) ?? holoAnchor(from, slot.seat, camera) : (!fly && plateAnchors?.get(slot.seat)) || holoAnchor(from, slot.seat, camera);
-          if (!exit) shownAnchors.set(slot.seat, anchor);
-          const pickable = !exit && picks?.options.has(slot.seat) === true;
-          const index = pickOrder.indexOf(slot.seat);
-          return (
-            <HoloLp
-              key={slot.seat}
-              seat={slot.seat}
-              name={nameOf(slot.seat)}
-              tone={slot.tone}
-              lp={view.lp}
-              handCount={view.hand.length}
-              deckCount={view.deckCount}
-              clockMs={room.clock?.remainingMs[slot.seat] ?? null}
-              clock={room.clock}
-              status={holoStatus(engine, slot.seat, promptSeat)}
-              me={anchor.me}
-              acting={slot.relation === "self"}
-              replay={replay}
-              x={anchor.x}
-              y={anchor.y}
-              beam={fly ? "none" : threeWay ? anchor.beam : place === 0 ? "none" : "down"}
-              floating={fly}
-              badge={<SeatMasterBadge seat={slot.seat} side={slot.relation === "self" ? "you" : "opp"} />}
-              lastDamage={lastSeatDamage(engine.events, slot.seat)}
-              legal={pickable}
-              hotkey={pickable && index >= 0 ? index + 1 : null}
-              onPick={() => picks?.onPick(slot.seat)}
-              onHover={(hover) => controller.onAim?.(hover ? { lpSeat: slot.seat } : null)}
-              exiting={exit}
-              placeLabel={placeLabels?.get(slot.seat) ?? null}
-              linkedWith={emzLinks?.get(slot.seat)?.otherName ?? null}
-              glide={gliding && regroup && !exit}
-              footer={!exit && anchor.me ? masterChip : null}
-              footerTight={anchor.footerTight}
-              reducedMotion={reducedMotion}
-              follow
-            />
-          );
-        })}
-        {hubAt ? (
-          <div
-            className={styles.hub}
-            data-hub-slot="true"
-            {...{ [FOLLOW_ATTR]: "" }}
-            data-hub-size={hubAt.size}
-            style={{
-              width: hubAt.width,
-              height: hubAt.height,
-              transform: `translate(${hubAt.x - hubAt.width / 2}px, ${hubAt.y - hubAt.height / 2}px)`,
-              // Under a zoom the hub keeps its size and follows the ring it sits on (followShift, as its transform glides
-              // it to its place). Always on: the follow is the 1x place at 1x, so the first zoom frame moves it too.
-              translate: followShift(hubAt.x, hubAt.y),
-            }}
-          >
-            {hub}
-          </div>
+        {mountFields ? (
+          <>
+            {[
+              // A seat that left keeps its panel where its place stays (a 4-way table); where the seats regroup (a 3-way
+              // table, face to face) the panel of the seat that left fades away and is gone.
+              ...play.slots.map((slot) => ({ slot, place: play.slots.indexOf(slot), exit: false, from: play })),
+              ...exits.flatMap((exit) => {
+                const slot = layout.slots.find((entry) => entry.seat === exit.seat);
+                return slot && !play.slots.includes(slot) ? [{ slot, place: layout.slots.indexOf(slot), exit: true, from: layout }] : [];
+              }),
+            ].map(({ slot, place, exit, from }) => {
+              const view = engine.seats.find((entry) => entry.seat === slot.seat);
+              if (!view) return null;
+              // In the fly-in view a panel follows its board; a seat that left has none, so its panel waits for the flat view.
+              if (fly && !exit && outSet.has(slot.seat)) return null;
+              // The panel of a seat that is leaving fades where it was docked: it keeps the anchor it had before the seats regrouped.
+              const anchor = exit ? heldAnchors.current.get(slot.seat) ?? holoAnchor(from, slot.seat, camera) : (!fly && plateAnchors?.get(slot.seat)) || holoAnchor(from, slot.seat, camera);
+              if (!exit) shownAnchors.set(slot.seat, anchor);
+              const pickable = !exit && picks?.options.has(slot.seat) === true;
+              const index = pickOrder.indexOf(slot.seat);
+              return (
+                <HoloLp
+                  key={slot.seat}
+                  seat={slot.seat}
+                  name={nameOf(slot.seat)}
+                  tone={slot.tone}
+                  lp={view.lp}
+                  handCount={view.hand.length}
+                  deckCount={view.deckCount}
+                  clockMs={room.clock?.remainingMs[slot.seat] ?? null}
+                  clock={room.clock}
+                  status={holoStatus(engine, slot.seat, promptSeat)}
+                  me={anchor.me}
+                  acting={slot.relation === "self"}
+                  replay={replay}
+                  x={anchor.x}
+                  y={anchor.y}
+                  beam={fly ? "none" : threeWay ? anchor.beam : place === 0 ? "none" : "down"}
+                  floating={fly}
+                  badge={<SeatMasterBadge seat={slot.seat} side={slot.relation === "self" ? "you" : "opp"} />}
+                  lastDamage={lastSeatDamage(engine.events, slot.seat)}
+                  legal={pickable}
+                  hotkey={pickable && index >= 0 ? index + 1 : null}
+                  onPick={() => picks?.onPick(slot.seat)}
+                  onHover={(hover) => controller.onAim?.(hover ? { lpSeat: slot.seat } : null)}
+                  exiting={exit}
+                  placeLabel={placeLabels?.get(slot.seat) ?? null}
+                  linkedWith={emzLinks?.get(slot.seat)?.otherName ?? null}
+                  glide={gliding && regroup && !exit}
+                  footer={!exit && anchor.me ? masterChip : null}
+                  footerTight={anchor.footerTight}
+                  reducedMotion={reducedMotion}
+                  follow
+                />
+              );
+            })}
+            {hubAt ? (
+              <div
+                className={styles.hub}
+                data-hub-slot="true"
+                {...{ [FOLLOW_ATTR]: "" }}
+                data-hub-size={hubAt.size}
+                style={{
+                  width: hubAt.width,
+                  height: hubAt.height,
+                  transform: `translate(${hubAt.x - hubAt.width / 2}px, ${hubAt.y - hubAt.height / 2}px)`,
+                  // Under a zoom the hub keeps its size and follows the ring it sits on (followShift, as its transform glides
+                  // it to its place). Always on: the follow is the 1x place at 1x, so the first zoom frame moves it too.
+                  translate: followShift(hubAt.x, hubAt.y),
+                }}
+              >
+                {hub}
+              </div>
+            ) : null}
+            {controller.aim?.from ? <AttackLine aim={controller.aim} tone={attackerTone} /> : null}
+          </>
         ) : null}
-        {controller.aim?.from ? <AttackLine aim={controller.aim} tone={attackerTone} /> : null}
       </div>
       {rivalHints.map((hint) => (
         <button

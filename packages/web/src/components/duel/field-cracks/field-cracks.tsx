@@ -192,8 +192,16 @@ export function CrackLayer({ seed, stage, regainMode = "keep", replay = false, m
   const from = useRef<CrackStage | null>(null);
   const timers = useRef<number[]>([]);
 
+  // A healthy replay frame draws no cracks. Geometry generation and zone measurement
+  // can take seconds across a table; defer both until a seek actually needs them.
+  const needsGeometry = !replay || stage > 0;
+
   /* ---- measure the mat (mount, resize, zoom) */
   useIsoLayoutEffect(() => {
+    if (!needsGeometry) {
+      setGeo(prev => prev === null ? prev : null);
+      return;
+    }
     const layer = layerRef.current;
     const face = layer?.parentElement;
     if (!layer || !face) return;
@@ -221,7 +229,7 @@ export function CrackLayer({ seed, stage, regainMode = "keep", replay = false, m
       window.removeEventListener("resize", run);
       document.removeEventListener("transitionend", onTransitionEnd, true);
     };
-  }, [seed, part, avoidSelector, splitSelector, layoutToken]);
+  }, [needsGeometry, seed, part, avoidSelector, splitSelector, layoutToken]);
 
   /* ---- the LP moved: spread the new stage (or just show it) */
   useEffect(() => {

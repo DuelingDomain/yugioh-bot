@@ -1,3 +1,5 @@
+import { runReplayInWorker } from "./replay-worker.js";
+import { ReplayBuildError } from "./replay-builder.js";
 import { createHash } from "node:crypto";
 import type { DuelScriptError, DuelScriptFatalError } from "./script-errors.js";
 import { parentPort } from "node:worker_threads";
@@ -75,6 +77,9 @@ export async function handleWorkerRequest(request: DuelWorkerRequest): Promise<D
 async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerResponse> {
   try {
     switch (request.op) {
+      case "replay": {
+        return { id: request.id, ok: true, value: await runReplayInWorker(request.options, handleWorkerRequest) };
+      }
       case "create": {
         if (game) return { id: request.id, ok: false, error: "A game is already running in this worker" };
         const boundary = request.options.manualLossAnswersAfter;
@@ -137,6 +142,7 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
     return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error),
       message: error instanceof Error ? error.message : String(error),
       ...(error instanceof Error ? { name: error.name, stack: error.stack } : {}),
+      ...(error instanceof ReplayBuildError ? { replayError: { code: error.code, familyFailed: error.familyFailed } } : {}),
       ...(error instanceof EngineResourceUnavailableError ? { code: error.code } : {}),
       ...(error instanceof EngineLoopError ? { engineLoop: true as const } : {}),
       ...((error instanceof EngineAnswerError || error instanceof LegacyEngineAnswerError) ? { answerError: true as const,

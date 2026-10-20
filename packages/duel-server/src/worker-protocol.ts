@@ -1,3 +1,5 @@
+import type { ReplayWorkerOptions, ReplayWorkerResult } from "./replay-worker.js";
+import type { ReplayBuildErrorCode } from "./replay-builder.js";
 import type { DuelScriptError, DuelScriptFatalError } from "./script-errors.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript, EngineViewHistory } from "./engine.js";
 import type { PromptTraceEntry } from "./prompt-trace.js";
@@ -40,6 +42,7 @@ export interface WorkerCreateTimings {
 }
 
 export type DuelWorkerRequest =
+  | { id: number; op: "replay"; options: ReplayWorkerOptions }
   | { id: number; op: "create"; options: DuelWorkerCreateOptions }
   | { id: number; op: "view"; seat: number | null; history?: EngineViewHistory }
   | { id: number; op: "answer"; seat: number; promptId: string; answer: DuelAnswer }
@@ -50,5 +53,5 @@ export type DuelWorkerRequest =
   | { id: number; op: "close" };
 
 export type DuelWorkerResponse =
-  | { id: number; ok: true; value?: DuelEngineView | DuelCardInfo[] | EngineDiagnostic[] | boolean; createTimings?: WorkerCreateTimings; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] }
-  | { id: number; ok: false; error: string; message?: string; name?: string; stack?: string; answerError?: true; engineLoop?: true; code?: DuelErrorCode | "ENGINE_UNAVAILABLE_FOR_SOURCE"; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] };
+  | { id: number; ok: true; value?: ReplayWorkerResult | DuelEngineView | DuelCardInfo[] | EngineDiagnostic[] | boolean; createTimings?: WorkerCreateTimings; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] }
+  | { id: number; ok: false; replayError?: { code: ReplayBuildErrorCode; familyFailed: boolean }; error: string; message?: string; name?: string; stack?: string; answerError?: true; engineLoop?: true; code?: DuelErrorCode | "ENGINE_UNAVAILABLE_FOR_SOURCE"; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] };
