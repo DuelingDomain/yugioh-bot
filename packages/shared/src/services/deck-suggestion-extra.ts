@@ -1,11 +1,12 @@
 import { isExtraDeckCard } from "../cards/effects/card.js";
 import { compactEffectName } from "../cards/effects/name-match.js";
 import { belongsTo, type Candidate } from "../cards/effects/synergy.js";
+import { suggestionMember } from "./deck-suggestion-archetype.js";
 
 /** Ranking is separate from the complete material proof. Hand traps do not define a deck's profile. */
 export function extraDeckRanking(main: readonly Candidate[], archetypes: readonly string[], extra: readonly Candidate[]) {
   const monsters = main.filter(({ card, tags }) => card.kind === "monster" && !isExtraDeckCard(card) && !tags?.roles.includes("hand_trap"));
-  const members = monsters.filter(({ card }) => archetypes.some(archetype => belongsTo(card, archetype)));
+  const members = monsters.filter(({ card }) => archetypes.some(archetype => suggestionMember(card, archetype)));
   const profileMonsters = members.length >= 2 ? members : monsters;
   const names = new Set(monsters.map(({ card }) => compactEffectName(card.name)));
   const fusionOnly = extra.length > 0 && extra.every(({ card }) => card.subtypes.includes("fusion"))
@@ -15,7 +16,7 @@ export function extraDeckRanking(main: readonly Candidate[], archetypes: readonl
   return ({ card, tags }: Candidate): { score: number; linkedCards: number; generic: boolean } => {
     const materials = tags?.materials ?? [];
     const named = materials.flatMap(filter => filter.names).filter(name => names.has(compactEffectName(name)));
-    const member = archetypes.some(archetype => belongsTo(card, archetype));
+    const member = archetypes.some(archetype => suggestionMember(card, archetype));
     const linked = new Set(monsters.filter(({ card: material }) => named.some(name => compactEffectName(material.name) === compactEffectName(name))
       || materials.some(filter => filter.attributes.some(attribute => attribute === material.attribute) || filter.types.some(type => type === material.monsterType)
         || filter.archetypes.some(archetype => belongsTo(material, archetype)))).map(({ card }) => card.id)).size;

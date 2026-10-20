@@ -63,7 +63,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
   // this read, rather than rebuilding dozens of regular expressions per card.
   const printedTypes = new Map<string, Pick<Card, "kind" | "subtypes" | "monsterType">>();
   const engineTypes = new Map<string, Pick<Card, "kind" | "subtypes" | "monsterType" | "attribute">>();
-  const memberships = new Map<string, string | undefined>();
+  const memberships = new Map<string, string[]>();
   const printedLevelKeys = new Map<string, "rank" | "linkRating" | "level">();
   const fastTypes = new Map<number, Pick<Card, "kind" | "subtypes">>();
   const enginePath = join(dataDirectory, "cards.cdb");
@@ -97,6 +97,16 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       if (code) codes.push(code);
     }
     return codes;
+  };
+  const memberNames = (setcode: string | undefined): string[] => {
+    const key = setcode ?? "";
+    let names = memberships.get(key);
+    if (!names) {
+      const membership = setcodes({ setcode } as EngineRow);
+      names = membership.length ? [...archetypes()].filter(([code]) => inArchetype(membership, code)).map(([, label]) => label) : [];
+      memberships.set(key, names);
+    }
+    return names;
   };
   if (engine) {
     try {
@@ -177,20 +187,14 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
         engineTypes.set(shapeKey, engineShape);
       }
       const level = (engineCard.level ?? source.level ?? 0) & 0xff;
-      const membershipKey = engineCard.setcode ?? "";
-      if (!memberships.has(membershipKey)) {
-        const membership = setcodes(engineCard);
-        let name: string | undefined;
-        if (membership.length) for (const [code, label] of archetypes()) if (inArchetype(membership, code)) { name = label; break; }
-        memberships.set(membershipKey, name);
-      }
-      const archetype = card.archetype ?? memberships.get(membershipKey);
+      const names = memberNames(engineCard.setcode);
+      const archetype = card.archetype ?? names[0];
       Object.assign(card, engineShape, {
         level: engineCard.type & (0x800000 | 0x4000000) ? undefined : level,
         rank: engineCard.type & 0x800000 ? level : undefined, linkRating: engineCard.type & 0x4000000 ? level : undefined,
         atk: (engineCard.atk ?? source.atk ?? -1) >= 0 ? engineCard.atk ?? source.atk : null,
         def: (engineCard.def ?? source.def ?? -1) >= 0 ? engineCard.def ?? source.def : null,
-        text: source.effect_text || engineCard.desc || "", archetype, typeLine: source.type, genesysPoints: card.genesysPoints });
+        text: source.effect_text || engineCard.desc || "", archetype, archetypes: names, typeLine: source.type, genesysPoints: card.genesysPoints });
       if (engineCard.level === undefined && source.level == null) {
         card.level = undefined; card.rank = undefined; card.linkRating = undefined;
       }
@@ -210,20 +214,14 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       shape = { kind: adapted.kind, subtypes: adapted.subtypes };
       fastTypes.set(type, shape);
     }
-    const membershipKey = engineCard[5] ?? "";
-    if (!memberships.has(membershipKey)) {
-      const membership = setcodes({ setcode: membershipKey } as EngineRow);
-      let name: string | undefined;
-      if (membership.length) for (const [code, label] of archetypes()) if (inArchetype(membership, code)) { name = label; break; }
-      memberships.set(membershipKey, name);
-    }
+    const names = memberNames(engineCard[5]);
     const level = engineCard[8] & 0xff;
     const card: Card = {
       id: engineCard[0], name: cached ? row![2]! : engineCard[3], kind: shape.kind, typeLine: cached ? row![3]! : "", subtypes: shape.subtypes,
       monsterType: raceNames.get(engineCard[9]), attribute: attributeNames.get(engineCard[10]),
       level: type & (0x800000 | 0x4000000) ? undefined : level,
       atk: engineCard[6] >= 0 ? engineCard[6] : null, def: engineCard[7] >= 0 ? engineCard[7] : null,
-      text: (cached && row![5]) || engineCard[4] || "", archetype: cached && row![10] != null ? row![10]! : memberships.get(membershipKey),
+      text: (cached && row![5]) || engineCard[4] || "", archetype: cached && row![10] != null ? row![10]! : names[0], archetypes: names,
       formats: [], genesysPoints: revision && cached && row![12] === revision ? row![11] ?? undefined : undefined,
       views: row?.[14] ?? 0, url: "",
       rank: type & 0x800000 ? level : undefined, linkRating: type & 0x4000000 ? level : undefined,
@@ -366,13 +364,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       shape = { kind: adapted.kind, subtypes: adapted.subtypes };
       fastTypes.set(type, shape);
     }
-    const membershipKey = row[5] ?? "";
-    if (!memberships.has(membershipKey)) {
-      const membership = setcodes({ setcode: membershipKey } as EngineRow);
-      let name: string | undefined;
-      if (membership.length) for (const [code, label] of archetypes()) if (inArchetype(membership, code)) { name = label; break; }
-      memberships.set(membershipKey, name);
-    }
+    const names = memberNames(row[5] ?? undefined);
     const level = row[8]! & 0xff;
     // Legacy normalization inserts its printed level key before applying engine
     // stats. Preserve that property order for serialized candidate parity too.
@@ -390,7 +382,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       monsterType: raceNames.get(row[9]!), attribute: attributeNames.get(row[10]!),
       ...(printedLevelKey === "rank" ? { rank } : printedLevelKey === "linkRating" ? { linkRating } : { level: finalLevel }),
       atk: row[6]! >= 0 ? row[6] : null, def: row[7]! >= 0 ? row[7] : null,
-      text: row[4], archetype: row[14] ?? memberships.get(membershipKey), formats: [],
+      text: row[4], archetype: row[14] ?? names[0], archetypes: names, formats: [],
       genesysPoints: revision && row[16] === revision ? row[15] ?? undefined : undefined,
       views: row[18] ?? 0, url: "",
     };

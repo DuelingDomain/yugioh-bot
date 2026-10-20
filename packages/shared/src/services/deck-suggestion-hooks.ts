@@ -12,10 +12,12 @@ const attributeConditions = ATTRIBUTES.map(attribute => ({ attribute, pattern: n
 const coreEligible = ({ tags }: Candidate) => !tags?.roles.includes("hand_trap");
 
 /** A side engine or a hand trap must not supply the deck's primary strategy profiles. */
-export function deckSuggestionCore(main: readonly Candidate[]): { anchors: Candidate[]; archetypes: string[] } {
+export function deckSuggestionCore(main: readonly Candidate[], includeMonsterMemberships = false): { anchors: Candidate[]; archetypes: string[] } {
   const eligible = main.filter(coreEligible), counts = new Map<string, number>();
   for (const { card, tags } of eligible) {
-    const names = new Set([...(card.archetype ? [card.archetype] : []), ...(tags?.supports.archetypes ?? [])]);
+    // Generic secondary Spell groups such as "Fusion" must not define an engine.
+    const names = new Set([...(card.archetype ? [card.archetype] : []), ...(tags?.supports.archetypes ?? []),
+      ...(includeMonsterMemberships && card.kind === "monster" ? card.archetypes ?? [] : [])]);
     for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
   }
   const maximum = Math.max(0, ...counts.values());

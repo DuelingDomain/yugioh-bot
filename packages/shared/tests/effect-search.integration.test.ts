@@ -434,6 +434,12 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
       const owned = new Set([...scenario.deck.main, ...scenario.deck.extra, ...scenario.deck.side, ...(master ? [master] : [])].map(canonical));
       const staples = result.rows.find(row => row.id === "staples")!;
       const outside = result.rows.find(row => row.id === "outside")!;
+      const archetype = result.rows.find(row => row.id === "archetype")!;
+      if (fixture.id === "branded") {
+        expect.soft(archetype.cards.map(card => card.name), "Branded: remove links to unrelated side cards").not.toEqual(expect.arrayContaining(["Black Chaos"]));
+        expect.soft(archetype.cards.filter(card => ["Black Chaos", "Griffoh", "Mind Shuffle", "The Golden Swordsoul"].includes(card.name))).toEqual([]);
+        expect.soft(archetype.cards.slice(0, 4).every(card => !card.reason.startsWith("Names ")), "Branded: members and direct support before name-only links").toBe(true);
+      }
       const firstEight = outside.cards.slice(0, 8);
       const topEightHits = firstEight.filter(card => expected.has(card.passcode)).length;
       const report = {
