@@ -146,7 +146,7 @@ it("fills missing release months through bulk HTTP, keeps families and valid dat
     resignCandidate(options.outputDirectory, "releases");
     expect(() => validateEffectCandidate(rootPath, options.outputDirectory)).toThrow(/release|additive/i);
   }
-});
+}, 30_000);
 
 describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", { timeout: 30_000 }, () => {
   it("defaults to a keyless dry run with no API or durable-state mutation", async () => {

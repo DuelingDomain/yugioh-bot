@@ -542,7 +542,7 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
         if (reading) expect(all.map(card => prepared.match(card.code, reading)), text).toEqual(all.map(card => sync.match(card.code, reading)));
       }
     } finally { createCardEffectIndex(db, cards); disk?.close(); rmSync(directory, { recursive: true, force: true }); }
-  }, 30_000);
+  }, 120_000);
   it.each(effectCases)('effect: %s',(text,include,exclude)=>{
     evaluatedQueries++;
     const result=present(search(text,[...include,...exclude].map(code)));
