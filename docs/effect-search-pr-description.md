@@ -77,4 +77,3 @@ searchygo credit is in `NOTICE`, the data notice and source headers only. The UI
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
 https://claude.ai/code/session_01GLTNwBcU5bVhsdGwaZoeik
-

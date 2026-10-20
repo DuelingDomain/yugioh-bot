@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { streamArtifactArray, streamArtifactFile, streamArtifactLines } from "./artifact-stream.js";
+import { prepareArtifactFile, streamArtifactArray, streamArtifactFile, streamArtifactLines, type PreparedArtifactFile } from "./artifact-stream.js";
 import { CardTags, fillDefaults } from "./tags.js";
 import { ArchetypeProfile, readProfile } from "./synergy.js";
 import { cleanReleaseMonth } from "./releases.js";
@@ -101,7 +101,9 @@ function fileFor(manifest: ArtifactManifest, kind: keyof ArtifactManifest["files
   if (file.path !== expectedPath) throw new Error(`Invalid effect artifact ${kind} path`);
   return file;
 }
-function releaseRows(directory: string, manifest: ArtifactManifest): ReleaseRows {
+type PreparedFiles = Map<string, PreparedArtifactFile>;
+
+function releaseRows(directory: string, manifest: ArtifactManifest, prepared?: PreparedFiles): ReleaseRows {
   return consume => {
     const file = fileFor(manifest, "releases"), releaseIds = new Set<number>();
     streamArtifactArray(join(directory, file.path), file, value => {
@@ -113,20 +115,20 @@ function releaseRows(directory: string, manifest: ArtifactManifest): ReleaseRows
           (row.ocgDate !== null && cleanReleaseMonth(row.ocgDate, "ocg") !== row.ocgDate)) throw new Error("Invalid release artifact record");
       releaseIds.add(row.id);
       consume(row);
-    });
+    }, prepared?.get(file.path));
   };
 }
-function readArtifact(directory: string, manifest = readManifest(directory)) {
+function readArtifact(directory: string, manifest = readManifest(directory), prepared?: PreparedFiles) {
   const content = (kind: "popularity" | "sourceHashes" | "releases") => {
     const chunks: string[] = [], decoder = new TextDecoder();
     const file = fileFor(manifest, kind);
-    streamArtifactFile(join(directory, file.path), file, chunk => chunks.push(decoder.decode(chunk, { stream: true })));
+    streamArtifactFile(join(directory, file.path), file, chunk => chunks.push(decoder.decode(chunk, { stream: true })), prepared?.get(file.path));
     chunks.push(decoder.decode());
     return chunks.join("");
   };
   const lines = (kind: "tags" | "profiles") => (consume: (line: string, index: number) => void) => {
     const file = fileFor(manifest, kind);
-    streamArtifactLines(join(directory, file.path), file, consume);
+    streamArtifactLines(join(directory, file.path), file, consume, prepared?.get(file.path));
   };
   const popularity = object(JSON.parse(content("popularity")), "effect artifact popularity");
   if (Object.keys(popularity).length !== manifest.files.popularity.records) throw new Error("Effect artifact popularity record count does not match integrity");
@@ -139,7 +141,7 @@ function readArtifact(directory: string, manifest = readManifest(directory)) {
       throw new Error(`Invalid tagged-source hash for ${code}`);
     }
   }
-  const releases = releaseRows(directory, manifest);
+  const releases = releaseRows(directory, manifest, prepared);
   return { manifest, tags: lines("tags"), releases, profiles: lines("profiles"), popularity, sourceHashes: sourceHashes as Record<string, string | null> };
 }
 
@@ -335,89 +337,95 @@ interface StoredImport { manifest_hash: string; passcodes_json: string | null; a
 export function importCardEffectArtifact(db: Database.Database, options: CardEffectArtifactImportOptions = {}): CardEffectArtifactImportReport {
   const directory = options.directory ?? DEFAULT_CARD_EFFECT_ARTIFACT_DIRECTORY;
   const manifest = readManifest(directory);
-  const report = db.transaction(() => {
-    const imported = db.prepare("SELECT manifest_hash,passcodes_json,archetypes_json,tags,profiles FROM card_tag_artifact_imports WHERE artifact_version=?").get(manifest.artifactVersion) as StoredImport | undefined;
-    if (imported && imported.manifest_hash !== CARD_EFFECT_ARTIFACT_MANIFEST_SHA256) throw new Error("Stored effect artifact manifest hash is invalid");
-    const memberships: unknown = imported?.passcodes_json ? JSON.parse(imported.passcodes_json) : null;
-    if (imported?.archetypes_json && Array.isArray(memberships) && memberships.every(row => row && typeof row === "object")) {
-      // Exact compressed and decompressed pins still get checked on every boot.
-      // Persisted memberships avoid parsing/cloning 13,000 already-validated tags.
-      const canonicalize = canonicalizer(db, options, releaseRows(directory, manifest));
-      for (const kind of ["tags", "profiles", "popularity", "sourceHashes"] as const) {
-        const file = fileFor(manifest, kind), path = join(directory, file.path);
-        if (kind === "tags" || kind === "profiles") streamArtifactLines(path, file, () => {});
-        else streamArtifactFile(path, file, () => {});
-      }
-      const archetypes: unknown = JSON.parse(imported.archetypes_json);
-      if (memberships.length !== manifest.files.tags.records || !memberships.every(row => validPasscode(row.passcode) && typeof row.name === "string" && row.name.trim()) || new Set(memberships.map(row => row.passcode)).size !== memberships.length ||
-          !Array.isArray(archetypes) || archetypes.length !== imported.profiles || !archetypes.every(name => typeof name === "string" && name.trim()) || new Set(archetypes).size !== archetypes.length) {
-        throw new Error("Stored effect artifact membership is invalid");
-      }
-      const tags = new Map<number, number>();
-      for (const row of memberships as SourceMembership[]) {
-        const passcode = canonicalize(row.passcode, row.name), prior = tags.get(passcode);
-        if (prior === undefined || row.passcode === passcode || (prior !== passcode && row.passcode < prior)) tags.set(passcode, row.passcode);
-      }
-      return importReport(db, manifest, canonicalize, tags, new Set<string>(archetypes), true);
+  const prepared: PreparedFiles = new Map();
+  try {
+    // Hash and decompress every pinned file before taking SQLite's writer lock.
+    // Keep verified bytes on private disk, rather than retaining the full catalog.
+    for (const kind of ["tags", "profiles", "popularity", "sourceHashes", "releases"] as const) {
+      const file = fileFor(manifest, kind);
+      const spool = prepareArtifactFile(join(directory, file.path), file);
+      prepared.set(file.path, spool);
+      if (kind === "tags" || kind === "profiles") streamArtifactLines(join(directory, file.path), file, () => {}, spool);
     }
-    const artifact = readArtifact(directory, manifest);
-    const canonicalize = canonicalizer(db, options, artifact.releases);
-    const source = `${ARTIFACT_SOURCE_PREFIX}${artifact.manifest.artifactVersion}`;
-    const insertTag = db.prepare(`INSERT INTO card_tags
-      (passcode,summary,roles_json,tags_json,popularity,text_hash,source,tagged_at,schema_version)
-      VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?)
-      ON CONFLICT(passcode) DO UPDATE SET summary=excluded.summary,roles_json=excluded.roles_json,
-        tags_json=excluded.tags_json,popularity=excluded.popularity,text_hash=excluded.text_hash,source=excluded.source,
-        tagged_at=excluded.tagged_at,schema_version=excluded.schema_version
-      WHERE card_tags.source GLOB 'searchygo-artifact:*'`);
-    const sources: SourceMembership[] = [];
-    // Exact pinned bytes are already schema-normalized by the independent
-    // installation/publication verifier. Retain per-record identity checks,
-    // without compiling and cloning that schema again in every server process.
-    const extractTag = db.prepare(`SELECT json_type(@row,'$.id') AS idType,json_type(@row,'$.name') AS nameType,json_type(@row,'$.model') AS modelType,
-      json_extract(@row,'$.id') AS id,json_extract(@row,'$.name') AS name,
-      json_extract(@row,'$.model') AS model,json_extract(@row,'$.tags.summary') AS tagSummary,
-      json_extract(@row,'$.tags.roles') AS tagRolesJson,json_extract(@row,'$.tags') AS tagJson`);
-    const tags = parseTags(artifact.tags, canonicalize, artifact.sourceHashes, imported ? undefined : tag => {
-      // Keep the pinned text hash, never the current engine/catalog text.
-      insertTag.run(tag.passcode, tag.summary, tag.rolesJson, tag.tagsJson, 0,
-        artifact.sourceHashes[tag.originalPasscode] ?? null, source, artifact.manifest.schemaVersion);
-    }, false, sources, line => extractTag.get({ row: line }) as Record<string, unknown>);
-    // Named tags establish missing-ID bridges before name-free popularity rows
-    // use the canonicalizer cache. Never overwrite another source's popularity.
-    const popularity = parsePopularity(artifact.popularity, canonicalize);
-    if (!imported) {
-      const updatePopularity = db.prepare("UPDATE card_tags SET popularity=? WHERE passcode=? AND source=?");
-      for (const [passcode, views] of popularity) updatePopularity.run(views, passcode, source);
-    }
-    const insertProfile = db.prepare(`INSERT INTO card_tag_profiles
-      (archetype,plan,hooks_json,source,profiled_at,schema_version,cards)
-      VALUES(?,?,?,?,CURRENT_TIMESTAMP,?,?)
-      ON CONFLICT(archetype) DO UPDATE SET plan=excluded.plan,hooks_json=excluded.hooks_json,
-        source=excluded.source,profiled_at=excluded.profiled_at,schema_version=excluded.schema_version,cards=excluded.cards
-      WHERE card_tag_profiles.source GLOB 'searchygo-artifact:*'`);
-    const profiles = parseProfiles(artifact.profiles, imported ? undefined : profile => {
-      insertProfile.run(profile.archetype, profile.plan, profile.hooksJson, source, artifact.manifest.schemaVersion, profile.cards);
-    }, false);
-    if (!imported) {
-      const releases = new Map<number, number>();
-      const insertRelease = db.prepare(`INSERT INTO card_release(passcode,tcg_date,ocg_date,quality,source_version) VALUES(?,?,?,?,?)
-        ON CONFLICT(passcode) DO UPDATE SET tcg_date=excluded.tcg_date,ocg_date=excluded.ocg_date,quality=excluded.quality,source_version=excluded.source_version`);
-      artifact.releases(row => {
-        const passcode = canonicalize(row.id, row.name), prior = releases.get(passcode);
-        if (prior === undefined || row.id === passcode || (prior !== passcode && row.id < prior)) {
-          releases.set(passcode, row.id);
-          insertRelease.run(passcode, row.tcgDate, row.ocgDate, row.quality, artifact.manifest.artifactVersion);
+    const report = db.transaction(() => {
+      const imported = db.prepare("SELECT manifest_hash,passcodes_json,archetypes_json,tags,profiles FROM card_tag_artifact_imports WHERE artifact_version=?").get(manifest.artifactVersion) as StoredImport | undefined;
+      if (imported && imported.manifest_hash !== CARD_EFFECT_ARTIFACT_MANIFEST_SHA256) throw new Error("Stored effect artifact manifest hash is invalid");
+      const memberships: unknown = imported?.passcodes_json ? JSON.parse(imported.passcodes_json) : null;
+      if (imported?.archetypes_json && Array.isArray(memberships) && memberships.every(row => row && typeof row === "object")) {
+        // Exact compressed and decompressed pins still get checked on every boot.
+        // Persisted memberships avoid parsing/cloning 13,000 already-validated tags.
+        const canonicalize = canonicalizer(db, options, releaseRows(directory, manifest, prepared));
+        const archetypes: unknown = JSON.parse(imported.archetypes_json);
+        if (memberships.length !== manifest.files.tags.records || !memberships.every(row => validPasscode(row.passcode) && typeof row.name === "string" && row.name.trim()) || new Set(memberships.map(row => row.passcode)).size !== memberships.length ||
+            !Array.isArray(archetypes) || archetypes.length !== imported.profiles || !archetypes.every(name => typeof name === "string" && name.trim()) || new Set(archetypes).size !== archetypes.length) {
+          throw new Error("Stored effect artifact membership is invalid");
         }
-      });
-      db.prepare(`INSERT INTO card_tag_artifact_imports
-        (artifact_version,manifest_hash,schema_version,source_commit,tags,profiles) VALUES(?,?,?,?,?,?)`)
-        .run(artifact.manifest.artifactVersion, CARD_EFFECT_ARTIFACT_MANIFEST_SHA256, artifact.manifest.schemaVersion, artifact.manifest.source.commit, tags.size, profiles.size);
-    }
-    db.prepare("UPDATE card_tag_artifact_imports SET passcodes_json=?,archetypes_json=? WHERE artifact_version=?")
-      .run(JSON.stringify(sources), JSON.stringify([...profiles]), manifest.artifactVersion);
-    return importReport(db, manifest, canonicalize, tags, profiles, Boolean(imported));
-  }).immediate();
-  db.pragma("shrink_memory");
-  return report;
+        const tags = new Map<number, number>();
+        for (const row of memberships as SourceMembership[]) {
+          const passcode = canonicalize(row.passcode, row.name), prior = tags.get(passcode);
+          if (prior === undefined || row.passcode === passcode || (prior !== passcode && row.passcode < prior)) tags.set(passcode, row.passcode);
+        }
+        return importReport(db, manifest, canonicalize, tags, new Set<string>(archetypes), true);
+      }
+      const artifact = readArtifact(directory, manifest, prepared);
+      const canonicalize = canonicalizer(db, options, artifact.releases);
+      const source = `${ARTIFACT_SOURCE_PREFIX}${artifact.manifest.artifactVersion}`;
+      const insertTag = db.prepare(`INSERT INTO card_tags
+        (passcode,summary,roles_json,tags_json,popularity,text_hash,source,tagged_at,schema_version)
+        VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?)
+        ON CONFLICT(passcode) DO UPDATE SET summary=excluded.summary,roles_json=excluded.roles_json,
+          tags_json=excluded.tags_json,popularity=excluded.popularity,text_hash=excluded.text_hash,source=excluded.source,
+          tagged_at=excluded.tagged_at,schema_version=excluded.schema_version
+        WHERE card_tags.source GLOB 'searchygo-artifact:*'`);
+      const sources: SourceMembership[] = [];
+      // Exact pinned bytes are already schema-normalized by the independent
+      // installation/publication verifier. Retain per-record identity checks,
+      // without compiling and cloning that schema again in every server process.
+      const extractTag = db.prepare(`SELECT json_type(@row,'$.id') AS idType,json_type(@row,'$.name') AS nameType,json_type(@row,'$.model') AS modelType,
+        json_extract(@row,'$.id') AS id,json_extract(@row,'$.name') AS name,
+        json_extract(@row,'$.model') AS model,json_extract(@row,'$.tags.summary') AS tagSummary,
+        json_extract(@row,'$.tags.roles') AS tagRolesJson,json_extract(@row,'$.tags') AS tagJson`);
+      const tags = parseTags(artifact.tags, canonicalize, artifact.sourceHashes, imported ? undefined : tag => {
+        // Keep the pinned text hash, never the current engine/catalog text.
+        insertTag.run(tag.passcode, tag.summary, tag.rolesJson, tag.tagsJson, 0,
+          artifact.sourceHashes[tag.originalPasscode] ?? null, source, artifact.manifest.schemaVersion);
+      }, false, sources, line => extractTag.get({ row: line }) as Record<string, unknown>);
+      // Named tags establish missing-ID bridges before name-free popularity rows
+      // use the canonicalizer cache. Never overwrite another source's popularity.
+      const popularity = parsePopularity(artifact.popularity, canonicalize);
+      if (!imported) {
+        const updatePopularity = db.prepare("UPDATE card_tags SET popularity=? WHERE passcode=? AND source=?");
+        for (const [passcode, views] of popularity) updatePopularity.run(views, passcode, source);
+      }
+      const insertProfile = db.prepare(`INSERT INTO card_tag_profiles
+        (archetype,plan,hooks_json,source,profiled_at,schema_version,cards)
+        VALUES(?,?,?,?,CURRENT_TIMESTAMP,?,?)
+        ON CONFLICT(archetype) DO UPDATE SET plan=excluded.plan,hooks_json=excluded.hooks_json,
+          source=excluded.source,profiled_at=excluded.profiled_at,schema_version=excluded.schema_version,cards=excluded.cards
+        WHERE card_tag_profiles.source GLOB 'searchygo-artifact:*'`);
+      const profiles = parseProfiles(artifact.profiles, imported ? undefined : profile => {
+        insertProfile.run(profile.archetype, profile.plan, profile.hooksJson, source, artifact.manifest.schemaVersion, profile.cards);
+      }, false);
+      if (!imported) {
+        const releases = new Map<number, number>();
+        const insertRelease = db.prepare(`INSERT INTO card_release(passcode,tcg_date,ocg_date,quality,source_version) VALUES(?,?,?,?,?)
+          ON CONFLICT(passcode) DO UPDATE SET tcg_date=excluded.tcg_date,ocg_date=excluded.ocg_date,quality=excluded.quality,source_version=excluded.source_version`);
+        artifact.releases(row => {
+          const passcode = canonicalize(row.id, row.name), prior = releases.get(passcode);
+          if (prior === undefined || row.id === passcode || (prior !== passcode && row.id < prior)) {
+            releases.set(passcode, row.id);
+            insertRelease.run(passcode, row.tcgDate, row.ocgDate, row.quality, artifact.manifest.artifactVersion);
+          }
+        });
+        db.prepare(`INSERT INTO card_tag_artifact_imports
+          (artifact_version,manifest_hash,schema_version,source_commit,tags,profiles) VALUES(?,?,?,?,?,?)`)
+          .run(artifact.manifest.artifactVersion, CARD_EFFECT_ARTIFACT_MANIFEST_SHA256, artifact.manifest.schemaVersion, artifact.manifest.source.commit, tags.size, profiles.size);
+      }
+      db.prepare("UPDATE card_tag_artifact_imports SET passcodes_json=?,archetypes_json=? WHERE artifact_version=?")
+        .run(JSON.stringify(sources), JSON.stringify([...profiles]), manifest.artifactVersion);
+      return importReport(db, manifest, canonicalize, tags, profiles, Boolean(imported));
+    }).immediate();
+    db.pragma("shrink_memory");
+    return report;
+  } finally { for (const spool of prepared.values()) spool.close(); }
 }

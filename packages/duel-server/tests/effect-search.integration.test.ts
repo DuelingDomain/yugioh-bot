@@ -864,3 +864,19 @@ it('keeps similarity and counter matches within outer pool, type, banlist and Ge
   expect(relaxed.relax).toEqual([{ chip: 'Does: destroy', count: 1 }, { chip: 'Role: hand trap', count: 1 }]);
   for (const hint of relaxed.relax!) expect(sql.effectSearch('hand traps that destroy', ['Effect Veiler', 'Raigeki', 'Blue-Eyes White Dragon'].map(code), { omittedChips: [hint.chip] }).total).toBe(hint.count);
 });
+
+
+it('does no artifact or tag writes at duel boot with EFFECT_SEARCH off', async () => {
+  const { initializeServerCardEffects } = await import('../src/card-effect-startup.js');
+  const isolated = new Database(':memory:'); migrate(isolated);
+  vi.stubEnv('EFFECT_SEARCH', '0');
+  try {
+    const before = isolated.prepare('SELECT total_changes() AS changes').get();
+    // A missing artifact/engine directory must not matter when the flag is off.
+    await initializeServerCardEffects(isolated, cards, '/missing-effect-startup-directory');
+    expect(isolated.prepare('SELECT total_changes() AS changes').get()).toEqual(before);
+    for (const table of ['card_tags', 'card_tag_profiles', 'card_tag_artifact_imports']) {
+      expect(isolated.prepare(`SELECT count(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
+    }
+  } finally { vi.unstubAllEnvs(); isolated.close(); }
+});

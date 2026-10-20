@@ -9,6 +9,7 @@ import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/connection.js";
 import { applyEngineCardRemaps } from "../src/db/card-passcode-remaps.js";
+import * as artifactStreams from "../src/cards/effects/artifact-stream.js";
 import { streamArtifactLines } from "../src/cards/effects/artifact-stream.js";
 import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
 import { ArchetypeProfile, readProfile } from "../src/cards/effects/synergy.js";
@@ -328,4 +329,24 @@ describe("the pinned searchygo artifact and SQLite import", () => {
     expect(db.prepare("SELECT passcode FROM card_release WHERE passcode IN (14558127,23434538)").all()).toEqual([]);
     expect(applyEngineCardRemaps(db, directory).skipped).toBe(true);
   });
+});
+
+
+it("verifies all artifact files before the first write lock, on first and repeat boots", async () => {
+  const db = database(), importArtifact = await importer();
+  const streams = vi.spyOn(artifactStreams, 'prepareArtifactFile');
+  const original = db.transaction.bind(db);
+  let transactionStarted = false;
+  const transaction = vi.spyOn(db, 'transaction').mockImplementation(((work: (...args: any[]) => any) => {
+    transactionStarted = true;
+    expect(streams.mock.calls.length).toBeGreaterThanOrEqual(5);
+    return original(work);
+  }) as typeof db.transaction);
+  try {
+    importArtifact(db);
+    expect(transactionStarted).toBe(true);
+    streams.mockClear(); transactionStarted = false;
+    importArtifact(db);
+    expect(transactionStarted).toBe(true);
+  } finally { transaction.mockRestore(); streams.mockRestore(); }
 });
