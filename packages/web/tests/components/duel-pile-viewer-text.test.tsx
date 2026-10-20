@@ -31,12 +31,13 @@ function card(sequence: number, over: Partial<DuelCard> = {}): DuelCard {
 const view = (cards: DuelCard[], onHoverCard = vi.fn(), onInspectCard = vi.fn()) =>
   render(<PileViewer title="Your Graveyard" cards={cards} owner="you" open onClose={vi.fn()} onInspectCard={onInspectCard} onHoverCard={onHoverCard} reducedMotion />);
 
-// The window shows no card text: the left drawer of the room shows the hovered card (the window only reports it).
+// A wide screen shows the card text in the left drawer (the window only reports the card). The window keeps a text block of its own that
+// only phones show (CSS), because the drawer would cover the tiles there.
 describe("pile viewer card details go to the drawer", () => {
-  it("has no detail block with the effect text", () => {
+  it("keeps the phone text block apart from the old card text block", () => {
     view([card(0), card(1)]);
     expect(screen.queryByTestId("pile-card-text")).toBeNull();
-    expect(screen.queryByText(/Effect text of card/)).toBeNull();
+    expect(screen.getByTestId("pile-detail")).toBeTruthy();
   });
 
   it("reports the hovered card, and goes back to the focused card when the pointer leaves the grid", () => {

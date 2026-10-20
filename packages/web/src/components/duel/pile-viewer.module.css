@@ -475,9 +475,42 @@
   }
 }
 
+/* ---------- the card text inside the window: phones only (a wide screen has the left drawer for it) ---------- */
+
+.detail {
+  display: none;
+}
+
 /* ---------- phones: still centred, over the whole viewport ---------- */
 
 @media (max-width: 900px) {
+  .detail {
+    display: block;
+    flex: none;
+    max-height: 26dvh;
+    overflow-y: auto;
+    padding: 8px 14px 10px;
+    border-top: 1px solid var(--pv-rule);
+    color: var(--pv-ink-2);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .detail h3 {
+    margin: 0;
+    color: var(--pv-ink, inherit);
+    font-size: 14px;
+  }
+
+  .detail p {
+    margin: 2px 0 0;
+  }
+
+  .detailFacts {
+    font-size: 11px;
+    opacity: 0.8;
+  }
+
   .root {
     position: fixed;
     z-index: var(--duel-z-prompt-front);
