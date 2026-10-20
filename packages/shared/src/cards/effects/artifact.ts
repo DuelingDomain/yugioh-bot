@@ -12,8 +12,8 @@ import { ArchetypeProfile, readProfile } from "./synergy.js";
 import { cleanReleaseMonth } from "./releases.js";
 import type { Card } from "./card.js";
 
-export const CARD_EFFECT_ARTIFACT_VERSION = "5b8577e3697803fbabce723eef66ee701830cdaef84ef74c308bcd126c1c176b";
-export const CARD_EFFECT_ARTIFACT_MANIFEST_SHA256 = "95992b7dd868c49633a9928733fa97c0a7e85670bfe107e1da8b490d51b10d7a";
+export const CARD_EFFECT_ARTIFACT_VERSION = "031dfac6202866b2297646ac842678fd37a89181dc1a3fd06f8082a73cda1776";
+export const CARD_EFFECT_ARTIFACT_MANIFEST_SHA256 = "ca4ea256b1cb9804ae6725a894cc7f3da6ceb1968f3f68189643e26a55c8610d";
 export const CARD_EFFECT_ARTIFACT_SCHEMA_VERSION = 1;
 export const CARD_EFFECT_ARTIFACT_SOURCE_COMMIT = "9b2d952f8e7c389e13267d4bba6504cc8ea4cb5c";
 export const DEFAULT_CARD_EFFECT_ARTIFACT_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "../../../data/effects");
