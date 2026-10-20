@@ -31,4 +31,8 @@ is added to this snapshot. These source dates can refer to a later print.
 The month precision avoids a claim of exact day accuracy. Future months are
 retained; readers calculate the Upcoming state at use time. Rebuild with Node
 22 and `tsx scripts/effects/build-releases.ts <source-cards.json>` from the root.
-Credit stays here, not in the UI: release dates come from YGOPRODeck misc data via searchygo.
+Later additive fills use the free YGOPRODeck bulk endpoint directly. Existing
+valid months and source record fields stay unchanged. See `docs/effect-tagging.md`
+for the cached daily step and `npm run effects:fill-releases -- --apply`.
+Credit stays here, not in the UI: the base dates come from YGOPRODeck via
+searchygo; new date fills come from YGOPRODeck misc data.

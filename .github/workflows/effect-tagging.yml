@@ -77,7 +77,6 @@ jobs:
 
   tag:
     needs: validate
-    if: needs.validate.outputs.has_key == 'true' || inputs.dry_run == true || inputs.initialize_ledger == true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -123,6 +122,15 @@ jobs:
             args+=(--recover-reservation "$RECOVER_RESERVATION" --recover-batch "$RECOVER_BATCH")
           fi
           prlimit --core=0 -- node --import tsx scripts/effects/tag-cards.ts "${args[@]}"
+      - uses: actions/cache@v4
+        with:
+          path: .status/ygoprodeck-cache
+          key: effect-release-bulk-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: effect-release-bulk-${{ runner.os }}-
+      - name: Fill missing release months from the free bulk API
+        if: ${{ !inputs.dry_run && !inputs.initialize_ledger }}
+        continue-on-error: true
+        run: prlimit --core=0 -- npm run effects:fill-releases -- --output "$EFFECT_ARTIFACT_DIR"
       - name: Validate and apply only candidate data/pin constants in disposable checkout
         id: result
         run: |

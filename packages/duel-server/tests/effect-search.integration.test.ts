@@ -627,6 +627,31 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
     expect(search('between 2008 and 2010', ['Effect Veiler', 'Ash Blossom & Joyous Spring'].map(code)).effectHits?.map(card => card.name)).toEqual(['Effect Veiler']);
     const sql = createCardInsightService(db, { dataDirectory: engineDataDirectory });
     expect(sql.effectSearch('newest spells', pool).cards[0]?.passcode).toBe(code('Twin Twisters'));
+    const baseline = cardEffectIndex(cards)!;
+    const originalReleases = db.prepare("SELECT passcode,tcg_date FROM card_release WHERE passcode IN (?,?,?)").all(...pool) as { passcode: number; tcg_date: string | null }[];
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-20T00:00:00Z'));
+    try {
+      for (const id of pool) db.prepare("UPDATE card_release SET tcg_date='2026-09' WHERE passcode=?").run(id);
+      db.prepare("UPDATE card_release SET tcg_date='2026-10' WHERE passcode=?").run(code('Raigeki'));
+      const updated = createCardEffectIndex(db, cards);
+      for (const text of ['new cards', 'newest spells', 'newest spells 2']) {
+        const result = search(text, pool).effectHits!;
+        expect(result).toHaveLength(3);
+        expect(result[0].name).toBe('Raigeki');
+        for (let i = 1; i < result.length; i++) {
+          const a = result[i - 1], b = result[i];
+          expect(b.release!.date!.localeCompare(a.release!.date!) || b.score - a.score || updated.popularity(b.code) - updated.popularity(a.code)).toBeLessThanOrEqual(0);
+        }
+      }
+      const scored = search('newest spells 2', pool).effectHits!;
+      expect(scored[1].name).toBe('Twin Twisters');
+      expect(scored[1].score).toBeGreaterThan(scored[2].score);
+      expect(baseline.size).toBe(updated.size);
+    } finally {
+      for (const row of originalReleases) db.prepare('UPDATE card_release SET tcg_date=? WHERE passcode=?').run(row.tcg_date, row.passcode);
+      createCardEffectIndex(db, cards); vi.useRealTimers();
+    }
     expect(present(search('hand traps before 2015', ['Effect Veiler', 'Ash Blossom & Joyous Spring'].map(code), { effectOmit: ['Released: before 2015'] }))).toContain(code('Ash Blossom & Joyous Spring'));
   });
   it.each(nameCases)('name/alias/typo: %s',(text,name)=>{
