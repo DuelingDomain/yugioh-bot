@@ -4,7 +4,7 @@ import { isDuelFormat } from "../duels/settings.js";
 import { DuelServiceError } from "./duels.js";
 
 /** Deck-editor test duels are private practice. They never show in lists, history or counts. */
-export const NOT_TEST_DUEL_SQL = "coalesce(json_extract(setup_json, '$.testDuel'), 0) = 0";
+export const NOT_TEST_DUEL_SQL = "case when json_valid(setup_json) then coalesce(json_extract(setup_json, '$.testDuel'), 0) else 0 end = 0";
 
 export const DUEL_LIST_ACCESS_SQL = `kind = 'play' and sandbox = 0 and ${NOT_TEST_DUEL_SQL} and (
   organizer_player_id = @viewer

@@ -46,7 +46,7 @@ const OWN_SQL = `
   join duel_seats me on me.duel_id = d.id and me.player_id = @viewer
   where d.kind = 'play' and d.guild_id = @guild
     and d.sandbox = 0
-    and coalesce(json_extract(d.setup_json, '$.testDuel'), 0) = 0
+    and case when json_valid(d.setup_json) then coalesce(json_extract(d.setup_json, '$.testDuel'), 0) else 0 end = 0
     and d.archived_at is null
     and (
       d.status = 'active'
@@ -75,7 +75,7 @@ const COUNT_SQL = `
   from duels
   where kind = 'play' and guild_id = @guild
     and sandbox = 0
-    and coalesce(json_extract(setup_json, '$.testDuel'), 0) = 0
+    and case when json_valid(setup_json) then coalesce(json_extract(setup_json, '$.testDuel'), 0) else 0 end = 0
     and status = 'active'
     and archived_at is null
     and (
