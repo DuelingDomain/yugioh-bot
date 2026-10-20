@@ -47,7 +47,7 @@ it("errors: lists the top issues by 24 h events across projects and totals the l
     if (url.pathname === "/api/0/projects/dd/web/issues/") {
       expect(url.searchParams.get("statsPeriod")).toBe("24h");
       expect(url.searchParams.get("query")).toBe("is:unresolved");
-      return json([issue("11", "TypeError: a", 5), issue("12", "RangeError: b", 40)]);
+      return json([issue("11", "TypeError: a", 5), issue("12", "RangeError: b", 40, { firstSeen: "2026-10-19T10:00:00Z" })]);
     }
     if (url.pathname === "/api/0/projects/dd/ws/issues/") return json([issue("21", "Socket closed", 12, { project: { slug: "ws" }, level: "warning", userCount: 0 })]);
     if (url.pathname === "/api/0/projects/dd/web/") return json({ id: "101" });
@@ -62,7 +62,10 @@ it("errors: lists the top issues by 24 h events across projects and totals the l
   expect(body.state).toBe("ok");
   expect(body.data.last24h).toBe(321);
   expect(body.data.issues.map((i: { title: string; count: number }) => [i.title, i.count])).toEqual([["RangeError: b", 40], ["Socket closed", 12], ["TypeError: a", 5]]);
-  expect(body.data.issues[0]).toMatchObject({ url: "https://dd.sentry.io/issues/12/", level: "error", users: 3, culprit: "app/api/duels/route", project: "web" });
+  expect(body.data.issues[0]).toMatchObject({ url: "https://dd.sentry.io/issues/12/", level: "error", users: 3, culprit: "app/api/duels/route", project: "web", firstSeen: "2026-10-19T10:00:00Z" });
+  // The hourly buckets come through for the per-issue bars, oldest first.
+  expect(body.data.issues[0].hourly).toEqual([40, ...Array(23).fill(0)]);
+  expect(body.data.issues[2].firstSeen).toBeNull();
   expect(body.data.dashboardUrl).toBe("https://dd.sentry.io/projects/web/");
   expect(JSON.stringify(body)).not.toContain(TOKEN);
 });
@@ -118,7 +121,7 @@ it("usage: shows visitors, page views, top pages and a 7 day series from HogQL",
   expect(body.state).toBe("ok");
   expect(body.data).toEqual({
     dau: 9, wau: 25, pageviewsToday: 31, dashboardUrl: "https://eu.posthog.com/project/42/dashboard/7",
-    dauSeries: [0, 0, 0, 4, 0, 7, 9],
+    dauSeries: [0, 0, 0, 4, 0, 7, 9], pageviews7d: 59,
     topPages: [{ path: "/dashboard", views: 12 }, { path: "/duels/[slug]", views: 7 }],
   });
   expect(fetchStub).toHaveBeenCalledTimes(3);

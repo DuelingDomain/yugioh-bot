@@ -71,9 +71,37 @@ it("lists running duels and lobbies with players, then open drafts, and skips st
   expect(data.duels[0]).toMatchObject({ name: "Table d1", format: "1v1", formatLabel: "1v1 duel", players: ["Ann", "Bo"], ranked: true, genesys: true,
     startedAt: Date.parse("2026-10-19T11:55:00Z"), watchHref: "/duels/d1" });
   expect(data.duels[1]).toMatchObject({ formatLabel: "Tag duel", players: ["Ann"], startedAt: null, ranked: false, genesys: false, watchHref: "/duels/d3" });
-  expect(data.drafts.map((d: { slug: string }) => d.slug)).toEqual(["dr2", "dr1"]);
+  expect(data.drafts.map((d: { slug: string }) => d.slug)).toEqual(["dr1", "dr2"]); // running first, then lobbies
   expect(data.drafts.find((d: { slug: string }) => d.slug === "dr1")).toMatchObject({
     status: "active", players: ["Bo", "Ann"], progress: "Round 2, pick 3", startedAt: Date.parse("2026-10-19T11:00:00Z"), href: "/draft/dr1" });
+});
+
+it("adds seats with pictures and bots, the turn from the clock, draft progress, and duels that ended in the last hour", async () => {
+  seed();
+  db.prepare("update users set image_url = ? where id = 2").run("https://img.example.test/ann.png");
+  db.prepare("update duels set clock_json = ? where id = 1").run('{"turn":5,"remainingMs":[1000,2000],"activeSeat":1,"startedAt":1}');
+  db.exec(`insert into users(id,username,display_name) values (6,'bot1','Bot 1');
+    insert into players(id,guild_id,discord_user_id,display_name,user_id) values (15,'g','bot_player_dev_1','Bot 1',6);
+    insert into draft_players(draft_id,player_id,seat_index,pick_count) values (1,15,2,7);
+    update draft_players set pick_count = 6 where draft_id = 1 and player_id = 12;
+    update drafts set config_json = '{"mode":"theme","cardsPerPlayer":45,"poolSource":{"cubeId":1,"cubeName":"Vintage 540"}}' where id = 1;`);
+  duel(9, "d9", { status: "completed", created: "2026-10-19 11:00:00", started: "2026-10-19 11:05:00", ended: "2026-10-19 11:40:00", seats: [12, 13] });
+  duel(10, "d10", { status: "completed", format: "tag", created: "2026-10-19 11:00:00", started: "2026-10-19 11:05:00", ended: "2026-10-19 11:50:00", seats: [12, 13, 14, "bot"] });
+  duel(11, "d11", { status: "completed", created: "2026-10-19 09:00:00", started: "2026-10-19 09:05:00", ended: "2026-10-19 10:50:00", seats: [12, 13] });
+  db.exec("update duels set winner_seat = 0, turn_count = 14 where id = 9; update duels set winner_seat = 1 where id = 10;");
+  const { data } = await (await section("live")).json();
+  const d1 = data.duels.find((d: { slug: string }) => d.slug === "d1");
+  expect(d1).toMatchObject({ turn: 5, activeSeat: 1, lastActivityAt: Date.parse("2026-10-19T11:58:00Z"),
+    seats: [{ name: "Ann", avatarUrl: "https://img.example.test/ann.png", bot: false, userId: 2 }, { name: "Bo", avatarUrl: null, bot: false, userId: 3 }] });
+  expect(data.duels.find((d: { slug: string }) => d.slug === "d3")).toMatchObject({ turn: null, activeSeat: null });
+  expect(data.drafts.find((d: { slug: string }) => d.slug === "dr1")).toMatchObject({
+    modeLabel: "Theme", cubeName: "Vintage 540", picksMade: 7, picksTotal: 45,
+    seats: [{ name: "Bo", bot: false, userId: 3 }, { name: "Ann", bot: false, userId: 2 }, { name: "Bot 1", avatarUrl: null, bot: true, userId: null }] });
+  // Newest first; the 10:50 duel is older than an hour. Tag partners win together (team = seat % 2).
+  expect(data.ended).toEqual([
+    { slug: "d10", name: "Table d10", formatLabel: "Tag duel", ranked: false, result: "Bo & Practice Bot won", turns: null, endedAt: Date.parse("2026-10-19T11:50:00Z"), replayHref: "/duels/d10/replay" },
+    { slug: "d9", name: "Table d9", formatLabel: "1v1 duel", ranked: false, result: "Ann beat Bo", turns: 14, endedAt: Date.parse("2026-10-19T11:40:00Z"), replayHref: "/duels/d9/replay" },
+  ]);
 });
 
 it("counts today and seven UTC days with a series per metric", async () => {
@@ -99,6 +127,8 @@ it("counts today and seven UTC days with a series per metric", async () => {
   expect(data.series.activeUsers).toEqual([0, 0, 0, 0, 1, 2, 4]);
   expect(data.today).toEqual({ signups: 2, activeUsers: 4, duelsStarted: 2, duelsFinished: 0, draftsStarted: 1, draftsCompleted: 0 });
   expect(data.last7Days).toEqual({ signups: 3, activeUsers: 4, duelsStarted: 3, duelsFinished: 1, draftsStarted: 2, draftsCompleted: 1 });
+  // The week before (Oct 6 to 12): the duel on the 9th between Ann and Bo; Cy signed in on the 10th.
+  expect(data.previous7Days).toEqual({ signups: 1, activeUsers: 2, duelsStarted: 1, duelsFinished: 1, draftsStarted: 0, draftsCompleted: 0 });
 });
 
 it("asks for DISCORD_GUILD_ID when it is missing, for both sections", async () => {

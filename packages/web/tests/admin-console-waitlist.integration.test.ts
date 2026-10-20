@@ -33,8 +33,9 @@ beforeEach(() => {
     const { pathname } = new URL(url);
     const method = init?.method ?? "GET";
     if (method === "GET" && pathname === "/v1/waitlist_entries") {
-      const pending = entries.filter((e) => e.status === "pending");
-      return Response.json({ data: pending, total_count: pending.length });
+      const status = new URL(url).searchParams.get("status");
+      const rows = entries.filter((e) => !status || e.status === status);
+      return Response.json({ data: rows, total_count: rows.length });
     }
     const action = /^\/v1\/waitlist_entries\/([^/]+)\/(invite|reject)$/.exec(pathname);
     if (method === "POST" && action) {
@@ -80,10 +81,13 @@ it("shows a safe error when Clerk fails and never leaks the key", async () => {
   expect(JSON.parse(text).state).toBe("error");
   expect(text).not.toContain("sk_test_secret");
 });
-it("approves, busts the cache, and the entry leaves the list", async () => {
-  expect((await (await list()).json()).data.pending).toBe(2);
+it("approves, busts the cache, and the entry moves to the recent decisions", async () => {
+  const before = await (await list()).json();
+  expect(before.data.pending).toBe(2);
+  expect(before.data.decided).toEqual([]);
   await list(); // second read is served from cache
-  expect(clerk.mock.calls.filter(([, i]) => i?.method === "GET")).toHaveLength(1);
+  // One load = the pending list plus the latest entries for the decisions.
+  expect(clerk.mock.calls.filter(([, i]) => i?.method === "GET")).toHaveLength(2);
   const response = await act("wle_new", { action: "approve" });
   expect(response.status).toBe(200);
   expect(posts()[0][0]).toBe("https://api.clerk.com/v1/waitlist_entries/wle_new/invite");
@@ -91,6 +95,18 @@ it("approves, busts the cache, and the entry leaves the list", async () => {
   const after = await (await list()).json();
   expect(after.data.entries.map((e: { id: string }) => e.id)).toEqual(["wle_old"]);
   expect(after.data.pending).toBe(1);
+  expect(after.data.decided).toEqual([{ id: "wle_new", email: "new@example.test", status: "invited", at: 5_000 }]);
+});
+it("still lists pending entries when the decisions call fails", async () => {
+  const pendingOnly = clerk.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+  clerk.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (!new URL(url).searchParams.get("status")) return new Response("{}", { status: 500 });
+    return pendingOnly(url, init);
+  });
+  const body = await (await list()).json();
+  expect(body.state).toBe("ok");
+  expect(body.data.pending).toBe(2);
+  expect(body.data).not.toHaveProperty("decided");
 });
 it("rejects an entry", async () => {
   expect((await act("wle_old", { action: "reject" })).status).toBe(200);
