@@ -222,26 +222,30 @@
 /* Floating HUD room (1v1): the board is height-bound, so every pixel of chrome inside the frame is card. The
    padding is trimmed and the LP tallies are slim: each tally is the floor of its hand strip, so a strip costs no more
    than the tally itself. The rival's backs hang from the top edge of the screen (most of each card is hidden above the
-   board, under the slim top bar). Your hand rests at the bottom edge of the screen: the strip holds the top part of the
-   cards and the rest is below the edge (see `--hand-sink`), so no resting hand card covers a Spell/Trap zone. The
-   hover lift still raises the card to full size. Phones keep the compact rules below. */
+   board, under the slim top bar). Your hand rests in the bottom strip, whole: the board takes the height it needs (see
+   --lk), so the hand never hangs below the screen edge. It is drawn at about the size it had before the bigger field
+   (0.86 of a zone is the old hand of about 150px at 1080p on today's larger zone), and no resting hand card covers a
+   Spell/Trap zone. The hover lift still raises the card to full size. Phones keep the compact rules below. */
 @container (min-width: 641px) {
   :global([data-hud="room"]) .playmat {
     --py: 2px;
     --gs: 1px;
     --hpad: 1px;
     --tally-h: clamp(40px, calc(100cqh * 0.046), 64px);
-    --lk: 0.55;
-    --lh-k: 1;
+    --lk: 0.86;
+    --lh-k: 0.86;
     --lh-max: 400px;
     --res-bot-px: 0px;
     --lift-k: 0;
     --mark-k: 0;
     --ohk: 0.44;
-    --top-hide: 0.5;
+    /* The rival's backs are whole: none of a card hangs above the screen edge (it was half of each card since the bigger
+       field, 0.38 of it before). The board gives up the height it needs, as for your hand. */
+    --top-hide: 0;
     --top-lift-k: 0.03;
     --res-top-px: 2px;
-    /* The part of a drawn hand card that is below the strip, that is below the bottom edge of the screen. */
+    /* The part of a drawn hand card that is below the strip, that is below the bottom edge of the screen. It is 0 while the
+       drawn size (--lh) stays within the strip (--lh-rest), which it does by the numbers above. */
     --hand-sink: max(0px, calc(var(--lh) - var(--lh-rest) - var(--hpad)));
   }
 
@@ -693,8 +697,9 @@
   pointer-events: none;
 }
 
-/* Your hand starts at the top of its strip and hangs below the screen edge. A hovered card is lifted by the part that
-   hangs, so its bottom edge (and the ATK / DEF plate) stays on screen. */
+/* Your hand starts at the top of its strip and fills it (--lh equals --lh-rest here, so nothing hangs below the screen edge).
+   If a drawn card ever were larger than its strip, a hovered card is lifted by the part that hangs (--hand-sink), so its
+   bottom edge (and the ATK / DEF plate) stays on screen. */
 :global([data-hud="room"]) .handLocal {
   align-items: flex-start;
   padding-bottom: 0;
@@ -1095,6 +1100,13 @@
 
 .zone[data-kind="emz"] .zoneHit::before {
   border-color: var(--sheet-hi);
+}
+
+/* The floating HUD room draws ONE guide per monster zone (the portrait .frame). The crossing landscape guide would show as a
+   second, offset outline around every Main and Extra Monster Zone; a card in Defense lies on its side inside the same slot. */
+:global([data-hud="room"]) .zone[data-kind="mz"] .zoneHit::before,
+:global([data-hud="room"]) .zone[data-kind="emz"] .zoneHit::before {
+  content: none;
 }
 
 .frame {
