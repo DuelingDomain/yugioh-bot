@@ -577,3 +577,16 @@ it.each(['reserve-response-lost', 'intent-conflict', 'intent-response-lost'])('r
     expect(context.db.prepare('SELECT phrase FROM effect_readings').all()).toEqual([]);
   } finally { await context.close(); }
 });
+
+
+it.each([undefined, '', '   '])('requires the dedicated runtime token (%s) even when GITHUB_TOKEN is set', async token => {
+  const context = await readerFixture();
+  const network = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('No network is permitted'));
+  try {
+    expect(await context.read('no dedicated token', 'user', { store: undefined,
+      env: { GITHUB_TOKEN: 'broad-token-must-not-be-used', GITHUB_REPOSITORY: 'fixture/repo', EFFECT_TAGGING_LEDGER_TOKEN: token } })).toBeNull();
+    expect(network).not.toHaveBeenCalled();
+    expect(context.calls()).toBe(0);
+    expect(context.db.prepare('SELECT phrase FROM effect_readings').all()).toEqual([]);
+  } finally { network.mockRestore(); await context.close(); }
+});

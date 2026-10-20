@@ -117,7 +117,9 @@ export async function fallbackEffectReading(db: Database.Database, text: string,
     const archetypes = effectArchetypes(db), cached = cachedEffectReading(db, phrase, archetypes);
     if (cached) return cached;
     if (!apiKey) return null;
-    const store = options.store ?? new RuntimeLedgerStore(env.EFFECT_TAGGING_LEDGER_REPOSITORY ?? env.GITHUB_REPOSITORY ?? "", env.EFFECT_TAGGING_LEDGER_TOKEN ?? env.GITHUB_TOKEN ?? "", undefined);
+    const ledgerToken = env.EFFECT_TAGGING_LEDGER_TOKEN?.trim();
+    if (!options.store && !ledgerToken) return null;
+    const store = options.store ?? new RuntimeLedgerStore(env.EFFECT_TAGGING_LEDGER_REPOSITORY ?? env.GITHUB_REPOSITORY ?? "", ledgerToken!);
     const origin = new URL(options.baseUrl ?? "https://api.anthropic.com");
     if (origin.href !== "https://api.anthropic.com/" && !(options.allowLoopback && origin.protocol === "http:" && origin.hostname === "127.0.0.1" && origin.pathname === "/")) return null;
     if (origin.username || origin.password || origin.search || origin.hash) return null;
