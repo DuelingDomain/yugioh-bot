@@ -349,6 +349,12 @@ describe("SQL insights over the real pinned artifact", () => {
     const cube = [46986414, 89631139, 83764719, 24094653, 97268402, 7084129, 47222536];
     const health = service.poolHealth(cube);
     expect(health.era).toMatchObject({ medianYear: 2002, spread: 0 });
+    db.exec("SAVEPOINT regional_era");
+    try {
+      db.prepare("UPDATE card_release SET ocg_date='2099-01' WHERE passcode IN (46986414,89631139,83764719)").run();
+      expect(service.poolHealth([46986414, 89631139, 83764719]).era).toMatchObject({ medianYear: 2002, spread: 0 });
+      expect(service.effectSearch("newest", [46986414]).cards[0].release?.date).toBe("2099-01");
+    } finally { db.exec("ROLLBACK TO regional_era; RELEASE regional_era"); }
     expect(health.warnings).toContain("3 cards are much newer than the rest of this cube.");
     expect(service.poolHealth(cube, { era: { medianYear: 2002, spread: 1 } }).warnings).toContain("3 cards are much newer than the rest of this cube.");
     const seed = service.effectSearch("spell cards", [83764719, 47222536], { era: { medianYear: 2002, spread: 1 } });

@@ -70,8 +70,12 @@ export function compareNewest(left: ReleaseDates, right: ReleaseDates, region: R
   const byMonth = a === b ? 0 : a === undefined ? 1 : b === undefined ? -1 : a > b ? -1 : 1;
   return pending || byMonth || (a && b ? (right.setOrder ?? 0) - (left.setOrder ?? 0) : 0);
 }
+/** Cube era keeps the original TCG-first convention, independent of newest search. */
+export function cardEraDate(card: ReleaseDates): string | undefined {
+  return validReleaseMonth(card.tcgDate) ? card.tcgDate : validReleaseMonth(card.ocgDate) ? card.ocgDate : undefined;
+}
 export function deriveCardEra(cards: readonly ReleaseDates[]): CardEra | undefined {
-  const years = cards.map(card => selectedReleaseDate(card)).filter((date): date is string => !!date).map(date => Number(date.slice(0, 4))).sort((a, b) => a - b);
+  const years = cards.map(cardEraDate).filter((date): date is string => !!date).map(date => Number(date.slice(0, 4))).sort((a, b) => a - b);
   if (!years.length) return undefined;
   const median = (values: readonly number[]) => {
     const middle = Math.floor(values.length / 2);
@@ -83,6 +87,6 @@ export function deriveCardEra(cards: readonly ReleaseDates[]): CardEra | undefin
 }
 /** A soft score bonus. Unknown dates receive no bonus. */
 export function cardEraBoost(card: ReleaseDates, era?: CardEra): number {
-  const date = selectedReleaseDate(card);
+  const date = cardEraDate(card);
   return date && era ? 4 * Math.max(0, 1 - Math.abs(Number(date.slice(0, 4)) - era.medianYear) / Math.max(3, era.spread + 1)) : 0;
 }
