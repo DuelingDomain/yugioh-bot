@@ -1,6 +1,8 @@
 import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
 import { notifyJoinRequest } from "../notify/join-request.js";
+import { clearDiscordSubject } from "../discord-admin/privacy.js";
+import { normalizedNoticeEmail } from "../discord-admin/subject.js";
 
 export interface WaitlistMeta {
   source?: string;
@@ -16,8 +18,17 @@ export function createWaitlistService(db: Database.Database) {
   `);
 
   return {
+    /** Remove local and Discord state, including Clerk-only entries with no local signup. */
+    remove(email: string): { signups: number; actions: number } {
+      return db.transaction(() => {
+        const cleared = clearDiscordSubject(db, { email });
+        const signups = db.prepare("delete from waitlist_signups where email in (?,?)")
+          .run(normalizedNoticeEmail(email), email.trim().toLowerCase()).changes;
+        return { signups, actions: cleared.actions };
+      }).immediate();
+    },
     join(email: string, meta: WaitlistMeta = {}): { status: "joined" | "exists" } {
-      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedEmail = normalizedNoticeEmail(email);
       const createdAt = new Date().toISOString();
       const result = db.transaction(() => {
         const result = insert.run(

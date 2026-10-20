@@ -46,6 +46,8 @@ Compose passes all of these to the `web` service. Put them in the VM `.env` (see
 
 The worker must run the new build too. It writes a heartbeat row on each health tick and clears old presence every 10 minutes. The disk measurement runs once an hour, because it walks the whole data folder including the image cache. Until it runs, System shows "No heartbeat yet" for the worker. The worker also measures disk use (the database folder, `CARD_IMAGE_CACHE_DIR`, `DUEL_DATA_DIR` and the backups) and stores a snapshot in SQLite (`disk_usage_snapshot`, `disk_usage_history`); the web only reads it. The worker container needs read access to those folders. Until the first snapshot, the disk line is empty.
 
+The Discord bot writes `bot_heartbeat(id, at, pid)` when enabled. System reads `at` in epoch milliseconds. A missing table shows "Not deployed"; an empty table shows "No heartbeat yet"; a heartbeat older than 3 minutes shows "Late". With `DISCORD_BOT_ENABLED=0`, the bot container stays idle and writes no heartbeat.
+
 ## Create the keys
 
 1. Clerk. Nothing new. The web already has `CLERK_SECRET_KEY`. The console uses it to list waitlist entries and to call invite and reject.

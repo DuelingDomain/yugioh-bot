@@ -2,6 +2,7 @@ import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
 import { isReplayForkSetup } from "../duels/replay-fork.js";
 import { userHistory } from "./user-history.js";
+import { clearDiscordSubject } from "../discord-admin/privacy.js";
 
 /** What every kept row of a deleted account says in place of the person's name. */
 export const DELETED_PLAYER_NAME = "Deleted player";
@@ -67,7 +68,7 @@ function scrubDuelName(name: string, personNames: readonly string[]): string {
  */
 export function deleteUserAccount(db: Database.Database, userId: number): AccountDeletionSummary {
   const run = db.transaction((): AccountDeletionSummary => {
-    const user = db.prepare<[number], UserRow & { display_name: string }>("select id, clerk_user_id, email, display_name from users where id = ?").get(userId);
+    const user = db.prepare<[number], UserRow & { display_name: string; discord_user_id: string | null }>("select id, clerk_user_id, email, display_name, discord_user_id from users where id = ?").get(userId);
     const counts: Record<string, number> = {};
     const note = (key: string, changes: number) => { if (changes > 0) counts[key] = changes; };
     if (!user) return { userId, mode: "removed", counts };
@@ -106,7 +107,13 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     note("replay_fork_names", scrubbedForks);
 
     note("saved_decks", db.prepare("delete from saved_decks where owner_user_id = ?").run(userId).changes);
-    if (user.email) note("waitlist_signups", db.prepare("delete from waitlist_signups where email = ?").run(user.email).changes);
+    const discord = clearDiscordSubject(db, { email: user.email, subjectId: user.clerk_user_id,
+      siteUserId: userId, discordUserId: user.discord_user_id });
+    note("discord_waitlist_actions", discord.actions);
+    note("discord_outbox", discord.outbox);
+    note("mod_actions", discord.modActions);
+    note("waitlist_signups", discord.signups + (user.email
+      ? db.prepare("delete from waitlist_signups where email = ?").run(user.email).changes : 0));
 
     const owned = "(select id from players where user_id = ?)";
     if (Object.keys(userHistory(db, userId)).length === 0) {

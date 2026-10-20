@@ -27,6 +27,7 @@ beforeEach(() => {
   vi.stubEnv("DATABASE_PATH", "/data-volume/bot.sqlite");
   statfs.mockReset(); statfs.mockResolvedValue(disk(100, 50));
   db = new Database(":memory:"); migrate(db); getDb.mockReturnValue(db);
+  db.prepare("insert into bot_heartbeat(id,at,pid) values(1,?,4243)").run(Date.now());
   db.exec(`insert into users(id,username,display_name) values(1,'op','Operator'),(2,'ann','Ann');
     insert into players(id,guild_id,discord_user_id,display_name,user_id) values(11,'guild-1','d1','Operator',1),(12,'guild-1','d2','Ann',2);
     insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status,format) values(1,'guild-1','t1','Table',12,'domain','active','ffa4'),
@@ -115,7 +116,7 @@ it("lists every service and says All systems up when nothing is wrong", async ()
   stubServices("up"); beat(10_000);
   const data = await system_();
   expect(data.services.map((s: { id: string; state: string }) => [s.id, s.state])).toEqual([
-    ["web", "up"], ["duel", "up"], ["worker", "up"], ["ws", "up"], ["bot", "not-deployed"], ["database", "up"],
+    ["web", "up"], ["duel", "up"], ["worker", "up"], ["ws", "up"], ["bot", "up"], ["database", "up"],
   ]);
   expect(data.problems).toBe(0);
   expect(data.disk).toMatchObject({ tone: "ok", usedPercent: 50, totalBytes: 100 * GIB, freeBytes: 50 * GIB });
@@ -123,7 +124,7 @@ it("lists every service and says All systems up when nothing is wrong", async ()
 
 it("shows the WS server as up with its connection count and latency", async () => {
   stubServices("up", "up"); beat(10_000);
-  const ws = service(await system_(), "ws") 
+  const ws = service(await system_(), "ws")
   expect(ws.state).toBe("up");
   expect(ws.detail).toBe("3 connections. Up 2 h");
   expect(ws.latencyMs).toBeGreaterThanOrEqual(0);
@@ -160,3 +161,31 @@ it("has no disk breakdown until the worker measures, then returns the stored sna
   expect(data.disk.breakdown).toEqual({ ...snapshot, measuredAt: at });
 });
 
+
+it("reads the bot runtime heartbeat table and timestamp", async () => {
+  stubServices("up"); beat(10_000);
+  const at = Date.now() - 30_000;
+  db.prepare("update bot_heartbeat set at=? where id=1").run(at);
+  expect(service(await system_(), "bot")).toMatchObject({ state: "up", lastBeatAt: at, detail: "Alive." });
+});
+
+it("shows an empty bot heartbeat table as waiting for its first heartbeat", async () => {
+  stubServices("up"); beat(10_000);
+  db.exec("delete from bot_heartbeat");
+  expect(service(await system_(), "bot")).toMatchObject({ state: "stale", lastBeatAt: null, detail: "No heartbeat yet." });
+});
+
+it("shows an old bot heartbeat as late", async () => {
+  stubServices("up"); beat(10_000);
+  const at = Date.now() - 4 * 60_000;
+  db.prepare("update bot_heartbeat set at=? where id=1").run(at);
+  expect(service(await system_(), "bot")).toMatchObject({ state: "stale", lastBeatAt: at });
+});
+
+it("shows a missing bot heartbeat table as not deployed", async () => {
+  stubServices("up"); beat(10_000);
+  db.exec("drop table bot_heartbeat");
+  const data = await system_();
+  expect(service(data, "bot")).toMatchObject({ state: "not-deployed", detail: "Not deployed." });
+  expect(data.problems).toBe(0);
+});
