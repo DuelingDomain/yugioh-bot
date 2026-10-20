@@ -44,7 +44,9 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'))
     runs-on: ubuntu-latest
-    environment: production
+    environment:
+      name: production
+      deployment: false
     timeout-minutes: 180
     env:
       VM_DEPLOY_ENABLED: ${{ secrets.VM_HOST != '' && secrets.VM_USER != '' && secrets.VM_SSH_PRIVATE_KEY != '' && 'true' || 'false' }}
@@ -208,8 +210,6 @@ jobs:
     needs: prepare
     if: github.event_name == 'workflow_dispatch' && needs.prepare.outputs.superseded != 'true' && needs.prepare.outputs.rollback != 'true'
     runs-on: ubuntu-24.04-arm
-    # Only web needs the production environment source-map upload secret.
-    environment: ${{ matrix.service == 'web' && 'production' || '' }}
     permissions:
       contents: read
       packages: write
@@ -267,7 +267,6 @@ jobs:
           NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
-          SENTRY_AUTH_TOKEN: ${{ matrix.service == 'web' && secrets.SENTRY_AUTH_TOKEN || '' }}
 
   deploy:
     name: Deploy to Production VM
@@ -344,8 +343,16 @@ jobs:
           for service in duel web worker ws bot; do
             # Retained releases from before ADR 0006 have no bot image.
             if [ "$service" = bot ] && ! git show "$DEPLOY_COMMIT:docker-compose.yml" | grep -q '^  bot:'; then continue; fi
-            image="ghcr.io/duelingdomain/yugioh-bot-$service:$DEPLOY_COMMIT"
-            docker manifest inspect --verbose "$image" > "$RUNNER_TEMP/rollback-manifest.json"
+            image="ghcr.io/duelingdomain/yugioh-bot-$service"
+            if ! docker manifest inspect --verbose "$image:release-$DEPLOY_COMMIT" > "$RUNNER_TEMP/rollback-manifest.json"; then
+              # Old releases predate healthy release tags. New releases must never use a mutable build tag.
+              git show "$DEPLOY_COMMIT:Dockerfile" > "$RUNNER_TEMP/rollback-Dockerfile"
+              if grep -Eq '^FROM scratch AS web-sourcemaps$' "$RUNNER_TEMP/rollback-Dockerfile"; then
+                echo "Missing healthy release tag for $service; rollback refused." >&2
+                exit 1
+              fi
+              docker manifest inspect --verbose "$image:$DEPLOY_COMMIT" > "$RUNNER_TEMP/rollback-manifest.json"
+            fi
             digest=$(python3 - "$RUNNER_TEMP/rollback-manifest.json" <<'PY'
           import json,sys
           with open(sys.argv[1]) as source:
@@ -691,7 +698,11 @@ jobs:
 
       - name: Record healthy deployment attempt
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
-        run: printf '%s\n' "$GITHUB_RUN_ATTEMPT" > "$RUNNER_TEMP/release/confirmed-attempt"
+        run: |
+          printf '%s\n' "$GITHUB_RUN_ATTEMPT" > "$RUNNER_TEMP/release/confirmed-attempt"
+          if [ "$DEPLOY_ROLLBACK" != true ]; then
+            cp "$RUNNER_TEMP/image-digests/web-sourcemaps.tar.gz" "$RUNNER_TEMP/release/"
+          fi
 
       - name: Upload healthy deployment record
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
@@ -701,6 +712,7 @@ jobs:
           path: |
             ${{ runner.temp }}/release/image-digests
             ${{ runner.temp }}/release/confirmed-attempt
+            ${{ runner.temp }}/release/web-sourcemaps.tar.gz
           if-no-files-found: error
           retention-days: 1
 
@@ -715,6 +727,7 @@ jobs:
     env:
       GHCR_TOKEN: ${{ github.token }}
       RUN_ATTEMPT: ${{ github.run_attempt }}
+      DEPLOY_COMMIT: ${{ needs.prepare.outputs.commit }}
     steps:
       - name: Download healthy deployment record
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -740,6 +753,7 @@ jobs:
                 confirmedAttempt !== process.env.RUN_ATTEMPT) {
               throw new Error('Registry retention requires deploy health checks in the current run attempt. Dispatch a new Deploy run for the intended current release.');
             }
+            if (!/^[0-9a-f]{40}$/.test(process.env.DEPLOY_COMMIT || '')) throw new Error('Invalid healthy release SHA.');
             const { createHash } = await import('node:crypto');
             const services = ["duel", "web", "worker", "ws"];
             if (imageDigests.split('\n').some(line => line.startsWith('bot '))) services.push('bot');
@@ -793,6 +807,62 @@ jobs:
               };
               // An identical retry must keep the existing rollback digest.
               if (current && current.digest !== next.digest) await tag('production-prev', current);
+              await tag(`release-${process.env.DEPLOY_COMMIT}`, next);
               await tag('production', next);
               core.info(`${repository}:production retains ${next.digest}`);
             }
+
+  report-release:
+    name: Report healthy release to Sentry
+    needs: [prepare, deploy]
+    if: ${{ !cancelled() && needs.deploy.result == 'success' && needs.prepare.outputs.rollback != 'true' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout reporting tools from workflow revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Download healthy deployment source maps
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: production-deployed-${{ needs.prepare.outputs.commit }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/deployed-release
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Install locked reporting tools without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Upload source maps and record healthy Sentry release
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_RELEASE: ${{ needs.prepare.outputs.commit }}
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
+            echo "Sentry upload is not configured; skip release reporting."
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/sentry-maps"
+          tar -C "$RUNNER_TEMP/sentry-maps" -xzf "$RUNNER_TEMP/deployed-release/web-sourcemaps.tar.gz"
+          IFS=',' read -ra projects <<< "$SENTRY_PROJECT"
+          for project in "${projects[@]}"; do
+            export SENTRY_PROJECT="$(echo "$project" | xargs)"
+            test -n "$SENTRY_PROJECT"
+            node_modules/.bin/sentry-cli releases new "$SENTRY_RELEASE"
+            if find "$RUNNER_TEMP/sentry-maps" -type f -name '*.map' -print -quit | grep -q .; then
+              node_modules/.bin/sentry-cli sourcemaps upload --release "$SENTRY_RELEASE" "$RUNNER_TEMP/sentry-maps"
+            else
+              echo "Older release has no exported source maps; skip upload."
+            fi
+            node_modules/.bin/sentry-cli releases finalize "$SENTRY_RELEASE"
+            node_modules/.bin/sentry-cli releases deploys "$SENTRY_RELEASE" new -e production
+          done

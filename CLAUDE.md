@@ -89,11 +89,21 @@ Its read-only SQLite guard covers duels, drafts, tournament rounds, active/betwe
 openings. Manual `force` skips only this activity guard; engine preflight, build lock and backups still apply.
 Staging is removed; it returns later on a separate server.
 The runner checks the prod target's main ancestry before running its code. Production prepares the
-verified engine bundle, builds four ARM64 images on `ubuntu-24.04-arm`, and pushes full-SHA tags to
-public GHCR packages. The VM only pulls and retags them as local `:latest`, preserving `:prev`; its
+verified engine bundle in Test alongside independent unit groups and selected engine suites. After the
+unit gate succeeds, Test builds five ARM64 images on `ubuntu-24.04-arm` (at most three together) and
+pushes full-SHA tags to public GHCR packages. Automatic Deploy consumes immutable bundle/digest
+artifact IDs from the exact successful Test run and attempt, without rebuilding. PRs dry-run the bundle
+and an amd64 bot image without publishing. Manual non-rollback Deploy still verifies Test and builds fresh images.
+The VM only pulls and retags them as local `:latest`, preserving `:prev`; its
 runtime Compose file has no build definitions and startup uses `--no-build`. Per-service registry
-`:buildcache` tags use `mode=max`; web also reuses a rolling `:nextcache` image. Manual rollback pulls
-the selected existing SHA without rebuilding. Each build records its output digest; production pulls
+`:buildcache` tags use `mode=max` except web (`mode=min`, excluding private map stages). Web reuses a
+digest-pinned, sanitized `:nextcache` with no Turbopack folder. Only the CI unit web build enables
+`NEXT_BUILD_FS_CACHE=1`; Next/Turbo Actions caches save only on main pushes. Deploy uploads the exact
+private maps and records Sentry releases only after health checks; Test has no upload token or production
+environment. Healthy images get `release-<sha>` tags. Cleanup keeps ten healthy releases and ages
+unused SHA/untagged images after seven days, including bot. Manual rollback resolves the healthy
+release tag without rebuilding (legacy SHA fallback only for older refs). Each build records its output
+digest; production pulls
 that digest. The VM refuses an older or diverged SHA before the activity wait unless `rollback=true`.
 The lock still protects deploys and owner maintenance. Disk checks require 6 GiB free before pull.
 Retries keep the good `:prev`; only obsolete GHCR SHA tags are removed. Owner tags stay.

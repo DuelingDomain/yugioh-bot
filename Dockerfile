@@ -44,28 +44,34 @@ ARG SENTRY_ENVIRONMENT=
 ARG SENTRY_RELEASE=
 ARG SENTRY_ORG=
 ARG SENTRY_PROJECT=
-ARG SENTRY_UPLOAD_SOURCEMAPS=0
-# Import the rolling cache, build, upload and remove maps in one committed layer.
-# This also removes any map files inherited from an older cache image.
-# The token is a temporary mount; fail without printing it if a tool persists it.
+ARG SENTRY_GENERATE_SOURCEMAPS=0
+# No upload credentials in Test builds. Export exact maps privately, then remove
+# maps and Turbopack data before copying any public runtime/cache content.
 RUN --mount=type=bind,from=nextcache,source=/cache,target=/tmp/nextcache \
-    --mount=type=secret,id=SENTRY_AUTH_TOKEN \
     mkdir -p packages/web/.next/cache \
     && cp -a /tmp/nextcache/. packages/web/.next/cache/ \
-    && SENTRY_AUTH_TOKEN="$(cat /run/secrets/SENTRY_AUTH_TOKEN 2>/dev/null || true)" \
-    SENTRY_UPLOAD_SOURCEMAPS="$SENTRY_UPLOAD_SOURCEMAPS" \
+    && rm -rf packages/web/.next/cache/turbopack \
+    && NEXT_BUILD_FS_CACHE=0 SENTRY_GENERATE_SOURCEMAPS="$SENTRY_GENERATE_SOURCEMAPS" \
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" \
     NEXT_PUBLIC_SENTRY_DSN="$NEXT_PUBLIC_SENTRY_DSN" \
     NEXT_PUBLIC_POSTHOG_KEY="$NEXT_PUBLIC_POSTHOG_KEY" \
     SENTRY_ENVIRONMENT="$SENTRY_ENVIRONMENT" SENTRY_RELEASE="$SENTRY_RELEASE" \
     SENTRY_ORG="$SENTRY_ORG" SENTRY_PROJECT="$SENTRY_PROJECT" npm run build --workspace=packages/web \
+    && mkdir /sentry \
+    && if [ "$SENTRY_GENERATE_SOURCEMAPS" = 1 ]; then \
+         cd /app/packages/web/.next \
+         && find server static -type f \( -name '*.js' -o -name '*.map' \) -print0 \
+           | tar --null -T - -czf /sentry/web-sourcemaps.tar.gz \
+         && cd /app; \
+       fi \
     && find /app -type f -name '*.map' -delete \
-    && if [ -s /run/secrets/SENTRY_AUTH_TOKEN ]; then \
-         if grep -F -r -q -f /run/secrets/SENTRY_AUTH_TOKEN /app; then \
-           echo "Sentry upload token found in build output" >&2; exit 1; \
-         else [ "$?" = 1 ] || { echo "Sentry upload token scan failed" >&2; exit 1; }; fi; \
-       fi
-# Export only the incremental build cache, never runtime configuration.
+    && rm -rf packages/web/.next/cache/turbopack \
+    && test -z "$(find packages/web/.next/cache -type d -name turbopack -print -quit)"
+# Only the builder-local web-build stage holds private maps. Never export its
+# intermediate layers to a public mode=max registry cache.
+FROM scratch AS web-sourcemaps
+COPY --from=web-build /sentry/ /
+
 FROM scratch AS web-cache
 COPY --from=web-build /app/packages/web/.next/cache/ /cache/
 

@@ -48,14 +48,18 @@ Shared paths stay in the engine rule unless their independence has been checked 
 
 The PR path rules and tests-only selection stay unchanged. Main pushes additionally treat all `packages/shared/**` changes, `data/duel-engine*/**`, `Dockerfile` and `.github/workflows/**` as engine inputs. This conservative shared rule includes service barrels and services now consumed by the host even when the historical PR filter exempts them. Every selected main engine run executes the full suites; main never uses tests-only selection.
 
-Bot-only and web-only changes run only the unit suites on PRs and main. Web unit shards and `unit-packages` start immediately, without waiting for change detection or engine caches. The package job computes the same PR diff locally to retain its tests-only optimization. The required `engine` and `engine-legacy` aggregates run even when their shards skip, succeed for an intentional non-engine skip, and fail if change detection fails or required shards do not succeed. The `unit` aggregate requires both unit jobs to succeed. A successful main push **Test** still triggers **Deploy** for its exact SHA; PR, scheduled and manual Test runs do not deploy. Browser Playwright flows remain local-only; their helper unit tests run in CI.
+Bot-only and web-only changes select only the unit test layers on PRs and main. Five independent package groups (typecheck/protocol, web build, shared tests, service tests, duel/CI safety) and two web shards start immediately, without waiting for change detection or engine caches. `unit-packages` strictly aggregates all five package groups, and `unit` requires that aggregate and both web shards to succeed. Duel/CI safety computes the same PR diff locally to retain its tests-only optimization. The required `engine` and `engine-legacy` aggregates accept intentional non-engine skips and reject failed detection or missing required shards.
+
+Main push Test prepares the production bundle in parallel, then builds five ARM64 images after the unit gate, with at most three image jobs together while engine shards continue. Main change detection starts from the latest fully successful tested ancestor, so cancelled runs cannot hide engine changes. Next/Turbo Actions caches save only on main pushes; the unit web build alone enables the Next filesystem build cache. PRs exercise both production composites by preparing a bundle and building one amd64 bot image without registry publication. A successful main push **Test** triggers **Deploy** for its exact SHA; Deploy consumes immutable artifact IDs from the verified Test run/attempt rather than rebuilding. Manual Deploy verifies a successful main push Test and retains its fresh-build/retained-release rollback paths. PR, scheduled and manual Test runs do not deploy. Browser Playwright flows remain local-only; their helper unit tests run in CI.
 
 It has these jobs:
 
 | Job | What it runs |
 |---|---|
 | `cores` | Builds the standard, domain and multi cores, or restores them from the Actions cache. The key hashes the pins, the core patches, the build scripts and `package-lock.json`. The other core jobs use this bundle (`data/duel-engine-next`). |
-| `unit` | `npm ci`, build shared, `npm run typecheck`, then the tests that need no core: shared, bot, worker, WS, web, duel-server `test:unit`, e2e `test:unit`. |
+| `unit` | Strict aggregate of `unit-packages` (five independent package groups) and the two web unit shards. |
+| `production-bundle`, `production-images` | Main only: prepare the verified production bundle, then build/push five images after the unit gate, at most three together. |
+| `production-dry-run` | PR only: prepare the production bundle and build a bot image without publishing. |
 | `changes` | Computes the `engine` flag from changed paths, with the fallbacks above. |
 | `engine` | When `engine=true`: `DUEL_REQUIRE_CORES=1 npm run test:engine`, the web tests with real duels and the engine smoke scripts. A missing core fails any selected test. |
 | `engine-legacy` | When `engine=true`: the engine suite with `DUEL_1V1_ENGINE=legacy`, including the legacy main tests. |

@@ -1,5 +1,9 @@
 name: Prepare production engine bundle
 description: Build or restore and verify the pinned production engine bundle, including multi cores
+inputs:
+  save-cache:
+    description: Save engine caches only for release producers
+    default: "true"
 runs:
   using: composite
   steps:
@@ -53,7 +57,7 @@ runs:
         npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
 
     - name: Save pinned duel-engine bundle
-      if: ${{ steps.bundle.outputs.cache-hit != 'true' }}
+      if: inputs.save-cache == 'true' && steps.bundle.outputs.cache-hit != 'true'
       uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: data/duel-engine
@@ -96,7 +100,7 @@ runs:
       run: bash packages/duel-server/scripts/build-deploy-multi-cores.sh
 
     - name: Save multi cores
-      if: ${{ steps.multi.outputs.cache-hit != 'true' }}
+      if: inputs.save-cache == 'true' && steps.multi.outputs.cache-hit != 'true'
       uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: |

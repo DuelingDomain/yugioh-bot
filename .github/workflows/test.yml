@@ -522,7 +522,8 @@ jobs:
       - name: Build shared
         run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
       - name: Restore Next.js build cache
-        uses: actions/cache@v4
+        id: next-cache
+        uses: actions/cache/restore@v4
         with:
           path: packages/web/.next/cache
           key: next-ci-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
@@ -530,7 +531,14 @@ jobs:
       - name: Build web with a dummy Clerk public key
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
+          NEXT_BUILD_FS_CACHE: "1"
         run: bash scripts/ci/build-web.sh
+      - name: Save Next.js build cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.next-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: packages/web/.next/cache
+          key: ${{ steps.next-cache.outputs.cache-primary-key }}
 
   unit-shared:
     name: Shared unit tests
@@ -995,7 +1003,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Prepare production engine bundle
         uses: ./.github/actions/prepare-production-bundle
       - name: Record production bundle artifact name
@@ -1014,15 +1022,15 @@ jobs:
   production-images:
     name: Build ARM64 ${{ matrix.service }} image
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: production-bundle
+    needs: [production-bundle, unit]
     runs-on: ubuntu-24.04-arm
-    environment: ${{ matrix.service == 'web' && 'production' || '' }}
     permissions:
       contents: read
       packages: write
     timeout-minutes: 90
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
         include:
           - service: duel
@@ -1056,4 +1064,30 @@ jobs:
           NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
-          SENTRY_AUTH_TOKEN: ${{ matrix.service == 'web' && secrets.SENTRY_AUTH_TOKEN || '' }}
+
+  production-dry-run:
+    name: Production composites dry run (bundle and bot)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      DEPLOY_COMMIT: ${{ github.sha }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
+      IMAGE: ghcr.io/duelingdomain/yugioh-bot-bot
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Prepare production engine bundle without publishing
+        uses: ./.github/actions/prepare-production-bundle
+        with:
+          save-cache: 'false'
+      - name: Build bot image without publishing
+        uses: ./.github/actions/build-production-image
+        with:
+          service: bot
+          target: bot
+          bundle-artifact: unused
+          push: 'false'
+          platform: linux/amd64

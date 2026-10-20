@@ -8,7 +8,6 @@ runs:
       uses: actions/setup-node@v4
       with:
         node-version: "22"
-        cache: npm
     - name: Restore installed dependencies
       id: modules
       uses: actions/cache@v4
@@ -17,12 +16,29 @@ runs:
           node_modules
           packages/*/node_modules
         key: ci-npm-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json', 'package.json', 'packages/*/package.json', 'patches/**') }}
+    - name: Setup npm download cache on dependency miss
+      if: steps.modules.outputs.cache-hit != 'true'
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+        cache: npm
     - name: Install
       if: steps.modules.outputs.cache-hit != 'true'
       shell: bash
       run: npm ci
-    - name: Restore Turbo build cache
+    # Composite post steps run after the caller has produced the build results.
+    - name: Restore Turbo build cache and save on main pushes
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: actions/cache@v4
+      with:
+        path: .turbo
+        key: ci-turbo-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}-${{ github.job }}-${{ github.sha }}
+        restore-keys: |
+          ci-turbo-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}-${{ github.job }}-
+          ci-turbo-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}-
+    - name: Restore Turbo build cache without saving
+      if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+      uses: actions/cache/restore@v4
       with:
         path: .turbo
         key: ci-turbo-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}-${{ github.job }}-${{ github.sha }}
