@@ -1,7 +1,7 @@
 import { SavedDeckEditor } from "@/components/decks/editor";
-import { resolveSessionIdentity } from "@/lib/session-identity";
+import { auth } from "@/lib/auth";
 
 export default async function NewDeckPage() {
-  const session = await resolveSessionIdentity();
-  return <SavedDeckEditor viewerId={session.ok ? session.identity.userId : undefined} />;
+  const session = await auth();
+  return <SavedDeckEditor viewerId={session?.user?.id} />;
 }
