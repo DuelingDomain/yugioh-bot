@@ -40,7 +40,7 @@ export interface EventQuery {
 }
 
 export interface EffectQuery {
-  intent?: { kind: "similar"; passcode: number; name: string } | { kind: "counters"; archetype: string } | { kind: "outside"; archetype: string };
+  intent?: { kind: "staples" } | { kind: "similar"; passcode: number; name: string } | { kind: "counters"; archetype: string } | { kind: "outside"; archetype: string };
   /** What the card itself must be. */
   card: ObjectQuery;
   released?: ReleasedRange;
@@ -657,6 +657,7 @@ function describeEvent(event: EventQuery): string {
 
 export function describe(query: EffectQuery): string[] {
   const chips: string[] = [];
+  if (query.intent?.kind === "staples") chips.push("Format staples");
   if (query.intent?.kind === "similar") chips.push(`Like: ${query.intent.name}`);
   if (query.intent?.kind === "counters") chips.push(`Counters: ${query.intent.archetype}`);
   if (query.intent?.kind === "outside") chips.push(`Outside: ${query.intent.archetype}`);

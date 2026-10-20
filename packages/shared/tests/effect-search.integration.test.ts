@@ -411,6 +411,32 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
     }
   });
 
+  it("ignores 19 saved lists and uses a private format aggregate at 20", async () => {
+    const { formatStaples } = await import("../src/cards/effects/staples.js");
+    const { seedUser } = await import("./helpers/identity.js");
+    const { userId } = seedUser(database, "format-staples-cohort");
+    const fixtures = suggestionFixture.fixtures.filter(fixture => fixture.format === "normal");
+    const variants = fixtures.flatMap(fixture => Array.from({ length: 7 }, (_, index) => ({
+      ...fixture.fullDeck, side: fixture.fullDeck.side.slice(index),
+    })));
+    const insert = database.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('staple-eval',?,'Sourced deck','normal',?)");
+    const original = formatStaples("normal", undefined, database);
+    try {
+      for (const deck of variants.slice(0,19)) insert.run(userId, JSON.stringify(deck));
+      expect(formatStaples("normal", undefined, database).version).toBe(original.version);
+      insert.run(userId, JSON.stringify(variants[19]));
+      const aggregate = formatStaples("normal", undefined, database);
+      expect(aggregate.version).not.toBe(original.version);
+      expect(aggregate.cards.size).toBeGreaterThan(0);
+      database.prepare("UPDATE saved_decks SET name='A new name' WHERE guild_id='staple-eval'").run();
+      expect(formatStaples("normal", undefined, database).version, "name-only changes do not rescan usage").toBe(aggregate.version);
+      database.prepare("UPDATE saved_decks SET deck_json=? WHERE id=(SELECT min(id) FROM saved_decks WHERE guild_id='staple-eval')").run(JSON.stringify({ ...variants[0], main: variants[0]!.main.slice(1) }));
+      expect(formatStaples("normal", undefined, database).version, "same-second edits invalidate usage").not.toBe(aggregate.version);
+      expect([...aggregate.cards.values()].every(row => Object.keys(row.archetypes).length >= 3)).toBe(true);
+      expect(JSON.stringify([...aggregate.cards.values()])).not.toMatch(/owner_user_id|guild_id|deck_json/);
+    } finally { database.prepare("DELETE FROM saved_decks WHERE guild_id='staple-eval'").run(); }
+  });
+
   it.each(suggestionFixture.fixtures)("measures $id precision without restricting candidates to expected cards", async fixture => {
     const { defaultDuelSettings } = await import("../src/duels/settings.js");
     const mode = fixture.format === "domain" ? "domain" : "normal";
@@ -438,6 +464,12 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
       const illegal = shown.filter(card => !admitted.has(card.passcode) || (held.get(group(card.passcode)) ?? 0) + 1 > (legality.limits[card.passcode] ?? (fixture.format === "domain" ? 1 : 3)));
       const owned = new Set([...scenario.deck.main, ...scenario.deck.extra, ...scenario.deck.side, ...(master ? [master] : [])].map(canonical));
       const staples = result.rows.find(row => row.id === "staples")!;
+      expect(staples.cards.length).toBeGreaterThan(0);
+      expect(staples.cards.every(card => card.reason.match(/^Played in \d+% of (TCG|Domain) decks$/))).toBe(true);
+      if (fixture.id === "branded" && scenario.id === "trimmed") expect(staples.cards.map(card => card.name)).toEqual(expect.arrayContaining(["Ash Blossom & Joyous Spring", "Infinite Impermanence"]));
+      if (fixture.id === "domain" && scenario.id === "trimmed") expect(staples.cards.map(card => card.name)).toEqual(expect.arrayContaining(["Graceful Charity", "Raigeki", "Infinite Impermanence"]));
+      const stapleScores = staples.cards.map(card => card.score);
+      expect(stapleScores).toEqual([...stapleScores].sort((a,b)=>b-a));
       const outside = result.rows.find(row => row.id === "outside")!;
       const archetype = result.rows.find(row => row.id === "archetype")!;
       if (fixture.id === "branded") {

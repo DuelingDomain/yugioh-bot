@@ -1,0 +1,1268 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-20T17:52:57.028Z",
+  "policy": {
+    "minimumDecks": 20,
+    "minimumShare": 0.1,
+    "minimumArchetypes": 3,
+    "maximumArchetypeShare": 0.6
+  },
+  "formats": {
+    "tcg": {
+      "deckCount": 79,
+      "archetypeCount": 19,
+      "cards": [
+        {
+          "passcode": 14558127,
+          "name": "Ash Blossom & Joyous Spring",
+          "decks": 79,
+          "copies": 233,
+          "archetypes": {
+            "Elfnote": 22,
+            "Angelechy": 13,
+            "Light and Darkness Ritual": 20,
+            "Destiny HERO": 1,
+            "Atlantean": 2,
+            "Sky Striker": 1,
+            "Dark Time Wizard": 1,
+            "D/D": 2,
+            "Yummy": 3,
+            "Branded": 3,
+            "Phantasm": 1,
+            "Dracotail": 1,
+            "Mitsurugi": 2,
+            "Shaddoll": 1,
+            "Magistus": 1,
+            "Lunalight": 1,
+            "Artmage": 2,
+            "Adamancipator": 1,
+            "Blitzclique": 1
+          },
+          "playShare": 1,
+          "averageCopies": 2.949367088607595
+        },
+        {
+          "passcode": 94145021,
+          "name": "Droll & Lock Bird",
+          "decks": 78,
+          "copies": 156,
+          "archetypes": {
+            "Elfnote": 21,
+            "Angelechy": 13,
+            "Light and Darkness Ritual": 20,
+            "Destiny HERO": 1,
+            "Atlantean": 2,
+            "Sky Striker": 1,
+            "Dark Time Wizard": 1,
+            "D/D": 2,
+            "Yummy": 3,
+            "Branded": 3,
+            "Phantasm": 1,
+            "Dracotail": 1,
+            "Mitsurugi": 2,
+            "Shaddoll": 1,
+            "Magistus": 1,
+            "Lunalight": 1,
+            "Artmage": 2,
+            "Adamancipator": 1,
+            "Blitzclique": 1
+          },
+          "playShare": 0.9873417721518988,
+          "averageCopies": 2
+        },
+        {
+          "passcode": 59438930,
+          "name": "Ghost Ogre & Snow Rabbit",
+          "decks": 66,
+          "copies": 181,
+          "archetypes": {
+            "Elfnote": 21,
+            "Angelechy": 12,
+            "Light and Darkness Ritual": 17,
+            "Destiny HERO": 1,
+            "Sky Striker": 1,
+            "Dark Time Wizard": 1,
+            "Yummy": 3,
+            "Branded": 1,
+            "Phantasm": 1,
+            "Dracotail": 1,
+            "Shaddoll": 1,
+            "Magistus": 1,
+            "Atlantean": 1,
+            "Artmage": 2,
+            "Mitsurugi": 1,
+            "Adamancipator": 1
+          },
+          "playShare": 0.8354430379746836,
+          "averageCopies": 2.742424242424242
+        },
+        {
+          "passcode": 24224830,
+          "name": "Called by the Grave",
+          "decks": 63,
+          "copies": 63,
+          "archetypes": {
+            "Elfnote": 18,
+            "Light and Darkness Ritual": 17,
+            "Destiny HERO": 1,
+            "Atlantean": 2,
+            "Angelechy": 5,
+            "Sky Striker": 1,
+            "Dark Time Wizard": 1,
+            "D/D": 2,
+            "Yummy": 3,
+            "Branded": 3,
+            "Phantasm": 1,
+            "Dracotail": 1,
+            "Mitsurugi": 2,
+            "Shaddoll": 1,
+            "Magistus": 1,
+            "Lunalight": 1,
+            "Artmage": 2,
+            "Adamancipator": 1
+          },
+          "playShare": 0.7974683544303798,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 29301450,
+          "name": "S:P Little Knight",
+          "decks": 46,
+          "copies": 47,
+          "archetypes": {
+            "Elfnote": 19,
+            "Light and Darkness Ritual": 16,
+            "Sky Striker": 1,
+            "Dark Time Wizard": 1,
+            "Yummy": 3,
+            "Phantasm": 1,
+            "Mitsurugi": 2,
+            "Lunalight": 1,
+            "Artmage": 2
+          },
+          "playShare": 0.5822784810126582,
+          "averageCopies": 1.0217391304347827
+        },
+        {
+          "passcode": 25311006,
+          "name": "Triple Tactics Talent",
+          "decks": 38,
+          "copies": 38,
+          "archetypes": {
+            "Light and Darkness Ritual": 10,
+            "Angelechy": 6,
+            "Elfnote": 12,
+            "Sky Striker": 1,
+            "Dark Time Wizard": 1,
+            "Dracotail": 1,
+            "Mitsurugi": 1,
+            "Branded": 1,
+            "D/D": 1,
+            "Lunalight": 1,
+            "Atlantean": 1,
+            "Yummy": 1,
+            "Artmage": 1
+          },
+          "playShare": 0.4810126582278481,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 97268402,
+          "name": "Effect Veiler",
+          "decks": 33,
+          "copies": 89,
+          "archetypes": {
+            "Elfnote": 17,
+            "Angelechy": 5,
+            "Dark Time Wizard": 1,
+            "Yummy": 3,
+            "Light and Darkness Ritual": 2,
+            "Branded": 1,
+            "Phantasm": 1,
+            "Dracotail": 1,
+            "Shaddoll": 1,
+            "Mitsurugi": 1
+          },
+          "playShare": 0.4177215189873418,
+          "averageCopies": 2.696969696969697
+        },
+        {
+          "passcode": 14883228,
+          "name": "Typhoon",
+          "decks": 31,
+          "copies": 86,
+          "archetypes": {
+            "Elfnote": 12,
+            "Angelechy": 7,
+            "Light and Darkness Ritual": 6,
+            "Yummy": 3,
+            "Branded": 1,
+            "Phantasm": 1,
+            "Artmage": 1
+          },
+          "playShare": 0.3924050632911392,
+          "averageCopies": 2.774193548387097
+        },
+        {
+          "passcode": 10045474,
+          "name": "Infinite Impermanence",
+          "decks": 22,
+          "copies": 61,
+          "archetypes": {
+            "Elfnote": 9,
+            "Sky Striker": 1,
+            "Yummy": 3,
+            "Light and Darkness Ritual": 5,
+            "Phantasm": 1,
+            "Magistus": 1,
+            "Mitsurugi": 1,
+            "Adamancipator": 1
+          },
+          "playShare": 0.27848101265822783,
+          "averageCopies": 2.772727272727273
+        },
+        {
+          "passcode": 24203749,
+          "name": "The Great Gallant Bandit",
+          "decks": 20,
+          "copies": 48,
+          "archetypes": {
+            "Destiny HERO": 1,
+            "D/D": 1,
+            "Light and Darkness Ritual": 9,
+            "Elfnote": 3,
+            "Branded": 2,
+            "Angelechy": 2,
+            "Atlantean": 1,
+            "Artmage": 1
+          },
+          "playShare": 0.25316455696202533,
+          "averageCopies": 2.4
+        },
+        {
+          "passcode": 65681983,
+          "name": "Crossout Designator",
+          "decks": 15,
+          "copies": 15,
+          "archetypes": {
+            "Angelechy": 6,
+            "Dark Time Wizard": 1,
+            "Light and Darkness Ritual": 2,
+            "Elfnote": 2,
+            "Phantasm": 1,
+            "Mitsurugi": 2,
+            "Yummy": 1
+          },
+          "playShare": 0.189873417721519,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 70088809,
+          "name": "Fydraulis Harmonia",
+          "decks": 12,
+          "copies": 35,
+          "archetypes": {
+            "Elfnote": 6,
+            "Light and Darkness Ritual": 3,
+            "Angelechy": 2,
+            "Blitzclique": 1
+          },
+          "playShare": 0.1518987341772152,
+          "averageCopies": 2.9166666666666665
+        },
+        {
+          "passcode": 93125329,
+          "name": "Golden Cloud Beast - Malong",
+          "decks": 12,
+          "copies": 12,
+          "archetypes": {
+            "Elfnote": 6,
+            "Light and Darkness Ritual": 3,
+            "Angelechy": 2,
+            "Blitzclique": 1
+          },
+          "playShare": 0.1518987341772152,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 73642296,
+          "name": "Ghost Belle & Haunted Mansion",
+          "decks": 11,
+          "copies": 22,
+          "archetypes": {
+            "Atlantean": 1,
+            "Angelechy": 1,
+            "Phantasm": 1,
+            "Dracotail": 1,
+            "Elfnote": 3,
+            "Light and Darkness Ritual": 1,
+            "Yummy": 1,
+            "Mitsurugi": 1,
+            "Adamancipator": 1
+          },
+          "playShare": 0.13924050632911392,
+          "averageCopies": 2
+        },
+        {
+          "passcode": 48130397,
+          "name": "Super Polymerization",
+          "decks": 8,
+          "copies": 22,
+          "archetypes": {
+            "Light and Darkness Ritual": 1,
+            "Dracotail": 1,
+            "Branded": 2,
+            "Magistus": 1,
+            "Lunalight": 1,
+            "Artmage": 2
+          },
+          "playShare": 0.10126582278481013,
+          "averageCopies": 2.75
+        },
+        {
+          "passcode": 102380,
+          "name": "Lava Golem",
+          "decks": 8,
+          "copies": 19,
+          "archetypes": {
+            "Sky Striker": 1,
+            "Shaddoll": 1,
+            "Angelechy": 1,
+            "Light and Darkness Ritual": 4,
+            "D/D": 1
+          },
+          "playShare": 0.10126582278481013,
+          "averageCopies": 2.375
+        }
+      ],
+      "sources": [
+        {
+          "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=0&format=tournament%20meta%20decks&tournament",
+          "sha256": "cdaef9e400e2f66d4cd473713a1e12511a8ad976ee8bc77b4ff57ea4eb28302a"
+        },
+        {
+          "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=20&format=tournament%20meta%20decks&tournament",
+          "sha256": "cde25a5ec6859be63a0a42bbcd24d6a0333910380d2f840973f9ec9f07a120a3"
+        },
+        {
+          "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=40&format=tournament%20meta%20decks&tournament",
+          "sha256": "0279449b07c76a08c3b5c916b263265fe90678ea591a0d5e3c78e4414f8c065a"
+        },
+        {
+          "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=60&format=tournament%20meta%20decks&tournament",
+          "sha256": "b2cffa7b29868fa48ac943d064483e038637d3a9f1aa51d5ef0c4faf66f2c14f"
+        }
+      ]
+    },
+    "domain": {
+      "deckCount": 75,
+      "archetypeCount": 59,
+      "cards": [
+        {
+          "passcode": 79571449,
+          "name": "Graceful Charity",
+          "decks": 54,
+          "copies": 54,
+          "archetypes": {
+            "Witchcrafter": 4,
+            "Evolsaur": 1,
+            "Mecha Phantom Beast": 1,
+            "Dinomist": 1,
+            "Geargia": 1,
+            "Nouvelles": 1,
+            "Mitsurugi": 3,
+            "Branded": 1,
+            "Unchained": 1,
+            "Shaddoll": 1,
+            "Resonator": 2,
+            "Tearlaments": 1,
+            "Magician": 1,
+            "Constellar": 1,
+            "Greed": 1,
+            "Bystial": 1,
+            "Ogdoadic": 1,
+            "Shark": 1,
+            "Rokket": 1,
+            "Burning Abyss": 1,
+            "Blue-Eyes": 2,
+            "Sinful Spoils": 2,
+            "Fluffal": 1,
+            "Salamangreat": 1,
+            "Cyber Angel": 1,
+            "Sylvan": 1,
+            "Red-Eyes": 2,
+            "Dododo": 1,
+            "Endymion": 1,
+            "Numeron": 1,
+            "Vendread": 1,
+            "Elemental HERO": 1,
+            "Dracotail": 2,
+            "Ancient Gear": 1,
+            "Destiny HERO": 1,
+            "Code Talker": 1,
+            "Phantom Knights": 1,
+            "Hecahands": 1,
+            "Dragonmaid": 1,
+            "Destruction Sword": 1,
+            "Zenet": 1,
+            "Dragunity": 1,
+            "Naturia": 1,
+            "Aroma": 1
+          },
+          "playShare": 0.72,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 12580477,
+          "name": "Raigeki",
+          "decks": 44,
+          "copies": 44,
+          "archetypes": {
+            "Hole": 1,
+            "Evolsaur": 1,
+            "Nouvelles": 1,
+            "Witchcrafter": 3,
+            "Mitsurugi": 2,
+            "Resonator": 2,
+            "Drytron": 1,
+            "Greed": 1,
+            "Ogdoadic": 1,
+            "Shark": 1,
+            "Rokket": 1,
+            "Blue-Eyes": 2,
+            "Call of the Haunted": 1,
+            "Fluffal": 1,
+            "Shaddoll": 2,
+            "Salamangreat": 1,
+            "Cyber Angel": 1,
+            "Sylvan": 1,
+            "Red-Eyes": 2,
+            "Dododo": 1,
+            "Endymion": 1,
+            "Numeron": 1,
+            "Elemental HERO": 1,
+            "Dracotail": 2,
+            "Ancient Gear": 1,
+            "Destiny HERO": 1,
+            "Code Talker": 1,
+            "Phantom Knights": 1,
+            "Hecahands": 1,
+            "Sinful Spoils": 1,
+            "Arcana Force": 1,
+            "Destruction Sword": 1,
+            "Dragunity": 1,
+            "Melffy": 1,
+            "Aroma": 1,
+            "Lightsworn": 1
+          },
+          "playShare": 0.5866666666666667,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 19613556,
+          "name": "Heavy Storm",
+          "decks": 33,
+          "copies": 33,
+          "archetypes": {
+            "Hole": 1,
+            "Witchcrafter": 3,
+            "Evolsaur": 1,
+            "Nouvelles": 1,
+            "Mitsurugi": 2,
+            "Shaddoll": 2,
+            "Constellar": 1,
+            "Greed": 1,
+            "Bystial": 1,
+            "Ogdoadic": 1,
+            "Shark": 1,
+            "Rokket": 1,
+            "Call of the Haunted": 1,
+            "Sinful Spoils": 2,
+            "Fluffal": 1,
+            "Sylvan": 1,
+            "Red-Eyes": 2,
+            "Elemental HERO": 1,
+            "Dracotail": 2,
+            "Ancient Gear": 1,
+            "Destiny HERO": 1,
+            "Code Talker": 1,
+            "Hecahands": 1,
+            "Naturia": 1,
+            "Aroma": 1,
+            "Lightsworn": 1
+          },
+          "playShare": 0.44,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 10045474,
+          "name": "Infinite Impermanence",
+          "decks": 32,
+          "copies": 32,
+          "archetypes": {
+            "Evolsaur": 1,
+            "Nouvelles": 1,
+            "Witchcrafter": 3,
+            "Mitsurugi": 2,
+            "Unchained": 1,
+            "Resonator": 2,
+            "Drytron": 1,
+            "Shark": 1,
+            "Rokket": 1,
+            "Sinful Spoils": 2,
+            "Fluffal": 1,
+            "Red-Eyes": 2,
+            "Dododo": 1,
+            "Numeron": 1,
+            "Elemental HERO": 1,
+            "Dracotail": 2,
+            "Ancient Gear": 1,
+            "Destiny HERO": 1,
+            "Code Talker": 1,
+            "Phantom Knights": 1,
+            "Hecahands": 1,
+            "Shaddoll": 1,
+            "Dragunity": 1,
+            "Aroma": 1,
+            "Lightsworn": 1
+          },
+          "playShare": 0.4266666666666667,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 83764719,
+          "name": "Monster Reborn",
+          "decks": 29,
+          "copies": 29,
+          "archetypes": {
+            "Hole": 1,
+            "Witchcrafter": 1,
+            "Mecha Phantom Beast": 1,
+            "Hazy": 1,
+            "Nouvelles": 1,
+            "Mitsurugi": 2,
+            "Branded": 1,
+            "Tearlaments": 1,
+            "Drytron": 1,
+            "Constellar": 1,
+            "Greed": 1,
+            "Toon": 1,
+            "Call of the Haunted": 1,
+            "Shaddoll": 1,
+            "Cyber Angel": 1,
+            "Dododo": 1,
+            "Xyz": 1,
+            "Endymion": 1,
+            "Numeron": 1,
+            "Blue-Eyes": 1,
+            "Elemental HERO": 1,
+            "Code Talker": 1,
+            "Arcana Force": 1,
+            "Destruction Sword": 1,
+            "Resonator": 1,
+            "Dragunity": 1,
+            "Naturia": 1,
+            "Lightsworn": 1
+          },
+          "playShare": 0.38666666666666666,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 24094653,
+          "name": "Polymerization",
+          "decks": 19,
+          "copies": 19,
+          "archetypes": {
+            "Hole": 1,
+            "Elemental HERO": 2,
+            "Shaddoll": 2,
+            "Spellbook": 1,
+            "Fluffal": 1,
+            "Red-Eyes": 2,
+            "Witchcrafter": 1,
+            "Dracotail": 2,
+            "Mitsurugi": 1,
+            "Destiny HERO": 1,
+            "Hecahands": 1,
+            "Arcana Force": 1,
+            "Dragonmaid": 1,
+            "Destruction Sword": 1,
+            "Dinomorphia": 1
+          },
+          "playShare": 0.25333333333333335,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 81439173,
+          "name": "Foolish Burial",
+          "decks": 19,
+          "copies": 19,
+          "archetypes": {
+            "Evolsaur": 1,
+            "Mecha Phantom Beast": 1,
+            "Geargia": 1,
+            "Call of the Haunted": 1,
+            "Mitsurugi": 2,
+            "Shaddoll": 1,
+            "Resonator": 2,
+            "Tearlaments": 1,
+            "Constellar": 1,
+            "Rokket": 1,
+            "Burning Abyss": 1,
+            "Fluffal": 1,
+            "Xyz": 1,
+            "Vendread": 1,
+            "Blue-Eyes": 1,
+            "Hecahands": 1,
+            "Lightsworn": 1
+          },
+          "playShare": 0.25333333333333335,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 74191942,
+          "name": "Painful Choice",
+          "decks": 18,
+          "copies": 18,
+          "archetypes": {
+            "Witchcrafter": 1,
+            "Hazy": 1,
+            "Mitsurugi": 1,
+            "Shaddoll": 1,
+            "Resonator": 2,
+            "Tearlaments": 1,
+            "Constellar": 1,
+            "Bystial": 1,
+            "Ogdoadic": 1,
+            "Burning Abyss": 1,
+            "Blue-Eyes": 2,
+            "Dododo": 1,
+            "Vendread": 1,
+            "Dragonmaid": 1,
+            "Zenet": 1,
+            "Lightsworn": 1
+          },
+          "playShare": 0.24,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 73628505,
+          "name": "Terraforming",
+          "decks": 16,
+          "copies": 16,
+          "archetypes": {
+            "Witchcrafter": 1,
+            "Call of the Haunted": 1,
+            "Mitsurugi": 2,
+            "Branded": 1,
+            "Tearlaments": 1,
+            "Constellar": 1,
+            "Burning Abyss": 1,
+            "Toon": 1,
+            "Salamangreat": 1,
+            "Numeron": 1,
+            "Vendread": 1,
+            "Shaddoll": 1,
+            "Arcana Force": 1,
+            "Dragunity": 1,
+            "Naturia": 1
+          },
+          "playShare": 0.21333333333333335,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 42703248,
+          "name": "Giant Trunade",
+          "decks": 12,
+          "copies": 12,
+          "archetypes": {
+            "Witchcrafter": 2,
+            "Branded": 1,
+            "Tearlaments": 1,
+            "Greed": 1,
+            "Burning Abyss": 1,
+            "Toon": 1,
+            "Salamangreat": 1,
+            "Mitsurugi": 1,
+            "Phantom Knights": 1,
+            "Dragunity": 1,
+            "Naturia": 1
+          },
+          "playShare": 0.16,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 48130397,
+          "name": "Super Polymerization",
+          "decks": 12,
+          "copies": 12,
+          "archetypes": {
+            "Mitsurugi": 1,
+            "Shaddoll": 3,
+            "Spellbook": 1,
+            "Sinful Spoils": 1,
+            "Blue-Eyes": 1,
+            "Red-Eyes": 1,
+            "Dracotail": 2,
+            "Dragonmaid": 1,
+            "Destruction Sword": 1
+          },
+          "playShare": 0.16,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 48976825,
+          "name": "Burial from a Different Dimension",
+          "decks": 12,
+          "copies": 12,
+          "archetypes": {
+            "Call of the Haunted": 1,
+            "Nouvelles": 1,
+            "Mitsurugi": 1,
+            "Bystial": 1,
+            "Fluffal": 1,
+            "Witchcrafter": 1,
+            "Dracotail": 2,
+            "Ancient Gear": 1,
+            "Destiny HERO": 1,
+            "Code Talker": 1,
+            "Hecahands": 1
+          },
+          "playShare": 0.16,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 44095762,
+          "name": "Mirror Force",
+          "decks": 11,
+          "copies": 11,
+          "archetypes": {
+            "Dark Magician": 1,
+            "Hole": 1,
+            "Geargia": 1,
+            "Drytron": 1,
+            "Greed": 1,
+            "Toon": 1,
+            "Sinful Spoils": 1,
+            "Destruction Sword": 1,
+            "Naturia": 1,
+            "Aroma": 1,
+            "Lightsworn": 1
+          },
+          "playShare": 0.14666666666666667,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 54447022,
+          "name": "Soul Charge",
+          "decks": 11,
+          "copies": 11,
+          "archetypes": {
+            "Witchcrafter": 1,
+            "Mitsurugi": 2,
+            "Branded": 1,
+            "Shaddoll": 1,
+            "Tearlaments": 1,
+            "Magician": 1,
+            "Constellar": 1,
+            "Rokket": 1,
+            "Dododo": 1,
+            "Dragunity": 1
+          },
+          "playShare": 0.14666666666666667,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 85602018,
+          "name": "Last Will",
+          "decks": 11,
+          "copies": 11,
+          "archetypes": {
+            "Mecha Phantom Beast": 1,
+            "Mitsurugi": 2,
+            "Branded": 1,
+            "Tearlaments": 1,
+            "Constellar": 1,
+            "Bystial": 1,
+            "Burning Abyss": 1,
+            "Blue-Eyes": 1,
+            "Resonator": 1,
+            "Zenet": 1
+          },
+          "playShare": 0.14666666666666667,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 97268402,
+          "name": "Effect Veiler",
+          "decks": 11,
+          "copies": 11,
+          "archetypes": {
+            "Shaddoll": 2,
+            "Magician": 1,
+            "Bystial": 1,
+            "Blue-Eyes": 2,
+            "Sinful Spoils": 1,
+            "Endymion": 1,
+            "Numeron": 1,
+            "Destruction Sword": 1,
+            "Zenet": 1
+          },
+          "playShare": 0.14666666666666667,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 2295440,
+          "name": "One for One",
+          "decks": 9,
+          "copies": 9,
+          "archetypes": {
+            "Evolsaur": 1,
+            "Mecha Phantom Beast": 1,
+            "Call of the Haunted": 1,
+            "Tearlaments": 1,
+            "Bystial": 1,
+            "Fluffal": 1,
+            "Numeron": 1,
+            "Red-Eyes": 1,
+            "Code Talker": 1
+          },
+          "playShare": 0.12,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 35269904,
+          "name": "Triple Tactics Thrust",
+          "decks": 9,
+          "copies": 9,
+          "archetypes": {
+            "Witchcrafter": 1,
+            "Branded": 1,
+            "Resonator": 1,
+            "Drytron": 1,
+            "Constellar": 1,
+            "Bystial": 1,
+            "Rokket": 1,
+            "Blue-Eyes": 1,
+            "Mitsurugi": 1
+          },
+          "playShare": 0.12,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 57953380,
+          "name": "Card of Safe Return",
+          "decks": 9,
+          "copies": 9,
+          "archetypes": {
+            "Mitsurugi": 2,
+            "Branded": 1,
+            "Tearlaments": 1,
+            "Constellar": 1,
+            "Bystial": 1,
+            "Ogdoadic": 1,
+            "Resonator": 1,
+            "Lightsworn": 1
+          },
+          "playShare": 0.12,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 4031928,
+          "name": "Change of Heart",
+          "decks": 8,
+          "copies": 8,
+          "archetypes": {
+            "Hole": 1,
+            "Mecha Phantom Beast": 1,
+            "Hazy": 1,
+            "Greed": 1,
+            "Burning Abyss": 1,
+            "Toon": 1,
+            "Mitsurugi": 1,
+            "Destruction Sword": 1
+          },
+          "playShare": 0.10666666666666667,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 13048472,
+          "name": "Pre-Preparation of Rites",
+          "decks": 8,
+          "copies": 8,
+          "archetypes": {
+            "Nouvelles": 1,
+            "Drytron": 1,
+            "Salamangreat": 1,
+            "Vendread": 1,
+            "Blue-Eyes": 1,
+            "Red-Eyes": 1,
+            "Mitsurugi": 2
+          },
+          "playShare": 0.10666666666666667,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 25311006,
+          "name": "Triple Tactics Talent",
+          "decks": 8,
+          "copies": 8,
+          "archetypes": {
+            "Resonator": 2,
+            "Drytron": 1,
+            "Constellar": 1,
+            "Bystial": 1,
+            "Rokket": 1,
+            "Mitsurugi": 2
+          },
+          "playShare": 0.10666666666666667,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 53582587,
+          "name": "Torrential Tribute",
+          "decks": 8,
+          "copies": 8,
+          "archetypes": {
+            "Drytron": 1,
+            "Greed": 1,
+            "Shark": 1,
+            "Dododo": 1,
+            "Numeron": 1,
+            "Naturia": 1,
+            "Aroma": 1,
+            "Lightsworn": 1
+          },
+          "playShare": 0.10666666666666667,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 70828912,
+          "name": "Premature Burial",
+          "decks": 8,
+          "copies": 8,
+          "archetypes": {
+            "Witchcrafter": 1,
+            "Mecha Phantom Beast": 1,
+            "Hazy": 1,
+            "Call of the Haunted": 1,
+            "Tearlaments": 1,
+            "Blue-Eyes": 1,
+            "Mitsurugi": 1,
+            "Resonator": 1
+          },
+          "playShare": 0.10666666666666667,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 75500286,
+          "name": "Gold Sarcophagus",
+          "decks": 8,
+          "copies": 8,
+          "archetypes": {
+            "D.D.": 1,
+            "Mitsurugi": 2,
+            "Branded": 1,
+            "Bystial": 1,
+            "Burning Abyss": 1,
+            "Zenet": 1,
+            "Dragunity": 1
+          },
+          "playShare": 0.10666666666666667,
+          "averageCopies": 1
+        }
+      ],
+      "sources": [
+        {
+          "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=0&format=domain%20format%20decks",
+          "sha256": "331da42f8900ca4fbe8d23ef71454cde4da57bf13e171f17ea39f68ff7bcfb9c"
+        },
+        {
+          "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=20&format=domain%20format%20decks",
+          "sha256": "2fe744cb075cba65776c706c747ec15207fad8e4edf3ca488a407663cb9e0b14"
+        },
+        {
+          "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=40&format=domain%20format%20decks",
+          "sha256": "1398f6673f0549d6a924603ae441c320fad8570c5d019b1724d03a4c5faaca01"
+        },
+        {
+          "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=60&format=domain%20format%20decks",
+          "sha256": "11c93bf23e7b38c997e147201fda20ea1fc12d0a2caf7cef1a8a44dc6f85e5bf"
+        }
+      ]
+    },
+    "genesys": {
+      "deckCount": 80,
+      "archetypeCount": 60,
+      "cards": [
+        {
+          "passcode": 102380,
+          "name": "Lava Golem",
+          "decks": 24,
+          "copies": 63,
+          "archetypes": {
+            "Adamancipator": 1,
+            "Greed": 1,
+            "Paleozoic": 1,
+            "Clown Crew": 1,
+            "True Draco": 1,
+            "Angelechy": 3,
+            "Labrynth": 1,
+            "Rescue-ACE": 1,
+            "Ashtra": 2,
+            "Call of the Haunted": 2,
+            "Eldlich": 1,
+            "Generaider": 1,
+            "Fire King": 1,
+            "Hazy": 1,
+            "Valkyrie": 1,
+            "Rose": 1,
+            "Simorgh": 1,
+            "Spellbook": 1,
+            "Forbidden": 1,
+            "Blitzclique": 1
+          },
+          "playShare": 0.3,
+          "averageCopies": 2.625
+        },
+        {
+          "passcode": 67750322,
+          "name": "Skull Meister",
+          "decks": 23,
+          "copies": 57,
+          "archetypes": {
+            "Adamancipator": 2,
+            "Dark Time Wizard": 1,
+            "Angelechy": 2,
+            "Metalmorph": 1,
+            "Umbral Horror": 1,
+            "Call of the Haunted": 2,
+            "Generaider": 1,
+            "Elemental HERO": 1,
+            "Phantom Knights": 1,
+            "Cyber Dragon": 1,
+            "Dragonmaid": 1,
+            "Melffy": 1,
+            "Drytron": 1,
+            "Centur-Ion": 1,
+            "Spellbook": 1,
+            "Invoked": 1,
+            "\"C\"": 1,
+            "Spright": 1,
+            "Blitzclique": 1,
+            "Rose": 1
+          },
+          "playShare": 0.2875,
+          "averageCopies": 2.4782608695652173
+        },
+        {
+          "passcode": 43898403,
+          "name": "Twin Twisters",
+          "decks": 17,
+          "copies": 41,
+          "archetypes": {
+            "Adamancipator": 1,
+            "Primite": 1,
+            "Greed": 1,
+            "Inzektor": 1,
+            "Rescue-ACE": 1,
+            "Angelechy": 3,
+            "Train": 1,
+            "Phantom Knights": 1,
+            "Destiny HERO": 2,
+            "Ashtra": 1,
+            "True Draco": 1,
+            "Spellbook": 1,
+            "Invoked": 1,
+            "Forbidden": 1
+          },
+          "playShare": 0.2125,
+          "averageCopies": 2.411764705882353
+        },
+        {
+          "passcode": 59438930,
+          "name": "Ghost Ogre & Snow Rabbit",
+          "decks": 17,
+          "copies": 39,
+          "archetypes": {
+            "Dark Time Wizard": 1,
+            "Primite": 1,
+            "Inzektor": 1,
+            "Yummy": 1,
+            "Mimighoul": 1,
+            "Angelechy": 2,
+            "Phantom Knights": 1,
+            "Adamancipator": 1,
+            "Melffy": 2,
+            "Rose": 2,
+            "Call of the Haunted": 1,
+            "\"C\"": 1,
+            "Ursarctic": 1,
+            "Infernoid": 1
+          },
+          "playShare": 0.2125,
+          "averageCopies": 2.2941176470588234
+        },
+        {
+          "passcode": 8267140,
+          "name": "Cosmic Cyclone",
+          "decks": 15,
+          "copies": 36,
+          "archetypes": {
+            "Primite": 1,
+            "Blue-Eyes": 1,
+            "Yummy": 1,
+            "Mimighoul": 1,
+            "Labrynth": 1,
+            "Metalmorph": 1,
+            "Angelechy": 2,
+            "Ashtra": 1,
+            "Monarch": 1,
+            "Plunder Patroll": 1,
+            "Melffy": 1,
+            "Forbidden": 1,
+            "Spright": 1,
+            "Rose": 1
+          },
+          "playShare": 0.1875,
+          "averageCopies": 2.4
+        },
+        {
+          "passcode": 5318639,
+          "name": "Mystical Space Typhoon",
+          "decks": 15,
+          "copies": 32,
+          "archetypes": {
+            "Resonator": 1,
+            "Traptrix": 1,
+            "Blitzclique": 2,
+            "Hazy": 1,
+            "Ashtra": 1,
+            "Junk": 1,
+            "Ancient Fairy Dragon": 1,
+            "Atlantis, City of the Sea Dragon": 1,
+            "Silent Swordsman": 1,
+            "Monarch": 1,
+            "Adamancipator": 1,
+            "Dragonmaid": 1,
+            "Melffy": 1,
+            "Forbidden": 1
+          },
+          "playShare": 0.1875,
+          "averageCopies": 2.1333333333333333
+        },
+        {
+          "passcode": 14883228,
+          "name": "Typhoon",
+          "decks": 13,
+          "copies": 33,
+          "archetypes": {
+            "Traptrix": 1,
+            "Angelechy": 3,
+            "Valkyrie": 1,
+            "Ashtra": 3,
+            "Rose": 1,
+            "Melffy": 1,
+            "Spellbook": 1,
+            "\"C\"": 1,
+            "Blitzclique": 1
+          },
+          "playShare": 0.1625,
+          "averageCopies": 2.5384615384615383
+        },
+        {
+          "passcode": 10045474,
+          "name": "Infinite Impermanence",
+          "decks": 13,
+          "copies": 31,
+          "archetypes": {
+            "Labrynth": 1,
+            "Performapal": 1,
+            "Rescue-ACE": 1,
+            "Call of the Haunted": 3,
+            "Generaider": 1,
+            "Fire King": 1,
+            "Ashtra": 1,
+            "Melffy": 1,
+            "Rose": 1,
+            "\"C\"": 1,
+            "Spright": 1
+          },
+          "playShare": 0.1625,
+          "averageCopies": 2.3846153846153846
+        },
+        {
+          "passcode": 66236707,
+          "name": "Gordian Slicer",
+          "decks": 8,
+          "copies": 21,
+          "archetypes": {
+            "Exodia": 1,
+            "Crystron": 1,
+            "Blitzclique": 2,
+            "Valkyrie": 1,
+            "Phantom Knights": 1,
+            "Rose": 1,
+            "Forbidden": 1
+          },
+          "playShare": 0.1,
+          "averageCopies": 2.625
+        },
+        {
+          "passcode": 14558127,
+          "name": "Ash Blossom & Joyous Spring",
+          "decks": 8,
+          "copies": 18,
+          "archetypes": {
+            "Performapal": 1,
+            "Call of the Haunted": 2,
+            "Valkyrie": 1,
+            "Plunder Patroll": 1,
+            "Rose": 1,
+            "\"C\"": 1,
+            "Ursarctic": 1
+          },
+          "playShare": 0.1,
+          "averageCopies": 2.25
+        },
+        {
+          "passcode": 21501961,
+          "name": "Pair Bear Scare!!",
+          "decks": 8,
+          "copies": 17,
+          "archetypes": {
+            "Primite": 1,
+            "Crystron": 1,
+            "Mimighoul": 1,
+            "Cyber Dragon": 1,
+            "True Draco": 1,
+            "Invoked": 1,
+            "Forbidden": 1,
+            "Rose": 1
+          },
+          "playShare": 0.1,
+          "averageCopies": 2.125
+        }
+      ],
+      "sources": [
+        {
+          "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=0&format=genesys%20decks",
+          "sha256": "e84368469311c63219b1bdb8bb922721e2fca20ab39ee51df14f5f748eeca6a8"
+        },
+        {
+          "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=20&format=genesys%20decks",
+          "sha256": "91322b00ce8f349c6569d1f9240735fb604cfc2b214cd72282086ec182b6f578"
+        },
+        {
+          "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=40&format=genesys%20decks",
+          "sha256": "2a06bca90f9789bc00d6cb1fff42315de924d431ba8e7385115e369f45151ea9"
+        },
+        {
+          "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=60&format=genesys%20decks",
+          "sha256": "3c3bd1eb2ba44c122c337baf250c203f66539cbe7d9af600cba74520cb663fd5"
+        }
+      ]
+    }
+  },
+  "version": "6f9379a84df4ed703cb23d88d8ff9593eb509cb4aa3d168c5451034e7a26a4b5"
+}

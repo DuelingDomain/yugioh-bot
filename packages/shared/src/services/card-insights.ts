@@ -1,3 +1,4 @@
+import { formatStaples, stapleReason } from "../cards/effects/staples.js";
 import { cardEraBoost, deriveCardEra, matchesReleased, compareNewest, cardReleaseInfo, selectedReleaseDate, type ReleasedRange, type CardEra, type ReleaseDates } from "../cards/effects/releases.js";
 import type Database from "better-sqlite3";
 import type { DuelDeck } from "../duels/index.js";
@@ -198,12 +199,15 @@ export function createCardInsightService(db: Database.Database, options: {
           return { reading, ...rank(catalog, candidate ? [candidate] : [], pool, effective) };
         }
         const ranked: Retained[] = [];
+        const staples = formatStaples(opts.format, opts.suggestionContext?.banlist, db);
         const similar = reading.query.intent?.kind === "similar" ? catalog.candidate(reading.query.intent.passcode) : undefined;
         const archetype = reading.query.intent?.kind === "counters" ? reading.query.intent.archetype : undefined;
         const row = archetype ? db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE").get(archetype) : undefined;
         let counter: ReturnType<typeof counterProfileFromHooks> | undefined;
         try { if (row) counter = counterProfileFromHooks(ArchetypeProfile.parse({ plan: row.plan, hooks: JSON.parse(row.hooks_json) })); } catch { /* Optional profile: fail closed. */ }
         const match = (candidate: Candidate, query = reading.query): number | null => {
+          if (query.intent?.kind === "staples") return staples.cards.size ? staples.cards.get(candidate.card.id)?.playShare ?? null
+            : candidate.tags?.roles.some(role => ["hand_trap", "board_breaker", "negation"].includes(role)) ? 1 : null;
           const base = matchCard(candidate.card, candidate.tags, query);
           if (base === null) return null;
           if (query.intent?.kind === "similar") return similar ? cardSimilarity(similar, candidate) : null;
@@ -217,7 +221,7 @@ export function createCardInsightService(db: Database.Database, options: {
           const score = match(candidate);
           if (score === null) continue;
           total++;
-          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + cardEraBoost(candidate.card, opts.era), linkedCards: 0, reason: counter && archetype ? counterLink(counter, archetype, candidate)!.reason
+          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + cardEraBoost(candidate.card, opts.era), linkedCards: 0, reason: reading.query.intent?.kind === "staples" && staples.cards.size ? stapleReason(staples.cards.get(candidate.card.id)!, staples.label) : counter && archetype ? counterLink(counter, archetype, candidate)!.reason
             : similar ? shortReason(`Similar ${candidate.tags?.roles.find(role => similar.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${similar.card.name}`)
             : effectMatchReason(candidate.card, candidate.tags, reading.query, candidate.tags?.summary),
             ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), effective);

@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { join, resolve } from "node:path";
 import {
-  buildArchetypeMatcher, engineInsightCard, interpret, matchCard, omitReadingChips, mayReadEffect,
+  formatStaples, type FormatStaples, buildArchetypeMatcher, engineInsightCard, interpret, matchCard, omitReadingChips, mayReadEffect,
   compactEffectName, resolveEffectName, cachedEffectReading, intentReading, cardSimilarity, counterProfileFromHooks, counterLink,
   softTextScore, effectMatchReason, shortReason, ArchetypeProfile,
   type ReleaseDates,
@@ -20,6 +20,7 @@ import { buildCardEffectFacets, type CardEffectFacets } from "./card-effect-face
 
 export interface CardEffectIndex {
   size: number;
+  staples?(format?: string, banlist?: string): FormatStaples;
   release(code: number): ReleaseDates;
   readQuery(text: string, omitted?: readonly string[]): Interpretation | null;
   match(code: number, reading: Interpretation): number | null;
@@ -91,6 +92,7 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
   const intent = (text: string) => intentReading(text, named, text => resolveEffectName([...archetypes].map(name => ({ name })), text)?.name);
   const index: CardEffectIndex = {
     size: facets.size,
+    staples: (format, banlist) => formatStaples(format, banlist, db),
     release: code => releases.get(canonical(code)) ?? {},
     readQuery: (text, omitted) => {
       if (names.has(compactEffectName(text))) return null;
@@ -101,6 +103,7 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
       // Deck-aware outside searches are ranked by the web Suggestion service.
       // The generic matcher must never widen that intent to every card.
       if (reading.query.intent?.kind === "outside") return null;
+      if (reading.query.intent?.kind === "staples") return facets.get(canonical(code))?.roles.some(role => ["hand_trap", "board_breaker", "negation"].includes(role)) ? 1 : null;
       const card = cards.deckCard(code);
       if (!card) return null;
       const printed = printedTypes.get(`${card.type}:${card.race}:${card.attribute}`);

@@ -551,7 +551,7 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
   it.each(['hand trap', 'hand traps'])('keeps the effect group for the full-catalog role query: %s', text => {
     const result = search(text);
     expect(result.effectSearchEnabled).toBe(true);
-    expect(result.reading?.chips).toEqual(['Role: hand trap']);
+    expect(result.reading?.chips).toEqual([text === 'hand traps' ? 'Format staples' : 'Role: hand trap']);
     expect(result.cards).toEqual([]);
     expect(result.total).toBe(0);
     expect(result.effectHits?.map(card => card.code)).toEqual(expect.arrayContaining([
@@ -840,4 +840,30 @@ it('does no artifact or tag writes at duel boot with EFFECT_SEARCH off', async (
       expect(isolated.prepare(`SELECT count(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
     }
   } finally { vi.unstubAllEnvs(); isolated.close(); }
+});
+
+// Uses the full real engine catalog and the production effect index.
+it.each(["staples", "format staples", "best staples", "hand traps"])("finds measured format staples for %s", text => {
+  const result = search(text);
+  expect(result.reading?.query.intent?.kind).toBe("staples");
+  expect(result.cards).toEqual([]);
+  expect(result.effectHits?.map(card => card.name)).toContain("Ash Blossom & Joyous Spring");
+  expect(result.effectHits?.map(card => card.name)).toContain("Infinite Impermanence");
+  expect(result.effectHits?.every(card => /^Played in [\d.]+% of TCG decks$/.test(card.reason))).toBe(true);
+});
+
+it("uses the selected format and preserves real card names and search filters", () => {
+  const domain = search("staples", undefined, { format: "domain" });
+  expect(domain.effectHits?.[0]?.name).toBe("Graceful Charity");
+  expect(domain.effectHits?.every(card => /of Domain decks$/.test(card.reason))).toBe(true);
+  const genesys = search("staples", undefined, { format: "genesys" });
+  expect(genesys.effectHits?.[0]?.name).toBe("Lava Golem");
+  expect(genesys.effectHits?.every(card => /of Genesys decks$/.test(card.reason))).toBe(true);
+  expect(search("Morphtronic Staplen").cards[0]?.name).toBe("Morphtronic Staplen");
+  expect(search("Morphtronic Staplen").reading).toBeNull();
+  expect(search("staples", []).effectHits).toEqual([]);
+  expect(search("staples", [code("Ash Blossom & Joyous Spring"), code("Infinite Impermanence")]).effectTotal).toBe(2);
+  expect(search("staples", undefined, { kind: "spell" }).effectHits?.every(card => (card.type & 2) !== 0)).toBe(true);
+  expect(search("staples", undefined, { exact: true }).reading).toBeNull();
+  expect(search("staples", undefined, { scope: "name" }).reading).toBeNull();
 });

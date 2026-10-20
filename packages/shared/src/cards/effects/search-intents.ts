@@ -17,6 +17,10 @@ export const searchIntentTarget = (text: string): { kind: "similar" | "counters"
 };
 
 export function intentReading(text: string, card: (name: string) => { id: number; name: string } | undefined, archetype: (name: string) => string | undefined): Interpretation | null {
+  if (/^(?:(?:best|format|generic|popular|current|tcg|domain|genesys)\s+)*(?:staples?|hand[- ]?traps)(?:\s+(?:for (?:this|the) format|this format))?[?.!]*$/i.test(text.trim())) {
+    const query = { intent: { kind: "staples" as const }, card: { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] }, roles: [], quick: false, text: "" };
+    return { query, chips: describe(query) };
+  }
   const parsed = searchIntentTarget(text);
   if (!parsed) return null;
   const anchor = parsed.kind === "similar" ? card(parsed.target) : undefined;

@@ -25,7 +25,7 @@ import { BANLIST_NONE_ID, banlistLimitsFor } from "./banlists/index.js";
 import { cardArtworkFamily } from "./card-artworks.js";
 import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
 import type { CardDatabase } from "./cards.js";
-import { effectSearchEnabled, resolveEffectName, matchesReleased, compareNewest, cardReleaseInfo, type ReleaseDates } from "@yugidraft/shared/cards/effects";
+import { effectSearchEnabled, formatStaples, stapleReason, resolveEffectName, matchesReleased, compareNewest, cardReleaseInfo, type ReleaseDates } from "@yugidraft/shared/cards/effects";
 import { cardEffectIndex, type CardEffectIndex } from "./card-effects.js";
 
 type Kind = "monster" | "spell" | "trap" | "other";
@@ -313,6 +313,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const releaseFor = (entry: Entry): ReleaseDates => options.releases?.get(entry.card.canonicalPasscode ?? entry.card.code) ?? releaseIndex?.release(entry.card.canonicalPasscode ?? entry.card.code) ?? {};
   const effects = enabled ? releaseIndex : undefined;
   let reading = effects && !query.exact && query.scope !== "name" ? effects.readQuery(query.text, query.effectOmit) : null;
+  const staples = effects?.staples?.(query.format, query.banlist) ?? formatStaples(query.format, query.banlist);
   const checks = compile(reading ? { ...query, scope: "name" } : query, index, genesysPoints, releaseFor);
   const passes = (entry: Entry) => checks.every((check) => check(entry));
   const effectChecks = reading ? compile({ ...query, text: "" }, index, genesysPoints, releaseFor) : [];
@@ -326,9 +327,10 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const found: Entry[] = [];
   for (const entry of index.entries) {
     if (entry.hidden || entry === exact || (exactFamily !== undefined && cardArtworkFamily(cards, entry.card.code)?.passcode === exactFamily)) continue;
-    if (passes(entry)) found.push(entry);
+    if (passes(entry) && (reading?.query.intent?.kind !== "staples" || entry.name === foldCardText(query.text))) found.push(entry);
     else if (reading && effectChecks.every(check => check(entry))) {
-      const score = effects!.match(entry.card.code, reading);
+      const played = staples.cards.get(entry.card.canonicalPasscode ?? entry.card.code);
+      const score = reading.query.intent?.kind === "staples" && staples.cards.size ? played?.playShare ?? null : effects!.match(entry.card.code, reading);
       if (score !== null) effectFound.push({ entry, score });
     }
   }
@@ -339,7 +341,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   // An exact passcode leads, even for an alternate artwork that the list otherwise hides.
   if (exact && exactPasses) sorted.unshift(exact);
   // Alias/typo correction is an empty-result fallback, so successful name queries keep the same scan.
-  if (!sorted.length && !query.exact && trimmed && !/^\d+$/.test(trimmed) && !/"/.test(trimmed) && !parseCardSearchTerms(trimmed).some(term => term.negate)) {
+  if (reading?.query.intent?.kind !== "staples" && !sorted.length && !query.exact && trimmed && !/^\d+$/.test(trimmed) && !/"/.test(trimmed) && !parseCardSearchTerms(trimmed).some(term => term.negate)) {
     const filters = compile({ ...query, text: "" }, index, genesysPoints, releaseFor);
     const eligible = index.entries.filter(entry => !entry.hidden && filters.every(check => check(entry)));
     const compact = foldCardText(trimmed).replaceAll(" ", "");
@@ -381,7 +383,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
     total: sorted.length,
     offset: query.offset,
     effectSearchEnabled: enabled,
-    ...(enabled ? { reading, effectHits: effectFound.slice(effectOffset, effectOffset + Math.min(query.limit, 30)).map(({ entry, score }) => ({ ...decorate(entry), score, reason: effects!.reason(entry.card.code, reading!) })), effectTotal: effectFound.length, effectOffset, relax: relax.slice(0, 2) } : {}),
+    ...(enabled ? { reading, effectHits: effectFound.slice(effectOffset, effectOffset + Math.min(query.limit, 30)).map(({ entry, score }) => ({ ...decorate(entry), score, reason: reading?.query.intent?.kind === "staples" && staples.cards.size ? stapleReason(staples.cards.get(entry.card.canonicalPasscode ?? entry.card.code)!, staples.label) : effects!.reason(entry.card.code, reading!) })), effectTotal: effectFound.length, effectOffset, relax: relax.slice(0, 2) } : {}),
   };
 }
 

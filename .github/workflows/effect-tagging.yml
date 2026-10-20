@@ -6,6 +6,7 @@ on:
     paths:
       - packages/duel-server/scripts/prepare-data.ts
       - scripts/effects/**
+      - scripts/staples/**
       - packages/shared/src/cards/effects/tags.ts
       - packages/shared/src/cards/effects/synergy.ts
       - scripts/ci/publish-effect-tags.mjs
@@ -192,3 +193,41 @@ jobs:
         run: |
           gh auth setup-git
           prlimit --core=0 -- node scripts/ci/publish-effect-tags.mjs
+
+  staples:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    env:
+      STAPLES_OUTPUT: .status/format-staples
+      STAPLES_BASE_SHA: ${{ needs.validate.outputs.base_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Refresh bounded public deck usage (no paid tagging key)
+        run: prlimit --core=0 -- node scripts/staples/refresh.mjs "$STAPLES_OUTPUT/candidate.json"
+      - name: Validate schema, counts, provenance and additive formats
+        run: prlimit --core=0 -- node scripts/staples/publish.mjs --validate-only
+      - uses: actions/upload-artifact@v4
+        with:
+          name: format-staples
+          path: .status/format-staples/
+          include-hidden-files: true
+          retention-days: 14
+      - name: Publish a new artifact-only PR; never replace existing branch edits
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.EFFECT_TAGGING_PR_TOKEN || github.token }}
+        run: |
+          gh auth setup-git
+          prlimit --core=0 -- node scripts/staples/publish.mjs
