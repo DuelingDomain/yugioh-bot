@@ -288,7 +288,7 @@ describe("SQL insights over the real pinned artifact", () => {
     const engine = new Database(join(directory, "cards.cdb"));
     const pending = [101403051, 101402001, 100461000];
     for (const [id, name] of [[101403051, "The Immortal Sun God"], [101402001, "Earlier set fixture"], [100461000, "Diabellstar, the Seeker of Sinful Spoils"]] as const) {
-      engine.prepare("INSERT INTO datas(id,alias,type,ot) VALUES(?,0,2,257)").run(id);
+      engine.prepare("INSERT INTO datas(id,alias,type,ot) VALUES(?,0,2,?)").run(id, id === 101403051 ? 0x100 : 257);
       engine.prepare("INSERT INTO texts(id,name,desc) VALUES(?,?,'Printed effect')").run(id, name);
     }
     db.exec("SAVEPOINT pending_order");

@@ -6,6 +6,7 @@ import { deckEngineDataDirectory } from "./card-artworks.js";
 import { loadCardPasscodeRemaps } from "../db/card-passcode-remaps.js";
 import { CARD_ATTRIBUTES, CARD_RACES, inArchetype } from "../duels/card-query.js";
 import { engineInsightCard } from "../cards/effects/engine-card.js";
+import { dateSearchEligible } from "../cards/effects/releases.js";
 import { ATTRIBUTES, MONSTER_TYPES, SUBTYPES, type Card, type Subtype } from "../cards/effects/card.js";
 import type { CardTags } from "../cards/effects/tags.js";
 import type { Candidate } from "../cards/effects/synergy.js";
@@ -208,7 +209,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       }
     }
     card.dateSearchEligible = engineCard && engineHasPool
-      ? (engineCard.ot! & 3) !== 0 && (engineCard.ot! & 0x600) === 0
+      ? dateSearchEligible(engineCard.ot!)
       : !/(?:skill|rush|anime|video[_ ]?game)/i.test(typeKey);
     const dates = joined ? row as SuggestionRow : sourceReaders.release.get(canonicalCode);
     if (dates?.tcg_date) card.tcgDate = dates.tcg_date;
@@ -240,7 +241,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     };
     if (row?.[15]) card.tcgDate = row[15];
     if (row?.[16]) card.ocgDate = row[16];
-    if (engineHasPool) card.dateSearchEligible = (engineCard[11]! & 3) !== 0 && (engineCard[11]! & 0x600) === 0;
+    if (engineHasPool) card.dateSearchEligible = dateSearchEligible(engineCard[11]!);
     if ((engineCard[11] ?? 0) & 0x100) card.prerelease = true;
     Object.assign(card, prereleaseDate(card.id, card, card.prerelease));
     return row?.[13] ? { card, tags: JSON.parse(row[13]) as CardTags } : { card };
@@ -404,7 +405,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     card.level = finalLevel; card.rank = rank; card.linkRating = linkRating;
     if (row[19]) card.tcgDate = row[19];
     if (row[20]) card.ocgDate = row[20];
-    if (engineHasPool) card.dateSearchEligible = (row[23]! & 3) !== 0 && (row[23]! & 0x600) === 0;
+    if (engineHasPool) card.dateSearchEligible = dateSearchEligible(row[23]!);
     if ((row[23] ?? 0) & 0x100) card.prerelease = true;
     Object.assign(card, prereleaseDate(card.id, card, card.prerelease));
     return row[17] ? { card, tags: JSON.parse(row[17]) as CardTags } : { card };

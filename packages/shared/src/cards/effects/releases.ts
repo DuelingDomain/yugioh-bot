@@ -9,6 +9,8 @@ export interface CardReleaseInfo extends ReleaseDates {
   upcoming: boolean;
 }
 
+/** Announced standard-game cards can carry only the engine prerelease bit. */
+export const dateSearchEligible = (ot: number): boolean => (ot & 0x103) !== 0 && (ot & 0x600) === 0;
 export const validReleaseMonth = (value: unknown): value is string => typeof value === "string" && /^(?:19|20|21)\d{2}-(?:0[1-9]|1[0-2])$/.test(value);
 /** TCG set dates also cover legacy MFC-077 and lettered NECH-ENS10 codes. */
 export const isTcgSetCode = (code?: string): boolean => !code || /-(?:(?:EN|E|NA|EU|SP|FR|DE|IT|PT)[A-Z]*)?\d+$/i.test(code);
