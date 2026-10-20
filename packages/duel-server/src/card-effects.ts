@@ -240,12 +240,13 @@ export function cardEffectIndex(cards: CardDatabase): CardEffectIndex | undefine
   return indexes.get(cards);
 }
 
-const releaseIndexes = new WeakMap<Database.Database, { revision: number; cards?: CardDatabase; releases: Map<number, ReleaseDates> }>();
+const releaseIndexes = new WeakMap<Database.Database, { revision: number; month: string; cards?: CardDatabase; releases: Map<number, ReleaseDates> }>();
 /** Date sorting and filters remain available without parsing or retaining any effect tags. */
 export function cardReleaseIndex(db: Database.Database, cards?: CardDatabase): ReadonlyMap<number, ReleaseDates> {
   const revision = (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
+  const month = new Date().toISOString().slice(0, 7);
   const cached = releaseIndexes.get(db);
-  if (cached?.revision === revision && (!cards || cached.cards === cards)) return cached.releases;
+  if (cached?.revision === revision && cached.month === month && (!cards || cached.cards === cards)) return cached.releases;
   const releases = new Map<number, ReleaseDates>();
   for (const row of db.prepare("SELECT passcode,tcg_date,ocg_date FROM card_release").iterate() as Iterable<{ passcode: number; tcg_date: string | null; ocg_date: string | null }>) {
     releases.set(row.passcode, { ...(row.tcg_date ? { tcgDate: row.tcg_date } : {}), ...(row.ocg_date ? { ocgDate: row.ocg_date } : {}) });
@@ -255,6 +256,6 @@ export function cardReleaseIndex(db: Database.Database, cards?: CardDatabase): R
     const code = card.canonicalPasscode ?? card.code;
     if (card.prerelease && !releases.get(code)?.prerelease) releases.set(code, prereleaseDate(code, releases.get(code) ?? {}, true));
   }
-  releaseIndexes.set(db, { revision, cards, releases });
+  releaseIndexes.set(db, { revision, month, cards, releases });
   return releases;
 }
