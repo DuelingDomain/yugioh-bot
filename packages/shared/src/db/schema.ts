@@ -5,6 +5,7 @@ import { backfillMainArtworkRows } from "../services/card-artworks.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { isExtraDeckFrame } from "../services/card-catalog.js";
 import { migrateCubeOwnerNames } from "./cube-owner-names.js";
+import { migrateWaitlistAdminSource } from "./waitlist-admin-source.js";
 
 function hasColumn(db: Database.Database, table: string, column: string) {
   return (db.pragma(`table_info(${table})`) as Array<{ name: string }>).some((info) => info.name === column);
@@ -1302,7 +1303,7 @@ export function migrate(db: Database.Database) {
       actor_user_id integer references users(id) on delete cascade,
       actor_discord_id text,
       actor_name text,
-      source text check (source in ('web', 'discord')),
+      source text check (source in ('web', 'discord', 'admin')),
       attempted_at integer,
       lease_token text,
       lease_expires_at integer,
@@ -1381,6 +1382,8 @@ export function migrate(db: Database.Database) {
       pid integer not null check (pid > 0)
     );
   `);
+
+  migrateWaitlistAdminSource(db);
 
   // Draft privacy follows identity migration so grants reference application users.
   // Adding the default also makes every existing draft private; codes stay lazy.

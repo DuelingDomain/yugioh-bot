@@ -26,7 +26,7 @@ const owner = { siteUserId: 1 };
 const email = "player@example.test";
 const clerk = () => createClerkBackend({ secretKey: "test-key", apiUrl });
 const action = () => prepareWaitlistAction(db, { email, clerkEntryId: "wle_1" });
-const decide = (decision: "approve" | "reject" = "approve", actor = owner, source: "web" | "discord" = "web") =>
+const decide = (decision: "approve" | "reject" = "approve", actor = owner, source: "web" | "discord" | "admin" = "web") =>
   decideWaitlistEntry(db, { clerkEntryId: "wle_1", decision, actor, source }, clerk());
 const queue = (key: string) => enqueueOutbox(db, { idempotencyKey: key, kind: "test", channelId: "waitlist", payload: { content: key } });
 
@@ -169,7 +169,7 @@ describe("shared Discord administration with SQLite", () => {
 });
 
 describe("one leased Clerk decision for web and Discord", () => {
-  it.each(["web", "discord"] as const)("completes through %s, saves the actor, clears email and queues an edit", async source => {
+  it.each(["web", "discord", "admin"] as const)("completes through %s, saves the actor, clears email and queues an edit", async source => {
     await notifyJoinRequest(db, { email, clerkEntryId: "wle_1", source: "Clerk waitlist" });
     const [alert] = claimOutbox(db, 1);
     markPosted(db, alert, { messageId: "posted" });
