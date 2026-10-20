@@ -834,6 +834,8 @@ export function deckSuggestionScope(
   const limits: Record<number, number> = {};
   for (const card of mode === "domain" && !domain ? [] : catalog.cards.values()) {
     if (canonicalCardCode(card.id, catalog.cards) !== card.id || blocked.has(card.id)) continue;
+    // Standard suggestions use the printed TCG pool even though casual duel admission permits both games.
+    if (mode === "normal" && (card.ot & OT_TCG) === 0) continue;
     if (settings.genesys && isGenesysForbiddenType(card)) continue;
     const section = isExtraDeckMonster(card) ? "extra" : "main";
     if (engineLoadableMessage(card, section, catalog, settings.cardPool)) continue;

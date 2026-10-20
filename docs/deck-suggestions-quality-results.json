@@ -72,75 +72,99 @@
         "precision": 0,
         "cards": [
           {
-            "passcode": 38517737,
-            "name": "Blue-Eyes Alternative White Dragon",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 79814787,
-            "name": "The White Stone of Legend",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 45467446,
-            "name": "Dragon Spirit of White",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 21082832,
-            "name": "Chaos Form",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
             "passcode": 64202399,
             "name": "Blue-Eyes Abyss Dragon",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 93437091,
-            "name": "Bingo Machine, Go!!!",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 88241506,
-            "name": "Maiden with Eyes of Blue",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 20654247,
-            "name": "Blue-Eyes Chaos Dragon",
-            "reason": "Names Blue-Eyes White Dragon",
+            "score": 3079,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
             "expected": false
           },
           {
             "passcode": 71143015,
             "name": "Ultimate Fusion",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 56920308,
-            "name": "The Ultimate Creature of Destruction",
-            "reason": "Names Blue-Eyes White Dragon",
+            "score": 3078,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
             "expected": false
           },
           {
             "passcode": 66961194,
             "name": "Dictator of D.",
-            "reason": "Names Blue-Eyes White Dragon",
+            "score": 3077,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 54475145,
+            "name": "Heart of the Blue-Eyes",
+            "score": 3075,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 93437091,
+            "name": "Bingo Machine, Go!!!",
+            "score": 3073,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 35659410,
+            "name": "Vision with Eyes of Blue",
+            "score": 3073,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 67768675,
+            "name": "Kaibaman the Legend",
+            "score": 3073,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 20654247,
+            "name": "Blue-Eyes Chaos Dragon",
+            "score": 3072,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 56920308,
+            "name": "The Ultimate Creature of Destruction",
+            "score": 3071,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 38517737,
+            "name": "Blue-Eyes Alternative White Dragon",
+            "score": 3070,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
             "expected": false
           },
           {
             "passcode": 57043986,
             "name": "Blue-Eyes Solid Dragon",
-            "reason": "Names Blue-Eyes White Dragon",
+            "score": 3070,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 71039903,
+            "name": "The White Stone of Ancients",
+            "score": 3069,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
             "expected": false
           }
         ]
@@ -153,74 +177,98 @@
         "precision": 0.5,
         "cards": [
           {
-            "passcode": 93871599,
-            "name": "The Flute of Guiding Dragon",
-            "reason": "Summons Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
             "passcode": 6853254,
             "name": "Return of the Dragon Lords",
+            "score": 40,
+            "linkedCards": 2,
             "reason": "Summons Blue-Eyes White Dragon",
             "expected": true
           },
           {
             "passcode": 79816536,
             "name": "Summoner's Art",
+            "score": 40,
+            "linkedCards": 1,
             "reason": "Searches Blue-Eyes White Dragon",
             "expected": false
           },
           {
             "passcode": 83764718,
             "name": "Monster Reborn",
+            "score": 39,
+            "linkedCards": 5,
             "reason": "Summons Blue-Eyes White Dragon",
             "expected": true
           },
           {
             "passcode": 81439173,
             "name": "Foolish Burial",
+            "score": 39,
+            "linkedCards": 5,
             "reason": "Prepares the GY with Blue-Eyes White Dragon",
             "expected": true
           },
           {
             "passcode": 48800175,
             "name": "The Melody of Awakening Dragon",
+            "score": 39,
+            "linkedCards": 2,
             "reason": "Searches Blue-Eyes White Dragon",
             "expected": true
           },
           {
             "passcode": 41620959,
             "name": "Dragon Shrine",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Prepares the GY with Blue-Eyes White Dragon",
             "expected": true
           },
           {
             "passcode": 87025064,
             "name": "Silver's Cry",
+            "score": 39,
+            "linkedCards": 1,
             "reason": "Summons Blue-Eyes White Dragon",
             "expected": true
           },
           {
             "passcode": 95286165,
             "name": "De-Fusion",
+            "score": 39,
+            "linkedCards": 10,
             "reason": "Summons Blue-Eyes White Dragon",
             "expected": false
           },
           {
             "passcode": 32441317,
             "name": "De-Synchro",
-            "reason": "Summons Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 28958464,
-            "name": "Spell Card \"Monster Reborn\"",
+            "score": 39,
+            "linkedCards": 5,
             "reason": "Summons Blue-Eyes White Dragon",
             "expected": false
           },
           {
             "passcode": 88032456,
             "name": "Mimicat",
+            "score": 39,
+            "linkedCards": 5,
+            "reason": "Summons Blue-Eyes White Dragon",
+            "expected": false
+          },
+          {
+            "passcode": 38723936,
+            "name": "Question",
+            "score": 39,
+            "linkedCards": 5,
+            "reason": "Summons Blue-Eyes White Dragon",
+            "expected": false
+          },
+          {
+            "passcode": 99984170,
+            "name": "RESCUE!",
+            "score": 39,
+            "linkedCards": 5,
             "reason": "Summons Blue-Eyes White Dragon",
             "expected": false
           }
@@ -244,36 +292,48 @@
           {
             "passcode": 24224830,
             "name": "Called by the Grave",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell that banishes a monster from the opponent's GY…",
             "expected": true
           },
           {
             "passcode": 97268402,
             "name": "Effect Veiler",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: send it from your hand to the GY during your opponent's…",
             "expected": true
           },
           {
             "passcode": 27204311,
             "name": "Nibiru, the Primal Being",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap Quick Effect during the Main Phase: if your opponent…",
             "expected": true
           },
           {
             "passcode": 24299458,
             "name": "Forbidden Droplet",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell: send any number of other cards from your hand or…",
             "expected": false
           },
           {
             "passcode": 48130397,
             "name": "Super Polymerization",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell that discards a card to Fusion Summon using…",
             "expected": false
           },
           {
             "passcode": 54693926,
             "name": "Dark Ruler No More",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Negates the effects of all face-up monsters your opponent…",
             "expected": false
           }
@@ -338,9 +398,9 @@
       97268402
     ],
     "outsideTop8": {
-      "hits": 6,
+      "hits": 7,
       "returned": 8,
-      "precision": 0.75,
+      "precision": 0.875,
       "pass": true
     },
     "staplesShare": 0.14285714285714285,
@@ -354,75 +414,99 @@
         "precision": 0,
         "cards": [
           {
-            "passcode": 38517737,
-            "name": "Blue-Eyes Alternative White Dragon",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 79814787,
-            "name": "The White Stone of Legend",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 45467446,
-            "name": "Dragon Spirit of White",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 21082832,
-            "name": "Chaos Form",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 64202399,
-            "name": "Blue-Eyes Abyss Dragon",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 93437091,
-            "name": "Bingo Machine, Go!!!",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 88241506,
-            "name": "Maiden with Eyes of Blue",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 20654247,
-            "name": "Blue-Eyes Chaos Dragon",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
             "passcode": 71143015,
             "name": "Ultimate Fusion",
-            "reason": "Names Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
-            "passcode": 56920308,
-            "name": "The Ultimate Creature of Destruction",
-            "reason": "Names Blue-Eyes White Dragon",
+            "score": 3078,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
             "expected": false
           },
           {
             "passcode": 66961194,
             "name": "Dictator of D.",
-            "reason": "Names Blue-Eyes White Dragon",
+            "score": 3077,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
             "expected": false
           },
           {
-            "passcode": 57043986,
-            "name": "Blue-Eyes Solid Dragon",
-            "reason": "Names Blue-Eyes White Dragon",
+            "passcode": 64202399,
+            "name": "Blue-Eyes Abyss Dragon",
+            "score": 3076,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 54475145,
+            "name": "Heart of the Blue-Eyes",
+            "score": 3075,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 35659410,
+            "name": "Vision with Eyes of Blue",
+            "score": 3073,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 67768675,
+            "name": "Kaibaman the Legend",
+            "score": 3073,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 92501449,
+            "name": "Primite Roar",
+            "score": 3068,
+            "linkedCards": 3,
+            "reason": "Supports Primite",
+            "expected": false
+          },
+          {
+            "passcode": 93437091,
+            "name": "Bingo Machine, Go!!!",
+            "score": 3067,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 20654247,
+            "name": "Blue-Eyes Chaos Dragon",
+            "score": 3066,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 56920308,
+            "name": "The Ultimate Creature of Destruction",
+            "score": 3065,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
+            "expected": false
+          },
+          {
+            "passcode": 81418467,
+            "name": "Primite Imperial Dragon",
+            "score": 3065,
+            "linkedCards": 3,
+            "reason": "Supports Primite",
+            "expected": false
+          },
+          {
+            "passcode": 38517737,
+            "name": "Blue-Eyes Alternative White Dragon",
+            "score": 3064,
+            "linkedCards": 4,
+            "reason": "Supports Blue-Eyes",
             "expected": false
           }
         ]
@@ -435,74 +519,98 @@
         "precision": 0.5833333333333334,
         "cards": [
           {
-            "passcode": 93871599,
-            "name": "The Flute of Guiding Dragon",
-            "reason": "Summons Blue-Eyes White Dragon",
-            "expected": false
-          },
-          {
             "passcode": 41620959,
             "name": "Dragon Shrine",
+            "score": 41,
+            "linkedCards": 5,
             "reason": "Prepares the GY with Blue-Eyes White Dragon",
             "expected": true
           },
           {
             "passcode": 6853254,
             "name": "Return of the Dragon Lords",
+            "score": 40,
+            "linkedCards": 2,
             "reason": "Summons Blue-Eyes White Dragon",
             "expected": true
           },
           {
             "passcode": 79816536,
             "name": "Summoner's Art",
+            "score": 40,
+            "linkedCards": 1,
             "reason": "Searches Blue-Eyes White Dragon",
             "expected": false
           },
           {
             "passcode": 83764718,
             "name": "Monster Reborn",
+            "score": 39,
+            "linkedCards": 8,
             "reason": "Summons Blue-Eyes White Dragon",
             "expected": true
           },
           {
             "passcode": 81439173,
             "name": "Foolish Burial",
+            "score": 39,
+            "linkedCards": 8,
             "reason": "Prepares the GY with Blue-Eyes White Dragon",
             "expected": true
           },
           {
             "passcode": 48800175,
             "name": "The Melody of Awakening Dragon",
+            "score": 39,
+            "linkedCards": 2,
             "reason": "Searches Blue-Eyes White Dragon",
             "expected": true
           },
           {
             "passcode": 62265044,
             "name": "Dragon Ravine",
+            "score": 39,
+            "linkedCards": 5,
             "reason": "Prepares the GY with Blue-Eyes White Dragon",
             "expected": true
           },
           {
             "passcode": 87025064,
             "name": "Silver's Cry",
+            "score": 39,
+            "linkedCards": 1,
             "reason": "Summons Blue-Eyes White Dragon",
             "expected": true
           },
           {
             "passcode": 95286165,
             "name": "De-Fusion",
+            "score": 39,
+            "linkedCards": 18,
             "reason": "Summons Blue-Eyes White Dragon",
             "expected": false
           },
           {
             "passcode": 32441317,
             "name": "De-Synchro",
+            "score": 39,
+            "linkedCards": 8,
             "reason": "Summons Blue-Eyes White Dragon",
             "expected": false
           },
           {
-            "passcode": 28958464,
-            "name": "Spell Card \"Monster Reborn\"",
+            "passcode": 88032456,
+            "name": "Mimicat",
+            "score": 39,
+            "linkedCards": 8,
+            "reason": "Summons Blue-Eyes White Dragon",
+            "expected": false
+          },
+          {
+            "passcode": 71867500,
+            "name": "Dragon Revival Rhapsody",
+            "score": 39,
+            "linkedCards": 5,
             "reason": "Summons Blue-Eyes White Dragon",
             "expected": false
           }
@@ -511,80 +619,104 @@
       {
         "id": "extra",
         "state": "ready",
-        "hits": 0,
+        "hits": 2,
         "returned": 12,
-        "precision": 0,
+        "precision": 0.16666666666666666,
         "cards": [
           {
-            "passcode": 29301450,
-            "name": "S:P Little Knight",
-            "reason": "Makes Link-2 with 2 Main Deck monsters",
+            "passcode": 2129638,
+            "name": "Blue-Eyes Twin Burst Dragon",
+            "score": 300,
+            "linkedCards": 1,
+            "reason": "Has all 2 materials for the printed alternate Fusion summon",
             "expected": false
           },
           {
-            "passcode": 86066372,
-            "name": "Accesscode Talker",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 2857636,
-            "name": "Knightmare Phoenix",
-            "reason": "Makes Link-2 with 2 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 38342335,
-            "name": "Knightmare Unicorn",
-            "reason": "Makes Link-3 with 3 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 85289965,
-            "name": "Borrelsword Dragon",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 65741786,
-            "name": "I:P Masquerena",
-            "reason": "Makes Link-2 with 2 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 41999284,
-            "name": "Linkuriboh",
-            "reason": "Makes Link-1 with 1 Main Deck monsters",
-            "expected": false
+            "passcode": 89604813,
+            "name": "Blue-Eyes Ultimate Spirit Dragon",
+            "score": 300,
+            "linkedCards": 6,
+            "reason": "Makes Level 12 with 3 Tuner and non-Tuner materials",
+            "expected": true
           },
           {
             "passcode": 63767246,
             "name": "Number 38: Hope Harbinger Dragon Titanic Galaxy",
+            "score": 200,
+            "linkedCards": 0,
             "reason": "Makes Rank 8 with 2 Level 8 monsters",
             "expected": false
           },
           {
             "passcode": 90590303,
             "name": "Number 41: Bagooska the Terribly Tired Tapir",
+            "score": 200,
+            "linkedCards": 0,
             "reason": "Makes Rank 4 with 2 Level 4 monsters",
             "expected": false
           },
           {
-            "passcode": 31833038,
-            "name": "Borreload Dragon",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
+            "passcode": 22850702,
+            "name": "Chaos Angel",
+            "score": 200,
+            "linkedCards": 7,
+            "reason": "Makes Level 10 with 2 Tuner and non-Tuner materials",
             "expected": false
           },
           {
-            "passcode": 75452921,
-            "name": "Knightmare Cerberus",
+            "passcode": 24361622,
+            "name": "Hieratic Seal of the Heavenly Spheres",
+            "score": 200,
+            "linkedCards": 5,
             "reason": "Makes Link-2 with 2 Main Deck monsters",
+            "expected": true
+          },
+          {
+            "passcode": 6983839,
+            "name": "Tornado Dragon",
+            "score": 200,
+            "linkedCards": 0,
+            "reason": "Makes Rank 4 with 2 Level 4 monsters",
             "expected": false
           },
           {
-            "passcode": 74997493,
-            "name": "Saryuja Skull Dread",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
+            "passcode": 46772449,
+            "name": "Evilswarm Exciton Knight",
+            "score": 200,
+            "linkedCards": 0,
+            "reason": "Makes Rank 4 with 2 Level 4 monsters",
+            "expected": false
+          },
+          {
+            "passcode": 66011101,
+            "name": "Number 60: Dugares the Timeless",
+            "score": 200,
+            "linkedCards": 0,
+            "reason": "Makes Rank 4 with 2 Level 4 monsters",
+            "expected": false
+          },
+          {
+            "passcode": 45819647,
+            "name": "Selene, Queen of the Master Magicians",
+            "score": 200,
+            "linkedCards": 2,
+            "reason": "Makes Link-3 with 3 Main Deck monsters",
+            "expected": false
+          },
+          {
+            "passcode": 73580471,
+            "name": "Black Rose Dragon",
+            "score": 200,
+            "linkedCards": 0,
+            "reason": "Makes Level 7 with 2 Tuner and non-Tuner materials",
+            "expected": false
+          },
+          {
+            "passcode": 84013237,
+            "name": "Number 39: Utopia",
+            "score": 200,
+            "linkedCards": 0,
+            "reason": "Makes Rank 4 with 2 Level 4 monsters",
             "expected": false
           }
         ]
@@ -599,36 +731,48 @@
           {
             "passcode": 27204311,
             "name": "Nibiru, the Primal Being",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap Quick Effect during the Main Phase: if your opponent…",
             "expected": true
           },
           {
             "passcode": 24299458,
             "name": "Forbidden Droplet",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell: send any number of other cards from your hand or…",
             "expected": false
           },
           {
             "passcode": 48130397,
             "name": "Super Polymerization",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell that discards a card to Fusion Summon using…",
             "expected": false
           },
           {
             "passcode": 54693926,
             "name": "Dark Ruler No More",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Negates the effects of all face-up monsters your opponent…",
             "expected": false
           },
           {
             "passcode": 15693423,
             "name": "Evenly Matched",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Trap that, at the end of the Battle Phase, makes your opponent…",
             "expected": false
           },
           {
             "passcode": 41420027,
             "name": "Solemn Judgment",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Counter Trap that pays half your LP to negate the Summon of a…",
             "expected": true
           }
@@ -696,80 +840,104 @@
       {
         "id": "archetype",
         "state": "ready",
-        "hits": 1,
+        "hits": 0,
         "returned": 12,
-        "precision": 0.08333333333333333,
+        "precision": 0,
         "cards": [
-          {
-            "passcode": 1984618,
-            "name": "Nadir Servant",
-            "reason": "Names Fallen of Albaz",
-            "expected": true
-          },
           {
             "passcode": 25451383,
             "name": "Albion the Shrouded Dragon",
-            "reason": "Names Fallen of Albaz",
+            "score": 3096,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
             "passcode": 82738008,
             "name": "Branded in Red",
-            "reason": "Names Fallen of Albaz",
+            "score": 3095,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
             "passcode": 45484331,
             "name": "Springans Kitt",
-            "reason": "Names Fallen of Albaz",
+            "score": 3094,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
             "passcode": 18973184,
             "name": "Branded Lost",
-            "reason": "Names Fallen of Albaz",
-            "expected": false
-          },
-          {
-            "passcode": 98684220,
-            "name": "Black Chaos",
-            "reason": "Names Light and Darkness Ritual",
-            "expected": false
-          },
-          {
-            "passcode": 97462632,
-            "name": "Griffoh",
-            "reason": "Names Light and Darkness Ritual",
+            "score": 3093,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
             "passcode": 34995106,
             "name": "Branded in White",
-            "reason": "Names Fallen of Albaz",
+            "score": 3092,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 70405001,
-            "name": "Black Luster Soldier - Soldier of Light and Darkness",
-            "reason": "Names Light and Darkness Ritual",
-            "expected": false
-          },
-          {
-            "passcode": 24749710,
-            "name": "Mind Shuffle",
-            "reason": "Names Light and Darkness Ritual",
-            "expected": false
-          },
-          {
-            "passcode": 82489470,
-            "name": "The Golden Swordsoul",
-            "reason": "Names Fallen of Albaz",
+            "passcode": 32731036,
+            "name": "The Bystial Lubellion",
+            "score": 3090,
+            "linkedCards": 5,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
             "passcode": 81767888,
             "name": "Branded Sword",
-            "reason": "Names Fallen of Albaz",
+            "score": 3090,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 60242223,
+            "name": "Bystial Saronir",
+            "score": 3089,
+            "linkedCards": 5,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 62022479,
+            "name": "Branded Bond",
+            "score": 3088,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 67100549,
+            "name": "Screams of the Branded",
+            "score": 3087,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 19271881,
+            "name": "Brightest, Blazing, Branded King",
+            "score": 3087,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 34090915,
+            "name": "Branded Regained",
+            "score": 3086,
+            "linkedCards": 5,
+            "reason": "Supports Branded",
             "expected": false
           }
         ]
@@ -784,72 +952,96 @@
           {
             "passcode": 6498706,
             "name": "Fusion Deployment",
+            "score": 49,
+            "linkedCards": 2,
             "reason": "Summons Fallen of Albaz",
             "expected": true
           },
           {
             "passcode": 17194258,
             "name": "Fusion Conscription",
+            "score": 47,
+            "linkedCards": 2,
             "reason": "Searches Fallen of Albaz",
             "expected": true
           },
           {
             "passcode": 83764718,
             "name": "Monster Reborn",
+            "score": 39,
+            "linkedCards": 10,
             "reason": "Summons Fallen of Albaz",
             "expected": false
           },
           {
             "passcode": 81439173,
             "name": "Foolish Burial",
+            "score": 39,
+            "linkedCards": 10,
             "reason": "Prepares the GY with Fallen of Albaz",
             "expected": false
           },
           {
             "passcode": 24094653,
             "name": "Polymerization",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": true
           },
           {
             "passcode": 71490127,
             "name": "Dragon's Mirror",
+            "score": 39,
+            "linkedCards": 1,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": true
           },
           {
             "passcode": 11827244,
             "name": "Magicalized Fusion",
+            "score": 39,
+            "linkedCards": 1,
             "reason": "Fusion Summons Granguignol the Dusk Dragon",
             "expected": true
           },
           {
             "passcode": 95286165,
             "name": "De-Fusion",
+            "score": 39,
+            "linkedCards": 16,
             "reason": "Summons Fallen of Albaz",
             "expected": false
           },
           {
             "passcode": 33550694,
             "name": "Fusion Gate",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 63136489,
             "name": "Chimera Fusion",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 81223446,
             "name": "Necro Fusion",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": true
           },
           {
             "passcode": 58570206,
             "name": "Heavy Polymerization",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           }
@@ -873,36 +1065,48 @@
           {
             "passcode": 14558127,
             "name": "Ash Blossom & Joyous Spring",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: discard it during either turn to negate an effect that…",
             "expected": true
           },
           {
             "passcode": 10045474,
             "name": "Infinite Impermanence",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Trap that targets an opponent's face-up monster to negate its…",
             "expected": false
           },
           {
             "passcode": 24224830,
             "name": "Called by the Grave",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell that banishes a monster from the opponent's GY…",
             "expected": true
           },
           {
             "passcode": 97268402,
             "name": "Effect Veiler",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: send it from your hand to the GY during your opponent's…",
             "expected": false
           },
           {
             "passcode": 27204311,
             "name": "Nibiru, the Primal Being",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap Quick Effect during the Main Phase: if your opponent…",
             "expected": false
           },
           {
             "passcode": 24299458,
             "name": "Forbidden Droplet",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell: send any number of other cards from your hand or…",
             "expected": true
           }
@@ -964,7 +1168,7 @@
       "precision": 0.625,
       "pass": true
     },
-    "staplesShare": 0.14285714285714285,
+    "staplesShare": 0.15384615384615385,
     "illegal": [],
     "rows": [
       {
@@ -977,73 +1181,97 @@
           {
             "passcode": 25451383,
             "name": "Albion the Shrouded Dragon",
-            "reason": "Names Fallen of Albaz",
+            "score": 3096,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
             "passcode": 82738008,
             "name": "Branded in Red",
-            "reason": "Names Fallen of Albaz",
+            "score": 3095,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
             "passcode": 45484331,
             "name": "Springans Kitt",
-            "reason": "Names Fallen of Albaz",
+            "score": 3094,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
             "passcode": 18973184,
             "name": "Branded Lost",
-            "reason": "Names Fallen of Albaz",
-            "expected": false
-          },
-          {
-            "passcode": 98684220,
-            "name": "Black Chaos",
-            "reason": "Names Light and Darkness Ritual",
-            "expected": false
-          },
-          {
-            "passcode": 97462632,
-            "name": "Griffoh",
-            "reason": "Names Light and Darkness Ritual",
+            "score": 3093,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
             "passcode": 34995106,
             "name": "Branded in White",
-            "reason": "Names Fallen of Albaz",
+            "score": 3092,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 48285768,
-            "name": "Springans Merrymaker",
-            "reason": "Names Fallen of Albaz",
-            "expected": false
-          },
-          {
-            "passcode": 70405001,
-            "name": "Black Luster Soldier - Soldier of Light and Darkness",
-            "reason": "Names Light and Darkness Ritual",
-            "expected": false
-          },
-          {
-            "passcode": 24749710,
-            "name": "Mind Shuffle",
-            "reason": "Names Light and Darkness Ritual",
-            "expected": false
-          },
-          {
-            "passcode": 82489470,
-            "name": "The Golden Swordsoul",
-            "reason": "Names Fallen of Albaz",
+            "passcode": 32731036,
+            "name": "The Bystial Lubellion",
+            "score": 3090,
+            "linkedCards": 5,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
             "passcode": 81767888,
             "name": "Branded Sword",
-            "reason": "Names Fallen of Albaz",
+            "score": 3090,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 60242223,
+            "name": "Bystial Saronir",
+            "score": 3089,
+            "linkedCards": 5,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 62022479,
+            "name": "Branded Bond",
+            "score": 3088,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 67100549,
+            "name": "Screams of the Branded",
+            "score": 3087,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 19271881,
+            "name": "Brightest, Blazing, Branded King",
+            "score": 3087,
+            "linkedCards": 6,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 34090915,
+            "name": "Branded Regained",
+            "score": 3086,
+            "linkedCards": 5,
+            "reason": "Supports Branded",
             "expected": false
           }
         ]
@@ -1058,72 +1286,96 @@
           {
             "passcode": 6498706,
             "name": "Fusion Deployment",
+            "score": 49,
+            "linkedCards": 2,
             "reason": "Summons Fallen of Albaz",
             "expected": true
           },
           {
             "passcode": 17194258,
             "name": "Fusion Conscription",
+            "score": 47,
+            "linkedCards": 2,
             "reason": "Searches Fallen of Albaz",
             "expected": true
           },
           {
             "passcode": 83764718,
             "name": "Monster Reborn",
+            "score": 39,
+            "linkedCards": 10,
             "reason": "Summons Fallen of Albaz",
             "expected": false
           },
           {
             "passcode": 81439173,
             "name": "Foolish Burial",
+            "score": 39,
+            "linkedCards": 10,
             "reason": "Prepares the GY with Fallen of Albaz",
             "expected": false
           },
           {
             "passcode": 24094653,
             "name": "Polymerization",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": true
           },
           {
             "passcode": 71490127,
             "name": "Dragon's Mirror",
+            "score": 39,
+            "linkedCards": 1,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": true
           },
           {
             "passcode": 11827244,
             "name": "Magicalized Fusion",
+            "score": 39,
+            "linkedCards": 1,
             "reason": "Fusion Summons Granguignol the Dusk Dragon",
             "expected": true
           },
           {
             "passcode": 95286165,
             "name": "De-Fusion",
+            "score": 39,
+            "linkedCards": 20,
             "reason": "Summons Fallen of Albaz",
             "expected": false
           },
           {
             "passcode": 33550694,
             "name": "Fusion Gate",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 63136489,
             "name": "Chimera Fusion",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 81223446,
             "name": "Necro Fusion",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": true
           },
           {
             "passcode": 58570206,
             "name": "Heavy Polymerization",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           }
@@ -1132,79 +1384,79 @@
       {
         "id": "extra",
         "state": "ready",
-        "hits": 0,
-        "returned": 12,
-        "precision": 0,
+        "hits": 4,
+        "returned": 9,
+        "precision": 0.4444444444444444,
         "cards": [
+          {
+            "passcode": 41373230,
+            "name": "Titaniklad the Ash Dragon",
+            "score": 300,
+            "linkedCards": 1,
+            "reason": "Has all 2 Fusion Materials and Branded Fusion",
+            "expected": true
+          },
+          {
+            "passcode": 70534340,
+            "name": "Lubellion the Searing Dragon",
+            "score": 300,
+            "linkedCards": 5,
+            "reason": "Has all 2 Fusion Materials and Branded Fusion",
+            "expected": true
+          },
+          {
+            "passcode": 53971455,
+            "name": "Despian Luluwalilith",
+            "score": 300,
+            "linkedCards": 0,
+            "reason": "Makes Level 12 with 2 Tuner and non-Tuner materials",
+            "expected": true
+          },
+          {
+            "passcode": 3410461,
+            "name": "Alba-Lenatus the Abyss Dragon",
+            "score": 300,
+            "linkedCards": 2,
+            "reason": "Has all 2 Fusion Materials and Branded Fusion",
+            "expected": true
+          },
+          {
+            "passcode": 38811586,
+            "name": "Albion the Sanctifire Dragon",
+            "score": 300,
+            "linkedCards": 7,
+            "reason": "Has all 2 Fusion Materials and Branded Fusion",
+            "expected": false
+          },
+          {
+            "passcode": 34848821,
+            "name": "Brigrand the Glory Dragon",
+            "score": 300,
+            "linkedCards": 1,
+            "reason": "Has all 2 Fusion Materials and Branded Fusion",
+            "expected": false
+          },
           {
             "passcode": 29301450,
             "name": "S:P Little Knight",
+            "score": 100,
+            "linkedCards": 0,
             "reason": "Makes Link-2 with 2 Main Deck monsters",
             "expected": false
           },
           {
             "passcode": 86066372,
             "name": "Accesscode Talker",
+            "score": 100,
+            "linkedCards": 0,
             "reason": "Makes Link-4 with 4 Main Deck monsters",
             "expected": false
           },
           {
             "passcode": 2857636,
             "name": "Knightmare Phoenix",
-            "reason": "Makes Link-2 with 2 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 38342335,
-            "name": "Knightmare Unicorn",
-            "reason": "Makes Link-3 with 3 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 85289965,
-            "name": "Borrelsword Dragon",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 65741786,
-            "name": "I:P Masquerena",
-            "reason": "Makes Link-2 with 2 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 41999284,
-            "name": "Linkuriboh",
-            "reason": "Makes Link-1 with 1 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 90590303,
-            "name": "Number 41: Bagooska the Terribly Tired Tapir",
-            "reason": "Makes Rank 4 with 2 Level 4 monsters",
-            "expected": false
-          },
-          {
-            "passcode": 31833038,
-            "name": "Borreload Dragon",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 75452921,
-            "name": "Knightmare Cerberus",
-            "reason": "Makes Link-2 with 2 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 74997493,
-            "name": "Saryuja Skull Dread",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 24361622,
-            "name": "Hieratic Seal of the Heavenly Spheres",
+            "score": 100,
+            "linkedCards": 0,
             "reason": "Makes Link-2 with 2 Main Deck monsters",
             "expected": false
           }
@@ -1220,36 +1472,48 @@
           {
             "passcode": 14558127,
             "name": "Ash Blossom & Joyous Spring",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: discard it during either turn to negate an effect that…",
             "expected": true
           },
           {
             "passcode": 10045474,
             "name": "Infinite Impermanence",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Trap that targets an opponent's face-up monster to negate its…",
             "expected": false
           },
           {
             "passcode": 97268402,
             "name": "Effect Veiler",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: send it from your hand to the GY during your opponent's…",
             "expected": false
           },
           {
             "passcode": 27204311,
             "name": "Nibiru, the Primal Being",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap Quick Effect during the Main Phase: if your opponent…",
             "expected": false
           },
           {
             "passcode": 24299458,
             "name": "Forbidden Droplet",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell: send any number of other cards from your hand or…",
             "expected": true
           },
           {
             "passcode": 59438930,
             "name": "Ghost Ogre & Snow Rabbit",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: send it from your hand or field to the GY to destroy a…",
             "expected": false
           }
@@ -1310,9 +1574,9 @@
       98476659
     ],
     "outsideTop8": {
-      "hits": 6,
+      "hits": 7,
       "returned": 8,
-      "precision": 0.75,
+      "precision": 0.875,
       "pass": true
     },
     "staplesShare": 0.2,
@@ -1326,75 +1590,99 @@
         "precision": 0.08333333333333333,
         "cards": [
           {
+            "passcode": 24081957,
+            "name": "Sinful Spoils of Subversion - Snake-Eye",
+            "score": 3099,
+            "linkedCards": 7,
+            "reason": "Supports Snake-Eye",
+            "expected": true
+          },
+          {
+            "passcode": 12058741,
+            "name": "Snake-Eye Birch",
+            "score": 3097,
+            "linkedCards": 7,
+            "reason": "Supports Snake-Eye",
+            "expected": false
+          },
+          {
+            "passcode": 74906081,
+            "name": "Startling Stare of the Snake-Eyes",
+            "score": 3093,
+            "linkedCards": 7,
+            "reason": "Supports Snake-Eye",
+            "expected": false
+          },
+          {
+            "passcode": 53765052,
+            "name": "Diabellze the Original Sinkeeper",
+            "score": 3077,
+            "linkedCards": 4,
+            "reason": "Supports Diabell",
+            "expected": false
+          },
+          {
+            "passcode": 38648860,
+            "name": "Elzette, Azamina of the White Forest",
+            "score": 3061,
+            "linkedCards": 2,
+            "reason": "Supports Sinful Spoils",
+            "expected": false
+          },
+          {
             "passcode": 23151193,
             "name": "Diabellstar Vengeance",
-            "reason": "Supports Diabellstar",
+            "score": 3060,
+            "linkedCards": 2,
+            "reason": "Supports Diabell",
+            "expected": false
+          },
+          {
+            "passcode": 60145298,
+            "name": "Diabellze the White Witch",
+            "score": 3060,
+            "linkedCards": 2,
+            "reason": "Supports Diabell",
             "expected": false
           },
           {
             "passcode": 3496543,
             "name": "Sinful Spoils of the White Forest",
+            "score": 3059,
+            "linkedCards": 2,
             "reason": "Supports Sinful Spoils",
             "expected": false
           },
           {
-            "passcode": 24081957,
-            "name": "Sinful Spoils of Subversion - Snake-Eye",
-            "reason": "Supports Snake-Eye",
-            "expected": true
+            "passcode": 78293584,
+            "name": "Filia Diabell",
+            "score": 3059,
+            "linkedCards": 2,
+            "reason": "Supports Diabell",
+            "expected": false
           },
           {
             "passcode": 53329234,
             "name": "Sinful Spoils of Slumber - Morrian",
+            "score": 3059,
+            "linkedCards": 2,
             "reason": "Supports Sinful Spoils",
             "expected": false
           },
           {
             "passcode": 38511382,
             "name": "Sinful Spoils of Betrayal - Silvera",
+            "score": 3058,
+            "linkedCards": 2,
             "reason": "Supports Sinful Spoils",
             "expected": false
           },
           {
-            "passcode": 65033975,
-            "name": "Queen Azamina",
-            "reason": "Supports Sinful Spoils",
-            "expected": false
-          },
-          {
-            "passcode": 12058741,
-            "name": "Snake-Eye Birch",
-            "reason": "Supports Snake-Eye",
-            "expected": false
-          },
-          {
-            "passcode": 62173132,
-            "name": "Susurrus of the Sinful Spoils",
-            "reason": "Supports Sinful Spoils",
-            "expected": false
-          },
-          {
-            "passcode": 26334139,
-            "name": "Sinful Spoils Subdual",
-            "reason": "Supports Sinful Spoils",
-            "expected": false
-          },
-          {
-            "passcode": 16240772,
-            "name": "Sinful Spoils of Doom - Rciela",
-            "reason": "Supports Sinful Spoils",
-            "expected": false
-          },
-          {
-            "passcode": 74906081,
-            "name": "Startling Stare of the Snake-Eyes",
-            "reason": "Supports Snake-Eye",
-            "expected": false
-          },
-          {
-            "passcode": 2006591,
-            "name": "Sinful Spoils Awakening",
-            "reason": "Supports Sinful Spoils",
+            "passcode": 64998567,
+            "name": "Curse of Diabell",
+            "score": 3058,
+            "linkedCards": 2,
+            "reason": "Supports Diabell",
             "expected": false
           }
         ]
@@ -1402,81 +1690,105 @@
       {
         "id": "outside",
         "state": "ready",
-        "hits": 7,
+        "hits": 8,
         "returned": 12,
-        "precision": 0.5833333333333334,
+        "precision": 0.6666666666666666,
         "cards": [
           {
             "passcode": 85106525,
             "name": "Bonfire",
+            "score": 38,
+            "linkedCards": 3,
             "reason": "Searches Snake-Eye Ash",
             "expected": true
           },
           {
             "passcode": 2295440,
             "name": "One for One",
+            "score": 36,
+            "linkedCards": 4,
             "reason": "Summons Snake-Eye Ash",
             "expected": true
           },
           {
             "passcode": 11654067,
             "name": "Fire Ejection",
+            "score": 35,
+            "linkedCards": 3,
             "reason": "Prepares the GY with Snake-Eye Ash",
             "expected": true
           },
           {
             "passcode": 51405049,
             "name": "Where Arf Thou?",
+            "score": 34,
+            "linkedCards": 4,
             "reason": "Searches Snake-Eye Ash",
             "expected": true
           },
           {
             "passcode": 82404868,
             "name": "Dark Magic Veil",
+            "score": 34,
+            "linkedCards": 3,
             "reason": "Summons Diabellstar the Black Witch",
             "expected": false
           },
           {
             "passcode": 74845897,
             "name": "Rekindling",
+            "score": 34,
+            "linkedCards": 2,
             "reason": "Summons Snake-Eye Oak",
             "expected": true
           },
           {
-            "passcode": 93871599,
-            "name": "The Flute of Guiding Dragon",
-            "reason": "Summons Snake-Eye Ash",
-            "expected": false
-          },
-          {
             "passcode": 83764718,
             "name": "Monster Reborn",
+            "score": 33,
+            "linkedCards": 8,
             "reason": "Summons Snake-Eye Ash",
             "expected": true
           },
           {
             "passcode": 81439173,
             "name": "Foolish Burial",
+            "score": 33,
+            "linkedCards": 8,
             "reason": "Prepares the GY with Snake-Eye Ash",
             "expected": true
           },
           {
-            "passcode": 28958464,
-            "name": "Spell Card \"Monster Reborn\"",
-            "reason": "Summons Snake-Eye Ash",
-            "expected": false
-          },
-          {
             "passcode": 88032456,
             "name": "Mimicat",
+            "score": 33,
+            "linkedCards": 8,
             "reason": "Summons Snake-Eye Ash",
             "expected": false
           },
           {
             "passcode": 38723936,
             "name": "Question",
+            "score": 33,
+            "linkedCards": 8,
             "reason": "Summons Snake-Eye Ash",
             "expected": false
+          },
+          {
+            "passcode": 99984170,
+            "name": "RESCUE!",
+            "score": 33,
+            "linkedCards": 8,
+            "reason": "Summons Snake-Eye Ash",
+            "expected": false
+          },
+          {
+            "passcode": 42516299,
+            "name": "Fire Recovery",
+            "score": 33,
+            "linkedCards": 5,
+            "reason": "Summons Snake-Eye Ash",
+            "expected": true
           }
         ]
       },
@@ -1498,36 +1810,48 @@
           {
             "passcode": 10045474,
             "name": "Infinite Impermanence",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Trap that targets an opponent's face-up monster to negate its…",
             "expected": false
           },
           {
             "passcode": 24224830,
             "name": "Called by the Grave",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell that banishes a monster from the opponent's GY…",
             "expected": true
           },
           {
             "passcode": 97268402,
             "name": "Effect Veiler",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: send it from your hand to the GY during your opponent's…",
             "expected": false
           },
           {
             "passcode": 27204311,
             "name": "Nibiru, the Primal Being",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap Quick Effect during the Main Phase: if your opponent…",
             "expected": false
           },
           {
             "passcode": 94145021,
             "name": "Droll & Lock Bird",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: when your opponent adds a card from the Main Deck to…",
             "expected": true
           },
           {
             "passcode": 24299458,
             "name": "Forbidden Droplet",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell: send any number of other cards from your hand or…",
             "expected": true
           }
@@ -1604,75 +1928,99 @@
         "precision": 0.08333333333333333,
         "cards": [
           {
-            "passcode": 79415624,
-            "name": "Snake-Eyes Vengeance Dragon",
+            "passcode": 24081957,
+            "name": "Sinful Spoils of Subversion - Snake-Eye",
+            "score": 3099,
+            "linkedCards": 7,
             "reason": "Supports Snake-Eye",
+            "expected": true
+          },
+          {
+            "passcode": 12058741,
+            "name": "Snake-Eye Birch",
+            "score": 3097,
+            "linkedCards": 7,
+            "reason": "Supports Snake-Eye",
+            "expected": false
+          },
+          {
+            "passcode": 74906081,
+            "name": "Startling Stare of the Snake-Eyes",
+            "score": 3093,
+            "linkedCards": 7,
+            "reason": "Supports Snake-Eye",
+            "expected": false
+          },
+          {
+            "passcode": 53765052,
+            "name": "Diabellze the Original Sinkeeper",
+            "score": 3077,
+            "linkedCards": 4,
+            "reason": "Supports Diabell",
+            "expected": false
+          },
+          {
+            "passcode": 38648860,
+            "name": "Elzette, Azamina of the White Forest",
+            "score": 3061,
+            "linkedCards": 2,
+            "reason": "Supports Sinful Spoils",
             "expected": false
           },
           {
             "passcode": 23151193,
             "name": "Diabellstar Vengeance",
-            "reason": "Supports Diabellstar",
+            "score": 3060,
+            "linkedCards": 2,
+            "reason": "Supports Diabell",
+            "expected": false
+          },
+          {
+            "passcode": 60145298,
+            "name": "Diabellze the White Witch",
+            "score": 3060,
+            "linkedCards": 2,
+            "reason": "Supports Diabell",
             "expected": false
           },
           {
             "passcode": 3496543,
             "name": "Sinful Spoils of the White Forest",
+            "score": 3059,
+            "linkedCards": 2,
             "reason": "Supports Sinful Spoils",
             "expected": false
           },
           {
-            "passcode": 24081957,
-            "name": "Sinful Spoils of Subversion - Snake-Eye",
-            "reason": "Supports Snake-Eye",
-            "expected": true
+            "passcode": 78293584,
+            "name": "Filia Diabell",
+            "score": 3059,
+            "linkedCards": 2,
+            "reason": "Supports Diabell",
+            "expected": false
           },
           {
             "passcode": 53329234,
             "name": "Sinful Spoils of Slumber - Morrian",
+            "score": 3059,
+            "linkedCards": 2,
             "reason": "Supports Sinful Spoils",
             "expected": false
           },
           {
             "passcode": 38511382,
             "name": "Sinful Spoils of Betrayal - Silvera",
+            "score": 3058,
+            "linkedCards": 2,
             "reason": "Supports Sinful Spoils",
             "expected": false
           },
           {
-            "passcode": 65033975,
-            "name": "Queen Azamina",
-            "reason": "Supports Sinful Spoils",
-            "expected": false
-          },
-          {
-            "passcode": 12058741,
-            "name": "Snake-Eye Birch",
-            "reason": "Supports Snake-Eye",
-            "expected": false
-          },
-          {
-            "passcode": 62173132,
-            "name": "Susurrus of the Sinful Spoils",
-            "reason": "Supports Sinful Spoils",
-            "expected": false
-          },
-          {
-            "passcode": 26334139,
-            "name": "Sinful Spoils Subdual",
-            "reason": "Supports Sinful Spoils",
-            "expected": false
-          },
-          {
-            "passcode": 16240772,
-            "name": "Sinful Spoils of Doom - Rciela",
-            "reason": "Supports Sinful Spoils",
-            "expected": false
-          },
-          {
-            "passcode": 74906081,
-            "name": "Startling Stare of the Snake-Eyes",
-            "reason": "Supports Snake-Eye",
+            "passcode": 64998567,
+            "name": "Curse of Diabell",
+            "score": 3058,
+            "linkedCards": 2,
+            "reason": "Supports Diabell",
             "expected": false
           }
         ]
@@ -1680,79 +2028,103 @@
       {
         "id": "outside",
         "state": "ready",
-        "hits": 6,
+        "hits": 7,
         "returned": 12,
-        "precision": 0.5,
+        "precision": 0.5833333333333334,
         "cards": [
           {
             "passcode": 2295440,
             "name": "One for One",
+            "score": 36,
+            "linkedCards": 4,
             "reason": "Summons Snake-Eye Ash",
             "expected": true
           },
           {
             "passcode": 11654067,
             "name": "Fire Ejection",
+            "score": 35,
+            "linkedCards": 3,
             "reason": "Prepares the GY with Snake-Eye Ash",
             "expected": true
           },
           {
             "passcode": 51405049,
             "name": "Where Arf Thou?",
+            "score": 34,
+            "linkedCards": 4,
             "reason": "Searches Snake-Eye Ash",
             "expected": true
           },
           {
             "passcode": 82404868,
             "name": "Dark Magic Veil",
+            "score": 34,
+            "linkedCards": 3,
             "reason": "Summons Diabellstar the Black Witch",
             "expected": false
           },
           {
             "passcode": 74845897,
             "name": "Rekindling",
+            "score": 34,
+            "linkedCards": 2,
             "reason": "Summons Snake-Eye Oak",
             "expected": true
           },
           {
-            "passcode": 93871599,
-            "name": "The Flute of Guiding Dragon",
-            "reason": "Summons Snake-Eye Ash",
-            "expected": false
-          },
-          {
             "passcode": 83764718,
             "name": "Monster Reborn",
+            "score": 33,
+            "linkedCards": 8,
             "reason": "Summons Snake-Eye Ash",
             "expected": true
           },
           {
             "passcode": 81439173,
             "name": "Foolish Burial",
+            "score": 33,
+            "linkedCards": 8,
             "reason": "Prepares the GY with Snake-Eye Ash",
             "expected": true
           },
           {
-            "passcode": 28958464,
-            "name": "Spell Card \"Monster Reborn\"",
-            "reason": "Summons Snake-Eye Ash",
-            "expected": false
-          },
-          {
             "passcode": 88032456,
             "name": "Mimicat",
+            "score": 33,
+            "linkedCards": 8,
             "reason": "Summons Snake-Eye Ash",
             "expected": false
           },
           {
             "passcode": 38723936,
             "name": "Question",
+            "score": 33,
+            "linkedCards": 8,
             "reason": "Summons Snake-Eye Ash",
             "expected": false
           },
           {
             "passcode": 99984170,
             "name": "RESCUE!",
+            "score": 33,
+            "linkedCards": 8,
+            "reason": "Summons Snake-Eye Ash",
+            "expected": false
+          },
+          {
+            "passcode": 42516299,
+            "name": "Fire Recovery",
+            "score": 33,
+            "linkedCards": 5,
+            "reason": "Summons Snake-Eye Ash",
+            "expected": true
+          },
+          {
+            "passcode": 64973456,
+            "name": "Viper's Rebirth",
+            "score": 33,
+            "linkedCards": 8,
             "reason": "Summons Snake-Eye Ash",
             "expected": false
           }
@@ -1761,80 +2133,104 @@
       {
         "id": "extra",
         "state": "ready",
-        "hits": 1,
+        "hits": 4,
         "returned": 12,
-        "precision": 0.08333333333333333,
+        "precision": 0.3333333333333333,
         "cards": [
           {
-            "passcode": 29301450,
-            "name": "S:P Little Knight",
+            "passcode": 14307929,
+            "name": "Diabell, Queen of the White Forest",
+            "score": 300,
+            "linkedCards": 0,
+            "reason": "Makes Level 8 with 3 Tuner and non-Tuner materials",
+            "expected": false
+          },
+          {
+            "passcode": 79415624,
+            "name": "Snake-Eyes Vengeance Dragon",
+            "score": 300,
+            "linkedCards": 0,
+            "reason": "Makes Level 12 with 3 Tuner and non-Tuner materials",
+            "expected": false
+          },
+          {
+            "passcode": 45819647,
+            "name": "Selene, Queen of the Master Magicians",
+            "score": 200,
+            "linkedCards": 4,
+            "reason": "Makes Link-3 with 3 Main Deck monsters",
+            "expected": true
+          },
+          {
+            "passcode": 48815792,
+            "name": "Hiita the Fire Charmer, Ablaze",
+            "score": 200,
+            "linkedCards": 0,
             "reason": "Makes Link-2 with 2 Main Deck monsters",
             "expected": true
           },
           {
-            "passcode": 86066372,
-            "name": "Accesscode Talker",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
+            "passcode": 2772337,
+            "name": "Promethean Princess, Bestower of Flames",
+            "score": 200,
+            "linkedCards": 0,
+            "reason": "Makes Link-3 with 3 Main Deck monsters",
+            "expected": true
+          },
+          {
+            "passcode": 34755994,
+            "name": "Artemis, the Magistus Moon Maiden",
+            "score": 200,
+            "linkedCards": 4,
+            "reason": "Makes Link-1 with 1 Main Deck monsters",
             "expected": false
           },
           {
-            "passcode": 2857636,
-            "name": "Knightmare Phoenix",
+            "passcode": 87871125,
+            "name": "Salamangreat Sunlight Wolf",
+            "score": 200,
+            "linkedCards": 5,
             "reason": "Makes Link-2 with 2 Main Deck monsters",
             "expected": false
           },
           {
-            "passcode": 38342335,
-            "name": "Knightmare Unicorn",
+            "passcode": 48608796,
+            "name": "Lyrilusc - Assembled Nightingale",
+            "score": 200,
+            "linkedCards": 0,
+            "reason": "Makes Rank 1 with 2 Level 1 monsters",
+            "expected": false
+          },
+          {
+            "passcode": 57134592,
+            "name": "Salamangreat Raging Phoenix",
+            "score": 200,
+            "linkedCards": 5,
+            "reason": "Makes Link-4 with 4 Main Deck monsters",
+            "expected": true
+          },
+          {
+            "passcode": 41463181,
+            "name": "Salamangreat Heatleo",
+            "score": 200,
+            "linkedCards": 5,
             "reason": "Makes Link-3 with 3 Main Deck monsters",
             "expected": false
           },
           {
-            "passcode": 85289965,
-            "name": "Borrelsword Dragon",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
+            "passcode": 8491961,
+            "name": "Lyrilusc - Recital Starling",
+            "score": 200,
+            "linkedCards": 0,
+            "reason": "Makes Rank 1 with 2 Level 1 monsters",
             "expected": false
           },
           {
-            "passcode": 63767246,
-            "name": "Number 38: Hope Harbinger Dragon Titanic Galaxy",
-            "reason": "Makes Rank 8 with 2 Level 8 monsters",
-            "expected": false
-          },
-          {
-            "passcode": 90590303,
-            "name": "Number 41: Bagooska the Terribly Tired Tapir",
-            "reason": "Makes Rank 4 with 2 Level 4 monsters",
-            "expected": false
-          },
-          {
-            "passcode": 31833038,
-            "name": "Borreload Dragon",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 75452921,
-            "name": "Knightmare Cerberus",
-            "reason": "Makes Link-2 with 2 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 74997493,
-            "name": "Saryuja Skull Dread",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 6983839,
-            "name": "Tornado Dragon",
-            "reason": "Makes Rank 4 with 2 Level 4 monsters",
-            "expected": false
-          },
-          {
-            "passcode": 46772449,
-            "name": "Evilswarm Exciton Knight",
-            "reason": "Makes Rank 4 with 2 Level 4 monsters",
+            "passcode": 27240101,
+            "name": "Kikinagashi Fucho",
+            "score": 200,
+            "linkedCards": 0,
+            "reason": "Makes Rank 1 with 2 Level 1 monsters",
             "expected": false
           }
         ]
@@ -1849,36 +2245,48 @@
           {
             "passcode": 10045474,
             "name": "Infinite Impermanence",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Trap that targets an opponent's face-up monster to negate its…",
             "expected": false
           },
           {
             "passcode": 97268402,
             "name": "Effect Veiler",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: send it from your hand to the GY during your opponent's…",
             "expected": false
           },
           {
             "passcode": 27204311,
             "name": "Nibiru, the Primal Being",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap Quick Effect during the Main Phase: if your opponent…",
             "expected": false
           },
           {
             "passcode": 48130397,
             "name": "Super Polymerization",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell that discards a card to Fusion Summon using…",
             "expected": false
           },
           {
             "passcode": 59438930,
             "name": "Ghost Ogre & Snow Rabbit",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: send it from your hand or field to the GY to destroy a…",
             "expected": false
           },
           {
             "passcode": 54693926,
             "name": "Dark Ruler No More",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Negates the effects of all face-up monsters your opponent…",
             "expected": false
           }
@@ -1967,80 +2375,104 @@
       {
         "id": "archetype",
         "state": "ready",
-        "hits": 2,
+        "hits": 1,
         "returned": 12,
-        "precision": 0.16666666666666666,
+        "precision": 0.08333333333333333,
         "cards": [
+          {
+            "passcode": 99543666,
+            "name": "Despia, Theater of the Branded",
+            "score": 3141,
+            "linkedCards": 13,
+            "reason": "Supports Branded",
+            "expected": false
+          },
           {
             "passcode": 30271097,
             "name": "The Fallen & The Virtuous",
-            "reason": "Names Fallen of Albaz",
+            "score": 3138,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 1984618,
-            "name": "Nadir Servant",
-            "reason": "Names Fallen of Albaz",
+            "passcode": 34995106,
+            "name": "Branded in White",
+            "score": 3132,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 27780618,
-            "name": "Vision HERO Vyon",
-            "reason": "Names Polymerization",
+            "passcode": 81767888,
+            "name": "Branded Sword",
+            "score": 3130,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 64202399,
-            "name": "Blue-Eyes Abyss Dragon",
-            "reason": "Names Polymerization",
-            "expected": false
-          },
-          {
-            "passcode": 34773082,
-            "name": "Frightfur Patchwork",
-            "reason": "Names Polymerization",
-            "expected": false
-          },
-          {
-            "passcode": 48048590,
-            "name": "Keeper of Dragon Magic",
-            "reason": "Names Polymerization",
+            "passcode": 60242223,
+            "name": "Bystial Saronir",
+            "score": 3129,
+            "linkedCards": 10,
+            "reason": "Supports Branded",
             "expected": true
           },
           {
-            "passcode": 96227613,
-            "name": "Supreme King Gate Zero",
-            "reason": "Names Polymerization",
+            "passcode": 1041278,
+            "name": "Branded Expulsion",
+            "score": 3128,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 61677004,
-            "name": "Predaplant Darlingtonia Cobra",
-            "reason": "Names Polymerization",
-            "expected": true
-          },
-          {
-            "passcode": 35618217,
-            "name": "Lunalight Kaleido Chick",
-            "reason": "Names Polymerization",
+            "passcode": 62022479,
+            "name": "Branded Bond",
+            "score": 3128,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 11317977,
-            "name": "Lunalight Black Sheep",
-            "reason": "Names Polymerization",
+            "passcode": 67100549,
+            "name": "Screams of the Branded",
+            "score": 3127,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 18511384,
-            "name": "Fusion Recovery",
-            "reason": "Names Polymerization",
+            "passcode": 19271881,
+            "name": "Brightest, Blazing, Branded King",
+            "score": 3127,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 22829942,
-            "name": "Fusion Recycling Plant",
-            "reason": "Names Polymerization",
+            "passcode": 93595154,
+            "name": "Judgment of the Branded",
+            "score": 3126,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 10065487,
+            "name": "Branded Loss",
+            "score": 3125,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 72554664,
+            "name": "Light of the Branded",
+            "score": 3123,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           }
         ]
@@ -2055,72 +2487,96 @@
           {
             "passcode": 6498706,
             "name": "Fusion Deployment",
+            "score": 44,
+            "linkedCards": 2,
             "reason": "Summons Fallen of Albaz",
             "expected": true
           },
           {
             "passcode": 17194258,
             "name": "Fusion Conscription",
+            "score": 42,
+            "linkedCards": 2,
             "reason": "Searches Fallen of Albaz",
             "expected": true
           },
           {
             "passcode": 71490127,
             "name": "Dragon's Mirror",
+            "score": 39,
+            "linkedCards": 1,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": true
           },
           {
             "passcode": 11827244,
             "name": "Magicalized Fusion",
+            "score": 39,
+            "linkedCards": 1,
             "reason": "Fusion Summons Granguignol the Dusk Dragon",
             "expected": true
           },
           {
             "passcode": 33550694,
             "name": "Fusion Gate",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 63136489,
             "name": "Chimera Fusion",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 81223446,
             "name": "Necro Fusion",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": true
           },
           {
             "passcode": 58570206,
             "name": "Heavy Polymerization",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 7614732,
             "name": "Greater Polymerization",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 67526112,
             "name": "Rapid Trigger",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 95034141,
             "name": "Seven Cities of the Golden Land",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 34933456,
             "name": "Magistus Invocation",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           }
@@ -2144,36 +2600,48 @@
           {
             "passcode": 10045474,
             "name": "Infinite Impermanence",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Trap that targets an opponent's face-up monster to negate its…",
             "expected": false
           },
           {
             "passcode": 24224830,
             "name": "Called by the Grave",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell that banishes a monster from the opponent's GY…",
             "expected": false
           },
           {
             "passcode": 97268402,
             "name": "Effect Veiler",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: send it from your hand to the GY during your opponent's…",
             "expected": false
           },
           {
             "passcode": 27204311,
             "name": "Nibiru, the Primal Being",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap Quick Effect during the Main Phase: if your opponent…",
             "expected": false
           },
           {
             "passcode": 24299458,
             "name": "Forbidden Droplet",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell: send any number of other cards from your hand or…",
             "expected": false
           },
           {
             "passcode": 59438930,
             "name": "Ghost Ogre & Snow Rabbit",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: send it from your hand or field to the GY to destroy a…",
             "expected": false
           }
@@ -2262,80 +2730,104 @@
       {
         "id": "archetype",
         "state": "ready",
-        "hits": 1,
+        "hits": 0,
         "returned": 12,
-        "precision": 0.08333333333333333,
+        "precision": 0,
         "cards": [
-          {
-            "passcode": 97631303,
-            "name": "Magicians' Souls",
-            "reason": "Names Dark Magician",
-            "expected": false
-          },
           {
             "passcode": 30271097,
             "name": "The Fallen & The Virtuous",
-            "reason": "Names Fallen of Albaz",
+            "score": 3138,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 1984618,
-            "name": "Nadir Servant",
-            "reason": "Names Fallen of Albaz",
+            "passcode": 34995106,
+            "name": "Branded in White",
+            "score": 3132,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 30603688,
-            "name": "Apprentice Illusion Magician",
-            "reason": "Names Dark Magician",
+            "passcode": 81767888,
+            "name": "Branded Sword",
+            "score": 3130,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 70369116,
-            "name": "Predaplant Verte Anaconda",
-            "reason": "Names Polymerization",
-            "expected": true
-          },
-          {
-            "passcode": 7084129,
-            "name": "Magician's Rod",
-            "reason": "Names Dark Magician",
+            "passcode": 1041278,
+            "name": "Branded Expulsion",
+            "score": 3128,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 47222536,
-            "name": "Dark Magical Circle",
-            "reason": "Names Dark Magician",
+            "passcode": 62022479,
+            "name": "Branded Bond",
+            "score": 3128,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 38033121,
-            "name": "Dark Magician Girl",
-            "reason": "Names Dark Magician",
+            "passcode": 67100549,
+            "name": "Screams of the Branded",
+            "score": 3127,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 48680970,
-            "name": "Eternal Soul",
-            "reason": "Names Dark Magician",
+            "passcode": 19271881,
+            "name": "Brightest, Blazing, Branded King",
+            "score": 3127,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 41721210,
-            "name": "Dark Magician the Dragon Knight",
-            "reason": "Names Dark Magician",
+            "passcode": 93595154,
+            "name": "Judgment of the Branded",
+            "score": 3126,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 27780618,
-            "name": "Vision HERO Vyon",
-            "reason": "Names Polymerization",
+            "passcode": 99543666,
+            "name": "Despia, Theater of the Branded",
+            "score": 3125,
+            "linkedCards": 10,
+            "reason": "Supports Branded",
             "expected": false
           },
           {
-            "passcode": 23020408,
-            "name": "Soul Servant",
-            "reason": "Names Dark Magician",
+            "passcode": 10065487,
+            "name": "Branded Loss",
+            "score": 3125,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 72554664,
+            "name": "Light of the Branded",
+            "score": 3123,
+            "linkedCards": 11,
+            "reason": "Supports Branded",
+            "expected": false
+          },
+          {
+            "passcode": 14220547,
+            "name": "Branded in Central Dogmatika",
+            "score": 3118,
+            "linkedCards": 10,
+            "reason": "Supports Branded",
             "expected": false
           }
         ]
@@ -2350,72 +2842,96 @@
           {
             "passcode": 6498706,
             "name": "Fusion Deployment",
+            "score": 44,
+            "linkedCards": 2,
             "reason": "Summons Fallen of Albaz",
             "expected": true
           },
           {
             "passcode": 17194258,
             "name": "Fusion Conscription",
+            "score": 42,
+            "linkedCards": 2,
             "reason": "Searches Fallen of Albaz",
             "expected": true
           },
           {
             "passcode": 71490127,
             "name": "Dragon's Mirror",
+            "score": 39,
+            "linkedCards": 1,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": true
           },
           {
             "passcode": 11827244,
             "name": "Magicalized Fusion",
+            "score": 39,
+            "linkedCards": 1,
             "reason": "Fusion Summons Granguignol the Dusk Dragon",
             "expected": true
           },
           {
             "passcode": 33550694,
             "name": "Fusion Gate",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 63136489,
             "name": "Chimera Fusion",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 81223446,
             "name": "Necro Fusion",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": true
           },
           {
             "passcode": 58570206,
             "name": "Heavy Polymerization",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 7614732,
             "name": "Greater Polymerization",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 67526112,
             "name": "Rapid Trigger",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 95034141,
             "name": "Seven Cities of the Golden Land",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           },
           {
             "passcode": 34933456,
             "name": "Magistus Invocation",
+            "score": 39,
+            "linkedCards": 3,
             "reason": "Fusion Summons Albion the Branded Dragon",
             "expected": false
           }
@@ -2424,81 +2940,105 @@
       {
         "id": "extra",
         "state": "ready",
-        "hits": 1,
+        "hits": 6,
         "returned": 12,
-        "precision": 0.08333333333333333,
+        "precision": 0.5,
         "cards": [
           {
-            "passcode": 29301450,
-            "name": "S:P Little Knight",
-            "reason": "Makes Link-2 with 2 Main Deck monsters",
+            "passcode": 41373230,
+            "name": "Titaniklad the Ash Dragon",
+            "score": 300,
+            "linkedCards": 1,
+            "reason": "Has all 2 Fusion Materials and Branded Fusion",
             "expected": true
           },
           {
-            "passcode": 86066372,
-            "name": "Accesscode Talker",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
+            "passcode": 70534340,
+            "name": "Lubellion the Searing Dragon",
+            "score": 300,
+            "linkedCards": 15,
+            "reason": "Has all 2 Fusion Materials and Branded Fusion",
+            "expected": true
+          },
+          {
+            "passcode": 41721210,
+            "name": "Dark Magician the Dragon Knight",
+            "score": 300,
+            "linkedCards": 7,
+            "reason": "Has all 2 Fusion Materials and Polymerization",
             "expected": false
           },
           {
-            "passcode": 2857636,
-            "name": "Knightmare Phoenix",
-            "reason": "Makes Link-2 with 2 Main Deck monsters",
+            "passcode": 76666602,
+            "name": "The Dragon that Devours the Dogma",
+            "score": 300,
+            "linkedCards": 21,
+            "reason": "Has all 3 Fusion Materials and Polymerization",
+            "expected": true
+          },
+          {
+            "passcode": 3410461,
+            "name": "Alba-Lenatus the Abyss Dragon",
+            "score": 300,
+            "linkedCards": 6,
+            "reason": "Has all 2 Fusion Materials and Branded Fusion",
+            "expected": true
+          },
+          {
+            "passcode": 38811586,
+            "name": "Albion the Sanctifire Dragon",
+            "score": 300,
+            "linkedCards": 9,
+            "reason": "Has all 2 Fusion Materials and Branded Fusion",
             "expected": false
           },
           {
-            "passcode": 38342335,
-            "name": "Knightmare Unicorn",
-            "reason": "Makes Link-3 with 3 Main Deck monsters",
+            "passcode": 59400890,
+            "name": "Dark Magician of Destruction",
+            "score": 300,
+            "linkedCards": 21,
+            "reason": "Has all 2 Fusion Materials and Polymerization",
             "expected": false
           },
           {
-            "passcode": 85289965,
-            "name": "Borrelsword Dragon",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
+            "passcode": 73452089,
+            "name": "Dark Cavalry",
+            "score": 300,
+            "linkedCards": 3,
+            "reason": "Has all 2 Fusion Materials and Polymerization",
             "expected": false
           },
           {
-            "passcode": 65741786,
-            "name": "I:P Masquerena",
-            "reason": "Makes Link-2 with 2 Main Deck monsters",
+            "passcode": 34848821,
+            "name": "Brigrand the Glory Dragon",
+            "score": 300,
+            "linkedCards": 1,
+            "reason": "Has all 2 Fusion Materials and Branded Fusion",
             "expected": false
           },
           {
-            "passcode": 41999284,
-            "name": "Linkuriboh",
-            "reason": "Makes Link-1 with 1 Main Deck monsters",
+            "passcode": 60461804,
+            "name": "Destiny HERO - Destroyer Phoenix Enforcer",
+            "score": 200,
+            "linkedCards": 2,
+            "reason": "Has all 2 Fusion Materials and Polymerization",
+            "expected": true
+          },
+          {
+            "passcode": 89851827,
+            "name": "Secreterion Dragon",
+            "score": 200,
+            "linkedCards": 13,
+            "reason": "Has all 2 Fusion Materials and Polymerization",
             "expected": false
           },
           {
-            "passcode": 63767246,
-            "name": "Number 38: Hope Harbinger Dragon Titanic Galaxy",
-            "reason": "Makes Rank 8 with 2 Level 8 monsters",
-            "expected": false
-          },
-          {
-            "passcode": 90590303,
-            "name": "Number 41: Bagooska the Terribly Tired Tapir",
-            "reason": "Makes Rank 4 with 2 Level 4 monsters",
-            "expected": false
-          },
-          {
-            "passcode": 31833038,
-            "name": "Borreload Dragon",
-            "reason": "Makes Link-4 with 4 Main Deck monsters",
-            "expected": false
-          },
-          {
-            "passcode": 27548199,
-            "name": "Borreload Savage Dragon",
-            "reason": "Makes Level 8 with 2 Tuner and non-Tuner materials",
-            "expected": false
-          },
-          {
-            "passcode": 75452921,
-            "name": "Knightmare Cerberus",
-            "reason": "Makes Link-2 with 2 Main Deck monsters",
-            "expected": false
+            "passcode": 72272462,
+            "name": "Despian Quaeritis",
+            "score": 200,
+            "linkedCards": 21,
+            "reason": "Has all 2 Fusion Materials and Polymerization",
+            "expected": true
           }
         ]
       },
@@ -2512,36 +3052,48 @@
           {
             "passcode": 10045474,
             "name": "Infinite Impermanence",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Trap that targets an opponent's face-up monster to negate its…",
             "expected": false
           },
           {
             "passcode": 24224830,
             "name": "Called by the Grave",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell that banishes a monster from the opponent's GY…",
             "expected": false
           },
           {
             "passcode": 97268402,
             "name": "Effect Veiler",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: send it from your hand to the GY during your opponent's…",
             "expected": false
           },
           {
             "passcode": 27204311,
             "name": "Nibiru, the Primal Being",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap Quick Effect during the Main Phase: if your opponent…",
             "expected": false
           },
           {
             "passcode": 24299458,
             "name": "Forbidden Droplet",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Quick-Play Spell: send any number of other cards from your hand or…",
             "expected": false
           },
           {
             "passcode": 59438930,
             "name": "Ghost Ogre & Snow Rabbit",
+            "score": 1,
+            "linkedCards": 0,
             "reason": "Hand trap: send it from your hand or field to the GY to destroy a…",
             "expected": false
           }

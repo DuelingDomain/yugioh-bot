@@ -27,39 +27,52 @@ Each trimmed scenario has 32 Main cards and retains a few Extra anchors. The mat
 
 ## Results
 
-The required gate is at least five expected cards in the first eight Outside recommendations for every trimmed scenario.
+The fixed expected-card set is unchanged. Cards outside that set still count as misses. The low Archetype precision remains visible.
+
+The required gate is at least five expected cards in the first eight Outside recommendations for each trimmed deck.
 
 | Deck | Expected in first 8 Outside | Precision@8 | Gate |
 | --- | ---: | ---: | --- |
-| blue-eyes | 6/8 | 75.0% | Pass |
-| branded | 5/8 | 62.5% | Pass |
-| snake-eye | 6/8 | 75.0% | Pass |
-| domain | 5/8 | 62.5% | Pass |
+| Blue-Eyes | 6/8 | 75.0% | Pass |
+| Branded | 5/8 | 62.5% | Pass |
+| Snake-Eye | 7/8 | 87.5% | Pass |
+| Domain | 5/8 | 62.5% | Pass |
 
-Per-row precision includes every returned card, up to 12 per synergy row and six Staples. The mature scenarios also returned the same first-eight hit counts shown above.
+The full-Main variants return first-eight Outside hits of 7, 5, 6 and 5, in the same deck order.
 
 | Deck / scenario | Archetype | Outside | Extra | Staples |
 | --- | ---: | ---: | ---: | ---: |
-| blue-eyes / trimmed | 0/12 (0.0%) | 6/12 (50.0%) | n/a (0 cards) | 3/6 (50.0%) |
-| blue-eyes / mature | 0/12 (0.0%) | 7/12 (58.3%) | 0/12 (0.0%) | 2/6 (33.3%) |
-| branded / trimmed | 1/12 (8.3%) | 6/12 (50.0%) | n/a (0 cards) | 3/6 (50.0%) |
-| branded / mature | 0/12 (0.0%) | 6/12 (50.0%) | 0/12 (0.0%) | 2/6 (33.3%) |
-| snake-eye / trimmed | 1/12 (8.3%) | 7/12 (58.3%) | n/a (0 cards) | 3/6 (50.0%) |
-| snake-eye / mature | 1/12 (8.3%) | 6/12 (50.0%) | 1/12 (8.3%) | 0/6 (0.0%) |
-| domain / trimmed | 2/12 (16.7%) | 5/12 (41.7%) | n/a (0 cards) | 0/6 (0.0%) |
-| domain / mature | 1/12 (8.3%) | 5/12 (41.7%) | 1/12 (8.3%) | 0/6 (0.0%) |
+| Blue-Eyes / trimmed | 0/12 (0.0%) | 6/12 (50.0%) | n/a (0 cards) | 3/6 (50.0%) |
+| Blue-Eyes / full-main | 0/12 (0.0%) | 7/12 (58.3%) | 2/12 (16.7%) | 2/6 (33.3%) |
+| Branded / trimmed | 0/12 (0.0%) | 6/12 (50.0%) | n/a (0 cards) | 3/6 (50.0%) |
+| Branded / full-main | 0/12 (0.0%) | 6/12 (50.0%) | 4/9 (44.4%) | 2/6 (33.3%) |
+| Snake-Eye / trimmed | 1/12 (8.3%) | 8/12 (66.7%) | n/a (0 cards) | 3/6 (50.0%) |
+| Snake-Eye / full-main | 1/12 (8.3%) | 7/12 (58.3%) | 4/12 (33.3%) | 0/6 (0.0%) |
+| Domain / trimmed | 1/12 (8.3%) | 5/12 (41.7%) | n/a (0 cards) | 0/6 (0.0%) |
+| Domain / full-main | 0/12 (0.0%) | 5/12 (41.7%) | 6/12 (50.0%) | 0/6 (0.0%) |
 
-All eight scenarios returned zero illegal cards and no duplicate or already-owned recommendations. Staples occupied 20% of the trimmed results and 14.3% of the mature results, below the 25% limit. Every under-40 Extra row was empty with `state: "hint"` and `hint: "Add 40 Main Deck cards."`; mature Extra rows were ready. All returned cards satisfy the `RankedInsightCard` contract and have a single-line reason.
+All eight scenarios return zero illegal cards, no duplicate or already-owned cards, and no repeated recommendation families. Standard returns only TCG cards. All four trimmed Extra rows are empty and show `Add 40 Main Deck cards.` The full-Main Extra rows are ready. Staples stay below 25% of visible cards.
 
-The [full results](./deck-suggestions-quality-results.json) preserve all shown cards, reasons, relevance flags, source URLs, per-row denominators, expected canonical sets and gate outcomes.
+Extra puts native monsters and named core materials first, then proven profile matches. A Fusion-only Extra Deck with a printed Fusion lock puts ordinary Links and Ranks in the generic tier. That tier is last and has at most three cards. Unknown summon procedures and self-material prohibitions fail closed. Physical proofs can use hand traps; hand traps do not define the profile or justify generic Extra options.
+
+Archetype uses exact engine memberships, core-card connections, release era and popularity. Branded no longer returns Black Chaos, Griffoh, Mind Shuffle or The Golden Swordsoul in that row. Springans Kitt remains because it directly searches Branded cards; Springans Merrymaker does not qualify.
+
+Outside scoring is unchanged. The TCG filter and recommendation-family filter remove unavailable variants and the Monster Reborn wrapper card. The existing queues fill those places. The wrapper is a distinct TCG card, so this recommendation filter does not change its copy-limit identity.
+
+The [ordered card lists](./deck-suggestions-quality-lists.md) include every row for all four decks and both scenarios. The [full report](./deck-suggestions-quality-results.json) also records passcodes, scores, linked-card counts, reasons, expected flags and precision denominators.
+
+Validation: shared build; 59 shared integration checks in the effect-search, card-insights and deck-summon files; 16 host integration checks in the suggestion-scope and deck-suggestions files. The four sourced-deck eval cases also pass. No new unit tests were added.
 
 ## Reproduction
 
 The real-catalog evaluation is opt-in because it requires an installed engine resource bundle. The loader opens `cards.cdb` read-only, builds a disposable file-backed SQLite catalog, applies the source-card metadata snapshot, imports the real pinned artifact, and uses `deckSuggestionScope` from the duel host. All eight scenarios exercise the production joined-cursor catalog path. The catalog connections close and its temporary directory is removed after the suite. It reads no environment secrets and writes no engine data.
 
-From the repository root, with Node 22 available:
+From the repository root, build shared first with Node 22. Remove its build output after the check.
 
 ```bash
+PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH \
+prlimit --core=0 npm run build --workspace=packages/shared
+
 PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH \
 DECK_SUGGESTIONS_ENGINE_DIRECTORY=/home/sulman633/repos/yugioh-bot/data/duel-engine \
 DECK_SUGGESTIONS_EVAL_OUTPUT=/tmp/deck-suggestions-quality-report.json \
