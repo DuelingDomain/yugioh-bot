@@ -239,7 +239,9 @@
     --lift-k: 0;
     --mark-k: 0;
     --ohk: 0.44;
-    --top-hide: 0.5;
+    /* The rival's backs are whole: none of a card hangs above the screen edge (it was half of each card since the bigger
+       field, 0.38 of it before). The board gives up the height it needs, as for your hand. */
+    --top-hide: 0;
     --top-lift-k: 0.03;
     --res-top-px: 2px;
     /* The part of a drawn hand card that is below the strip, that is below the bottom edge of the screen. It is 0 while the
