@@ -236,7 +236,8 @@ claims to retry uncertain spend. Search responses contain no model attribution.
 The daily job also fills missing release months from the free
 [YGOPRODeck bulk API](https://ygoprodeck.com/api-guide/). This step makes no AI
 or paid calls and runs even when the tagging key is absent. Explicit workflow
-dry runs and ledger initialization skip it. The job stores a 24-hour disk cache.
+dry runs and ledger initialization skip it. The command reuses a 24-hour local disk cache. Disposable CI runs fetch fresh data
+and do not upload a separate bulk-response Actions cache.
 It makes one card and one set bulk GET per refresh, with at most three attempts, a 30-second
 request timeout, a 200 MB limit per response (header and streaming bytes), exponential backoff, and a bounded Retry-After wait. An API or
 validation failure skips the release step and retains the tag candidate.
