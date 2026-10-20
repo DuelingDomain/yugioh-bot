@@ -1,5 +1,12 @@
 import type Database from "better-sqlite3";
+import { DUEL_WAITING_IDLE_TIMEOUT_MS } from "../duels/index.js";
 import { ONLINE_WINDOW_MS, PRESENCE_ROUTES, isPresenceRoute, type PresenceRoute } from "../presence/index.js";
+import { DUEL_LIVE_IDLE_AFTER_MS } from "../services/duels.js";
+import { safeAvatarUrl } from "./avatar.js";
+
+export { safeAvatarUrl } from "./avatar.js";
+/** A draft that waits for its first pick this long is treated as abandoned. */
+export const PENDING_DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /** The duel table or draft a person is in now. */
 export interface OnlinePlace {
@@ -45,32 +52,40 @@ type UserRow = {
 };
 type PlaceRow = { user_id: string; kind: "duel" | "draft"; slug: string; name: string; status: string; format: string | null };
 
-/** Only https pictures are passed on. Anything else gives the initials circle. */
-export function safeAvatarUrl(value: unknown): string | null {
-  if (typeof value !== "string" || value.length > 2048) return null;
-  try { return new URL(value).protocol === "https:" ? value : null; } catch { return null; }
-}
-
 /**
- * The newest open duel table and draft of each person, in two queries. Duels: lobby or active play tables
- * where the person has a seat. Drafts: pending or active drafts the person joined. Scoped to the guild when given.
+ * The newest open duel table and draft of each person. It starts from the open tables, with the same cut-offs as
+ * the Live view (an active duel idle past DUEL_LIVE_IDLE_AFTER_MS, a lobby past DUEL_WAITING_IDLE_TIMEOUT_MS, a pending
+ * draft older than PENDING_DRAFT_MAX_AGE_MS are not open), then joins the seats of the given people.
+ * Index: duels_guild_status_idx and drafts_guild_status_created_idx. Scoped to the guild when given.
  */
-export function placesOf(db: Database.Database, userIds: string[], guild: string | null): Map<string, { duel?: PlaceRow; draft?: PlaceRow }> {
+export function placesOf(db: Database.Database, userIds: string[], guild: string | null, now = Date.now()): Map<string, { duel?: PlaceRow; draft?: PlaceRow }> {
   const places = new Map<string, { duel?: PlaceRow; draft?: PlaceRow }>();
   if (userIds.length === 0) return places;
-  const ids = JSON.stringify(userIds);
+  const params = {
+    ids: JSON.stringify(userIds), guild,
+    activeAfter: new Date(now - DUEL_LIVE_IDLE_AFTER_MS).toISOString(),
+    waitingAfter: new Date(now - DUEL_WAITING_IDLE_TIMEOUT_MS).toISOString(),
+    pendingAfter: new Date(now - PENDING_DRAFT_MAX_AGE_MS).toISOString(),
+  };
   const duels = db.prepare(`
-    select p.discord_user_id as user_id, 'duel' as kind, d.web_slug as slug, d.name, d.status, d.format from duels d
-    join duel_seats s on s.duel_id = d.id join players p on p.id = s.player_id
-    where p.discord_user_id in (select value from json_each(@ids)) and d.status in ('lobby','active') and d.kind = 'play'
-      and d.archived_at is null and (@guild is null or d.guild_id = @guild)
-    order by d.id desc`).all({ ids, guild }) as PlaceRow[];
+    with open as (
+      select d.id, d.web_slug, d.name, d.status, d.format from duels d
+      where (@guild is null or d.guild_id = @guild) and d.status in ('lobby','active') and d.kind = 'play' and d.archived_at is null
+        and julianday(coalesce(d.last_activity_at, d.started_at, d.created_at))
+          >= julianday(case when d.status = 'active' then @activeAfter else @waitingAfter end))
+    select p.discord_user_id as user_id, 'duel' as kind, o.web_slug as slug, o.name, o.status, o.format
+    from open o join duel_seats s on s.duel_id = o.id join players p on p.id = s.player_id
+    where p.discord_user_id in (select value from json_each(@ids))
+    order by o.id desc`).all(params) as PlaceRow[];
   const drafts = db.prepare(`
-    select p.discord_user_id as user_id, 'draft' as kind, d.web_slug as slug, d.name, d.status, null as format from drafts d
-    join draft_players dp on dp.draft_id = d.id join players p on p.id = dp.player_id
-    where p.discord_user_id in (select value from json_each(@ids)) and d.status in ('pending','active') and d.web_slug is not null
-      and (@guild is null or d.guild_id = @guild)
-    order by d.id desc`).all({ ids, guild }) as PlaceRow[];
+    with open as (
+      select d.id, d.web_slug, d.name, d.status from drafts d
+      where (@guild is null or d.guild_id = @guild) and d.web_slug is not null
+        and (d.status = 'active' or (d.status = 'pending' and julianday(d.created_at) >= julianday(@pendingAfter))))
+    select p.discord_user_id as user_id, 'draft' as kind, o.web_slug as slug, o.name, o.status, null as format
+    from open o join draft_players dp on dp.draft_id = o.id join players p on p.id = dp.player_id
+    where p.discord_user_id in (select value from json_each(@ids))
+    order by o.id desc`).all(params) as PlaceRow[];
   for (const row of [...duels, ...drafts]) {
     const entry = places.get(row.user_id) ?? {};
     // Rows come newest first, so keep the first one of each kind.
@@ -88,22 +103,22 @@ function place(row: PlaceRow): OnlinePlace {
   return { kind: "draft", slug: row.slug, name: row.name, href: `/draft/${row.slug}`, status: row.status, label: row.status === "pending" ? "Draft lobby" : "Draft" };
 }
 
-/** Pick the place that fits the page the person is on; otherwise a running game before a lobby, a duel before a draft. */
+/**
+ * The table that fits the page the person is on: their open duel on a duel page, their open draft on a draft page.
+ * On any other page the person is not at a table now, so null.
+ */
 export function currentPlace(route: PresenceRoute, found: { duel?: PlaceRow; draft?: PlaceRow } | undefined): OnlinePlace | null {
   if (!found) return null;
-  const { duel, draft } = found;
-  if (route.startsWith("/duels/[slug]") && duel) return place(duel);
-  if ((route === "/draft/[slug]" || route === "/decks/draft/[slug]") && draft) return place(draft);
-  const running = [duel, draft].find((row) => row && row.status === "active");
-  const chosen = running ?? duel ?? draft;
-  return chosen ? place(chosen) : null;
+  if (route === "/duels/[slug]") return found.duel ? place(found.duel) : null;
+  if (route === "/draft/[slug]" || route === "/decks/draft/[slug]") return found.draft ? place(found.draft) : null;
+  return null;
 }
 
 export function listOnline(db: Database.Database, now = Date.now(), guild: string | null = null): OnlineSnapshot {
   const rows = db.prepare(`
     select discord_user_id, display_name, image_url, last_seen_at, last_route, online_since from admin_presence
     where last_seen_at >= ? order by last_seen_at desc limit 500`).all(now - ONLINE_WINDOW_MS) as UserRow[];
-  const places = placesOf(db, rows.map((row) => row.discord_user_id), guild);
+  const places = placesOf(db, rows.map((row) => row.discord_user_id), guild, now);
   const users = rows.map((row): OnlineUser => {
     const route: PresenceRoute = isPresenceRoute(row.last_route) ? row.last_route : "/app";
     const current = currentPlace(route, places.get(row.discord_user_id));

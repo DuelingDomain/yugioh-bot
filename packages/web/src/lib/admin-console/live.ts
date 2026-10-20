@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { safeAvatarUrl } from "@yugidraft/shared/admin";
+import { PENDING_DRAFT_MAX_AGE_MS, safeAvatarUrl } from "@yugidraft/shared/admin";
 import { DUEL_WAITING_IDLE_TIMEOUT_MS, teamOfSeat } from "@yugidraft/shared/duels";
 import { DUEL_LIVE_IDLE_AFTER_MS, TEST_BOT_DISCORD_PREFIX } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
@@ -14,8 +14,6 @@ const ENDED_ROWS = 8;
 const ENDED_WINDOW_MS = 60 * 60 * 1000;
 /** Main-round picks per player when the draft config does not say. */
 const DEFAULT_PICKS = 40;
-/** A table that waits for its first draft pick this long is treated as abandoned. */
-const PENDING_DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Database timestamps are text in two shapes: SQLite `datetime('now')` ("2026-10-19 12:00:00", UTC)

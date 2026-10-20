@@ -102,7 +102,7 @@ export function WaitlistView({ s, actions }: { s: Snapshots; actions: ConsoleAct
 
       {data?.decided ? (
         <>
-          <SectionHead title="Recent decisions" n={data.decided.length} />
+          <SectionHead title="Recent decisions" n={data.decided.length} aside={<span className={styles.aside}>Among the 30 newest requests</span>} />
           {data.decided.length === 0 ? <div className={`${styles.empty} ${styles.emptySm}`}>No decisions yet.</div> : data.decided.map((d) => (
             <div key={d.id} className={styles.decRow}>
               <StatusIcon tone={d.status === "rejected" ? "crit" : "good"} />

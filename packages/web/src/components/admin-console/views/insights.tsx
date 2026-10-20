@@ -61,7 +61,7 @@ export function InsightsView({ s }: { s: Snapshots }) {
   return (
     <>
       <div className={styles.rangeRow}>
-        <div className={styles.seg} role="group" aria-label="Time range"><button type="button" aria-pressed="true">7 days</button></div>
+        <span className={styles.rangeLbl}>Range · 7 days</span>
         <p>Days are UTC. Errors use the last 24 hours.</p>
       </div>
       {stats ? <Trends stats={stats} /> : <Unavailable result={s.stats.result} what="Stats" />}

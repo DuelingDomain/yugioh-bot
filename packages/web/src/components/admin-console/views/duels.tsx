@@ -14,7 +14,7 @@ function Seat({ seat, toPlay, onOpen }: { seat: LiveSeat; toPlay?: boolean; onOp
     <>
       <Avatar name={seat.name} url={seat.avatarUrl} size="sm" bot={seat.bot} />
       <span className={styles.nm}>{seat.name}</span>
-      {toPlay ? <span className={styles.toPlay}>To play</span> : <span />}
+      {toPlay ? <span className={styles.toPlay}>To decide</span> : <span />}
     </>
   );
   return seat.userId !== null
