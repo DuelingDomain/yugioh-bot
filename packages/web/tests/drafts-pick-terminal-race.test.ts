@@ -52,10 +52,10 @@ it("stops the pick route's bot loop when cancellation commits after it reads opt
   const otherDb = new Database(path); databases.push(otherDb);
   otherDb.pragma("foreign_keys = ON");
   const otherDrafts = createDraftService(otherDb);
-  const pickOptions = drafts.pickOptions;
+  const rankPickOptions = drafts.rankPickOptions;
   let terminalCommitted = false;
-  vi.spyOn(drafts, "pickOptions").mockImplementation((draftId, playerId) => {
-    const options = pickOptions(draftId, playerId);
+  vi.spyOn(drafts, "rankPickOptions").mockImplementation((draftId, playerId) => {
+    const options = rankPickOptions(draftId, playerId);
     if (playerId === 2 && options.length > 0 && !terminalCommitted) {
       // Force the race between the bot's option snapshot and its actual write transaction.
       otherDrafts.cancel(draftId);

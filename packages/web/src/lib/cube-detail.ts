@@ -11,6 +11,10 @@ export function buildCubeCards(
   catalog: CardCatalogService,
 ): CardSummary[] {
   const ids = [...pools.main, ...pools.extra].map((c) => c.catalogCardId);
+  return cubeCardsByIds(ids, catalog);
+}
+
+export function cubeCardsByIds(ids: number[], catalog: CardCatalogService): CardSummary[] {
   return catalog.findByIds(ids).map((c) => ({
     id: c.ygoprodeckId,
     prerelease: c.prerelease,

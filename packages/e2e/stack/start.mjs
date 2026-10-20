@@ -122,6 +122,10 @@ const base = {
   PATH: process.env.PATH,
   HOME: process.env.HOME,
   NODE_ENV: "production",
+  // E2E uses production builds with explicitly enabled effect-search coverage.
+  EFFECT_SEARCH: process.env.E2E_EFFECT_SEARCH ?? "1",
+  // The theme lobby (and its pool health and "Describe a theme") exists only with this flag.
+  THEME_DRAFTS: process.env.E2E_THEME_DRAFTS ?? "1",
   DATABASE_PATH: dbPath,
   DUEL_DATA_DIR: runtimeDuelDataDir,
   E2E_PRERELEASE_CATALOG: process.env.E2E_PRERELEASE_CATALOG ?? "0",

@@ -15,7 +15,7 @@ import { checkDraftDeckWrite, readDraftId, registerDraftDeck } from "./draft-dec
 
 export const runtime = "nodejs";
 
-export async function GET(request?: Request) {
+export async function GET(request: Request) {
   const actor = await requireSavedDeckActor();
   if (!actor.ok) return actor.response;
   try {

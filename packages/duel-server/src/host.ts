@@ -14,7 +14,7 @@ import type Database from "better-sqlite3";
 import { assertDuelForkAccess, assertOwnerReplaySourceAccess, assertReplayForkAccess, resolveOwnerPlayer, ReplayAccessError } from "@yugidraft/shared/access/owner-access";
 import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
 import { createGithubCardDataStatus } from "./github-card-data-status.js";
-import { CARD_LOOKUP_LIMIT, createCardLookupBudget, loadArtworkIdentityCatalog, createDeckCopyRepairService, findDuelEventTarget, createDuelSeriesService, createDeckTypeLookup, createDuelService, createReplayForkService, createTournamentDuelService, ReplayForkStorageError, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots, type DuelPrivateState } from "@yugidraft/shared/services";
+import { CARD_LOOKUP_LIMIT, readArchetypeGuide, createCardLookupBudget, loadArtworkIdentityCatalog, createDeckCopyRepairService, findDuelEventTarget, createDuelSeriesService, createDeckTypeLookup, createDuelService, createReplayForkService, createTournamentDuelService, ReplayForkStorageError, DuelServiceError, TournamentDuelError, isCardFetchError, type DuelFinalSnapshots, type DuelPrivateState } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
   DuelCardInfo,
@@ -56,6 +56,8 @@ import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards, deckCardUnavailableReason } from "./card-search.js";
+import { effectSearchEnabled, readingArchetypes } from "@yugidraft/shared/cards/effects";
+import { cardEffectIndex, cardReleaseIndex, initializeCardEffectIndex } from "./card-effects.js";
 import { activeMultiScriptsHash, loadMultiScriptsFor, pinnedEngineVersion } from "./multi-scripts.js";
 import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
 import { EngineResourceCache } from "./engine-resource-cache.js";
@@ -3387,7 +3389,25 @@ export function createDuelHost(options: {
     }
     if (op === "card-query") {
       try {
-        return queryCards(loadCardDatabase(options.dataDirectory), parseCardQuery(body.cardQuery), cardRequestEntries(body, guildId, actor), await genesysAdmissionPoints());
+        const catalog = loadCardDatabase(options.dataDirectory);
+        const enabled = effectSearchEnabled();
+        const query = parseCardQuery(body.cardQuery);
+        const effects = enabled ? cardEffectIndex(catalog) ?? await initializeCardEffectIndex(options.db, catalog) : undefined;
+        const releases = !enabled && (query.released || query.sort === "newest") ? cardReleaseIndex(options.db) : undefined;
+        const entries = cardRequestEntries(body, guildId, actor), points = await genesysAdmissionPoints();
+        const search = () => queryCards(catalog, query, entries, points, { effects, releases, effectSearchEnabled: enabled });
+        let result = search();
+        if (enabled && !query.exact && query.scope !== "name" && query.text.trim() && query.passcodes?.length !== 0 && !query.effectOmit?.length && !result.total) {
+          const { lowConfidenceReading } = await import("@yugidraft/shared/cards/effects");
+          if (!result.effectTotal || lowConfidenceReading(query.text, result.reading ?? null)) {
+            const { fallbackEffectReading } = await import("@yugidraft/shared/cards/effects/reading-fallback");
+            const user = options.db.prepare<[number], { user_id: number }>("SELECT user_id FROM players WHERE id=?").get(actor);
+            if (user && await fallbackEffectReading(options.db, query.text, user.user_id)) result = search();
+          }
+        }
+        // "How it plays" for an archetype reading; later pages do not repeat it.
+        const profile = enabled && result.reading && query.offset === 0 && (query.effectOffset ?? 0) === 0 ? readArchetypeGuide(options.db, readingArchetypes(result.reading)) : null;
+        return profile ? { ...result, profile } : result;
       } catch (error) {
         if (error instanceof CardQueryError) throw new RequestError(error.message, 400);
         throw error;
@@ -3997,7 +4017,8 @@ export function createDuelHost(options: {
           // A test duel start has its own queue: card searches of the editor must not hold it back.
           : body.op === "start-test-duel" ? `test-duel:${body.guildId}:${body.playerId}`
           : typeof body.slug === "string" ? body.slug : "catalog";
-        // Diagnostics skip the queue; GitHub status reads must not block card editor requests.
+        // Card queries and diagnostics skip the queue: remote ledger/status work
+        // must never hold the shared catalog queue.
         const bounded = ["bug-replay-frame", "replay", "owner-replay", "replay-fork", "fork-restart", "fork-cancel", "fork-list"].includes(String(body.op));
         const deadline = new AbortController();
         const ctl = { abandoned: false, ...(bounded ? { signal: deadline.signal } : {}) };
@@ -4007,7 +4028,7 @@ export function createDuelHost(options: {
             deadline.abort(error); reject(error);
           }, Math.min(28_000, options.replayRequestTimeoutMs ?? 28_000));
         }) : undefined;
-        const queued = (body.op === "debug-trace" || body.op === "bug-context" || body.op === "bug-replay-frame" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body, ctl) : enqueue(key, () => operate(body, ctl)));
+        const queued = (body.op === "card-query" || body.op === "debug-trace" || body.op === "bug-context" || body.op === "bug-replay-frame" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body, ctl) : enqueue(key, () => operate(body, ctl)));
         const rendered = (async () => {
           const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
           if (fork) assertReplayForkAccess(options.db, body.slug as string, { guildId: body.guildId as string,

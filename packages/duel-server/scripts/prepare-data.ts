@@ -77,6 +77,8 @@ export async function prepareData(
   directory = resolve(process.env.DUEL_DATA_DIR ?? fileURLToPath(new URL("../../../data/duel-engine/", import.meta.url))),
   request: typeof fetch = fetch,
 ) {
+  // This tracked artifact ships separately from the engine bundle identity.
+  execFileSync("python3", [fileURLToPath(new URL("./verify-effect-artifact.py", import.meta.url))], { stdio: "inherit" });
   directory = resolve(directory);
   if (existsSync(join(directory, "bot.sqlite"))) {
     throw new Error(`refusing to prepare engine resources in ${directory} because it contains bot.sqlite`);

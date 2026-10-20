@@ -11,6 +11,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import {
   createCardCatalogService,
+  createCardInsightService,
   createCardLookupBudget,
   createDraftService,
   findDraftReadAccess,
@@ -31,6 +32,20 @@ import { lookupDraftCardTypes, type EngineCardTypes } from "@/lib/draft-engine-t
 import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
 import { cardImageUrl } from "@/lib/card-image-url";
 import { isOwnerUser } from "@/lib/owner-access";
+import { effectSearchEnabled } from "@yugidraft/shared/cards/effects/capability";
+
+// Reconnects and polling share the result for this viewer's exact pack and picked pool.
+const packFitCaches = new WeakMap<object, Map<string, Map<number, string>>>();
+function packFitsFor(db: ReturnType<typeof getDb>, key: string, pack: number[], pool: number[]): Map<number, string> {
+  let cache = packFitCaches.get(db);
+  if (!cache) packFitCaches.set(db, cache = new Map());
+  const known = cache.get(key);
+  if (known) return known;
+  const fits = createCardInsightService(db).packFits(pack, pool);
+  if (cache.size >= 200) cache.delete(cache.keys().next().value!);
+  cache.set(key, fits);
+  return fits;
+}
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
   if (!pickDeadlineAt) {
@@ -285,9 +300,20 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
       : {};
   const hasLegalCard = currentPackCards.some((card) => (held[card.catalogCardId] ?? 0) < MAX_COPIES_PER_PLAYER);
   const forced = draftModel.config.copyLimit !== false && draftModel.config.mode !== "theme" && currentPackCards.length > 0 && !hasLegalCard;
+  const effectsEnabled = effectSearchEnabled();
+  const packPasscodes = [...new Set(currentPackCards.map(card => card.catalogCardId))];
+  const poolPasscodes = myPoolCards.map(card => card.catalogCardId);
+  const fitsByPasscode = effectsEnabled && currentPlayer && isParticipant && packPasscodes.length > 0
+    ? degrade(slug, "pick insights", new Map<number, string>(), () => packFitsFor(
+        db, `${draft.id}:${currentPlayer.id}:${packPasscodes.join(",")}:${poolPasscodes.join(",")}`,
+        packPasscodes, poolPasscodes))
+    : new Map<number, string>();
   const currentPack = mapDraftCardDetails(slug, db, currentPackCards, engineTypes).map((card) => {
     const copies = held[card.passcode] ?? 0;
-    return { ...card, held: copies, forced, blocked: draftModel.config.copyLimit !== false && copies >= MAX_COPIES_PER_PLAYER && (draftModel.config.mode === "theme" || hasLegalCard) };
+    const blocked = draftModel.config.copyLimit !== false && copies >= MAX_COPIES_PER_PLAYER && (draftModel.config.mode === "theme" || hasLegalCard);
+    const fitsYourPool = blocked ? undefined : fitsByPasscode.get(card.passcode);
+    return { ...card, held: copies, forced, blocked,
+      ...(fitsYourPool ? { fitsYourPool } : {}) };
   });
   const passed =
     draft.status === "active" && currentPlayer && isParticipant
@@ -446,6 +472,7 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     participantPickCount,
     myDeckId,
     isParticipant,
+    effectSearchEnabled: effectsEnabled,
     currentPack,
     myPool,
     seats,

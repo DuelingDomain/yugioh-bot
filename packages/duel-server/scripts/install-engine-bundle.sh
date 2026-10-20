@@ -19,6 +19,10 @@
 # DUEL_IDLE_CLOSE=1 enables stale-duel writes only outside preflight, with web/duel/worker/ws stopped.
 set -eu
 
+# Verify the app-owned effect pin independently; it never changes engine identity.
+installer_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+python3 "$installer_dir/verify-effect-artifact.py"
+
 src="${DUEL_BUNDLE_SRC:-}"
 dst="${DUEL_DATA_DIR:-}"
 stage=

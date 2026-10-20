@@ -1,0 +1,194 @@
+name: Effect tagging
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - packages/duel-server/scripts/prepare-data.ts
+      - scripts/effects/**
+      - packages/shared/src/cards/effects/tags.ts
+      - packages/shared/src/cards/effects/synergy.ts
+      - scripts/ci/publish-effect-tags.mjs
+      - .github/workflows/effect-tagging.yml
+  schedule:
+    - cron: "30 7 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report candidates without paid requests or ledger mutations"
+        type: boolean
+        default: true
+      initialize_ledger:
+        description: "One-time initialization before any tagging spend (never reset a lost ledger)"
+        type: boolean
+        default: false
+      recover_reservation:
+        description: "Optional ambiguous reservation ID to reconcile"
+        type: string
+        required: false
+      recover_batch:
+        description: "Matching immutable Anthropic Batch ID; completed results must match every custom_id"
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: effect-tagging-budget
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      base_sha: ${{ steps.base.outputs.sha }}
+      has_key: ${{ steps.secret.outputs.present }}
+    steps:
+      - name: Check owner-provided tagging secret
+        id: secret
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::ANTHROPIC_API_KEY is missing. Paid effect tagging is skipped. The owner must add this repository secret.'
+          else
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: prlimit --core=0 -- npm ci
+      - run: prlimit --core=0 -- npm run build --workspace=packages/shared
+      - name: Validate offline Batch/ledger protocol
+        run: |
+          prlimit --core=0 -- npx tsc -p scripts/effects/tsconfig.json --noEmit
+          prlimit --core=0 -- npx vitest run scripts/effects/tests/effect-tagging.integration.test.ts --maxWorkers=1
+
+  tag:
+    needs: validate
+    if: needs.validate.outputs.has_key == 'true' || inputs.dry_run == true || inputs.initialize_ledger == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.result.outputs.changed }}
+      base_sha: ${{ needs.validate.outputs.base_sha }}
+    env:
+      EFFECT_ARTIFACT_DIR: .status/effect-tagging
+      EFFECT_BASE_SHA: ${{ needs.validate.outputs.base_sha }}
+      DUEL_DATA_DIR: ${{ github.workspace }}/.status/effect-engine
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.base_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      # Install/build before exposing the Anthropic credential to repository code.
+      - run: prlimit --core=0 -- npm ci
+      - run: prlimit --core=0 -- npm run build --workspace=packages/shared
+      - name: Prepare approved catalog snapshot
+        run: prlimit --core=0 -- npm run duel:prepare
+      - name: Collect results and reserve new work
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          INITIALIZE_LEDGER: ${{ inputs.initialize_ledger }}
+          RECOVER_RESERVATION: ${{ inputs.recover_reservation }}
+          RECOVER_BATCH: ${{ inputs.recover_batch }}
+        run: |
+          set -euo pipefail
+          args=(--engine-directory "$DUEL_DATA_DIR" --output "$EFFECT_ARTIFACT_DIR")
+          if [ "$DRY_RUN" != 'true' ] && [ -n "$ANTHROPIC_API_KEY" ]; then args+=(--live); fi
+          if [ "$INITIALIZE_LEDGER" = 'true' ]; then
+            test "$DRY_RUN" = 'false'
+            args+=(--live --initialize-ledger)
+          fi
+          if [ -n "$RECOVER_RESERVATION" ] || [ -n "$RECOVER_BATCH" ]; then
+            args+=(--recover-reservation "$RECOVER_RESERVATION" --recover-batch "$RECOVER_BATCH")
+          fi
+          prlimit --core=0 -- node --import tsx scripts/effects/tag-cards.ts "${args[@]}"
+      - name: Validate and apply only candidate data/pin constants in disposable checkout
+        id: result
+        run: |
+          if [ ! -f "$EFFECT_ARTIFACT_DIR/update.json" ]; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          prlimit --core=0 -- node --input-type=module <<'JS'
+          import { copyFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { appendFileSync } from 'node:fs';
+          import { validateEffectCandidate } from './scripts/ci/publish-effect-tags.mjs';
+          const output = process.env.EFFECT_ARTIFACT_DIR;
+          const candidate = validateEffectCandidate(process.cwd(), output);
+          appendFileSync(process.env.GITHUB_OUTPUT, `changed=${candidate.changed}\n`);
+          if (candidate.changed) for (const file of candidate.files) copyFileSync(join(output, file), file);
+          JS
+      - name: Build and evaluate the actual generated pin before publication
+        if: steps.result.outputs.changed == 'true'
+        run: |
+          prlimit --core=0 -- npm run build --workspace=packages/shared
+          prlimit --core=0 -- npx vitest run packages/shared/tests/effect-artifact.integration.test.ts packages/shared/tests/effect-search.integration.test.ts --maxWorkers=1
+          prlimit --core=0 -- npx vitest run packages/duel-server/tests/effect-search.integration.test.ts --maxWorkers=1 --testTimeout=15000
+      - name: Publish report
+        if: always()
+        run: |
+          if [ -f "$EFFECT_ARTIFACT_DIR/report.md" ]; then cat "$EFFECT_ARTIFACT_DIR/report.md" >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: effect-tagging-report
+          path: .status/effect-tagging/
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Remove disposable catalog data
+        if: always()
+        run: rm -rf -- "$DUEL_DATA_DIR"
+
+  publish:
+    needs: tag
+    if: needs.tag.result == 'success' && needs.tag.outputs.changed == 'true' && !inputs.dry_run
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    env:
+      EFFECT_ARTIFACT_DIR: .status/effect-tagging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.tag.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@v4
+        with:
+          name: effect-tagging-report
+          path: .status/effect-tagging
+      - name: Publish verified artifact PR while preserving reviewed branch edits
+        env:
+          GH_TOKEN: ${{ secrets.EFFECT_TAGGING_PR_TOKEN || github.token }}
+        run: |
+          gh auth setup-git
+          prlimit --core=0 -- node scripts/ci/publish-effect-tags.mjs

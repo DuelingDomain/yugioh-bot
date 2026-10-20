@@ -509,7 +509,6 @@ export function DeckEditor({
         <Section title="Side" section="side" codes={side} problems={problems} target={sideTarget}
           onRemove={(index) => removeCard("side", index)} onPreview={onPreviewCard} onChooseMaster={mode === "domain" ? chooseMaster : undefined} cardMeta={cardMeta} genesysCard={genesysCard} />
       ) : null}
-
     </div>
   );
 }

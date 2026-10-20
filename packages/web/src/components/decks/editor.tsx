@@ -28,6 +28,7 @@ import {
 import {
   AlertTriangle,
   ArrowDownUp,
+  BookOpen,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -56,7 +57,7 @@ import { useCardPress } from "./card-press";
 import { DeckArtMenu, type ArtMenuTarget } from "./art-menu";
 import { CardActions, CardCopyCount } from "./card-actions";
 import { CardArt } from "./card-art";
-import { CardBrowser, type BrowserCard } from "./card-browser";
+import { CardBrowser, type BrowserCard, type BrowserPartner } from "./card-browser";
 import { CardBottomSheet } from "./card-bottom-sheet";
 import { CardPreview } from "./card-preview";
 import { DeckSegmented, DeckSelect } from "./controls";
@@ -77,12 +78,16 @@ import { useEditorViewport } from "./editor-viewport";
 import {
   BANLIST_CHOICES,
   banlistLabel,
+  cardArchetypes,
   loadEditorPrefs,
   saveEditorPrefs,
   type BrowserView,
 } from "./filter-model";
 import { deckNameFromFile, MAX_IMPORT_FILE_BYTES } from "./import";
 import { DeckImportPopover, Popover } from "./import-popover";
+import { HowItPlays } from "@/components/effect-search/how-it-plays";
+import { fetchGuide } from "./insights-api";
+import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
 import { TestDuelPopover } from "./test-duel-popover";
 import { cameBackFromTestDuel, DEFAULT_TEST_DUEL_PREFS, loadTestDuelPrefs, pruneTestDuelStorage, rememberTestDuelReturn, saveTestDuelDraft, saveTestDuelPrefs, takeTestDuelDraft, type TestDuelDraft, type TestDuelPrefs } from "./test-duel";
 import { startTestDuel, warmTestDuel } from "@/components/duel/api";
@@ -257,6 +262,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   const [view, setView] = useState<BrowserView>("grid");
   const [prefsReady, setPrefsReady] = useState(false);
   const [facets, setFacets] = useState<CardFacets | null>(null);
+  const [insightsOn, setInsightsOn] = useState(false);
   const [facetsError, setFacetsError] = useState(false);
   const [facetsRetry, setFacetsRetry] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
@@ -281,6 +287,8 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   const [poolRetry, setPoolRetry] = useState(0);
   const { editorRef, isPhone, isCompact } = useEditorViewport(!!pool);
   const [phoneTab, setPhoneTab] = useState<"deck" | "cards">("deck");
+  // "Works with: <card>": the card list shows the cards that work with this card.
+  const [partner, setPartner] = useState<BrowserPartner | null>(null);
   const phoneDir = useTabDirection(phoneTab, PHONE_TAB_ORDER);
   const [cardSheetOpen, setCardSheetOpen] = useState(false);
   // The Deck Master slot was the last place a card was opened from, so a new art replaces the master.
@@ -644,6 +652,27 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   const misplaced = useMemo(() => misplacedCards(deck, catalog), [deck, catalog]);
   const over = useMemo(() => new Set(problems.map((problem) => problem.key)), [problems]);
   const archetypes = facets?.archetypes ?? [];
+  // The archetype with the most cards in Main + Extra, at least six; a tie goes to the smaller archetype.
+  const deckArchetype = useMemo(() => {
+    const counts = new Map<CardArchetype, number>();
+    for (const code of [...deck.main, ...deck.extra]) {
+      for (const archetype of cardArchetypes(catalog.get(code)?.setcodes, archetypes)) counts.set(archetype, (counts.get(archetype) ?? 0) + 1);
+    }
+    let best: CardArchetype | null = null;
+    for (const [archetype, count] of counts) {
+      if (count < 6) continue;
+      if (!best || count > counts.get(best)! || (count === counts.get(best) && archetype.count < best.count)) best = archetype;
+    }
+    return best?.name ?? null;
+  }, [deck.main, deck.extra, catalog, archetypes]);
+  const [deckGuide, setDeckGuide] = useState<ArchetypeGuide | null>(null);
+  const [guideOpen, setGuideOpen] = useState(false);
+  useEffect(() => {
+    if (!insightsOn || !deckArchetype) { setDeckGuide(null); return; }
+    const controller = new AbortController();
+    void fetchGuide([deckArchetype], controller.signal).then((found) => { if (!controller.signal.aborted) setDeckGuide(found); }, () => { if (!controller.signal.aborted) setDeckGuide(null); });
+    return () => controller.abort();
+  }, [insightsOn, deckArchetype]);
 
   const poolCode = (code: number) => canonicalCardCode(code, catalog);
 
@@ -819,6 +848,25 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
       ? `${card.name}: you already have 3 copies.`
       : `${card.name}: ${banlistName ?? "the banlist"} ${copiesText(max)}.`);
     return false;
+  }
+
+  /** "Find cards that work with this": the card list shows its partners, on the Cards tab on a phone. */
+  function findPartners(card: DeckCardInfo) {
+    rememberCatalog([card]);
+    setPartner({ code: card.code, name: card.name });
+    // The search text named the card itself; the partners would not match it. Other filters stay.
+    setQuery((current) => ({ ...current, text: "", effectOmit: [] }));
+    setPhoneTab("cards");
+    setCardSheetOpen(false);
+  }
+
+  /** A hook of the deck's "How it plays" panel: the card list shows the cards that fit it. */
+  function findHookCards(guide: ArchetypeGuide, index: number) {
+    setGuideOpen(false);
+    setPartner({ code: -(index + 1), name: guide.hooks[index]?.label ?? guide.archetype, hook: { archetype: guide.archetype, index } });
+    setQuery((current) => ({ ...current, text: "", effectOmit: [] }));
+    setPhoneTab("cards");
+    setCardSheetOpen(false);
   }
 
   function addFromList(card: DeckCardInfo, wanted?: DeckSection) {
@@ -1363,6 +1411,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
       onMaster={() => makeMaster(inspected.code, selected?.code === inspected.code ? selected.section : undefined)}
       onClearMaster={removeDeckMaster}
       onArchetype={showArchetype}
+      onWorksWith={insightsOn ? () => findPartners(inspected) : undefined}
       artwork={
         <ArtworkPicker
           code={inspected.code}
@@ -1401,6 +1450,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
             ) : <span>{pool ? "Draft" : "Decks"}</span>}
           </Link>
           <label className={styles["de-namef"]}>
+            <span className={styles.brandName}>Dueling Domain</span>
             <span className="sr">Deck name</span>
             <input
               className={styles["de-name"]}
@@ -1509,7 +1559,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
         </div>
         <div className={styles["de-body"]}>
           <aside className={styles["de-read"]} aria-label="Card details" ref={inspectScrollRef}>
-            {shownCode == null ? <DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /> : shown ? <CardPreview card={shown} /> : missingReader}
+            {shownCode == null ? <DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /> : shown ? <CardPreview insightsEnabled={insightsOn} card={shown} /> : missingReader}
             {cardControls}
             <ControlsLegend domain={mode === "domain"} />
           </aside>
@@ -1547,11 +1597,11 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
                 />
               ) : null}
               {genesysSummary && !isPhone && shownCode != null ? <button className={styles["de-flag"]} title={flag} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span className={styles["de-flagt"]}>{flag}</span></button> : genesysSummary && !isPhone ? <span className={styles["de-flag"]} aria-hidden="true" /> : null}
-              <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton>{!pool && viewerId != null ? <TestDuelPopover open={testDuelOpen} onOpenChange={(open) => { setTestDuelOpen(open); if (open) { setTestDuelError(null); warmTestDuel(); } }} disabled={busy || artBusy || loading || deck.main.length < HAND_SIZE} busy={testDuelBusy} error={testDuelError} prefs={testDuelPrefs} onPrefsChange={chooseTestDuelPrefs} onStart={() => void runTestDuel()} /> : null}</span>
+              <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton>{deckGuide ? <Popover label="How it plays" dialogLabel={`How ${deckGuide.archetype} plays`} icon={<BookOpen className="ic sm" aria-hidden />} open={guideOpen} onOpenChange={setGuideOpen}><HowItPlays guide={deckGuide} testId="deck-how-it-plays" onHook={(index) => findHookCards(deckGuide, index)} /></Popover> : null}{!pool && viewerId != null ? <TestDuelPopover open={testDuelOpen} onOpenChange={(open) => { setTestDuelOpen(open); if (open) { setTestDuelError(null); warmTestDuel(); } }} disabled={busy || artBusy || loading || deck.main.length < HAND_SIZE} busy={testDuelBusy} error={testDuelError} prefs={testDuelPrefs} onPrefsChange={chooseTestDuelPrefs} onStart={() => void runTestDuel()} /> : null}</span>
               {isPhone ? historyControls : null}
             </div>
             {isPhone ? <ControlsLegend phone /> : null}
-            {notice ? <p className={styles.notice} role="status">{notice}<button type="button" className={styles["de-ib"]} aria-label="Close message" onClick={() => setNotice(null)}><X className="ic sm" aria-hidden /></button></p> : null}
+            {notice ? <p className={styles.notice} role="status" data-keep>{notice}<button type="button" className={styles["de-ib"]} aria-label="Close message" onClick={() => setNotice(null)}><X className="ic sm" aria-hidden /></button></p> : null}
             {facetsError ? <div className={styles["de-alert"]}><StatusLine tone="warn"><b>Filters and banlists are not available.</b> {pool ? "Archetype filters do not load." : "Archetype filters do not load and the editor does not check banlist limits."}</StatusLine><SvButton variant="quiet" onClick={() => setFacetsRetry((value) => value + 1)}>Try again</SvButton></div> : null}
             {pool && pool.unresolved.length > 0 ? <div className={styles["de-alert"]}><StatusLine tone="warn"><b>{pool.unresolved.length} {pool.unresolved.length === 1 ? "card" : "cards"} cannot be used.</b> The duel engine does not know {pool.unresolved.length === 1 ? "this card" : "these cards"}, so {pool.unresolved.length === 1 ? "it is" : "they are"} not in the list.</StatusLine></div> : null}
             {poolError ? <div className={styles["de-alert"]}><StatusLine tone="block"><b>Your draft pool is not available.</b> {poolError}</StatusLine><SvButton variant="quiet" onClick={() => setPoolRetry((value) => value + 1)}>Try again</SvButton></div> : null}
@@ -1575,10 +1625,10 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
             <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} warning={extraWarning} />
             <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, Ctrl+click a deck card, or use Side on a selected card." actions={clearButton("side", "Side")} />
           </main>
-          <CardBrowser mode={mode} genesys={genesysOn} id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={browserQuery} onQueryChange={(next) => setQuery(genesysOn ? { ...next, banlist: query.banlist, limits: query.limits } : next)} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} fullReason={(card) => sectionFullReason(deck, defaultAddSection(card))} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
+          <CardBrowser onEffectCapability={setInsightsOn} partner={partner} onPartnerChange={setPartner} onWorksWith={findPartners} mode={mode} genesys={genesysOn} id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={browserQuery} onQueryChange={(next) => setQuery(genesysOn ? { ...next, banlist: query.banlist, limits: query.limits } : next)} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} fullReason={(card) => sectionFullReason(deck, defaultAddSection(card))} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
         </div>
         {artMenu ? <DeckArtMenu key={`${artMenu.section}-${artMenu.index}`} target={artMenu} knownCount={altArtCount(artMenu.code, catalog) + 1} busy={artBusy} disabled={busy} onClose={() => setArtMenu(null)} onFamily={(family) => { void loadFamilyCards(family); }} onPick={(art, family) => { void pickMenuArtwork(art, family); }} /> : null}
-        {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview card={shown} compact copySummary={inspected && !previewing ? <><CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? deckAllowance(poolMap, poolCode(inspected.code), forcedMap) : undefined} forced={forcedMap.get(poolCode(inspected.code)) ?? 0} />{genesysOn ? <GenesysCardLine card={inspected} /> : null}</> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}
+        {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview insightsEnabled={insightsOn} card={shown} compact copySummary={inspected && !previewing ? <><CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? deckAllowance(poolMap, poolCode(inspected.code), forcedMap) : undefined} forced={forcedMap.get(poolCode(inspected.code)) ?? 0} />{genesysOn ? <GenesysCardLine card={inspected} /> : null}</> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}
       </div>
     </SheetRoot>
   );

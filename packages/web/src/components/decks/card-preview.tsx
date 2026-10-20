@@ -3,6 +3,7 @@
 import { PrereleaseLabel } from "@/components/prerelease-label";
 
 import { useState, type ReactNode } from "react";
+import useSWR from "swr";
 import type { DeckCardInfo } from "@yugidraft/shared/duels";
 import { TYPE_PENDULUM, cardArtUrl, cardCombatText, cardDetailsText, cardKindText } from "@/components/duel/constants";
 import { cn } from "@/lib/utils";
@@ -18,7 +19,15 @@ function scaleText(card: DeckCardInfo): string | null {
  * The large card view in the left pane, sized so the card text is easy to read. The small art
  * (already cached by the card tiles) shows at once; the full art replaces it when it loads.
  */
-export function CardPreview({ card, compact = false, copySummary }: { card: DeckCardInfo; compact?: boolean; copySummary?: ReactNode }) {
+async function readSummary(passcode: number): Promise<string | null> {
+  const response = await fetch("/api/cards/insights", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "summary", passcode }) });
+  if (!response.ok) return null;
+  const body = await response.json();
+  return body.effectSearchEnabled && typeof body.summary?.summary === "string" ? body.summary.summary : null;
+}
+
+export function CardPreview({ card, compact = false, copySummary, insightsEnabled = false }: { card: DeckCardInfo; compact?: boolean; copySummary?: ReactNode; insightsEnabled?: boolean }) {
+  const { data: summary } = useSWR(insightsEnabled ? (["card-summary", card.canonicalPasscode ?? card.code] as const) : null, ([, passcode]) => readSummary(passcode), { revalidateOnFocus: false, revalidateOnReconnect: false });
   // Kept for every card shown, so a card shown again does not fade in a second time.
   const [loaded, setLoaded] = useState<ReadonlySet<number>>(() => new Set());
   const [failed, setFailed] = useState<ReadonlySet<number>>(() => new Set());
@@ -54,6 +63,7 @@ export function CardPreview({ card, compact = false, copySummary }: { card: Deck
         {combat ? <p className="num">{combat}</p> : null}
       </div>
       {copySummary ? <div className={styles.copySummary}>{copySummary}</div> : null}
+      {summary ? <p className={styles.summary} aria-label="Card summary">{summary}</p> : null}
       {text ? <p className={styles["de-text"]}>{text}</p> : null}
       <p className={styles["de-pc"]}>Passcode <span className="num">{card.code}</span></p>
     </article>

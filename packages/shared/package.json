@@ -104,6 +104,35 @@
       "source": "./src/decks/index.ts",
       "default": "./dist/decks/index.js"
     },
+    "./cards/effects": {
+      "types": "./dist/cards/effects/index.d.ts",
+      "source": "./src/cards/effects/index.ts",
+      "default": "./dist/cards/effects/index.js"
+    },
+    "./cards/effects/capability": {
+      "types": "./dist/cards/effects/capability.d.ts",
+      "source": "./src/cards/effects/capability.ts",
+      "default": "./dist/cards/effects/capability.js"
+    },
+    "./cards/effects/name-match": {
+      "types": "./dist/cards/effects/name-match.d.ts",
+      "source": "./src/cards/effects/name-match.ts",
+      "default": "./dist/cards/effects/name-match.js"
+    },
+    "./services/cube-seed-index": {
+      "types": "./dist/services/cube-seed-index.d.ts",
+      "default": "./dist/services/cube-seed-index.js"
+    },
+    "./cards/effects/budget-ledger": {
+      "types": "./dist/cards/effects/budget-ledger.d.ts",
+      "source": "./src/cards/effects/budget-ledger.ts",
+      "default": "./dist/cards/effects/budget-ledger.js"
+    },
+    "./cards/effects/reading-fallback": {
+      "types": "./dist/cards/effects/reading-fallback.d.ts",
+      "source": "./src/cards/effects/reading-fallback.ts",
+      "default": "./dist/cards/effects/reading-fallback.js"
+    },
     "./presence": {
       "types": "./dist/presence/index.d.ts",
       "source": "./src/presence/index.ts",
@@ -129,7 +158,8 @@
   },
   "dependencies": {
     "better-sqlite3": "latest",
-    "sharp": "^0.35.5"
+    "sharp": "^0.35.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "latest",

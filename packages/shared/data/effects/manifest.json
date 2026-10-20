@@ -1,0 +1,61 @@
+{
+  "formatVersion": 1,
+  "schemaVersion": 1,
+  "source": {
+    "repository": "https://github.com/LorenzoWhite/searchygo",
+    "author": "LorenzoWhite",
+    "commit": "9b2d952f8e7c389e13267d4bba6504cc8ea4cb5c"
+  },
+  "files": {
+    "tags": {
+      "path": "tags.jsonl.gz",
+      "sourcePath": "data/tags/tags.jsonl",
+      "records": 13694,
+      "bytes": 24182853,
+      "sha256": "5897fb393b55eec479350326b9a8e4adacad25626a60d7e4fe5665f0bfd32a70",
+      "gzipBytes": 2652788,
+      "gzipSha256": "6dba5264294f49034dd505aa79036dd4fc9fcfc395a553eeea8038bf3a6c0e6a"
+    },
+    "profiles": {
+      "path": "profiles.jsonl.gz",
+      "sourcePath": "data/synergy/profiles.jsonl",
+      "records": 530,
+      "bytes": 1280587,
+      "sha256": "fdeef2f9fdfc4e62e8a11f4bae107223ec95637523c1759e3fbfd200b02e11de",
+      "gzipBytes": 221277,
+      "gzipSha256": "015f376f9a21ebc4eb197e0b6e9e0764334a2ddda4990987add7aafdf2952caa"
+    },
+    "popularity": {
+      "path": "popularity.json.gz",
+      "sourcePath": "data/cards.json",
+      "sourceSha256": "6ea3b8b1fa9897fa9e6a1f7c3b7b9d9db06a8b55dd1274521d1f5f42fb15b7ae",
+      "records": 14383,
+      "bytes": 249030,
+      "sha256": "483409753c7d0671c99247e9e11ff286e6d0919694befd237966dad983ca6f04",
+      "gzipBytes": 106000,
+      "gzipSha256": "629267a2da988444b3a686efaf7aac25c7565a416a346465895e3d1042469523"
+    },
+    "sourceHashes": {
+      "path": "source-hashes.json.gz",
+      "sourcePath": "data/cards.json",
+      "sourceSha256": "6ea3b8b1fa9897fa9e6a1f7c3b7b9d9db06a8b55dd1274521d1f5f42fb15b7ae",
+      "records": 13694,
+      "knownRecords": 13693,
+      "bytes": 1066655,
+      "sha256": "0d46ea4cc2936d2c5846b23bb4bb3cf58f054147b7b1b53c3da4b5e448ec796e",
+      "gzipBytes": 561896,
+      "gzipSha256": "2915ca905ac043b1822ac51a7b05074473f1a40a2c9869bb366faa33617f34fa"
+    },
+    "releases": {
+      "path": "releases.json.gz",
+      "sourcePath": "data/cards.json",
+      "sourceSha256": "6ea3b8b1fa9897fa9e6a1f7c3b7b9d9db06a8b55dd1274521d1f5f42fb15b7ae",
+      "records": 14383,
+      "bytes": 1624271,
+      "sha256": "17abbe696a3c3f7faad3f32ab00a1654db0ed9160833dde940453e4623c5d5c5",
+      "gzipBytes": 296116,
+      "gzipSha256": "49eecced3ea04f4a1281c4e27f27a91559d2988c047b15d0a874a97923aa271f"
+    }
+  },
+  "artifactVersion": "7ce6daa3e4f6251f353b6e41de3bd9ccbf842aa214740dba5d75e21c3a2b828f"
+}
