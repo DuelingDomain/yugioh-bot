@@ -768,7 +768,10 @@ describe("creator settings persistence", () => {
     const app = setup();
     const created = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Legacy", mode: "normal" });
     expect(created.settings.turnSeconds).toBe(240);
-    expect(created.settings.banlist).toBe("tcg-2026-09");
+    expect(created.settings.banlist).toBe("tcg-2026-10-19");
+    app.db.prepare("update duels set settings_json = ? where id = ?")
+      .run(JSON.stringify({ ...created.settings, banlist: "tcg-2026-09" }), created.id);
+    expect(app.duels.get(created.slug, "g1").settings.banlist).toBe("tcg-2026-09");
     app.db.prepare("update duels set settings_json = null, clock_json = null, invite_code = null where id = ?").run(created.id);
 
     const session = app.duels.get(created.slug, "g1");

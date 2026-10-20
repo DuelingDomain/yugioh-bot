@@ -56,7 +56,7 @@ it("exposes prerelease metadata and respects TCG/OCG bits, with unlisted cards u
   expect(search.total).toBe(2);
   expect(search.cards.every(card=>card.prerelease)).toBe(true);
   for(const [pool,allowed,denied] of [["ocg",100000001,100000002],["tcg",100000002,100000001]] as const){
-   const settings=normalizeDuelSettings("normal",{validateDeck:true,startingHand:1,cardPool:pool,banlist:"tcg-2026-09"});
+   const settings=normalizeDuelSettings("normal",{validateDeck:true,startingHand:1,cardPool:pool,banlist:"tcg-2026-10-19"});
    const filler=Array.from({length:37},(_,i)=>i+100);
    expect(inspectDeck("normal",{main:[allowed,allowed,allowed,...filler],extra:[],side:[]},dir,settings).issues).toEqual([]);
    expect(inspectDeck("normal",{main:[denied,denied,denied,...filler],extra:[],side:[]},dir,settings).issues.some(x=>x.message.includes(`not ${pool.toUpperCase()} legal`))).toBe(true);
