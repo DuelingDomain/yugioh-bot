@@ -49,12 +49,34 @@ function describe(landing: Landing): string {
   return `${f.style} flight ${describeZone(f.from)} -> ${describeZone(f.dest)}, ghost ${Math.round(f.firstSeen)}..${Math.round(f.travelEnd ?? 0)} ms${a ? `, card showed at ${Math.round(a.t)} ms (${a.via}, opacity ${a.opacity})` : ", card never showed"}`;
 }
 
+/**
+ * A card that stays hidden after its animation is over is a bug that "no-arrival" would hide: once the animations are
+ * done (and the hide failsafe has passed) no zone or hand card may still be hidden by the animation layers.
+ */
+async function expectNothingStuckHidden(page: Page, name: string): Promise<void> {
+  const stuck = () => page.evaluate(() => {
+    const out: string[] = [];
+    document.querySelectorAll<HTMLElement>("[data-card-hidden]").forEach((el) => out.push(`[data-card-hidden]@${el.closest("[data-zones]")?.getAttribute("data-zones") ?? "?"}`));
+    document.querySelectorAll<HTMLElement>("[data-zones] [data-fi], [data-hand-seat] *").forEach((el) => {
+      if (el.style.visibility === "hidden") out.push(`${el.tagName.toLowerCase()}${el.dataset.fi != null ? `[fi=${el.dataset.fi}]` : ""}@${el.closest("[data-zones]")?.getAttribute("data-zones") ?? "hand"}`);
+    });
+    return out;
+  });
+  let left = await stuck();
+  for (let waited = 0; left.length > 0 && waited < 3_000; waited += 250) {
+    await page.waitForTimeout(250);
+    left = await stuck();
+  }
+  expect.soft(left, `${name}: cards still hidden after their animations ended`).toEqual([]);
+}
+
 /** One measured step: arm the probes, run the move, wait until the animations are over, read the probes. */
 async function measure(pages: Array<{ name: string; page: Page }>, run: () => Promise<void>): Promise<Array<{ name: string; raw: ProbeRaw; landings: Landing[] }>> {
   for (const { page } of pages) await waitQuiet(page);
   for (const { page } of pages) await armLandingProbe(page);
   await run();
   for (const { page } of pages) await waitQuiet(page);
+  for (const { name, page } of pages) await expectNothingStuckHidden(page, name);
   return Promise.all(pages.map(async ({ name, page }) => {
     const raw = await readLandingProbe(page);
     return { name, raw, landings: pairLandings(raw) };
