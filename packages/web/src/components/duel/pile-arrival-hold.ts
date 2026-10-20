@@ -1,4 +1,4 @@
-import { hideElement } from "./move-fx";
+import { hideElement } from "./hide-element";
 
 /**
  * A Graveyard or banished pile shows its top three cards as a fan (`data-fi`, 0 = newest). When several cards are
