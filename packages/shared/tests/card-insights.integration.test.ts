@@ -438,7 +438,7 @@ describe("SQL insights over the real pinned artifact", () => {
     const veiler = (find.get(97268402) as { popularity: number }).popularity;
     try {
       update.run(10, 14558127); update.run(100, 97268402);
-      const result = service.effectSearch("hand traps", [14558127, 97268402], { limit: 1 });
+      const result = service.effectSearch("hand trap", [14558127, 97268402], { limit: 1 });
       expect(result.total).toBe(2);
       expect(result.cards.map(card => card.passcode)).toEqual([97268402]);
     } finally { update.run(ash, 14558127); update.run(veiler, 97268402); }

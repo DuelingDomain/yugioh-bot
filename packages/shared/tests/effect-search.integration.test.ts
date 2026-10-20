@@ -426,6 +426,15 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
     }
   });
 
+  it.each(["Genex Searcher","Scrap Searcher","Ally of Justice Searcher"])("keeps exact card names out of archetype intents: %s",name=>{
+    for(const text of [name,name.toLowerCase(),name.replaceAll(" ","")]){
+      const result=service.effectSearch(text);
+      expect(result.reading,text).toBeNull();
+      expect(result.total,text).toBe(0);
+    }
+    expect(service.effectSearch("Branded searchers").reading?.query.intent?.kind).toBe("archetype_role");
+  });
+
   it("scopes saved usage to a guild, counts each owner once, and hides small owner cohorts", async () => {
     const { formatStaples } = await import("../src/cards/effects/staples.js");
     const { seedIdentity } = await import("./helpers/identity.js");

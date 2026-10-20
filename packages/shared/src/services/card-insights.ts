@@ -93,6 +93,8 @@ const withoutPopularity = (ranked: Retained[]) => ranked.map(({ popularity: _pop
 const codesOf = (deck: DuelDeck | readonly number[]): readonly number[] => Array.isArray(deck) ? deck : [...(deck as DuelDeck).main, ...(deck as DuelDeck).extra, ...(deck as DuelDeck).side];
 const synergyTarget = (text: string) => text.trim().match(/^(?:cards?\s+that\s+)?(?:works?\s+(?:well\s+)?with|synerg(?:y|ies|izes?)\s+(?:with|for)|partners?\s+for)\s+(.+?)\s*[?.!]?$/i)?.[1];
 
+const exactNameCaches = new WeakMap<Database.Database, { revision: number; names: Set<string> }>();
+
 /** SQL-backed, read-only insights. Only anchors, their profiles and the retained page live in memory. */
 export function createCardInsightService(db: Database.Database, options: {
   dataDirectory?: string;
@@ -119,6 +121,14 @@ export function createCardInsightService(db: Database.Database, options: {
     return best?.passcode;
   };
   const readQuery = (text: string): Interpretation | null => {
+    const revision = (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as {revision:number}).revision;
+    let exactNames = exactNameCaches.get(db);
+    if (!exactNames || exactNames.revision !== revision) {
+      const rows = db.prepare<[],{name:string}>("SELECT name FROM card_catalog").all();
+      exactNames = {revision,names:new Set(rows.map(row=>compactEffectName(row.name)))};
+      exactNameCaches.set(db,exactNames);
+    }
+    if (exactNames.names.has(compactEffectName(text))) return null;
     const matcher = archetypeMatcher();
     const target = synergyTarget(text);
     const intent = intentReading(text, name => {
