@@ -20,6 +20,8 @@
  *
  * Reduced motion: no travel, a 150 ms fade at the destination.
  */
+import { hideElement } from "./hide-element";
+import { beginPileArrivalHold } from "./pile-arrival-hold";
 import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
@@ -185,28 +187,6 @@ export function buildFlight(params: FlightParams): Flight {
 }
 
 /* ---------- hiding the real card while its ghost travels ---------- */
-
-const hiddenCounts = new WeakMap<HTMLElement, number>();
-
-export function hideElement(el: HTMLElement): () => void {
-  hiddenCounts.set(el, (hiddenCounts.get(el) ?? 0) + 1);
-  // A field zone's card frame stays drawn (it is the zone outline): a mark on it hides what is inside, also what is added
-  // later. A hand card's frame is the card itself (gold edge of a revealed card), so it is hidden whole.
-  const frame = el.hasAttribute("data-card-frame") && !el.closest("[data-hand-seat]");
-  if (frame) el.setAttribute("data-card-hidden", "");
-  else el.style.visibility = "hidden";
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    const left = (hiddenCounts.get(el) ?? 1) - 1;
-    hiddenCounts.set(el, left);
-    if (left <= 0) {
-      if (frame) el.removeAttribute("data-card-hidden");
-      else el.style.removeProperty("visibility");
-    }
-  };
-}
 
 /** Hides every element of a target; the returned function shows them again. */
 function hideElements(els: readonly HTMLElement[]): () => void {
@@ -847,9 +827,15 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
       if (!plan || plan.silent) continue;
       // The real card waits invisible at its destination until the ghost lands on it.
       const dest = findMoveDestination(plan.event);
-      const target = dest ? hideTargetOf(dest, plan) : [];
+      const pileLocation = plan.event.zone?.location;
+      // Cards flying into one pile hold the pile's top cards together (see pile-arrival-hold.ts).
+      const pileArrival = (pileLocation === LOCATION_GRAVE || pileLocation === LOCATION_REMOVED) && !plan.tribute && plan.style !== "tribute" && plan.event.zone != null;
+      const target = dest && !pileArrival ? hideTargetOf(dest, plan) : [];
       const waitMs = Math.max(0, plan.landAt + plan.holdMs - now) + HIDE_FAILSAFE_MS;
       const releases: Array<() => void> = [];
+      if (pileArrival && plan.event.zone) {
+        releases.push(beginPileArrivalHold(`${plan.event.zone.controller}:${pileLocation}`, () => findMoveDestination(plan.event)));
+      }
       if (plan.event.zone?.location === LOCATION_HAND) {
         let heldTarget = target;
         let releaseTarget = hideElements(target);
