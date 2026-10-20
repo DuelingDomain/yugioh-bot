@@ -524,6 +524,19 @@ export async function archiveDuel(slug: string): Promise<ReceivedDuelRoom> {
   return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(`/api/duels/${encodeURIComponent(slug)}/archive`, { method: "POST" })));
 }
 
+let lastTestDuelWarmAt = 0;
+
+/**
+ * Deck editor: the Test duel pop-up opened. Asks the server to get the start ready and loads the duel page code, so the
+ * start itself only does the engine work. Fire and forget; at most once every 30 s.
+ */
+export function warmTestDuel(): void {
+  if (Date.now() - lastTestDuelWarmAt < 30_000) return;
+  lastTestDuelWarmAt = Date.now();
+  void fetch("/api/duels/test", { cache: "no-store" }).catch(() => {});
+  void import("@/components/duel/room").catch(() => {});
+}
+
 /** Deck editor "Test duel": a private, unranked duel against a practice bot with this deck. */
 export async function startTestDuel(input: {
   mode: DuelMode;
