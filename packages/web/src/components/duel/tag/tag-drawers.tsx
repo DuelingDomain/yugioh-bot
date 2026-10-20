@@ -110,13 +110,12 @@ export interface TagDrawersProps {
   logUnread: number;
   preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean } | null;
   equipLinks?: EquipLinks;
-  previewHidden: boolean;
+  /** Hold the preview back (a pick refusal hint stands over its card). */
+  previewHidden?: boolean;
   reducedMotion: boolean;
-  hoverAnchor?: HTMLElement | null;
-  ownSeats?: readonly number[];
 }
 
-export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats }: TagDrawersProps) {
+export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion }: TagDrawersProps) {
   const { pane, setPane, close, pinAnchor } = hud;
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
@@ -180,9 +179,6 @@ export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, l
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
         extras={extras}
-        avoid={preview?.pinned === true ? hud.pinAnchor : null}
-        hoverAnchor={preview?.pinned === true ? null : hoverAnchor}
-        ownSeats={ownSeats}
         onClose={closePin}
       />
     </div>

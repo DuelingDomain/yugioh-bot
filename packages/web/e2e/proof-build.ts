@@ -5,7 +5,7 @@ import { build } from "vite";
 import react from "@vitejs/plugin-react";
 
 /** Bundle shipped duel components into a standalone file:// page, with no web server or auth. */
-export async function buildProofPage(artifacts: string, entry: string, title: string, data: unknown) {
+export async function buildProofPage(artifacts: string, entry: string, title: string, data: unknown, options: { viewportMeta?: boolean } = {}) {
   const root = fileURLToPath(new URL(".", import.meta.url));
   await mkdir(artifacts, { recursive: true });
   await build({
@@ -35,9 +35,13 @@ export async function buildProofPage(artifacts: string, entry: string, title: st
   for (const name of ["card-back-main-hd.webp", "card-back-extra-hd.webp"]) {
     await copyFile(fileURLToPath(new URL(`../public/duel/${name}`, import.meta.url)), resolve(artifacts, "bundle", name));
   }
+  // The real page gets the --duel-z-* stacking scale from app/globals.css; without it the dialog would sit under the board.
+  const globals = await readFile(fileURLToPath(new URL("../app/globals.css", import.meta.url)), "utf8");
+  const stacking = (globals.match(/--(?:duel|app)-z-[\w-]+:\s*\d+;/g) ?? []).join(" ");
   const html = resolve(artifacts, "bundle/index.html");
-  await writeFile(html, `<!doctype html><html><head><title>${title}</title>
+  await writeFile(html, `<!doctype html><html><head>${options.viewportMeta ? '<meta name="viewport" content="width=device-width, initial-scale=1">' : ""}<title>${title}</title>
     <link rel="stylesheet" href="./browser.css"><style>
+      :root {${stacking}}
       * {box-sizing:border-box} body {margin:0;padding:20px;background:#111218;color:#efe7d5;font:16px Arial}
       h1 {margin:0 0 8px;font-size:24px} p {margin:0 0 12px} button {font:inherit}
     </style></head><body><div id="root"></div>
