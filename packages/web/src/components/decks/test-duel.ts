@@ -85,10 +85,10 @@ export function cameBackFromTestDuel(search: string): boolean {
 }
 
 /** The copy belongs to one signed-in user: a shared browser never shows it to another account. */
-const draftKey = (viewerId: number, path: string) => `${DRAFT_PREFIX}${viewerId}:${path}`;
+const draftKey = (viewerId: number | string, path: string) => `${DRAFT_PREFIX}${viewerId}:${path}`;
 
 /** Keeps the editor state for `path`. Returns false when the browser refuses to store it. */
-export function saveTestDuelDraft(viewerId: number, path: string, draft: TestDuelDraft): boolean {
+export function saveTestDuelDraft(viewerId: number | string, path: string, draft: TestDuelDraft): boolean {
   try {
     window.localStorage.setItem(draftKey(viewerId, path), JSON.stringify({ savedAt: Date.now(), draft }));
     return true;
@@ -98,7 +98,7 @@ export function saveTestDuelDraft(viewerId: number, path: string, draft: TestDue
 }
 
 /** Reads the kept editor state for `path` once and removes it. */
-export function takeTestDuelDraft(viewerId: number, path: string): TestDuelDraft | null {
+export function takeTestDuelDraft(viewerId: number | string, path: string): TestDuelDraft | null {
   try {
     const key = draftKey(viewerId, path);
     const raw = window.localStorage.getItem(key);
