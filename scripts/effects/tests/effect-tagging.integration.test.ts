@@ -96,6 +96,27 @@ async function releaseEndpoint(data: unknown[], failures = 0, sets: unknown[] = 
   return { events, endpoint: `http://127.0.0.1:${(server.address() as { port: number }).port}/api/v7/cardinfo.php?misc=yes` };
 }
 
+it.each(["cardinfo", "cardsets"].flatMap(endpoint => ["length", "stream"].map(mode => ({ endpoint, mode }))))("skips an oversized $endpoint HTTP $mode response", async ({ endpoint, mode }) => {
+  const directory = mkdtempSync(join(tmpdir(), "effect-release-size-")); roots.push(directory);
+  const server = createServer((request, response) => {
+    if (!request.url?.includes(endpoint)) { response.end(JSON.stringify({ data: [{ id: 99999997, name: "Fixture" }] })); return; }
+    if (mode === "length") { response.setHeader("content-length", 200 * 1024 * 1024 + 1); response.flushHeaders(); return; }
+    const chunk = Buffer.alloc(1024 * 1024, " ");
+    let remaining = 201;
+    const write = () => {
+      while (remaining-- > 0) if (!response.write(chunk)) { response.once("drain", write); return; }
+      response.end();
+    };
+    write();
+  });
+  servers.push(server);
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const { refreshReleaseCandidate } = await import("../fill-releases.js");
+  const result = await refreshReleaseCandidate({ root: rootPath, outputDirectory: join(directory, "candidate"), cacheDirectory: join(directory, "cache"), baseSha: "a".repeat(40),
+    endpoint: `http://127.0.0.1:${(server.address() as { port: number }).port}/api/v7/cardinfo.php?misc=yes`, backoffMs: 1 });
+  expect(result).toEqual(expect.objectContaining({ status: "skipped", reason: "YGOPRODeck response exceeds 200 MB limit" }));
+}, 30_000);
+
 it("fills missing release months through bulk HTTP, keeps families and valid dates, and rejects non-additive publication", async () => {
   const context = await setup();
   const data = "packages/shared/data/effects";
