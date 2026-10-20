@@ -7,7 +7,7 @@ import { resolveEquipLinks } from "../equip-links";
 import { DeckMasterRail } from "../field";
 import { DuelHistoryRail } from "../history-rail";
 import { CardInspector, cardScrollerProps } from "../inspector";
-import { livePileCards } from "../pile-focus";
+import { livePileCards, livePileTitle } from "../pile-focus";
 import { useLiveChainLinks } from "../pile-chain-marks";
 import { PileViewer } from "../pile-viewer";
 import { optionsForCard, PromptTray } from "../prompts";
@@ -61,7 +61,7 @@ export type TagSideHud = {
   /** The hovered card, for the preview. */
   hover: TableUi["hover"];
   /** The card of a prompt row under the pointer: the preview shows it when no board card is hovered. */
-  rowCard: DuelCardInfo | null;
+  rowCard: DuelCardInfo | DuelCard | null;
   /** The tray draws something a player sees. When it does not, the floating card hides. */
   trayVisible: boolean;
   /** The card of the open card menu: the preview keeps showing it while the menu is open and no other card is hovered. */
@@ -137,6 +137,7 @@ export function TagSide({
       target={startTarget}
       onInspectCard={(card) => ui.setInspect({ type: "card", card })}
       onActivateCard={(card, anchor) => controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor, true)}
+      onViewMaterials={controller.onInspect}
       equipLinks={resolveEquipLinks(engine.seats)}
       ownerOf={(card) => ({ name: nameOf(card.controller), tone: seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice })}
     />
@@ -214,10 +215,7 @@ export function TagSide({
           logUnread={logUnread}
           preview={hudPreview(hud.hover?.card ?? null, hud.menuCard, hud.rowCard, (card) => ({ name: nameOf(card.controller), ...(seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hud.state.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
-          previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
-          hoverAnchor={hud.hover?.anchor ?? null}
-          ownSeats={partner == null ? [seat] : [seat, partner]}
         />
       </>
     );
@@ -274,7 +272,7 @@ export function TagSide({
  * The pile viewer of the Rooftop, for the board overlay. A pile of your partner reads as your side ("you"); a rival's
  * pile reads as the opposing side. Renders nothing while no pile was opened.
  */
-export function TagPileViewer({ controller, ui }: { controller: TableController; ui: TagSideUi }) {
+export function TagPileViewer({ controller, ui, onPeek }: { controller: TableController; ui: TagSideUi; onPeek?: (card: DuelCard | null) => void }) {
   const { engine, viewerSeat, nameOf } = controller;
   const seatTones = useSeatTones(controller);
   // The chain as the pile viewer marks it (the card a link activated from), live while the viewer is open.
@@ -286,14 +284,18 @@ export function TagPileViewer({ controller, ui }: { controller: TableController;
   const tone = ownerSeat == null ? undefined : seatTones.get(ownerSeat);
   return (
     <PileViewer
-      title={pile.title}
+      title={livePileTitle(pile, livePileCards(pile, engine, viewerSeat))}
       owner={owner}
       ownerTag={ownerSeat != null && tone ? { name: nameOf(ownerSeat), tone } : null}
       open={pile.open}
       cards={livePileCards(pile, engine, viewerSeat)}
       onClose={ui.closePile}
       onInspectCard={(card) => ui.inspectCard({ type: "card", card })}
-      onHoverCard={(card) => { if (ui.pane === "card") ui.setInspect({ type: "card", card }); }}
+      onHoverCard={(card) => {
+        // The window shows no card text: with the HUD the left drawer follows the card under the pointer (`onPeek`).
+        if (onPeek) onPeek(card?.code != null ? card : null);
+        else if (card && ui.pane === "card") ui.setInspect({ type: "card", card });
+      }}
       onActivateCard={(card, anchor) => controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor, true)}
       legalKeys={controller.legalKeys}
       selectedKeys={controller.selectedKeys}

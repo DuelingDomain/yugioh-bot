@@ -51,7 +51,7 @@ const reason = "Repeated script failure under investigation";
 const modes: DuelMode[] = ["normal", "domain"];
 const tables: MultiplayerTable[] = ["1v1", "tag", "ffa3", "ffa4"];
 const cases = modes.flatMap(mode => tables.flatMap(table =>
-  ["none", "tcg-2026-09", "ocg-2026-07"].flatMap(banlist => [true, false].map(validateDeck =>
+  ["none", "tcg-2026-09", "tcg-2026-10-19", "tcg-2026-11-11", "ocg-2026-07", "ocg-2026-10"].flatMap(banlist => [true, false].map(validateDeck =>
     ({ mode, table, banlist, validateDeck })))));
 
 describe("repository card blocks at deck admission", () => {

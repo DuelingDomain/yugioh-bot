@@ -65,7 +65,11 @@ describe("failure-to-scenario on a fuzz failure file", () => {
       expect((spec.banished ?? []).map(codeOf).sort((a, b) => a! - b!), `${id} banished`).toEqual(codes(live.banished));
       expect((spec.extra ?? []).map(codeOf).sort((a, b) => a! - b!), `${id} extra`).toEqual(codes(live.extra));
       live.monsters.forEach((card, index) => expect(codeOf(spec.monsters?.[index]), `${id} monster zone ${index}`).toBe(card?.code ?? null));
-      live.spells.slice(0, 5).forEach((card, index) => expect(codeOf(spec.spells?.[index]), `${id} spell zone ${index}`).toBe(card?.code ?? null));
+      // MR5 captures face-up Pendulum cards separately from the other Spell/Trap slots.
+      const capturedSpells = [...(spec.spells ?? [])];
+      if (spec.pendulum?.[0]) capturedSpells[0] = spec.pendulum[0];
+      if (spec.pendulum?.[1]) capturedSpells[4] = spec.pendulum[1];
+      live.spells.slice(0, 5).forEach((card, index) => expect(codeOf(capturedSpells[index]), `${id} spell zone ${index}`).toBe(card?.code ?? null));
       expect(codeOf(spec.deckMaster), `${id} deck master`).toBe(live.deckMaster!.card.code);
     }
     expect(board.turn).toBe(views.seats[0].turnSeat === 1 ? "p1" : "p0");

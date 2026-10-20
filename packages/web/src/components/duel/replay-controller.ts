@@ -496,13 +496,15 @@ interface Selection {
  * Selection is kept by frame ID, so the same frame stays selected when the frames are replaced (another card
  * visibility) or the page is reloaded (`?frame=`). The index is only the fallback when the ID is gone.
  */
-export function useReplayController({ slug, frames, seatCount, mySeat, enabled = true }: {
+export function useReplayController({ slug, frames, seatCount, mySeat, enabled = true, syncFrameToUrl = true }: {
   slug: string;
   frames: readonly Pick<ReplayFrameV2, "frameId">[] | null;
   seatCount: number;
   mySeat: number | null;
   /** False while the table is hidden (another card view loads): the keys do nothing and autoplay waits. */
   enabled?: boolean;
+  /** An oversized replay uses the selected fork step in the URL, separate from its final board preview. */
+  syncFrameToUrl?: boolean;
 }): ReplayController {
   // The router's own params, not window.location: on a client-side move (End fork, Open the source replay) the address bar
   // still holds the old page while this first render runs, so only the router knows the frame the link asked for.
@@ -582,7 +584,7 @@ export function useReplayController({ slug, frames, seatCount, mySeat, enabled =
 
   // Keep the selected frame in the address so a reload comes back to it. Debounced: browsers cap history writes.
   useEffect(() => {
-    if (typeof window === "undefined" || frameId == null) return;
+    if (!syncFrameToUrl || typeof window === "undefined" || frameId == null) return;
     const timer = window.setTimeout(() => {
       const next = withFrameParam(`${window.location.pathname}${window.location.search}${window.location.hash}`, frameId);
       if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
@@ -590,7 +592,7 @@ export function useReplayController({ slug, frames, seatCount, mySeat, enabled =
       }
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [frameId]);
+  }, [frameId, syncFrameToUrl]);
 
   useEffect(() => {
     if (!frames || !enabled) return;

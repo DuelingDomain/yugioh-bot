@@ -1,0 +1,324 @@
+From b6341a630cab452c7cb961ca24ac620418ece8d6 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 18 Oct 2026 12:35:31 -0400
+Subject: [PATCH] Swap joined Tag fields atomically into fixed facing seats
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GLTNwBcU5bVhsdGwaZoeik
+---
+ field.h          |   1 +
+ libduel.cpp      |  17 ++++
+ operations.cpp   | 224 +++++++++++++++++++++++++++++++++++++++++++++++
+ processor_unit.h |  14 ++-
+ 4 files changed, 255 insertions(+), 1 deletion(-)
+
+diff --git a/field.h b/field.h
+index 31ad60e..e460d27 100644
+--- a/field.h
++++ b/field.h
+@@ -1096,6 +1096,7 @@ public:
+ 	bool process(Processors::GetControl& arg);
+ 	bool process(Processors::SwapControl& arg);
+ 	bool process(Processors::RotateControl& arg);
++	bool process(Processors::TagSwapControl& arg);
+ 	bool process(Processors::ControlAdjust& arg);
+ 	bool process(Processors::SelfDestroyUnique& arg);
+ 	bool process(Processors::SelfDestroy& arg);
+diff --git a/libduel.cpp b/libduel.cpp
+index 544dedd..f83a9ea 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -1513,6 +1513,23 @@ LUA_STATIC_FUNCTION(SwapControl) {
+ 		return 1;
+ 	});
+ }
++// Joined Tag groups keep physical facing destinations (0/1 and 2/3),
++// while each receiving controller chooses every placement before any move.
++LUA_STATIC_FUNCTION(MPTagSwapControl) {
++	check_action_permission(L);
++	check_param_count(L, 2);
++	auto& field = *pduel->game_field;
++	auto* first = lua_get<group*, true>(L, 1);
++	auto* second = lua_get<group*, true>(L, 2);
++	auto targets1 = pduel->new_group(first->container);
++	auto targets2 = pduel->new_group(second->container);
++	targets1->is_readonly = targets2->is_readonly = true;
++	field.emplace_process<Processors::TagSwapControl>(field.core.reason_effect, field.core.reason_player, targets1, targets2);
++	return yieldk({
++		lua_pushboolean(L, pduel->game_field->returns.at<int32_t>(0));
++		return 1;
++	});
++}
+ // Protect the resolving link before Lua asks for the rotation's cards, including copied operations.
+ LUA_STATIC_FUNCTION(MPBeginControlRotation) {
+ 	check_action_permission(L);
+diff --git a/operations.cpp b/operations.cpp
+index 5a428b4..e5d09cf 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -1577,6 +1577,230 @@ bool field::process(Processors::RotateControl& arg) {
+ 	}
+ 	return TRUE;
+ }
++// Every receiver is fixed by physical facing geometry, rather than a folded team id.
++// Preflight removes all outgoing slots temporarily; prompts and moves see no partial swap.
++bool field::process(Processors::TagSwapControl& arg) {
++	auto valid = [&]() {
++		if(n_duelists != 4 || n_teams != 2 || arg.targets1->container.empty()
++			|| arg.targets1->container.size() != arg.targets2->container.size())
++			return false;
++		const auto first = (*arg.targets1->container.begin())->current.controler;
++		const auto second = (*arg.targets2->container.begin())->current.controler;
++		if(!is_alive(first) || !is_alive(second) || same_team(first, second)) return false;
++		for(const auto* targets : { static_cast<group*>(arg.targets1), static_cast<group*>(arg.targets2) }) {
++			const auto side = targets == static_cast<group*>(arg.targets1) ? first : second;
++			for(auto* pcard : targets->container) {
++				const auto p = pcard->current.controler;
++				if(!is_alive(p) || !same_team(p, side) || !is_alive(across_of(p))
++					|| pcard->current.location != LOCATION_MZONE || pcard->overlay_target
++					|| !pcard->is_capable_change_control()
++					|| (arg.reason_effect && !pcard->is_affect_by_effect(arg.reason_effect)))
++					return false;
++			}
++		}
++		return true;
++	};
++	// Probe the complete placement in a temporary board, including reservations.
++	// Forced-zone values can depend on the next empty zone (Lane Restriction),
++	// so every recursive placement must ask again with the actual incoming card.
++	auto placement_options = [&](bool choices) -> uint32_t {
++		std::vector<card_vector> saved_zones;
++		std::vector<uint32_t> saved_used;
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			saved_zones.push_back(player[p].list_mzone);
++			saved_used.push_back(player[p].used_location);
++		}
++		for(size_t i = 0; i < arg.cards.size(); ++i) {
++			player[arg.source_seats[i]].list_mzone[arg.old_sequences[i]] = nullptr;
++			player[arg.source_seats[i]].used_location &= ~(1u << arg.old_sequences[i]);
++		}
++		// A cheap necessary bound prevents an impossible later receiver from
++		// multiplying permutations of the earlier full fields. Only unconditional
++		// constant single-card masks are safe here: dynamic values (for example
++		// Lane Restriction) must be recomputed after each virtual reservation.
++		std::vector<uint32_t> fixed_masks;
++		for(size_t i = 0; i < arg.cards.size(); ++i) {
++			const auto to = arg.seats[i];
++			auto mask = ~(player[to].disabled_location | player[to].used_location) & 0x1fu;
++			const auto range = arg.cards[i]->single_effect.equal_range(EFFECT_MUST_USE_MZONE);
++			for(auto it = range.first; it != range.second; ++it) {
++				const auto* eff = it->second;
++				if(eff->has_function_value() || eff->condition || eff->operation || eff->range
++					|| eff->is_flag(EFFECT_FLAG_SINGLE_RANGE)
++					|| (eff->is_flag(EFFECT_FLAG_COUNT_LIMIT) && eff->count_limit == 0)) continue;
++				if(!it->second->is_available()) continue;
++				auto forced = static_cast<uint32_t>(eff->value);
++				if(is_duelist(arg.reason_player) && arg.reason_player != to) forced >>= 16;
++				mask &= forced;
++			}
++			fixed_masks.push_back(mask);
++		}
++		auto fixed_fit = [&](auto&& self, size_t from, uint8_t seat, uint32_t used) -> bool {
++			while(from < arg.cards.size() && arg.seats[from] != seat) ++from;
++			if(from == arg.cards.size()) return true;
++			const auto options = fixed_masks[from] & ~used;
++			for(uint8_t seq = 0; seq < 5; ++seq)
++				if((options & (1u << seq)) && self(self, from + 1, seat, used | (1u << seq))) return true;
++			return false;
++		};
++		bool possible = true;
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			const auto needed = std::count(arg.seats.begin(), arg.seats.end(), p);
++			uint8_t capacity = 0;
++			for(uint8_t seq = 0; seq < 5; ++seq)
++				if(!((player[p].disabled_location | player[p].used_location) & (1u << seq))) ++capacity;
++			if(needed > capacity || !fixed_fit(fixed_fit, 0, p, 0)) { possible = false; break; }
++		}
++		auto place = [&](size_t i, uint8_t seq) {
++			arg.cards[i]->current.controler = arg.seats[i];
++			arg.cards[i]->current.sequence = seq;
++			player[arg.seats[i]].list_mzone[seq] = arg.cards[i];
++			player[arg.seats[i]].used_location |= 1u << seq;
++		};
++		auto unplace = [&](size_t i, uint8_t seq) {
++			player[arg.seats[i]].list_mzone[seq] = nullptr;
++			player[arg.seats[i]].used_location &= ~(1u << seq);
++			arg.cards[i]->current.controler = arg.source_seats[i];
++			arg.cards[i]->current.sequence = arg.old_sequences[i];
++		};
++		auto available = [&](size_t i) -> uint32_t {
++			uint32_t flag;
++			if(get_useable_count(arg.cards[i], arg.seats[i], LOCATION_MZONE, arg.reason_player,
++				LOCATION_REASON::CONTROL, 0x1f, &flag) <= 0) return 0;
++			return ~flag & 0x1fu;
++		};
++		auto can_finish = [&](auto&& self, size_t from) -> bool {
++			if(from == arg.cards.size()) return true;
++			const auto options = available(from);
++			for(uint8_t seq = 0; seq < 5; ++seq) {
++				if(!(options & (1u << seq))) continue;
++				place(from, seq);
++				const auto fits = self(self, from + 1);
++				unplace(from, seq);
++				if(fits) return true;
++			}
++			return false;
++		};
++		for(size_t i = 0; i < arg.new_sequences.size(); ++i)
++			place(i, arg.new_sequences[i]);
++		uint32_t result = 0;
++		if(possible && !choices)
++			result = can_finish(can_finish, 0);
++		else if(possible) {
++			const auto i = arg.cursor;
++			const auto options = available(i);
++			for(uint8_t seq = 0; seq < 5; ++seq) {
++				if(!(options & (1u << seq))) continue;
++				place(i, seq);
++				if(can_finish(can_finish, i + 1)) result |= 1u << seq;
++				unplace(i, seq);
++			}
++		}
++		// No temporary controller, sequence, occupancy or used-zone bit escapes a probe.
++		for(size_t i = 0; i < arg.cards.size(); ++i) {
++			arg.cards[i]->current.controler = arg.source_seats[i];
++			arg.cards[i]->current.sequence = arg.old_sequences[i];
++		}
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			player[p].list_mzone = std::move(saved_zones[p]);
++			player[p].used_location = saved_used[p];
++		}
++		return result;
++	};
++	switch(arg.step) {
++	case 0: {
++		arg.step = 9;
++		if(!valid()) return FALSE;
++		// Deterministic receiving-seat order, starting with the turn player.
++		for(uint8_t j = 0; j < n_duelists; ++j) {
++			const auto to = static_cast<uint8_t>((infos.turn_player + j) % n_duelists);
++			for(const auto* targets : { static_cast<group*>(arg.targets1), static_cast<group*>(arg.targets2) })
++				for(auto* pcard : targets->container)
++					if(across_of(pcard->current.controler) == to) {
++						arg.cards.push_back(pcard);
++						arg.source_seats.push_back(pcard->current.controler);
++						arg.seats.push_back(to);
++						arg.old_sequences.push_back(pcard->current.sequence);
++					}
++		}
++		if(!placement_options(false)) return FALSE;
++		arg.step = 0;
++		return FALSE;
++	}
++	case 1: {
++		const auto i = arg.cursor;
++		const auto flag = ~placement_options(true);
++		auto message = pduel->new_message(MSG_HINT);
++		message->write<uint8_t>(HINT_SELECTMSG);
++		message->write<uint8_t>(arg.seats[i]);
++		message->write<uint64_t>(arg.cards[i]->data.code);
++		emplace_process<Processors::SelectPlace>(arg.seats[i], flag, 1);
++		return FALSE;
++	}
++	case 2:
++		arg.new_sequences.push_back(returns.at<int8_t>(2));
++		if(++arg.cursor < arg.cards.size()) arg.step = 0;
++		return FALSE;
++	case 3: {
++		if(!valid()) { arg.step = 9; return FALSE; }
++		for(size_t i = 0; i < arg.cards.size(); ++i)
++			if(arg.cards[i]->current.controler != arg.source_seats[i] || arg.cards[i]->current.sequence != arg.old_sequences[i]) {
++				arg.step = 9; return FALSE;
++			}
++		std::vector<loc_info> old_locations;
++		for(auto* pcard : arg.cards) {
++			pcard->filter_disable_related_cards();
++			old_locations.push_back(pcard->get_info_location());
++			if(pcard->unique_code && (pcard->unique_location & LOCATION_MZONE)) remove_unique_card(pcard);
++			player[pcard->current.controler].list_mzone[pcard->current.sequence] = nullptr;
++			player[pcard->current.controler].used_location &= ~(1u << pcard->current.sequence);
++		}
++		for(size_t i = 0; i < arg.cards.size(); ++i) {
++			auto* pcard = arg.cards[i];
++			pcard->previous = pcard->current;
++			pcard->current.controler = arg.seats[i];
++			pcard->current.sequence = arg.new_sequences[i];
++			pcard->fieldid = infos.field_id++;
++			player[arg.seats[i]].list_mzone[arg.new_sequences[i]] = pcard;
++			player[arg.seats[i]].used_location |= 1u << arg.new_sequences[i];
++			pcard->reset(RESET_CONTROL, RESET_EVENT);
++			set_control(pcard, arg.seats[i], 0, 0);
++			rebind_control_locks(pcard, arg.source_seats[i], arg.seats[i]);
++			pcard->set_status(STATUS_ATTACK_CANCELED, TRUE);
++			auto message = pduel->new_message(MSG_MOVE);
++			message->write<uint32_t>(pcard->data.code);
++			message->write(old_locations[i]);
++			message->write(pcard->get_info_location());
++			message->write<uint32_t>(0);
++		}
++		for(auto* pcard : arg.cards) {
++			add_to_disable_check_list(pcard);
++			pcard->filter_disable_related_cards();
++		}
++		adjust_instant();
++		arg.targets1->container.insert(arg.targets2->container.begin(), arg.targets2->container.end());
++		for(auto* pcard : arg.cards) {
++			if(pcard->unique_code && (pcard->unique_location & LOCATION_MZONE)) add_unique_card(pcard);
++			raise_single_event(pcard, nullptr, EVENT_CONTROL_CHANGED, arg.reason_effect, REASON_EFFECT, arg.reason_player, pcard->current.controler, 0);
++			raise_single_event(pcard, nullptr, EVENT_MOVE, arg.reason_effect, REASON_EFFECT, arg.reason_player, pcard->current.controler, 0);
++		}
++		raise_event(arg.targets1->container, EVENT_CONTROL_CHANGED, arg.reason_effect, REASON_EFFECT, arg.reason_player, 0, 0);
++		raise_event(arg.targets1->container, EVENT_MOVE, arg.reason_effect, REASON_EFFECT, arg.reason_player, 0, 0);
++		process_single_event();
++		process_instant_event();
++		return FALSE;
++	}
++	case 4:
++		core.operated_set = arg.targets1->container;
++		returns.set<int32_t>(0, 1);
++		return TRUE;
++	case 10:
++		core.operated_set.clear();
++		returns.set<int32_t>(0, 0);
++		return TRUE;
++	}
++	return TRUE;
++}
+ bool field::process(Processors::ControlAdjust& arg) {
+ 	switch(arg.step) {
+ 	case 0: {
+diff --git a/processor_unit.h b/processor_unit.h
+index 7d99295..e90a553 100644
+--- a/processor_unit.h
++++ b/processor_unit.h
+@@ -622,6 +622,18 @@ struct RotateControl : public Process<false> {
+ 	RotateControl(uint16_t step_, effect* reason_effect_, uint8_t reason_player_, owned_lua<group> targets_) :
+ 		Process(step_), reason_effect(reason_effect_), reason_player(reason_player_), targets(targets_) {}
+ };
++// Joined Tag groups cross the fixed facing seats in one control-change event.
++struct TagSwapControl : public Process<false> {
++	effect* reason_effect;
++	uint8_t reason_player;
++	size_t cursor{0};
++	owned_lua<group> targets1, targets2;
++	std::vector<uint8_t> source_seats, seats, old_sequences, new_sequences;
++	std::vector<card*> cards;
++	TagSwapControl(uint16_t step_, effect* reason_effect_, uint8_t reason_player_,
++		owned_lua<group> targets1_, owned_lua<group> targets2_) :
++		Process(step_), reason_effect(reason_effect_), reason_player(reason_player_), targets1(targets1_), targets2(targets2_) {}
++};
+ struct ControlAdjust : public Process<false> {
+ 	uint8_t adjusting_player;
+ 	uint8_t side_a; // the two sides of the swap: 0 and 1 with two duelists, else the two controllers
+@@ -805,7 +817,7 @@ using processors = std::variant<Adjust, Turn, RefreshLoc, Startup,
+ 	SendTo, DestroyReplace, ReleaseReplace, SendToReplace, MoveToField,
+ 	ChangePos, OperationReplace, ActivateEffect, SummonRule, SpSummonRule,
+ 	SpSummon, FlipSummon, MonsterSet, SpellSet, SpSummonStep, SpellSetGroup,
+-	SpSummonRuleGroup, Draw, Damage, Recover, Equip, GetControl, SwapControl, RotateControl,
++	SpSummonRuleGroup, Draw, Damage, Recover, Equip, GetControl, SwapControl, RotateControl, TagSwapControl,
+ 	ControlAdjust, SelfDestroyUnique, SelfDestroy, SelfToGrave, TrapMonsterAdjust,
+ 	PayLPCost, RemoveCounter, AttackDisable, AnnounceRace, AnnounceAttribute,
+ 	AnnounceCard, AnnounceNumber, TossCoin, TossDice, RockPaperScissors,
+-- 
+2.43.0
+

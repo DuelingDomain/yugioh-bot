@@ -23,6 +23,8 @@ import {
   NO_FINAL_BOARD_COPY,
   UNCHECKED_PARAM,
   frameCaption,
+  readFrameParam,
+  withFrameParam,
   replayFailure,
   replayResultHeadline,
   replayRoom,
@@ -134,11 +136,11 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const historyHref = useMatchHistoryHref(viewerId);
   const [visibility, setVisibility] = useState<ReplayVisibility>("mine");
   const [ownerView, setOwnerView] = useState<OwnerViewState>({ seat: null, reveal: false });
-  const [forkStepId, setForkStepId] = useState<string | null>(null);
+  const routed = useSearchParams();
+  const [forkStepId, setForkStepId] = useState<string | null>(() => readFrameParam(routed?.toString() ?? ""));
   const [notice, setNotice] = useState<string | null>(null);
   // The owner opened a replay that could not be checked. It rides in the address too (?unchecked=1), so a reload keeps it.
   // Only the owner page may ask; the routes refuse anyone else.
-  const routed = useSearchParams();
   const uncheckedInUrl = canInspectSource && routed?.get(UNCHECKED_PARAM) === "1";
   const [unchecked, setUnchecked] = useState(uncheckedInUrl);
   const { model, settled, error, reload } = useReplayData(
@@ -155,7 +157,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const seatCount = model ? seatCountFor(model.session.format) : 2;
   // While another card view loads, the table is hidden: no key may move it (see ReplayBusy).
   const awaiting = model != null && !settled && (model.visibility !== visibility || canInspectSource);
-  const controller = useReplayController({ slug, frames, seatCount, mySeat: model?.mySeat ?? null, enabled: !awaiting });
+  const controller = useReplayController({ slug, frames, seatCount, mySeat: model?.mySeat ?? null, enabled: !awaiting, syncFrameToUrl: !model?.forkSteps });
   const { index, last, playing, speed, epoch, camera } = controller;
   const timeline = useMemo(() => (frames ? buildReplayTimeline(frames) : null), [frames]);
 
@@ -189,7 +191,7 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
     setVisibility("mine");
     setOwnerView({ seat: null, reveal: false });
     setNotice(null);
-    setForkStepId(null);
+    setForkStepId(readFrameParam(routed?.toString() ?? ""));
     setInspect(null);
     setHover(null);
   }, [slug]);
@@ -274,7 +276,10 @@ export function DuelReplayView({ slug, canInspectSource = false, viewerId }: { s
   const renderOwnerTools = (low: boolean) => ownerAnswer ? (
     <ReplayOwnerTools slug={slug} model={model} frame={model.frames[index]} busy={!settled}
       view={ownerView} onViewChange={changeOwnerView} onReload={reload} openForks={openForks} fork={fork}
-      selectedStep={forkStepId} onSelectStep={setForkStepId} low={low} />
+      selectedStep={forkStepId} onSelectStep={frameId => {
+        setForkStepId(frameId);
+        window.history.replaceState(window.history.state, "", withFrameParam(`${window.location.pathname}${window.location.search}`, frameId));
+      }} low={low} />
   ) : null;
   const ownerTools = renderOwnerTools(false);
   if (!model || !timeline || !engine || timeline.length === 0) {

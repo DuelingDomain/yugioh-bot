@@ -100,22 +100,62 @@ describe("validateBugText", () => {
 
 describe("buildIssueBody", () => {
   const base = {
-    reportId: 42,
+    reportId: "public-42",
     description: "Stuck. cc @someone #9\n```\n# fake section\n```",
     expected: "It moves on",
     path: "/duels/abc",
     duelSlug: "abc",
     context: { format: "ffa3" as const, seat: 0, turn: 4, phase: "main1", turnSeat: 2, livingPlayers: 3, animationSpeed: 1.5, log: ["Turn 4", "Player 1 draws 1 card"], viewport: { width: 1200, height: 800 }, userAgent: "Mozilla/5.0 (X11)", timestamp: "2026-10-03T10:00:00.000Z" },
-    baseUrl: "https://duel.example.com",
   };
-  it("has every section, the replay link and the report id", () => {
+  it("has the public sections and the opaque report id", () => {
     const body = buildIssueBody(base);
-    for (const heading of ["## Description", "## Expected", "## Context", "## Recent log", "## Replay"]) expect(body).toContain(heading);
-    expect(body).toContain("https://duel.example.com/duels/abc/replay");
-    expect(body).toContain("`Report #42`");
-    expect(body).toContain("| Reporter seat | `seat 1` |");
+    for (const heading of ["## Description", "## Expected", "## Context", "## Recent log"]) expect(body).toContain(heading);
+    expect(body).not.toContain("https://duel.example.com/duels/abc/replay");
+    expect(body).toContain("`Report #public-42`");
+    expect(body).not.toContain("Reporter seat");
     expect(body).toContain("| Format | `3-player FFA` |");
     expect(body).toContain("Player 1 draws 1 card");
+  });
+  it.each([
+    ["/player/42", "/player/[id]"],
+    ["/decks/42", "/decks/[id]"],
+    ["/decks/draft/private-slug", "/decks/draft/[id]"],
+    ["/draft/private-slug", "/draft/[id]"],
+    ["/drafts/private-slug", "/drafts/[id]"],
+    ["/duels/private-slug/replay", "/duels/[id]/replay"],
+    ["/tournament/private-slug/standings", "/tournament/[id]/standings"],
+    ["/tournaments/private-slug", "/tournaments/[id]"],
+    ["/cubes/42", "/cubes/[id]"],
+    ["/themes/42", "/themes/[id]"],
+    ["/settings/account/private-slug/security", "/settings/account/[id]/[id]"],
+    ["/sign-in/private-slug/second-step", "/sign-in/[id]/[id]"],
+    ["/sign-up/private-slug/second-step", "/sign-up/[id]/[id]"],
+    ["/api/drafts/private-slug/players/42", "/api/drafts/[id]/players/[id]"],
+    ["/api/drafts/private-slug/cubes/42", "/api/drafts/[id]/cubes/[id]"],
+    ["/api/tournaments/private-slug/matches/42/result", "/api/tournaments/[id]/matches/[id]/result"],
+    ["/api/duels/series/42/cancel", "/api/duels/series/[id]/cancel"],
+    ["/api/admin/duels/private-slug/replay/fork", "/api/admin/duels/[id]/replay/fork"],
+    ["/api/duels/active/replay", "/api/duels/[id]/replay"],
+    ["/api/admin/duels/forks/replay", "/api/admin/duels/[id]/replay"],
+    ["/duels/new/replay", "/duels/[id]/replay"],
+    ["/api/duels/series", "/api/duels/[id]"],
+    ["/api/admin/bug-reports/42", "/api/admin/bug-reports/[id]"],
+    ["/api/cards/42/image", "/api/cards/[id]/image"],
+    ["/api/sets/private-slug", "/api/sets/[id]"],
+    // A route name can also be a parameter value in a different position.
+    ["/player/decks", "/player/[id]"],
+    ["/decks/draft/new", "/decks/draft/[id]"],
+    ["/settings/account/decks/new", "/settings/account/[id]/[id]"],
+    ["/decks/new", "/decks/new"],
+    ["/drafts/new/cube", "/drafts/new/cube"],
+    ["/duels/dev-presets", "/duels/dev-presets"],
+    ["/api/player/me", "/api/player/me"],
+    ["/api/decks/import/preview", "/api/decks/import/preview"],
+  ])("masks route parameters in the public page path %s", (path, expected) => {
+    const input = { ...base, path };
+    for (const body of [buildIssueBody(input), buildCommentBody(input)]) {
+      expect(body).toContain(`| Page | \`${expected}\` |`);
+    }
   });
   it("neutralizes mentions and keeps user text inside a code fence", () => {
     const body = buildIssueBody(base);
@@ -170,13 +210,12 @@ describe("redactText", () => {
 
 describe("redaction inside the issue", () => {
   const base = {
-    reportId: 7,
+    reportId: "public-7",
     description: "Dark Magician did not attack and the Turn counter stayed at 3",
     expected: "The attack should go through",
     path: "/duels/abc",
     duelSlug: "abc",
     context: { format: "1v1" as const, turn: 3, phase: "Dark World", log: ["Turn 3 — Player 1", "Dark Magician attacks"] },
-    baseUrl: "https://duel.example.com",
   };
   it("leaves headings, table labels, log lines and the Unknown fallback alone when a name is Dark or Turn", () => {
     const body = buildIssueBody(base, ["Dark", "Turn", "Unknown"]);
@@ -211,7 +250,7 @@ describe("browserLabel", () => {
     expect(browserLabel(agent)).toBe(label);
   });
   it("is what the issue shows, not the full user agent", () => {
-    const body = buildIssueBody({ reportId: 1, description: "x".repeat(30), path: "/", context: { userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0.6478.55 Safari/537.36" }, baseUrl: "https://a.b" });
+    const body = buildIssueBody({ reportId: "public-1", description: "x".repeat(30), path: "/", context: { userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0.6478.55 Safari/537.36" } });
     expect(body).toContain("| Browser | `Chrome 126` |");
     expect(body).not.toContain("X11");
   });

@@ -1,4 +1,5 @@
 import { log } from "../observability/index.js";
+import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import { backfillMainArtworkRows } from "../services/card-artworks.js";
 import { generateWebSlug } from "../util/web-slug.js";
@@ -701,6 +702,11 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "card_catalog", "attribute", "text");
   addColumnIfMissing(db, "card_catalog", "level", "integer");
   addColumnIfMissing(db, "card_catalog", "archetype", "text");
+  addColumnIfMissing(db, "card_catalog", "race", "text");
+  addColumnIfMissing(db, "card_catalog", "setcodes_json", "text not null default '[]'");
+  addColumnIfMissing(db, "card_catalog", "is_extra_deck", "integer not null default 0");
+  addColumnIfMissing(db, "card_catalog", "is_prerelease", "integer not null default 0");
+  addColumnIfMissing(db, "card_catalog", "catalog_source", "text not null default 'api'");
   // Unknown until a successful TCG Genesys snapshot. Zero is a real, known value.
   addColumnIfMissing(db, "card_catalog", "genesys_points",
     "integer check (genesys_points is null or (typeof(genesys_points) = 'integer' and genesys_points >= 0))");
@@ -928,6 +934,11 @@ export function migrate(db: Database.Database) {
       code integer not null default 0,
       created_at text not null default current_timestamp,
       primary key (duel_id, command_hash, error_index)
+    );
+
+    create table if not exists duel_host_heartbeat (
+      id integer primary key check (id = 1),
+      last_tick_at integer not null
     );
 
     create table if not exists duels (
@@ -1236,6 +1247,18 @@ export function migrate(db: Database.Database) {
     create index if not exists bug_reports_player_idx on bug_reports (guild_id, player_id, created_at);
   `);
   db.exec("create index if not exists bug_reports_duel_idx on bug_reports (guild_id, duel_slug, created_at)");
+  // Private report data. Older reports keep their identity through players -> users.
+  addColumnIfMissing(db, "bug_reports", "submitter_json", "text");
+  addColumnIfMissing(db, "bug_reports", "diagnostics_json", "text");
+  addColumnIfMissing(db, "bug_reports", "public_id", "text");
+  addColumnIfMissing(db, "bug_reports", "submission_key", "text");
+  db.transaction(() => {
+    db.exec("create unique index if not exists bug_reports_public_id_idx on bug_reports(public_id)");
+    const missing = db.prepare("select id from bug_reports where public_id is null").all() as Array<{ id: number }>;
+    const setPublicId = db.prepare("update bug_reports set public_id = ? where id = ?");
+    for (const row of missing) setPublicId.run(randomBytes(9).toString("base64url"), row.id);
+    db.exec("create index if not exists bug_reports_submission_idx on bug_reports(guild_id, player_id, submission_key, created_at)");
+  }).immediate();
 
   db.exec(`
     create table if not exists product_events (
@@ -1303,6 +1326,125 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "saved_decks", "genesys_json", "text");
 
   addColumnIfMissing(db, "users", "first_sign_in_at", "integer");
+  // Latest presence only: no browsing history, IDs, full URLs or query strings.
+  addColumnIfMissing(db, "users", "last_seen_at", "integer");
+  addColumnIfMissing(db, "users", "last_route", "text");
+  // Start of the current online stretch (epoch ms), so the admin console can say "online for 25 min".
+  addColumnIfMissing(db, "users", "online_since", "integer");
+  // Profile picture URL from Clerk, written at sign-in sync. The admin console shows it; null means initials.
+  addColumnIfMissing(db, "users", "image_url", "text");
+  db.exec(`
+    create index if not exists users_last_seen_idx on users(last_seen_at) where last_seen_at is not null;
+    create table if not exists worker_heartbeat (
+      id integer primary key check (id = 1),
+      at integer not null,
+      pid integer
+    );
+    -- Written by the worker every ~10 minutes (directory sizes are slow); the admin System section reads it.
+    create table if not exists disk_usage_snapshot (
+      id integer primary key check (id = 1),
+      at integer not null,
+      json text not null
+    );
+    -- One row per hour of filesystem used bytes, kept for 7 days, for the growth trend.
+    create table if not exists disk_usage_history (
+      at integer primary key,
+      used_bytes integer not null
+    );
+  `);
+
+  // Shared admin state follows identity migration. No email text is stored in decisions.
+  db.exec(`
+    create table if not exists discord_waitlist_actions (
+      id text primary key not null,
+      subject_hash text unique,
+      clerk_entry_id text unique,
+      waitlist_signup_id integer references waitlist_signups(id) on delete cascade,
+      subject_user_id integer references users(id) on delete cascade,
+      subject_clerk_id text,
+      decision text check (decision in ('approve', 'reject')),
+      actor_user_id integer references users(id) on delete cascade,
+      actor_discord_id text,
+      actor_name text,
+      source text check (source in ('web', 'discord')),
+      attempted_at integer,
+      lease_token text,
+      lease_expires_at integer,
+      completed_at integer,
+      channel_id text,
+      message_id text,
+      discord_updated_at integer,
+      created_at integer not null
+    );
+    -- Signup and waitlist webhooks may arrive in either order, even with alerts off.
+    create table if not exists discord_join_subjects (
+      subject_hash text primary key not null,
+      clerk_user_id text not null
+    );
+    create index if not exists discord_join_subjects_clerk_idx on discord_join_subjects(clerk_user_id);
+    create table if not exists mod_actions (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      actor_user_id integer references users(id) on delete cascade,
+      actor_discord_id text,
+      action text not null,
+      target_user_id integer references users(id) on delete cascade,
+      target_discord_id text,
+      reason text,
+      params_json text not null default '{}',
+      result text not null check (result in ('success', 'failure', 'denied')),
+      created_at integer not null
+    );
+    create index if not exists mod_actions_guild_time_idx on mod_actions(guild_id, created_at desc);
+    create index if not exists mod_actions_actor_idx on mod_actions(actor_user_id, actor_discord_id);
+    create table if not exists mod_warnings (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      actor_user_id integer references users(id) on delete cascade,
+      actor_discord_id text,
+      target_discord_id text not null,
+      reason text not null,
+      mod_action_id integer not null references mod_actions(id) on delete cascade,
+      created_at integer not null
+    );
+    create index if not exists mod_warnings_target_idx on mod_warnings(guild_id, target_discord_id, created_at desc);
+    create table if not exists discord_outbox (
+      id integer primary key autoincrement,
+      idempotency_key text not null unique,
+      kind text not null,
+      operation text not null default 'post' check (operation in ('post', 'edit')),
+      channel_id text not null,
+      message_id text,
+      payload_json text,
+      status text not null default 'pending' check (status in ('pending', 'processing', 'posted', 'failed', 'dead')),
+      attempts integer not null default 0,
+      available_at integer not null,
+      lease_token text,
+      lease_expires_at integer,
+      last_error text,
+      waitlist_action_id text references discord_waitlist_actions(id) on delete cascade,
+      mod_action_id integer references mod_actions(id) on delete cascade,
+      subject_hash text,
+      subject_clerk_id text,
+      created_at integer not null,
+      posted_at integer
+    );
+    create index if not exists discord_outbox_due_idx on discord_outbox(status, available_at, id);
+    create index if not exists discord_outbox_waitlist_idx on discord_outbox(waitlist_action_id);
+    create index if not exists discord_outbox_subject_idx on discord_outbox(subject_hash);
+    create index if not exists discord_outbox_clerk_subject_idx on discord_outbox(subject_clerk_id);
+    create index if not exists discord_waitlist_clerk_subject_idx on discord_waitlist_actions(subject_clerk_id);
+    create table if not exists discord_outbox_budget (
+      id integer primary key check (id = 1),
+      window_started_at integer not null,
+      attempts integer not null
+    );
+    create table if not exists bot_heartbeat (
+      id integer primary key check (id = 1),
+      at integer not null,
+      pid integer not null check (pid > 0)
+    );
+  `);
 
   // Draft privacy follows identity migration so grants reference application users.
   // Adding the default also makes every existing draft private; codes stay lazy.

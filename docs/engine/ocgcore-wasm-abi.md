@@ -4,6 +4,8 @@ Wrapper: `ocgcore-wasm@0.1.2`, patched by `patches/ocgcore-wasm+0.1.2.patch` (pa
 Core: EDOPro ygopro-core `efc21aa` (API 11.0), sources in `packages/duel-server/domain-core/dist/generated/ygo/` (paths below are relative to it).
 Tests: `packages/duel-server/tests/ocgcore-wrapper-abi.test.ts` (crafted bytes through the patched parsers, plus a real duel query with the TYPE flag) and `tests/card-data-abi.test.ts`.
 
+ATK/DEF regression coverage: `tests/attack-stats-real.test.ts` exercises real legacy Standard/Domain and pinned Standard/Domain/multi cores. `packages/web/tests/attack-stats.integration.test.tsx` renders real summon snapshots through the inspector and field/hand formatters in 1v1, FFA3, FFA4 and Tag, including older unsigned replay frames.
+
 Message frame: `u32 length`, `u8 id`, payload. The wrapper parses each message from a bounded sub-reader, so an unread tail is harmless and a short read throws `eof` for that message only.
 
 ## Fixed in the wrapper patch
@@ -12,6 +14,7 @@ Message frame: `u32 length`, `u8 id`, payload. The wrapper parses each message f
 | --- | --- | --- | --- |
 | Query fields (`readQuery`, `function Q`) | `u16 size` (includes the flag), `u32 flag`, payload; end marker size 4 + flag 0x80000000 (`ocgapi.cpp`, `card.cpp` `get_infos`) | Payload read straight from the main reader. An unknown flag or a size mismatch left the payload unread and desynced every later field | Fixed. Each field reads from `sub(size-4)`. Unknown flags, odd sizes and truncated fields are skipped. A truncated field is dropped, the stream stays aligned |
 | Query TYPE (flag 0x8) | `card.cpp` `CHECK_AND_INSERT(QUERY_TYPE, get_type())`: u32 | No branch. Payload unread, desync | Fixed. Result has `type` (u32). `views.ts` does not request TYPE today |
+| Query ATTACK, DEFENSE, BASE_ATTACK, BASE_DEFENSE | `card.cpp` getters return i32; printed `?` is -2 | Read as u32, so -2 became 4294967294 | Fixed in both `Q` and legacy `Ql`, for single-card and location queries. Battle message ATK/DEF also read as i32 |
 | Query COUNTERS | `card.cpp` `get_infos`: per entry `u32 = type + (count << 16)`, so u16 type then u16 count on the wire | count then type (swapped) | Fixed earlier (type first). Covered by a test |
 | ANNOUNCE_ATTRIB (141) | `playerop.cpp:961-964`: u8 player, u8 count, **u32** available | `available` read as u8 | Fixed. `available` is u32. `prompts.ts` passes it to `ocgAttributeParse`, unchanged |
 | `duelGetMessage` | `duel.cpp` message buffer | One thrown parse error (`eof`) lost the whole batch | Fixed. try/catch per message, `console.warn` with the message id, loop continues. Unknown ids already returned null + warn |
@@ -43,7 +46,7 @@ Message frame: `u32 length`, `u8 id`, payload. The wrapper parses each message f
 | MISSED_EFFECT (120) | `processor.cpp:4399`: loc_info, u32 code | same | Matches |
 | FIELD_DISABLED (56) | `processor.cpp:4501,4666`: u32 | same | Matches |
 | ATTACK (110) | `processor.cpp:2141,2909`, `libduel.cpp:1491`: loc_info, then target loc_info or empty | null when empty | Matches |
-| BATTLE (111) | `processor.cpp:2467`: loc_info, u32 atk, u32 def, u8 destroyed, then the same for the target (zeros when none) | same | Matches |
+| BATTLE (111) | `processor.cpp:2467`: loc_info, 32-bit atk/def from signed getters, u8 destroyed, then the same for the target (zeros when none) | ATK/DEF read as i32 | Matches |
 | CARD_SELECTED (80), BECOME_TARGET (83), RANDOM_SELECTED (81), REMOVE_CARDS (190) | `processor.cpp:2054`, `libduel.cpp:536-552,3073`, `libgroup.cpp:326`, `operations.cpp:94`: [u8 player for 81], u32 n, n loc_info | same | Matches |
 | EQUIP (93), CARD_TARGET (96), CANCEL_TARGET (97) | `card.cpp:1559,2354,2367`: loc_info, loc_info | same | Matches |
 | ADD_COUNTER (101), REMOVE_COUNTER (102) | `card.cpp:1880,2033,2250,2274`, `libcard.cpp:1777`: u16 type, u8, u8, u8, u16 count | same | Matches |
@@ -69,6 +72,14 @@ Message frame: `u32 length`, `u8 id`, payload. The wrapper parses each message f
 ## Legacy message mode
 
 The patch keeps main's old message layout behind `createCore({ legacyMessages: true })`. The 1v1 legacy engine (`DUEL_1V1_ENGINE=legacy`, see `docs/deployment/duel-engine-switch.md`) sets it. It changes ANNOUNCE_ATTRIB (u8 instead of u32), the SWAP_GRAVE_DECK bit limit, the MOVE message layout and whether a message parse error is rethrown. `tests/ocgcore-wrapper-abi.test.ts` covers both modes.
+
+## Unknown attack and defense
+
+`card::get_attack()` and the defense/base getters return printed card data outside the Monster Zone and during `STATUS_SUMMONING` / `STATUS_SPSUMMON_STEP`. Odd-Eyes Revolution Dragon therefore really has -2/-2 while Solemn Judgment can negate its summon. After a successful summon against 8000 LP, its continuous effect produces 4000/4000; with the Tag default of 16000 LP, it produces 8000/8000. The regression legally Tributes a Fusion, Synchro and Xyz Dragon, inspects that negation window, then declines Judgment and checks the resolved stats and 1v1 battle damage.
+
+Slifer and Ra also have printed -2/-2. Obelisk has 4000/4000 and the original Gandora has 0/0, so they serve as fixed-stat controls. Level, Rank, Link Rating and Link Markers remain unsigned: their core getters return `uint32_t` and do not use the ATK/DEF sentinel. LP changes and damage amounts also remain unsigned.
+
+Web combat formatting preserves -2 as `?`, clamps other negatives to zero and accepts unsigned 32-bit values from older replay snapshots. Attack previews omit predictions while a combat stat is unknown; the battle HUD uses the same formatter as the inspector, hand and field cards.
 
 ## Bundle check
 

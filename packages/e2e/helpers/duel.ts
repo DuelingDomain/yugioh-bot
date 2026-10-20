@@ -87,6 +87,7 @@ export type TableOptions = {
   /** Turn off the banlist so any test card is legal. */
   noBanlist?: boolean;
   startingHand?: number;
+  drawPerTurn?: number;
   startingLP?: number;
   /** Table type of the creator ("Table type" select). Default 1v1. */
   format?: "1v1" | "tag" | "ffa3" | "ffa4";
@@ -111,6 +112,7 @@ export async function createTable(page: Page, name: string, options: TableOption
   if (options.startingHand !== undefined) {
     await page.getByLabel("Starting hand").selectOption({ label: `${options.startingHand} ${options.startingHand === 1 ? "card" : "cards"} in Starting Hand` });
   }
+  if (options.drawPerTurn !== undefined) await page.getByRole("combobox", { name: "Draw Phase", exact: true }).selectOption(String(options.drawPerTurn));
   if (options.startingLP !== undefined) await page.getByLabel("Starting Life Points").selectOption({ label: `${options.startingLP} Life Points` });
   await page.getByRole("button", { name: /^Create game/ }).click();
   await page.waitForURL(/\/duels\/(?!new)[^/?]+$/);

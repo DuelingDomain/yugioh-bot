@@ -6,6 +6,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
+import { migrate } from "@yugidraft/shared/db";
+import { createDuelSeriesService, createDuelService } from "@yugidraft/shared/services";
+import { seedIdentity } from "./helpers/identity.js";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "install-engine-bundle.sh");
 const roots: string[] = [];
@@ -65,7 +68,7 @@ interface Fixture {
 function fixture(installed: { tag: string; multi?: string }, incoming: { tag: string; multi?: string }, duels: Array<{ format: string | null; status: string }>): Fixture {
   const root = mkdtempSync(join(tmpdir(), "install-bundle-"));
   roots.push(root);
-  const dst = join(root, "data", "duel-engine");
+  const dst = join(root, "data", "engine-bundle");
   const src = join(root, "incoming");
   mkdirSync(dst, { recursive: true });
   mkdirSync(src, { recursive: true });
@@ -91,10 +94,11 @@ function incompleteFixture(legacy: false | "bad-hash"): Fixture {
   return f;
 }
 
-function run(f: Fixture, preflight: boolean): { status: number | null; out: string } {
+function run(f: Fixture, preflight: boolean, idleClose?: string): { status: number | null; out: string } {
   const result = spawnSync("sh", [script], {
     encoding: "utf8",
-    env: { PATH: process.env.PATH ?? "", DUEL_BUNDLE_SRC: f.src, DUEL_DATA_DIR: f.dst, ...(preflight ? { DUEL_PREFLIGHT: "1" } : {}) },
+    env: { PATH: process.env.PATH ?? "", DUEL_BUNDLE_SRC: f.src, DUEL_DATA_DIR: f.dst,
+      ...(preflight ? { DUEL_PREFLIGHT: "1" } : {}), ...(idleClose === undefined ? {} : { DUEL_IDLE_CLOSE: idleClose }) },
   });
   return { status: result.status, out: `${result.stdout}${result.stderr}` };
 }
@@ -240,6 +244,105 @@ describe("install-engine-bundle.sh install", () => {
     expect(run(f, false).status).toBe(0);
     expect(readFileSync(join(f.dst, "ocgcore.multi.wasm"), "utf8")).toBe("m2");
     expect(readFileSync(join(f.dst, "ocgcore.standard.wasm"), "utf8")).toBe(standardBefore);
+  });
+});
+
+describe("install-engine-bundle.sh idle duels with the application schema", () => {
+  it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("closes stale %s duels after stop but still refuses a live duel", format => {
+    const f = fixture({ tag: "old", multi: "m1" }, { tag: "new", multi: "m2" }, []);
+    const db = new Database(join(f.root, "data", "bot.sqlite"));
+    try {
+      db.exec("drop table duels"); migrate(db);
+      const owner = seedIdentity(db, { guildId: "g", name: "Owner" }).playerId;
+      const service = createDuelService(db);
+      const create = (name: string) => service.create({ guildId: "g", organizerPlayerId: owner, name, mode: "normal", format });
+      const stale = create("Stale"), live = create("Live");
+      db.prepare("update duels set status = 'active', seed_json = '[\"1\"]', bundle_version = 'saved', last_activity_at = datetime('now', '-2 hours') where id = ?").run(stale.id);
+      db.prepare("update duels set status = 'active', last_activity_at = datetime('now', '-1 minute') where id = ?").run(live.id);
+      db.prepare("insert into duel_commands (duel_id, seq, seat, command_json) values (?, 1, 0, '{}')").run(stale.id);
+      const before = snapshot(f.dst);
+      // Before stopping the services the check is read-only, even if another live game refuses deployment.
+      const preflight = run(f, true, "1");
+      expect(preflight.status, preflight.out).toBe(1);
+      expect(preflight.out).toContain("1 active");
+      expect(service.get(stale.slug, "g").status).toBe("active");
+      const startup = run(f, false);
+      expect(startup.status, startup.out).toBe(1);
+      expect(service.get(stale.slug, "g").status).toBe("active");
+      const refused = run(f, false, "1");
+      expect(refused.status, refused.out).toBe(1);
+      expect(refused.out).toContain("1 active");
+      expect(snapshot(f.dst)).toEqual(before);
+      expect(service.get(stale.slug, "g")).toMatchObject({ status: "interrupted", winnerSeat: null, winnerPlayerId: null,
+        resultReason: "No player activity for 10 minutes." });
+      expect(service.get(live.slug, "g").status).toBe("active");
+      expect(db.prepare("select ended_at is not null as ended, archived_at is not null as archived, clock_json from duels where id = ?").get(stale.id))
+        .toEqual({ ended: 1, archived: 1, clock_json: null });
+      expect(service.privateState(stale.slug, "g").commands).toHaveLength(1);
+      db.prepare("update duels set last_activity_at = datetime('now', '-2 hours') where id = ?").run(live.id);
+      expect(run(f, true, "1").status).toBe(0);
+      expect(service.get(live.slug, "g").status).toBe("active");
+      const installed = run(f, false, "1");
+      expect(installed.status, installed.out).toBe(0);
+      expect(service.get(live.slug, "g").status).toBe("interrupted");
+      expect(snapshot(f.dst)).toEqual(snapshot(f.src));
+      expect(db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
+    } finally { db.close(); }
+  });
+
+  it.each(["ranked", "tournament", "closed tournament"])("preserves an idle %s for host settlement while replacing the bundle", kind => {
+    const f = fixture({ tag: "old" }, { tag: "new" }, []);
+    const db = new Database(join(f.root, "data", "bot.sqlite"));
+    try {
+      db.exec("drop table duels"); migrate(db);
+      const owner = seedIdentity(db, { guildId: "g", name: "Owner" }).playerId;
+      const guest = seedIdentity(db, { guildId: "g", name: "Guest" }).playerId;
+      const series = createDuelSeriesService(db);
+      const { duel, series: match } = series.createChallenge({ guildId: "g", challengerPlayerId: owner, opponentPlayerId: guest,
+        bestOf: 3, ranked: true, mode: "normal" });
+      db.prepare("update duel_series set status = 'active' where id = ?").run(match.id);
+      if (kind !== "ranked") {
+        db.prepare("update duels set ranked = 0 where id = ?").run(duel.id);
+        db.prepare("update duel_series set ranked = 0 where id = ?").run(match.id);
+        const tournament = db.prepare("insert into tournaments (guild_id, name, format, status, created_by_user_id) select 'g', 'Cup', 'single_elim', ?, user_id from players where id = ?")
+          .run(kind === "closed tournament" ? "completed" : "active", owner);
+        const slot = db.prepare("insert into tournament_matches (tournament_id, player_one_id, player_two_id, round_number, status) values (?, ?, ?, 1, 'open')")
+          .run(tournament.lastInsertRowid, owner, guest);
+        db.prepare("update duel_series set tournament_match_id = ? where id = ?").run(slot.lastInsertRowid, match.id);
+      }
+      const clock = { turn: 1, activeSeat: null, startedAt: null, remainingMs: [180_000, 180_000] };
+      db.prepare("update duels set status = 'active', last_activity_at = datetime('now', '-11 minutes'), clock_json = ? where id = ?")
+        .run(JSON.stringify(clock), duel.id);
+      const before = db.prepare("select * from duels where id = ?").get(duel.id);
+      expect(run(f, true, "1").status).toBe(0);
+      expect(createDuelService(db).get(duel.slug, "g").status).toBe("active");
+      expect(series.get(match.id, "g").status).toBe("active");
+      const result = run(f, false, "1");
+      expect(result.status, result.out).toBe(0);
+      expect(db.prepare("select * from duels where id = ?").get(duel.id)).toEqual(before);
+      expect(snapshot(f.dst)).toEqual(snapshot(f.src));
+      expect(series.get(match.id, "g")).toMatchObject({ status: "active", wins: [0, 0], nextGameAt: null });
+      expect(db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
+    } finally { db.close(); }
+  });
+
+  it.each([undefined, "0", "true"])("leaves stale duel rows for the host to close during container startup (DUEL_IDLE_CLOSE=%s)", idleClose => {
+    const f = fixture({ tag: "old" }, { tag: "new" }, []);
+    const db = new Database(join(f.root, "data", "bot.sqlite"));
+    try {
+      db.exec("drop table duels"); migrate(db);
+      const owner = seedIdentity(db, { guildId: "g", name: "Owner" }).playerId;
+      const service = createDuelService(db);
+      const duel = service.create({ guildId: "g", organizerPlayerId: owner, name: "Stale", mode: "normal" });
+      const clock = { turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * 60_000, remainingMs: [30 * 60_000, 30 * 60_000] };
+      db.prepare("update duels set status = 'active', last_activity_at = datetime('now', '-11 minutes'), clock_json = ? where id = ?")
+        .run(JSON.stringify(clock), duel.id);
+      const before = db.prepare("select * from duels where id = ?").get(duel.id);
+      const result = run(f, false, idleClose);
+      expect(result.status, result.out).toBe(0);
+      expect(snapshot(f.dst)).toEqual(snapshot(f.src));
+      expect(db.prepare("select * from duels where id = ?").get(duel.id)).toEqual(before);
+    } finally { db.close(); }
   });
 });
 

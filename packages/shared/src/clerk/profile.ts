@@ -25,6 +25,6 @@ export function profileFromClerkUser(user: ClerkUserJson): ClerkProfile {
     clerkUserId: user.id, username: user.username,
     displayName: name || user.username?.trim() || email?.split("@")[0] || "Duelist",
     email, emailVerified: email !== null && primary?.verification?.status === "verified",
-    discordUserId: discord?.provider_user_id ?? recoveryId, imageUrl: user.image_url,
+    discordUserId: discord?.provider_user_id ?? recoveryId, imageUrl: user.has_image === false ? null : user.image_url,
   };
 }

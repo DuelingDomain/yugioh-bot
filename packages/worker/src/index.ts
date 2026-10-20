@@ -2,10 +2,11 @@ import { report } from "@yugidraft/shared/observability";
 import { awaitObservabilityShutdown } from "@yugidraft/shared/observability/node-bootstrap";
 import cron from "node-cron";
 import { config } from "dotenv";
-import { isAbsolute } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFileSync, rmSync } from "node:fs";
 import { openDatabase } from "@yugidraft/shared/db";
+import { clearOldPresence } from "@yugidraft/shared/presence";
 import {
   createDraftService,
   createMatchService,
@@ -21,6 +22,7 @@ import { createDraftTimer } from "./draft-timer.js";
 import { createTournamentTimer } from "./tournament-timer.js";
 import { createSetSync } from "./set-sync.js";
 import { createImageCleanup } from "./image-cleanup.js";
+import { createDiskUsage } from "./disk-usage.js";
 
 const startedAt = new Date();
 config({ path: process.env.DOTENV_CONFIG_PATH ?? fileURLToPath(new URL("../../../.env", import.meta.url)) });
@@ -33,11 +35,15 @@ if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 0) throw new Error("In
 
 const db = openDatabase(databasePath);
 const effects = effectsFromEnv(process.env);
+const dataDir = dirname(databasePath);
 const healthPath = process.env.WORKER_HEALTH_PATH ?? "/tmp/yugidraft-worker-health.json";
 const writeHealth = () => writeFileSync(healthPath, JSON.stringify({ pid: process.pid, at: Date.now() }), { mode: 0o600 });
+const beat = db.prepare("insert into worker_heartbeat(id, at, pid) values (1, ?, ?) on conflict(id) do update set at = excluded.at, pid = excluded.pid");
 const draftTimer = createDraftTimer({ db, drafts: createDraftService(db), effects, startedAt });
 const tournamentTimer = createTournamentTimer({ db, matches: createMatchService(db), tournaments: createTournamentService(db), effects });
 const jobs = [
+  // Presence keeps only the latest value and is dropped after 24 hours without an update.
+  createLoop(async () => clearOldPresence(db), 10 * 60_000),
   createLoop(() => drainProductEvents(db, {
     key: process.env.POSTHOG_KEY ?? "",
     host: process.env.POSTHOG_HOST,
@@ -45,7 +51,15 @@ const jobs = [
     projectId: process.env.POSTHOG_PROJECT_ID ?? "",
   }), 10_000),
   createLoop(async () => { await draftTimer.tick(); writeHealth(); }, 1000),
+  // The admin console reads this row to show worker health; it warns when the row is older than 3 minutes.
+  createLoop(async () => { beat.run(Date.now(), process.pid); }, 30_000),
   createLoop(() => tournamentTimer.tick(), 60_000),
+  // Directory sizes are slow, so the worker measures them and the admin System section reads the stored snapshot.
+  createDiskUsage({
+    db, dataDir, databasePath, imageCacheDir, imageCacheMaxBytes: maximumBytes,
+    engineDir: process.env.DUEL_DATA_DIR && isAbsolute(process.env.DUEL_DATA_DIR) ? process.env.DUEL_DATA_DIR : join(dataDir, "duel-engine"),
+    backupsDir: join(dataDir, "backups"),
+  }),
   createSetSync({
     db,
     cards: createCardCatalogService(db),

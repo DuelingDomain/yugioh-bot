@@ -1,0 +1,140 @@
+import Database from "better-sqlite3";
+import { DUEL_WAITING_IDLE_TIMEOUT_MS } from "@yugidraft/shared/duels";
+import { migrate } from "@yugidraft/shared/db";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+
+const { auth, getDb } = vi.hoisted(() => ({ auth: vi.fn(), getDb: vi.fn() }));
+vi.mock("@/lib/session-identity", async () => {
+  const { sessionFixture } = await import("./fixtures/session");
+  return sessionFixture(auth);
+});
+vi.mock("@/lib/db", () => ({ getDb }));
+
+let db: Database.Database;
+beforeEach(() => {
+  vi.resetModules(); auth.mockReset(); getDb.mockReset();
+  auth.mockResolvedValue({ user: { id: "1", name: "Operator" } });
+  vi.stubEnv("OWNER_USER_IDS", "1"); vi.stubEnv("WEB_URL", "https://app.example.test");
+  db = new Database(":memory:"); migrate(db); getDb.mockReturnValue(db);
+  db.exec(`insert into users(id,username,display_name) values(1,'op','Operator'),(2,'ann','Ann'),(3,'bo','Bo'),(4,'cy','Cy');
+    insert into players(id,guild_id,discord_user_id,display_name,user_id) values(12,'g','d2','Ann',2),(13,'g','d3','Bo',3);`);
+});
+afterEach(() => { db.close(); vi.unstubAllEnvs(); });
+
+const beat = (route: unknown, origin: string | null = "https://app.example.test") => new Request("https://internal/api/presence", {
+  method: "POST", headers: { ...(origin ? { origin } : {}), "content-type": "application/json" }, body: JSON.stringify({ route }) });
+async function post(request: Request) { const { POST } = await import("../app/api/presence/route"); return POST(request); }
+async function online() { const { GET } = await import("../app/api/admin/console/online/route"); return GET(); }
+
+it("stores only the latest route template and rate-limits a second beat", async () => {
+  expect((await post(beat("/decks/new"))).status).toBe(204);
+  expect(db.prepare("select last_route r, last_seen_at s from users where id=1").get()).toMatchObject({ r: "/decks/new" });
+  const second = await post(beat("/draft/[slug]"));
+  expect(second.status).toBe(429);
+  expect(second.headers.get("retry-after")).toBe("30");
+  expect(db.prepare("select last_route r from users where id=1").get()).toEqual({ r: "/decks/new" });
+  // A changed route is let through after 10 s, so the label follows the person.
+  db.prepare("update users set last_seen_at = last_seen_at - 11000 where id=1").run();
+  expect((await post(beat("/draft/[slug]"))).status).toBe(204);
+  expect(db.prepare("select last_route r from users where id=1").get()).toEqual({ r: "/draft/[slug]" });
+});
+it.each(["/duels/abc-123", "/decks/new?x=1", 5, null])("refuses an unknown route %j", async (route) => {
+  expect((await post(beat(route))).status).toBe(400);
+  expect(db.prepare("select last_route r from users where id=1").get()).toEqual({ r: null });
+});
+it("refuses a beat from another origin and a signed-out beat", async () => {
+  expect((await post(beat("/decks", "https://evil.test"))).status).toBe(403);
+  expect((await post(beat("/decks", null))).status).toBe(403);
+  auth.mockResolvedValue(null);
+  expect((await post(beat("/decks"))).status).toBe(401);
+});
+it("does nothing when PRESENCE_ENABLED is 0", async () => {
+  vi.stubEnv("PRESENCE_ENABLED", "0");
+  expect((await post(beat("/decks"))).status).toBe(204);
+  expect(db.prepare("select last_route r from users where id=1").get()).toEqual({ r: null });
+});
+
+it("lists people seen in the last 2 minutes with friendly labels, people at a table first", async () => {
+  const now = Date.now();
+  db.prepare("update users set last_seen_at=?, last_route=? where id=?").run(now - 5_000, "/decks/new", 2);
+  db.prepare("update users set last_seen_at=?, last_route=? where id=?").run(now - 60_000, "/duels/[slug]", 3);
+  db.prepare("update users set last_seen_at=?, last_route=? where id=?").run(now - 130_000, "/cubes/[id]", 4);
+  db.exec(`insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status,format)
+    values(1,'g','t1','Table',13,'domain','active','ffa4'); insert into duel_seats(duel_id,seat,player_id) values(1,0,13);`);
+  const response = await online();
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body.state).toBe("ok");
+  expect(body.data.count).toBe(2);
+  expect(body.data.users.map((u: { name: string; label: string }) => [u.name, u.label])).toEqual([["Bo", "4-way duel"], ["Ann", "Deck builder"]]);
+  expect(body.data.bySection).toEqual([{ label: "4-way duel", count: 1 }, { label: "Deck builder", count: 1 }]);
+});
+it("adds username, a Clerk picture only, and the table each person is in", async () => {
+  const now = Date.now();
+  db.prepare("update users set last_seen_at=?, last_route=?, online_since=?, image_url=? where id=?").run(now - 5_000, "/draft/[slug]", now - 600_000, "https://img.clerk.com/ann.png", 2);
+  db.prepare("update users set last_seen_at=?, last_route=?, image_url=? where id=?").run(now - 9_000, "/duels/[slug]", "http://img.example.test/bo.png", 3);
+  db.exec(`insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status,format)
+    values(1,'g','t1','Friday Fours',13,'domain','active','ffa4'); insert into duel_seats(duel_id,seat,player_id) values(1,0,13);
+    insert into drafts(id,guild_id,channel_id,name,status,created_by_user_id,web_slug) values(1,'g','c','Sunday Cube','active','2','dr1');
+    insert into draft_players(draft_id,player_id) values(1,12);`);
+  // Ann is in a draft, Bo in a duel: duels come first.
+  const [bo, ann] = (await (await online()).json()).data.users;
+  expect(ann).toEqual({
+    userId: 2, name: "Ann", username: "ann", avatarUrl: "https://img.clerk.com/ann.png", label: "Draft",
+    lastSeenAt: now - 5_000, onlineSince: now - 600_000,
+    current: { kind: "draft", slug: "dr1", name: "Sunday Cube", href: "/draft/dr1", label: "Draft", status: "active" },
+  });
+  expect(bo).toMatchObject({ username: "bo", avatarUrl: null, onlineSince: null,
+    current: { kind: "duel", slug: "t1", name: "Friday Fours", href: "/duels/t1", label: "4-way duel", status: "active" } });
+  // An https picture from another host is not passed on.
+  db.prepare("update users set image_url=? where id=2").run("https://evil.example.test/ann.png");
+  expect((await (await online()).json()).data.users[1].avatarUrl).toBeNull();
+});
+it("shows a table only while it is open and only on that table's page", async () => {
+  const now = Date.now();
+  db.prepare("update users set last_seen_at=?, last_route=? where id=?").run(now - 5_000, "/duels/[slug]", 2);
+  db.prepare("update users set last_seen_at=?, last_route=? where id=?").run(now - 5_000, "/decks", 3);
+  // Ann's lobby had no activity for longer than the lobby timeout: the host is about to close it.
+  const old = new Date(now - DUEL_WAITING_IDLE_TIMEOUT_MS - 60_000).toISOString();
+  db.prepare(`insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status,format,created_at,last_activity_at)
+    values(1,'g','idle','Old lobby',12,'domain','lobby','1v1',?,?)`).run(old, old);
+  // Bo has a running duel, but he is on the decks page now.
+  db.exec(`insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status,format) values(2,'g','run','Running',13,'domain','active','1v1');
+    insert into duel_seats(duel_id,seat,player_id) values(1,0,12),(2,0,13);`);
+  const users = (await (await online()).json()).data.users as { name: string; label: string; current: unknown }[];
+  expect(users.map((u) => [u.name, u.label, u.current])).toEqual([["Ann", "Duel", null], ["Bo", "Decks", null]]);
+});
+it("keeps the online stretch across beats and starts a new one after a gap", async () => {
+  expect((await post(beat("/decks"))).status).toBe(204);
+  const first = db.prepare("select online_since s from users where id=1").get() as { s: number };
+  expect(first.s).toBeGreaterThan(0);
+  // A beat 35 s later continues the stretch.
+  db.prepare("update users set last_seen_at = last_seen_at - 35000, online_since = online_since - 35000 where id=1").run();
+  expect((await post(beat("/decks"))).status).toBe(204);
+  expect(db.prepare("select online_since s from users where id=1").get()).toEqual({ s: first.s - 35_000 });
+  // After more than 2 minutes without a beat the person was offline: a new stretch starts.
+  db.prepare("update users set last_seen_at = last_seen_at - 200000 where id=1").run();
+  expect((await post(beat("/decks"))).status).toBe(204);
+  expect((db.prepare("select online_since s from users where id=1").get() as { s: number }).s).toBeGreaterThanOrEqual(first.s);
+});
+it("says Duel lobby for a table that has not started", async () => {
+  db.prepare("update users set last_seen_at=?, last_route=? where id=2").run(Date.now(), "/duels/[slug]");
+  db.exec(`insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status,format)
+    values(1,'g','t1','Table',12,'domain','lobby','tag'); insert into duel_seats(duel_id,seat,player_id) values(1,0,12);`);
+  expect((await (await online()).json()).data.users[0].label).toBe("Duel lobby");
+});
+it("answers 404 to anyone who is not an owner and 401 without a session", async () => {
+  auth.mockResolvedValue({ user: { id: "2", name: "Ann" } });
+  expect((await online()).status).toBe(404);
+  auth.mockResolvedValue(null);
+  expect((await online()).status).toBe(401);
+});
+it("clears presence when the account is deleted", async () => {
+  db.prepare("update users set last_seen_at=?, last_route=?, online_since=?, image_url=? where id=2").run(Date.now(), "/decks", Date.now(), "https://img.clerk.com/ann.png");
+  // A user with game history is anonymised and kept; one without is removed.
+  db.exec(`insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status) values(1,'g','t1','Table',12,'domain','completed');
+    insert into duel_seats(duel_id,seat,player_id) values(1,0,12);`);
+  const { deleteUserAccount } = await import("@yugidraft/shared/services");
+  deleteUserAccount(db, 2);
+  expect(db.prepare("select last_seen_at s, last_route r, online_since o, image_url i from users where id=2").get()).toEqual({ s: null, r: null, o: null, i: null });
+});

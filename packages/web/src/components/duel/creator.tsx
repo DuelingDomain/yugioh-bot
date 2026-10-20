@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, Check, Copy, Globe, Info, Lock, Swords } from "lucide-react";
 import {
   defaultDuelSettings,
+  rankedDuelSettings,
   DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT,
   supportsFirstTurnDrawSetting,
   type DuelBestOf,
@@ -109,12 +110,13 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const [mode, setMode] = useState<DuelMode>("normal");
   const [format, setFormat] = useState<DuelFormat>("1v1");
   const [masterRule, setMasterRule] = useState<DuelMasterRule>(5);
-  const [settings, setSettings] = useState(() => defaultDuelSettings("normal"));
+  const [casualSettings, setSettings] = useState(() => defaultDuelSettings("normal"));
   // The point cap field keeps what the organizer types; `settings.genesys` keeps the last valid number.
   const [capText, setCapText] = useState(String(DEFAULT_GENESYS_POINT_CAP));
   const [opponent, setOpponent] = useState<DuelPlayerOption | null>(null);
   const [bestOf, setBestOf] = useState<DuelBestOf>(1);
   const [ranked, setRanked] = useState(false);
+  const settings = rankedDuelSettings(casualSettings, ranked);
   const [sent, setSent] = useState<{ slug: string; opponent: string; shareUrl: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -413,9 +415,13 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               </div>
               <div className={styles.fields}>
                 <SheetSelect label="Starting Life Points" value={settings.startingLP} choices={LIFE_POINTS} onChange={(value) => update("startingLP", value)} />
-                <SheetSelect label="Turn timer" value={settings.turnSeconds} choices={TURN_TIMER_CHOICES} onChange={(value) => update("turnSeconds", value)} />
+                {ranked ? (
+                  <p className={ui.hint}>Ranked clock: fixed 3-minute bank. Lose on timeout.</p>
+                ) : (
+                  <SheetSelect label="Turn timer" value={settings.turnSeconds} choices={TURN_TIMER_CHOICES} onChange={(value) => update("turnSeconds", value)} />
+                )}
                 <div className={styles.wide}>
-                  <SheetSegmented label="When the timer runs out" value={settings.timeout} choices={TIMEOUTS} onChange={(value) => update("timeout", value)} disabled={settings.turnSeconds === 0} />
+                  {ranked ? null : <SheetSegmented label="When the timer runs out" value={settings.timeout} choices={TIMEOUTS} onChange={(value) => update("timeout", value)} disabled={settings.turnSeconds === 0} />}
                   {settings.turnSeconds > 0 ? (
                     <p className={cx(ui.hint, styles.below)}>The clock is a time bank that runs while a player must answer, including during disconnects. {duelClockRulesText(settings.turnSeconds)}, up to the full bank.</p>
                   ) : (

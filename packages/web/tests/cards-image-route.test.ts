@@ -582,10 +582,19 @@ describe("GET /api/cards/[passcode]/image", () => {
     expect(fetched).toEqual([`https://images.ygoprodeck.com/images/cards_cropped/${id}.jpg`]);
   });
 
-  it("does not substitute a full card when its crop is missing", async () => {
+  it("uses full Ignis art for engine artwork when its crop is missing", async () => {
+    db.prepare(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+      values (5405694,'Black Luster Soldier','Ritual Monster','ritual','full','small','[]','now')`).run();
+    db.prepare(`insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main,source)
+      values (5405694,5405694,'full','small',1,'engine')`).run();
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      fetched.push(url);
+      return url === `${IGNIS}/5405694.jpg` ? new Response(new Uint8Array(RITUAL_ART)) : new Response("missing", { status: 404 });
+    }));
     const res = await getImage("5405694", "?variant=cropped");
-    expect(res.status).toBe(404);
-    expect(fetched).toEqual(["https://images.ygoprodeck.com/images/cards_cropped/5405694.jpg"]);
+    expect(res.status).toBe(200);
+    expect(Buffer.from(await res.arrayBuffer())).toEqual(RITUAL_ART);
+    expect(fetched).toEqual(["https://images.ygoprodeck.com/images/cards_cropped/5405694.jpg", `${IGNIS}/5405694.jpg`]);
   });
 
   it.each(["network", "timeout", "429", "503"])("returns a card back for %s without poisoning the cache", async (failure) => {

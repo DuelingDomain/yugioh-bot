@@ -3,6 +3,7 @@ import type { DuelSeatView } from "@yugidraft/shared/duels";
 import { duelFontClasses } from "../fonts";
 import { emzZoneProps, ZoneSlot, type DuelActivateHandler, type DuelHoverHandler } from "../field";
 import { extraMonster, extraMonsterKeys, withExact } from "../field-keys";
+import type { InspectTarget } from "../inspector";
 import { disabledZones } from "../multi-seat";
 import fieldStyles from "../field.module.css";
 import { ROOF_FIELD, ROOF_FIELD_Z } from "./roof-camera";
@@ -25,6 +26,7 @@ export interface SharedBandProps {
   legalKeys: Set<string>;
   selectedKeys: Set<string>;
   onActivate: DuelActivateHandler;
+  onInspect?: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
 }
 
@@ -34,7 +36,7 @@ export interface SharedBandProps {
  * cell is the near seat's zone 5 and the far seat's zone 6, its right cell the near seat's zone 6 and the far seat's zone 5.
  * A cell shows the card of whoever controls it; its zone keys name both seats, the exact key of the card first.
  */
-export function SharedExtraBand({ near, far, x, nameOf, relationOf, outOf, legalKeys, selectedKeys, onActivate, onHoverCard }: SharedBandProps) {
+export function SharedExtraBand({ near, far, x, nameOf, relationOf, outOf, legalKeys, selectedKeys, onActivate, onInspect, onHoverCard }: SharedBandProps) {
   const nearOff = disabledZones(near);
   const farOff = disabledZones(far);
   const nearName = nameOf(near.seat);
@@ -51,7 +53,7 @@ export function SharedExtraBand({ near, far, x, nameOf, relationOf, outOf, legal
       offId,
       // A far card faces the far side, as it does on its own field.
       flip: card != null && card.controller === far.seat,
-      callbacks: { legalKeys, selectedKeys, onActivate, onHoverCard },
+      callbacks: { legalKeys, selectedKeys, onActivate, onInspect, onHoverCard },
     });
     // The cell looks like the field of whoever it belongs to: the controller of its card, or for an empty cell the seat of
     // the legal address that picks it. `display: contents` keeps it a grid cell of the band while it carries the field's

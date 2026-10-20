@@ -13,8 +13,8 @@ import { installCardScriptPatches } from "./card-script-patches.js";
 
 export const sources = {
   corePackage: "ocgcore-wasm@0.1.2",
-  scripts: "f593bb7514a2fda449dc645450dc301328e5a64d",
-  database: "a71a1d9ed1182d0e096a479bd15a57d374fd09f9",
+  scripts: "432617da992b2520c387e5d0b0eaf3107b39ae8e",
+  database: "cd3b10656e62785d9b0c2c2861fd780a3518cca5",
   strings: "54a6e2395c532648ff762540e9615319fac4f51b",
   databaseFormat: "official-releases-prerelease-v4",
   // Immutable support boundary; abbreviated so the weekly pin rewrite never advances it.

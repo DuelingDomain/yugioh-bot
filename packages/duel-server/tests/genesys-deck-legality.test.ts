@@ -74,7 +74,7 @@ describe("Genesys deck admission", () => {
     const deck = genesysDeck(mode);
     deck.main[0] = GENESYS_FORBIDDEN;
     // Even a caller with unnormalized settings cannot re-enable F&L for Genesys.
-    const settings = { ...normalizeDuelSettings(mode, { genesys: {} }), banlist: "tcg-2026-09" };
+    const settings = { ...normalizeDuelSettings(mode, { genesys: {} }), banlist: "tcg-2026-10-19" };
     const inspect = () => inspectDeck(mode, deck, fixture.directory, settings, { genesysPoints: fixture.points });
     expect(inspect().issues).toEqual([]);
     deck.main.splice(1, mode === "normal" ? 3 : 1, ...Array(mode === "normal" ? 3 : 1).fill(GENESYS_FORBIDDEN));

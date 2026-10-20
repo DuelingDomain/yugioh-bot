@@ -55,6 +55,18 @@ export function fakeClerk() {
       for (let i = entries.length - 1; i >= 0; i--) if (entries[i].email_address.trim().toLowerCase() === email.trim().toLowerCase()) entries.splice(i, 1);
     },
     async createWaitlistEntry(input) { calls.push({ method: "createWaitlistEntry", input }); const e = { id: `entry_${entries.length + 1}`, email_address: input.emailAddress, status: "pending" }; entries.push(e); return e; },
+    async inviteWaitlistEntry(id) {
+      calls.push({ method: "inviteWaitlistEntry", input: id });
+      const entry = entries.find(e => e.id === id);
+      if (!entry) throw new Error("Missing waitlist entry");
+      entry.status = "invited";
+    },
+    async rejectWaitlistEntry(id) {
+      calls.push({ method: "rejectWaitlistEntry", input: id });
+      const entry = entries.find(e => e.id === id);
+      if (!entry) throw new Error("Missing waitlist entry");
+      entry.status = "rejected";
+    },
   };
   return { backend, calls, users, entries, failures };
 }

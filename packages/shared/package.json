@@ -4,6 +4,16 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./discord-admin": {
+      "types": "./dist/discord-admin/index.d.ts",
+      "source": "./src/discord-admin/index.ts",
+      "default": "./dist/discord-admin/index.js"
+    },
+    "./services/waitlist-decisions": {
+      "types": "./dist/services/waitlist-decisions.d.ts",
+      "source": "./src/services/waitlist-decisions.ts",
+      "default": "./dist/services/waitlist-decisions.js"
+    },
     "./access/owner-access": {
       "types": "./dist/access/owner-access.d.ts",
       "source": "./src/access/owner-access.ts",
@@ -122,6 +132,21 @@
       "types": "./dist/cards/effects/reading-fallback.d.ts",
       "source": "./src/cards/effects/reading-fallback.ts",
       "default": "./dist/cards/effects/reading-fallback.js"
+    },
+    "./presence": {
+      "types": "./dist/presence/index.d.ts",
+      "source": "./src/presence/index.ts",
+      "default": "./dist/presence/index.js"
+    },
+    "./presence/routes": {
+      "types": "./dist/presence/routes.d.ts",
+      "source": "./src/presence/routes.ts",
+      "default": "./dist/presence/routes.js"
+    },
+    "./admin": {
+      "types": "./dist/admin/index.d.ts",
+      "source": "./src/admin/index.ts",
+      "default": "./dist/admin/index.js"
     }
   },
   "scripts": {

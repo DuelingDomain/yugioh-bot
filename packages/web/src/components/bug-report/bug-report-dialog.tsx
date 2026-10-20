@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { BUG_TEXT_MAX, validateBugText, type BugFieldErrors } from "@/lib/bug-report";
 import { DURATION, usePresence } from "@/lib/motion";
+import { getRecentBugDuel } from "./room-store";
 import type { CollectedContext } from "./context";
 
 type Result = { id: number; issue: { number: number; url: string } | null; duplicate: boolean };
@@ -15,6 +16,7 @@ type Step = "write" | "checking" | "review" | "done";
 
 const FIELD = "w-full rounded-md border border-border bg-transparent p-2 text-sm text-text-primary placeholder:text-text-secondary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent-primary";
 const PRECHECK_TIMEOUT_MS = 5000;
+const SUBMIT_TIMEOUT_MS = 35_000;
 
 /** What the player reads when the server refuses or the network fails. */
 async function failureText(response: Response): Promise<string> {
@@ -68,6 +70,8 @@ async function precheck(payload: unknown, cancel: AbortSignal): Promise<{ knownL
 }
 
 function ReportForm({ collect, onClose, open }: { collect: () => CollectedContext; onClose: () => void; open: boolean }) {
+  const [recent] = useState(() => collect().duelSlug ? null : getRecentBugDuel());
+  const [attachRecent, setAttachRecent] = useState(true);
   const [description, setDescription] = useState("");
   const [expected, setExpected] = useState("");
   const [step, setStep] = useState<Step>("write");
@@ -107,11 +111,14 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
     sending.current = true;
     setBusy(true);
     setError(null);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SUBMIT_TIMEOUT_MS);
     try {
       const response = await fetch("/api/bug-reports", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ description, expected, ...snapshot.current, ...(duplicateOf ? { duplicateOf } : {}) }),
+        signal: controller.signal,
       });
       if (!response.ok) {
         const text = await failureText(response);
@@ -128,6 +135,7 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
       setError("Could not send the report. Check your connection and try again.");
       if (step !== "review") setStep("write");
     } finally {
+      clearTimeout(timer);
       sending.current = false;
       setBusy(false);
     }
@@ -142,6 +150,7 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
     submitting.current = true;
     try {
       snapshot.current = collect();
+      if (!snapshot.current.duelSlug && attachRecent && recent && Date.now() - recent.at <= 10 * 60_000) snapshot.current.duelSlug = recent.slug;
       setStep("checking");
       cancelCheck.current = new AbortController();
       const checked = await precheck({ description, expected, ...snapshot.current }, cancelCheck.current.signal);
@@ -248,8 +257,12 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
           aria-describedby={fieldErrors.expected ? "bug-expected-error" : undefined} className={FIELD} />
         {fieldErrors.expected ? <span id="bug-expected-error" role="alert" className="text-xs text-red-400">{fieldErrors.expected}</span> : null}
       </label>
+      {recent ? <label className="flex items-center gap-2 text-sm text-text-secondary">
+        <input type="checkbox" checked={attachRecent} onChange={event => setAttachRecent(event.target.checked)} />
+        Attach my last duel
+      </label> : null}
       <p className="text-xs text-text-secondary">
-        We add the page, the last public log lines and your browser details. The report is public on GitHub. We never add your hand or your name.
+        Describe the problem. We save the board and the duel log with your report. A screenshot is optional.
       </p>
       {error ? <p role="alert" className="text-sm text-red-400">{error}</p> : null}
       <div className="flex gap-2">

@@ -28,9 +28,9 @@ end
 local function mp_return_filter(c,tp)
  return c:IsControler(1-tp) and c:IsSpellTrap() and c:IsAbleToHand()
 end
-local function mp_material_filter(c,e,tp)
- return c:IsOnField() and c:IsAbleToRemove(tp,POS_FACEUP,REASON_EFFECT)
-end
+-- Keep the stock one-card predicate. Fusion passes e,tp after c, while
+-- IsAbleToRemove accepts a reason player as its second argument.
+local mp_material_filter=Fusion.OnFieldMat(aux.LimitParams(Card.IsAbleToRemove))
 function s.effcost(e,tp,eg,ep,ev,re,r,rp,chk)
 	e:SetLabel(-100)
 	local fusion_params={handler=e:GetHandler(),fusfilter=aux.FilterBoolFunction(Card.IsSetCard,SET_HECAHANDS),matfilter=mp_material_filter,extrafil=s.fextra,extraop=Fusion.BanishMaterial,extratg=s.extratg}
@@ -74,7 +74,7 @@ function s.effop(e,tp,eg,ep,ev,re,r,rp)
 	if op==1 then
 		--Return 1 Spell/Trap your opponent controls to the hand
 		local tc=Duel.GetFirstTarget()
-		if tc:IsRelateToEffect(e) then
+		if tc and tc:IsRelateToEffect(e) then
 			Duel.SendtoHand(tc,nil,REASON_EFFECT)
 		end
 	elseif op==2 then
