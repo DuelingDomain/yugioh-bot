@@ -319,7 +319,8 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const effects = enabled ? releaseIndex : undefined;
   let reading = effects && !query.exact && query.scope !== "name" ? effects.readQuery(query.text, query.effectOmit) : null;
   const datedQuery = { ...query, released: query.released ?? reading?.query.released, sort: query.sort === "match" && reading?.query.sort === "newest" ? "newest" as const : query.sort };
-  const staples = effects?.staples?.(reading?.query.formatFilter?.format??query.format, query.banlist, options.guildId) ?? formatStaples(reading?.query.formatFilter?.format??query.format, query.banlist);
+  const usesUsage = reading?.query.intent?.kind === "staples" || reading?.query.intent?.kind === "archetype_role";
+  const staples = usesUsage ? effects?.staples?.(reading?.query.formatFilter?.format??query.format, query.banlist, options.guildId) ?? formatStaples(reading?.query.formatFilter?.format??query.format, query.banlist) : undefined;
   const format=reading?.query.formatFilter;
   const filterBanlist=format?.region === "ocg" ? query.banlist.startsWith("ocg")?query.banlist:PINNED_OCG_BANLIST_ID
     : format?.region === "tcg" ? query.banlist.startsWith("tcg")?query.banlist:PINNED_TCG_BANLIST_ID
@@ -404,7 +405,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
       if (!relaxed) continue;
       let count = 0;
       for (const entry of index.entries) {
-        if (!entry.hidden && effectChecks.every(check => check(entry)) && effects!.match(entry.card.code, relaxed) !== null) count++;
+        if (!entry.hidden && effectChecks.every(check => check(entry)) && effects!.match(entry.card.code, relaxed, staples) !== null) count++;
       }
       if (count) relax.push({ chip, count });
     }
@@ -415,7 +416,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
     total: sorted.length,
     offset: query.offset,
     effectSearchEnabled: enabled,
-    ...(enabled ? { reading, effectHits: effectFound.slice(effectOffset, effectOffset + Math.min(query.limit, 30)).map(({ entry, score }) => ({ ...decorate(entry), score, reason: formatReason(entry, reading?.query.intent?.kind === "staples" && staples.cards.size ? stapleReason(staples.cards.get(entry.card.canonicalPasscode ?? entry.card.code)!, staples.label) : effects!.reason(entry.card.code, reading!, staples)) })), effectTotal: effectFound.length, effectOffset, relax: relax.slice(0, 2) } : {}),
+    ...(enabled ? { reading, effectHits: effectFound.slice(effectOffset, effectOffset + Math.min(query.limit, 30)).map(({ entry, score }) => ({ ...decorate(entry), score, reason: formatReason(entry, reading?.query.intent?.kind === "staples" && staples?.cards.size ? stapleReason(staples.cards.get(entry.card.canonicalPasscode ?? entry.card.code)!, staples.label) : effects!.reason(entry.card.code, reading!, staples)) })), effectTotal: effectFound.length, effectOffset, relax: relax.slice(0, 2) } : {}),
   };
 }
 

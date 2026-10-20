@@ -47,17 +47,28 @@ export function stapleFormat(format = "normal", banlist?: string): string {
   return format === "normal" ? banlist?.startsWith("ocg") ? "ocg" : "tcg" : format;
 }
 export const stapleReason = (usage: StapleUsage, label: string) => `Played in ${Math.round(usage.playShare * 100)}% of ${label} decks`;
-const localCaches = new WeakMap<Database.Database, Map<string, { key: string; formats: Map<string, StapleUsage[]>; counts: Map<string, number>; playShares: Map<string,ReadonlyMap<number,number>> }>>();
+const localCaches = new WeakMap<Database.Database, Map<string, { signature: string; key: string; views: Map<string,FormatStaples>; formats: Map<string, StapleUsage[]>; counts: Map<string, number>; playShares: Map<string,ReadonlyMap<number,number>> }>>();
+const artworkCaches = new WeakMap<Database.Database, { revision: number; canonical: Map<number,number> }>();
+const publicViews = new Map<string,FormatStaples>();
 /** Private guild aggregate. Owner IDs are used only in memory to deduplicate votes. */
 function savedUsage(db: Database.Database, guildId: string) {
-  const key = hash([guildId, db.prepare("SELECT revision FROM card_staple_source_revision WHERE id=1").get(),
-    db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get(), db.prepare("SELECT revision FROM card_effect_revision WHERE id=1").get()]);
+  const revision = db.prepare<[], { saved: number; catalog: number; effects: number }>(`
+    SELECT s.revision AS saved,c.revision AS catalog,e.revision AS effects
+    FROM card_staple_source_revision s,card_catalog_revision c,card_effect_revision e
+    WHERE s.id=1 AND c.id=1 AND e.id=1`).get()!;
+  const signature = `${revision.saved}:${revision.catalog}:${revision.effects}`;
   let cache = localCaches.get(db);
   if (!cache) { cache = new Map(); localCaches.set(db, cache); }
   const old = cache.get(guildId);
-  if (old?.key === key) return old;
-  const canonicalRow = db.prepare<[number], { card_id: number }>("SELECT card_id FROM card_artworks WHERE artwork_id=?");
-  const canonical = (id: number) => canonicalRow.get(id)?.card_id ?? id;
+  if (old?.signature === signature) return old;
+  const key = hash([guildId, signature]);
+  let artworks = artworkCaches.get(db);
+  if (!artworks || artworks.revision !== revision.catalog) {
+    const rows = db.prepare<[], { artwork_id: number; card_id: number }>("SELECT artwork_id,card_id FROM card_artworks").all();
+    artworks = { revision: revision.catalog, canonical: new Map(rows.map(row=>[row.artwork_id,row.card_id])) };
+    artworkCaches.set(db,artworks);
+  }
+  const canonical = (id: number) => artworks.canonical.get(id) ?? id;
   const buckets = new Map<string, { lists: Set<string>; owners: Map<number, { codes: number[]; archetype: string }> }>();
   const metadata = db.prepare<[number], { archetype: string | null; name: string; effect_text: string; tags_json: string | null }>(`SELECT c.archetype,c.name,c.effect_text,t.tags_json FROM card_catalog c LEFT JOIN card_tags t ON t.passcode=c.ygoprodeck_id WHERE c.ygoprodeck_id=?`);
   const info = new Map<number, ReturnType<typeof metadata.get>>();
@@ -90,7 +101,7 @@ function savedUsage(db: Database.Database, guildId: string) {
       if (!bucket.owners.has(row.owner_user_id)) bucket.owners.set(row.owner_user_id,{ codes, archetype });
     } catch { /* Ignore invalid saved lists. */ }
   }
-  const result = { key, formats: new Map<string, StapleUsage[]>(), counts: new Map<string, number>(), playShares:new Map<string,ReadonlyMap<number,number>>() };
+  const result = { signature, key, views: new Map<string,FormatStaples>(), formats: new Map<string, StapleUsage[]>(), counts: new Map<string, number>(), playShares:new Map<string,ReadonlyMap<number,number>>() };
   for (const [format,bucket] of buckets) {
     const decks = bucket.owners;
     if (bucket.lists.size < 20 || decks.size < 10) continue;
@@ -111,16 +122,22 @@ function savedUsage(db: Database.Database, guildId: string) {
       .sort((a,b)=>b.playShare-a.playShare || b.averageCopies-a.averageCopies || a.passcode-b.passcode).slice(0,80);
     if (cards.length) { result.formats.set(format,cards); result.counts.set(format,decks.size); result.playShares.set(format,new Map(cards.map(row=>[row.passcode,row.playShare]))); }
   }
+  if (!cache.has(guildId) && cache.size >= 64) cache.delete(cache.keys().next().value!);
   cache.set(guildId,result); return result;
 }
 export function formatStaples(format = "normal", banlist?: string, db?: Database.Database, guildId?: string): FormatStaples {
   const key = stapleFormat(format,banlist), sample = artifact.formats[key as keyof typeof artifact.formats];
   const local = db && guildId ? savedUsage(db, guildId) : undefined, localCards = local?.formats.get(key);
   // A private cohort is an independent source. Public samples remain the stable default.
+  const views = localCards ? local!.views : publicViews;
+  const cached = views.get(key);
+  if (cached) return cached;
   const cards = localCards ?? sample?.cards ?? [];
-  return { version: `${version}:${localCards ? local!.key : "public"}`, label: key === "tcg" ? "TCG" : key === "domain" ? "Domain" : key === "genesys" ? "Genesys" : key === "genesys-domain" ? "Genesys Domain" : "OCG", cards: new Map(cards.map(row=>[row.passcode,row])),
+  const result: FormatStaples = { version: `${version}:${localCards ? local!.key : "public"}`, label: key === "tcg" ? "TCG" : key === "domain" ? "Domain" : key === "genesys" ? "Genesys" : key === "genesys-domain" ? "Genesys Domain" : "OCG", cards: new Map(cards.map(row=>[row.passcode,row])),
     playShares: localCards ? local!.playShares.get(key)! : new Map((sample?.genericUsage??[]).map(row=>[row.passcode,row.decks/sample!.deckCount])),
     archetypes: new Map(localCards ? [] : Object.entries(sample?.archetypeDeckCounts??{}).map(([name,decks])=>[compactEffectName(name),{decks,cards:new Map((sample?.archetypeUsage[name]??[]).map(row=>[row.passcode,row.decks]))}])) };
+  views.set(key,result);
+  return result;
 }
 
 /** Only labeled cohorts of at least three decks support a per-archetype percentage. */

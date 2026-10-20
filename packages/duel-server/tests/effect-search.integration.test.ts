@@ -1072,6 +1072,22 @@ it('ranks native cards before compatible measured cards for each requested arche
   mkdirSync('.status/recruiters',{recursive:true});
   writeFileSync('.status/recruiters/role-results.json',JSON.stringify(evidence,null,2));
 });
+it('loads staple usage only for usage intents and reuses public format maps',async()=>{
+  const effects=cardEffectIndex(cards)!;
+  const calls=vi.spyOn(effects,'staples');
+  try {
+    for(const text of ['Ash Blossom','recruiters','released 2024'])queryCards(cards,{...emptyCardQuery(),text},undefined,undefined,{effects});
+    expect(calls).not.toHaveBeenCalled();
+    queryCards(cards,{...emptyCardQuery(),text:'staples'},undefined,undefined,{effects});
+    expect(calls).toHaveBeenCalledTimes(1);
+    queryCards(cards,{...emptyCardQuery(),text:'Branded hand traps'},undefined,undefined,{effects});
+    expect(calls).toHaveBeenCalledTimes(2);
+    const {formatStaples}=await import('@yugidraft/shared/cards/effects');
+    expect(formatStaples('normal')).toBe(formatStaples('normal'));
+    expect(formatStaples('domain')).toBe(formatStaples('domain'));
+  }finally{calls.mockRestore();}
+});
+
 it('uses signed host Domain admission and preserves the archetype play guide',async()=>{
   vi.stubEnv('EFFECT_SEARCH','1');
   const post=async(cardQuery:object)=>{

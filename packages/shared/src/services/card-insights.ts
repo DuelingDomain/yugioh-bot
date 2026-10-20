@@ -216,7 +216,8 @@ export function createCardInsightService(db: Database.Database, options: {
           return { reading, ...rank(catalog, candidate ? [candidate] : [], pool, effective) };
         }
         const ranked: Retained[] = [];
-        const staples = formatStaples(reading.query.formatFilter?.format??opts.format, opts.suggestionContext?.banlist, db, options.guildId);
+        const usesUsage = reading.query.intent?.kind === "staples" || reading.query.intent?.kind === "archetype_role";
+        const staples = usesUsage ? formatStaples(reading.query.formatFilter?.format??opts.format, opts.suggestionContext?.banlist, db, options.guildId) : undefined;
         const roleIntent=reading.query.intent?.kind==="archetype_role"?reading.query.intent:undefined;
         const similar = reading.query.intent?.kind === "similar" ? catalog.candidate(reading.query.intent.passcode) : undefined;
         const archetype = reading.query.intent?.kind === "counters" ? reading.query.intent.archetype : undefined;
@@ -227,8 +228,8 @@ export function createCardInsightService(db: Database.Database, options: {
           if ((effective.sort === "newest" || query.released || opts.released) && candidate.card.dateSearchEligible === false) return null;
           if (query.formatFilter && !opts.formatAdmission?.(candidate.card)) return null;
           if (matchCard(candidate.card, candidate.tags, query.intent?.kind === "archetype_role" ? {...query, roles: []} : query) === null) return null;
-          if (query.intent?.kind === "archetype_role") return rankArchetypeRole(candidate.card,candidate.tags,query.intent.archetype,query.intent.role,archetypeMember(candidate.card,query.intent.archetype),staples)?.score??null;
-          if (query.intent?.kind === "staples") return staples.cards.size ? staples.cards.get(candidate.card.id)?.playShare ?? null
+          if (query.intent?.kind === "archetype_role") return rankArchetypeRole(candidate.card,candidate.tags,query.intent.archetype,query.intent.role,archetypeMember(candidate.card,query.intent.archetype),staples!)?.score??null;
+          if (query.intent?.kind === "staples") return staples!.cards.size ? staples!.cards.get(candidate.card.id)?.playShare ?? null
             : candidate.tags?.roles.some(role => ["hand_trap", "board_breaker", "negation"].includes(role)) ? 1 : null;
           const base = matchCard(candidate.card, candidate.tags, query);
           if (base === null) return null;
@@ -243,7 +244,7 @@ export function createCardInsightService(db: Database.Database, options: {
           const score = match(candidate);
           if (score === null) continue;
           total++;
-          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + (roleIntent ? 0 : cardEraBoost(candidate.card, opts.era)), linkedCards: 0, reason: roleIntent ? rankArchetypeRole(candidate.card,candidate.tags,roleIntent.archetype,roleIntent.role,archetypeMember(candidate.card,roleIntent.archetype),staples)!.reason : reading.query.intent?.kind === "staples" && staples.cards.size ? stapleReason(staples.cards.get(candidate.card.id)!, staples.label) : counter && archetype ? counterLink(counter, archetype, candidate)!.reason
+          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + (roleIntent ? 0 : cardEraBoost(candidate.card, opts.era)), linkedCards: 0, reason: roleIntent ? rankArchetypeRole(candidate.card,candidate.tags,roleIntent.archetype,roleIntent.role,archetypeMember(candidate.card,roleIntent.archetype),staples!)!.reason : reading.query.intent?.kind === "staples" && staples!.cards.size ? stapleReason(staples!.cards.get(candidate.card.id)!, staples!.label) : counter && archetype ? counterLink(counter, archetype, candidate)!.reason
             : similar ? shortReason(`Similar ${candidate.tags?.roles.find(role => similar.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${similar.card.name}`)
             : effectMatchReason(candidate.card, candidate.tags, reading.query, candidate.tags?.summary),
             ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), currentMonth, effective);
