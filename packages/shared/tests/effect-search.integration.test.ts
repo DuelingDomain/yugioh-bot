@@ -472,7 +472,16 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
           expect.soft(pooled.rows.find(row => row.id === "outside")!.cards.map(card => card.passcode), `${fixture.id}: pool keeps global hook specificity`).toEqual([first.passcode]);
           expect.soft(pooled.rows.flatMap(row => row.cards).every(card => card.passcode === first.passcode)).toBe(true);
         }
-      } else expect.soft(extra.state).toBe("ready");
+      } else {
+        expect.soft(extra.state).toBe("ready");
+        const generic = extra.cards.filter(card => card.score < 200);
+        expect.soft(generic.length, `${fixture.id}: at most three generic Extra options`).toBeLessThanOrEqual(3);
+        expect.soft(extra.cards.slice(-generic.length || extra.cards.length).every(card => card.score < 200), `${fixture.id}: generic Extra options come last`).toBe(true);
+        const required = fixture.id === "blue-eyes" ? [89604813, 2129638]
+          : fixture.id === "branded" ? [70534340] : [];
+        expect.soft(extra.cards.map(card => card.passcode), `${fixture.id}: summonable engine monsters lead Extra`).toEqual(expect.arrayContaining(required));
+        expect.soft(result.rows[0]!.cards.every(card => !catalog.candidate(card.passcode)!.card.subtypes.some(type => ["fusion", "synchro", "xyz", "link"].includes(type))), `${fixture.id}: Extra monsters use the Extra row`).toBe(true);
+      }
     }
   }, 60_000);
 });

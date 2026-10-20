@@ -17,7 +17,8 @@ const rows: Array<[number, string, string, number | null, string | null, string,
   [46986414, "Dark Magician", "Spellcaster / Normal Monster", 7, "DARK", "The ultimate wizard.", "Dark Magician"],
   [97268402, "Effect Veiler", "Spellcaster / Tuner / Effect Monster", 1, "LIGHT", "During your opponent's Main Phase: You can send this card to the GY.", null],
   [7084129, "Magician's Rod", "Spellcaster / Effect Monster", 3, "DARK", "If this card is Normal Summoned: You can add a card to your hand.", "Dark Magician"],
-  [68468459, "Fallen of Albaz", "Dragon / Effect Monster", 4, "DARK", "If this card is Normal or Special Summoned: You can discard 1 card.", null],
+  [68468459, "Fallen of Albaz", "Dragon / Effect Monster", 4, "DARK", 'If this card is Normal or Special Summoned: You can discard 1 card; Fusion Summon 1 Fusion Monster from your Extra Deck, using monsters on either field as Fusion Material, including this card, but you cannot use other monsters you control as Fusion Material. You can only use this effect of "Fallen of Albaz" once per turn.', null],
+  [59011257, "Fallin' Cheatah", "Beast / Effect Monster", 3, "FIRE", "Cannot be Tributed, nor used as material for a Fusion, Synchro, Xyz, or Link Summon, while face-up on the field.", null],
   [71039903, "The White Stone of Ancients", "Dragon / Tuner / Effect Monster", 1, "LIGHT", "Once per turn, during the End Phase: You can Special Summon a monster.", "Blue-Eyes"],
   [15839054, "Synchro Fusionist", "Spellcaster / Effect Monster", 2, "DARK", "If this card is sent to the GY as Synchro Material: You can add a Spell to your hand.", null],
   [24094653, "Polymerization", "Spell Card", null, null, "Fusion Summon 1 Fusion Monster from your Extra Deck, using monsters from your hand or field as Fusion Material.", null],
@@ -123,6 +124,12 @@ describe("complete Extra Deck recipes through the SQL catalog and pinned effect 
     expect(summon(70534340, [68468459, 46986414, 44362883])).toBeTruthy();
     expect(summon(70534340, [68468459, 44362883])).toBeUndefined();
     expect(summon(44146295, [68468459, 44508094, 44362883])).toBeUndefined();
+    const contact = candidate(2129638);
+    contact.card.text = '"Blue-Eyes White Dragon" + "Blue-Eyes White Dragon"\nMust be either Fusion Summoned, or Special Summoned by sending the above monsters you control to the GY (in which case you do not use "Polymerization").';
+    expect(canSummonFromMain(contact, [candidate(89631139), candidate(89631139)])).toBeTruthy();
+    expect(canSummonFromMain(contact, [candidate(89631139)])).toBeUndefined();
+    contact.card.text += " Cannot be Special Summoned unless you control a Spellcaster monster.";
+    expect(canSummonFromMain(contact, [candidate(89631139), candidate(89631139)])).toBeUndefined();
   });
 
   it("satisfies Link rating, material count, type, effect, name and different-name restrictions", () => {
@@ -138,6 +145,7 @@ describe("complete Extra Deck recipes through the SQL catalog and pinned effect 
     expect(summon(4280258, [7084129, 68468459])).toBeUndefined();
     expect(summon(4280258, [7084129, 68468459, 97268402, 71039903])).toBeTruthy();
     expect(summon(4280258, [7084129, 68468459, 97268402, 97268402])).toBeUndefined();
+    expect(summon(65741786, [59011257, 68468459])).toBeUndefined();
   });
 
   it("fails closed when either the recipe or tagged material restriction is unknown", () => {
