@@ -3,7 +3,7 @@ import { chainModeOf, toOrdinaryReplayView, teamOfSeat,
 import { EngineLoopError } from "./engine-loop-error.js";
 import { EngineResourceUnavailableError } from "./engine-resource-resolver.js";
 import { eliminationCodeOf } from "./engine.js";
-import { JournalRunnerError, runJournalPrefix, type JournalResources, type JournalTargetViews } from "./journal-runner.js";
+import { JournalRunnerError, runJournalPrefix, validateJournalSource, type JournalResources, type JournalTargetViews } from "./journal-runner.js";
 import { replayFrameId, replayPrefixHashes, type ReplayCursorCodec, type ReplayCursorClaims } from "./replay-cursor.js";
 import { ReplayJsonEncoder, type SerializedReplayView } from "./replay-json.js";
 import type { ReplayWorkerResult } from "./replay-worker.js";
@@ -169,6 +169,8 @@ export async function buildReplayData(options: Omit<ReplayBuildOptions, "codec">
   const check = () => { options.signal?.throwIfAborted(); };
   const work = async () => {
     check();
+    validateJournalSource({ source, resources: options.resources, prefixCount: source.commands.length,
+      checkpointSeat: dataSeat, manualLossAnswersAfter: options.manualLossAnswersAfter });
     worker = await options.createWorker(workerSignal);
     if (expired || workerSignal.aborted) {
       try { await worker.close(); } catch { /* Preserve the deadline/cancellation failure. */ }

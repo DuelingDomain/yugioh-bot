@@ -80,8 +80,16 @@ function mismatch(message: string): never {
   throw new JournalRunnerError(message, "REPLAY_MISMATCH");
 }
 
+type JournalCreationOptions = Pick<JournalRunOptions,
+  "source" | "resources" | "prefixCount" | "checkpointSeat" | "target" | "manualLossAnswersAfter">;
+
+/** Check saved rules before reserving a worker, including for a batched replay. */
+export function validateJournalSource(options: JournalCreationOptions): void {
+  creationOptions(options);
+}
+
 /** Resolve original creation rules without deck admission checks or any live-table setup. */
-function creationOptions({ source, resources, prefixCount, checkpointSeat, target, manualLossAnswersAfter }: JournalRunOptions): GameOptions {
+function creationOptions({ source, resources, prefixCount, checkpointSeat, target, manualLossAnswersAfter }: JournalCreationOptions): GameOptions {
   if (!Number.isSafeInteger(prefixCount) || prefixCount < 0 || prefixCount > source.commands.length) {
     throw new JournalRunnerError("Journal prefix count is outside the recorded input", "INVALID_CURSOR");
   }
