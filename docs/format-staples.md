@@ -96,3 +96,32 @@ after publication to the local verification service.
 - Artifact validation accepts the real sample and rejects six malformed
   candidates, including duplicate IDs, false percentages and extra fields.
 - Shared/duel builds and web typecheck pass. No new unit tests were added.
+
+## Live verification on port 3000
+
+Published on 2026-10-20 with the documented stop/copy/start rule. The web gap
+was 0.79 seconds. Both services are active. Runtime sandbox settings and the
+shared database/engine paths match. The no-env-file guard and core limits stay
+active. No engine data was written.
+
+Authenticated web requests match signed host results for all three formats:
+TCG returns 16 cards (Ash Blossom first), Domain returns 24 admitted cards
+(Graceful Charity first), and Genesys returns 11 cards (Lava Golem first).
+The artifact has 25 Domain candidates; the running engine admits 24. Plain
+`format staples`, `best staples` and `hand traps` also pass. Exact-name
+`Morphtronic Staplen` remains a name result.
+
+Chromium checks pass at 1920×1080 and 390×844. Both show Ash Blossom and Infinite
+Impermanence, the measured reason lines, and no Morphtronic result for
+`staples`. Exact text is off and there are no page errors. Desktop also imports
+real source decks through the UI and shows the Normal and Domain Staples rows.
+The Normal test deck holds Called by the Grave and Triple Tactics Talent, so
+Infinite Impermanence fits inside the six-card Staples limit. The Domain test
+uses its default no-banlist scope.
+
+Local evidence: `local-all/.status/format-staples/` contains the proof script,
+results JSON and four screenshots. These files contain no cookies, secrets or
+user identifiers. The source checkout passed 176 targeted integration checks;
+the newer local-all checkout passed 178 with its live engine bundle. The final
+production build and standalone packaging passed. Temporary build/staging
+output was removed after publication; installed service files remain in use.

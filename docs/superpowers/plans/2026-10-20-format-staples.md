@@ -11,7 +11,7 @@ Goal: use measured format deck usage for Suggestions and plain staple searches.
 - [x] Carry the format through deck and draft search; preserve exact card names.
 - [x] Add a bounded, additive artifact PR job to the effect-tagging workflow.
 - [x] Run targeted real-catalog integration and live browser checks.
-- [ ] Move to main after #413 lands, push and open a PR; do not merge.
-- [ ] Port to local-all, wait for other builds, publish with stop/copy/start, and remove build output.
+- [x] Push and open PR #421 to main; do not merge. #413 is still open, so the authorized Suggestions base remains in use.
+- [x] Port to local-all, wait for other builds, publish with stop/copy/start, and remove build output.
 
 Implementation is authorized by the supplied task specification. Use integration and e2e checks only.
