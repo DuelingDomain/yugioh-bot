@@ -59,7 +59,7 @@ import { finaleBoard } from "./grid-finale";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
 import { hudPreview } from "./hud-preview";
 import { PlazaDrawers } from "./plaza-drawers";
-import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./hud-layer";
+import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, usePinFollowsHover, usePinSync, useRowPreview } from "./hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./hud-shared";
 import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
@@ -266,6 +266,8 @@ function TableShellBody({
   const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (grid && hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard, onTapCard: hud ? undefined : setPinnedCard });
   useHudEscape(hudState, hud, ui.suspended);
   usePinSync(hudState, tracked.engine.seats);
+  usePinFollowsHover(hud, hudState.pinned, ui.hover?.card, hudState.pinCard);
+  usePinFollowsHover(!hud, pinnedCard, ui.hover?.card, setPinnedCard);
   const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;

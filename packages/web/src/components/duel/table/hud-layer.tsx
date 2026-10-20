@@ -200,6 +200,25 @@ export function useHudEscape(hud: HudPaneState, enabled: boolean, suspended: boo
 }
 
 /**
+ * A pin follows the pointer: while a card is pinned, hovering ANOTHER face-up board card pins that one instead, so the drawer shows it and
+ * keeps it after the pointer leaves. Leaving to the empty board keeps the last card. A pin only means "do not close when the pointer leaves".
+ * Pair it with `hudPreview`, which shows the hovered card over the pin so the swap has no lagging frame.
+ */
+export function usePinFollowsHover(
+  enabled: boolean,
+  pinned: DuelCard | DuelCardInfo | null,
+  hover: DuelCard | null | undefined,
+  pin: (card: DuelCard) => void,
+): void {
+  useEffect(() => {
+    if (!enabled || !pinned || !hover || hover.code == null) return;
+    const same = "location" in pinned && pinned.code === hover.code && pinned.controller === hover.controller
+      && pinned.location === hover.location && pinned.sequence === hover.sequence;
+    if (!same) pin(hover);
+  }, [enabled, pinned, hover, pin]);
+}
+
+/**
  * Keeps the pinned card true to the board: at each new revision it finds the card again by its zone and code, and takes
  * the fresh copy (stats, position, counters). A card that left the zone, or turned face-down, lets the pin go.
  */

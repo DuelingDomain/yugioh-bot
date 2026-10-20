@@ -79,7 +79,7 @@ import styles from "./room.module.css";
 import hudStyles from "./table/grid-hud.module.css";
 import { hudPreview } from "./table/hud-preview";
 import { GridHoverPreview } from "./table/grid-preview";
-import { RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./table/hud-layer";
+import { RowPreviewBoundary, useHudEscape, useHudPane, usePinFollowsHover, usePinSync, useRowPreview } from "./table/hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./table/hud-shared";
 import { SEAT_TONE_HEX } from "./table/types";
 import { AttackConfirm, CardActionMenu, PickRefusalHint, shakeRefusedCard, confirmSide, materialsMenu, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
@@ -513,6 +513,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     return () => window.removeEventListener("keydown", onKey);
   }, [pinnedCard]);
   usePinSync(hudState, data?.engine?.seats);
+  usePinFollowsHover(hud, hudState.pinned, hover?.card, hudState.pinCard);
+  usePinFollowsHover(!hud, pinnedCard, hover?.card, setPinnedCard);
   // A new prompt for this seat lets the pinned peek go: it must not cover the cards the prompt asks for.
   const promptId = prompt?.id ?? null;
   useEffect(() => {
@@ -789,7 +791,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       return;
     }
     setInspect(target);
-    if (mobile && !hud && !reveal) {
+    // Every shell without the HUD pins a clicked card in the same left drawer; a log row (reveal) still goes to the Card tab.
+    if (!hud && !reveal) {
       setPinnedCard(target.card);
       return;
     }

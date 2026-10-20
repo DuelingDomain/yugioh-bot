@@ -22,7 +22,7 @@ import roomStyles from "../room.module.css";
 import { SeriesBanner } from "../series-banner";
 import { useIsNarrow } from "../side-panel";
 import { resolveBattleStep, StationTrack } from "../station-track";
-import { RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "../table/hud-layer";
+import { RowPreviewBoundary, useHudEscape, useHudPane, usePinFollowsHover, usePinSync, useRowPreview } from "../table/hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "../table/hud-shared";
 import { useForkLabels } from "../table/fork-labels";
 import { MasterBadgeContext, type MasterBadgeSource } from "../master-badge";
@@ -182,6 +182,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   const suspended = tagInputSuspended({ inputSuspended, menu: ui.menu, pile: ui.pile, narrow, sheetOpen });
   useHudEscape(hudState, hud, suspended);
   usePinSync(hudState, engine.seats);
+  usePinFollowsHover(hud, hudState.pinned, ui.hover?.card, hudState.pinCard);
   const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
