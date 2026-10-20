@@ -101,6 +101,10 @@ export async function runTagging(options: TaggingOptions): Promise<TaggingReport
   const report: TaggingReport = { mode: dryRun ? "dry-run" : "live", candidates: candidates.length, profileCandidates: profiles.length, acceptedProfiles: [], submitted: 0, collected: 0, reused: 0, pending: 0, usedMicros: 0, deferred: [], accepted: [] };
   if (!dryRun) {
     if (!options.client) throw new Error("Live tagging requires a Batch client");
+    // Reserved runtime rows have never crossed the paid-call intent boundary.
+    // A stalled process cannot submit after this CAS: its intent write conflicts.
+    const runtime = ledger.runtime?.filter(entry => entry.state !== "reserved" || instant.getTime() - Date.parse(entry.createdAt) <= 3_600_000);
+    if (runtime && runtime.length !== ledger.runtime!.length) { ledger.runtime = runtime; await persist(); }
     for (const entry of ledger.reservations) {
       if (entry.state !== "submitted") continue;
       if ((await options.client.retrieve(entry.batchId!)).processing_status !== "ended") continue;

@@ -206,8 +206,8 @@ in the calling server process. `EFFECT_TAGGING_LEDGER_REPOSITORY` (or
 `GITHUB_REPOSITORY`) is `owner/repo`. The token needs read and fast-forward write
 access to the existing `state/effect-tagging` branch. Runtime never initializes
 or replaces this branch. Missing credentials, missing/corrupt ledger, CAS
-conflict, exhausted budget, HTTP error, SQLite contention or the two-second
-end-to-end deadline silently preserve the deterministic result. Successful name
+conflict, exhausted budget, HTTP error, SQLite contention or a ledger/request
+deadline silently preserve the deterministic result. Successful name
 searches, exact/name-only searches, empty explicit pools and chip edits skip it.
 No credential or user identity enters the prompt or spend ledger.
 
@@ -262,3 +262,16 @@ shared and its consumers, then restart them. Startup imports the new verified
 artifact version. `.status/effect-releases/releases-report.json` lists the counts
 and the ten newest filled records. Dates have month precision; default sorting
 uses the newest known TCG or OCG month. Explicit region filters use only that region.
+
+
+## Final review: runtime reservation recovery
+
+Each runtime ledger read and compare-and-swap has its own 10-second limit.
+The 2-second limit covers only the Anthropic POST and response body. A failure
+before that POST releases the reservation with a fresh ledger read and CAS,
+including a lost response from the intent write. Cleanup preserves other rows.
+If GitHub is unavailable, cleanup retries three times. The live CI tagging job
+removes runtime rows still in `reserved` after more than one hour. It preserves
+recent rows, all `submission_started` rows and the complete settled history.
+A process whose reservation CI removed cannot commit its stale intent CAS.
+After a paid attempt starts, uncertain spend remains held and cannot be retried.

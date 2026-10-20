@@ -590,3 +590,24 @@ it('shares the monthly cap with settled runtime spend and uncertain runtime rese
   expect(report.deferred).toContain('monthly-budget');
   expect(posts).toBe(0);
 });
+
+
+it('live CI expires only runtime reserved rows older than one hour, including prior months', async () => {
+  const context = await setup(), api = await endpoint();
+  const snapshot = (await context.store.read())!;
+  snapshot.ledger.runtime = [
+    ['old', '2026-09-10T10:00:00Z', 'reserved'],
+    ['boundary', '2026-10-10T11:00:00Z', 'reserved'],
+    ['recent', '2026-10-10T11:30:00Z', 'reserved'],
+    ['uncertain', '2026-09-10T10:00:00Z', 'submission_started'],
+  ].map(([_name, createdAt, state], index) => ({ id: String(index).padStart(32, '0'), month: createdAt.slice(0, 7), createdAt, state: state as 'reserved' | 'submission_started',
+    model: context.MODEL, phraseHash: 'a'.repeat(64), reservedMicros: context.READING_RESERVATION_MICROS }));
+  await context.store.compareAndSwap(snapshot.revision, snapshot.ledger);
+  const before = await context.store.read();
+  await context.runTagging({ cards: [], store: context.store, now: context.now });
+  expect(await context.store.read()).toEqual(before);
+  await context.runTagging({ cards: [], store: context.store, now: context.now, dryRun: false, maxRequests: 0,
+    client: new context.AnthropicBatchClient({ apiKey: 'fake', baseUrl: api.baseUrl, allowLoopback: true }) });
+  expect((await context.store.read())!.ledger.runtime!.map(row => row.id)).toEqual(['1', '2', '3'].map(id => id.padStart(32, '0')));
+  expect(api.events).toEqual([]);
+});

@@ -45,7 +45,7 @@ export type Reservation = Ledger["reservations"][number];
 export type AcceptedProfile = z.infer<typeof acceptedProfile>;
 export type AcceptedTag = z.infer<typeof accepted>;
 export interface LedgerSnapshot { revision: string; ledger: Ledger }
-export interface LedgerStore { read(): Promise<LedgerSnapshot | undefined>; compareAndSwap(revision: string | undefined, next: Ledger): Promise<string> }
+export interface LedgerStore { read(signal?: AbortSignal): Promise<LedgerSnapshot | undefined>; compareAndSwap(revision: string | undefined, next: Ledger, signal?: AbortSignal): Promise<string> }
 export function createEmptyLedger(): Ledger { return { version: 1, months: {}, reservations: [] }; }
 export function validateLedger(value: unknown): Ledger {
   const ledger = LedgerSchema.parse(value), ids = new Set<string>();
