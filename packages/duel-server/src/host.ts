@@ -1,5 +1,5 @@
 import { ExpectedError, errorResponseBody, log, report } from "@yugidraft/shared/observability";
-import { createStoredBoardReader, readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, type StoredDuelBoards } from "@yugidraft/shared/services";
+import { createStoredBoardReader, readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, createCardInsightService, parseDeckSuggestionQuery, type StoredDuelBoards } from "@yugidraft/shared/services";
 import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
@@ -55,7 +55,7 @@ import { cardArtworkFamily } from "./card-artworks.js";
 import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards, deckCardUnavailableReason } from "./card-search.js";
-import { effectSearchEnabled, readingArchetypes } from "@yugidraft/shared/cards/effects";
+import { deckSuggestionsEnabled, effectSearchEnabled, readingArchetypes } from "@yugidraft/shared/cards/effects";
 import { cardEffectIndex, cardReleaseIndex, initializeCardEffectIndex } from "./card-effects.js";
 import { activeMultiScriptsHash, loadMultiScriptsFor, pinnedEngineVersion } from "./multi-scripts.js";
 import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
@@ -143,8 +143,17 @@ const DUEL_OPS = new Set([
   "card-details", "card-artworks", "card-query", "card-facets", "surrender", "add-bot", "archive", "cancel",
   "replay", "owner-replay", "replay-fork", "fork-list", "fork-restart", "fork-cancel", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
   "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset",
-  "report", "debug-trace", "bug-context", "chain-mode", "validate-deck-master", "suggestion-scope",
+  "report", "debug-trace", "bug-context", "chain-mode", "validate-deck-master", "suggestion-scope", "deck-suggestions",
 ]);
+
+/** Cache identities treat numeric card lists as multisets; the scorer receives the original order. */
+function suggestionQueryIdentity(value: unknown): unknown {
+  if (Array.isArray(value)) return value.every(item => typeof item === "number")
+    ? [...value].sort((a, b) => a - b) : value.map(suggestionQueryIdentity);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value)
+    .sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => [key, suggestionQueryIdentity(item)]));
+  return value;
+}
 
 /** What the `bug-context` op answers: public duel facts only. */
 interface BugDuelContext {
@@ -3060,6 +3069,41 @@ export function createDuelHost(options: {
         ...(canonicalCodes ? { canonicalCodes: Object.fromEntries(canonicalCodes) } : {}),
         ...(lookupBudget ? { lookupRemaining: lookupBudget.remaining, lookupLimited: [...lookupLimitedCodes] } : {}),
       };
+    }
+    if (op === "deck-suggestions") {
+      if (!deckSuggestionsEnabled()) throw new RequestError("Deck suggestions are disabled", 404);
+      const player = options.db.prepare<[number, string], { user_id: number }>(`
+        SELECT p.user_id FROM players p JOIN users u ON u.id=p.user_id WHERE p.id=? AND p.guild_id=?
+      `).get(actor, guildId);
+      if (!player || (body.userId !== undefined && (!Number.isSafeInteger(body.userId) || body.userId !== player.user_id))) {
+        throw new RequestError("Authenticated guild player is required", 403);
+      }
+      const query = parseDeckSuggestionQuery(body.suggestionQuery);
+      if (!query) throw new RequestError("Invalid deck suggestion query", 400);
+      if (body.suggestionVersion !== undefined && (typeof body.suggestionVersion !== "string" || !/^[a-f0-9]{64}$/i.test(body.suggestionVersion))) {
+        throw new RequestError("Suggestion version must be a SHA-256 digest", 400);
+      }
+      const mode = query.format.endsWith("domain") ? "domain" : "normal";
+      const settings = normalizeDuelSettings(mode, { ...(query.banlist === undefined ? {} : { banlist: query.banlist }),
+        ...(query.format.startsWith("genesys") ? { genesys: {} } : {}) });
+      const rawMaster = query.deckMaster ?? query.deck?.deckMaster;
+      const master = rawMaster === undefined ? undefined
+        : (await normalizeCardCodes([rawMaster], options.dataDirectory, options.db, { cacheOnly: true })).get(rawMaster) ?? rawMaster;
+      const legality = deckSuggestionScope(mode, options.dataDirectory, settings, { deckMaster: master, cardBlocks: admissionEntries(mode, "1v1") });
+      const revision = (options.db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
+      const pointsRevision = (options.db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
+      const contextVersion = createHash("sha256").update(JSON.stringify([
+        "deck-suggestions-host-v1", suggestionQueryIdentity(query), legality.version, revision, pointsRevision ?? null, new Date().toISOString().slice(0, 7),
+      ])).digest("hex");
+      if (typeof body.suggestionVersion === "string" && body.suggestionVersion.toLowerCase() === contextVersion) {
+        return { contextVersion, notModified: true };
+      }
+      const insights = createCardInsightService(options.db, { dataDirectory: options.dataDirectory });
+      const suggestionContext = { cache: false as const, deck: query.deck, legality, banlist: query.banlist, exclude: query.exclude };
+      const result = query.op === "suggestRows"
+        ? insights.suggestRows(query.deck, { ...query, deckMaster: master, legality, cache: false })
+        : insights.effectSearch(query.text, query.pool, { ...query, deckMaster: master, suggestionContext });
+      return { contextVersion, result };
     }
     if (op === "suggestion-scope") {
       if (typeof body.suggestionFormat !== "string" || !["normal", "domain", "genesys", "genesys-domain"].includes(body.suggestionFormat)) {

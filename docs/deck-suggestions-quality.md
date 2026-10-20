@@ -55,7 +55,7 @@ The [full results](./deck-suggestions-quality-results.json) preserve all shown c
 
 ## Reproduction
 
-The real-catalog evaluation is opt-in because it requires an installed engine resource bundle. The loader opens `cards.cdb` read-only, builds a disposable SQLite catalog, applies the source-card metadata snapshot, imports the real pinned artifact, and uses `deckSuggestionScope` from the duel host. It reads no environment secrets and writes no engine data.
+The real-catalog evaluation is opt-in because it requires an installed engine resource bundle. The loader opens `cards.cdb` read-only, builds a disposable file-backed SQLite catalog, applies the source-card metadata snapshot, imports the real pinned artifact, and uses `deckSuggestionScope` from the duel host. All eight scenarios exercise the production joined-cursor catalog path. The catalog connections close and its temporary directory is removed after the suite. It reads no environment secrets and writes no engine data.
 
 From the repository root, with Node 22 available:
 
@@ -66,4 +66,4 @@ DECK_SUGGESTIONS_EVAL_OUTPUT=/tmp/deck-suggestions-quality-report.json \
 prlimit --core=0 npm exec --workspace @yugidraft/shared -- vitest run tests/effect-search.integration.test.ts -t 'sourced deck suggestion'
 ```
 
-The recorded dedicated run passed all four sourced-deck cases (29 unrelated cases skipped) in 5.58 seconds. The catalog contained 14,845 raw engine records and 13,694 imported effect tags. The artifact version was `7ce6daa3e4f6251f353b6e41de3bd9ccbf842aa214740dba5d75e21c3a2b828f`. See [the integration evaluator](../packages/shared/tests/effect-search.integration.test.ts) and [the reusable catalog loader](../packages/shared/tests/fixtures/deck-suggestions-quality.ts).
+The catalog snapshot contains 14,845 raw engine records and 13,694 imported effect tags. The artifact version is `7ce6daa3e4f6251f353b6e41de3bd9ccbf842aa214740dba5d75e21c3a2b828f`. See [the integration evaluator](../packages/shared/tests/effect-search.integration.test.ts) and [the reusable catalog loader](../packages/shared/tests/fixtures/deck-suggestions-quality.ts).

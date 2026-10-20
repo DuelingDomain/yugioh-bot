@@ -21,10 +21,24 @@ const subtypePatterns = SUBTYPES.map(value => [value, new RegExp(`\\b${escaped(v
 // Printed archetype spelling matters: "HERO" does not include "Heroic".
 // Exact catalog membership also covers names whose English spelling is exceptional.
 const materialArchetype = (card: Card, name: string) => card.archetype?.toLowerCase() === name.toLowerCase() || card.name.includes(name);
+// Recipes contain only printed restrictions. Their predicates read the current
+// material card; this small cache holds no deck, catalog card, or summon proof.
+const recipes = new Map<string, Requirement>();
+
+function requirement(raw: string): Requirement | undefined {
+  const text = normalized(raw);
+  const cached = recipes.get(text);
+  if (cached) { recipes.delete(text); recipes.set(text, cached); return cached; }
+  const parsed = parseRequirement(text);
+  if (parsed && text.length <= 256) {
+    recipes.set(text, parsed);
+    if (recipes.size > 64) recipes.delete(recipes.keys().next().value!);
+  }
+  return parsed;
+}
 
 /** Deliberately small grammar: every character must be consumed before a restriction is trusted. */
-function requirement(raw: string): Requirement | undefined {
-  let text = normalized(raw);
+function parseRequirement(text: string): Requirement | undefined {
   const count = /^(\d+)(\+|\s+or more)?(?:\s+|$)/i.exec(text);
   const min = count ? Number(count[1]) : 1;
   if (!whole(min) || min > 60) return;

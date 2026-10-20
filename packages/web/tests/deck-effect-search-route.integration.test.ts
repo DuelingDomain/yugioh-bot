@@ -4,12 +4,14 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "../../shared/src/db/schema";
 import { importCardEffectArtifact } from "../../shared/src/cards/effects/artifact";
+import { createPlayerService, type DeckSuggestionQuery } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../../duel-server/src/host";
 import { createHostDataFixture } from "../../duel-server/tests/helpers/host-data-fixture";
 import { emptyCardQuery, type DeckCardInfo } from "@yugidraft/shared/duels";
 import { queryPoolCards } from "../src/components/decks/pool-search";
 
-const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn(), fallback: vi.fn() }));
+const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn(), fallback: vi.fn(),
+  suggestionRequests: [] as Array<{ userId: number; suggestionQuery: unknown; suggestionVersion?: string }>, suggestionResponses: [] as Array<Record<string, unknown>> }));
 vi.mock("@yugidraft/shared/cards/effects/reading-fallback", () => ({ fallbackEffectReading: state.fallback }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db }));
 vi.mock("@/lib/session-identity", async () => {
@@ -20,6 +22,9 @@ let directory: string, host: DuelHost;
 beforeAll(() => {
   state.db = new Database(":memory:");migrate(state.db);importCardEffectArtifact(state.db);
   state.db.prepare("INSERT INTO users(id,username,display_name) VALUES(123,'effect-route','Yugi')").run();
+  state.db.prepare("INSERT INTO users(id,username,display_name) VALUES(124,'effect-route-other','Joey')").run();
+  createPlayerService(state.db).findOrCreate("configured-community", 123, "Yugi");
+  createPlayerService(state.db).findOrCreate("configured-community", 124, "Joey");
   directory = createHostDataFixture([
     {code:14558127,name:"Ash Blossom & Joyous Spring",type:0x21},
     {code:97268402,name:"Effect Veiler",type:0x21},
@@ -41,9 +46,19 @@ afterAll(async()=>{await host.close();state.db?.close();rmSync(directory,{recurs
 beforeEach(()=>{
   state.fallback.mockReset().mockResolvedValue(null);
   vi.resetModules();vi.stubEnv("DISCORD_GUILD_ID","configured-community");vi.stubEnv("EFFECT_SEARCH","1");
+  vi.stubEnv("DECK_SUGGESTIONS", "1");
   vi.stubEnv("DUEL_INTERNAL_URL","http://effect-host");vi.stubEnv("DUEL_INTERNAL_SECRET","web-effect-secret");
   state.auth.mockResolvedValue({user:{id:"123",name:"Yugi",discordUserId:null}});
-  vi.stubGlobal("fetch",async(input:RequestInfo|URL,init?:RequestInit)=>host.handle(new Request(String(input),init)));
+  state.suggestionRequests.length = 0; state.suggestionResponses.length = 0;
+  vi.stubGlobal("fetch",async(input:RequestInfo|URL,init?:RequestInit)=>{
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    const response = await host.handle(new Request(String(input),init));
+    if (body.op === "deck-suggestions") {
+      state.suggestionRequests.push(body);
+      state.suggestionResponses.push(await response.clone().json());
+    }
+    return response;
+  });
 });
 afterEach(()=>{vi.unstubAllGlobals();vi.unstubAllEnvs();});
 const post=async(body:unknown)=>{
@@ -69,12 +84,79 @@ it("uses the same Outside row through the signed deck-search and insight entry p
   expect(response.status).toBe(200);
   const suggestions = await response.json();
   expect(suggestions.rows[1].cards.map((card: { passcode: number }) => card.passcode)).toEqual([87025064]);
+  const insights = await POST(new Request("http://web/api/cards/insights", { method: "POST", body: JSON.stringify({ op: "effectSearch", text: "outside Blue-Eyes", deck }) }));
+  expect(insights.status).toBe(200);
+  expect((await insights.json()).cards.map((card: { passcode: number }) => card.passcode)).toEqual([87025064]);
+  const { POST: resolve } = await import("../app/api/cards/resolve/route");
+  const resolved = await resolve(new Request("http://web/api/cards/resolve", { method: "POST", body: JSON.stringify({ op: "effectSearch", text: "outside Blue-Eyes", deck }) }));
+  expect(resolved.status).toBe(200);
+  expect((await resolved.json()).cards.map((card: { id: number }) => card.id)).toEqual([87025064]);
+  expect(state.suggestionRequests).toHaveLength(4);
+  expect(state.suggestionRequests[3].suggestionVersion).toMatch(/^[a-f0-9]{64}$/);
+  expect(state.suggestionResponses[3]).toMatchObject({ notModified: true });
   const excluded = await post({ text: "outside Blue-Eyes", deck, exclude: [87025064] });
   expect(excluded.status).toBe(200);
   expect((await excluded.json()).effectHits).toEqual([]);
   expect(state.fallback).not.toHaveBeenCalled();
   vi.stubEnv("DECK_SUGGESTIONS", "0");
   expect((await post({ text: "outside Blue-Eyes", deck })).status).toBe(404);
+});
+
+it("checks every cached result with the real host and isolates mutations, actors and metadata revisions", async () => {
+  const { loadDeckSuggestions } = await import("../src/lib/deck-suggestions");
+  const query: Extract<DeckSuggestionQuery, { op: "suggestRows" }> = { op: "suggestRows", format: "normal", deck: { main: [89631139, 89631139, 89631139], extra: [], side: [97268402, 14558127] } };
+  const input = { guildId: "configured-community", userId: 123, query };
+  const first = await loadDeckSuggestions(input);
+  expect(first.ok).toBe(true);
+  if (!first.ok) return;
+  first.result.rows[1].cards[0].name = "caller mutation";
+  const repeated = await loadDeckSuggestions({ ...input, query: { ...input.query, deck: { ...input.query.deck, side: [...input.query.deck.side].reverse() } } });
+  expect(repeated.ok).toBe(true);
+  if (repeated.ok) expect(repeated.result.rows[1].cards[0].name).toBe("Silver's Cry");
+  expect(state.suggestionRequests.at(-1)?.suggestionVersion).toMatch(/^[a-f0-9]{64}$/);
+  expect(state.suggestionResponses.at(-1)).toMatchObject({ notModified: true });
+  expect((await loadDeckSuggestions({ ...input, userId: 124 })).ok).toBe(true);
+  expect(state.suggestionRequests.at(-1)?.userId).toBe(124);
+  expect(state.suggestionRequests.at(-1)?.suggestionVersion).toBeUndefined();
+  state.db!.prepare("UPDATE card_catalog SET name='Updated Silver Cry' WHERE ygoprodeck_id=87025064").run();
+  try {
+    const updated = await loadDeckSuggestions(input);
+    expect(updated.ok).toBe(true);
+    if (updated.ok) expect(updated.result.rows[1].cards[0].name).toBe("Updated Silver Cry");
+    expect(state.suggestionResponses.at(-1)).not.toHaveProperty("notModified");
+  } finally { state.db!.prepare("UPDATE card_catalog SET name='Silver''s Cry' WHERE ygoprodeck_id=87025064").run(); }
+});
+
+it("retains at most 64 completed results across module reloads and reuses only validated versions", async () => {
+  const { loadDeckSuggestions } = await import("../src/lib/deck-suggestions");
+  const input = (n: number) => ({ guildId: "configured-community", userId: 123, query: { op: "suggestRows" as const, format: "normal" as const,
+    deck: { main: [89631139, 89631139, 89631139], extra: [], side: [] }, exclude: [500000000 + n] } });
+  for (let n = 0; n < 65; n++) expect((await loadDeckSuggestions(input(n))).ok).toBe(true);
+  vi.resetModules();
+  const reloaded = await import("../src/lib/deck-suggestions");
+  expect((await reloaded.loadDeckSuggestions(input(64))).ok).toBe(true);
+  expect(state.suggestionRequests.at(-1)?.suggestionVersion).toMatch(/^[a-f0-9]{64}$/);
+  expect(state.suggestionResponses.at(-1)).toMatchObject({ notModified: true });
+  expect((await reloaded.loadDeckSuggestions(input(0))).ok).toBe(true);
+  expect(state.suggestionRequests.at(-1)?.suggestionVersion).toBeUndefined();
+});
+
+it("fails closed on host outages and malformed conditional/result responses even with a cached result", async () => {
+  const { loadDeckSuggestions } = await import("../src/lib/deck-suggestions");
+  const input = { guildId: "configured-community", userId: 123, query: { op: "suggestRows" as const, format: "normal" as const,
+    deck: { main: [89631139, 89631139, 89631139], extra: [], side: [] }, exclude: [500000099] } };
+  expect((await loadDeckSuggestions(input)).ok).toBe(true);
+  vi.stubGlobal("fetch", async () => { throw new Error("host unavailable"); });
+  const outage = await loadDeckSuggestions(input);
+  expect(outage.ok).toBe(false);
+  if (!outage.ok) expect(outage.response.status).toBe(503);
+  for (const body of [{ contextVersion: "0".repeat(64), notModified: true }, { contextVersion: "0".repeat(64), result: { rows: [], version: "invalid" } },
+    { contextVersion: "0".repeat(64), result: {}, allowed: [87025064] }]) {
+    vi.stubGlobal("fetch", async () => Response.json(body));
+    const malformed = await loadDeckSuggestions(input);
+    expect(malformed.ok).toBe(false);
+    if (!malformed.ok) expect(malformed.response.status).toBe(502);
+  }
 });
 it("retains literal search when exact or the web flag is off, even with an enabled host",async()=>{
   expect(await (await post({text:"hand traps that negate",exact:true})).json()).toMatchObject({reading:null,effectHits:[]});

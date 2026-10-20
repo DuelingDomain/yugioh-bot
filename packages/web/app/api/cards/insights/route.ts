@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createCardInsightService, readArchetypeGuide } from "@yugidraft/shared/services";
+import { createCardInsightService, parseDeckSuggestionQuery, readArchetypeGuide } from "@yugidraft/shared/services";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { effectSearchEnabled, deckSuggestionsEnabled } from "@/lib/effect-search";
-import { loadDeckSuggestionLegality } from "@/lib/deck-suggestion-legality";
+import { loadDeckSuggestions } from "@/lib/deck-suggestions";
 import { readCardInsightRequest } from "@/lib/card-insights-api";
 import { apiErrorResponse } from "@/lib/api-errors";
 import { lowConfidenceReading, searchIntentTarget } from "@yugidraft/shared/cards/effects";
@@ -21,16 +21,17 @@ export async function POST(request: Request) {
   const body = await readCardInsightRequest(request);
   if (!body.ok) return body.response;
   try {
-    const service = createCardInsightService(getDb());
     const input = body.value;
     const outside = (input.op === "effectSearch" || input.op === "read") && !("exact" in input && input.exact) && searchIntentTarget(input.text)?.kind === "outside";
     if ((input.op === "suggestRows" || outside) && !deckSuggestionsEnabled()) return NextResponse.json({ deckSuggestionsEnabled: false, error: "deck_suggestions_disabled" }, { status: 404, headers: { "Cache-Control": "private, no-store" } });
-    let suggestionContext;
     if (input.op === "suggestRows" || (input.op === "effectSearch" && outside)) {
-      const admission = await loadDeckSuggestionLegality({ guildId: env.discordGuildId, userId: actor.userId, format: input.format ?? "normal", banlist: input.banlist, deckMaster: input.deckMaster ?? input.deck?.deckMaster });
-      if (!admission.ok) return admission.response;
-      suggestionContext = { legality: admission.legality, deck: input.deck, banlist: input.banlist, exclude: input.exclude };
+      const query = parseDeckSuggestionQuery(input);
+      if (!query) return NextResponse.json({ error: "Invalid deck suggestion query" }, { status: 400 });
+      const found = await loadDeckSuggestions({ guildId: env.discordGuildId, userId: actor.userId, query });
+      if (!found.ok) return found.response;
+      return NextResponse.json({ effectSearchEnabled: true, deckSuggestionsEnabled: true, ...found.result }, { headers: { "Cache-Control": "private, no-store" } });
     }
+    const service = createCardInsightService(getDb());
     let data: object;
     switch (input.op) {
       case "summary": data = { summary: service.summary(input.passcode) }; break;
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
         data = { reading }; break;
       }
       case "effectSearch": {
-        let result = service.effectSearch(input.text, input.pool, { ...input, suggestionContext });
+        let result = service.effectSearch(input.text, input.pool, input);
         if (!outside && !input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
           if (await fallbackEffectReading(getDb(), input.text, actor.userId)) result = service.effectSearch(input.text, input.pool, input);
         }
@@ -50,7 +51,6 @@ export async function POST(request: Request) {
       case "guide": data = { guide: readArchetypeGuide(getDb(), input.archetypes) }; break;
       case "worksWith": data = { cards: service.worksWith(input.passcode, input.pool, input) }; break;
       case "suggest": data = { cards: service.suggestForDeck(input.deck, { ...input, format: input.format ?? "normal" }) }; break;
-      case "suggestRows": data = service.suggestRows(input.deck, { ...input, legality: suggestionContext!.legality, format: input.format ?? "normal" }); break;
       case "poolHealth": data = { health: service.poolHealth(input.cards, input) }; break;
       case "pickScore": data = { score: service.pickScore(input.candidate, input.pickedPool) }; break;
     }

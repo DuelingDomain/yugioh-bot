@@ -2,6 +2,7 @@ export * from "./constants.js";
 export * from "./current-name.js";
 export * from "./card-catalog.js";
 export * from "./card-insights.js";
+export * from "./deck-suggestion-query.js";
 export type { DeckSuggestionOptions, DeckSuggestionLegality, DeckSuggestionRow, DeckSuggestionResult } from "./deck-suggestions.js";
 export { readArchetypeGuide, readArchetypeHook } from "./card-insight-profiles.js";
 export * from "./genesys-points.js";

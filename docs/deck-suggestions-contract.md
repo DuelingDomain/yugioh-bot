@@ -6,10 +6,10 @@ The UI worker can use the client functions in
 
 ## Capability
 
-Set `EFFECT_SEARCH=1` and `DECK_SUGGESTIONS=1` on the web server.
+Set `EFFECT_SEARCH=1` and `DECK_SUGGESTIONS=1` on the web server and engine host.
 `DECK_SUGGESTIONS` is off by default in all environments.
 Do not use a public environment variable.
-Compose forwards both web flags and the effect-search flag to the engine host.
+Compose forwards both flags to both services.
 
 The app layout supplies the capability. Read `useDeckSuggestionsEnabled()`
 from `components/effect-search/capability-context`. Insight responses also
@@ -139,8 +139,11 @@ When the player types, use normal search or the outside-text helper.
 Successful data responses use `Cache-Control: private, no-store`. A server cache stores at
 most 64 deck results per database. Its key includes section copies, format,
 master, pool copies, exclusions, release range, points, ban list, admission
-version and catalog data version. A fresh request still checks capabilities
-and admission before a cached result can be used.
+version and catalog data version. The web server stores only completed results.
+The engine host runs the catalog scan and checks current capabilities, actor
+access, admission and data versions on every request. It confirms the cached
+version before the web server can reuse a result. It does not keep a second
+result cache. An engine failure does not permit a cached response.
 
 Errors: 400 invalid input; 401 no session; 403 no community player;
 404 capability off (`deck_suggestions_disabled` or `effect_search_disabled`);

@@ -1,0 +1,1386 @@
+{
+  "measuredAt": "2026-10-20T00:01:48.479Z",
+  "method": "Actual Next.js standalone production server, E2E authentication, real insights HTTP route and signed duel host. RSS sampled through loopback Node inspector.",
+  "limitations": [
+    "Uses loopback HTTP and synthetic E2E authentication; excludes browser rendering, Clerk network calls and TLS. Separate service timing is not instrumented.",
+    "RSS is actual process.memoryUsage().rss after 3 forced GCs; allocator retention and concurrent machine load affect results.",
+    "Engine files and source catalog are read-only; Next authentication uses its own disposable database backup. Benchmark decks are derived legal 60-card inputs.",
+    "Scope preparation is recorded separately; first suggestion timing is cold for the web service with the legality host already warm."
+  ],
+  "node": "v22.23.3",
+  "platform": "linux",
+  "architecture": "x64",
+  "cpu": "AMD Ryzen 7 9800X3D 8-Core Processor",
+  "logicalCpus": 8,
+  "input": {
+    "sourceDatabasePath": "/tmp/deck-suggestions-quality-final.sqlite",
+    "databasePath": "/tmp/deck-suggestions-next-final/next-runtime-1015978.sqlite",
+    "engineDirectory": "/home/sulman633/repos/yugioh-bot/data/duel-engine",
+    "fixturePath": "/home/sulman633/orca/workspaces/yugioh-bot/deck-suggestions/packages/shared/tests/fixtures/deck-suggestions-quality.json",
+    "fixtureSha256": "f247202664aa8707845d4e77ad36b0eb592287f4490f7973e3b7b290b4e51d5e",
+    "catalogCards": 14845,
+    "tagRows": 13694,
+    "artifacts": [
+      {
+        "artifact_version": "7ce6daa3e4f6251f353b6e41de3bd9ccbf842aa214740dba5d75e21c3a2b828f",
+        "manifest_hash": "bf4a51bd586de889d842c2d3e4cf68529ac9e97aff297c87e5ba85279b8e5a75",
+        "tags": 13694,
+        "profiles": 530
+      }
+    ],
+    "scenarios": [
+      {
+        "id": "blue-eyes",
+        "format": "normal",
+        "deck": {
+          "main": [
+            89631139,
+            89631139,
+            30576089,
+            17947697,
+            17947697,
+            17947697,
+            8240199,
+            8240199,
+            8240199,
+            54332792,
+            63198739,
+            63198739,
+            63198739,
+            42141493,
+            42141493,
+            42141493,
+            14558127,
+            14558127,
+            14558127,
+            73642296,
+            59438930,
+            97268402,
+            94145021,
+            94145021,
+            33854624,
+            6637331,
+            80326401,
+            80326401,
+            80326401,
+            17725109,
+            24382602,
+            56506740,
+            56506740,
+            29095457,
+            68462976,
+            65681983,
+            24224830,
+            10045474,
+            10045474,
+            10045474,
+            97045737,
+            97045737,
+            43219114,
+            62089826,
+            89631139,
+            30576089,
+            54332792,
+            73642296,
+            59438930,
+            97268402,
+            17725109,
+            24382602,
+            56506740,
+            29095457,
+            68462976,
+            97045737,
+            43219114,
+            62089826,
+            30576089,
+            54332792
+          ],
+          "extra": [
+            59822133,
+            59822133,
+            59822133,
+            89604813,
+            10515412,
+            76636978,
+            74892653,
+            26268488,
+            25862681,
+            63436931,
+            56532353,
+            11443677,
+            24361622,
+            42097666,
+            42097666
+          ],
+          "side": []
+        },
+        "banlist": "tcg-2026-09",
+        "initialScopeMs": 92.5026620000001,
+        "derivation": "Canonical published Main Deck cards filtered through authoritative admission; duplicate source cards up to copy limits, then admitted catalog Main Deck cards until 60; retained admitted source Extra Deck cards; empty Side Deck."
+      },
+      {
+        "id": "domain",
+        "format": "domain",
+        "deck": {
+          "main": [
+            25451383,
+            62962630,
+            95515789,
+            72656408,
+            6637331,
+            33854624,
+            60242223,
+            36577931,
+            63362460,
+            81866673,
+            60303688,
+            69680031,
+            68468459,
+            45883110,
+            55273560,
+            29157292,
+            61677004,
+            35272499,
+            80870883,
+            45484331,
+            423585,
+            32731036,
+            10000080,
+            19096726,
+            46986414,
+            74677422,
+            44362883,
+            29948294,
+            82738008,
+            18973184,
+            36637374,
+            34090915,
+            57953380,
+            12021072,
+            53129443,
+            70485614,
+            81439173,
+            52947044,
+            42703248,
+            79571449,
+            18144506,
+            83764718,
+            74191942,
+            24094653,
+            55144522,
+            12580477,
+            6172122,
+            24081957,
+            68073522,
+            54447022,
+            51481927,
+            48130397,
+            48539234,
+            6763530,
+            32756828,
+            17751597,
+            45675980,
+            74003290,
+            89812483,
+            15216188
+          ],
+          "extra": [
+            3410461,
+            87746184,
+            72272462,
+            60461804,
+            24915933,
+            70534340,
+            44146295,
+            37818794,
+            41209827,
+            76666602,
+            41373230,
+            27572350,
+            53971455,
+            70369116,
+            29301450
+          ],
+          "side": [],
+          "deckMaster": 6855503
+        },
+        "banlist": "none",
+        "initialScopeMs": 8.405581999999868,
+        "derivation": "Canonical published Main Deck cards filtered through authoritative admission; duplicate source cards up to copy limits, then admitted catalog Main Deck cards until 60; retained admitted source Extra Deck cards; empty Side Deck."
+      }
+    ]
+  },
+  "initialization": {
+    "webMs": 735.343165,
+    "legalityHostMs": 337.12832299999997,
+    "webMemory": {
+      "rss": 199462912,
+      "heapTotal": 106176512,
+      "heapUsed": 66452688,
+      "external": 4503436,
+      "arrayBuffers": 629527,
+      "rssSamples": [
+        199462912,
+        199462912,
+        199462912
+      ]
+    }
+  },
+  "baseline": {
+    "warmupCalls": 12,
+    "queries": [
+      "draw cards",
+      "negate monster effects",
+      "special summon dragon monsters",
+      "destroy spells and traps",
+      "banish cards",
+      "search warrior monsters"
+    ],
+    "timingsMs": [
+      295.6418359999998,
+      248.5606499999999,
+      241.5294270000004,
+      231.6931380000001,
+      232.11432400000012,
+      227.7488360000002,
+      222.48720300000014,
+      223.65597100000014,
+      238.60819300000003,
+      231.71295500000042,
+      234.31475499999942,
+      224.14507200000025
+    ],
+    "beforeTransportMemory": {
+      "rss": 231297024,
+      "heapTotal": 109060096,
+      "heapUsed": 70500424,
+      "external": 4511628,
+      "arrayBuffers": 637719,
+      "rssSamples": [
+        232034304,
+        232034304,
+        231297024
+      ]
+    },
+    "existingHostTransportWarmupCalls": 3,
+    "memory": {
+      "rss": 225357824,
+      "heapTotal": 109584384,
+      "heapUsed": 71182080,
+      "external": 4511664,
+      "arrayBuffers": 637755,
+      "rssSamples": [
+        232775680,
+        225357824,
+        225357824
+      ]
+    }
+  },
+  "timing": [
+    {
+      "id": "blue-eyes",
+      "format": "normal",
+      "mainCards": 60,
+      "extraCards": 15,
+      "cold": {
+        "milliseconds": 619.6698120000001,
+        "httpMs": 619.7958519999993,
+        "returnedCards": 42,
+        "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+        "rowCounts": {
+          "archetype": 12,
+          "outside": 12,
+          "extra": 12,
+          "staples": 6
+        },
+        "variant": 483
+      },
+      "warmupCalls": 6,
+      "sampleCount": 30,
+      "serviceP50Ms": null,
+      "serviceP95Ms": null,
+      "httpP95Ms": 566.1013170000006,
+      "scopeP95Ms": null,
+      "cacheBypass": "Distinct legal Side/Extra Deck variants, not a client cache-control override",
+      "samples": [
+        {
+          "milliseconds": 503.21319399999993,
+          "httpMs": 503.2259579999991,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 41546
+        },
+        {
+          "milliseconds": 500.556423,
+          "httpMs": 500.57242700000097,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 41777
+        },
+        {
+          "milliseconds": 532.6768410000004,
+          "httpMs": 532.7072440000011,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 43227
+        },
+        {
+          "milliseconds": 513.408390999999,
+          "httpMs": 513.4214960000008,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 44818
+        },
+        {
+          "milliseconds": 514.6556080000009,
+          "httpMs": 514.6667460000008,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 50755
+        },
+        {
+          "milliseconds": 514.9362880000008,
+          "httpMs": 514.9465230000005,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 56889
+        },
+        {
+          "milliseconds": 601.1780460000009,
+          "httpMs": 601.1892029999999,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 59080
+        },
+        {
+          "milliseconds": 516.7166240000006,
+          "httpMs": 516.7266880000006,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 62121
+        },
+        {
+          "milliseconds": 518.8110769999985,
+          "httpMs": 518.8215210000017,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 64865
+        },
+        {
+          "milliseconds": 536.2810369999988,
+          "httpMs": 536.2955870000005,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 96540
+        },
+        {
+          "milliseconds": 531.295791999999,
+          "httpMs": 531.3141529999994,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 98905
+        },
+        {
+          "milliseconds": 509.27737499999967,
+          "httpMs": 509.2887040000005,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 102380
+        },
+        {
+          "milliseconds": 530.9095130000005,
+          "httpMs": 530.9200619999992,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 109401
+        },
+        {
+          "milliseconds": 515.3772910000007,
+          "httpMs": 515.3883049999986,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 111280
+        },
+        {
+          "milliseconds": 511.928351999999,
+          "httpMs": 511.93934499999887,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 114932
+        },
+        {
+          "milliseconds": 512.232011,
+          "httpMs": 512.243695000001,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 122520
+        },
+        {
+          "milliseconds": 524.9439160000002,
+          "httpMs": 524.9589610000003,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 123709
+        },
+        {
+          "milliseconds": 530.8531010000006,
+          "httpMs": 530.8643990000019,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 126218
+        },
+        {
+          "milliseconds": 515.2860939999991,
+          "httpMs": 515.3006089999981,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 128454
+        },
+        {
+          "milliseconds": 508.4480689999982,
+          "httpMs": 508.46345900000233,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 131182
+        },
+        {
+          "milliseconds": 525.8536469999999,
+          "httpMs": 525.8660029999992,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 132308
+        },
+        {
+          "milliseconds": 521.4464630000002,
+          "httpMs": 521.4575389999991,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 135598
+        },
+        {
+          "milliseconds": 507.20073299999785,
+          "httpMs": 507.21162600000025,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 146746
+        },
+        {
+          "milliseconds": 517.5895889999993,
+          "httpMs": 517.6013590000002,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 164710
+        },
+        {
+          "milliseconds": 566.0895090000013,
+          "httpMs": 566.1013170000006,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 168917
+        },
+        {
+          "milliseconds": 535.1650680000021,
+          "httpMs": 535.1760670000003,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 176392
+        },
+        {
+          "milliseconds": 551.9881720000012,
+          "httpMs": 552.0026760000001,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 191749
+        },
+        {
+          "milliseconds": 530.8705780000018,
+          "httpMs": 530.8825980000001,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 197042
+        },
+        {
+          "milliseconds": 537.5027330000012,
+          "httpMs": 537.5135010000013,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 209710
+        },
+        {
+          "milliseconds": 524.5184569999983,
+          "httpMs": 524.5289260000027,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::b96c391233f58c791c015559e6b34a20119fc131695dfe7146ae4abd262147dc",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 212652
+        }
+      ]
+    },
+    {
+      "id": "domain",
+      "format": "domain",
+      "mainCards": 60,
+      "extraCards": 15,
+      "cold": {
+        "milliseconds": 602.5738830000009,
+        "httpMs": 602.5841900000014,
+        "returnedCards": 42,
+        "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+        "rowCounts": {
+          "archetype": 12,
+          "outside": 12,
+          "extra": 12,
+          "staples": 6
+        },
+        "variant": 43227
+      },
+      "warmupCalls": 6,
+      "sampleCount": 30,
+      "serviceP50Ms": null,
+      "serviceP95Ms": null,
+      "httpP95Ms": 595.1402869999984,
+      "scopeP95Ms": null,
+      "cacheBypass": "Distinct legal Side/Extra Deck variants, not a client cache-control override",
+      "samples": [
+        {
+          "milliseconds": 561.3961589999999,
+          "httpMs": 561.4075400000002,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 698785
+        },
+        {
+          "milliseconds": 562.4770100000023,
+          "httpMs": 562.4878040000003,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 739444
+        },
+        {
+          "milliseconds": 563.2589679999983,
+          "httpMs": 563.2701720000005,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 770365
+        },
+        {
+          "milliseconds": 589.6478160000006,
+          "httpMs": 589.6587660000005,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 821049
+        },
+        {
+          "milliseconds": 555.868219,
+          "httpMs": 555.8794339999986,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 987311
+        },
+        {
+          "milliseconds": 555.2080459999997,
+          "httpMs": 555.220054999998,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1174075
+        },
+        {
+          "milliseconds": 595.1295429999955,
+          "httpMs": 595.1402869999984,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1249315
+        },
+        {
+          "milliseconds": 574.2049970000007,
+          "httpMs": 574.2198439999993,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1426714
+        },
+        {
+          "milliseconds": 579.7423529999942,
+          "httpMs": 579.7541799999963,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1487805
+        },
+        {
+          "milliseconds": 582.3690599999973,
+          "httpMs": 582.3812840000028,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1516510
+        },
+        {
+          "milliseconds": 605.5173559999967,
+          "httpMs": 605.5289410000041,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1528054
+        },
+        {
+          "milliseconds": 591.3336290000007,
+          "httpMs": 591.3461580000003,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1546123
+        },
+        {
+          "milliseconds": 588.3664909999934,
+          "httpMs": 588.3784310000046,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1561110
+        },
+        {
+          "milliseconds": 589.5085299999992,
+          "httpMs": 589.5193779999972,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1621413
+        },
+        {
+          "milliseconds": 575.7864599999957,
+          "httpMs": 575.7973949999941,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1639384
+        },
+        {
+          "milliseconds": 558.6808749999982,
+          "httpMs": 558.6923059999972,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1686814
+        },
+        {
+          "milliseconds": 554.2061780000004,
+          "httpMs": 554.217571000001,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1735088
+        },
+        {
+          "milliseconds": 587.725741000002,
+          "httpMs": 587.7372200000027,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1855932
+        },
+        {
+          "milliseconds": 567.9023000000016,
+          "httpMs": 567.9130989999976,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1861629
+        },
+        {
+          "milliseconds": 565.7927889999992,
+          "httpMs": 565.803783000003,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1906812
+        },
+        {
+          "milliseconds": 588.121920000005,
+          "httpMs": 588.1340120000023,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1948619
+        },
+        {
+          "milliseconds": 568.4689330000037,
+          "httpMs": 568.4796619999979,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 1992816
+        },
+        {
+          "milliseconds": 530.5695190000042,
+          "httpMs": 530.5835109999971,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 2061963
+        },
+        {
+          "milliseconds": 532.8175919999994,
+          "httpMs": 532.8290050000069,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 2091298
+        },
+        {
+          "milliseconds": 570.7335720000046,
+          "httpMs": 570.7442169999995,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 2111707
+        },
+        {
+          "milliseconds": 540.6622439999992,
+          "httpMs": 540.6730469999966,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 2129638
+        },
+        {
+          "milliseconds": 533.3469620000033,
+          "httpMs": 533.35815,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 2133971
+        },
+        {
+          "milliseconds": 536.448424000002,
+          "httpMs": 536.4597529999955,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 2191144
+        },
+        {
+          "milliseconds": 560.086132000004,
+          "httpMs": 560.0982290000029,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 2220237
+        },
+        {
+          "milliseconds": 538.7926129999978,
+          "httpMs": 538.803181999996,
+          "returnedCards": 42,
+          "version": "suggestions-1:57344::bc17ced4023e7551864a57eb59eaf75295ed3340e27169db00a297dea36a6e27",
+          "rowCounts": {
+            "archetype": 12,
+            "outside": 12,
+            "extra": 12,
+            "staples": 6
+          },
+          "variant": 2322421
+        }
+      ]
+    }
+  ],
+  "memory": {
+    "afterUncached": {
+      "rss": 236302336,
+      "heapTotal": 107188224,
+      "heapUsed": 65541896,
+      "external": 4570917,
+      "arrayBuffers": 638537,
+      "rssSamples": [
+        236875776,
+        236302336,
+        236302336
+      ]
+    },
+    "cacheSamples": [
+      {
+        "decks": 8,
+        "rss": 233906176,
+        "heapTotal": 107450368,
+        "heapUsed": 65543104,
+        "external": 4570911,
+        "arrayBuffers": 638531,
+        "rssSamples": [
+          234078208,
+          233906176,
+          233906176
+        ]
+      },
+      {
+        "decks": 16,
+        "rss": 231047168,
+        "heapTotal": 107450368,
+        "heapUsed": 65610664,
+        "external": 4570911,
+        "arrayBuffers": 638531,
+        "rssSamples": [
+          231555072,
+          231047168,
+          231047168
+        ]
+      },
+      {
+        "decks": 24,
+        "rss": 235683840,
+        "heapTotal": 107188224,
+        "heapUsed": 65481264,
+        "external": 4570912,
+        "arrayBuffers": 638532,
+        "rssSamples": [
+          236068864,
+          235683840,
+          235683840
+        ]
+      },
+      {
+        "decks": 32,
+        "rss": 239226880,
+        "heapTotal": 107450368,
+        "heapUsed": 65493408,
+        "external": 4570912,
+        "arrayBuffers": 638532,
+        "rssSamples": [
+          239226880,
+          239226880,
+          239226880
+        ]
+      },
+      {
+        "decks": 40,
+        "rss": 235073536,
+        "heapTotal": 107712512,
+        "heapUsed": 65657960,
+        "external": 4570912,
+        "arrayBuffers": 638532,
+        "rssSamples": [
+          235798528,
+          235073536,
+          235073536
+        ]
+      },
+      {
+        "decks": 48,
+        "rss": 232726528,
+        "heapTotal": 107712512,
+        "heapUsed": 65649168,
+        "external": 4570912,
+        "arrayBuffers": 638532,
+        "rssSamples": [
+          233148416,
+          233148416,
+          232726528
+        ]
+      },
+      {
+        "decks": 56,
+        "rss": 235020288,
+        "heapTotal": 107974656,
+        "heapUsed": 65643080,
+        "external": 4570912,
+        "arrayBuffers": 638532,
+        "rssSamples": [
+          235352064,
+          235020288,
+          235020288
+        ]
+      },
+      {
+        "decks": 64,
+        "rss": 232046592,
+        "heapTotal": 107974656,
+        "heapUsed": 65669960,
+        "external": 4570912,
+        "arrayBuffers": 638532,
+        "rssSamples": [
+          232443904,
+          232046592,
+          232046592
+        ]
+      }
+    ],
+    "after64Cache": {
+      "rss": 231993344,
+      "heapTotal": 108236800,
+      "heapUsed": 65697960,
+      "external": 4570909,
+      "arrayBuffers": 638529,
+      "rssSamples": [
+        231993344,
+        231993344,
+        231993344
+      ]
+    },
+    "maximumRetainedRss": 239226880,
+    "extraRetainedRss": 13869056,
+    "extraRetainedMiB": 13.2265625,
+    "extraVersusNoTransportRss": 7929856,
+    "cacheOnlyRetainedRss": 2924544,
+    "cachedDecks": 64,
+    "cachedServiceP95Ms": null,
+    "cachedRequestP95Ms": 6.21636999999464
+  },
+  "thresholds": {
+    "uncachedP95Below400Ms": false,
+    "uncachedHttpP95Below400Ms": false,
+    "retainedWebRssBelow5MiB": false
+  },
+  "sourceChangedDuringRun": false,
+  "sourceBefore": {
+    "packages/shared/src/services/card-insight-catalog.ts": "2b81f6556bc9e80d8c0756a78ca7ba75d8a559cb14858cfb2c06655d3b1a4ab9",
+    "packages/shared/src/services/card-insights.ts": "51bbc1f926a2baf2076194a5443a851bf66789ea1b46f87828fdebe7d32d3bd1",
+    "packages/shared/src/services/deck-suggestions.ts": "22af77cbc999d15f32cbea7ab74ae4ca390effa25bf62c0284d162f2681d89bc",
+    "packages/shared/src/services/deck-suggestion-hooks.ts": "fd48180995be21fbec36e60ebd2f5fed7f17389318e30cea882350c56f49a24c",
+    "packages/shared/src/cards/effects/deck-summon.ts": "12ac4e7f60101108ff96c32169750400a3dddcd5f7c5dee3a8d46abc919e39f7",
+    "packages/duel-server/src/deck-legality.ts": "5bd124a7adde3230de97d2280b9100c89112da8ddf72aef1d1faab2e477f954c"
+  },
+  "sourceAfter": {
+    "packages/shared/src/services/card-insight-catalog.ts": "2b81f6556bc9e80d8c0756a78ca7ba75d8a559cb14858cfb2c06655d3b1a4ab9",
+    "packages/shared/src/services/card-insights.ts": "51bbc1f926a2baf2076194a5443a851bf66789ea1b46f87828fdebe7d32d3bd1",
+    "packages/shared/src/services/deck-suggestions.ts": "22af77cbc999d15f32cbea7ab74ae4ca390effa25bf62c0284d162f2681d89bc",
+    "packages/shared/src/services/deck-suggestion-hooks.ts": "fd48180995be21fbec36e60ebd2f5fed7f17389318e30cea882350c56f49a24c",
+    "packages/shared/src/cards/effects/deck-summon.ts": "12ac4e7f60101108ff96c32169750400a3dddcd5f7c5dee3a8d46abc919e39f7",
+    "packages/duel-server/src/deck-legality.ts": "5bd124a7adde3230de97d2280b9100c89112da8ddf72aef1d1faab2e477f954c"
+  },
+  "profileSummary": [
+    {
+      "name": "E",
+      "file": "file:///packages/web/.next-deck-suggestions-perf/standalone/packages/web/.next-deck-suggestions-perf/server/chunks/443.js",
+      "line": 739,
+      "samples": 236,
+      "share": 0.14965123652504755
+    },
+    {
+      "name": "next",
+      "file": "",
+      "line": 0,
+      "samples": 136,
+      "share": 0.08623969562460368
+    },
+    {
+      "name": "v",
+      "file": "file:///packages/web/.next-deck-suggestions-perf/standalone/packages/web/.next-deck-suggestions-perf/server/chunks/5283.js",
+      "line": 1,
+      "samples": 112,
+      "share": 0.07102092580849714
+    },
+    {
+      "name": "suggestionCandidates",
+      "file": "file:///packages/web/.next-deck-suggestions-perf/standalone/packages/web/.next-deck-suggestions-perf/server/chunks/443.js",
+      "line": 741,
+      "samples": 99,
+      "share": 0.06277742549143944
+    },
+    {
+      "name": "(garbage collector)",
+      "file": "",
+      "line": 0,
+      "samples": 59,
+      "share": 0.03741280913126189
+    },
+    {
+      "name": "e",
+      "file": "file:///packages/web/.next-deck-suggestions-perf/standalone/packages/web/.next-deck-suggestions-perf/server/chunks/443.js",
+      "line": 417,
+      "samples": 49,
+      "share": 0.031071655041217502
+    },
+    {
+      "name": "M",
+      "file": "file:///packages/web/.next-deck-suggestions-perf/standalone/packages/web/.next-deck-suggestions-perf/server/chunks/443.js",
+      "line": 206,
+      "samples": 46,
+      "share": 0.029169308814204185
+    },
+    {
+      "name": "",
+      "file": "file:///packages/web/.next-deck-suggestions-perf/standalone/packages/web/.next-deck-suggestions-perf/server/chunks/443.js",
+      "line": 207,
+      "samples": 46,
+      "share": 0.029169308814204185
+    },
+    {
+      "name": "j",
+      "file": "file:///packages/web/.next-deck-suggestions-perf/standalone/packages/web/.next-deck-suggestions-perf/server/chunks/443.js",
+      "line": 967,
+      "samples": 44,
+      "share": 0.027901077996195307
+    },
+    {
+      "name": "w",
+      "file": "file:///packages/web/.next-deck-suggestions-perf/standalone/packages/web/.next-deck-suggestions-perf/server/chunks/443.js",
+      "line": 658,
+      "samples": 43,
+      "share": 0.027266962587190868
+    },
+    {
+      "name": "",
+      "file": "file:///packages/web/.next-deck-suggestions-perf/standalone/packages/web/.next-deck-suggestions-perf/server/chunks/443.js",
+      "line": 967,
+      "samples": 36,
+      "share": 0.022828154724159798
+    },
+    {
+      "name": "(program)",
+      "file": "",
+      "line": 0,
+      "samples": 27,
+      "share": 0.017121116043119847
+    },
+    {
+      "name": "v",
+      "file": "file:///packages/web/.next-deck-suggestions-perf/standalone/packages/web/.next-deck-suggestions-perf/server/chunks/5283.js",
+      "line": 1,
+      "samples": 22,
+      "share": 0.013950538998097653
+    },
+    {
+      "name": "",
+      "file": "file:///packages/web/.next-deck-suggestions-perf/standalone/packages/web/.next-deck-suggestions-perf/server/chunks/443.js",
+      "line": 207,
+      "samples": 21,
+      "share": 0.013316423589093214
+    },
+    {
+      "name": "",
+      "file": "file:///packages/web/.next-deck-suggestions-perf/standalone/packages/web/.next-deck-suggestions-perf/server/chunks/443.js",
+      "line": 207,
+      "samples": 21,
+      "share": 0.013316423589093214
+    }
+  ]
+}
