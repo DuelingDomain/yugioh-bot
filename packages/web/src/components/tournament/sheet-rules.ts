@@ -7,7 +7,7 @@ import type { TournamentDetail } from "./types";
 export interface RulesSummary {
   bestOf: number;
   rows: Array<{ label: string; value: string }>;
-  /** "Best of 3, Normal, TCG September 2026, 3 min turns" */
+  /** "Best of 3, Normal, TCG — October 19, 2026, 3 min turns" */
   line: string;
 }
 

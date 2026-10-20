@@ -101,7 +101,7 @@ describe("Genesys storage contract", () => {
     const duels = createDuelService(db);
     for (const format of ["1v1", "tag", "ffa3", "ffa4"] as const) {
       const created = duels.create({ guildId: "g", organizerPlayerId: p1.playerId, name: "Genesys", mode, format,
-        settings: { genesys: { pointCap: 0 }, banlist: "tcg-2026-09" } });
+        settings: { genesys: { pointCap: 0 }, banlist: "tcg-2026-10-19" } });
       expect(duels.get(created.slug, "g").settings).toMatchObject({ genesys: { pointCap: 0 }, banlist: "none" });
     }
     const created = createDuelSeriesService(db).createChallenge({ guildId: "g", challengerPlayerId: p1.playerId,
@@ -112,7 +112,7 @@ describe("Genesys storage contract", () => {
   });
 
   it.each(["normal", "domain"] as const)("round-trips %s tournament duel rules", mode => {
-    const raw = serializeTournamentDuelRules({ mode, settings: { genesys: {}, banlist: "tcg-2026-09" } });
+    const raw = serializeTournamentDuelRules({ mode, settings: { genesys: {}, banlist: "tcg-2026-10-19" } });
     expect(resolveTournamentDuelRules({ best_of: 3, duel_rules_json: raw, draft_id: null }).settings)
       .toMatchObject({ genesys: { pointCap: 100 }, banlist: "none" });
     expect(resolveTournamentDuelRules({ best_of: 3, duel_rules_json: null, draft_id: null }).settings.genesys).toBeNull();
