@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       if (!found.ok) return found.response;
       return NextResponse.json({ effectSearchEnabled: true, deckSuggestionsEnabled: true, ...found.result }, { headers: { "Cache-Control": "private, no-store" } });
     }
-    const service = createCardInsightService(getDb());
+    const service = createCardInsightService(getDb(), { guildId: env.discordGuildId });
     let data: object;
     switch (input.op) {
       case "summary": data = { summary: service.summary(input.passcode) }; break;

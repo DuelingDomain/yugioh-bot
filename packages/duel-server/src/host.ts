@@ -3400,12 +3400,12 @@ export function createDuelHost(options: {
         const revision = (options.db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
         const pointsRevision = (options.db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
         const contextVersion = createHash("sha256").update(JSON.stringify([
-          "deck-suggestions-host-v4", formatStaples(query.format, query.banlist, options.db).version, suggestionQueryIdentity(query), legality.version, revision, pointsRevision ?? null, new Date().toISOString().slice(0, 7),
+          "deck-suggestions-host-v4", formatStaples(query.format, query.banlist, options.db, guildId).version, suggestionQueryIdentity(query), legality.version, revision, pointsRevision ?? null, new Date().toISOString().slice(0, 7),
         ])).digest("hex");
         if (typeof body.suggestionVersion === "string" && body.suggestionVersion.toLowerCase() === contextVersion) {
           return { contextVersion, notModified: true };
         }
-        const result = await suggestionWorkers.run({ query, legality, deckMaster: master });
+        const result = await suggestionWorkers.run({ query, legality, deckMaster: master, guildId });
         return { contextVersion, result };
       } finally { suggestingPlayers.delete(actor); }
     }
@@ -3469,7 +3469,7 @@ export function createDuelHost(options: {
         const formatAllowed=formatReading?.format ? new Set(deckSuggestionScope(mode,options.dataDirectory,
           normalizeDuelSettings(mode, formatReading.format==="genesys"?{genesys:{}}:{banlist:query.banlist==="none"?"none":query.banlist}),
           {deckMaster:query.deckMaster,cardBlocks:cardRequestEntries({...body,mode},guildId,actor)}).allowed):undefined;
-        const search = () => queryCards(catalog, query, entries, points, { effects, releases, effectSearchEnabled: enabled, formatAllowed });
+        const search = () => queryCards(catalog, query, entries, points, { effects, releases, effectSearchEnabled: enabled, formatAllowed, guildId });
         let result = search();
         if (enabled && !query.exact && query.scope !== "name" && query.text.trim() && query.passcodes?.length !== 0 && !query.effectOmit?.length && !result.total && !result.reading?.query.intent && !result.reading?.query.formatFilter && !result.reading?.query.recruiter && !result.reading?.query.released && !result.reading?.query.sort) {
           const { lowConfidenceReading } = await import("@yugidraft/shared/cards/effects");

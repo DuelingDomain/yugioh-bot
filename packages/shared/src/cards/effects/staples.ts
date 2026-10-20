@@ -47,16 +47,18 @@ export function stapleFormat(format = "normal", banlist?: string): string {
   return format === "normal" ? banlist?.startsWith("ocg") ? "ocg" : "tcg" : format;
 }
 export const stapleReason = (usage: StapleUsage, label: string) => `Played in ${Math.round(usage.playShare * 100)}% of ${label} decks`;
-const localCaches = new WeakMap<Database.Database, { key: string; formats: Map<string, StapleUsage[]>; counts: Map<string, number>; playShares: Map<string,ReadonlyMap<number,number>> }>();
-/** Private aggregate: reads no owner IDs and exports no individual decks. Small cohorts are ignored. */
-function savedUsage(db: Database.Database) {
-  const key = hash([db.prepare("SELECT revision FROM card_staple_source_revision WHERE id=1").get(),
+const localCaches = new WeakMap<Database.Database, Map<string, { key: string; formats: Map<string, StapleUsage[]>; counts: Map<string, number>; playShares: Map<string,ReadonlyMap<number,number>> }>>();
+/** Private guild aggregate. Owner IDs are used only in memory to deduplicate votes. */
+function savedUsage(db: Database.Database, guildId: string) {
+  const key = hash([guildId, db.prepare("SELECT revision FROM card_staple_source_revision WHERE id=1").get(),
     db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get(), db.prepare("SELECT revision FROM card_effect_revision WHERE id=1").get()]);
-  const old = localCaches.get(db);
+  let cache = localCaches.get(db);
+  if (!cache) { cache = new Map(); localCaches.set(db, cache); }
+  const old = cache.get(guildId);
   if (old?.key === key) return old;
   const canonicalRow = db.prepare<[number], { card_id: number }>("SELECT card_id FROM card_artworks WHERE artwork_id=?");
   const canonical = (id: number) => canonicalRow.get(id)?.card_id ?? id;
-  const buckets = new Map<string, Map<string, { codes: number[]; archetype: string }>>();
+  const buckets = new Map<string, { lists: Set<string>; owners: Map<number, { codes: number[]; archetype: string }> }>();
   const metadata = db.prepare<[number], { archetype: string | null; name: string; effect_text: string; tags_json: string | null }>(`SELECT c.archetype,c.name,c.effect_text,t.tags_json FROM card_catalog c LEFT JOIN card_tags t ON t.passcode=c.ygoprodeck_id WHERE c.ygoprodeck_id=?`);
   const info = new Map<number, ReturnType<typeof metadata.get>>();
   const card = (id: number) => { if (!info.has(id)) info.set(id, metadata.get(id)); return info.get(id); };
@@ -70,7 +72,7 @@ function savedUsage(db: Database.Database) {
     } catch { /* Invalid cached tags do not establish a generic card. */ }
     genericCache.set(id,result); return result;
   };
-  for (const row of db.prepare("SELECT mode,genesys_json,deck_json FROM saved_decks LIMIT 10000").iterate() as Iterable<{ mode: string; genesys_json: string | null; deck_json: string }>) {
+  for (const row of db.prepare("SELECT owner_user_id,mode,genesys_json,deck_json FROM saved_decks WHERE guild_id=? ORDER BY updated_at DESC,id DESC LIMIT 10000").iterate(guildId) as Iterable<{ owner_user_id: number; mode: string; genesys_json: string | null; deck_json: string }>) {
     try {
       const deck = JSON.parse(row.deck_json);
       if (![deck.main,deck.extra,deck.side].every(Array.isArray) || deck.main.length < (row.mode === "domain" ? 60 : 40) || deck.main.length > 60 || deck.extra.length > 15 || deck.side.length > 15) continue;
@@ -81,13 +83,17 @@ function savedUsage(db: Database.Database) {
       const archetype = [...groups].sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]))[0]?.[0];
       if (!archetype) continue;
       const format = row.genesys_json ? row.mode === "domain" ? "genesys-domain" : "genesys" : stapleFormat(row.mode);
-      if (!buckets.has(format)) buckets.set(format,new Map());
-      buckets.get(format)!.set(hash([...codes].sort((a,b)=>a-b)),{ codes, archetype });
+      if (!buckets.has(format)) buckets.set(format,{ lists: new Set(), owners: new Map() });
+      const bucket = buckets.get(format)!;
+      bucket.lists.add(hash([...codes].sort((a,b)=>a-b)));
+      // Only the latest complete list votes for an owner in this format.
+      if (!bucket.owners.has(row.owner_user_id)) bucket.owners.set(row.owner_user_id,{ codes, archetype });
     } catch { /* Ignore invalid saved lists. */ }
   }
   const result = { key, formats: new Map<string, StapleUsage[]>(), counts: new Map<string, number>(), playShares:new Map<string,ReadonlyMap<number,number>>() };
-  for (const [format,decks] of buckets) {
-    if (decks.size < 20) continue;
+  for (const [format,bucket] of buckets) {
+    const decks = bucket.owners;
+    if (bucket.lists.size < 20 || decks.size < 10) continue;
     const rows = new Map<number, StapleUsage>();
     for (const deck of decks.values()) {
       const copies = new Map<number,number>();
@@ -98,16 +104,18 @@ function savedUsage(db: Database.Database) {
         row.decks++; row.copies+=n; row.archetypes[deck.archetype]=(row.archetypes[deck.archetype]??0)+1; rows.set(id,row);
       }
     }
-    const cards = [...rows.values()].filter(row=> row.decks/decks.size>=0.1 && Object.keys(row.archetypes).length>=3 && Math.max(...Object.values(row.archetypes))/row.decks<=0.6)
+    const cards = [...rows.values()]
+      .map(row=>({...row,archetypes:Object.fromEntries(Object.entries(row.archetypes).filter(([,owners])=>owners>=3))}))
+      .filter(row=> row.decks>=3 && row.decks/decks.size>=0.1 && Object.keys(row.archetypes).length>=3 && Math.max(...Object.values(row.archetypes))/row.decks<=0.6)
       .map(row=>({...row,playShare:row.decks/decks.size,averageCopies:row.copies/row.decks}))
       .sort((a,b)=>b.playShare-a.playShare || b.averageCopies-a.averageCopies || a.passcode-b.passcode).slice(0,80);
     if (cards.length) { result.formats.set(format,cards); result.counts.set(format,decks.size); result.playShares.set(format,new Map([...rows].map(([id,row])=>[id,row.decks/decks.size]))); }
   }
-  localCaches.set(db,result); return result;
+  cache.set(guildId,result); return result;
 }
-export function formatStaples(format = "normal", banlist?: string, db?: Database.Database): FormatStaples {
+export function formatStaples(format = "normal", banlist?: string, db?: Database.Database, guildId?: string): FormatStaples {
   const key = stapleFormat(format,banlist), sample = artifact.formats[key as keyof typeof artifact.formats];
-  const local = db ? savedUsage(db) : undefined, localCards = local?.formats.get(key);
+  const local = db && guildId ? savedUsage(db, guildId) : undefined, localCards = local?.formats.get(key);
   // A private cohort is an independent source. Public samples remain the stable default.
   const cards = localCards ?? sample?.cards ?? [];
   return { version: `${version}:${localCards ? local!.key : "public"}`, label: key === "tcg" ? "TCG" : key === "domain" ? "Domain" : key === "genesys" ? "Genesys" : key === "genesys-domain" ? "Genesys Domain" : "OCG", cards: new Map(cards.map(row=>[row.passcode,row])),

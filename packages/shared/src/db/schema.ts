@@ -1329,8 +1329,10 @@ export function migrate(db: Database.Database) {
   db.exec(`create table if not exists card_staple_source_revision (
     id integer primary key check (id = 1), revision integer not null default 0
   ); insert or ignore into card_staple_source_revision(id) values(1);`);
-  for (const [event, columns] of [["insert", ""], ["delete", ""], ["update", " of deck_json, mode, genesys_json"]]) {
-    db.exec(`create trigger if not exists saved_decks_staples_${event}
+  db.exec("drop trigger if exists saved_decks_staples_update");
+  for (const [event, columns] of [["insert", ""], ["delete", ""], ["update", " of deck_json, mode, genesys_json, owner_user_id, guild_id"]]) {
+    const trigger = event === "update" ? "saved_decks_staples_owner_update" : `saved_decks_staples_${event}`;
+    db.exec(`create trigger if not exists ${trigger}
       after ${event}${columns} on saved_decks begin
         update card_staple_source_revision set revision=revision+1 where id=1;
       end;`);

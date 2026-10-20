@@ -21,6 +21,8 @@ export interface DeckSuggestionLegality {
   version: string;
 }
 export interface DeckSuggestionOptions extends CardInsightOptions {
+  /** Trusted guild scope; never accepted from HTTP query data. */
+  guildId?: string;
   format: CardInsightFormat;
   pool?: readonly number[];
   exclude?: readonly number[];
@@ -65,7 +67,7 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
   const master = opts.deckMaster ?? deck.deckMaster;
   const revision = (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
   const pointsRevision = (db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
-  const usage = formatStaples(opts.format, opts.banlist, db);
+  const usage = formatStaples(opts.format, opts.banlist, db, opts.guildId);
   const version = `suggestions-3:${usage.version}:${revision}:${pointsRevision ?? ""}:${opts.legality?.version ?? "no-admission"}`;
   let cache: Map<string, string> | undefined, key: string | undefined;
   if (opts.cache !== false) {

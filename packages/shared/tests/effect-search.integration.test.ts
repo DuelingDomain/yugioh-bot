@@ -426,30 +426,43 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
     }
   });
 
-  it("ignores 19 saved lists and uses a private format aggregate at 20", async () => {
+  it("scopes saved usage to a guild, counts each owner once, and hides small owner cohorts", async () => {
     const { formatStaples } = await import("../src/cards/effects/staples.js");
     const { seedIdentity } = await import("./helpers/identity.js");
-    const { userId } = seedIdentity(database, { guildId: "staple-eval", name: "Format staples cohort" });
+    const guild = "staple-owner-eval", otherGuild = "staple-owner-other";
     const fixtures = suggestionFixture.fixtures.filter(fixture => fixture.format === "normal");
-    const variants = fixtures.flatMap(fixture => Array.from({ length: 7 }, (_, index) => ({
-      ...fixture.fullDeck, side: fixture.fullDeck.side.slice(index),
-    })));
-    const insert = database.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES('staple-eval',?,'Sourced deck','normal',?)");
-    const original = formatStaples("normal", undefined, database);
+    const ash = 14558127;
+    const variants = fixtures.flatMap(fixture => Array.from({ length: 7 }, (_, index) => {
+      const side = fixture.fullDeck.side.filter(code => code !== ash).slice(index, 14);
+      if (!fixture.fullDeck.main.includes(ash) && !fixture.fullDeck.extra.includes(ash)) side.push(ash);
+      return { ...fixture.fullDeck, side };
+    }));
+    const insert = database.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES(?,?,'Sourced deck','normal',?)");
+    const owners = Array.from({length:10},()=>seedIdentity(database,{guildId:guild}).userId);
+    const foreign = seedIdentity(database,{guildId:otherGuild}).userId;
+    const usage = () => formatStaples("normal", undefined, database, guild);
+    const original = usage();
     try {
-      for (const deck of variants.slice(0,19)) insert.run(userId, JSON.stringify(deck));
-      expect(formatStaples("normal", undefined, database).version).toBe(original.version);
-      insert.run(userId, JSON.stringify(variants[19]));
-      const aggregate = formatStaples("normal", undefined, database);
+      for (const deck of variants) insert.run(guild, owners[0], JSON.stringify(deck));
+      expect(usage().version,"one owner cannot publish many private variants").toBe(original.version);
+      for (const deck of variants) insert.run(otherGuild, foreign, JSON.stringify(deck));
+      for(let i=1;i<9;i++) insert.run(guild,owners[i],JSON.stringify(variants[Math.floor((i-1)/3)*7]));
+      expect(usage().version,"nine local owners plus a foreign owner do not meet the floor").toBe(original.version);
+      insert.run(guild,owners[9],JSON.stringify(variants[14]));
+      const aggregate = usage();
       expect(aggregate.version).not.toBe(original.version);
-      expect(aggregate.cards.size).toBeGreaterThan(0);
-      database.prepare("UPDATE saved_decks SET name='A new name' WHERE guild_id='staple-eval'").run();
-      expect(formatStaples("normal", undefined, database).version, "name-only changes do not rescan usage").toBe(aggregate.version);
-      database.prepare("UPDATE saved_decks SET deck_json=? WHERE id=(SELECT min(id) FROM saved_decks WHERE guild_id='staple-eval')").run(JSON.stringify({ ...variants[0], main: variants[0]!.main.slice(1) }));
-      expect(formatStaples("normal", undefined, database).version, "same-second edits invalidate usage").not.toBe(aggregate.version);
-      expect([...aggregate.cards.values()].every(row => Object.keys(row.archetypes).length >= 3)).toBe(true);
+      expect(aggregate.cards.get(ash)?.decks).toBe(10);
+      expect(aggregate.cards.get(ash)?.playShare).toBe(1);
+      expect([...aggregate.cards.values()].every(row=>row.decks>=3 && Object.values(row.archetypes).every(n=>n>=3))).toBe(true);
+      expect(aggregate.archetypes.size,"private archetype percentages are not published").toBe(0);
+      expect(formatStaples("normal",undefined,database,otherGuild).version).toBe(original.version);
+      expect(formatStaples("normal",undefined,database).version,"no guild means public usage only").toBe(original.version);
       expect(JSON.stringify([...aggregate.cards.values()])).not.toMatch(/owner_user_id|guild_id|deck_json/);
-    } finally { database.prepare("DELETE FROM saved_decks WHERE guild_id='staple-eval'").run(); }
+      database.prepare("UPDATE saved_decks SET name='A new name' WHERE guild_id=?").run(guild);
+      expect(usage().version,"name-only changes do not rescan usage").toBe(aggregate.version);
+      database.prepare("DELETE FROM saved_decks WHERE guild_id=? AND owner_user_id=?").run(guild,owners[9]);
+      expect(usage().version,"dropping to nine owners restores the public source").toBe(original.version);
+    } finally { database.prepare("DELETE FROM saved_decks WHERE guild_id IN (?,?)").run(guild,otherGuild); }
   });
 
   it.each(suggestionFixture.fixtures)("measures $id precision without restricting candidates to expected cards", async fixture => {

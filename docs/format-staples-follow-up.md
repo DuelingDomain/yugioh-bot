@@ -125,7 +125,7 @@ independent of the global staple threshold, so a played role card below that
 threshold still has a real format share. There are 109 TCG, 792 Domain and 405
 Genesys generic card counts. The artifact is 342,322 bytes, below 500 KB and uses the existing bounded,
 additive daily refresh. Public global card shares and average copies are unchanged.
-Private saved-deck aggregates still need 20 distinct complete decks. They publish
+Private saved-deck aggregates need 20 distinct complete lists and 10 owners within the requesting guild. Each owner votes once per format from their latest complete list. Cards and their reported archetype counts require at least three owners. They publish
 no owner IDs. A private cohort uses its own format share fallback; public archetype
 percentages are not mixed into it.
 

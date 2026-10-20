@@ -21,7 +21,7 @@ import { buildCardEffectFacets, type CardEffectFacets } from "./card-effect-face
 
 export interface CardEffectIndex {
   size: number;
-  staples?(format?: string, banlist?: string): FormatStaples;
+  staples?(format?: string, banlist?: string, guildId?: string): FormatStaples;
   release(code: number): ReleaseDates;
   /** Refresh once before a search; all per-card reads use this revision snapshot. */
   releases(): ReadonlyMap<number, ReleaseDates>;
@@ -109,7 +109,7 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
   const intent = (text: string) => intentReading(text, named, text => resolveEffectName([...archetypes].map(name => ({ name })), text)?.name);
   const index: CardEffectIndex = {
     size: facets.size,
-    staples: (format, banlist) => formatStaples(format, banlist, db),
+    staples: (format, banlist, guildId) => formatStaples(format, banlist, db, guildId),
     release: code => cardReleaseIndex(db, cards).get(canonical(code)) ?? {},
     releases: () => releaseSnapshot = cardReleaseIndex(db, cards),
     readQuery: (text, omitted) => {

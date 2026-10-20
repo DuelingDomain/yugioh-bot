@@ -46,9 +46,9 @@ exact percentages and average copies.
 
 ## Saved-deck source
 
-The server can use saved decks once a format has at least 20 distinct complete
+The server can use saved decks once a guild format has at least 10 owners and 20 distinct complete
 lists and cards pass the same share/archetype gates. It reads `mode`,
-`genesys_json` and `deck_json`, plus cached card metadata. It reads no owner IDs.
+`genesys_json` and `deck_json`, plus cached card metadata. Owner IDs stay in memory for vote deduplication; none are published. Only the latest complete deck per owner and format votes. Cards need at least three owners; each reported archetype count also needs three owners.
 Only aggregate card counts survive the scan. A qualifying private cohort takes
 precedence over the public sample for that format; it is never published by CI.
 Small cohorts are ignored. The scan is bounded at 10,000 lists and cached by

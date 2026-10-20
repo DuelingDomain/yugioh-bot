@@ -4,7 +4,7 @@ import { createCardInsightService } from "@yugidraft/shared/services";
 import type { SuggestionScan } from "./deck-suggestion-workers.js";
 
 let db: Database.Database | undefined, path: string | undefined;
-parentPort!.on("message", ({ query, legality, deckMaster, database, dataDirectory }: SuggestionScan & {
+parentPort!.on("message", ({ query, legality, deckMaster, database, dataDirectory, guildId }: SuggestionScan & {
   database: string | Uint8Array; dataDirectory: string;
 }) => {
   try {
@@ -15,7 +15,7 @@ parentPort!.on("message", ({ query, legality, deckMaster, database, dataDirector
         : new Database(Buffer.from(database));
       path = typeof database === "string" ? database : undefined;
     }
-    const insights = createCardInsightService(db, { dataDirectory });
+    const insights = createCardInsightService(db, { dataDirectory, guildId });
     const suggestionContext = { cache: false as const, deck: query.deck, legality, banlist: query.banlist, exclude: query.exclude };
     const result = query.op === "suggestRows"
       ? insights.suggestRows(query.deck, { ...query, deckMaster, legality, cache: false })

@@ -90,7 +90,7 @@ async function handlePOST(request: Request) {
       const loaded=await loadFormatEffectSearch(input); if(!loaded.ok)return loaded.response;
       result=loaded.result;
     } else {
-      const service = createCardInsightService(db);
+      const service = createCardInsightService(db, { guildId: env.discordGuildId });
       result = service.effectSearch(input.text, input.pool, input);
       if (!input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
         if (await fallbackEffectReading(db, input.text, actor.userId)) result = service.effectSearch(input.text, input.pool, input);

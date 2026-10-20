@@ -3,7 +3,7 @@ import type Database from "better-sqlite3";
 import type { DeckSuggestionLegality, DeckSuggestionQuery, DeckSuggestionResult, CardEffectSearchResult } from "@yugidraft/shared/services";
 
 type Job = { worker: Worker; reject?: (error: Error) => void };
-export type SuggestionScan = { query: DeckSuggestionQuery; legality: DeckSuggestionLegality; deckMaster?: number };
+export type SuggestionScan = { guildId?: string; query: DeckSuggestionQuery; legality: DeckSuggestionLegality; deckMaster?: number };
 
 /** Two reusable read-only scanners, isolated from live duel operations. The host owns admission. */
 export class DeckSuggestionWorkers {

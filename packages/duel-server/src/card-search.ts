@@ -307,7 +307,7 @@ function sortEntries(found: Entry[], query: CardQuery, member: Matcher | null, r
 }
 
 /** Runs a validated deck-editor query over the engine catalog. */
-export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>, options: { effects?: CardEffectIndex; releases?: ReadonlyMap<number, ReleaseDates>; effectSearchEnabled?: boolean; formatAllowed?: ReadonlySet<number> } = {}): CardQueryResult {
+export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>, options: { effects?: CardEffectIndex; releases?: ReadonlyMap<number, ReleaseDates>; effectSearchEnabled?: boolean; formatAllowed?: ReadonlySet<number>; guildId?: string } = {}): CardQueryResult {
   const index = indexFor(cards);
   const currentMonth = new Date().toISOString().slice(0, 7);
   const blocked = blocksFor(cards, entries);
@@ -319,7 +319,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const effects = enabled ? releaseIndex : undefined;
   let reading = effects && !query.exact && query.scope !== "name" ? effects.readQuery(query.text, query.effectOmit) : null;
   const datedQuery = { ...query, released: query.released ?? reading?.query.released, sort: query.sort === "match" && reading?.query.sort === "newest" ? "newest" as const : query.sort };
-  const staples = effects?.staples?.(reading?.query.formatFilter?.format??query.format, query.banlist) ?? formatStaples(reading?.query.formatFilter?.format??query.format, query.banlist);
+  const staples = effects?.staples?.(reading?.query.formatFilter?.format??query.format, query.banlist, options.guildId) ?? formatStaples(reading?.query.formatFilter?.format??query.format, query.banlist);
   const format=reading?.query.formatFilter;
   const filterBanlist=format?.region === "ocg" ? query.banlist.startsWith("ocg")?query.banlist:PINNED_OCG_BANLIST_ID
     : format?.region === "tcg" ? query.banlist.startsWith("tcg")?query.banlist:PINNED_TCG_BANLIST_ID

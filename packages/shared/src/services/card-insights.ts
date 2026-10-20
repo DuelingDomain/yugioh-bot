@@ -96,6 +96,7 @@ const synergyTarget = (text: string) => text.trim().match(/^(?:cards?\s+that\s+)
 /** SQL-backed, read-only insights. Only anchors, their profiles and the retained page live in memory. */
 export function createCardInsightService(db: Database.Database, options: {
   dataDirectory?: string;
+  guildId?: string;
   /** Borrowed for this operation; its caller owns closing it. */
   catalog?: InsightCatalog;
 } = {}) {
@@ -206,7 +207,7 @@ export function createCardInsightService(db: Database.Database, options: {
             if (inferredMain.length === 60) break;
           }
           const deck = opts.suggestionContext?.deck ?? { main: inferredMain, extra: [], side: [] };
-          const rows = suggestDeckRows(db, catalog, deck, { ...opts, ...opts.suggestionContext, format: opts.format ?? "normal", pool }, options.dataDirectory);
+          const rows = suggestDeckRows(db, catalog, deck, { ...opts, ...opts.suggestionContext, format: opts.format ?? "normal", pool, guildId: options.guildId }, options.dataDirectory);
           const cards = rows.rows[1]!.cards;
           return { reading, cards, total: cards.length };
         }
@@ -215,7 +216,7 @@ export function createCardInsightService(db: Database.Database, options: {
           return { reading, ...rank(catalog, candidate ? [candidate] : [], pool, effective) };
         }
         const ranked: Retained[] = [];
-        const staples = formatStaples(reading.query.formatFilter?.format??opts.format, opts.suggestionContext?.banlist, db);
+        const staples = formatStaples(reading.query.formatFilter?.format??opts.format, opts.suggestionContext?.banlist, db, options.guildId);
         const roleIntent=reading.query.intent?.kind==="archetype_role"?reading.query.intent:undefined;
         const similar = reading.query.intent?.kind === "similar" ? catalog.candidate(reading.query.intent.passcode) : undefined;
         const archetype = reading.query.intent?.kind === "counters" ? reading.query.intent.archetype : undefined;
@@ -311,7 +312,7 @@ export function createCardInsightService(db: Database.Database, options: {
       });
     },
     suggestRows(deck: DuelDeck, opts: DeckSuggestionOptions) {
-      return withCatalog(catalog => suggestDeckRows(db, catalog, deck, opts, options.dataDirectory));
+      return withCatalog(catalog => suggestDeckRows(db, catalog, deck, { ...opts, guildId: options.guildId }, options.dataDirectory));
     },
     poolHealth(codes: readonly number[], opts: { era?: CardEra } = {}): CardPoolHealth {
       return withCatalog(catalog => {
