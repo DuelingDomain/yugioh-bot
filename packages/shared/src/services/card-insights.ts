@@ -1,4 +1,4 @@
-import { cardEraBoost, deriveCardEra, matchesReleased, compareNewest, cardReleaseInfo, selectedReleaseDate, type ReleasedRange, type CardEra, type ReleaseDates } from "../cards/effects/releases.js";
+import { cardEraBoost, deriveCardEra, matchesReleased, compareNewest, cardReleaseInfo, cardEraDate, type ReleasedRange, type CardEra, type ReleaseDates } from "../cards/effects/releases.js";
 import type Database from "better-sqlite3";
 import type { DuelDeck } from "../duels/index.js";
 import { isBarredFromGenesys, isExtraDeckCard } from "../cards/effects/card.js";
@@ -282,7 +282,7 @@ export function createCardInsightService(db: Database.Database, options: {
         health.era = opts.era ?? deriveCardEra(candidates.map(candidate => candidate.card));
         if (health.era) {
           const threshold = health.era.medianYear + Math.max(5, health.era.spread * 2);
-          const newer = candidates.filter(({ card }) => { const date = selectedReleaseDate(card); return date && Number(date.slice(0, 4)) > threshold; }).length;
+          const newer = candidates.filter(({ card }) => { const date = cardEraDate(card); return date && Number(date.slice(0, 4)) > threshold; }).length;
           if (newer) health.warnings.push(`${newer} ${newer === 1 ? "card is" : "cards are"} much newer than the rest of this cube.`);
         }
         const main = candidates.filter(({ card }) => card.kind === "monster" && !isExtraDeckCard(card));
