@@ -208,6 +208,7 @@ const PROBE_SOURCE = String.raw`
     });
   };
 
+  let zoneSrcsBefore = new Map();
   const sample = (via) => {
     const t = now();
     document.querySelectorAll(GHOST).forEach(trackFlight);
@@ -225,6 +226,8 @@ const PROBE_SOURCE = String.raw`
         }
       }
     }
+    // A card that is already in a pile moves down its fan when another card lands: its art is not a new arrival.
+    const zoneSrcsNow = new Map();
     document.querySelectorAll("[data-card-art]").forEach((art) => {
       const where = zoneOfArt(art);
       if (!where) return;
@@ -239,11 +242,20 @@ const PROBE_SOURCE = String.raw`
       const srcBefore = artSrc.get(art);
       artSrc.set(art, srcNow);
       if (!visible) return;
+      const zoneKey = where.zone.id;
+      if (srcNow && op >= 0.98) {
+        const have = zoneSrcsNow.get(zoneKey) || new Set();
+        have.add(srcNow);
+        zoneSrcsNow.set(zoneKey, have);
+      }
+      const pile = where.zone.kind === "gy" || where.zone.kind === "banish";
+      if (pile && srcNow && zoneSrcsBefore.get(zoneKey) && zoneSrcsBefore.get(zoneKey).has(srcNow)) return;
       // An element that stays visible but now shows another card (a pile top reused for the next card) is an arrival too.
       if (was === true && (srcBefore === undefined || srcBefore === srcNow)) return;
       if (!st.armed) return;
       st.arrivals.push({ t, zone: where.zone, src: srcNow, rect: rectOf(art), opacity: Math.round(op * 100) / 100, via, first });
     });
+    zoneSrcsBefore = zoneSrcsNow;
   };
 
   const mo = new MutationObserver(() => sample("mutation"));
