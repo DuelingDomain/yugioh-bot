@@ -206,6 +206,7 @@ interface Catalog {
   sourceStamp: string;
   /** Complete database content, including stats used by recommendation ranking and summon checks. */
   cdbVersion: string;
+  metadataVersion: string;
   cards: Map<number, EngineCard>;
   hexName: Map<number, string>;
   nameHex: Map<string, number>;
@@ -215,6 +216,7 @@ interface Catalog {
 }
 
 const catalogs = new Map<string, Catalog>();
+const MAX_LOADED_CATALOGS = 4;
 
 function fail(message: string): never {
   throw new DeckLegalityError(message);
@@ -322,10 +324,19 @@ function loadCatalog(dataDirectory: string): Catalog {
   const stringsPath = join(root, "strings.conf");
   if (!existsSync(cdbPath)) fail(`Cannot read engine card database at ${cdbPath}`);
   if (!existsSync(stringsPath)) fail(`Cannot read engine strings.conf at ${stringsPath}`);
-  const source = statSync(cdbPath, { bigint: true });
-  const sourceStamp = [source.dev, source.ino, source.size, source.mtimeNs, source.ctimeNs].join(":");
+  const constantsFiles = ["card_counter_constants.lua", "archetype_setcode_constants.lua"];
+  const metadataPaths = [stringsPath, ...constantsFiles.map(file => join(root, "card-scripts", file))];
+  const stamp = (path: string) => {
+    if (!existsSync(path)) return "missing";
+    const source = statSync(path, { bigint: true });
+    return [source.dev, source.ino, source.size, source.mtimeNs, source.ctimeNs].join(":");
+  };
+  const sourceStamp = [cdbPath, ...metadataPaths].map(stamp).join("|");
   const cached = catalogs.get(root);
-  if (cached && cached.sourceStamp === sourceStamp) return cached;
+  if (cached && cached.sourceStamp === sourceStamp) {
+    catalogs.delete(root); catalogs.set(root, cached);
+    return cached;
+  }
   const cdbVersion = cardDatabaseVersion(cdbPath);
 
   const db = new Database(cdbPath, { readonly: true, fileMustExist: true });
@@ -376,20 +387,25 @@ function loadCatalog(dataDirectory: string): Catalog {
     if (!card.identityNames.includes(original.name.toLowerCase())) card.identityNames.push(original.name.toLowerCase());
   }
 
-  const { hexName, nameHex } = parseSetnames(readFileSync(stringsPath, "utf8"));
+  const stringsSource = readFileSync(stringsPath, "utf8");
+  const metadataDigest = createHash("sha256").update(JSON.stringify(["strings.conf", stringsSource]));
+  const { hexName, nameHex } = parseSetnames(stringsSource);
   const scriptsDir = join(root, "card-scripts");
   const constants = new Map<string, number>();
   const scripts = existsSync(scriptsDir) ? indexScripts(scriptsDir) : new Map<number, string>();
   if (existsSync(scriptsDir)) {
-    for (const file of ["card_counter_constants.lua", "archetype_setcode_constants.lua"]) {
+    for (const file of constantsFiles) {
       const path = join(scriptsDir, file);
-      if (existsSync(path)) parseLuaConstants(readFileSync(path, "utf8"), constants);
+      const source = existsSync(path) ? readFileSync(path, "utf8") : null;
+      metadataDigest.update(JSON.stringify([file, source]));
+      if (source !== null) parseLuaConstants(source, constants);
     }
   }
 
   const quoteCardNames = [...new Set([...cards.values()].map((card) => card.name).filter((name) => name.includes('"')))];
-  const catalog: Catalog = { sourceStamp, cdbVersion, cards, hexName, nameHex, constants, scripts, quoteCardNames };
+  const catalog: Catalog = { sourceStamp, cdbVersion, metadataVersion: metadataDigest.digest("hex"), cards, hexName, nameHex, constants, scripts, quoteCardNames };
   catalogs.set(root, catalog);
+  if (catalogs.size > MAX_LOADED_CATALOGS) catalogs.delete(catalogs.keys().next().value!);
   return catalog;
 }
 
@@ -739,7 +755,7 @@ function suggestionIdentityIndex(catalog: Catalog): SuggestionIdentities {
   if (cached) return cached;
   const identities = identityIndex(catalog);
   const representatives = new Map<string, number>();
-  const digest = createHash("sha256").update(catalog.cdbVersion);
+  const digest = createHash("sha256").update(catalog.cdbVersion).update(catalog.metadataVersion);
   for (const card of catalog.cards.values()) {
     const key = componentOf(card, identities);
     const code = canonicalCardCode(card.id, catalog.cards);

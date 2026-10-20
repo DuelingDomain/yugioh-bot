@@ -4,7 +4,7 @@ import { migrate } from "../../shared/src/db/schema";
 import { importCardEffectArtifact } from "../../shared/src/cards/effects/artifact";
 
 const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn(), fallback: vi.fn(), admission: vi.fn() }));
-vi.mock("@/lib/deck-suggestion-legality", () => ({ loadDeckSuggestionLegality: state.admission }));
+vi.mock("@/lib/deck-suggestions", () => ({ loadDeckSuggestions: state.admission }));
 vi.mock("@yugidraft/shared/cards/effects/reading-fallback", () => ({ fallbackEffectReading: state.fallback }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db }));
 vi.mock("@/lib/auth", () => ({ auth: state.auth }));
@@ -22,7 +22,13 @@ beforeAll(() => {
 afterAll(() => state.db?.close());
 beforeEach(() => {
   state.fallback.mockReset().mockResolvedValue(null);
-  state.admission.mockReset().mockResolvedValue({ ok: true, legality: { allowed: [46986414, 7084129, 97268402], limits: {}, version: "route-fixture" } });
+  state.admission.mockReset().mockImplementation(async ({ query }) => {
+    const { createCardInsightService } = await import("../../shared/src/services/card-insights");
+    const service = createCardInsightService(state.db!);
+    const legality = { allowed: [46986414, 7084129, 97268402], limits: {}, version: "route-fixture" };
+    return { ok: true, result: query.op === "suggestRows" ? service.suggestRows(query.deck, { ...query, legality })
+      : service.effectSearch(query.text, query.pool, { ...query, suggestionContext: { deck: query.deck, legality, banlist: query.banlist, exclude: query.exclude } }) };
+  });
   vi.resetModules();
   vi.stubEnv("DISCORD_GUILD_ID", "configured-community");
   vi.stubEnv("EFFECT_SEARCH", "1");
@@ -52,7 +58,7 @@ describe("authenticated public-catalog insight operations", () => {
     expect(data.rows.map((row: { id: string }) => row.id)).toEqual(["archetype", "outside", "extra", "staples"]);
     expect(data.rows[2]).toMatchObject({ state: "hint", minimumMainCards: 40 });
     expect(data.rows[0].cards[0].passcode).toBe(7084129);
-    expect(state.admission).toHaveBeenCalledWith(expect.objectContaining({ guildId: "configured-community", userId: 123, format: "normal" }));
+    expect(state.admission).toHaveBeenCalledWith(expect.objectContaining({ guildId: "configured-community", userId: 123, query: expect.objectContaining({ format: "normal" }) }));
     for (const invalid of [{ legality: {} }, { banlist: "client-list" }, { exclude: [0] }, { cache: false }]) {
       expect((await request({ ...body, ...invalid })).status).toBe(400);
     }

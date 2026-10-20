@@ -28,8 +28,26 @@ interface SuggestionRow extends CatalogRow {
   tcg_date: string | null;
   ocg_date: string | null;
 }
+type EngineTuple = [id: number, alias: number, type: number, name: string, desc: string, setcode: string,
+  atk: number, def: number, level: number, race: number, attribute: number];
+type SuggestionTuple = [passcode: number, cachedId: number | null, name: string | null, type: string | null, frame: string | null,
+  text: string | null, attribute: string | null, level: number | null, atk: number | null, def: number | null,
+  archetype: string | null, points: number | null, revision: string | null, tags: string | null, popularity: number | null,
+  tcgDate: string | null, ocgDate: string | null, artworkParent: number | null];
+const engineObject = (row: EngineTuple): EngineRow => ({ id: row[0], alias: row[1], type: row[2], name: row[3], desc: row[4], setcode: row[5],
+  atk: row[6], def: row[7], level: row[8], race: row[9], attribute: row[10] });
+const suggestionObject = (row: SuggestionTuple): SuggestionRow => ({ passcode: row[0], ygoprodeck_id: row[1]!, name: row[2]!, type: row[3]!, frame_type: row[4]!,
+  effect_text: row[5], attribute: row[6], level: row[7], atk: row[8], def: row[9], archetype: row[10], genesys_points: row[11], genesys_revision: row[12],
+  tags_json: row[13], popularity: row[14], tcg_date: row[15], ocg_date: row[16], artwork_parent: row[17] });
 
+type JoinedSuggestionTuple = [id: number, alias: number | null, type: number | null, name: string, text: string, setcode: string | null,
+  atk: number | null, def: number | null, level: number | null, race: number | null, attribute: number | null,
+  cachedId: number | null, cachedType: string | null, cachedFrame: string | null, archetype: string | null,
+  points: number | null, revision: string | null, tags: string | null, popularity: number | null,
+  tcgDate: string | null, ocgDate: string | null, artworkParent: number | null, engineName: string | null];
 const codeValid = (value: number) => Number.isInteger(value) && value > 0 && value <= 0xffffffff;
+const raceNames = new Map<number, string>(CARD_RACES.map(({ bit, label }) => [bit, label]));
+const attributeNames = new Map<number, Card["attribute"]>(CARD_ATTRIBUTES.map(({ bit, label }) => [bit, label]));
 
 /** One operation owns this read-only engine handle. No catalog or tag snapshot is materialized. */
 export function createInsightCatalog(db: Database.Database, dataDirectory = deckEngineDataDirectory(db.name)) {
@@ -37,6 +55,8 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
   const metadata = db.prepare<[number], CatalogRow>("SELECT * FROM card_catalog WHERE ygoprodeck_id=?");
   const release = db.prepare<[number], { tcg_date: string | null; ocg_date: string | null }>("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=?");
   const tags = db.prepare<[number], { tags_json: string; popularity: number }>("SELECT tags_json,popularity FROM card_tags WHERE passcode=?");
+  const readers = { artwork, metadata, release, tags };
+  type Readers = typeof readers;
   const revision = (db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
   const remaps = loadCardPasscodeRemaps(dataDirectory);
   // Printed type shapes repeat across the catalog. Keep these small shapes for
@@ -44,12 +64,18 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
   const printedTypes = new Map<string, Pick<Card, "kind" | "subtypes" | "monsterType">>();
   const engineTypes = new Map<string, Pick<Card, "kind" | "subtypes" | "monsterType" | "attribute">>();
   const memberships = new Map<string, string | undefined>();
+  const printedLevelKeys = new Map<string, "rank" | "linkRating" | "level">();
+  const fastTypes = new Map<number, Pick<Card, "kind" | "subtypes">>();
   const enginePath = join(dataDirectory, "cards.cdb");
   const engine = existsSync(enginePath) ? new Database(enginePath, { readonly: true, fileMustExist: true }) : undefined;
+  // This handle lives for one operation and scans forward. The driver's 16 MiB
+  // default would retain most of the engine database after every full scan.
+  engine?.pragma("cache_size=-256");
   let engineFind: Database.Statement<[number], EngineRow> | undefined;
   let engineStream: Database.Statement<[], EngineRow> | undefined;
   let engineIdentities: Database.Statement<[], EngineRow> | undefined;
   let engineAliases: Database.Statement<[], EngineRow> | undefined;
+  let engineTuples: Database.Statement<[], EngineTuple> | undefined;
   let setnames: ReadonlyMap<number, string> | undefined;
   const archetypes = () => {
     if (setnames) return setnames;
@@ -82,15 +108,18 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
         engineStream = engine.prepare(`${select} ORDER BY d.id`);
         engineIdentities = engine.prepare(`SELECT d.id,${columns.has("alias") ? "d.alias" : "0 AS alias"},d.type,t.name FROM datas d JOIN texts t USING(id) ORDER BY d.id`);
         if (columns.has("alias")) engineAliases = engine.prepare(`${select} WHERE d.alias<>0 ORDER BY d.id`);
+        if (texts.has("desc") && ["alias", "setcode", "atk", "def", "level", "race", "attribute"].every(field => columns.has(field))) {
+          engineTuples = engine.prepare<[], EngineTuple>(`${select} ORDER BY d.id`).raw();
+        }
       }
     } catch (error) { engine.close(); throw error; }
   }
-  const canonical = (raw: number, initialEngine?: EngineRow): number => {
+  const canonical = (raw: number, initialEngine?: EngineRow, sourceReaders = readers): number => {
     const seen = new Set<number>();
     let code = raw;
     while (codeValid(code) && !seen.has(code)) {
       seen.add(code);
-      const known = artwork.get(code)?.card_id;
+      const known = sourceReaders.artwork.get(code)?.card_id;
       if (known !== undefined && known !== code) { code = known; continue; }
       const remapped = remaps.get(code);
       if (remapped !== undefined) { code = remapped; continue; }
@@ -103,10 +132,10 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     }
     return raw;
   };
-  const normalize = (row: CatalogRow, canonicalCode = canonical(row.ygoprodeck_id), initialEngine?: EngineRow, joined = false): Candidate => {
+  const normalize = (row: CatalogRow, canonicalCode = canonical(row.ygoprodeck_id), initialEngine?: EngineRow, joined = false, sourceReaders = readers): Candidate => {
     // A canonical row wins over alternate metadata and receives canonical tags.
-    const source = canonicalCode === row.ygoprodeck_id ? row : metadata.get(canonicalCode) ?? row;
-    const tagged = canonicalCode === row.ygoprodeck_id && row.tags_json !== undefined ? row : tags.get(canonicalCode);
+    const source = canonicalCode === row.ygoprodeck_id ? row : sourceReaders.metadata.get(canonicalCode) ?? row;
+    const tagged = canonicalCode === row.ygoprodeck_id && row.tags_json !== undefined ? row : sourceReaders.tags.get(canonicalCode);
     const views = tagged?.popularity ?? 0;
     const engineCard = initialEngine?.id === canonicalCode ? initialEngine : joined ? undefined : engineFind?.get(canonicalCode);
     const typeKey = `${source.type}:${source.frame_type}`;
@@ -166,10 +195,42 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
         card.level = undefined; card.rank = undefined; card.linkRating = undefined;
       }
     }
-    const dates = joined ? row as SuggestionRow : release.get(canonicalCode);
+    const dates = joined ? row as SuggestionRow : sourceReaders.release.get(canonicalCode);
     if (dates?.tcg_date) card.tcgDate = dates.tcg_date;
     if (dates?.ocg_date) card.ocgDate = dates.ocg_date;
     return { card, ...(tagged?.tags_json ? { tags: JSON.parse(tagged.tags_json) as CardTags } : {}) };
+  };
+  const normalizeEngine = (row: SuggestionTuple | undefined, engineCard: EngineTuple): Candidate => {
+    const cached = row?.[1] != null;
+    const type = engineCard[2];
+    let shape = fastTypes.get(type);
+    if (!shape) {
+      const adapted = engineInsightCard({ code: engineCard[0], name: "", type, race: "", attribute: 0,
+        level: 0, attack: 0, defense: 0, description: "", setcodes: [], alias: 0, lscale: 0, rscale: 0, arrows: 0, ot: 0 });
+      shape = { kind: adapted.kind, subtypes: adapted.subtypes };
+      fastTypes.set(type, shape);
+    }
+    const membershipKey = engineCard[5] ?? "";
+    if (!memberships.has(membershipKey)) {
+      const membership = setcodes({ setcode: membershipKey } as EngineRow);
+      let name: string | undefined;
+      if (membership.length) for (const [code, label] of archetypes()) if (inArchetype(membership, code)) { name = label; break; }
+      memberships.set(membershipKey, name);
+    }
+    const level = engineCard[8] & 0xff;
+    const card: Card = {
+      id: engineCard[0], name: cached ? row![2]! : engineCard[3], kind: shape.kind, typeLine: cached ? row![3]! : "", subtypes: shape.subtypes,
+      monsterType: raceNames.get(engineCard[9]), attribute: attributeNames.get(engineCard[10]),
+      level: type & (0x800000 | 0x4000000) ? undefined : level,
+      atk: engineCard[6] >= 0 ? engineCard[6] : null, def: engineCard[7] >= 0 ? engineCard[7] : null,
+      text: (cached && row![5]) || engineCard[4] || "", archetype: cached && row![10] != null ? row![10]! : memberships.get(membershipKey),
+      formats: [], genesysPoints: revision && cached && row![12] === revision ? row![11] ?? undefined : undefined,
+      views: row?.[14] ?? 0, url: "",
+      rank: type & 0x800000 ? level : undefined, linkRating: type & 0x4000000 ? level : undefined,
+    };
+    if (row?.[15]) card.tcgDate = row[15];
+    if (row?.[16]) card.ocgDate = row[16];
+    return row?.[13] ? { card, tags: JSON.parse(row[13]) as CardTags } : { card };
   };
   let suggestionRows: Database.Statement<[], SuggestionRow> | undefined;
   const suggestionStream = () => {
@@ -199,13 +260,13 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       ORDER BY passcode`);
     return suggestionRows;
   };
-  const cachedAliasSources = () => {
+  const cachedAliasSources = (sourceReaders = readers) => {
     const sources = new Map<number, number>();
     const consider = (code: number, initialEngine?: EngineRow) => {
-      const canonicalCode = canonical(code, initialEngine);
-      if (canonicalCode === code || metadata.get(canonicalCode) || !metadata.get(code)) return;
+      const canonicalCode = canonical(code, initialEngine, sourceReaders);
+      if (canonicalCode === code || sourceReaders.metadata.get(canonicalCode) || !sourceReaders.metadata.get(code)) return;
       // The original cached-card scan excludes known artwork children entirely.
-      const parent = artwork.get(code)?.card_id;
+      const parent = sourceReaders.artwork.get(code)?.card_id;
       if (parent !== undefined && parent !== code) return;
       sources.set(canonicalCode, Math.min(code, sources.get(canonicalCode) ?? code));
     };
@@ -214,6 +275,175 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     for (const code of remaps.keys()) consider(code);
     return sources;
   };
+  let suggestionTuples: Database.Statement<[], SuggestionTuple> | undefined;
+  function* completeSuggestionCandidates(): Generator<Candidate> {
+    const cachedSources = cachedAliasSources();
+    suggestionTuples ??= db.prepare<[], SuggestionTuple>(suggestionStream().source).raw();
+    const application = suggestionTuples.iterate(), engineRows = engineTuples!.iterate();
+    let app = application.next(), current = engineRows.next();
+    const exceptional = new Set<number>();
+    try {
+      while (!app.done || !current.done) {
+        const code = Math.min(app.done ? Infinity : app.value[0], current.done ? Infinity : current.value[0]);
+        const row = !app.done && app.value[0] === code ? app.value : undefined;
+        const engineCard = !current.done && current.value[0] === code ? current.value : undefined;
+        if (row) app = application.next();
+        if (engineCard) current = engineRows.next();
+        if (exceptional.has(code) || (!engineCard && row?.[1] == null)) continue;
+        const canonicalCode = row?.[17] != null && row[17] !== code || remaps.has(code) || engineCard?.[1]
+          ? canonical(code, engineCard && engineObject(engineCard)) : code;
+        if (canonicalCode !== code) {
+          if (metadata.get(canonicalCode) || engineFind?.get(canonicalCode) || row?.[1] == null || exceptional.has(canonicalCode)) continue;
+          exceptional.add(canonicalCode);
+          yield normalize(suggestionObject(row), canonicalCode, engineCard && engineObject(engineCard));
+          continue;
+        }
+        const cachedSource = cachedSources.get(code);
+        if (cachedSource !== undefined) {
+          const source = metadata.get(cachedSource);
+          if (source) { yield normalize(source, code, engineCard && engineObject(engineCard)); continue; }
+        }
+        if (engineCard && engineCard[6] != null && engineCard[7] != null && engineCard[8] != null && engineCard[9] != null && engineCard[10] != null
+          && (!(row?.[3] || row?.[4]) || !/(?:^|[ /_])(?:xyz|link)(?:$|[ /_])/i.test(`${row[3]} ${row[4]}`.replaceAll("-", "_")))) {
+          yield normalizeEngine(row, engineCard);
+          continue;
+        }
+        const object = engineCard && engineObject(engineCard);
+        const source = row?.[1] != null ? suggestionObject(row) : {
+          ygoprodeck_id: code, name: object!.name, type: "", frame_type: "", effect_text: object!.desc ?? "",
+          attribute: null, level: null, atk: null, def: null, archetype: null, genesys_points: null, genesys_revision: null,
+          tags_json: row?.[13] ?? null, popularity: row?.[14] ?? null, tcg_date: row?.[15] ?? null, ocg_date: row?.[16] ?? null,
+        };
+        yield normalize(source, code, object, true);
+      }
+    } finally { application.return?.(); engineRows.return?.(); }
+  }
+  let joinedRows: Database.Statement<[], JoinedSuggestionTuple> | undefined;
+  let attachedReaders: Readers | undefined;
+  const attachedSuggestionStream = () => {
+    if (joinedRows) return joinedRows;
+    // The main handle is already SQLITE_OPEN_READONLY. Its attachments inherit
+    // that mode; query_only additionally prevents writes through any schema.
+    engine!.pragma("query_only=ON");
+    engine!.prepare("ATTACH DATABASE ? AS insight_app").run(db.name);
+    engine!.pragma("insight_app.cache_size=-128");
+    attachedReaders = {
+      artwork: engine!.prepare("SELECT card_id FROM insight_app.card_artworks WHERE artwork_id=?"),
+      metadata: engine!.prepare("SELECT * FROM insight_app.card_catalog WHERE ygoprodeck_id=?"),
+      release: engine!.prepare("SELECT tcg_date,ocg_date FROM insight_app.card_release WHERE passcode=?"),
+      tags: engine!.prepare("SELECT tags_json,popularity FROM insight_app.card_tags WHERE passcode=?"),
+    } as Readers;
+    // Return effective printed fields once, avoiding duplicate engine/cache text
+    // strings across the native boundary. Alias comparisons retain engine names.
+    const applicationFields = `c.ygoprodeck_id,c.type,c.frame_type,c.archetype,c.genesys_points,c.genesys_revision,
+      tag.tags_json,tag.popularity,r.tcg_date,r.ocg_date,a.card_id`;
+    joinedRows = engine!.prepare<[], JoinedSuggestionTuple>(`
+      SELECT d.id,d.alias,d.type,CASE WHEN c.ygoprodeck_id IS NULL THEN t.name ELSE c.name END,
+        COALESCE(NULLIF(c.effect_text,''),t.desc,''),CAST(d.setcode AS TEXT),d.atk,d.def,d.level,d.race,d.attribute,
+        ${applicationFields},CASE WHEN d.alias<>0 THEN t.name END
+      FROM datas d JOIN texts t USING(id)
+        LEFT JOIN insight_app.card_catalog c ON c.ygoprodeck_id=d.id
+        LEFT JOIN insight_app.card_tags tag ON tag.passcode=d.id
+        LEFT JOIN insight_app.card_release r ON r.passcode=d.id
+        LEFT JOIN insight_app.card_artworks a ON a.artwork_id=d.id
+      UNION ALL
+      SELECT c.ygoprodeck_id,NULL,NULL,c.name,COALESCE(c.effect_text,''),NULL,NULL,NULL,NULL,NULL,NULL,
+        ${applicationFields},NULL
+      FROM insight_app.card_catalog c
+        LEFT JOIN insight_app.card_tags tag ON tag.passcode=c.ygoprodeck_id
+        LEFT JOIN insight_app.card_release r ON r.passcode=c.ygoprodeck_id
+        LEFT JOIN insight_app.card_artworks a ON a.artwork_id=c.ygoprodeck_id
+      WHERE NOT EXISTS(SELECT 1 FROM datas d JOIN texts t USING(id) WHERE d.id=c.ygoprodeck_id)
+      ORDER BY 1`).raw();
+    return joinedRows;
+  };
+  const normalizeJoinedEngine = (row: JoinedSuggestionTuple): Candidate => {
+    const type = row[2]!;
+    let shape = fastTypes.get(type);
+    if (!shape) {
+      const adapted = engineInsightCard({ code: row[0], name: "", type, race: "", attribute: 0,
+        level: 0, attack: 0, defense: 0, description: "", setcodes: [], alias: 0, lscale: 0, rscale: 0, arrows: 0, ot: 0 });
+      shape = { kind: adapted.kind, subtypes: adapted.subtypes };
+      fastTypes.set(type, shape);
+    }
+    const membershipKey = row[5] ?? "";
+    if (!memberships.has(membershipKey)) {
+      const membership = setcodes({ setcode: membershipKey } as EngineRow);
+      let name: string | undefined;
+      if (membership.length) for (const [code, label] of archetypes()) if (inArchetype(membership, code)) { name = label; break; }
+      memberships.set(membershipKey, name);
+    }
+    const level = row[8]! & 0xff;
+    // Legacy normalization inserts its printed level key before applying engine
+    // stats. Preserve that property order for serialized candidate parity too.
+    const printedType = `${row[12] ?? ""}:${row[13] ?? ""}`;
+    let printedLevelKey = printedLevelKeys.get(printedType);
+    if (!printedLevelKey) {
+      const printed = `${row[12] ?? ""} ${row[13] ?? ""}`.toLowerCase().replaceAll("-", "_");
+      printedLevelKey = /(?:^|[ /_])xyz(?:$|[ /_])/.test(printed) ? "rank" : /(?:^|[ /_])link(?:$|[ /_])/.test(printed) ? "linkRating" : "level";
+      printedLevelKeys.set(printedType, printedLevelKey);
+    }
+    const finalLevel = type & (0x800000 | 0x4000000) ? undefined : level;
+    const rank = type & 0x800000 ? level : undefined, linkRating = type & 0x4000000 ? level : undefined;
+    const card: Card = {
+      id: row[0], name: row[3], kind: shape.kind, typeLine: row[12] ?? "", subtypes: shape.subtypes,
+      monsterType: raceNames.get(row[9]!), attribute: attributeNames.get(row[10]!),
+      ...(printedLevelKey === "rank" ? { rank } : printedLevelKey === "linkRating" ? { linkRating } : { level: finalLevel }),
+      atk: row[6]! >= 0 ? row[6] : null, def: row[7]! >= 0 ? row[7] : null,
+      text: row[4], archetype: row[14] ?? memberships.get(membershipKey), formats: [],
+      genesysPoints: revision && row[16] === revision ? row[15] ?? undefined : undefined,
+      views: row[18] ?? 0, url: "",
+    };
+    card.level = finalLevel; card.rank = rank; card.linkRating = linkRating;
+    if (row[19]) card.tcgDate = row[19];
+    if (row[20]) card.ocgDate = row[20];
+    return row[17] ? { card, tags: JSON.parse(row[17]) as CardTags } : { card };
+  };
+  const joinedEngineObject = (row: JoinedSuggestionTuple): EngineRow => ({
+    id: row[0], alias: row[1]!, type: row[2]!, name: row[22] ?? row[3], desc: row[4], setcode: row[5] ?? undefined,
+    atk: row[6]!, def: row[7]!, level: row[8]!, race: row[9]!, attribute: row[10]!,
+  });
+  function* attachedSuggestionCandidates(): Generator<Candidate> {
+    const stream = attachedSuggestionStream();
+    engine!.exec("BEGIN");
+    let rows: ReturnType<typeof stream.iterate> | undefined;
+    try {
+      const sourceReaders = attachedReaders!;
+      const cachedSources = cachedAliasSources(sourceReaders);
+      const exceptional = new Set<number>();
+      rows = stream.iterate();
+      for (const row of rows) {
+        const code = row[0];
+        if (exceptional.has(code)) continue;
+        const hasEngine = row[2] != null;
+        const canonicalCode = row[21] != null && row[21] !== code || remaps.has(code) || row[1]
+          ? canonical(code, hasEngine ? joinedEngineObject(row) : undefined, sourceReaders) : code;
+        if (canonicalCode !== code) {
+          if (sourceReaders.metadata.get(canonicalCode) || engineFind?.get(canonicalCode) || row[11] == null || exceptional.has(canonicalCode)) continue;
+          exceptional.add(canonicalCode);
+          yield normalize(sourceReaders.metadata.get(code)!, canonicalCode, hasEngine ? joinedEngineObject(row) : undefined, false, sourceReaders);
+          continue;
+        }
+        const cachedSource = cachedSources.get(code);
+        if (cachedSource !== undefined) {
+          const source = sourceReaders.metadata.get(cachedSource);
+          if (source) { yield normalize(source, code, hasEngine ? joinedEngineObject(row) : undefined, false, sourceReaders); continue; }
+        }
+        if (hasEngine && row[6] != null && row[7] != null && row[8] != null && row[9] != null && row[10] != null) {
+          yield normalizeJoinedEngine(row);
+          continue;
+        }
+        const source = sourceReaders.metadata.get(code) ?? {
+          ygoprodeck_id: code, name: row[3], type: "", frame_type: "", effect_text: row[4],
+          attribute: null, level: null, atk: null, def: null, archetype: null, genesys_points: null, genesys_revision: null,
+        };
+        yield normalize(source, code, hasEngine ? joinedEngineObject(row) : undefined, false, sourceReaders);
+      }
+    } finally {
+      rows?.return?.();
+      engine!.exec("ROLLBACK");
+    }
+  }
   return {
     canonical: (raw: number): number => canonical(raw),
     /** Startup readers can fold uncached engine artworks and legacy remaps too. */
@@ -256,6 +486,10 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     /** Suggestions must also see public engine cards absent from the lazy display cache. */
     *suggestionCandidates(pool?: readonly number[]): Generator<Candidate> {
       if (pool !== undefined) { yield* this.candidates(pool); return; }
+      if (engineTuples && !db.inTransaction && !engine!.inTransaction && db.name !== ":memory:" && db.name !== "" && existsSync(db.name)) {
+        yield* attachedSuggestionCandidates(); return;
+      }
+      if (engineTuples) { yield* completeSuggestionCandidates(); return; }
       const cachedSources = cachedAliasSources();
       const application = suggestionStream().iterate();
       const engineRows = engineStream?.iterate();

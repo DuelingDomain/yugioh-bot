@@ -70,7 +70,7 @@ afterAll(() => { db.close(); rmSync(directory, { recursive: true, force: true })
 
 describe("SQL insights over the real pinned artifact", () => {
   it("preserves cached alias metadata when the canonical engine card has no display row", () => {
-    const aliases = new Database(":memory:");
+    const aliases = new Database(join(directory, "alias-cache.sqlite"));
     migrate(aliases);
     aliases.prepare(`INSERT INTO card_catalog
       (ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,archetype,image_url,image_url_small,card_sets_json,cached_at,genesys_points,genesys_revision)
@@ -86,6 +86,36 @@ describe("SQL insights over the real pinned artifact", () => {
       expect([...catalog.suggestionCandidates()].find(candidate => candidate.card.id === 7084129)).toEqual(original);
       expect(aliases.prepare("SELECT 1 FROM card_catalog WHERE ygoprodeck_id=7084129").get()).toBeUndefined();
     } finally { catalog.close(); aliases.close(); }
+  });
+
+  it("uses one read snapshot for file-backed streaming and sees uncommitted transaction changes", async () => {
+    const path = join(directory, "snapshot-cache.sqlite");
+    await db.backup(path);
+    const application = new Database(path);
+    application.pragma("journal_mode=WAL");
+    const reader = createInsightCatalog(application, directory);
+    const original = createInsightCatalog(db, directory);
+    try {
+      expect([...reader.suggestionCandidates()]).toEqual([...original.suggestionCandidates()]);
+      const stream = reader.suggestionCandidates();
+      const first = stream.next();
+      expect(first.done).toBe(false);
+      application.prepare("UPDATE card_catalog SET name='Committed snapshot update' WHERE ygoprodeck_id=7084129").run();
+      const heldSnapshot = [first.value!, ...stream];
+      expect(heldSnapshot.find(candidate => candidate.card.id === 7084129)?.card.name).toBe("Magician's Rod");
+      expect([...reader.suggestionCandidates()].find(candidate => candidate.card.id === 7084129)?.card.name).toBe("Committed snapshot update");
+      application.exec("BEGIN");
+      try {
+        application.prepare("UPDATE card_catalog SET name='Uncommitted update' WHERE ygoprodeck_id=7084129").run();
+        application.prepare("UPDATE card_tags SET popularity=777 WHERE passcode=7084129").run();
+        const uncommitted = [...reader.suggestionCandidates()].find(candidate => candidate.card.id === 7084129)!;
+        expect(uncommitted.card).toMatchObject({ name: "Uncommitted update", views: 777 });
+      } finally { application.exec("ROLLBACK"); }
+      const partial = reader.suggestionCandidates();
+      expect(partial.next().done).toBe(false);
+      partial.return(undefined);
+      expect([...reader.suggestionCandidates()].find(candidate => candidate.card.id === 7084129)?.card.name).toBe("Committed snapshot update");
+    } finally { reader.close(); original.close(); application.close(); }
   });
 
   it("streams identical catalog metadata with cached artworks and release-only engine records", () => {

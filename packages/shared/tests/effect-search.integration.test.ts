@@ -1,7 +1,9 @@
 import Database from "better-sqlite3";
 import { migrate } from "../src/db/schema.js";
 import { gunzipSync } from "node:zlib";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
 import { interpret, buildArchetypeMatcher } from "../src/cards/effects/query.js";
@@ -370,6 +372,7 @@ const suggestionFixture = JSON.parse(readFileSync(new URL("./fixtures/deck-sugge
 };
 
 describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDirectory}/cards.cdb`))("sourced deck suggestion quality over the real full catalog", () => {
+  let directory: string | undefined;
   let database: Database.Database;
   let catalog: ReturnType<typeof import("../src/services/card-insight-catalog.js").createInsightCatalog>;
   let service: ReturnType<typeof import("../src/services/card-insights.js").createCardInsightService>;
@@ -382,7 +385,8 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
     const { createCardInsightService } = await import("../src/services/card-insights.js");
     // URL import keeps this cross-package evaluation adapter outside the shared build root.
     const { deckSuggestionScope } = await import(new URL("../../duel-server/src/deck-legality.ts", import.meta.url).href);
-    const loaded = loadDeckSuggestionQualityCatalog(suggestionEngineDirectory!, process.env.DECK_SUGGESTIONS_EVAL_DATABASE);
+    directory = mkdtempSync(join(tmpdir(), "deck-suggestions-quality-"));
+    const loaded = loadDeckSuggestionQualityCatalog(suggestionEngineDirectory!, join(directory, "catalog.sqlite"));
     database = loaded.db;
     catalog = createInsightCatalog(database, suggestionEngineDirectory);
     service = createCardInsightService(database, { dataDirectory: suggestionEngineDirectory, catalog });
@@ -393,9 +397,13 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
   }, 60_000);
 
   afterAll(() => {
-    if (process.env.DECK_SUGGESTIONS_EVAL_OUTPUT) writeFileSync(process.env.DECK_SUGGESTIONS_EVAL_OUTPUT, JSON.stringify(reports, null, 2) + "\n");
-    catalog?.close();
-    database?.close();
+    try {
+      if (process.env.DECK_SUGGESTIONS_EVAL_OUTPUT) writeFileSync(process.env.DECK_SUGGESTIONS_EVAL_OUTPUT, JSON.stringify(reports, null, 2) + "\n");
+    } finally {
+      catalog?.close();
+      database?.close();
+      if (directory) rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it.each(suggestionFixture.fixtures)("measures $id precision without restricting candidates to expected cards", async fixture => {

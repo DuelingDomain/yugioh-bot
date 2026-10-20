@@ -86,16 +86,21 @@ export function prepareSuggestionHookMatching(hooks: readonly SuggestionHook[], 
       archetypes: wanted.archetypes, level_min: wanted.levelMin ?? 0, level_max: wanted.levelMax ?? 0 };
     return unique.filter(({ card }) => filterReachesCard(filter, card));
   });
+  const needsPrinted = hooks.some(hook => hook.phrases.length > 0);
   return (candidate: Candidate): number[] => {
-    const printed = `${candidate.card.pendulumText ?? ""}\n${candidate.card.text}`.toLowerCase();
+    const printed = needsPrinted ? `${candidate.card.pendulumText ?? ""}\n${candidate.card.text}`.toLowerCase() : "";
     const fits: number[] = [];
+    // The concrete-target check usually rejects an unrelated/self effect before
+    // the general query matcher has to score all of its tagged effects.
+    const events = candidate.tags?.effects.flatMap(effect => [...effect.actions, ...effect.costs]) ?? [];
     hooks.forEach((hook, at) => {
-      if (!hook.phrases.every(phrase => printed.includes(phrase)) || matchCard(candidate.card, candidate.tags, hook.query) === null) return;
+      if (!hook.phrases.every(phrase => printed.includes(phrase))) return;
       const demand = hook.query.does;
-      if (demand && !demand.self && !candidate.tags?.effects.some(effect => [...effect.actions, ...effect.costs].some(event =>
+      if (demand && !demand.self && !events.some(event =>
         demand.verbs.includes(event.verb) && event.player !== "opponent" && !event.what.this_card
         && (!demand.from.length || event.from.some(zone => demand.from.includes(zone)))
-        && targets[at]!.some(({ card }) => filterReachesCard(event.what, card))))) return;
+        && targets[at]!.some(({ card }) => filterReachesCard(event.what, card)))) return;
+      if (matchCard(candidate.card, candidate.tags, hook.query) === null) return;
       fits.push(at);
     });
     return fits;
@@ -145,7 +150,8 @@ function reaches(filter: CardFilter, card: Card, context: SupportContext): boole
   return filterReachesCard({ ...filter, other: "" }, card);
 }
 
-function effectPenalty(effect: Effect, candidate: Candidate, context: SupportContext): number | undefined {
+/** Printed activation restrictions apply to every effect; read them once per card. */
+function candidatePenalty(candidate: Candidate, context: SupportContext): number | undefined {
   let penalty = candidate.card.kind === "trap" ? 6 : candidate.card.kind === "monster" ? 5 : 0;
   const printed = candidate.card.text;
   const equip = /^Equip only to (?:an? )?"([^"\n]+)" monster/i.exec(printed);
@@ -169,6 +175,11 @@ function effectPenalty(effect: Effect, candidate: Candidate, context: SupportCon
   if (/^Activate this card by/i.test(printed)) for (const cost of candidate.tags!.effects[0]!.costs) {
     if (!cost.what.this_card && !context.main.some(({ card }) => reaches(cost.what, card, context))) return;
   }
+  return penalty;
+}
+
+function effectPenalty(effect: Effect, candidate: Candidate, context: SupportContext, initial: number): number | undefined {
+  let penalty = initial;
   for (const action of effect.actions) {
     if (/granted to/i.test(action.note)) for (const match of action.note.matchAll(/"([^"\n]+)"/g)) {
       if (!context.main.some(({ card }) => belongsTo(card, match[1]!))) return;
@@ -211,10 +222,17 @@ export function scoreDeckSupport(candidate: Candidate, context: SupportContext):
   const { card, tags } = candidate;
   if (!tags) return;
   if (card.subtypes.includes("ritual") && !context.main.some(({ tags }) => tags?.effects.some(effect => effect.actions.some(event => event.verb === "ritual_summon" && reaches(event.what, card, context))))) return;
+  const effects = tags.effects.filter(effect => effect.actions.some(event =>
+    event.verb === "draw" && event.player === "you"
+    || event.player !== "opponent" && !event.what.this_card
+      && (event.verb === "add_to_hand" || event.verb === "special_summon" || event.verb === "send_to_gy" || event.verb === "fusion_summon")));
+  if (!effects.length) return;
+  const initialPenalty = candidatePenalty(candidate, context);
+  if (initialPenalty === undefined) return;
   let best: { score: number; reason: string; linkedCards: number } | undefined;
   const consider = (score: number, reason: string, linkedCards: number) => { if (!best || score > best.score) best = { score, reason, linkedCards }; };
-  for (const effect of tags.effects) {
-    const penalty = effectPenalty(effect, candidate, context);
+  for (const effect of effects) {
+    const penalty = effectPenalty(effect, candidate, context, initialPenalty);
     if (penalty === undefined) continue;
     for (const event of effect.actions) {
       if (event.player === "opponent" || event.what.this_card) continue;

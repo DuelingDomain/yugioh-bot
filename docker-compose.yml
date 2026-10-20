@@ -64,6 +64,7 @@ services:
       - DUEL_SCRIPT_ERROR_BLOCK_DUELS=${DUEL_SCRIPT_ERROR_BLOCK_DUELS:-3}
       - DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS=${DUEL_SCRIPT_ERROR_BLOCK_WINDOW_DAYS:-7}
       - EFFECT_SEARCH=${EFFECT_SEARCH:-0}
+      - DECK_SUGGESTIONS=${DECK_SUGGESTIONS:-0}
     # The VM has 4 GB. The first game loads the card database and scripts (about 114 MB), each game adds a few MB.
     mem_limit: ${DUEL_MEM_LIMIT:-1g}
     volumes:

@@ -25,7 +25,7 @@ export interface DeckSuggestionOptions extends CardInsightOptions {
   banlist?: string;
   /** Trusted server admission scope. Missing scope fails closed. Never accepted from HTTP. */
   legality?: DeckSuggestionLegality;
-  /** Measurement only; not an HTTP option. */
+  /** Disable local retention when the web server owns the result cache. Never accepted from HTTP. */
   cache?: false;
 }
 export interface DeckSuggestionRow {
@@ -64,13 +64,16 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
   const revision = (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
   const pointsRevision = (db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
   const version = `suggestions-1:${revision}:${pointsRevision ?? ""}:${opts.legality?.version ?? "no-admission"}`;
-  const key = hash({ main: sorted(deck.main, canonical), extra: sorted(deck.extra, canonical), side: sorted(deck.side, canonical), master: master && canonical(master),
-    format: opts.format, pool: opts.pool && sorted(opts.pool, canonical), exclude: opts.exclude && sorted(opts.exclude, canonical), banlist: opts.banlist,
-    remaining: opts.genesysRemaining, released: opts.released, version, dataDirectory });
-  let cache = caches.get(db);
-  if (!cache) { cache = new Map(); caches.set(db, cache); }
-  const found = opts.cache === false ? undefined : cache.get(key);
-  if (found) { cache.delete(key); cache.set(key, found); return JSON.parse(found) as DeckSuggestionResult; }
+  let cache: Map<string, string> | undefined, key: string | undefined;
+  if (opts.cache !== false) {
+    key = hash({ main: sorted(deck.main, canonical), extra: sorted(deck.extra, canonical), side: sorted(deck.side, canonical), master: master && canonical(master),
+      format: opts.format, pool: opts.pool && sorted(opts.pool, canonical), exclude: opts.exclude && sorted(opts.exclude, canonical), banlist: opts.banlist,
+      remaining: opts.genesysRemaining, released: opts.released, version, dataDirectory });
+    cache = caches.get(db);
+    if (!cache) { cache = new Map(); caches.set(db, cache); }
+    const found = cache.get(key);
+    if (found) { cache.delete(key); cache.set(key, found); return JSON.parse(found) as DeckSuggestionResult; }
+  }
   const rows: DeckSuggestionRow[] = ["archetype", "outside", "extra", "staples"].map(id => ({ id: id as DeckSuggestionRow["id"], cards: [], state: "ready" }));
   if (deck.main.length < 40) Object.assign(rows[2]!, { state: "hint", hint: "Add 40 Main Deck cards.", minimumMainCards: 40, mainCards: deck.main.length });
   const result = { rows, version };
@@ -125,7 +128,15 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
       reason: shortReason(reason.replace(/[\r\n]+/g, " ")), popularity: card.views, release: cardReleaseInfo(card),
       ...(singleton && master ? { deckMasterFit: true } : {}) });
     const member = archetypes.find(archetype => belongsTo(card, archetype));
-    const named = [...(tags?.supports.names ?? []), ...[...card.text.matchAll(/["“]([^"”]+)["”]/g)].map(match => match[1]!)].find(name => names.has(compactEffectName(name)));
+    let named: string | undefined;
+    for (const name of tags?.supports.names ?? []) {
+      if (names.has(compactEffectName(name))) { named = name; break; }
+    }
+    if (named === undefined && (card.text.includes('"') || card.text.includes("“"))) {
+      for (const match of card.text.matchAll(/["“]([^"”]+)["”]/g)) {
+        if (names.has(compactEffectName(match[1]!))) { named = match[1]!; break; }
+      }
+    }
     if (member || named) { retain(ranked[0]!, item(named ? 12 : 5, named ? `Names ${named}` : `Supports ${member}`, 1)); continue; }
     if (extra) { retain(ranked[2]!, item(5, summon!, 1)); continue; }
     const staple = tags?.roles.find(role => role === "hand_trap" || role === "board_breaker" || role === "negation");
@@ -133,9 +144,10 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
     if (!fits.length || tags?.roles.includes("hand_trap")) continue;
     const support = scoreDeckSupport(candidate, supportContext);
     if (!support) continue;
-    for (const at of fits) retain(queues[at]!, item(support.score, support.reason, support.linkedCards));
+    const supported = item(support.score, support.reason, support.linkedCards);
+    for (const at of fits) retain(queues[at]!, supported);
     if (fits.length) {
-      multi.push({ entry: item(support.score, support.reason, support.linkedCards), hooks: fits });
+      multi.push({ entry: supported, hooks: fits });
       multi.sort((a, b) => compare(a.entry, b.entry)); if (multi.length > 12) multi.pop();
     }
   }
@@ -149,7 +161,7 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
   for (const at of [0, 2, 3]) rows[at]!.cards = ranked[at]!.map(publicCard);
   // Staples may occupy at most a quarter of the visible suggestions.
   rows[3]!.cards = rows[3]!.cards.filter(card => !chosen.has(card.passcode)).slice(0, Math.min(6, Math.floor(rows.slice(0, 3).reduce((n, row) => n + row.cards.length, 0) / 3)));
-  if (opts.cache !== false) {
+  if (cache && key) {
     cache.set(key, JSON.stringify(result));
     while (cache.size > 64) cache.delete(cache.keys().next().value!);
   }

@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -181,6 +181,44 @@ describe("authoritative deck suggestion scope", () => {
       expect(after.data.allowed).not.toContain(1010);
       expect(after.data.version).not.toBe(before.data.version);
     } finally { writeFileSync(script, "s.listed_names={1010}\ns.listed_series={SET_SCRIPT_FAMILY}\n"); }
+  });
+
+  it("invalidates a strings-only content change with an unchanged CDB and preserved metadata mtime", async () => {
+    const cdb = join(directory, "cards.cdb"), strings = join(directory, "strings.conf");
+    const cdbStat = statSync(cdb, { bigint: true }), times = statSync(strings), source = readFileSync(strings, "utf8");
+    const before = await post({ suggestionFormat: "domain", deckMaster: MASTER });
+    try {
+      // A comment leaves parsed mappings equal; the complete metadata fingerprint still changes.
+      writeFileSync(strings, `${source}\n# scope fixture revision\n`); utimesSync(strings, times.atime, times.mtime);
+      const after = await post({ suggestionFormat: "domain", deckMaster: MASTER });
+      expect(after.status).toBe(200); expect(after.data.allowed).toEqual(before.data.allowed);
+      expect(after.data.version).not.toBe(before.data.version);
+      const cdbAfter = statSync(cdb, { bigint: true });
+      for (const key of ["dev", "ino", "size", "mtimeNs", "ctimeNs"] as const) expect(cdbAfter[key]).toBe(cdbStat[key]);
+    } finally { writeFileSync(strings, source); utimesSync(strings, times.atime, times.mtime); }
+  });
+
+  it("reloads either Lua constants file without a CDB change", async () => {
+    const cdb = join(directory, "cards.cdb"), cdbStat = statSync(cdb, { bigint: true });
+    for (const file of ["card_counter_constants.lua", "archetype_setcode_constants.lua"]) {
+      const path = join(directory, "card-scripts", file), present = existsSync(path);
+      const source = present ? readFileSync(path, "utf8") : undefined, times = present ? statSync(path) : undefined;
+      const before = await post({ suggestionFormat: "domain", deckMaster: MASTER });
+      try {
+        writeFileSync(path, file === "archetype_setcode_constants.lua" ? "SET_SCRIPT_FAMILY = 0x789\n" : "CARD_SCOPE_FIXTURE = 1015\n");
+        if (times) utimesSync(path, times.atime, times.mtime);
+        const after = await post({ suggestionFormat: "domain", deckMaster: MASTER });
+        expect(after.status).toBe(200); expect(after.data.version).not.toBe(before.data.version);
+        if (file === "archetype_setcode_constants.lua") {
+          expect(before.data.allowed).toContain(1015); expect(after.data.allowed).not.toContain(1015);
+        }
+        const cdbAfter = statSync(cdb, { bigint: true });
+        for (const key of ["dev", "ino", "size", "mtimeNs", "ctimeNs"] as const) expect(cdbAfter[key]).toBe(cdbStat[key]);
+      } finally {
+        if (source !== undefined && times) { writeFileSync(path, source); utimesSync(path, times.atime, times.mtime); }
+        else unlinkSync(path);
+      }
+    }
   });
 
   it("invalidates the version for a level-only CDB change even when its mtime is preserved", async () => {

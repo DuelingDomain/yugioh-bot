@@ -87,11 +87,13 @@ function matchEvent(event: MatchEvent, wanted: EventQuery): number | null {
   return matchObject(event.what, wanted.object);
 }
 
-const best = (events: MatchEvent[], wanted: EventQuery) =>
-  events.reduce<number | null>((top, event) => {
+function best(events: MatchEvent[], wanted: EventQuery, top: number | null = null): number | null {
+  for (const event of events) {
     const score = matchEvent(event, wanted);
-    return score !== null && (top === null || score > top) ? score : top;
-  }, null);
+    if (score !== null && (top === null || score > top)) top = score;
+  }
+  return top;
+}
 
 function matchEffects(effects: MatchEffect[], query: EffectQuery): number | null {
   let top: number | null = null;
@@ -105,7 +107,7 @@ function matchEffects(effects: MatchEffect[], query: EffectQuery): number | null
     if (query.quick && effect.timing !== "quick") continue;
     if (query.worksFrom && !effect.location.includes(query.worksFrom)) continue;
     // Paying a cost also makes the thing happen, so "send from Deck to GY" includes cards that do it as a cost.
-    const does = query.does ? best([...effect.actions, ...effect.costs], query.does) : 0;
+    const does = query.does ? best(effect.costs, query.does, best(effect.actions, query.does)) : 0;
     const reacts = query.reactsTo ? best(effect.triggers, query.reactsTo) : 0;
     if (does !== null && (topDoes === null || does > topDoes)) topDoes = does;
     if (reacts !== null && (topReacts === null || reacts > topReacts)) topReacts = reacts;
