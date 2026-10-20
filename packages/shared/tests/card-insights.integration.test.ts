@@ -301,14 +301,22 @@ describe("SQL insights over the real pinned artifact", () => {
 
   it("excludes anime, Rush and game-only engine rows from date searches", () => {
     const engine = new Database(join(directory, "cards.cdb"));
+    db.prepare("INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at) VALUES(3999999901,'Skill fixture','Skill Card','skill','Skill text','image','small','[]',CURRENT_TIMESTAMP)").run();
+    db.prepare("INSERT INTO card_release(passcode,tcg_date,quality,source_version) VALUES(3999999901,'2026-10','ok','fixture')").run();
     try {
+      expect(service.effectSearch("newest", [3999999901]).cards).toEqual([]);
+      expect(service.effectSearch("cards before 2027", [3999999901]).cards).toEqual([]);
       for (const pool of [0, 4, 8, 512, 1024, 515]) {
         engine.prepare("UPDATE datas SET ot=? WHERE id=97268402").run(pool);
         expect(service.effectSearch("newest monsters", [97268402]).cards).toEqual([]);
         expect(service.effectSearch("monsters before 2015", [97268402]).cards).toEqual([]);
         expect(service.effectSearch("hand traps", [97268402]).cards).toHaveLength(1);
       }
-    } finally { engine.prepare("UPDATE datas SET ot=3 WHERE id=97268402").run(); engine.close(); }
+    } finally {
+      engine.prepare("UPDATE datas SET ot=3 WHERE id=97268402").run(); engine.close();
+      db.prepare("DELETE FROM card_catalog WHERE ygoprodeck_id=3999999901").run();
+      db.prepare("DELETE FROM card_release WHERE passcode=3999999901").run();
+    }
   });
 
   it("uses a soft cube era preference and reports much newer cards", () => {

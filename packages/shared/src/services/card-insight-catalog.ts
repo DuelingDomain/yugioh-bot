@@ -207,7 +207,9 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
         card.level = undefined; card.rank = undefined; card.linkRating = undefined;
       }
     }
-    if (engineCard && engineHasPool) card.dateSearchEligible = (engineCard.ot! & 3) !== 0 && (engineCard.ot! & 0x600) === 0;
+    card.dateSearchEligible = engineCard && engineHasPool
+      ? (engineCard.ot! & 3) !== 0 && (engineCard.ot! & 0x600) === 0
+      : !/(?:skill|rush|anime|video[_ ]?game)/i.test(typeKey);
     const dates = joined ? row as SuggestionRow : sourceReaders.release.get(canonicalCode);
     if (dates?.tcg_date) card.tcgDate = dates.tcg_date;
     if (dates?.ocg_date) card.ocgDate = dates.ocg_date;
