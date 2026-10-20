@@ -82,12 +82,13 @@ async function endpoint(options: { uncertain?: boolean; badTags?: boolean; parti
   return { baseUrl: `http://127.0.0.1:${address.port}`, events, batches };
 }
 
-async function releaseEndpoint(data: unknown[], failures = 0) {
+async function releaseEndpoint(data: unknown[], failures = 0, sets: unknown[] = []) {
   const events: string[] = [];
   const server = createServer((request, response) => {
     events.push(`${request.method} ${request.url}`);
     response.setHeader("content-type", "application/json");
-    response.statusCode = events.length <= failures ? 503 : 200;
+    if (request.url === "/api/v7/cardsets.php") { response.end(JSON.stringify(sets)); return; }
+    response.statusCode = events.filter(event => event.includes("cardinfo")).length <= failures ? 503 : 200;
     response.end(JSON.stringify({ data }));
   });
   servers.push(server);
@@ -101,31 +102,39 @@ it("fills missing release months through bulk HTTP, keeps families and valid dat
   const before = JSON.parse(gunzipSync(readFileSync(join(rootPath, data, "releases.json.gz"))).toString());
   const missing = before.find((row: any) => row.tcgDate === null);
   const good = before.find((row: any) => row.tcgDate && row.ocgDate && row.aliases.length);
+  const reprint = before.find((row: any) => row.tcgDate && row.tcgDate > "2003-01" && row.id !== good.id);
   const api = await releaseEndpoint([
     { id: missing.id, name: missing.name, misc_info: [{ tcg_date: "2026-10-18", ocg_date: "1998-01-01" }] },
     { id: good.id, name: good.name, card_images: good.aliases.map((id: number) => ({ id })), misc_info: [{ tcg_date: "2026-10-18", ocg_date: "2026-10-18" }] },
+    { id: reprint.id, name: reprint.name, card_sets: [{ set_name: "First print", set_code: "FIRST-EN001" }], misc_info: [{ tcg_date: "2027-03-01" }] },
     { id: 99999996, name: "Invalid placeholder fixture", misc_info: [{ tcg_date: "2001-12-01", ocg_date: "1998-12-01" }] },
     { id: 99999997, name: "New release fixture", misc_info: [{ tcg_date: "2026-11-01", ocg_date: "2026-10-01" }] },
-  ], 1);
+  ], 1, [{ set_name: "First print", set_code: "FIRST", tcg_date: "2003-01-01" }]);
   const { refreshReleaseCandidate } = await import("../fill-releases.js");
   const options = { root: rootPath, outputDirectory: join(context.directory, "candidate"), cacheDirectory: join(context.directory, "cache"), baseSha: "a".repeat(40), endpoint: api.endpoint, backoffMs: 1 };
   const result = await refreshReleaseCandidate(options);
   expect(result.status).toBe("updated");
-  expect(result.filledCards).toBe(2);
-  expect(api.events).toEqual(Array(2).fill("GET /api/v7/cardinfo.php?misc=yes"));
+  expect(result.filledCards).toBe(3);
+  expect(result.corrections).toEqual([expect.objectContaining({ id: reprint.id, region: "tcg", previous: reprint.tcgDate, month: "2003-01", firstSetMonth: "2003-01" })]);
+  expect(result.flags).toEqual(expect.arrayContaining([expect.objectContaining({ id: reprint.id, region: "tcg", sourceMonth: "2027-03", firstSetMonth: "2003-01" })]));
+  expect(api.events.filter(event => event.includes("cardinfo"))).toEqual(Array(2).fill("GET /api/v7/cardinfo.php?misc=yes"));
+  expect(api.events.filter(event => event.includes("cardsets"))).toHaveLength(1);
   const after = JSON.parse(gunzipSync(readFileSync(join(options.outputDirectory, data, "releases.json.gz"))).toString());
   expect(after.find((row: any) => row.id === missing.id)).toEqual({ ...missing, tcgDate: "2026-10" });
   expect(after.find((row: any) => row.id === good.id)).toEqual(good);
+  expect(after.find((row: any) => row.id === reprint.id)).toEqual({ ...reprint, tcgDate: "2003-01" });
   expect(after.find((row: any) => row.id === 99999996)).toBeUndefined();
   expect(after.filter((row: any) => good.aliases.includes(row.id))).toEqual(before.filter((row: any) => good.aliases.includes(row.id)));
   const publisherPath = "../../ci/publish-effect-tags.mjs";
   const { validateEffectCandidate } = await import(publisherPath);
   expect(validateEffectCandidate(rootPath, options.outputDirectory).changed).toBe(true);
   await refreshReleaseCandidate(options);
-  expect(api.events).toHaveLength(2); // persistent bulk cache; no per-card calls
+  expect(api.events).toHaveLength(3); // persistent bulk cache; no per-card calls
   const original = readFileSync(join(options.outputDirectory, data, "releases.json.gz"));
   for (const mutate of [
     (rows: any[]) => { rows.find(row => row.id === good.id).tcgDate = "2026-10"; },
+    (rows: any[]) => { rows.find(row => row.id === good.id).tcgDate = "2002-01"; }, // earlier needs evidence
+    (rows: any[]) => { rows.find(row => row.id === reprint.id).tcgDate = "2003-02"; }, // must match evidence
     (rows: any[]) => { rows.find(row => row.id === good.id).name += " changed"; },
     (rows: any[]) => { rows.splice(rows.findIndex(row => row.id === good.id), 1); },
     (rows: any[]) => { rows.push(rows[0]); },
