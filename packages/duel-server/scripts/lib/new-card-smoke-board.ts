@@ -10,6 +10,9 @@ const EXTRA = 0x40 | 0x2000 | 0x800000 | 0x4000000;
 /** Location coverage is deliberately broader than text parsing: continuous and trigger effects need events too. */
 export function smokeLocations(type: number, text: string): SmokeLocation[] {
   const locations: SmokeLocation[] = type & EXTRA ? ["field", "grave", "banished", "extra"] : ["hand", "field", "grave", "banished", "deck"];
+  // A face-up Equip Spell needs a legal equip target. Plain field injection has
+  // no equip relation; let hand/set cases activate it through the real engine.
+  if (type & 0x40000) locations.splice(locations.indexOf("field"), 1);
   if (type & (2 | 4) || /FLIP:/i.test(text)) locations.push("set");
   if (type & 0x1000000) locations.push("pendulum");
   if ((type & 1) && /(?:as a|treated as a) Continuous Spell/i.test(text)) locations.push("spell-zone");

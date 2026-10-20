@@ -11,14 +11,12 @@ import { resolveCard } from "../../../src/presets/catalog.js";
 import { runScenarios } from "../../support/runner.js";
 import { ROTATE_CONTROL_SCENARIOS } from "./rotate-control.js";
 
-it("permits Creature Swap and its aliases at FFA and Tag tables", () => {
+it("permits the approved control-swap cards and their aliases at FFA and Tag tables", () => {
   for (const format of ["ffa3", "ffa4", "tag"] as const) {
-    expect(multiplayerForbiddenFor(format, 31036355), format).toBeUndefined();
-    expect(multiplayerForbiddenFor(format, 99999999, 31036355), format).toBeUndefined();
-  }
-  for (const code of [15305240, 30426226, 13532663]) {
-    expect(multiplayerForbiddenFor("ffa3", code)?.category).toBe("control-swap");
-    expect(multiplayerForbiddenFor("ffa4", code)?.category).toBe("control-swap");
+    for (const code of [31036355, 15305240, 30426226, 13532663]) {
+      expect(multiplayerForbiddenFor(format, code), `${format}: ${code}`).toBeUndefined();
+      expect(multiplayerForbiddenFor(format, 99999999, code), `${format}: alias of ${code}`).toBeUndefined();
+    }
   }
 });
 

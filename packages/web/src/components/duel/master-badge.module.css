@@ -24,6 +24,8 @@
   height: auto;
 }
 /* The emblem is the card itself, so the crown tag and the pills size from its width. */
+/* A pile or material window is open: the emblem (a fixed layer above the board box) must not draw over it. It stays in place, only unseen. */
+:global(body):has([data-pile-viewer]) .emblem { opacity: 0; pointer-events: none; }
 .emblem .crown { width: 22px; height: 22px; top: -8px; right: -8px; }
 .emblem .state { font-size: 11px; padding: 2px 8px; }
 .emblem .ready { top: -11px; font-size: 11px; padding: 2px 8px; }

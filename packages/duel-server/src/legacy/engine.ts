@@ -7,7 +7,7 @@ import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolic
 // marked "LEGACY-1V1:". See packages/duel-server/legacy-1v1/README.md.
 import { ChainOptions } from "../chain-options.js"; // LEGACY-1V1: public chosen chain options
 import { ChainActivator } from "../chain-activator.js"; // LEGACY-1V1: credit the activator of both-side effects
-import { DIAGNOSTICS_LIMIT, type EngineDiagnostic } from "../engine.js"; // LEGACY-1V1: private display error diagnostics
+import { DIAGNOSTICS_LIMIT, LOG_RETENTION_LIMIT, type EngineDiagnostic } from "../engine.js"; // LEGACY-1V1: private diagnostics and retained log limits
 import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode } from "@yugidraft/shared/duels";
 import { defaultChainMode } from "@yugidraft/shared/duels"; // LEGACY-1V1: chain response mode (Auto, Always, Off)
 import { firstTurnDrawFor } from "../first-turn-draw.js"; // LEGACY-1V1: owner draw rule and saved replay overrides
@@ -396,7 +396,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const appendLog = (text: string, audience: "all" | number = "all", privateText?: Record<number, string>): LogEntry => { // LEGACY-1V1: viewer-specific hint text
     const entry = { id: nextLogId++, text, audience, ...(privateText ? { privateText } : {}) }; // LEGACY-1V1: freeze eligible names at message time
     log.push(entry);
-    if (log.length > 400) log.splice(0, log.length - 400);
+    if (log.length > LOG_RETENTION_LIMIT) log.splice(0, log.length - LOG_RETENTION_LIMIT); // LEGACY-1V1: bound retained report history
     return entry;
   };
   // Lines for cards that left the field this batch (log-lines.ts LogLine.leftField). A destroy event for the same
@@ -778,7 +778,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         lp,
         prompt: pending?.prompt ?? null,
         promptSeat: pending?.seat ?? null,
-        log: logAfter == null ? log : log.filter((entry) => entry.id > logAfter),
+        log: logAfter == null ? (history?.fullLog ? log : log.slice(-400)) : log.filter((entry) => entry.id > logAfter),
         events: eventsAfter == null ? events : events.filter((entry) => entry.id > eventsAfter),
         chain: chainMemory,
         result,

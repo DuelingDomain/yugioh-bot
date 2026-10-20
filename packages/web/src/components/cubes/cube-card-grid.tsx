@@ -1,5 +1,7 @@
 "use client";
 
+import { PrereleaseLabel } from "@/components/prerelease-label";
+
 import { cardImageUrl } from "@/lib/card-image-url";
 import * as React from "react";
 import type { CardSummary } from "@/lib/card-types";
@@ -49,6 +51,7 @@ export function CubeCardGrid({
                 </span>
               </span>
               <span className="ct-n">{card.name}</span>
+              {card.prerelease ? <PrereleaseLabel /> : null}
             </button>
           </li>
         );

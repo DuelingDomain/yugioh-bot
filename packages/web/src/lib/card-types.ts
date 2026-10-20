@@ -1,5 +1,6 @@
 import type { CardReleaseInfo } from "@yugidraft/shared/cards/effects";
 export interface CardSummary {
+  prerelease?: boolean;
   release?: CardReleaseInfo;
   id: number;
   name: string;

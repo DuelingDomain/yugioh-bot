@@ -297,6 +297,7 @@
 @container de-editor (width < 960px) { .head { padding: 0 0 12px; } .results { padding: 0 0 64px; } .de-res { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; } }
 @media (prefers-reduced-motion: reduce) { .de-t, .de-res, .rows { transition: none; } .de-t:hover { transform: none; } .filters { animation: none; } }
 
+.prerelease { position: absolute; left: 3px; bottom: 26px; pointer-events: none; }
 .releaseMarks { display: inline-flex; gap: 3px; font-size: 10px; line-height: 1.4; }
 .releaseMarks > span { border: 1px solid var(--rule-lo); border-radius: 3px; padding: 1px 4px; color: var(--ink); background: var(--panel-2); }
 .releaseMarks[data-tile] { position: absolute; left: 4px; right: 4px; bottom: 24px; flex-wrap: wrap; pointer-events: none; }

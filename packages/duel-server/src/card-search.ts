@@ -1,4 +1,5 @@
 import {
+  DUEL_BANLIST_OPTIONS,
   CARD_POOL_OCG,
   CARD_POOL_TCG,
   CARD_TYPE_BITS as T,
@@ -20,7 +21,7 @@ import {
   type SpellTypeKey,
   type TrapTypeKey,
 } from "@yugidraft/shared/duels";
-import { BANLIST_NONE_ID, BANLIST_OCG_2026_07_ID, BANLIST_TCG_2026_09_ID, banlistLimitsFor } from "./banlists/index.js";
+import { BANLIST_NONE_ID, banlistLimitsFor } from "./banlists/index.js";
 import { cardArtworkFamily } from "./card-artworks.js";
 import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
 import type { CardDatabase } from "./cards.js";
@@ -395,7 +396,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
 
 export function cardFacets(cards: CardDatabase): CardFacets {
   const banlists: CardFacets["banlists"] = {};
-  for (const id of [BANLIST_TCG_2026_09_ID, BANLIST_OCG_2026_07_ID]) {
+  for (const { id } of DUEL_BANLIST_OPTIONS) {
     const limits = banlistLimitsFor(id);
     if (limits) banlists[id] = limits;
   }

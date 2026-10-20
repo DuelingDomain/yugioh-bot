@@ -127,10 +127,22 @@ const base = {
   // The theme lobby (and its pool health and "Describe a theme") exists only with this flag.
   THEME_DRAFTS: process.env.E2E_THEME_DRAFTS ?? "1",
   DATABASE_PATH: dbPath,
+  DUEL_DATA_DIR: runtimeDuelDataDir,
+  E2E_PRERELEASE_CATALOG: process.env.E2E_PRERELEASE_CATALOG ?? "0",
   DOTENV_CONFIG_PATH: resolve(stackDir, "none.env"),
   DOTENV_CONFIG_QUIET: "true",
   OWNER_USER_IDS: ownerUserIds,
 };
+// E2E_ADMIN_CONSOLE=1: fake keys for the admin console. The fetch stub answers Clerk, Sentry and PostHog,
+// so no real call leaves the machine. Without the flag the sections show "not configured".
+const adminConsoleEnv = process.env.E2E_ADMIN_CONSOLE === "1" ? {
+  E2E_ADMIN_CONSOLE: "1",
+  CLERK_SECRET_KEY: "sk_test_e2e_not_real",
+  SENTRY_API_TOKEN: "e2e-sentry-token", SENTRY_ORG: "e2e", SENTRY_PROJECT: "web",
+  POSTHOG_PERSONAL_API_KEY: "e2e-posthog-key", POSTHOG_PROJECT_ID: "1",
+  POSTHOG_HOST: "https://eu.posthog.com", POSTHOG_DASHBOARD_URL: "https://eu.posthog.com/project/1",
+  SENTRY_RELEASE: "e2e0000",
+} : {};
 const serviceDirectory = (name) => {
   if (e2eSlot === undefined) return repoRoot;
   const directory = resolve(stackDir, name);
@@ -208,7 +220,7 @@ run("web", process.execPath, ["server.js"], {
     E2E_AUTH_SECRET: secrets.auth,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: clerkPublishableKey,
     E2E_MANUAL: manualMode ? "1" : "0",
-    E2E_CARD_IMAGE_SOURCE_DIR: manualMode ? manualImageSource : "",
+    E2E_CARD_IMAGE_SOURCE_DIR: manualMode || process.env.E2E_PRERELEASE_CATALOG === "1" ? manualImageSource : "",
     WS_INTERNAL_URL: wsInternal,
     WS_INTERNAL_SECRET: secrets.ws,
     DUEL_INTERNAL_URL: `http://127.0.0.1:${ports.duel}`,
@@ -221,6 +233,7 @@ run("web", process.execPath, ["server.js"], {
     MULTIPLAYER_TABLES: process.env.E2E_MULTIPLAYER_TABLES ?? "1",
     CARD_IMAGE_CACHE_DIR: cardImageDir,
     DISCORD_BOT_ENABLED: "0", BOT_ANNOUNCE_URL: "", BOT_ANNOUNCE_SECRET: "",
+    ...adminConsoleEnv,
   },
 });
 

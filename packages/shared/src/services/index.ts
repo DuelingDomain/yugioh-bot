@@ -39,7 +39,7 @@ export type { ScoringService } from "./scoring.js";
 export * from "../scoring/projection.js";
 export * from "../scoring/rank.js";
 export * from "../scoring/achievements.js";
-export { createDuelService, DuelServiceError, DUEL_LIVE_IDLE_AFTER_MS } from "./duels.js";
+export { createDuelService, DuelServiceError, DUEL_LIVE_IDLE_AFTER_MS, DUEL_LIVE_IDLE_REASON } from "./duels.js";
 export type { DuelService, DuelPrivateState, DuelFinalSnapshots } from "./duels.js";
 export { createReplayForkService, hashReplayForkPrefix, ReplayForkStorageError } from "./replay-forks.js";
 export type { ReplayForkService, ReplayForkCreateInput, ReplayForkRetryInput, ReplayForkStored } from "./replay-forks.js";

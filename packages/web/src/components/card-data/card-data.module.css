@@ -13,6 +13,27 @@
   min-width: 0;
 }
 
+/* History keeps the sheet's floor rows, with native keyboard-accessible disclosure. */
+.historyRow :global(.sv-row-in) { padding-block: 18px; }
+.historyEntry { display: grid; gap: 14px; width: 100%; min-width: 0; }
+.historyHeading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; }
+.historyHeading > div { min-width: 0; overflow-wrap: anywhere; }
+.historyHeading h3 { margin-top: 4px; }
+.historyLink { color: var(--gold-ink); font: 500 13.5px/1.5 var(--f-ui); text-underline-offset: 3px; }
+.historyLink:focus-visible, .historyDetails > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.historyCounts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px 16px; margin: 0; }
+.historyCounts dt { color: var(--ink-3); font: 400 12.5px/1.4 var(--f-ui); }
+.historyCounts dd { margin: 4px 0 0; color: var(--ink); font: 500 19px/1.2 var(--f-ui); font-variant-numeric: tabular-nums; }
+.historyDetails { min-width: 0; }
+.historyDetails > summary { width: fit-content; padding-block: 6px; cursor: pointer; color: var(--gold-ink); font: 500 14px/1.5 var(--f-ui); }
+.historyCards { display: grid; gap: 10px; padding-top: 8px; }
+.historyCardRow :global(.sv-row-in) { flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding-block: 10px; }
+.historyCardName { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+
+@container (max-width: 620px) {
+  .historyCounts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 .loadError {
   display: flex;
   flex-wrap: wrap;

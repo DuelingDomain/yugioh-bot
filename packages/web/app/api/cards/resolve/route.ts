@@ -21,6 +21,7 @@ const EFFECT_SEARCH_LOOKUP_LIMIT = 8;
 
 function toCardSummary(c: {
   ygoprodeckId: number;
+  prerelease?: boolean;
   name: string;
   type: string;
   frameType: string;
@@ -34,6 +35,7 @@ function toCardSummary(c: {
 }): CardSummary {
   return {
     id: c.ygoprodeckId,
+    prerelease: c.prerelease,
     name: c.name,
     type: c.type,
     frameType: c.frameType,
@@ -198,6 +200,7 @@ async function handlePOST(request: Request) {
 
   const cards: CardSummary[] = catalog.findByIds([...counts.keys()]).map((c) => ({
     id: c.ygoprodeckId,
+    prerelease: c.prerelease,
     name: c.name,
     type: c.type,
     frameType: c.frameType,

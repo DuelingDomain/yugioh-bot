@@ -107,6 +107,8 @@ export type FxWorld = {
   cy: number;
   /** Canvas px per world unit (card art width / 96). */
   u: number;
+  /** Turn of the whole world on screen, rad, counter-clockwise. A field of a plaza table is tilted; 0 (the default) is upright. */
+  rot?: number;
   /** Canvas size in CSS px. */
   vw: number;
   vh: number;
@@ -114,6 +116,9 @@ export type FxWorld = {
 
 /** A row of card zones per seat, in canvas px (null when the board has none). */
 export type FxRows = { you: { m: FxRect | null; st: FxRect | null }; opp: { m: FxRect | null; st: FxRect | null } };
+
+/** The monster row and the spell/trap row of one field, in canvas px (multi-seat tables have more than two). */
+export type FxField = { m: FxRect | null; st: FxRect | null };
 
 /** The graveyard and banish pile of each seat, in canvas px. */
 export type FxPiles = { you: { gy: FxRect | null; banish: FxRect | null }; opp: { gy: FxRect | null; banish: FxRect | null } };
@@ -123,6 +128,8 @@ export type FxVictim = {
   code: number;
   defense: boolean;
   turned?: boolean;
+  /** Wipes: the angle (rad, counter-clockwise) the card copy stands at on screen; it replaces `defense` and `turned` for a card on a turned or tilted field. */
+  rot?: number;
   /** Old pieces: the card breaks here (ms from the start). Wipes: the card is gone from the field here. */
   atMs: number;
   /** Wipes: the canvas starts to draw this card (the page card hides here, about 40 ms earlier than any change). */
@@ -138,6 +145,8 @@ export type FxVictim = {
   wy?: number;
   /** Wipes: the card is a Spell or Trap (it stands in a spell/trap zone). */
   st?: boolean;
+  /** Wipes: how the field of this card faces, "you" (Spell/Trap row below the monsters) or "opp" (above). Else read from the rows. */
+  side?: "you" | "opp";
 };
 
 export type FxScene = {
@@ -161,6 +170,12 @@ export type FxScene = {
   world?: FxWorld;
   rows?: FxRows;
   piles?: FxPiles;
+  /** Wipes at a multi-seat table: every field the piece works on (rows holds the first of each side). */
+  fields?: FxField[];
+  /** Wipes at a multi-seat table: the one field a piece is aimed at, with the room above it (canvas px). */
+  focus?: FxRect;
+  /** Wipes at a multi-seat table, also when only two fields are left: the grade stays light (no whole-canvas wash). */
+  multiTable?: boolean;
   /** Wipes only: how the demo times were laid out (key points in ms, for the sound and the lab). */
   marks?: Partial<Record<"open" | "strike" | "close" | "land", number>>;
 };

@@ -1,5 +1,6 @@
 "use client";
 
+import { PrereleaseLabel } from "@/components/prerelease-label";
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
 import { AlertTriangle, ArrowDownWideNarrow, ArrowUpNarrowWide, Minus, LayoutGrid, Link2, List, Plus, RotateCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { cardLimit, type CardArchetype, type CardQuery, type CardQueryResult, type DeckCardInfo, type DuelMode } from "@yugidraft/shared/duels";
@@ -80,6 +81,7 @@ export function CardBrowser({
   onInspect,
   onHover,
   onAdd,
+  fullReason,
   onCatalog,
   onRemoveDrop,
   searchRef,
@@ -105,6 +107,8 @@ export function CardBrowser({
   /** The card under the pointer, or null when the pointer leaves it. */
   onHover: (card: DeckCardInfo | null) => void;
   onAdd: (card: DeckCardInfo) => void;
+  /** Why this card cannot be added because its section is full ("Main Deck is full (60/60)."), or null. */
+  fullReason?: (card: DeckCardInfo) => string | null;
   onCatalog: (cards: DeckCardInfo[]) => void;
   onRemoveDrop: (drag: CardDrag) => void;
   searchRef: RefObject<HTMLInputElement | null>;
@@ -560,6 +564,7 @@ export function CardBrowser({
                         <CardArt code={card.code} name={card.name} />
                         {genesys && !pool ? <GenesysBadge card={card} variant="browse" lift={Boolean(card.unavailableReason)} /> : <LimitBadge limit={limit} />}
                         <ArtChip otherArts={card.altArtCount ?? 0} corner />
+                        {card.prerelease && !card.release?.upcoming ? <span className={styles.prerelease}><PrereleaseLabel /></span> : null}
                         <ReleaseMarks release={card.release} tile />
                         {card.unavailableReason ? <span className={styles.unavailable}>Unavailable</span> : null}
                         {pool ? (
@@ -584,6 +589,7 @@ export function CardBrowser({
                       </span>
                       <span className={styles.rowText}>
                         <strong>{card.name}</strong>{" "}
+                        {card.prerelease && !card.release?.upcoming ? <PrereleaseLabel /> : null}
                         <ReleaseMarks release={card.release} />
                         {card.unavailableReason ? <span>Unavailable: {card.unavailableReason}</span> : null}
                         <span>{cardDetailsText(card)}</span>
@@ -596,7 +602,7 @@ export function CardBrowser({
                       ) : count > 0 ? <span className={cn("num", styles.rowHave)}>×{count}</span> : null}
                     </button>
                     {worksEnabled ? worksButton(card, styles.rowWorks!) : null}
-                    <button type="button" className={styles.rowAdd} aria-label={`Add ${card.name} to the deck`} title={card.unavailableReason ? `Unavailable: ${card.unavailableReason}` : "Add to deck"} disabled={!!card.unavailableReason || (pool != null && full)} onClick={() => onAdd(card)}>
+                    <button type="button" className={styles.rowAdd} aria-label={`Add ${card.name} to the deck`} title={card.unavailableReason ? `Unavailable: ${card.unavailableReason}` : fullReason?.(card) ?? "Add to deck"} disabled={!!card.unavailableReason || (pool != null && full) || !!fullReason?.(card)} onClick={() => onAdd(card)}>
                       <Plus size={16} strokeWidth={1.8} aria-hidden />
                     </button>
                   </li>

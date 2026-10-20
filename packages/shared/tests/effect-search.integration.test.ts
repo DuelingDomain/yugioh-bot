@@ -58,7 +58,7 @@ describe("effect reader over the pinned searchygo artifact", () => {
     vi.setSystemTime(new Date("2026-10-20T00:00:00Z"));
     try {
       const query = interpret("new cards")!.query;
-      const base = { id: 1, name: "Release integration", kind: "spell", subtypes: [], text: "", views: 0 } as Card;
+      const base = { id: 1, name: "Release integration", kind: "spell", subtypes: [], text: "", views: 0 } as unknown as Card;
       expect(query.released).toEqual({ from: "2026-07" });
       expect(matchCard({ ...base, tcgDate: "2016-04", ocgDate: "2026-12" }, undefined, query)).not.toBeNull();
       expect(matchCard({ ...base, tcgDate: "2016-04", ocgDate: "2026-12" }, undefined, interpret("new cards TCG")!.query)).toBeNull();

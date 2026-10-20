@@ -17,8 +17,8 @@ function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
  return result
 end
 function s.activate(e,tp,eg,ep,ev,re,r,rp)
-    local g=Duel.GetMatchingGroup(nil,tp,LOCATION_MZONE,LOCATION_MZONE,nil)
-    if #g>0 and Duel.Destroy(g,REASON_EFFECT)>0 then
+	local g=Duel.GetMatchingGroup(nil,tp,LOCATION_MZONE,LOCATION_MZONE,nil)
+	if #g>0 and Duel.Destroy(g,REASON_EFFECT)>0 then
 		local rg=mp_all_deck_monsters()
 		if #rg==0 then return end
 		Duel.BreakEffect()

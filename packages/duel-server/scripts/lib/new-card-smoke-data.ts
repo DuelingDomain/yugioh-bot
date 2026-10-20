@@ -88,7 +88,10 @@ export async function changedSmokePins(before: SmokePins, after: SmokePins, dire
   const temporary = await mkdtemp(join(tmpdir(), "new-card-smoke-comparison-"));
   try {
     const downloaded = await Promise.allSettled([
-      downloadReleasedCardData(before.database, temporary, request, { historyStart: before.database }),
+      // This is a row comparison, with no historical remap interval. Current
+      // admission overrides can name previews removed before this snapshot;
+      // validating them here would reject valid old data before smoke can run.
+      downloadReleasedCardData(before.database, temporary, request, { historyStart: before.database, overrideBytes: "{}" }),
       request(`https://codeload.github.com/ProjectIgnis/CardScripts/tar.gz/${before.scripts}`, { signal: AbortSignal.timeout(120000) }),
     ]);
     const [databaseResult, scriptResult] = downloaded;

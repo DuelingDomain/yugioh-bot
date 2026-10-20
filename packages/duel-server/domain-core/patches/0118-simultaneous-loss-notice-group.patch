@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 18 Oct 2026 12:01:00 +0000
+Subject: [PATCH] core: group simultaneous loss notices before card cleanup
+
+Send every loss notice from one continuing-duel loss check before any
+cleanup. Cleanup can move foreign-owned Xyz materials and send disabled
+zone updates. These messages must not split a shared elimination place.
+Direct eliminate callers keep the default notice behavior.
+
+Live proof: Card Destruction deck-out scenarios include foreign material
+and zone-lock cleanup on Standard and Domain FFA4 cores.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GLTNwBcU5bVhsdGwaZoeik
+---
+diff --git a/field.cpp b/field.cpp
+index e79b844..8c6c99f 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -141,13 +141,13 @@ static void send_remove_cards(duel* pduel, const std::vector<loc_info>& locs) {
+ 		done += cur;
+ 	}
+ }
+-void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
++void field::eliminate(uint8_t p, uint8_t reason, bool marked, bool notify) {
+ 	// With 2 duelists a loss ends the duel, so there is nothing to eliminate: do nothing.
+ 	if(n_duelists == 2 || !is_duelist(p) || (!marked && player[p].eliminated))
+ 		return;
+ 	player[p].eliminated = true;
+-	// 1. The message.
+-	{
++	// 1. A simultaneous loss check has already sent all notices before cleanup.
++	if(notify) {
+ 		auto message = pduel->new_message(MSG_DUELIST_ELIMINATED);
+ 		message->write<uint8_t>(p);
+ 		message->write<uint8_t>(reason);
+diff --git a/field.h b/field.h
+index 31ad60e..dba85ba 100644
+--- a/field.h
++++ b/field.h
+@@ -758,7 +758,7 @@ public:
+ 	// that applies. Does nothing with 2 duelists or when p is already out. marked = the caller set
+ 	// player[p].eliminated already (several duelists lose in the same check, so every loser is dead before
+ 	// any body runs): then p is not "already out" and the body runs.
+-	void eliminate(uint8_t p, uint8_t reason, bool marked = false);
++	void eliminate(uint8_t p, uint8_t reason, bool marked = false, bool notify = true);
+ 	// Applies the losses of a duel with more than 2 duelists (Adjust step 1). Sends MSG_WIN at the end.
+ 	void check_losses_n(bool surrenders_only = false);
+ 	uint8_t response_window_participants() const;
+diff --git a/processor.cpp b/processor.cpp
+index 12519f2..88b328e 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -5058,9 +5058,19 @@ void field::check_losses_n(bool surrenders_only) {
+ 			if(loses[order[i]])
+ 				player[order[i]].eliminated = true;
+ 		}
++		// Keep one loss check in one contiguous notice group. Cleanup can emit moves,
++		// card removals and disabled-zone updates for each seat.
++		for(uint8_t i = 0; i < count; ++i) {
++			const auto p = order[i];
++			if(!loses[p])
++				continue;
++			auto message = pduel->new_message(MSG_DUELIST_ELIMINATED);
++			message->write<uint8_t>(p);
++			message->write<uint8_t>(reason_of[p]);
++		}
+ 		for(uint8_t i = 0; i < count; ++i) {
+ 			if(loses[order[i]])
+-				eliminate(order[i], reason_of[order[i]], true);
++				eliminate(order[i], reason_of[order[i]], true, false);
+ 		}
+ 		return;
+ 	}

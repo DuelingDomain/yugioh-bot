@@ -153,6 +153,11 @@ async function probeInProcess(dataDirectory: string, changedPaths: string[]): Pr
             core.duelNewCard(duel, { code, team: 0, duelist: 0, controller: 0, location: extra ? OcgLocation.EXTRA : OcgLocation.DECK, sequence: 0, position: OcgPosition.FACEDOWN_DEFENSE });
           });
           context = path;
+          // Native initialization already loads this chunk in its proper card
+          // context. Loading it again breaks artwork aliases, whose table must
+          // be empty before LoadCardScriptAlias replaces it.
+          report.scriptsChecked++;
+          return;
         }
         if (path === "constant.lua" || path === "utility.lua") return;
         const card = /^c(\d+)\.lua$/.exec(basename(path));

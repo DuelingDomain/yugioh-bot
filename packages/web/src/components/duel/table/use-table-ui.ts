@@ -55,10 +55,12 @@ export interface TableUiOptions {
   hud?: boolean;
   onOpenCard?: (target: InspectTarget) => void;
   onPinCard?: (card: DuelCard | null, anchor?: HTMLElement | null) => void;
+  /** The phone layout (no HUD): a tap on a card that starts no move pins it in the left drawer. */
+  onTapCard?: (card: DuelCard) => void;
 }
 
 export function useTableUi(base: TableController, options: TableUiOptions = {}): TableUi {
-  const { hud = false, onOpenCard, onPinCard } = options;
+  const { hud = false, onOpenCard, onPinCard, onTapCard } = options;
   const { engine, prompt, viewerSeat, canAct, busy, draft, onAnswer } = base;
   const [menu, setMenu] = useState<CardMenuState | null>(null);
   const [hover, setHover] = useState<{ card: DuelCard; anchor: HTMLElement } | null>(null);
@@ -171,7 +173,7 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
         const owner: "you" | "opp" = first ? (first.controller === local && viewerSeat != null ? "you" : "opp") : "opp";
         setHover(null);
         if (hud) onPinCard?.(null);
-        setPile({ title: target.title, owner, cards: target.cards, open: true, seat: first?.controller });
+        setPile({ title: target.title, owner, cards: target.cards, open: true, seat: target.host?.controller ?? first?.controller, host: target.host });
         return;
       }
       setInspect(target);
@@ -269,7 +271,11 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
       if (hud && !preserveInspector) onPinCard?.(null);
       // The HUD keeps the Card flyout shut while a click is a prompt pick or opens a card menu: see the end.
       // A click on a card that offers a move is the start of that move: the drawer stays as it is. Any other click inspects.
-      if (card && !hud) showInspector({ type: "card", card }, false, !(canAct && mine && keys.some((key) => base.legalKeys.has(key))));
+      if (card && !hud) {
+        const startsMove = canAct && mine && keys.some((key) => base.legalKeys.has(key));
+        showInspector({ type: "card", card }, false, !startsMove);
+        if (!startsMove) onTapCard?.(card);
+      }
       base.onActivate(keys, card, anchor);
       if (busy || !canAct || !prompt) {
         if (card && hud) { if (preserveInspector) showInspector({ type: "card", card }, true); else pinClicked(card, anchor); }

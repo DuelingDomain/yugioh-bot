@@ -151,9 +151,16 @@ export function formatLp(lp: number): string {
   return lp.toLocaleString("en-US");
 }
 
+/** Printed ? is -2; other negative ATK/DEF values display as zero. Accept old unsigned replay frames too. */
+export function combatStat(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  const signed = value > 0x7fffffff && value <= 0xffffffff ? value - 0x100000000 : value;
+  return signed === -2 ? null : Math.max(0, signed);
+}
+
 export function formatStat(value: number | null | undefined): string {
-  if (value == null || value < 0) return "?";
-  return String(value);
+  const stat = combatStat(value);
+  return stat == null ? "?" : String(stat);
 }
 
 export function attributeLabel(attribute: number | null | undefined): string {
@@ -206,8 +213,13 @@ function trapKind(type: number): string {
   return "Normal";
 }
 
+/** An attached Xyz material: the engine reports no live stats for it, so no stat line shows (it would read "ATK ? / DEF ?"). */
+export function isMaterialCard(card: CardLike): boolean {
+  return "location" in card && card.location === LOCATION_OVERLAY;
+}
+
 export function cardStatsText(card: CardLike): string | null {
-  if (isHiddenCard(card)) return null;
+  if (isHiddenCard(card) || isMaterialCard(card)) return null;
   const type = card.type;
   if (type == null || (type & TYPE_MONSTER) === 0) return null;
   const atk = formatStat(card.attack);
@@ -266,6 +278,7 @@ export function cardInspectLines(card: CardLike): { facts: string; combat: strin
   if (isHiddenCard(card)) return { facts: "", combat: null };
   const type = card.type ?? 0;
   if (!(type & TYPE_MONSTER)) return { facts: cardKindText(card), combat: null };
+  if (isMaterialCard(card)) return { facts: [attributeLabel(cardAttribute(card)), cardKindText(card)].filter(Boolean).join(" · "), combat: null };
   const link = (type & TYPE_LINK) !== 0;
   const rating = "linkRating" in card && typeof card.linkRating === "number" ? card.linkRating : undefined;
   // A Link monster shows its rating after ATK, so the facts line leaves it out.
@@ -278,7 +291,7 @@ export function cardInspectLines(card: CardLike): { facts: string; combat: strin
 }
 
 export function cardCombatText(card: CardLike): string | null {
-  if (isHiddenCard(card)) return null;
+  if (isHiddenCard(card) || isMaterialCard(card)) return null;
   const type = card.type;
   if (type == null || (type & TYPE_MONSTER) === 0) return null;
   if ((type & TYPE_LINK) !== 0) return `ATK ${formatStat(card.attack)}`;

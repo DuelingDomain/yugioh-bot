@@ -7,7 +7,8 @@ function card(value: DuelCard | null): unknown {
   if (value === null) return null;
   return {
     zone: zone(value), code: value.code ?? null, position: value.position,
-    attack: value.attack ?? null, defense: value.defense ?? null,
+    attack: value.attack == null ? null : value.attack | 0,
+    defense: value.defense == null ? null : value.defense | 0,
     level: value.level ?? null, rank: value.rank ?? null,
     type: value.type ?? null, attribute: value.attribute ?? null, race: value.race ?? null,
     linkRating: value.linkRating ?? null, linkMarker: value.linkMarker ?? null,
@@ -41,6 +42,7 @@ export function replayBoardProjection(view: DuelEngineView): unknown {
         returns: seat.deckMaster.returns, nextCost: seat.deckMaster.nextCost } : null,
     })),
     result: view.result ? { winnerSeat: view.result.winnerSeat, winnerTeam: view.result.winnerTeam ?? null,
+      victory: view.result.victory ?? null,
       reason: view.result.reason === "Surrendered" ? "Surrender" : view.result.reason } : null,
     chain: view.chain.map(link => ({ index: link.index, seat: link.seat, code: link.code ?? null,
       zone: zone(link.zone), targets: (link.targets ?? []).map(zone),

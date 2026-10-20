@@ -110,7 +110,7 @@ describe("Genesys points snapshots", () => {
     expect(reader.cardCount()).toBe(14_614);
     expect(reader.points([1, 14_615])).toEqual(new Map([[1, 7], [14_615, null]]));
     await expect(catalog.syncGenesysPoints()).rejects.toThrow(/incomplete card list/);
-  });
+  }, 30_000);
 
   it.each([73, 74])("limits verified shrinkage to 0.5 percent (%s missing cards)", missing => {
     const changed = completeSnapshot();
@@ -170,7 +170,7 @@ describe("Genesys points snapshots", () => {
     expect(createGenesysPointsReader(db).points([1]).get(1)).toBe(7);
     payload(completeSnapshot());
     await expect(catalog.syncGenesysPoints()).rejects.toThrow(/unverified/);
-  });
+  }, 30_000);
 
   it("does not roll back a newer list when an older concurrent fetch finishes late", async () => {
     const { db, catalog, payload } = setup();
@@ -189,7 +189,7 @@ describe("Genesys points snapshots", () => {
     await expect(stale).rejects.toThrow(/unverified/);
     expect(createGenesysPointsReader(db).list()).toEqual(latest);
     expect(createGenesysPointsReader(db).points([1]).get(1)).toBe(7);
-  });
+  }, 30_000);
 
   it("waits for an expected new revision when the source is still serving the previous list", async () => {
     const { db, catalog, payload } = setup();

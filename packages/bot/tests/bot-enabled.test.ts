@@ -10,6 +10,7 @@ function disabledEnv(value: string | undefined): NodeJS.ProcessEnv {
     ...process.env, DOTENV_CONFIG_PATH: "/dev/null",
     DISCORD_TOKEN: "", DISCORD_CLIENT_ID: "", DISCORD_GUILD_ID: "",
     DATABASE_PATH: "/dev/null/bot.sqlite",
+    BOT_HEALTH_PATH: `/tmp/yugidraft-bot-disabled-test-${process.pid}.json`,
   };
   if (value === undefined) delete env.DISCORD_BOT_ENABLED;
   else env.DISCORD_BOT_ENABLED = value;

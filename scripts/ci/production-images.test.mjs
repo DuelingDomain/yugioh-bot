@@ -14,7 +14,7 @@ function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), 'production-images-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const refs = join(dir, 'image-digests');
-  writeFileSync(refs, ['duel', 'web', 'worker', 'ws'].map(service => `${service} ${digest}\n`).join(''));
+  writeFileSync(refs, ['duel', 'web', 'worker', 'ws', 'bot'].map(service => `${service} ${digest}\n`).join(''));
   const log = join(dir, 'commands');
   writeFileSync(log, '');
   const df = join(dir, 'df');
@@ -58,15 +58,19 @@ esac
   };
 }
 
-test('pull validates all four ARM64 images without changing live or previous tags', t => {
+test('pull validates all five ARM64 images and accepts an older four-image release', t => {
   const f = fixture(t);
   const result = f.run('pull');
   assert.equal(result.status, 0, result.stderr);
-  for (const service of ['duel', 'web', 'worker', 'ws']) {
+  for (const service of ['duel', 'web', 'worker', 'ws', 'bot']) {
     assert.match(f.commands(), new RegExp(`pull --platform=linux/arm64 ${registry}-${service}@${digest}`));
   }
   assert.doesNotMatch(f.commands(), /tag .*yugioh-bot-.*:(latest|prev)|build|compose|prune/);
   assert.match(f.commands(), new RegExp(`tag ${registry}-web@${digest} ${registry}-web:${sha}`));
+  const old = fixture(t);
+  old.references(['duel', 'web', 'worker', 'ws'].map(service => `${service} ${digest}\n`).join(''));
+  assert.equal(old.run('pull').status, 0);
+  assert.doesNotMatch(old.commands(), /yugioh-bot-bot/);
 });
 
 test('a failed pull, wrong architecture or wrong revision cannot promote any image', t => {
@@ -81,7 +85,7 @@ test('promotion uses the exact build digest and does not overwrite the saved pre
   const f = fixture(t);
   const result = f.run('promote');
   assert.equal(result.status, 0, result.stderr);
-  for (const service of ['duel', 'web', 'worker', 'ws']) {
+  for (const service of ['duel', 'web', 'worker', 'ws', 'bot']) {
     assert.match(f.commands(), new RegExp(`tag ${registry}-${service}@${digest} yugioh-bot-${service}:latest`));
   }
   assert.doesNotMatch(f.commands(), /:prev|pull|build/);
@@ -111,7 +115,7 @@ test('retention removes old GHCR digest references while keeping latest, prev an
   const oldId = `sha256:${'3'.repeat(64)}`;
   const previousDigest = `sha256:${'c'.repeat(64)}`;
   const oldDigest = `sha256:${'d'.repeat(64)}`;
-  const services = ['duel', 'web', 'worker', 'ws'];
+  const services = ['duel', 'web', 'worker', 'ws', 'bot'];
   const images = services.flatMap(service => [
     `${registry}-${service}@${digest} ${latestId}`,
     `${registry}-${service}@${previousDigest} ${previousId}`,

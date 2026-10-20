@@ -186,6 +186,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
+  // The admin console is a full-screen workspace with its own menu and a link back to the app.
+  if (pathname === "/admin") return <>{children}</>;
+
   // The deck editor is a full-screen, three-pane workspace with its own route back.
   if (pathname === "/decks/new" || /^\/decks\/\d+$/.test(pathname)) {
     return (

@@ -2,8 +2,8 @@
 
 import { multiTableTextStyle, tableTextBig, useCardTextSize, useMultiTableTextFloor } from "../card-text-size";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { teamOfSeat } from "@yugidraft/shared/duels";
-import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
+import { teamOfSeat, type DuelCard, type DuelCardInfo } from "@yugidraft/shared/duels";
+import { AttackConfirm, CardActionMenu, confirmSide, materialsMenu, targetName } from "../card-interactions";
 import { isBattlePhase } from "../constants";
 import { DuelResultScreen } from "../duel-result";
 import { SeatField } from "../field";
@@ -22,7 +22,7 @@ import roomStyles from "../room.module.css";
 import { SeriesBanner } from "../series-banner";
 import { useIsNarrow } from "../side-panel";
 import { resolveBattleStep, StationTrack } from "../station-track";
-import { RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "../table/hud-layer";
+import { RowPreviewBoundary, useHudEscape, useHudPane, useDrawerPin, usePinFollowsHover, usePinSync, useRowPreview } from "../table/hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "../table/hud-shared";
 import { useForkLabels } from "../table/fork-labels";
 import { MasterBadgeContext, type MasterBadgeSource } from "../master-badge";
@@ -34,6 +34,7 @@ import hudStyles from "../table/grid-hud.module.css";
 import { AimArrow } from "../table/aim-arrow";
 import { useAimFlow } from "../table/use-aim-flow";
 import { useTableUi } from "../table/use-table-ui";
+import { GridHoverPreview } from "../table/grid-preview";
 import { tableZoneAnchor } from "../table/zone-find";
 import { carriedCamera, useReadOnlyReplayController, useReplayCarry, type ReplayCarryRef } from "../table/replay-mode";
 import { SEAT_TONE_HEX, type ReplayShellMode, type TableController } from "../table/types";
@@ -153,7 +154,9 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   const hud = !narrow;
   // No Card drawer on the Rooftop: a click on a card (and Inspect) opens the pinned card pop-out.
   const hudState = useHudPane({ camera: true, cardPane: false, initialPane: replayCarry?.current.hudPane });
-  const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
+  // The phone layout pins a tapped card in the same left drawer as the wide shells; the tab sheet keeps Log, Settings and Masters.
+  const [phoneCard, setPhoneCard] = useState<DuelCard | DuelCardInfo | null>(null);
+  const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard, onTapCard: narrow ? setPhoneCard : undefined });
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
   const { engine, room, viewerSeat, cameraSeat, nameOf, prompt } = base;
@@ -173,7 +176,9 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   const suspended = tagInputSuspended({ inputSuspended, menu: ui.menu, pile: ui.pile, narrow, sheetOpen });
   useHudEscape(hudState, hud, suspended);
   usePinSync(hudState, engine.seats);
-  const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
+  usePinFollowsHover(hud, hudState.pinned, ui.hover?.card, hudState.pinCard);
+  // An open flyout, a pinned card or the pinned phone drawer holds only Esc (it closes it).
+  const hudOpen = (hud && (hudState.pane != null || hudState.pinned != null)) || (narrow && phoneCard != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
   // A replay suspends input while another card view loads: the open flyout stays (the table is hidden and inert meanwhile).
@@ -265,6 +270,8 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
 
   const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
+  // The phone drawer pin: Esc, a press outside, a new prompt and the board sync (see useDrawerPin).
+  useDrawerPin(narrow ? phoneCard : null, setPhoneCard, { seats: engine.seats, suspended, promptId: prompt?.id ?? null, promptMine });
   const centeredUnrevealed = centered && !controller.revealed;
   // No prompt moves the camera: a close-up stays through a target pick too. A field with targets that is out of view gets a hint on
   // its nameplate pill (tag-stage.tsx); the viewer presses the pill to look at it.
@@ -480,6 +487,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
                     leavingSeats={leavingOnlySeats(engine.seats)}
                     revealed={controller.revealed}
                     onInspectCard={hud ? rowPreview.show : (card) => ui.setInspect({ type: "info", card })}
+                    onHoverCard={hud ? rowPreview.show : undefined}
                     nameOf={nameOf}
                     seatTones={seatTones}
                     priority={priority}
@@ -500,7 +508,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
                         cancelable={flow.bar.cancelable}
                       />
                     ) : null}
-                    <TagPileViewer controller={controller} ui={ui} />
+                    <TagPileViewer controller={controller} ui={ui} onPeek={hud ? rowPreview.show : undefined} />
                     {banner && !hideResult ? (
                       <div className={styles.result} data-result={banner.outcome} role="dialog" aria-label="Duel result">
                         <div className={styles.resultCard}>
@@ -568,6 +576,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
           busy={controller.busy}
           onClose={ui.closeMenu}
           tone={ui.menu.tone}
+          materials={materialsMenu(ui.menu.card, (target) => { ui.closeMenu(); controller.onInspect(target); })}
           onChoose={(option) => {
             if (!ui.menu || ui.menu.promptId !== prompt?.id || ui.menu.revision !== engine.revision) return;
             ui.closeMenu();
@@ -586,7 +595,12 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
           onBack={flow.cancel}
         />
       ) : null}
-      {!hud && ui.hover && !ui.menu && !ui.pile?.open && !sheetOpen ? <CardHoverInfo card={ui.hover.card} anchor={ui.hover.anchor} /> : null}
+      {narrow ? (
+        <GridHoverPreview
+          card={sheetOpen || ui.pile?.open ? null : phoneCard ?? (ui.menu ? null : ui.hover?.card ?? null)}
+          owner={null} reducedMotion={controller.reducedMotion} pinned={phoneCard != null && !sheetOpen}
+          onClose={() => setPhoneCard(null)} />
+      ) : null}
       {showResult && !preview ? (
         <DuelResultScreen
           room={room}

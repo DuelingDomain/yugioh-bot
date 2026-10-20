@@ -1,6 +1,7 @@
 import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 import Database from "better-sqlite3";
+import { rmSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
@@ -9,14 +10,19 @@ import type { DuelHost } from "../src/host.js";
 import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./support/test-opening.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
-import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 
 // The chain response switch through the host: the op, the journal, privacy, the cap and a rebuild from the journal.
 // The worker is a script: seat 1 holds an optional response window; Off passes it to seat 2.
 const SECRET = "chain-mode-test";
 const hosts: DuelHost[] = [];
 const databases: Database.Database[] = [];
-afterEach(async () => { for (const host of hosts.splice(0)) await host.close(); for (const db of databases.splice(0)) db.close(); });
+const directories: string[] = [];
+afterEach(async () => {
+  for (const host of hosts.splice(0)) await host.close();
+  for (const db of databases.splice(0)) db.close();
+  for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 class ScriptedWorker implements DuelGameWorker {
   running = true;
@@ -64,6 +70,8 @@ class ScriptedWorker implements DuelGameWorker {
 }
 
 async function table(worker = new ScriptedWorker(), now?: () => number) {
+  const DATA = createHostDataFixture(Array.from({ length: 40 }, (_, i) => ({ code: i + 1, name: `Fixture monster ${i}` })));
+  directories.push(DATA);
   const db = new Database(":memory:"); databases.push(db); migrate(db);
   const players = [0, 1, 2].map((seat) =>
     seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
@@ -188,13 +196,14 @@ describe("chain-mode op", () => {
     expect(second.journal().filter((input) => input.command.promptId.startsWith("chain-mode:"))).toEqual([]);
   });
 
-  it("leaves last_activity_at alone for a change that passes nothing, and moves it for one that passes a window", async () => {
+  it("renews last_activity_at for player switch changes, including ones that pass no window", async () => {
     const t = await table();
     const activity = () => (t.db.prepare("select last_activity_at as at from duels where web_slug = ?").get(t.slug) as { at: string | null }).at;
     t.db.prepare("update duels set last_activity_at = '2001-01-01 00:00:00' where web_slug = ?").run(t.slug);
     expect((await t.post({ op: "chain-mode", mode: "always" })).status).toBe(200);
     expect(t.journal()).toHaveLength(1);
-    expect(activity()).toBe("2001-01-01 00:00:00");
+    expect(activity()).not.toBe("2001-01-01 00:00:00");
+    t.db.prepare("update duels set last_activity_at = '2001-01-01 00:00:00' where web_slug = ?").run(t.slug);
     expect((await t.post({ op: "chain-mode", mode: "off" }, t.players[1]!)).status).toBe(200);
     expect(t.journal()).toHaveLength(2);
     expect(activity()).not.toBe("2001-01-01 00:00:00");

@@ -26,7 +26,8 @@ export const ENGINE_HOST_RULE_FILES = [
  */
 // Version 6 redacts viewer log identities, including hints and target names, and requires proven public move sources.
 // Genesys adds opt-in rules through saved settings; absent/null settings preserve the existing flags and views.
-export const ENGINE_HOST_RULE_VERSION = "duel-rules-6";
+// Version 7 preserves Exodia's whole-table result in saved views and replays and removes elimination places (owner 2026-10-18).
+export const ENGINE_HOST_RULE_VERSION = "duel-rules-7";
 
 export class EngineResourceUnavailableError extends Error {
   readonly code = "ENGINE_UNAVAILABLE_FOR_SOURCE";

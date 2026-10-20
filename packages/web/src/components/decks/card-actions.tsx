@@ -10,7 +10,7 @@ import { cardArchetypes } from "./filter-model";
 import { GENESYS_FORBIDDEN_MESSAGE, genesysMark } from "./genesys";
 import { GenesysCardLine } from "./genesys-ui";
 import { limitName } from "./limit-badge";
-import { defaultAddSection, placementBlock, type DeckSection } from "./model";
+import { defaultAddSection, placementBlock, sectionFullReason, type DeckSection } from "./model";
 import styles from "./editor.module.css";
 
 const SECTION_LABELS: Record<DeckSection, string> = { main: "Main", extra: "Extra", side: "Side" };
@@ -100,8 +100,8 @@ export function CardActions({
         {sections.map((section) => {
           const count = deck[section].filter((code) => code === card.code).length;
           const label = SECTION_LABELS[section];
-          // A section that does not take this card (it shows only when an old save left a copy there) says why Add is off.
-          const refusal = placementBlock(card, section) ?? genesysRefusal;
+          // A section that does not take this card (it shows only when an old save left a copy there), or that is full, says why Add is off.
+          const refusal = placementBlock(card, section) ?? genesysRefusal ?? sectionFullReason(deck, section);
           return (
             <li key={section} className={styles["de-step"]}>
               <span>{label}</span>
