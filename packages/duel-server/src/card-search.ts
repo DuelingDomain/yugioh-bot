@@ -276,7 +276,7 @@ function statFor(entry: Entry, sort: CardQuery["sort"]): number | null {
   return entry.card.defense < 0 ? -1 : entry.card.defense;
 }
 
-function sortEntries(found: Entry[], query: CardQuery, member: Matcher | null, releaseFor: (entry: Entry) => ReleaseDates = () => ({}), popularity: (entry: Entry) => number = () => 0): Entry[] {
+function sortEntries(found: Entry[], query: CardQuery, member: Matcher | null, releaseFor: (entry: Entry) => ReleaseDates = () => ({}), popularity: (entry: Entry) => number = () => 0, currentMonth = new Date().toISOString().slice(0, 7)): Entry[] {
   const direction = query.order === "desc" ? -1 : 1;
   const byName = (a: Entry, b: Entry) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.card.code - b.card.code);
   const byType = (a: Entry, b: Entry) => a.rank - b.rank || b.card.level - a.card.level || b.card.attack - a.card.attack || byName(a, b);
@@ -294,7 +294,7 @@ function sortEntries(found: Entry[], query: CardQuery, member: Matcher | null, r
   if (query.sort === "match" || query.sort === "type") {
     return found.sort((a, b) => direction * (a.rank - b.rank) || b.card.level - a.card.level || b.card.attack - a.card.attack || byName(a, b));
   }
-  if (query.sort === "newest") return found.sort((a, b) => compareNewest(releaseFor(a), releaseFor(b), query.released?.region) || popularity(b) - popularity(a) || byName(a, b));
+  if (query.sort === "newest") return found.sort((a, b) => compareNewest(releaseFor(a), releaseFor(b), query.released?.region, currentMonth) || popularity(b) - popularity(a) || byName(a, b));
   if (query.sort === "name") return found.sort((a, b) => direction * byName(a, b));
   return found.sort((a, b) => {
     const left = statFor(a, query.sort);
@@ -308,6 +308,7 @@ function sortEntries(found: Entry[], query: CardQuery, member: Matcher | null, r
 /** Runs a validated deck-editor query over the engine catalog. */
 export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>, options: { effects?: CardEffectIndex; releases?: ReadonlyMap<number, ReleaseDates>; effectSearchEnabled?: boolean } = {}): CardQueryResult {
   const index = indexFor(cards);
+  const currentMonth = new Date().toISOString().slice(0, 7);
   const blocked = blocksFor(cards, entries);
   const enabled = options.effectSearchEnabled ?? effectSearchEnabled();
   const releaseIndex = options.effects ?? cardEffectIndex(cards);
@@ -339,7 +340,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const member: Matcher | null = query.archetypeMode === "related" && query.archetypes.length > 0
     ? (entry) => query.archetypes.some((code) => inArchetype(entry.card.setcodes, code))
     : null;
-  const sorted = sortEntries(found, query, member, releaseFor, popularity);
+  const sorted = sortEntries(found, query, member, releaseFor, popularity, currentMonth);
   // An exact passcode leads, even for an alternate artwork that the list otherwise hides.
   if (exact && exactPasses) sorted.unshift(exact);
   // Alias/typo correction is an empty-result fallback, so successful name queries keep the same scan.
@@ -348,7 +349,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
     const eligible = index.entries.filter(entry => !entry.hidden && filters.every(check => check(entry)));
     const compact = foldCardText(trimmed).replaceAll(" ", "");
     const aliases = eligible.filter(entry => entry.name.replaceAll(" ", "").includes(compact));
-    if (aliases.length) sorted.push(...sortEntries(aliases, query, member, releaseFor, popularity));
+    if (aliases.length) sorted.push(...sortEntries(aliases, query, member, releaseFor, popularity, currentMonth));
     // A complete effect reading already describes the request. Keep compact
     // name aliases, but do not replace its effect group with a nearby name.
     else if (!reading || reading.query.text) {
@@ -367,7 +368,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const newest = datedQuery.sort === "newest";
   effectFound.sort((a, b) => {
     const popularity = () => effects!.popularity(b.entry.card.code) - effects!.popularity(a.entry.card.code);
-    return (newest ? compareNewest(releaseFor(a.entry), releaseFor(b.entry), datedQuery.released?.region) : 0)
+    return (newest ? compareNewest(releaseFor(a.entry), releaseFor(b.entry), datedQuery.released?.region, currentMonth) : 0)
       || (newest ? popularity() : b.score - a.score)
       || (newest ? b.score - a.score : popularity()) || a.entry.card.code - b.entry.card.code;
   });

@@ -183,11 +183,12 @@ function statFor(entry: Entry, sort: CardQuery["sort"]): number | null {
 }
 
 /** Match the host's region and undated Upcoming ordering. */
-function newestFirst(a: DeckCardInfo, b: DeckCardInfo, region?: "tcg" | "ocg"): number {
-  return compareNewest({ ...a.release, prerelease: a.release?.prerelease ?? a.prerelease }, { ...b.release, prerelease: b.release?.prerelease ?? b.prerelease }, region);
+function newestFirst(a: DeckCardInfo, b: DeckCardInfo, region: "tcg" | "ocg" | undefined, currentMonth: string): number {
+  return compareNewest({ ...a.release, prerelease: a.release?.prerelease ?? a.prerelease }, { ...b.release, prerelease: b.release?.prerelease ?? b.prerelease }, region, currentMonth);
 }
 
 function sortEntries(found: Entry[], query: CardQuery): Entry[] {
+  const currentMonth = new Date().toISOString().slice(0, 7);
   const direction = query.order === "desc" ? -1 : 1;
   const byName = (a: Entry, b: Entry) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.card.code - b.card.code);
   const byType = (a: Entry, b: Entry) => a.rank - b.rank || b.card.level - a.card.level || b.card.attack - a.card.attack || byName(a, b);
@@ -196,7 +197,7 @@ function sortEntries(found: Entry[], query: CardQuery): Entry[] {
 
   // Newest first, always: the order button does not reverse it. Cards with no date go last.
   if (query.sort === "newest") {
-    return found.sort((a, b) => newestFirst(a.card, b.card, query.released?.region) || byType(a, b));
+    return found.sort((a, b) => newestFirst(a.card, b.card, query.released?.region, currentMonth) || byType(a, b));
   }
   if (query.sort === "match" && phrase) {
     const scores = new Map(found.map((entry) => [entry, textScore(entry, phrase, terms)]));

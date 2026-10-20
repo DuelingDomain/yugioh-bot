@@ -88,7 +88,8 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
     const row = dates.get(code);
     return { tcgDate: row?.tcg_date ?? undefined, ocgDate: row?.ocg_date ?? undefined };
   }));
-  const key = JSON.stringify([identities.revision, phrase.trim(), targetCount, maxCopies, era, [...existing].sort((a, b) => a - b), new Date().toISOString().slice(0, 7)]);
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const key = JSON.stringify([identities.revision, phrase.trim(), targetCount, maxCopies, era, [...existing].sort((a, b) => a - b), currentMonth]);
   let cache = previewCaches.get(index);
   if (!cache) previewCaches.set(index, cache = new Map());
   const now = Date.now(), hit = cache.get(key);
@@ -107,7 +108,7 @@ export function previewCubeSeed(db: Database.Database, input: CubeSeedOptions, e
   if (!reading) { preview.warnings.push("No cards matched this phrase. Try an archetype or an effect description."); return finish(preview); }
 
   const compare = (a: Choice, b: Choice) => (reading.query.sort === "newest"
-    ? compareNewest(a.candidate.card, b.candidate.card, reading.query.released?.region) : 0) || compareDefault(a, b);
+    ? compareNewest(a.candidate.card, b.candidate.card, reading.query.released?.region, currentMonth) : 0) || compareDefault(a, b);
   {
     const names = new Set([...reading.query.card.archetypes, ...reading.query.supports?.archetypes ?? []].map(compactEffectName));
     const memberIds = new Set([...names].flatMap(name => (index.members.get(name) ?? []).map(candidate => candidate.card.id)));
