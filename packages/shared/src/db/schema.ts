@@ -1044,6 +1044,31 @@ export function migrate(db: Database.Database) {
   migrateCubeOwnerNames(db);
   // Local Discord identities do not rebuild saved_decks; add the tag after existing migrations.
   addColumnIfMissing(db, "saved_decks", "genesys_json", "text");
+
+  // Admin console (local build). Latest presence only, keyed by Discord ID: this build has no users table.
+  db.exec(`
+    create table if not exists admin_presence (
+      discord_user_id text primary key,
+      display_name text not null default '',
+      last_seen_at integer not null,
+      last_route text not null
+    );
+    create index if not exists admin_presence_seen_idx on admin_presence(last_seen_at);
+    create table if not exists worker_heartbeat (
+      id integer primary key check (id = 1),
+      at integer not null,
+      pid integer
+    );
+    create table if not exists disk_usage_snapshot (
+      id integer primary key check (id = 1),
+      at integer not null,
+      json text not null
+    );
+    create table if not exists disk_usage_history (
+      at integer primary key,
+      used_bytes integer not null
+    );
+  `);
 }
 
 /**
