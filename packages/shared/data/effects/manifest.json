@@ -48,14 +48,30 @@
     },
     "releases": {
       "path": "releases.json.gz",
-      "sourcePath": "data/cards.json",
-      "sourceSha256": "6ea3b8b1fa9897fa9e6a1f7c3b7b9d9db06a8b55dd1274521d1f5f42fb15b7ae",
-      "records": 14383,
-      "bytes": 1624271,
-      "sha256": "17abbe696a3c3f7faad3f32ab00a1654db0ed9160833dde940453e4623c5d5c5",
-      "gzipBytes": 296116,
-      "gzipSha256": "49eecced3ea04f4a1281c4e27f27a91559d2988c047b15d0a874a97923aa271f"
+      "sourcePath": "https://db.ygoprodeck.com/api/v7/cardinfo.php?misc=yes",
+      "sourceSha256": "e276b59b36c34d9f2a4c26db6460c62a3997805e02a3e8e3bf8e785f3b0181ea",
+      "records": 14539,
+      "bytes": 1641430,
+      "sha256": "d0d3ff8053c596c0f1fafdc95b997d9ba2b70a96e85ca97d5d81b808c9f23057",
+      "gzipBytes": 298843,
+      "gzipSha256": "f94977f71225674145f5ff62927142c332d6e40346a05540a8e605ff316f56e3",
+      "baseSourcePath": "data/cards.json",
+      "baseSourceSha256": "6ea3b8b1fa9897fa9e6a1f7c3b7b9d9db06a8b55dd1274521d1f5f42fb15b7ae"
     }
   },
-  "artifactVersion": "7ce6daa3e4f6251f353b6e41de3bd9ccbf842aa214740dba5d75e21c3a2b828f"
+  "artifactVersion": "5b8577e3697803fbabce723eef66ee701830cdaef84ef74c308bcd126c1c176b",
+  "generation": {
+    "kind": "release-month-fill",
+    "models": [],
+    "baseArtifactVersion": "7ce6daa3e4f6251f353b6e41de3bd9ccbf842aa214740dba5d75e21c3a2b828f",
+    "inputSource": "prepared-engine-card-text",
+    "normalization": "newline-trim-pendulum-first-v1",
+    "acceptedCards": 0,
+    "acceptedProfiles": 0,
+    "generatedAt": "2026-10-20T03:19:31.336Z",
+    "reservationIds": [],
+    "promptHashes": [],
+    "acceptedProfilesSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "acceptedResultsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  }
 }
