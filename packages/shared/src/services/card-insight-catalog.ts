@@ -54,7 +54,7 @@ const attributeNames = new Map<number, Card["attribute"]>(CARD_ATTRIBUTES.map(({
 export function createInsightCatalog(db: Database.Database, dataDirectory = deckEngineDataDirectory(db.name)) {
   const artwork = db.prepare<[number], { card_id: number }>("SELECT card_id FROM card_artworks WHERE artwork_id=?");
   const metadata = db.prepare<[number], CatalogRow>("SELECT * FROM card_catalog WHERE ygoprodeck_id=?");
-  const prereleaseDate = createPrereleaseDateLookup(db, dataDirectory);
+  let prereleaseDate: ReturnType<typeof createPrereleaseDateLookup>;
   const namedMetadata = db.prepare<[string], { ygoprodeck_id: number }>("SELECT ygoprodeck_id FROM card_catalog WHERE lower(trim(name))=? ORDER BY ygoprodeck_id LIMIT 1");
   const release = db.prepare<[number], { tcg_date: string | null; ocg_date: string | null }>("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=?");
   const tags = db.prepare<[number], { tags_json: string; popularity: number }>("SELECT tags_json,popularity FROM card_tags WHERE passcode=?");
@@ -454,6 +454,19 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       engine!.exec("ROLLBACK");
     }
   }
+  const candidateFor = (code: number): Candidate | undefined => {
+    const canonicalCode = canonical(code);
+    const row = metadata.get(canonicalCode) ?? metadata.get(code);
+    if (row) return normalize(row, canonicalCode);
+    // An explicit public engine passcode is usable before the lazy image/API
+    // cache has seen it. This fallback never inserts a cache row or guesses cost.
+    const engineCard = engineFind?.get(canonicalCode);
+    return engineCard ? normalize({
+      ygoprodeck_id: canonicalCode, name: engineCard.name, type: "", frame_type: "",
+      effect_text: engineCard.desc ?? "", attribute: null, level: null, atk: null, def: null,
+      archetype: null, genesys_points: null, genesys_revision: null,
+    }, canonicalCode) : undefined;
+  };
   return {
     canonical: (raw: number): number => canonical(raw),
     /** A recommendation family is not a rules identity: retrains still have separate copy limits. */
@@ -463,7 +476,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       const name = wrapped[1]!.trim().toLowerCase();
       const code = engineNamed?.get(name)?.id ?? namedMetadata.get(name)?.ygoprodeck_id;
       if (code === undefined) return candidate.card.id;
-      const original = this.candidate(code);
+      const original = candidateFor(code);
       return original?.card.kind === candidate.card.kind ? original.card.id : candidate.card.id;
     },
     /** Startup readers can fold uncached engine artworks and legacy remaps too. */
@@ -472,23 +485,15 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       if (engineFind) for (const row of engine!.prepare<[], { id: number }>("SELECT id FROM datas").iterate()) yield row.id;
     },
     candidate(code: number): Candidate | undefined {
-      const canonicalCode = canonical(code);
-      const row = metadata.get(canonicalCode) ?? metadata.get(code);
-      if (row) return normalize(row, canonicalCode);
-      // An explicit public engine passcode is usable before the lazy image/API
-      // cache has seen it. This fallback never inserts a cache row or guesses cost.
-      const engineCard = engineFind?.get(canonicalCode);
-      return engineCard ? normalize({
-        ygoprodeck_id: canonicalCode, name: engineCard.name, type: "", frame_type: "",
-        effect_text: engineCard.desc ?? "", attribute: null, level: null, atk: null, def: null,
-        archetype: null, genesys_points: null, genesys_revision: null,
-      }, canonicalCode) : undefined;
+      prereleaseDate = createPrereleaseDateLookup(db, dataDirectory);
+      return candidateFor(code);
     },
     *candidates(pool?: readonly number[]): Generator<Candidate> {
+      prereleaseDate = createPrereleaseDateLookup(db, dataDirectory);
       if (pool !== undefined) {
         const seen = new Set<number>();
         for (const code of pool) {
-          const candidate = this.candidate(code);
+          const candidate = candidateFor(code);
           if (candidate && !seen.has(candidate.card.id)) { seen.add(candidate.card.id); yield candidate; }
         }
         return;
@@ -505,6 +510,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     },
     /** Suggestions must also see public engine cards absent from the lazy display cache. */
     *suggestionCandidates(pool?: readonly number[]): Generator<Candidate> {
+      prereleaseDate = createPrereleaseDateLookup(db, dataDirectory);
       if (pool !== undefined) { yield* this.candidates(pool); return; }
       if (engineTuples && !db.inTransaction && !engine!.inTransaction && db.name !== ":memory:" && db.name !== "" && existsSync(db.name)) {
         yield* attachedSuggestionCandidates(); return;
