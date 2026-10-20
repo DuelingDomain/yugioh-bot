@@ -30,7 +30,7 @@ const codeValid = (value: number) => Number.isInteger(value) && value > 0 && val
 export function createInsightCatalog(db: Database.Database, dataDirectory = deckEngineDataDirectory(db.name)) {
   const artwork = db.prepare<[number], { card_id: number }>("SELECT card_id FROM card_artworks WHERE artwork_id=?");
   const metadata = db.prepare<[number], CatalogRow>("SELECT * FROM card_catalog WHERE ygoprodeck_id=?");
-  const prereleaseDate = createPrereleaseDateLookup(db, dataDirectory);
+  let prereleaseDate: ReturnType<typeof createPrereleaseDateLookup>;
   const release = db.prepare<[number], { tcg_date: string | null; ocg_date: string | null }>("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=?");
   const tags = db.prepare<[number], { tags_json: string; popularity: number }>("SELECT tags_json,popularity FROM card_tags WHERE passcode=?");
   const revision = (db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
@@ -129,6 +129,19 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     Object.assign(card, prereleaseDate(canonicalCode, card, card.prerelease));
     return { card, ...(tagged?.tags_json ? { tags: JSON.parse(tagged.tags_json) as CardTags } : {}) };
   };
+  const candidateFor = (code: number): Candidate | undefined => {
+    const canonicalCode = canonical(code);
+    const row = metadata.get(canonicalCode) ?? metadata.get(code);
+    if (row) return normalize(row, canonicalCode);
+    // An explicit public engine passcode is usable before the lazy image/API
+    // cache has seen it. This fallback never inserts a cache row or guesses cost.
+    const engineCard = engineFind?.get(canonicalCode);
+    return engineCard ? normalize({
+      ygoprodeck_id: canonicalCode, name: engineCard.name, type: "", frame_type: "",
+      effect_text: engineCard.desc ?? "", attribute: null, level: null, atk: null, def: null,
+      archetype: null, genesys_points: null, genesys_revision: null,
+    }, canonicalCode) : undefined;
+  };
   return {
     canonical,
     /** Startup readers can fold uncached engine artworks and legacy remaps too. */
@@ -137,23 +150,15 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       if (engineFind) for (const row of engine!.prepare<[], { id: number }>("SELECT id FROM datas").iterate()) yield row.id;
     },
     candidate(code: number): Candidate | undefined {
-      const canonicalCode = canonical(code);
-      const row = metadata.get(canonicalCode) ?? metadata.get(code);
-      if (row) return normalize(row, canonicalCode);
-      // An explicit public engine passcode is usable before the lazy image/API
-      // cache has seen it. This fallback never inserts a cache row or guesses cost.
-      const engineCard = engineFind?.get(canonicalCode);
-      return engineCard ? normalize({
-        ygoprodeck_id: canonicalCode, name: engineCard.name, type: "", frame_type: "",
-        effect_text: engineCard.desc ?? "", attribute: null, level: null, atk: null, def: null,
-        archetype: null, genesys_points: null, genesys_revision: null,
-      }, canonicalCode) : undefined;
+      prereleaseDate = createPrereleaseDateLookup(db, dataDirectory);
+      return candidateFor(code);
     },
     *candidates(pool?: readonly number[]): Generator<Candidate> {
+      prereleaseDate = createPrereleaseDateLookup(db, dataDirectory);
       if (pool !== undefined) {
         const seen = new Set<number>();
         for (const code of pool) {
-          const candidate = this.candidate(code);
+          const candidate = candidateFor(code);
           if (candidate && !seen.has(candidate.card.id)) { seen.add(candidate.card.id); yield candidate; }
         }
         return;

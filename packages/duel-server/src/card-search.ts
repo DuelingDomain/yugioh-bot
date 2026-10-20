@@ -311,8 +311,9 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const blocked = blocksFor(cards, entries);
   const enabled = options.effectSearchEnabled ?? effectSearchEnabled();
   const releaseIndex = options.effects ?? cardEffectIndex(cards);
+  const releases = options.releases ?? releaseIndex?.releases();
   const popularity = (entry: Entry) => releaseIndex?.popularity(entry.card.code) ?? 0;
-  const releaseFor = (entry: Entry): ReleaseDates => options.releases?.get(entry.card.canonicalPasscode ?? entry.card.code) ?? releaseIndex?.release(entry.card.canonicalPasscode ?? entry.card.code) ?? {};
+  const releaseFor = (entry: Entry): ReleaseDates => releases?.get(entry.card.canonicalPasscode ?? entry.card.code) ?? {};
   const effects = enabled ? releaseIndex : undefined;
   let reading = effects && !query.exact && query.scope !== "name" ? effects.readQuery(query.text, query.effectOmit) : null;
   const datedQuery = { ...query, released: query.released ?? reading?.query.released, sort: query.sort === "match" && reading?.query.sort === "newest" ? "newest" as const : query.sort };
