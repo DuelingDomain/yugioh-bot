@@ -109,7 +109,7 @@ function savedUsage(db: Database.Database, guildId: string) {
       .filter(row=> row.decks>=3 && row.decks/decks.size>=0.1 && Object.keys(row.archetypes).length>=3 && Math.max(...Object.values(row.archetypes))/row.decks<=0.6)
       .map(row=>({...row,playShare:row.decks/decks.size,averageCopies:row.copies/row.decks}))
       .sort((a,b)=>b.playShare-a.playShare || b.averageCopies-a.averageCopies || a.passcode-b.passcode).slice(0,80);
-    if (cards.length) { result.formats.set(format,cards); result.counts.set(format,decks.size); result.playShares.set(format,new Map([...rows].map(([id,row])=>[id,row.decks/decks.size]))); }
+    if (cards.length) { result.formats.set(format,cards); result.counts.set(format,decks.size); result.playShares.set(format,new Map(cards.map(row=>[row.passcode,row.playShare]))); }
   }
   cache.set(guildId,result); return result;
 }

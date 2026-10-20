@@ -448,13 +448,20 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
       for (const deck of variants) insert.run(otherGuild, foreign, JSON.stringify(deck));
       for(let i=1;i<9;i++) insert.run(guild,owners[i],JSON.stringify(variants[Math.floor((i-1)/3)*7]));
       expect(usage().version,"nine local owners plus a foreign owner do not meet the floor").toBe(original.version);
-      insert.run(guild,owners[9],JSON.stringify(variants[14]));
+      const privateOnly=19665973; // Battle Fader appears in just this owner's list.
+      insert.run(guild,owners[9],JSON.stringify({...variants[14],side:[privateOnly,...variants[14]!.side.filter(id=>id!==ash).slice(0,13),...(variants[14]!.side.includes(ash)?[ash]:[])]}));
       const aggregate = usage();
       expect(aggregate.version).not.toBe(original.version);
       expect(aggregate.cards.get(ash)?.decks).toBe(10);
       expect(aggregate.cards.get(ash)?.playShare).toBe(1);
       expect([...aggregate.cards.values()].every(row=>row.decks>=3 && Object.values(row.archetypes).every(n=>n>=3))).toBe(true);
       expect(aggregate.archetypes.size,"private archetype percentages are not published").toBe(0);
+      expect(aggregate.cards.has(privateOnly)).toBe(false);
+      expect(aggregate.playShares.has(privateOnly),"role search must not disclose a one-owner card").toBe(false);
+      expect([...aggregate.playShares.keys()].sort()).toEqual([...aggregate.cards.keys()].sort());
+      const {createCardInsightService}=await import("../src/services/card-insights.js");
+      const privateService=createCardInsightService(database,{catalog,guildId:guild});
+      expect(privateService.effectSearch("Branded hand traps",[privateOnly]).cards).toEqual([]);
       expect(formatStaples("normal",undefined,database,otherGuild).version).toBe(original.version);
       expect(formatStaples("normal",undefined,database).version,"no guild means public usage only").toBe(original.version);
       expect(JSON.stringify([...aggregate.cards.values()])).not.toMatch(/owner_user_id|guild_id|deck_json/);
