@@ -69,7 +69,7 @@ import { EngineResourceUnavailableError, resolveEngineResourcesForSource, type E
 import { isEngineIdentity, isUnknownEngineChoice, sourceEngineChoice, sameEngineIdentity, type EngineIdentity, type ReplayVerification, type ReplayUnverifiedReason } from "@yugidraft/shared/duels";
 import { sameReplayBoard } from "./replay-board-comparator.js";
 import { createReplayVerificationStore, type ReplayVerificationKey } from "./replay-verification-store.js";
-import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError } from "./practice-bot.js";
+import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError, shufflePracticeBotDeck } from "./practice-bot.js";
 import {
   freezeContinueClock,
   isClockDue,
@@ -2231,7 +2231,7 @@ export function createDuelHost(options: {
     await validateSessionDeck(mode, deck, settings, "1v1");
     let botDeck: DuelDeck;
     try {
-      botDeck = buildPracticeBotDeck(mode, options.dataDirectory);
+      botDeck = shufflePracticeBotDeck(buildPracticeBotDeck(mode, options.dataDirectory));
     } catch (error) {
       if (error instanceof PracticeBotError) throw new RequestError(error.message, 409);
       throw error;
