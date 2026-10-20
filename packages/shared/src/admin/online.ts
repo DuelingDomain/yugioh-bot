@@ -55,7 +55,9 @@ type PlaceRow = { user_id: number; kind: "duel" | "draft"; slug: string; name: s
  * The newest open duel table and draft of each person. It starts from the open tables, with the same cut-offs as
  * the Live view (an active duel idle past DUEL_LIVE_IDLE_AFTER_MS, a lobby past DUEL_WAITING_IDLE_TIMEOUT_MS, a pending
  * draft older than PENDING_DRAFT_MAX_AGE_MS are not open), then joins the seats of the given people.
- * Index: duels_guild_status_idx and drafts_guild_status_created_idx. Scoped to the guild when given.
+ * A seat that surrendered or was eliminated has left the table, even while the others play on (Tag, 3-way, 4-way):
+ * the same rule as the "back to your duel" link (services/active-duel.ts).
+ * Index: duels_guild_status_idx, drafts_guild_status_created_idx and duel_commands_eliminated_idx. Scoped to the guild when given.
  */
 export function placesOf(db: Database.Database, userIds: number[], guild: string | null, now = Date.now()): Map<number, { duel?: PlaceRow; draft?: PlaceRow }> {
   const places = new Map<number, { duel?: PlaceRow; draft?: PlaceRow }>();
@@ -68,13 +70,20 @@ export function placesOf(db: Database.Database, userIds: number[], guild: string
   };
   const duels = db.prepare(`
     with open as (
-      select d.id, d.web_slug, d.name, d.status, d.format from duels d
+      select d.id, d.web_slug, d.name, d.status, d.format, case when json_valid(d.setup_json) then d.setup_json end as setup from duels d
       where (@guild is null or d.guild_id = @guild) and d.status in ('lobby','active') and d.kind = 'play' and d.archived_at is null
         and julianday(coalesce(d.last_activity_at, d.started_at, d.created_at))
           >= julianday(case when d.status = 'active' then @activeAfter else @waitingAfter end))
     select p.user_id, 'duel' as kind, o.web_slug as slug, o.name, o.status, o.format
     from open o join duel_seats s on s.duel_id = o.id join players p on p.id = s.player_id
     where p.user_id in (select value from json_each(@ids))
+      and not exists (select 1 from json_each(o.setup, '$.eliminatedSeats') gone where gone.value = s.seat)
+      and not exists (
+        select 1 from json_each(o.setup, '$.surrenderedSeats') gone where gone.value = s.seat
+          and not exists (select 1 from duel_commands c where c.duel_id = o.id and c.seat = s.seat
+            and json_extract(c.command_json, '$.promptId') glob 'eliminate-eot:*'))
+      and not exists (select 1 from duel_commands c where c.duel_id = o.id and c.seat = s.seat
+        and json_extract(c.command_json, '$.promptId') glob 'eliminate:*')
     order by o.id desc`).all(params) as PlaceRow[];
   const drafts = db.prepare(`
     with open as (
@@ -113,6 +122,16 @@ export function currentPlace(route: PresenceRoute, found: { duel?: PlaceRow; dra
   return null;
 }
 
+/**
+ * Page label for the console. On a duel or draft page where the person has no open seat (the duel ended, they left it,
+ * or they only watch), the label says "Duel page" / "Draft page", never the plain "Duel" that reads as "in a duel".
+ */
+export function placeLabel(route: PresenceRoute, current: OnlinePlace | null): string {
+  if (route === "/duels/[slug]") return current?.kind === "duel" ? current.label : "Duel page";
+  if (route === "/draft/[slug]") return current?.kind === "draft" ? current.label : "Draft page";
+  return PRESENCE_ROUTES[route];
+}
+
 export function listOnline(db: Database.Database, now = Date.now(), guild: string | null = null): OnlineSnapshot {
   const rows = db.prepare(`
     select id, display_name, username, image_url, last_seen_at, last_route, online_since from users
@@ -121,8 +140,7 @@ export function listOnline(db: Database.Database, now = Date.now(), guild: strin
   const users = rows.map((row): OnlineUser => {
     const route: PresenceRoute = isPresenceRoute(row.last_route) ? row.last_route : "/app";
     const current = currentPlace(route, places.get(row.id));
-    // On a duel page the table type says more than "Duel".
-    const label = route === "/duels/[slug]" && current?.kind === "duel" ? current.label : PRESENCE_ROUTES[route];
+    const label = placeLabel(route, current);
     return {
       userId: row.id, name: row.display_name || row.username, username: row.username, avatarUrl: safeAvatarUrl(row.image_url),
       label, route, lastSeenAt: row.last_seen_at, onlineSince: row.online_since, current,
