@@ -2208,6 +2208,28 @@ export function createDuelHost(options: {
    * The table carries the `testDuel` mark, so lists, counts, history and deploy guards skip it. Quit uses the normal cancel.
    */
   async function startTestDuel(body: Record<string, unknown>, guildId: string, actor: number): Promise<unknown> {
+    const startedAt = performance.now();
+    let lapAt = startedAt;
+    const laps: Record<string, number> = {};
+    const lap = (step: string) => {
+      const at = performance.now();
+      laps[step] = at - lapAt;
+      lapAt = at;
+    };
+    let slug: string | null = null;
+    try {
+      const result = await startTestDuelSteps(body, guildId, actor, lap);
+      slug = (result as { slug: string }).slug;
+      return result;
+    } finally {
+      const round = (ms: number) => Math.round(ms * 10) / 10;
+      console.info(JSON.stringify({ event: "test_duel_start", slug, outcome: slug ? "ready" : "failed",
+        totalMs: round(performance.now() - startedAt),
+        ...Object.fromEntries(Object.entries(laps).map(([step, ms]) => [step, round(ms)])) }));
+    }
+  }
+
+  async function startTestDuelSteps(body: Record<string, unknown>, guildId: string, actor: number, lap: (step: string) => void): Promise<unknown> {
     const mode = body.mode;
     if (mode !== "normal" && mode !== "domain") throw new RequestError("Duel mode must be normal or domain", 400);
     if (body.shuffle !== undefined && typeof body.shuffle !== "boolean") throw new RequestError("Shuffle must be true or false", 400);
@@ -2229,6 +2251,7 @@ export function createDuelHost(options: {
     await validateDeckMasterWrite(mode, body.deck as DuelDeck);
     const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
     await validateSessionDeck(mode, deck, settings, "1v1");
+    lap("deckChecksMs");
     let botDeck: DuelDeck;
     try {
       botDeck = shufflePracticeBotDeck(buildPracticeBotDeck(mode, options.dataDirectory));
@@ -2237,6 +2260,7 @@ export function createDuelHost(options: {
       throw error;
     }
     await validateSessionDeck(mode, botDeck, settings, "1v1");
+    lap("botDeckMs");
 
     // One test table per player: a new test replaces the one still open.
     const stale = options.db.prepare<[string, number], { web_slug: string }>(`
@@ -2253,6 +2277,7 @@ export function createDuelHost(options: {
         // Already closed.
       }
     }
+    lap("staleMs");
 
     const created = service.create({
       guildId, organizerPlayerId: actor, name: "Test duel", mode, settings, format: "1v1",
@@ -2262,7 +2287,9 @@ export function createDuelHost(options: {
     try {
       service.setDeck(slug, guildId, actor, deck);
       service.addPracticeBot(slug, guildId, actor, botDeck, goFirst ? 1 : 0);
+      lap("tableMs");
       await startGame(slug, guildId, actor);
+      lap("startGameMs");
     } catch (error) {
       games.delete(slug);
       try {
@@ -2274,6 +2301,7 @@ export function createDuelHost(options: {
       throw error;
     }
     const room = await project(slug, guildId, actor, games.get(slug)?.game);
+    lap("projectMs");
     return { slug, session: room.session, room };
   }
 
