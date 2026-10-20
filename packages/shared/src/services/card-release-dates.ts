@@ -7,7 +7,8 @@ import { cleanReleaseMonth, type ReleaseDates } from "../cards/effects/releases.
  */
 export function createPrereleaseDateLookup(db: Database.Database) {
   const metadata = db.prepare<[number], { card_sets_json: string }>("SELECT card_sets_json FROM card_catalog WHERE ygoprodeck_id=?");
-  const setDate = db.prepare<[string, string], { release_date: string | null }>("SELECT release_date FROM card_sets WHERE set_name=? OR set_code=?");
+  const setByName = db.prepare<[string], { release_date: string | null }>("SELECT release_date FROM card_sets WHERE set_name=?");
+  const setByCode = db.prepare<[string], { release_date: string | null }>("SELECT release_date FROM card_sets WHERE set_code=?");
   const catalogRevision = db.prepare<[], { revision: number }>("SELECT revision FROM card_catalog_revision WHERE id=1");
   let revision = -1;
   const cached = new Map<number, { month?: string; tcg?: string }>();
@@ -20,7 +21,10 @@ export function createPrereleaseDateLookup(db: Database.Database) {
       try {
         const entries = JSON.parse(metadata.get(code)?.card_sets_json ?? "[]") as { set_name?: string; set_code?: string }[];
         if (Array.isArray(entries)) for (const entry of entries) {
-          for (const row of setDate.all(entry.set_name ?? "", entry.set_code?.split("-")[0] ?? "")) {
+          const rows = entry.set_name ? setByName.all(entry.set_name) : setByCode.all(entry.set_code?.split("-")[0] ?? "");
+          // Product codes repeat across promos and special editions. They are not identities.
+          if (!entry.set_name && rows.length !== 1) continue;
+          for (const row of rows) {
             const month = cleanReleaseMonth(row.release_date, "tcg");
             if (month) {
               months.push(month);

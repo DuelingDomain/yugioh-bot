@@ -674,6 +674,7 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
       expect(sql.effectSearch('new cards', pool).cards.map(card => card.passcode)).toEqual([known]);
       expect(cardReleaseIndex(db, cards).get(unknown)?.upcomingDate).toBeUndefined();
       db.prepare("INSERT INTO card_sets(set_name,set_code,card_count,synced_at,release_date) VALUES('Release integration set','REL',1,CURRENT_TIMESTAMP,'2026-11-01')").run();
+      db.prepare("INSERT INTO card_sets(set_name,set_code,card_count,synced_at,release_date) VALUES('Earlier promo with reused code','REL',1,CURRENT_TIMESTAMP,'2002-01-01')").run();
       db.prepare('UPDATE card_catalog SET card_sets_json=? WHERE ygoprodeck_id=?').run(JSON.stringify([{ set_name: 'Release integration set', set_code: 'REL-EN001' }]), unknown);
       expect(cardReleaseIndex(db, cards).get(unknown)?.upcomingDate).toBe('2026-11');
       expect(search('newest spells', pool).effectHits!.map(card => card.code)).toEqual([known, unknown]);
