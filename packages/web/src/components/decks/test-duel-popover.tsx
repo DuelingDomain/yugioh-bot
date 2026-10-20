@@ -28,7 +28,7 @@ export function TestDuelPopover({ open, onOpenChange, disabled, busy, error, pre
       align="start"
     >
       <p className={styles["de-pop-h"]}>Test duel</p>
-      <p className="small">Play this deck against a bot. It is not ranked and no stats or replay are kept.</p>
+      <p className="small">Play this deck against a bot. It is not ranked and keeps no stats. The duel is deleted one day after it ends.</p>
       <SvCheck
         label="Shuffle"
         hint={prefs.shuffle ? "Random opening hand." : "Deck order: the first 5 cards of the Main Deck are your hand."}
