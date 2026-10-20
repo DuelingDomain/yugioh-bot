@@ -11,6 +11,23 @@ function isDeck(value: unknown): value is DuelDeck {
 }
 
 /**
+ * Deck editor: the player opened the Test duel pop-up. Get the start ready: the Discord membership check (cached for a
+ * minute), the route modules of the duel page, the engine files and one idle engine thread. Answers `{ ok: true }`;
+ * a failed warm-up is not an error for the player, the start still works, only slower.
+ */
+export async function GET() {
+  const actor = await requireDuelActor();
+  if (!actor.ok) return actor.response;
+  await Promise.allSettled([
+    import("../[slug]/route"),
+    import("../[slug]/connection/route"),
+    callDuelHost({ op: "warm-test-duel", guildId: actor.guildId, playerId: actor.playerId,
+      ...(actor.userId !== undefined ? { userId: actor.userId } : {}) }),
+  ]);
+  return NextResponse.json({ ok: true }, { headers: { "cache-control": "private, no-store" } });
+}
+
+/**
  * Deck editor "Test duel". Body `{ mode, deck, genesys?, shuffle?, goFirst? }`. Starts a private, unranked
  * duel against a practice bot and answers `{ slug }`. The duel host checks the deck and the format.
  */
