@@ -62,7 +62,7 @@ describe("effect reader over the pinned searchygo artifact", () => {
       expect(query.released).toEqual({ from: "2026-07" });
       expect(matchCard({ ...base, tcgDate: "2016-04", ocgDate: "2026-12" }, undefined, query)).not.toBeNull();
       expect(matchCard({ ...base, tcgDate: "2016-04", ocgDate: "2026-12" }, undefined, interpret("new cards TCG")!.query)).toBeNull();
-      expect(matchCard({ ...base, prerelease: true }, undefined, query)).not.toBeNull();
+      expect(matchCard({ ...base, prerelease: true }, undefined, query)).toBeNull();
       expect(matchCard(base, undefined, query)).toBeNull();
       expect(interpret("last 3 months")!.query.released).toEqual({ from: "2026-07", to: "2026-10" });
     } finally { vi.useRealTimers(); }

@@ -48,7 +48,7 @@ export function createCanonicalEffectResolver(cards: CardDatabase): (passcode: n
 }
 
 function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { facets, releases, archetypes: profileArchetypes }: CardEffectFacets): CardEffectIndex {
-  const prereleaseDate = createPrereleaseDateLookup(db);
+  const prereleaseDate = createPrereleaseDateLookup(db, cards.dataDirectory);
   for (const card of cards.all()) {
     const code = card.canonicalPasscode ?? card.code;
     if (card.prerelease && !releases.get(code)?.prerelease) releases.set(code, { ...releases.get(code), prerelease: true });
@@ -251,7 +251,7 @@ export function cardReleaseIndex(db: Database.Database, cards?: CardDatabase): R
   for (const row of db.prepare("SELECT passcode,tcg_date,ocg_date FROM card_release").iterate() as Iterable<{ passcode: number; tcg_date: string | null; ocg_date: string | null }>) {
     releases.set(row.passcode, { ...(row.tcg_date ? { tcgDate: row.tcg_date } : {}), ...(row.ocg_date ? { ocgDate: row.ocg_date } : {}) });
   }
-  const prereleaseDate = createPrereleaseDateLookup(db);
+  const prereleaseDate = createPrereleaseDateLookup(db, cards?.dataDirectory);
   for (const card of cards?.all() ?? []) {
     const code = card.canonicalPasscode ?? card.code;
     releases.set(code, prereleaseDate(code, releases.get(code) ?? {}, card.prerelease));

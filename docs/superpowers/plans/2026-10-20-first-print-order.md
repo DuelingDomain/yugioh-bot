@@ -5,6 +5,14 @@ not be Upcoming or lead date searches; restrict date searches to TCG/OCG cards.
 The existing engine pre-release set number supplies month tie order, then
 popularity. Do not use cached_at: it changes on refresh.
 
+Owner addition: known, dated engine pre-release cards lead released cards,
+including cards awaiting a later regional debut. A future first print in all
+known regions also enters this first group. Within each group, use newest month,
+then engine set number, then popularity. Unknown months never enter this group.
+Extend both existing search integration tests before changing the comparator.
+Retain the original set number for released cards through the engine's verified
+passcode remaps. Use the earliest source set if several IDs map to one card.
+
 1. Extend the existing HTTP integration test. Read bulk card sets and misc_info.
    Retain earlier known months, correct later stored months, and report dates
    later than first set appearance. Permit only evidenced earlier corrections
