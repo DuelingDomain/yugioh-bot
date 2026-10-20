@@ -1,0 +1,47 @@
+name: Restore CI Node dependencies
+description: Restore an exact Node 22 npm installation and reusable Turbo build results
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      id: node
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+    - name: Restore installed dependencies
+      id: modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          node_modules
+          packages/*/node_modules
+        key: ci-npm-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json', 'package.json', 'packages/*/package.json', 'patches/**') }}
+    - name: Setup npm download cache on dependency miss
+      if: steps.modules.outputs.cache-hit != 'true'
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+        cache: npm
+    - name: Install
+      if: steps.modules.outputs.cache-hit != 'true'
+      shell: bash
+      run: npm ci
+    # Composite post steps run after the caller has produced the build results.
+    - name: Restore Turbo build cache and save on main pushes
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: actions/cache@v4
+      with:
+        path: .turbo
+        key: ci-turbo-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}-${{ github.job }}-${{ github.sha }}
+        restore-keys: |
+          ci-turbo-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}-${{ github.job }}-
+          ci-turbo-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}-
+    - name: Restore Turbo build cache without saving
+      if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+      uses: actions/cache/restore@v4
+      with:
+        path: .turbo
+        key: ci-turbo-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}-${{ github.job }}-${{ github.sha }}
+        restore-keys: |
+          ci-turbo-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}-${{ github.job }}-
+          ci-turbo-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}-

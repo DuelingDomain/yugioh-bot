@@ -74,7 +74,9 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    if a newer main commit passed push Test, or if main moved past the target and a newer
    successful-Test deploy is queued. It skips preparation, builds and deployment. Manual
    dispatch is unaffected. An older SHA is also refused before the VM activity wait.
-   The prepare and deploy jobs use the `production` environment for its scoped secrets. The environment has no required
+   The prepare and deploy jobs use the `production` environment for its scoped secrets.
+   Prepare and Sentry reporting set `deployment: false`; only the actual deploy job creates a GitHub
+   production deployment record. The environment has no required
    reviewers or wait timer and retains the custom branch policy allowing only branch `main`.
    Manual retry/rollback remains Actions → **Deploy** → Run workflow, using the workflow from `main`.
    Set `ref` to a SHA with a successful main push Test and leave `force=false`, `rollback=false` normally.
@@ -87,7 +89,12 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    Right after target checkout, the runner runs `git fetch origin main && git merge-base --is-ancestor HEAD FETCH_HEAD`.
    This check runs before `npm rebuild`, `duel:prepare`, `tsx` or other code from that ref.
    `VM_SSH_PRIVATE_KEY` is in the Configure SSH key step only. This placement does not isolate the key from code that ran earlier.
-3. The workflow builds or restores the pinned duel-engine resource bundle
+3. A main push **Test** run prepares the production bundle while its independent unit groups and selected engine jobs run.
+   The image matrix waits for the strict `unit` gate, then runs at most three ARM64 builds together,
+   still in parallel with engine shards. All Test jobs must succeed before automatic Deploy starts.
+   PRs run the same bundle composite and one native amd64 bot image build with no registry login,
+   push, digest publication or production environment. They do not run Deploy.
+   Test builds or restores the pinned duel-engine resource bundle
    (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `ocgcore.standard.wasm`, `manifest.json`, and the legacy 1v1 files `ocgcore.domain.legacy.wasm` and `card-scripts/domain.legacy.lua`)
    using `npm run duel:prepare`, `packages/duel-server/scripts/build-domain-core.ts` (Domain wasm) and `packages/duel-server/scripts/build-domain-core.ts standard` (Standard wasm: stock rules plus the shared fixes in `domain-core/src/apply-core-fixes.mjs`, `build-standard-core.sh`)
    `... build-domain-core.ts legacy-domain` (the legacy Domain wasm of main, see `packages/duel-server/legacy-1v1/README.md`)
@@ -102,28 +109,44 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    so cache hits retain the original builder while recording the current deploy checkout.
    The cores and individual checksum/provenance sidecars are added to the deploy tarball, keeping the
    cached base bundle independent. See [the engine build details](staging.md#engine-files-and-image-build).
-   Prepare uploads this exact verified tarball and the workflow revision's guard/image helper as a
-   one-day Actions artifact. The image matrix and deploy job both use that artifact.
-   The matrix builds `duel-bundled`, `web`, `worker` and `ws` for `linux/arm64` only, then pushes
+   Test uploads the verified tarball and each image digest as one-day artifacts with producer-attempt names.
+   Automatic Deploy selects immutable artifact IDs from the exact successful main push Test run,
+   commit and verified attempt; it does not rebuild. Missing, expired or wrong-commit artifacts fail closed.
+   Prepare adds the workflow revision's guard/image helpers to a separate one-day release artifact.
+   Manual non-rollback Deploy verifies a successful main push Test, then prepares the bundle and builds
+   fresh images. Its composites come from the workflow revision even when the selected ref is older.
+   The matrix builds `duel-bundled`, `web`, `bot`, `worker` and `ws` for `linux/arm64` only, then pushes
    `ghcr.io/duelingdomain/yugioh-bot-<service>:<full commit SHA>`. The duel build uses the artifact as
    the named `engine` context. The build job has `packages: write` and `contents: read`, with
    no VM secrets. A separate job retains healthy release tags with only `packages: write`.
    The production public Clerk key is a repository variable/build arg. The Clerk secret
    stays in the VM runtime environment. Non-web targets no longer run the Next.js build.
-   Each image has a separate `:buildcache` registry cache with `mode=max`. This keeps dependency and
-   intermediate layers outside the Actions cache space used by engine files. Web also imports the
-   rolling `:nextcache` image as a named context and exports only `.next/cache` after its build.
+   Each image has a separate `:buildcache` registry cache. Non-web images use `mode=max`;
+   web uses `mode=min` so its source-map build stage cannot enter public intermediate layers.
+   Web imports a digest-pinned `:nextcache` image and exports only sanitized `.next/cache` after its build.
+   Docker sets `NEXT_BUILD_FS_CACHE=0`, removes inherited Turbopack data before building, and removes
+   and checks for Turbopack folders again before export. Source maps are removed in the same build layer.
+   Test may update this sanitized cache before the full run succeeds; it contains no Turbopack folder.
+   Only `unit-web-build` sets `NEXT_BUILD_FS_CACHE=1`. Actions Next/Turbo caches restore on PRs but
+   save only on main pushes. npm download caching starts only when the installed dependency cache misses.
    A missing Next cache starts with an empty directory. Local Compose builds use the empty fallback
    stage and still work. npm uses the existing manifest/lockfile dependency layer; no cache mount was
    added because the Dockerfile has no syntax directive and cache mounts are not exported automatically.
    Each build records its output digest in a one-day artifact. Production pulls `image@sha256:...`,
    so a later build of the same SHA cannot change the images selected by this run.
-   Both build steps set `provenance: false` and `sbom: false` to avoid extra attestation manifests.
+   Runtime and cache build steps set `provenance: false` and `sbom: false` to avoid extra attestation manifests.
    All deployment actions are pinned to full commit SHAs, with version comments.
-   Workflow concurrency covers preparation, builds and deployment. `queue: max` keeps pending runs;
+   Deploy workflow concurrency covers manual preparation/builds and all VM deployment work.
+   Test image builds use their own run concurrency. `queue: max` keeps pending runs;
    an older run cannot replace a newer pending deploy. No job-level production group remains.
    See [GitHub workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
-   Manual `rollback=true` skips the image matrix. The runner resolves each retained SHA tag to a digest before SSH.
+   After successful VM health checks, the retain job tags each healthy digest as `release-<full SHA>` and
+   advances `:production`/`:production-prev`. Weekly cleanup includes bot and keeps the newest ten
+   release-tagged versions, both production pointers, caches and owner tags. SHA-only versions created before
+   the fixed cutover `2026-10-21T00:00:00Z` keep the old newest-ten-SHA rule. Post-cutover unreleased SHA
+   versions and all untagged versions are deleted only after seven days. Retained manifest children are also protected.
+   Manual `rollback=true` skips the image matrix. It resolves `release-<SHA>` to a digest before SSH;
+   only older refs whose Dockerfile predates source-map export may fall back to a legacy SHA tag.
    Release controls and digest artifacts expire after one day. After that, **Re-run failed jobs** can fail
    because its artifacts are gone. Dispatch a new **Deploy** run for the same tested SHA.
 4. The workflow SSHes into the VM and fetches the exact commit checked out on the runner. It also
@@ -255,8 +278,10 @@ with Compose; the duel target needs the prepared named engine context described 
    All release artifacts expire after one day. After expiry, dispatch a new **Deploy** run for that SHA;
    **Re-run failed jobs** cannot download expired artifacts.
 4. `.github/workflows/ghcr-cleanup.yml` runs each Sunday at 05:17 UTC. It has only `packages: write`.
-   It keeps the newest ten SHA versions per package, all `buildcache` and `nextcache` tags,
-   and every other non-SHA tag. It removes untagged versions only after seven days.
+   It keeps the newest ten release-tagged versions per package. SHA-only versions created before the fixed
+   cutover `2026-10-21T00:00:00Z` keep the old newest-ten-SHA rule; newer SHA-only versions expire after
+   seven days. All `buildcache`, `nextcache`, production pointers and owner tags remain protected.
+   It removes untagged versions only after seven days.
    It protects child manifests referenced by retained indexes. If a retained manifest cannot be read,
    it stops that package before deletion and continues with the next package. Cache layers and
    config blobs are never read at the manifest endpoint. Cleanup shares the production workflow queue to avoid build races.
@@ -695,9 +720,9 @@ Recovery bypasses the waitlist only for a server-proven Discord ID already in `u
 
 Create the web and server projects in the Sentry EU region. Keep DSNs empty until those projects are ready; empty values use console reporting. Set `SENTRY_DSN` and `SENTRY_ENVIRONMENT` in the protected VM `.env`. Web, ws, duel and worker receive these values through Compose; an independently run bot uses the same server setup.
 
-Set repository variables `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG` and `SENTRY_PROJECT` for source-map uploads. `SENTRY_PROJECT` accepts a comma-separated list; include the projects used by both the web server DSN and browser DSN when they differ. Set `SENTRY_AUTH_TOKEN` as a **production environment secret** with source-map upload access. The Actions `build` job selects the `production` environment for its web matrix entry and passes the token to `docker/build-push-action` through `secrets`. It never reaches the VM, a build argument or a runtime environment. The web runtime and Next cache builds receive identical Sentry arguments and secret mounts; builds with no Sentry values or with only a DSN skip upload. Local builds also skip upload by default. Production Compose only starts pulled images.
+Set repository variables `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG` and `SENTRY_PROJECT` for source-map uploads. `SENTRY_PROJECT` accepts a comma-separated list; include the projects used by both the web server DSN and browser DSN when they differ. Set `SENTRY_AUTH_TOKEN` as a **production environment secret** with source-map upload access. Test and manual image builds receive no upload token and create no Sentry release. The web build generates exact maps with debug IDs, exports them locally to its one-day image-digest artifact, then removes all maps from application files. This repository is public; its Actions artifacts, including these source maps, are downloadable. Public web build caches use `mode=min`; `:nextcache` excludes maps and Turbopack data. After Test succeeds and VM health checks pass, Deploy transfers those exact maps through its healthy-deployment artifact. The `report-release` job uses the locked Sentry CLI to upload them, create/finalize the release and record its production deployment. Only that upload step receives `SENTRY_AUTH_TOKEN`; the token never enters a Docker build, VM or runtime environment. A reporting failure does not undo health checks or prevent the separate retain job from protecting healthy images. Older manual refs without source-map export skip map upload and Next cache publication.
 
-The production workflow sets `SENTRY_RELEASE` to the checked-out deploy SHA for the web build and every service. Application source maps are excluded from the Docker context. Dependency installation, non-web compilation and the web build each delete map files in the same Docker step that creates them, before any layer or public build cache is exported. The web build also rejects output containing the upload token. Browser reports use the exact public `/monitoring` tunnel. Reporting uses `sendDefaultPii: false`, a 0.05 trace sample rate and no replay; only application user IDs belong in identity. Request bodies, cookies, credentials and personal fields are redacted before sending.
+The production workflow sets `SENTRY_RELEASE` to the checked-out deploy SHA for the web build and every service. Application source maps are excluded from the Docker context. Dependency installation, non-web compilation and the web build each delete map files in the same Docker step that creates them, before any layer or public build cache is exported. Image builds have no upload token to persist. Browser reports use the exact public `/monitoring` tunnel. Reporting uses `sendDefaultPii: false`, a 0.05 trace sample rate and no replay; only application user IDs belong in identity. Request bodies, cookies, credentials and personal fields are redacted before sending.
 
 After deployment, check that the services start and drain normally. Confirm an unexpected error arrives in the configured EU project with the deployed release and readable web stack frames. Remote delivery and source-map upload require the owner's project configuration and cannot be checked with empty DSNs.
 

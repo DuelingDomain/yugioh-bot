@@ -44,7 +44,9 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'))
     runs-on: ubuntu-latest
-    environment: production
+    environment:
+      name: production
+      deployment: false
     timeout-minutes: 180
     env:
       VM_DEPLOY_ENABLED: ${{ secrets.VM_HOST != '' && secrets.VM_USER != '' && secrets.VM_SSH_PRIVATE_KEY != '' && 'true' || 'false' }}
@@ -58,6 +60,7 @@ jobs:
 
     outputs:
       commit: ${{ steps.release.outputs.commit }}
+      image_artifact_ids: ${{ steps.tested-artifacts.outputs.image_ids }}
       rollback: ${{ env.DEPLOY_ROLLBACK }}
       superseded: ${{ steps.superseded.outputs.skip }}
 
@@ -154,132 +157,38 @@ jobs:
             exit 1
           fi
 
-      - name: Compute bundle cache key
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
-        run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/card-script-patches.ts', 'packages/duel-server/card-script-patches/**', 'packages/duel-server/scripts/released-card-data.ts', 'packages/duel-server/scripts/prerelease-history.ts', 'packages/duel-server/scripts/prerelease-graduations.ts', 'packages/duel-server/scripts/prerelease-script-smoke.ts', 'packages/duel-server/scripts/prerelease-script-exclusions.ts', 'packages/duel-server/card-remap-overrides.json', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'packages/duel-server/src/released-database-files.ts', 'packages/duel-server/src/cards.ts', 'packages/shared/src/duels/**', 'packages/shared/package.json', 'packages/shared/tsconfig*.json', 'tsconfig.json', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
-
-      - name: Restore pinned duel-engine bundle
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
-        id: bundle
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      # Load extracted actions from this workflow revision, even for older manual refs.
+      - name: Checkout release build controls
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: data/duel-engine
-          key: ${{ env.BUNDLE_CACHE_KEY }}
+          ref: ${{ github.workflow_sha }}
+          path: .release-controls
+          sparse-checkout: .github/actions
+          persist-credentials: false
 
-      - name: Setup Node.js
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-          cache: npm
+      - name: Prepare production bundle for manual release
+        if: steps.superseded.outputs.skip != 'true' && github.event_name == 'workflow_dispatch'
+        uses: ./.release-controls/.github/actions/prepare-production-bundle
 
-      - name: Install duel-engine build dependencies
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
-        run: |
-          npm ci --ignore-scripts
-          npx patch-package --error-on-fail
-          # duel:prepare merges release card databases with better-sqlite3.
-          npm rebuild better-sqlite3
-
-      - name: Build shared for card preparation
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
-        run: npm run build --workspace=packages/shared
-
-      - name: Prepare card data and scripts
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
+      - name: Resolve tested production artifacts
+        id: tested-artifacts
+        if: github.event_name == 'workflow_run' && steps.superseded.outputs.skip != 'true'
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: npm run duel:prepare
+          GH_TOKEN: ${{ github.token }}
+          TEST_RUN_ID: ${{ github.event.workflow_run.id }}
+          TEST_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: node scripts/ci/production-artifacts.mjs
 
-      - name: Build pinned duel-engine cores
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
-        run: |
-          docker pull docker.io/emscripten/emsdk:4.0.9@sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811
-          npx tsx packages/duel-server/scripts/build-domain-core.ts
-          npx tsx packages/duel-server/scripts/build-domain-core.ts standard
-          # The approved legacy Domain core, next to the merged cores. Domain 1v1 uses it by default.
-          npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
-
-      - name: Save pinned duel-engine bundle
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.bundle.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - name: Download tested production bundle
+        if: github.event_name == 'workflow_run' && steps.superseded.outputs.skip != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          path: data/duel-engine
-          key: ${{ env.BUNDLE_CACHE_KEY }}
-
-      # The pinned bundle above (data/duel-engine) now holds the merged cores (ocgcore.standard.wasm, ocgcore.domain.wasm) AND the
-      # legacy 1v1 files (ocgcore.domain.legacy.wasm, card-scripts/domain.legacy.lua). Its cache key hashes legacy-1v1/** and
-      # build-standard-core.sh too, so the first deploy of the merge builds the bundle again and the bundle changes: the deploy
-      # preflight then needs an empty server (no active duel), see docs/deployment/vm-runbook.md. Compose defaults Standard 1v1
-      # to DUEL_STANDARD_1V1_ENGINE=pinned; Domain keeps DUEL_1V1_ENGINE=legacy (docs/deployment/duel-engine-switch.md).
-      # The multi-duelist core (Tag and 3 and 4 player tables) is NOT part of the pinned bundle: it travels next to the bundle in the
-      # deploy tarball and is installed by packages/duel-server/scripts/install-engine-bundle.sh. The server loads it only for tables
-      # with more than 2 seats, and MULTIPLAYER_TABLES (default on; set 0 in .env to close) controls those tables.
-      # Production cache inputs: pins, full series, build scripts and Domain sources.
-      # The version prefix is a literal: raise it when the build step below changes (the hash cannot see it).
-      - name: Compute multi core cache key
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
-        run: echo "MULTI_CACHE_KEY=duel-multi-cores-v2-${{ hashFiles('packages/duel-server/scripts/build-deploy-multi-cores.sh', 'packages/duel-server/scripts/package-deploy-multi-cores.mjs', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**') }}" >> "$GITHUB_ENV"
-
-      - name: Read the emsdk image from pins.json
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
-        run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
-
-      - name: Restore multi cores
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
-        id: multi
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: |
-            packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
-            packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
-            packages/duel-server/domain-core/dist/ocgcore.multi-build-info.json
-            packages/duel-server/domain-core/dist/ocgcore.multi-domain-build-info.json
-          key: ${{ env.MULTI_CACHE_KEY }}
-
-      # Both cores use the full patch series. Domain also uses APPLY_DOMAIN=1 DOMAIN_MULTI=1.
-      # Production Lua randomness: no LUA_FIXED_SEED (test.yml keeps that flag for differential tests).
-      - name: Build multi cores
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.multi.outputs.cache-hit != 'true' }}
-        run: bash packages/duel-server/scripts/build-deploy-multi-cores.sh
-
-      - name: Save multi cores
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && steps.multi.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: |
-            packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
-            packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
-            packages/duel-server/domain-core/dist/ocgcore.multi-build-info.json
-            packages/duel-server/domain-core/dist/ocgcore.multi-domain-build-info.json
-          key: ${{ env.MULTI_CACHE_KEY }}
-
-      - name: Verify duel-engine bundle
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
-        run: |
-          DUEL_DATA_DIR="$PWD/data/duel-engine" sh packages/duel-server/scripts/install-engine-bundle.sh
-          # The legacy 1v1 files must match the approved legacy pin (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
-          sh packages/duel-server/scripts/check-legacy-pin.sh "$PWD/data/duel-engine"
-
-      # The deploy tarball is made here, not from data/duel-engine: that folder stays the pinned bundle.
-      # The check at the end runs the install script on this exact content, in a scratch folder of the runner.
-      - name: Add both multi cores to the deploy bundle
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
-        run: |
-          set -eu
-          bundle="$RUNNER_TEMP/deploy-bundle"
-          rm -rf "$bundle" "$RUNNER_TEMP/deploy-bundle-check"
-          mkdir -p "$bundle"
-          cp -a data/duel-engine/. "$bundle/"
-          node packages/duel-server/scripts/package-deploy-multi-cores.mjs "$bundle"
-          DUEL_BUNDLE_SRC="$bundle" DUEL_DATA_DIR="$RUNNER_TEMP/deploy-bundle-check/duel-engine" \
-            sh packages/duel-server/scripts/install-engine-bundle.sh
-          for core in ocgcore.multi ocgcore.multi-domain; do
-            cmp "$RUNNER_TEMP/deploy-bundle-check/duel-engine/$core.wasm" "$bundle/$core.wasm"
-            cat "$bundle/$core.SOURCE" >> "$GITHUB_STEP_SUMMARY"
-          done
-          rm -rf "$RUNNER_TEMP/deploy-bundle-check"
-          tar -C "$bundle" -czf "$RUNNER_TEMP/deploy-bundle.tar.gz" .
+          artifact-ids: ${{ steps.tested-artifacts.outputs.bundle_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
 
       - name: Upload verified release controls and bundle
         if: ${{ steps.superseded.outputs.skip != 'true' }}
@@ -299,10 +208,8 @@ jobs:
   build:
     name: Build ARM64 ${{ matrix.service }} image
     needs: prepare
-    if: needs.prepare.outputs.superseded != 'true' && needs.prepare.outputs.rollback != 'true'
+    if: github.event_name == 'workflow_dispatch' && needs.prepare.outputs.superseded != 'true' && needs.prepare.outputs.rollback != 'true'
     runs-on: ubuntu-24.04-arm
-    # Only web needs the production environment source-map upload secret.
-    environment: ${{ matrix.service == 'web' && 'production' || '' }}
     permissions:
       contents: read
       packages: write
@@ -339,121 +246,27 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.commit }}
 
-      - name: Check production public key
-        run: |
-          printf '%s' "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" | grep -Eq '^pk_live_[A-Za-z0-9_-]+$' || {
-            echo "Set the production NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY repository variable." >&2
-            exit 1
-          }
-
-      - name: Download verified engine bundle
-        if: matrix.service == 'duel'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      # Load extracted actions from this workflow revision, even for older manual refs.
+      - name: Checkout release build controls
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          name: production-deploy-${{ needs.prepare.outputs.commit }}
-          path: ${{ runner.temp }}/release
+          ref: ${{ github.workflow_sha }}
+          path: .release-controls
+          sparse-checkout: .github/actions
+          persist-credentials: false
 
-      - name: Prepare named engine context
-        run: |
-          mkdir -p "$RUNNER_TEMP/engine"
-          if [ "$IMAGE" = ghcr.io/duelingdomain/yugioh-bot-duel ]; then
-            tar -C "$RUNNER_TEMP/engine" -xzf "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
-          fi
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      - name: Log in to GHCR
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      - name: Build production image
+        uses: ./.release-controls/.github/actions/build-production-image
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
-      - name: Find previous Next.js cache
-        if: matrix.service == 'web'
-        id: next-cache
-        run: |
-          if docker buildx imagetools inspect "$IMAGE:nextcache" >/dev/null 2>&1; then
-            echo "context=nextcache=docker-image://$IMAGE:nextcache" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build and push runtime image
-        id: runtime-image
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
+          service: ${{ matrix.service }}
           target: ${{ matrix.target }}
-          platforms: linux/arm64
-          push: true
-          provenance: false
-          sbom: false
-          tags: ${{ env.IMAGE }}:${{ env.DEPLOY_COMMIT }}
-          build-args: |
-            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-            NEXT_PUBLIC_POSTHOG_KEY=${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
-            NEXT_PUBLIC_SENTRY_DSN=${{ matrix.service == 'web' && vars.NEXT_PUBLIC_SENTRY_DSN || '' }}
-            SENTRY_ORG=${{ matrix.service == 'web' && vars.SENTRY_ORG || '' }}
-            SENTRY_PROJECT=${{ matrix.service == 'web' && vars.SENTRY_PROJECT || '' }}
-            SENTRY_ENVIRONMENT=${{ matrix.service == 'web' && 'production' || '' }}
-            SENTRY_RELEASE=${{ matrix.service == 'web' && env.DEPLOY_COMMIT || '' }}
-            SENTRY_UPLOAD_SOURCEMAPS=${{ matrix.service == 'web' && secrets.SENTRY_AUTH_TOKEN != '' && '1' || '0' }}
-          secrets: |
-            SENTRY_AUTH_TOKEN=${{ matrix.service == 'web' && secrets.SENTRY_AUTH_TOKEN || '' }}
-          build-contexts: |
-            engine=${{ runner.temp }}/engine
-            ${{ steps.next-cache.outputs.context }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot
-            org.opencontainers.image.revision=${{ env.DEPLOY_COMMIT }}
-          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
-
-      - name: Record runtime image digest
+          bundle-artifact: production-deploy-${{ needs.prepare.outputs.commit }}
         env:
-          SERVICE: ${{ matrix.service }}
-          IMAGE_DIGEST: ${{ steps.runtime-image.outputs.digest }}
-        run: |
-          printf '%s' "$IMAGE_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$' || exit 1
-          mkdir -p "$RUNNER_TEMP/image-digests"
-          printf '%s %s\n' "$SERVICE" "$IMAGE_DIGEST" > "$RUNNER_TEMP/image-digests/$SERVICE.digest"
-          printf '%s@%s\n' "$IMAGE" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload runtime image digest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: production-image-${{ matrix.service }}-${{ env.DEPLOY_COMMIT }}
-          path: ${{ runner.temp }}/image-digests/${{ matrix.service }}.digest
-          if-no-files-found: error
-          retention-days: 1
-          overwrite: true
-
-      - name: Save Next.js cache for the next source revision
-        if: matrix.service == 'web'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          target: web-cache
-          platforms: linux/arm64
-          push: true
-          provenance: false
-          sbom: false
-          tags: ${{ env.IMAGE }}:nextcache
-          build-args: |
-            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-            NEXT_PUBLIC_POSTHOG_KEY=${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
-            NEXT_PUBLIC_SENTRY_DSN=${{ matrix.service == 'web' && vars.NEXT_PUBLIC_SENTRY_DSN || '' }}
-            SENTRY_ORG=${{ matrix.service == 'web' && vars.SENTRY_ORG || '' }}
-            SENTRY_PROJECT=${{ matrix.service == 'web' && vars.SENTRY_PROJECT || '' }}
-            SENTRY_ENVIRONMENT=${{ matrix.service == 'web' && 'production' || '' }}
-            SENTRY_RELEASE=${{ matrix.service == 'web' && env.DEPLOY_COMMIT || '' }}
-            SENTRY_UPLOAD_SOURCEMAPS=${{ matrix.service == 'web' && secrets.SENTRY_AUTH_TOKEN != '' && '1' || '0' }}
-          secrets: |
-            SENTRY_AUTH_TOKEN=${{ matrix.service == 'web' && secrets.SENTRY_AUTH_TOKEN || '' }}
-          build-contexts: ${{ steps.next-cache.outputs.context }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot
-          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
 
   deploy:
     name: Deploy to Production VM
@@ -462,7 +275,7 @@ jobs:
       !cancelled() && needs.prepare.result == 'success' &&
       needs.prepare.outputs.superseded != 'true' &&
       (needs.build.result == 'success' ||
-      (needs.prepare.outputs.rollback == 'true' && needs.build.result == 'skipped')) &&
+      ((github.event_name == 'workflow_run' || needs.prepare.outputs.rollback == 'true') && needs.build.result == 'skipped')) &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
@@ -505,12 +318,22 @@ jobs:
           path: ${{ runner.temp }}/release
 
       - name: Download runtime image digests
-        if: needs.prepare.outputs.rollback != 'true'
+        if: github.event_name == 'workflow_dispatch' && needs.prepare.outputs.rollback != 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: production-image-*-${{ needs.prepare.outputs.commit }}
           merge-multiple: true
           path: ${{ runner.temp }}/image-digests
+
+      - name: Download tested runtime image digests
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.image_artifact_ids }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/image-digests
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
 
       - name: Resolve retained rollback digests
         if: needs.prepare.outputs.rollback == 'true'
@@ -520,8 +343,16 @@ jobs:
           for service in duel web worker ws bot; do
             # Retained releases from before ADR 0006 have no bot image.
             if [ "$service" = bot ] && ! git show "$DEPLOY_COMMIT:docker-compose.yml" | grep -q '^  bot:'; then continue; fi
-            image="ghcr.io/duelingdomain/yugioh-bot-$service:$DEPLOY_COMMIT"
-            docker manifest inspect --verbose "$image" > "$RUNNER_TEMP/rollback-manifest.json"
+            image="ghcr.io/duelingdomain/yugioh-bot-$service"
+            if ! docker manifest inspect --verbose "$image:release-$DEPLOY_COMMIT" > "$RUNNER_TEMP/rollback-manifest.json"; then
+              # Old releases predate healthy release tags. New releases must never use a mutable build tag.
+              git show "$DEPLOY_COMMIT:Dockerfile" > "$RUNNER_TEMP/rollback-Dockerfile"
+              if grep -Eq '^FROM scratch AS web-sourcemaps$' "$RUNNER_TEMP/rollback-Dockerfile"; then
+                echo "Missing healthy release tag for $service; rollback refused." >&2
+                exit 1
+              fi
+              docker manifest inspect --verbose "$image:$DEPLOY_COMMIT" > "$RUNNER_TEMP/rollback-manifest.json"
+            fi
             digest=$(python3 - "$RUNNER_TEMP/rollback-manifest.json" <<'PY'
           import json,sys
           with open(sys.argv[1]) as source:
@@ -709,7 +540,7 @@ jobs:
                exit 1
              fi
              rm -rf "$installer"
-             # Pull all four immutable release digests before backups, retagging or stopping any service.
+             # Pull all five immutable release digests before backups, retagging or stopping any service.
              # Public GHCR packages need no VM login. A pull failure leaves live tags unchanged.
              sh "$DEPLOY_IMAGES" pull "$DEPLOY_COMMIT" "$DEPLOY_IMAGE_REFS"
              # Preserve matching rollback code/env and the actual container image IDs before checkout/promotion.
@@ -867,7 +698,11 @@ jobs:
 
       - name: Record healthy deployment attempt
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
-        run: printf '%s\n' "$GITHUB_RUN_ATTEMPT" > "$RUNNER_TEMP/release/confirmed-attempt"
+        run: |
+          printf '%s\n' "$GITHUB_RUN_ATTEMPT" > "$RUNNER_TEMP/release/confirmed-attempt"
+          if [ "$DEPLOY_ROLLBACK" != true ]; then
+            cp "$RUNNER_TEMP/image-digests/web-sourcemaps.tar.gz" "$RUNNER_TEMP/release/"
+          fi
 
       - name: Upload healthy deployment record
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
@@ -877,6 +712,7 @@ jobs:
           path: |
             ${{ runner.temp }}/release/image-digests
             ${{ runner.temp }}/release/confirmed-attempt
+            ${{ runner.temp }}/release/web-sourcemaps.tar.gz
           if-no-files-found: error
           retention-days: 1
 
@@ -891,6 +727,7 @@ jobs:
     env:
       GHCR_TOKEN: ${{ github.token }}
       RUN_ATTEMPT: ${{ github.run_attempt }}
+      DEPLOY_COMMIT: ${{ needs.prepare.outputs.commit }}
     steps:
       - name: Download healthy deployment record
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -916,6 +753,7 @@ jobs:
                 confirmedAttempt !== process.env.RUN_ATTEMPT) {
               throw new Error('Registry retention requires deploy health checks in the current run attempt. Dispatch a new Deploy run for the intended current release.');
             }
+            if (!/^[0-9a-f]{40}$/.test(process.env.DEPLOY_COMMIT || '')) throw new Error('Invalid healthy release SHA.');
             const { createHash } = await import('node:crypto');
             const services = ["duel", "web", "worker", "ws"];
             if (imageDigests.split('\n').some(line => line.startsWith('bot '))) services.push('bot');
@@ -969,6 +807,62 @@ jobs:
               };
               // An identical retry must keep the existing rollback digest.
               if (current && current.digest !== next.digest) await tag('production-prev', current);
+              await tag(`release-${process.env.DEPLOY_COMMIT}`, next);
               await tag('production', next);
               core.info(`${repository}:production retains ${next.digest}`);
             }
+
+  report-release:
+    name: Report healthy release to Sentry
+    needs: [prepare, deploy]
+    if: ${{ !cancelled() && needs.deploy.result == 'success' && needs.prepare.outputs.rollback != 'true' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      deployment: false
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout reporting tools from workflow revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Download healthy deployment source maps
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: production-deployed-${{ needs.prepare.outputs.commit }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/deployed-release
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Install locked reporting tools without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Upload source maps and record healthy Sentry release
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_RELEASE: ${{ needs.prepare.outputs.commit }}
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
+            echo "Sentry upload is not configured; skip release reporting."
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/sentry-maps"
+          tar -C "$RUNNER_TEMP/sentry-maps" -xzf "$RUNNER_TEMP/deployed-release/web-sourcemaps.tar.gz"
+          IFS=',' read -ra projects <<< "$SENTRY_PROJECT"
+          for project in "${projects[@]}"; do
+            export SENTRY_PROJECT="$(echo "$project" | xargs)"
+            test -n "$SENTRY_PROJECT"
+            node_modules/.bin/sentry-cli releases new "$SENTRY_RELEASE"
+            if find "$RUNNER_TEMP/sentry-maps" -type f -name '*.map' -print -quit | grep -q .; then
+              node_modules/.bin/sentry-cli sourcemaps upload --release "$SENTRY_RELEASE" "$RUNNER_TEMP/sentry-maps"
+            else
+              echo "Older release has no exported source maps; skip upload."
+            fi
+            node_modules/.bin/sentry-cli releases finalize "$SENTRY_RELEASE"
+            node_modules/.bin/sentry-cli releases deploys "$SENTRY_RELEASE" new -e production
+          done

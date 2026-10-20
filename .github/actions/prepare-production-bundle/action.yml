@@ -1,0 +1,138 @@
+name: Prepare production engine bundle
+description: Build or restore and verify the pinned production engine bundle, including multi cores
+inputs:
+  save-cache:
+    description: Save engine caches only for release producers
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Compute bundle cache key
+      shell: bash
+      run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/card-script-patches.ts', 'packages/duel-server/card-script-patches/**', 'packages/duel-server/scripts/released-card-data.ts', 'packages/duel-server/scripts/prerelease-history.ts', 'packages/duel-server/scripts/prerelease-graduations.ts', 'packages/duel-server/scripts/prerelease-script-smoke.ts', 'packages/duel-server/scripts/prerelease-script-exclusions.ts', 'packages/duel-server/card-remap-overrides.json', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'packages/duel-server/src/released-database-files.ts', 'packages/duel-server/src/cards.ts', 'packages/shared/src/duels/**', 'packages/shared/package.json', 'packages/shared/tsconfig*.json', 'tsconfig.json', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
+
+    - name: Restore pinned duel-engine bundle
+      id: bundle
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: data/duel-engine
+        key: ${{ env.BUNDLE_CACHE_KEY }}
+
+    - name: Setup Node.js
+      if: ${{ steps.bundle.outputs.cache-hit != 'true' }}
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: "22"
+        cache: npm
+
+    - name: Install duel-engine build dependencies
+      if: ${{ steps.bundle.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: |
+        npm ci --ignore-scripts
+        npx patch-package --error-on-fail
+        # duel:prepare merges release card databases with better-sqlite3.
+        npm rebuild better-sqlite3
+
+    - name: Build shared for card preparation
+      if: ${{ steps.bundle.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: npm run build --workspace=packages/shared
+
+    - name: Prepare card data and scripts
+      if: ${{ steps.bundle.outputs.cache-hit != 'true' }}
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      shell: bash
+      run: npm run duel:prepare
+
+    - name: Build pinned duel-engine cores
+      if: ${{ steps.bundle.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: |
+        docker pull docker.io/emscripten/emsdk:4.0.9@sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811
+        npx tsx packages/duel-server/scripts/build-domain-core.ts
+        npx tsx packages/duel-server/scripts/build-domain-core.ts standard
+        # The approved legacy Domain core, next to the merged cores. Domain 1v1 uses it by default.
+        npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
+
+    - name: Save pinned duel-engine bundle
+      if: inputs.save-cache == 'true' && steps.bundle.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: data/duel-engine
+        key: ${{ env.BUNDLE_CACHE_KEY }}
+
+    # The pinned bundle above (data/duel-engine) now holds the merged cores (ocgcore.standard.wasm, ocgcore.domain.wasm) AND the
+    # legacy 1v1 files (ocgcore.domain.legacy.wasm, card-scripts/domain.legacy.lua). Its cache key hashes legacy-1v1/** and
+    # build-standard-core.sh too, so the first deploy of the merge builds the bundle again and the bundle changes: the deploy
+    # preflight then needs an empty server (no active duel), see docs/deployment/vm-runbook.md. Compose defaults Standard 1v1
+    # to DUEL_STANDARD_1V1_ENGINE=pinned; Domain keeps DUEL_1V1_ENGINE=legacy (docs/deployment/duel-engine-switch.md).
+    # The multi-duelist core (Tag and 3 and 4 player tables) is NOT part of the pinned bundle: it travels next to the bundle in the
+    # deploy tarball and is installed by packages/duel-server/scripts/install-engine-bundle.sh. The server loads it only for tables
+    # with more than 2 seats, and MULTIPLAYER_TABLES (default on; set 0 in .env to close) controls those tables.
+    # Production cache inputs: pins, full series, build scripts and Domain sources.
+    # The version prefix is a literal: raise it when the build step below changes (the hash cannot see it).
+    - name: Compute multi core cache key
+      shell: bash
+      run: echo "MULTI_CACHE_KEY=duel-multi-cores-v2-${{ hashFiles('packages/duel-server/scripts/build-deploy-multi-cores.sh', 'packages/duel-server/scripts/package-deploy-multi-cores.mjs', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**') }}" >> "$GITHUB_ENV"
+
+    - name: Read the emsdk image from pins.json
+      shell: bash
+      run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
+
+    - name: Restore multi cores
+      id: multi
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: |
+          packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+          packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
+          packages/duel-server/domain-core/dist/ocgcore.multi-build-info.json
+          packages/duel-server/domain-core/dist/ocgcore.multi-domain-build-info.json
+        key: ${{ env.MULTI_CACHE_KEY }}
+
+    # Both cores use the full patch series. Domain also uses APPLY_DOMAIN=1 DOMAIN_MULTI=1.
+    # Production Lua randomness: no LUA_FIXED_SEED (test.yml keeps that flag for differential tests).
+    - name: Build multi cores
+      if: ${{ steps.multi.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: bash packages/duel-server/scripts/build-deploy-multi-cores.sh
+
+    - name: Save multi cores
+      if: inputs.save-cache == 'true' && steps.multi.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: |
+          packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+          packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
+          packages/duel-server/domain-core/dist/ocgcore.multi-build-info.json
+          packages/duel-server/domain-core/dist/ocgcore.multi-domain-build-info.json
+        key: ${{ env.MULTI_CACHE_KEY }}
+
+    - name: Verify duel-engine bundle
+      shell: bash
+      run: |
+        DUEL_DATA_DIR="$PWD/data/duel-engine" sh packages/duel-server/scripts/install-engine-bundle.sh
+        # The legacy 1v1 files must match the approved legacy pin (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
+        sh packages/duel-server/scripts/check-legacy-pin.sh "$PWD/data/duel-engine"
+
+    # The deploy tarball is made here, not from data/duel-engine: that folder stays the pinned bundle.
+    # The check at the end runs the install script on this exact content, in a scratch folder of the runner.
+    - name: Add both multi cores to the deploy bundle
+      shell: bash
+      run: |
+        set -eu
+        bundle="$RUNNER_TEMP/deploy-bundle"
+        rm -rf "$bundle" "$RUNNER_TEMP/deploy-bundle-check"
+        mkdir -p "$bundle"
+        cp -a data/duel-engine/. "$bundle/"
+        node packages/duel-server/scripts/package-deploy-multi-cores.mjs "$bundle"
+        DUEL_BUNDLE_SRC="$bundle" DUEL_DATA_DIR="$RUNNER_TEMP/deploy-bundle-check/duel-engine" \
+          sh packages/duel-server/scripts/install-engine-bundle.sh
+        for core in ocgcore.multi ocgcore.multi-domain; do
+          cmp "$RUNNER_TEMP/deploy-bundle-check/duel-engine/$core.wasm" "$bundle/$core.wasm"
+          cat "$bundle/$core.SOURCE" >> "$GITHUB_STEP_SUMMARY"
+        done
+        rm -rf "$RUNNER_TEMP/deploy-bundle-check"
+        tar -C "$bundle" -czf "$RUNNER_TEMP/deploy-bundle.tar.gz" .
