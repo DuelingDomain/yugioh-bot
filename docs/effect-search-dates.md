@@ -13,7 +13,7 @@ Use these fields in the UI:
 | `POST /api/cards/insights`: `poolHealth` | `{ op: "poolHealth", cards: number[], era?: { medianYear: number, spread: number } }`. The result adds `health.era` when dates are known. |
 | Returned deck cards and ranked insight cards | `release: { tcgDate?: "YYYY-MM", ocgDate?: "YYYY-MM", date?: "YYYY-MM", region?: "tcg" \| "ocg", upcoming: boolean }`. |
 
-Both range bounds are inclusive. Omit a bound to leave that end open. Omit `region` to use TCG, with OCG as the fallback. An explicit region uses only that region. A card with no selected date fails a bounded date filter and sorts last. Future months remain in the data and in search results. `upcoming` is true when the selected month is after the current UTC month. Show “Upcoming” when this field is true. The data has month precision; it cannot separate past and future days within the current month.
+Both range bounds are inclusive. Omit a bound to leave that end open. Omit `region` to use the newest known TCG or OCG month (owner update 2026-10-20). An explicit region uses only that region. An undated engine pre-release card uses the newest current/future month from its known set metadata. If no month is known, it sorts first as Upcoming and passes an open-ended recent filter. Other undated cards fail bounded date filters and sort last. Future months remain in the data and in search results. `upcoming` is true when the selected month is after the current UTC month, or the engine marks a card as pre-release and its selected month is current or unknown. Show “Upcoming” when this field is true, and “OCG” when only an OCG date is known. The data has month precision; it cannot separate past and future days within the current month.
 
 `sort: "newest"` sorts by selected release month before score and popularity. In a deck card query, this sort always means newest first; `order` does not reverse it. The foundation keeps name and effect groups separate. All existing structural filters still apply. In SQL insights, an explicit `sort` option takes priority over a sort read from the text.
 
@@ -27,7 +27,7 @@ The reader adds `query.released`, `query.releaseLabel`, and `query.sort`. Displa
 | `in 2012` | `2012-01` through `2012-12`. |
 | `last 3 months` | From the UTC month three months before now through the current UTC month. On 2026-10-17 this is `2026-07` through `2026-10`. |
 | `newest`, `newest spells` | Newest first. No automatic date cutoff. |
-| `new cards` | The last three months, newest first. |
+| `new cards` | From three months ago onward, including future months and undated engine pre-release cards; newest first. |
 | `OCG before 2010`, `newest OCG spells` | Use OCG dates for the reading, sort, and result date. |
 | `2000 atk`, `atk 2000` | Printed ATK = 2000. No date reading. Existing ATK effect phrases, such as `gain 1000 ATK`, keep their effect reading. |
 

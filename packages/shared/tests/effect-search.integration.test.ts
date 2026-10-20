@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { migrate } from "../src/db/schema.js";
 import { gunzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
 import { interpret, buildArchetypeMatcher } from "../src/cards/effects/query.js";
 import { matchCard } from "../src/cards/effects/effect-match.js";
@@ -51,6 +51,21 @@ describe("effect reader over the pinned searchygo artifact", () => {
     expect(interpret("2000 atk")?.query.released).toBeUndefined();
     expect(interpret("2000")).toBeNull();
     expect(interpret("before 1900")).toBeNull();
+  });
+
+  it("uses the latest region month, includes future cards, and keeps region filters strict", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-20T00:00:00Z"));
+    try {
+      const query = interpret("new cards")!.query;
+      const base = { id: 1, name: "Release integration", kind: "spell", subtypes: [], text: "", views: 0 } as Card;
+      expect(query.released).toEqual({ from: "2026-07" });
+      expect(matchCard({ ...base, tcgDate: "2016-04", ocgDate: "2026-12" }, undefined, query)).not.toBeNull();
+      expect(matchCard({ ...base, tcgDate: "2016-04", ocgDate: "2026-12" }, undefined, interpret("new cards TCG")!.query)).toBeNull();
+      expect(matchCard({ ...base, prerelease: true }, undefined, query)).not.toBeNull();
+      expect(matchCard(base, undefined, query)).toBeNull();
+      expect(interpret("last 3 months")!.query.released).toEqual({ from: "2026-07", to: "2026-10" });
+    } finally { vi.useRealTimers(); }
   });
 
   it("keeps ATK effect verbs and complete date phrases", () => {

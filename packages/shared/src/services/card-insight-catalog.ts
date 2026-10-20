@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { createPrereleaseDateLookup } from "./card-release-dates.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deckEngineDataDirectory } from "./card-artworks.js";
@@ -17,7 +18,7 @@ interface CatalogRow {
   tags_json?: string | null; popularity?: number | null;
 }
 interface EngineRow {
-  id: number; alias: number; type: number; name: string; desc?: string;
+  id: number; alias: number; type: number; name: string; desc?: string; ot?: number;
   atk?: number; def?: number; level?: number; race?: number; attribute?: number;
   /** Cast to TEXT by SQLite so packed 64-bit setcodes are never rounded through a JS number. */
   setcode?: string;
@@ -29,6 +30,7 @@ const codeValid = (value: number) => Number.isInteger(value) && value > 0 && val
 export function createInsightCatalog(db: Database.Database, dataDirectory = deckEngineDataDirectory(db.name)) {
   const artwork = db.prepare<[number], { card_id: number }>("SELECT card_id FROM card_artworks WHERE artwork_id=?");
   const metadata = db.prepare<[number], CatalogRow>("SELECT * FROM card_catalog WHERE ygoprodeck_id=?");
+  const prereleaseDate = createPrereleaseDateLookup(db);
   const release = db.prepare<[number], { tcg_date: string | null; ocg_date: string | null }>("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=?");
   const tags = db.prepare<[number], { tags_json: string; popularity: number }>("SELECT tags_json,popularity FROM card_tags WHERE passcode=?");
   const revision = (db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
@@ -62,7 +64,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     try {
       const columns = new Set((engine.prepare("PRAGMA table_info(datas)").all() as { name: string }[]).map(row => row.name));
       const texts = new Set((engine.prepare("PRAGMA table_info(texts)").all() as { name: string }[]).map(row => row.name));
-      if (columns.has("type") && texts.has("name")) engineFind = engine.prepare(`SELECT d.id,${columns.has("alias") ? "d.alias" : "0 AS alias"},d.type,t.name${texts.has("desc") ? ",t.desc" : ""}${columns.has("setcode") ? ",CAST(d.setcode AS TEXT) AS setcode" : ""}${["atk", "def", "level", "race", "attribute"].filter(field => columns.has(field)).map(field => `,d.${field}`).join("")} FROM datas d JOIN texts t USING(id) WHERE d.id=?`);
+      if (columns.has("type") && texts.has("name")) engineFind = engine.prepare(`SELECT d.id,${columns.has("alias") ? "d.alias" : "0 AS alias"},d.type,t.name${texts.has("desc") ? ",t.desc" : ""}${columns.has("setcode") ? ",CAST(d.setcode AS TEXT) AS setcode" : ""}${["atk", "def", "level", "race", "attribute", "ot"].filter(field => columns.has(field)).map(field => `,d.${field}`).join("")} FROM datas d JOIN texts t USING(id) WHERE d.id=?`);
     } catch (error) { engine.close(); throw error; }
   }
   const canonical = (raw: number): number => {
@@ -113,7 +115,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
         attack: engineCard.atk ?? source.atk ?? -1, defense: engineCard.def ?? source.def ?? -1,
         description: source.effect_text || engineCard.desc || "", setcodes: membership, alias: engineCard.alias,
         lscale: ((engineCard.level ?? 0) >>> 24) & 0xff, rscale: ((engineCard.level ?? 0) >>> 16) & 0xff,
-        arrows: 0, ot: 0,
+        arrows: 0, ot: engineCard.ot ?? 0, prerelease: !!((engineCard.ot ?? 0) & 0x100),
       }, membership.length && !card.archetype ? archetypes() : new Map(), views);
       card = { ...card, ...adapted, typeLine: source.type, archetype: card.archetype ?? adapted.archetype, genesysPoints: card.genesysPoints };
       if (engineCard.level === undefined && source.level == null) {
@@ -123,6 +125,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
     const dates = release.get(canonicalCode);
     if (dates?.tcg_date) card.tcgDate = dates.tcg_date;
     if (dates?.ocg_date) card.ocgDate = dates.ocg_date;
+    Object.assign(card, prereleaseDate(canonicalCode, card, card.prerelease));
     return { card, ...(tagged?.tags_json ? { tags: JSON.parse(tagged.tags_json) as CardTags } : {}) };
   };
   return {

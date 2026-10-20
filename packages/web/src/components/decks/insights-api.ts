@@ -94,7 +94,7 @@ export async function resolveInsightCards(ranked: readonly RankedInsightCard[], 
   const out: InsightCard[] = [];
   for (const item of ranked) {
     const card = byCode.get(item.passcode);
-    if (card) out.push({ ...card, reason: item.reason, linkedCards: item.linkedCards, ...(item.deckMasterFit != null ? { deckMasterFit: item.deckMasterFit } : {}) });
+    if (card) out.push({ ...card, release: item.release, reason: item.reason, linkedCards: item.linkedCards, ...(item.deckMasterFit != null ? { deckMasterFit: item.deckMasterFit } : {}) });
   }
   return out;
 }

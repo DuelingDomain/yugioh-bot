@@ -21,6 +21,7 @@ import { hasCardDrag, readCardDrag, writeCardDrag, type CardDrag } from "./drag"
 import { SORT_CHOICES, clearFilters, filterChips, queryKey, type BrowserView } from "./filter-model";
 import { genesysMark, genesysMarkText } from "./genesys";
 import { GenesysBadge } from "./genesys-ui";
+import { ReleaseMarks } from "./release-marks";
 import { LimitBadge, limitName } from "./limit-badge";
 import { cardKind, type BanlistLimits } from "./model";
 import { queryPoolCards } from "./pool-search";
@@ -559,6 +560,7 @@ export function CardBrowser({
                         <CardArt code={card.code} name={card.name} />
                         {genesys && !pool ? <GenesysBadge card={card} variant="browse" lift={Boolean(card.unavailableReason)} /> : <LimitBadge limit={limit} />}
                         <ArtChip otherArts={card.altArtCount ?? 0} corner />
+                        <ReleaseMarks release={card.release} tile />
                         {card.unavailableReason ? <span className={styles.unavailable}>Unavailable</span> : null}
                         {pool ? (
                           <span className={cn("num", styles["de-left"])} data-zero={left <= 0 ? "true" : undefined} title="Copies left in your pool">{left} left</span>
@@ -582,6 +584,7 @@ export function CardBrowser({
                       </span>
                       <span className={styles.rowText}>
                         <strong>{card.name}</strong>{" "}
+                        <ReleaseMarks release={card.release} />
                         {card.unavailableReason ? <span>Unavailable: {card.unavailableReason}</span> : null}
                         <span>{cardDetailsText(card)}</span>
                         {card.reason ? <span className={styles.effectReason} title={card.reason}>{card.reason}</span> : null}{" "}

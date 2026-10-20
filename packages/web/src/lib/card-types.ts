@@ -1,4 +1,6 @@
+import type { CardReleaseInfo } from "@yugidraft/shared/cards/effects";
 export interface CardSummary {
+  release?: CardReleaseInfo;
   id: number;
   name: string;
   type: string;

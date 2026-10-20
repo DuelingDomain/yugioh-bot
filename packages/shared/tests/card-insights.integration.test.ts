@@ -166,14 +166,15 @@ describe("SQL insights over the real pinned artifact", () => {
     vi.setSystemTime(new Date("2026-10-17T00:00:00Z"));
     try {
       const pool = [4474060, 14558127];
-      expect(service.effectSearch("newest monsters", pool).cards[0]?.passcode).toBe(14558127);
+      expect(service.effectSearch("newest monsters", pool).cards[0]?.passcode).toBe(4474060);
+      expect(service.effectSearch("newest TCG monsters", pool).cards[0]?.passcode).toBe(14558127);
       const ocg = service.effectSearch("newest OCG monsters", pool);
       expect(ocg.cards[0]).toMatchObject({ passcode: 4474060, release: { date: "2017-09", region: "ocg" } });
       expect(service.effectSearch("spells before 2026", [483]).cards).toMatchObject([{ passcode: 483, release: { date: "2025-04", region: "ocg" } }]);
       expect(service.effectSearch("spells TCG before 2026", [483]).cards).toEqual([]);
       expect(service.effectSearch("newest monsters", [27096833]).cards[0]?.release).toMatchObject({ date: "2026-11", upcoming: true });
       expect(service.effectSearch("last 3 months", [97268402, 27096833]).total).toBe(0);
-      expect(service.effectSearch("new cards", [97268402, 27096833]).total).toBe(0);
+      expect(service.effectSearch("new cards", [97268402, 27096833]).total).toBe(1);
     } finally { vi.useRealTimers(); }
   });
 

@@ -70,7 +70,9 @@ const allowed = ({ card }: Candidate, options: CardInsightOptions) => {
   return !isBarredFromGenesys(card) && card.genesysPoints !== undefined && card.genesysPoints <= (options.genesysRemaining ?? Infinity);
 };
 const retain = (ranked: Retained[], result: RankedInsightCard, candidate: Candidate, limit: number, opts: CardInsightOptions = {}) => {
-  const comparePage = (a: Retained, b: Retained) => (opts.sort === "newest" ? compareNewest(a.releaseDates, b.releaseDates, opts.released?.region) : 0) || compare(a, b);
+  const comparePage = (a: Retained, b: Retained) => opts.sort === "newest"
+    ? compareNewest(a.releaseDates, b.releaseDates, opts.released?.region) || b.score - a.score || b.popularity - a.popularity || a.passcode - b.passcode
+    : compare(a, b);
   const entry = { ...result, release: cardReleaseInfo(candidate.card, opts.released?.region), popularity: candidate.card.views, releaseDates: candidate.card };
   if (ranked.length === limit && comparePage(entry, ranked[ranked.length - 1]!) >= 0) return;
   ranked.push(entry); ranked.sort(comparePage);
