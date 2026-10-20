@@ -24,6 +24,7 @@
     "e2e": "npm run e2e --workspace=@yugidraft/e2e",
     "e2e:live-login": "npm run e2e:live-login --workspace=@yugidraft/e2e",
     "dev:worker": "npm run dev --workspace=@yugidraft/worker",
+    "effects:fill-releases": "tsx scripts/effects/fill-releases.ts",
     "ops": "tsx packages/worker/src/ops/cli.ts"
   },
   "devDependencies": {

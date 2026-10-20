@@ -134,6 +134,33 @@ describe("SQL insights over the real pinned artifact", () => {
     expect(service.effectSearch("Printed text", [97268402, 14558127], { exact: true, released: { to: "2014-12" } }).cards.map(card => card.passcode)).toEqual([97268402]);
   });
 
+  it("orders new cards and newest spells by month, score, then popularity", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-20T00:00:00Z"));
+    db.exec("SAVEPOINT release_order");
+    try {
+      const pool = [83764719, 47222536, 24094653];
+      for (const id of pool) db.prepare("UPDATE card_release SET tcg_date='2026-09' WHERE passcode=?").run(id);
+      db.prepare("UPDATE card_release SET tcg_date='2026-10' WHERE passcode=24094653").run();
+      db.prepare("UPDATE card_tags SET popularity=CASE passcode WHEN 83764719 THEN 1 WHEN 47222536 THEN 999999 ELSE 0 END WHERE passcode IN (83764719,47222536,24094653)").run();
+      db.prepare("UPDATE card_catalog SET effect_text=effect_text || ' blorptastic' WHERE ygoprodeck_id=83764719").run();
+      for (const text of ["new cards", "newest spells", "newest spells blorptastic"]) {
+        const hits = service.effectSearch(text, pool).cards;
+        expect(hits).toHaveLength(3);
+        expect(hits[0].passcode).toBe(24094653); // date before score and popularity
+        for (let i = 1; i < hits.length; i++) {
+          const a = hits[i - 1], b = hits[i];
+          const popularity = (id: number) => id === 47222536 ? 999999 : id === 83764719 ? 1 : 0;
+          expect((b.release!.date!.localeCompare(a.release!.date!)) || b.score - a.score || popularity(b.passcode) - popularity(a.passcode)).toBeLessThanOrEqual(0);
+        }
+      }
+      expect(service.effectSearch("newest spells", pool).cards.map(card => card.passcode)).toEqual([24094653, 47222536, 83764719]);
+      const scored = service.effectSearch("newest spells blorptastic", pool).cards;
+      expect(scored[1].passcode).toBe(83764719);
+      expect(scored[1].score).toBeGreaterThan(scored[2].score);
+    } finally { db.exec("ROLLBACK TO release_order; RELEASE release_order"); vi.useRealTimers(); }
+  });
+
   it("uses regional dates for newest and keeps upcoming and OCG-only releases", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-17T00:00:00Z"));

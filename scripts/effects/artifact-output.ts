@@ -4,27 +4,28 @@ import { dirname, join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { ArchetypeProfile, CardTags } from "@yugidraft/shared/cards/effects";
 import { CARD_EFFECT_TEXT_NORMALIZATION } from "@yugidraft/shared/cards/effects";
+import type { ReleaseRow } from "./fill-releases.js";
 import { readPinnedArtifact } from "./catalog.js";
 import { MODEL, LEGACY_MODEL, type AcceptedProfile, type AcceptedTag } from "./budget-ledger.js";
 
 const sha = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
-export const EFFECT_UPDATE_FILES = ["packages/shared/data/effects/manifest.json", "packages/shared/data/effects/profiles.jsonl.gz", "packages/shared/data/effects/tags.jsonl.gz", "packages/shared/data/effects/source-hashes.json.gz", "packages/shared/src/cards/effects/artifact.ts"] as const;
+export const EFFECT_UPDATE_FILES = ["packages/shared/data/effects/releases.json.gz", "packages/shared/data/effects/manifest.json", "packages/shared/data/effects/profiles.jsonl.gz", "packages/shared/data/effects/tags.jsonl.gz", "packages/shared/data/effects/source-hashes.json.gz", "packages/shared/src/cards/effects/artifact.ts"] as const;
 export interface EffectArtifactCandidate { version: 1; changed: boolean; baseSha: string; baseVersion: string; artifactVersion?: string; manifestSha256?: string; files: string[] }
 
-/** Write only to an output directory. Publication reviews five precise paths;
+/** Write only to an output directory. Publication reviews six precise paths;
  * current engine resources and the checked-out artifact are never modified.
  */
-export function writeEffectArtifactCandidate(options: { root: string; outputDirectory: string; baseSha: string; accepted: AcceptedTag[]; acceptedProfiles?: AcceptedProfile[] }): EffectArtifactCandidate {
+export function writeEffectArtifactCandidate(options: { root: string; outputDirectory: string; baseSha: string; accepted: AcceptedTag[]; acceptedProfiles?: AcceptedProfile[]; releases?: { rows: ReleaseRow[]; sourceSha256: string } }): EffectArtifactCandidate {
   if (!/^[a-f0-9]{40}$/.test(options.baseSha)) throw new Error("Candidate baseSha must be an immutable commit SHA");
   const dataPath = "packages/shared/data/effects", baseDirectory = join(options.root, dataPath);
   const artifact = readPinnedArtifact(baseDirectory);
   const replacements = options.accepted.filter(tag => artifact.hashes[tag.id] !== tag.inputHash);
   const profileReplacements = (options.acceptedProfiles ?? []).filter(row => artifact.profiles.find(old => old.archetype === row.archetype)?.inputHash !== row.inputHash);
   const all = [...replacements, ...profileReplacements];
-  const candidate: EffectArtifactCandidate = { version: 1, changed: Boolean(all.length), baseSha: options.baseSha, baseVersion: artifact.manifest.artifactVersion, files: [] };
+  const candidate: EffectArtifactCandidate = { version: 1, changed: Boolean(all.length || options.releases), baseSha: options.baseSha, baseVersion: artifact.manifest.artifactVersion, files: [] };
   mkdirSync(options.outputDirectory, { recursive: true });
   const metadataPath = join(options.outputDirectory, "update.json");
-  if (!all.length) { writeFileSync(metadataPath, JSON.stringify(candidate, null, 2) + "\n"); return candidate; }
+  if (!candidate.changed) { writeFileSync(metadataPath, JSON.stringify(candidate, null, 2) + "\n"); return candidate; }
   const output = join(options.outputDirectory, dataPath); mkdirSync(output, { recursive: true });
   const rows = new Map(artifact.tags.map(row => [row.id, row]));
   const hashes = { ...artifact.hashes }, seen = new Set<number>();
@@ -35,8 +36,8 @@ export function writeEffectArtifactCandidate(options: { root: string; outputDire
     hashes[entry.id] = entry.inputHash;
   }
   const manifest = structuredClone(artifact.manifest);
-  const generatedAt = all.map(row => row.taggedAt).sort().at(-1)!;
-  manifest.generation = { kind: "anthropic-message-batches", models: [...new Set(all.map(row => row.model))].sort(), baseArtifactVersion: candidate.baseVersion,
+  const generatedAt = all.map(row => row.taggedAt).sort().at(-1) ?? new Date().toISOString();
+  manifest.generation = { kind: all.length ? "anthropic-message-batches" : "release-month-fill", models: [...new Set(all.map(row => row.model))].sort(), baseArtifactVersion: candidate.baseVersion,
     inputSource: "prepared-engine-card-text", normalization: CARD_EFFECT_TEXT_NORMALIZATION, acceptedCards: replacements.length, acceptedProfiles: profileReplacements.length,
     generatedAt, reservationIds: [...new Set(all.map(row => row.reservationId))].sort(),
     promptHashes: [...new Set(all.map(row => row.promptHash))].sort(),
@@ -67,7 +68,17 @@ export function writeEffectArtifactCandidate(options: { root: string; outputDire
     }
     emit("profiles", "profiles.jsonl.gz", Buffer.from([...profiles.values()].map(row => JSON.stringify(row)).join("\n") + "\n"), profiles.size);
   } else copyFileSync(join(baseDirectory, "profiles.jsonl.gz"), join(output, "profiles.jsonl.gz"));
-  for (const file of ["popularity.json.gz", "releases.json.gz"]) copyFileSync(join(baseDirectory, file), join(output, file));
+  copyFileSync(join(baseDirectory, "popularity.json.gz"), join(output, "popularity.json.gz"));
+  if (options.releases) {
+    const bytes = Buffer.from(JSON.stringify(options.releases.rows) + "\n"), compressed = gzipSync(bytes, { level: 9 });
+    writeFileSync(join(output, "releases.json.gz"), compressed);
+    manifest.files.releases = { ...manifest.files.releases,
+      baseSourcePath: manifest.files.releases.baseSourcePath ?? manifest.files.releases.sourcePath,
+      baseSourceSha256: manifest.files.releases.baseSourceSha256 ?? manifest.files.releases.sourceSha256,
+      sourcePath: "https://db.ygoprodeck.com/api/v7/cardinfo.php?misc=yes",
+      sourceSha256: options.releases.sourceSha256, records: options.releases.rows.length,
+      bytes: bytes.length, sha256: sha(bytes), gzipBytes: compressed.length, gzipSha256: sha(compressed) };
+  } else copyFileSync(join(baseDirectory, "releases.json.gz"), join(output, "releases.json.gz"));
 
   const { artifactVersion: _old, ...identity } = manifest;
   manifest.artifactVersion = sha(JSON.stringify(identity));
