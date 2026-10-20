@@ -1,5 +1,7 @@
 # Discord join request alerts
 
+This guide describes webhook delivery with `DISCORD_ADMIN_OUTBOX_ENABLED=0`. With `DISCORD_ADMIN_OUTBOX_ENABLED=1` and `DISCORD_WAITLIST_CHANNEL_ID` set on web, the shared notifier queues durable messages for the bot runtime instead. Keep the web gameplay switch `DISCORD_BOT_ENABLED=0`. If the outbox flag is on but the channel is missing, the notifier logs once and falls back to the webhook; the Clerk receipt still succeeds. See [bot setup](discord-bot.md) and the [shared API guide](../../packages/shared/src/discord-admin/README.md).
+
 The web service can send alerts to a private channel in Dueling Domain. It uses a
 channel webhook. It does not need a Discord bot. `DISCORD_BOT_ENABLED=0` can stay set.
 
@@ -18,6 +20,7 @@ channel webhook. It does not need a Discord bot. `DISCORD_BOT_ENABLED=0` can sta
    Do not put these values in Git or in a `NEXT_PUBLIC_` variable.
 
    ```dotenv
+   DISCORD_ADMIN_OUTBOX_ENABLED=0
    DISCORD_ADMIN_WEBHOOK_URL=<DISCORD_CHANNEL_WEBHOOK_URL>
    CLERK_WEBHOOK_SIGNING_SECRET=<CLERK_ENDPOINT_SIGNING_SECRET>
    DISCORD_JOIN_REQUEST_ALERTS_ENABLED=1

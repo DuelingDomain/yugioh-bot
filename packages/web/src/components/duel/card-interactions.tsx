@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { createPortal } from "react-dom";
 import { ArrowRight, ArrowUpFromLine, Flag, Layers, RotateCw, Shuffle, Sparkles, Swords, Zap, type LucideIcon } from "lucide-react";
 import type { DuelCard, DuelCardInfo, DuelPromptOption } from "@yugidraft/shared/duels";
-import { cardDetailsText, cardStatsText } from "./constants";
+import { materialsTarget } from "./card-face";
+import { cardDetailsText, cardStatsText, isFacedown } from "./constants";
 import { duelFontClasses } from "./fonts";
 import { safeAnimate } from "./safe-animate";
 import baseStyles from "./room.module.css";
@@ -22,6 +23,19 @@ export type CardMenuState = {
   revision: number;
   tone: "action" | "chain";
 };
+
+/**
+ * The "View materials" item of a card menu: present for a face-up Xyz with attached cards. `open` gets the Materials view as a
+ * pile target (the pile viewer lists the cards with art). The same view opens from the material badge on the card.
+ */
+export function materialsMenu(
+  card: DuelCard | null | undefined,
+  open: (target: ReturnType<typeof materialsTarget>) => void,
+): { count: number; onView: () => void } | undefined {
+  const cards = card && card.code != null && !isFacedown(card.position) ? card.materials : undefined;
+  if (!card || !cards?.length) return undefined;
+  return { count: cards.length, onView: () => open(materialsTarget(card, cards)) };
+}
 
 /** A face-down or unnamed target reads as "face-down monster" in the attack confirm. */
 export function targetName(option: { label?: string; card?: { name?: string | null } | null }): string {
@@ -208,6 +222,7 @@ export function CardActionMenu({
   onChoose,
   onClose,
   onOptionHover,
+  materials,
 }: {
   anchor: HTMLElement;
   title: string;
@@ -219,6 +234,8 @@ export function CardActionMenu({
   onClose: () => void;
   /** Hover or keyboard focus on an option (null when it leaves). Drives the attack arrow preview. */
   onOptionHover?: (option: DuelPromptOption | null) => void;
+  /** An Xyz with attached cards: adds "View materials" after the engine options. It opens the Materials view and sends no answer. */
+  materials?: { count: number; onView: () => void };
 }) {
   const styles = useSkinStyles(baseStyles, "menu");
   const font = usePortalFont(anchor, styles !== baseStyles);
@@ -301,6 +318,21 @@ export function CardActionMenu({
           </button>
         );
       })}
+      {materials && materials.count > 0 ? (
+        <button
+          type="button"
+          role="menuitem"
+          aria-label={`View materials (${materials.count})`}
+          data-materials-action="true"
+          onClick={materials.onView}
+        >
+          <Layers size={16} strokeWidth={1.75} aria-hidden />
+          <span className={styles.menuLabel}>
+            View materials
+            <small>{materials.count} attached</small>
+          </span>
+        </button>
+      ) : null}
       </div>
     </div>,
     document.body,

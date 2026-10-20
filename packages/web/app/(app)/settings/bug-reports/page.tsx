@@ -31,14 +31,14 @@ export default async function BugReportsPage({ searchParams }: { searchParams: P
             <thead><tr>{["Report", "Submitter", "Sent at (UTC)", "Duel", "GitHub", "Saved data"].map(label => <th key={label} scope="col" className="p-3">{label}</th>)}</tr></thead>
             <tbody>{page.map(report => (
               <tr key={report.id} className="border-t border-border align-top">
-                <th scope="row" className="p-3 font-medium">Report #{report.publicId}</th>
+                <th scope="row" className="p-3 font-medium"><Link className="underline" href={`/settings/bug-reports/${report.id}`}>Report #{report.publicId}</Link></th>
                 <td className="p-3">
                   <div>{report.submitter.username}</div>
                   <div className="text-xs text-text-secondary">User {report.submitter.userId}</div>
                   <div className="text-xs text-text-secondary">{report.submitter.email ?? "Email unknown"}</div>
                 </td>
                 <td className="p-3"><time dateTime={report.createdAt}>{report.createdAt.replace("T", " ").replace(/\.\d{3}Z$/, " UTC")}</time></td>
-                <td className="p-3">{report.duelSlug ? <Link className="underline" href={`/duels/${encodeURIComponent(report.duelSlug)}/replay`}>Open duel</Link> : "No duel"}</td>
+                <td className="p-3">{report.duelSlug ? (report.hasMoment ? <a className="underline" href={`/api/admin/bug-reports/${report.id}/replay`}>Open replay at this moment</a> : <Link className="underline" href={`/duels/${encodeURIComponent(report.duelSlug)}/replay`}>Open duel</Link>) : "No duel"}</td>
                 <td className="p-3">
                   {report.githubIssueUrl ? <a className="underline" href={report.githubIssueUrl} target="_blank" rel="noreferrer">Issue #{report.githubIssueNumber}</a> : "Issue unavailable"}
                   {report.githubError ? <p className="text-xs text-text-secondary">{report.githubError}</p> : null}

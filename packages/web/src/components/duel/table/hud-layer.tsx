@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type FocusEvent, type MouseEvent, type ReactNode, type SetStateAction } from "react";
 import type { DuelCard, DuelCardInfo, DuelChainLink, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import type { DuelHoverHandler } from "../field-keys";
 import { ChainTower, DOCK_PANES, DOCK_PANES_CAMERA, GridDock, GridFlyout, useHudDismiss, type DockPane, type HudPane } from "./grid-hud";
 import { EdgeHud } from "./grid-edge";
-import { LOCATION_HAND } from "../constants";
+import { LOCATION_EXTRA, LOCATION_FZONE, LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_PZONE, LOCATION_REMOVED, LOCATION_SZONE } from "../constants";
 import type { EquipLinks } from "../equip-links";
 import { cardExtraLines, NEGATED_LINE } from "../inspector";
 import { GridHoverPreview } from "./grid-preview";
@@ -50,6 +50,39 @@ export interface HudPaneState {
 }
 
 const PIN_ZONES = (seat: DuelSeatView): Array<DuelCard | null> => [...seat.hand, ...seat.extra, ...seat.monsters, ...seat.spells, ...seat.graveyard, ...seat.banished];
+
+/**
+ * The pinned card as the board shows it now: found again by its zone and code, with its fresh copy (stats, position, counters). `null`: it left
+ * the zone or turned face-down. `handSize` is the size of the hand it was pinned in: the hand closes up when a card leaves it.
+ */
+function findLiveCard(was: DuelCard | DuelCardInfo, seats: readonly DuelSeatView[], handSizeThen: number | undefined): { card: DuelCard; handSize: number | undefined } | null {
+  if (!("location" in was)) return null;
+  const same = (card: DuelCard | null): card is DuelCard => card != null && card.code === was.code && card.controller === was.controller && card.location === was.location;
+  let live: DuelCard | null = null;
+  let handSize: number | undefined;
+  if (was.location === LOCATION_HAND) {
+    // The pinned card keeps its place in the line, but its sequence moves. It is the copy of the same code whose sequence moved by no more
+    // than the hand grew or shrank (another copy farther away is not the pinned one).
+    // When both cards have a handId, the id decides: a copy with another id is never the pinned card.
+    const hand = seats.find((view) => view.seat === was.controller)?.hand ?? [];
+    handSize = hand.length;
+    const change = handSize - (handSizeThen ?? handSize);
+    const lo = Math.min(0, change);
+    const hi = Math.max(0, change);
+    let best = Infinity;
+    for (const card of hand) {
+      if (!same(card)) continue;
+      if (was.handId && card.handId && card.handId !== was.handId) continue;
+      const shift = card.sequence - was.sequence;
+      if (shift < lo || shift > hi || Math.abs(shift) >= best) continue;
+      best = Math.abs(shift);
+      live = card;
+    }
+  } else {
+    live = seats.flatMap(PIN_ZONES).find((card) => same(card) && card.sequence === was.sequence) ?? null;
+  }
+  return live == null ? null : { card: live, handSize };
+}
 
 /**
  * The open flyout of a HUD. Nothing opens it by itself: a dock icon, a Deck Master token or `openCard()` (a click or
@@ -123,34 +156,9 @@ export function useHudPane({ camera = false, log = true, cardPane = true, initia
   const syncPin = useCallback((seats: readonly DuelSeatView[]) => {
     setPin((current) => {
       if (!current || current.keep) return current;
-      const was = current.card;
-      if (!("location" in was)) return current;
-      const same = (card: DuelCard | null): card is DuelCard => card != null && card.code === was.code && card.controller === was.controller && card.location === was.location;
-      let live: DuelCard | null = null;
-      let handSize: number | undefined;
-      if (was.location === LOCATION_HAND) {
-        // The hand closes up when a card leaves it: the pinned card keeps its place in the line, but its sequence moves. It is the copy
-        // of the same code whose sequence moved by no more than the hand grew or shrank (another copy farther away is not the pinned one).
-        // When both cards have a handId, the id decides: a copy with another id is never the pinned card.
-        const hand = seats.find((view) => view.seat === was.controller)?.hand ?? [];
-        handSize = hand.length;
-        const change = handSize - (current.handSize ?? handSize);
-        const lo = Math.min(0, change);
-        const hi = Math.max(0, change);
-        let best = Infinity;
-        for (const card of hand) {
-          if (!same(card)) continue;
-          if (was.handId && card.handId && card.handId !== was.handId) continue;
-          const shift = card.sequence - was.sequence;
-          if (shift < lo || shift > hi || Math.abs(shift) >= best) continue;
-          best = Math.abs(shift);
-          live = card;
-        }
-      } else {
-        live = seats.flatMap(PIN_ZONES).find((card) => same(card) && card.sequence === was.sequence) ?? null;
-      }
-      if (live == null) return null;
-      return live === was && handSize === current.handSize ? current : { card: live, anchor: current.anchor, handSize };
+      const found = findLiveCard(current.card, seats, current.handSize);
+      if (found == null) return "location" in current.card ? null : current;
+      return found.card === current.card && found.handSize === current.handSize ? current : { card: found.card, anchor: current.anchor, handSize: found.handSize };
     });
   }, []);
   const pinned = pin?.card ?? null;
@@ -200,6 +208,93 @@ export function useHudEscape(hud: HudPaneState, enabled: boolean, suspended: boo
 }
 
 /**
+ * A pin follows the pointer: while a card is pinned, hovering ANOTHER face-up board card pins that one instead, so the drawer shows it and
+ * keeps it after the pointer leaves. Leaving to the empty board keeps the last card. A pin only means "do not close when the pointer leaves".
+ * Pair it with `hudPreview`, which shows the hovered card over the pin so the swap has no lagging frame.
+ */
+export function usePinFollowsHover(
+  enabled: boolean,
+  pinned: DuelCard | DuelCardInfo | null,
+  hover: DuelCard | null | undefined,
+  pin: (card: DuelCard) => void,
+): void {
+  useEffect(() => {
+    if (!enabled || !pinned || !hover || hover.code == null) return;
+    const same = "location" in pinned && pinned.code === hover.code && pinned.controller === hover.controller
+      && pinned.location === hover.location && pinned.sequence === hover.sequence;
+    if (!same) pin(hover);
+  }, [enabled, pinned, hover, pin]);
+}
+
+const SYNCED_LOCATIONS: ReadonlySet<number> = new Set([LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, LOCATION_FZONE, LOCATION_PZONE, LOCATION_GRAVE, LOCATION_REMOVED, LOCATION_EXTRA]);
+// A closed edge drawer stays in the page as an inert, hidden dialog: only an open one counts.
+const MODAL_OPEN = '[aria-modal="true"], [role="menu"], [role="dialog"]:not([aria-hidden="true"]):not([inert])';
+
+/**
+ * The left drawer pin of the shells without the HUD (3D, live table, phones). It does what the HUD shells do for their pin:
+ * - Esc and, for a tap, a press outside the drawer close it. The Esc is only the drawer's: it is not taken when a menu, a dialog or a
+ *   modal is open, or when another handler used it; and it is `preventDefault`ed, so the prompt does not take the same key. Pass
+ *   `pinned != null` to the prompt panel's `escapeHeld` as well, or the older prompt listener answers first.
+ * - A new prompt for you lets it go: the drawer must not cover the cards or the answers the prompt asks for.
+ * - The board sync: a card that left its zone or turned face-down lets it go; a card that stays takes its fresh copy (ATK/DEF, position).
+ *   A card that is not in a zone (a Deck Master, a material) is left alone.
+ * A press on a board zone does not close it: the click that follows pins that card.
+ */
+export function useDrawerPin(
+  pinned: DuelCard | DuelCardInfo | null,
+  setPinned: Dispatch<SetStateAction<DuelCard | DuelCardInfo | null>>,
+  { seats, suspended, promptId, promptMine }: { seats: readonly DuelSeatView[] | undefined; suspended: boolean; promptId: string | number | null; promptMine: boolean },
+): void {
+  const has = pinned != null;
+  const set = useRef(setPinned);
+  set.current = setPinned;
+  useEffect(() => {
+    if (!has || suspended) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      if (document.querySelector(MODAL_OPEN)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      set.current(null);
+    };
+    const onDown = (event: Event) => {
+      const target = event.target as Element | null;
+      if (target?.closest?.("[data-hud-keep], [data-edge-drawer], [data-zones], [role='menu'], [role='dialog']")) return;
+      set.current(null);
+    };
+    window.addEventListener("keydown", onKey, true);
+    document.addEventListener("pointerdown", onDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("pointerdown", onDown, true);
+    };
+  }, [has, suspended]);
+  useEffect(() => {
+    if (promptId != null && promptMine) set.current(null);
+    // Only a new prompt decides this.
+  }, [promptId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const hand = useRef<number | undefined>(undefined);
+  const mine = useRef<DuelCard | DuelCardInfo | null>(null);
+  useEffect(() => {
+    if (!pinned || !seats || !("location" in pinned) || !SYNCED_LOCATIONS.has(pinned.location)) return;
+    // A pin that the sync did not make: the hand size it starts from is the size of the hand now.
+    if (mine.current !== pinned) hand.current = undefined;
+    const found = findLiveCard(pinned, seats, hand.current);
+    hand.current = found?.handSize ?? hand.current;
+    // Functional updates: a pin that another effect of the same commit just removed (a new prompt) stays removed.
+    if (found == null) {
+      mine.current = null;
+      set.current((current) => (current === pinned ? null : current));
+    } else if (found.card !== pinned) {
+      mine.current = found.card;
+      set.current((current) => (current === pinned ? found.card : current));
+    } else {
+      mine.current = pinned;
+    }
+  }, [pinned, seats]);
+}
+
+/**
  * Keeps the pinned card true to the board: at each new revision it finds the card again by its zone and code, and takes
  * the fresh copy (stats, position, counters). A card that left the zone, or turned face-down, lets the pin go.
  */
@@ -218,7 +313,8 @@ export function usePinSync(hud: HudPaneState, seats: readonly DuelSeatView[] | u
  * `resetKey` (the prompt id) clears it when the prompt changes.
  */
 export function useRowPreview(resetKey: string | number | null) {
-  const [card, setCard] = useState<DuelCardInfo | null>(null);
+  // A prompt row gives card info; a card of the pile window (Graveyard, Materials) is a whole board card.
+  const [card, setCard] = useState<DuelCardInfo | DuelCard | null>(null);
   useEffect(() => setCard(null), [resetKey]);
   const leave = (event: MouseEvent<HTMLElement> | FocusEvent<HTMLElement>) => {
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setCard(null);
@@ -267,17 +363,14 @@ export interface HudLayerProps {
   /** The equip links of the live board: the pinned peek adds the same lines as the Card flyout (equip, counters, materials). */
   equipLinks?: EquipLinks;
   /** The pile viewer is open, or a pick hint is shown: the preview hides. An open card menu does not hide it. */
-  previewHidden: boolean;
+  /** Hold the preview back (a pick refusal hint stands over its card). */
+  previewHidden?: boolean;
   reducedMotion: boolean;
-  /** The element of the hovered card (the preview shows it): the card peek never covers it. */
-  hoverAnchor?: HTMLElement | null;
-  /** The seats of the viewer (and the partner in Tag): the card peek is as wide as the free room up to their field zones, so it never covers them. */
-  ownSeats?: readonly number[];
   /** The 4-way grid: the log, settings, chain and card panel are left-edge drawers (grid-edge.tsx) instead of the dock, the tower and the flyout, so the board keeps the whole width. */
   edge?: boolean;
 }
 
-export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion, hoverAnchor = null, ownSeats, edge = false }: HudLayerProps) {
+export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion, edge = false }: HudLayerProps) {
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   // A hovered board card says only what the art already shows (negated); a pinned one adds its equip, counter and material lines.
   const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
@@ -310,10 +403,6 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
         extras={extras}
-        avoid={preview?.pinned === true ? hud.pinAnchor : null}
-        hoverAnchor={preview?.pinned === true ? null : hoverAnchor}
-        ownSeats={ownSeats}
-        edge={edge}
         onClose={closePin}
       />
     </>

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { decodeYdke, MAX_DECK_ISSUES, parseYdk, splitImportText, type DeckSections, type FormatIssue } from "@yugidraft/shared/decks";
-import { assertExtraDeckCards, DEFAULT_GENESYS_POINT_CAP, ExtraDeckCardError, routeDeckSections, type DeckCardType, type DuelDeck, type DuelMode, type GenesysSettings } from "@yugidraft/shared/duels";
+import { assertExtraDeckCards, capDeckSections, DEFAULT_GENESYS_POINT_CAP, DECK_SECTION_LIMITS, DECK_SECTION_NAMES, ExtraDeckCardError, routeDeckSections, type DeckCardType, type DuelDeck, type DuelMode, type GenesysSettings } from "@yugidraft/shared/duels";
 import { CARD_LOOKUP_LIMIT, createDeckTypeLookup, SavedDeckServiceError, validateSavedDeckWrite } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
 import { normalizeDraftCardCodes } from "@/lib/draft-deck-codes";
@@ -159,7 +159,7 @@ export function checkImportList(value: unknown): value is unknown[] {
 export const importListError = (label: string) => errorResponse(`Provide between 1 and ${MAX_IMPORT_DECKS} ${label}`);
 
 /** Match importForLibrary: explicit master selects Domain; a lone Domain Side card becomes the master. */
-export function validateImportRow(value: unknown):
+export function validateImportRow(value: unknown, preview = false):
   | { ok: true; name: string; mode: DuelMode; deck: DuelDeck; genesys: GenesysSettings | null }
   | { ok: false; errors: ImportIssue[] } {
   try {
@@ -174,7 +174,7 @@ export function validateImportRow(value: unknown):
       const { deckMaster: _master, ...rest } = deck;
       deck = rest;
     }
-    const valid = validateSavedDeckWrite({ name: value.name, mode, deck, genesys });
+    const valid = validateSavedDeckWrite({ name: value.name, mode, deck, genesys }, { preview });
     if (valid.mode === "domain" && valid.deck.deckMaster == null && valid.deck.side.length === 1) {
       valid.deck = { ...valid.deck, side: [], deckMaster: valid.deck.side[0] };
     }
@@ -228,7 +228,7 @@ export function parseImportSources(sources: unknown[]): { ok: true; rows: Import
       }
       const name = input.kind === "ydke" ? `Imported deck ${++ydkeNumber}` : input.name;
       if (errors.length === 0) {
-        const valid = validateImportRow({ name, deck, mode });
+        const valid = validateImportRow({ name, deck, mode }, true);
         if (!valid.ok) errors = valid.errors;
         else {
           mode = importMode(valid.mode, valid.genesys);
@@ -303,6 +303,21 @@ export function resolveImportDeck(deck: DeckSections, codes: ReadonlyMap<number,
   return { deck: mapped, errors, notes };
 }
 
+/** One warning per section that lost cards to its limit. */
+export function leftOutIssues(leftOut: Record<"main" | "extra" | "side", number[]>, nameOf: CardNamer = () => undefined): ImportIssue[] {
+  const issues: ImportIssue[] = [];
+  for (const section of ["main", "extra", "side"] as const) {
+    const cards = leftOut[section];
+    if (cards.length === 0) continue;
+    const max = DECK_SECTION_LIMITS[section];
+    const names = cards.slice(0, 5).map(code => nameOf(code) ?? `card ${code}`).join(", ");
+    const more = cards.length > 5 ? `, and ${cards.length - 5} more` : "";
+    issues.push({ code: `${section}_full`, count: cards.length,
+      message: `${DECK_SECTION_NAMES[section]} is full (${max}/${max}). ${cards.length} ${cards.length === 1 ? "card was" : "cards were"} left out: ${names}${more}.` });
+  }
+  return issues;
+}
+
 export function sizeWarnings(deck: DeckSections): ImportIssue[] {
   const warnings: ImportIssue[] = [];
   if (deck.main.length < 40 || deck.main.length > 60) warnings.push({ code: "main_size", message: "Main Deck normally contains 40 to 60 cards." });
@@ -359,7 +374,10 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
     const routed = mapped.errors.length === 0
       ? routeDeckSections({ ...mapped.deck, deckMaster: mapped.deck.deckMaster ?? undefined }, findCard)
       : { deck: mapped.deck, messages: [] };
-    row.deck = { ...routed.deck, deckMaster: routed.deck.deckMaster ?? null };
+    // A section never goes past its limit: the first cards load, and the row says what was left out.
+    const capped = capDeckSections({ ...routed.deck, deckMaster: routed.deck.deckMaster ?? null });
+    row.deck = capped.deck;
+    row.warnings.push(...leftOutIssues(capped.leftOut, nameOf));
     row.counts = { main: row.deck.main.length, extra: row.deck.extra.length, side: row.deck.side.length };
     const final = validateImportRow({ name: row.name, mode: row.mode, deck: row.deck });
     const master = mapped.errors.length || !final.ok ? [] : await masterIssues(row.deck);
@@ -375,7 +393,7 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
 }
 
 export async function saveImportRows(actor: Actor, rows: unknown[]): Promise<NextResponse> {
-  const checked = rows.map(validateImportRow);
+  const checked = rows.map(row => validateImportRow(row));
   const valid = checked.filter(row => row.ok);
   const resolved = await resolveImportCodes(actor, valid.map(row => row.deck));
   if (!resolved.ok) return resolved.response;

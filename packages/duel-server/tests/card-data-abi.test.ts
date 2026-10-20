@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import createCore, { OcgDuelMode, OcgLocation, OcgPosition, OcgQueryFlags } from "ocgcore-wasm";
 import { loadCardDatabase } from "../src/cards.js";
@@ -10,6 +11,25 @@ describe("native card data ABI", () => {
   it("returns an exact passcode match first", () => {
     const cards = loadCardDatabase(engineDataDirectory);
     expect(cards.search("46986414")[0]?.name).toBe("Dark Magician");
+  });
+
+  it("preserves every setcode from the card database", () => {
+    const sqlite = new Database(join(engineDataDirectory, "cards.cdb"), { readonly: true, fileMustExist: true });
+    try {
+      const cards = loadCardDatabase(engineDataDirectory);
+      const rows = sqlite.prepare("SELECT id, setcode FROM datas").safeIntegers().all() as Array<{ id: bigint; setcode: bigint }>;
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        const expected = [0n, 16n, 32n, 48n]
+          .map((shift) => Number((row.setcode >> shift) & 0xffffn))
+          .filter((code) => code !== 0);
+        const card = cards.cardData(Number(row.id));
+        assert(card, `Card ${row.id} is missing from the loaded database`);
+        expect(card.setcodes, `Card ${row.id}`).toEqual(expected);
+      }
+    } finally {
+      sqlite.close();
+    }
   });
 
   it.each(["normal", "domain"] as const)("preserves Pendulum scales and Link arrows in the %s core", async (mode) => {

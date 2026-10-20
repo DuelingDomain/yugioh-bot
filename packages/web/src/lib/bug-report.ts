@@ -1,3 +1,5 @@
+import type { DuelDeck } from "@yugidraft/shared/duels";
+
 /**
  * In-app bug reports: the request shape, its strict validation, the text sanitizing and the GitHub issue text.
  * Pure (no Node or React imports) so the browser and the route share it.
@@ -52,6 +54,10 @@ export interface BugReportRequest {
   context: BugReportContext;
   /** The open from-app issue number the player says is the same bug. The report joins it instead of opening an issue. */
   duplicateOf?: number;
+  /** Private deck context. Never part of IssueBodyInput. */
+  deckId?: number;
+  deckFormat?: string;
+  deckSnapshot?: { deck: DuelDeck; testHand: { drawn: number[]; pile: number[] } | null };
 }
 
 export type BugTextField = "description" | "expected";
@@ -87,7 +93,7 @@ export function validateBugText(input: { description?: unknown; expected?: unkno
 const CONTEXT_KEYS = new Set([
   "format", "duelMode", "seat", "turn", "phase", "turnSeat", "livingPlayers", "animationSpeed", "log", "userAgent", "viewport", "timestamp",
 ]);
-const REQUEST_KEYS = new Set(["description", "expected", "path", "duelSlug", "context", "duplicateOf"]);
+const REQUEST_KEYS = new Set(["description", "expected", "path", "duelSlug", "context", "duplicateOf", "deckId", "deckFormat", "deckSnapshot"]);
 
 /** Strips control characters and unpaired formatting noise; keeps newlines and tabs. */
 function clean(text: string): string {
@@ -246,11 +252,29 @@ export function parseBugReportRequest(raw: unknown): ParseResult<BugReportReques
     if (typeof raw.duelSlug !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(raw.duelSlug)) return { ok: false, error: "duelSlug is not valid" };
     duelSlug = raw.duelSlug;
   }
+  const deckId = raw.deckId === undefined ? undefined : intIn(raw.deckId, 1, Number.MAX_SAFE_INTEGER);
+  if (deckId === null) return { ok: false, error: "deckId is not valid" };
+  const deckFormat = raw.deckFormat;
+  if (deckFormat !== undefined && !["normal", "domain", "genesys", "genesys-domain"].includes(deckFormat as string)) return { ok: false, error: "deckFormat is not valid" };
+  let deckSnapshot: BugReportRequest["deckSnapshot"];
+  if (raw.deckSnapshot !== undefined) {
+    const snapshot = raw.deckSnapshot;
+    const codes = (value: unknown): value is number[] => Array.isArray(value) && value.length <= 300
+      && value.every(code => Number.isInteger(code) && code > 0 && code <= 0xffffffff);
+    if (!isObject(snapshot) || !isObject(snapshot.deck) || !codes(snapshot.deck.main) || !codes(snapshot.deck.extra) || !codes(snapshot.deck.side)
+      || (snapshot.deck.deckMaster !== undefined && !codes([snapshot.deck.deckMaster]))
+      || (snapshot.testHand !== null && (!isObject(snapshot.testHand) || !codes(snapshot.testHand.drawn) || !codes(snapshot.testHand.pile)))) {
+      return { ok: false, error: "deckSnapshot is not valid" };
+    }
+    deckSnapshot = { deck: { main: snapshot.deck.main, extra: snapshot.deck.extra, side: snapshot.deck.side,
+      ...(typeof snapshot.deck.deckMaster === "number" ? { deckMaster: snapshot.deck.deckMaster } : {}) },
+      testHand: snapshot.testHand === null ? null : { drawn: snapshot.testHand.drawn as number[], pile: snapshot.testHand.pile as number[] } };
+  }
   const context = parseContext(raw.context);
   if (!context.ok) return context;
   duelSlug = duelSlugFromPath(path) ?? duelSlug;
   if (duelSlug === "new" || duelSlug === "dev-presets") duelSlug = undefined;
-  return { ok: true, value: { description, expected, path, ...(duelSlug ? { duelSlug } : {}), context: context.value, ...(duplicateOf ? { duplicateOf } : {}) } };
+  return { ok: true, value: { description, expected, path, ...(duelSlug ? { duelSlug } : {}), context: context.value, ...(deckId ? { deckId } : {}), ...(deckSnapshot ? { deckSnapshot } : {}), ...(typeof deckFormat === "string" ? { deckFormat } : {}), ...(duplicateOf ? { duplicateOf } : {}) } };
 }
 
 const FORMAT_TAG: Record<BugFormat, string> = { "1v1": "1v1", ffa3: "FFA3", ffa4: "FFA4", tag: "Tag" };
@@ -339,6 +363,7 @@ const PUBLIC_ROUTE_CHILDREN: Readonly<Partial<Record<string, readonly string[]>>
   "/api/account": ["delete", "refresh"],
   "/api/admin": ["access", "bug-reports", "card-data-status", "duels"],
   "/api/admin/bug-reports": ["", "[id]"],
+  "/api/admin/bug-reports/[id]": ["", "replay", "deck"],
   "/api/admin/duels": ["[id]", "forks"],
   "/api/admin/duels/[id]": ["replay"],
   "/api/admin/duels/[id]/replay": ["", "fork"],
@@ -391,6 +416,7 @@ const PUBLIC_ROUTE_CHILDREN: Readonly<Partial<Record<string, readonly string[]>>
   "/duels/[id]": ["", "replay"],
   "/player": ["[id]"],
   "/settings": ["", "account", "bug-reports", "card-data"],
+  "/settings/bug-reports": ["", "[id]"],
   "/settings/account": ["", "[...id]"],
   "/sign-in": ["", "[...id]"],
   "/sign-up": ["", "[...id]"],

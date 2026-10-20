@@ -315,6 +315,8 @@ jobs:
             target: duel-bundled
           - service: web
             target: web
+          - service: bot
+            target: bot
           - service: worker
             target: worker
           - service: ws
@@ -515,7 +517,9 @@ jobs:
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/image-digests"
-          for service in duel web worker ws; do
+          for service in duel web worker ws bot; do
+            # Retained releases from before ADR 0006 have no bot image.
+            if [ "$service" = bot ] && ! git show "$DEPLOY_COMMIT:docker-compose.yml" | grep -q '^  bot:'; then continue; fi
             image="ghcr.io/duelingdomain/yugioh-bot-$service:$DEPLOY_COMMIT"
             docker manifest inspect --verbose "$image" > "$RUNNER_TEMP/rollback-manifest.json"
             digest=$(python3 - "$RUNNER_TEMP/rollback-manifest.json" <<'PY'
@@ -545,7 +549,8 @@ jobs:
           cp "$RUNNER_TEMP/release/production-images.sh" "$RUNNER_TEMP/production-images.sh"
           cp "$RUNNER_TEMP/release/prepare-runtime-data.sh" "$RUNNER_TEMP/prepare-runtime-data.sh"
           : > "$RUNNER_TEMP/release/image-digests"
-          for service in duel web worker ws; do
+          for service in duel web worker ws bot; do
+            if [ "$service" = bot ] && ! git show "$DEPLOY_COMMIT:docker-compose.yml" | grep -q '^  bot:'; then continue; fi
             cat "$RUNNER_TEMP/image-digests/$service.digest" >> "$RUNNER_TEMP/release/image-digests"
           done
 
@@ -733,7 +738,7 @@ jobs:
                esac
              done
              # Also keep :latest when a service has no existing container (for example after an owner stop).
-             for service in duel web worker ws; do
+             for service in duel web worker ws bot; do
                if ! grep -q "\"service\":\"$service\"" "$release_dir/images.jsonl" && \
                  docker image inspect "yugioh-bot-$service:latest" >/dev/null 2>&1; then
                  preserve_previous_image "$service" "yugioh-bot-$service:latest" "yugioh-bot-$service:prev"
@@ -752,7 +757,7 @@ jobs:
           config=json.load(sys.stdin)
           for name, service in config["services"].items():
               service.pop("build", None)
-              if name in ("duel", "web", "worker", "ws"):
+              if name in ("duel", "web", "worker", "ws", "bot"):
                   service["image"]="yugioh-bot-"+name+":latest"
           json.dump(config, sys.stdout)
              ' > "$runtime_compose"
@@ -776,7 +781,7 @@ jobs:
                echo "Do not run compose up. Run Deploy again." >&2
                exit 1
              fi
-             # Retire the bot container from the previous release before migration.
+             # Retire the bot container before migration, including rollback to a release without it.
              project=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$runtime_compose")
              retired_ids=$(docker ps -q --filter "label=com.docker.compose.project=$project" --filter label=com.docker.compose.service=bot)
              for container in $retired_ids; do docker stop "$container"; done
@@ -802,7 +807,8 @@ jobs:
              '
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot down --remove-orphans
              sh "$DEPLOY_RUNTIME_PREPARE" data
-             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot up -d --no-build ws duel web worker caddy
+             bot_service=$(python3 -c 'import json,sys; print("bot" if "bot" in json.load(open(sys.argv[1])).get("services", {}) else "")' "$runtime_compose")
+             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot up -d --no-build ws duel web worker caddy $bot_service
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=40
              sleep 20
@@ -833,8 +839,13 @@ jobs:
              '
              # Record success only after every health check passes. Retries keep the good :prev.
              : > data/production-image-ids.tmp
-             for service in duel web worker ws; do
+             for service in duel web worker ws $bot_service; do
                container=$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q "$service")
+               # A bot outage must not fail a gameplay deploy or confirm a broken bot image.
+               if [ "$service" = bot ] && [ "$(docker inspect -f '{{.State.Health.Status}}' "$container")" != healthy ]; then
+                 echo "Bot has not passed its health check; use DISCORD_BOT_ENABLED=0 to disable it."
+                 continue
+               fi
                image_id=$(docker inspect -f '{{.Image}}' "$container")
                printf '%s %s\n' "$service" "$image_id" >> data/production-image-ids.tmp
              done
@@ -903,6 +914,7 @@ jobs:
             }
             const { createHash } = await import('node:crypto');
             const services = ["duel", "web", "worker", "ws"];
+            if (imageDigests.split('\n').some(line => line.startsWith('bot '))) services.push('bot');
             const digests = new Map();
             for (const line of imageDigests.trim().split('\n')) {
               const [service, digest, extra] = line.trim().split(/\s+/);

@@ -1,4 +1,4 @@
-import { hasKnownDeckCardType, isExtraDeckCard, cardLimit, cardTypeRank, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode, type GenesysSettings } from "@yugidraft/shared/duels";
+import { DECK_SECTION_LIMITS, deckGrowthOverLimit, deckSectionFullMessage, hasKnownDeckCardType, isExtraDeckCard, cardLimit, cardTypeRank, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode, type GenesysSettings } from "@yugidraft/shared/duels";
 import {
   TYPE_FUSION,
   TYPE_LINK,
@@ -135,7 +135,31 @@ export function fixMisplaced(selection: DeckMasterSelection, catalog: CardCatalo
 }
 
 
+/** Most cards a section holds (60 Main, 15 Extra, 15 Side). Adding past it is refused everywhere. */
+export function sectionLimit(section: DeckSection): number {
+  return DECK_SECTION_LIMITS[section];
+}
+
+/** True when the section has no room for one more card. A section already over its limit (an old save) is full too. */
+export function sectionIsFull(deck: DuelDeck, section: DeckSection): boolean {
+  return deck[section].length >= DECK_SECTION_LIMITS[section];
+}
+
+/** "Main Deck is full (60/60).", or null while the section has room. */
+export function sectionFullReason(deck: DuelDeck, section: DeckSection): string | null {
+  return sectionIsFull(deck, section) ? deckSectionFullMessage(section) : null;
+}
+
+/**
+ * The section a change would push past its limit, or null. A change that keeps a section the same size or makes it
+ * smaller is never refused, so an old save that is over a limit can still be trimmed, sorted and undone.
+ */
+export function overLimitSection(prev: DuelDeck, next: DuelDeck): DeckSection | null {
+  return deckGrowthOverLimit(prev, next);
+}
+
 export function addCode(deck: DuelDeck, section: DeckSection, code: number): DuelDeck {
+  if (sectionIsFull(deck, section)) return deck;
   return { ...deck, [section]: [...deck[section], code] };
 }
 
@@ -160,6 +184,7 @@ export function removeAt(deck: DuelDeck, section: DeckSection, index: number): D
 
 export function moveOne(deck: DuelDeck, from: DeckSection, to: DeckSection, code: number): DuelDeck {
   if (from === to) return deck;
+  if (sectionIsFull(deck, to)) return deck;
   const removed = removeOne(deck, from, code);
   if (removed.removedIndex < 0) return deck;
   return addCode(removed.deck, to, code);
@@ -409,9 +434,12 @@ function sourceIndex(deck: DuelDeck, source: CardSource & { from: DeckSection })
  * Puts one copy into a section at a position (the end when `at` is missing). A copy from a section
  * moves; a Deck Master that is dragged out stops being the master.
  */
-export function placeCardAt(selection: DeckMasterSelection, source: CardSource, to: DeckSection, at?: number): { selection: DeckMasterSelection; index: number } {
+export function placeCardAt(selection: DeckMasterSelection, source: CardSource, to: DeckSection, at?: number): { selection: DeckMasterSelection; index: number; full?: DeckSection } {
   let { deck, masterOrigin } = selection;
   let target = at;
+  // The hard stop: a card that is new to the section (from the list, the Deck Master slot or another section) needs room.
+  // A move inside one section keeps its size, so it is never refused.
+  if (source.from !== to && sectionIsFull(deck, to)) return { selection, index: -1, full: to };
   if (source.from === "master") {
     if (deck.deckMaster !== source.code) return { selection, index: -1 };
     deck = withoutMaster(deck);
@@ -462,6 +490,7 @@ export function removeMaster(selection: DeckMasterSelection, home: "main" | "ext
   return { deck: addCodeTo(cleared.deck, home, master), masterOrigin: null };
 }
 
+// Not through addCode: the card is already in the deck as the Master, so the editor refuses the change when the section is full.
 function addCodeTo(deck: DuelDeck, section: DeckSection, code: number): DuelDeck {
   return { ...deck, [section]: [...deck[section], code] };
 }

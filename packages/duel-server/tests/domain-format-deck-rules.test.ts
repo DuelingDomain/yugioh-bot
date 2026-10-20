@@ -174,7 +174,7 @@ for (const table of ["1v1", "ffa3", "ffa4", "tag"] as const) {
       expect(settings.banlist).toBe(NO_BANLIST_ID);
       const valid = deck([POT_OF_GREED]);
       expect(inspectDeck("domain", valid, DATA, settings, { table }).issues).toEqual([]);
-      const listed = inspectDeck("domain", valid, DATA, { ...settings, banlist: "tcg-2026-09" }, { table });
+      const listed = inspectDeck("domain", valid, DATA, { ...settings, banlist: "tcg-2026-10-19" }, { table });
       expect(listed.issues.some(issue => issue.cards.some(card => card.code === POT_OF_GREED) && /forbidden/.test(issue.message))).toBe(true);
     });
 

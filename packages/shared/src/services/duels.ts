@@ -70,11 +70,12 @@ import {
   type DuelOpeningState,
 } from "../duels/opening.js";
 import { newDiceOpening, settleDiceOpening } from "../duels/dice-opening.js";
+import { DECK_SECTION_LIMITS } from "../duels/deck-limits.js";
 
 const MIN_MAIN = 40;
-const MAX_MAIN = 60;
-const MAX_EXTRA = 15;
-const MAX_SIDE = 15;
+const MAX_MAIN = DECK_SECTION_LIMITS.main;
+const MAX_EXTRA = DECK_SECTION_LIMITS.extra;
+const MAX_SIDE = DECK_SECTION_LIMITS.side;
 export const PRACTICE_BOT_NAME = "Practice Bot";
 const ARCHIVE_DUE_CAP = 32;
 const CLOCK_DUE_CAP = 32;
