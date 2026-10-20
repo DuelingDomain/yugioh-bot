@@ -116,10 +116,11 @@ describe("deck import type routing", () => {
     expect(result.messages).toContain("1 card moved from Extra Deck to Main Deck: Test Spell.");
   });
 
-  it("keeps overflow in Main rather than losing copies or changing Side", async () => {
+  it("cuts Main to 60 and reports the cards left out, without changing Side", async () => {
     const result = await resolveDeckImport(catalog, "Main:\nTest Effect x60\nExtra:\nTest Spell x3", "normal", new Map());
-    expect(result.deck.main).toHaveLength(63);
+    expect(result.deck.main).toHaveLength(60);
     expect(result.deck.side).toEqual([]);
+    expect(result.messages).toContainEqual(expect.stringContaining("Main Deck is full (60/60). 3 cards were left out"));
   });
   it("rejects unsafe input and excessive allocations without a partial deck", async () => {
     await expect(resolveDeckImport(catalog, "Test Spell x999999999", "normal", new Map())).rejects.toThrow("at most 300");

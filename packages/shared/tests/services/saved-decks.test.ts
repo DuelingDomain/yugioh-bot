@@ -108,21 +108,21 @@ describe("saved decks", () => {
     const { db, decks } = setup();
     const payload = {
       main: [14558127, 14558127, 89631139, 14558127],
-      extra: Array.from({ length: 20 }, () => 23995328),
+      extra: Array.from({ length: 15 }, () => 23995328),
       side: [83764718, 55144522],
       deckMaster: 74677422,
     };
     const saved = decks.create("g", seedUser(db, "u").userId, { name: "WIP", mode: "domain", deck: payload });
     expect(saved.deck).toEqual(payload);
     expect(saved.deck.main).toEqual([14558127, 14558127, 89631139, 14558127]);
-    expect(saved.deck.extra).toHaveLength(20);
+    expect(saved.deck.extra).toHaveLength(15);
 
     const boundary = decks.create("g", seedUser(db, "u").userId, {
       name: "Cap",
       mode: "normal",
-      deck: { main: [1], extra: Array.from({ length: 300 }, () => 2), side: [] },
+      deck: { main: [1], extra: Array.from({ length: 15 }, () => 2), side: [] },
     });
-    expect(boundary.deck.extra).toHaveLength(300);
+    expect(boundary.deck.extra).toHaveLength(15);
     expect(boundary.deck.main).toEqual([1]);
     expect(boundary.deck.deckMaster).toBeUndefined();
   });
