@@ -654,7 +654,7 @@ jobs:
              resolved_compose=
              cleanup() {
                rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD" "$DEPLOY_RUNTIME_PREPARE" "$DEPLOY_IMAGES" "$DEPLOY_IMAGE_REFS"
-               if [ -n "$installer" ]; then rm -f "$installer"; fi
+               if [ -n "$installer" ]; then rm -rf "$installer"; fi
                if [ -n "$bundle_src" ]; then rm -rf "$bundle_src"; fi
                if [ -n "$runtime_compose" ]; then rm -f "$runtime_compose"; fi
                if [ -n "$resolved_compose" ]; then rm -f "$resolved_compose"; fi
@@ -696,15 +696,19 @@ jobs:
              # multi core under an identical bundle, while a Tag or free-for-all duel is active). A refusal here leaves
              # the old checkout, the old images and the old containers as they were.
              bundle_src=$(mktemp -d /tmp/yugidraft-duel-engine-src.XXXXXX)
-             installer=$(mktemp /tmp/yugidraft-install-engine-bundle.XXXXXX.sh)
+             # The installer verifies the effect artifact pin relative to its own path, so stage it with the
+             # new commit's verifier, pin source and effect data while the checkout still holds the old commit.
+             installer=$(mktemp -d /tmp/yugidraft-install-engine-bundle.XXXXXX)
              tar -C "$bundle_src" -xzf "$DEPLOY_BUNDLE"
-             git show "$DEPLOY_COMMIT":packages/duel-server/scripts/install-engine-bundle.sh > "$installer"
+             git archive "$DEPLOY_COMMIT" packages/duel-server/scripts/install-engine-bundle.sh \
+               packages/duel-server/scripts/verify-effect-artifact.py packages/shared/src/cards/effects/artifact.ts \
+               packages/shared/data/effects | tar -C "$installer" -xf -
              if ! DUEL_PREFLIGHT=1 DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
-               sh "$installer"; then
+               sh "$installer/packages/duel-server/scripts/install-engine-bundle.sh"; then
                echo "Deploy stopped before any change: drain the active duels (see docs/deployment/vm-runbook.md), then run the deploy again." >&2
                exit 1
              fi
-             rm -f "$installer"
+             rm -rf "$installer"
              # Pull all four immutable release digests before backups, retagging or stopping any service.
              # Public GHCR packages need no VM login. A pull failure leaves live tags unchanged.
              sh "$DEPLOY_IMAGES" pull "$DEPLOY_COMMIT" "$DEPLOY_IMAGE_REFS"
