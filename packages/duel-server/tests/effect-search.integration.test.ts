@@ -682,6 +682,10 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
       db.prepare("UPDATE card_sets SET release_date='2020-01-01' WHERE set_code='REL'").run();
       expect(search('new cards', pool).effectHits![0].release).toMatchObject({ upcoming: true });
       expect(search('new cards', pool).effectHits![0].release?.date).toBeUndefined();
+      db.prepare("UPDATE card_sets SET release_date='2026-11-01' WHERE set_code='REL'").run();
+      expect(cardReleaseIndex(db, cards).get(unknown)?.upcomingDate).toBe('2026-11');
+      vi.setSystemTime(new Date('2026-12-01T00:00:00Z'));
+      expect(cardReleaseIndex(db, cards).get(unknown)?.upcomingDate).toBeUndefined();
     } finally {
       db.prepare('DELETE FROM card_release WHERE passcode IN (?,?)').run(known, unknown);
       const insert = db.prepare('INSERT INTO card_release(passcode,tcg_date,ocg_date,quality,source_version) VALUES(@passcode,@tcg_date,@ocg_date,@quality,@source_version)');
