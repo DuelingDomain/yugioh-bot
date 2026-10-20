@@ -9,6 +9,7 @@ import { CardBack } from "./card-face";
 import { hasCardName, loadDuelCardInfo } from "./card-info";
 import {
   cardArtUrl,
+  cardInspectLines,
   isHiddenCard,
   isMaterialCard,
   LOCATION_EXTRA,
@@ -330,6 +331,11 @@ export function PileViewer({
   }
 
   const total = entries.length;
+  // Phones: the window shows the card text itself (the left drawer would cover the tiles). CSS shows this block under 901px only.
+  const activeEntry = entries.find((entry) => entry.key === activeKey) ?? null;
+  const detail = activeEntry && !isHiddenCard(activeEntry.card) && activeEntry.card.code != null
+    ? { card: activeEntry.card, ...cardInspectLines(activeEntry.card) }
+    : null;
   return (
     <div className={cn(duelFontClasses, styles.root)} data-reduced={reducedMotion ? "true" : "false"} data-owner={owner} data-has-legal={anyLegal ? "true" : "false"}
       data-toned={ownerTag ? "true" : undefined}
@@ -423,6 +429,14 @@ export function PileViewer({
             );
           })}
         </ul>
+
+        {detail ? (
+          <section className={styles.detail} data-testid="pile-detail" aria-live="polite">
+            <h3>{detail.card.name ?? cardName(detail.card, lookedNames)}</h3>
+            {detail.facts ? <p className={styles.detailFacts}>{detail.facts}{detail.combat ? ` · ${detail.combat}` : ""}</p> : null}
+            {detail.card.description ? <p className={styles.detailText}>{detail.card.description}</p> : null}
+          </section>
+        ) : null}
 
         {pick ? (
           <footer className={styles.pickBar} data-testid="pile-pick-bar">

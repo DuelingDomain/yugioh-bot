@@ -884,3 +884,10 @@
   min-width: 48px;
   padding: 0 9px;
 }
+
+/* A card window (pile viewer, Materials, detach pick) on a phone shows the card text itself: the 300px drawer would cover its tiles. */
+@media (max-width: 900px) {
+  :global(body):has([data-pile-viewer]) .preview {
+    display: none;
+  }
+}
