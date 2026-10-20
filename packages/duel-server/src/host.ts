@@ -318,6 +318,8 @@ export interface TournamentNotice {
 
 export interface DuelHost {
   handle(request: Request): Promise<Response>;
+  /** Starts hashing the 1v1 engine files in the background (the server calls it once after it listens). */
+  warmStartResources(): void;
   close(): Promise<void>;
 }
 
@@ -649,6 +651,13 @@ export function createDuelHost(options: {
   function engineForNewTable(format: DuelFormat, mode: DuelMode, hasStartupScripts = false): DuelEngineChoice | undefined {
     if (format !== "1v1") return undefined;
     return hasStartupScripts ? "pinned" : duel1v1EngineForMode(mode);
+  }
+
+  /** Reads and hashes the 1v1 engine files in the background, so the first duel after a start does not pay for it. */
+  function warmStartResources(): void {
+    for (const mode of ["normal", "domain"] as const) {
+      engineResourceCache.warm(options.dataDirectory, { mode, format: "1v1", engine: engineForNewTable("1v1", mode) });
+    }
   }
 
   function warmLobbyResources(session: DuelSession): void {
@@ -4050,6 +4059,7 @@ export function createDuelHost(options: {
   retentionStartup.unref();
 
   return {
+    warmStartResources,
     async handle(request: Request): Promise<Response> {
       if (request.method !== "POST" || new URL(request.url).pathname !== "/internal/duel") return new Response("Not found", { status: 404 });
       const raw = await request.text();
