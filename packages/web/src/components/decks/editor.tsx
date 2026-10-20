@@ -206,7 +206,7 @@ function EditorState({ pool, backHref, children }: { pool: boolean; backHref: st
   return <SheetRoot className={cn(styles.host, styles.center)}>{children}</SheetRoot>;
 }
 
-export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?: string; pool?: DraftDeckPool; roomSlug?: string; viewerId?: number }) {
+export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?: string; pool?: DraftDeckPool; roomSlug?: string; viewerId?: number | string }) {
   useDuelRoomActivity(!pool && roomSlug ? roomSlug : null);
   const router = useRouter();
   const pathname = usePathname();
