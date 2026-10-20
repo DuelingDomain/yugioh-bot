@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { safeAvatarUrl } from "../admin/avatar.js";
-import type { PresenceRoute } from "./routes.js";
+import { TABLE_PRESENCE_ROUTES, type PresenceRoute } from "./routes.js";
 export * from "./routes.js";
 export const PRESENCE_RETENTION_MS = 24 * 60 * 60_000;
 export const ONLINE_WINDOW_MS = 120_000;
@@ -23,9 +23,6 @@ export function recordPresence(db: Database.Database, discordUserId: string, dis
     .run({ id: discordUserId, name: displayName.slice(0, 80), now, route, image: safeAvatarUrl(imageUrl), stretch: now - ONLINE_WINDOW_MS,
       sameRoute: now - HEARTBEAT_RATE_MS, changedRoute: now - ROUTE_CHANGE_RATE_MS }).changes > 0;
 }
-/** Pages where the person sits at a table. Leaving one of them must end "in a duel" / "drafting" at once. */
-export const TABLE_PRESENCE_ROUTES = ["/duels/[slug]", "/draft/[slug]", "/decks/draft/[slug]"] as const satisfies readonly PresenceRoute[];
-
 /**
  * The browser closed or left a table page (pagehide). Swaps that route for "/app" so the console stops showing the
  * person at a table; the person stays online until the window ends. Only the same route is cleared, so closing a
@@ -33,7 +30,7 @@ export const TABLE_PRESENCE_ROUTES = ["/duels/[slug]", "/draft/[slug]", "/decks/
  * finds no matching row and writes nothing, and a new table route needs a normal beat first.
  */
 export function leavePresence(db: Database.Database, discordUserId: string, route: PresenceRoute): boolean {
-  if (!(TABLE_PRESENCE_ROUTES as readonly string[]).includes(route)) return false;
+  if (!TABLE_PRESENCE_ROUTES.includes(route)) return false;
   return db.prepare("update admin_presence set last_route='/app' where discord_user_id=? and last_route=?").run(discordUserId, route).changes > 0;
 }
 export function clearOldPresence(db: Database.Database, now = Date.now()): void {

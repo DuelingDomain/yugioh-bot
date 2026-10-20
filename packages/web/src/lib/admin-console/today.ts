@@ -20,7 +20,20 @@ export function parseTzOffset(raw: string | null | undefined): number {
   return Math.max(-TZ_LIMIT_MINUTES, Math.min(TZ_LIMIT_MINUTES, Number(raw))) || 0;
 }
 
-/** Midnight of the current day at that offset, as epoch ms. */
+/** Local midnight from the browser can be up to 25 h back on a daylight-saving day; 26 h leaves room for clock skew. */
+export const START_WINDOW_MS = 26 * 60 * MINUTE_MS;
+
+/**
+ * `start` query value: the browser's local midnight in epoch ms. Accepted only from now - 26 h to now; anything else is
+ * null, and the day then starts at midnight of the `tz` offset.
+ */
+export function parseDayStart(raw: string | null | undefined, now: number): number | null {
+  if (typeof raw !== "string" || !/^\d{1,15}$/.test(raw)) return null;
+  const start = Number(raw);
+  return start >= now - START_WINDOW_MS && start <= now ? start : null;
+}
+
+/** Midnight of the current day at that offset, as epoch ms. Wrong by an hour on a daylight-saving day; `start` is preferred. */
 export function dayStartAt(now: number, tzOffsetMinutes: number): number {
   const shift = tzOffsetMinutes * MINUTE_MS;
   return Math.floor((now + shift) / DAY_MS) * DAY_MS - shift;
@@ -46,8 +59,8 @@ function resultOf(row: TodayRow, now: number): TodayResult {
  * day before midnight, so a duel opened late yesterday and started after midnight is still found; started_at then picks
  * today exactly. Window functions count the whole day before the row cap. Seats come in one more query for all rows.
  */
-export function loadTodayDuels(db: Database.Database, guild: string, now: number, tzOffsetMinutes: number): TodayData {
-  const dayStart = dayStartAt(now, tzOffsetMinutes);
+export function loadTodayDuels(db: Database.Database, guild: string, now: number, tzOffsetMinutes: number, start: number | null = null): TodayData {
+  const dayStart = start ?? dayStartAt(now, tzOffsetMinutes);
   const rows = db.prepare(`
     select d.id, d.web_slug, d.name, d.status, d.format, d.ranked, d.started_at, d.ended_at, d.winner_seat, d.turn_count,
       coalesce(d.last_activity_at, d.started_at, d.created_at) as activity_at,
@@ -88,12 +101,15 @@ export function loadTodayDuels(db: Database.Database, guild: string, now: number
   return { tzOffsetMinutes, dayStart, counts, duels, limit: TODAY_LIMIT };
 }
 
-/** Duels that started today in the owner's day (`?tz=` minutes east of UTC, from the browser; UTC without it). */
+/**
+ * Duels that started today in the owner's day: `?start=` local midnight (epoch ms) from the browser, else midnight of
+ * `?tz=` (minutes east of UTC), else UTC. `tz` also names the zone in the heading.
+ */
 export const loadToday: SectionLoader<"today"> = async ({ now, query }) => {
   const guild = env.discordGuildId;
   if (!guild) return notConfigured("Set DISCORD_GUILD_ID to list the duels of today.", now);
   try {
-    return ok(loadTodayDuels(getDb(), guild, now, parseTzOffset(query?.get("tz"))), now);
+    return ok(loadTodayDuels(getDb(), guild, now, parseTzOffset(query?.get("tz")), parseDayStart(query?.get("start"), now)), now);
   } catch {
     return failed("The duels of today could not be read from the database.", now);
   }

@@ -84,7 +84,7 @@ function TodaySection({ today, failed, actions, flush }: { today: TodayData | nu
           <div className={`${styles.toolbar} ${styles.toolbarTight}`}>
             <div className={styles.seg} role="group" aria-label="Filter duels of today">
               {TODAY_FILTERS.map(([key, label]) => (
-                <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}<span>{today ? today.counts[key] : 0}</span></button>
+                <button key={key} type="button" aria-pressed={filter === key} aria-label={`${label}, ${today ? today.counts[key] : 0}`} onClick={() => setFilter(key)}>{label}<span>{today ? today.counts[key] : 0}</span></button>
               ))}
             </div>
             <span className={`${styles.aside} ${styles.toolbarEnd}`}>
@@ -94,10 +94,10 @@ function TodaySection({ today, failed, actions, flush }: { today: TodayData | nu
           <div className={styles.todayTbl} role="table" aria-label="Duels today">
             <div className={styles.tblHead} role="row">
               <span role="columnheader">Format</span><span role="columnheader">Players</span><span role="columnheader">Result</span>
-              <span role="columnheader" className={styles.hAt}>Started</span><span />
+              <span role="columnheader" className={styles.hAt}>Started</span><span role="columnheader"><span className={styles.srOnly}>Open</span></span>
             </div>
             {duels.length === 0
-              ? <div className={`${styles.empty} ${styles.emptySm}`}>{!today ? "Loading" : today.counts.all === 0 ? "No duel started today." : "No duel of today fits this filter."}</div>
+              ? <div className={`${styles.empty} ${styles.emptySm}`} role="row"><span role="cell">{!today ? "Loading" : today.counts.all === 0 ? "No duel started today." : "No duel of today fits this filter."}</span></div>
               : duels.map((d) => <TodayRow key={d.slug} duel={d} onOpen={actions.openPerson} now={now} />)}
           </div>
         </>
@@ -111,7 +111,14 @@ export function DuelsView({ s, actions }: { s: Snapshots; actions: ConsoleAction
   const result = s.live.result;
   const live = okData(s.live);
   const counts = liveCounts(live);
-  if (result && result.state !== "ok") return <Notice tone={result.state === "error" ? "warn" : "info"} title="Live tables are not available">{result.message}</Notice>;
+  // The Today list has its own request, so it shows even when the live tables do not.
+  const todaySection = (
+    <TodaySection today={okData(s.today)} actions={actions}
+      failed={s.today.result && s.today.result.state !== "ok" ? s.today.result.message : null} />
+  );
+  if (result && result.state !== "ok") {
+    return <><Notice tone={result.state === "error" ? "warn" : "info"} title="Live tables are not available">{result.message}</Notice>{todaySection}</>;
+  }
   const duels = live?.duels ?? [];
   const drafts = live?.drafts ?? [];
   const showDuels = filter !== "drafts";
@@ -122,7 +129,7 @@ export function DuelsView({ s, actions }: { s: Snapshots; actions: ConsoleAction
       <div className={styles.toolbar}>
         <div className={styles.seg} role="group" aria-label="Filter tables">
           {([["all", "All", duels.length + drafts.length], ["duels", "Duels", duels.length], ["drafts", "Drafts", drafts.length]] as const).map(([key, label, n]) => (
-            <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}<span>{n}</span></button>
+            <button key={key} type="button" aria-pressed={filter === key} aria-label={`${label}, ${n}`} onClick={() => setFilter(key)}>{label}<span>{n}</span></button>
           ))}
         </div>
         <span className={`${styles.aside} ${styles.toolbarEnd}`}>Watch opens the table in a new tab</span>
@@ -191,10 +198,7 @@ export function DuelsView({ s, actions }: { s: Snapshots; actions: ConsoleAction
         </>
       ) : null}
 
-      {showDuels ? (
-        <TodaySection today={okData(s.today)} actions={actions}
-          failed={s.today.result && s.today.result.state !== "ok" ? s.today.result.message : null} />
-      ) : null}
+      {showDuels ? todaySection : null}
     </>
   );
 }

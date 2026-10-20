@@ -136,7 +136,7 @@
 .stat { padding: 2px 36px 0; border-left: 1px solid var(--line); min-width: 0; text-align: left; }
 .stat:first-child { padding-left: 0; border-left: 0; }
 .statLabel { font-size: 14.5px; color: var(--t2); display: flex; align-items: center; gap: 9px; font-weight: 500; }
-.statLink { transition: background .15s; border-radius: 0; }
+.statLink { display: block; width: fit-content; max-width: 100%; }
 .statLink:hover .statLabel, .statLink:focus-visible .statLabel { color: var(--t1); }
 .statChev { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: var(--t3); transition: transform .15s; }
 .statLink:hover .statChev { transform: translateX(2px); color: var(--t1); }

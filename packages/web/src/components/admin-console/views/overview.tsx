@@ -43,14 +43,17 @@ export function OverviewView({ s, actions }: { s: Snapshots; actions: ConsoleAct
             <span className={styles.delta}>{liveData ? `+ ${plural(live.drafts.length, "draft", "drafts")} · ${plural(live.lobbies, "lobby", "lobbies")} open` : "Loading"}</span>
           </div>
         </div>
-        <a className={`${styles.stat} ${styles.statLink}`} href={`#${TODAY_ANCHOR}`} title="See every duel of today">
-          <div className={styles.statLabel}>Duels today<Icon name="chev" className={styles.statChev} /></div>
-          <div className={styles.statNum}>{today ? today.counts.all : stats ? stats.today.duelsStarted : dash}</div>
+        <div className={styles.stat}>
+          {/* Only the label and the number are the link; the chart below keeps its own tab stop. */}
+          <a className={styles.statLink} href={`#${TODAY_ANCHOR}`} title="See every duel of today">
+            <div className={styles.statLabel}>Duels today<Icon name="chev" className={styles.statChev} /></div>
+            <div className={styles.statNum}>{today ? today.counts.all : dash}</div>
+          </a>
           <div className={styles.statFoot}>
-            {stats ? <Delta value={delta(today ? today.counts.all : stats.today.duelsStarted, weekAverage(stats, "duelsStarted"), true)} suffix="vs 7-day avg" /> : <span />}
+            {stats && today ? <Delta value={delta(today.counts.all, weekAverage(stats, "duelsStarted"), true)} suffix="vs 7-day avg" /> : <span />}
             {stats ? <LineChart className={styles.spark} labels={days} series={[{ name: "Duels started", color: "var(--t2)", values: stats.series.duelsStarted }]} label="Duels started per day, last 7 days" /> : null}
           </div>
-        </a>
+        </div>
         <div className={styles.stat}>
           <div className={styles.statLabel}>Sign-ups, 7 days</div>
           <div className={styles.statNum}>{stats ? stats.last7Days.signups : dash}</div>

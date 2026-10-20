@@ -58,7 +58,8 @@ type PlaceRow = { user_id: string; kind: "duel" | "draft"; slug: string; name: s
  * draft older than PENDING_DRAFT_MAX_AGE_MS are not open), then joins the seats of the given people.
  * A seat that surrendered or was eliminated has left the table, even while the others play on (Tag, 3-way, 4-way):
  * the same rule as the "back to your duel" link (services/active-duel.ts).
- * Index: duels_guild_status_idx, drafts_guild_status_created_idx and duel_commands_eliminated_idx. Scoped to the guild when given.
+ * Scoped to the guild when given. With a guild the reads use duels_guild_status_idx (guild_id, status) and
+ * drafts_guild_status_created_idx; without one they scan the open tables. Left seats use duel_commands_eliminated_idx.
  */
 export function placesOf(db: Database.Database, userIds: string[], guild: string | null, now = Date.now()): Map<string, { duel?: PlaceRow; draft?: PlaceRow }> {
   const places = new Map<string, { duel?: PlaceRow; draft?: PlaceRow }>();
@@ -69,10 +70,12 @@ export function placesOf(db: Database.Database, userIds: string[], guild: string
     waitingAfter: new Date(now - DUEL_WAITING_IDLE_TIMEOUT_MS).toISOString(),
     pendingAfter: new Date(now - PENDING_DRAFT_MAX_AGE_MS).toISOString(),
   };
+  // Two query texts, so that with a guild SQLite can use the (guild_id, status) indexes; an "@guild is null or" term scans.
+  const guildFilter = guild === null ? "1 = 1" : "d.guild_id = @guild";
   const duels = db.prepare(`
     with open as (
       select d.id, d.web_slug, d.name, d.status, d.format, case when json_valid(d.setup_json) then d.setup_json end as setup from duels d
-      where (@guild is null or d.guild_id = @guild) and d.status in ('lobby','active') and d.kind = 'play' and d.archived_at is null
+      where ${guildFilter} and d.status in ('lobby','active') and d.kind = 'play' and d.archived_at is null
         and julianday(coalesce(d.last_activity_at, d.started_at, d.created_at))
           >= julianday(case when d.status = 'active' then @activeAfter else @waitingAfter end))
     select p.discord_user_id as user_id, 'duel' as kind, o.web_slug as slug, o.name, o.status, o.format
@@ -89,7 +92,7 @@ export function placesOf(db: Database.Database, userIds: string[], guild: string
   const drafts = db.prepare(`
     with open as (
       select d.id, d.web_slug, d.name, d.status from drafts d
-      where (@guild is null or d.guild_id = @guild) and d.web_slug is not null
+      where ${guildFilter} and d.web_slug is not null
         and (d.status = 'active' or (d.status = 'pending' and julianday(d.created_at) >= julianday(@pendingAfter))))
     select p.discord_user_id as user_id, 'draft' as kind, o.web_slug as slug, o.name, o.status, null as format
     from open o join draft_players dp on dp.draft_id = o.id join players p on p.id = dp.player_id
