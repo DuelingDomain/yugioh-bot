@@ -12,7 +12,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const guildId = env.discordGuildId;
+  const guildId = env.discordBotGuildId;
   const botToken = process.env.DISCORD_TOKEN;
 
   if (!guildId || !botToken) {

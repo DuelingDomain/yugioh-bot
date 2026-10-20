@@ -146,7 +146,7 @@ it("connects with the exact intents, dispatches gateway interactions, refuses ot
   cleanups.push(() => { monitor.close(); });
   let featureStopped = false;
   const feature: FeatureModule = { ...probe, async start() { return async () => { featureStopped = true; }; } };
-  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId,
+  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, dataGuildId: guildId,
     restApi: stub.api, healthPath, moderatorRoleId: "moderator" }, db, modules: [feature] });
   cleanups.push(() => bot.stop());
   expect(stub.intents).toBe(1 | 2 | 4 | 2097152);
@@ -183,7 +183,7 @@ it("routes button and modal prefixes and preserves the source on handler failure
       await interaction.reply({ content: `Modal: ${interaction.fields.getTextInputValue("reason")}` });
     } }],
   };
-  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId,
+  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, dataGuildId: guildId,
     restApi: stub.api, healthPath: join(directory, "health.json") },
     db: openDatabase(join(directory, "bot.sqlite")), modules: [feature] });
   cleanups.push(() => bot.stop());
@@ -217,7 +217,7 @@ it("drains an active REST operation before closing SQLite and the gateway", asyn
       await context.rest.post(Routes.channelMessages(channelId), { body: { content: "Drain probe" } });
       await interaction.reply({ content: "Posted" });
     } }], buttons: [], modals: [] };
-  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId,
+  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, dataGuildId: guildId,
     restApi: stub.api, healthPath: join(directory, "health.json") },
     db: openDatabase(join(directory, "bot.sqlite")), modules: [feature] });
   cleanups.push(async () => { stub.releaseMessage(); await bot.stop(); });
@@ -239,7 +239,7 @@ it("closes startup resources when the application ID does not match the bot toke
   const directory = mkdtempSync(join(tmpdir(), "discord-bad-app-"));
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   const db = openDatabase(join(directory, "bot.sqlite"));
-  await expect(startBot({ config: { token: "stub-token", clientId: "100000000000000009", guildId,
+  await expect(startBot({ config: { token: "stub-token", clientId: "100000000000000009", guildId, dataGuildId: guildId,
     restApi: stub.api, healthPath: join(directory, "health.json") }, db, modules: [] }))
     .rejects.toThrow("DISCORD_CLIENT_ID does not match");
   expect(db.open).toBe(false);
@@ -252,7 +252,7 @@ it("cancels a held startup guild request and closes SQLite before the server res
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   const db = openDatabase(join(directory, "bot.sqlite"));
   const controller = new AbortController();
-  const result = startBot({ config: { token: "stub-token", clientId: applicationId, guildId,
+  const result = startBot({ config: { token: "stub-token", clientId: applicationId, guildId, dataGuildId: guildId,
     restApi: stub.api, healthPath: join(directory, "health.json") }, db, modules: [], signal: controller.signal })
     .then(bot => bot.stop(), error => error);
   await expect.poll(() => stub.requests.some(request => request.path.includes(`/guilds/${guildId}`))).toBe(true);
@@ -283,7 +283,7 @@ it("delivers stored post/edit bodies through the real shared outbox and skips te
   // Even an old or malformed producer cannot enable mentions at the REST edge.
   db.prepare("update discord_outbox set payload_json=json_set(payload_json,'$.allowed_mentions',json(?))")
     .run(JSON.stringify({ parse: ["everyone"], users: [userId], roles: [guildId], replied_user: true }));
-  const options = { config: { token: "stub-token", clientId: applicationId, guildId, restApi: stub.api,
+  const options = { config: { token: "stub-token", clientId: applicationId, guildId, dataGuildId: guildId, restApi: stub.api,
     healthPath: join(directory, "health.json") }, modules: [] };
   const bot = await startBot({ ...options, db });
   cleanups.push(() => bot.stop());
@@ -314,7 +314,7 @@ it.each([
   const db = openDatabase(join(directory, "bot.sqlite"));
   const id = queueMessage(db, "retry-probe");
   const before = Date.now();
-  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, restApi: stub.api,
+  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, dataGuildId: guildId, restApi: stub.api,
     healthPath: join(directory, "health.json") }, db, modules: [] });
   cleanups.push(() => bot.stop());
   await expect.poll(() => outboxRow(db, id).status).toBe(status);
@@ -334,7 +334,7 @@ it("isolates invalid JSON and foreign-guild rows, then acknowledges a deleted ed
   const invalid = queueMessage(db, "invalid");
   db.prepare("update discord_outbox set payload_json='{' where id=?").run(invalid);
   const foreign = queueMessage(db, "foreign");
-  const options = { config: { token: "stub-token", clientId: applicationId, guildId, restApi: stub.api,
+  const options = { config: { token: "stub-token", clientId: applicationId, guildId, dataGuildId: guildId, restApi: stub.api,
     healthPath: join(directory, "health.json") }, db, modules: [] };
   const bot = await startBot(options);
   cleanups.push(() => bot.stop());
@@ -363,7 +363,7 @@ it("drains one claimed message on shutdown and leaves later rows pending", async
   const second = queueMessage(db, "later-post");
   const monitor = openDatabase(path);
   cleanups.push(() => { monitor.close(); });
-  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, restApi: stub.api,
+  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, dataGuildId: guildId, restApi: stub.api,
     healthPath: join(directory, "health.json") }, db, modules: [] });
   cleanups.push(async () => { stub.releaseMessage(); await bot.stop(); });
   await expect.poll(() => stub.requests.some(request => request.body?.content === "held-post")).toBe(true);
@@ -386,7 +386,7 @@ it("refreshes database health only while ready and does not clear another proces
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   cleanups.push(() => { vi.useRealTimers(); });
   const db = openDatabase(join(directory, "bot.sqlite"));
-  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, restApi: stub.api,
+  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, dataGuildId: guildId, restApi: stub.api,
     healthPath: join(directory, "health.json") }, db, modules: [] });
   cleanups.push(() => bot.stop());
   db.prepare("update bot_heartbeat set at=0").run();
@@ -419,7 +419,7 @@ it.each(["global", "bucket"])("exits without lingering REST timers after a %s ra
     import { startBot } from './packages/bot/src/runtime/app.ts';
     const db = openDatabase(${JSON.stringify(join(directory, "bot.sqlite"))});
     const bot = await startBot({ db, modules: [], config: ${JSON.stringify({ token: "stub-token", clientId: applicationId,
-      guildId, restApi: stub.api, healthPath: join(directory, "health.json") })} });
+      guildId, dataGuildId: guildId, restApi: stub.api, healthPath: join(directory, "health.json") })} });
     while (['pending','processing'].includes(db.prepare('select status from discord_outbox where id=1').get().status)) await delay(10);
     if (${JSON.stringify(kind)} === 'bucket') {
       while (['pending','processing'].includes(db.prepare('select status from discord_outbox where id=2').get().status)) await delay(10);
@@ -457,7 +457,7 @@ it("bounds a stalled response body within the container shutdown grace", async (
   const second = queueMessage(db, "later-body");
   const monitor = openDatabase(path);
   cleanups.push(() => { monitor.close(); });
-  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, restApi: stub.api,
+  const bot = await startBot({ config: { token: "stub-token", clientId: applicationId, guildId, dataGuildId: guildId, restApi: stub.api,
     healthPath: join(directory, "health.json") }, db, modules: [] });
   cleanups.push(async () => { stub.releaseMessage(); await bot.stop(); });
   await expect.poll(() => stub.requests.some(request => request.body?.content === "slow-body")).toBe(true);
