@@ -104,6 +104,11 @@
       "source": "./src/cards/effects/capability.ts",
       "default": "./dist/cards/effects/capability.js"
     },
+    "./cards/effects/releases": {
+      "types": "./dist/cards/effects/releases.d.ts",
+      "source": "./src/cards/effects/releases.ts",
+      "default": "./dist/cards/effects/releases.js"
+    },
     "./cards/effects/name-match": {
       "types": "./dist/cards/effects/name-match.d.ts",
       "source": "./src/cards/effects/name-match.ts",
