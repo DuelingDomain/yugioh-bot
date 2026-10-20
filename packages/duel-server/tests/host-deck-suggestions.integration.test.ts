@@ -87,6 +87,20 @@ describe("signed deterministic deck suggestion computation", () => {
   });
 
 
+  it("uses the supplied Genesys remaining budget above 100 and enforces the maximum total cap", async () => {
+    db.prepare("INSERT INTO genesys_points_meta(id,revision,effective_date,source_url,synced_at) VALUES(1,'budget-test','2026-10-01','fixture',CURRENT_TIMESTAMP)").run();
+    db.prepare("UPDATE card_catalog SET genesys_points=0,genesys_revision='budget-test'").run();
+    db.prepare("UPDATE card_catalog SET genesys_points=60 WHERE ygoprodeck_id=?").run(BLUE);
+    db.prepare("UPDATE card_catalog SET genesys_points=150 WHERE ygoprodeck_id=?").run(SILVER);
+    const query = { op: "suggestRows", deck, format: "genesys", genesysRemaining: 220 };
+    const generous = await post(query);
+    expect(generous.status).toBe(200);
+    expect(generous.data.result.rows[1].cards.map((card: { passcode: number }) => card.passcode)).toContain(SILVER);
+    expect((await post({ ...query, genesysRemaining: 100 })).data.result.rows[1].cards).toEqual([]);
+    db.prepare("UPDATE card_catalog SET genesys_points=300 WHERE ygoprodeck_id=?").run(BLUE);
+    expect((await post({ ...query, genesysRemaining: 1000 })).data.result.rows[1].cards).toEqual([]);
+  });
+
   it("returns a conditional response only for the entire unchanged query and live metadata", async () => {
     const query = { op: "suggestRows", deck };
     const first = await post(query);

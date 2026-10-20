@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { DuelDeck } from "../duels/index.js";
+import { DEFAULT_GENESYS_POINT_CAP, MAX_GENESYS_POINT_CAP, type DuelDeck } from "../duels/index.js";
 import { isExtraDeckCard, isBarredFromGenesys } from "../cards/effects/card.js";
 import { type RankedInsightCard } from "../cards/effects/synergy.js";
 import { shortReason } from "../cards/effects/search-reasons.js";
@@ -105,7 +105,7 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
   const canSummon = createMainDeckSummonChecker(main);
   const canSummonWithCore = createMainDeckSummonChecker(core.anchors);
   const genesys = opts.format.startsWith("genesys"), singleton = opts.format.endsWith("domain");
-  let remaining = opts.genesysRemaining ?? 100;
+  let remaining = Infinity;
   if (genesys) {
     let used = 0;
     for (const [code, count] of owned) {
@@ -113,7 +113,7 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
       if (points === undefined) { used = Infinity; break; }
       used += points * count;
     }
-    remaining = Math.min(remaining, 100 - used);
+    remaining = Math.min(opts.genesysRemaining ?? DEFAULT_GENESYS_POINT_CAP - used, MAX_GENESYS_POINT_CAP - used);
   }
   let scanned = 0;
   for (const candidate of catalog.suggestionCandidates()) {
