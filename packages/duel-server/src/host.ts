@@ -2629,15 +2629,18 @@ export function createDuelHost(options: {
       view = lastViews.get(slug)?.get(-1) ?? null;
       if (view) out.source = "cached";
     }
+    const readSaved = () => readStoredBoard(options.db.prepare<[string, string], StoredDuelBoards>(
+      "select snapshot_public_json from duels where web_slug = ? and guild_id = ?",
+    ).get(slug, guildId), null);
     if (!view && reportCaptures.has(slug)) {
-      view = reportCaptures.get(slug)!.board;
-      out.source = "cached";
+      // A finished duel's saved view can be newer than a capture that was never refreshed.
+      const saved = room.session.status === "active" ? null : readSaved();
+      const newer = saved && saved.revision > reportCaptures.get(slug)!.board.revision;
+      view = newer ? saved : reportCaptures.get(slug)!.board;
+      out.source = newer ? "stored" : "cached";
     }
     if (!view) {
-      const saved = options.db.prepare<[string, string], StoredDuelBoards>(
-        "select snapshot_public_json from duels where web_slug = ? and guild_id = ?",
-      ).get(slug, guildId);
-      view = readStoredBoard(saved, null);
+      view = readSaved();
       if (view) out.source = "stored";
     }
     if (!view) {
@@ -2651,7 +2654,7 @@ export function createDuelHost(options: {
       rememberReportCapture(slug, guildId, view);
     }
     const capture = reportCaptures.get(slug);
-    if (capture) {
+    if (capture && !(out.source === "stored" && view.revision > capture.board.revision)) {
       // A cached view can have the same revision but only a log tail. Use the complete paired capture.
       if (capture.board.revision !== view.revision) out.source = "cached";
       view = capture.board;

@@ -77,12 +77,15 @@ it("answers the public facts and only the newest spectator-view log lines", asyn
   expect(JSON.stringify(result.data)).not.toContain("Secret Card");
 });
 
-it("answers without a log when the core does not answer, and never waits on the duel queue", async () => {
+it("answers from the saved capture when the core does not answer, and never waits on the duel queue", async () => {
   const t = await table("1v1");
   t.hang();
   const result = await t.post({ op: "bug-context" });
   expect(result.status).toBe(200);
-  expect(result.data).toMatchObject({ format: "1v1", mode: "normal", seat: 0, turn: null, phase: null, turnSeat: null, livingPlayers: null, log: [], board: null, missingReason: "the duel engine did not answer in time" });
+  // The board and log were saved together after the start, so a stopped core still gives a complete answer.
+  expect(result.data).toMatchObject({ format: "1v1", mode: "normal", seat: 0, turn: 4, phase: "main1", turnSeat: 1, source: "cached", log: PUBLIC_LINES.slice(-15), board: { revision: 1 } });
+  expect(result.data.board.log).toHaveLength(20);
+  expect(result.data.missingReason).toBeUndefined();
 });
 
 it("refuses a player who may not see the duel", async () => {
