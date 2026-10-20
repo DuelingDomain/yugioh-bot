@@ -8,10 +8,10 @@ The bot runs in its own container and shares SQLite with web and worker. It regi
 2. Open **Bot**. Reset the token and save it in the private VM `.env`. Set **Public Bot** off and **Requires OAuth2 Code Grant** off.
 3. Enable **Server Members Intent**. This is the only privileged intent requested. Keep **Presence Intent** and **Message Content Intent** off. The runtime requests `Guilds`, `GuildMembers`, `GuildModeration` and `AutoModerationExecution`; member lookups use `GuildMembers`. Site presence for `/online` comes from SQLite, not Discord presence. See [Gateway intents](https://docs.discord.com/developers/events/gateway#privileged-intents).
 4. Under **Installation**, enable **Guild Install** only and disable **User Install**. For a private application, select a custom install link or no provided link if required by the Portal.
-5. Enable Discord Developer Mode under User Settings → Advanced. Copy the server ID to `DISCORD_GUILD_ID`. Open the invite below as the server owner, with both IDs replaced.
+5. Enable Discord Developer Mode under User Settings → Advanced. Copy the bot server ID to `DISCORD_BOT_GUILD_ID`. Keep `DISCORD_GUILD_ID` at its existing site data value. Open the invite below as the server owner, with both IDs replaced.
 
 ```text
-https://discord.com/oauth2/authorize?client_id=<DISCORD_CLIENT_ID>&scope=bot%20applications.commands&permissions=1391841111254&guild_id=<DISCORD_GUILD_ID>&disable_guild_select=true&integration_type=0
+https://discord.com/oauth2/authorize?client_id=<DISCORD_CLIENT_ID>&scope=bot%20applications.commands&permissions=1391841111254&guild_id=<DISCORD_BOT_GUILD_ID>&disable_guild_select=true&integration_type=0
 ```
 
 The scopes are **`bot applications.commands`**. The final permission integer is **`1391841111254`**. It includes Add Reactions, Connect and Speak for the server permission editor. It excludes Administrator, Manage Server (bit 5) and Mention Everyone (bit 17). The bits are `1,2,4,6,7,10,11,13,14,15,16,20,21,28,34,38,40`; see [Discord permission flags](https://docs.discord.com/developers/topics/permissions#bitwise-permission-flags).
@@ -60,13 +60,18 @@ Setup reuses unique names and replaces their parents and overwrites. Rename dupl
 
 ## Environment
 
+`DISCORD_GUILD_ID` is the site's data guild: players, duels, drafts, cubes, seasons and admin-console data stay under this value. Changing it hides the existing data from the site. To move the admin bot from an old server (for example, Computer Screen Ballers) to Dueling Domain, set only `DISCORD_BOT_GUILD_ID` to the new Discord server ID. No data migration is needed. Empty or unset `DISCORD_BOT_GUILD_ID` keeps the previous single-server behavior. For an invite with no override, replace the bot-guild placeholder with `DISCORD_GUILD_ID`.
+
+All bot channel IDs (signups, mod-log, status and announcements) and the Moderator role must belong to the bot server. Discord moderation records, warnings and lock snapshots use the bot server. Waitlist decision audit records keep the site data guild for both web and Discord decisions; their outbox messages go to channels in the bot server. `/online` reads site presence and uses the data guild for duel labels. `/stats` reads site duels and drafts from the data guild. `/card` reads the existing shared card catalog and engine data. The web channel picker also lists the bot server's channels, so Compose passes the override to web. Current web login uses Clerk and site owner IDs, with no Discord guild membership check. The admin console System panel does not display a guild ID; its duel probes keep using the data guild.
+
 Use a separate application, guild, Clerk instance and database for tests. Keep secrets in runtime environment only, outside Git and Docker build arguments. `DISCORD_CLIENT_ID` is the application ID; `DISCORD_APPLICATION_ID` is not read.
 
 ```dotenv
 DISCORD_BOT_ENABLED=0
 DISCORD_TOKEN=<bot-token>
 DISCORD_CLIENT_ID=<application-id>
-DISCORD_GUILD_ID=<server-id>
+DISCORD_GUILD_ID=<existing-site-data-guild-id>
+DISCORD_BOT_GUILD_ID=<bot-server-id>
 OWNER_USER_IDS=<comma-separated-application-user-ids>
 CLERK_SECRET_KEY=<clerk-instance-secret>
 DISCORD_MODERATOR_ROLE_ID=<moderator-role-id>
@@ -86,7 +91,9 @@ SENTRY_RELEASE=<release-sha>
 | Variable | Use |
 | --- | --- |
 | `DISCORD_BOT_ENABLED` | Only literal `1` starts the bot and deploys commands; `0` leaves a healthy idle process. |
-| `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID` | Bot login, application identity and single guild registration. |
+| `DISCORD_TOKEN`, `DISCORD_CLIENT_ID` | Bot login and application identity. |
+| `DISCORD_GUILD_ID` | Existing site data scope. Keep this value unchanged. |
+| `DISCORD_BOT_GUILD_ID` | Discord server for registration, Gateway and interaction checks, permissions, member/role fetches, setup, moderation and channel delivery. Empty or unset uses `DISCORD_GUILD_ID`. |
 | `OWNER_USER_IDS` | Current linked site owner allow-list; empty grants no owner access. |
 | `CLERK_SECRET_KEY` | Runtime-only access to pending entries and invite/reject decisions. |
 | `DISCORD_MODERATOR_ROLE_ID` | Moderation tier; empty disables role-based access. |
@@ -131,7 +138,7 @@ DISCORD_BOT_ENABLED=1 DOTENV_CONFIG_PATH="$PWD/.env" npm run commands:deploy --w
 DISCORD_BOT_ENABLED=1 DOTENV_CONFIG_PATH="$PWD/.env" npm run dev:bot
 ```
 
-For native use, set checkout-local absolute `DATABASE_PATH` and a unique `BOT_HEALTH_PATH`. The deploy script uses the same four-module registry as Gateway dispatch. It bulk-overwrites only `Routes.applicationGuildCommands(clientId, guildId)`: **22 guild commands** (21 slash commands plus User info), no global registration. The old guild player commands disappear. Old global commands, if present, need separate removal after their origin is checked.
+For native use, set checkout-local absolute `DATABASE_PATH` and a unique `BOT_HEALTH_PATH`. The deploy script uses the same four-module registry as Gateway dispatch. It bulk-overwrites only `Routes.applicationGuildCommands(clientId, guildId)`: **22 guild commands** (21 slash commands plus User info), no global registration. Existing commands in the selected bot guild are replaced. Moving the bot does not remove commands from the previous guild; remove those separately if needed. Old global commands, if present, need separate removal after their origin is checked.
 
 The normal deployment builds the bot image and starts it after web; gameplay health does not wait for Discord. The production CMD registers the guild commands on each enabled start. To repeat registration, inspect health and inspect logs:
 

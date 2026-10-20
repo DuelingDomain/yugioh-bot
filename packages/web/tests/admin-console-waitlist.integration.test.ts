@@ -212,3 +212,21 @@ it("refuses a decision when the server cannot load its email from Clerk", async 
   expect(posts()).toHaveLength(0);
   expect(db.prepare("select * from discord_waitlist_actions").all()).toEqual([]);
 });
+
+
+it.each([undefined, "", "bot-server"])("lists Discord channels from the bot server with override %s", async botGuildId => {
+  vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+  vi.stubEnv("DISCORD_TOKEN", "stub-token");
+  vi.stubEnv("DISCORD_GUILD_ID", "site-data-guild");
+  vi.stubEnv("DISCORD_BOT_GUILD_ID", botGuildId);
+  clerk.mockResolvedValueOnce(Response.json([{ id: "text", name: "announcements", type: 0 }, { id: "voice", name: "Voice", type: 2 }]));
+  const { GET } = await import("../app/api/discord/channels/route");
+  const response = await GET();
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ channels: [{ id: "text", name: "announcements" }] });
+  expect(clerk).toHaveBeenCalledWith(`https://discord.com/api/v10/guilds/${botGuildId || "site-data-guild"}/channels`, {
+    headers: { Authorization: "Bot stub-token" },
+  });
+  const { env } = await import("@/lib/env");
+  expect(env.discordGuildId).toBe("site-data-guild");
+});

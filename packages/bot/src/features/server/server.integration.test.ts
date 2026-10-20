@@ -96,7 +96,7 @@ async function fixture() {
   cleanup.push(async () => { rest.clearHashSweeper(); rest.clearHandlerSweeper(); await client.destroy(); });
   const shared = await loadSharedAdminServices(db);
   const context: FeatureContext = { db, rest, client, shared, audit: createAudit(shared, G),
-    config: { token: "stub", clientId: BOT, guildId: G, modLogChannelId: LOG, moderatorRoleId: MOD_ROLE, healthPath: "unused" },
+    config: { token: "stub", clientId: BOT, guildId: G, dataGuildId: G, modLogChannelId: LOG, moderatorRoleId: MOD_ROLE, healthPath: "unused" },
     cooldown: new Cooldown(), signal: new AbortController().signal };
   const replies: any[] = [];
   let replyFails = false;

@@ -12,7 +12,10 @@ export type Stop = () => void | Promise<void>;
 export interface BotConfig {
   token: string;
   clientId: string;
+  /** Discord server for registration, permissions, moderation and channel delivery. */
   guildId: string;
+  /** Existing site data scope; independent of the Discord server. */
+  dataGuildId: string;
   moderatorRoleId?: string;
   modLogChannelId?: string;
   waitlistChannelId?: string;

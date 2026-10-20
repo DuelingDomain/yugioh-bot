@@ -13,7 +13,7 @@ export const online: CommandModule = {
   async execute(interaction, context) {
     if (!await requireAdmin(interaction,context,"online")) return;
     try {
-      const data = listOnline(context.db,Date.now());
+      const data = listOnline(context.db,Date.now(),context.config.dataGuildId);
       if (!data) { await context.audit({ actorDiscordId: interaction.user.id, action: "online", result: "success", params: { presenceAvailable: false } }); await interaction.reply({ content: "presence not available. The site presence migration is not installed." }); return; }
       const users = data.users.map(user => `${escapeMarkdown(clip(user.name,100))} — ${user.label}`);
       const embed = new EmbedBuilder().setColor(PURPLE).setTitle(`Online • ${data.count}`)
@@ -38,7 +38,7 @@ export const stats: CommandModule = {
     if (!await requireAdmin(interaction,context,"stats")) return;
     try {
       const now = Date.now();
-      const data = computeStats(context.db,context.config.guildId,now), live = liveCounts(context.db,context.config.guildId,now);
+      const data = computeStats(context.db,context.config.dataGuildId,now), live = liveCounts(context.db,context.config.dataGuildId,now);
       const presence = hasPresence(context.db);
       const embed = new EmbedBuilder().setColor(GOLD).setTitle("Dueling Domain • Stats")
         .setDescription(`UTC • ${data.days[0]} to ${data.days.at(-1)}${presence ? "" : "\npresence not available; active users include duel and draft play only."}`)
