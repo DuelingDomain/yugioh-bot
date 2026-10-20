@@ -116,3 +116,37 @@ test("Surrender ends the test duel and the result screen returns to the unchange
   await page.getByRole("button", { name: "Exit duel" }).last().click();
   await expectEditorRestored(page, name, labels);
 });
+
+test("A kept copy comes back only on the way back from the duel: opening the editor later shows the saved state", async ({ player }) => {
+  const { page } = await player("p5");
+  const labels = await openEditorWithDeck(page, "Test duel kept copy");
+  expect(labels).toHaveLength(40);
+
+  await startTestDuel(page, { shuffle: true, goFirst: true });
+  // The tab closes mid-duel and the player opens the editor later by hand.
+  await page.goto("/decks/new");
+  await expect(page.getByLabel("Deck name")).not.toHaveValue("Test duel kept copy");
+  await expect(mainCards(page)).toHaveCount(0);
+});
+
+test("A deck changed on the server while the player duels wins over the kept copy", async ({ player }) => {
+  const { page } = await player("p5");
+  await openEditorWithDeck(page, "Test duel saved deck");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page).toHaveURL(/\/decks\/\d+$/);
+  const deckUrl = new URL(page.url()).pathname;
+  const id = deckUrl.split("/").pop()!;
+
+  // An unsaved edit makes the editor keep a copy.
+  await page.getByLabel("Deck name").fill("Test duel unsaved edit");
+  await startTestDuel(page, { shuffle: true, goFirst: true });
+
+  // Another device saves the same deck while the duel runs.
+  const { deck: record } = (await (await page.request.get(`/api/decks/${id}`)).json()) as { deck: { mode: string; deck: unknown } };
+  const put = await page.request.put(`/api/decks/${id}`, { data: { name: "Changed on another device", mode: record.mode, deck: record.deck } });
+  expect(put.ok()).toBe(true);
+
+  await page.getByTestId("test-duel-quit").click();
+  await expect(page).toHaveURL(new RegExp(`${deckUrl}$`));
+  await expect(page.getByLabel("Deck name")).toHaveValue("Changed on another device");
+});
