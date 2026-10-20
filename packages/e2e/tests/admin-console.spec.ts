@@ -189,8 +189,11 @@ test("every view fits 1920, 2560, 1366 and 390 wide: menu, icon rail or phone ta
         await expect(sheet.getByRole("link", { name: "Watch duel" })).toBeInViewport();
         await page.waitForTimeout(400);
         if (shots) await page.screenshot({ path: resolve(shots, `${size.name}-people-sheet.png`) });
+        // Focus moves into the sheet, and back to the row when the sheet closes.
+        await expect(sheet.getByRole("button", { name: "Close" })).toBeFocused();
         await sheet.getByRole("button", { name: "Close" }).click();
         await expect(sheet.getByRole("link", { name: "Watch duel" })).not.toBeInViewport();
+        await expect(view(page, "People").getByRole("row", { name: /kaibaCorp/ })).toBeFocused();
       } else if (size.width < 1240) {
         // Icon-only rail: labels are hidden, counts stay.
         await expect(menu(page).getByText("Overview", { exact: true })).toBeHidden();

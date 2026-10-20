@@ -293,6 +293,7 @@
 /* insights */
 .rangeRow { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 34px; flex-wrap: wrap; }
 .rangeRow p { color: var(--t3); font-size: 13.5px; }
+.rangeLbl { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--t2); }
 .trends { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .trend { padding: 0 30px; border-left: 1px solid var(--line); min-width: 0; }
 .trend:first-child { padding-left: 0; border-left: 0; }
@@ -348,6 +349,11 @@ a.errT:hover { text-decoration: underline; text-decoration-color: var(--t3); }
 .tabbar { display: none; }
 
 /* ---------- responsive ---------- */
+/* Large screens (2560 and up): scale the whole console so the type is not small and the sides are not empty.
+   zoom also scales lengths in vh, so the height is divided by the same factor. */
+@media (min-width: 2200px) {
+  .app { zoom: 1.2; height: calc(100vh / 1.2); height: calc(100dvh / 1.2); }
+}
 @media (max-width: 1560px) {
   .spark { width: 84px; }
   .app { --railW: 228px; }
@@ -413,6 +419,7 @@ a.errT:hover { text-decoration: underline; text-decoration-color: var(--t3); }
   .trend:nth-child(2) { padding-right: 0; }
 }
 @media (max-width: 760px) {
+  .app { --tabH: 64px; }
   .app { display: block; height: auto; overflow: visible; }
   .rail { display: none; }
   .main { overflow: visible; background: radial-gradient(500px 300px at 20% -120px, rgba(227, 194, 122, .06), transparent 70%), var(--bg); min-height: 100vh; }
@@ -451,7 +458,7 @@ a.errT:hover { text-decoration: underline; text-decoration-color: var(--t3); }
   .toolbar .search { min-width: 0; flex: 1 1 100%; }
   .toolbarEnd { margin-left: 0; }
   .peopleLayout { display: block; }
-  .detail { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: var(--bg2); border: 0; border-top: 1px solid var(--line2); border-radius: 18px 18px 0 0; padding: 22px 20px calc(28px + env(safe-area-inset-bottom)); max-height: 86vh; overflow: auto; transform: translateY(calc(100% + 140px)); visibility: hidden; transition: transform .3s cubic-bezier(.2, .7, .2, 1), visibility 0s linear .3s; min-height: 0; }
+  .detail { position: fixed; top: auto; left: 0; right: 0; bottom: 0; z-index: 40; background: var(--bg2); border: 0; border-top: 1px solid var(--line2); border-radius: 18px 18px 0 0; padding: 22px 20px calc(var(--tabH) + 16px + env(safe-area-inset-bottom)); max-height: 86vh; overscroll-behavior: contain; overflow: auto; transform: translateY(calc(100% + 140px)); visibility: hidden; transition: transform .3s cubic-bezier(.2, .7, .2, 1), visibility 0s linear .3s; min-height: 0; }
   .detailOpen { transform: none; visibility: visible; transition: transform .3s cubic-bezier(.2, .7, .2, 1), visibility 0s; }
   .detailClose { display: inline-flex !important; position: absolute; right: 16px; top: 16px; }
   .detailHead { padding-right: 48px; }

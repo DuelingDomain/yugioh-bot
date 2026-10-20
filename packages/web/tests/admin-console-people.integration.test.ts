@@ -21,7 +21,7 @@ beforeEach(() => {
   db.exec(`
     insert into users(id,username,display_name,created_at,image_url,first_sign_in_at,last_seen_at,last_route,online_since) values
       (1,'op','Operator','2026-01-01 00:00:00',null,null,null,null,null),
-      (2,'ann','Ann','2026-08-14 10:00:00','https://img.example.test/ann.png',${Date.parse("2026-08-15T09:00:00Z")},${NOW - 20_000},'/duels/[slug]',${NOW - 1_500_000}),
+      (2,'ann','Ann','2026-08-14 10:00:00','https://img.clerk.com/ann.png',${Date.parse("2026-08-15T09:00:00Z")},${NOW - 20_000},'/duels/[slug]',${NOW - 1_500_000}),
       (3,'bo','Bo','2026-09-01 10:00:00',null,null,${NOW - 3 * 3600_000},'/decks',${NOW - 4 * 3600_000});
     insert into players(id,guild_id,discord_user_id,display_name,user_id) values (12,'g','d2','Ann',2),(13,'g','d3','Bo',3),(22,'other','d2','Ann',2);`);
   const duel = db.prepare(`insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status,format,created_at,started_at,ended_at,winner_seat)
@@ -29,6 +29,7 @@ beforeEach(() => {
   const seat = db.prepare("insert into duel_seats(duel_id,seat,player_id) values (?,?,?)");
   // Live 4-way table, a 1v1 win, a Tag loss (the winner's partner sits on seat 3), an old win, a duel in another guild.
   duel.run(1, "g", "live4", "Friday Fours", "active", "ffa4", "2026-10-19 11:30:00", "2026-10-19 11:35:00", null, null);
+  db.prepare("update duels set last_activity_at = '2026-10-19 11:59:00' where id = 1").run();
   seat.run(1, 0, 13); seat.run(1, 1, 12);
   duel.run(2, "g", "won1", "Ranked queue", "completed", "1v1", "2026-10-19 09:00:00", "2026-10-19 09:05:00", "2026-10-19 09:40:00", 1);
   seat.run(2, 0, 13); seat.run(2, 1, 12);
@@ -56,7 +57,7 @@ it("returns who the person is, where they are now, recent duels and drafts, and 
   const { state, data } = await response.json();
   expect(state).toBe("ok");
   expect(data).toMatchObject({
-    userId: 2, name: "Ann", username: "ann", avatarUrl: "https://img.example.test/ann.png", online: true, label: "4-way duel",
+    userId: 2, name: "Ann", username: "ann", avatarUrl: "https://img.clerk.com/ann.png", online: true, label: "4-way duel",
     lastSeenAt: NOW - 20_000, onlineSince: NOW - 1_500_000, joinedAt: Date.parse("2026-08-15T09:00:00Z"),
     current: { kind: "duel", slug: "live4", name: "Friday Fours", href: "/duels/live4", label: "4-way duel", status: "active" },
     week: { duels: 3, drafts: 1 },
@@ -72,15 +73,18 @@ it("returns who the person is, where they are now, recent duels and drafts, and 
   ]);
 });
 
-it("an offline person has no current table and no online stretch", async () => {
+it("an offline person has no current table, page, last-seen time or online stretch", async () => {
   const { data } = await (await person("3")).json();
-  expect(data).toMatchObject({ online: false, current: null, onlineSince: null, label: "Decks", lastSeenAt: NOW - 3 * 3600_000, avatarUrl: null });
+  expect(data).toMatchObject({ online: false, current: null, onlineSince: null, label: null, lastSeenAt: null, avatarUrl: null });
 });
 
 it("answers 400 for a bad id, 404 for an unknown person, and not-configured without a guild", async () => {
   expect((await person("abc")).status).toBe(400);
   expect((await person("0")).status).toBe(400);
   expect((await person("99")).status).toBe(404);
+  // A user who never played in this guild and was never seen is not shown either.
+  db.exec("insert into users(id,username,display_name) values (4,'cy','Cy')");
+  expect((await person("4")).status).toBe(404);
   vi.stubEnv("DISCORD_GUILD_ID", ""); vi.resetModules();
   const body = await (await person("2")).json();
   expect(body.state).toBe("not-configured");

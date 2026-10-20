@@ -54,7 +54,10 @@ export function loadPerson(db: Database.Database, guild: string, userId: number,
   if (!user) return null;
   const route = isPresenceRoute(user.last_route) ? user.last_route : null;
   const online = user.last_seen_at !== null && user.last_seen_at >= now - ONLINE_WINDOW_MS;
-  const playerIds = JSON.stringify((db.prepare("select id from players where user_id = ? and guild_id = ?").all(userId, guild) as { id: number }[]).map((row) => row.id));
+  const players = (db.prepare("select id from players where user_id = ? and guild_id = ?").all(userId, guild) as { id: number }[]).map((row) => row.id);
+  // Someone who never played in this guild and was never seen is not a person of this console.
+  if (players.length === 0 && user.last_seen_at === null) return null;
+  const playerIds = JSON.stringify(players);
 
   const duels = db.prepare(`
     select d.id, d.web_slug, d.name, d.status, d.format, s.seat, d.winner_seat, d.created_at, d.started_at, d.ended_at
@@ -89,11 +92,12 @@ export function loadPerson(db: Database.Database, guild: string, userId: number,
     return teamOfSeat(format, row.seat) === teamOfSeat(format, row.winner_seat);
   }).length;
 
-  const current = online && route ? currentPlace(route, placesOf(db, [userId], guild).get(userId)) : null;
-  const label = route ? (route === "/duels/[slug]" && current?.kind === "duel" ? current.label : PRESENCE_ROUTES[route]) : null;
+  // Where someone is shows only while they are online: the page and time of an older beat are not passed on.
+  const current = online && route ? currentPlace(route, placesOf(db, [userId], guild, now).get(userId)) : null;
+  const label = online && route ? (route === "/duels/[slug]" && current?.kind === "duel" ? current.label : PRESENCE_ROUTES[route]) : null;
   return {
     userId: user.id, name: user.display_name || user.username, username: user.username, avatarUrl: safeAvatarUrl(user.image_url),
-    online, label, lastSeenAt: user.last_seen_at, onlineSince: online ? user.online_since : null,
+    online, label, lastSeenAt: online ? user.last_seen_at : null, onlineSince: online ? user.online_since : null,
     joinedAt: user.first_sign_in_at ?? dbTimeMs(user.created_at),
     current, recent, week: { duels: week.duels, drafts: week.drafts }, results: { wins, games: finished.length },
   };

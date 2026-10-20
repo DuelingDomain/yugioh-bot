@@ -78,7 +78,7 @@ it("lists running duels and lobbies with players, then open drafts, and skips st
 
 it("adds seats with pictures and bots, the turn from the clock, draft progress, and duels that ended in the last hour", async () => {
   seed();
-  db.prepare("update users set image_url = ? where id = 2").run("https://img.example.test/ann.png");
+  db.prepare("update users set image_url = ? where id = 2").run("https://img.clerk.com/ann.png");
   db.prepare("update duels set clock_json = ? where id = 1").run('{"turn":5,"remainingMs":[1000,2000],"activeSeat":1,"startedAt":1}');
   db.exec(`insert into users(id,username,display_name) values (6,'bot1','Bot 1');
     insert into players(id,guild_id,discord_user_id,display_name,user_id) values (15,'g','bot_player_dev_1','Bot 1',6);
@@ -92,7 +92,7 @@ it("adds seats with pictures and bots, the turn from the clock, draft progress, 
   const { data } = await (await section("live")).json();
   const d1 = data.duels.find((d: { slug: string }) => d.slug === "d1");
   expect(d1).toMatchObject({ turn: 5, activeSeat: 1, lastActivityAt: Date.parse("2026-10-19T11:58:00Z"),
-    seats: [{ name: "Ann", avatarUrl: "https://img.example.test/ann.png", bot: false, userId: 2 }, { name: "Bo", avatarUrl: null, bot: false, userId: 3 }] });
+    seats: [{ name: "Ann", avatarUrl: "https://img.clerk.com/ann.png", bot: false, userId: 2 }, { name: "Bo", avatarUrl: null, bot: false, userId: 3 }] });
   expect(data.duels.find((d: { slug: string }) => d.slug === "d3")).toMatchObject({ turn: null, activeSeat: null });
   expect(data.drafts.find((d: { slug: string }) => d.slug === "dr1")).toMatchObject({
     modeLabel: "Theme", cubeName: "Vintage 540", picksMade: 7, picksTotal: 45,

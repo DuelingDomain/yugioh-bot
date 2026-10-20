@@ -1,6 +1,7 @@
 import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
 import type { ClerkProfile } from "../clerk/profile.js";
+import { safeAvatarUrl } from "../admin/avatar.js";
 import { hasHistory } from "./user-history.js";
 
 export const USER_SYNC_MAX_AGE_MS = 5 * 60_000;
@@ -93,7 +94,7 @@ export function createUserService(db: Database.Database): UserService {
     const timestamp = now.toISOString();
     const applyProfile = (id: number) => {
       const email = profile.email?.trim().toLowerCase() || null;
-      const image = typeof profile.imageUrl === "string" && profile.imageUrl.startsWith("https://") ? profile.imageUrl.slice(0, 2048) : null;
+      const image = safeAvatarUrl(profile.imageUrl);
       db.prepare("update users set username=coalesce(?,username),display_name=?,email=?,email_verified=?,image_url=?,synced_at=?,updated_at=? where id=?")
         .run(profile.username, profile.displayName, email, email !== null && profile.emailVerified ? 1 : 0, image, timestamp, timestamp, id);
     };

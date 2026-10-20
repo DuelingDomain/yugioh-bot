@@ -12,7 +12,8 @@ async function loadFromClerk(): Promise<SectionResult<WaitlistData>> {
   if (!secretKey) return notConfigured("Add CLERK_SECRET_KEY to show the waitlist.");
   try {
     const backend = createClerkBackend({ secretKey });
-    // The decided list is a nice-to-have: when that call fails, the pending list still shows.
+    // The decided list is a nice-to-have: when that call fails, the pending list still shows. Clerk sorts this list by
+    // creation time only, so decisions come from the 30 newest requests (the view says so).
     const [page, latest] = await Promise.all([
       backend.listWaitlistEntries({ status: "pending", orderBy: "-created_at", limit: LIMIT }),
       backend.listWaitlistEntries({ orderBy: "-created_at", limit: 30 }).catch(() => null),
