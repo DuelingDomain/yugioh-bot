@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import Database from "better-sqlite3";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { openDatabase } from "../src/db/connection.js";
 import { applyEngineCardRemaps } from "../src/db/card-passcode-remaps.js";
 import { streamArtifactLines } from "../src/cards/effects/artifact-stream.js";
@@ -43,6 +43,9 @@ function catalog(db: Database.Database, passcode: number, name: string, text: st
 async function importer() {
   return (await import("../src/cards/effects/artifact.js")).importCardEffectArtifact;
 }
+
+// Each test imports the full pinned artifact; a loaded CI runner needs more than the 5 s default.
+vi.setConfig({ testTimeout: 35_000 });
 
 describe("the pinned searchygo artifact and SQLite import", () => {
   it("imports and reopens the real file-backed pin within a bounded JavaScript heap", () => {
