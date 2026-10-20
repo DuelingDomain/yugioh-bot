@@ -64,7 +64,7 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
   const master = opts.deckMaster ?? deck.deckMaster;
   const revision = (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
   const pointsRevision = (db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
-  const version = `suggestions-1:${revision}:${pointsRevision ?? ""}:${opts.legality?.version ?? "no-admission"}`;
+  const version = `suggestions-2:${revision}:${pointsRevision ?? ""}:${opts.legality?.version ?? "no-admission"}`;
   let cache: Map<string, string> | undefined, key: string | undefined;
   if (opts.cache !== false) {
     key = hash({ main: sorted(deck.main, canonical), extra: sorted(deck.extra, canonical), side: sorted(deck.side, canonical), master: master && canonical(master),
@@ -125,6 +125,8 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
     if (!admitted.has(id) || owned.has(id) || excluded.has(id) || heldCount >= (scope.limits[id] ?? (singleton ? 1 : 3))
       || (pool && (pool.get(id) ?? 0) <= (owned.get(id) ?? 0)) || !matchesReleased(card, opts.released)) continue;
     if (genesys && (isBarredFromGenesys(card) || card.genesysPoints === undefined || card.genesysPoints > remaining)) continue;
+    const family = catalog.suggestionFamily(candidate);
+    if (family !== id && admitted.has(family)) continue;
     const extra = isExtraDeckCard(card);
     const summon = extra && deck.main.length >= 40 ? canSummon(candidate) : undefined;
     if (extra && !summon) continue;

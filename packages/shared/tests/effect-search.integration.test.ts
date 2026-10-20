@@ -376,6 +376,7 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
   let database: Database.Database;
   let catalog: ReturnType<typeof import("../src/services/card-insight-catalog.js").createInsightCatalog>;
   let service: ReturnType<typeof import("../src/services/card-insights.js").createCardInsightService>;
+  let tcg: Set<number>;
   let scopeFor: (mode: "normal" | "domain", directory: string, settings: import("../src/duels/settings.js").DuelSettings, options: { deckMaster?: number }) => import("../src/services/deck-suggestions.js").DeckSuggestionLegality;
   const reports: unknown[] = [];
 
@@ -390,6 +391,10 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
     database = loaded.db;
     catalog = createInsightCatalog(database, suggestionEngineDirectory);
     service = createCardInsightService(database, { dataDirectory: suggestionEngineDirectory, catalog });
+    const engine = new Database(join(suggestionEngineDirectory!, "cards.cdb"), { readonly: true, fileMustExist: true });
+    try {
+      tcg = new Set((engine.prepare("SELECT id FROM datas WHERE (ot & 2) <> 0 AND (ot & 0x1238) = 0").all() as { id: number }[]).map(row => row.id));
+    } finally { engine.close(); }
     scopeFor = deckSuggestionScope;
     expect(loaded.cards).toBeGreaterThan(10_000);
     expect(loaded.imported.coverage.taggedCards).toBeGreaterThan(10_000);
@@ -451,7 +456,7 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
         rows: result.rows.map(row => {
           const hits = row.cards.filter(card => expected.has(card.passcode)).length;
           return { id: row.id, state: row.state, hits, returned: row.cards.length, precision: row.cards.length ? hits / row.cards.length : null,
-            cards: row.cards.map(card => ({ passcode: card.passcode, name: card.name, reason: card.reason, expected: expected.has(card.passcode) })) };
+            cards: row.cards.map(card => ({ passcode: card.passcode, name: card.name, score: card.score, linkedCards: card.linkedCards, reason: card.reason, expected: expected.has(card.passcode) })) };
         }),
       };
       reports.push(report);
@@ -459,6 +464,8 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
       expect.soft(illegal, `${fixture.id}/${scenario.id}: zero illegal recommendations`).toEqual([]);
       expect.soft(new Set(shown.map(card => card.passcode)).size, `${fixture.id}/${scenario.id}: no duplicate recommendations`).toBe(shown.length);
       expect.soft(shown.filter(card => owned.has(card.passcode)), `${fixture.id}/${scenario.id}: only absent cards`).toEqual([]);
+      if (fixture.format === "normal") expect.soft(shown.filter(card => !tcg.has(card.passcode)), `${fixture.id}: TCG only in Standard`).toEqual([]);
+      expect.soft(shown.filter(card => card.name === 'Spell Card "Monster Reborn"'), `${fixture.id}: canonical revival recommendation only`).toEqual([]);
       expect.soft(staples.cards.length).toBeLessThanOrEqual(6);
       expect.soft(report.staplesShare).toBeLessThanOrEqual(0.25);
       for (const row of result.rows) {

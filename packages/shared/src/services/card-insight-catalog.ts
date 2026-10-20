@@ -53,6 +53,7 @@ const attributeNames = new Map<number, Card["attribute"]>(CARD_ATTRIBUTES.map(({
 export function createInsightCatalog(db: Database.Database, dataDirectory = deckEngineDataDirectory(db.name)) {
   const artwork = db.prepare<[number], { card_id: number }>("SELECT card_id FROM card_artworks WHERE artwork_id=?");
   const metadata = db.prepare<[number], CatalogRow>("SELECT * FROM card_catalog WHERE ygoprodeck_id=?");
+  const namedMetadata = db.prepare<[string], { ygoprodeck_id: number }>("SELECT ygoprodeck_id FROM card_catalog WHERE lower(trim(name))=? ORDER BY ygoprodeck_id LIMIT 1");
   const release = db.prepare<[number], { tcg_date: string | null; ocg_date: string | null }>("SELECT tcg_date,ocg_date FROM card_release WHERE passcode=?");
   const tags = db.prepare<[number], { tags_json: string; popularity: number }>("SELECT tags_json,popularity FROM card_tags WHERE passcode=?");
   const readers = { artwork, metadata, release, tags };
@@ -72,6 +73,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
   // default would retain most of the engine database after every full scan.
   engine?.pragma("cache_size=-256");
   let engineFind: Database.Statement<[number], EngineRow> | undefined;
+  let engineNamed: Database.Statement<[string], { id: number }> | undefined;
   let engineStream: Database.Statement<[], EngineRow> | undefined;
   let engineIdentities: Database.Statement<[], EngineRow> | undefined;
   let engineAliases: Database.Statement<[], EngineRow> | undefined;
@@ -115,6 +117,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
       if (columns.has("type") && texts.has("name")) {
         const select = `SELECT d.id,${columns.has("alias") ? "d.alias" : "0 AS alias"},d.type,t.name${texts.has("desc") ? ",t.desc" : ""}${columns.has("setcode") ? ",CAST(d.setcode AS TEXT) AS setcode" : ""}${["atk", "def", "level", "race", "attribute"].filter(field => columns.has(field)).map(field => `,d.${field}`).join("")} FROM datas d JOIN texts t USING(id)`;
         engineFind = engine.prepare(`${select} WHERE d.id=?`);
+        engineNamed = engine.prepare(`SELECT d.id FROM datas d JOIN texts t USING(id) WHERE lower(trim(t.name))=? ORDER BY d.id LIMIT 1`);
         engineStream = engine.prepare(`${select} ORDER BY d.id`);
         engineIdentities = engine.prepare(`SELECT d.id,${columns.has("alias") ? "d.alias" : "0 AS alias"},d.type,t.name FROM datas d JOIN texts t USING(id) ORDER BY d.id`);
         if (columns.has("alias")) engineAliases = engine.prepare(`${select} WHERE d.alias<>0 ORDER BY d.id`);
@@ -438,6 +441,16 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
   }
   return {
     canonical: (raw: number): number => canonical(raw),
+    /** A recommendation family is not a rules identity: retrains still have separate copy limits. */
+    suggestionFamily(candidate: Candidate): number {
+      const wrapped = /^(?:Spell|Trap|Monster) Card ["“](.+)["”]$/i.exec(candidate.card.name);
+      if (!wrapped) return candidate.card.id;
+      const name = wrapped[1]!.trim().toLowerCase();
+      const code = engineNamed?.get(name)?.id ?? namedMetadata.get(name)?.ygoprodeck_id;
+      if (code === undefined) return candidate.card.id;
+      const original = this.candidate(code);
+      return original?.card.kind === candidate.card.kind ? original.card.id : candidate.card.id;
+    },
     /** Startup readers can fold uncached engine artworks and legacy remaps too. */
     *identityPasscodes(): Generator<number> {
       yield* remaps.keys();

@@ -35,6 +35,10 @@ const cards = [
   { code: 1041, name: "Shared two", type: 0x21 },
   { code: 1050, name: "Link Master", type: 0x4000021 },
   { code: 1051, name: "Pendulum Master", type: 0x1000021 },
+  { code: 1060, name: "OCG only" },
+  { code: 1061, name: "Anime only" },
+  { code: 1062, name: "Rush variant" },
+  { code: 1063, name: "Pre-release variant" },
   { code: 55144522, name: "Pot of Greed", type: 0x2 },
   { code: 83764718, name: "Monster Reborn", type: 0x2 },
 ];
@@ -64,7 +68,11 @@ beforeAll(() => {
       update datas set setcode = 4387 where id = 1007;
       update datas set setcode = 1110 where id = 1015;
       update datas set attribute = 4 where id = 1009;
-      update datas set ot = 32 where id = 1013;`);
+      update datas set ot = 32 where id = 1013;
+      update datas set attribute = 1, ot = 1 where id = 1060;
+      update datas set ot = 8 where id = 1061;
+      update datas set ot = 515 where id = 1062;
+      update datas set ot = 256 where id = 1063;`);
     engine.prepare("update texts set desc = ? where id = ?").run('Summon 1 "Named Friend". FIRE monsters gain 100 ATK.', MASTER);
     engine.prepare("update texts set desc = ? where id = ?").run('(This card\'s name is always treated as "Ally Master".)', 1030);
     for (const code of [1040, 1041]) engine.prepare("update texts set desc = ? where id = ?")
@@ -100,7 +108,7 @@ describe("authoritative deck suggestion scope", () => {
     expect(status).toBe(200);
     expect(data.allowed).toContain(1002);
     expect(data.allowed).not.toContain(1020);
-    for (const code of [1012, 1013, 1014, 55144522]) expect(data.allowed).not.toContain(code);
+    for (const code of [1012, 1013, 1014, 1060, 1061, 1062, 1063, 55144522]) expect(data.allowed).not.toContain(code);
     expect(data.allowed).toContain(83764718);
     expect(data.limits[83764718]).toBe(1);
     expect(data.copyGroups?.[1041]).toBe(data.copyGroups?.[1040] ?? 1040);
@@ -116,7 +124,7 @@ describe("authoritative deck suggestion scope", () => {
   it("shares every validator Domain admission path and excludes the master identity", async () => {
     const { status, data } = await post({ suggestionFormat: "domain", deckMaster: MASTER });
     expect(status).toBe(200);
-    for (const code of [1002, 1003, 1004, 1005, 1006, 1007, 1009, 1010, 1015, SPELL]) expect(data.allowed).toContain(code);
+    for (const code of [1002, 1003, 1004, 1005, 1006, 1007, 1009, 1010, 1015, 1060, SPELL]) expect(data.allowed).toContain(code);
     for (const code of [MASTER, 1030, 1008, 1012, 1013, 1014]) expect(data.allowed).not.toContain(code);
     expect(data.allowed).toContain(55144522);
     expect(data.limits).toEqual({});

@@ -3317,7 +3317,7 @@ export function createDuelHost(options: {
       const revision = (options.db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
       const pointsRevision = (options.db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
       const contextVersion = createHash("sha256").update(JSON.stringify([
-        "deck-suggestions-host-v1", suggestionQueryIdentity(query), legality.version, revision, pointsRevision ?? null, new Date().toISOString().slice(0, 7),
+        "deck-suggestions-host-v2", suggestionQueryIdentity(query), legality.version, revision, pointsRevision ?? null, new Date().toISOString().slice(0, 7),
       ])).digest("hex");
       if (typeof body.suggestionVersion === "string" && body.suggestionVersion.toLowerCase() === contextVersion) {
         return { contextVersion, notModified: true };
