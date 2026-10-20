@@ -31,10 +31,15 @@ const DECOMPRESS = `
     .catch(error => { console.error(error.message); process.exitCode = 1; });
 `;
 
+export interface PreparedArtifactFile {
+  read(consume: (chunk: Uint8Array) => void): void;
+  close(): void;
+}
+
 /** The synchronous API spools a bounded native gzip stream to private temporary
  * storage. This avoids retaining allocator pages from decoding the full catalog
  * in the long-lived server; both processes use bounded buffers, never full files. */
-export function streamArtifactFile(path: string, file: Integrity, consume: (chunk: Uint8Array) => void): void {
+export function prepareArtifactFile(path: string, file: Integrity): PreparedArtifactFile {
   const fd = openSync(path, "r");
   const input = Buffer.allocUnsafe(16 * 1024);
   let temporary: string | undefined, decoded: number | undefined;
@@ -61,20 +66,41 @@ export function streamArtifactFile(path: string, file: Integrity, consume: (chun
       bytes += size;
       if (bytes > file.bytes) throw new Error(`Effect artifact ${file.path} exceeds its pinned size`);
       const chunk = input.subarray(0, size);
-      hash.update(chunk); consume(chunk);
+      hash.update(chunk);
     }
     if (bytes !== file.bytes || hash.digest("hex") !== file.sha256) {
       throw new Error(`Effect artifact ${file.path} content hash does not match integrity`);
     }
-  } finally {
-    closeSync(fd);
+    const preparedFd = decoded, preparedDirectory = temporary;
+    let closed = false;
+    return {
+      read(consume) {
+        if (closed) throw new Error("Effect artifact spool is closed");
+        const buffer = Buffer.allocUnsafe(16 * 1024);
+        for (let position = 0, size; (size = readSync(preparedFd, buffer, 0, buffer.length, position)) > 0;) {
+          position += size; consume(buffer.subarray(0, size));
+        }
+      },
+      close() {
+        if (closed) return;
+        closed = true; closeSync(preparedFd);
+        rmSync(preparedDirectory, { recursive: true, force: true });
+      },
+    };
+  } catch (error) {
     if (decoded !== undefined) closeSync(decoded);
     if (temporary) rmSync(temporary, { recursive: true, force: true });
-  }
+    throw error;
+  } finally { closeSync(fd); }
+}
+
+export function streamArtifactFile(path: string, file: Integrity, consume: (chunk: Uint8Array) => void, prepared?: PreparedArtifactFile): void {
+  const spool = prepared ?? prepareArtifactFile(path, file);
+  try { spool.read(consume); } finally { if (!prepared) spool.close(); }
 }
 
 /** The only retained text is one incomplete record and the current chunk. */
-export function streamArtifactLines(path: string, file: Integrity & { records: number }, consume: (line: string, index: number) => void): void {
+export function streamArtifactLines(path: string, file: Integrity & { records: number }, consume: (line: string, index: number) => void, prepared?: PreparedArtifactFile): void {
   const decoder = new StringDecoder("utf8");
   let pending = "", records = 0;
   const accept = (text: string) => {
@@ -87,7 +113,7 @@ export function streamArtifactLines(path: string, file: Integrity & { records: n
     }
     pending = pending.slice(start);
   };
-  streamArtifactFile(path, file, chunk => accept(decoder.write(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength))));
+  streamArtifactFile(path, file, chunk => accept(decoder.write(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength))), prepared);
   accept(decoder.end());
   if (pending.trim()) consume(pending.trim(), records++);
   if (records !== file.records) throw new Error(`Effect artifact ${file.path} record count does not match integrity`);
@@ -95,7 +121,7 @@ export function streamArtifactLines(path: string, file: Integrity & { records: n
 
 /** Release metadata is a JSON array of objects. Split only at top-level object
  * boundaries, respecting quoted braces and escapes; keep one record at a time. */
-export function streamArtifactArray(path: string, file: Integrity & { records: number }, consume: (value: unknown) => void): void {
+export function streamArtifactArray(path: string, file: Integrity & { records: number }, consume: (value: unknown) => void, prepared?: PreparedArtifactFile): void {
   const decoder = new StringDecoder("utf8");
   let record = "", depth = 0, quoted = false, escaped = false, opened = false, closed = false, records = 0;
   const accept = (text: string) => {
@@ -125,7 +151,7 @@ export function streamArtifactArray(path: string, file: Integrity & { records: n
     }
     if (start >= 0) record += text.slice(start);
   };
-  streamArtifactFile(path, file, chunk => accept(decoder.write(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength))));
+  streamArtifactFile(path, file, chunk => accept(decoder.write(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength))), prepared);
   accept(decoder.end());
   if (!opened || !closed || depth || records !== file.records) throw new Error("Invalid release artifact count");
 }
