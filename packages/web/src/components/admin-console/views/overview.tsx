@@ -3,7 +3,7 @@
 import { plural } from "@/lib/admin-console/format";
 import type { ConsoleActions } from "../admin-console";
 import { LineChart } from "../charts";
-import { alertsFor, delta, liveCounts, okData, shortDay, weekAverage, type Snapshots } from "../model";
+import { TODAY_ANCHOR, alertsFor, delta, liveCounts, okData, shortDay, weekAverage, type Snapshots } from "../model";
 import { Avatar, Icon, SectionHead, Since, StatusIcon, Tag, WatchLink, useNow } from "../parts";
 import styles from "../admin-console.module.css";
 
@@ -20,6 +20,8 @@ export function OverviewView({ s, actions }: { s: Snapshots; actions: ConsoleAct
   const liveData = okData(s.live);
   const live = liveCounts(liveData);
   const stats = okData(s.stats);
+  // The day of the owner's browser, the same list the link opens; the trend line stays on UTC days.
+  const today = okData(s.today);
   const alerts = alertsFor(s, now);
   const inDuel = online?.users.filter((u) => u.current?.kind === "duel").length ?? 0;
   const drafting = online?.users.filter((u) => u.current?.kind === "draft").length ?? 0;
@@ -42,10 +44,13 @@ export function OverviewView({ s, actions }: { s: Snapshots; actions: ConsoleAct
           </div>
         </div>
         <div className={styles.stat}>
-          <div className={styles.statLabel}>Duels today</div>
-          <div className={styles.statNum}>{stats ? stats.today.duelsStarted : dash}</div>
+          {/* Only the label and the number are the link; the chart below keeps its own tab stop. */}
+          <a className={styles.statLink} href={`#${TODAY_ANCHOR}`} title="See every duel of today">
+            <div className={styles.statLabel}>Duels today<Icon name="chev" className={styles.statChev} /></div>
+            <div className={styles.statNum}>{today ? today.counts.all : dash}</div>
+          </a>
           <div className={styles.statFoot}>
-            {stats ? <Delta value={delta(stats.today.duelsStarted, weekAverage(stats, "duelsStarted"), true)} suffix="vs 7-day avg" /> : <span />}
+            {stats && today ? <Delta value={delta(today.counts.all, weekAverage(stats, "duelsStarted"), true)} suffix="vs 7-day avg" /> : <span />}
             {stats ? <LineChart className={styles.spark} labels={days} series={[{ name: "Duels started", color: "var(--t2)", values: stats.series.duelsStarted }]} label="Duels started per day, last 7 days" /> : null}
           </div>
         </div>

@@ -4,6 +4,7 @@ import type { SectionId } from "./types";
 export const POLL_MS: Record<SectionId, number> = {
   online: 10_000,
   live: 10_000,
+  today: 15_000,
   waitlist: 30_000,
   system: 30_000,
   stats: 60_000,

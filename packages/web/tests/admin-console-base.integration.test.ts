@@ -102,7 +102,36 @@ it("shows a table only while it is open and only on that table's page", async ()
   db.exec(`insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status,format) values(2,'g','run','Running',13,'domain','active','1v1');
     insert into duel_seats(duel_id,seat,player_id) values(1,0,12),(2,0,13);`);
   const users = (await (await online()).json()).data.users as { name: string; label: string; current: unknown }[];
-  expect(users.map((u) => [u.name, u.label, u.current])).toEqual([["Ann", "Duel", null], ["Bo", "Decks", null]]);
+  // A duel page without an open seat is not "in a duel".
+  expect(users.map((u) => [u.name, u.label, u.current])).toEqual([["Ann", "Duel page", null], ["Bo", "Decks", null]]);
+});
+it("does not show a person in a duel they surrendered, were eliminated from, or that ended", async () => {
+  const now = Date.now();
+  for (const id of [1, 2, 3, 4]) db.prepare("update users set last_seen_at=?, last_route=? where id=?").run(now - 5_000, "/duels/[slug]", id);
+  db.exec(`insert into players(id,guild_id,discord_user_id,display_name,user_id) values(11,'g','d1','Operator',1),(14,'g','d4','Cy',4);
+    insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status,format,setup_json) values
+      (1,'g','f4','Fours',12,'domain','active','ffa4','{"surrenderedSeats":[1],"eliminatedSeats":[2]}'),
+      (2,'g','done','Done',11,'domain','completed','1v1',null);
+    insert into duel_seats(duel_id,seat,player_id) values(1,0,12),(1,1,13),(1,2,14),(1,3,11),(2,0,11);
+    insert into duel_commands(duel_id,seq,seat,command_json) values(1,1,3,'{"promptId":"eliminate:timeout"}');`);
+  const users = (await (await online()).json()).data.users as { name: string; label: string; current: { slug: string } | null }[];
+  const seen = Object.fromEntries(users.map((u) => [u.name, [u.label, u.current?.slug ?? null]]));
+  // Ann still plays. Bo surrendered, Cy was eliminated, Operator timed out there and the 1v1 of Operator ended.
+  expect(seen).toEqual({ Ann: ["4-way duel", "f4"], Bo: ["Duel page", null], Cy: ["Duel page", null], Operator: ["Duel page", null] });
+});
+it("a leave beat from a closed table page ends the table label at once, only for that page", async () => {
+  const leave = (route: string) => new Request("https://internal/api/presence", {
+    method: "POST", headers: { origin: "https://app.example.test", "content-type": "application/json" }, body: JSON.stringify({ route, leave: true }) });
+  expect((await post(beat("/duels/[slug]"))).status).toBe(204);
+  // A second tab on another page closes: the person still sits at the table.
+  expect((await post(leave("/decks"))).status).toBe(204);
+  expect(db.prepare("select last_route r from users where id=1").get()).toEqual({ r: "/duels/[slug]" });
+  const seenAt = (db.prepare("select last_seen_at s from users where id=1").get() as { s: number }).s;
+  expect((await post(leave("/duels/[slug]"))).status).toBe(204);
+  // Still online (the window runs on), but no longer on the duel page; the beat time is not changed.
+  expect(db.prepare("select last_route r, last_seen_at s from users where id=1").get()).toEqual({ r: "/app", s: seenAt });
+  expect((await post(leave("/duels/abc"))).status).toBe(400);
+  expect((await post(new Request("https://internal/api/presence", { method: "POST", headers: { origin: "https://evil.test" }, body: '{"route":"/duels/[slug]","leave":true}' }))).status).toBe(403);
 });
 it("keeps the online stretch across beats and starts a new one after a gap", async () => {
   expect((await post(beat("/decks"))).status).toBe(204);

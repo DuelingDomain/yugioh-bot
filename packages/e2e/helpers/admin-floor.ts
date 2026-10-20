@@ -4,11 +4,12 @@ import { dbPath, guildId } from "../stack/env.mjs";
 
 /**
  * A busy evening for the admin console specs: 11 people online, a 4-way ranked duel, a 1v1 ranked duel,
- * a 3-way Genesys table with a practice bot, a cube draft with two bots, three duels that ended in the
- * last hour and a week of finished duels for the trends. Written straight into the stack database.
+ * a 3-way Genesys table with a practice bot, a cube draft with two bots, five duels that ended in the last
+ * three hours (Tag, 3-way, a 4-way closed early, a draw) and a week of finished duels for the trends. Written straight into the stack database.
  */
 export const FLOOR = {
   fours: "e2e-adm-fours", ranked: "e2e-adm-ranked", threeWay: "e2e-adm-three", draft: "e2e-adm-cube",
+  tag: "e2e-adm-end-3", cut: "e2e-adm-end-4", draw: "e2e-adm-end-5",
   people: ["kaibaCorp", "neo_spacian", "ruby.lynx", "valon_x", "pharaoh_atem", "mai_v", "tealeaf", "joeyw", "hikari", "zane.t", "sol.ring"],
 } as const;
 const FIRST_ID = 201;
@@ -66,6 +67,9 @@ export function seedAdminFloor(): void {
       addDuel({ slug: "e2e-adm-end-1", name: "Ranked queue", status: "completed", format: "1v1", ranked: true, seats: ["mai_v", "sol.ring"], startedMin: 45, endedMin: 19, winner: 0, turns: 14 });
       addDuel({ slug: "e2e-adm-end-2", name: "Three way", status: "completed", format: "ffa3", seats: ["kaibaCorp", "hikari", "zane.t"], startedMin: 70, endedMin: 31, winner: 0, turns: 22 });
       addDuel({ slug: "e2e-adm-end-3", name: "Tag night", status: "completed", format: "tag", seats: ["ruby.lynx", "kaibaCorp", "valon_x", "neo_spacian"], startedMin: 95, endedMin: 52, winner: 0, turns: 17 });
+      // Two more for the Today list: a 4-way the host closed early, and a 1v1 draw.
+      addDuel({ slug: FLOOR.cut, name: "Late fours", status: "interrupted", format: "ffa4", seats: ["hikari", "zane.t", "tealeaf", "sol.ring"], startedMin: 130, endedMin: 118, turns: 6 });
+      addDuel({ slug: FLOOR.draw, name: "Mirror match", status: "completed", format: "1v1", seats: ["joeyw", "pharaoh_atem"], startedMin: 160, endedMin: 140, turns: 31 });
       const draftId = Number(db.prepare(`insert into drafts(guild_id,channel_id,name,status,created_by_user_id,config_json,current_wave_number,current_pick_step,
         created_at,started_at,web_slug) values (?,?,?,?,?,?,?,?,?,?,?)`).run(guildId, "web", "Sunday Cube", "active", String(FIRST_ID + 8),
         JSON.stringify({ cardsPerPlayer: 45, poolSource: { cubeId: 1, cubeName: "Vintage 540" } }), 2, 6, sqlTime(now - 33 * MIN), sqlTime(now - 31 * MIN), FLOOR.draft).lastInsertRowid);

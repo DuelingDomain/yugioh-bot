@@ -1,4 +1,4 @@
-import { isPresenceRoute, recordPresence } from "@yugidraft/shared/presence";
+import { isPresenceRoute, leavePresence, recordPresence } from "@yugidraft/shared/presence";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { webOrigin } from "@/lib/existing-player";
@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 const headers = { "Cache-Control": "private, no-store" };
 const bad = { status: 400, headers };
 
-/** Heartbeat from signed-in pages: keeps only the caller's latest route template and time. */
+/** Heartbeat from signed-in pages: keeps only the caller's latest route template and time. `leave: true` (pagehide) drops a table page. */
 export async function POST(request: Request): Promise<Response> {
   const access = await requireWebAccess();
   if (!access.ok) return access.response;
@@ -30,6 +30,8 @@ export async function POST(request: Request): Promise<Response> {
     }
     const payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     if (!isPresenceRoute(payload?.route)) return Response.json({ error: "invalid_route" }, bad);
+    // pagehide: the tab closed or left the site on this page.
+    if (payload.leave === true) { leavePresence(getDb(), access.userId, payload.route); return new Response(null, { status: 204, headers }); }
     if (!recordPresence(getDb(), access.userId, payload.route)) {
       return Response.json({ error: "rate_limited" }, { status: 429, headers: { ...headers, "Retry-After": "30" } });
     }

@@ -11,7 +11,7 @@ export type SectionResult<T> =
   /** A configured service did not answer. `message` is safe to show: never a key, URL secret or stack. */
   | { state: "error"; message: string; updatedAt: number };
 
-export const SECTION_IDS = ["online", "waitlist", "live", "stats", "errors", "usage", "system"] as const;
+export const SECTION_IDS = ["online", "waitlist", "live", "today", "stats", "errors", "usage", "system"] as const;
 export type SectionId = (typeof SECTION_IDS)[number];
 
 /** How the app keys a person: users.id here. (The Discord-only local build keys people by Discord ID.) */
@@ -157,24 +157,58 @@ export interface LiveDraft {
   picksMade?: number;
   picksTotal?: number;
 }
-/** A duel that finished in the last hour. */
-export interface EndedDuel {
-  slug: string;
-  name: string;
-  formatLabel: string;
-  ranked: boolean;
-  /** "mai_v beat sol.ring", "kaibaCorp won", "Draw", "Ended early". */
-  result: string;
-  turns: number | null;
-  endedAt: number;
-  replayHref: string;
-}
 export interface LiveData {
   /** Live duels = the entries with status "active". */
   duels: LiveDuel[];
   drafts: LiveDraft[];
-  /** Newest first, at most 8. */
-  ended?: EndedDuel[];
+}
+
+/* ---- today (GET /api/admin/console/today?tz=<minutes east of UTC>&start=<local midnight, epoch ms>) ---- */
+/** How a seat did in a duel of today. Null while the duel runs, or when it ended without a result. */
+export type SeatOutcome = "won" | "lost" | "draw" | null;
+export interface TodaySeat extends LiveSeat {
+  outcome: SeatOutcome;
+}
+/**
+ * live: running now. won: a team or player won. draw: finished with no winner. interrupted: closed early (idle, server stop).
+ * cancelled: the table closed after the start with no result. idle: still open but past the idle cut-off; the host closes it soon.
+ */
+export type TodayResult = "live" | "won" | "draw" | "interrupted" | "cancelled" | "idle";
+export interface TodayDuel {
+  slug: string;
+  name: string;
+  format: LiveDuelFormat;
+  formatLabel: string;
+  ranked: boolean;
+  genesys: boolean;
+  result: TodayResult;
+  /** One entry per seat, seat order, with the outcome of that seat (Tag partners share the result). */
+  seats: TodaySeat[];
+  /** Turns played: the final count for an ended duel, the clock turn for a running one. */
+  turns: number | null;
+  startedAt: number;
+  /** Null while the duel runs. */
+  endedAt: number | null;
+  /** Internal path only: /duels/<slug>/replay for an ended duel, /duels/<slug> for a running one. */
+  href: string;
+}
+export interface TodayCounts {
+  all: number;
+  oneVsOne: number;
+  /** Tag, 3-way and 4-way. */
+  multi: number;
+  ranked: number;
+}
+export interface TodayData {
+  /** Minutes east of UTC that set "today" (from the browser, clamped to ±840). 0 = UTC. */
+  tzOffsetMinutes: number;
+  /** Start of today (epoch ms): the browser's local midnight (`start`), else midnight at `tzOffsetMinutes`. */
+  dayStart: number;
+  /** Duels that started today, by filter. `duels` holds at most `limit` of them. */
+  counts: TodayCounts;
+  /** Newest start first. */
+  duels: TodayDuel[];
+  limit: number;
 }
 
 /* ---- stats (UTC days) ---- */
@@ -313,6 +347,7 @@ export interface SectionDataMap {
   online: OnlineData;
   waitlist: WaitlistData;
   live: LiveData;
+  today: TodayData;
   stats: StatsData;
   errors: ErrorsData;
   usage: UsageData;

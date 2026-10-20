@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { duration } from "@/lib/admin-console/format";
 import type { UserKey } from "@/lib/admin-console/types";
-import { VIEWS, VIEW_META, headerFor, isView, liveCounts, okData, serviceSummary, type Snapshots, type View } from "./model";
+import { TODAY_ANCHOR, VIEWS, VIEW_META, headerFor, isView, liveCounts, okData, serviceSummary, type Snapshots, type View } from "./model";
 import { Icon, StatusIcon, useNow, type Tone } from "./parts";
 import { useAdminSection } from "./use-admin-section";
 import { OverviewView } from "./views/overview";
@@ -23,12 +23,13 @@ export interface ConsoleActions {
 function useSnapshots(): Snapshots {
   const online = useAdminSection("online");
   const live = useAdminSection("live");
+  const today = useAdminSection("today");
   const waitlist = useAdminSection("waitlist");
   const system = useAdminSection("system");
   const errors = useAdminSection("errors");
   const stats = useAdminSection("stats");
   const usage = useAdminSection("usage");
-  return { online, live, waitlist, system, errors, stats, usage };
+  return { online, live, today, waitlist, system, errors, stats, usage };
 }
 
 /** Badge text per view for the left menu and the phone tab bar. */
@@ -96,12 +97,27 @@ export function AdminConsole() {
   }, []);
 
   // Per-view links (#people, #health ...). Read after mount so the server and first client render agree.
+  // #duels-today opens the Duels view and scrolls to the Today list.
+  const anchor = useRef<string | null>(null);
   useEffect(() => {
-    const read = () => { const hash = window.location.hash.slice(1); setView(isView(hash) ? hash : "overview"); };
+    const read = () => {
+      const hash = window.location.hash.slice(1);
+      if (hash === TODAY_ANCHOR) { anchor.current = hash; setView("duels"); return; }
+      setView(isView(hash) ? hash : "overview");
+    };
     read();
     window.addEventListener("hashchange", read);
     return () => window.removeEventListener("hashchange", read);
   }, []);
+
+  // Scroll once the list is on the page; the live tables above it must have loaded first, or the list moves down.
+  const anchorReady = view === "duels" && s.live.result !== null && s.today.result !== null;
+  useEffect(() => {
+    if (!anchorReady || !anchor.current) return;
+    const id = anchor.current;
+    anchor.current = null;
+    requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: "start" }));
+  }, [anchorReady, view]);
 
   const openPerson = useCallback((userId: UserKey) => {
     setPerson(userId);

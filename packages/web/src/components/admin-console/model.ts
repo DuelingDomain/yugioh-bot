@@ -12,6 +12,17 @@ export const VIEW_META: Record<View, { label: string; icon: IconName }> = {
   waitlist: { label: "Waitlist", icon: "waitlist" }, health: { label: "Health", icon: "health" }, insights: { label: "Insights", icon: "insights" },
 };
 export const isView = (value: string): value is View => (VIEWS as readonly string[]).includes(value);
+/** Link target of the Today list in the Duels view (/admin#duels-today). */
+export const TODAY_ANCHOR = "duels-today";
+
+/** "UTC", "UTC−4", "UTC+5:30" from minutes east of UTC. */
+export function tzLabel(minutes: number): string {
+  if (!minutes) return "UTC";
+  const abs = Math.abs(minutes);
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  return `UTC${minutes < 0 ? "\u2212" : "+"}${h}${m ? `:${String(m).padStart(2, "0")}` : ""}`;
+}
 
 export type Snapshots = { [K in SectionId]: SectionSnapshot<K> };
 
@@ -158,7 +169,7 @@ export function headerFor(view: View, s: Snapshots, now: number): HeaderText {
     case "duels":
       return {
         eyebrow: "Duels and drafts", title: `${plural(live.duels.length, "duel", "duels")} and ${plural(live.drafts.length, "draft", "drafts")} live`,
-        sub: "Open any table as a spectator. Turns update live.",
+        sub: "Open any table as a spectator. Below the live tables, every duel of today with its result and replay.",
       };
     case "waitlist": {
       const n = waitlist?.pending ?? 0;
