@@ -122,11 +122,6 @@ jobs:
             args+=(--recover-reservation "$RECOVER_RESERVATION" --recover-batch "$RECOVER_BATCH")
           fi
           prlimit --core=0 -- node --import tsx scripts/effects/tag-cards.ts "${args[@]}"
-      - uses: actions/cache@v4
-        with:
-          path: .status/ygoprodeck-cache
-          key: effect-release-bulk-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: effect-release-bulk-${{ runner.os }}-
       - name: Fill missing release months from the free bulk API
         if: ${{ !inputs.dry_run && !inputs.initialize_ledger }}
         continue-on-error: true
