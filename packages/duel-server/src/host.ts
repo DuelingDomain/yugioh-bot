@@ -3821,7 +3821,8 @@ export function createDuelHost(options: {
         const startupRoom = fork ? null : startingRoom(body);
         if (startupRoom) return Response.json(startupRoom, { headers: { "cache-control": "no-store" } });
         const key = body.op === "replay-fork" ? `fork-owner:${body.guildId}:${body.playerId}` : typeof body.slug === "string" ? body.slug : "catalog";
-        // Diagnostics skip the queue; GitHub status reads must not block card editor requests.
+        // Card queries and diagnostics skip the queue: remote ledger/status work
+        // must never hold the shared catalog queue.
         const bounded = ["bug-replay-frame", "replay", "owner-replay", "replay-fork", "fork-restart", "fork-cancel", "fork-list"].includes(String(body.op));
         const deadline = new AbortController();
         const ctl = { abandoned: false, ...(bounded ? { signal: deadline.signal } : {}) };
@@ -3831,7 +3832,7 @@ export function createDuelHost(options: {
             deadline.abort(error); reject(error);
           }, Math.min(28_000, options.replayRequestTimeoutMs ?? 28_000));
         }) : undefined;
-        const queued = (body.op === "debug-trace" || body.op === "bug-context" || body.op === "bug-replay-frame" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body, ctl) : enqueue(key, () => operate(body, ctl)));
+        const queued = (body.op === "card-query" || body.op === "debug-trace" || body.op === "bug-context" || body.op === "bug-replay-frame" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body, ctl) : enqueue(key, () => operate(body, ctl)));
         const rendered = (async () => {
           const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
           if (fork) assertReplayForkAccess(options.db, body.slug as string, { guildId: body.guildId as string,

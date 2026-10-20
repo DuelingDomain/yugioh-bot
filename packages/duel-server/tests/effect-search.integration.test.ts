@@ -813,6 +813,62 @@ it('sorts and filters dates with effect search off without installing effect fac
 });
 
 
+it('returns the rule result within three seconds and keeps catalog requests free during slow ledger CAS', async () => {
+  vi.stubEnv('EFFECT_SEARCH', '1');
+  const fallback = await import('@yugidraft/shared/cards/effects/reading-fallback');
+  const { createEmptyLedger } = await import('@yugidraft/shared/cards/effects/budget-ledger');
+  const original = fallback.fallbackEffectReading;
+  let ledger = createEmptyLedger(), revision = '0', calls = 0;
+  const signals: (AbortSignal | undefined)[] = [];
+  let entered!: () => void;
+  const reading = new Promise<void>(resolve => { entered = resolve; });
+  const store: import('@yugidraft/shared/cards/effects/budget-ledger').LedgerStore = {
+    read: async signal => {
+      calls++; signals.push(signal); entered();
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      return { revision, ledger: structuredClone(ledger) };
+    },
+    compareAndSwap: async (previous, next, signal) => {
+      calls++; signals.push(signal);
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      if (previous !== revision) throw new Error('CAS');
+      ledger = structuredClone(next); revision = String(Number(revision) + 1); return revision;
+    },
+  };
+  const spy = vi.spyOn(fallback, 'fallbackEffectReading').mockImplementation((database, text, actor) =>
+    original(database, text, actor, { store, apiKey: 'fixture', env: {} }));
+  const phrase = 'delta review bewildering combo';
+  const baseline = search(phrase);
+  const post = async (op: string) => {
+    const body = JSON.stringify({ op, guildId: 'eval', playerId, cardQuery: { text: phrase, limit: 120 } });
+    return host.handle(new Request('http://local/internal/duel', { method: 'POST', body,
+      headers: await signedHeaders(body, 'eval-secret', 'http://local/internal/duel', 'duel-host') }));
+  };
+  const started = performance.now();
+  const pending = post('card-query');
+  try {
+    await reading;
+    const catalogStarted = performance.now();
+    expect((await post('card-facets')).status).toBe(200);
+    expect(performance.now() - catalogStarted).toBeLessThan(1000);
+    const response = await pending;
+    const elapsed = performance.now() - started;
+    console.info('SIGNED_SLOW_LEDGER_REQUEST_MS', elapsed);
+    expect(elapsed).toBeLessThan(3500);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(baseline);
+  } finally {
+    await pending;
+    await vi.waitFor(() => {
+      expect(db.prepare('SELECT phrase FROM effect_readings WHERE phrase=?').all(phrase)).toEqual([]);
+      expect(ledger.runtime).toEqual([]);
+    }, { timeout: 10000 });
+    expect(calls).toBe(4);
+    expect(signals.every(signal => !signal?.aborted)).toBe(true);
+    spy.mockRestore();
+  }
+}, 20000);
+
 it('evaluates a hard phrase through one mocked Messages POST against real artifact tags', async () => {
   evaluatedQueries++;
   vi.stubEnv('EFFECT_SEARCH', '1');
