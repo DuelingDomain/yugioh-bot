@@ -102,10 +102,11 @@ The experiment writes `packages/e2e/.stack-7/replay-<label>-<repeat>.json`. Omit
 
 ## Validation
 
-- Production web build and duel-server/E2E typechecks pass on Node 22.
+- Production web build and duel-server/E2E typechecks pass on Node 22. E2E typechecking also passes with `packages/duel-server/dist` absent, matching the CI job; fixtures import the source engine helpers.
 - Five targeted real-engine integration files pass: **47 tests**, including the new detached-worker equivalence/lifecycle tests, current/legacy/pinned families, Normal/Domain, FFA3/FFA4/Tag, cursors, changed final boards, overflow/final-board fallback, a 1,500-command journal and fork recovery. Host replay event-loop p99 was 2.94 ms in the long-journal run.
 - A separate run with two actual prepared bundle identities passes **3 cross-version tests**: current-package verification, edited-board rejection and unknown historical engine-family selection.
 - Clean browser access run: **3 replay E2E tests** plus 5 auth setup checks pass. These cover gzip/identity/q=0, private/public and per-seat projections, seated and nonseated owner access, compressed snapshot compaction, healthy/damaged/backwards seeking, all three seat fields, fly camera position and ring rotation after seeking.
+- A final helper check also passes all 3 replay E2E cases plus the performance probe through the owner route (6 additional measured opens).
 - Final rate-limited experiment: **3 repeats**, each with first/cached 1v1, FFA3 and Tag opens, all verified, gzip and healthy geometry assertions pass (18 measured opens).
 - An additional existing live FFA3 test (`duel-3p-ffa-table.spec.ts:77`) failed its old assertion that turn 3 has no Battle Phase. The installed core offers Battle Phase on turn 3 as required by ADR-0002 R-FFA-NO-ATTACK. It had already mounted all three fields and passed its field/EMZ checks. Its unfinished live duel redirected two later replay page checks; the fresh isolated replay run passes all three tests. The unrelated live-rule test was not changed.
 
