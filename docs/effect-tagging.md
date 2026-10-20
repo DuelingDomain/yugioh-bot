@@ -256,7 +256,7 @@ Publication also permits new IDs and date fills, including an update with no new
 Run the same free step by hand from the checkout used by the local server:
 
 ```bash
-export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
+node --version # Node 22 is required
 prlimit --core=0 -- npm run effects:fill-releases -- --apply
 ```
 
