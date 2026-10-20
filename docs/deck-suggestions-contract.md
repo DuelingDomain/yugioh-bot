@@ -1,7 +1,6 @@
 # Deck Suggestions API
 
-The backend is on `feat/deck-suggestions`, based on `feat/effect-search`.
-The UI worker can use the client functions in
+The deck editor uses the client functions in
 `packages/web/src/components/decks/insights-api.ts`.
 
 ## Capability
@@ -38,6 +37,8 @@ Pass each physical card copy in its section. The deck must have all three
 sections. `deck.deckMaster` and the top-level `deckMaster` are optional
 passcodes. Use the same master in both places. The top-level value takes
 precedence. The request permits at most 100 cards across Main, Extra and Side.
+The host permits one in-flight suggestion request per player and two globally.
+Excess requests return HTTP 429 and can be retried after the active request completes.
 
 Optional fields:
 
