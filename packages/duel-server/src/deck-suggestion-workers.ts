@@ -16,9 +16,12 @@ export class DeckSuggestionWorkers {
       if (this.jobs.length >= 2) throw new Error("Suggestion workers are busy");
       const development = import.meta.url.endsWith(".ts");
       const module = new URL(development ? "./deck-suggestion-worker.ts" : "./deck-suggestion-worker.js", import.meta.url);
+      // Bound each of the two scanners independently; Node reports heap OOM via
+      // the same error/exit path that rejects the job and removes the worker.
+      const resourceLimits = { maxOldGenerationSizeMb: 256 };
       const worker = development
-        ? new Worker(`import('tsx/esm/api').then(({ tsImport }) => tsImport(${JSON.stringify(module.href)}, ${JSON.stringify(import.meta.url)}))`, { eval: true })
-        : new Worker(module);
+        ? new Worker(`import('tsx/esm/api').then(({ tsImport }) => tsImport(${JSON.stringify(module.href)}, ${JSON.stringify(import.meta.url)}))`, { eval: true, resourceLimits })
+        : new Worker(module, { resourceLimits });
       job = { worker }; this.jobs.push(job);
       // An idle worker may exit too. Keep errors handled and never reuse a dead scanner.
       worker.on("error", () => {});
