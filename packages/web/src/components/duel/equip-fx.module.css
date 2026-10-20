@@ -8,6 +8,8 @@
   z-index: var(--duel-z-fx);
   pointer-events: none;
   contain: layout style;
+  /* A hovered hand card is cut out of this layer so the card lies over it (useHandCover in hand-cover.ts). Unset: no cut. */
+  clip-path: var(--hand-cut, none);
 }
 
 .svg {

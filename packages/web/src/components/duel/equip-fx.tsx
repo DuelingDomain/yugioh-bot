@@ -16,6 +16,7 @@
  * are read from the field by delegated listeners, so the zones need no extra handlers.
  */
 import { duelFxClock } from "./fx-clock";
+import { useHandCover } from "./hand-cover";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { zoneKey } from "./constants";
@@ -152,6 +153,7 @@ export type EquipFxProps = {
 
 export function EquipFx({ links, events, duelKey, reducedMotion }: EquipFxProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  useHandCover(overlayRef, true);
   const [pointerZones, setPointerZones] = useState("");
   const [focusZones, setFocusZones] = useState("");
   const [attach, setAttach] = useState<readonly string[]>([]);
