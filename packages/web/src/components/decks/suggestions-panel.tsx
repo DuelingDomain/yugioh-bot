@@ -15,6 +15,14 @@ export const SUGGESTIONS_DEBOUNCE_MS = 600;
 /** A row shows this many cards. The rest wait behind "Show more". */
 export const SUGGESTIONS_ROW_PREVIEW = 4;
 
+const ROW_IDS: DeckSuggestionRow["id"][] = ["archetype", "outside", "extra", "staples"];
+const EMPTY_HINTS: Record<DeckSuggestionRow["id"], string> = {
+  archetype: "No archetype support fits your deck yet.",
+  outside: "No outside support fits your deck yet.",
+  extra: "No Extra Deck card fits your Main Deck yet.",
+  staples: "No staples fit this format and pool yet.",
+};
+
 const ROW_TITLES: Record<DeckSuggestionRow["id"], string> = {
   archetype: "Archetype support",
   outside: "Outside the archetype",
@@ -118,73 +126,66 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
   if (!active) return null;
 
   const updating = !empty && !needsMaster && loaded?.key !== key && failed !== key;
-  let body;
-  if (needsMaster) body = <p className={styles.note}>Choose a Deck Master to see suggestions for this deck.</p>;
-  else if (empty) body = <p className={styles.note}>Add a few Main Deck cards. Suggestions for your deck show here.</p>;
-  else if (loaded == null) {
-    body = failed != null
-      ? <p className={styles.note}>Suggestions are not available right now. <button type="button" className={styles.retry} onClick={() => setRetry((value) => value + 1)}>Try again</button></p>
-      : <div className={styles.skeleton} aria-hidden />;
-  } else {
-    const visible = loaded.rows.filter((row) => row.id === "extra" || row.cards.length > 0);
-    const anyCards = loaded.rows.some((row) => row.cards.length > 0);
-    body = (
-      <>
-        {!anyCards && loaded.rows.every((row) => row.state !== "hint") ? <p className={styles.note}>No suggestions for this deck yet.</p> : null}
-        {visible.map((row) => {
-          const open = expanded.has(row.id);
-          return (
-          <section key={row.id} className={styles.row} aria-labelledby={`suggest-${row.id}`}>
-            <h3 id={`suggest-${row.id}`} className={styles.rowTitle}>{ROW_TITLES[row.id]}</h3>
-            {row.state === "hint"
-              ? <p className={styles.hint}>Add {row.minimumMainCards ?? 40} Main Deck cards to see what your deck can make<span className="num"> ({row.mainCards ?? deck.main.length}/{row.minimumMainCards ?? 40})</span></p>
-              : row.cards.length === 0
-                ? <p className={styles.hint}>No Extra Deck card fits your Main Deck yet.</p>
-                : (
-                  <>
-                  <ul className={styles.grid}>
-                    {(open ? row.cards : row.cards.slice(0, SUGGESTIONS_ROW_PREVIEW)).map((card) => {
-                      const count = deckCount(card);
-                      return (
-                        <li key={card.code} className={styles.cell}>
-                          <button
-                            type="button"
-                            className={styles.card}
-                            aria-label={`${card.name}${count ? `, ${count} in deck` : ""}. ${card.reason}`}
-                            data-un={card.unavailableReason ? "" : undefined}
-                            {...cardProps(card)}
-                            title={`${card.name}: ${card.reason}`}
-                          >
-                            <span className={styles.art}>
-                              <CardArt code={card.code} name={card.name} />
-                              <LimitBadge limit={limit(card)} />
-                            </span>
-                            <span className={styles.text}>
-                              <span className={styles.nameLine}>
-                                <strong className={styles.name}>{card.name}</strong>
-                                {count > 0 ? <span className={cn("num", styles.have)}>×{count}</span> : null}
-                              </span>
-                              <span className={styles.why}>{card.reason}</span>
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  {row.cards.length > SUGGESTIONS_ROW_PREVIEW ? (
-                    <button type="button" className={styles.more} aria-expanded={open}
-                      onClick={() => setExpanded((now) => { const next = new Set(now); if (next.has(row.id)) next.delete(row.id); else next.add(row.id); return next; })}>
-                      {open ? "Show less" : `Show more (${row.cards.length - SUGGESTIONS_ROW_PREVIEW})`}
-                    </button>
-                  ) : null}
-                  </>
-                )}
-          </section>
-          );
-        })}
-      </>
+  // Keep the same responsive four-tile footprint before and after the first answer,
+  // and when a row becomes empty. Expanding a row is an explicit user action.
+  const body = ROW_IDS.map((id) => {
+    const row = loaded?.rows.find((row) => row.id === id);
+    const open = expanded.has(id);
+    const cards = empty || needsMaster ? [] : row?.cards ?? [];
+    const shown = open ? cards : cards.slice(0, SUGGESTIONS_ROW_PREVIEW);
+    const skeleton = !empty && !needsMaster && loaded == null && failed == null;
+    const hint = needsMaster ? "Choose a Deck Master to see suggestions for this deck."
+      : empty ? "Add a few Main Deck cards. Suggestions for your deck show here."
+      : row?.state === "hint" ? `Add ${row.minimumMainCards ?? 40} Main Deck cards to see what your deck can make (${row.mainCards ?? deck.main.length}/${row.minimumMainCards ?? 40})`
+      : EMPTY_HINTS[id];
+    return (
+      <section key={id} className={styles.row} aria-labelledby={`suggest-${id}`}>
+        <h3 id={`suggest-${id}`} className={styles.rowTitle}>{ROW_TITLES[id]}</h3>
+        <div className={styles.slots}>
+          <ul className={styles.grid} aria-hidden={skeleton || !cards.length || undefined}>
+            {Array.from({ length: Math.max(SUGGESTIONS_ROW_PREVIEW, shown.length) }, (_, index) => {
+              const card = shown[index];
+              if (!card) return <li key={`slot-${index}`} className={cn(styles.cell, skeleton && styles.skeleton)} aria-hidden />;
+              const count = deckCount(card);
+              return (
+                <li key={card.code} className={styles.cell}>
+                  <button type="button" className={styles.card}
+                    aria-label={`${card.name}${count ? `, ${count} in deck` : ""}. ${card.reason}`}
+                    data-un={card.unavailableReason ? "" : undefined} {...cardProps(card)}
+                    title={`${card.name}: ${card.reason}`}>
+                    <span className={styles.art}>
+                      <CardArt code={card.code} name={card.name} />
+                      <LimitBadge limit={limit(card)} />
+                    </span>
+                    <span className={styles.text}>
+                      <span className={styles.nameLine}>
+                        <strong className={styles.name}>{card.name}</strong>
+                        {count > 0 ? <span className={cn("num", styles.have)}>×{count}</span> : null}
+                      </span>
+                      <span className={styles.why}>{card.reason}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {!cards.length && !skeleton ? (
+            <p className={styles.hint}>
+              {failed === key && id === "archetype" ? <>Suggestions are not available right now. <button type="button" className={styles.retry} onClick={() => setRetry((value) => value + 1)}>Try again</button></> : hint}
+            </p>
+          ) : null}
+        </div>
+        <div className={styles.rowFooter}>
+          {cards.length > SUGGESTIONS_ROW_PREVIEW ? (
+            <button type="button" className={styles.more} aria-expanded={open}
+              onClick={() => setExpanded((now) => { const next = new Set(now); if (next.has(id)) next.delete(id); else next.add(id); return next; })}>
+              {open ? "Show less" : `Show more (${cards.length - SUGGESTIONS_ROW_PREVIEW})`}
+            </button>
+          ) : null}
+        </div>
+      </section>
     );
-  }
+  });
 
   return (
     <section className={styles.panel} aria-label="Suggestions" aria-busy={updating || undefined} data-testid="deck-suggestions">

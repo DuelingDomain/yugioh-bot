@@ -92,7 +92,7 @@ const FACETS = { archetypes: [], banlists: Object.fromEntries(DUEL_BANLIST_OPTIO
 
 // ---- Request log and answer control ---------------------------------------------------------------
 const insightRequests: { deck: { main: number[] }; at: number }[] = [];
-const control = { delayMs: 0, deck: "small" as "small" | "full" | "empty" };
+const control = { delayMs: 0, emptyRows: false, deck: "small" as "small" | "full" | "empty" };
 const json = (status: number, data: unknown) => ({ status, contentType: "application/json", body: JSON.stringify(data) });
 
 function cardImage(code: string) {
@@ -123,7 +123,8 @@ async function api(method: string, url: URL, body: any) {
     if (body.op === "suggestRows") {
       insightRequests.push({ deck: body.deck, at: Date.now() });
       if (control.delayMs) await new Promise((done) => setTimeout(done, control.delayMs));
-      return json(200, { rows: ROW_FIXTURE(body.deck.main.length), version: 1 });
+      const rows = ROW_FIXTURE(body.deck.main.length);
+      return json(200, { rows: control.emptyRows ? rows.map(row => ({ ...row, cards: [] })) : rows, version: 1 });
     }
     return json(200, { effectSearchEnabled: true, summary: null });
   }
@@ -220,6 +221,33 @@ try {
   // Positions are relative to the panel, so a scroll of the list (hover scrolls a tile into view) is not a move.
   const tileBoxes = () => panel.evaluate((root: HTMLElement) => { const base = root.getBoundingClientRect(); return [...root.querySelectorAll("button")].map((node) => { const box = node.getBoundingClientRect(); return [Math.round(box.x - base.x), Math.round(box.y - base.y), Math.round(box.width), Math.round(box.height)]; }); });
   const rowTitles = () => panel.locator("h3").allTextContents();
+
+  // The list below keeps its content position on the initial response and when rows empty.
+  const listTop = () => panel.evaluate((root: HTMLElement) => {
+    const list = root.nextElementSibling!, parent = root.parentElement!;
+    return list.getBoundingClientRect().top - parent.getBoundingClientRect().top + parent.scrollTop;
+  });
+  for (const viewport of VIEWPORTS.filter(viewport => [1366, 1920].includes(viewport.width))) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    control.delayMs = 1800;
+    await open("small");
+    await panel.locator('section[aria-labelledby="suggest-archetype"]').waitFor();
+    const before = await listTop();
+    await panel.locator("button").first().waitFor({ state: "visible", timeout: 15_000 });
+    const after = await listTop();
+    check("layout", `${viewport.name}: list top is stable on first answer`, Math.abs(after - before) <= 1, { before, after });
+    check("layout", `${viewport.name}: all four slots are present`, await panel.locator("section").count() === 4);
+    control.emptyRows = true; control.delayMs = 0;
+    await panel.locator('section[aria-labelledby="suggest-archetype"] button').first().dblclick();
+    await panel.getByText("No archetype support fits your deck yet.").waitFor({ timeout: 10_000 });
+    const emptyTop = await listTop();
+    check("layout", `${viewport.name}: list top is stable when all rows empty`, Math.abs(emptyTop - after) <= 1, { after, emptyTop });
+    check("layout", `${viewport.name}: empty rows retain four slots`, await panel.locator("section").count() === 4);
+    await shot(`stable-empty-${viewport.name}`);
+    control.emptyRows = false;
+  }
+  control.delayMs = 0;
+  await page.setViewportSize({ width: 1920, height: 1080 });
 
   // a. A small deck: three ready rows, the Extra row as a hint.
   await open("small");
