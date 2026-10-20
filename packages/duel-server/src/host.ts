@@ -632,10 +632,11 @@ export function createDuelHost(options: {
     }
   }
 
-  async function validateDeckMasterWrite(mode: DuelMode, deck: DuelDeck): Promise<void> {
+  async function validateDeckMasterWrite(mode: DuelMode, deck: DuelDeck, cacheOnly = false): Promise<void> {
     if (mode !== "domain" || deck?.deckMaster === undefined) return;
     // Resolve imports and artwork ids, but do not require a complete library deck.
-    const master = await normalizeImportedDeck({ main: [], extra: [], side: [], deckMaster: deck.deckMaster }, options.dataDirectory, options.db);
+    const master = await normalizeImportedDeck({ main: [], extra: [], side: [], deckMaster: deck.deckMaster }, options.dataDirectory, options.db,
+      cacheOnly ? { cacheOnly: true } : {});
     validateDeckMasterType(mode, master, options.dataDirectory);
   }
 
@@ -2257,8 +2258,10 @@ export function createDuelHost(options: {
       throw error;
     }
     assertDeckListSize(body.deck);
-    await validateDeckMasterWrite(mode, body.deck as DuelDeck);
-    const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
+    // The local card catalog only: a card the engine and the catalog both lack stays as it is, and never starts an
+    // outside card lookup while the player waits. The engine rejects a card it does not know.
+    await validateDeckMasterWrite(mode, body.deck as DuelDeck, true);
+    const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true, cacheOnly: true });
     await validateSessionDeck(mode, deck, settings, "1v1");
     lap("deckChecksMs");
     let botDeck: DuelDeck;
@@ -3855,7 +3858,10 @@ export function createDuelHost(options: {
         // Fork reads stay queued and pass both access checks, even if a saved opening exists.
         const startupRoom = fork ? null : startingRoom(body);
         if (startupRoom) return Response.json(startupRoom, { headers: { "cache-control": "no-store" } });
-        const key = body.op === "replay-fork" ? `fork-owner:${body.guildId}:${body.playerId}` : typeof body.slug === "string" ? body.slug : "catalog";
+        const key = body.op === "replay-fork" ? `fork-owner:${body.guildId}:${body.playerId}`
+          // A test duel start has its own queue: card searches of the editor must not hold it back.
+          : body.op === "start-test-duel" ? `test-duel:${body.guildId}:${body.playerId}`
+          : typeof body.slug === "string" ? body.slug : "catalog";
         // Diagnostics skip the queue; GitHub status reads must not block card editor requests.
         const bounded = ["replay", "owner-replay", "replay-fork", "fork-restart", "fork-cancel", "fork-list"].includes(String(body.op));
         const deadline = new AbortController();
