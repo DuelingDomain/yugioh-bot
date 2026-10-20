@@ -5,7 +5,7 @@ import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { createScriptErrorRecorder } from "./script-error-store.js";
-import { scriptErrorModeFromEnv } from "./script-errors.js";
+import { scriptErrorModeFromEnv, type DuelScriptError, type DuelScriptFatalError } from "./script-errors.js";
 import { createHash, randomBytes } from "node:crypto";
 import { readSignedRequest } from "@yugidraft/shared/internal-auth";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -141,7 +141,7 @@ const DUEL_OPS = new Set([
   "engine-data-status", "capabilities", "view", "start", "respond", "deck", "validate-deck", "cards",
   "card-details", "card-artworks", "card-query", "card-facets", "surrender", "add-bot", "archive", "cancel",
   "replay", "owner-replay", "replay-fork", "fork-list", "fork-restart", "fork-cancel", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
-  "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset", "start-test-duel",
+  "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset", "start-test-duel", "warm-test-duel",
   "report", "debug-trace", "bug-context", "chain-mode", "validate-deck-master",
 ]);
 
@@ -428,6 +428,46 @@ export function createDuelHost(options: {
       if (session && isFinishedTable(session)) release.releasePlayers();
     }
   }
+  /**
+   * One idle engine thread with the card data loaded, for the next test duel. The deck editor asks for it when the
+   * player opens the Test duel pop-up, so the start skips the thread startup and the card data load. It sits outside
+   * the worker pool, closes itself when nobody uses it, and a game takes it over with `adopt`.
+   */
+  let spareWorker: { worker: GameWorker; timer: ReturnType<typeof setTimeout> } | undefined;
+  const SPARE_WORKER_IDLE_MS = 120_000;
+  function dropSpareWorker(): void {
+    const spare = spareWorker;
+    spareWorker = undefined;
+    if (!spare) return;
+    clearTimeout(spare.timer);
+    void spare.worker.close().catch(() => {});
+  }
+  function prepareSpareWorker(): void {
+    if (stopped || options.createWorker) return;
+    if (spareWorker?.worker.running) {
+      clearTimeout(spareWorker.timer);
+      spareWorker.timer = setTimeout(dropSpareWorker, SPARE_WORKER_IDLE_MS);
+      spareWorker.timer.unref();
+      return;
+    }
+    const worker: GameWorker = new GameWorker(undefined, undefined, {
+      heapMb: options.workerHeapMb ?? limits.heapMb,
+      onExit: () => { if (spareWorker?.worker === worker) dropSpareWorker(); },
+    });
+    const timer = setTimeout(dropSpareWorker, SPARE_WORKER_IDLE_MS);
+    timer.unref();
+    spareWorker = { worker, timer };
+    worker.warm(options.dataDirectory).catch(() => { if (spareWorker?.worker === worker) dropSpareWorker(); });
+  }
+  function takeSpareWorker(): GameWorker | undefined {
+    const spare = spareWorker;
+    spareWorker = undefined;
+    if (!spare) return undefined;
+    clearTimeout(spare.timer);
+    if (!spare.worker.running) return undefined;
+    return spare.worker;
+  }
+
   async function spawn(session?: DuelSession, spawnOptions: {
     duelRef?: number | (() => number | undefined);
     recordErrors?: () => boolean;
@@ -450,12 +490,12 @@ export function createDuelHost(options: {
       const duelRef = spawnOptions.duelRef ?? session?.id;
       const recordErrors = spawnOptions.recordErrors ?? (() => true);
       const table = spawnOptions.table ?? session?.slug;
-      const worker = options.createWorker?.() ?? new GameWorker(
-        duelRef === undefined ? undefined : (error) => {
+      const callbacks = {
+        onScriptError: duelRef === undefined ? undefined : (error: DuelScriptError) => {
           const duelId = typeof duelRef === "function" ? duelRef() : duelRef;
           if (duelId !== undefined && recordErrors()) recordScriptError(duelId, error);
         },
-        (error) => {
+        onFatalScriptError: (error: DuelScriptFatalError) => {
           const duelId = typeof duelRef === "function" ? duelRef() : duelRef;
           if (duelId === undefined || !recordErrors()) return;
           const fork = options.db.prepare<[number], { kind: string }>("select kind from duels where id = ?").get(duelId)?.kind === "replay-fork";
@@ -465,7 +505,14 @@ export function createDuelHost(options: {
             ...(fork ? { duelKind: "replay-fork" } : {}),
             ...(tableSlug ? { table: tableSlug } : {}) } });
         },
-        { table, heapMb: options.workerHeapMb ?? limits.heapMb, onExit: () => { release(); reservations.delete(game); } },
+        table,
+        onExit: () => { release(); reservations.delete(game); },
+      };
+      // A test duel takes the idle thread that the deck editor prepared, when there is one.
+      const spare = session?.testDuel === true && !options.createWorker ? takeSpareWorker() : undefined;
+      if (spare) spare.adopt(callbacks);
+      const worker = spare ?? options.createWorker?.() ?? new GameWorker(callbacks.onScriptError, callbacks.onFatalScriptError,
+        { table, heapMb: options.workerHeapMb ?? limits.heapMb, onExit: callbacks.onExit },
       );
       const game = limitWorkerOperations(worker, options.opTimeoutMs ?? limits.opTimeoutMs, () => {
         release();
@@ -3203,6 +3250,12 @@ export function createDuelHost(options: {
       return startPreset(body, guildId, actor);
     }
     if (op === "start-test-duel") return startTestDuel(body, guildId, actor);
+    if (op === "warm-test-duel") {
+      // The deck editor opened the Test duel pop-up: get the engine files and one engine thread ready for the start.
+      warmStartResources();
+      prepareSpareWorker();
+      return { ok: true };
+    }
     if (op === "report" || op === "debug-trace") requireScenarios();
     if (op === "card-artworks") {
       if (!Array.isArray(body.codes) || body.codes.length !== 1
@@ -3910,6 +3963,7 @@ export function createDuelHost(options: {
     async close(): Promise<void> {
       stopped = true;
       pool.close();
+      dropSpareWorker();
       clearInterval(timer);
       clearInterval(retentionTimer);
       clearTimeout(retentionStartup);

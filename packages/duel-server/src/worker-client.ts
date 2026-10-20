@@ -81,7 +81,7 @@ export interface DuelGameWorker {
 /** A worker owns exactly one core instance; no hidden state leaves via broadcasts. */
 export class GameWorker implements DuelGameWorker {
   private readonly worker: Worker;
-  private readonly spawnedAt = performance.now();
+  private spawnedAt = performance.now();
   private createTimings: (WorkerCreateTimings & { workerSpawnMs: number }) | null = null;
   private sequence = 0;
   private stopped = false;
@@ -93,11 +93,17 @@ export class GameWorker implements DuelGameWorker {
   /** Index of the oldest prompt in the ring. Writes never shift the retained entries. */
   private promptStart = 0;
 
-  private readonly table?: string | (() => string | undefined);
+  private table?: string | (() => string | undefined);
+  private onScriptError?: (error: DuelScriptError) => void;
+  private onFatalScriptError?: (error: DuelScriptFatalError) => void;
+  private onExit?: () => void;
 
   constructor(onScriptError?: (error: DuelScriptError) => void, onFatalScriptError?: (error: DuelScriptFatalError) => void,
     options: { heapMb?: number; onExit?: () => void; table?: string | (() => string | undefined) } = {}) {
     this.table = options.table;
+    this.onScriptError = onScriptError;
+    this.onFatalScriptError = onFatalScriptError;
+    this.onExit = options.onExit;
     const development = import.meta.url.endsWith(".ts");
     const module = new URL(development ? "./worker.ts" : "./worker.js", import.meta.url);
     const resourceLimits = { maxOldGenerationSizeMb: options.heapMb ?? workerLimitsFromEnv().heapMb };
@@ -111,8 +117,8 @@ export class GameWorker implements DuelGameWorker {
           // Includes thread startup, module imports and transport overhead, before the first create reply.
           workerSpawnMs: Math.max(0, performance.now() - this.spawnedAt - message.createTimings.cardDbLoadMs - message.createTimings.engineCreateMs) };
       }
-      for (const error of message.scriptErrors ?? []) onScriptError?.(error);
-      for (const error of message.fatalScriptErrors ?? []) onFatalScriptError?.(error);
+      for (const error of message.scriptErrors ?? []) this.onScriptError?.(error);
+      for (const error of message.fatalScriptErrors ?? []) this.onFatalScriptError?.(error);
       if (message.ok && message.info) this.info = message.info;
       if (message.ok && message.promptTrace) {
         const latest = this.prompts[(this.promptStart + this.prompts.length - 1) % PROMPT_LOG_LIMIT];
@@ -143,8 +149,26 @@ export class GameWorker implements DuelGameWorker {
     this.worker.on("error", (error) => this.fail(error instanceof Error ? error : new Error(String(error))));
     this.worker.on("exit", (code) => {
       this.fail(new Error(`Engine worker exited (${code})`));
-      options.onExit?.();
+      this.onExit?.();
     });
+  }
+
+  /**
+   * Gives an idle, warmed thread to a game: the callbacks of the game replace the ones it was built with, and the
+   * startup clock restarts, so the startup timings only count what the game still waits for.
+   */
+  adopt(callbacks: { onScriptError?: (error: DuelScriptError) => void; onFatalScriptError?: (error: DuelScriptFatalError) => void;
+    onExit?: () => void; table?: string | (() => string | undefined) }): void {
+    this.onScriptError = callbacks.onScriptError;
+    this.onFatalScriptError = callbacks.onFatalScriptError;
+    this.onExit = callbacks.onExit;
+    this.table = callbacks.table;
+    this.spawnedAt = performance.now();
+  }
+
+  /** Loads the card data in the thread now (the thread is idle). */
+  warm(dataDirectory: string): Promise<void> {
+    return this.request({ op: "warm", dataDirectory });
   }
 
   private reportError(error: Error) {
