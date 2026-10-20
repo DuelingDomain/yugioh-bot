@@ -1,5 +1,6 @@
 import {rankArchetypeRole} from "../cards/effects/role-ranking.js";
 import {roleContext,archetypeMember} from "../cards/effects/archetype-roles.js";
+import { describeFormat } from "../cards/effects/format-query.js";
 import { formatStaples, stapleReason } from "../cards/effects/staples.js";
 import { cardEraBoost, deriveCardEra, matchesReleased, compareNewest, cardReleaseInfo, selectedReleaseDate, type ReleasedRange, type CardEra, type ReleaseDates } from "../cards/effects/releases.js";
 import type Database from "better-sqlite3";
@@ -189,6 +190,9 @@ export function createCardInsightService(db: Database.Database, options: {
         released: { ...opts.released, region: opts.released?.region ?? reading.query.released?.region } };
       return withCatalog(catalog => {
         if (reading.query.intent?.kind === "outside") {
+          // The suggestion worker has one authoritative scope. Do not display an extra interpreted
+          // format/date filter over rows from a different scope; unsupported combinations fail closed.
+          if (reading.query.formatFilter || reading.query.released || reading.query.sort) return {reading,cards:[],total:0};
           const archetype = reading.query.intent.archetype;
           const inferredMain: number[] = [];
           if (!opts.suggestionContext?.deck) for (const { card } of catalog.suggestionCandidates()) {
@@ -242,7 +246,7 @@ export function createCardInsightService(db: Database.Database, options: {
         const relax: Array<{ chip: string; count: number }> = [];
         if (!total) {
           for (const chip of reading.chips) {
-            if (chip.startsWith("Text:") || chip.startsWith("Sort:")) continue;
+            if (chip.startsWith("Text:") || chip.startsWith("Sort:") || describeFormat(reading.query.formatFilter).includes(chip)) continue;
             const query = omitReadingChips(reading, [chip])!.query;
             let count = 0;
             for (const candidate of catalog.candidates(pool)) if (allowed(candidate, opts) && match(candidate, query) !== null) count++;

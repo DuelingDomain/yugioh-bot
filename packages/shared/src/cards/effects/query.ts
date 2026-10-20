@@ -708,8 +708,7 @@ export function omitReadingChips(reading: Interpretation, omitted: readonly stri
   if (removed({ sort: query.sort })) delete query.sort;
   if (removed({ card: query.card })) query.card = emptyObject();
   if (query.intent?.kind === "archetype_role" && removed({ roles: query.roles })) {
-    query.card.archetypes.push(query.intent.archetype);
-    delete query.intent;
+    query.intent.role = "any";
   }
   query.roles = query.roles.filter(role => !removed({ roles: [role] }));
   if (removed({ quick: query.quick })) query.quick = false;

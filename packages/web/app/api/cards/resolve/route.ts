@@ -80,7 +80,7 @@ async function handlePOST(request: Request) {
     const outside = !input.exact && searchIntentTarget(input.text)?.kind === "outside";
     if (outside && !deckSuggestionsEnabled()) return NextResponse.json({ deckSuggestionsEnabled: false, error: "deck_suggestions_disabled" }, { status: 404 });
     let result: CardEffectSearchResult;
-    if (outside) {
+    if (outside && !readFormatQuery(input.text).filter) {
       const query = parseDeckSuggestionQuery(input);
       if (!query || query.op !== "effectSearch") return NextResponse.json({ error: "Invalid outside search context" }, { status: 400 });
       const loaded = await loadDeckSuggestions({ guildId: env.discordGuildId, userId: actor.userId, query });

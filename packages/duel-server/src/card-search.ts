@@ -328,7 +328,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
     if (format.format==="domain") formatChecks.push(entry=>options.formatAllowed?.has(entry.card.canonicalPasscode??entry.card.code)??false);
     if (format.format==="genesys" && options.formatAllowed) formatChecks.push(entry=>options.formatAllowed!.has(entry.card.canonicalPasscode??entry.card.code));
   }
-  const semantic = !!(reading?.query.intent || reading?.query.formatFilter || reading?.query.recruiter);
+  const semantic = !!(reading?.query.intent || reading?.query.formatFilter || reading?.query.recruiter || reading?.query.released || reading?.query.sort);
   const formatReason = (entry: Entry, reason: string): string => {
     if (!format) return reason;
     const labels=describeFormat(format).map(label=>label.replace(/^(?:Pool|Limit): /,""));
@@ -388,7 +388,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const relax: Array<{ chip: string; count: number }> = [];
   if (reading && !effectFound.length && !sorted.length) {
     for (const chip of reading.chips) {
-      if (chip.startsWith("Text:") || chip.startsWith("Sort:")) continue;
+      if (chip.startsWith("Text:") || chip.startsWith("Sort:") || describeFormat(reading.query.formatFilter).includes(chip)) continue;
       const relaxed = effects!.readQuery(query.text, [...(query.effectOmit ?? []), chip]);
       if (!relaxed) continue;
       let count = 0;

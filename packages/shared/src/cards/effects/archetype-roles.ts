@@ -2,7 +2,7 @@ import { compactEffectName } from "./name-match.js";
 import type { Card } from "./card.js";
 import type { MatchTags } from "./effect-match.js";
 import type { CardTags } from "./tags.js";
-export type ArchetypeRole = CardTags["roles"][number] | "staples";
+export type ArchetypeRole = CardTags["roles"][number] | "staples" | "any";
 export interface RoleContext { searchHeavy: boolean; graveyard: boolean }
 export function roleContext(cards: Iterable<{ tags?: MatchTags }>): RoleContext {
   let searchers=0, graveyard=false;
@@ -13,6 +13,7 @@ export function roleContext(cards: Iterable<{ tags?: MatchTags }>): RoleContext 
   return {searchHeavy:searchers>=2,graveyard};
 }
 export function hasRole(tags: MatchTags|undefined, role: ArchetypeRole): boolean {
+  if (role === "any") return true;
   const roles = role === "staples" ? ["hand_trap", "board_breaker", "negation", "removal", "mass_removal", "backrow_removal"]
     : role === "removal" ? ["removal", "mass_removal", "backrow_removal"]
     : role === "board_breaker" ? ["board_breaker", "mass_removal"] : [role];

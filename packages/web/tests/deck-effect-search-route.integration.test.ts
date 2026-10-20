@@ -222,3 +222,17 @@ it('routes format searches through the signed host from both web entry points',a
  expect(found.total).toBe(expected.effectTotal);expect(found.cards.map((card:{passcode:number})=>card.passcode)).toEqual(expected.effectHits.map((card:DeckCardInfo)=>card.code));
  expect(found.reading.chips).toContain('Pool: TCG only');
 });
+
+
+it("fails closed for Outside combined with explicit format words in every search route",async()=>{
+  const input={op:"effectSearch",text:"outside Blue-Eyes legal in Genesys",deck:{main:[89631139,89631139,89631139],extra:[],side:[]}};
+  const deck=await post(input);
+  expect(deck.status).toBe(200);
+  expect(await deck.json()).toMatchObject({effectHits:[],effectTotal:0,reading:{query:{formatFilter:{format:"genesys"}}}});
+  for(const path of ["../app/api/cards/insights/route","../app/api/cards/resolve/route"]){
+    const {POST}=await import(path);
+    const response=await POST(new Request("http://web/api/cards/insights",{method:"POST",body:JSON.stringify(input)}));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({cards:[],total:0,reading:{query:{formatFilter:{format:"genesys"}}}});
+  }
+});

@@ -223,7 +223,7 @@ export function CardBrowser({
           void queryDeckCards({ ...current, format: genesys ? mode === "domain" ? "genesys-domain" : "genesys" : mode, deckMaster: suggest?.deckMaster ?? undefined, ...(wantsEffects ? {} : { exact: true }), passcodes: poolCards.map(card => card.canonicalPasscode ?? card.code), offset: 0, effectOffset: 0, limit: PAGE }, controller.signal, { mode }).then(result => {
             if (controller.signal.aborted) return;
             capabilityRef.current?.(result.effectSearchEnabled === true);
-            const names = (result.reading?.query.intent || result.reading?.query.formatFilter || result.reading?.query.recruiter) ? result.cards : result.reading ? queryPoolCards(poolCards, { ...current, scope: "name" }, (code) => archetypesRef.current.find((item) => item.codes.includes(code))?.name) : found;
+            const names = (result.reading?.query.intent || result.reading?.query.formatFilter || result.reading?.query.recruiter || result.reading?.query.released || result.reading?.query.sort) ? result.cards : result.reading ? queryPoolCards(poolCards, { ...current, scope: "name" }, (code) => archetypesRef.current.find((item) => item.codes.includes(code))?.name) : found;
             setResults({ ...result, key, cards: names, total: names.length, error: null });
             onCatalogRef.current(result.effectHits ?? []);
           }).catch(() => { /* Pool names remain available during host outages. */ });

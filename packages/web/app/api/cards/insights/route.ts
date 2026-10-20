@@ -25,16 +25,16 @@ export async function POST(request: Request) {
     const input = body.value;
     const outside = (input.op === "effectSearch" || input.op === "read") && !("exact" in input && input.exact) && searchIntentTarget(input.text)?.kind === "outside";
     if ((input.op === "suggestRows" || outside) && !deckSuggestionsEnabled()) return NextResponse.json({ deckSuggestionsEnabled: false, error: "deck_suggestions_disabled" }, { status: 404, headers: { "Cache-Control": "private, no-store" } });
+    if (input.op==="effectSearch" && !input.exact && readFormatQuery(input.text).filter) {
+      const loaded=await loadFormatEffectSearch(input); if(!loaded.ok)return loaded.response;
+      return NextResponse.json({effectSearchEnabled:true,...loaded.result},{headers:{"Cache-Control":"private, no-store"}});
+    }
     if (input.op === "suggestRows" || (input.op === "effectSearch" && outside)) {
       const query = parseDeckSuggestionQuery(input);
       if (!query) return NextResponse.json({ error: "Invalid deck suggestion query" }, { status: 400 });
       const found = await loadDeckSuggestions({ guildId: env.discordGuildId, userId: actor.userId, query });
       if (!found.ok) return found.response;
       return NextResponse.json({ effectSearchEnabled: true, deckSuggestionsEnabled: true, ...found.result }, { headers: { "Cache-Control": "private, no-store" } });
-    }
-    if (input.op==="effectSearch" && !input.exact && readFormatQuery(input.text).filter) {
-      const loaded=await loadFormatEffectSearch(input); if(!loaded.ok)return loaded.response;
-      return NextResponse.json({effectSearchEnabled:true,...loaded.result},{headers:{"Cache-Control":"private, no-store"}});
     }
     const service = createCardInsightService(getDb());
     let data: object;

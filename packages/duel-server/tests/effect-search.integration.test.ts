@@ -939,6 +939,7 @@ it('applies release words to real cards, including usage-ranked results in both 
     expect(shared.total).toBeGreaterThan(0);
     expect(shared.cards.every(card=>!!card.release?.date && (!from||card.release.date>=from) && card.release.date<=to)).toBe(true);
   }
+  expect(search('newest').cards).toEqual([]);
   const newest=search('newest').effectHits!;
   expect(newest.length).toBeGreaterThan(0);
   expect(newest.map(card=>card.release!.date)).toEqual(newest.map(card=>card.release!.date).sort().reverse());
@@ -956,10 +957,10 @@ it('removes one format constraint or a role constraint without hidden filters',(
   const reading=effects.readQuery('Genesys under 10 points', ['Genesys: under 10 points'])!;
   expect(reading.query.formatFilter).toEqual({format:'genesys'});
   expect(reading.chips).toEqual(['Legal in Genesys']);
-  const role=search('Blue-Eyes hand traps',['Blue-Eyes White Dragon','Ash Blossom & Joyous Spring'].map(code),{effectOmit:['Role: hand trap']});
-  expect(role.reading?.query.intent).toBeUndefined();
+  const role=search('Blue-Eyes hand traps',['Blue-Eyes White Dragon','Ash Blossom & Joyous Spring','Dark Magician'].map(code),{effectOmit:['Role: hand trap']});
+  expect(role.reading?.query.intent).toEqual({kind:'archetype_role',archetype:'Blue-Eyes',role:'any'});
   expect(role.reading?.query.roles).toEqual([]);
-  expect(role.effectHits?.map(card=>card.name)).toContain('Blue-Eyes White Dragon');
+  expect(role.effectHits?.map(card=>card.name)).toEqual(['Blue-Eyes White Dragon']);
 });
 it('ranks native cards before compatible measured cards for each requested archetype and role',()=>{
   const evidence: Record<string,unknown>={};
