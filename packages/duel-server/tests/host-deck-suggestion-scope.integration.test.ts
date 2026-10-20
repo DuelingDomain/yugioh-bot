@@ -33,6 +33,8 @@ const cards = [
   { code: 1030, name: "Master Variant", type: 0x21 },
   { code: 1040, name: "Shared one", type: 0x21 },
   { code: 1041, name: "Shared two", type: 0x21 },
+  { code: 1050, name: "Link Master", type: 0x4000021 },
+  { code: 1051, name: "Pendulum Master", type: 0x1000021 },
   { code: 55144522, name: "Pot of Greed", type: 0x2 },
   { code: 83764718, name: "Monster Reborn", type: 0x2 },
 ];
@@ -125,6 +127,12 @@ describe("authoritative deck suggestion scope", () => {
     const invalid = await post({ suggestionFormat: "domain", deckMaster: SPELL });
     expect(invalid.status).toBe(400);
     expect(invalid.data.error).toContain("Spell or Trap");
+    for (const deckMaster of [1050, 1051]) {
+      expect((await post({ suggestionFormat: "domain", deckMaster })).status).toBe(200);
+      const genesys = await post({ suggestionFormat: "genesys-domain", deckMaster });
+      expect(genesys.status).toBe(400);
+      expect(genesys.data.error).toContain("Genesys does not allow Link or Pendulum Monsters");
+    }
   });
 
   it("rejects unknown banlists even for Genesys, and Genesys otherwise ignores competitive lists", async () => {
@@ -134,6 +142,7 @@ describe("authoritative deck suggestion scope", () => {
     const genesys = await post({ suggestionFormat: "genesys" });
     expect(genesys.status).toBe(200);
     expect(genesys.data.allowed).toContain(55144522);
+    for (const code of [1050, 1051]) expect(genesys.data.allowed).not.toContain(code);
     expect(genesys.data.limits).toEqual({});
   });
 
