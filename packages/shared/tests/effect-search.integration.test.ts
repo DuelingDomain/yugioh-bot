@@ -499,7 +499,50 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
   }, 60_000);
 });
 
-it('finishes through a slow durable GitHub store without leaving a reserved row', async () => {
+it('bounds the caller while a slow reservation finishes and is released without cancelling CAS', async () => {
+  const context = await readerFixture();
+  const signals: (AbortSignal | undefined)[] = [];
+  const delay = () => new Promise(resolve => setTimeout(resolve, 1500));
+  const store: typeof context.store = {
+    read: async signal => { signals.push(signal); await delay(); return context.store.read(); },
+    compareAndSwap: async (revision, next, signal) => {
+      signals.push(signal); await delay(); return context.store.compareAndSwap(revision, next);
+    },
+  };
+  try {
+    const started = performance.now();
+    const result = await context.read('slow reservation', 'user', { store });
+    const elapsed = performance.now() - started;
+    console.info('SLOW_LEDGER_CALLER_MS', elapsed);
+    expect(elapsed).toBeLessThan(3500);
+    expect(result).toBeNull();
+    await vi.waitFor(() => {
+      expect(context.db.prepare('SELECT phrase FROM effect_readings').all()).toEqual([]);
+      expect(context.durable().runtime).toEqual([]);
+    }, { timeout: 8000 });
+    expect(context.calls()).toBe(0);
+    expect(signals.every(signal => !signal?.aborted)).toBe(true);
+  } finally { await context.close(); }
+}, 15000);
+
+it('returns a paid reading without waiting for a slow settlement', async () => {
+  const context = await readerFixture();
+  let writes = 0;
+  const store: typeof context.store = { ...context.store, compareAndSwap: async (revision, next, signal) => {
+    if (++writes === 3) await new Promise(resolve => setTimeout(resolve, 4000));
+    expect(signal?.aborted).toBe(false);
+    return context.store.compareAndSwap(revision, next);
+  } };
+  try {
+    const started = performance.now();
+    expect(await context.read('slow settlement', 'user', { store })).not.toBeNull();
+    expect(performance.now() - started).toBeLessThan(3500);
+    await vi.waitFor(() => expect(context.durable().runtime?.map(row => row.state)).toEqual(['settled']), { timeout: 6000 });
+    expect(context.calls()).toBe(1);
+  } finally { await context.close(); }
+}, 10000);
+
+it('returns before a slow durable GitHub read without leaving a reserved row', async () => {
   const context = await readerFixture();
   const { createServer } = await import('node:http');
   const { RuntimeLedgerStore } = await import('../src/cards/effects/reading-fallback.js');
@@ -536,9 +579,12 @@ it('finishes through a slow durable GitHub store without leaving a reserved row'
   try {
     const port = (server.address() as import('node:net').AddressInfo).port;
     const store = new RuntimeLedgerStore('fixture/repo', 'fixture-token', undefined, { baseUrl: `http://127.0.0.1:${port}`, allowLoopback: true });
-    expect(await context.read('slow GitHub store', 'user', { store })).not.toBeNull();
-    expect(context.calls()).toBe(1);
-    expect(ledgers.get(head)!.runtime?.map(row => row.state)).toEqual(['settled']);
+    const started = performance.now();
+    expect(await context.read('slow GitHub store', 'user', { store })).toBeNull();
+    expect(performance.now() - started).toBeLessThan(3500);
+    await vi.waitFor(() => expect(context.db.prepare('SELECT phrase FROM effect_readings').all()).toEqual([]), { timeout: 8000 });
+    expect(context.calls()).toBe(0);
+    expect(ledgers.get(head)!.runtime ?? []).toEqual([]);
   } finally {
     await new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); });
     await context.close();
