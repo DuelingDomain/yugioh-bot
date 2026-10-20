@@ -22,7 +22,11 @@ function installFixtureFetch(read: () => string) {
       // The e2e proofs read what the room sent (an answer, a precheck): `window.__previewWrites`.
       const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
       const sent = ((window as unknown as { __previewWrites?: string[] }).__previewWrites ??= []);
-      if (method.toUpperCase() !== "GET") sent.push(`${method} ${path}`);
+      if (method.toUpperCase() !== "GET") {
+        sent.push(`${method} ${path}`);
+        // The body too (an answer's chosen card): `window.__previewBodies`.
+        ((window as unknown as { __previewBodies?: string[] }).__previewBodies ??= []).push(typeof init?.body === "string" ? init.body : "");
+      }
       return Promise.resolve(json("{}"));
     }
     return real(input, init);

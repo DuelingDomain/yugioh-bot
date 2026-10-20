@@ -76,6 +76,7 @@ import {
 import { cardFrame, handGhostFrame, labelAnchor, type CardFrame } from "./chain-frame";
 import { buildPanelView, buildStripView, chainOutcomes, rememberTargetNames, type TargetMemory, type Who } from "./chain-narrate";
 import { ChainGlyph } from "./chain-glyph";
+import { useHandCover } from "./hand-cover";
 import { ChainPanel, ChainStrip } from "./chain-panel";
 import { CHAIN_PANEL_TIMING } from "./duel-timing";
 import panelStyles from "./chain-panel.module.css";
@@ -422,6 +423,9 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   targetLinksRef.current = targetLinks;
   const overlayRef = useRef<HTMLDivElement>(null);
   const frontRef = useRef<HTMLDivElement>(null);
+  // A hovered hand card lies over the ring, the badges and the callout (hand-cover.ts).
+  useHandCover(overlayRef, true);
+  useHandCover(frontRef, true);
   const panelRef = useRef<HTMLElement>(null);
   const reportChainSize = useContext(ChainRoomContext);
   const measuredStrip = useRef("");
