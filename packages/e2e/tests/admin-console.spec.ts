@@ -109,7 +109,16 @@ test("People lists a signed-in player with the page they are on", async ({ brows
   } finally { await carol.close(); await alice.close(); }
 });
 
-test("Duels: live tables with seats and turns, the draft with progress, and duels that ended in the last hour", async ({ browser }) => {
+/**
+ * A browser time zone where it is about noon now, so every floor duel (started in the last few hours) is "today"
+ * whatever the clock of the machine says. Etc/GMT-5 is UTC+5.
+ */
+function noonZone(): string {
+  const offset = 12 - new Date().getUTCHours();
+  return offset === 0 ? "Etc/UTC" : `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
+}
+
+test("Duels: live tables with seats and turns, the draft with progress, and a seat opens the person", async ({ browser }) => {
   const context = await browser.newContext({ storageState: authFile("p1") });
   try {
     const page = await context.newPage();
@@ -124,12 +133,58 @@ test("Duels: live tables with seats and turns, the draft with progress, and duel
     await expect(draft).toContainText("Round 2, pick 6");
     await expect(draft).toContainText("21 of 45 picks");
     await expect(draft.getByRole("link", { name: "Open" })).toHaveAttribute("href", `/draft/${FLOOR.draft}`);
-    await expect(view(page, "Duels")).toContainText("mai_v beat sol.ring");
-    await expect(view(page, "Duels")).toContainText("ruby.lynx & valon_x won");
     // A seat opens that person.
     await fours.getByRole("button", { name: /ruby\.lynx/ }).click();
     await expect(page).toHaveURL(/#people$/);
     await expect(view(page, "People").getByRole("heading", { name: "ruby.lynx" })).toBeVisible();
+  } finally { await context.close(); }
+});
+
+test("Duels today: every duel of the local day with result per player, replay or watch, filters, and the Overview link", async ({ browser }) => {
+  const context = await browser.newContext({ storageState: authFile("p1"), timezoneId: noonZone() });
+  try {
+    const page = await context.newPage();
+    await page.goto("/admin");
+    // The Overview number links to the list.
+    await view(page, "Overview").getByRole("link", { name: /Duels today/ }).click();
+    await expect(page).toHaveURL(/#duels-today$/);
+    const list = view(page, "Duels").getByRole("table", { name: "Duels today" });
+    await expect(list).toBeInViewport({ ratio: 0.05 });
+    await expect(view(page, "Duels")).toContainText(/Since 00:00 UTC[+\u2212]?\d*/);
+    const row = (slug: string) => list.getByRole("row").filter({ has: page.locator(`a[href^="/duels/${slug}"]`) });
+
+    // Tag: partners win together.
+    const tag = row(FLOOR.tag);
+    await expect(tag).toContainText("Tag");
+    await expect(tag).toContainText("ruby.lynx & valon_x won");
+    await expect(tag.getByRole("button", { name: /ruby\.lynx/ })).toContainText("Won");
+    await expect(tag.getByRole("button", { name: /kaibaCorp/ })).toContainText("Lost");
+    await expect(tag).toContainText("17 turns");
+    await expect(tag.getByRole("link", { name: "Replay" })).toHaveAttribute("href", `/duels/${FLOOR.tag}/replay`);
+    await expect(row("e2e-adm-end-1")).toContainText("mai_v won");
+    await expect(row(FLOOR.cut)).toContainText("Interrupted");
+    await expect(row(FLOOR.draw)).toContainText("Draw");
+    await expect(row(FLOOR.draw).getByRole("button", { name: /joeyw/ })).toContainText("Draw");
+    // A duel that still runs is in the list with Watch, not Replay.
+    const live = row(FLOOR.fours);
+    await expect(live).toContainText("Live");
+    await expect(live.getByRole("link", { name: "Watch" })).toHaveAttribute("href", `/duels/${FLOOR.fours}`);
+    await expect(live.getByRole("link", { name: "Replay" })).toHaveCount(0);
+
+    // Filters: Multi hides the 1v1 duels, Ranked keeps only ranked ones.
+    const filters = view(page, "Duels").getByRole("group", { name: "Filter duels of today" });
+    await filters.getByRole("button", { name: /^Multi/ }).click();
+    await expect(row(FLOOR.tag)).toBeVisible();
+    await expect(row(FLOOR.draw)).toHaveCount(0);
+    await filters.getByRole("button", { name: /^Ranked/ }).click();
+    await expect(row(FLOOR.fours)).toBeVisible();
+    await expect(row(FLOOR.tag)).toHaveCount(0);
+    await filters.getByRole("button", { name: /^All/ }).click();
+
+    // A player opens the person panel.
+    await tag.getByRole("button", { name: /valon_x/ }).click();
+    await expect(page).toHaveURL(/#people$/);
+    await expect(view(page, "People").getByRole("heading", { name: "valon_x" })).toBeVisible();
   } finally { await context.close(); }
 });
 
@@ -164,7 +219,7 @@ test("every view fits 1920, 2560, 1366 and 390 wide: menu, icon rail or phone ta
   if (shots) mkdirSync(shots, { recursive: true });
   for (const size of SIZES) {
     const phone = size.width <= 760;
-    const context = await browser.newContext({ storageState: authFile("p1"), viewport: { width: size.width, height: size.height }, isMobile: phone, hasTouch: phone, deviceScaleFactor: phone ? 2 : 1 });
+    const context = await browser.newContext({ storageState: authFile("p1"), viewport: { width: size.width, height: size.height }, isMobile: phone, hasTouch: phone, deviceScaleFactor: phone ? 2 : 1, timezoneId: noonZone() });
     try {
       const page = await context.newPage();
       touchAdminFloor();
@@ -180,6 +235,14 @@ test("every view fits 1920, 2560, 1366 and 390 wide: menu, icon rail or phone ta
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
         expect(overflow, `${name} at ${size.name} scrolls sideways`).toBeLessThanOrEqual(0);
         if (shots) await page.screenshot({ path: resolve(shots, `${size.name}-${name.toLowerCase()}.png`) });
+        if (name === "Duels") {
+          // The Today list under the live tables.
+          await page.locator("#duels-today").evaluate((el) => el.scrollIntoView({ block: "start" }));
+          await page.waitForTimeout(300);
+          const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+          expect(wide, `Duels today at ${size.name} scrolls sideways`).toBeLessThanOrEqual(0);
+          if (shots) await page.screenshot({ path: resolve(shots, `${size.name}-duels-today.png`) });
+        }
       }
       if (phone) {
         // A person opens in a bottom sheet with a close button.

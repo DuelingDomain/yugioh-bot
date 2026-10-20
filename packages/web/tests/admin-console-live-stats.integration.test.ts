@@ -76,7 +76,7 @@ it("lists running duels and lobbies with players, then open drafts, and skips st
     status: "active", players: ["Bo", "Ann"], progress: "Round 2, pick 3", startedAt: Date.parse("2026-10-19T11:00:00Z"), href: "/draft/dr1" });
 });
 
-it("adds seats with pictures and bots, the turn from the clock, draft progress, and duels that ended in the last hour", async () => {
+it("adds seats with pictures and bots, the turn from the clock, and draft progress", async () => {
   seed();
   db.prepare("update users set image_url = ? where id = 2").run("https://img.clerk.com/ann.png");
   db.prepare("update duels set clock_json = ? where id = 1").run('{"turn":5,"remainingMs":[1000,2000],"activeSeat":1,"startedAt":1}');
@@ -85,10 +85,6 @@ it("adds seats with pictures and bots, the turn from the clock, draft progress, 
     insert into draft_players(draft_id,player_id,seat_index,pick_count) values (1,15,2,7);
     update draft_players set pick_count = 6 where draft_id = 1 and player_id = 12;
     update drafts set config_json = '{"mode":"theme","cardsPerPlayer":45,"poolSource":{"cubeId":1,"cubeName":"Vintage 540"}}' where id = 1;`);
-  duel(9, "d9", { status: "completed", created: "2026-10-19 11:00:00", started: "2026-10-19 11:05:00", ended: "2026-10-19 11:40:00", seats: [12, 13] });
-  duel(10, "d10", { status: "completed", format: "tag", created: "2026-10-19 11:00:00", started: "2026-10-19 11:05:00", ended: "2026-10-19 11:50:00", seats: [12, 13, 14, "bot"] });
-  duel(11, "d11", { status: "completed", created: "2026-10-19 09:00:00", started: "2026-10-19 09:05:00", ended: "2026-10-19 10:50:00", seats: [12, 13] });
-  db.exec("update duels set winner_seat = 0, turn_count = 14 where id = 9; update duels set winner_seat = 1 where id = 10;");
   const { data } = await (await section("live")).json();
   const d1 = data.duels.find((d: { slug: string }) => d.slug === "d1");
   expect(d1).toMatchObject({ turn: 5, activeSeat: 1, lastActivityAt: Date.parse("2026-10-19T11:58:00Z"),
@@ -97,11 +93,8 @@ it("adds seats with pictures and bots, the turn from the clock, draft progress, 
   expect(data.drafts.find((d: { slug: string }) => d.slug === "dr1")).toMatchObject({
     modeLabel: "Theme", cubeName: "Vintage 540", picksMade: 7, picksTotal: 45,
     seats: [{ name: "Bo", bot: false, userId: 3 }, { name: "Ann", bot: false, userId: 2 }, { name: "Bot 1", avatarUrl: null, bot: true, userId: null }] });
-  // Newest first; the 10:50 duel is older than an hour. Tag partners win together (team = seat % 2).
-  expect(data.ended).toEqual([
-    { slug: "d10", name: "Table d10", formatLabel: "Tag duel", ranked: false, result: "Bo & Practice Bot won", turns: null, endedAt: Date.parse("2026-10-19T11:50:00Z"), replayHref: "/duels/d10/replay" },
-    { slug: "d9", name: "Table d9", formatLabel: "1v1 duel", ranked: false, result: "Ann beat Bo", turns: 14, endedAt: Date.parse("2026-10-19T11:40:00Z"), replayHref: "/duels/d9/replay" },
-  ]);
+  // Duels that ended are in the "today" section now, not in "live".
+  expect(data.ended).toBeUndefined();
 });
 
 it("counts today and seven UTC days with a series per metric", async () => {
