@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
-import { FORMAT_LABEL, currentPlace, placesOf, safeAvatarUrl } from "@yugidraft/shared/admin";
+import { FORMAT_LABEL, currentPlace, placeLabel, placesOf, safeAvatarUrl } from "@yugidraft/shared/admin";
 import { teamOfSeat, type DuelFormat } from "@yugidraft/shared/duels";
-import { ONLINE_WINDOW_MS, PRESENCE_ROUTES, isPresenceRoute } from "@yugidraft/shared/presence";
+import { ONLINE_WINDOW_MS, isPresenceRoute } from "@yugidraft/shared/presence";
 import { dbTimeMs } from "./live";
 import type { PersonActivity, PersonDetail } from "./types";
 
@@ -96,7 +96,7 @@ export function loadPerson(db: Database.Database, guild: string, userId: string,
 
   // Where someone is shows only while they are online: the page and time of an older beat are not passed on.
   const current = online && route ? currentPlace(route, placesOf(db, [userId], guild, now).get(userId)) : null;
-  const label = online && route ? (route === "/duels/[slug]" && current?.kind === "duel" ? current.label : PRESENCE_ROUTES[route]) : null;
+  const label = online && route ? placeLabel(route, current) : null;
   return {
     userId, name: user.display_name || player?.display_name || "Player", username: null, avatarUrl: safeAvatarUrl(user.image_url),
     online, label, lastSeenAt: online ? user.last_seen_at : null, onlineSince: online ? user.online_since : null,
