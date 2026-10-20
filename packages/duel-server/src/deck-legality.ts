@@ -16,7 +16,7 @@ import type {
   DuelMode,
   DuelSettings,
 } from "@yugidraft/shared/duels";
-import { assertExtraDeckCards, ExtraDeckCardError as SharedExtraDeckCardError, isExtraDeckCard, canonicalCardCode, checkDeckAgainstPool, checkGenesysDeck, isGenesysForbiddenType, mapDeckCodes } from "@yugidraft/shared/duels";
+import { DUEL_BANLIST_OPTIONS, assertExtraDeckCards, ExtraDeckCardError as SharedExtraDeckCardError, isExtraDeckCard, canonicalCardCode, checkDeckAgainstPool, checkGenesysDeck, isGenesysForbiddenType, mapDeckCodes } from "@yugidraft/shared/duels";
 import { banlistLimitsFor, type BanlistLimit } from "./banlists/index.js";
 import { MULTIPLAYER_TABLE_LABEL, multiplayerForbiddenFor, type MultiplayerTable } from "./banlists/multiplayer.js";
 import { cardBlockIndex, loadCardBlockList, type CardBlockEntry } from "./card-block-list.js";
@@ -830,12 +830,13 @@ export function deckSuggestionScope(
   }
 
   const formatMax = mode === "domain" ? 1 : 3;
+  const printedRegion = DUEL_BANLIST_OPTIONS.find(list => list.id === settings.banlist)?.region === "ocg" ? OT_OCG : OT_TCG;
   const allowed: number[] = [];
   const limits: Record<number, number> = {};
   for (const card of mode === "domain" && !domain ? [] : catalog.cards.values()) {
     if (canonicalCardCode(card.id, catalog.cards) !== card.id || blocked.has(card.id)) continue;
-    // Standard suggestions use the printed TCG pool even though casual duel admission permits both games.
-    if (mode === "normal" && (card.ot & OT_TCG) === 0) continue;
+    // Normal suggestions follow the selected banlist's printed region.
+    if (mode === "normal" && (card.ot & printedRegion) === 0) continue;
     if (settings.genesys && isGenesysForbiddenType(card)) continue;
     const section = isExtraDeckMonster(card) ? "extra" : "main";
     if (engineLoadableMessage(card, section, catalog, settings.cardPool)) continue;
