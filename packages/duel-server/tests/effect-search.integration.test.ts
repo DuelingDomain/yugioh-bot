@@ -641,12 +641,11 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
         expect(result[0].name).toBe('Raigeki');
         for (let i = 1; i < result.length; i++) {
           const a = result[i - 1], b = result[i];
-          expect(b.release!.date!.localeCompare(a.release!.date!) || b.score - a.score || updated.popularity(b.code) - updated.popularity(a.code)).toBeLessThanOrEqual(0);
+          expect(b.release!.date!.localeCompare(a.release!.date!) || updated.popularity(b.code) - updated.popularity(a.code) || b.score - a.score).toBeLessThanOrEqual(0);
         }
       }
       const scored = search('newest spells 2', pool).effectHits!;
-      expect(scored[1].name).toBe('Twin Twisters');
-      expect(scored[1].score).toBeGreaterThan(scored[2].score);
+      expect(scored.map(card => card.name)).toEqual(search('newest spells', pool).effectHits!.map(card => card.name));
       expect(baseline.size).toBe(updated.size);
     } finally {
       for (const row of originalReleases) db.prepare('UPDATE card_release SET tcg_date=? WHERE passcode=?').run(row.tcg_date, row.passcode);
@@ -654,7 +653,7 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
     }
     expect(present(search('hand traps before 2015', ['Effect Veiler', 'Ash Blossom & Joyous Spring'].map(code), { effectOmit: ['Released: before 2015'] }))).toContain(code('Ash Blossom & Joyous Spring'));
   });
-  it('ranks future OCG and undated pre-release cards before older TCG months in both search services', () => {
+  it('keeps unknown months last and unmarked, and uses first set dates in both search services', () => {
     vi.stubEnv('EFFECT_SEARCH', '1');
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-20T00:00:00Z'));
     const known = code('Raigeki'), unknown = code('Field Power Bonus');
@@ -665,13 +664,14 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
       createCardEffectIndex(db, cards);
       const pool = [known, unknown];
       const hits = search('new cards', pool).effectHits!;
-      expect(hits.map(hit => hit.code)).toEqual([unknown, known]);
-      expect(hits[0].release).toMatchObject({ upcoming: true });
-      expect(hits[0].release?.date).toBeUndefined();
-      expect(hits[1].release).toMatchObject({ date: '2026-12', region: 'ocg', upcoming: true });
+      expect(hits.map(hit => hit.code)).toEqual([known]);
+      const undated = search('newest spells', pool).effectHits!;
+      expect(undated.at(-1)?.release).toMatchObject({ upcoming: false });
+      expect(undated.at(-1)?.release?.date).toBeUndefined();
+      expect(hits[0].release).toMatchObject({ date: '2026-12', region: 'ocg', upcoming: true });
       expect(search('new cards TCG', pool).effectHits).toEqual([]);
       const sql = createCardInsightService(db, { dataDirectory: engineDataDirectory });
-      expect(sql.effectSearch('new cards', pool).cards.map(card => card.passcode)).toEqual([unknown, known]);
+      expect(sql.effectSearch('new cards', pool).cards.map(card => card.passcode)).toEqual([known]);
       expect(cardReleaseIndex(db, cards).get(unknown)?.upcomingDate).toBeUndefined();
       db.prepare("INSERT INTO card_sets(set_name,set_code,card_count,synced_at,release_date) VALUES('Release integration set','REL',1,CURRENT_TIMESTAMP,'2026-11-01')").run();
       db.prepare('UPDATE card_catalog SET card_sets_json=? WHERE ygoprodeck_id=?').run(JSON.stringify([{ set_name: 'Release integration set', set_code: 'REL-EN001' }]), unknown);
@@ -680,12 +680,25 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
       expect(search('new cards', pool).effectHits![1].release).toMatchObject({ date: '2026-11', upcoming: true });
       expect(sql.effectSearch('new cards', pool).cards[1].release).toMatchObject({ date: '2026-11', upcoming: true });
       db.prepare("UPDATE card_sets SET release_date='2020-01-01' WHERE set_code='REL'").run();
-      expect(search('new cards', pool).effectHits![0].release).toMatchObject({ upcoming: true });
-      expect(search('new cards', pool).effectHits![0].release?.date).toBeUndefined();
+      expect(search('new cards', pool).effectHits!.map(hit => hit.code)).toEqual([known]);
+      expect(search('newest spells', [unknown]).effectHits![0].release).toMatchObject({ date: '2020-01', upcoming: false });
       db.prepare("UPDATE card_sets SET release_date='2026-11-01' WHERE set_code='REL'").run();
       expect(cardReleaseIndex(db, cards).get(unknown)?.upcomingDate).toBe('2026-11');
       vi.setSystemTime(new Date('2026-12-01T00:00:00Z'));
-      expect(cardReleaseIndex(db, cards).get(unknown)?.upcomingDate).toBeUndefined();
+      expect(cardReleaseIndex(db, cards).get(unknown)?.upcomingDate).toBe('2026-11');
+      const god = code('The Immortal Sun God');
+      db.prepare("UPDATE card_release SET tcg_date='2026-10',ocg_date=NULL WHERE passcode=?").run(known);
+      createCardEffectIndex(db, cards);
+      expect(search('newest spells', [known, god]).effectHits![0].code).toBe(god);
+      expect(sql.effectSearch('newest spells', [known, god]).cards[0].passcode).toBe(god);
+      const extra = db.prepare('SELECT card_sets_json FROM card_catalog WHERE ygoprodeck_id=?').get(known) as { card_sets_json: string };
+      try {
+        db.prepare("UPDATE card_sets SET release_date='2003-01-01' WHERE set_code='REL'").run();
+        db.prepare('UPDATE card_catalog SET card_sets_json=? WHERE ygoprodeck_id=?').run(JSON.stringify([{ set_name: 'Release integration set', set_code: 'REL-EN001' }]), known);
+        expect(search('newest TCG spells', [known]).effectHits![0].release?.date).toBe('2003-01');
+        expect(sql.effectSearch('newest TCG spells', [known]).cards[0].release?.date).toBe('2003-01');
+        expect(cardReleaseIndex(db, cards).get(known)?.tcgDate).toBe('2003-01');
+      } finally { db.prepare('UPDATE card_catalog SET card_sets_json=? WHERE ygoprodeck_id=?').run(extra.card_sets_json, known); }
     } finally {
       db.prepare('DELETE FROM card_release WHERE passcode IN (?,?)').run(known, unknown);
       const insert = db.prepare('INSERT INTO card_release(passcode,tcg_date,ocg_date,quality,source_version) VALUES(@passcode,@tcg_date,@ocg_date,@quality,@source_version)');

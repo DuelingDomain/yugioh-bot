@@ -122,6 +122,7 @@ export function createInsightCatalog(db: Database.Database, dataDirectory = deck
         card.level = undefined; card.rank = undefined; card.linkRating = undefined;
       }
     }
+    if (engineCard?.ot === undefined) card.dateSearchEligible = undefined;
     const dates = release.get(canonicalCode);
     if (dates?.tcg_date) card.tcgDate = dates.tcg_date;
     if (dates?.ocg_date) card.ocgDate = dates.ocg_date;

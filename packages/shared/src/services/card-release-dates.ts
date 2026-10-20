@@ -1,33 +1,41 @@
 import type Database from "better-sqlite3";
 import { cleanReleaseMonth, type ReleaseDates } from "../cards/effects/releases.js";
 
-/** A known printing's set date is a fallback only for undated engine pre-release cards.
- * Set dates have no reliable region here, so never present one as a TCG/OCG fact.
+/** Keep earlier known TCG set appearances. An undated engine pre-release card
+ * may use its earliest set month, without claiming an unverified region.
+ * Engine temporary passcodes encode set number followed by three card digits.
  */
 export function createPrereleaseDateLookup(db: Database.Database) {
   const metadata = db.prepare<[number], { card_sets_json: string }>("SELECT card_sets_json FROM card_catalog WHERE ygoprodeck_id=?");
   const setDate = db.prepare<[string, string], { release_date: string | null }>("SELECT release_date FROM card_sets WHERE set_name=? OR set_code=?");
   const catalogRevision = db.prepare<[], { revision: number }>("SELECT revision FROM card_catalog_revision WHERE id=1");
-  let revision = -1, cachedMonth = "";
-  const cached = new Map<number, string | undefined>();
+  let revision = -1;
+  const cached = new Map<number, { month?: string; tcg?: string }>();
   return (code: number, dates: ReleaseDates, prerelease?: boolean): ReleaseDates => {
-    if (!prerelease) return dates;
-    if (dates.tcgDate || dates.ocgDate) return { ...dates, prerelease: true };
-    const currentRevision = catalogRevision.get()!.revision, currentMonth = new Date().toISOString().slice(0, 7);
-    if (currentRevision !== revision || currentMonth !== cachedMonth) { cached.clear(); revision = currentRevision; cachedMonth = currentMonth; }
-    if (cached.has(code)) return { ...dates, prerelease: true, upcomingDate: cached.get(code) };
-    const months: string[] = [];
-    try {
-      const sets = JSON.parse(metadata.get(code)?.card_sets_json ?? "[]") as { set_name?: string; set_code?: string }[];
-      if (Array.isArray(sets)) for (const set of sets) {
-        for (const row of setDate.all(set.set_name ?? "", set.set_code?.split("-")[0] ?? "")) {
-          const month = cleanReleaseMonth(row.release_date, "tcg");
-          if (month && month >= currentMonth) months.push(month);
+    const currentRevision = catalogRevision.get()!.revision;
+    if (currentRevision !== revision) { cached.clear(); revision = currentRevision; }
+    let sets = cached.get(code);
+    if (!sets) {
+      const months: string[] = [], tcg: string[] = [];
+      try {
+        const entries = JSON.parse(metadata.get(code)?.card_sets_json ?? "[]") as { set_name?: string; set_code?: string }[];
+        if (Array.isArray(entries)) for (const entry of entries) {
+          for (const row of setDate.all(entry.set_name ?? "", entry.set_code?.split("-")[0] ?? "")) {
+            const month = cleanReleaseMonth(row.release_date, "tcg");
+            if (month) {
+              months.push(month);
+              if (/-(?:EN|E|NA|EU|AE|SP|FR|DE|IT|PT)\d/i.test(entry.set_code ?? "")) tcg.push(month);
+            }
+          }
         }
-      }
-    } catch { /* Invalid optional cache data leaves this card Upcoming without a month. */ }
-    const upcomingDate = months.sort().at(-1);
-    cached.set(code, upcomingDate);
-    return { ...dates, prerelease: true, upcomingDate };
+      } catch { /* Invalid optional cache data leaves known release facts intact. */ }
+      sets = { month: months.sort()[0], tcg: tcg.sort()[0] };
+      cached.set(code, sets);
+    }
+    const tcgDate = sets.tcg && dates.tcgDate && sets.tcg < dates.tcgDate ? sets.tcg : dates.tcgDate;
+    const result = { ...dates, ...(tcgDate ? { tcgDate } : {}) };
+    if (!prerelease) return result;
+    const setOrder = code >= 100_000_000 && code < 200_000_000 ? Math.floor(code / 1000) : undefined;
+    return { ...result, prerelease: true, setOrder, ...(!result.tcgDate && !result.ocgDate ? { upcomingDate: sets.month } : {}) };
   };
 }

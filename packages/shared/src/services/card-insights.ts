@@ -65,13 +65,14 @@ const compare = (a: Retained, b: Retained) => b.linkedCards - a.linkedCards || b
 const limitOf = (value?: number) => Math.max(1, Math.min(120, Number.isFinite(value) ? Math.floor(value!) : 30));
 const domain = (format?: CardInsightFormat) => format === "domain" || format === "genesys-domain";
 const allowed = ({ card }: Candidate, options: CardInsightOptions) => {
+  if ((options.sort === "newest" || options.released) && card.dateSearchEligible === false) return false;
   if (!matchesReleased(card, options.released)) return false;
   if (options.format !== "genesys" && options.format !== "genesys-domain") return true;
   return !isBarredFromGenesys(card) && card.genesysPoints !== undefined && card.genesysPoints <= (options.genesysRemaining ?? Infinity);
 };
 const retain = (ranked: Retained[], result: RankedInsightCard, candidate: Candidate, limit: number, opts: CardInsightOptions = {}) => {
   const comparePage = (a: Retained, b: Retained) => opts.sort === "newest"
-    ? compareNewest(a.releaseDates, b.releaseDates, opts.released?.region) || b.score - a.score || b.popularity - a.popularity || a.passcode - b.passcode
+    ? compareNewest(a.releaseDates, b.releaseDates, opts.released?.region) || b.popularity - a.popularity || b.score - a.score || a.passcode - b.passcode
     : compare(a, b);
   const entry = { ...result, release: cardReleaseInfo(candidate.card, opts.released?.region), popularity: candidate.card.views, releaseDates: candidate.card };
   if (ranked.length === limit && comparePage(entry, ranked[ranked.length - 1]!) >= 0) return;
@@ -189,6 +190,7 @@ export function createCardInsightService(db: Database.Database, options: {
         let counter: ReturnType<typeof counterProfileFromHooks> | undefined;
         try { if (row) counter = counterProfileFromHooks(ArchetypeProfile.parse({ plan: row.plan, hooks: JSON.parse(row.hooks_json) })); } catch { /* Optional profile: fail closed. */ }
         const match = (candidate: Candidate, query = reading.query): number | null => {
+          if ((effective.sort === "newest" || query.released || opts.released) && candidate.card.dateSearchEligible === false) return null;
           const base = matchCard(candidate.card, candidate.tags, query);
           if (base === null) return null;
           if (query.intent?.kind === "similar") return similar ? cardSimilarity(similar, candidate) : null;

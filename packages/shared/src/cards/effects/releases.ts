@@ -1,5 +1,5 @@
 /** Release facts from YGOPRODeck via LorenzoWhite/searchygo. See data/effects/NOTICE.md. */
-export interface ReleaseDates { tcgDate?: string; ocgDate?: string; prerelease?: boolean; upcomingDate?: string }
+export interface ReleaseDates { tcgDate?: string; ocgDate?: string; prerelease?: boolean; upcomingDate?: string; setOrder?: number; dateSearchEligible?: boolean }
 /** Inclusive month bounds. No region means the newest known month; explicit regions are strict. */
 export interface ReleasedRange { from?: string; to?: string; region?: "tcg" | "ocg" }
 export interface CardEra { medianYear: number; spread: number }
@@ -35,8 +35,9 @@ export function isCardEra(value: unknown): value is CardEra {
     typeof era.spread === "number" && Number.isFinite(era.spread) && era.spread >= 0 && era.spread <= 200;
 }
 export function selectedReleaseDate(card: ReleaseDates, region?: ReleasedRange["region"]): string | undefined {
-  if (region) return region === "ocg" ? card.ocgDate : card.tcgDate;
-  return [card.tcgDate, card.ocgDate, card.prerelease ? card.upcomingDate : undefined].filter((date): date is string => !!date).sort().at(-1);
+  if (region) { const date = region === "ocg" ? card.ocgDate : card.tcgDate; return validReleaseMonth(date) ? date : undefined; }
+  const known = [card.tcgDate, card.ocgDate].filter((date): date is string => validReleaseMonth(date)).sort().at(-1);
+  return known ?? (card.prerelease && validReleaseMonth(card.upcomingDate) ? card.upcomingDate : undefined);
 }
 export function cardReleaseInfo(card: ReleaseDates, region?: ReleasedRange["region"], now = new Date()): CardReleaseInfo {
   const date = selectedReleaseDate(card, region), currentMonth = now.toISOString().slice(0, 7);
@@ -45,20 +46,20 @@ export function cardReleaseInfo(card: ReleaseDates, region?: ReleasedRange["regi
     ...(card.tcgDate ? { tcgDate: card.tcgDate } : {}), ...(card.ocgDate ? { ocgDate: card.ocgDate } : {}),
     ...(card.prerelease ? { prerelease: true } : {}), ...(card.upcomingDate ? { upcomingDate: card.upcomingDate } : {}),
     ...(date ? { date } : {}), ...(source ? { region: source } : {}),
-    upcoming: (!!date && date > currentMonth) || (!!card.prerelease && !region && (!date || date >= currentMonth)),
+    upcoming: !!date && (date > currentMonth || (!!card.prerelease && !region && date === currentMonth)),
   };
 }
 export function matchesReleased(card: ReleaseDates, range?: ReleasedRange): boolean {
+  if (range && card.dateSearchEligible === false) return false;
   if (!range || (!range.from && !range.to)) return true;
   const date = selectedReleaseDate(card, range.region);
-  return date === undefined ? !!card.prerelease && !range.region && !range.to : (!range.from || date >= range.from) && (!range.to || date <= range.to);
+  return date === undefined ? false : (!range.from || date >= range.from) && (!range.to || date <= range.to);
 }
-/** Undated pre-release cards first, known months newest first, then unknowns. */
+/** First-print month, then engine pre-release set number. Unknown months stay last. */
 export function compareNewest(left: ReleaseDates, right: ReleaseDates, region?: ReleasedRange["region"]): number {
   const a = selectedReleaseDate(left, region), b = selectedReleaseDate(right, region);
-  const upcomingA = !region && a === undefined && !!left.prerelease, upcomingB = !region && b === undefined && !!right.prerelease;
-  if (upcomingA !== upcomingB) return upcomingA ? -1 : 1;
-  return a === b ? 0 : a === undefined ? 1 : b === undefined ? -1 : a > b ? -1 : 1;
+  const byMonth = a === b ? 0 : a === undefined ? 1 : b === undefined ? -1 : a > b ? -1 : 1;
+  return byMonth || (a && b ? (right.setOrder ?? 0) - (left.setOrder ?? 0) : 0);
 }
 export function deriveCardEra(cards: readonly ReleaseDates[]): CardEra | undefined {
   const years = cards.map(card => selectedReleaseDate(card)).filter((date): date is string => !!date).map(date => Number(date.slice(0, 4))).sort((a, b) => a - b);
