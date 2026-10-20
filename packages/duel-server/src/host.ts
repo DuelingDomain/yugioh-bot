@@ -6,7 +6,7 @@ import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { createScriptErrorRecorder } from "./script-error-store.js";
-import { scriptErrorModeFromEnv } from "./script-errors.js";
+import { scriptErrorModeFromEnv, type DuelScriptError, type DuelScriptFatalError } from "./script-errors.js";
 import { createHash, randomBytes } from "node:crypto";
 import { readSignedRequest } from "@yugidraft/shared/internal-auth";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -73,7 +73,7 @@ import { EngineResourceUnavailableError, resolveEngineResourcesForSource, type E
 import { isEngineIdentity, isUnknownEngineChoice, sourceEngineChoice, sameEngineIdentity, type EngineIdentity, type ReplayVerification, type ReplayUnverifiedReason } from "@yugidraft/shared/duels";
 import { sameReplayBoard } from "./replay-board-comparator.js";
 import { createReplayVerificationStore, type ReplayVerificationKey } from "./replay-verification-store.js";
-import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError } from "./practice-bot.js";
+import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError, shufflePracticeBotDeck } from "./practice-bot.js";
 import {
   freezeContinueClock,
   isClockDue,
@@ -145,7 +145,7 @@ const DUEL_OPS = new Set([
   "engine-data-status", "capabilities", "view", "start", "respond", "deck", "validate-deck", "cards",
   "card-details", "card-artworks", "card-query", "card-facets", "surrender", "add-bot", "archive", "cancel",
   "replay", "owner-replay", "replay-fork", "fork-list", "fork-restart", "fork-cancel", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
-  "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset",
+  "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset", "start-test-duel", "warm-test-duel",
   "report", "debug-trace", "bug-context", "bug-replay-frame", "chain-mode", "validate-deck-master", "suggestion-scope", "deck-suggestions",
 ]);
 
@@ -314,6 +314,8 @@ export interface TournamentNotice {
 
 export interface DuelHost {
   handle(request: Request): Promise<Response>;
+  /** Starts hashing the 1v1 engine files in the background (the server calls it once after it listens). */
+  warmStartResources(): void;
   close(): Promise<void>;
 }
 
@@ -442,6 +444,46 @@ export function createDuelHost(options: {
       if (session && isFinishedTable(session)) release.releasePlayers();
     }
   }
+  /**
+   * One idle engine thread with the card data loaded, for the next test duel. The deck editor asks for it when the
+   * player opens the Test duel pop-up, so the start skips the thread startup and the card data load. It sits outside
+   * the worker pool, closes itself when nobody uses it, and a game takes it over with `adopt`.
+   */
+  let spareWorker: { worker: GameWorker; timer: ReturnType<typeof setTimeout> } | undefined;
+  const SPARE_WORKER_IDLE_MS = 120_000;
+  function dropSpareWorker(): void {
+    const spare = spareWorker;
+    spareWorker = undefined;
+    if (!spare) return;
+    clearTimeout(spare.timer);
+    void spare.worker.close().catch(() => {});
+  }
+  function prepareSpareWorker(): void {
+    if (stopped || options.createWorker) return;
+    if (spareWorker?.worker.running) {
+      clearTimeout(spareWorker.timer);
+      spareWorker.timer = setTimeout(dropSpareWorker, SPARE_WORKER_IDLE_MS);
+      spareWorker.timer.unref();
+      return;
+    }
+    const worker: GameWorker = new GameWorker(undefined, undefined, {
+      heapMb: options.workerHeapMb ?? limits.heapMb,
+      onExit: () => { if (spareWorker?.worker === worker) dropSpareWorker(); },
+    });
+    const timer = setTimeout(dropSpareWorker, SPARE_WORKER_IDLE_MS);
+    timer.unref();
+    spareWorker = { worker, timer };
+    worker.warm(options.dataDirectory).catch(() => { if (spareWorker?.worker === worker) dropSpareWorker(); });
+  }
+  function takeSpareWorker(): GameWorker | undefined {
+    const spare = spareWorker;
+    spareWorker = undefined;
+    if (!spare) return undefined;
+    clearTimeout(spare.timer);
+    if (!spare.worker.running) return undefined;
+    return spare.worker;
+  }
+
   async function spawn(session?: DuelSession, spawnOptions: {
     duelRef?: number | (() => number | undefined);
     recordErrors?: () => boolean;
@@ -464,12 +506,12 @@ export function createDuelHost(options: {
       const duelRef = spawnOptions.duelRef ?? session?.id;
       const recordErrors = spawnOptions.recordErrors ?? (() => true);
       const table = spawnOptions.table ?? session?.slug;
-      const worker = options.createWorker?.() ?? new GameWorker(
-        duelRef === undefined ? undefined : (error) => {
+      const callbacks = {
+        onScriptError: duelRef === undefined ? undefined : (error: DuelScriptError) => {
           const duelId = typeof duelRef === "function" ? duelRef() : duelRef;
           if (duelId !== undefined && recordErrors()) recordScriptError(duelId, error);
         },
-        (error) => {
+        onFatalScriptError: (error: DuelScriptFatalError) => {
           const duelId = typeof duelRef === "function" ? duelRef() : duelRef;
           if (duelId === undefined || !recordErrors()) return;
           const fork = options.db.prepare<[number], { kind: string }>("select kind from duels where id = ?").get(duelId)?.kind === "replay-fork";
@@ -479,7 +521,14 @@ export function createDuelHost(options: {
             ...(fork ? { duelKind: "replay-fork" } : {}),
             ...(tableSlug ? { table: tableSlug } : {}) } });
         },
-        { table, heapMb: options.workerHeapMb ?? limits.heapMb, onExit: () => { release(); reservations.delete(game); } },
+        table,
+        onExit: () => { release(); reservations.delete(game); },
+      };
+      // A test duel takes the idle thread that the deck editor prepared, when there is one.
+      const spare = session?.testDuel === true && !options.createWorker ? takeSpareWorker() : undefined;
+      if (spare) spare.adopt(callbacks);
+      const worker = spare ?? options.createWorker?.() ?? new GameWorker(callbacks.onScriptError, callbacks.onFatalScriptError,
+        { table, heapMb: options.workerHeapMb ?? limits.heapMb, onExit: callbacks.onExit },
       );
       const game = limitWorkerOperations(worker, options.opTimeoutMs ?? limits.opTimeoutMs, () => {
         release();
@@ -643,10 +692,27 @@ export function createDuelHost(options: {
     validateDeck(mode, deck, options.dataDirectory, settings, checks);
   }
 
-  async function validateDeckMasterWrite(mode: DuelMode, deck: DuelDeck): Promise<void> {
+  /**
+   * Refuses a deck list that is too long before any card lookup runs. A check-only read gets room to show an oversized
+   * deck as a rule message, but still has a bound, so a huge list never starts a flood of lookups.
+   */
+  function assertDeckListSize(deck: unknown, checkOnly = false): void {
+    if (typeof deck !== "object" || deck === null) return;
+    const room = checkOnly ? 4 : 1;
+    const limits = [["main", "Main deck", 60], ["extra", "Extra deck", 15], ["side", "Side deck", 15]] as const;
+    for (const [key, label, max] of limits) {
+      const list = (deck as Record<string, unknown>)[key];
+      if (Array.isArray(list) && list.length > max * room) {
+        throw new RequestError(`${label} cannot have more than ${max * room} cards`, 400);
+      }
+    }
+  }
+
+  async function validateDeckMasterWrite(mode: DuelMode, deck: DuelDeck, cacheOnly = false): Promise<void> {
     if (mode !== "domain" || deck?.deckMaster === undefined) return;
     // Resolve imports and artwork ids, but do not require a complete library deck.
-    const master = await normalizeImportedDeck({ main: [], extra: [], side: [], deckMaster: deck.deckMaster }, options.dataDirectory, options.db);
+    const master = await normalizeImportedDeck({ main: [], extra: [], side: [], deckMaster: deck.deckMaster }, options.dataDirectory, options.db,
+      cacheOnly ? { cacheOnly: true } : {});
     validateDeckMasterType(mode, master, options.dataDirectory);
   }
 
@@ -690,6 +756,13 @@ export function createDuelHost(options: {
   function engineForNewTable(format: DuelFormat, mode: DuelMode, hasStartupScripts = false): DuelEngineChoice | undefined {
     if (format !== "1v1") return undefined;
     return hasStartupScripts ? "pinned" : duel1v1EngineForMode(mode);
+  }
+
+  /** Reads and hashes the 1v1 engine files in the background, so the first duel after a start does not pay for it. */
+  function warmStartResources(): void {
+    for (const mode of ["normal", "domain"] as const) {
+      engineResourceCache.warm(options.dataDirectory, { mode, format: "1v1", engine: engineForNewTable("1v1", mode) });
+    }
   }
 
   function warmLobbyResources(session: DuelSession): void {
@@ -2220,6 +2293,114 @@ export function createDuelHost(options: {
     return { slug, session: room.session, room };
   }
 
+  /**
+   * Deck editor "Test duel": a private, unranked 1v1 against a practice bot with the player's own deck.
+   * `shuffle` off keeps the deck order (the first cards are the opening hand); `goFirst` off seats the player second.
+   * The table carries the `testDuel` mark, so lists, counts, history and deploy guards skip it. Quit uses the normal cancel.
+   */
+  async function startTestDuel(body: Record<string, unknown>, guildId: string, actor: number): Promise<unknown> {
+    const startedAt = performance.now();
+    let lapAt = startedAt;
+    const laps: Record<string, number> = {};
+    const lap = (step: string) => {
+      const at = performance.now();
+      laps[step] = at - lapAt;
+      lapAt = at;
+    };
+    let slug: string | null = null;
+    try {
+      const result = await startTestDuelSteps(body, guildId, actor, lap);
+      slug = (result as { slug: string }).slug;
+      return result;
+    } finally {
+      const round = (ms: number) => Math.round(ms * 10) / 10;
+      console.info(JSON.stringify({ event: "test_duel_start", slug, outcome: slug ? "ready" : "failed",
+        totalMs: round(performance.now() - startedAt),
+        ...Object.fromEntries(Object.entries(laps).map(([step, ms]) => [step, round(ms)])) }));
+    }
+  }
+
+  async function startTestDuelSteps(body: Record<string, unknown>, guildId: string, actor: number, lap: (step: string) => void): Promise<unknown> {
+    const mode = body.mode;
+    if (mode !== "normal" && mode !== "domain") throw new RequestError("Duel mode must be normal or domain", 400);
+    if (body.shuffle !== undefined && typeof body.shuffle !== "boolean") throw new RequestError("Shuffle must be true or false", 400);
+    if (body.goFirst !== undefined && typeof body.goFirst !== "boolean") throw new RequestError("Go first must be true or false", 400);
+    const shuffle = body.shuffle !== false;
+    const goFirst = body.goFirst !== false;
+    let settings: DuelSettings;
+    try {
+      // No clock, and a deck in progress may be short: the engine rules and the format still apply.
+      settings = normalizeDuelSettings(mode, {
+        visibility: "private", validateDeck: false, shuffleDeck: shuffle, turnSeconds: 0,
+        ...(body.genesys ? { genesys: body.genesys } : {}),
+      }, "1v1");
+    } catch (error) {
+      if (error instanceof DuelSettingsError) throw new RequestError(error.message, 400);
+      throw error;
+    }
+    // The Deck Master check looks up one card, so it runs first: its message wins over a list-size message.
+    await validateDeckMasterWrite(mode, body.deck as DuelDeck, true);
+    assertDeckListSize(body.deck);
+    // The local card catalog only: a card the engine and the catalog both lack stays as it is, and never starts an
+    // outside card lookup while the player waits. The engine rejects a card it does not know.
+    const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true, cacheOnly: true });
+    await validateSessionDeck(mode, deck, settings, "1v1");
+    lap("deckChecksMs");
+    let botDeck: DuelDeck;
+    try {
+      botDeck = shufflePracticeBotDeck(buildPracticeBotDeck(mode, options.dataDirectory));
+    } catch (error) {
+      if (error instanceof PracticeBotError) throw new RequestError(error.message, 409);
+      throw error;
+    }
+    await validateSessionDeck(mode, botDeck, settings, "1v1");
+    lap("botDeckMs");
+
+    // One test table per player: a new test replaces the one still open.
+    const stale = options.db.prepare<[string, number], { web_slug: string }>(`
+      select web_slug from duels where guild_id = ? and organizer_player_id = ? and kind = 'play'
+        and status in ('lobby', 'active') and coalesce(json_extract(setup_json, '$.testDuel'), 0) = 1
+    `).all(guildId, actor);
+    for (const { web_slug: old } of stale) {
+      try {
+        service.cancel(old, guildId, actor, await liveCancelTurn(old));
+        clearOpeningTimer(old);
+        await disposeGame(old);
+        await emitChange(old, guildId);
+      } catch {
+        // Already closed.
+      }
+    }
+    lap("staleMs");
+
+    const created = service.create({
+      guildId, organizerPlayerId: actor, name: "Test duel", mode, settings, format: "1v1",
+      organizerSeat: goFirst ? 0 : 1, testDuel: true,
+    });
+    const slug = created.slug;
+    try {
+      service.setDeck(slug, guildId, actor, deck);
+      service.addPracticeBot(slug, guildId, actor, botDeck, goFirst ? 1 : 0);
+      lap("tableMs");
+      await startGame(slug, guildId, actor);
+      lap("startGameMs");
+    } catch (error) {
+      games.delete(slug);
+      try {
+        service.cancel(slug, guildId, actor);
+      } catch {
+        // The table is already gone.
+      }
+      await disposeGame(slug);
+      throw error;
+    }
+    const room = await project(slug, guildId, actor, games.get(slug)?.game);
+    lap("projectMs");
+    // The next test duel (Quit, then Test duel again) finds a ready thread, too.
+    prepareSpareWorker();
+    return { slug, session: room.session, room };
+  }
+
   /** One debug read of a view. A stuck worker never answers, so every read has a time limit. */
   async function readDebugView(slug: string, game: DuelGameWorker, seat: number | null): Promise<{ view: DuelEngineView | null; error?: string }> {
     try {
@@ -3132,6 +3313,13 @@ export function createDuelHost(options: {
       requireScenarios();
       return startPreset(body, guildId, actor);
     }
+    if (op === "start-test-duel") return startTestDuel(body, guildId, actor);
+    if (op === "warm-test-duel") {
+      // The deck editor opened the Test duel pop-up: get the engine files and one engine thread ready for the start.
+      warmStartResources();
+      prepareSpareWorker();
+      return { ok: true };
+    }
     if (op === "report" || op === "debug-trace") requireScenarios();
     if (op === "card-artworks") {
       if (!Array.isArray(body.codes) || body.codes.length !== 1
@@ -3256,6 +3444,7 @@ export function createDuelHost(options: {
         if (error instanceof DuelSettingsError) throw new RequestError(error.message, 400);
         throw error;
       }
+      assertDeckListSize(body.deck, true);
       const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
       let draftPool: InspectDeckOptions["draftPool"];
       if (body.draftId !== undefined && body.draftId !== null) {
@@ -3427,6 +3616,7 @@ export function createDuelHost(options: {
       if (op === "series-side") {
         if (info.status !== "between_games") throw new RequestError("Side decking is only open between games", 409);
         await validateDeckMasterWrite(room.session.mode, body.deck as DuelDeck);
+        assertDeckListSize(body.deck);
         // Like check-deck, unresolved ids stay as sent so validateSessionDeck can report them.
         const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
         await validateSessionDeck(room.session.mode, deck, room.session.settings, room.session.format, { session: room.session, playerId: actor });
@@ -3504,9 +3694,11 @@ export function createDuelHost(options: {
         }
       }
       const settings = room.session.settings;
+      // The Deck Master check looks up one card, so it runs first: its message wins over a list-size message.
       if (op === "deck") {
         await validateDeckMasterWrite(room.session.mode, body.deck as DuelDeck);
       }
+      assertDeckListSize(body.deck, op === "validate-deck");
       const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, {
         // Unresolved codes remain visible to validation, including the stable Extra error.
         keepUnresolved: true,
@@ -3861,7 +4053,7 @@ export function createDuelHost(options: {
     }).then(stats => {
       turnBackfillCursor = stats.turnCursor;
       turnBackfillResumeAt = stats.turnBackfillResumeAt;
-      if (stats.backfilled || stats.compacted || stats.deletedForks || stats.busy || (stats.backlogDone && !retentionBacklogDone)) {
+      if (stats.backfilled || stats.compacted || stats.deletedForks || stats.deletedTestDuels || stats.busy || (stats.backlogDone && !retentionBacklogDone)) {
         console.info("[duel] snapshot retention pass", stats);
       }
       retentionBacklogDone = stats.backlogDone;
@@ -3878,6 +4070,7 @@ export function createDuelHost(options: {
   retentionStartup.unref();
 
   return {
+    warmStartResources,
     async handle(request: Request): Promise<Response> {
       if (request.method !== "POST" || new URL(request.url).pathname !== "/internal/duel") return new Response("Not found", { status: 404 });
       const result = await readSignedRequest(request, { secret: options.secret, purpose: "duel-host" });
@@ -3894,7 +4087,10 @@ export function createDuelHost(options: {
         // Fork reads stay queued and pass both access checks, even if a saved opening exists.
         const startupRoom = fork ? null : startingRoom(body);
         if (startupRoom) return Response.json(startupRoom, { headers: { "cache-control": "no-store" } });
-        const key = body.op === "replay-fork" ? `fork-owner:${body.guildId}:${body.playerId}` : typeof body.slug === "string" ? body.slug : "catalog";
+        const key = body.op === "replay-fork" ? `fork-owner:${body.guildId}:${body.playerId}`
+          // A test duel start has its own queue: card searches of the editor must not hold it back.
+          : body.op === "start-test-duel" ? `test-duel:${body.guildId}:${body.playerId}`
+          : typeof body.slug === "string" ? body.slug : "catalog";
         // Card queries, suggestion scans and diagnostics skip the catalog queue.
         // Remote ledger/status work must never hold other card editor requests.
         const bounded = ["bug-replay-frame", "replay", "owner-replay", "replay-fork", "fork-restart", "fork-cancel", "fork-list"].includes(String(body.op));
@@ -3944,6 +4140,7 @@ export function createDuelHost(options: {
     async close(): Promise<void> {
       stopped = true;
       pool.close();
+      dropSpareWorker();
       clearInterval(timer);
       clearInterval(retentionTimer);
       clearTimeout(retentionStartup);

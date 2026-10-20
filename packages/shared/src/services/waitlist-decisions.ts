@@ -11,7 +11,7 @@ export interface WaitlistAction {
   id: string; subject_hash: string | null; clerk_entry_id: string | null;
   waitlist_signup_id: number | null; subject_user_id: number | null; subject_clerk_id: string | null;
   decision: WaitlistDecision | null; actor_user_id: number | null; actor_discord_id: string | null;
-  actor_name: string | null; source: "web" | "discord" | null; attempted_at: number | null;
+  actor_name: string | null; source: "web" | "discord" | "admin" | null; attempted_at: number | null;
   lease_token: string | null; lease_expires_at: number | null; completed_at: number | null;
   channel_id: string | null; message_id: string | null; discord_updated_at: number | null; created_at: number;
 }
@@ -26,7 +26,7 @@ export function getWaitlistAction(db: Database.Database, id: string): WaitlistAc
 
 export function waitlistDecisionPayload(row: WaitlistAction): Record<string, unknown> {
   const name = (row.actor_name ?? "owner").replace(/[\\`*_~|<>\r\n]/g, " ").slice(0, 80);
-  return { content: `${row.decision === "approve" ? "Approved" : "Rejected"} by ${name} (${row.source === "discord" ? "Discord" : "web"})`,
+  return { content: `${row.decision === "approve" ? "Approved" : "Rejected"} by ${name} (${row.source === "discord" ? "Discord" : row.source === "admin" ? "admin" : "web"})`,
     embeds: [], components: [], allowed_mentions: { parse: [] } };
 }
 
@@ -86,7 +86,7 @@ export function prepareWaitlistAction(db: Database.Database, input: { email?: st
 
 export interface WaitlistDecisionInput {
   /** Supply email for a web-first decision with no existing alert. Only its hash is stored. */
-  clerkEntryId: string; decision: WaitlistDecision; actor: AdminActor; source: "web" | "discord"; email?: string;
+  clerkEntryId: string; decision: WaitlistDecision; actor: AdminActor; source: "web" | "discord" | "admin"; email?: string;
 }
 export interface WaitlistDecisionResult {
   status: "completed" | "already_decided" | "in_progress" | "conflict";
@@ -96,7 +96,7 @@ export interface WaitlistDecisionResult {
 /** One server-side service for /admin and bot buttons. The first decision and actor stay pinned on retry. */
 export async function decideWaitlistEntry(db: Database.Database, input: WaitlistDecisionInput, backend?: ClerkBackend): Promise<WaitlistDecisionResult> {
   if (!isAdminActor(db, input.actor)) throw new WaitlistDecisionError(403, "admin_required");
-  if (!input.clerkEntryId || !["approve", "reject"].includes(input.decision) || !["web", "discord"].includes(input.source)) {
+  if (!input.clerkEntryId || !["approve", "reject"].includes(input.decision) || !["web", "discord", "admin"].includes(input.source)) {
     throw new WaitlistDecisionError(400, "invalid_decision");
   }
   const account = lookupSiteAccount(db, input.actor)!;

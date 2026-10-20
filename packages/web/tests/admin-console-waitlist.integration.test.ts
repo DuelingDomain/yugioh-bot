@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
+import { prepareWaitlistAction } from "@yugidraft/shared/services/waitlist-decisions";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const { auth, getDb } = vi.hoisted(() => ({ auth: vi.fn(), getDb: vi.fn() }));
@@ -145,4 +146,87 @@ it("answers 404 to a non-owner, 401 signed out, and refuses a bad Origin", async
   expect((await act("wle_new", { action: "approve" }, "https://evil.test")).status).toBe(403);
   expect((await act("wle_new", { action: "approve" }, null)).status).toBe(403);
   expect(posts()).toHaveLength(0);
+});
+
+it.each(["approve", "reject"] as const)("%s through /admin queues an edit for the existing local alert using the server email", async (action) => {
+  const alert = prepareWaitlistAction(db, { email: "new@example.test" });
+  db.prepare("update discord_waitlist_actions set channel_id='alerts',message_id='message-1' where id=?").run(alert.id);
+  await list();
+  const reads = clerk.mock.calls.filter(([, init]) => init?.method === "GET").length;
+  const response = await act("wle_new", { action, email: "attacker@example.test", siteUserId: 2, source: "discord" });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ status: "ok", decision: action });
+  expect(clerk.mock.calls.filter(([, init]) => init?.method === "GET")).toHaveLength(reads);
+  expect(db.prepare("select id,clerk_entry_id,decision,actor_user_id,source from discord_waitlist_actions").all())
+    .toEqual([{ id: alert.id, clerk_entry_id: "wle_new", decision: action, actor_user_id: 1, source: "admin" }]);
+  const edit = db.prepare("select operation,channel_id,message_id,payload_json from discord_outbox where kind='waitlist_decision'").get();
+  expect(edit).toMatchObject({ operation: "edit", channel_id: "alerts", message_id: "message-1" });
+  expect(JSON.parse((edit as { payload_json: string }).payload_json)).toMatchObject({ components: [], embeds: [], allowed_mentions: { parse: [] } });
+  expect(JSON.stringify(edit)).not.toContain("@example.test");
+  expect(JSON.stringify(edit)).toContain("Operator");
+  expect(JSON.stringify(edit)).toContain("(admin)");
+  expect(db.prepare("select result,params_json from mod_actions").get()).toMatchObject({ result: "success", params_json: expect.stringContaining('"source":"admin"') });
+});
+
+it("records an admin decision but queues no Discord edit when there is no alert", async () => {
+  vi.stubEnv("DISCORD_WAITLIST_CHANNEL_ID", "alerts");
+  const response = await act("wle_new", { action: "approve" });
+  expect(await response.json()).toEqual({ status: "ok", decision: "approve" });
+  expect(db.prepare("select source,actor_user_id,subject_hash from discord_waitlist_actions").get())
+    .toMatchObject({ source: "admin", actor_user_id: 1, subject_hash: expect.any(String) });
+  expect(db.prepare("select * from discord_outbox where kind='waitlist_decision'").all()).toEqual([]);
+});
+
+it("returns already_decided without a second Clerk call and keeps the first decision", async () => {
+  await act("wle_new", { action: "approve" });
+  const response = await act("wle_new", { action: "reject" });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ status: "already_decided", decision: "approve" });
+  expect(posts()).toHaveLength(1);
+});
+
+it("returns in_progress or conflict for a leased decision without another Clerk call", async () => {
+  const row = prepareWaitlistAction(db, { email: "new@example.test", clerkEntryId: "wle_new" });
+  db.prepare("update discord_waitlist_actions set decision='approve',source='discord',actor_user_id=1,lease_token='held',lease_expires_at=? where id=?")
+    .run(Date.now() + 30_000, row.id);
+  const pending = await act("wle_new", { action: "approve" });
+  expect(pending.status).toBe(202);
+  expect(await pending.json()).toEqual({ status: "in_progress", decision: "approve" });
+  const opposite = await act("wle_new", { action: "reject" });
+  expect(opposite.status).toBe(409);
+  expect(await opposite.json()).toEqual({ status: "conflict", decision: "approve" });
+  expect(posts()).toHaveLength(0);
+});
+
+it("does not decide an entry missing from the cached Clerk list, even with a client email", async () => {
+  expect((await act("wle_missing", { action: "approve", email: "new@example.test" })).status).toBe(404);
+  expect(posts()).toHaveLength(0);
+  expect(db.prepare("select * from discord_waitlist_actions").all()).toEqual([]);
+});
+
+it("refuses a decision when the server cannot load its email from Clerk", async () => {
+  clerk.mockRejectedValue(new Error("private sk_test_secret"));
+  const response = await act("wle_new", { action: "approve", email: "new@example.test" });
+  expect(response.status).toBe(502);
+  expect(await response.text()).not.toContain("sk_test_secret");
+  expect(posts()).toHaveLength(0);
+  expect(db.prepare("select * from discord_waitlist_actions").all()).toEqual([]);
+});
+
+
+it.each([undefined, "", "bot-server"])("lists Discord channels from the bot server with override %s", async botGuildId => {
+  vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+  vi.stubEnv("DISCORD_TOKEN", "stub-token");
+  vi.stubEnv("DISCORD_GUILD_ID", "site-data-guild");
+  vi.stubEnv("DISCORD_BOT_GUILD_ID", botGuildId);
+  clerk.mockResolvedValueOnce(Response.json([{ id: "text", name: "announcements", type: 0 }, { id: "voice", name: "Voice", type: 2 }]));
+  const { GET } = await import("../app/api/discord/channels/route");
+  const response = await GET();
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ channels: [{ id: "text", name: "announcements" }] });
+  expect(clerk).toHaveBeenCalledWith(`https://discord.com/api/v10/guilds/${botGuildId || "site-data-guild"}/channels`, {
+    headers: { Authorization: "Bot stub-token" },
+  });
+  const { env } = await import("@/lib/env");
+  expect(env.discordGuildId).toBe("site-data-guild");
 });

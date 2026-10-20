@@ -8,7 +8,8 @@ export function readConfig(): BotConfig {
   return {
     token: process.env.DISCORD_TOKEN,
     clientId: process.env.DISCORD_CLIENT_ID,
-    guildId: process.env.DISCORD_GUILD_ID,
+    guildId: process.env.DISCORD_BOT_GUILD_ID?.trim() || process.env.DISCORD_GUILD_ID,
+    dataGuildId: process.env.DISCORD_GUILD_ID,
     moderatorRoleId: process.env.DISCORD_MODERATOR_ROLE_ID,
     modLogChannelId: process.env.DISCORD_MOD_LOG_CHANNEL_ID,
     waitlistChannelId: process.env.DISCORD_WAITLIST_CHANNEL_ID,

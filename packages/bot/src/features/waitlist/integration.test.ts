@@ -20,6 +20,7 @@ import type { FeatureContext, FeatureModule, Stop } from "../../runtime/types.js
 import { createWaitlistFeature, waitlist } from "./index.js";
 
 const guildId = "100000000000000001";
+const dataGuildId = "100000000000000010";
 const channelId = "100000000000000002";
 const adminId = "100000000000000003";
 const modLogId = "100000000000000004";
@@ -32,7 +33,8 @@ afterEach(async () => {
 async function fixture() {
   vi.stubEnv("DISCORD_BOT_ENABLED", "1");
   vi.stubEnv("DISCORD_ADMIN_OUTBOX_ENABLED", "1");
-  vi.stubEnv("DISCORD_GUILD_ID", guildId);
+  vi.stubEnv("DISCORD_GUILD_ID", dataGuildId);
+  vi.stubEnv("DISCORD_BOT_GUILD_ID", guildId);
   vi.stubEnv("DISCORD_WAITLIST_CHANNEL_ID", channelId);
   vi.stubEnv("DISCORD_MOD_LOG_CHANNEL_ID", modLogId);
   vi.stubEnv("OWNER_USER_IDS", "1");
@@ -112,7 +114,7 @@ async function fixture() {
   const client = new Client({ intents: [] });
   cleanups.push(() => client.destroy());
   const context: FeatureContext = { db, shared, rest, client, signal: controller.signal,
-    config: { token: "stub-token", clientId: "100000000000000009", guildId, waitlistChannelId: channelId, modLogChannelId: modLogId, restApi: `${base}/api`, healthPath: join(directory, "health.json") },
+    config: { token: "stub-token", clientId: "100000000000000009", guildId, dataGuildId, waitlistChannelId: channelId, modLogChannelId: modLogId, restApi: `${base}/api`, healthPath: join(directory, "health.json") },
     audit: createAudit(shared, guildId), cooldown: new Cooldown() };
   let sequence = 0;
   async function dispatch(module: FeatureModule, options: { button?: string; actor?: string; guild?: string | null; action?: string; entry?: string; page?: number } = {}) {
@@ -210,7 +212,7 @@ it.each(["approve", "reject"] as const)("makes %s idempotent, edits the alert an
   const again = await f.dispatch(feature, { button: `wl:${decision === "approve" ? "reject" : "approve"}:${id}` });
   expect(replyText(again)).toContain("Already decided");
   expect(clerkDecisions(f)).toHaveLength(1);
-  expect(f.db.prepare("select action,result from mod_actions").all()).toEqual([{ action: `waitlist.${decision}`, result: "success" }]);
+  expect(f.db.prepare("select guild_id,action,result from mod_actions").all()).toEqual([{ guild_id: dataGuildId, action: `waitlist.${decision}`, result: "success" }]);
   await expect.poll(() => f.requests.filter(r => r.method === "POST" && r.path.endsWith(`/channels/${modLogId}/messages`)).length).toBe(1);
   expect(f.db.prepare("select discord_updated_at from discord_waitlist_actions").get()).toEqual({ discord_updated_at: expect.any(Number) });
 });

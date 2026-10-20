@@ -115,7 +115,11 @@ const server = createServer(async (request, response) => {
 });
 const port = Number(process.env.DUEL_INTERNAL_PORT ?? 4003);
 const bind = process.env.DUEL_INTERNAL_HOST ?? "127.0.0.1";
-server.listen(port, bind, () => console.log(`[duel] Private server listening on http://${bind}:${port}`));
+server.listen(port, bind, () => {
+  console.log(`[duel] Private server listening on http://${bind}:${port}`);
+  // The first engine start hashes every engine file (seconds when the files are not in memory). Do it now.
+  host.warmStartResources();
+});
 
 async function shutdown() {
   if (closing) {

@@ -405,3 +405,21 @@ it("continues compaction past a failing row", async () => {
   const stats = await runDuelSnapshotRetention(db, { now, onError, batchSize: 1, maxBatches: 2, pause: async () => {} });
   expect(onError).toHaveBeenCalled(); expect(stats.compacted).toBe(1); expect(saved(db, good).snapshot_compacted_at).not.toBeNull();
 });
+
+it("deletes a finished deck-editor test duel after one day, with its rows, and keeps real duels and live test duels", async () => {
+  const { db } = fixture();
+  vi.stubEnv("DUEL_SNAPSHOT_RETENTION_ENABLED", "0");
+  const mark = (id: number) => db.prepare(`update duels set setup_json='{"testDuel":true}' where id=?`).run(id);
+  const oldTest = row(db, "1v1", "completed", "play", "2026-10-09 12:00:00");
+  const recentTest = row(db, "1v1", "completed", "play", "2026-10-11 11:00:00");
+  const activeTest = row(db, "1v1", "active", "play", "2026-10-01 12:00:00");
+  const oldReal = row(db, "1v1", "completed", "play", "2026-10-09 12:00:00");
+  for (const id of [oldTest, recentTest, activeTest]) mark(id);
+  db.prepare("insert into duel_commands(duel_id,seq,seat,command_json) values(?,1,0,'{}')").run(oldTest);
+  const stats = await runDuelSnapshotRetention(db, { now });
+  expect(stats.deletedTestDuels).toBe(1);
+  expect(saved(db, oldTest)).toBeUndefined();
+  expect(db.prepare("select * from duel_commands where duel_id=?").all(oldTest)).toEqual([]);
+  expect(db.prepare("select * from duel_seats where duel_id=?").all(oldTest)).toEqual([]);
+  for (const id of [recentTest, activeTest, oldReal]) expect(saved(db, id)).toBeDefined();
+});

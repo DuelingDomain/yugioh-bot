@@ -63,6 +63,7 @@ export function useStartBeats({
   reducedMotion,
   ready,
   recovering = false,
+  skipOpening = false,
 }: {
   engine: DuelEngineView | null | undefined;
   clock?: DuelClock | null;
@@ -75,7 +76,11 @@ export function useStartBeats({
    * are history when they return), except while the opening deal plays.
    */
   recovering?: boolean;
+  /** Show the hands at once and play no opening deal (a deck-editor test duel: the player wants to play, not watch). */
+  skipOpening?: boolean;
 }): StartBeats {
+  // The opening counts as presented before it starts, so the rest of the hook treats it as history.
+  if (skipOpening) presentedOpenings.add(duelKey);
   const receivedClock = useRef({ clock, at: performance.now() });
   if (receivedClock.current.clock !== clock) receivedClock.current = { clock, at: performance.now() };
   const graceLeft = clock?.startedAt == null ? Infinity
