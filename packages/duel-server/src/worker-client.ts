@@ -1,3 +1,5 @@
+import type { ReplayWorkerOptions, ReplayWorkerResult } from "./replay-worker.js";
+import { workerResponseError } from "./worker-error.js";
 import { report } from "@yugidraft/shared/observability";
 import type { DuelScriptError, DuelScriptFatalError } from "./script-errors.js";
 import { Worker } from "node:worker_threads";
@@ -6,9 +8,6 @@ import { workerLimitsFromEnv } from "./config.js";
 import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript, EngineViewHistory } from "./engine.js";
 import type { DuelWorkerResponse, WorkerCreateTimings } from "./worker-protocol.js";
-import { EngineAnswerError } from "./prompts.js";
-import { EngineLoopError } from "./engine-loop-error.js";
-import { EngineResourceUnavailableError } from "./engine-resource-resolver.js";
 import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings, DuelScriptErrorMode, EngineIdentity } from "@yugidraft/shared/duels";
 
 const PROMPT_LOG_LIMIT = 5_000;
@@ -57,6 +56,8 @@ export interface DuelGameWorker {
   /** Bound the complete recovery/replay initialization before live operations resume. */
   initialize?<T>(work: () => Promise<T>): Promise<T>;
   create(options: GameOptions): Promise<void>;
+  /** Optional batched replay; test doubles and older adapters retain the journal transport. */
+  buildReplay?(options: ReplayWorkerOptions): Promise<ReplayWorkerResult>;
   view(seat: number | null, history?: EngineViewHistory): Promise<DuelEngineView>;
   answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void>;
   search(query: string, seat?: number): Promise<DuelCardInfo[]>;
@@ -135,14 +136,16 @@ export class GameWorker implements DuelGameWorker {
       this.pending.delete(message.id);
       if (message.ok) request.resolve(message.value);
       else {
-        const error = message.code === "ENGINE_UNAVAILABLE_FOR_SOURCE"
-          ? new EngineResourceUnavailableError("the worker cannot use the recorded engine resources")
-          : message.engineLoop ? new EngineLoopError() : message.answerError || message.code
-          ? new EngineAnswerError(message.message ?? message.error, message.code)
-          : new Error(message.message ?? message.error ?? "Engine rejected the request");
-        if (message.name) error.name = message.name;
-        if (message.stack) error.stack = message.stack;
-        if (!message.answerError && !message.code) this.reportError(error);
+        const error = workerResponseError(message);
+        const diagnostic = message.replayError?.diagnostic;
+        if (diagnostic) {
+          const original = new Error(diagnostic.message);
+          original.name = diagnostic.name;
+          if (diagnostic.stack) original.stack = diagnostic.stack;
+          this.reportError(original);
+        } else if (message.replayError ? message.replayError.code === "ENGINE_BUSY" : !message.answerError && !message.code) {
+          this.reportError(error);
+        }
         request.reject(error);
       }
     });
@@ -220,6 +223,10 @@ export class GameWorker implements DuelGameWorker {
     });
   }
 
+  buildReplay(options: ReplayWorkerOptions): Promise<ReplayWorkerResult> {
+    return this.request({ op: "replay", options });
+  }
+
   create(options: GameOptions): Promise<void> {
     return this.request({ op: "create", options });
   }
@@ -266,7 +273,7 @@ export function limitWorkerOperations(worker: DuelGameWorker, timeoutMs: number,
   let closing: Promise<void> | undefined;
   const pending = new Set<(error: Error) => void>();
   const timeoutError = () => new RequestError("The duel engine did not answer in time.", 503);
-  const operations = new Set(["create", "view", "answer", "search", "eliminate", "setChainMode", "diagnostics"]);
+  const operations = new Set(["create", "view", "answer", "search", "eliminate", "setChainMode", "diagnostics", "buildReplay"]);
 
   function bounded<T>(work: () => Promise<T>, ms: number, isClose = false): Promise<T> {
     let timer: ReturnType<typeof setTimeout>;
@@ -315,7 +322,7 @@ export function limitWorkerOperations(worker: DuelGameWorker, timeoutMs: number,
       if (!operations.has(String(key))) return value.bind(target);
       return (...args: unknown[]) => {
         if (stopped) return Promise.reject(new RequestError("The duel engine is no longer running.", 503));
-        return bounded(() => value.apply(target, args), initializing || key === "create" ? createTimeoutMs : timeoutMs);
+        return bounded(() => value.apply(target, args), initializing || key === "create" || key === "buildReplay" ? createTimeoutMs : timeoutMs);
       };
     },
   }) as LimitedGameWorker;

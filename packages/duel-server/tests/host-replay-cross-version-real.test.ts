@@ -103,8 +103,8 @@ describeWithCores(TWO_BUNDLES ? "real cross-version replay (two bundles)" : "rea
         await host.close();
         host = createDuelHost({ db, dataDirectory: DATA, secret, searchCards: () => [], pollIntervalMs: 60_000,
           createWorker: () => {
-            const worker = new GameWorker(), create = worker.create.bind(worker);
-            worker.create = options => { families.push(options.engine); return create(options); };
+            const worker = new GameWorker(), buildReplay = worker.buildReplay.bind(worker);
+            worker.buildReplay = options => { families.push(options.resources.engineIdentity?.coreFamily); return buildReplay(options); };
             return worker;
           } });
       }

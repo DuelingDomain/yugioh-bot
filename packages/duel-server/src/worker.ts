@@ -75,6 +75,20 @@ export async function handleWorkerRequest(request: DuelWorkerRequest): Promise<D
 async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerResponse> {
   try {
     switch (request.op) {
+      case "replay": {
+        const { runReplayInWorker, ReplayBuildError } = await import("./replay-worker.js");
+        try {
+          return { id: request.id, ok: true, value: await runReplayInWorker(request.options, handleWorkerRequest) };
+        } catch (error) {
+          if (!(error instanceof ReplayBuildError)) throw error;
+          // The public message stays safe. Send the original failure only for host reporting.
+          let original: unknown = error.cause;
+          for (let depth = 0; depth < 8 && original instanceof Error && original.cause instanceof Error; depth++) original = original.cause;
+          return { id: request.id, ok: false, error: error.message, message: error.message,
+            replayError: { code: error.code, familyFailed: error.familyFailed,
+              ...(original instanceof Error ? { diagnostic: { message: original.message, name: original.name, stack: original.stack } } : {}) } };
+        }
+      }
       case "create": {
         if (game) return { id: request.id, ok: false, error: "A game is already running in this worker" };
         const boundary = request.options.manualLossAnswersAfter;

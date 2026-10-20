@@ -98,7 +98,15 @@ Duel.RegisterEffect(e,0)`);
   let failReplays = false;
   const makeHost = () => {
     const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000,
-      queueBlockedMs, createWorker: () => { const worker = new TestWorker(); worker.failCreate = failReplays; workers.push(worker); return worker; } });
+      queueBlockedMs, createWorker: () => {
+        const worker = new TestWorker(); worker.failCreate = failReplays; workers.push(worker);
+        // This adapter injects create/view failures and proof binaries; keep those hooks on the transport path.
+        return new Proxy(worker, { get(target, key) {
+          if (key === "buildReplay") return undefined;
+          const value = Reflect.get(target, key, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        } });
+      } });
     hosts.push(host);
     return host;
   };
