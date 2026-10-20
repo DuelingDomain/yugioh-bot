@@ -2304,10 +2304,11 @@ export function createDuelHost(options: {
       if (error instanceof DuelSettingsError) throw new RequestError(error.message, 400);
       throw error;
     }
+    // The Deck Master check looks up one card, so it runs first: its message wins over a list-size message.
+    await validateDeckMasterWrite(mode, body.deck as DuelDeck, true);
     assertDeckListSize(body.deck);
     // The local card catalog only: a card the engine and the catalog both lack stays as it is, and never starts an
     // outside card lookup while the player waits. The engine rejects a card it does not know.
-    await validateDeckMasterWrite(mode, body.deck as DuelDeck, true);
     const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true, cacheOnly: true });
     await validateSessionDeck(mode, deck, settings, "1v1");
     lap("deckChecksMs");
@@ -3443,8 +3444,8 @@ export function createDuelHost(options: {
       if (!info.playerIds.includes(actor)) throw new RequestError("Only the players of this series can do that", 403);
       if (op === "series-side") {
         if (info.status !== "between_games") throw new RequestError("Side decking is only open between games", 409);
-        assertDeckListSize(body.deck);
         await validateDeckMasterWrite(room.session.mode, body.deck as DuelDeck);
+        assertDeckListSize(body.deck);
         // Like check-deck, unresolved ids stay as sent so validateSessionDeck can report them.
         const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
         await validateSessionDeck(room.session.mode, deck, room.session.settings, room.session.format, { session: room.session, playerId: actor });
@@ -3522,10 +3523,11 @@ export function createDuelHost(options: {
         }
       }
       const settings = room.session.settings;
-      assertDeckListSize(body.deck, op === "validate-deck");
+      // The Deck Master check looks up one card, so it runs first: its message wins over a list-size message.
       if (op === "deck") {
         await validateDeckMasterWrite(room.session.mode, body.deck as DuelDeck);
       }
+      assertDeckListSize(body.deck, op === "validate-deck");
       const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, {
         // Unresolved codes remain visible to validation, including the stable Extra error.
         keepUnresolved: true,
