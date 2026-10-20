@@ -20,6 +20,7 @@
  *
  * Reduced motion: no travel, a 150 ms fade at the destination.
  */
+import { beginPileArrivalHold } from "./pile-arrival-hold";
 import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
@@ -847,9 +848,15 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
       if (!plan || plan.silent) continue;
       // The real card waits invisible at its destination until the ghost lands on it.
       const dest = findMoveDestination(plan.event);
-      const target = dest ? hideTargetOf(dest, plan) : [];
+      const pileLocation = plan.event.zone?.location;
+      // Cards flying into one pile hold the pile's top cards together (see pile-arrival-hold.ts).
+      const pileArrival = (pileLocation === LOCATION_GRAVE || pileLocation === LOCATION_REMOVED) && !plan.tribute && plan.style !== "tribute" && plan.event.zone != null;
+      const target = dest && !pileArrival ? hideTargetOf(dest, plan) : [];
       const waitMs = Math.max(0, plan.landAt + plan.holdMs - now) + HIDE_FAILSAFE_MS;
       const releases: Array<() => void> = [];
+      if (pileArrival && plan.event.zone) {
+        releases.push(beginPileArrivalHold(`${plan.event.zone.controller}:${pileLocation}`, () => findMoveDestination(plan.event)));
+      }
       if (plan.event.zone?.location === LOCATION_HAND) {
         let heldTarget = target;
         let releaseTarget = hideElements(target);
