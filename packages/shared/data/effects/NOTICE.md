@@ -26,13 +26,15 @@ manifest pins this derived file and the original source-input SHA-256.
 `releases.json.gz` contains first TCG and OCG release months from the same
 upstream `data/cards.json` (YGOPRODeck misc data). It also retains source names
 and artwork aliases for canonical passcode resolution. Dates before 2002 in the
-TCG and before 1999 in the OCG are removed as placeholders. No first-set data
-is added to this snapshot. These source dates can refer to a later print.
+TCG and before 1999 in the OCG are removed as placeholders. The base source dates can refer to a later print; subsequent fills use the
+earliest valid misc or TCG first-set month.
 The month precision avoids a claim of exact day accuracy. Future months are
 retained; readers calculate the Upcoming state at use time. Rebuild with Node
 22 and `tsx scripts/effects/build-releases.ts <source-cards.json>` from the root.
-Later additive fills use the free YGOPRODeck bulk endpoint directly. Existing
-valid months and source record fields stay unchanged. See `docs/effect-tagging.md`
+Later fills use the free YGOPRODeck card and set bulk endpoints directly.
+Valid months may move earlier for first-print corrections, never later. Each
+correction is listed with its source months in the generated PR review report
+and checked during publication. Names, aliases, and quality stay unchanged. See `docs/effect-tagging.md`
 for the cached daily step and `npm run effects:fill-releases -- --apply`.
 Credit stays here, not in the UI: the base dates come from YGOPRODeck via
-searchygo; new date fills come from YGOPRODeck misc data.
+searchygo; new date fills and corrections come from YGOPRODeck misc and TCG set data.

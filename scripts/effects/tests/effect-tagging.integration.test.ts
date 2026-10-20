@@ -149,6 +149,11 @@ it("fills missing release months through bulk HTTP, keeps families and valid dat
   const publisherPath = "../../ci/publish-effect-tags.mjs";
   const { validateEffectCandidate } = await import(publisherPath);
   expect(validateEffectCandidate(rootPath, options.outputDirectory).changed).toBe(true);
+  const reviewPath = join(options.outputDirectory, "report.md"), review = readFileSync(reviewPath, "utf8");
+  expect(review).toContain(`${reprint.name} (${reprint.id}): TCG ${reprint.tcgDate} → 2003-01`);
+  writeFileSync(reviewPath, "Release update without correction details.\n");
+  expect(() => validateEffectCandidate(rootPath, options.outputDirectory)).toThrow(/correction missing.*report.md/i);
+  writeFileSync(reviewPath, review);
   await refreshReleaseCandidate(options);
   expect(api.events).toHaveLength(3); // persistent bulk cache; no per-card calls
   const original = readFileSync(join(options.outputDirectory, data, "releases.json.gz"));

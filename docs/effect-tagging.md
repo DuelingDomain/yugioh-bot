@@ -237,16 +237,20 @@ The daily job also fills missing release months from the free
 [YGOPRODeck bulk API](https://ygoprodeck.com/api-guide/). This step makes no AI
 or paid calls and runs even when the tagging key is absent. Explicit workflow
 dry runs and ledger initialization skip it. The job stores a 24-hour disk cache.
-It makes one bulk GET per refresh, with at most three attempts, a 30-second
-request timeout, exponential backoff, and a bounded Retry-After wait. An API or
+It makes one card and one set bulk GET per refresh, with at most three attempts, a 30-second
+request timeout, a 200 MB limit per response (header and streaming bytes), exponential backoff, and a bounded Retry-After wait. An API or
 validation failure skips the release step and retains the tag candidate.
 
-Only missing months are filled. TCG years start at 2002; OCG years start at 1999.
-Valid months, names, aliases, quality flags, tags, and popularity stay intact.
+Missing months are filled; valid months may move earlier to a first print, never later.
+TCG years start at 2002; OCG years start at 1999. Names, aliases, quality flags,
+tags, and popularity stay intact.
 Existing artwork aliases and unique printed names select the original family.
 The existing local importer applies engine pre-release remaps. Publication
-checks every old release record and refuses deletions or edits to valid months.
-It permits new IDs and date fills, including an update with no new tags.
+checks every old release record and refuses deletions or later-month changes.
+An earlier valid month requires matching misc or first-set evidence in `report.json`
+and a visible per-card line in `report.md`, which becomes the pull request body.
+The free source is evidence for human review, not independent verification.
+Publication also permits new IDs and date fills, including an update with no new tags.
 
 Run the same free step by hand from the checkout used by the local server:
 
