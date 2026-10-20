@@ -1,0 +1,137 @@
+name: Build production image
+description: Build a pinned ARM64 runtime image, push it to GHCR and record its immutable digest
+inputs:
+  service:
+    description: Runtime service name
+    required: true
+  target:
+    description: Dockerfile build target
+    required: true
+  bundle-artifact:
+    description: Artifact in this run with the verified production engine tarball
+    required: true
+  artifact-suffix:
+    description: Producer attempt suffix for Test artifacts; manual Deploy keeps its existing names
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Check production public key
+      shell: bash
+      run: |
+        printf '%s' "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" | grep -Eq '^pk_live_[A-Za-z0-9_-]+$' || {
+          echo "Set the production NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY repository variable." >&2
+          exit 1
+        }
+
+    - name: Download production engine bundle
+      if: inputs.service == 'duel'
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        name: ${{ inputs.bundle-artifact }}
+        path: ${{ runner.temp }}/release
+
+    - name: Prepare named engine context
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/engine"
+        if [ "$IMAGE" = ghcr.io/duelingdomain/yugioh-bot-duel ]; then
+          tar -C "$RUNNER_TEMP/engine" -xzf "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
+        fi
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+    - name: Log in to GHCR
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
+    - name: Find previous Next.js cache
+      if: inputs.service == 'web'
+      id: next-cache
+      shell: bash
+      run: |
+        if docker buildx imagetools inspect "$IMAGE:nextcache" >/dev/null 2>&1; then
+          echo "context=nextcache=docker-image://$IMAGE:nextcache" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Build and push runtime image
+      id: runtime-image
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      with:
+        context: .
+        target: ${{ inputs.target }}
+        platforms: linux/arm64
+        push: true
+        provenance: false
+        sbom: false
+        tags: ${{ env.IMAGE }}:${{ env.DEPLOY_COMMIT }}
+        build-args: |
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_POSTHOG_KEY=${{ env.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_SENTRY_DSN=${{ inputs.service == 'web' && env.NEXT_PUBLIC_SENTRY_DSN || '' }}
+          SENTRY_ORG=${{ inputs.service == 'web' && env.SENTRY_ORG || '' }}
+          SENTRY_PROJECT=${{ inputs.service == 'web' && env.SENTRY_PROJECT || '' }}
+          SENTRY_ENVIRONMENT=${{ inputs.service == 'web' && 'production' || '' }}
+          SENTRY_RELEASE=${{ inputs.service == 'web' && env.DEPLOY_COMMIT || '' }}
+          SENTRY_UPLOAD_SOURCEMAPS=${{ inputs.service == 'web' && env.SENTRY_AUTH_TOKEN != '' && '1' || '0' }}
+        secrets: |
+          SENTRY_AUTH_TOKEN=${{ inputs.service == 'web' && env.SENTRY_AUTH_TOKEN || '' }}
+        build-contexts: |
+          engine=${{ runner.temp }}/engine
+          ${{ steps.next-cache.outputs.context }}
+        labels: |
+          org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot
+          org.opencontainers.image.revision=${{ env.DEPLOY_COMMIT }}
+        cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+        cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+
+    - name: Record runtime image digest
+      env:
+        SERVICE: ${{ inputs.service }}
+        IMAGE_DIGEST: ${{ steps.runtime-image.outputs.digest }}
+      shell: bash
+      run: |
+        printf '%s' "$IMAGE_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$' || exit 1
+        mkdir -p "$RUNNER_TEMP/image-digests"
+        printf '%s %s\n' "$SERVICE" "$IMAGE_DIGEST" > "$RUNNER_TEMP/image-digests/$SERVICE.digest"
+        printf '%s@%s\n' "$IMAGE" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload runtime image digest
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: production-image-${{ inputs.service }}-${{ env.DEPLOY_COMMIT }}${{ inputs.artifact-suffix }}
+        path: ${{ runner.temp }}/image-digests/${{ inputs.service }}.digest
+        if-no-files-found: error
+        retention-days: 1
+        overwrite: true
+
+    - name: Save Next.js cache for the next source revision
+      if: inputs.service == 'web'
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      with:
+        context: .
+        target: web-cache
+        platforms: linux/arm64
+        push: true
+        provenance: false
+        sbom: false
+        tags: ${{ env.IMAGE }}:nextcache
+        build-args: |
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_POSTHOG_KEY=${{ env.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_SENTRY_DSN=${{ inputs.service == 'web' && env.NEXT_PUBLIC_SENTRY_DSN || '' }}
+          SENTRY_ORG=${{ inputs.service == 'web' && env.SENTRY_ORG || '' }}
+          SENTRY_PROJECT=${{ inputs.service == 'web' && env.SENTRY_PROJECT || '' }}
+          SENTRY_ENVIRONMENT=${{ inputs.service == 'web' && 'production' || '' }}
+          SENTRY_RELEASE=${{ inputs.service == 'web' && env.DEPLOY_COMMIT || '' }}
+          SENTRY_UPLOAD_SOURCEMAPS=${{ inputs.service == 'web' && env.SENTRY_AUTH_TOKEN != '' && '1' || '0' }}
+        secrets: |
+          SENTRY_AUTH_TOKEN=${{ inputs.service == 'web' && env.SENTRY_AUTH_TOKEN || '' }}
+        build-contexts: ${{ steps.next-cache.outputs.context }}
+        labels: |
+          org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot
+        cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache

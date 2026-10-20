@@ -44,10 +44,11 @@ on:
         default: "100"
 
 concurrency:
+  # Superseded main tests cancel to free runner slots; production Deploy stays serialized.
   # Bot PR/dispatch runs for one head share a serial group so an older PASS cannot
   # overwrite a newer FAIL. Different heads and ordinary nightly/main runs stay independent.
   group: test-${{ github.workflow }}-${{ ((github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/engine-data-update' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.new_card_smoke && github.ref == 'refs/heads/chore/engine-data-update')) && format('card-data-{0}', github.event.pull_request.head.sha || github.sha) || format('{0}-{1}', github.event_name, github.ref) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.ref != 'chore/engine-data-update' || github.event.pull_request.head.repo.full_name != github.repository) }}
+  cancel-in-progress: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'pull_request' && (github.event.pull_request.head.ref != 'chore/engine-data-update' || github.event.pull_request.head.repo.full_name != github.repository) }}
 
 permissions:
   contents: read
@@ -59,14 +60,14 @@ env:
 
 jobs:
   # Which layers a change can affect (scripts/ci/changed-layers.mjs). Pull requests diff from the merge base; pushes
-  # to main diff github.event.before..github.sha (the previous main tip / first parent for a merged PR).
+  # to main diff the last successful tested ancestor..github.sha, including changes from cancelled runs.
   # Manual runs, the schedule and a push without a usable
   # diff set engine=true and golden=true.
   #   engine      the duel engine, its shared dependencies, e2e, the engine bundle inputs, the lockfile, the ADR-0002
   #               rules or this workflow changed: cores, engine, engine-legacy, native and rule-coverage run.
   #   golden      core patches/pins, overlays, native tooling or data pins changed: check golden in the native job.
   # Main also includes all shared paths, engine data bundles, Dockerfile and all .github/workflows files.
-  # Changes outside these paths (for example bot-only or web-only changes) run only the unit jobs.
+  # Changes outside these paths (for example bot-only or web-only changes) run unit jobs and main image builds.
   changes:
     name: Changed layers
     runs-on: ubuntu-latest
@@ -74,6 +75,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      actions: read
     outputs:
       engine: ${{ steps.diff.outputs.engine }}
       golden: ${{ steps.diff.outputs.golden }}
@@ -90,13 +92,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Find tested main ancestor
+        id: baseline
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/tested-main-base.mjs
+
       - name: Diff changed files
         id: diff
         env:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_BEFORE: ${{ steps.baseline.outputs.base }}
           PUSH_AFTER: ${{ github.sha }}
         run: node scripts/ci/changed-layers.mjs
 
@@ -479,67 +488,105 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: prlimit --core=0 -- node scripts/ci/new-card-smoke-status.mjs final
 
-  unit-packages:
-    name: Unit packages and typecheck
-    # Start alongside web shards and change detection; no dependency on engine/cache jobs.
+  unit-typecheck:
+    name: Typecheck and effect protocol
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-
-      - name: Install
-        run: npm ci
-
+      - name: Restore Node dependencies and Turbo cache
+        uses: ./.github/actions/setup-ci-node
       - name: Build shared
-        run: npm run build --workspace=@yugidraft/shared
-
-      - name: Build worker
-        run: npm run build --workspace=packages/worker
-
-      - name: Test worker
-        run: npm test --workspace=packages/worker
-
-      - name: Test WS
-        run: npm test --workspace=packages/ws
-
-      - name: Build web with a dummy Clerk public key
-        env:
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
-        run: npm run build --workspace=packages/web
-
-      - name: Deployment script tests
-        run: npx vitest run scripts/deployment/deploy.test.ts
-
+        run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
+      - name: Generate Next route types
+        run: npm exec --workspace=packages/web -- next typegen
       - name: Typecheck
-        run: npm run typecheck
-
-      - name: Test shared
-        run: npm test --workspace=packages/shared
-
+        run: npm run typecheck -- --force
       - name: Validate effect tagging protocol without paid requests
         run: |
           prlimit --core=0 -- npx tsc -p scripts/effects/tsconfig.json --noEmit
           prlimit --core=0 -- npx vitest run scripts/effects/tests/effect-tagging.integration.test.ts --maxWorkers=1
 
+  unit-web-build:
+    name: Web production build
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Restore Node dependencies and Turbo cache
+        uses: ./.github/actions/setup-ci-node
+      - name: Build shared
+        run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
+      - name: Restore Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: packages/web/.next/cache
+          key: next-ci-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: next-ci-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}-
+      - name: Build web with a dummy Clerk public key
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
+        run: bash scripts/ci/build-web.sh
+
+  unit-shared:
+    name: Shared unit tests
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Restore Node dependencies and Turbo cache
+        uses: ./.github/actions/setup-ci-node
+      - name: Build shared
+        run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
+      - name: Test shared
+        run: npm test --workspace=packages/shared
+
+  unit-services:
+    name: Bot, WS and worker unit tests
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Restore Node dependencies and Turbo cache
+        uses: ./.github/actions/setup-ci-node
+      - name: Build shared and worker
+        run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/worker
+      - name: Test worker
+        run: npm test --workspace=packages/worker
+      - name: Test WS
+        run: npm test --workspace=packages/ws
       - name: Test bot
         run: npm test --workspace=packages/bot
 
+  unit-duel:
+    name: Duel unit tests and CI safety
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+      - name: Restore Node dependencies and Turbo cache
+        uses: ./.github/actions/setup-ci-node
+      - name: Build shared
+        run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
+      - name: Deployment script tests
+        run: npx vitest run scripts/deployment/deploy.test.ts
       - name: Test CI helpers
         run: |
           node --test scripts/ci/*.test.mjs
           python3 -B scripts/ci/parallel_emxx_test.py
           python3 -B -m unittest discover -s scripts/deployment -p test_deploy_safety.py
-
       # Keep tests-only PR selection without waiting for the separate changes job.
       - name: Classify PR test changes
         id: diff
@@ -575,29 +622,43 @@ jobs:
           process.exit(result.status ?? 1);
           JS
 
+  # Keep this check name as a strict aggregate: required package work cannot skip.
+  unit-packages:
+    name: Unit packages and typecheck
+    if: always() && github.event_name != 'schedule'
+    needs: [unit-typecheck, unit-web-build, unit-shared, unit-services, unit-duel]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all package jobs
+        env:
+          GROUP_0: ${{ needs.unit-typecheck.result }}
+          GROUP_1: ${{ needs.unit-web-build.result }}
+          GROUP_2: ${{ needs.unit-shared.result }}
+          GROUP_3: ${{ needs.unit-services.result }}
+          GROUP_4: ${{ needs.unit-duel.result }}
+        run: |
+          for result in "$GROUP_0" "$GROUP_1" "$GROUP_2" "$GROUP_3" "$GROUP_4"; do
+            test "$result" = success || exit 1
+          done
+
   unit-web:
-    name: Web unit tests (${{ matrix.shard }}/4)
+    name: Web unit tests (${{ matrix.shard }}/2)
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-      - name: Install
-        run: npm ci
+      - name: Restore Node dependencies and Turbo cache
+        uses: ./.github/actions/setup-ci-node
       - name: Build shared
-        run: npm run build --workspace=@yugidraft/shared
+        run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
       - name: Test web
-        run: npm test --workspace=packages/web -- --shard=${{ matrix.shard }}/4
+        run: npm test --workspace=packages/web -- --shard=${{ matrix.shard }}/2
 
   # Keep the branch-protection check names. A failed or cancelled shard fails the aggregate.
   unit:
@@ -922,3 +983,77 @@ jobs:
             .status/nduel-check.json
             nduel-work/${{ matrix.case }}/runs/*.err
           if-no-files-found: ignore
+
+  # These artifacts are unverified until this whole main push Test run succeeds.
+  # Deploy uses this exact run ID and commit; PRs never publish production images.
+  production-bundle:
+    name: Prepare production image bundle
+    outputs:
+      artifact: ${{ steps.bundle-name.outputs.artifact }}
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Prepare production engine bundle
+        uses: ./.github/actions/prepare-production-bundle
+      - name: Record production bundle artifact name
+        id: bundle-name
+        run: echo "artifact=production-bundle-${{ github.sha }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+      - name: Upload production image bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.bundle-name.outputs.artifact }}
+          overwrite: true
+          path: ${{ runner.temp }}/deploy-bundle.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  production-images:
+    name: Build ARM64 ${{ matrix.service }} image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: production-bundle
+    runs-on: ubuntu-24.04-arm
+    environment: ${{ matrix.service == 'web' && 'production' || '' }}
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: duel
+            target: duel-bundled
+          - service: web
+            target: web
+          - service: bot
+            target: bot
+          - service: worker
+            target: worker
+          - service: ws
+            target: ws
+    env:
+      DEPLOY_COMMIT: ${{ github.sha }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      IMAGE: ghcr.io/duelingdomain/yugioh-bot-${{ matrix.service }}
+    steps:
+      - name: Checkout main push commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+      - name: Build production image
+        uses: ./.github/actions/build-production-image
+        with:
+          service: ${{ matrix.service }}
+          target: ${{ matrix.target }}
+          bundle-artifact: ${{ needs.production-bundle.outputs.artifact }}
+          artifact-suffix: -${{ github.run_attempt }}
+        env:
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_AUTH_TOKEN: ${{ matrix.service == 'web' && secrets.SENTRY_AUTH_TOKEN || '' }}
