@@ -22,6 +22,8 @@
   z-index: 12;
   width: auto;
   height: auto;
+  /* A hovered hand card is cut out of the emblem so the card lies over it (useHandCover in master-badge.tsx). Unset: no cut. */
+  clip-path: var(--hand-cut, none);
 }
 /* The emblem is the card itself, so the crown tag and the pills size from its width. */
 /* A pile or material window is open: the emblem (a fixed layer above the board box) must not draw over it. It stays in place, only unseen. */

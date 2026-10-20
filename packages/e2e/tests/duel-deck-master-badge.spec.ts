@@ -7,6 +7,69 @@ import { withFiller, ydkUpload } from "../helpers/decks";
 
 const DECK_MASTER = "Celtic Guardian";
 
+for (const mode of ["classic", "3d"] as const) {
+  test(`${mode}: Inspect in the Deck Master pop-over opens the card drawer`, async ({ player }) => {
+    const { page } = await player("p5");
+    await startBotDuel(page);
+    const url = new URL(page.url());
+    url.searchParams.set("view", mode);
+    await page.goto(url.toString());
+    await expectReadyToAct(page);
+    await page.locator('[data-testid="dm-badge-wrap"][data-local="true"]').getByTestId("dm-badge").click();
+    await page.getByTestId("dm-badge-inspect").click();
+    await expect(page.getByTestId("dm-badge-pop")).toHaveCount(0);
+    const drawer = page.getByRole("dialog", { name: mode === "3d" ? "Card · Log" : "Card", exact: true });
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toContainText(DECK_MASTER);
+    await expect(drawer.locator('img[src$="/image"]')).toBeVisible();
+    expect((await page.request.post(`/api/duels/${url.pathname.split("/").at(-1)}/surrender`)).ok()).toBe(true);
+  });
+}
+
+for (const mode of ["classic", "3d"] as const) {
+  test(`${mode}: a hovered hand card lies over the Deck Master emblem`, async ({ player }) => {
+    const { page } = await player("p5");
+    await startBotDuel(page);
+    const url = new URL(page.url());
+    url.searchParams.set("view", mode);
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto(url.toString());
+    await expectReadyToAct(page);
+    const emblem = page.locator('[data-testid="dm-badge-wrap"][data-local="true"]');
+    const first = yourHand(page).locator("[data-hand-card]").first();
+    await first.hover();
+    // The hovered card grows over the emblem: at the middle of the shared area the page must not hit the emblem.
+    await expect.poll(() => page.evaluate(() => {
+      const wrap = document.querySelector('[data-testid="dm-badge-wrap"][data-local="true"]');
+      const card = document.querySelector('[data-hand-seat][data-side="you"] [data-hand-card] [data-card-frame]');
+      if (!wrap || !card) return "missing";
+      const a = wrap.getBoundingClientRect();
+      const b = card.getBoundingClientRect();
+      const left = Math.max(a.left, b.left), right = Math.min(a.right, b.right), top = Math.max(a.top, b.top), bottom = Math.min(a.bottom, b.bottom);
+      if (right <= left || bottom <= top) return "no overlap";
+      return document.elementFromPoint((left + right) / 2, (top + bottom) / 2)?.closest('[data-testid="dm-badge-wrap"]') ? "emblem on top" : "card on top";
+    })).toBe("card on top");
+    // The emblem is whole again once the pointer leaves, and its own click still works.
+    await page.mouse.move(5, 5);
+    await expect.poll(() => emblem.evaluate((el) => getComputedStyle(el).clipPath)).toBe("none");
+    await emblem.getByTestId("dm-badge").click();
+    await expect(page.getByTestId("dm-badge-pop")).toBeVisible();
+    expect((await page.request.post(`/api/duels/${url.pathname.split("/").at(-1)}/surrender`)).ok()).toBe(true);
+  });
+}
+
+test("the Deck Master keyboard shortcut moves focus into the pop-over", async ({ player }) => {
+  const { page } = await player("p5");
+  await startBotDuel(page);
+  await page.keyboard.press("m");
+  const pop = page.getByTestId("dm-badge-pop");
+  await expect(pop).toBeVisible();
+  await expect(pop.locator("button:focus")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(pop).toHaveCount(0);
+  expect((await page.request.post(`/api/duels/${new URL(page.url()).pathname.split("/").at(-1)}/surrender`)).ok()).toBe(true);
+});
+
 type Sample = { x: number; y: number; w: number; h: number; opacity: number };
 
 /** Records, every frame, the box of each flying ghost that shows the Deck Master art (summon and return flights). */
