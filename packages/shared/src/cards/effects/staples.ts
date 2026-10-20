@@ -9,14 +9,15 @@ const count = z.int().min(1);
 const Usage = z.object({ passcode: z.int().min(1).max(0xffffffff), name: z.string().max(160), decks: count, copies: count,
   archetypes: z.record(z.string(), count), playShare: z.number().min(0.1).max(1), averageCopies: z.number().min(1).max(3) }).strict();
 const Sample = z.object({ deckCount: z.int().min(20), archetypeCount: z.int().min(3), cards: z.array(Usage).max(80),
+  genericUsage: z.array(z.object({passcode:z.int().min(1).max(0xffffffff),decks:count}).strict()).max(7200),
   archetypeDeckCounts: z.record(z.string(),count),
   archetypeUsage: z.record(z.string(),z.array(z.object({passcode:z.int().min(1).max(0xffffffff),decks:count}).strict()).max(40)),
   sources: z.array(z.object({ url: z.url(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).min(1).max(5) }).strict();
-const Artifact = z.object({ schemaVersion: z.literal(2), generatedAt: z.iso.datetime(),
+const Artifact = z.object({ schemaVersion: z.literal(3), generatedAt: z.iso.datetime(),
   policy: z.object({ minimumDecks: z.literal(20), minimumShare: z.literal(0.1), minimumArchetypes: z.literal(3), maximumArchetypeShare: z.literal(0.6) }).strict(),
   formats: z.object({ tcg: Sample.optional(), domain: Sample.optional(), genesys: Sample.optional(), "genesys-domain": Sample.optional() }).strict(), version: z.string() }).strict();
 export type StapleUsage = z.infer<typeof Usage>;
-export interface FormatStaples { version: string; label: string; cards: ReadonlyMap<number, StapleUsage>; archetypes: ReadonlyMap<string,{decks:number;cards:ReadonlyMap<number,number>}> }
+export interface FormatStaples { version: string; label: string; cards: ReadonlyMap<number, StapleUsage>; playShares: ReadonlyMap<number,number>; archetypes: ReadonlyMap<string,{decks:number;cards:ReadonlyMap<number,number>}> }
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const bytes = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../../data/staples/usage.json"));
 if (bytes.length > 500_000) throw Error("Staple artifact too large");
@@ -28,9 +29,14 @@ for (const sample of Object.values(artifact.formats)) {
   if (Object.keys(sample.archetypeDeckCounts).length !== sample.archetypeCount || Object.keys(sample.archetypeUsage).length !== sample.archetypeCount
     || Object.values(sample.archetypeDeckCounts).reduce((a,b)=>a+b,0)!==sample.deckCount) throw Error("Invalid archetype denominators");
   for (const [name,rows] of Object.entries(sample.archetypeUsage)) if (!sample.archetypeDeckCounts[name] || new Set(rows.map(row=>row.passcode)).size!==rows.length || rows.some(row=>row.decks>sample.archetypeDeckCounts[name]!)) throw Error("Invalid archetype usage");
+  const genericCounts=new Map(sample.genericUsage.map(row=>[row.passcode,row.decks]));
+  if(genericCounts.size!==sample.genericUsage.length || sample.genericUsage.some(row=>row.decks>sample.deckCount)) throw Error("Invalid generic usage");
+  const archetypeTotals=new Map<number,number>();
+  for(const rows of Object.values(sample.archetypeUsage)) for(const row of rows) archetypeTotals.set(row.passcode,(archetypeTotals.get(row.passcode)??0)+row.decks);
+  if([...archetypeTotals].some(([id,n])=>n>(genericCounts.get(id)??0))) throw Error("Generic count below archetype count");
   const ids = new Set<number>();
   for (const card of sample.cards) {
-    if (ids.has(card.passcode) || card.playShare !== card.decks/sample.deckCount || card.averageCopies !== card.copies/card.decks
+    if (genericCounts.get(card.passcode)!==card.decks || ids.has(card.passcode) || card.playShare !== card.decks/sample.deckCount || card.averageCopies !== card.copies/card.decks
       || Object.keys(card.archetypes).length < 3 || Object.values(card.archetypes).reduce((a,b)=>a+b,0) !== card.decks
       || Math.max(...Object.values(card.archetypes))/card.decks > 0.6) throw Error("Invalid staple counts");
     ids.add(card.passcode);
@@ -41,7 +47,7 @@ export function stapleFormat(format = "normal", banlist?: string): string {
   return format === "normal" ? banlist?.startsWith("ocg") ? "ocg" : "tcg" : format;
 }
 export const stapleReason = (usage: StapleUsage, label: string) => `Played in ${Math.round(usage.playShare * 100)}% of ${label} decks`;
-const localCaches = new WeakMap<Database.Database, { key: string; formats: Map<string, StapleUsage[]>; counts: Map<string, number> }>();
+const localCaches = new WeakMap<Database.Database, { key: string; formats: Map<string, StapleUsage[]>; counts: Map<string, number>; playShares: Map<string,ReadonlyMap<number,number>> }>();
 /** Private aggregate: reads no owner IDs and exports no individual decks. Small cohorts are ignored. */
 function savedUsage(db: Database.Database) {
   const key = hash([db.prepare("SELECT revision FROM card_staple_source_revision WHERE id=1").get(),
@@ -79,7 +85,7 @@ function savedUsage(db: Database.Database) {
       buckets.get(format)!.set(hash([...codes].sort((a,b)=>a-b)),{ codes, archetype });
     } catch { /* Ignore invalid saved lists. */ }
   }
-  const result = { key, formats: new Map<string, StapleUsage[]>(), counts: new Map<string, number>() };
+  const result = { key, formats: new Map<string, StapleUsage[]>(), counts: new Map<string, number>(), playShares:new Map<string,ReadonlyMap<number,number>>() };
   for (const [format,decks] of buckets) {
     if (decks.size < 20) continue;
     const rows = new Map<number, StapleUsage>();
@@ -95,7 +101,7 @@ function savedUsage(db: Database.Database) {
     const cards = [...rows.values()].filter(row=> row.decks/decks.size>=0.1 && Object.keys(row.archetypes).length>=3 && Math.max(...Object.values(row.archetypes))/row.decks<=0.6)
       .map(row=>({...row,playShare:row.decks/decks.size,averageCopies:row.copies/row.decks}))
       .sort((a,b)=>b.playShare-a.playShare || b.averageCopies-a.averageCopies || a.passcode-b.passcode).slice(0,80);
-    if (cards.length) { result.formats.set(format,cards); result.counts.set(format,decks.size); }
+    if (cards.length) { result.formats.set(format,cards); result.counts.set(format,decks.size); result.playShares.set(format,new Map([...rows].map(([id,row])=>[id,row.decks/decks.size]))); }
   }
   localCaches.set(db,result); return result;
 }
@@ -105,6 +111,7 @@ export function formatStaples(format = "normal", banlist?: string, db?: Database
   // A private cohort is an independent source. Public samples remain the stable default.
   const cards = localCards ?? sample?.cards ?? [];
   return { version: `${version}:${localCards ? local!.key : "public"}`, label: key === "tcg" ? "TCG" : key === "domain" ? "Domain" : key === "genesys" ? "Genesys" : key === "genesys-domain" ? "Genesys Domain" : "OCG", cards: new Map(cards.map(row=>[row.passcode,row])),
+    playShares: localCards ? local!.playShares.get(key)! : new Map((sample?.genericUsage??[]).map(row=>[row.passcode,row.decks/sample!.deckCount])),
     archetypes: new Map(localCards ? [] : Object.entries(sample?.archetypeDeckCounts??{}).map(([name,decks])=>[compactEffectName(name),{decks,cards:new Map((sample?.archetypeUsage[name]??[]).map(row=>[row.passcode,row.decks]))}])) };
 }
 

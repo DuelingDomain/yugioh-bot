@@ -40,10 +40,10 @@ Blue-Eyes White Dragon Deck Master and the same scope as deck checks.
 | `recruiters` | 178 | Mystic Tomato, Shining Angel |
 | `water recruiter` | 18 | Mother Grizzly, Jigabyte |
 | `recruiters 1500 atk or less` | 114 | Mystic Tomato, Shining Angel |
-| `released 2024` | 565 | Mulcharmy Fuwalos, Mulcharmy Purulia |
-| `before 2010` | 3698 | Terraforming, Super Polymerization |
-| `newest` | 14356 | Diabellstar, the Seeker of Sinful Spoils, Hope for the Future |
-| `from 2023 to 2024` | 1200 | Mulcharmy Fuwalos, S:P Little Knight |
+| `released 2024` | 537 | Mulcharmy Fuwalos, Mulcharmy Purulia |
+| `before 2010` | 3669 | Terraforming, Super Polymerization |
+| `newest` | 14357 | Diabellstar, the Seeker of Sinful Spoils, Hope for the Future |
+| `from 2023 to 2024` | 1171 | Mulcharmy Fuwalos, S:P Little Knight |
 | `legal in Genesys` | 13024 | Ash Blossom & Joyous Spring, Infinite Impermanence |
 | `Genesys` | 13024 | Ash Blossom & Joyous Spring, Infinite Impermanence |
 | `Domain legal` | 7553 | Infinite Impermanence, Called by the Grave |
@@ -64,7 +64,9 @@ returns the four classic recruiters.
 
 Release chips enforce complete month bounds. `released 2024` means January to
 December 2024; `before 2010` ends in December 2009; the 2023–2024 range is inclusive.
-`newest` sorts known release dates first, newest first. Announced future dates
+`newest` puts pending first prints first, then released cards. Known months
+sort newest first; unknown months stay last. Without a region, date search uses
+the later known TCG/OCG month. Announced future dates
 remain visible and carry the existing upcoming marker. Release limits also apply
 before usage ranking.
 
@@ -106,15 +108,20 @@ staples. Representative first results:
 
 Branded has three labeled TCG decks: Ash Blossom and Droll & Lock Bird each run
 in 100%, Effect Veiler in 33%, and Super Polymerization in 67%. The other requested TCG archetypes lack a
-three-deck cohort, so their generic rows use format shares. These small recent
-samples are estimates. They are not a claim about every deck in the format.
+three-deck cohort, so their generic rows use format shares. Droll ranks second for all four requested archetypes. Branded uses its measured
+100% archetype share; Blue-Eyes, Snake-Eye and Tenpai use format share. The real
+Genesys sample also puts Effect Veiler (6/80) above Ghost Belle (4/80), although
+neither passes the global staple threshold. These small recent samples are estimates. They are not a claim about every deck in the format.
 
 The owner correction removes all own-deck conflict checks. Droll remains eligible
 for Blue-Eyes, Branded, Snake-Eye and Tenpai. Search-heavy and GY-based plans
 neither drop nor demote cards. Real play share sets the generic rank.
 
-Schema version 2 adds exact archetype denominators and up to 40 generic card
-counts per archetype. The data stays below 500 KB and uses the existing bounded,
+Schema version 3 keeps exact archetype denominators, up to 40 generic card
+counts per archetype, and all generic format counts. The format counts are
+independent of the global staple threshold, so a played role card below that
+threshold still has a real format share. There are 109 TCG, 792 Domain and 405
+Genesys generic card counts. The artifact is 342,322 bytes, below 500 KB and uses the existing bounded,
 additive daily refresh. Public global card shares and average copies are unchanged.
 Private saved-deck aggregates still need 20 distinct complete decks. They publish
 no owner IDs. A private cohort uses its own format share fallback; public archetype
@@ -150,19 +157,20 @@ The original Normal/Domain row and live browser evidence is in the linked report
 
 ## Verification and delivery
 
-- 148 duel search integration checks pass; one existing loopback-HTTP mock test
+- 154 duel search integration checks pass; one existing loopback-HTTP mock test
   is excluded because this session denies sockets.
 - 20 suggestion host/scope/worker integration checks pass.
-- 11 targeted shared reader and sourced-deck quality integration checks pass,
+- 12 targeted shared reader and sourced-deck quality integration checks pass,
   including the 19/20 saved-deck threshold and aggregate invalidation.
-- 26 web route integration checks and six real-catalog UI/signed-host integration
+- 26 web route integration checks and seven real-catalog UI/signed-host integration
   checks pass. The UI checks cover zero name hits, real result cards, measured
   reasons, the archetype chip and How it plays.
 - Shared/duel builds and web typecheck pass. The candidate publisher validates
-  schema 2; five malformed archetype artifacts are rejected.
+  schema 3; five malformed generic-usage artifacts are rejected.
 - No new unit tests were added. Node 22 and core limits apply to all checks.
   No environment files were read and no engine data was changed.
-- Main was merged after #413 landed at `7109cddf178fe0552dac563b0f3fa82ad1f3bee5`.
+- Main was merged after #413 landed at `7109cddf178fe0552dac563b0f3fa82ad1f3bee5`. The later main merge
+  includes #414/#417/#418 and ends at `e28e783a158dd589f7330ef68462d2e40c6a4264`.
   No dependency PR branch was changed.
 
 The follow-up still needs a local-all port and a live :3000 check. The session's

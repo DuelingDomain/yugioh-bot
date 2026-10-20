@@ -1109,3 +1109,16 @@ it.each(['Blue-Eyes','Branded','Snake-Eye','Tenpai Dragon'])('ranks generic %s h
   expect(shared.find(card=>card.name==='Droll & Lock Bird')).toBeTruthy();
   expect(shared.map(card=>card.score)).toEqual(host.map(card=>card.score));
 });
+
+it('uses real format play share for generic role cards below the global staple threshold',()=>{
+  const names=['Effect Veiler','Ghost Belle & Haunted Mansion'];
+  const pool=names.map(code);
+  const host=search('Blue-Eyes hand traps',pool,{format:'genesys'}).effectHits!;
+  const sql=createCardInsightService(db,{dataDirectory:engineDataDirectory});
+  const shared=sql.effectSearch('Blue-Eyes hand traps',pool,{format:'genesys'}).cards;
+  // Six versus four of the 80 real Genesys lists. Neither qualifies as a global staple.
+  expect(host.map(card=>card.name)).toEqual(names);
+  expect(shared.map(card=>card.name)).toEqual(names);
+  expect(host[0].score).toBeGreaterThan(host[1].score);
+  expect(shared.map(card=>card.score)).toEqual(host.map(card=>card.score));
+});
