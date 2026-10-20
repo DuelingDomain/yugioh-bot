@@ -18,6 +18,8 @@ const RETURN_PREFIX = "deck-test-duel:return:v1:";
 /** A draft older than this is dropped: the duel is long over and the saved deck is the better truth. */
 const DRAFT_TTL_MS = 6 * 60 * 60 * 1000;
 const EDITOR_PATH = /^\/decks\/(?:new|\d+)$/;
+/** The duel sends the player back to the editor with this query. Only then is a kept copy restored. */
+export const TEST_DUEL_RETURN_QUERY = "from=test-duel";
 
 export interface TestDuelDraft {
   name: string;
@@ -56,10 +58,18 @@ export function editorReturnPath(value: string | null | undefined): string | nul
   return value != null && EDITOR_PATH.test(value) ? value : null;
 }
 
+/** True when this editor visit is the way back from a test duel. */
+export function cameBackFromTestDuel(search: string): boolean {
+  return new URLSearchParams(search).get("from") === "test-duel";
+}
+
+/** The copy belongs to one signed-in user: a shared browser never shows it to another account. */
+const draftKey = (viewerId: number, path: string) => `${DRAFT_PREFIX}${viewerId}:${path}`;
+
 /** Keeps the editor state for `path`. Returns false when the browser refuses to store it. */
-export function saveTestDuelDraft(path: string, draft: TestDuelDraft): boolean {
+export function saveTestDuelDraft(viewerId: number, path: string, draft: TestDuelDraft): boolean {
   try {
-    window.localStorage.setItem(DRAFT_PREFIX + path, JSON.stringify({ savedAt: Date.now(), draft }));
+    window.localStorage.setItem(draftKey(viewerId, path), JSON.stringify({ savedAt: Date.now(), draft }));
     return true;
   } catch {
     return false;
@@ -67,9 +77,9 @@ export function saveTestDuelDraft(path: string, draft: TestDuelDraft): boolean {
 }
 
 /** Reads the kept editor state for `path` once and removes it. */
-export function takeTestDuelDraft(path: string): TestDuelDraft | null {
+export function takeTestDuelDraft(viewerId: number, path: string): TestDuelDraft | null {
   try {
-    const key = DRAFT_PREFIX + path;
+    const key = draftKey(viewerId, path);
     const raw = window.localStorage.getItem(key);
     if (raw == null) return null;
     window.localStorage.removeItem(key);
@@ -102,19 +112,35 @@ export function rememberTestDuelReturn(slug: string, path: string): void {
   }
 }
 
-/** Where the test duel `slug` sends the player when it ends: the editor page it started from, or the deck list. */
+/** Where the test duel `slug` sends the player when it ends: the editor page it started from (marked as a return), or the deck list. */
 export function testDuelReturnPath(slug: string): string {
   try {
     const raw = window.localStorage.getItem(RETURN_PREFIX + slug);
     const parsed = raw ? (JSON.parse(raw) as { savedAt?: unknown; path?: unknown }) : null;
     if (parsed && typeof parsed.savedAt === "number" && Date.now() - parsed.savedAt <= DRAFT_TTL_MS) {
       const path = editorReturnPath(typeof parsed.path === "string" ? parsed.path : null);
-      if (path) return path;
+      if (path) return `${path}?${TEST_DUEL_RETURN_QUERY}`;
     }
   } catch {
     /* Fall through to the deck list. */
   }
   return "/decks";
+}
+
+/** Drops kept copies and return notes that are past their time, whoever they belong to. */
+export function pruneTestDuelStorage(): void {
+  try {
+    const store = window.localStorage;
+    for (let index = store.length - 1; index >= 0; index--) {
+      const key = store.key(index);
+      if (key == null || !(key.startsWith(DRAFT_PREFIX) || key.startsWith(RETURN_PREFIX))) continue;
+      let savedAt: unknown = null;
+      try { savedAt = (JSON.parse(store.getItem(key) ?? "null") as { savedAt?: unknown } | null)?.savedAt; } catch { /* Unreadable: drop it. */ }
+      if (typeof savedAt !== "number" || Date.now() - savedAt > DRAFT_TTL_MS) store.removeItem(key);
+    }
+  } catch {
+    /* A blocked store has nothing to clean. */
+  }
 }
 
 export function forgetTestDuelReturn(slug: string): void {

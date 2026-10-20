@@ -88,7 +88,7 @@ import { HowItPlays } from "@/components/effect-search/how-it-plays";
 import { fetchGuide } from "./insights-api";
 import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
 import { TestDuelPopover } from "./test-duel-popover";
-import { DEFAULT_TEST_DUEL_PREFS, loadTestDuelPrefs, rememberTestDuelReturn, saveTestDuelDraft, saveTestDuelPrefs, takeTestDuelDraft, type TestDuelPrefs } from "./test-duel";
+import { cameBackFromTestDuel, DEFAULT_TEST_DUEL_PREFS, loadTestDuelPrefs, pruneTestDuelStorage, rememberTestDuelReturn, saveTestDuelDraft, saveTestDuelPrefs, takeTestDuelDraft, type TestDuelDraft, type TestDuelPrefs } from "./test-duel";
 import { startTestDuel } from "@/components/duel/api";
 import { OwnsPageBar, ShellMenuButton } from "@/components/layout/shell-bar";
 import { PageFrame } from "./page-frame";
@@ -216,7 +216,7 @@ function EditorState({ pool, backHref, children }: { pool: boolean; backHref: st
   return <SheetRoot className={cn(styles.host, styles.center)}>{children}</SheetRoot>;
 }
 
-export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; pool?: DraftDeckPool; roomSlug?: string }) {
+export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?: string; pool?: DraftDeckPool; roomSlug?: string; viewerId?: number }) {
   useDuelRoomActivity(!pool && roomSlug ? roomSlug : null);
   const router = useRouter();
   const pathname = usePathname();
@@ -403,24 +403,38 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  // A test duel sends the player back here: the deck comes back as it was, unsaved edits included.
+  // A test duel sends the player back here (?from=test-duel): the deck comes back as it was, unsaved edits included.
+  // Any other visit drops the kept copy and loads the saved deck. A saved deck that changed since the copy was made wins.
   useEffect(() => {
-    if (pool || routeId === "invalid") return;
-    const draft = takeTestDuelDraft(window.location.pathname);
-    if (!draft) return;
+    if (pool || routeId === "invalid" || viewerId == null) return;
+    pruneTestDuelStorage();
+    const path = window.location.pathname;
+    const back = cameBackFromTestDuel(window.location.search);
+    const draft = takeTestDuelDraft(viewerId, path);
+    if (back) window.history.replaceState(window.history.state, "", path);
+    if (!draft || !back) return;
     restoredDraft.current = true;
-    setSavedId(draft.savedId);
-    setRegistration(readRegistration(draft.registration));
-    setName(draft.name);
-    setMode(draft.mode);
-    setGenesys(draft.genesys);
-    if (draft.genesys) lastCap.current = draft.genesys.pointCap;
-    setFormatBanlist(formatOf(draft.mode, draft.genesys != null));
-    setSelection({ deck: cloneDeck(draft.deck), masterOrigin: draft.masterOrigin });
-    setHistory({ past: [], future: [] });
-    setBaseline(draft.baseline);
-    setLoading(false);
+    if (draft.savedId == null || typeof routeId !== "number") {
+      applyDraft(draft);
+      return;
+    }
+    setLoading(true);
     setLoadError(null);
+    void getSavedDeck(routeId).then(
+      (record) => {
+        setLoading(false);
+        if (snapshotOf(record.name, record.mode, record.deck, record.genesys) === draft.baseline) {
+          applyDraft(draft);
+        } else {
+          applyRecord(record);
+          setNotice("This deck changed since you left, so your unsaved edits were dropped.");
+        }
+      },
+      (reason: unknown) => {
+        setLoading(false);
+        setLoadError(reason instanceof Error ? reason.message : "Could not load this deck.");
+      },
+    );
   }, []);
 
   useEffect(() => {
@@ -491,6 +505,21 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
       return next;
     });
   }, []);
+
+  function applyDraft(draft: TestDuelDraft) {
+    setSavedId(draft.savedId);
+    setRegistration(readRegistration(draft.registration));
+    setName(draft.name);
+    setMode(draft.mode);
+    setGenesys(draft.genesys);
+    if (draft.genesys) lastCap.current = draft.genesys.pointCap;
+    setFormatBanlist(formatOf(draft.mode, draft.genesys != null));
+    setSelection({ deck: cloneDeck(draft.deck), masterOrigin: draft.masterOrigin });
+    setHistory({ past: [], future: [] });
+    setBaseline(draft.baseline);
+    setLoading(false);
+    setLoadError(null);
+  }
 
   function applyRecord(record: SavedDeckView) {
     setSavedId(record.id);
@@ -1059,15 +1088,15 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
 
   /** Starts the bot duel with this deck, keeps the editor state for the way back, and goes to the duel. */
   async function runTestDuel() {
-    if (testDuelBusy || pool) return;
+    if (testDuelBusy || pool || viewerId == null) return;
     setTestDuelBusy(true);
     setTestDuelError(null);
     try {
       const path = window.location.pathname;
       // A deck with no edits comes back from the server; only edits and a deck that was never saved need the kept copy.
       const kept = dirty || savedId == null
-        ? saveTestDuelDraft(path, { name, mode, genesys, deck: cloneDeck(deck), masterOrigin, baseline, savedId, registration })
-        : (takeTestDuelDraft(path), true);
+        ? saveTestDuelDraft(viewerId, path, { name, mode, genesys, deck: cloneDeck(deck), masterOrigin, baseline, savedId, registration })
+        : (takeTestDuelDraft(viewerId, path), true);
       if (!kept) throw new Error("Your browser cannot keep this deck while you duel. Save the deck first, then try again.");
       const { slug } = await startTestDuel({ mode, deck, ...(genesys ? { genesys } : {}), shuffle: testDuelPrefs.shuffle, goFirst: testDuelPrefs.goFirst });
       rememberTestDuelReturn(slug, path);
@@ -1075,7 +1104,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
       router.push(`/duels/${encodeURIComponent(slug)}`);
     } catch (reason: unknown) {
       // The deck stays here: drop the kept copy so a later visit does not restore a stale one.
-      takeTestDuelDraft(window.location.pathname);
+      takeTestDuelDraft(viewerId, window.location.pathname);
       setTestDuelError(reason instanceof Error ? reason.message : "Could not start the test duel.");
       setTestDuelBusy(false);
     }
@@ -1565,7 +1594,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug }: { deckId?: string; p
                 />
               ) : null}
               {genesysSummary && !isPhone && shownCode != null ? <button className={styles["de-flag"]} title={flag} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span className={styles["de-flagt"]}>{flag}</span></button> : genesysSummary && !isPhone ? <span className={styles["de-flag"]} aria-hidden="true" /> : null}
-              <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton>{!pool ? <TestDuelPopover open={testDuelOpen} onOpenChange={(open) => { setTestDuelOpen(open); if (open) setTestDuelError(null); }} disabled={busy || artBusy || loading || deck.main.length < HAND_SIZE} busy={testDuelBusy} error={testDuelError} prefs={testDuelPrefs} onPrefsChange={chooseTestDuelPrefs} onStart={() => void runTestDuel()} /> : null}{deckGuide ? <Popover label="How it plays" dialogLabel={`How ${deckGuide.archetype} plays`} icon={<BookOpen className="ic sm" aria-hidden />} open={guideOpen} onOpenChange={setGuideOpen}><HowItPlays guide={deckGuide} testId="deck-how-it-plays" onHook={(index) => findHookCards(deckGuide, index)} /></Popover> : null}</span>
+              <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton>{!pool && viewerId != null ? <TestDuelPopover open={testDuelOpen} onOpenChange={(open) => { setTestDuelOpen(open); if (open) setTestDuelError(null); }} disabled={busy || artBusy || loading || deck.main.length < HAND_SIZE} busy={testDuelBusy} error={testDuelError} prefs={testDuelPrefs} onPrefsChange={chooseTestDuelPrefs} onStart={() => void runTestDuel()} /> : null}{deckGuide ? <Popover label="How it plays" dialogLabel={`How ${deckGuide.archetype} plays`} icon={<BookOpen className="ic sm" aria-hidden />} open={guideOpen} onOpenChange={setGuideOpen}><HowItPlays guide={deckGuide} testId="deck-how-it-plays" onHook={(index) => findHookCards(deckGuide, index)} /></Popover> : null}</span>
               {isPhone ? historyControls : null}
             </div>
             {isPhone ? <ControlsLegend phone /> : null}
