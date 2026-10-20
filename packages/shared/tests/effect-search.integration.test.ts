@@ -413,8 +413,8 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
 
   it("ignores 19 saved lists and uses a private format aggregate at 20", async () => {
     const { formatStaples } = await import("../src/cards/effects/staples.js");
-    const { seedUser } = await import("./helpers/identity.js");
-    const { userId } = seedUser(database, "format-staples-cohort");
+    const { seedIdentity } = await import("./helpers/identity.js");
+    const { userId } = seedIdentity(database, { guildId: "staple-eval", name: "Format staples cohort" });
     const fixtures = suggestionFixture.fixtures.filter(fixture => fixture.format === "normal");
     const variants = fixtures.flatMap(fixture => Array.from({ length: 7 }, (_, index) => ({
       ...fixture.fullDeck, side: fixture.fullDeck.side.slice(index),

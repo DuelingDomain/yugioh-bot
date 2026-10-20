@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import * as z from "zod";
 import type Database from "better-sqlite3";
@@ -13,7 +15,7 @@ const Artifact = z.object({ schemaVersion: z.literal(1), generatedAt: z.iso.date
 export type StapleUsage = z.infer<typeof Usage>;
 export interface FormatStaples { version: string; label: string; cards: ReadonlyMap<number, StapleUsage> }
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-const bytes = readFileSync(new URL("../../../data/staples/usage.json", import.meta.url));
+const bytes = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../../data/staples/usage.json"));
 if (bytes.length > 500_000) throw Error("Staple artifact too large");
 const artifact = Artifact.parse(JSON.parse(bytes.toString()));
 const { version, ...identity } = artifact;
