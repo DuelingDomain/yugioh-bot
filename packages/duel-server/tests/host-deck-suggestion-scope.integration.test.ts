@@ -39,6 +39,7 @@ const cards = [
   { code: 1061, name: "Anime only" },
   { code: 1062, name: "Rush variant" },
   { code: 1063, name: "Pre-release variant" },
+  { code: 1064, name: "TCG only" },
   { code: 55144522, name: "Pot of Greed", type: 0x2 },
   { code: 83764718, name: "Monster Reborn", type: 0x2 },
 ];
@@ -73,6 +74,7 @@ beforeAll(() => {
       update datas set ot = 8 where id = 1061;
       update datas set ot = 515 where id = 1062;
       update datas set ot = 256 where id = 1063;`);
+    engine.exec("update datas set ot = 2 where id = 1064");
     engine.prepare("update texts set desc = ? where id = ?").run('Summon 1 "Named Friend". FIRE monsters gain 100 ATK.', MASTER);
     engine.prepare("update texts set desc = ? where id = ?").run('(This card\'s name is always treated as "Ally Master".)', 1030);
     for (const code of [1040, 1041]) engine.prepare("update texts set desc = ? where id = ?")
@@ -107,6 +109,18 @@ async function post(body: Record<string, unknown>) {
 }
 
 describe("authoritative deck suggestion scope", () => {
+  it("uses the printed card region of the selected Normal banlist", async () => {
+    const tcg = await post({ suggestionFormat: "normal" });
+    expect(tcg.data.allowed).toContain(1064);
+    expect(tcg.data.allowed).not.toContain(1060);
+    for (const banlist of ["ocg-2026-07", "ocg-2026-10"]) {
+      const ocg = await post({ suggestionFormat: "normal", banlist });
+      expect(ocg.status).toBe(200);
+      expect(ocg.data.allowed).toContain(1060);
+      expect(ocg.data.allowed).not.toContain(1064);
+    }
+  });
+
   it("uses exact default banlist, canonical artworks, playable admission and copy identities", async () => {
     const { status, data } = await post({ suggestionFormat: "normal" });
     expect(status).toBe(200);
