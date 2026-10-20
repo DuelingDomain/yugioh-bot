@@ -49,6 +49,8 @@ export type DuelWorkerRequest =
   | { id: number; op: "chain-mode"; seat: number; mode: DuelChainMode }
   | { id: number; op: "sandbox-snapshot" }
   | { id: number; op: "diagnostics" }
+  /** Load the card data into this thread ahead of a create. Changes no game state. */
+  | { id: number; op: "warm"; dataDirectory: string }
   | { id: number; op: "close" };
 
 export type DuelWorkerResponse =

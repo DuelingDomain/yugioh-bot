@@ -5,7 +5,7 @@ import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { createScriptErrorRecorder } from "./script-error-store.js";
-import { scriptErrorModeFromEnv } from "./script-errors.js";
+import { scriptErrorModeFromEnv, type DuelScriptError, type DuelScriptFatalError } from "./script-errors.js";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -142,7 +142,7 @@ const DUEL_OPS = new Set([
   "engine-data-status", "capabilities", "view", "start", "respond", "deck", "validate-deck", "cards",
   "card-details", "card-artworks", "card-query", "card-facets", "surrender", "add-bot", "archive", "cancel",
   "replay", "owner-replay", "replay-fork", "fork-list", "fork-restart", "fork-cancel", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
-  "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset", "start-test-duel",
+  "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset", "start-test-duel", "warm-test-duel",
   "report", "debug-trace", "bug-context", "bug-replay-frame", "chain-mode", "validate-deck-master", "suggestion-scope", "deck-suggestions",
 ]);
 
@@ -424,19 +424,63 @@ export function createDuelHost(options: {
   const admissionEntries = (mode: DuelMode = "normal", format: DuelFormat = "1v1", engine: DuelEngineChoice = duel1v1EngineForMode(mode)) =>
     mergeCardBlockEntries(loadCardBlockList(undefined, options.dataDirectory), autoBlocks.entries(scriptEngineKind(mode, format, engine)));
   const recordScriptError = createScriptErrorRecorder(options.db, console.error, autoBlocks);
-  const spawn = (duelRef?: number | (() => number | undefined), recordErrors: () => boolean = () => true): DuelGameWorker => options.createWorker?.() ?? new GameWorker(
-    duelRef === undefined ? undefined : (error) => {
+  /**
+   * One idle engine thread with the card data loaded, for the next test duel. The deck editor asks for it when the
+   * player opens the Test duel pop-up, so the start skips the thread startup and the card data load. It closes itself
+   * when nobody uses it, and a game takes it over with `adopt`.
+   */
+  let spareWorker: { worker: GameWorker; timer: ReturnType<typeof setTimeout> } | undefined;
+  const SPARE_WORKER_IDLE_MS = 120_000;
+  function dropSpareWorker(): void {
+    const spare = spareWorker;
+    spareWorker = undefined;
+    if (!spare) return;
+    clearTimeout(spare.timer);
+    void spare.worker.close().catch(() => {});
+  }
+  function prepareSpareWorker(): void {
+    if (stopped || options.createWorker) return;
+    if (spareWorker?.worker.running) {
+      clearTimeout(spareWorker.timer);
+      spareWorker.timer = setTimeout(dropSpareWorker, SPARE_WORKER_IDLE_MS);
+      spareWorker.timer.unref();
+      return;
+    }
+    const worker: GameWorker = new GameWorker();
+    const timer = setTimeout(dropSpareWorker, SPARE_WORKER_IDLE_MS);
+    timer.unref();
+    spareWorker = { worker, timer };
+    worker.warm(options.dataDirectory).catch(() => { if (spareWorker?.worker === worker) dropSpareWorker(); });
+  }
+  function takeSpareWorker(): GameWorker | undefined {
+    const spare = spareWorker;
+    spareWorker = undefined;
+    if (!spare) return undefined;
+    clearTimeout(spare.timer);
+    return spare.worker.running ? spare.worker : undefined;
+  }
+  const spawn = (duelRef?: number | (() => number | undefined), recordErrors: () => boolean = () => true, useSpare = false): DuelGameWorker => {
+    const onScriptError = duelRef === undefined ? undefined : (error: DuelScriptError) => {
       const duelId = typeof duelRef === "function" ? duelRef() : duelRef;
       if (duelId !== undefined && recordErrors()) recordScriptError(duelId, error);
-    },
-    (error) => {
+    };
+    const onFatalScriptError = (error: DuelScriptFatalError) => {
       const duelId = typeof duelRef === "function" ? duelRef() : duelRef;
       if (duelId === undefined || !recordErrors()) return;
       const fork = duelId !== undefined && options.db.prepare<[number], { kind: string }>("select kind from duels where id = ?").get(duelId)?.kind === "replay-fork";
       console.error(JSON.stringify({ event: fork ? "replay_fork_script_fatal" : "card_script_fatal", duelId,
         ...(fork ? { duelKind: "replay-fork" } : {}), ...error }));
-    },
-  );
+    };
+    const custom = options.createWorker?.();
+    if (custom) return custom;
+    // A test duel takes the idle thread that the deck editor prepared, when there is one.
+    const spare = useSpare ? takeSpareWorker() : undefined;
+    if (spare) {
+      spare.adopt({ onScriptError, onFatalScriptError });
+      return spare;
+    }
+    return new GameWorker(onScriptError, onFatalScriptError);
+  };
   const archiveAfterMs = options.archiveAfterMs ?? DEFAULT_ARCHIVE_AFTER_MS;
   const idleWorkerMs = options.idleWorkerMs ?? DEFAULT_IDLE_WORKER_MS;
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
@@ -2356,6 +2400,8 @@ export function createDuelHost(options: {
     }
     const room = await project(slug, guildId, actor, games.get(slug)?.game);
     lap("projectMs");
+    // The next test duel (Quit, then Test duel again) finds a ready thread, too.
+    prepareSpareWorker();
     return { slug, session: room.session, room };
   }
 
@@ -2891,7 +2937,7 @@ export function createDuelHost(options: {
     const { game, firstView } = await createStartingWorker(slug, state.session.id, workerCreateOptions(
       state.session.mode, state.decks, seed, state.session.masterRule, settings, state.session.format,
       undefined, engine, firstTurnDraw, scriptErrorMode, resources,
-    ), seatCount, resourceChecksMs);
+    ), seatCount, resourceChecksMs, state.session.testDuel === true);
     try {
       const clock = startDecisionClock(firstView, settings.turnSeconds, now(), seatCount);
       // The engine is saved with the duel, so a recover and a replay use it even after DUEL_1V1_ENGINE changes.
@@ -2914,14 +2960,14 @@ export function createDuelHost(options: {
   }
 
   /** One safe record for each engine start, shared by normal tables and scenarios. */
-  async function createStartingWorker(slug: string, duelId: number, workerOptions: GameOptions, seatCount: number, resourceChecksMs: number) {
+  async function createStartingWorker(slug: string, duelId: number, workerOptions: GameOptions, seatCount: number, resourceChecksMs: number, useSpare = false) {
     const startedAt = performance.now();
     const steps: Record<string, number | null> = { resourceChecksMs, workerSpawnMs: null, cardDbLoadMs: null, engineCreateMs: null, firstViewMs: null };
     let game: DuelGameWorker | undefined;
     let outcome = "failed";
     try {
       const spawnAt = performance.now();
-      game = spawn(duelId);
+      game = spawn(duelId, undefined, useSpare);
       steps.workerSpawnMs = performance.now() - spawnAt;
       const createAt = performance.now();
       await game.create(workerOptions);
@@ -3283,6 +3329,12 @@ export function createDuelHost(options: {
       return startPreset(body, guildId, actor);
     }
     if (op === "start-test-duel") return startTestDuel(body, guildId, actor);
+    if (op === "warm-test-duel") {
+      // The deck editor opened the Test duel pop-up: get the engine files and one engine thread ready for the start.
+      warmStartResources();
+      prepareSpareWorker();
+      return { ok: true };
+    }
     if (op === "report" || op === "debug-trace") requireScenarios();
     if (op === "card-artworks") {
       if (!Array.isArray(body.codes) || body.codes.length !== 1
@@ -4140,6 +4192,7 @@ export function createDuelHost(options: {
     },
     async close(): Promise<void> {
       stopped = true;
+      dropSpareWorker();
       clearInterval(timer);
       clearInterval(retentionTimer);
       clearTimeout(retentionStartup);

@@ -98,6 +98,11 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
           ? seatCountFor(request.options.format!) : 0;
         return { id: request.id, ok: true, createTimings: { cardDbLoadMs, engineCreateMs } };
       }
+      case "warm": {
+        // Both engine factories reuse this thread's catalog cache: a spare thread pays the load before the game exists.
+        loadCardDatabase(request.dataDirectory);
+        return { id: request.id, ok: true };
+      }
       case "view": {
         if (!game) return { id: request.id, ok: false, error: "No game" };
         return { id: request.id, ok: true, value: game.view(request.seat, request.history) };
