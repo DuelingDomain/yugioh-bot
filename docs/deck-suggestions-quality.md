@@ -51,7 +51,7 @@ The full-Main variants return first-eight Outside hits of 7, 5, 6 and 5, in the 
 | Domain / trimmed | 1/12 (8.3%) | 5/12 (41.7%) | n/a (0 cards) | 0/6 (0.0%) |
 | Domain / full-main | 0/12 (0.0%) | 5/12 (41.7%) | 6/12 (50.0%) | 0/6 (0.0%) |
 
-All eight scenarios return zero illegal cards, no duplicate or already-owned cards, and no repeated recommendation families. Standard returns only TCG cards. All four trimmed Extra rows are empty and show `Add 40 Main Deck cards.` The full-Main Extra rows are ready. Staples stay below 25% of visible cards.
+All eight scenarios return zero illegal cards, no duplicate or already-owned cards, and no repeated recommendation families. The TCG scenarios return only TCG cards; Normal mode follows the selected banlist region. All four trimmed Extra rows are empty and show `Add 40 Main Deck cards.` The full-Main Extra rows are ready. Staples stay below 25% of visible cards.
 
 Extra puts native monsters and named core materials first, then proven profile matches. A Fusion-only Extra Deck with a printed Fusion lock puts ordinary Links and Ranks in the generic tier. That tier is last and has at most three cards. Unknown summon procedures and self-material prohibitions fail closed. Physical proofs can use hand traps; hand traps do not define the profile or justify generic Extra options.
 
@@ -59,7 +59,7 @@ Archetype uses exact engine memberships, core-card connections, release era and 
 
 Outside scoring is unchanged. The TCG filter and recommendation-family filter remove unavailable variants and the Monster Reborn wrapper card. The existing queues fill those places. The wrapper is a distinct TCG card, so this recommendation filter does not change its copy-limit identity.
 
-The [ordered card lists](./deck-suggestions-quality-lists.md) include every row for all four decks and both scenarios. The [full report](./deck-suggestions-quality-results.json) also records passcodes, scores, linked-card counts, reasons, expected flags and precision denominators.
+The [ordered card lists](./deck-suggestions-quality-lists.md) include every row for all four decks and both scenarios. Generate the full JSON report with the evaluator when detailed passcodes, scores, reasons and precision denominators are needed.
 
 Validation: shared build; 59 shared integration checks in the effect-search, card-insights and deck-summon files; 16 host integration checks in the suggestion-scope and deck-suggestions files. The four sourced-deck eval cases also pass. No new unit tests were added.
 
@@ -70,12 +70,12 @@ The real-catalog evaluation is opt-in because it requires an installed engine re
 From the repository root, build shared first with Node 22. Remove its build output after the check.
 
 ```bash
-PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH \
+# Set ENGINE_DIRECTORY to an installed engine bundle.
+mkdir -p .status
 prlimit --core=0 npm run build --workspace=packages/shared
 
-PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH \
-DECK_SUGGESTIONS_ENGINE_DIRECTORY=/home/sulman633/repos/yugioh-bot/data/duel-engine \
-DECK_SUGGESTIONS_EVAL_OUTPUT=/tmp/deck-suggestions-quality-report.json \
+DECK_SUGGESTIONS_ENGINE_DIRECTORY="$ENGINE_DIRECTORY" \
+DECK_SUGGESTIONS_EVAL_OUTPUT=.status/deck-suggestions-quality-report.json \
 prlimit --core=0 npm exec --workspace @yugidraft/shared -- vitest run tests/effect-search.integration.test.ts -t 'sourced deck suggestion'
 ```
 

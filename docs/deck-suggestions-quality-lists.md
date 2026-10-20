@@ -1,6 +1,6 @@
 # Deck suggestion card lists
 
-Verified on 2026-10-19. Cards are in returned order. Precision uses the fixed expected-card set. The full-Main variant restores the published Main Deck and keeps the trimmed Extra Deck. See [method and sources](./deck-suggestions-quality.md) and [full data](./deck-suggestions-quality-results.json).
+Verified on 2026-10-19. Cards are in returned order. Precision uses the fixed expected-card set. The full-Main variant restores the published Main Deck and keeps the trimmed Extra Deck. See [method and sources](./deck-suggestions-quality.md) and evaluator reproduction.
 
 ## Blue-Eyes / trimmed
 
