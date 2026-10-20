@@ -24,11 +24,7 @@ async function checkRole(context: FeatureContext, actorId: string, roleId?: stri
   if (!selected || selected.id === context.config.guildId || selected.managed) throw new CommunityError("Select an ordinary server role. The everyone and managed roles are not allowed.");
   const highest = (member: APIGuildMember) => Math.max(0, ...roles.filter(role => member.roles.includes(role.id)).map(role => role.position));
   if (selected.position >= highest(actor) || selected.position >= highest(bot)) throw new CommunityError("The selected role must be below both your top role and the bot's top role.");
-  const permissions = roles.filter(role => role.id === context.config.guildId || bot.roles.includes(role.id))
-    .reduce((all, role) => all | BigInt(role.permissions), 0n);
-  if (!selected.mentionable && !(permissions & (PermissionFlagsBits.MentionEveryone | PermissionFlagsBits.Administrator))) {
-    throw new CommunityError("The selected role cannot be pinged. Make it mentionable or give the bot Mention Everyone permission.");
-  }
+  if (!selected.mentionable) throw new CommunityError("The selected role cannot be pinged. Make the role mentionable in the server settings before using it in an announcement.");
 }
 
 function imageUrl(value: string): string | undefined {

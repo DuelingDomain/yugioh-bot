@@ -171,17 +171,12 @@ it("connects with the exact intents, dispatches gateway interactions, refuses ot
   expect(monitor.prepare("select * from bot_heartbeat").all()).toEqual([]);
 });
 
-it("routes button and modal prefixes and binds one-use confirmations to the invoker", async () => {
+it("routes button and modal prefixes and preserves the source on handler failures", async () => {
   const stub = await discordStub();
   const directory = mkdtempSync(join(tmpdir(), "discord-components-"));
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   const feature: FeatureModule = {
-    commands: [{ data: new SlashCommandBuilder().setName("confirmprobe").setDescription("Confirm probe"), access: "public",
-      async execute(interaction, context) {
-        const payload = Object.freeze({ content: "Confirmed payload" });
-        await context.confirmations.request(interaction, { summary: payload.content, access: "public",
-          async execute() { await context.rest.post(Routes.channelMessages(channelId), { body: payload }); } });
-      } }],
+    commands: [],
     buttons: [{ prefix: "probe:", access: "public", async execute(interaction) { await interaction.reply({ content: "Button routed" }); } },
       { prefix: "failure:", access: "public", acknowledgement: "deferUpdate", async execute() { throw new Error("Integration failure probe"); } }],
     modals: [{ prefix: "probe:", access: "public", async execute(interaction) {
@@ -197,23 +192,9 @@ it("routes button and modal prefixes and binds one-use confirmations to the invo
   await expect.poll(() => stub.requests.find(request => request.body?.content === "Button routed") !== undefined).toBe(true);
   stub.interaction({ type: 5, data: { custom_id: "probe:modal", components: [{ type: 1, components: [{ type: 4, custom_id: "reason", value: "Test" }] }] } });
   await expect.poll(() => stub.requests.find(request => request.body?.content === "Modal: Test") !== undefined).toBe(true);
-  stub.interaction({ data: { name: "confirmprobe", type: 1, id: applicationId } });
-  await expect.poll(() => stub.requests.find(request => request.body?.components?.length > 0) !== undefined).toBe(true);
-  const prompt = stub.requests.find(request => request.body?.components?.length > 0)!.body;
-  const customId = prompt.components[0].components[0].custom_id;
-  const button = { type: 3, data: { component_type: 2, custom_id: customId },
-    message: { id: channelId, content: "", author: { id: applicationId, username: "Bot" }, attachments: [], embeds: [] } };
-  stub.interaction({ ...button, member: { user: { id: "100000000000000008", username: "Other" }, roles: [], permissions: "0" } });
-  await expect.poll(() => stub.requests.find(request => request.body?.content?.includes("Only the member")) !== undefined).toBe(true);
-  expect(stub.requests.filter(request => request.path.includes(`/channels/${channelId}/messages`))).toHaveLength(0);
-  stub.interaction(button);
-  await expect.poll(() => stub.requests.filter(request => request.path.includes(`/channels/${channelId}/messages`)).length).toBe(1);
-  await expect.poll(() => stub.requests.some(request => request.body?.content === "Action complete.")).toBe(true);
-  stub.interaction(button);
-  await expect.poll(() => stub.requests.some(request => request.body?.content === "This confirmation has expired.")).toBe(true);
-  expect(stub.requests.filter(request => request.path.includes(`/channels/${channelId}/messages`))).toHaveLength(1);
   const sourceEdits = stub.requests.filter(request => request.method === "PATCH").length;
-  stub.interaction({ ...button, data: { component_type: 2, custom_id: "failure:probe" } });
+  stub.interaction({ type: 3, data: { component_type: 2, custom_id: "failure:probe" },
+    message: { id: channelId, content: "", author: { id: applicationId, username: "Bot" }, attachments: [], embeds: [] } });
   await expect.poll(() => stub.requests.find(request => request.method === "POST" && request.path.includes("/webhooks/")
     && request.body?.content === "The action could not be completed. Try again later.") !== undefined).toBe(true);
   expect(stub.requests.at(-1)!.body.flags).toBe(64);

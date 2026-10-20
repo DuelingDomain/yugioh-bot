@@ -31,7 +31,7 @@ beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), "discord-webhook-"));
   state.db = openDatabase(join(directory, "test.sqlite"));
   vi.stubEnv("CLERK_WEBHOOK_SIGNING_SECRET", secret);
-  vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+  vi.stubEnv("DISCORD_ADMIN_OUTBOX_ENABLED", "1");
   vi.stubEnv("DISCORD_WAITLIST_CHANNEL_ID", "waitlist-channel");
   vi.stubEnv("DISCORD_JOIN_REQUEST_ALERTS_ENABLED", "1");
   vi.stubEnv("DISCORD_SIGNUP_ALERTS_ENABLED", "1");

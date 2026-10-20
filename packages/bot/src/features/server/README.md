@@ -21,17 +21,18 @@ Private channel `roles` accepts up to 20 space/comma-separated role IDs or role
 mentions. Linked site admins and the bot also receive visibility.
 
 The editable permissions are View, Send, Read History, Attach, Embed, React,
-Connect, Speak, Manage Messages, and Mention Everyone. Changes preserve unrelated
+Connect, Speak, and Manage Messages. Changes preserve unrelated
 overwrite bits. Neutral removes the chosen bit from both allow and deny.
 
 Role and member targets must be below the bot and actor. The server owner bypasses
 the actor hierarchy check, but cannot bypass the bot hierarchy. Managed roles,
 @everyone role changes, and member actions on the bot, server owner, or site owners
 are refused. Only the server owner may manage privileged roles with Administrator,
-Manage Server, or Manage Roles. Role creation grants no server permissions.
+Manage Server, or Manage Roles. In addition, `/role give` refuses roles with Ban Members, Kick Members, Moderate Members, Manage Channels, Manage Webhooks or Mention Everyone, and the configured Moderator role, unless the actor is the server owner. Role creation grants no server permissions.
 
 Confirm and Cancel buttons expire after 60 seconds. They are bound to the same
 admin and guild, can be consumed once, and check current access and target state.
+Confirm and Cancel edit the original prompt, remove its buttons and show the result.
 Destructive actions use the runtime's per-guild lock and three-second actor cooldown.
 Category deletion refuses a changed child list; child moves preserve their current
 overwrites. Discord operations are not transactional, so a failed multi-step setup

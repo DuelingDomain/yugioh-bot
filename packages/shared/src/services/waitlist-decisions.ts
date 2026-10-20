@@ -37,7 +37,10 @@ function enqueueDecisionEdit(db: Database.Database, row: WaitlistAction): void {
   db.prepare(`update discord_outbox set payload_json=json_set(?, '$.nonce',json_extract(payload_json,'$.nonce'),
     '$.enforce_nonce',json('true')) where waitlist_action_id=?
     and operation='post' and status not in ('posted','dead')`).run(JSON.stringify(payload), row.id);
-  if (channelId) enqueueOutbox(db, { idempotencyKey: `waitlist-decision:${row.id}`, kind: "waitlist_decision",
+  // A web-first decision may have no Discord alert to update.
+  const hasPost = row.message_id !== null || db.prepare(`select 1 from discord_outbox
+    where waitlist_action_id=? and operation='post' and status!='dead' limit 1`).get(row.id);
+  if (channelId && hasPost) enqueueOutbox(db, { idempotencyKey: `waitlist-decision:${row.id}`, kind: "waitlist_decision",
     operation: "edit", channelId, messageId: row.message_id, waitlistActionId: row.id,
     subjectHash: row.subject_hash ?? undefined, payload });
 }

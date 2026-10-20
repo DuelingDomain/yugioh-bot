@@ -30,7 +30,7 @@ Before returning a prepared claim, the feature checks its persisted lease, paylo
 
 ## Web route integration still required
 
-The base `e21d7dab7` has no `/api/admin/console/waitlist/[id]` route. On the separate `feat/admin-console-waitlist` branch at `a5ca9e969`, that route calls `inviteWaitlistEntry` / `rejectWaitlistEntry` directly. That bypasses the shared decision, audit and outbox edit. This feature cannot change the web route under the Phase 1 folder ownership rule.
+Web `/admin` still calls Clerk invite/reject directly until the admin console in **PR #405** merges. After both PR #405 and PR #407 merge, replace those calls with the shared decision service so web decisions update the Discord message and audit. This follow-up retains the existing web access checks.
 
 When the admin-console route is integrated, retain its session, owner, origin and input checks. Resolve the exact Clerk entry to obtain its email, then replace the direct invite/reject call with:
 

@@ -14,11 +14,6 @@ export function createDispatcher(registry: Registry, context: FeatureContext) {
       }
       const wrapped = toInteractionLike(interaction);
       if (!wrapped) return;
-      if (interaction.isButton() && interaction.customId.startsWith("confirm:")) {
-        const button = wrapped as InteractionLike;
-        await button.deferReply();
-        await context.confirmations.handle(interaction.customId, button, context); return;
-      }
       const handler = interaction.isChatInputCommand() || interaction.isAutocomplete()
         ? registry.commands.get(interaction.commandName)
         : interaction.isButton() ? registry.button(interaction.customId)
@@ -39,12 +34,7 @@ export function createDispatcher(registry: Registry, context: FeatureContext) {
         else await interaction.respond([]);
         return;
       }
-      const execute = () => (handler as Handler<InteractionLike>).execute(wrapped as InteractionLike, context);
-      if (handler.destructive) {
-        if (!await context.cooldown.run(context.config.guildId, wrapped.user.id, execute)) {
-          await refuse(interaction, "Wait three seconds before another action.");
-        }
-      } else await execute();
+      await (handler as Handler<InteractionLike>).execute(wrapped as InteractionLike, context);
     } catch (error) {
       report(error, { tags: { operation: "bot.interaction" } });
       try { await refuse(interaction, "The action could not be completed. Try again later."); }

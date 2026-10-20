@@ -9,7 +9,7 @@ export function createRegistry(modules: readonly FeatureModule[]) {
   for (const handlers of [buttons, modals]) {
     for (let i = 0; i < handlers.length; i++) {
       const prefix = handlers[i].prefix;
-      if (!prefix || prefix.startsWith("confirm:") || "confirm:".startsWith(prefix)) throw new Error("Invalid or reserved component prefix");
+      if (!prefix) throw new Error("Invalid component prefix");
       if (handlers.slice(i + 1).some(other => other.prefix.startsWith(prefix) || prefix.startsWith(other.prefix))) throw new Error("Overlapping component prefixes");
     }
   }

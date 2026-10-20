@@ -26,7 +26,7 @@ export async function confirm(i: InteractionLike, c: FeatureContext, action: Act
   } catch (error) { pending.delete(nonce); throw error; }
 }
 export const confirmationButton: ComponentModule<ButtonInteractionLike> = {
-  prefix: "server:", access: "admin",
+  prefix: "server:", access: "admin", acknowledgement: "manual",
   async execute(i, c) {
     let action: Action = { action: "server.confirm", run: async () => "" };
     try {
@@ -34,15 +34,18 @@ export const confirmationButton: ComponentModule<ButtonInteractionLike> = {
       const match = /^server:(yes|no):([a-f0-9]{32})$/.exec(i.customId);
       const pending = store(c);
       const entry = match ? pending.get(match[2]) : undefined;
-      if (!entry || entry.expires <= Date.now()) {
-        if (match) pending.delete(match[2]);
-        throw new Refusal("This confirmation has expired. Run the command again.");
-      }
+      if (!entry) throw new Refusal("This confirmation has expired. Run the command again.");
       if (entry.actor !== i.user.id || entry.guild !== i.guildId)
         throw new Refusal("Only the admin who requested this action can confirm or cancel it.");
       action = entry.action;
       // Consume before I/O, so concurrent presses cannot repeat an action.
       pending.delete(match![2]);
+      await i.deferUpdate();
+      const source = i;
+      i = { ...source, async reply({ flags, ephemeral, ...message }) {
+        await source.editReply({ ...message, components: [] });
+      } };
+      if (entry.expires <= Date.now()) throw new Refusal("This confirmation has expired. Run the command again.");
       if (match![1] === "no") {
         await audit(c, i, { ...action, params: { ...action.params, cancelled: true } }, "denied", "Cancelled by the actor.");
         await say(i, { content: "Cancelled.", components: [] }); return;

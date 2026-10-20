@@ -64,19 +64,20 @@ export async function POST(request: NextRequest): Promise<Response> {
         insert into clerk_webhook_receipts (svix_id, received_at) values (?, ?)
         on conflict(svix_id) do nothing
       `).run(request.headers.get("svix-id")!.trim(), new Date(now).toISOString());
+      let outboxHandled = false;
       if (inserted.changes !== 0) {
         // Receipt and durable alert commit together; a failed write remains retryable.
-        if (notice && process.env.DISCORD_BOT_ENABLED === "1") enqueueJoinRequest(db, notice);
+        if (notice) outboxHandled = enqueueJoinRequest(db, notice);
         // The expiry index and batch bound keep each new delivery cheap.
         db.prepare(`delete from clerk_webhook_receipts where svix_id in (
           select svix_id from clerk_webhook_receipts
           where received_at < ? order by received_at limit ?
         )`).run(new Date(now - RECEIPT_RETENTION_MS).toISOString(), RECEIPT_CLEANUP_BATCH);
       }
-      return inserted;
+      return { changes: inserted.changes, outboxHandled };
     })();
     // The same shared claim also deduplicates different event IDs and local joins.
-    if (receipt.changes !== 0 && notice && process.env.DISCORD_BOT_ENABLED !== "1") void notifyJoinRequest(db, notice);
+    if (receipt.changes !== 0 && notice && !receipt.outboxHandled) void notifyJoinRequest(db, notice);
   } catch {
     // Keep storage errors retryable; Discord errors are contained by the notifier.
     return Response.json({ error: "retry_later" }, { status: 503, headers });

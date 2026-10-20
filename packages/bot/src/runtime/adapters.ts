@@ -7,6 +7,7 @@ const deferredUpdates = new WeakSet<RepliableInteraction>();
 function base(interaction: RepliableInteraction): InteractionLike {
   return {
     id: interaction.id, guildId: interaction.guildId, channelId: interaction.channelId,
+    memberPermissions: interaction.memberPermissions?.bitfield.toString() ?? null,
     user: { id: interaction.user.id, username: interaction.user.username, displayName: interaction.user.displayName },
     async reply(message) {
       if (interaction.deferred) {
@@ -59,7 +60,12 @@ export function toInteractionLike(interaction: Interaction): CommandInteractionL
       },
       getChannel: (name, required) => {
         const channel = interaction.options.getChannel(name, required);
-        return channel ? { id: channel.id, name: channel.name, type: channel.type } : null;
+        if (!channel) return null;
+        // Uncached options retain Discord's caller-specific resolved permissions.
+        // Cached guild channels instead expose permissionsFor(member).
+        const permissions = "permissions" in channel && typeof channel.permissions === "string" ? channel.permissions
+          : "permissionsFor" in channel ? channel.permissionsFor(interaction.user)?.bitfield.toString() ?? null : null;
+        return { id: channel.id, name: channel.name, type: channel.type, permissions };
       },
     },
   };

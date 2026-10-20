@@ -42,5 +42,5 @@ const commands: CommandModule[] = [
 ];
 
 export const moderation: FeatureModule = {
-  commands, buttons: [{ prefix: "mod:", access: "moderator", execute: button }], modals: [], start: startContextMenu,
+  commands, buttons: [{ prefix: "mod:", access: "moderator", acknowledgement: "manual", execute: button }], modals: [], start: startContextMenu,
 };

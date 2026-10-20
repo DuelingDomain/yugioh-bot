@@ -73,21 +73,43 @@ export async function checkTarget(context: FeatureContext, actor: Actor, targetI
   return { target, roles };
 }
 
-export async function requireBotPermission(context: FeatureContext, permission: bigint, channel?: GuildChannel) {
-  const { guild, roles, bot } = await guildState(context);
-  let bits = roles.filter(role => role.id === guild.id || bot.roles.includes(role.id))
+function effectivePermissions(guild: APIGuild, roles: APIRole[], member: Member, channel?: GuildChannel) {
+  let bits = roles.filter(role => role.id === guild.id || member.roles.includes(role.id))
     .reduce((all, role) => all | BigInt(role.permissions), 0n);
-  if (bits & P.Administrator) return;
+  if (member.user.id === guild.owner_id || bits & P.Administrator) return P.Administrator;
   if (channel?.permission_overwrites) {
     const overwrites = channel.permission_overwrites;
     const everyone = overwrites.find(row => row.id === guild.id && row.type === 0);
     if (everyone) bits = (bits & ~BigInt(everyone.deny)) | BigInt(everyone.allow);
     let allow = 0n, deny = 0n;
-    for (const row of overwrites) if (row.type === 0 && bot.roles.includes(row.id)) { allow |= BigInt(row.allow); deny |= BigInt(row.deny); }
+    for (const row of overwrites) if (row.type === 0 && member.roles.includes(row.id)) { allow |= BigInt(row.allow); deny |= BigInt(row.deny); }
     bits = (bits & ~deny) | allow;
-    const member = overwrites.find(row => row.type === 1 && row.id === bot.user.id);
-    if (member) bits = (bits & ~BigInt(member.deny)) | BigInt(member.allow);
+    const overwrite = overwrites.find(row => row.type === 1 && row.id === member.user.id);
+    if (overwrite) bits = (bits & ~BigInt(overwrite.deny)) | BigInt(overwrite.allow);
   }
+  return bits;
+}
+
+export async function requireActorChannelPermission(context: FeatureContext, actor: Actor, permission: bigint,
+  channel: GuildChannel, resolvedPermissions?: string | null) {
+  if (!actor.admin && [context.config.modLogChannelId, context.config.waitlistChannelId,
+    context.config.statusChannelId, context.config.announceChannelId].includes(channel.id))
+    throw new Refusal("Only site admins can moderate a configured bot channel.");
+  const required = permission | P.ViewChannel;
+  const requirePermission = (bits: bigint) => {
+    if (!(bits & P.Administrator) && (bits & required) !== required)
+      throw new Refusal("You are missing a required Discord permission in this channel.");
+  };
+  if (resolvedPermissions != null) requirePermission(BigInt(resolvedPermissions));
+  const { guild, roles } = await guildState(context);
+  // Confirmation buttons have no resolved channel option. Recompute from fresh
+  // membership, roles and overwrites so revocations cannot bypass this check.
+  requirePermission(effectivePermissions(guild, roles, actor.member, channel));
+}
+
+export async function requireBotPermission(context: FeatureContext, permission: bigint, channel?: GuildChannel) {
+  const { guild, roles, bot } = await guildState(context);
+  const bits = effectivePermissions(guild, roles, bot, channel);
   const required = permission | (channel ? P.ViewChannel : 0n);
-  if ((bits & required) !== required) throw new Refusal("The bot is missing a required Discord permission in this server or channel.");
+  if (!(bits & P.Administrator) && (bits & required) !== required) throw new Refusal("The bot is missing a required Discord permission in this server or channel.");
 }

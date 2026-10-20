@@ -6,7 +6,7 @@ export const commonPermissions = {
   "read-history": PermissionFlagsBits.ReadMessageHistory, attach: PermissionFlagsBits.AttachFiles,
   embed: PermissionFlagsBits.EmbedLinks, react: PermissionFlagsBits.AddReactions,
   connect: PermissionFlagsBits.Connect, speak: PermissionFlagsBits.Speak,
-  "manage-messages": PermissionFlagsBits.ManageMessages, "mention-everyone": PermissionFlagsBits.MentionEveryone,
+  "manage-messages": PermissionFlagsBits.ManageMessages,
 } as const;
 export const channelTypes = { text: T.GuildText, voice: T.GuildVoice, announcement: T.GuildAnnouncement,
   forum: T.GuildForum, stage: T.GuildStageVoice } as const;

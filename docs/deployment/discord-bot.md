@@ -11,17 +11,16 @@ The bot runs in its own container and shares SQLite with web and worker. It regi
 5. Enable Discord Developer Mode under User Settings → Advanced. Copy the server ID to `DISCORD_GUILD_ID`. Open the invite below as the server owner, with both IDs replaced.
 
 ```text
-https://discord.com/oauth2/authorize?client_id=<DISCORD_CLIENT_ID>&scope=bot%20applications.commands&permissions=1391841242358&guild_id=<DISCORD_GUILD_ID>&disable_guild_select=true&integration_type=0
+https://discord.com/oauth2/authorize?client_id=<DISCORD_CLIENT_ID>&scope=bot%20applications.commands&permissions=1391841111254&guild_id=<DISCORD_GUILD_ID>&disable_guild_select=true&integration_type=0
 ```
 
-The scopes are **`bot applications.commands`**. The final permission integer is **`1391841242358`**. It combines the approved baseline with Add Reactions, Mention Everyone, Connect and Speak for the server permission editor and announcement role mentions. It excludes Administrator. The bits are `1,2,4,5,6,7,10,11,13,14,15,16,17,20,21,28,34,38,40`; see [Discord permission flags](https://docs.discord.com/developers/topics/permissions#bitwise-permission-flags).
+The scopes are **`bot applications.commands`**. The final permission integer is **`1391841111254`**. It includes Add Reactions, Connect and Speak for the server permission editor. It excludes Administrator, Manage Server (bit 5) and Mention Everyone (bit 17). The bits are `1,2,4,6,7,10,11,13,14,15,16,20,21,28,34,38,40`; see [Discord permission flags](https://docs.discord.com/developers/topics/permissions#bitwise-permission-flags).
 
 | Permission | Bit | Reason |
 | --- | ---: | --- |
 | Kick Members | 1 | `/kick`. |
 | Ban Members | 2 | `/ban` and `/unban`. |
 | Manage Channels | 4 | Channel/category management, slowmode and setup. |
-| Manage Server | 5 | Approved baseline for native AutoMod administration; no `/automod` command is included in these modules. |
 | Add Reactions | 6 | Allow the permission editor to set the `react` overwrite. |
 | View Audit Log | 7 | Approved moderation baseline for audit inspection. |
 | View Channels | 10 | Read destinations and inspect channel overwrites. |
@@ -30,7 +29,6 @@ The scopes are **`bot applications.commands`**. The final permission integer is 
 | Embed Links | 14 | Cards, alerts, reports and announcement embeds. |
 | Attach Files | 15 | Long online lists and permission reports. |
 | Read Message History | 16 | Purge scans and saved-message access. |
-| Mention Everyone | 17 | Mention a non-mentionable role explicitly selected and confirmed in `/announce`; edit the `mention-everyone` overwrite. Message parsing still blocks `@everyone` and `@here`. |
 | Connect | 20 | Allow the permission editor to set voice `connect`. The bot does not join voice. |
 | Speak | 21 | Allow the permission editor to set voice `speak`. |
 | Manage Roles | 28 | Role management, channel overwrites, private setup and lock/unlock. |
@@ -38,7 +36,7 @@ The scopes are **`bot applications.commands`**. The final permission integer is 
 | Send Messages in Threads | 38 | Setup repairs thread posting permissions and permits bot replies in threads. |
 | Moderate Members | 40 | `/timeout` and `/untimeout`. |
 
-In Server Settings → Roles, put the bot below the server owner's role and above roles it must manage. Both the actor and bot must rank above member/role targets. The guild owner can bypass only the actor hierarchy check. The bot can set only permissions it holds, and channel overwrites can remove permissions granted by the invite. Native AutoMod rules are managed in Discord's server settings in this release; there is no AutoMod event logger in the submitted modules.
+In Server Settings → Roles, put the bot below the server owner's role and above roles it must manage. Both the actor and bot must rank above member/role targets. The guild owner can bypass only the actor hierarchy check. The bot can set only permissions it holds, and channel overwrites can remove permissions granted by the invite. Native AutoMod rules are managed in Discord's server settings in this release; there is no AutoMod event logger in the submitted modules. `/announce` accepts only a role that is already mentionable, and checks that setting again before posting. The permission editor does not offer `mention-everyone`.
 
 ## Link owners and run `/setup channels`
 
@@ -109,13 +107,17 @@ Automatic join/sign-up alerts also depend on the **web producer's** environment:
 
 ```dotenv
 CLERK_WEBHOOK_SIGNING_SECRET=<clerk-endpoint-signing-secret>
+DISCORD_ADMIN_OUTBOX_ENABLED=1
+DISCORD_WAITLIST_CHANNEL_ID=<signups-channel-id>
 DISCORD_JOIN_REQUEST_ALERTS_ENABLED=1
-DISCORD_SIGNUP_ALERTS_ENABLED=0
+DISCORD_SIGNUP_ALERTS_ENABLED=1
 DISCORD_ADMIN_WEBHOOK_URL=<fallback-private-channel-webhook>
 DISCORD_ADMIN_DASHBOARD_URL=
 ```
 
-The signing secret verifies Clerk `waitlistEntry.created` and optional `user.created` deliveries to the app host's `/api/webhooks/clerk`. Join alerts default on; sign-up alerts default off; only literal `1` enables either. Empty dashboard URL uses the Clerk Dashboard. The webhook URL is the fallback when the producer's `DISCORD_BOT_ENABLED` is off. See [join alert setup](discord-join-alerts.md). The existing Compose web and worker services retain `DISCORD_BOT_ENABLED=0`; enabling only the bot container does **not** switch web alerts to its durable outbox. `/waitlist` and its private decision buttons work independently. Automatic channel buttons require a later producer configuration change with the legacy gameplay switch separated; this integration does not change web source or enable its retired bot HTTP calls.
+The signing secret verifies Clerk `waitlistEntry.created` and optional `user.created` deliveries to the app host's `/api/webhooks/clerk`. Set **`DISCORD_ADMIN_OUTBOX_ENABLED=1`** and **`DISCORD_WAITLIST_CHANNEL_ID`** on web to queue durable alerts for the bot. Compose passes both settings to web and keeps its legacy gameplay `DISCORD_BOT_ENABLED=0`, so the deleted port 4001 path stays off. Set both alert-type flags to `1` for join requests and sign-ups; the durable path defaults both on, while webhook fallback defaults sign-up alerts off. Only literal `1` enables a switch. Empty dashboard URL uses the Clerk Dashboard.
+
+If the outbox flag is off, the notifier uses `DISCORD_ADMIN_WEBHOOK_URL`. If the flag is on but the channel ID is missing, it logs one warning per process and uses that same webhook fallback. Missing channel configuration does not fail the Clerk receipt or return 503. Actual receipt/outbox storage errors still permit Clerk retries. See [join alert setup](discord-join-alerts.md). Recreate web after changing producer settings and enable the bot container to drain its queue. `/waitlist` and its private decision buttons work independently.
 
 ## Deploy commands and run
 
@@ -177,13 +179,15 @@ Use disposable resources in the private test guild. Confirm owner access, Modera
 | `/online` | Check private 120-second site presence list (up to 500 users), section labels and long-list attachment. Without the separate presence migration, expect `presence not available`. |
 | `/stats` | Check seven UTC days, distinct weekly users, duel/draft counts and live tables; replay forks excluded. Without presence columns, verify the play-only note. |
 
+For Moderator channel actions, require the actor's effective View Channel permission plus Manage Messages for `/purge`, Manage Channels for `/slowmode`, or Manage Roles for `/lock` and `/unlock`. A linked site admin can manage configured bot destinations; a Moderator cannot purge, slow, lock or unlock #mod-log, #signups, #online-now or #announcements. Confirmation rechecks current access. Confirm and Cancel edit the original private prompt, remove its buttons and show the result.
+
 When producer outbox delivery is configured, submit a controlled new waitlist entry and replay its Clerk webhook: expect one masked #signups alert with two buttons. Approve in Discord and verify the saved message is edited with actor/source/time and no buttons. Retry durable posts/edits after restart, test Discord 403/404/429, and verify mention suppression. The shared budget allows 30 outbox claims per minute; delivery polls every three seconds.
 
-Check `[bot] ready` and a recent SQLite `bot_heartbeat` row (`id=1`, millisecond timestamp; updated every 30 seconds). A missing row or one older than 120 seconds means unavailable. SIGTERM must drain started work and remove this process's file/database heartbeats. With `DISCORD_BOT_ENABLED=0`, startup and healthcheck must succeed without credentials or database access.
+The bot healthcheck runs every five seconds during its 45-second start period so deployment can record a healthy bot image during its first health scan. Check `[bot] ready` and a recent SQLite `bot_heartbeat` row (`id=1`, millisecond timestamp; updated every 30 seconds). A missing row or one older than 120 seconds means unavailable. SIGTERM must drain started work and remove this process's file/database heartbeats. With `DISCORD_BOT_ENABLED=0`, startup and healthcheck must succeed without credentials or database access.
 
 ## Admin console follow-up after both branches merge
 
-The separate, unmerged **`feat/admin-console`** route `/api/admin/console/waitlist/[id]` currently calls Clerk invite/reject directly. **After both branches merge, change that route to call `decideWaitlistEntry` from `@yugidraft/shared/services/waitlist-decisions`, with `source: "web"`, the site actor ID, exact Clerk entry ID and email.** Keep its session, owner, origin and input checks, result handling and cache invalidation. Otherwise the Discord message does not update after a web decision. See the [waitlist integration contract](../../packages/bot/src/features/waitlist/README.md#web-route-integration-still-required). This PR does not change the console route or public web access. Shared-service integration tests prove a web-source decision produces the Discord PATCH; the actual console HTTP route is not wired here. Leave PR #400 open for the owner.
+The separate, unmerged **PR #405 (`feat/admin-console`)** route `/api/admin/console/waitlist/[id]` currently calls Clerk invite/reject directly. **After both branches merge, change that route to call `decideWaitlistEntry` from `@yugidraft/shared/services/waitlist-decisions`, with `source: "web"`, the site actor ID, exact Clerk entry ID and email.** Keep its session, owner, origin and input checks, result handling and cache invalidation. Otherwise the Discord message does not update after a web decision. See the [waitlist integration contract](../../packages/bot/src/features/waitlist/README.md#web-route-integration-still-required). This PR does not change the console route or public web access. Shared-service integration tests prove a web-source decision produces the Discord PATCH; the actual console HTTP route is not wired here. Leave PR #400 open for the owner.
 
 ## Automated verification and limits
 
@@ -197,4 +201,4 @@ Set `DISCORD_BOT_ENABLED=0` in the VM `.env`, then recreate only the bot:
 docker compose -f docker-compose.yml up -d --no-build --no-deps --force-recreate bot
 ```
 
-The bot remains healthy and idle, with no login, command registration, database or outbox work. Existing commands stay registered; restrict access in Integrations if necessary. The current web producer already uses the webhook fallback. If its configuration is changed later, disable its bot producer switch and recreate web to restore webhook delivery. For full code/database rollback, use the [matched release procedure](vm-runbook.md); the deployment script also accepts old releases with no bot image.
+The bot remains healthy and idle, with no login, command registration, database or outbox work. Existing commands stay registered; restrict access in Integrations if necessary. Set `DISCORD_ADMIN_OUTBOX_ENABLED=0` and recreate web to restore webhook delivery while the bot is disabled. For full code/database rollback, use the [matched release procedure](vm-runbook.md); the deployment script also accepts old releases with no bot image.

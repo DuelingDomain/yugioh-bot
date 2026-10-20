@@ -5,7 +5,6 @@ import type {
   ModalBuilder, REST, Client,
 } from "discord.js";
 import type { SharedAdminServices } from "./shared.js";
-import type { ConfirmationStore } from "./confirm.js";
 import type { Cooldown } from "./cooldown.js";
 
 export type Access = "public" | "moderator" | "admin";
@@ -28,6 +27,8 @@ export interface InteractionLike {
   id: string;
   guildId: string | null;
   channelId: string | null;
+  /** Actor permissions in the invocation channel, supplied by Discord. */
+  memberPermissions?: string | null;
   user: { id: string; username: string; displayName: string };
   reply(message: InteractionReplyOptions): Promise<void>;
   editReply(message: InteractionEditReplyOptions): Promise<void>;
@@ -46,7 +47,7 @@ export interface CommandInteractionLike extends InteractionLike {
     getBoolean(name: string, required?: boolean): boolean | null;
     getUser(name: string, required?: boolean): InteractionLike["user"] | null;
     getRole(name: string, required?: boolean): { id: string; name: string; position: number } | null;
-    getChannel(name: string, required?: boolean): { id: string; name: string | null; type: number } | null;
+    getChannel(name: string, required?: boolean): { id: string; name: string | null; type: number; permissions?: string | null } | null;
   };
 }
 export interface ButtonInteractionLike extends InteractionLike { customId: string }
@@ -63,9 +64,8 @@ export interface AutocompleteInteractionLike {
 }
 export interface Handler<I> {
   access: Access;
-  /** Default: deferReply. Use manual only to open a modal or autocomplete. */
+  /** Default: deferReply. Use manual to open a modal or validate a button before updating its source. */
   acknowledgement?: "deferReply" | "deferUpdate" | "manual";
-  destructive?: boolean;
   execute(interaction: I, context: FeatureContext): Promise<void>;
 }
 export interface CommandModule extends Handler<CommandInteractionLike> {
@@ -89,7 +89,6 @@ export interface FeatureContext {
   rest: REST;
   signal: AbortSignal;
   shared: SharedAdminServices;
-  confirmations: ConfirmationStore;
   cooldown: Cooldown;
   audit(action: { actorDiscordId: string; action: string; targetDiscordId?: string; reason?: string; result: "success" | "failure" | "denied"; params?: Record<string, unknown> }): Promise<void>;
 }

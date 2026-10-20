@@ -4,7 +4,6 @@ import { Client, PermissionFlagsBits as P, REST } from "discord.js";
 import { openDatabase } from "@yugidraft/shared/db";
 import { loadSharedAdminServices } from "../../runtime/shared.js";
 import { createAudit } from "../../runtime/audit.js";
-import { ConfirmationStore } from "../../runtime/confirm.js";
 import { Cooldown } from "../../runtime/cooldown.js";
 import { createRegistry } from "../../runtime/registry.js";
 import type { CommandInteractionLike, FeatureContext, InteractionLike } from "../../runtime/types.js";
@@ -98,7 +97,7 @@ async function fixture() {
   const shared = await loadSharedAdminServices(db);
   const context: FeatureContext = { db, rest, client, shared, audit: createAudit(shared, G),
     config: { token: "stub", clientId: BOT, guildId: G, modLogChannelId: LOG, moderatorRoleId: MOD_ROLE, healthPath: "unused" },
-    confirmations: new ConfirmationStore(), cooldown: new Cooldown(), signal: new AbortController().signal };
+    cooldown: new Cooldown(), signal: new AbortController().signal };
   const replies: any[] = [];
   let replyFails = false;
   let seq = 0;

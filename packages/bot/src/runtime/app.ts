@@ -6,7 +6,6 @@ import { createRegistry } from "./registry.js";
 import { createDispatcher } from "./dispatcher.js";
 import { loadSharedAdminServices, type SharedAdminServices, type DiscordOutboxRow } from "./shared.js";
 import { createAudit } from "./audit.js";
-import { ConfirmationStore } from "./confirm.js";
 import { Cooldown } from "./cooldown.js";
 import { createOutboxDelivery, startOutboxPoller, type OutboxDelivery } from "./outbox.js";
 import type { BotConfig, FeatureModule, Stop, FeatureContext } from "./types.js";
@@ -52,7 +51,6 @@ export async function startBot(options: {
       try { await cleanup(); } catch (error) { report(error, { tags: { operation: "bot.stop" } }); }
     }
     await Promise.allSettled([...inFlight]);
-    context?.confirmations.clear();
     try { await client.destroy(); } finally {
       client.rest.clearHashSweeper(); client.rest.clearHandlerSweeper();
       try { removeDatabaseHeartbeat(db); }
@@ -62,7 +60,7 @@ export async function startBot(options: {
   try {
     const shared = options.shared ?? await loadSharedAdminServices(db);
     context = { db, config, client, rest: client.rest, signal: controller.signal, shared,
-      confirmations: new ConfirmationStore(), cooldown: new Cooldown(),
+      cooldown: new Cooldown(),
       audit: createAudit(shared, config.guildId),
     };
     const dispatch = createDispatcher(registry, context);

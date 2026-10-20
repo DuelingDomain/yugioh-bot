@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, PermissionFlagsBits as P } from "discord.js";
 import type { CommandInteractionLike, ButtonInteractionLike, FeatureContext, InteractionLike } from "../../runtime/types.js";
 import { audit, type Action, type ActionResult } from "./audit.js";
-import { authorize, checkTarget, errorReply, fetchChannel, Refusal, requireBotPermission, snowflake, type Actor, type GuildChannel } from "./security.js";
+import { authorize, checkTarget, errorReply, fetchChannel, Refusal, requireActorChannelPermission, requireBotPermission, snowflake, type Actor, type GuildChannel } from "./security.js";
 import { executeMemberAction, memberPermission, requireWarning } from "./members.js";
 import { checkLockState, executeChannelAction, preparePurge } from "./channels.js";
 
@@ -42,7 +42,12 @@ function integer(value: number | null, min: number, max: number, label: string):
 
 function parse(interaction: CommandInteractionLike, action: Action) {
   const { options } = interaction;
-  if (channelKinds.has(action.kind)) action.channelId = options.getChannel("channel")?.id ?? interaction.channelId ?? undefined;
+  let channelPermissions: string | null | undefined;
+  if (channelKinds.has(action.kind)) {
+    const channel = options.getChannel("channel");
+    action.channelId = channel?.id ?? interaction.channelId ?? undefined;
+    channelPermissions = channel ? channel.permissions : interaction.memberPermissions;
+  }
   if ([...targetKinds, "warnings"].includes(action.kind)) action.targetId = snowflake(options.getUser("user")?.id ?? null);
   if (action.kind === "unban") action.targetId = snowflake(options.getString("user-id"));
   if (action.kind === "purge") { action.targetId = options.getUser("user")?.id; action.count = integer(options.getInteger("count"), 1, 100, "Count"); }
@@ -56,9 +61,10 @@ function parse(interaction: CommandInteractionLike, action: Action) {
     const clear = options.getInteger("clear");
     if (clear !== null) { action.warningId = integer(clear, 1, Number.MAX_SAFE_INTEGER, "Warning ID"); action.kind = "warning_clear"; }
   }
+  return channelPermissions;
 }
 
-async function check(context: FeatureContext, actor: Actor, action: Action): Promise<GuildChannel | undefined> {
+async function check(context: FeatureContext, actor: Actor, action: Action, resolvedPermissions?: string | null): Promise<GuildChannel | undefined> {
   if (targetKinds.has(action.kind)) {
     const target = await checkTarget(context, actor, action.targetId!, action.kind === "ban");
     if ((action.kind === "timeout" || action.kind === "untimeout") && target) {
@@ -76,6 +82,7 @@ async function check(context: FeatureContext, actor: Actor, action: Action): Pro
     const channel = await fetchChannel(context, action.channelId, action.kind === "slowmode" ? [0, 2, 13, 15, 16] : [0, 5, 15, 16]);
     const required = action.kind === "purge" ? P.ManageMessages | P.ReadMessageHistory
       : action.kind === "slowmode" ? P.ManageChannels : P.ManageRoles;
+    await requireActorChannelPermission(context, actor, action.kind === "purge" ? P.ManageMessages : required, channel, resolvedPermissions);
     await requireBotPermission(context, required, channel);
     if (action.kind === "purge" && ![0, 5].includes(channel.type)) throw new Refusal("Purge requires a text or announcement channel.");
     if (action.kind === "lock" || action.kind === "unlock") {
@@ -113,12 +120,13 @@ async function requestConfirmation(interaction: InteractionLike, context: Featur
     )] });
 }
 
-async function run(interaction: InteractionLike, context: FeatureContext, actor: Actor, action: Action, confirmed = false) {
+async function run(interaction: InteractionLike, context: FeatureContext, actor: Actor, action: Action, confirmed = false,
+  resolvedPermissions?: string | null) {
   // The runtime cooldown is acquired only when actually executing a mutation,
   // so a quick confirmation is not blocked by the initial command request.
   const operation = async () => {
     const current = await authorize(interaction, context);
-    const channel = await check(context, current, action);
+    const channel = await check(context, current, action, resolvedPermissions);
     if (action.kind === "purge" && !action.messageIds) await preparePurge(context, action);
     const result = channel ? await executeChannelAction(context, current, action, channel)
       : await executeMemberAction(context, current, action);
@@ -126,7 +134,7 @@ async function run(interaction: InteractionLike, context: FeatureContext, actor:
     await reply(interaction, result);
   };
   if (!confirmed && needsConfirmation(action)) {
-    await check(context, actor, action);
+    await check(context, actor, action, resolvedPermissions);
     if (action.kind === "purge") await preparePurge(context, action);
     await requestConfirmation(interaction, context, action); return;
   }
@@ -140,7 +148,7 @@ export async function command(interaction: CommandInteractionLike, context: Feat
     targetId: interaction.options.getUser("user")?.id };
   try {
     const actor = await authorize(interaction, context);
-    parse(interaction, action); await run(interaction, context, actor, action);
+    const permissions = parse(interaction, action); await run(interaction, context, actor, action, false, permissions);
   } catch (error) { await failure(interaction, context, action, error); }
 }
 
@@ -150,9 +158,15 @@ export async function button(interaction: ButtonInteractionLike, context: Featur
     const actor = await authorize(interaction, context);
     const [, decision, id] = interaction.customId.split(":");
     const entries = pending.get(context), entry = entries?.get(id);
-    if (!entry || entry.expires <= Date.now()) { entries?.delete(id); throw new Refusal("This confirmation has expired. Run the command again."); }
+    if (!entry) throw new Refusal("This confirmation has expired. Run the command again.");
     if (entry.actorId !== actor.id || entry.guildId !== interaction.guildId) throw new Refusal("Only the member who requested this action can confirm it.");
     entries!.delete(id); action = entry.action;
+    await interaction.deferUpdate();
+    const source = interaction;
+    interaction = { ...source, async reply({ flags, ephemeral, ...message }) {
+      await source.editReply({ ...message, components: [] });
+    } };
+    if (entry.expires <= Date.now()) throw new Refusal("This confirmation has expired. Run the command again.");
     if (decision === "no") {
       audit(context, actor.id, { ...action, kind: `${action.kind}_cancel` }, "success");
       await reply(interaction, { content: "Cancelled." }); return;

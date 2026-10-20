@@ -53,6 +53,7 @@ beforeEach(() => {
   requests = []; status = 200; errorCode = ""; release = undefined; hold = undefined;
   vi.stubEnv("OWNER_USER_IDS", "1,3");
   vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+  vi.stubEnv("DISCORD_ADMIN_OUTBOX_ENABLED", "1");
   vi.stubEnv("DISCORD_MODERATOR_ROLE_ID", "moderator");
   vi.stubEnv("DISCORD_WAITLIST_CHANNEL_ID", "waitlist");
   vi.stubEnv("DISCORD_MOD_LOG_CHANNEL_ID", "mod-log");

@@ -12,7 +12,6 @@ import { loadSharedAdminServices } from "../../runtime/shared.js";
 import { createAudit } from "../../runtime/audit.js";
 import { createDispatcher } from "../../runtime/dispatcher.js";
 import { createRegistry } from "../../runtime/registry.js";
-import { ConfirmationStore } from "../../runtime/confirm.js";
 import { Cooldown } from "../../runtime/cooldown.js";
 import { createOutboxDelivery } from "../../runtime/outbox.js";
 import type { FeatureContext } from "../../runtime/types.js";
@@ -24,6 +23,8 @@ const target = "100000000000000004", channel = "100000000000000005", owner = "10
 const modRole = "100000000000000010", botRole = "100000000000000011", lowRole = "100000000000000012";
 const admin = "100000000000000007", outsider = "100000000000000008";
 const adminRole = "100000000000000013";
+const modLogChannel = "100000000000000014", hiddenChannel = "100000000000000015";
+const moderatorPermissions = P.ViewChannel | P.ManageMessages | P.ManageChannels | P.ManageRoles;
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
@@ -34,7 +35,7 @@ function gatewayObject<T>(constructor: unknown, client: Client, data: unknown): 
 }
 
 async function setup() {
-  vi.stubEnv("DISCORD_BOT_ENABLED", "1"); vi.stubEnv("DISCORD_MOD_LOG_CHANNEL_ID", channel);
+  vi.stubEnv("DISCORD_BOT_ENABLED", "1"); vi.stubEnv("DISCORD_MOD_LOG_CHANNEL_ID", modLogChannel);
   vi.stubEnv("DISCORD_MODERATOR_ROLE_ID", modRole); vi.stubEnv("OWNER_USER_IDS", "1");
   const dir = mkdtempSync(join(tmpdir(), "moderation-integration-"));
   cleanup.push(() => rmSync(dir, { recursive: true, force: true }));
@@ -43,6 +44,7 @@ async function setup() {
   const members = new Map([ [actor, [modRole]], [admin, [adminRole]], [bot, [botRole]], [target, [lowRole]], [outsider, []], [owner, [botRole]] ]);
   const state = { overwrites: [] as { id: string; type: number; allow: string; deny: string }[],
     messages: [] as { id: string; author: { id: string }; timestamp: string }[],
+    actorPermissions: moderatorPermissions, resolvedChannelPermissions: moderatorPermissions,
     botPermissions: P.ViewChannel | P.SendMessages | P.ReadMessageHistory | P.ManageMessages | P.ManageChannels | P.ManageRoles | P.ModerateMembers | P.KickMembers | P.BanMembers,
     status: 0, failPath: "", foreignChannel: false, dmFails: false, channelType: 0, applyBeforeFailure: false };
   const requests: { method: string; path: string; body: any; reason?: string }[] = [];
@@ -61,13 +63,13 @@ async function setup() {
     if (req.method === "GET" && path === `/guilds/${guild}`) res.end(JSON.stringify({ id: guild, owner_id: owner, name: "Test" }));
     else if (req.method === "GET" && path === `/guilds/${guild}/roles`) res.end(JSON.stringify([
       { id: guild, position: 0, permissions: "0" }, { id: lowRole, position: 1, permissions: "0" },
-      { id: modRole, position: 5, permissions: "0" }, { id: adminRole, position: 8, permissions: "0" }, { id: botRole, position: 10, permissions: String(state.botPermissions) },
+      { id: modRole, position: 5, permissions: String(state.actorPermissions) }, { id: adminRole, position: 8, permissions: String(P.Administrator) }, { id: botRole, position: 10, permissions: String(state.botPermissions) },
     ]));
     else if (req.method === "GET" && path.startsWith(`/guilds/${guild}/members/`)) {
       const id = path.split("/").at(-1)!;
       if (!members.has(id)) { res.statusCode = 404; res.end(JSON.stringify({ code: 10007, message: "Unknown member" })); }
       else res.end(JSON.stringify({ user: { id, username: "Member", discriminator: "0" }, roles: members.get(id), joined_at: "2025-01-01T00:00:00.000Z" }));
-    } else if (req.method === "GET" && path === `/channels/${channel}`) res.end(JSON.stringify({ id: channel, guild_id: state.foreignChannel ? outsider : guild, type: state.channelType, permission_overwrites: state.overwrites }));
+    } else if (req.method === "GET" && [channel, modLogChannel, hiddenChannel].some(id => path === `/channels/${id}`)) res.end(JSON.stringify({ id: path.split("/")[2], guild_id: state.foreignChannel ? outsider : guild, type: state.channelType, permission_overwrites: state.overwrites }));
     else if (req.method === "GET" && path.startsWith(`/channels/${channel}/messages?`)) res.end(JSON.stringify(state.messages));
     else if (req.method === "PUT" && path === `/channels/${channel}/permissions/${guild}`) {
       state.overwrites = [...state.overwrites.filter(row => row.id !== guild), { id: guild, ...body }]; res.removeHeader("content-type"); res.statusCode = 204; res.end();
@@ -77,28 +79,32 @@ async function setup() {
       if (state.dmFails) { res.statusCode = 403; res.end(JSON.stringify({ code: 50007, message: "Cannot DM" })); }
       else res.end(JSON.stringify({ id: "100000000000000090", type: 1 }));
     } else if (path.includes("/callback")) { res.removeHeader("content-type"); res.statusCode = 204; res.end(); }
-    else res.end(JSON.stringify({ id: "100000000000000099", channel_id: channel, content: body?.content ?? "", author: { id: bot, username: "Bot" }, timestamp: new Date().toISOString(), attachments: [], embeds: [] }));
+    else res.end(JSON.stringify({ id: "100000000000000099", channel_id: path.startsWith("/channels/") ? path.split("/")[2] : channel, content: body?.content ?? "", author: { id: bot, username: "Bot" }, timestamp: new Date().toISOString(), attachments: [], embeds: [] }));
   });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   cleanup.push(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); });
   const api = `http://127.0.0.1:${(server.address() as { port: number }).port}/api`;
-  const client = new Client({ intents: [], rest: { api, retries: 0, rejectOnRateLimit: () => true, timeout: 1000 } });
+  const client = new Client({ intents: [], rest: { api, retries: 0, rejectOnRateLimit: () => true, globalRequestsPerSecond: 1000, timeout: 1000 } });
   client.rest.setToken("stub-token"); client.user = gatewayObject<ClientUser>(ClientUser, client, { id: bot, username: "Bot", discriminator: "0", bot: true });
   cleanup.push(async () => { await client.destroy(); client.rest.clearHashSweeper(); client.rest.clearHandlerSweeper(); });
   const shared = await loadSharedAdminServices(db);
-  const context: FeatureContext = { db, client, rest: client.rest, config: { token: "stub-token", clientId: bot, guildId: guild, moderatorRoleId: modRole, modLogChannelId: channel, healthPath: join(dir, "health.json"), restApi: api },
-    shared, signal: new AbortController().signal, confirmations: new ConfirmationStore(), cooldown: new Cooldown(), audit: createAudit(shared, guild) };
+  const context: FeatureContext = { db, client, rest: client.rest, config: { token: "stub-token", clientId: bot, guildId: guild, moderatorRoleId: modRole, modLogChannelId: modLogChannel, healthPath: join(dir, "health.json"), restApi: api },
+    shared, signal: new AbortController().signal, cooldown: new Cooldown(), audit: createAudit(shared, guild) };
   const stop = await moderation.start?.(context); if (stop) cleanup.push(stop);
   const dispatch = createDispatcher(createRegistry([moderation]), context);
   let sequence = 0;
   const payload = (who = actor) => ({ id: String(100000000000001000n + BigInt(++sequence)), application_id: bot, token: `token-${sequence}`, version: 1,
     guild_id: guild, channel_id: channel, channel: { id: channel, type: 0 }, locale: "en-US", context: 0, app_permissions: "0", entitlements: [],
-    member: { user: { id: who, username: "Actor", discriminator: "0" }, roles: members.get(who) ?? [], permissions: "0", joined_at: new Date().toISOString() } });
-  const response = () => requests.filter(row => row.path.includes("/webhooks/") && row.method === "PATCH").at(-1)?.body;
+    member: { user: { id: who, username: "Actor", discriminator: "0" }, roles: members.get(who) ?? [], permissions: String(who === admin ? P.Administrator : moderatorPermissions), joined_at: new Date().toISOString() } });
+  const response = () => {
+    const latest = requests.filter(row => row.path.includes("/webhooks/") && ["PATCH", "POST"].includes(row.method)
+      || row.path.includes("/callback") && row.body?.type === 4).at(-1);
+    return latest?.path.includes("/callback") ? latest.body.data : latest?.body;
+  };
   async function command(name: string, values: Record<string, string | number | boolean> = {}, who = actor, overrides = {}) {
     const options = Object.entries(values).map(([name, value]) => ({ name, value, type: name === "user" ? 6 : name === "channel" ? 7 : typeof value === "number" ? 4 : typeof value === "boolean" ? 5 : 3 }));
     const raw = { ...payload(who), type: 2, data: { id: bot, name, type: 1, options,
-      resolved: { users: { [target]: { id: target, username: "Target", discriminator: "0" }, [owner]: { id: owner, username: "Owner", discriminator: "0" }, [bot]: { id: bot, username: "Bot", discriminator: "0" }, [admin]: { id: admin, username: "Admin", discriminator: "0" } }, channels: { [channel]: { id: channel, type: 0, name: "test", permissions: "0" } } } }, ...overrides };
+      resolved: { users: { [target]: { id: target, username: "Target", discriminator: "0" }, [owner]: { id: owner, username: "Owner", discriminator: "0" }, [bot]: { id: bot, username: "Bot", discriminator: "0" }, [admin]: { id: admin, username: "Admin", discriminator: "0" } }, channels: Object.fromEntries([channel, modLogChannel, hiddenChannel].map(id => [id, { id, type: 0, name: id === modLogChannel ? "mod-log" : "test", permissions: String(who === admin ? P.Administrator : state.resolvedChannelPermissions) }])) } }, ...overrides };
     await dispatch(gatewayObject<ChatInputCommandInteraction>(ChatInputCommandInteraction, client, raw)); return response();
   }
   async function button(id: string, who = actor) {
@@ -155,6 +161,49 @@ it("rejects nonmoderators, revoked roles, protected members, hierarchy and forei
   t.members.set(actor, []); await t.button(confirm); expect(t.writes()).toHaveLength(0);
   t.members.set(actor, [modRole]); t.state.foreignChannel = true;
   await t.command("slowmode", { channel, seconds: 5 }); expect(t.writes()).toHaveLength(0);
+});
+
+it("denies a Moderator channel actions in the configured #mod-log", async () => {
+  const t = await setup();
+  for (const name of ["slowmode", "purge", "lock", "unlock"]) {
+    t.context.cooldown = new Cooldown();
+    const values: Record<string, string | number> = name === "purge" ? { count: 1 }
+      : { channel: modLogChannel, ...(name === "slowmode" ? { seconds: 5 } : {}) };
+    await t.command(name, values, actor, name === "purge" ? { channel_id: modLogChannel, channel: { id: modLogChannel, type: 0 } } : {});
+    expect(t.writes()).toHaveLength(0);
+    expect(t.response().content).toContain("configured bot channel");
+    expect(t.response().components ?? []).toHaveLength(0);
+    expect(t.actions().at(-1)).toMatchObject({ action: name, result: "denied" });
+  }
+});
+
+it("denies a Moderator channel actions in a channel they cannot see", async () => {
+  const t = await setup();
+  // The invocation channel and guild role permit these actions. Discord's
+  // resolved target-channel permissions must still deny the inaccessible target.
+  t.state.resolvedChannelPermissions &= ~P.ViewChannel;
+  for (const name of ["slowmode", "lock", "unlock"]) {
+    t.context.cooldown = new Cooldown();
+    await t.command(name, { channel: hiddenChannel, ...(name === "slowmode" ? { seconds: 5 } : {}) });
+    expect(t.writes()).toHaveLength(0);
+    expect(t.response().content).toContain("permission");
+    expect(t.response().components ?? []).toHaveLength(0);
+    expect(t.actions().at(-1)).toMatchObject({ action: name, result: "denied" });
+  }
+  t.context.cooldown = new Cooldown();
+  await t.command("purge", { count: 1 }, actor, { channel_id: hiddenChannel, channel: { id: hiddenChannel, type: 0 },
+    member: { ...t.payload().member, permissions: String(moderatorPermissions & ~P.ViewChannel) } });
+  expect(t.writes()).toHaveLength(0);
+  expect(t.response().content).toContain("permission");
+  expect(t.actions().at(-1)).toMatchObject({ action: "purge", result: "denied" });
+
+  t.context.cooldown = new Cooldown(); t.state.resolvedChannelPermissions = moderatorPermissions;
+  await t.command("lock", { channel }); const confirm = t.confirmId();
+  t.state.overwrites = [{ id: actor, type: 1, allow: "0", deny: String(P.ViewChannel) }];
+  await t.button(confirm);
+  expect(t.writes()).toHaveLength(0);
+  expect(t.response().content).toContain("permission");
+  expect(t.actions().at(-1)).toMatchObject({ action: "lock", result: "denied" });
 });
 
 it("refuses DMs and another guild through the real dispatcher", async () => {

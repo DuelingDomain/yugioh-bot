@@ -14,7 +14,6 @@ import { createDispatcher } from "../../runtime/dispatcher.js";
 import { createRegistry } from "../../runtime/registry.js";
 import { loadSharedAdminServices } from "../../runtime/shared.js";
 import { createAudit } from "../../runtime/audit.js";
-import { ConfirmationStore } from "../../runtime/confirm.js";
 import { Cooldown } from "../../runtime/cooldown.js";
 import { createOutboxDelivery, startOutboxPoller } from "../../runtime/outbox.js";
 import type { FeatureContext, FeatureModule, Stop } from "../../runtime/types.js";
@@ -32,6 +31,7 @@ afterEach(async () => {
 
 async function fixture() {
   vi.stubEnv("DISCORD_BOT_ENABLED", "1");
+  vi.stubEnv("DISCORD_ADMIN_OUTBOX_ENABLED", "1");
   vi.stubEnv("DISCORD_GUILD_ID", guildId);
   vi.stubEnv("DISCORD_WAITLIST_CHANNEL_ID", channelId);
   vi.stubEnv("DISCORD_MOD_LOG_CHANNEL_ID", modLogId);
@@ -113,7 +113,7 @@ async function fixture() {
   cleanups.push(() => client.destroy());
   const context: FeatureContext = { db, shared, rest, client, signal: controller.signal,
     config: { token: "stub-token", clientId: "100000000000000009", guildId, waitlistChannelId: channelId, modLogChannelId: modLogId, restApi: `${base}/api`, healthPath: join(directory, "health.json") },
-    audit: createAudit(shared, guildId), confirmations: new ConfirmationStore(), cooldown: new Cooldown() };
+    audit: createAudit(shared, guildId), cooldown: new Cooldown() };
   let sequence = 0;
   async function dispatch(module: FeatureModule, options: { button?: string; actor?: string; guild?: string | null; action?: string; entry?: string; page?: number } = {}) {
     const id = String(400000000000000000n + BigInt(++sequence));

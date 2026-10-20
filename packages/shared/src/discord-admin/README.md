@@ -69,7 +69,7 @@ Results contain `{ status, action }`, where status is `completed`, `already_deci
 Use the returned action's decision and actor to explain repeated presses. `WaitlistDecisionError` has safe `status` and `code` fields; Clerk failures return 503 `clerk_unavailable`.
 A web-first decision must supply the entry's email so deletion can find its hash. Missing identity returns 409 `waitlist_identity_not_ready` before HTTP.
 
-Completion records an audit row and queues `waitlist_decision` as an edit with no buttons and text such as `Approved by Owner (web)`.
+Completion records an audit row and, when a post or message ID exists, queues `waitlist_decision` as an edit with no buttons and text such as `Approved by Owner (web)`. A web-first decision without a Discord alert queues no edit.
 The edit waits for the original post's message ID. If a decision precedes the post, its queued alert body is replaced with the result, removing email and buttons.
 
 ## Schema and retention
@@ -77,11 +77,11 @@ The edit waits for the original post's message ID. If a decision precedes the po
 `src/db/schema.ts` creates `discord_outbox`, `discord_waitlist_actions`, `mod_actions`, and `mod_warnings` after identity migration. `discord_outbox_budget` holds one rate-budget row. `discord_join_subjects` stores email hashes and Clerk user IDs so privacy deletion works with reordered webhooks and disabled signup alerts.
 The Clerk backend file is copied exactly from commit `a5ca9e969` so the admin-console branch can merge the same change.
 
-With `DISCORD_BOT_ENABLED=1`, signed Clerk receipts and outbox alerts commit together. Both join and signup alerts default on for the bot; their existing alert flags can disable them. `DISCORD_WAITLIST_CHANNEL_ID` is required for enabled alerts. Disabled bot mode keeps the existing webhook path and defaults.
+With web `DISCORD_ADMIN_OUTBOX_ENABLED=1` and `DISCORD_WAITLIST_CHANNEL_ID` configured, signed Clerk receipts and outbox alerts commit together. Both join and signup alerts default on for this path; their existing alert flags can disable them. An enabled producer with a missing channel logs once and uses the existing webhook path and defaults without failing the Clerk receipt. The web gameplay flag remains `DISCORD_BOT_ENABLED=0`.
 Bot messages always mask email, even when the legacy full-email flag is set. Decisions store a subject hash and IDs, never email text. Posted/dead bodies are discarded; deciding also clears pending email text.
 `createWaitlistService(db).remove(email)` and `deleteUserAccount` clear related decisions, outbox rows, and dedupe claims. Linked signup IDs and Clerk subject IDs retain deletion links after an email change. Foreign keys cascade direct local waitlist deletion. Account deletion also removes related moderation rows and warnings.
 
-The runtime consumes the outbox through the real exported functions. It checks the destination guild and sends the stored body with all mentions disabled. The admin route and bot feature handlers are connected in Phase 1; this package supplies their common service.
+The runtime consumes the outbox through the real exported functions. It checks the destination guild and sends the stored body with all mentions disabled. Bot feature handlers use this common service. Web `/admin` still calls Clerk directly until PR #405 merges; after both PRs merge, connect its decisions to `decideWaitlistEntry`.
 
 ## Bot heartbeat
 

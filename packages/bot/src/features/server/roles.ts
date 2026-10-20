@@ -1,6 +1,6 @@
 import { PermissionFlagsBits as P, Routes, type APIRole } from "discord.js";
 import type { CommandInteractionLike as Command, FeatureContext } from "../../runtime/types.js";
-import { checkMember, checkRole, needBot, Refusal, requiredId, state, validName, type Action } from "./common.js";
+import { checkMember, checkRole, needBot, Refusal, requiredId, state, validName, type Action, type State } from "./common.js";
 
 function appearance(i: Command) {
   const body: Record<string, unknown> = {};
@@ -14,6 +14,16 @@ function appearance(i: Command) {
   const mentionable = i.options.getBoolean("mentionable"); if (mentionable !== null) body.mentionable = mentionable;
   return body;
 }
+
+function checkRoleGrant(s: State, role: APIRole, moderatorRoleId?: string) {
+  if (s.actorId === s.ownerId) return;
+  if (role.id === moderatorRoleId) throw new Refusal("Only the server owner can give the configured Moderator role.");
+  const privileged = P.BanMembers | P.KickMembers | P.ModerateMembers | P.ManageChannels
+    | P.ManageWebhooks | P.MentionEveryone | P.ManageGuild;
+  if (BigInt(role.permissions) & privileged)
+    throw new Refusal("Only the server owner can give roles with Ban Members, Kick Members, Timeout Members, Manage Channels, Manage Webhooks, Mention Everyone, or Manage Server.");
+}
+
 export async function roleAction(i: Command, c: FeatureContext): Promise<Action> {
   const sub = i.options.getSubcommand();
   if (sub === "create") {
@@ -40,10 +50,12 @@ export async function roleAction(i: Command, c: FeatureContext): Promise<Action>
     await c.rest.delete(Routes.guildRole(current.guildId, id)); return { content: `Deleted role ${id}.`, components: [] };
   } };
   if (sub !== "give" && sub !== "take") throw new Refusal("Choose a supported role action.");
+  if (sub === "give") checkRoleGrant(s, target, c.config.moderatorRoleId);
   const memberId = requiredId(i.options.getUser("member", true));
   return { action: `role.${sub}`, targetId: memberId, params: { roleId: id }, async run() {
     const current = await state(i, c); needBot(current, P.ManageRoles);
-    checkRole(current, id, { sensitive: true });
+    const currentRole = checkRole(current, id, { sensitive: true });
+    if (sub === "give") checkRoleGrant(current, currentRole, c.config.moderatorRoleId);
     const member = await checkMember(current, memberId, c);
     const present = member.roles.includes(id);
     if (sub === "give" && !present) await c.rest.put(Routes.guildMemberRole(current.guildId, memberId, id));

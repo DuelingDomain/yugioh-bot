@@ -25,6 +25,11 @@ owner, linked site owners, the bot and the actor are protected targets.
 | `/unlock [channel] [reason]` | Confirm, then restore the complete saved @everyone overwrite or its absence | View Channel, Manage Roles |
 | **User info** user context menu | Show join date, roles, warning count, and five recent moderation actions | No extra permission |
 
+Channel mutations require the actor to have View Channel plus Manage Messages for
+purge, Manage Channels for slowmode, or Manage Roles for lock/unlock in the selected
+channel. Non-admins cannot change configured mod-log, signups, status or announcement
+channels, even when their Moderator role can see them.
+
 Purge confirms above 10, freezes the selected message IDs, and checks their age
 again at execution. It reports old messages and nonmatching users. A five-second
 margin avoids sending messages that age past Discord's 14-day limit in its queue.
@@ -34,7 +39,8 @@ text, announcement, forum and media channels. Threads are excluded.
 
 Confirm/Cancel buttons expire after 60 seconds, are single use, and belong to the
 actor who requested them. Both buttons recheck current access. Confirm rechecks
-target hierarchy and bot permissions. Mutations use the runtime's guild lock and
+target hierarchy and actor/bot permissions. Confirm and Cancel edit the original
+prompt, remove its buttons and show the outcome. Mutations use the runtime's guild lock and
 three-second actor cooldown. Actor replies are ephemeral and disable mentions.
 
 Audit records use shared `recordModAction` and one mod-log outbox message with

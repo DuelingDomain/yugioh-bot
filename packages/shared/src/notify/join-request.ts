@@ -21,6 +21,7 @@ const MAX_RETRY_SECONDS = 30;
 const ALERT_WINDOW_MS = 60 * 60 * 1000;
 const MAX_ALERTS_PER_WINDOW = 30;
 let alertWindow = { expiresAt: 0, count: 0, warned: false };
+let warnedMissingOutboxChannel = false;
 const CLERK_DASHBOARD = "https://dashboard.clerk.com/";
 const escapeMarkdown = (value: string) => value.replace(/[\\`*_{}\[\]()<>#+\-.!|~:/]/g, "\\$&");
 
@@ -56,8 +57,17 @@ function maskedEmail(email: string): string {
   return at > 0 ? `${Array.from(email)[0]}***${email.slice(at)}` : "Email unavailable";
 }
 
-/** Durable bot path. Call inside the webhook receipt transaction; storage errors must be retried. */
-export function enqueueJoinRequest(db: Database.Database, notice: JoinRequestNotice): void {
+/** Return false for webhook fallback. Durable storage errors must reach the receipt transaction. */
+export function enqueueJoinRequest(db: Database.Database, notice: JoinRequestNotice): boolean {
+  if (process.env.DISCORD_ADMIN_OUTBOX_ENABLED !== "1") return false;
+  const channelId = process.env.DISCORD_WAITLIST_CHANNEL_ID?.trim();
+  if (!channelId) {
+    if (!warnedMissingOutboxChannel) {
+      warnedMissingOutboxChannel = true;
+      log("warn", "[join-alert] Admin outbox channel is not configured; using webhook fallback");
+    }
+    return false;
+  }
   const signup = notice.source === "sign-up";
   const hash = notificationSubjectHash(notice);
   // Preserve the deletion link even if the owner disables signup alerts and the
@@ -70,12 +80,10 @@ export function enqueueJoinRequest(db: Database.Database, notice: JoinRequestNot
   }).immediate();
   const enabled = signup ? (process.env.DISCORD_SIGNUP_ALERTS_ENABLED ?? "1") === "1"
     : (process.env.DISCORD_JOIN_REQUEST_ALERTS_ENABLED ?? "1") === "1";
-  const channelId = process.env.DISCORD_WAITLIST_CHANNEL_ID?.trim();
-  if (!enabled) return;
-  if (!channelId) throw new Error("Discord waitlist channel is not configured");
+  if (!enabled) return true;
   let email = notice.email?.trim().toLowerCase();
   if (email) email = normalizeEmailDomain(email) ?? email;
-  if (!hash) return;
+  if (!hash) return true;
   db.transaction(() => {
     const action = signup ? null : prepareWaitlistAction(db, { email, clerkEntryId: notice.clerkEntryId });
     const now = new Date().toISOString();
@@ -95,6 +103,7 @@ export function enqueueJoinRequest(db: Database.Database, notice: JoinRequestNot
     enqueueOutbox(db, { idempotencyKey: `join:${signup ? "signup" : "join"}:${hash}`, kind: signup ? "signup_alert" : "waitlist_alert",
       channelId, waitlistActionId: action?.id, subjectHash: hash, subjectClerkId: notice.subjectId, payload });
   }).immediate();
+  return true;
 }
 
 async function post(url: string, body: string): Promise<number | null> {
@@ -125,10 +134,7 @@ async function post(url: string, body: string): Promise<number | null> {
  */
 export async function notifyJoinRequest(db: Database.Database, notice: JoinRequestNotice): Promise<void> {
   try {
-    if (process.env.DISCORD_BOT_ENABLED === "1") {
-      enqueueJoinRequest(db, notice);
-      return;
-    }
+    if (enqueueJoinRequest(db, notice)) return;
     const url = process.env.DISCORD_ADMIN_WEBHOOK_URL?.trim();
     const signup = notice.source === "sign-up";
     const enabled = signup ? process.env.DISCORD_SIGNUP_ALERTS_ENABLED === "1"
