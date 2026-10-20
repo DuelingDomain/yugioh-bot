@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { openSync, fstatSync, readSync, closeSync } from "node:fs";
+import { log } from "../../observability/index.js";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
@@ -19,29 +20,49 @@ const Artifact = z.object({ schemaVersion: z.literal(3), generatedAt: z.iso.date
 export type StapleUsage = z.infer<typeof Usage>;
 export interface FormatStaples { version: string; label: string; cards: ReadonlyMap<number, StapleUsage>; playShares: ReadonlyMap<number,number>; archetypes: ReadonlyMap<string,{decks:number;cards:ReadonlyMap<number,number>}> }
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-const bytes = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../../data/staples/usage.json"));
-if (bytes.length > 500_000) throw Error("Staple artifact too large");
-const rawArtifact = JSON.parse(bytes.toString());
-const { version, ...identity } = rawArtifact;
-if (hash(identity) !== version) throw Error("Staple artifact integrity failed");
-const artifact = Artifact.parse(rawArtifact);
-for (const sample of Object.values(artifact.formats)) {
-  if (Object.keys(sample.archetypeDeckCounts).length !== sample.archetypeCount || Object.keys(sample.archetypeUsage).length !== sample.archetypeCount
-    || Object.values(sample.archetypeDeckCounts).reduce((a,b)=>a+b,0)!==sample.deckCount) throw Error("Invalid archetype denominators");
-  for (const [name,rows] of Object.entries(sample.archetypeUsage)) if (!sample.archetypeDeckCounts[name] || new Set(rows.map(row=>row.passcode)).size!==rows.length || rows.some(row=>row.decks>sample.archetypeDeckCounts[name]!)) throw Error("Invalid archetype usage");
-  const genericCounts=new Map(sample.genericUsage.map(row=>[row.passcode,row.decks]));
-  if(genericCounts.size!==sample.genericUsage.length || sample.genericUsage.some(row=>row.decks>sample.deckCount)) throw Error("Invalid generic usage");
-  const archetypeTotals=new Map<number,number>();
-  for(const rows of Object.values(sample.archetypeUsage)) for(const row of rows) archetypeTotals.set(row.passcode,(archetypeTotals.get(row.passcode)??0)+row.decks);
-  if([...archetypeTotals].some(([id,n])=>n>(genericCounts.get(id)??0))) throw Error("Generic count below archetype count");
-  const ids = new Set<number>();
-  for (const card of sample.cards) {
-    if (genericCounts.get(card.passcode)!==card.decks || ids.has(card.passcode) || card.playShare !== card.decks/sample.deckCount || card.averageCopies !== card.copies/card.decks
-      || Object.keys(card.archetypes).length < 3 || Object.values(card.archetypes).reduce((a,b)=>a+b,0) !== card.decks
-      || Math.max(...Object.values(card.archetypes))/card.decks > 0.6) throw Error("Invalid staple counts");
-    ids.add(card.passcode);
+function loadArtifact(): z.infer<typeof Artifact> {
+  try {
+    const fd = openSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../../data/staples/usage.json"), "r");
+    let bytes: Buffer;
+    try {
+      if (fstatSync(fd).size > 500_000) throw Error("Staple artifact too large");
+      const bounded = Buffer.alloc(500_001);
+      let length = 0, read = 0;
+      do { read = readSync(fd,bounded,length,bounded.length-length,null); length += read; }
+      while (read > 0 && length < bounded.length);
+      if (length > 500_000) throw Error("Staple artifact too large");
+      bytes = bounded.subarray(0,length);
+    } finally { closeSync(fd); }
+    const rawArtifact = JSON.parse(bytes.toString());
+    const { version, ...identity } = rawArtifact;
+    if (hash(identity) !== version) throw Error("Staple artifact integrity failed");
+    const artifact = Artifact.parse(rawArtifact);
+    for (const sample of Object.values(artifact.formats)) {
+      if (Object.keys(sample.archetypeDeckCounts).length !== sample.archetypeCount || Object.keys(sample.archetypeUsage).length !== sample.archetypeCount
+        || Object.values(sample.archetypeDeckCounts).reduce((a,b)=>a+b,0)!==sample.deckCount) throw Error("Invalid archetype denominators");
+      for (const [name,rows] of Object.entries(sample.archetypeUsage)) if (!sample.archetypeDeckCounts[name] || new Set(rows.map(row=>row.passcode)).size!==rows.length || rows.some(row=>row.decks>sample.archetypeDeckCounts[name]!)) throw Error("Invalid archetype usage");
+      const genericCounts=new Map(sample.genericUsage.map(row=>[row.passcode,row.decks]));
+      if(genericCounts.size!==sample.genericUsage.length || sample.genericUsage.some(row=>row.decks>sample.deckCount)) throw Error("Invalid generic usage");
+      const archetypeTotals=new Map<number,number>();
+      for(const rows of Object.values(sample.archetypeUsage)) for(const row of rows) archetypeTotals.set(row.passcode,(archetypeTotals.get(row.passcode)??0)+row.decks);
+      if([...archetypeTotals].some(([id,n])=>n>(genericCounts.get(id)??0))) throw Error("Generic count below archetype count");
+      const ids = new Set<number>();
+      for (const card of sample.cards) {
+        if (genericCounts.get(card.passcode)!==card.decks || ids.has(card.passcode) || card.playShare !== card.decks/sample.deckCount || card.averageCopies !== card.copies/card.decks
+          || Object.keys(card.archetypes).length < 3 || Object.values(card.archetypes).reduce((a,b)=>a+b,0) !== card.decks
+          || Math.max(...Object.values(card.archetypes))/card.decks > 0.6) throw Error("Invalid staple counts");
+        ids.add(card.passcode);
+      }
+    }
+    return artifact;
+  } catch {
+    log("warn", "Staple usage unavailable; using role fallback", {source:"format-staples"});
+    return {schemaVersion:3,generatedAt:"1970-01-01T00:00:00.000Z",version:"unavailable",formats:{},
+      policy:{minimumDecks:20,minimumShare:0.1,minimumArchetypes:3,maximumArchetypeShare:0.6}};
   }
 }
+const artifact = loadArtifact();
+const version = artifact.version;
 export const FORMAT_STAPLES_VERSION = version;
 export function stapleFormat(format = "normal", banlist?: string): string {
   return format === "normal" ? banlist?.startsWith("ocg") ? "ocg" : "tcg" : format;

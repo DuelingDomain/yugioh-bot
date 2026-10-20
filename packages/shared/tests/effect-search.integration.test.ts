@@ -1,9 +1,12 @@
 import Database from "better-sqlite3";
 import { migrate } from "../src/db/schema.js";
 import { gunzipSync } from "node:zlib";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
 import { interpret, buildArchetypeMatcher } from "../src/cards/effects/query.js";
@@ -425,6 +428,44 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
       if (directory) rmSync(directory, { recursive: true, force: true });
     }
   });
+
+  it.each(["missing","json","size","integrity","schema","counts"])("keeps real effect search working with a %s staple artifact",kind=>{
+    const base=resolve(".status/review");mkdirSync(base,{recursive:true});
+    const directory=mkdtempSync(join(base,"staple-artifact-"));
+    try {
+      cpSync(fileURLToPath(new URL("../dist/",import.meta.url)),join(directory,"dist"),{recursive:true});
+      mkdirSync(join(directory,"data/staples"),{recursive:true});
+      writeFileSync(join(directory,"package.json"),JSON.stringify({type:"module"}));
+      const artifact=JSON.parse(readFileSync(new URL("../data/staples/usage.json",import.meta.url),"utf8"));
+      if(kind==="integrity")artifact.version="0".repeat(64);
+      if(kind==="schema" || kind==="counts"){
+        if(kind==="schema")artifact.schemaVersion=999;
+        else artifact.formats.tcg.genericUsage[0].decks=artifact.formats.tcg.deckCount+1;
+        const {version:_,...identity}=artifact;
+        artifact.version=createHash("sha256").update(JSON.stringify(identity)).digest("hex");
+      }
+      if(kind!=="missing")writeFileSync(join(directory,"data/staples/usage.json"),kind==="json"?"{":kind==="size"?" ".repeat(500001):JSON.stringify(artifact));
+      const child=`
+        import assert from 'node:assert/strict';
+        import Database from 'better-sqlite3';
+        const {formatStaples}=await import(${JSON.stringify(pathToFileURL(join(directory,"dist/cards/effects/staples.js")).href)});
+        const {createCardInsightService}=await import(${JSON.stringify(pathToFileURL(join(directory,"dist/services/card-insights.js")).href)});
+        assert.equal(formatStaples().cards.size,0);
+        const db=new Database(${JSON.stringify(database.name)},{readonly:true,fileMustExist:true});
+        try{
+          const service=createCardInsightService(db,{dataDirectory:${JSON.stringify(suggestionEngineDirectory)}});
+          const recruiters=service.effectSearch('recruiters',undefined,{limit:4});
+          const staples=service.effectSearch('staples',undefined,{limit:4});
+          assert(recruiters.total>0);assert(staples.total>0);
+          console.log(JSON.stringify({recruiters:recruiters.total,staples:staples.total}));
+        }finally{db.close();}
+      `;
+      const result=spawnSync("prlimit",["--core=0","--",process.execPath,"--input-type=module","--eval",child],{encoding:"utf8",timeout:20000});
+      expect(result.status,result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout).recruiters).toBeGreaterThan(0);
+      expect(result.stderr).toContain("Staple usage unavailable");
+    }finally{rmSync(directory,{recursive:true,force:true});}
+  },25000);
 
   it.each(["Genex Searcher","Scrap Searcher","Ally of Justice Searcher"])("keeps exact card names out of archetype intents: %s",name=>{
     for(const text of [name,name.toLowerCase(),name.replaceAll(" ","")]){

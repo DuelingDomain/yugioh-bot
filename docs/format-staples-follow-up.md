@@ -214,3 +214,32 @@ Sanitized proof is in local-all's `.status/format-staples/`: `preflight.json`,
 No credentials, cookies, headers or environment dumps are saved. Temporary build
 output was deleted after proof; installed web and duel runtime files are retained.
 PR #421 is updated and remains open. It was not merged.
+
+## Review corrections
+
+The seven review items have separate commits:
+
+1. Private usage is scoped to the trusted requesting guild. It requires 20 distinct
+   complete lists and 10 owners per format. Only the latest complete list per owner
+   votes. Card counts and reported archetype counts need at least three owners.
+   Owner identities stay in memory. No unscoped caller reads private usage.
+2. Private role shares contain only cards that pass the same publication gates as
+   the Staples row. A one-owner Battle Fader cannot escape through role search.
+3. Artwork identity is loaded once per catalog revision. Source revisions use one
+   SQL read; hashes and format maps are reused until the version changes. Name,
+   recruiter and date queries do not load staple usage.
+4. Exact folded card names are checked before shared archetype intents. Genex
+   Searcher, Scrap Searcher and Ally of Justice Searcher keep name semantics.
+5. Bare limit words are parsed only when no other name words remain. Partial
+   Rank-Up-Magic Limited Barian's Force names work; standalone limit chips remain.
+6. Public refreshes allow HTTPS only, including redirects, with at most two hops.
+7. All five runtime Docker targets copy only usage.json. Missing, malformed,
+   oversized, corrupt or invalid artifacts log a warning and use the role fallback.
+   Artifact reads are bounded even if a file grows during the read.
+
+The final source checks pass: 235 targeted integration checks (181 duel search
+and suggestion host/worker, 21 shared reader/real-deck quality, 33 web route/UI),
+plus two existing CI regression checks. Shared/duel builds and the web typecheck
+pass. No new unit tests were added. The existing popularity check uses the
+singular effect query; the plural query selects measured staples. The existing
+account-deletion check now expects the saved-deck source revision to advance.
