@@ -8,7 +8,7 @@ const deadline = Date.now() + 180_000;
 async function fetchBounded(url, maxBytes = 4_000_000) {
   if (Date.now() > deadline) throw Error('Refresh timeout');
   const seconds = Math.min(20, (deadline - Date.now()) / 1000);
-  return execFileSync('curl', ['--fail', '--silent', '--show-error', '--location', '--max-time', String(seconds), '--max-filesize', String(maxBytes), url], { encoding: 'utf8', timeout: Math.ceil(seconds * 1000) + 1000, maxBuffer: maxBytes });
+  return execFileSync('curl', ['--fail', '--silent', '--show-error', '--location', '--proto', '=https', '--proto-redir', '=https', '--max-redirs', '2', '--max-time', String(seconds), '--max-filesize', String(maxBytes), url], { encoding: 'utf8', timeout: Math.ceil(seconds * 1000) + 1000, maxBuffer: maxBytes });
 }
 const metadata = new Map();
 const cardData = JSON.parse(await fetchBounded('https://db.ygoprodeck.com/api/v7/cardinfo.php', 32_000_000));
