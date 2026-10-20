@@ -48,7 +48,7 @@ const OWN_SQL = `
   from duels d
   join duel_seats me on me.duel_id = d.id and me.player_id = @viewer
   where d.kind = 'play' and d.guild_id = @guild
-    and coalesce(json_extract(d.setup_json, '$.testDuel'), 0) = 0
+    and case when json_valid(d.setup_json) then coalesce(json_extract(d.setup_json, '$.testDuel'), 0) else 0 end = 0
     and ${duelSeriesTournamentReadScope("d.series_id")}
     and d.archived_at is null
     and (
@@ -78,7 +78,7 @@ const COUNT_SQL = `
   select count(*) as n
   from duels
   where kind = 'play' and guild_id = @guild
-    and coalesce(json_extract(setup_json, '$.testDuel'), 0) = 0
+    and case when json_valid(setup_json) then coalesce(json_extract(setup_json, '$.testDuel'), 0) else 0 end = 0
     and ${duelSeriesTournamentReadScope("duels.series_id", "coalesce(@user, (select viewer.user_id from players viewer where viewer.id = @viewer and viewer.guild_id = @guild))")}
     and status = 'active'
     and archived_at is null

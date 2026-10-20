@@ -124,7 +124,7 @@ export async function runDuelSnapshotRetention(db: Database.Database, options: D
   }
   // Deck-editor test duels are private practice and keep nothing. A finished one goes after a day, with its seats,
   // commands and snapshots (they cascade). This does not depend on the snapshot compaction switch.
-  const testDuelGuard = `${terminalGuard} and kind='play' and series_id is null and coalesce(json_extract(setup_json,'$.testDuel'),0)=1
+  const testDuelGuard = `${terminalGuard} and kind='play' and series_id is null and case when json_valid(setup_json) then coalesce(json_extract(setup_json,'$.testDuel'),0) else 0 end=1
     and julianday(coalesce(ended_at,created_at)) < julianday(?)`;
   try {
     if (Number(db.pragma("foreign_keys", { simple: true })) === 1) {
