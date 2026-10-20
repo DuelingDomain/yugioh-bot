@@ -59,7 +59,7 @@ import { finaleBoard } from "./grid-finale";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
 import { hudPreview } from "./hud-preview";
 import { PlazaDrawers } from "./plaza-drawers";
-import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, usePinFollowsHover, usePinSync, useRowPreview } from "./hud-layer";
+import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, useDrawerPin, usePinFollowsHover, usePinSync, useRowPreview } from "./hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./hud-shared";
 import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
@@ -257,18 +257,14 @@ function TableShellBody({
   const hudState = useHudPane({ camera: plazaHud, cardPane: false, initialPane: replayCarry?.current.hudPane });
   // The shells without the HUD (phone, wide table with the rail) pin a clicked card in the same left drawer as the HUD shells.
   const [pinnedCard, setPinnedCard] = useState<DuelCard | DuelCardInfo | null>(null);
-  useEffect(() => {
-    if (!pinnedCard) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setPinnedCard(null); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [pinnedCard]);
   const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (grid && hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard, onTapCard: hud ? undefined : setPinnedCard });
   useHudEscape(hudState, hud, ui.suspended);
   usePinSync(hudState, tracked.engine.seats);
   usePinFollowsHover(hud, hudState.pinned, ui.hover?.card, hudState.pinCard);
   usePinFollowsHover(!hud, pinnedCard, ui.hover?.card, setPinnedCard);
-  const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
+  // An open flyout, a pinned card or the pinned drawer of the shells without the HUD holds only Esc (it closes it).
+  const drawerPinned = !hud && pinnedCard != null;
+  const hudOpen = (hud && (hudState.pane != null || hudState.pinned != null)) || drawerPinned;
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
   // A replay suspends input while another card view loads: the open flyout stays (the table is hidden and inert meanwhile).
@@ -386,6 +382,8 @@ function TableShellBody({
 
   const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
+  // The drawer pin of the shells without the HUD: Esc, a press outside, a new prompt and the board sync (see useDrawerPin).
+  useDrawerPin(hud ? null : pinnedCard, setPinnedCard, { seats: engine.seats, suspended: ui.suspended, promptId: prompt?.id ?? null, promptMine });
   const actionPrompt = prompt?.kind === "choice" && prompt.context?.type === "action";
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
   const dockMode = !promptMine || prompt == null || centered ? "idle" : actionPrompt ? (prompt.cancelable || prompt.finishable ? "float" : "idle") : "flow";
