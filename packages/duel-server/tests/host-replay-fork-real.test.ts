@@ -39,7 +39,8 @@ function fixture(record: ReturnType<typeof acceptanceSource>, game2 = false) {
   const ranked = series.createChallenge({ guildId: owner.guildId, challengerPlayerId: 301, opponentPlayerId: 302,
     mode: "normal", bestOf: 1, ranked: true, settings: { validateDeck: false } });
   for (const player of [301, 302]) duels.setDeck(ranked.duel.slug, owner.guildId, player, record.source.decks[0]!);
-  duels.activate(ranked.duel.slug, owner.guildId, null, ["11", "12", "13", "14"], "ranked-fixture", null);
+  duels.activate(ranked.duel.slug, owner.guildId, null, ["11", "12", "13", "14"], "ranked-fixture",
+    { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [180_000, 180_000] });
   duels.complete(ranked.duel.slug, owner.guildId, 0, "Ranked fixture result");
   const tournaments = createTournamentService(db), cup = tournaments.create(owner.guildId, "Acceptance Cup", "single_elim", owner.userId);
   for (const player of [301, 302]) tournaments.join(cup.id, player);

@@ -222,9 +222,13 @@ export function eliminationCodeOf(promptId: string): number | null {
 
 /** Entries the ring buffer keeps. */
 export const DIAGNOSTICS_LIMIT = 200;
+/** Public and private log entries retained for reports and replay deltas. Live views keep their last 400. */
+export const LOG_RETENTION_LIMIT = 10_000;
 
 /** Internal replay cursors. Filtering stored history before projection avoids formatting old private text. */
 export interface EngineViewHistory {
+  /** Internal diagnostics only. Normal live views retain their bounded tail. */
+  fullLog?: boolean;
   logAfter?: number;
   eventsAfter?: number;
 }
@@ -628,7 +632,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const appendLog = (text: string, audience: "all" | number = "all", privateText?: Record<number, string>): LogEntry => {
     const entry = { id: nextLogId++, text, audience, ...(privateText ? { privateText } : {}) };
     log.push(entry);
-    if (log.length > 400) log.splice(0, log.length - 400);
+    if (log.length > LOG_RETENTION_LIMIT) log.splice(0, log.length - LOG_RETENTION_LIMIT);
     return entry;
   };
   // Lines for cards that left the field this batch (log-lines.ts LogLine.leftField). A destroy event for the same
@@ -824,7 +828,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
               if (teamOfSeat(format, seat) !== winnerTeam) eliminated.add(seat);
             }
           }
-          result = { winnerSeat, winnerTeam, reason };
+          // Owner 2026-10-18: Exodia has no elimination places, including losses before the win.
+          if (message.reason === 0x10) eliminationOrder.length = 0;
+          result = { winnerSeat, ...(format === "tag" ? { winnerTeam } : {}), reason,
+            ...(message.reason === 0x10 ? { victory: "exodia" as const } : {}) };
           appendLog(winnerSeat == null ? `Draw (${reason})` : format === "tag" ? `Team ${winnerTeam! + 1} wins (${reason})` : `Player ${winnerSeat + 1} wins (${reason})`);
           return;
         }
@@ -1262,7 +1269,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         lp: Array.from({ length: seatCount }, (_, index) => lpOf(index)),
         prompt: pending?.prompt ?? null,
         promptSeat: pending?.seat ?? null,
-        log: logAfter == null ? log : log.filter((entry) => entry.id > logAfter),
+        log: logAfter == null ? (history?.fullLog ? log : log.slice(-400)) : log.filter((entry) => entry.id > logAfter),
         events: eventsAfter == null ? events : events.filter((entry) => entry.id > eventsAfter),
         chain: chainMemory,
         result,

@@ -1,12 +1,14 @@
--- Card Destruction stays forbidden in FFA. In Tag, every duelist discards and draws its own count.
-if Duel.MPMode()~=2 then return end
+-- Owner 2026-10-18: every living duelist discards and draws its own hand count in FFA and Tag.
+if not aux.MPForEachDuelist then return end
 function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then
+		local own=#Duel.GetMatchingGroup(nil,tp,LOCATION_HAND,0,e:GetHandler())
+		if own>0 and not Duel.IsPlayerCanDraw(tp,own) then return false end
 		local total=0
 		local ok=aux.MPAllDuelists(function(p)
 			local ct=#Duel.GetMatchingGroup(nil,p,LOCATION_HAND,0,e:GetHandler())
 			total=total+ct
-			return ct==0 or Duel.IsPlayerCanDraw(p,ct)
+			return ct==0 or Duel.IsPlayerCanDraw(p)
 		end)
 		return ok and total>0
 	end
@@ -23,7 +25,7 @@ function s.activate(e,tp,eg,ep,ev,re,r,rp)
 	end)
 	Duel.SendtoGrave(g,REASON_EFFECT|REASON_DISCARD)
 	Duel.BreakEffect()
-	aux.MPForEachDuelist(function(p,seat)
+	aux.MPForEachDuelistFromTurn(function(p,seat)
 		Duel.Draw(p,counts[seat],REASON_EFFECT)
 	end)
 end

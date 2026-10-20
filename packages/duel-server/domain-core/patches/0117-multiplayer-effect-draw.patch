@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 18 Oct 2026 12:00:00 +0000
+Subject: [PATCH] core: accept the multiplayer whole-duel draw sentinel
+
+Duel.Win(PLAYER_NONE, reason) must end a multiplayer duel as a draw.
+Keep the first Win call in the window and apply it at the safe loss
+boundary. Send one MSG_WIN without elimination messages or card removal.
+The two-player path is unchanged.
+
+Live proof: owner-exodia-draw scenarios for FFA3, FFA4 and Tag, including
+two complete hands on the same Tag team, on Standard and Domain cores.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GLTNwBcU5bVhsdGwaZoeik
+---
+diff --git a/libduel.cpp b/libduel.cpp
+index 6b979e0..3dc2348 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -1326,9 +1326,16 @@ LUA_STATIC_FUNCTION(Win) {
+ 	auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "Win", true);
+ 	auto reason = lua_get<uint32_t>(L, 2);
+ 	if (pduel->game_field->n_duelists > 2) {
+-		// The argument is a seat here (unfolded above; PLAYER_NONE and PLAYER_ALL are not seats: no winner).
++		// The argument is a seat or the unfolded PLAYER_NONE draw sentinel.
+ 		// The first call in an Adjust window wins. The loss is applied in field::check_losses_n.
+ 		auto& f = *pduel->game_field;
++		if(playerid == f.none_id()) {
++			if(f.core.win_player == 5) {
++				f.core.win_player = playerid;
++				f.core.win_reason = reason;
++			}
++			return 0;
++		}
+ 		if (!f.is_alive(playerid))
+ 			return 0;
+ 		bool can_win = false;
+diff --git a/processor.cpp b/processor.cpp
+index 7dfa726..12519f2 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -4959,6 +4959,18 @@ void field::check_losses_n(bool surrenders_only) {
+ 	if((core.chain_solving && !surrenders_only)
+ 		|| (!surrenders_only && !pduel->lua->coroutines.empty()))
+ 		return;
++	// Duel.Win(PLAYER_NONE, reason) is a whole-duel draw, as in the stock core.
++	// Wait for the same safe loss boundary, then emit one result without elimination places.
++	if(!surrenders_only && core.win_player == DUELIST_NONE) {
++		auto message = pduel->new_message(MSG_WIN);
++		message->write<uint8_t>(DUELIST_NONE);
++		message->write<uint8_t>(core.win_reason);
++		core.win_player = 5;
++		core.win_reason = 0;
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			player[p].eliminated = true;
++		return;
++	}
+ 	uint8_t order[MAX_DUELISTS];
+ 	uint8_t count = 0;
+ 	for(uint8_t i = 0; i < n_duelists; ++i) {

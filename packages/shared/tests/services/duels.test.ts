@@ -87,7 +87,9 @@ function readyDuel(app: ReturnType<typeof setup>, mode: "normal" | "domain" = "n
 }
 
 function start(app: ReturnType<typeof setup>, slug: string, seed: string[] = ["s"], bundle = "v") {
-  return app.duels.activate(slug, "g1", app.p1, seed, bundle, null);
+  const ranked = app.duels.get(slug, "g1").ranked;
+  return app.duels.activate(slug, "g1", app.p1, seed, bundle, ranked
+    ? { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [180_000, 180_000] } : null);
 }
 
 
@@ -766,7 +768,10 @@ describe("creator settings persistence", () => {
     const app = setup();
     const created = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Legacy", mode: "normal" });
     expect(created.settings.turnSeconds).toBe(240);
-    expect(created.settings.banlist).toBe("tcg-2026-09");
+    expect(created.settings.banlist).toBe("tcg-2026-10-19");
+    app.db.prepare("update duels set settings_json = ? where id = ?")
+      .run(JSON.stringify({ ...created.settings, banlist: "tcg-2026-09" }), created.id);
+    expect(app.duels.get(created.slug, "g1").settings.banlist).toBe("tcg-2026-09");
     app.db.prepare("update duels set settings_json = null, clock_json = null, invite_code = null where id = ?").run(created.id);
 
     const session = app.duels.get(created.slug, "g1");
@@ -1002,7 +1007,7 @@ describe("duel lobby listing, history and leave", () => {
   it("shows recently active foreign lobbies and hides idle ones", () => {
     const app = setup();
     const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
-    app.db.prepare("update duels set last_activity_at = datetime('now', '-14 minutes') where web_slug = ?").run(lobby.slug);
+    app.db.prepare("update duels set last_activity_at = datetime('now', '-9 minutes') where web_slug = ?").run(lobby.slug);
     expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toEqual([lobby.slug]);
 
     app.db.prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where web_slug = ?").run(lobby.slug);
@@ -1012,7 +1017,7 @@ describe("duel lobby listing, history and leave", () => {
   it("uses creation time for foreign lobbies with no activity stamp", () => {
     const app = setup();
     const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
-    app.db.prepare("update duels set last_activity_at = null, created_at = datetime('now', '-14 minutes') where web_slug = ?").run(lobby.slug);
+    app.db.prepare("update duels set last_activity_at = null, created_at = datetime('now', '-9 minutes') where web_slug = ?").run(lobby.slug);
     expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toEqual([lobby.slug]);
 
     app.db.prepare("update duels set created_at = datetime('now', '-16 minutes') where web_slug = ?").run(lobby.slug);
@@ -1062,7 +1067,7 @@ describe("duel lobby listing, history and leave", () => {
     expect(app.duels.list("g1", app.p1).map((row) => row.slug)).toContain(active.slug);
     expect(app.duels.list("g1", app.p2).map((row) => row.slug)).toEqual([active.slug, lobby.slug]);
     expect(app.duels.list("g1", app.p3, { idleAfterMs: 20 * 60 * 1000 }).map((row) => row.slug).sort()).toEqual([active.slug, lobby.slug].sort());
-    expect(DUEL_LIVE_IDLE_AFTER_MS).toBe(15 * 60 * 1000);
+    expect(DUEL_LIVE_IDLE_AFTER_MS).toBe(10 * 60 * 1000);
   });
 
   it("orders own tables first then by recent activity", () => {

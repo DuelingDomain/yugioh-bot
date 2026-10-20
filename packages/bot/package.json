@@ -11,22 +11,23 @@
     "test": "tsc -p ../shared/tsconfig.build.json && vitest run",
     "test:watch": "vitest",
     "commands:deploy": "tsx src/deploy-commands.ts",
-    "commands:deploy:prod": "node dist/deploy-commands.js"
+    "commands:deploy:prod": "node dist/deploy-commands.js",
+    "healthcheck": "node dist/healthcheck.js"
   },
   "dependencies": {
     "@sentry/node": "^10.76.2",
     "@yugidraft/shared": "*",
     "better-sqlite3": "latest",
     "discord.js": "latest",
-    "dotenv": "latest",
-    "node-cron": "latest",
-    "sharp": "^0.35.5"
+    "dotenv": "latest"
   },
   "devDependencies": {
     "@types/better-sqlite3": "latest",
     "@types/node": "latest",
     "tsx": "latest",
     "typescript": "latest",
-    "vitest": "latest"
+    "vitest": "latest",
+    "@types/ws": "^8.18.1",
+    "ws": "^8.22.0"
   }
 }

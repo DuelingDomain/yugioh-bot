@@ -99,6 +99,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-off { font-size: 13px; white-space: nowrap; }
 .de-off[data-s="under"] { color: var(--warn-ink); }
 .de-off[data-s="over"] { color: var(--loss-ink); }
+.de-full { font-size: 13px; color: var(--warn-ink); white-space: nowrap; }
 .de-clear { margin-left: auto; }
 .de-sh > .de-tools { margin-left: auto; }
 

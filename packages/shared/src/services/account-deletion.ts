@@ -2,6 +2,7 @@ import { recordProductEvent } from "../analytics/index.js";
 import type Database from "better-sqlite3";
 import { isReplayForkSetup } from "../duels/replay-fork.js";
 import { userHistory } from "./user-history.js";
+import { clearDiscordSubject } from "../discord-admin/privacy.js";
 
 /** What every kept row of a deleted account says in place of the person's name. */
 export const DELETED_PLAYER_NAME = "Deleted player";
@@ -67,7 +68,7 @@ function scrubDuelName(name: string, personNames: readonly string[]): string {
  */
 export function deleteUserAccount(db: Database.Database, userId: number): AccountDeletionSummary {
   const run = db.transaction((): AccountDeletionSummary => {
-    const user = db.prepare<[number], UserRow & { display_name: string }>("select id, clerk_user_id, email, display_name from users where id = ?").get(userId);
+    const user = db.prepare<[number], UserRow & { display_name: string; discord_user_id: string | null }>("select id, clerk_user_id, email, display_name, discord_user_id from users where id = ?").get(userId);
     const counts: Record<string, number> = {};
     const note = (key: string, changes: number) => { if (changes > 0) counts[key] = changes; };
     if (!user) return { userId, mode: "removed", counts };
@@ -106,7 +107,13 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     note("replay_fork_names", scrubbedForks);
 
     note("saved_decks", db.prepare("delete from saved_decks where owner_user_id = ?").run(userId).changes);
-    if (user.email) note("waitlist_signups", db.prepare("delete from waitlist_signups where email = ?").run(user.email).changes);
+    const discord = clearDiscordSubject(db, { email: user.email, subjectId: user.clerk_user_id,
+      siteUserId: userId, discordUserId: user.discord_user_id });
+    note("discord_waitlist_actions", discord.actions);
+    note("discord_outbox", discord.outbox);
+    note("mod_actions", discord.modActions);
+    note("waitlist_signups", discord.signups + (user.email
+      ? db.prepare("delete from waitlist_signups where email = ?").run(user.email).changes : 0));
 
     const owned = "(select id from players where user_id = ?)";
     if (Object.keys(userHistory(db, userId)).length === 0) {
@@ -145,15 +152,21 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
       contexts += writeContext.run(JSON.stringify(context), report.id).changes;
     }
     note("bug_report_contexts", contexts);
+    // The report's submitter snapshot must follow the same deletion policy as the account.
+    // A null snapshot lets report reads use the anonymised users row after this transaction.
+    note("bug_report_submitters", db.prepare(
+      `update bug_reports set submitter_json = null where player_id in ${owned} and submitter_json is not null`,
+    ).run(userId).changes);
 
     note("players", db.prepare(
       "update players set display_name = ?, discord_user_id = null where user_id = ? and (display_name <> ? or discord_user_id is not null)",
     ).run(DELETED_PLAYER_NAME, userId, DELETED_PLAYER_NAME).changes);
     note("users", db.prepare(`
       update users set clerk_user_id = null, email = null, email_verified = 0, discord_user_id = null,
+        last_seen_at = null, last_route = null, online_since = null, image_url = null,
         username = ?, display_name = ?, synced_at = null, updated_at = current_timestamp
       where id = ? and (clerk_user_id is not null or email is not null or email_verified <> 0 or discord_user_id is not null
-        or username <> ? or display_name <> ? or synced_at is not null)
+        or username <> ? or display_name <> ? or synced_at is not null or last_seen_at is not null or last_route is not null or online_since is not null or image_url is not null)
     `).run(deletedUsername(userId), DELETED_PLAYER_NAME, userId, deletedUsername(userId), DELETED_PLAYER_NAME).changes);
     if (counts.users) {
       db.prepare("delete from product_events where user_id=?").run(userId);

@@ -1343,21 +1343,18 @@
   bottom: auto;
 }
 
-.zone[data-side="opp"] .overlayBadge {
-  top: auto;
-  bottom: 3px;
-}
-
 .overlayBadge {
   position: absolute;
   top: 3px;
   right: 3px;
   z-index: 3;
-  display: grid;
-  place-items: center;
-  min-width: calc(var(--n4, 11px) * 1.5);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: calc(var(--n4, 11px) * 2.1);
   height: calc(var(--n4, 11px) * 1.5);
-  padding: 0 3px;
+  padding: 0 4px 0 3px;
   border: 1.5px solid var(--chain);
   border-radius: 999px;
   background: #140f04;
@@ -1367,7 +1364,89 @@
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1;
-  pointer-events: none;
+  /* Only a count when it cannot open the view (a legal target, or no inspect handler): see [data-materials-open]. Nothing moves on hover. */
+  transition:
+    background-color 0.15s ease-out,
+    border-color 0.15s ease-out;
+}
+
+.zone[data-side="opp"] .overlayBadge {
+  top: auto;
+  bottom: 3px;
+}
+
+/* An equipped Xyz: the equip chip owns the corner next to the count, so the count sits one chip lower (below it on your side, above it on theirs). */
+.zone[data-equip] .overlayBadge {
+  top: calc(max(11px, calc(var(--z, 80px) * 0.12)) + 10px);
+}
+
+.zone[data-equip][data-side="opp"] .overlayBadge {
+  top: auto;
+  bottom: calc(max(11px, calc(var(--z, 80px) * 0.12)) + 10px);
+}
+
+/* The usable / picked mark hangs over the top edge in the middle; on your side the count sits below it (the rival's count is at the bottom). */
+.zone[data-legal="true"]:not([data-side="opp"]) .overlayBadge,
+.zone[data-selected="true"]:not([data-side="opp"]) .overlayBadge {
+  top: calc(max(15px, calc(var(--z, 80px) * 0.155)) - var(--z, 80px) * 0.085 + 3px);
+}
+
+.zone[data-equip]:is([data-legal="true"], [data-selected="true"]):not([data-side="opp"]) .overlayBadge {
+  top: max(
+    calc(max(15px, calc(var(--z, 80px) * 0.155)) - var(--z, 80px) * 0.085 + 3px),
+    calc(max(11px, calc(var(--z, 80px) * 0.12)) + 10px)
+  );
+}
+
+/* A larger invisible hit area around the badge (the card is small); it stays inside the card frame. */
+.overlayBadge::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+}
+
+.overlayBadge b {
+  font-weight: 600;
+}
+
+.overlayIcon {
+  flex: none;
+  width: calc(var(--n4, 11px) * 1.05);
+  height: calc(var(--n4, 11px) * 1.05);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The badge opens the Materials view (ZoneSlot reads data-materials-badge) only while the zone carries data-materials-open. */
+.zone[data-materials-open] .overlayBadge {
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .zone[data-materials-open] .zoneHit:hover .overlayBadge:hover {
+    border-color: var(--chain-ink);
+    background: #241a07;
+  }
+}
+
+@media (pointer: coarse) {
+  .overlayBadge {
+    height: max(28px, calc(var(--n4, 11px) * 1.5));
+    min-width: 40px;
+    gap: 3px;
+  }
+
+  .overlayBadge::after {
+    inset: -2px;
+  }
+
+  .overlayIcon {
+    width: 14px;
+    height: 14px;
+  }
 }
 
 /* ATK / DEF plate on the card face. */

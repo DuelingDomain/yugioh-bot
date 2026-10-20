@@ -122,6 +122,32 @@
   border-top: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.17));
 }
 
+.materialsRow {
+  padding: 0 calc(16 * var(--duel-unit, 1px)) calc(14 * var(--duel-unit, 1px));
+}
+
+.materialsButton {
+  min-height: 32px;
+  padding: calc(6 * var(--duel-unit, 1px)) calc(12 * var(--duel-unit, 1px));
+  border: 1px solid var(--duel-rule, rgb(181 153 99 / 0.4));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--duel-ink, #efe7d5);
+  font-family: var(--duel-f-ui, var(--font-body));
+  font-size: calc(var(--ct, 13px) * 0.95);
+  cursor: pointer;
+}
+
+.materialsButton:hover,
+.materialsButton:focus-visible {
+  background: var(--duel-pen-soft, rgb(155 126 255 / 0.16));
+}
+
+.materialsButton:focus-visible {
+  outline: 2px solid var(--duel-ink, #efe7d5);
+  outline-offset: 1px;
+}
+
 /* "Effects negated": the slashed circle of the card mark, in text colour, before the words. */
 .negatedLine {
   display: flex;

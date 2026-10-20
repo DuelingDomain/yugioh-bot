@@ -56,6 +56,9 @@ export {
   teamCountFor,
   teamOfSeat,
   DUEL_CLOCK_INCREMENT_MS,
+  RANKED_DUEL_BANK_SECONDS,
+  rankedDuelSettings,
+  isCompetitiveDuel,
   DUEL_CLOCK_REGAIN_FRACTION,
   DUEL_CLOCK_REGAIN_MIN_MS,
   DUEL_OPENING_GRACE_MS,
@@ -580,7 +583,13 @@ export interface DuelEngineView {
    * `winnerSeat` is the winning seat in 1v1 and FFA. In Tag it is the lowest seat of the winning team, and
    * `winnerTeam` names the team. Null means a draw.
    */
-  result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string } | null;
+  result: {
+    winnerSeat: number | null;
+    winnerTeam?: number | null;
+    reason: string;
+    /** Owner 2026-10-18: Exodia ends the whole table with winners and losers, without places. */
+    victory?: "exodia";
+  } | null;
 }
 
 export interface DuelSeat {
@@ -810,5 +819,7 @@ export type { CardArtworkFamily, SelectableCardArtwork, CardArtworksResponse, De
 export type { DuelDiceRound, DuelDiceOpeningState, DuelDiceOpeningView } from "./dice-opening.js";
 export { DUEL_DICE_REVEAL_MS, MAX_DICE_ROUNDS as DUEL_DICE_MAX_ROUNDS } from "./dice-opening.js";
 
+export { DECK_SECTION_LIMITS, DECK_SECTION_NAMES, capDeckSections, deckGrowthOverLimit, deckLeftOutMessages, deckSectionFullMessage } from "./deck-limits.js";
+export type { DeckLimitSection } from "./deck-limits.js";
 export { hasKnownDeckCardType, isExtraDeckCard, assertExtraDeckCards, routeDeckSections, ExtraDeckCardError, INVALID_EXTRA_DECK_CARD } from "./extra-deck.js";
 export type { DeckCardType, DeckSectionMove } from "./extra-deck.js";

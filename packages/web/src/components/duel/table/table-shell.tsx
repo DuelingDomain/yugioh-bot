@@ -6,11 +6,11 @@ import { connectionLabel as labelForConnection } from "../connection-label";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { Circle, Diamond, Eye, Film, Radio, Volume2, VolumeX } from "lucide-react";
-import type { DuelCard } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { isCustomDomain } from "@yugidraft/shared/duels";
 import { genesysLabel, genesysOf } from "../genesys";
 import { BattleFx } from "../battle-fx";
-import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
+import { AttackConfirm, CardActionMenu, confirmSide, materialsMenu, targetName } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
 import { ownPromptOpen } from "../chain-narrate";
 import { projectChainNames } from "../chain-state";
@@ -31,7 +31,7 @@ import { MoveFx } from "../move-fx";
 import { engineFormat, formatLabel, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds } from "../multi-seat";
 import { useLiveChainLinks } from "../pile-chain-marks";
 import { PileViewer } from "../pile-viewer";
-import { livePileCards } from "../pile-focus";
+import { livePileCards, livePileTitle } from "../pile-focus";
 import { MatchSheetLog } from "../text-log";
 import { PositionFx } from "../position-fx";
 import { centerKind, PromptCenter } from "../prompt-center";
@@ -59,7 +59,7 @@ import { finaleBoard } from "./grid-finale";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
 import { hudPreview } from "./hud-preview";
 import { PlazaDrawers } from "./plaza-drawers";
-import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, usePinSync, useRowPreview } from "./hud-layer";
+import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, useDrawerPin, usePinFollowsHover, usePinSync, useRowPreview } from "./hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./hud-shared";
 import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
@@ -67,6 +67,7 @@ import { OpponentBar } from "./opponent-bar";
 import { attackLockAt, placeLabel, placings, toneBySeat, trackOutOrder } from "./seat-state";
 import { TableDrawer, TableRail } from "./table-rail";
 import { TableSettings, type TableConnection } from "./table-settings";
+import { GridHoverPreview } from "./grid-preview";
 import { TablePhonePanes } from "./table-phone-panes";
 import { TableStage } from "./table-stage";
 import { tableZoneAnchor } from "./zone-find";
@@ -254,10 +255,16 @@ function TableShellBody({
   const hud = !narrow && (grid || plazaHud);
   // No Card drawer in the 3-way plaza or the 4-way grid: a click on a card (and Inspect) opens the pinned card pop-out.
   const hudState = useHudPane({ camera: plazaHud, cardPane: false, initialPane: replayCarry?.current.hudPane });
-  const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (grid && hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard });
+  // The shells without the HUD (phone, wide table with the rail) pin a clicked card in the same left drawer as the HUD shells.
+  const [pinnedCard, setPinnedCard] = useState<DuelCard | DuelCardInfo | null>(null);
+  const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (grid && hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard, onTapCard: hud ? undefined : setPinnedCard });
   useHudEscape(hudState, hud, ui.suspended);
   usePinSync(hudState, tracked.engine.seats);
-  const hudOpen = hud && (hudState.pane != null || hudState.pinned != null);
+  usePinFollowsHover(hud, hudState.pinned, ui.hover?.card, hudState.pinCard);
+  usePinFollowsHover(!hud, pinnedCard, ui.hover?.card, setPinnedCard);
+  // An open flyout, a pinned card or the pinned drawer of the shells without the HUD holds only Esc (it closes it).
+  const drawerPinned = !hud && pinnedCard != null;
+  const hudOpen = (hud && (hudState.pane != null || hudState.pinned != null)) || drawerPinned;
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
   // A replay suspends input while another card view loads: the open flyout stays (the table is hidden and inert meanwhile).
@@ -375,6 +382,8 @@ function TableShellBody({
 
   const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
+  // The drawer pin of the shells without the HUD: Esc, a press outside, a new prompt and the board sync (see useDrawerPin).
+  useDrawerPin(hud ? null : pinnedCard, setPinnedCard, { seats: engine.seats, suspended: ui.suspended, promptId: prompt?.id ?? null, promptMine });
   const actionPrompt = prompt?.kind === "choice" && prompt.context?.type === "action";
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
   const dockMode = !promptMine || prompt == null || centered ? "idle" : actionPrompt ? (prompt.cancelable || prompt.finishable ? "float" : "idle") : "flow";
@@ -461,7 +470,16 @@ function TableShellBody({
   };
   const playersText = session.seats.map((seat) => seat.displayName).join(" v ");
   const logVisible = hud ? hudState.pane === "log" : ui.pane === "log" && (narrow ? sheetOpen : drawer.open);
-  const inspectCard = (target: InspectTarget) => { ui.inspectCard(target); if (narrow) setSheetOpen(true); };
+  const drawerPreview = hud || sheetOpen || ui.pile?.open ? null : hudPreview(
+    ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), pinnedCard);
+  const inspectCard = (target: InspectTarget) => {
+    if (target.type !== "pile") {
+      if (!hud) setPinnedCard(target.card);
+      if (!narrow) { if (hud) ui.inspectCard(target); return; }
+    }
+    ui.inspectCard(target);
+    if (narrow && target.type === "pile") setSheetOpen(true);
+  };
   // Before anything is hovered the Card tab shows the viewer's first face-up monster (else a hand card), as the tag table does.
   const startCard = ui.inspect ? null : firstInspectCard(engine, viewerSeat);
   const inspectorTarget: InspectTarget | null = ui.inspect ?? (startCard ? { type: "card", card: startCard } : null);
@@ -470,6 +488,7 @@ function TableShellBody({
       target={inspectorTarget}
       onInspectCard={(card) => ui.setInspect({ type: "card", card })}
       onActivateCard={onInspectorActivate}
+      onViewMaterials={controller.onInspect}
       equipLinks={resolveEquipLinks(engine.seats)}
       ownerOf={(card) => ({ name: nameOf(card.controller), tone: toneOf(card.controller) })}
     />
@@ -822,7 +841,7 @@ function TableShellBody({
                   </FxBoundary>
                 }
                 promptCenter={
-                  <RowPreviewBoundary row={rowPreview} enabled={hud}>
+                  <RowPreviewBoundary row={rowPreview} enabled>
                   <PromptCenter
                     prompt={prompt ?? (!hasResult ? pick.waiting : null)}
                     mySeat={viewerSeat}
@@ -843,6 +862,7 @@ function TableShellBody({
                     leavingSeats={leavingOnlySeats(engine.seats)}
                     revealed={controller.revealed}
                     onInspectCard={hud ? rowPreview.show : (card) => ui.setInspect({ type: "info", card })}
+                    onHoverCard={rowPreview.show}
                     nameOf={nameOf}
                     seatTones={seatTones}
                     priority={priority}
@@ -883,14 +903,14 @@ function TableShellBody({
                     {grid ? null : plazaHud ? <CameraControls {...cameraProps} variant="stage" /> : <CameraControls {...cameraProps} variant={narrow && masterRail ? "stage" : "float"} view={narrow ? undefined : { open: drawer.viewOpen }} />}
                     {ui.pile ? (
                       <PileViewer
-                        title={ui.pile.title}
+                        title={livePileTitle(ui.pile, livePileCards(ui.pile, engine, viewerSeat))}
                         owner={ui.pile.owner}
                         ownerTag={pileSeat != null ? { name: nameOf(pileSeat), tone: toneOf(pileSeat) } : null}
                         open={ui.pile.open}
                         cards={livePileCards(ui.pile, engine, viewerSeat)}
                         onClose={ui.closePile}
                         onInspectCard={(card) => inspectCard({ type: "card", card })}
-                        onHoverCard={(card) => { if (ui.pane === "card") ui.setInspect({ type: "card", card }); }}
+                        onHoverCard={(card) => rowPreview.show(card?.code != null ? card : null)}
                         onActivateCard={onInspectorActivate}
                         legalKeys={controller.legalKeys}
                         selectedKeys={controller.selectedKeys}
@@ -955,10 +975,7 @@ function TableShellBody({
           logUnread={logUnread}
           preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned)}
           equipLinks={resolveEquipLinks(engine.seats)}
-          previewHidden={ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
-          hoverAnchor={ui.hover?.anchor ?? null}
-          ownSeats={[viewerSeat ?? layout.anchorSeat]}
           edge={grid}
         />
       ) : null}
@@ -975,6 +992,7 @@ function TableShellBody({
           busy={controller.busy}
           onClose={ui.closeMenu}
           tone={ui.menu.tone}
+          materials={materialsMenu(ui.menu.card, (target) => { ui.closeMenu(); controller.onInspect(target); })}
           onChoose={(option) => {
             if (!ui.menu || ui.menu.promptId !== prompt?.id || ui.menu.revision !== engine.revision) return;
             ui.closeMenu();
@@ -993,7 +1011,10 @@ function TableShellBody({
           onBack={flow.cancel}
         />
       ) : null}
-      {!hud && ui.hover && !ui.menu && !ui.pile?.open && !sheetOpen ? <CardHoverInfo card={ui.hover.card} anchor={ui.hover.anchor} /> : null}
+      {!hud ? (
+        <GridHoverPreview card={drawerPreview?.card ?? null} owner={drawerPreview?.owner ?? null} reducedMotion={controller.reducedMotion}
+          pinned={drawerPreview?.pinned === true} onClose={() => setPinnedCard(null)} />
+      ) : null}
       {showResult ? (
         <DuelResultScreen
           room={room}
@@ -1004,7 +1025,7 @@ function TableShellBody({
           onExit={() => actions?.onExit?.()}
           onSeriesChanged={() => actions?.onSeriesChanged?.()}
           onNavigate={(next) => actions?.onNavigate?.(next)}
-          placings={standings.map((entry) => ({ seat: entry.seat, place: entry.place, label: placeLabel(entry.place) }))}
+          placings={standings.length ? standings.map((entry) => ({ seat: entry.seat, place: entry.place, label: placeLabel(entry.place) })) : undefined}
         />
       ) : null}
       {replay ? null : modals}

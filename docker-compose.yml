@@ -112,6 +112,8 @@ services:
       - DISCORD_REMINDER_CHANNEL_ID=${DISCORD_REMINDER_CHANNEL_ID:-}
       - CLERK_SECRET_KEY=${CLERK_SECRET_KEY:?CLERK_SECRET_KEY is required at runtime}
       - CLERK_WEBHOOK_SIGNING_SECRET=${CLERK_WEBHOOK_SIGNING_SECRET:-}
+      - DISCORD_ADMIN_OUTBOX_ENABLED=${DISCORD_ADMIN_OUTBOX_ENABLED:-0}
+      - DISCORD_WAITLIST_CHANNEL_ID=${DISCORD_WAITLIST_CHANNEL_ID:-}
       - DISCORD_ADMIN_WEBHOOK_URL=${DISCORD_ADMIN_WEBHOOK_URL:-}
       - DISCORD_JOIN_REQUEST_ALERTS_ENABLED=${DISCORD_JOIN_REQUEST_ALERTS_ENABLED:-1}
       - DISCORD_SIGNUP_ALERTS_ENABLED=${DISCORD_SIGNUP_ALERTS_ENABLED:-0}
@@ -136,6 +138,16 @@ services:
       # In-app Report bug button: the web server opens a GitHub issue per report. Without a token the report is only saved.
       - BUG_REPORT_GITHUB_TOKEN=${BUG_REPORT_GITHUB_TOKEN:-}
       - BUG_REPORT_GITHUB_REPO=${BUG_REPORT_GITHUB_REPO:-DuelingDomain/yugioh-bot}
+      # Admin console (/admin). Server-side only; each section shows "not configured" while its keys are empty.
+      - PRESENCE_ENABLED=${PRESENCE_ENABLED:-1}
+      - SENTRY_API_TOKEN=${SENTRY_API_TOKEN:-}
+      - SENTRY_ORG=${SENTRY_ORG:-}
+      - SENTRY_PROJECT=${SENTRY_PROJECT:-}
+      - SENTRY_BASE_URL=${SENTRY_BASE_URL:-}
+      - POSTHOG_PERSONAL_API_KEY=${POSTHOG_PERSONAL_API_KEY:-}
+      - POSTHOG_PROJECT_ID=${POSTHOG_PROJECT_ID:-}
+      - POSTHOG_HOST=${POSTHOG_HOST:-}
+      - POSTHOG_DASHBOARD_URL=${POSTHOG_DASHBOARD_URL:-}
     volumes:
       - ./data:/app/data
     depends_on:
@@ -177,6 +189,48 @@ services:
       - ./data:/app/data
     depends_on:
       - ws
+
+  bot:
+    image: yugioh-bot-bot:latest
+    build:
+      context: .
+      target: bot
+    restart: unless-stopped
+    init: true
+    mem_limit: 256m
+    stop_grace_period: 45s
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    environment:
+      - NODE_OPTIONS=--max-old-space-size=160
+      - DISCORD_BOT_ENABLED=${DISCORD_BOT_ENABLED:-0}
+      - DISCORD_TOKEN=${DISCORD_TOKEN:-}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
+      - DISCORD_GUILD_ID=${DISCORD_GUILD_ID:-}
+      - DISCORD_MODERATOR_ROLE_ID=${DISCORD_MODERATOR_ROLE_ID:-}
+      - DISCORD_MOD_LOG_CHANNEL_ID=${DISCORD_MOD_LOG_CHANNEL_ID:-}
+      - DISCORD_WAITLIST_CHANNEL_ID=${DISCORD_WAITLIST_CHANNEL_ID:-}
+      - DISCORD_STATUS_CHANNEL_ID=${DISCORD_STATUS_CHANNEL_ID:-}
+      - DISCORD_ANNOUNCE_CHANNEL_ID=${DISCORD_ANNOUNCE_CHANNEL_ID:-}
+      - DISCORD_ADMIN_SHOW_FULL_EMAIL=${DISCORD_ADMIN_SHOW_FULL_EMAIL:-0}
+      - DATABASE_PATH=${DATABASE_PATH:-/app/data/bot.sqlite}
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY:-}
+      - OWNER_USER_IDS=${OWNER_USER_IDS:-}
+      - BOT_HEALTH_PATH=/tmp/yugidraft-bot-health.json
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
+      - SENTRY_RELEASE=${SENTRY_RELEASE:-}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - web
+    healthcheck:
+      test: ["CMD", "node", "packages/bot/dist/healthcheck.js"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+      start_interval: 5s
 
   caddy:
     image: caddy:2-alpine

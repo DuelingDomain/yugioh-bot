@@ -447,6 +447,19 @@
       "note": "In Tag, select one opponent at activation for the opponent-hand effect. Keep the joined team field."
     },
     {
+      "code": 6357341,
+      "file": "c6357341.lua",
+      "name": "The Six Shinobi",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "7a1b898ec22666d9b682afd2276b27b57eba821fd64c0fa5b64f86a07e6b6af6",
+      "note": "Owner 2026-10-18: The Six Shinobi uses one exact Tag or FFA opponent; the skip expires on that duelist's skipped turn.",
+      "redefined": [
+        "target",
+        "activate"
+      ]
+    },
+    {
       "code": 6783559,
       "file": "c6783559.lua",
       "name": "Self-Destruct Ant",
@@ -1102,6 +1115,20 @@
       "stockSha256": "904caca4dc9e8e7704b02452553bb3fbdc9ab3680c511b0815f8504d513dfe38"
     },
     {
+      "code": 14057297,
+      "file": "c14057297.lua",
+      "name": "Multiple Destruction",
+      "kind": "hand",
+      "classes": [],
+      "stockSha256": "a8aa1372b44daea74f9c162f0bc4aa680a5cabfef492ba5c4cd46e13b3f59976",
+      "note": "Owner 2026-10-18: Return all living hands to real owners, sort from the turn player, pay LP, then draw for every duelist.",
+      "redefined": [
+        "condition",
+        "target",
+        "activate"
+      ]
+    },
+    {
       "code": 14146794,
       "file": "c14146794.lua",
       "name": "Donyoribo @Ignister",
@@ -1364,6 +1391,18 @@
       "note": "The overlay uses the real duelist seat for this card effect."
     },
     {
+      "code": 17484499,
+      "file": "c17484499.lua",
+      "name": "Exchange of the Spirit",
+      "kind": "hand",
+      "classes": [],
+      "stockSha256": "871382b0dd36a83ca8a925e3a67c1c8c430020181051c29792c6ee5815e2ec55",
+      "note": "Owner 2026-10-18: Check each FFA GY or joined Tag GYs, then swap each real Deck and GY from the turn player.",
+      "redefined": [
+        "initial_effect"
+      ]
+    },
+    {
       "code": 17956906,
       "file": "c17956906.lua",
       "name": "Final Light",
@@ -1407,6 +1446,19 @@
         "R1"
       ],
       "stockSha256": "6e20aaf7974d192bd80b7bbc450b7cbb54295dfcfad8ab880a222e74cc47885f"
+    },
+    {
+      "code": 18326736,
+      "file": "c18326736.lua",
+      "name": "Tellarknight Ptolemaeus",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "67352f23177d6733f5b80f2f6e5970436db7d9f3a8bd5db852ab95a05a427922",
+      "note": "Owner 2026-10-18: Ptolemaeus skips the selected real duelist, including the far Tag member; skip eligibility is checked per opponent.",
+      "redefined": [
+        "initial_effect",
+        "skipop"
+      ]
     },
     {
       "code": 18517177,
@@ -1980,6 +2032,19 @@
       "chooserClass": "CH-DECISION"
     },
     {
+      "code": 22888900,
+      "file": "c22888900.lua",
+      "name": "Grisaille Prison",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "ca1a9b9233b82b54266114910c1a2412816cfef17afd9414710c5f359e9d00e1",
+      "note": "Owner 2026-10-18: Choose one FFA opponent for the duration of the global restriction.",
+      "redefined": [
+        "condition",
+        "operation"
+      ]
+    },
+    {
       "code": 23270035,
       "file": "c23270035.lua",
       "name": "Monster Assortment",
@@ -2040,6 +2105,34 @@
       ],
       "stockSha256": "028abe29f70e9be32459c9d902ae1ea0b55576bdea24f69dac7a2d6aefd66ed1",
       "note": "Script fix (r2-checks, R-COMMON-EACH-PLAYER): the watcher is a global effect (Duel.RegisterEffect(e2,0)) that runs with no scope, so its player values are real seats. The stock regop read tp as the literal seat 0: only a Cloudian of seat 0 was kept and the event was raised for seat 0, so the holder of any other seat never got the Trap. The regop does the stock steps for every seat 0..3 (the card of a seat, the flag of that seat, the event for that seat). Not part of R1 or R2."
+    },
+    {
+      "code": 23746827,
+      "file": "c23746827.lua",
+      "name": "Million-Century Ice Prison",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "9befba7bdcb9c59703354100dee24ad27c99f306f66e60341d93c4c9a1d739c8",
+      "note": "Owner 2026-10-18: Ice Prison skips the current phase or the next Main Phase 1 of the real causal opponent, including Tag.",
+      "redefined": [
+        "skop"
+      ]
+    },
+    {
+      "code": 23846921,
+      "file": "c23846921.lua",
+      "name": "Arcana Force XXI - The World",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "b9cbc5a96e90d8b7848ae52c9bcd5ab6a98487d56b76175596ac3b5d8ab7dc0e",
+      "note": "Owner 2026-10-18: World Heads skips one selected real duelist. Tails reads the top card from that same selected member's GY.",
+      "redefined": [
+        "skipcon",
+        "skiptg",
+        "skipop",
+        "thtg",
+        "thop"
+      ]
     },
     {
       "code": 23898021,
@@ -2358,6 +2451,21 @@
       ]
     },
     {
+      "code": 27204311,
+      "file": "c27204311.lua",
+      "name": "Nibiru, the Primal Being",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "7f0e133f5e4175784b0f160dc8b45e68093ccd656cb5d3fb156035f80622c29f",
+      "note": "Owner 2026-10-18: Count every real opponent's summons this turn separately. Choose a qualifying opponent; bind the Tribute pair and Token to that opponent.",
+      "redefined": [
+        "checkop",
+        "condition",
+        "target",
+        "operation"
+      ]
+    },
+    {
       "code": 27279764,
       "file": "c27279764.lua",
       "name": "Apoqliphort Towers",
@@ -2632,6 +2740,19 @@
       "stockSha256": "5dd2460270bb911df0e8becec1dee0b0f9dd9e04535139ab769aaf8f04cd61ce"
     },
     {
+      "code": 30426226,
+      "file": "c30426226.lua",
+      "name": "Switcheroroo",
+      "kind": "chooser",
+      "classes": [],
+      "stockSha256": "6d2f6b9ec2fb84b7b59bf1dacf931e50e2285d52ae28672eabb4bf0fa90633c8",
+      "note": "Owner 2026-10-18: FFA compares and swaps one chosen pair. Tag swaps joined fields atomically through fixed facing seats after all destination checks.",
+      "redefined": [
+        "target",
+        "activate"
+      ]
+    },
+    {
       "code": 30822527,
       "file": "c30822527.lua",
       "name": "Decode Talker Extended",
@@ -2841,6 +2962,31 @@
       ],
       "stockSha256": "0c0a7d4afada98d9c43f5ce4334eca20a73092c86ff1f250e1082f56a0901066",
       "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 33396948,
+      "file": "c33396948.lua",
+      "name": "Exodia the Forbidden One",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "f5b9907d008d4905fbe87c4236339642ffc8e9aedc924fed4c9c04e7c4a0e131",
+      "note": "Owner 2026-10-18: check each living duelist hand separately. Five pieces in one hand win the whole duel through Duel.Win. Count one claim per Tag team: simultaneous complete hands on one team win for that team; claims from both teams draw. In FFA, simultaneous complete hands from two or more seats draw. Pieces in separate hands do not count."
+    },
+    {
+      "code": 33508719,
+      "file": "c33508719.lua",
+      "name": "Morphing Jar",
+      "kind": "hand",
+      "classes": [],
+      "stockSha256": "38e8e9b27119aa88cbd646290ea0c428946f1f87c3f5ba7d51c69311cdf298b6",
+      "note": "Owner 2026-10-18: Discard every living hand, then draw for every duelist from the turn player.",
+      "redefined": [
+        "target",
+        "operation"
+      ]
     },
     {
       "code": 33782437,
@@ -4467,7 +4613,7 @@
       ],
       "r2Class": "TABLE",
       "stockSha256": "74582fedf1f77ee8042f79c3b3c4af13a7d6c01e350096dfec71088a1a292f5f",
-      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). The adjust handler loops over every living duelist (stock: the two sides of the owner). The cannot-activate value function still gets a folded player.",
+      "note": "Use the exact Special Summon receiving seat before folded Lua player values; keep Tag joined fields and per-seat Attribute state in FFA.",
       "seatTables": [
         "s"
       ],
@@ -4835,7 +4981,7 @@
       "kind": "fix",
       "name": "Hecahands Tartaros",
       "classes": [],
-      "stockSha256": "455272f159de7d185db71cfb4e5b1c2d126fd25a158b39f331e23229db9cd754",
+      "stockSha256": "751913c0a7db760eb66dcf2211fa8173476708a97124bc93081970eaa4b24e36",
       "note": "Use real owner and handler seats for Fusion materials."
     },
     {
@@ -5323,7 +5469,7 @@
     {
       "code": 62098216,
       "file": "c62098216.lua",
-      "name": "Evil\u2605Twins Ki-sikil & Lil-la",
+      "name": "Evil★Twins Ki-sikil & Lil-la",
       "kind": "chooser",
       "classes": [
         "CHOOSER"
@@ -6187,7 +6333,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "087e5964a6158051bb44fa0685192c9d9ed6a029005bd0a2536d5b9177be340e",
-      "note": "In Tag, discard every living duelist hand together, then each duelist draws its own discarded count. Keep this card forbidden in FFA."
+      "note": "Owner 2026-10-18: in FFA3, FFA4 and Tag, discard every living duelist hand together, then each draws its own hand count in turn order from the turn player."
     },
     {
       "code": 73082255,
@@ -6205,7 +6351,7 @@
       "name": "Underworld Circle",
       "kind": "fix",
       "classes": [],
-      "stockSha256": "a50729536e1e88c68807d9bf912fa282f38280dc7276e2ef9ea9cbf926c2c1ab",
+      "stockSha256": "b25a85ca9ceaf460abf1e380bea19dfdd49504c8f6f02cd110a90a636c9383e7",
       "note": "R-COMMON-EACH-PLAYER: every living duelist must have five or more monsters in the GY. This condition does not declare an opponent. Tag checks each member."
     },
     {
@@ -6304,7 +6450,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "33446081eef2e3150316717b8ec860ec4f2cb899370a748f84a87aca371afb1c",
-      "note": "In Tag, each living duelist sends two cards from its own hand, then draws two cards. Keep this card forbidden in FFA."
+      "note": "Owner 2026-10-18: in FFA3, FFA4 and Tag, each living duelist chooses two cards from its own hand in turn order from the turn player. Send the cards together, then each draws two."
     },
     {
       "code": 74586817,
@@ -6922,7 +7068,7 @@
     {
       "code": 82699999,
       "file": "c82699999.lua",
-      "name": "Live\u2606Twin Lil-la Sweet",
+      "name": "Live☆Twin Lil-la Sweet",
       "kind": "hand",
       "classes": [
         "LEAVE"
@@ -7618,7 +7764,7 @@
       ],
       "r2Class": "TABLE",
       "stockSha256": "f0e3d2f61aef544c27bec8f332ccedefae4ad333df9687fd1661360076edce8b",
-      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). The adjust handler loops over every living duelist (stock: the two sides of the owner). The cannot-activate value function still gets a folded player.",
+      "note": "Use the exact Special Summon receiving seat before folded Lua player values; keep Tag joined fields and per-seat race state in FFA.",
       "seatTables": [
         "s"
       ],
@@ -7738,6 +7884,19 @@
         ]
       },
       "stockSha256": "26a66dc18367bcfa8156b470d21ba9dfa2d0a7d488473254343335b0f0a5a9f5"
+    },
+    {
+      "code": 92182447,
+      "file": "c92182447.lua",
+      "name": "Mischief of the Time Goddess",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "5dedcc251db2f145dd02ab92287d5f4ecbda08d418ded6a21ada6070c2a4cbaf",
+      "note": "Owner 2026-10-18: Activate only in the real controller's Battle Phase. Skip every intervening duelist and reach the activator's next Battle Phase in FFA and Tag.",
+      "redefined": [
+        "condition",
+        "operation"
+      ]
     },
     {
       "code": 92219931,
@@ -8228,6 +8387,18 @@
       "chooserClass": "CH-DECISION"
     },
     {
+      "code": 98139712,
+      "file": "c98139712.lua",
+      "name": "Skull Invitation",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "38cf8e77fdecfcacbfb874b9b7c28b761e43d7e30efcacb7811b7f364fa8b1c6",
+      "note": "Owner 2026-10-18: Damage each real owner for its cards sent to the GY.",
+      "redefined": [
+        "operation"
+      ]
+    },
+    {
       "code": 98301564,
       "file": "c98301564.lua",
       "name": "Guiding Ariadne",
@@ -8334,6 +8505,31 @@
         "R1"
       ],
       "stockSha256": "ab451c525824e8bb1b2c55dedfd270b05ccbdeee6901e7bb8ddea71d470c097b"
+    },
+    {
+      "code": 100200298,
+      "file": "c100200298.lua",
+      "name": "Counter Spell \"Negate Attack\"",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "03ec59ec5546d605dee01bdb61e0281f52b2a932248b42d0a41f1e683f5a98bc",
+      "note": "Owner 2026-10-18: Use the actual attacker for the comparison and Battle Phase skip. Keep the actual monster effect source and the controller's own normal draw.",
+      "stockPath": "pre-release/c100200298.lua",
+      "redefined": [
+        "efftg",
+        "effop",
+        "spcon"
+      ]
+    },
+    {
+      "code": 100459024,
+      "file": "c100459024.lua",
+      "name": "Spell Card \"Enemy Controller\"",
+      "kind": "fix",
+      "classes": [],
+      "stockPath": "pre-release/c100459024.lua",
+      "stockSha256": "783600b77e8e00f8f6d218f0c48c7792e57c336dda5ff40632914fc5a0871ba5",
+      "note": "A target can change control before resolution. Destroy it without assuming the extra Tribute effect exists; ignore a missing target."
     }
   ]
 }

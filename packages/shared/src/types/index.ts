@@ -142,6 +142,11 @@ export interface TournamentMatch {
 }
 
 export interface Card {
+  prerelease?: boolean;
+  catalogSource?: "api" | "engine";
+  race?: string;
+  setcodes?: number[];
+  isExtraDeck?: boolean;
   ygoprodeckId: number;
   canonicalCardId?: number;
   /** Current TCG Genesys points; null or absent is unknown. */
@@ -191,7 +196,7 @@ export interface Cube {
 export type {
   EngineDataSource, DataStatus, EngineSourcePin, EngineDataStatus, CatalogSetStatus,
   CardCatalogStatus, CardDataGapCard, CardDataSetGapStatus, CardDataGapStatus, UpstreamSourceStatus,
-  EngineUpdateWorkflowStatus, CardDataStatus, LocalCardDataStatus,
+  EngineUpdateWorkflowStatus, CardDataStatus, LocalCardDataStatus, CardDataUpdateHistoryEntry,
 } from "./card-data-status.js";
 export * from "./draft-lobby.js";
 

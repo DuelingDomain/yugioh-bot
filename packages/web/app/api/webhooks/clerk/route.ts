@@ -1,6 +1,6 @@
 import { verifyWebhook, type WebhookEvent } from "@clerk/nextjs/webhooks";
 import type { NextRequest } from "next/server";
-import { notifyJoinRequest, type JoinRequestNotice } from "@yugidraft/shared/notify";
+import { enqueueJoinRequest, notifyJoinRequest, type JoinRequestNotice } from "@yugidraft/shared/notify";
 import { getDb } from "@/lib/db";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -17,7 +17,8 @@ function eventTime(createdAt: number, timestamp?: number): string {
 function eventNotice(event: WebhookEvent): JoinRequestNotice | undefined {
   if (event.type === "waitlistEntry.created") {
     if (typeof event.data?.email_address !== "string" || !event.data.email_address.trim()) return;
-    return { email: event.data.email_address, source: "Clerk waitlist", createdAt: eventTime(event.data.created_at, event.timestamp) };
+    return { email: event.data.email_address, clerkEntryId: event.data.id,
+      source: "Clerk waitlist", createdAt: eventTime(event.data.created_at, event.timestamp) };
   }
   if (event.type === "user.created") {
     if (typeof event.data?.id !== "string" || !event.data.id.trim()) return;
@@ -63,17 +64,20 @@ export async function POST(request: NextRequest): Promise<Response> {
         insert into clerk_webhook_receipts (svix_id, received_at) values (?, ?)
         on conflict(svix_id) do nothing
       `).run(request.headers.get("svix-id")!.trim(), new Date(now).toISOString());
+      let outboxHandled = false;
       if (inserted.changes !== 0) {
+        // Receipt and durable alert commit together; a failed write remains retryable.
+        if (notice) outboxHandled = enqueueJoinRequest(db, notice);
         // The expiry index and batch bound keep each new delivery cheap.
         db.prepare(`delete from clerk_webhook_receipts where svix_id in (
           select svix_id from clerk_webhook_receipts
           where received_at < ? order by received_at limit ?
         )`).run(new Date(now - RECEIPT_RETENTION_MS).toISOString(), RECEIPT_CLEANUP_BATCH);
       }
-      return inserted;
+      return { changes: inserted.changes, outboxHandled };
     })();
     // The same shared claim also deduplicates different event IDs and local joins.
-    if (receipt.changes !== 0 && notice) void notifyJoinRequest(db, notice);
+    if (receipt.changes !== 0 && notice && !receipt.outboxHandled) void notifyJoinRequest(db, notice);
   } catch {
     // Keep storage errors retryable; Discord errors are contained by the notifier.
     return Response.json({ error: "retry_later" }, { status: 503, headers });

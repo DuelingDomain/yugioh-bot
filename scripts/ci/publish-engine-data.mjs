@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { HISTORY_FILE, historyDetails, appendHistory } from "./engine-data-history.mjs";
 
 export const PIN_FILE = "packages/duel-server/scripts/prepare-data.ts";
 const CORE_PIN_FILES = ["packages/duel-server/domain-core/pins.json", "packages/duel-server/legacy-1v1/domain-core/pins.json"];
@@ -70,6 +71,7 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   const branchExists = Boolean(git("ls-remote", "--heads", "origin", `refs/heads/${branch}`).trim());
   const pr = gh("pr", "list", "--repo", repo, "--head", branch, "--base", base, "--state", "open", "--json", "url", "--jq", ".[0].url // empty").trim();
   let updateSha = "";
+  let historyRepair = null;
   if (branchExists) {
     git("fetch", "--no-tags", "origin", `+refs/heads/${branch}:${updateRef}`);
     updateSha = git("rev-parse", updateRef).trim();
@@ -88,8 +90,17 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   if (baseSha !== artifact.baseSha) return skip("base-advanced");
   if (updateSha && pr) {
     const current = readPinsFromSource(git("show", `${updateSha}:${PIN_FILE}`));
-    if (pinKeys.every((key) => current[key] === artifact.next[key])) return skip("identical-pins");
-    if (artifact.matchingPrHead === updateSha) return skip("identical-data");
+    if (pinKeys.every((key) => current[key] === artifact.next[key])) {
+      // A failed second push can leave a new PR with pins but no history. Retry
+      // only for the exact same pins, after the human-commit and base checks.
+      if (existsSync(join(cwd, HISTORY_FILE)) && git("ls-tree", updateSha, "--", HISTORY_FILE).trim()) {
+        const published = JSON.parse(git("show", `${updateSha}:${HISTORY_FILE}`));
+        if (!Array.isArray(published)) throw new Error("Invalid card data history");
+        if (!published.some(entry => entry.pullRequest.url === pr)) historyRepair = published;
+      }
+      if (historyRepair === null) return skip("identical-pins");
+    }
+    if (historyRepair === null && artifact.matchingPrHead === updateSha) return skip("identical-data");
   }
   const original = git("show", `${baseSha}:${PIN_FILE}`);
   const old = readPinsFromSource(original);
@@ -134,18 +145,39 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   if (git("status", "--porcelain", "--untracked-files=no").trim()) throw new Error("Publication requires a clean tracked checkout");
   const body = join(artifactDir, existsSync(join(artifactDir, "pr-body.md")) ? "pr-body.md" : "report.md");
   readFileSync(body, "utf8"); // Require a usable report before publishing the branch.
-  git("switch", "--detach", baseSha);
-  for (const [file, source] of expectedSources) writeFileSync(join(cwd, file), source);
-  git("add", "--", ...artifact.files);
-  const title = `chore(engine): update Project Ignis card data to ${new Date().toISOString().slice(0, 10)}`;
+  // Older checkouts/artifacts can still publish pins. History is generated here by trusted
+  // code, never accepted as a writable path in the untrusted candidate patch.
+  const history = historyRepair ?? (existsSync(join(cwd, HISTORY_FILE)) ? JSON.parse(readFileSync(join(cwd, HISTORY_FILE), "utf8")) : null);
+  const details = history === null ? null : historyDetails(artifact);
+  const date = new Date().toISOString();
+  const title = `chore(engine): update Project Ignis card data to ${date.slice(0, 10)}`;
+  const recordHistory = (url) => {
+    writeFileSync(join(cwd, HISTORY_FILE), JSON.stringify(appendHistory(history, details,
+      { date, label: `Project Ignis ${date.slice(0, 10)}`, url, repository: repo }), null, 2) + "\n");
+    git("add", "--", HISTORY_FILE);
+  };
+  git("switch", "--detach", historyRepair === null ? baseSha : updateSha);
+  if (historyRepair === null) {
+    for (const [file, source] of expectedSources) writeFileSync(join(cwd, file), source);
+    git("add", "--", ...artifact.files);
+  }
+  if (details && pr) recordHistory(pr);
   const authorEnv = { ...env, GIT_AUTHOR_NAME: BOT.name, GIT_AUTHOR_EMAIL: BOT.email, GIT_COMMITTER_NAME: BOT.name, GIT_COMMITTER_EMAIL: BOT.email };
-  run("git", ["-c", "commit.gpgsign=false", "commit", "-m", title], { cwd, env: authorEnv });
+  run("git", ["-c", "commit.gpgsign=false", "commit", "-m", historyRepair === null ? title : "chore(engine): record card data update history"], { cwd, env: authorEnv });
   // An explicit empty lease protects branch creation too. A new commit after our fetch makes the push fail.
   git("push", `--force-with-lease=refs/heads/${branch}:${updateSha}`, "origin", `HEAD:refs/heads/${branch}`);
   let prUrl = pr;
-  if (prUrl) gh("pr", "edit", prUrl, "--repo", repo, "--title", title, "--body-file", body);
-  else prUrl = gh("pr", "create", "--repo", repo, "--base", base, "--head", branch, "--title", title, "--body-file", body).trim();
+  if (prUrl && historyRepair === null) gh("pr", "edit", prUrl, "--repo", repo, "--title", title, "--body-file", body);
+  else if (!prUrl) prUrl = gh("pr", "create", "--repo", repo, "--base", base, "--head", branch, "--title", title, "--body-file", body).trim();
   if (!/^https:\/\/\S+\/pull\/\d+$/.test(prUrl)) throw new Error("gh did not return a pull request URL");
+  if (details && !pr) {
+    // A new PR number exists only after the first push. Store its exact link in a
+    // second bot commit, protected by a lease on the commit we just published.
+    const publishedSha = git("rev-parse", "HEAD").trim();
+    recordHistory(prUrl);
+    run("git", ["-c", "commit.gpgsign=false", "commit", "-m", "chore(engine): record card data update history"], { cwd, env: authorEnv });
+    git("push", `--force-with-lease=refs/heads/${branch}:${publishedSha}`, "origin", `HEAD:refs/heads/${branch}`);
+  }
   const labels = gh("api", "--paginate", `repos/${repo}/labels?per_page=100`, "--jq", ".[].name").trim().split("\n");
   if (labels.includes("engine-data")) gh("pr", "edit", prUrl, "--repo", repo, "--add-label", "engine-data");
   if (env.HAS_PR_TOKEN !== "true") gh("workflow", "run", "test.yml", "--repo", repo, "--ref", branch, "-f", "nightly=false", "-f", "new_card_smoke=true");

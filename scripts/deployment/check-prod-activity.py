@@ -26,9 +26,14 @@ def main():
 
     label = "Staging deploy skipped" if args.target == "staging" else "Production deploy refused"
     names = ["duels", "drafts"]
+    # Same idle rule as the host and engine installer. Never mutate while services are running.
+    # After services stop, the installer interrupts casual rows and preserves ranked/tournament
+    # rows for the restarted host to settle their clock loss or apply the no-winner idle backstop.
+    idle = """kind = 'play' and status = 'active'
+        and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday('now', '-10 minutes')"""
     query = """
         select
-            (select count(*) from duels where status = 'active'
+            (select count(*) from duels where (status = 'active' and not coalesce(({idle}), 0))
                 or (status = 'lobby' and opening_json is not null)),
             (select count(*) from drafts where status = 'active')
     """
@@ -51,7 +56,10 @@ def main():
             # Reopen on each check to see a fresh committed WAL snapshot without migrations.
             with closing(sqlite3.connect(args.database.resolve().as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
                 db.execute("pragma query_only=on")
-                counts = db.execute(query).fetchone()
+                columns = {row[1] for row in db.execute("pragma table_info(duels)")}
+                # Older schemas have no reliable idle evidence, so their active duels still block.
+                idle_sql = idle if {"kind", "last_activity_at", "started_at", "created_at", "clock_json"} <= columns else "0"
+                counts = db.execute(query.format(idle=idle_sql)).fetchone()
         except (OSError, sqlite3.Error) as error:
             print(f"{label}: cannot read gameplay activity ({error}).", file=sys.stderr)
             return 1

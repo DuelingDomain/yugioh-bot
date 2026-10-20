@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { ArtChip } from "./art-chip";
 import { CardArt } from "./card-art";
 import { useCardPress } from "./card-press";
-import { dragCardKind, hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
+import { dragCardFrom, dragCardKind, hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
 import { genesysMark, genesysMarkText } from "./genesys";
 import { GenesysBadge } from "./genesys-ui";
 import { LimitBadge } from "./limit-badge";
@@ -19,6 +19,7 @@ import {
   copyKey,
   copyLimit,
   placementBlockForKind,
+  sectionLimit,
   type BanlistLimits,
   type CardCatalog,
   type CardSource,
@@ -118,6 +119,9 @@ export function DeckSectionGrid({
   const listRef = useRef<HTMLUListElement>(null);
   const press = useCardPress();
   const state = sizeState(codes.length, minimum, maximum);
+  // The hard limit (60 Main, 15 Extra, 15 Side): at it, the section takes no new card.
+  const full = codes.length >= sectionLimit(section);
+  const fullNote = full ? `${title} Deck is full (${sectionLimit(section)}/${sectionLimit(section)})` : null;
   const difference = state === "under" ? minimum - codes.length : codes.length - maximum;
 
   /** Removes a copy and keeps focus on the card that takes its place. */
@@ -142,6 +146,12 @@ export function DeckSectionGrid({
       // No preventDefault: the browser shows "not allowed" and never sends the drop.
       event.dataTransfer.dropEffect = "none";
       setRefusal(block);
+      return false;
+    }
+    // A card from the list, the Deck Master slot or another section is new here; a card moved inside the section is not.
+    if (full && dragCardFrom(event) !== section) {
+      event.dataTransfer.dropEffect = "none";
+      setRefusal(`${title} Deck is full (${sectionLimit(section)}/${sectionLimit(section)}).`);
       return false;
     }
     setRefusal(null);
@@ -183,6 +193,7 @@ export function DeckSectionGrid({
         <span className={cn("num", styles["de-n"])} data-s={state} data-zero={codes.length === 0 ? "" : undefined}>{codes.length}</span>
         {unused ? null : <DeckSizeMeter title={title} count={codes.length} minimum={minimum} maximum={maximum} />}
         <span className={styles["de-tg"]}>{target}</span>
+        {fullNote ? <span className={styles["de-full"]} role="status" data-testid={`${section}-full`}>{fullNote}</span> : null}
         {state !== "ok" ? <span className={styles["de-off"]} data-s={state}>{difference} {state === "under" ? "short" : "over"}</span> : null}
         {actions ? <div className={styles["de-clear"]}>{actions}</div> : null}
       </header>

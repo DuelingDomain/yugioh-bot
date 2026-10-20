@@ -74,22 +74,34 @@ RUN npm prune --omit=dev --ignore-scripts && npx patch-package --error-on-fail \
     && find /app -type f -name '*.map' -delete
 
 # ── bot ──────────────────────────────────────────────────────────────────────
-# Production stage for the Discord bot.
+# Compile only the bot and shared package; no duel engine build is required.
+FROM deps AS bot-build
+COPY tsconfig.json ./
+COPY packages/shared packages/shared
+COPY packages/bot packages/bot
+RUN npm run build --workspace=packages/bot && find /app -type f -name '*.map' -delete
+
+# Install only this service's production dependencies. Native SQLite is rebuilt
+# with the compiler toolchain from deps; build tools stay outside the final image.
+FROM deps AS bot-runtime-deps
+RUN npm ci --omit=dev --ignore-scripts --workspace=packages/bot --workspace=packages/shared --include-workspace-root=false \
+    && npm rebuild better-sqlite3 \
+    && find /app -type f -name '*.map' -delete
+
 FROM node:22-bookworm-slim AS bot
 WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=build /app/package*.json ./
-COPY --from=runtime-deps /app/node_modules ./node_modules
-# Shared package (symlink target for @yugidraft/shared)
-COPY --from=build /app/packages/shared/package*.json packages/shared/
-COPY --from=build /app/packages/shared/dist packages/shared/dist
-COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
-# Bot compiled output
-COPY --from=build /app/packages/bot/package*.json packages/bot/
-COPY --from=build /app/packages/bot/dist packages/bot/dist
+ENV NODE_ENV=production NODE_OPTIONS=--max-old-space-size=160
+COPY --from=bot-build /app/package*.json ./
+COPY --from=bot-runtime-deps /app/node_modules ./node_modules
+COPY --from=bot-build /app/packages/shared/package*.json packages/shared/
+COPY --from=bot-build /app/packages/shared/dist packages/shared/dist
+COPY --from=bot-build /app/packages/shared/data/effects packages/shared/data/effects
+COPY --from=bot-build /app/packages/bot/package*.json packages/bot/
+COPY --from=bot-build /app/packages/bot/dist packages/bot/dist
 RUN mkdir -p /app/data && chown node:node /app/data
 VOLUME ["/app/data"]
 USER node
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 CMD ["node", "packages/bot/dist/healthcheck.js"]
 CMD ["sh", "-c", "node packages/bot/dist/deploy-commands.js && exec node --import ./packages/bot/dist/instrument.js packages/bot/dist/index.js"]
 
 # ── ws ───────────────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import type { BattleSoundPlan } from "./attack-audio";
 import { screenPose, screenSize } from "./attack-fx";
 import { BANNER_TIMING, CHAIN_TIMING, PHASE_TIMING } from "./duel-timing";
 import {
+  combatStat,
   isDefenseAt,
   isFacedown,
   LOCATION_DECK,
@@ -48,7 +49,8 @@ export function isHeavySummon(event: DuelEvent): boolean {
   if (event.kind !== "summon" || !isMonsterCard(event)) return false;
   const card = event.card!;
   if (event.summonKind === "tribute") return true;
-  if (typeof card.attack === "number" && card.attack >= HEAVY_ATTACK) return true;
+  const attack = combatStat(card.attack);
+  if (attack != null && attack >= HEAVY_ATTACK) return true;
   if ((card.type & TYPE_LINK) !== 0) return card.level >= HEAVY_LINK_RATING;
   return card.level >= HEAVY_SUMMON_LEVEL;
 }
@@ -73,7 +75,7 @@ export function slamStrengthOf(event: DuelEvent, fromLocation?: number): number 
   let strength = SLAM_MIN_STRENGTH;
   const level = (card.type & TYPE_LINK) !== 0 ? card.level * 2 + 1 : card.level;
   if (level >= HEAVY_SUMMON_LEVEL) strength += Math.min(0.45, 0.1 + (level - HEAVY_SUMMON_LEVEL) * 0.08);
-  const attack = typeof card.attack === "number" ? card.attack : 0;
+  const attack = combatStat(card.attack) ?? 0;
   if (attack >= HEAVY_ATTACK) strength += Math.min(0.4, 0.1 + ((attack - HEAVY_ATTACK) / 2500) * 0.3);
   if (event.summonKind === "tribute") strength += 0.05;
   if (typed) strength += 0.08;

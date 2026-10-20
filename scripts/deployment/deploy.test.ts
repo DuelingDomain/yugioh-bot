@@ -15,6 +15,26 @@ function fixture() {
 afterEach(() => dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
 
 describe("production activity guard with the application schema", () => {
+  it.each([false, true])("ignores stale duels even with a funded clock but protects recent player actions (ranked=%s)", ranked => {
+    const path = join(fixture(), "prod.sqlite");
+    const db = openDatabase(path);
+    try {
+      db.prepare("INSERT INTO users (id, username, display_name) VALUES (1, 'owner', 'Owner')").run();
+      db.prepare("INSERT INTO players (id, guild_id, user_id, display_name) VALUES (1, 'community', 1, 'Owner')").run();
+      db.prepare("INSERT INTO duels (guild_id, web_slug, name, organizer_player_id, mode, status, last_activity_at) VALUES ('community', 'idle-duel', 'Idle', 1, 'normal', 'active', datetime('now', '-2 hours'))").run();
+      db.prepare("update duels set ranked = ?").run(ranked ? 1 : 0);
+      const guard = () => spawnSync("python3", ["-B", join(root, "scripts/deployment/check-prod-activity.py"), path, "--live-only"], { encoding: "utf8" });
+      expect(guard().status).toBe(0);
+      expect(db.prepare("select status from duels").get()).toEqual({ status: "active" });
+      const clock = { turn: 1, activeSeat: 0, startedAt: Date.now() - 11 * 60_000, remainingMs: [30 * 60_000, 30 * 60_000] };
+      db.prepare("update duels set clock_json = ?, last_activity_at = datetime('now', '-11 minutes')").run(JSON.stringify(clock));
+      expect(guard().status).toBe(0);
+      expect(db.prepare("select status, clock_json from duels").get()).toEqual({ status: "active", clock_json: JSON.stringify(clock) });
+      db.prepare("update duels set last_activity_at = datetime('now', '-9 minutes')").run();
+      expect(guard().status).toBe(1);
+    } finally { db.close(); }
+  });
+
   it("accepts idle data and refuses active duels, RPS and dice openings", () => {
     const path = join(fixture(), "prod.sqlite");
     const db = openDatabase(path);

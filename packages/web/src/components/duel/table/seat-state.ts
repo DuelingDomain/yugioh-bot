@@ -85,6 +85,8 @@ export interface Placing {
  * the seats that left, the last group out first. Seats that left together, or whose order is unknown, share a place.
  */
 export function placings(engine: Pick<DuelEngineView, "seats" | "result">, outOrder: readonly (readonly number[])[] = []): Placing[] {
+  // Owner 2026-10-18: Exodia gives one winner and all other players a loss, with no places.
+  if (engine.result?.victory === "exodia") return [];
   const winners = new Set<number>();
   const result = engine.result;
   if (result) {

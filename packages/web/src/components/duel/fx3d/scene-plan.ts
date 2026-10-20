@@ -3,7 +3,7 @@ import { signatureCode } from "../signature-alias";
 import { clamp01, ramp } from "./ease";
 import { MIRROR, mirrorAt, mirrorGeo, mirrorHitSec } from "./mirror-math";
 import { DEMO_CW, DEMO_H, DEMO_W, hash1, timeWarp } from "./wipe-math";
-import type { FxPiles, FxRect, FxRows, FxScene, FxScenePiece, FxTint, FxVictim, FxWorld, Rgb } from "./types";
+import type { FxField, FxPiles, FxRect, FxRows, FxScene, FxScenePiece, FxTint, FxVictim, FxWorld, Rgb } from "./types";
 
 /**
  * Set pieces for destroys caused by a card effect (a trap, a spell, a monster effect). Pure:
@@ -203,7 +203,7 @@ export type SceneInput = {
   /** Spell/trap resolution: all cards finish breaking before any landing streak starts. */
   sequential?: boolean;
   piece: FxScenePiece;
-  victims: ReadonlyArray<{ rect: FxRect; code: number; defense: boolean; turned?: boolean; pile?: FxRect | null; st?: boolean }>;
+  victims: ReadonlyArray<{ rect: FxRect; code: number; defense: boolean; turned?: boolean; rot?: number; pile?: FxRect | null; st?: boolean; side?: "you" | "opp" }>;
   source: FxRect | null;
   attacker: FxRect | null;
   field: FxRect;
@@ -215,6 +215,10 @@ export type SceneInput = {
   world?: FxWorld;
   rows?: FxRows;
   piles?: FxPiles;
+  /** Wipes at a multi-seat table: every field, and the one field a piece is aimed at (see FxScene). */
+  fields?: FxField[];
+  focus?: FxRect;
+  multiTable?: boolean;
 };
 
 const cx = (r: FxRect): number => r.x + r.w / 2;
@@ -392,7 +396,10 @@ export function planWipe(input: SceneInput): { scene: FxScene; cues: SceneCue[] 
     case "feather-duster":
     case "heavy-storm": {
       const p = WIPE.storm;
-      const hit = wx.map((x) => p.f0 + (p.f1 - p.f0) * clamp01(((x + W / 2) / W - DEMO_CW / 2 / W + 0.12) / 1.3));
+      // The scene sweeps its gust over DEMO_W world units. A multi-seat table has no duel board for the canvas width to
+      // stand for, so the hit times follow the same constant (1v1 keeps its own, as before).
+      const gw = input.fields || input.focus ? DEMO_W : W;
+      const hit = wx.map((x) => p.f0 + (p.f1 - p.f0) * clamp01(((x + gw / 2) / gw - DEMO_CW / 2 / gw + 0.12) / 1.3));
       takeSec = hit.map((h) => h - 0.3);
       goneSec = hit.map((h) => h + 1.05);
       landT0Ms = ms(p.t0);
@@ -503,6 +510,9 @@ export function planWipe(input: SceneInput): { scene: FxScene; cues: SceneCue[] 
       world,
       rows: input.rows,
       piles: input.piles,
+      fields: input.fields,
+      focus: input.focus,
+      multiTable: input.multiTable,
       marks,
     },
     cues,

@@ -117,8 +117,12 @@ export const buildBanish: WipeBuild = (ctx: WipeCtx): WipeScene => {
   const shockEnd = Math.max(tClose + 0.3, Math.min(tClose + 0.95, ctx.duration));
 
   // The rift fills the height of the canvas like the demo's (380 of a 400 half height).
-  const halfH = Math.max(Math.abs(bounds.minY), Math.abs(bounds.maxY), 400);
+  // Aimed at one field of a multi-seat table the rift, rings and frost shrink to that field.
+  const fit = ctx.focused ? clamp((ctx.focus.maxX - ctx.focus.minX) / 1500, 0.35, 1) : 1;
+  const halfH = ctx.focused ? 400 * fit : Math.max(Math.abs(bounds.minY), Math.abs(bounds.maxY), 400);
   const hs = halfH / 400;
+  const reg = ctx.focused ? ctx.focus : bounds;
+  const grade = ctx.focused ? 0.6 : 1;
   const halfLen = 380 * hs;
   const [cu, cv] = ctx.uv(0, 0);
 
@@ -152,11 +156,11 @@ export const buildBanish: WipeBuild = (ctx: WipeCtx): WipeScene => {
     },
     { mode: 3, P: [0, 0, 0.4, 0.1] },
   );
-  const area = clamp(((bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY)) / (1120 * 800), 0.5, 3);
+  const area = clamp(((reg.maxX - reg.minX) * (reg.maxY - reg.minY)) / (1120 * 800), 0.5, 3);
   const frost = ctx.particles(
     ctx.count(170 * area),
     () => ({
-      p: [bounds.minX * 0.96 + r() * (bounds.maxX - bounds.minX) * 0.96, bounds.minY * 0.975 + r() * (bounds.maxY - bounds.minY) * 0.975],
+      p: [reg.minX * 0.96 + r() * (reg.maxX - reg.minX) * 0.96, reg.minY * 0.975 + r() * (reg.maxY - reg.minY) * 0.975],
       v: [(r() - 0.5) * 24, 12 + r() * 30],
       delay: 0.1 + r() * 1.7,
       life: 1.0 + r() * 1.1,
@@ -170,7 +174,7 @@ export const buildBanish: WipeBuild = (ctx: WipeCtx): WipeScene => {
     ctx.count(90),
     () => {
       const a = (r() < 0.5 ? 0 : Math.PI) + (r() - 0.5) * 0.5;
-      const sp = 400 + r() * 900;
+      const sp = (400 + r() * 900) * fit;
       return {
         p: [(r() - 0.5) * 20, (r() * 2 - 1) * 300 * hs],
         v: [Math.cos(a) * sp, Math.sin(a) * sp * 0.3],
@@ -216,8 +220,8 @@ export const buildBanish: WipeBuild = (ctx: WipeCtx): WipeScene => {
       const open = easeOut3(ramp(t, 0.72, 1.25)) * (1 - easeIn3(ramp(t, tClose, tCloseEnd)));
       P.uCore.value.set(cu, cv);
       P.uTint.value.setRGB(0.76, 0.92, 1.16);
-      P.uTintAmt.value = 0.7 * chill;
-      P.uDesat.value = 0.5 * chill;
+      P.uTintAmt.value = 0.7 * chill * grade;
+      P.uDesat.value = 0.5 * chill * grade;
       P.uDarken.value = 0.2 * chill;
       P.uVig.value = 0.25 + 0.35 * chill;
       P.uLens.value.set(0.5, 0.2 * open, 0, 0.25 * open);
@@ -225,15 +229,15 @@ export const buildBanish: WipeBuild = (ctx: WipeCtx): WipeScene => {
       P.uFlash.value.set(0.82, 0.96, 1, 0.3 * decay(t, 0.78, 0.12) + 0.3 * decay(t, tClose + 0.28, 0.1) * (t >= tClose + 0.28 ? 1 : 0));
       const k = ramp(t, tClose + 0.2, shockEnd);
       if (k > 0 && k < 1) {
-        P.uShock.value.set(cu, cv, 1.0 * easeOut3(k), 0.1);
+        P.uShock.value.set(cu, cv, 1.0 * easeOut3(k) * fit, 0.1);
         P.uShock2.value.set(0.022 * (1 - k), 0.9 * (1 - k), 0);
         P.uShockCol.value.setRGB(0.7, 0.92, 1);
       }
 
       rift.update(open, t, 0, halfLen);
-      beam.set(0, 0, 90 + 90 * open, 0.55 * open, 920 * hs);
-      halo.set(0, 0, 340 * open, 0.35 * open, 880 * hs);
-      pulse.set(0, 0, 80 + 1900 * easeOut3(k), k > 0 && k < 1 ? 0.5 * (1 - k) : 0);
+      beam.set(0, 0, (90 + 90 * open) * fit, 0.55 * open, 920 * hs);
+      halo.set(0, 0, 340 * open * fit, 0.35 * open, 880 * hs);
+      pulse.set(0, 0, (80 + 1900 * easeOut3(k)) * fit * (ctx.focused ? 0.7 : 1), k > 0 && k < 1 ? 0.5 * (1 - k) : 0);
       motes.setT(t);
       frost.setT(t);
       burst.setT(t);
