@@ -1,0 +1,71 @@
+{
+  "method": {
+    "node": "22.23.3",
+    "workerHeapMiB": 256,
+    "format": "1v1",
+    "engine": "pinned",
+    "mode": "normal",
+    "masterRule": 5,
+    "projection": "seat 0 with owner hand reveal",
+    "decks": "200 Dark Magician cards per seat; validation and shuffle disabled",
+    "seed": [
+      "1",
+      "2",
+      "3",
+      "4"
+    ],
+    "commands": 420,
+    "frames": 422,
+    "buildBytes": 16321668,
+    "hostDelayResolutionMs": 1,
+    "workerSampling": "heapUsed before/after each JSON encode, before/after engine dispatch, and after postMessage; includes cold catalog, final-view capture and send",
+    "limits": "HeapUsed excludes WASM and external message buffers. These are local measurements, not VM measurements. Temporary instrumentation removed after capture."
+  },
+  "runs": [
+    {
+      "label": "final-1",
+      "node": "v22.23.3",
+      "heapMb": 256,
+      "commands": 420,
+      "frames": 422,
+      "bytes": 16321668,
+      "mib": 15.565555572509766,
+      "elapsedMs": 1241.9539759999998,
+      "hostP99Ms": 4.640767,
+      "hostMaxMs": 54.132735,
+      "workerPeakHeapUsed": 99987720,
+      "workerPeakHeapMiB": 95.35572052001953,
+      "workerHeapPercent": 37.24832832813263
+    },
+    {
+      "label": "final-2",
+      "node": "v22.23.3",
+      "heapMb": 256,
+      "commands": 420,
+      "frames": 422,
+      "bytes": 16321668,
+      "mib": 15.565555572509766,
+      "elapsedMs": 1188.479418,
+      "hostP99Ms": 2.222079,
+      "hostMaxMs": 43.548671,
+      "workerPeakHeapUsed": 100680552,
+      "workerPeakHeapMiB": 96.0164566040039,
+      "workerHeapPercent": 37.506428360939026
+    },
+    {
+      "label": "final-3",
+      "node": "v22.23.3",
+      "heapMb": 256,
+      "commands": 420,
+      "frames": 422,
+      "bytes": 16321668,
+      "mib": 15.565555572509766,
+      "elapsedMs": 1295.597429,
+      "hostP99Ms": 4.358143,
+      "hostMaxMs": 44.859391,
+      "workerPeakHeapUsed": 99767152,
+      "workerPeakHeapMiB": 95.14537048339844,
+      "workerHeapPercent": 37.166160345077515
+    }
+  ]
+}

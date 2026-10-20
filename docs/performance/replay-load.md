@@ -77,9 +77,9 @@ The simulation/encoding work after initialization fell from approximately 391 ms
 
 Saved rules are validated before worker acquisition, including unchecked owner replay requests. The special surrender test adapter keeps the original transport path so its injected create/view failures and proof binaries remain effective. A focused 12-case loss/rule/held-view regression run passes.
 
-- Run the existing journal runner, answer validation, frame projection and JSON encoding beside the engine in its detached worker. Return one bounded batch instead of several messages and a serialization-worker handoff per command. The host still verifies final boards before cache insertion or response. The fallback transport remains available for adapters.
+- Run the existing journal runner, answer validation, frame projection and JSON encoding beside the engine in its detached worker. Load the replay module only for a replay request, so live-table workers do not import the replay builder at startup. Return one bounded batch instead of several messages and a serialization-worker handoff per command. The host still verifies final boards before cache insertion or response. The fallback transport remains available for adapters.
 - Stream gzip from both authenticated web replay routes when the client accepts it. Keep identity responses, JSON shape, redaction, post-build access checks and `private, no-store`. No compressed-response cache is added.
-- Mount multi-seat replay canvas children after the stage is measured, avoiding the hidden zero-scale field layout. Camera refs and the turn ring remain mounted.
+- Mount multi-seat replay canvas children after the stage is measured, avoiding the hidden zero-scale field layout. Camera refs and the turn ring remain mounted. Once fields mount, keep them mounted when the stage temporarily has zero size.
 - Skip field geometry work on healthy replay frames. Seeking to damage generates the correct geometry; seeking back removes masks/SVG and disconnects observers. Live fields keep their existing behavior.
 
 The 16 MiB frame/checkpoint cap, 64 MiB / 16-entry LRU, two concurrent builds, bounded wait queues, worker heap/operation limits and 25/28-second build/request deadlines remain. Workers terminate after each build; no resident engine pool is added. One bounded batch crosses the thread boundary and can briefly coexist in worker/host memory. Gzip streams avoid retaining a second complete compressed response buffer. First opens still pay current-resource checks and engine/card initialization. Damaged-frame seeks still compute their visible crack geometry.
@@ -115,3 +115,23 @@ The experiment writes `packages/e2e/.stack-7/replay-<label>-<repeat>.json`. Omit
 - An additional existing live FFA3 test (`duel-3p-ffa-table.spec.ts:77`) failed its old assertion that turn 3 has no Battle Phase. The installed core offers Battle Phase on turn 3 as required by ADR-0002 R-FFA-NO-ATTACK. It had already mounted all three fields and passed its field/EMZ checks. Its unfinished live duel redirected two later replay page checks; the fresh isolated replay run passes all three tests. The unrelated live-rule test was not changed.
 
 Temporary production timers and browser override experiments were removed. No engine `.build` directory was produced or left behind. No new unit tests were added.
+
+## PR review: near-cap worker measurement
+
+Node 22.23.3, compiled duel-server, default `DUEL_WORKER_HEAP_MB=256`, worktree-local prepared engine, no network server or containers. The fixture plays 420 real pinned Standard 1v1 commands with seed `["1", "2", "3", "4"]`, 200 Dark Magician cards per deck, deck validation/shuffling disabled, and no first-turn draw. It builds the seat-0 owner hand-reveal projection: **422 frames, 16,321,668 accounted bytes (15.57 MiB)**. Three fresh-process runs include cold worker catalog/engine startup, final projection capture, and structured-clone result delivery.
+
+Temporary compiled-worker probes sample `process.memoryUsage().heapUsed` before and after each view JSON encoding and engine dispatch, and after posting the result. The host uses `monitorEventLoopDelay({ resolution: 1 })`, with samples before and after the build. No probe remains in source or compiled output. Heap use excludes WASM memory and external message buffers. The result remains bounded by the existing 16 MiB cap.
+
+| Run | Worker peak heapUsed (MiB) | Default heap limit used | Host delay p99 (ms) | Host delay max (ms) | Build with sampling window (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 95.36 | 37.25% | 4.64 | 54.13 | 1,242 |
+| 2 | 96.02 | 37.51% | 2.22 | 43.55 | 1,188 |
+| 3 | 95.15 | 37.17% | 4.36 | 44.86 | 1,296 |
+
+The worst worker sample is below the review's 70% threshold (179.2 MiB), and the largest host delay is below 100 ms. The single bounded result is retained on this evidence. These measurements do not assert that every possible replay shape has identical memory use. [Raw samples and fixture details](replay-worker-cap.json).
+
+Unexpected replay failures now retain their cause until the worker response is built. The worker sends the original message, name and stack in an internal diagnostic field; the host reports it with table context and rejects with the fixed public message. Expected size, mismatch and resource errors without an unexpected cause remain unreported. A real missing-card-database failure proves original-path/stack reporting while the caller receives only `Replay engine is temporarily unavailable.` Loop-limit failures follow the same cause path. An expired batched result is rejected before final-board verification.
+
+Existing browser coverage now also sends an owner unchecked replay through the batched path and hides/restores the three-seat stage to check that its field DOM remains mounted. No new unit tests are added.
+
+Follow-up validation: **45 targeted server tests** pass across worker reporting, batched equivalence/lifecycle, replay building/JSON, the 1,500-command journal and real cross-version rejection. Duel-server and E2E typechecks and the slot-7 production web build pass. The fresh browser run passes **3 replay tests plus 5 auth checks**, including owner unchecked replay and field retention at zero size.

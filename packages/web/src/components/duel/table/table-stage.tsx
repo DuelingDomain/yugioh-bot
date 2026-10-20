@@ -701,7 +701,9 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
     return () => cancelAnimationFrame(frame);
   }, [rivalSeatKey, zoom.view, box.width, box.height, rootRef]);
 
-  const mountFields = !replay || k > 0;
+  const [fieldsReady, setFieldsReady] = useState(false);
+  if (k > 0 && !fieldsReady) setFieldsReady(true);
+  const mountFields = !replay || k > 0 || fieldsReady;
 
   return (
     <div

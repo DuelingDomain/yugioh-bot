@@ -58,6 +58,12 @@ test("compressed replays keep private seats, owner access, and identity fallback
       expect(admin.headers()["content-encoding"]).toBe("gzip");
       const data = await admin.json();
       expect(data.capabilities.canFork).toBe(true);
+      const unchecked = await own.request.get(`/api/admin/duels/${fixture.slug}/replay?version=2&visibility=mine&seat=2&reveal=1&unchecked=1`);
+      expect(unchecked.status()).toBe(200);
+      expect(unchecked.headers()["content-encoding"]).toBe("gzip");
+      const uncheckedData = await unchecked.json();
+      expect(uncheckedData.verification).toBe("unverified");
+      expect(uncheckedData.frames.map((frame: any) => frame.view)).toEqual(data.frames.map((frame: any) => frame.view));
       expect(data.frames[0].view.seats.every((seat: any) => seat.hand.some((card: any) => card?.code))).toBe(true);
     }
     if (process.env.E2E_OWNER_USER_IDS?.split(",").includes("104")) {
@@ -103,6 +109,14 @@ test("three-seat replay keeps the fly camera when seeking", async ({ browser }) 
     const stage = page.locator('[data-table-stage="ffa3"]');
     await expect(stage).toHaveAttribute("data-ready", "true");
     await expect(stage.locator("[data-seat-slot]")).toHaveCount(3);
+    const fields = stage.locator("[data-field-cracks]");
+    await expect(fields).toHaveCount(3);
+    await fields.evaluateAll(nodes => nodes.forEach(node => node.setAttribute("data-mount-probe", "retained")));
+    await stage.evaluate(node => { (node as HTMLElement).style.display = "none"; });
+    await expect(stage).toHaveAttribute("data-ready", "false");
+    await expect(stage.locator('[data-field-cracks][data-mount-probe="retained"]')).toHaveCount(3);
+    await stage.evaluate(node => { (node as HTMLElement).style.removeProperty("display"); });
+    await expect(stage).toHaveAttribute("data-ready", "true");
     await stage.focus();
     await page.keyboard.press("0");
     await expect(stage).toHaveAttribute("data-camera-mode", "fly");
