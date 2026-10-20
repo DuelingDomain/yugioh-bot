@@ -170,3 +170,9 @@ The reviewed checkout is `/tmp/format-staples-followup`. Its `.status/recruiters
 folder holds query results, role results and check logs. The local-all deployer
 must wait for other builds/copies, follow the documented stop/copy/start rule,
 then delete temporary build output. This report does not claim a new live publish.
+
+GitHub publication is also blocked: the GitHub write tool requires approval,
+while this session's approval policy is `never`. PR #421 still points to the
+previous source head `11876dd8b2e12d34827a5f07e5f4d4efba200c47`.
+A verified Git bundle, PR body and delivery notes are saved under `/tmp` for
+the coordinator. No new remote commit or local-all publish is claimed.
