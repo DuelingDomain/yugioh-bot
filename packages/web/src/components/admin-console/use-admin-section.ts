@@ -34,12 +34,19 @@ function publish(e: Entry, snapshot: SectionSnapshot<SectionId>) {
   e.listeners.forEach((l) => l());
 }
 
+/** Request URL per section. "today" sends the browser's UTC offset (minutes east of UTC) so the day starts at local midnight. */
+function urlOf(id: SectionId): string {
+  if (id !== "today") return `/api/admin/console/${id}`;
+  const tz = -new Date().getTimezoneOffset();
+  return `/api/admin/console/today?tz=${Number.isFinite(tz) ? Math.round(tz) : 0}`;
+}
+
 async function load(id: SectionId) {
   const e = entry(id);
   if (e.inflight) { e.again = true; return; }
   e.inflight = true;
   try {
-    const res = await fetch(`/api/admin/console/${id}`, { cache: "no-store" });
+    const res = await fetch(urlOf(id), { cache: "no-store" });
     if (res.status === 401) publish(e, { ...e.snapshot, failure: "unauthorized" });
     else if (res.status === 403 || res.status === 404) publish(e, { ...e.snapshot, failure: "forbidden" });
     else if (!res.ok) publish(e, { ...e.snapshot, failure: "unavailable" });

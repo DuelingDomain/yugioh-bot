@@ -1,17 +1,15 @@
 import type Database from "better-sqlite3";
 import { PENDING_DRAFT_MAX_AGE_MS, safeAvatarUrl } from "@yugidraft/shared/admin";
-import { DUEL_WAITING_IDLE_TIMEOUT_MS, teamOfSeat } from "@yugidraft/shared/duels";
+import { DUEL_WAITING_IDLE_TIMEOUT_MS } from "@yugidraft/shared/duels";
 import { DUEL_LIVE_IDLE_AFTER_MS, TEST_BOT_DISCORD_PREFIX } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { failed, notConfigured, ok, type SectionLoader } from "./section";
-import type { EndedDuel, LiveData, LiveDraft, LiveDuel, LiveDuelFormat, LiveSeat } from "./types";
+import type { LiveData, LiveDraft, LiveDuel, LiveDuelFormat, LiveSeat } from "./types";
 
-const FORMAT_LABEL: Record<LiveDuelFormat, string> = { "1v1": "1v1 duel", tag: "Tag duel", ffa3: "3-way duel", ffa4: "4-way duel" };
+export const FORMAT_LABEL: Record<LiveDuelFormat, string> = { "1v1": "1v1 duel", tag: "Tag duel", ffa3: "3-way duel", ffa4: "4-way duel" };
 const PRACTICE_BOT_NAME = "Practice Bot";
 const MAX_ROWS = 100;
-const ENDED_ROWS = 8;
-const ENDED_WINDOW_MS = 60 * 60 * 1000;
 /** Main-round picks per player when the draft config does not say. */
 const DEFAULT_PICKS = 40;
 
@@ -26,7 +24,7 @@ export function dbTimeMs(value: string | null | undefined): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-const safeInt = (value: unknown): number | null => (typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null);
+export const safeInt = (value: unknown): number | null => (typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null);
 
 type DuelRow = {
   id: number; web_slug: string; name: string; status: "lobby" | "active"; format: string; ranked: number;
@@ -35,12 +33,12 @@ type DuelRow = {
 };
 type SeatRow = { duel_id: number; is_bot: number; display_name: string | null; user_id: string | null; image_url: string | null };
 
-function isFormat(value: string): value is LiveDuelFormat {
+export function isFormat(value: string): value is LiveDuelFormat {
   return value === "1v1" || value === "tag" || value === "ffa3" || value === "ffa4";
 }
 
 /** One query for the seats of many duels: name, picture and bot flag, seat order. */
-function seatsOf(db: Database.Database, duelIds: number[]): Map<number, LiveSeat[]> {
+export function seatsOf(db: Database.Database, duelIds: number[]): Map<number, LiveSeat[]> {
   const seats = new Map<number, LiveSeat[]>();
   if (duelIds.length === 0) return seats;
   const rows = db.prepare(`
@@ -103,37 +101,6 @@ function liveDuels(db: Database.Database, guild: string, now: number): LiveDuel[
   return duels.sort((a, b) => Number(b.status === "active") - Number(a.status === "active") || sinceOf(b) - sinceOf(a));
 }
 
-type EndedRow = {
-  id: number; web_slug: string; name: string; status: string; format: string; ranked: number; ended_at: string;
-  winner_seat: number | null; result_reason: string | null; turn_count: number | null;
-};
-
-/** Duels that finished in the last hour. The range uses duels_play_history_idx (guild_id, julianday(coalesce(ended_at, created_at))). */
-function endedDuels(db: Database.Database, guild: string, now: number): EndedDuel[] {
-  const rows = db.prepare(`
-    select id, web_slug, name, status, format, ranked, ended_at, winner_seat, result_reason, turn_count from duels
-    where guild_id = ? and kind = 'play' and julianday(coalesce(ended_at, created_at)) >= julianday(?)
-      and status in ('completed', 'interrupted') and ended_at is not null and started_at is not null
-    order by julianday(coalesce(ended_at, created_at)) desc limit ?`).all(guild, new Date(now - ENDED_WINDOW_MS).toISOString(), ENDED_ROWS) as EndedRow[];
-  if (rows.length === 0) return [];
-  const seats = seatsOf(db, rows.map((row) => row.id));
-  return rows.map((row): EndedDuel => {
-    const format: LiveDuelFormat = isFormat(row.format) ? row.format : "1v1";
-    const names = (seats.get(row.id) ?? []).map((seat) => seat.name);
-    // Seats come in seat order. In Tag the winner's partner wins too (team = seat % 2).
-    const won = (seat: number) => row.winner_seat !== null && teamOfSeat(format, seat) === teamOfSeat(format, row.winner_seat);
-    const winners = names.filter((_, seat) => won(seat));
-    const losers = names.filter((_, seat) => !won(seat));
-    const result = winners.length > 0
-      ? (format === "1v1" && losers.length === 1 ? `${winners[0]} beat ${losers[0]}` : `${winners.join(" & ")} won`)
-      : row.status === "interrupted" ? "Ended early" : (row.result_reason?.slice(0, 60) || "Draw");
-    return {
-      slug: row.web_slug, name: row.name, formatLabel: FORMAT_LABEL[format], ranked: row.ranked === 1, result,
-      turns: safeInt(row.turn_count), endedAt: dbTimeMs(row.ended_at) ?? now, replayHref: `/duels/${row.web_slug}/replay`,
-    };
-  });
-}
-
 type DraftRow = {
   id: number; web_slug: string; name: string; status: "pending" | "active"; created_at: string; started_at: string | null;
   current_wave_number: number; current_pick_step: number; mode: string | null; cube_name: unknown; cards_per_player: unknown;
@@ -189,7 +156,7 @@ function liveDrafts(db: Database.Database, guild: string, now: number): LiveDraf
 /**
  * Open duel tables and drafts from the shared SQLite file, scoped to the configured guild. "Live" means the
  * duel is `active` and not past the idle cut-off; lobbies are listed too with status "lobby". Replay forks
- * are not duels people play, so they are left out. Duels that finished in the last hour come in `ended`.
+ * are not duels people play, so they are left out. Duels that started today are in the "today" section.
  */
 export const loadLive: SectionLoader<"live"> = async ({ now }) => {
   const guild = env.discordGuildId;
@@ -205,7 +172,7 @@ export const loadLive: SectionLoader<"live"> = async ({ now }) => {
       return (b.createdAt ?? 0) - (a.createdAt ?? 0);
     };
     const data: LiveData = {
-      duels: liveDuels(db, guild, now).sort(byAge), drafts: liveDrafts(db, guild, now).sort(byAge), ended: endedDuels(db, guild, now),
+      duels: liveDuels(db, guild, now).sort(byAge), drafts: liveDrafts(db, guild, now).sort(byAge),
     };
     return ok(data, now);
   } catch {
