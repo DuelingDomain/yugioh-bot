@@ -367,7 +367,7 @@ it("schedules one retention sweep at a time and waits for it during shutdown", a
   const job = vi.spyOn(jobs, "runDuelSnapshotRetention").mockImplementation(async (_db, options) => {
     await gate;
     stoppedAtRelease = options?.stopped?.();
-    return { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false, turnCursor: 0, turnBackfillDone: false, turnBackfillResumeAt: 0 };
+    return { backfilled: 0, compacted: 0, deletedForks: 0, deletedTestDuels: 0, busy: false, backlogDone: false, turnCursor: 0, turnBackfillDone: false, turnBackfillResumeAt: 0 };
   });
   try {
     host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000 });
@@ -432,7 +432,7 @@ it("passes turn scan state to later host sweeps and logs only error names and co
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   const job = vi.spyOn(jobs, "runDuelSnapshotRetention").mockImplementation(async (_db, options) => {
     options?.onError?.("turn-backfill", Object.assign(new TypeError("Synthetic private payload"), { code: "SYNTHETIC_FAILURE" }));
-    return { backfilled: 0, compacted: 0, deletedForks: 0, busy: false, backlogDone: false, turnCursor: 7, turnBackfillDone: false, turnBackfillResumeAt: 3_600_000 };
+    return { backfilled: 0, compacted: 0, deletedForks: 0, deletedTestDuels: 0, busy: false, backlogDone: false, turnCursor: 7, turnBackfillDone: false, turnBackfillResumeAt: 3_600_000 };
   });
   try {
     host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000 });
