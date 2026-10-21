@@ -1,3 +1,4 @@
+import { createServiceReporter } from "@yugidraft/shared/health";
 import { log, report } from "@yugidraft/shared/observability";
 import { awaitObservabilityShutdown } from "@yugidraft/shared/observability/node-bootstrap";
 import { signedTransport } from "@yugidraft/shared/internal-auth";
@@ -65,6 +66,8 @@ const host = createDuelHost({
   // Rock-paper-scissors decides who goes first in game 1. DUEL_RPS_OPENING=0 turns it off.
   openingRps: process.env.DUEL_RPS_OPENING !== "0",
 });
+const health = createServiceReporter({ db, service: "duel", capacity: () => host.diagnostics() });
+health.start();
 let closing = false;
 function restarting(response: ServerResponse) {
   response.writeHead(503, { "content-type": "application/json", "connection": "close", "Retry-After": "2" });
@@ -127,6 +130,7 @@ async function shutdown() {
     return;
   }
   closing = true;
+  health.stop();
   const exitTimer = setTimeout(() => process.exit(0), 5000);
   exitTimer.unref();
   let exitCode = 0;

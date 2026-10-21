@@ -1,3 +1,5 @@
+import { openDatabase } from "@yugidraft/shared/db";
+import { createServiceReporter } from "@yugidraft/shared/health";
 import { log } from "@yugidraft/shared/observability";
 import "dotenv/config";
 import { createServer } from "http";
@@ -8,7 +10,7 @@ import { registerDuelEventHandlers } from "./duel-events.js";
 import { presenceHeartbeat } from "./socket-options.js";
 import { listenInternalHttp } from "./internal-http.js";
 import type { TypedServer } from "./events.js";
-import { createDraftAccessReader, createTournamentAccessReader, createDuelAccessReader } from "@yugidraft/shared/services";
+import { createDraftAccessReader, createTournamentAccessReader, createDuelAccessReader, resolveDraftDatabasePath } from "@yugidraft/shared/services";
 
 const WEB_URL = process.env.WEB_URL ?? "http://localhost:3000";
 const WS_PORT = Number(process.env.WS_PORT ?? 3001);
@@ -21,6 +23,10 @@ const io: TypedServer = new Server(httpServer, {
   cors: { origin: WEB_URL, methods: ["GET", "POST"], credentials: true },
 });
 
+const healthDb = openDatabase(resolveDraftDatabasePath(process.env.DATABASE_PATH));
+const health = createServiceReporter({ db: healthDb, service: "ws", capacity: () => ({ connectedSockets: io.engine.clientsCount }) });
+health.start();
+httpServer.on("close", () => { health.stop(); healthDb.close(); });
 const roomManager = new DraftRoomManager();
 const draftAccess = createDraftAccessReader();
 const tournamentAccess = createTournamentAccessReader();

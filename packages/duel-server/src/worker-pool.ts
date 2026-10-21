@@ -56,6 +56,10 @@ export class WorkerPool {
     });
   }
 
+  diagnostics() {
+    return { engineWorkers: this.active.size, maxWorkers: this.maxWorkers, queuedRebuilds: this.waiting.length };
+  }
+
   close(): void {
     this.stopped = true;
     for (const waiter of this.waiting.splice(0)) waiter.reject(new RequestError("The duel server is shutting down.", 503));

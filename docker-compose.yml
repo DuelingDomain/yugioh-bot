@@ -194,6 +194,7 @@ services:
       - IMAGE_CLEANUP_TIMEZONE=${IMAGE_CLEANUP_TIMEZONE:-UTC}
     volumes:
       - ./data:/app/data
+      - vps_health:/run/vps-health:ro
     depends_on:
       - ws
 
@@ -243,6 +244,9 @@ services:
 
   caddy:
     image: caddy:2-alpine
+    init: true
+    entrypoint: ["/bin/sh", "/etc/caddy/vps-health.sh"]
+    command: ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
     restart: unless-stopped
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
@@ -258,6 +262,8 @@ services:
       - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./scripts/deployment/caddy-vps-health.sh:/etc/caddy/vps-health.sh:ro
+      - vps_health:/run/vps-health
       - ./site/public:/srv/site:ro
       - caddy_data:/data
       - caddy_config:/config
@@ -266,5 +272,6 @@ services:
       - ws
 
 volumes:
+  vps_health:
   caddy_data:
   caddy_config:

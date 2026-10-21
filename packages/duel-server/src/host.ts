@@ -316,6 +316,7 @@ export interface DuelHost {
   handle(request: Request): Promise<Response>;
   /** Starts hashing the 1v1 engine files in the background (the server calls it once after it listens). */
   warmStartResources(): void;
+  diagnostics(): { engineWorkers: number; maxWorkers: number; queuedRebuilds: number };
   close(): Promise<void>;
 }
 
@@ -4071,6 +4072,7 @@ export function createDuelHost(options: {
 
   return {
     warmStartResources,
+    diagnostics: () => pool.diagnostics(),
     async handle(request: Request): Promise<Response> {
       if (request.method !== "POST" || new URL(request.url).pathname !== "/internal/duel") return new Response("Not found", { status: 404 });
       const result = await readSignedRequest(request, { secret: options.secret, purpose: "duel-host" });
