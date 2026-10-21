@@ -132,7 +132,7 @@ export function DuelsView({ s, actions }: { s: Snapshots; actions: ConsoleAction
             <button key={key} type="button" aria-pressed={filter === key} aria-label={`${label}, ${n}`} onClick={() => setFilter(key)}>{label}<span>{n}</span></button>
           ))}
         </div>
-        <span className={`${styles.aside} ${styles.toolbarEnd}`}>Watch opens the table in a new tab</span>
+        <span className={`${styles.aside} ${styles.toolbarEnd}`}>Watch opens a read-only player view in a new tab</span>
       </div>
 
       {showDuels ? (
@@ -147,7 +147,7 @@ export function DuelsView({ s, actions }: { s: Snapshots; actions: ConsoleAction
               <div key={d.slug} className={styles.tblRow} role="row">
                 <div className={styles.cFmt} role="cell">
                   <div className={styles.fmt}>{d.formatLabel.replace(" duel", "")}<Tag tone={d.ranked ? "gold" : undefined}>{d.ranked ? "Ranked" : "Casual"}</Tag></div>
-                  <div className={styles.fmtSmall} title={d.name}>{d.genesys ? "Genesys · " : ""}{d.name}</div>
+                  <div className={styles.fmtSmall} title={d.name}>{d.modeLabel ? `${d.modeLabel} · ` : ""}{d.genesys ? "Genesys · " : ""}{d.name}{d.visibility === "private" ? " · Private" : ""}</div>
                 </div>
                 <div className={`${styles.cPl} ${styles.players}`} role="cell">
                   {(d.seats ?? d.players.map((name) => ({ name, avatarUrl: null, bot: false, userId: null }))).map((seat, i) => (
@@ -159,7 +159,7 @@ export function DuelsView({ s, actions }: { s: Snapshots; actions: ConsoleAction
                   <small className={styles.ago}>{d.startedAt ? <><Since at={d.startedAt} /> playing</> : <>open <Since at={d.createdAt} /></>}</small>
                 </div>
                 <div className={`${styles.cAgo} ${styles.num}`} role="cell"><Since at={d.startedAt ?? d.createdAt} suffix=" ago" /></div>
-                <div className={styles.cAct} role="cell"><WatchLink href={d.watchHref} label={d.status === "lobby" ? "Open" : "Watch"} /></div>
+                <div className={styles.cAct} role="cell"><WatchLink href={d.watchHref} label="Watch" title={d.status === "lobby" ? "Waiting table: opens the seat list" : undefined} /></div>
               </div>
             );
           })}
@@ -179,7 +179,7 @@ export function DuelsView({ s, actions }: { s: Snapshots; actions: ConsoleAction
               return (
                 <div key={d.slug} className={styles.tblRow} role="row">
                   <div className={styles.cFmt} role="cell">
-                    <div className={styles.fmt}>{d.name}<Tag>{d.modeLabel ?? "Draft"}</Tag></div>
+                    <div className={styles.fmt}>{d.name}<Tag>{d.modeLabel ?? "Draft"}</Tag>{d.visibility === "private" ? <Tag>Private</Tag> : null}</div>
                     {d.cubeName ? <div className={styles.fmtSmall}>{d.cubeName}</div> : null}
                   </div>
                   <div className={`${styles.cPl} ${styles.players}`} role="cell">
@@ -190,7 +190,7 @@ export function DuelsView({ s, actions }: { s: Snapshots; actions: ConsoleAction
                     <div className={styles.bar}><span style={{ width: `${pct}%` }} /></div>
                   </div>
                   <div className={`${styles.cAgo} ${styles.num}`} role="cell"><Since at={d.startedAt ?? d.createdAt} suffix=" ago" /></div>
-                  <div className={styles.cAct} role="cell"><WatchLink href={d.href} label="Open" /></div>
+                  <div className={styles.cAct} role="cell"><WatchLink href={d.href} label="Watch" title={d.status === "pending" ? "Waiting lobby: opens the player list" : undefined} /></div>
                 </div>
               );
             })}

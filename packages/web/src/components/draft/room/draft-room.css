@@ -68,6 +68,10 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* Admin live watch: the strip of the watch bar (live-watch.module.css) sits above the room, not over its top bar. */
+.dr[data-admin-watch] { --admin-bar-h: 44px; top: var(--admin-bar-h); }
+@media (max-width: 720px) { .dr[data-admin-watch] { --admin-bar-h: 84px; } }
+
 .dr .room {
   display: grid;
   grid-template-rows: var(--bar-h) minmax(0, 1fr);

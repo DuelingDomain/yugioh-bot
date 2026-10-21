@@ -234,6 +234,8 @@ export interface DuelService {
   setDeck(slug: string, guildId: string, playerId: number, deck: DuelDeck): DuelSession;
   /** Mutation prechecks must set `allowKickedHistory: false`; former seats may read their finished games. */
   room(slug: string, guildId: string, playerId: number, options?: { includeStoredBoard?: boolean; allowKickedHistory?: boolean }): DuelRoom;
+  /** Private inspection projection without reading or parsing the move journal. */
+  privateSnapshot(slug: string, guildId: string): Pick<DuelPrivateState, "session" | "decks" | "clock">;
   privateState(slug: string, guildId: string): DuelPrivateState;
   /**
    * Marks a seated player ready with the deck already in the seat (a
@@ -1859,6 +1861,15 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         room.mySide = series.sideState(linked, playerId) ?? (own ? { baseDeck: own, currentDeck: own } : null);
       }
       return room;
+    },
+
+    privateSnapshot(slug, guildId) {
+      const row = loadDuelRow(slug, guildId);
+      return {
+        session: mapSession(row),
+        decks: seatRows(row.id).map((seat) => parseDeck(seat.deck_json) ?? emptyDeck()),
+        clock: isReplayFork(row) ? null : rowClock(row),
+      };
     },
 
     privateState(slug, guildId) {

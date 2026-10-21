@@ -15,8 +15,8 @@
 
 .shell.shell[data-viewport="true"] {
   position: fixed;
-  inset: 0;
-  height: 100dvh;
+  inset: var(--admin-bar-h, 0px) 0 0 0;
+  height: calc(100dvh - var(--admin-bar-h, 0px));
 }
 
 /* Who left the table: a note in the footer space below the hands, clear of field titles. */

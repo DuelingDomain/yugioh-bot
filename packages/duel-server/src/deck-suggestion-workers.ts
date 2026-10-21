@@ -2,13 +2,25 @@ import { Worker } from "node:worker_threads";
 import type Database from "better-sqlite3";
 import type { DeckSuggestionLegality, DeckSuggestionQuery, DeckSuggestionResult, CardEffectSearchResult } from "@yugidraft/shared/services";
 
-type Job = { worker: Worker; reject?: (error: Error) => void };
+type Job = { worker: Worker; reject?: (error: Error) => void; idle?: ReturnType<typeof setTimeout> };
 export type SuggestionScan = { guildId?: string; query: DeckSuggestionQuery; legality: DeckSuggestionLegality; deckMaster?: number };
 
 /** Two reusable read-only scanners, isolated from live duel operations. The host owns admission. */
 export class DeckSuggestionWorkers {
   private readonly jobs: Job[] = [];
-  constructor(private readonly db: Database.Database, private readonly dataDirectory: string) {}
+  private readonly retiring = new Set<Promise<number>>();
+  constructor(private readonly db: Database.Database, private readonly dataDirectory: string,
+    private readonly idleMs = 120_000) {}
+
+  private retire(job: Job): void {
+    clearTimeout(job.idle);
+    const index = this.jobs.indexOf(job);
+    if (index >= 0) this.jobs.splice(index, 1);
+    const terminated = job.worker.terminate();
+    this.retiring.add(terminated);
+    const forget = () => { this.retiring.delete(terminated); };
+    void terminated.then(forget, forget);
+  }
 
   run(scan: SuggestionScan): Promise<DeckSuggestionResult | CardEffectSearchResult> {
     let job = this.jobs.find(job => !job.reject);
@@ -26,14 +38,19 @@ export class DeckSuggestionWorkers {
       // An idle worker may exit too. Keep errors handled and never reuse a dead scanner.
       worker.on("error", () => {});
       worker.once("exit", () => {
+        clearTimeout(job!.idle);
         const index = this.jobs.findIndex(job => job.worker === worker);
         if (index >= 0) this.jobs.splice(index, 1);
       });
     }
     const current = job;
+    clearTimeout(current.idle);
     current.worker.ref();
     return new Promise((resolve, reject) => {
+      let settled = false;
       const finish = (error?: Error, result?: DeckSuggestionResult | CardEffectSearchResult) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         current.worker.off("message", message);
         current.worker.off("error", fail);
@@ -41,11 +58,15 @@ export class DeckSuggestionWorkers {
         current.reject = undefined;
         current.worker.unref();
         if (error) {
-          const index = this.jobs.indexOf(current);
-          if (index >= 0) this.jobs.splice(index, 1);
-          void current.worker.terminate();
+          this.retire(current);
           reject(error);
-        } else resolve(result!);
+        } else {
+          // Reuse during a burst of editor requests, then release the isolate,
+          // module graph and read-only SQLite page cache between visits.
+          current.idle = setTimeout(() => this.retire(current), this.idleMs);
+          current.idle.unref();
+          resolve(result!);
+        }
       };
       const fail = () => finish(new Error("Suggestion scanner stopped"));
       const message = (answer: { error?: boolean; result: DeckSuggestionResult | CardEffectSearchResult }) =>
@@ -67,8 +88,11 @@ export class DeckSuggestionWorkers {
 
   async close(): Promise<void> {
     const jobs = [...this.jobs];
-    for (const job of jobs) job.reject?.(new Error("Suggestion scanner closed"));
-    await Promise.all(jobs.map(job => job.worker.terminate()));
+    for (const job of jobs) {
+      clearTimeout(job.idle);
+      job.reject?.(new Error("Suggestion scanner closed"));
+    }
+    await Promise.all([...this.retiring, ...jobs.map(job => job.worker.terminate())]);
     this.jobs.length = 0;
   }
 }

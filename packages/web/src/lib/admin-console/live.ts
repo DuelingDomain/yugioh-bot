@@ -29,7 +29,7 @@ export const safeInt = (value: unknown): number | null => (typeof value === "num
 type DuelRow = {
   id: number; web_slug: string; name: string; status: "lobby" | "active"; format: string; ranked: number;
   genesys: number; created_at: string; started_at: string | null; activity_at: string | null; seat_count: number;
-  turn: number | null; active_seat: number | null;
+  turn: number | null; active_seat: number | null; visibility: "public" | "private"; mode: string;
 };
 type SeatRow = { duel_id: number; is_bot: number; display_name: string | null; user_id: number | null; image_url: string | null };
 
@@ -60,7 +60,8 @@ function liveDuels(db: Database.Database, guild: string, now: number): LiveDuel[
   // Index: duels_guild_status_idx (guild_id, status). Only open tables are read. clock_json is a few dozen bytes
   // ({ turn, remainingMs, activeSeat, startedAt }), so reading the turn from it is cheap; board snapshots are never read.
   const rows = db.prepare(`
-    select d.id, d.web_slug, d.name, d.status, d.format, d.ranked, d.created_at, d.started_at,
+    select d.id, d.web_slug, d.name, d.status, d.format, d.ranked, d.mode,
+      coalesce(json_extract(d.settings_json, '$.visibility'), 'public') as visibility, d.created_at, d.started_at,
       coalesce(d.last_activity_at, d.started_at, d.created_at) as activity_at,
       json_extract(d.settings_json, '$.genesys') is not null as genesys,
       (select count(*) from duel_seats s where s.duel_id = d.id) as seat_count,
@@ -69,8 +70,7 @@ function liveDuels(db: Database.Database, guild: string, now: number): LiveDuel[
     from duels d
     where d.guild_id = ? and d.status in ('lobby', 'active') and d.kind = 'play' and d.archived_at is null
     order by d.id desc limit 500`).all(guild) as DuelRow[];
-  // Same cut-offs the duel host uses: an active duel closes after 10 minutes without input,
-  // a waiting table after the lobby timeout. Rows past them are about to be closed, so they are not live.
+  // Match the host's live/lobby idle cutoffs before loading seat details.
   const open = rows.filter((row) => {
     const activity = dbTimeMs(row.activity_at) ?? 0;
     if (row.status === "active") return now - activity <= DUEL_LIVE_IDLE_AFTER_MS;
@@ -89,7 +89,7 @@ function liveDuels(db: Database.Database, guild: string, now: number): LiveDuel[
       players: tableSeats.map((seat) => seat.name),
       startedAt: row.status === "active" ? (dbTimeMs(row.started_at) ?? createdAt) : null,
       createdAt, ranked: row.ranked === 1, genesys: row.genesys === 1,
-      watchHref: `/duels/${row.web_slug}`,
+      watchHref: `/admin/watch/duel/${row.web_slug}`, visibility: row.visibility, modeLabel: row.mode === "domain" ? "Domain" : "Standard",
       seats: tableSeats,
       turn: row.status === "active" ? safeInt(row.turn) : null,
       activeSeat: row.status === "active" && activeSeat !== null && activeSeat < tableSeats.length ? activeSeat : null,
@@ -103,14 +103,14 @@ function liveDuels(db: Database.Database, guild: string, now: number): LiveDuel[
 
 type DraftRow = {
   id: number; web_slug: string; name: string; status: "pending" | "active"; created_at: string; started_at: string | null;
-  current_wave_number: number; current_pick_step: number; mode: string | null; cube_name: unknown; cards_per_player: unknown;
+  visibility: "open" | "private"; current_wave_number: number; current_pick_step: number; mode: string | null; cube_name: unknown; cards_per_player: unknown;
 };
 type DraftPlayerRow = { draft_id: number; display_name: string; user_id: number | null; discord_user_id: string | null; image_url: string | null; pick_count: number };
 
 function liveDrafts(db: Database.Database, guild: string, now: number): LiveDraft[] {
   // Index: drafts_guild_status_created_idx (guild_id, status, created_at).
   const rows = db.prepare(`
-    select id, web_slug, name, status, created_at, started_at, current_wave_number, current_pick_step,
+    select id, web_slug, name, status, created_at, started_at, visibility, current_wave_number, current_pick_step,
       case when json_valid(config_json) then json_extract(config_json, '$.mode') end as mode,
       case when json_valid(config_json) then json_extract(config_json, '$.poolSource.cubeName') end as cube_name,
       case when json_valid(config_json) then json_extract(config_json, '$.cardsPerPlayer') end as cards_per_player
@@ -143,7 +143,7 @@ function liveDrafts(db: Database.Database, guild: string, now: number): LiveDraf
       startedAt: row.status === "active" ? (dbTimeMs(row.started_at) ?? dbTimeMs(row.created_at)) : null,
       createdAt: dbTimeMs(row.created_at) ?? now,
       progress: row.status === "active" && row.current_wave_number > 0 ? `Round ${row.current_wave_number}, pick ${row.current_pick_step}` : null,
-      href: `/draft/${row.web_slug}`,
+      href: `/admin/watch/draft/${row.web_slug}`, visibility: row.visibility,
       seats: draftSeats,
       modeLabel: row.mode === "theme" ? "Theme" : typeof row.cube_name === "string" && row.cube_name.trim() ? "Cube" : "Booster",
       cubeName: typeof row.cube_name === "string" && row.cube_name.trim() ? row.cube_name.trim().slice(0, 80) : null,
@@ -155,7 +155,7 @@ function liveDrafts(db: Database.Database, guild: string, now: number): LiveDraf
 
 /**
  * Open duel tables and drafts from the shared SQLite file, scoped to the configured guild. "Live" means the
- * duel is `active` and not past the idle cut-off; lobbies are listed too with status "lobby". Replay forks
+ * duel is persisted as `active`; lobbies are listed too with status "lobby". Replay forks
  * are not duels people play, so they are left out. Duels that started today are in the "today" section.
  */
 export const loadLive: SectionLoader<"live"> = async ({ now }) => {

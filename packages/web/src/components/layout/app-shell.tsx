@@ -177,7 +177,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // Keep the field's inspector and Domain rail usable instead of squeezing them
   // beside the dashboard navigation. The room includes its own route back.
-  if (pathname.startsWith("/duels/")) {
+  // The admin watch page shows the same room, so it gets the same bare frame (its own bar has the way back).
+  if (pathname.startsWith("/duels/") || pathname.startsWith("/admin/watch/")) {
     return (
       <>
         <main className="min-h-screen bg-bg-deep p-4 text-text-primary sm:p-6 lg:p-8">{children}</main>

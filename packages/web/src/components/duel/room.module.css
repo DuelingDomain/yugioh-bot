@@ -80,13 +80,13 @@
      goes to the side panes. --duel-free is the viewport width left once the field has what it needs
      (about 1.12 x the height under the header and track, plus the sheet margins); the panes share it,
      up to a vw ceiling. The left pane holds the duel history, so it gets the larger share (62%, up to 26vw). */
-  --duel-free: max(0px, calc(100vw - (100dvh - 140px) * 1.12 - 40px));
+  --duel-free: max(0px, calc(100vw - (100dvh - var(--admin-bar-h, 0px) - 140px) * 1.12 - 40px));
   --duel-insp-w: clamp(260px, min(26vw, calc(var(--duel-free) * 0.62)), 560px);
   --duel-dock-w: clamp(212px, min(16vw, calc(var(--duel-free) * 0.38)), 460px);
   position: relative;
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  height: calc(100dvh - var(--admin-bar-h, 0px));
   min-width: 0;
   /* clip, unlike hidden, cannot be scrolled by focus or scrollIntoView, so the room never shifts. */
   overflow: hidden;
@@ -839,7 +839,7 @@
 @media (max-width: 900px) {
   .shell, .cardMenu, .cardTooltip { --duel-unit: 1px; }
   /* Legacy flow (replay): the page may grow and scroll. */
-  .shell { height: auto; min-height: 100dvh; overflow: visible; }
+  .shell { height: auto; min-height: calc(100dvh - var(--admin-bar-h, 0px)); overflow: visible; }
   .header { height: calc(42 * var(--duel-unit)); grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; gap: 8px; padding: 0 8px 0 12px; }
   .layout, .shell[data-domain="true"] .layout {
     display: grid;
@@ -860,7 +860,7 @@
   .promptDock[data-mode="float"], .promptDock[data-mode="flow"] { margin: 6px 0 0; max-height: none; }
 
   /* The live room: everything fits one screen, nothing scrolls. */
-  .shell[data-fit="true"] { height: 100dvh; min-height: 0; overflow: hidden; }
+  .shell[data-fit="true"] { height: calc(100dvh - var(--admin-bar-h, 0px)); min-height: 0; overflow: hidden; }
   .shell[data-fit="true"] .layout, .shell[data-fit="true"][data-domain="true"] .layout {
     flex: 1;
     grid-template-rows: auto minmax(0, 1fr);

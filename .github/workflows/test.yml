@@ -92,6 +92,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check admin spectate service configuration
+        run: prlimit --core=0 -- node scripts/ci/check-admin-spectate-compose.mjs
+
       - name: Find tested main ancestor
         id: baseline
         if: github.event_name == 'push'

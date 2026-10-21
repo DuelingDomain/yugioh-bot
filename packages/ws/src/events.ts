@@ -29,6 +29,7 @@ export interface DuelJoinPayload {
 }
 
 export interface ServerToClientEvents {
+  "admin:spectate-expired": (data: { kind: "duel" | "draft"; slug: string }) => void;
   "draft:status": (data: { status: DraftStatus }) => void;
   "draft:pick": (data: { playerId: number; packRound: number; pickStep: number }) => void;
   "draft:resync": (data: { packRound: number; pickStep: number }) => void;
@@ -49,6 +50,7 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
+  "admin:spectate": (payload: { token: string }, ack?: (result: { ok: boolean }) => void) => void;
   "draft:join": (
     payload: DraftJoinPayload,
     ack?: (result?: { error?: string }) => void,
