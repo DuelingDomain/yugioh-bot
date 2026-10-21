@@ -35,6 +35,7 @@ export function TagPreview({ stateId, cam, lock, pick = null, mode = null }: { s
             ...(state.ui?.camera ?? {}),
           }}
           chainMode={preview.chainMode}
+          headerTools={preview.headerTools}
         />
       )}
     />

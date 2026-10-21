@@ -16,6 +16,9 @@ const COVER_REACH = 40;
  * grows and shrinks. A clip-path also removes the hole from hit testing, so the pointer there reaches the card, and the rest of
  * the layer stays whole. Field cards need no hole: the hand strip rises over them by CSS (`field.module.css`).
  *
+ * The open card inspector (and any open edge drawer) is cut out of the same layers in the same way: it is a panel over the whole
+ * board, but in the live table the shell is one fixed stacking context, so a body-level layer such as the emblem would draw over it.
+ *
  * One tracker serves every layer: a single set of document listeners and a single frame loop, however many layers use the hook.
  * The loop runs while the card grows or shrinks and stops once nothing moved for a few frames; the tracker then re-checks at a
  * slow pace while the card stays hovered (a layer may be remounted or the board resized without any event).
@@ -57,17 +60,61 @@ function stop() {
   slow = 0;
 }
 
+type Box = { left: number; top: number; right: number; bottom: number };
+
+/** An open card inspector or edge drawer panel: it lies over the whole board, so these layers must not draw over it either. */
+const OPEN_DRAWER = "[data-testid='hover-preview'], [data-edge-drawer][data-state='open'] [role='dialog']";
+
+const near = (r: Box, box: DOMRect) =>
+  r.right > box.left - COVER_REACH && r.left < box.right + COVER_REACH && r.bottom > box.top - COVER_REACH && r.top < box.bottom + COVER_REACH;
+
+/** Part of `box` that `cut` does not cover: up to four boxes (above, below, left and right of the overlap). */
+function subtract(box: Box, cut: Box): Box[] {
+  if (cut.right <= box.left || cut.left >= box.right || cut.bottom <= box.top || cut.top >= box.bottom) return [box];
+  const out: Box[] = [];
+  if (cut.top > box.top) out.push({ left: box.left, top: box.top, right: box.right, bottom: cut.top });
+  if (cut.bottom < box.bottom) out.push({ left: box.left, top: cut.bottom, right: box.right, bottom: box.bottom });
+  const top = Math.max(box.top, cut.top);
+  const bottom = Math.min(box.bottom, cut.bottom);
+  if (cut.left > box.left) out.push({ left: box.left, top, right: cut.left, bottom });
+  if (cut.right < box.right) out.push({ left: cut.right, top, right: box.right, bottom });
+  return out;
+}
+
+/**
+ * The holes as boxes that do not overlap: an even-odd polygon would fill the overlap of two holes again. Each box keeps only the part
+ * the earlier ones do not cover, so the union stays exact (a hovered card beside the drawer does not cut the layer between them).
+ */
+function disjoint(list: Box[]): Box[] {
+  let out: Box[] = [];
+  for (const { left, top, right, bottom } of list) {
+    // A DOMRect keeps its sides on the prototype: copy them one by one.
+    let pieces: Box[] = [{ left, top, right, bottom }];
+    for (const done of out) pieces = pieces.flatMap((piece) => subtract(piece, done));
+    out = out.concat(pieces);
+  }
+  return out;
+}
+
 function tick() {
   frame = 0;
   slow = 0;
-  if (!card?.isConnected) {
+  if (card && !card.isConnected) card = null;
+  const holes: Box[] = [];
+  if (card) holes.push((card.querySelector<HTMLElement>("[data-card-frame]") ?? card).getBoundingClientRect());
+  for (const drawer of document.querySelectorAll<HTMLElement>(OPEN_DRAWER)) {
+    // A drawer that is closing keeps its hole until it has slid out (its `visibility` flips after the slide).
+    if (getComputedStyle(drawer).visibility === "hidden") continue;
+    const box = drawer.getBoundingClientRect();
+    if (box.width > 0 && box.height > 0) holes.push(box);
+  }
+  if (holes.length === 0) {
     clearAll();
     return;
   }
-  const r = (card.querySelector<HTMLElement>("[data-card-frame]") ?? card).getBoundingClientRect();
   // Read every box first, then write: one layout for all layers.
   const reads: Array<[Layer, DOMRect | null]> = [];
-  let next = `${r.left},${r.top},${r.right},${r.bottom}`;
+  let next = holes.map((r) => `${r.left},${r.top},${r.right},${r.bottom}`).join(";");
   for (const layer of layers) {
     const box = layer.wrap.current?.getBoundingClientRect() ?? null;
     reads.push([layer, box]);
@@ -76,29 +123,38 @@ function tick() {
   for (const [layer, box] of reads) {
     const el = layer.wrap.current;
     if (!el || !box) continue;
-    const near = r.right > box.left - COVER_REACH && r.left < box.right + COVER_REACH && r.bottom > box.top - COVER_REACH && r.top < box.bottom + COVER_REACH;
-    if (near) {
-      // A scaled layer (a camera zoom) draws its clip-path in its own, unscaled pixels.
-      const scale = el.offsetWidth > 0 && Math.abs(box.width / el.offsetWidth - 1) > 0.01 ? box.width / el.offsetWidth : 1;
+    const cuts = disjoint(holes.filter((r) => near(r, box)));
+    if (cuts.length === 0) {
+      setCut(layer, "");
+      continue;
+    }
+    // A scaled layer (a camera zoom) draws its clip-path in its own, unscaled pixels.
+    const scale = el.offsetWidth > 0 && Math.abs(box.width / el.offsetWidth - 1) > 0.01 ? box.width / el.offsetWidth : 1;
+    let path = "polygon(evenodd, -400px -400px, calc(100% + 400px) -400px, calc(100% + 400px) calc(100% + 400px), -400px calc(100% + 400px), -400px -400px";
+    for (const r of cuts) {
       const x1 = Math.round((r.left - box.left) / scale);
       const y1 = Math.round((r.top - box.top) / scale);
       const x2 = Math.round((r.right - box.left) / scale);
       const y2 = Math.round((r.bottom - box.top) / scale);
-      setCut(layer, `polygon(evenodd, -400px -400px, calc(100% + 400px) -400px, calc(100% + 400px) calc(100% + 400px), -400px calc(100% + 400px), -400px -400px, ${x1}px ${y1}px, ${x2}px ${y1}px, ${x2}px ${y2}px, ${x1}px ${y2}px, ${x1}px ${y1}px)`);
-    } else setCut(layer, "");
+      // Each hole starts and ends at the outer corner, so one polygon holds all of them.
+      path += `, ${x1}px ${y1}px, ${x2}px ${y1}px, ${x2}px ${y2}px, ${x1}px ${y2}px, ${x1}px ${y1}px, -400px -400px`;
+    }
+    setCut(layer, `${path})`);
   }
   still = next === signature ? still + 1 : 0;
   signature = next;
-  if (hovered(card)) {
-    if (still >= STILL_FRAMES) slow = window.setTimeout(tick, SLOW_MS);
-    else frame = requestAnimationFrame(tick);
-  } else if (performance.now() < holdUntil) frame = requestAnimationFrame(tick);
-  else clearAll();
+  const holding = card !== null && (hovered(card) || performance.now() < holdUntil);
+  if (card && !holding) {
+    // The card was left and its hold ran out: only the drawers keep a hole.
+    card = null;
+    still = 0;
+  }
+  if (still >= STILL_FRAMES) slow = window.setTimeout(tick, SLOW_MS);
+  else frame = requestAnimationFrame(tick);
 }
 
-/** Starts (or restarts at full speed) the frame loop for the tracked card. */
+/** Starts (or restarts at full speed) the frame loop for the tracked card and the open drawers. */
 function wake() {
-  if (!card) return;
   still = 0;
   stop();
   frame = requestAnimationFrame(tick);
@@ -113,6 +169,8 @@ function enter(target: EventTarget | null) {
 }
 
 function leave() {
+  // Only a tracked hand card needs the hold; an open drawer is followed by its own attribute and transition events.
+  if (!card) return;
   holdUntil = performance.now() + COVER_HOLD_MS;
   wake();
 }
@@ -120,7 +178,12 @@ function leave() {
 const onOver = (e: Event) => enter(e.target);
 const onResize = () => wake();
 
+/** A drawer opening or closing (its data attribute flips) starts the loop; no pointer event tells the tracker. */
+let drawerWatch: MutationObserver | null = null;
+
 function install() {
+  drawerWatch = new MutationObserver(onResize);
+  drawerWatch.observe(document.body, { subtree: true, attributes: true, attributeFilter: ["data-open", "data-state"] });
   document.addEventListener("pointerover", onOver, true);
   document.addEventListener("pointerout", leave, true);
   document.addEventListener("focusin", onOver, true);
@@ -130,6 +193,8 @@ function install() {
 }
 
 function uninstall() {
+  drawerWatch?.disconnect();
+  drawerWatch = null;
   document.removeEventListener("pointerover", onOver, true);
   document.removeEventListener("pointerout", leave, true);
   document.removeEventListener("focusin", onOver, true);

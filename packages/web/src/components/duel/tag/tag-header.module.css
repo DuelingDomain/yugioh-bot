@@ -67,6 +67,7 @@
 .turnPill small { color: var(--duel-ink-3); font-size: var(--duel-t-xs); }
 
 .status { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; color: var(--duel-ink-3); font-size: var(--duel-t-xs); }
+.status > * { flex: none; white-space: nowrap; }
 .tool {
   display: inline-flex;
   align-items: center;

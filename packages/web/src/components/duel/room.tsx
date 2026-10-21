@@ -8,7 +8,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
-import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
+import { Ban, Circle, Diamond, ExternalLink, Eye, Flag, Radio, Volume2, VolumeX } from "lucide-react";
 import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelChainLink, type DuelDeck, type DuelEvent, type DuelPromptOption, type DuelRoom, type DuelSeatView } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -18,6 +18,7 @@ import { useTestDuelQuit } from "./test-duel-quit";
 import { forgetTestDuelReturn, testDuelReturnPath } from "@/components/decks/test-duel";
 import { DeckSurrenderContext, type DeckSurrenderValue } from "./deck-surrender";
 import { BugReportHeaderButton } from "../bug-report/bug-report-header-button";
+import { HeaderToolLabel } from "./header-tool-label";
 import { BugReportMenuButton } from "../bug-report/bug-report-menu-button";
 import { useBugReportRoom } from "../bug-report/room-store";
 import { connectionLabel as labelForConnection } from "./connection-label";
@@ -98,6 +99,7 @@ import { duelFontClasses } from "./fonts";
 import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
 import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "./animation-speed-control";
 import { DuelCardTextSizeControl } from "./card-text-size-control";
+import { DuelCardHoverInfoControl } from "./card-hover-info-control";
 import { DuelDiceSkinControl } from "./dice-skin-control";
 import { CardInspector, cardScrollerProps, type InspectTarget } from "./inspector";
 import {
@@ -1369,9 +1371,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {leaveControl}
         {testQuitControl}
         {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error) || tossLocked}
-          onClick={askSurrender}>Surrender</Button> : null}
+          onClick={askSurrender} title="Surrender"><HeaderToolLabel icon={Flag}>Surrender</HeaderToolLabel></Button> : null}
         {canCancel ? <Button type="button" variant="secondary" size="sm" disabled={busy || catchingUp || Boolean(error) || tossLocked}
-          onClick={askCancel}>Cancel duel</Button> : null}
+          onClick={askCancel} title="Cancel duel"><HeaderToolLabel icon={Ban}>Cancel duel</HeaderToolLabel></Button> : null}
       </>,
       settingsTools: canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null,
@@ -1508,6 +1510,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <h2>Presentation</h2>
       <DuelAnimationSpeedControl />
       <DuelCardTextSizeControl />
+      <DuelCardHoverInfoControl />
       <DuelDiceSkinControl />
       <DuelSoundControls enabled={preferences.soundEnabled} volume={preferences.soundVolume}
         onEnabledChange={preferences.setSoundEnabled} onVolumeChange={preferences.setSoundVolume} />

@@ -280,6 +280,8 @@ const OBSTACLES = "[data-prompt-panel], [data-prompt-surface], [data-feedback-cu
 
 /** Mirrors .targetTag: it stands on the card's bottom edge, lifted 16 px per link, 3 px left of the ring. */
 const TARGET_STEP = 16;
+/** Added to the z-index of the slot that carries the activation callout (a chain never has this many links). */
+const CALLOUT_SLOT_Z = 100;
 const TARGET_OUTSET = 3;
 const TAG_FALLBACK = { width: 56, height: 16 };
 /** A target ring hides when a panel covers more than this part of the card, its tag when it covers more than this part of it. */
@@ -906,7 +908,9 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
               else slotRefs.current.delete(link.index);
             }}
             className={styles.slot}
-            style={{ zIndex: link.index }}
+            // Each slot is its own stacking context, so its callout cannot beat another slot's badge: the slot that
+            // carries the callout stands above every badge slot (link numbers stay far below the offset).
+            style={{ zIndex: focus?.index === link.index ? CALLOUT_SLOT_Z + link.index : link.index }}
             aria-hidden="true"
             data-placed="false"
             data-chain-link={link.index}

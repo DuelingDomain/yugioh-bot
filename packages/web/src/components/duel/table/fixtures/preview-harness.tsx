@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { isDuelChainMode, type DuelChainMode, type DuelEvent } from "@yugidraft/shared/duels";
+import { BugReportHeaderButton } from "@/components/bug-report/bug-report-header-button";
+import { Ban, Flag } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { HeaderToolLabel } from "../../header-tool-label";
 import type { ChainModeControl } from "../../use-chain-mode";
 import { useDuelAnimationSpeed } from "../../animation-speed-control";
 import { duelFontClasses } from "../../fonts";
@@ -49,6 +53,8 @@ export interface PreviewContext {
   reduced: boolean;
   /** `?chain=auto|always|off|none`: the chain response switch on the station track (local state, no server). Auto unless `none`. */
   chainMode: ChainModeControl | null;
+  /** `?tools=live`: the buttons a live duel puts in the header (Report bug, Surrender, Cancel duel), so the top bar can be checked as it is in a game. */
+  headerTools: ReactNode;
 }
 
 export type PreviewStageRenderer = (controller: TableController, state: TableFixtureState, preview: PreviewContext) => ReactNode;
@@ -165,6 +171,20 @@ function useLpOverride(state: TableFixtureState, query: URLSearchParams, format:
   }, [state, raw, late, format]);
 }
 
+/** Names as long as a Discord handle can be, so the seat strip and the clocks show how they fit. */
+const LONG_NAMES = ["crimson_aegis_rider", "Practice Bot Number Two", "Draconis the Magnificent", "rattmann_the_third"];
+
+/** `?names=long` gives every seat a long name (the top bar and the plates must cut them with an ellipsis). */
+function useNamesOverride(state: TableFixtureState, query: URLSearchParams): TableFixtureState {
+  const long = query.get("names") === "long";
+  return useMemo(() => {
+    const session = state.room.session;
+    if (!long || !session) return state;
+    const seats = session.seats.map((seat, index) => ({ ...seat, displayName: LONG_NAMES[index % LONG_NAMES.length] }));
+    return { ...state, room: { ...state.room, session: { ...session, seats } } };
+  }, [state, long]);
+}
+
 function HarnessBody({
   state,
   preview,
@@ -178,6 +198,17 @@ function HarnessBody({
 }) {
   const controller = useFixtureController(state, { reducedMotion: preview.reduced, onToast });
   return <>{renderStage(controller, state, preview)}</>;
+}
+
+/** What a live duel puts in the header besides the sound switch. Nothing is sent: the buttons only open their own dialogs. */
+export function PreviewHeaderTools({ room }: { room: TableFixtureState["room"] }) {
+  return (
+    <>
+      <BugReportHeaderButton room={room} />
+      <Button type="button" variant="danger" size="sm" title="Surrender"><HeaderToolLabel icon={Flag}>Surrender</HeaderToolLabel></Button>
+      <Button type="button" variant="secondary" size="sm" title="Cancel duel"><HeaderToolLabel icon={Ban}>Cancel duel</HeaderToolLabel></Button>
+    </>
+  );
 }
 
 /** The preview frame: a thin top bar (state links, camera hint, viewport size) and the stage under it. */
@@ -197,13 +228,14 @@ export function PreviewHarness({ set, stateId, cam, lock, basePath, renderStage,
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const activeId = isTableStateId(stateId) ? stateId : "main";
-  const state = useLpOverride(useSceneOverride(useAttackOverride((stateId != null ? set.extra?.[stateId] : undefined) ?? set.states[activeId], query), query), query, set.format);
+  const state = useNamesOverride(useLpOverride(useSceneOverride(useAttackOverride((stateId != null ? set.extra?.[stateId] : undefined) ?? set.states[activeId], query), query), query, set.format), query);
   const chainFromUrl = query.get("chain");
   // The live room draws the switch for a seated player; so does the preview, on Auto, unless `?chain=none`.
   const [chain, setChain] = useState<DuelChainMode | null>(isDuelChainMode(chainFromUrl) ? chainFromUrl : chainFromUrl === "none" ? null : "auto");
   const preview: PreviewContext = {
     cam: parsePreviewCam(cam), lock: parsePreviewLock(lock), viewport, reduced,
     chainMode: chain ? { mode: chain, onChange: setChain } : null,
+    headerTools: query.get("tools") === "live" ? <PreviewHeaderTools room={state.room} /> : undefined,
   };
   const base = basePath ?? `/dev/table-preview/${set.format}`;
   const fixture = query.get("fixture");

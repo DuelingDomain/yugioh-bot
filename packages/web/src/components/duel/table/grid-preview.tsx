@@ -3,13 +3,26 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { X } from "lucide-react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
+import { useCardHoverInfo } from "../card-hover-info";
 import { cardTextStyle, useCardTextSize } from "../card-text-size";
 import { NEGATED_LINE } from "../inspector";
 import { cardArtUrl, cardInspectLines, isDefenseAt, isHiddenCard } from "../constants";
 import styles from "./grid-hud.module.css";
 
+/** What makes two hovers the same card: Esc closes the drawer for this key until the pointer leaves the card. */
+function cardIdentity(card: DuelCard | DuelCardInfo): string {
+  return "location" in card ? `${card.code}|${card.controller}|${card.location}|${card.sequence}` : `${card.code}`;
+}
+
+/** The box of the card under the pointer (or the keyboard focus): the deepest hovered card, zone or hand slot. */
+function hoveredCardBox(): DOMRect | null {
+  const hit = Array.from(document.querySelectorAll<HTMLElement>("[data-card-frame]:hover, [data-hand-card]:hover, [data-zones]:hover")).pop();
+  const el = hit ?? document.querySelector<HTMLElement>(":focus-visible");
+  return el ? el.getBoundingClientRect() : null;
+}
+
 /** The drawer lingers this long after the pointer leaves, so a move between two cards does not flicker. */
-export const PREVIEW_HIDE_MS = 220;
+export const PREVIEW_HIDE_MS = 150;
 
 /**
  * The card inspector of every duel shell (1v1 HUD, Tag, 3-way, 4-way): a drawer that slides out from the left edge of the screen while a card is
@@ -33,7 +46,28 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   onClose?: (byKeyboard: boolean) => void;
 }) {
   const textSize = useCardTextSize();
-  const showable = card != null && !isHiddenCard(card) && card.code != null ? card : null;
+  const hoverInfo = useCardHoverInfo();
+  // Esc or a right click closes a hover drawer even while the pointer is still on its card; it stays shut until the pointer
+  // leaves that card (or moves to another one). `dismissed` holds the key of the card that was closed.
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const cardKey = card ? cardIdentity(card) : null;
+  useEffect(() => {
+    if (dismissed != null && dismissed !== cardKey) setDismissed(null);
+  }, [dismissed, cardKey]);
+  const hoverOnly = !pinned;
+  const showable = card != null && !isHiddenCard(card) && card.code != null
+    && !(hoverOnly && (hoverInfo === "off" || dismissed === cardKey)) ? card : null;
+  useEffect(() => {
+    if (!showable || pinned) return;
+    const dismiss = () => setDismissed(cardKey);
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !event.defaultPrevented) dismiss(); };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("contextmenu", dismiss, true);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("contextmenu", dismiss, true);
+    };
+  }, [showable, pinned, cardKey]);
   // The last card stays on screen during the hide delay, so the drawer slides out with its content.
   const [shown, setShown] = useState<DuelCard | DuelCardInfo | null>(null);
   const [open, setOpen] = useState(false);
@@ -51,18 +85,36 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
   }, [showable, pinned]);
   const current = showable ?? shown;
   const frozen = showable ? pinned : shownPinned;
-  // The drawer starts under the header pills that stand over its edge (the turn pill, the clocks): the header sits at a different height in each shell.
   const asideRef = useRef<HTMLElement>(null);
+  // The drawer never covers the card it shows: it opens on the left edge, and on the right edge when that card (the one under the
+  // pointer, or the focused one) lies in the left drawer's strip. A pinned card keeps the side it opened on.
+  const [side, setSide] = useState<"left" | "right">("left");
+  const currentKey = current ? cardIdentity(current) : null;
+  useLayoutEffect(() => {
+    const aside = asideRef.current;
+    if (!aside || !showable || pinned) return;
+    const anchor = hoveredCardBox();
+    if (!anchor) return;
+    const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
+    const width = aside.offsetWidth;
+    const overlap = (from: number, to: number) => Math.max(0, Math.min(anchor.right, to) - Math.max(anchor.left, from));
+    const left = overlap(parent.left, parent.left + width);
+    const right = overlap(parent.right - width, parent.right);
+    setSide(right < left ? "right" : "left");
+  }, [showable, pinned, currentKey]);
+  // The drawer starts under the header pills that stand over its edge (the turn pill, the clocks): the header sits at a different height in each shell.
   useLayoutEffect(() => {
     const aside = asideRef.current;
     if (!aside || !open) return;
     const set = () => {
       const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
-      const right = parent.left + aside.offsetWidth;
+      const width = aside.offsetWidth;
+      const from = side === "left" ? parent.left : parent.right - width;
+      const to = from + width;
       let bottom = 0;
       for (const pill of Array.from(document.querySelectorAll<HTMLElement>("[data-testid='hud-top'] > *"))) {
         const box = pill.getBoundingClientRect();
-        if (box.width > 0 && box.left < right) bottom = Math.max(bottom, box.bottom);
+        if (box.width > 0 && box.right > from && box.left < to) bottom = Math.max(bottom, box.bottom);
       }
       if (bottom > 0) aside.style.setProperty("--pv-top", `${Math.max(0, Math.round(bottom - parent.top + 8))}px`);
       else aside.style.removeProperty("--pv-top");
@@ -70,7 +122,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
     set();
     window.addEventListener("resize", set);
     return () => window.removeEventListener("resize", set);
-  }, [open, current]);
+  }, [open, current, side]);
 
   if (!current) return null;
 
@@ -82,6 +134,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, e
       className={styles.preview}
       data-testid="hover-preview"
       data-open={open ? "true" : "false"}
+      data-side={side}
       data-motion={reducedMotion ? "none" : "slide"}
       aria-hidden={open ? undefined : "true"}
       data-pinned={frozen ? "true" : undefined}

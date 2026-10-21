@@ -19,6 +19,7 @@ import { duelFontClasses } from "./fonts";
 import { ChainGlyph } from "./chain-glyph";
 import type { ChainLinkState } from "./chain-state";
 import { pileChainMarks, type PileChainMark } from "./pile-chain-marks";
+import { pinTopCardAt } from "./pile-focus";
 import { useSkinStyles } from "./skin";
 import baseStyles from "./pile-viewer.module.css";
 import { UsableGlow } from "./usable-glow";
@@ -343,7 +344,11 @@ export function PileViewer({
       data-attached={attached ? "true" : undefined}
       style={{ ...(ownerTag ? { "--seat-main": ownerTag.tone.main, "--seat-ink": ownerTag.tone.ink } : null), "--pv-cols": Math.max(1, Math.min(3, total)) } as CSSProperties}>
       {/* Modal: the scrim takes every click that would reach the board. A pile closes on it; a pick (the engine waits for an answer) only swallows it, and the close button hides the window. */}
-      <div className={styles.scrim} onClick={pick ? undefined : onClose} aria-hidden="true" />
+      <div className={styles.scrim} aria-hidden="true" onClick={pick ? undefined : (event) => {
+        // A press on the Extra Deck's face-up top card closes the window and pins that card in the drawer.
+        onClose();
+        pinTopCardAt(event.clientX, event.clientY);
+      }} />
       <aside
         ref={panelRef}
         className={styles.panel}

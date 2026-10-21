@@ -395,10 +395,11 @@
 .strip svg { flex: none; color: var(--duel-ink-3, #958f81); }
 
 /* ----- the sheet: the panel opened under the strip ----- */
-.scrim { position: absolute; inset: 0; z-index: 4; background: rgb(3 5 11 / 0.42); pointer-events: auto; animation: crFade 0.18s ease-out both; }
+/* The scrim and the sheet stand above the chain slots, including the slot with the activation callout (chain-fx.tsx CALLOUT_SLOT_Z, 100 plus the link number). */
+.scrim { position: absolute; inset: 0; z-index: 300; background: rgb(3 5 11 / 0.42); pointer-events: auto; animation: crFade 0.18s ease-out both; }
 .sheet {
   position: absolute;
-  z-index: 5;
+  z-index: 301;
   top: var(--chain-sheet-top, 56px);
   bottom: var(--chain-sheet-bottom, auto);
   /* On a wide board it drops down under the strip, not across the whole width. */

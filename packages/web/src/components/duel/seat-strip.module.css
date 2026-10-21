@@ -151,13 +151,15 @@ button.hit:focus-visible {
 }
 .compact .item {
   position: relative;
-  flex: none;
+  /* A tag gives way when the header row is short: its name ends in an ellipsis (the full name is the title), the status chip stays whole. */
+  flex: 0 1 auto;
   min-width: 0;
   border-radius: 999px;
   font-size: calc(12.5px * var(--tt, 1));
 }
 .compact .hit {
   width: auto;
+  max-width: 100%;
   padding: 3px 9px 3px 8px;
   gap: 5px;
 }
@@ -177,8 +179,21 @@ button.hit:focus-visible {
   padding: 0;
 }
 .compact .name {
-  flex: none;
+  flex: 0 1 auto;
+  /* A floor: the name never shrinks to nothing, even beside the status chips. */
+  min-width: 3ch;
   max-width: 9ch;
+}
+/* "To play" already says whose turn it is, so a "Choosing" chip next to it gives its room to the name (it stays for screen readers). */
+.compact .status[data-kind="turn"] + .status[data-kind="answer"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  padding: 0;
+  border: 0;
 }
 .compact .status {
   font-size: calc((9px + 3px * var(--ft, 0)) * var(--tt, 1));

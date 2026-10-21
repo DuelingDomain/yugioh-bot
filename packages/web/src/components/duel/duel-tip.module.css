@@ -1,0 +1,22 @@
+/* The hint box of the duel bars (duel-tip.tsx). It lives in a portal at the page root, outside the duel's own tokens,
+   so it carries its own colours. It wraps at a fixed width: a long hint grows the box downward, never past its sides. */
+.tip {
+  position: fixed;
+  z-index: var(--duel-z-tooltip, 90);
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 8px 11px;
+  border: 1px solid rgb(181 153 99 / 0.45);
+  border-radius: 8px;
+  background: rgb(9 15 29 / 0.98);
+  box-shadow: 0 10px 28px -6px rgb(0 0 0 / 0.75);
+  color: #efe7d5;
+  font: 500 13px/1.45 var(--font-duel-ui, system-ui, sans-serif);
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}

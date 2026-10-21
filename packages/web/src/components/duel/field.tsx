@@ -65,6 +65,7 @@ import {
 } from "./field-keys";
 import { isCoinTossActive } from "./coin-toss-lock";
 import { useSkinStyles } from "./skin";
+import { PIN_TOP_ATTR, PIN_TOP_EVENT } from "./pile-focus";
 import baseStyles from "./field.module.css";
 
 export { extraMonster, extraMonsterKeys, pileHighlightKeys, stKeys, withExact };
@@ -368,7 +369,26 @@ export function PileSlot({
   const circleTone = pileSummonTone({ kind, side, count, keys, legalKeys });
   const fan = fanEntries(kind, cards, count);
   const chip = CHIP_TEXT[kind];
-  const hoverTop = kind === "gy" || kind === "banish" ? (cards[cards.length - 1] ?? null) : null;
+  // The Extra Deck pile never opens the card drawer on plain hover: the drawer would cover its "Open" chip. A click opens the
+  // pile list; a second click on the face-up top card (the list's scrim) pins that card in the drawer.
+  const hoverBlocked = kind === "extra";
+  const hoverTop = !hoverBlocked && (kind === "gy" || kind === "banish") ? (cards[cards.length - 1] ?? null) : null;
+  const pinTopRef = useRef<HTMLDivElement | null>(null);
+  const pinCard = kind === "extra" ? (cards[cards.length - 1] ?? null) : null;
+  const pinCardRef = useRef(pinCard);
+  pinCardRef.current = pinCard;
+  const onInspectRef = useRef(onInspect);
+  onInspectRef.current = onInspect;
+  useEffect(() => {
+    const el = pinTopRef.current;
+    if (!el) return;
+    const pin = () => {
+      const card = pinCardRef.current;
+      if (card?.code != null) onInspectRef.current({ type: "card", card });
+    };
+    el.addEventListener(PIN_TOP_EVENT, pin);
+    return () => el.removeEventListener(PIN_TOP_EVENT, pin);
+  }, [pinCard?.code, fan.length]);
 
   const surrender = useDeckSurrender();
   const deckMenu = kind === "deck" && ownerSeat != null && deckOffersSurrender(surrender, ownerSeat);
@@ -484,8 +504,10 @@ export function PileSlot({
                 key={entry.key}
                 className={styles.fanCard}
                 data-fi={fi}
+                ref={fi === 0 && kind === "extra" ? pinTopRef : undefined}
+                {...(fi === 0 && kind === "extra" && entry.card?.code != null ? { [PIN_TOP_ATTR]: "" } : null)}
                 onMouseEnter={(event) =>
-                  onHoverCard?.(entry.card?.code != null ? entry.card : null, event.currentTarget)
+                  onHoverCard?.(!hoverBlocked && entry.card?.code != null ? entry.card : null, event.currentTarget)
                 }
               >
                 <CardFace card={entry.card} sleeve={sleeve ?? (kind === "extra" ? "extra" : "deck")} reveal={kind !== "banish"} />

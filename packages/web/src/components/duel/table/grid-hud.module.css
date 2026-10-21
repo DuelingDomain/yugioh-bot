@@ -37,11 +37,11 @@
   pointer-events: auto;
 }
 
-.topLeft { flex: 0 1 auto; padding: 0 16px; }
+.topLeft { flex: none; padding: 0 16px; }
 /* The clock block right of the identity pill. A little taller than the other pills (big digits); the band is centred, so
    it spans y 4 to 48 (negative block margins keep the header 36px high, so the other pills stay put) and stays above the rail (y 56), the flyout (y 56) and the card preview (y 50). The auto margins
    keep it next to the identity pill and leave the turn strip in the free space between it and the right pill. */
-.top > .topClocks { flex: 0 1 auto; height: 44px; padding: 0 4px; border-radius: 22px; margin: -4px auto -4px 0; }
+.top > .topClocks { flex: none; height: 44px; padding: 0 4px; border-radius: 22px; margin: -4px auto -4px 0; }
 .topClocks ~ .topMid { margin-right: auto; }
 /* Three or four clocks, or a narrower screen, leave no room for the format line beside them: the wordmark stays. */
 .topLeft:has(+ .topClocks:not([data-count="2"])) [class*="format"],
@@ -51,6 +51,8 @@
   .topLeft:has(+ .topClocks) i { display: none; }
 }
 .topMid { position: relative; flex: 0 1 auto; padding: 0 8px; }
+/* The turn order is the one pill that gives: its names end in an ellipsis. Every other pill keeps its content whole (flex: none), so no two pills overlap. */
+.topMid > * { min-width: 0; max-width: 100%; }
 
 /* "FINAL DUEL" / "LAST TWO REMAINING": it takes the place of the turn strip for a moment, then the strip returns. */
 .topMid[data-caption="true"] > :not(.caption) {
@@ -88,7 +90,7 @@
   .topMid[data-caption="true"] > :not(.caption) { animation: none; opacity: 0; }
   .caption { animation: none; opacity: 1; }
 }
-.topRight { flex: 0 1 auto; gap: 10px; padding: 0 8px 0 14px; justify-content: flex-end; }
+.topRight { flex: none; gap: 10px; padding: 0 8px 0 14px; justify-content: flex-end; }
 
 .topLeft a { flex: none; white-space: nowrap; }
 /* On a narrower screen the live and sound pills fall back to their icons, so the three pills keep one row. */
@@ -108,7 +110,7 @@
 }
 
 /* The turn order sits in one row inside its pill. */
-.topMid ol { flex-wrap: nowrap; }
+.topMid ol, .topMid ul { flex: 0 1 auto; flex-wrap: nowrap; min-width: 0; }
 .topMid li { flex: 0 1 auto; min-width: 0; background: rgb(14 23 41 / 0.7); }
 
 /* ---------- bottom pills: the station track, split into three ---------- */
@@ -691,6 +693,15 @@
   transform: translateX(-101%);
   transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 0.2s;
   visibility: hidden;
+}
+/* The right edge: the drawer opens there when the card it shows lies in the strip of the left drawer (grid-preview.tsx). */
+.preview[data-side="right"] {
+  left: auto;
+  right: 0;
+  border-left: 1px solid rgb(155 126 255 / 0.4);
+  border-right: 0;
+  border-radius: 14px 0 0 14px;
+  transform: translateX(101%);
 }
 .preview[data-open="true"] { transform: none; visibility: visible; transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s; }
 .preview[data-motion="none"] { transition: none; }
