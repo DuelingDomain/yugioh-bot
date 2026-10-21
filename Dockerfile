@@ -90,7 +90,7 @@ RUN npm run build --workspace=packages/bot && find /app -type f -name '*.map' -d
 # Install only this service's production dependencies. Native SQLite is rebuilt
 # with the compiler toolchain from deps; build tools stay outside the final image.
 FROM deps AS bot-runtime-deps
-RUN npm ci --omit=dev --ignore-scripts --workspace=packages/bot --workspace=packages/shared --include-workspace-root=false \
+RUN npm ci --omit=dev --include=optional --ignore-scripts --workspace=packages/bot --workspace=packages/shared --include-workspace-root=false \
     && npm rebuild better-sqlite3 \
     && find /app -type f -name '*.map' -delete
 
@@ -105,6 +105,9 @@ COPY --from=bot-build /app/packages/shared/data/effects packages/shared/data/eff
 COPY --from=bot-build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
 COPY --from=bot-build /app/packages/bot/package*.json packages/bot/
 COPY --from=bot-build /app/packages/bot/dist packages/bot/dist
+COPY --from=bot-build /app/packages/bot/assets packages/bot/assets
+# Fail the image build if npm omitted the native package for this libc/arch.
+RUN node -e "require('@resvg/resvg-js')"
 RUN mkdir -p /app/data && chown node:node /app/data
 VOLUME ["/app/data"]
 USER node

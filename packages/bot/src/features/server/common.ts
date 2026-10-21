@@ -93,7 +93,7 @@ export async function getChannels(c: FeatureContext) {
   return channels.filter(ch => ch.guild_id === c.config.guildId);
 }
 export function protectedChannel(c: FeatureContext, id: string) {
-  if ([c.config.modLogChannelId, c.config.waitlistChannelId, c.config.statusChannelId, c.config.announceChannelId].includes(id))
+  if ([c.config.modLogChannelId, c.config.waitlistChannelId, c.config.statusChannelId, c.config.announceChannelId, c.config.welcomeChannelId].includes(id))
     throw new Refusal("This is a configured bot channel. Change the bot configuration before you delete it.");
 }
 export function validName(value: string | null) {

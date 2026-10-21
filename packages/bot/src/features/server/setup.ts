@@ -5,7 +5,7 @@ import { botPermissions, checkRole, getChannels, needBot, privateOverwrites, Ref
 export async function setupAction(i: Command, c: FeatureContext): Promise<Action> {
   if (i.options.getSubcommand() !== "channels") throw new Refusal("Choose setup channels.");
   const action: Action = { action: "setup.channels", params: {},
-    summary: "Create or reuse Admin, signups, mod-log, online-now, and announcements by name? This repairs their parent and permission overwrites. Signups and online-now are admin-only. Moderator can view mod-log. Announcements are public and read-only.",
+    summary: "Create or reuse Admin, signups, mod-log, online-now, announcements, and welcome by name? This repairs their parent and permission overwrites. Signups and online-now are admin-only. Moderator can view mod-log. Announcements and welcome are public and read-only.",
     async run() {
       const s = await state(i, c);
       needBot(s, P.ManageChannels | P.ManageRoles | P.ViewChannel | P.SendMessages | P.SendMessagesInThreads | P.EmbedLinks | P.AttachFiles | P.ReadMessageHistory);
@@ -13,9 +13,9 @@ export async function setupAction(i: Command, c: FeatureContext): Promise<Action
       const unsupportedThreads = threadCreation & ~botPermissions(s);
       const unsafeRoles = s.roles.filter(role => !(BigInt(role.permissions) & P.Administrator)
         && (BigInt(role.permissions) & unsupportedThreads));
-      if (unsafeRoles.length) throw new Refusal(`The bot cannot deny thread creation granted by roles: ${unsafeRoles.slice(0, 12).map(role => role.id).join(", ")}${unsafeRoles.length > 12 ? ` and ${unsafeRoles.length - 12} other roles` : ""}. Remove those thread creation grants before setup so announcements can be read-only.`);
+      if (unsafeRoles.length) throw new Refusal(`The bot cannot deny thread creation granted by roles: ${unsafeRoles.slice(0, 12).map(role => role.id).join(", ")}${unsafeRoles.length > 12 ? ` and ${unsafeRoles.length - 12} other roles` : ""}. Remove those thread creation grants before setup so announcements and welcome can be read-only.`);
       const all = await getChannels(c);
-      const names: [string, number][] = [["Admin", 4], ["signups", 0], ["mod-log", 0], ["online-now", 0], ["announcements", 0]];
+      const names: [string, number][] = [["Admin", 4], ["signups", 0], ["mod-log", 0], ["online-now", 0], ["announcements", 0], ["welcome", 0]];
       // Validate the whole layout before any write; ambiguous names must not pick a random channel.
       for (const [name, type] of names) {
         const matches = all.filter(ch => ch.name.toLowerCase() === name.toLowerCase());
@@ -57,9 +57,10 @@ export async function setupAction(i: Command, c: FeatureContext): Promise<Action
       const announceRules: Overwrite[] = [{ id: s.guildId, type: 0, allow: read.toString(), deny: write.toString() },
         ...privateRules.filter(o => o.type === 1).map(o => ({ ...o, allow: (read | P.SendMessages | P.EmbedLinks | P.AttachFiles).toString(), deny: "0" }))];
       const announcements = await save("announcements", 0, null, announceRules);
+      const welcome = await save("welcome", 0, null, announceRules);
       action.params = { categoryId: category.id, created, reused, moderatorRoleId: moderator?.id ?? null,
-        waitlistChannelId: signups.id, modLogChannelId: modlog.id, statusChannelId: online.id, announceChannelId: announcements.id };
-      return { content: `Admin category: ${category.id}\n#signups: ${signups.id}\n#mod-log: ${modlog.id}\n#online-now: ${online.id}\n#announcements: ${announcements.id}\n\nSet these environment values and restart the bot:\n\`\`\`env\nDISCORD_WAITLIST_CHANNEL_ID=${signups.id}\nDISCORD_MOD_LOG_CHANNEL_ID=${modlog.id}\nDISCORD_STATUS_CHANNEL_ID=${online.id}\nDISCORD_ANNOUNCE_CHANNEL_ID=${announcements.id}${moderator ? `\nDISCORD_MODERATOR_ROLE_ID=${moderator.id}` : ""}\n\`\`\`${moderator ? "" : "\nModerator role was not found. Create it, set DISCORD_MODERATOR_ROLE_ID, and run setup again."}`,
+        waitlistChannelId: signups.id, modLogChannelId: modlog.id, statusChannelId: online.id, announceChannelId: announcements.id, welcomeChannelId: welcome.id };
+      return { content: `Admin category: ${category.id}\n#signups: ${signups.id}\n#mod-log: ${modlog.id}\n#online-now: ${online.id}\n#announcements: ${announcements.id}\n#welcome: ${welcome.id}\n\nSet these environment values and restart the bot:\n\`\`\`env\nDISCORD_WAITLIST_CHANNEL_ID=${signups.id}\nDISCORD_MOD_LOG_CHANNEL_ID=${modlog.id}\nDISCORD_STATUS_CHANNEL_ID=${online.id}\nDISCORD_ANNOUNCE_CHANNEL_ID=${announcements.id}\nDISCORD_WELCOME_CHANNEL_ID=${welcome.id}${moderator ? `\nDISCORD_MODERATOR_ROLE_ID=${moderator.id}` : ""}\n\`\`\`${moderator ? "" : "\nModerator role was not found. Create it, set DISCORD_MODERATOR_ROLE_ID, and run setup again."}`,
         components: [] };
     } };
   return action;
