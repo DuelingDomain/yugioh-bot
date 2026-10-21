@@ -156,13 +156,15 @@ if (e2eSlot !== undefined) {
 
 run("ws", process.execPath, [resolve(repoRoot, "packages/ws/dist/server.js")], {
   cwd: serviceDirectory("ws"),
-  env: { ...base, WEB_URL: webUrl, WS_PORT: String(ports.ws), WS_INTERNAL_PORT: String(ports.wsInternal), WS_INTERNAL_SECRET: secrets.ws },
+  env: { ...base, DISCORD_GUILD_ID: guildId, WEB_URL: webUrl, WS_PORT: String(ports.ws), WS_INTERNAL_PORT: String(ports.wsInternal), WS_INTERNAL_SECRET: secrets.ws },
 });
 
 run("duel", process.execPath, [resolve(repoRoot, "packages/duel-server/dist/server.js")], {
   cwd: serviceDirectory("duel"),
   env: {
     ...base,
+    // Admin watch checks the guild in the duel host and in ws, like compose does for production.
+    DISCORD_GUILD_ID: guildId,
     DUEL_DATA_DIR: runtimeDuelDataDir,
     DUEL_INTERNAL_PORT: String(ports.duel),
     DUEL_INTERNAL_HOST: "127.0.0.1",
