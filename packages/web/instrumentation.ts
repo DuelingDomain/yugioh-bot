@@ -2,7 +2,13 @@ import { log } from "@yugidraft/shared/observability";
 import * as Sentry from "@sentry/nextjs";
 
 export async function register() {
-  if (process.env.NEXT_RUNTIME === "nodejs") await import("./sentry.server.config");
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    await import("./sentry.server.config");
+    if (process.env.NEXT_PHASE !== "phase-production-build") {
+      const { startWebHealth } = await import("./src/lib/vps-health-reporter");
+      startWebHealth();
+    }
+  }
   if (process.env.NEXT_RUNTIME === "edge") await import("./sentry.edge.config");
   if (process.env.NODE_ENV !== "production" || process.env.NEXT_RUNTIME !== "nodejs") return;
   const checks: Array<[string, string | undefined]> = [

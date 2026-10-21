@@ -1360,7 +1360,17 @@ export function migrate(db: Database.Database) {
       at integer not null,
       pid integer
     );
-    -- Written by the worker every ~10 minutes (directory sizes are slow); the admin System section reads it.
+    -- Latest own-cgroup report per service; one aggregate per minute retained for 24 hours.
+    create table if not exists vps_service_health (
+      service text primary key,
+      at integer not null,
+      json text not null
+    );
+    create table if not exists vps_health_history (
+      at integer primary key,
+      json text not null
+    );
+    -- Written by the worker hourly (directory sizes are slow); the admin System section reads it.
     create table if not exists disk_usage_snapshot (
       id integer primary key check (id = 1),
       at integer not null,

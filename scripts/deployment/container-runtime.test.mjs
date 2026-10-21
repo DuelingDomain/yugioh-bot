@@ -55,6 +55,13 @@ test("production Compose retains only Caddy's bind capability and uses the image
   const { services } = JSON.parse(result.stdout);
   assert.equal(services.duel.environment.DUEL_REPORT_DIR, "/app/data/duel-reports");
   assert.equal(services.worker.environment.WORKER_HEALTH_PATH, "/tmp/yugidraft-worker-health.json");
+  assert.equal(Number(services.worker.mem_limit), 384 * 1024 * 1024);
+  assert.equal(services.worker.environment.NODE_OPTIONS, "--max-old-space-size=256");
+  assert.equal(services.caddy.entrypoint ?? null, null);
+  assert.equal(services.caddy.command ?? null, null);
+  assert.equal(services.caddy.init ?? false, false);
+  assert.ok(!services.caddy.volumes.some(volume => volume.target.includes("vps-health")));
+  assert.ok(!services.worker.volumes.some(volume => volume.target.includes("vps-health")));
   for (const [name, service] of Object.entries(services)) {
     assert.deepEqual(service.security_opt, ["no-new-privileges:true"], name);
     assert.deepEqual(service.cap_drop, ["ALL"], name);

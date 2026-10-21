@@ -78,8 +78,10 @@ it.each(["pending", "completed"] as const)("releases a timed-out worker slot on 
       headers: await signedHeaders(raw, SECRET, "http://localhost/internal/duel", "duel-host") }));
     return { status: response.status, data: await response.json() };
   };
+  expect(host.diagnostics()).toEqual({ engineWorkers: 0, maxWorkers: 1, queuedRebuilds: 0 });
   const busy = { status: 429, data: { error: "The duel server is busy. Try again in a minute." } };
   expect((await post("start", tables[0]!.slug)).status).toBe(200);
+  expect(host.diagnostics()).toEqual({ engineWorkers: 1, maxWorkers: 1, queuedRebuilds: 0 });
   expect((await post("surrender", tables[0]!.slug)).status).toBe(200);
   expect(await post("start", tables[1]!.slug)).toEqual(busy);
   expect(transports).toHaveLength(1);

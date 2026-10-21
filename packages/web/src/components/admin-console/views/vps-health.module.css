@@ -1,0 +1,38 @@
+.section { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--line2); font-variant-numeric: tabular-nums; }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+.heading h2 { font-size: 21px; font-weight: 600; letter-spacing: -.02em; }
+.status { font-family: var(--mono); font-size: 13px; color: var(--good); }
+.status[data-status="High"] { color: var(--warn); }
+.status[data-status="Upgrade soon"], .error { color: var(--crit); }
+.status[data-status="na"] { color: var(--t2); }
+.muted, .host span { color: var(--t2); font-size: 13px; }
+.reasons { color: var(--warn); padding-left: 20px !important; margin-top: 14px !important; font-size: 14px; }
+.host { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 32px; margin: 28px 0; }
+.host > div, .capacity > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.host small, .capacity small { color: var(--t2); font-size: 12px; }
+.host b { font-size: 19px; font-weight: 500; overflow-wrap: anywhere; }
+.capacity { display: flex; flex-wrap: wrap; gap: 20px 32px; border-top: 1px solid var(--line); padding: 20px 0; }
+.capacity b { font-family: var(--mono); font-size: 18px; font-weight: 500; }
+.tableWrap { overflow-x: auto; }
+.table { border-collapse: collapse; width: 100%; font-size: 13px; text-align: left; white-space: nowrap; }
+.table caption { text-align: left; color: var(--t2); font-size: 12px; margin-bottom: 10px; }
+.table th, .table td { padding: 12px 16px 12px 0; border-bottom: 1px solid var(--line); }
+.table th { font-weight: 500; }
+.table thead th { color: var(--t2); font-size: 12px; }
+.table td[data-warning="true"] { color: var(--crit); }
+.historyHead { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 28px 0 14px; }
+.historyHead h3 { font-weight: 500; font-size: 16px; }
+.historyHead span { color: var(--t2); font-size: 12px; }
+.charts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
+.chart { margin: 0; color: var(--info); }
+.chart figcaption { display: flex; justify-content: space-between; font-size: 12px; color: var(--t2); margin-bottom: 10px; }
+.chart figcaption span { color: var(--t3); }
+.chart svg { width: 100%; height: auto; overflow: visible; }
+.threshold { stroke: var(--warn); stroke-width: 1; stroke-dasharray: 3 4; opacity: .7; }
+.details { color: var(--t2); font-size: 13px; margin-top: 22px; line-height: 1.6; }
+.details summary { cursor: pointer; color: var(--t1); }
+.details p { margin-top: 10px; }
+.details ul { padding-left: 20px; margin-top: 10px; }
+.error { font-size: 13px; margin-top: 20px; }
+@media (max-width: 760px) { .charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .host { gap: 20px; } .host b { font-size: 16px; } }
+@media (max-width: 440px) { .host { grid-template-columns: 1fr; } }

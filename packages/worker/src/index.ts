@@ -22,6 +22,7 @@ import { createDraftTimer } from "./draft-timer.js";
 import { createTournamentTimer } from "./tournament-timer.js";
 import { createSetSync } from "./set-sync.js";
 import { createImageCleanup } from "./image-cleanup.js";
+import { createVpsHealth } from "./vps-health.js";
 import { createDiskUsage } from "./disk-usage.js";
 
 const startedAt = new Date();
@@ -42,6 +43,7 @@ const beat = db.prepare("insert into worker_heartbeat(id, at, pid) values (1, ?,
 const draftTimer = createDraftTimer({ db, drafts: createDraftService(db), effects, startedAt });
 const tournamentTimer = createTournamentTimer({ db, matches: createMatchService(db), tournaments: createTournamentService(db), effects });
 const jobs = [
+  createVpsHealth({ db, guildId: process.env.DISCORD_GUILD_ID }),
   // Presence keeps only the latest value and is dropped after 24 hours without an update.
   createLoop(async () => clearOldPresence(db), 10 * 60_000),
   createLoop(() => drainProductEvents(db, {
