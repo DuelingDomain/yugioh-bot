@@ -63,6 +63,8 @@ export function useHudDismiss(active: boolean, suspended: boolean, onClose: () =
       close.current();
     };
     const onDown = (event: Event) => {
+      // A right button belongs to the card drawer (grid-preview.tsx): it closes the pin on the contextmenu and claims that press from the prompt.
+      if ((event as PointerEvent).button === 2) return;
       const target = event.target as Element | null;
       // An edge drawer (its tab included) closes itself; a press on its tab must not close it first and let the click open it again.
       if (target?.closest?.("[data-hud-keep], [data-edge-drawer]") || keep.current?.(target)) return;
