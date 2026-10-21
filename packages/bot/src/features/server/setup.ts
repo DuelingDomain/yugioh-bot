@@ -5,7 +5,7 @@ import { botPermissions, checkRole, getChannels, needBot, privateOverwrites, Ref
 export async function setupAction(i: Command, c: FeatureContext): Promise<Action> {
   if (i.options.getSubcommand() !== "channels") throw new Refusal("Choose setup channels.");
   const action: Action = { action: "setup.channels", params: {},
-    summary: "Create or reuse Admin, signups, mod-log, online-now, announcements, and welcome by name? This repairs their parent and permission overwrites. Signups and online-now are admin-only. Moderator can view mod-log. Announcements and welcome are public and read-only.",
+    summary: "Create or reuse Admin, signups, mod-log, online-now, announcements, and welcome by name? This repairs their parent and permission overwrites. An existing #welcome will be moved to the top level and its permission overwrites replaced. Signups and online-now are admin-only. Moderator can view mod-log. Announcements and welcome are public and read-only.",
     async run() {
       const s = await state(i, c);
       needBot(s, P.ManageChannels | P.ManageRoles | P.ViewChannel | P.SendMessages | P.SendMessagesInThreads | P.EmbedLinks | P.AttachFiles | P.ReadMessageHistory);
@@ -20,7 +20,7 @@ export async function setupAction(i: Command, c: FeatureContext): Promise<Action
       for (const [name, type] of names) {
         const matches = all.filter(ch => ch.name.toLowerCase() === name.toLowerCase());
         if (matches.length > 1) throw new Refusal(`More than one channel is named ${name}. Rename the extra channels, then try again.`);
-        if (matches.length && matches[0].type !== type && !(name === "announcements" && matches[0].type === 5))
+        if (matches.length && matches[0].type !== type && !(["announcements", "welcome"].includes(name) && matches[0].type === 5))
           throw new Refusal(`The existing ${name} channel has the wrong type. Rename it, then try again.`);
         if (matches[0]) needBot(s, P.ManageChannels | P.ManageRoles, matches[0]);
       }

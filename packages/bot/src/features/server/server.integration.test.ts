@@ -212,6 +212,22 @@ it("creates and reuses the admin layout with exact visibility and prints env lin
   expect(f.writes()).toHaveLength(writes);
 });
 
+it.each([0, 5])("confirms and repairs an existing type %s welcome channel", async type => {
+  const f = await fixture();
+  const welcome = { id: "100000000000000025", name: "welcome", type, guild_id: G,
+    parent_id: CAT, permission_overwrites: [{ id: G, type: 0, allow: "0", deny: P.ViewChannel.toString() }] };
+  f.channels.push(welcome);
+  await f.command("setup", "channels");
+  expect(f.writes()).toHaveLength(0);
+  expect(f.replies.at(-1).content).toContain("An existing #welcome will be moved to the top level and its permission overwrites replaced.");
+  await f.press();
+  expect(welcome.parent_id).toBeNull();
+  expect(welcome.type).toBe(type);
+  expect(welcome.permission_overwrites).toEqual(f.channels.find(c => c.name === "announcements").permission_overwrites);
+  expect(f.requests.filter(r => r.method === "POST" && r.body?.name === "welcome")).toHaveLength(0);
+  expect(f.replies.at(-1).content).toContain(`DISCORD_WELCOME_CHANNEL_ID=${welcome.id}`);
+});
+
 it.each([OTHER, "100000000000000007"])("refuses unlinked admins and moderators: %s", async actor => {
   const f = await fixture();
   await f.command("channel", "create", { name: "bad", type: "text" }, actor);
