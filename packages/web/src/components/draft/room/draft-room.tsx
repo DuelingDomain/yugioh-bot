@@ -819,6 +819,7 @@ export function DraftRoom({ slug, name, config, isParticipant, onCancel, readOnl
     "data-kbd": kbd ? "" : undefined,
     "data-sheet": phone && sheet ? sheet : undefined,
     "data-binder": !phone && drawer && drawerOpen ? "" : undefined,
+    "data-admin-watch": adminBar ? "" : undefined,
   };
   const pickConfig = useMemo(
     () => ({ theme, packSize: sizes.packSize, cardsPerPlayer: sizes.cardsPerPlayer }),

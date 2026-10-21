@@ -15,13 +15,14 @@
 @media (max-width: 640px) { .watch { padding: 12px; } .selector { align-items: flex-start; flex-direction: column; } }
 
 /* ---- Duel watch: the real player board with a floating read-only bar ---- */
-.watchRoot { position: relative; }
+/* The bar is a strip across the top of the screen and the board below it is shorter by exactly its height:
+   the room css reads --admin-bar-h, so no card, hand or HUD ever sits under the bar. */
+.watchRoot { position: relative; --admin-bar-h: 44px; padding-top: var(--admin-bar-h); }
 .bar {
-  position: fixed; z-index: 90; top: 6px; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 16px);
-  padding: 5px 8px 5px 10px; border-radius: 12px;
-  background: rgb(8 11 20 / 0.92); border: 1px solid rgb(200 165 95 / 0.45);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.55); backdrop-filter: blur(6px);
+  position: fixed; z-index: 90; top: 0; left: 0; right: 0; height: var(--admin-bar-h); box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; gap: 12px; padding: 0 12px;
+  background: #090c16; border-bottom: 1px solid rgb(200 165 95 / 0.45);
+  box-shadow: 0 4px 18px rgb(0 0 0 / 0.5);
   color: #e8e8ed; font-size: 12px; line-height: 1.2;
 }
 .badge { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: #e4c77a; font-weight: 600; }
@@ -51,7 +52,8 @@
 .lobby li { display: grid; grid-template-columns: 70px 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid rgb(255 255 255 / 0.14); border-radius: 8px; }
 .lobbySeat, .lobbyState { color: #a4a4b5; font-size: 12px; }
 @media (max-width: 720px) {
-  .bar { top: 0; left: 0; right: 0; transform: none; max-width: none; border-radius: 0 0 10px 10px; flex-wrap: wrap; row-gap: 4px; }
+  .watchRoot { --admin-bar-h: 84px; }
+  .bar { flex-wrap: wrap; row-gap: 4px; align-content: center; justify-content: flex-start; padding: 0 8px; }
   .chips { order: 3; flex-basis: 100%; }
   .status { margin-left: auto; }
 }
