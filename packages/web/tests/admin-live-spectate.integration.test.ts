@@ -129,6 +129,24 @@ it.each(["seat", "invite"])("denies an owner's live draft %s", async mode => {
   expect(callHost).not.toHaveBeenCalled();
 });
 
+it("denies a completed draft participant until its linked tournament ends", async () => {
+  const d = seedDraft("booster");
+  db.exec("update players set user_id=1 where id=12");
+  const tournament = db.prepare("insert into tournaments(guild_id,name,format,status,created_by_user_id) values('g','Draft tournament','single_elimination','active',2)").run();
+  db.prepare("update drafts set status='completed',tournament_id=? where id=?").run(tournament.lastInsertRowid, d.id);
+  const before = rows();
+  for (const seat of [12, 13]) {
+    const response = await draft(d.webSlug!, `?seat=${seat}`);
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(await response.json()).toMatchObject({ code: "ADMIN_SPECTATE_PARTICIPANT" });
+  }
+  expect(rows()).toEqual(before);
+  expect(callHost).not.toHaveBeenCalled();
+  db.prepare("update tournaments set status='completed',ended_at=current_timestamp where id=?").run(tournament.lastInsertRowid);
+  expect((await draft(d.webSlug!, "?seat=13")).status).toBe(200);
+});
+
 it("audits successful hidden duel reads once per POV in five minutes, never token renewal or public reads", async () => {
   table(); vi.stubEnv("DISCORD_BOT_ENABLED", "1"); vi.stubEnv("DISCORD_MOD_LOG_CHANNEL_ID", "mod-log");
   const { GET } = await import("../app/api/admin/duels/[slug]/spectate/connection/route");

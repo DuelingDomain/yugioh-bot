@@ -5,7 +5,7 @@ import { resolveDraftDatabasePath } from "./draft-access.js";
 
 type SpectateTarget = Pick<AdminSpectateClaims, "userId" | "guildId" | "slug" | "kind">;
 
-/** A live player or invitee must use the ordinary player view, even when they own the site. */
+/** Players and invitees must use their ordinary view while the game or a player's linked tournament is live. */
 export function isAdminSpectateParticipant(db: Database.Database, claims: SpectateTarget): boolean {
   if (claims.kind === "duel") return !!db.prepare(`select 1 from duels d
     where d.web_slug=? and d.guild_id=? and d.status in ('lobby','active') and (
@@ -14,10 +14,11 @@ export function isAdminSpectateParticipant(db: Database.Database, claims: Specta
       exists(select 1 from duel_invite_grants i join players p on p.id=i.player_id
         where i.duel_id=d.id and p.user_id=?))`).get(claims.slug, claims.guildId, claims.userId, claims.userId);
   if (claims.kind === "draft") return !!db.prepare(`select 1 from drafts d
-    where d.web_slug=? and d.guild_id=? and d.status in ('pending','active') and (
+    where d.web_slug=? and d.guild_id=? and (
       exists(select 1 from draft_players dp join players p on p.id=dp.player_id
-        where dp.draft_id=d.id and p.user_id=?) or
-      exists(select 1 from draft_invite_grants i where i.draft_id=d.id and i.user_id=?))`)
+        where dp.draft_id=d.id and p.user_id=? and (d.status in ('pending','active') or
+          exists(select 1 from tournaments t where t.id=d.tournament_id and t.status in ('pending','active')))) or
+      exists(select 1 from draft_invite_grants i where i.draft_id=d.id and i.user_id=? and d.status in ('pending','active')))`)
     .get(claims.slug, claims.guildId, claims.userId, claims.userId);
   return false;
 }
