@@ -95,9 +95,13 @@ test("missing diffs and manual/scheduled events still run every layer", () => {
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), "changed-layers-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  // Retries cover a late write into .git after the last command.
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   git("init", "-b", "main");
+  // No detached background gc or maintenance, which can still write into .git during cleanup.
+  git("config", "gc.auto", "0");
+  git("config", "maintenance.auto", "false");
   git("config", "user.name", "CI tests");
   git("config", "user.email", "ci@example.invalid");
   const commit = (file) => {
