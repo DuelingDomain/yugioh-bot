@@ -1865,7 +1865,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       {pickHintShown && pickHint ? <PickRefusalHint anchor={pickHint.anchor} text={pickHint.text} onDone={clearPickHint} /> : null}
       {!hud ? (
         <GridHoverPreview card={drawerPreview?.card ?? null} owner={drawerPreview?.owner ?? null} reducedMotion={preferences.reducedMotion}
-          pinned={drawerPreview?.pinned === true} onClose={() => setPinnedCard(null)} />
+          pinned={drawerPreview?.pinned === true} held={drawerPreview?.held === true} onClose={() => setPinnedCard(null)} />
       ) : null}
       <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)}
         className={solid ? SOLID_SHEET_CLASS : undefined}

@@ -51,6 +51,7 @@ import { placeTributeDock, sameDock, type DockPlace } from "./tribute-dock-place
 import base from "./prompts.module.css";
 import baseStyles from "./prompt-center.module.css";
 import { anyEdgeDrawerOpen } from "./edge-drawer";
+import { drawerClaimed, hoverDrawerOpen } from "./hover-drawer";
 import { useSkinExtra, useSkinStyles } from "./skin";
 import { useForkLabels } from "./table/fork-labels";
 import { useMedia } from "@/components/draft/room/use-media";
@@ -1830,6 +1831,8 @@ export function PromptCenter(props: PromptCenterProps) {
         event.preventDefault();
         return;
       }
+      // The card drawer took this right click to close itself: the next one answers.
+      if (drawerClaimed(event)) return;
       const decline = dismissAnswer(current, zoneKeysAt(target));
       if (decline) {
         event.preventDefault();
@@ -1848,7 +1851,7 @@ export function PromptCenter(props: PromptCenterProps) {
       // A badge opened by mouse keeps focus outside its portal but owns the keys.
       if (document.querySelector("[data-master-popover]")) return;
       // An open edge drawer owns Escape too (it closes on it).
-      if (event.key === "Escape" && (escapeHeldRef.current || anyEdgeDrawerOpen())) return;
+      if (event.key === "Escape" && (escapeHeldRef.current || anyEdgeDrawerOpen() || hoverDrawerOpen() || drawerClaimed(event))) return;
       // A menu owns its keys: Escape closes it, and n / y in it must not answer the prompt behind.
       if (event.target instanceof Element && event.target.closest("[data-duel-menu],[role='menu']")) return;
       if (kindRef.current == null || barRef.current) return;

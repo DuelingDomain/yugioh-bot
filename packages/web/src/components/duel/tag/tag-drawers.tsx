@@ -108,7 +108,7 @@ export interface TagDrawersProps {
   nameOf: (seat: number) => string;
   seatTones: ReadonlyMap<number, { main: string; ink: string }>;
   logUnread: number;
-  preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean } | null;
+  preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean; held?: boolean } | null;
   equipLinks?: EquipLinks;
   /** Hold the preview back (a pick refusal hint stands over its card). */
   previewHidden?: boolean;
@@ -178,6 +178,7 @@ export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, l
         owner={preview?.owner ?? null}
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
+        held={preview?.held === true}
         extras={extras}
         onClose={closePin}
       />

@@ -132,6 +132,7 @@ export function PlazaDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones,
         owner={preview?.owner ?? null}
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
+        held={preview?.held === true}
         extras={extras}
         onClose={closePin}
       />

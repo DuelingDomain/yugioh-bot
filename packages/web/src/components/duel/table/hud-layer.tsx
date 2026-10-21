@@ -258,6 +258,8 @@ export function useDrawerPin(
       set.current(null);
     };
     const onDown = (event: Event) => {
+      // A right button belongs to the card drawer (grid-preview.tsx): it closes the pin on the contextmenu and claims that press from the prompt.
+      if ((event as PointerEvent).button === 2) return;
       const target = event.target as Element | null;
       if (target?.closest?.("[data-hud-keep], [data-edge-drawer], [data-zones], [role='menu'], [role='dialog']")) return;
       set.current(null);
@@ -359,7 +361,7 @@ export interface HudLayerProps {
   seatTones: SeatTones;
   logUnread: number;
   /** The card for the left peek and its owner, or `null` when there is none. A prompt row card has no owner. `pinned`: it stays until closed. */
-  preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean } | null;
+  preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean; held?: boolean } | null;
   /** The equip links of the live board: the pinned peek adds the same lines as the Card flyout (equip, counters, materials). */
   equipLinks?: EquipLinks;
   /** The pile viewer is open, or a pick hint is shown: the preview hides. An open card menu does not hide it. */
@@ -402,6 +404,7 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
         owner={preview?.owner ?? null}
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
+        held={preview?.held === true}
         extras={extras}
         onClose={closePin}
       />
