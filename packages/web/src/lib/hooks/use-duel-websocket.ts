@@ -243,7 +243,7 @@ export function useDuelWebsocket(
       try {
         let result!: DuelJoinAck;
         for (let attempt = 0; attempt < 2; attempt++) {
-          const response = await fetch(admin ? `/api/admin/duels/${encodeURIComponent(slug)}/connection`
+          const response = await fetch(admin ? `/api/admin/duels/${encodeURIComponent(slug)}/spectate/connection`
             : `/api/duels/${encodeURIComponent(slug)}/connection${spectate ? "?spectate=1" : ""}`, {
             cache: "no-store", signal: AbortSignal.any([request.signal, AbortSignal.timeout(8000)]),
           });
