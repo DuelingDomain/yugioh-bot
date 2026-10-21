@@ -68,3 +68,21 @@ export function livePileCards(view: PileView, engine: Pick<DuelEngineView, "seat
   if (/extra/.test(title)) return seat.extra;
   return view.cards;
 }
+
+/** Set on the face-up top card of an Extra Deck pile. The open pile viewer covers it, so a second press there (the scrim) pins the card instead. */
+export const PIN_TOP_ATTR = "data-pin-top";
+export const PIN_TOP_EVENT = "duel-pin-top";
+
+/**
+ * A press at (x, y) on the pile viewer's scrim: if it lands on a pile's face-up top card, tell that card to pin itself in the drawer.
+ * Returns whether one was hit. The elements under the scrim are found by their boxes, because the scrim takes the pointer.
+ */
+export function pinTopCardAt(x: number, y: number): boolean {
+  for (const el of document.querySelectorAll<HTMLElement>(`[${PIN_TOP_ATTR}]`)) {
+    const box = el.getBoundingClientRect();
+    if (x < box.left || x > box.right || y < box.top || y > box.bottom) continue;
+    el.dispatchEvent(new CustomEvent(PIN_TOP_EVENT));
+    return true;
+  }
+  return false;
+}
