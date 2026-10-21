@@ -22,6 +22,11 @@
   color: var(--duel-ink-3);
 }
 .baton li { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 999px; border: 1px solid transparent; }
+/* In the header pill the baton gives way when the row is short: a long player name ends in an ellipsis, the seat code, the arrow and NOW / NEXT stay whole. */
+.baton { min-width: 0; }
+.baton li { min-width: 0; }
+.baton li > span:not(.arrow) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.baton li > b, .baton li > em, .baton li > .arrow { flex: none; }
 .baton b { font-weight: 600; letter-spacing: 0.08em; color: var(--seat-ink); }
 .baton em { font-style: normal; font-size: 0.85em; letter-spacing: 0.1em; text-transform: uppercase; }
 .baton li[data-now="true"] {
