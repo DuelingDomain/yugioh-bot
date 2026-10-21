@@ -25,7 +25,7 @@ vi.mock("@/lib/session-identity", async () => {
 });
 
 // Only the native engine boundary is substituted. Routes, auth-to-player mapping, signed
-// internal HTTP, host queue, surrender orchestration, migrations and services are real.
+// internal HTTP, host queue, opening cancellation, migrations and services are real.
 class FixtureWorker implements DuelGameWorker {
   running = true;
   format: DuelFormat = "1v1";
@@ -33,13 +33,10 @@ class FixtureWorker implements DuelGameWorker {
   eliminated = new Set<number>();
   eliminations: number[] = [];
   failElimination = false;
-  failActiveView = false;
-  beforeEliminate?: () => Promise<void>;
   answers = 0;
   result: DuelEngineView["result"] = null;
   async create(options: GameOptions) { this.format = options.format ?? "1v1"; }
   async view(viewer: number | null): Promise<DuelEngineView> {
-    if (this.failActiveView && duels.get(slug, "g").status === "active") throw new Error("Fixture worker view failed after activation");
     const promptSeat = Array.from({ length: seatCountFor(this.format) }, (_, i) => i).find(i => !this.eliminated.has(i)) ?? 0;
     return { revision: this.revision, format: this.format, turn: 1, turnSeat: promptSeat, phase: "main1",
       seats: Array.from({ length: seatCountFor(this.format) }, (_, seat) => ({ seat, lp: 8000, hand: [],
@@ -51,7 +48,6 @@ class FixtureWorker implements DuelGameWorker {
   }
   async answer(_seat: number, _promptId: string, _answer: DuelAnswer) { this.answers++; this.revision++; }
   async eliminate(seat: number) {
-    await this.beforeEliminate?.();
     if (this.failElimination) throw new Error("This duel core has no Debug.EliminateDuelist");
     this.eliminations.push(seat);
     for (let i = 0; i < seatCountFor(this.format); i++) {
@@ -126,15 +122,16 @@ async function invite(body: unknown) {
     body: JSON.stringify(body), headers: { "Content-Type": "application/json" } }), { params: Promise.resolve({ slug }) });
 }
 function signedInAs(identity: typeof owner) { state.auth.mockResolvedValue({ user: { id: String(identity.userId), name: "Fixture" } }); }
-function table(format: DuelFormat, active = false, bestOf: 1 | 3 = 1) {
+function table(format: DuelFormat, active = false, bestOf: 1 | 3 = 1, ranked = false) {
   slug = duels.create({ guildId: "g", organizerPlayerId: owner.playerId, name: "Table", mode: "normal", format,
-    bestOf, settings: { validateDeck: false } }).slug;
+    bestOf, ranked, settings: { validateDeck: false } }).slug;
   const players = [owner, guest];
   for (let i = 2; i < seatCountFor(format); i++) players.push(seedIdentity(db, { name: `P${i}` }));
   for (const player of players.slice(1)) duels.takeSeat(slug, "g", player.playerId);
   for (const player of players) duels.setDeck(slug, "g", player.playerId, deck);
   if (active) duels.activate(slug, "g", owner.playerId, ["1", "2", "3", "4"],
-    pinnedEngineVersion("fixture", seatCountFor(format), format === "1v1" ? null : activeMultiScriptsHash(directory)), null,
+    pinnedEngineVersion("fixture", seatCountFor(format), format === "1v1" ? null : activeMultiScriptsHash(directory)),
+    ranked ? { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [180_000, 180_000] } : null,
     { firstTurnDraw: false });
   return players;
 }
@@ -173,14 +170,23 @@ describe("host player removal through the signed duel API and SQLite", () => {
     expect(() => duels.room(slug, "g", guest.playerId)).toThrow(/removed.*host/i);
   });
 
-  it("cancels a pending challenge while preserving the host lobby", async () => {
+  it.each([
+    { ranked: false, opening: false }, { ranked: true, opening: false },
+    { ranked: false, opening: true }, { ranked: true, opening: true },
+  ])("cancels a pending challenge while preserving the host lobby ($ranked, opening=$opening)", async ({ ranked, opening }) => {
     const series = createDuelSeriesService(db);
     const challenge = series.createChallenge({ guildId: "g", challengerPlayerId: owner.playerId,
-      opponentPlayerId: guest.playerId, bestOf: 3, ranked: false, mode: "normal" });
+      opponentPlayerId: guest.playerId, bestOf: 3, ranked, mode: "normal" });
     slug = challenge.duel.slug;
+    if (opening) {
+      duels.setDeck(slug, "g", owner.playerId, deck); duels.setDeck(slug, "g", guest.playerId, deck);
+      duels.startOpening(slug, "g", owner.playerId, Date.now());
+    }
     expect((await kick()).status).toBe(200);
-    expect(series.get(challenge.series.id, "g").status).toBe("cancelled");
+    expect(series.get(challenge.series.id, "g")).toMatchObject({ status: "cancelled", wins: [0, 0], winnerPlayerId: null });
+    expect(db.prepare("select count(*) as count from matches").get()).toEqual({ count: 0 });
     expect(duels.get(slug, "g")).toMatchObject({ status: "lobby", seriesId: null, seats: [{ playerId: owner.playerId }] });
+    expect(duels.room(slug, "g", owner.playerId).opening).toBeNull();
   });
 
   it("cancels an unseated invitation, refuses the old link, and permits only a host re-invite", async () => {
@@ -233,11 +239,16 @@ describe("host player removal through the signed duel API and SQLite", () => {
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });
 
-  it("interrupts the opening before releasing a seat", async () => {
-    table("1v1"); duels.startOpening(slug, "g", owner.playerId, Date.now());
+  it.each(["1v1", "ffa3", "ffa4"] as const)("cancels the %s opening back to the lobby without a result", async format => {
+    table(format); duels.startOpening(slug, "g", owner.playerId, Date.now());
     expect((await kick()).status).toBe(200);
     expect(duels.room(slug, "g", owner.playerId).opening).toBeNull();
-    expect(duels.get(slug, "g").status).toBe("lobby");
+    expect(duels.get(slug, "g")).toMatchObject({ status: "lobby", winnerPlayerId: null, resultReason: null });
+    expect(duels.get(slug, "g").seats.some(seat => seat.playerId === guest.playerId)).toBe(false);
+    expect(db.prepare("select started_at from duels where web_slug=?").get(slug)).toEqual({ started_at: null });
+    expect(db.prepare("select count(*) as count from matches").get()).toEqual({ count: 0 });
+    expect(() => duels.takeSeat(slug, "g", guest.playerId)).toThrow(/removed.*host/i);
+    expect((await internal({ op: "opening-pick", playerId: guest.playerId, pick: "rock" })).status).toBe(403);
   });
 
   it.each([undefined, null, "2", -1, 0, 1.5, Number.MAX_SAFE_INTEGER + 1])("rejects malformed target %j", async playerId => {
@@ -270,22 +281,15 @@ describe("host player removal through the signed duel API and SQLite", () => {
     expect(duels.room(slug, "g", guest.playerId).mySeat).toBe(1);
   });
 
-  it("serializes an in-flight kick before the removed player's queued action", async () => {
+  it("refuses a kick queued after the duel starts without blocking the player's view", async () => {
     table("ffa3", true);
-    let release!: () => void; let entered!: () => void;
-    const started = new Promise<void>(resolve => { entered = resolve; });
-    const held = new Promise<void>(resolve => { release = resolve; });
-    worker.beforeEliminate = async () => { entered(); await held; };
-    const kicking = kick();
-    await started;
-    const action = internal({ op: "respond", playerId: guest.playerId,
-      command: { promptId: "p1", revision: 1, answer: { choice: "to_ep" } } });
-    release();
-    expect((await kicking).status).toBe(200);
-    const rejected = await action;
-    expect(rejected.status).toBe(403);
-    expect(await rejected.json()).toMatchObject({ code: "DUEL_KICKED" });
-    expect(worker.answers).toBe(0);
+    const before = duels.get(slug, "g");
+    const kicking = internal({ op: "kick", targetPlayerId: guest.playerId });
+    const viewing = internal({ op: "view", playerId: guest.playerId });
+    expect((await kicking).status).toBe(409);
+    expect((await viewing).status).toBe(200);
+    expect(duels.get(slug, "g")).toEqual(before);
+    expect(worker.eliminations).toEqual([]);
   });
 
   it("returns the removal code from both browser room and subscription routes", async () => {
@@ -300,91 +304,87 @@ describe("host player removal through the signed duel API and SQLite", () => {
     }
   });
 
-  it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("uses the existing surrender path in an active %s duel", async format => {
+  it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("refuses kicks in an active %s duel at every API boundary", async format => {
     table(format, true);
-    const response = await kick();
-    expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
-    const session = duels.get(slug, "g");
-    if (format === "ffa3" || format === "ffa4") {
-      expect(session.status).toBe("active");
-      expect(worker.eliminations).toEqual([1]);
-      expect(duels.privateState(slug, "g").commands.some(entry => entry.seat === 1 && entry.command.promptId.startsWith("eliminate:"))).toBe(true);
-      const view = await internal({ op: "view" });
-      expect(view.status).toBe(200);
-      expect((await view.json()).engine.seats[1].eliminated).toBe(true);
-    } else {
-      expect(session).toMatchObject({ status: "completed", winnerPlayerId: owner.playerId, resultReason: "Surrender" });
+    const before = duels.get(slug, "g");
+    for (const response of [await kick(), await internal({ op: "kick", targetPlayerId: guest.playerId })]) {
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ error: expect.stringMatching(/only.*before.*duel starts/i) });
     }
-    const result = await internal({ op: "view", playerId: guest.playerId });
-    const terminal = session.status === "completed";
-    expect(result.status).toBe(terminal ? 200 : 403);
-    if (terminal) {
-      expect(await result.json()).toMatchObject({ mySeat: 1, session: { status: "completed" }, engine: { result: { reason: "Surrender" } } });
-      const replay = await internal({ op: "replay", playerId: guest.playerId });
-      expect(replay.status, JSON.stringify(await replay.clone().json())).toBe(200);
-    } else expect(await result.json()).toMatchObject({ code: "DUEL_KICKED" });
-    expect(canReadDuel(db, { slug, guildId: "g", playerId: guest.playerId, seat: null })).toBe(terminal);
-    expect(broadcasts).toContainEqual({ slug, guildId: "g" });
+    expect(() => duels.kickPlayer(slug, "g", owner.playerId, guest.playerId)).toThrow(/only.*before.*duel starts/i);
+    expect(duels.get(slug, "g")).toEqual(before);
+    expect(duels.privateState(slug, "g").commands).toEqual([]);
+    expect(worker.eliminations).toEqual([]);
+    expect(broadcasts).toEqual([]);
+    expect(duels.room(slug, "g", owner.playerId).kickedPlayers).toEqual([]);
+    expect((await internal({ op: "view", playerId: guest.playerId })).status).toBe(200);
+    expect(canReadDuel(db, { slug, guildId: "g", playerId: guest.playerId, seat: 1 })).toBe(true);
   });
 
-  it("hides a kicked live seat from Live now while retaining its finished history", async () => {
+  it("preserves live access and finished history after refusing an active kick", async () => {
     table("ffa3", true);
     const live = createLiveNowService(db);
     expect(live.forPlayer("g", guest.playerId).yourDuel).toMatchObject({ href: `/duels/${slug}` });
-    expect((await kick()).status).toBe(200);
-    expect(live.forPlayer("g", guest.playerId)).toEqual({ yourDuel: null, liveCount: 0 });
+    expect((await kick()).status).toBe(409);
+    expect(live.forPlayer("g", guest.playerId).yourDuel).toMatchObject({ href: `/duels/${slug}` });
     expect(live.forPlayer("g", owner.playerId).liveCount).toBe(1);
     duels.complete(slug, "g", 0, "Finished");
     expect(duels.listHistory("g", guest.playerId, { scope: "mine" }).duels).toContainEqual(expect.objectContaining({ slug }));
     expect(duels.room(slug, "g", guest.playerId).mySeat).toBe(1);
   });
 
-  it("does not ban or release a seat when surrender fails", async () => {
-    table("ffa3", true); worker.failElimination = true;
-    const response = await kick();
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: "This engine cannot eliminate a surrendering duelist" });
+  it("refuses to revoke a pending invitation after the duel starts", async () => {
+    table("ffa3");
+    const invited = seedIdentity(db, { name: "Invited spectator" });
+    duels.invitePlayer(slug, "g", owner.playerId, invited.playerId);
+    duels.activate(slug, "g", owner.playerId, ["1", "2", "3", "4"],
+      pinnedEngineVersion("fixture", 3, activeMultiScriptsHash(directory)), null, { firstTurnDraw: false });
+    worker.failElimination = true;
+    for (const response of [await kick(invited.playerId), await internal({ op: "kick", targetPlayerId: invited.playerId })]) {
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ error: expect.stringMatching(/only.*before.*duel starts/i) });
+    }
+    expect(duels.room(slug, "g", owner.playerId).invitedPlayers).toContainEqual({ playerId: invited.playerId, displayName: "Invited spectator" });
+    expect(canReadDuel(db, { slug, guildId: "g", playerId: invited.playerId, seat: null })).toBe(true);
+    expect(worker.eliminations).toEqual([]);
     expect(duels.room(slug, "g", guest.playerId).mySeat).toBe(1);
     expect(duels.room(slug, "g", owner.playerId).kickedPlayers).toEqual([]);
   });
 
-  it("keeps a removed player out of a BO3 successor and concedes the seat through normal game results", async () => {
-    table("1v1", true, 3);
+  it.each([false, true])("refuses an active series kick without changing wins or match records (ranked=%s)", async ranked => {
+    table("1v1", true, 3, ranked);
     const series = createDuelSeriesService(db);
     const seriesId = duels.get(slug, "g").seriesId!;
-    expect((await kick()).status).toBe(200);
-    expect(series.get(seriesId, "g").status).toBe("between_games");
-    expect(createLiveNowService(db).forPlayer("g", guest.playerId).yourDuel).toBeNull();
     const before = series.get(seriesId, "g");
-    for (const op of ["series-side", "series-ready", "series-unready", "series-first"]) {
-      const refused = await internal({ op, playerId: guest.playerId, deck, choice: "second" });
-      expect(refused.status).toBe(403);
-      expect(await refused.json()).toMatchObject({ code: "DUEL_KICKED" });
+    const matches = db.prepare("select * from matches").all();
+    for (const response of [await kick(), await internal({ op: "kick", targetPlayerId: guest.playerId })]) {
+      expect(response.status).toBe(409);
     }
     expect(series.get(seriesId, "g")).toEqual(before);
-    const next = series.createNextGame(seriesId, "g");
-    expect(canReadDuel(db, { slug: next.slug, guildId: "g", playerId: guest.playerId, seat: 1 })).toBe(false);
-    expect(() => duels.room(next.slug, "g", guest.playerId)).toThrow(/removed.*host/i);
-    const started = await internal({ op: "start", slug: next.slug });
-    expect(started.status, JSON.stringify(await started.clone().json())).toBe(200);
-    expect(duels.get(next.slug, "g")).toMatchObject({ status: "completed", winnerPlayerId: owner.playerId, resultReason: "Surrender" });
-    expect(series.get(seriesId, "g")).toMatchObject({ status: "completed", winnerPlayerId: owner.playerId });
-    expect((await internal({ op: "view", slug: next.slug, playerId: guest.playerId })).status).toBe(200);
+    expect(db.prepare("select * from matches").all()).toEqual(matches);
+    expect(duels.get(slug, "g")).toMatchObject({ status: "active", winnerPlayerId: null });
+    expect(duels.room(slug, "g", guest.playerId).mySeat).toBe(1);
   });
 
-  it("supports kicking from a later fixed-seat series lobby", async () => {
+  it("blocks a later fixed-seat series lobby without awarding another win", async () => {
     table("1v1", true, 3);
     const series = createDuelSeriesService(db);
     const seriesId = duels.get(slug, "g").seriesId!;
     duels.complete(slug, "g", 0, "Surrender");
     slug = series.createNextGame(seriesId, "g").slug;
+    const before = series.get(seriesId, "g");
+    const matches = db.prepare("select * from matches").all();
     const response = await kick();
     expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
-    expect(duels.get(slug, "g")).toMatchObject({ status: "completed", winnerPlayerId: owner.playerId });
-    expect(duels.room(slug, "g", guest.playerId)).toMatchObject({ mySeat: 0, role: "player" });
+    expect(duels.get(slug, "g")).toMatchObject({ status: "lobby", winnerPlayerId: null, resultReason: null });
+    expect(duels.get(slug, "g").seats.find(seat => seat.playerId === guest.playerId)?.ready).toBe(false);
+    expect(series.get(seriesId, "g")).toEqual(before);
+    expect(db.prepare("select * from matches").all()).toEqual(matches);
+    expect((await internal({ op: "start" })).status).toBe(409);
+    expect(() => duels.room(slug, "g", guest.playerId)).toThrow(/removed.*host/i);
   });
 
-  it("broadcasts a committed kick even when a series auto-start rejects an illegal deck", async () => {
+  it("broadcasts a lobby kick without auto-starting a series with an illegal deck", async () => {
     table("1v1", true, 3);
     const seriesId = duels.get(slug, "g").seriesId!;
     duels.complete(slug, "g", 0, "Surrender");
@@ -392,19 +392,32 @@ describe("host player removal through the signed duel API and SQLite", () => {
     db.prepare("update duel_seats set deck_json=? where duel_id=? and player_id=?")
       .run(JSON.stringify({ ...deck, extra: [999999] }), duels.get(slug, "g").id, owner.playerId);
     const response = await kick();
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
     expect(broadcasts).toContainEqual({ slug, guildId: "g" });
+    expect(duels.get(slug, "g").status).toBe("lobby");
     expect(() => duels.room(slug, "g", guest.playerId)).toThrow(/removed.*host/i);
   });
 
-  it("revokes a fixed tournament lobby seat and surrenders it when the host is ready", async () => {
-    tournamentLobby();
+  it.each([false, true])("blocks a fixed tournament lobby seat without changing the bracket or awarding a win (opening=%s)", async opening => {
+    const game = tournamentLobby();
+    if (opening) {
+      duels.markReady(slug, "g", owner.playerId); duels.markReady(slug, "g", guest.playerId);
+      duels.startOpening(slug, "g", owner.playerId, Date.now());
+    }
+    const series = createDuelSeriesService(db);
+    const before = series.get(game.series.id, "g");
+    const bracket = db.prepare("select * from tournament_matches").all();
     const response = await kick();
     expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
     expect(() => duels.room(slug, "g", guest.playerId)).toThrow(/removed.*host/i);
     const ready = await internal({ op: "ready" });
     expect(ready.status, JSON.stringify(await ready.clone().json())).toBe(200);
-    expect(duels.get(slug, "g")).toMatchObject({ status: "completed", winnerPlayerId: owner.playerId, resultReason: "Surrender" });
+    expect(duels.get(slug, "g")).toMatchObject({ status: "lobby", winnerPlayerId: null, resultReason: null });
+    expect(duels.room(slug, "g", owner.playerId).opening).toBeNull();
+    expect(series.get(game.series.id, "g")).toEqual(before);
+    expect(db.prepare("select * from tournament_matches").all()).toEqual(bracket);
+    expect(db.prepare("select count(*) as count from matches").get()).toEqual({ count: 0 });
+    expect((await internal({ op: "start" })).status).toBe(409);
   });
 
   it("requires a reinstated fixed-seat player to confirm readiness again", async () => {
@@ -419,35 +432,38 @@ describe("host player removal through the signed duel API and SQLite", () => {
     expect(duels.room(slug, "g", guest.playerId).role).toBe("player");
   });
 
-  it("interrupts a failed pending concession once and keeps room reads available after restart", async () => {
+  it("keeps a fixed-seat lobby kick blocked after a host restart without settling a result", async () => {
     table("1v1", true, 3);
     const series = createDuelSeriesService(db);
     const seriesId = duels.get(slug, "g").seriesId!;
     duels.complete(slug, "g", 0, "Surrender");
     slug = series.createNextGame(seriesId, "g").slug;
     duels.kickPlayer(slug, "g", owner.playerId, guest.playerId);
-    worker.failActiveView = true;
-    expect((await internal({ op: "start" })).status).toBe(200);
-    expect(duels.get(slug, "g").status).toBe("interrupted");
-    expect(db.prepare("select needs_surrender from duel_kicked_players where duel_id=? and player_id=?")
-      .get(duels.get(slug, "g").id, guest.playerId)).toEqual({ needs_surrender: 0 });
     await host.close(); worker = new FixtureWorker(); host = openHost();
     expect((await internal({ op: "view" })).status).toBe(200);
-    expect((await internal({ op: "view" })).status).toBe(200);
-    expect(duels.get(slug, "g").status).toBe("interrupted");
+    expect((await internal({ op: "start" })).status).toBe(409);
+    expect(duels.get(slug, "g")).toMatchObject({ status: "lobby", winnerPlayerId: null });
     expect(series.get(seriesId, "g").wins).toEqual([1, 0]);
-    expect(db.prepare("select needs_surrender from duel_kicked_players where duel_id=? and player_id=?")
-      .get(duels.get(slug, "g").id, guest.playerId)).toEqual({ needs_surrender: 0 });
+    expect((await internal({ op: "view", playerId: guest.playerId })).status).toBe(403);
+    expect(worker.eliminations).toEqual([]);
   });
 
-  it("clears an unsupported pending multiplayer concession during recovery without blocking other players", async () => {
-    table("ffa3", true);
-    duels.kickPlayer(slug, "g", owner.playerId, guest.playerId);
-    db.prepare("update duel_kicked_players set needs_surrender=1 where player_id=?").run(guest.playerId);
-    worker.failElimination = true;
-    expect((await internal({ op: "view" })).status).toBe(200);
-    expect(duels.get(slug, "g").status).toBe("interrupted");
-    expect(db.prepare("select needs_surrender from duel_kicked_players where player_id=?").get(guest.playerId)).toEqual({ needs_surrender: 0 });
-    expect((await internal({ op: "view" })).status).toBe(200);
+  it("refuses active tournament kicks without changing match or bracket records", async () => {
+    const game = tournamentLobby();
+    duels.markReady(slug, "g", owner.playerId); duels.markReady(slug, "g", guest.playerId);
+    duels.activate(slug, "g", owner.playerId, ["1", "2", "3", "4"], pinnedEngineVersion("fixture", 2, null), null,
+      { firstTurnDraw: false });
+    const series = createDuelSeriesService(db);
+    const before = series.get(game.series.id, "g");
+    const bracket = db.prepare("select * from tournament_matches").all();
+    const matches = db.prepare("select * from matches").all();
+    for (const response of [await kick(), await internal({ op: "kick", targetPlayerId: guest.playerId })]) {
+      expect(response.status).toBe(409);
+    }
+    expect(series.get(game.series.id, "g")).toEqual(before);
+    expect(db.prepare("select * from tournament_matches").all()).toEqual(bracket);
+    expect(db.prepare("select * from matches").all()).toEqual(matches);
+    expect(duels.get(slug, "g")).toMatchObject({ status: "active", winnerPlayerId: null });
+    expect(duels.room(slug, "g", guest.playerId).role).toBe("player");
   });
 });

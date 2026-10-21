@@ -219,7 +219,7 @@ export interface DuelService {
   leave(slug: string, guildId: string, playerId: number): DuelSession;
   /** Validate before a queued host operation; an invite may have no seat yet. */
   kickTarget(slug: string, guildId: string, hostPlayerId: number, playerId: number): DuelSeat | null;
-  /** Called by the host after an active seat has surrendered, or directly for a lobby. */
+  /** Removes lobby access before the duel starts, cancelling any unfinished opening without a result. */
   kickPlayer(slug: string, guildId: string, hostPlayerId: number, playerId: number): DuelSession;
   invitePlayer(slug: string, guildId: string, hostPlayerId: number, playerId: number): void;
   /** Navigation departure before start: the host closes the lobby; a guest releases their seat. */
@@ -1490,35 +1490,30 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
   const kickTarget = (slug: string, guildId: string, hostPlayerId: number, playerId: number) => {
     const row = loadDuelRow(slug, guildId);
     requireHost(row, guildId, hostPlayerId, playerId);
-    if (row.status !== "lobby" && row.status !== "active") throw new DuelServiceError("This duel is over", 409);
+    if (row.status !== "lobby" || row.started_at !== null) {
+      throw new DuelServiceError("Players can only be kicked before the duel starts", 409);
+    }
     const seat = seatRows(row.id).find(entry => entry.player_id === playerId);
     if (!seat && !selectGrant.get(row.id, playerId)) throw new DuelServiceError("Player is not seated or invited to this duel", 404);
     return seat ? mapSeat(seat) : null;
   };
   const kickPlayerTx = db.transaction((slug: string, guildId: string, hostPlayerId: number, playerId: number) => {
+    const target = kickTarget(slug, guildId, hostPlayerId, playerId);
     const row = loadDuelRow(slug, guildId);
-    requireHost(row, guildId, hostPlayerId, playerId);
-    let needsSurrender = 0;
-    // Active seats stay in the journal and result. The host has already applied their surrender.
-    if (row.status === "lobby") {
-      kickTarget(slug, guildId, hostPlayerId, playerId);
-      // The queue serializes this with opening timers and activation. An unfinished opening is cancelled.
-      if (row.opening_json !== null) db.prepare("update duels set opening_json = null where id = ?").run(row.id);
-      if (seatRows(row.id).some(entry => entry.player_id === playerId)) {
-        const current = loadDuelRow(slug, guildId);
-        if (current.series_id !== null && !isPendingChallenge(current)) {
-          // Started matches and tournament brackets keep fixed seats and registered decks.
-          // Revoke access now; the queued start surrenders this seat through the normal path.
-          updateReady.run(row.id, playerId);
-          needsSurrender = 1;
-        } else {
-          leaveLobbyTx(slug, guildId, playerId);
-        }
+    // The queue serializes this with opening timers and activation. An unfinished opening is cancelled.
+    if (row.opening_json !== null) db.prepare("update duels set opening_json = null where id = ?").run(row.id);
+    if (target) {
+      const current = loadDuelRow(slug, guildId);
+      if (current.series_id !== null && !isPendingChallenge(current)) {
+        // Preserve fixed assignments and registered decks, but keep the game in the lobby.
+        // A host re-invite and the player's own readiness are required before it can start.
+        updateUnready.run(row.id, playerId);
+      } else {
+        leaveLobbyTx(slug, guildId, playerId);
       }
     }
     db.prepare("delete from duel_invite_grants where duel_id = ? and player_id = ?").run(row.id, playerId);
-    db.prepare(`insert into duel_kicked_players (duel_id, player_id, needs_surrender) values (?, ?, ?)
-      on conflict (duel_id, player_id) do update set needs_surrender = excluded.needs_surrender`).run(row.id, playerId, needsSurrender);
+    db.prepare("insert or ignore into duel_kicked_players (duel_id, player_id) values (?, ?)").run(row.id, playerId);
     touchActivity(row.id);
     return mapSession(loadDuelRow(slug, guildId));
   });
@@ -1527,8 +1522,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     requireHost(row, guildId, hostPlayerId, playerId);
     if (row.status !== "lobby") throw new DuelServiceError("Players can only be invited before the duel starts", 409);
     assertNoOpening(row);
-    // A fixed seat was made ready only so its removal could concede at startup.
-    // Reinstating it requires that player's own confirmation again.
+    // Reinstating a fixed seat requires that player's own confirmation again.
     if (selectKick.get(row.id, playerId)) updateUnready.run(row.id, playerId);
     db.prepare("delete from duel_kicked_players where duel_id = ? and player_id = ?").run(row.id, playerId);
     insertGrant.run(row.id, playerId);

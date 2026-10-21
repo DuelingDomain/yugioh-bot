@@ -1483,7 +1483,6 @@ export function createDuelHost(options: {
     const existing = games.get(slug);
     if (existing?.game.running) {
       existing.lastRequestAt = now();
-      await applyPendingKicks(slug, guildId, existing.game);
       await driveBot(slug, guildId, existing.game);
       return existing.game;
     }
@@ -1566,7 +1565,6 @@ export function createDuelHost(options: {
     });
     recordRecoveryErrors = true;
     if (!fork) {
-      await applyPendingKicks(slug, guildId, game);
       if (service.get(slug, guildId).status === "active") rememberReportCapture(slug, guildId, await game.view(null, { fullLog: true }));
     }
     await driveBot(slug, guildId, game);
@@ -2944,7 +2942,6 @@ export function createDuelHost(options: {
       deckStartBlocks.delete(slug);
       startBackoff.delete(slug);
       games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), traces: new Map() });
-      await applyPendingKicks(slug, guildId, game);
       if (service.get(slug, guildId).status === "active") rememberReportCapture(slug, guildId, await game.view(null, { fullLog: true }));
       startingGames.delete(slug);
       await emitChange(slug, guildId);
@@ -3112,36 +3109,6 @@ export function createDuelHost(options: {
    * Starts a lobby duel with every seat ready. Game 1 of a 1v1 duel or match goes through the rock-paper-scissors
    * opening first (when enabled). Every FFA3/FFA4 game rolls dice; Tag starts at once. Returns the live game, or null while the opening runs.
    */
-  function kickedSeats(session: DuelSession): number[] {
-    return options.db.prepare<[number], { seat: number }>(`select s.seat from duel_seats s
-      join duel_kicked_players k on k.duel_id = s.duel_id and k.player_id = s.player_id
-      where s.duel_id = ? and k.needs_surrender = 1`).all(session.id).map(row => row.seat);
-  }
-
-  /** Settle each durable concession once; a failed loss must not block every later recovery. */
-  async function applyPendingKicks(slug: string, guildId: string, game: DuelGameWorker): Promise<void> {
-    const session = service.get(slug, guildId);
-    for (const seat of kickedSeats(session)) {
-      try {
-        if (service.get(slug, guildId).status === "active") await forfeitSeat(slug, guildId, game, seat, "Surrender", false);
-      } catch (error) {
-        report(error, { tags: { operation: "[duel] pending kick concession failed", table: slug }, extra: { seat } });
-        // The removed player cannot answer any remaining prompt. Stop the table without a result
-        // rather than leaving an inaccessible seat in play or retrying the same engine failure.
-        if (service.get(slug, guildId).status === "active") {
-          service.interrupt(slug, guildId, "The engine could not apply a removed player's surrender.");
-          await disposeGame(slug);
-          await emitChange(slug, guildId);
-          await afterGameEnded(slug, guildId);
-        }
-      } finally {
-        options.db.prepare(`update duel_kicked_players set needs_surrender = 0 where duel_id = ?
-          and player_id = (select player_id from duel_seats where duel_id = ? and seat = ?)`)
-          .run(session.id, session.id, seat);
-      }
-    }
-  }
-
   async function beginGame(slug: string, guildId: string, actor: number | null): Promise<DuelGameWorker | null> {
     try {
       const existing = service.openingState(slug, guildId);
@@ -3156,7 +3123,7 @@ export function createDuelHost(options: {
       // opening without waiting for file I/O or changing the opening deadline.
       warmLobbyResources(session);
       const dice = session.format === "ffa3" || session.format === "ffa4";
-      const rps = options.openingRps && session.format === "1v1" && (session.gameNumber ?? 1) === 1 && kickedSeats(session).length === 0;
+      const rps = options.openingRps && session.format === "1v1" && (session.gameNumber ?? 1) === 1;
       if (!dice && !rps) return await startGame(slug, guildId, actor);
       service.startOpening(slug, guildId, actor ?? session.organizerPlayerId, now());
       await driveOpening(slug, guildId);
@@ -3554,6 +3521,12 @@ export function createDuelHost(options: {
     if (op === "replay" || op === "owner-replay") return replayRequest(body, slug, guildId, actor, ctl?.signal);
     const roomOptions = { includeStoredBoard: false, allowKickedHistory: op === "view" };
     let room = service.room(slug, guildId, actor, roomOptions);
+    if (op === "kick") {
+      const session = service.kickPlayer(slug, guildId, actor, body.targetPlayerId as number);
+      clearOpeningTimer(slug);
+      await emitChange(slug, guildId);
+      return { session };
+    }
     if (competitive(room.session) && await settleRankedDeadline(slug, guildId)) {
       room = service.room(slug, guildId, actor, roomOptions);
     }
@@ -3564,25 +3537,6 @@ export function createDuelHost(options: {
     if (room.session.seriesId && !isReplayFork(room.session)) {
       repairDeckCopies().series(room.session.seriesId);
       room = service.room(slug, guildId, actor, roomOptions);
-    }
-    if (op === "kick") {
-      const targetPlayerId = body.targetPlayerId as number;
-      const targetSeat = service.kickTarget(slug, guildId, actor, targetPlayerId);
-      if (room.session.status === "active" && targetSeat) {
-        const game = await recover(slug, guildId);
-        await settleClock(slug, guildId, game);
-        if (service.get(slug, guildId).status === "active") {
-          await forfeitSeat(slug, guildId, games.get(slug)?.game ?? game, targetSeat.seat, "Surrender");
-        }
-      }
-      let session = service.kickPlayer(slug, guildId, actor, targetPlayerId);
-      clearOpeningTimer(slug);
-      try {
-        session = await autoStart(slug, guildId, session);
-      } finally {
-        await emitChange(slug, guildId);
-      }
-      return { session };
     }
     if (op === "invite-player") {
       service.invitePlayer(slug, guildId, actor, body.targetPlayerId as number);
@@ -3941,20 +3895,6 @@ export function createDuelHost(options: {
     } catch (error) {
       report(error, { tags: { operation: "[duel] heartbeat failed" } });
     }
-    // Fixed-seat concessions must also finish when no browser remains connected.
-    try {
-      const pendingKicks = options.db.prepare<[], { slug: string; guildId: string }>(`select distinct d.web_slug as slug, d.guild_id as guildId
-        from duel_kicked_players k join duels d on d.id = k.duel_id
-        where k.needs_surrender = 1 and d.kind = 'play' and d.status = 'active' limit ${CLOCK_SWEEP_LIMIT}`).all();
-      for (const item of pendingKicks) {
-        if (stopped) return;
-        try {
-          await enqueue(item.slug, async () => {
-            if (!stopped && service.get(item.slug, item.guildId).status === "active") await recover(item.slug, item.guildId);
-          });
-        } catch (error) { report(error, { tags: { operation: "[duel] pending kick settlement failed" } }); }
-      }
-    } catch (error) { report(error, { tags: { operation: "[duel] pending kick sweep failed" } }); }
     // Every table has an idle backstop. Proven competitive timeouts settle first, without engine recovery.
     try {
       for (const item of service.dueIdleDuels(t, ARCHIVE_SWEEP_LIMIT)) {
