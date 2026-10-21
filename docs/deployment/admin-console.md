@@ -12,7 +12,7 @@ All keys are read on the web server only. They are never sent to the browser and
 | --- | --- | --- | --- |
 | Online now | Signed-in people seen in the last 2 minutes, the page each one is on, a count per page group | `users.last_seen_at` / `users.last_route` (SQLite) | Nothing (on by default) |
 | Waitlist | Pending sign-up requests, emails masked in the UI (see Waitlist emails), Approve and Reject with a confirm step | Clerk waitlist API | `CLERK_SECRET_KEY` |
-| Live duels and drafts | Open and running tables and drafts, newest first, with links | SQLite | `DISCORD_GUILD_ID` |
+| Live duels and drafts | All open and running tables and drafts, public and private, with read-only Watch links | SQLite | `DISCORD_GUILD_ID` |
 | Duels today | Every duel that started today (from 00:00 in the browser time zone: `?start=` local midnight in epoch ms, and `?tz=` minutes east of UTC, clamped to ±14 h, for the label): format, ranked or casual, players with Won/Lost/Draw, result, turns, length, start time, and Replay (ended) or Watch (running). At most 200 rows; the filter counts cover the whole day. The Overview "Duels today" figure is this count and links to the list (`/admin#duels-today`) | SQLite | `DISCORD_GUILD_ID` |
 | Stats | Sign-ups, active users, duels and drafts started and finished: today and the last 7 days. Days are UTC | SQLite | `DISCORD_GUILD_ID` |
 | Errors | Error count for the last 24 hours and the latest issues | Sentry API | `SENTRY_API_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` |
@@ -22,6 +22,36 @@ All keys are read on the web server only. They are never sent to the browser and
 The summary strip at the top shows six figures: Online now, Live duels, Pending waitlist, Errors in the last 24 hours, Sign-ups today and System ("OK", or the number of problems: a service down or stale, or disk space at warn or fail). Each one links to its section. A figure turns gold when the waitlist has people waiting, and orange when there are errors or system problems. A figure shows a dash when its section is not configured or failed.
 
 Panels refresh on their own (10 to 60 seconds, by section) and stop while the tab is hidden. Each panel has an "Updated Xs ago" line. Deep links work: `/admin#waitlist`, `/admin#errors` and so on.
+
+## Live watch
+
+Watch opens `/admin/watch/duel/[slug]` or `/admin/watch/draft/[slug]`. Every page, snapshot request and subscription requires a current `OWNER_USER_IDS` user in the configured `DISCORD_GUILD_ID`. This revision has no Discord permission-based web admin role (`discord-web-access.ts` was removed); guild owner, Manage Server and Administrator permissions do not independently grant console access.
+
+Duel watch offers a neutral public projection and each engine seat, including 1v1, FFA3, FFA4 and Tag. Seat projections include that player's hand and prompt. The existing board is read-only and the prompt is displayed separately without action controls. A live worker is read directly; after a restart a missing worker is reconstructed from its journal in isolation and closed after the read. Watching never drives bots, settles clocks, refreshes duel activity, claims a seat or contributes to presence. Card inspection stays with the snapshot rather than calling player APIs.
+
+Draft watch offers each player's current pack, pool, chronological picks, saved draft deck and pick timer for booster and theme drafts. It reuses the player page projection with lobby ticking, pick expiration, capped-pack exchanges and saved-deck repair disabled. Pending drafts stay pending when watched. An owner never becomes a participant or receives an invite grant.
+
+The live list includes all persisted open rows, including overdue rows until the responsible service closes them. It has no silent row cap. It excludes replay-fork sandboxes; the existing replay browser handles those.
+
+Server routes (all private, no-store):
+
+- `GET /api/admin/duels/[slug]/spectate?seat=public|0|1|2|3`
+- `GET /api/admin/drafts/[slug]/spectate?seat=<playerId>` (defaults to the first player)
+- `GET /api/admin/duels/[slug]/spectate/connection`
+- `GET /api/admin/drafts/[slug]/spectate/connection`
+
+Connection routes mint a 60-second, purpose-separated HMAC token with `role: admin-spectator`. Socket.IO `admin:spectate` joins the existing invalidation room outside player occupancy. Both services recheck the owner allowlist and guild before private reads and each broadcast; expired or revoked subscriptions leave the room. Tokens are unusable as normal draft or duel tokens. Private POV data is fetched only through the authenticated snapshot routes, never broadcast to players. The client refreshes on room events, reconnect and periodically as a fallback. Connection opens are recorded in the existing structured server log as `Admin spectate opened` (user ID, kind and slug, no cards or token); there is no console audit table.
+
+Targeted checks:
+
+```bash
+npx vitest run packages/web/tests/admin-live-spectate.integration.test.ts packages/web/tests/admin-spectate-image.integration.test.ts packages/web/tests/admin-console-live-stats.integration.test.ts packages/web/tests/admin-console-today.integration.test.ts -c packages/web/vitest.config.ts
+npx vitest run packages/ws/tests/admin-spectate.integration.test.ts -c packages/ws/vitest.config.ts
+(cd packages/duel-server && npx vitest run tests/admin-spectate.integration.test.ts)
+node --import tsx packages/web/e2e/admin-spectate.playwright.ts
+```
+
+The host tests use temporary resource fixtures; the browser check bundles the real watch components with fake API responses, without starting app services or an engine. Real Socket.IO transport is covered separately by the ws integration tests.
 
 ## Environment
 

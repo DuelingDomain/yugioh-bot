@@ -43,7 +43,7 @@ test("Overview: four large numbers, what needs attention, and who is online and 
     await expect(overview).toContainText("New error: TypeError: cannot read properties of undefined (reading 'seat')");
     await expect(overview).toContainText("2 people wait for approval");
     await expect(overview.getByRole("button", { name: /kaibaCorp/ })).toBeVisible();
-    await expect(overview.getByRole("link", { name: "Watch" }).first()).toHaveAttribute("href", /^\/duels\/e2e-adm-/);
+    await expect(overview.getByRole("link", { name: "Watch" }).first()).toHaveAttribute("href", /^\/admin\/watch\/duel\/e2e-adm-/);
     // Every view is in the menu with its live count.
     await expect(menu(page).getByRole("button")).toHaveCount(VIEWS.length + 1);
     await expect(menu(page).getByRole("button", { name: /^Waitlist/ })).toContainText("2");

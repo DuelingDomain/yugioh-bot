@@ -61,19 +61,19 @@ function seed() {
   db.prepare("update users set last_seen_at = ? where id = 1").run(NOW - 60_000);
 }
 
-it("lists running duels and lobbies with players, then open drafts, and skips stale, other-guild and replay-fork rows", async () => {
+it("lists running duels and lobbies with players, then open drafts, and includes overdue rows and skips other-guild and replay-fork rows", async () => {
   seed();
   const response = await section("live");
   expect(response.status).toBe(200);
   const { state, data } = await response.json();
   expect(state).toBe("ok");
-  expect(data.duels.map((d: { slug: string; status: string }) => [d.slug, d.status])).toEqual([["d1", "active"], ["d3", "lobby"]]);
-  expect(data.duels[0]).toMatchObject({ name: "Table d1", format: "1v1", formatLabel: "1v1 duel", players: ["Ann", "Bo"], ranked: true, genesys: true,
-    startedAt: Date.parse("2026-10-19T11:55:00Z"), watchHref: "/duels/d1" });
-  expect(data.duels[1]).toMatchObject({ formatLabel: "Tag duel", players: ["Ann"], startedAt: null, ranked: false, genesys: false, watchHref: "/duels/d3" });
-  expect(data.drafts.map((d: { slug: string }) => d.slug)).toEqual(["dr1", "dr2"]); // running first, then lobbies
+  expect(data.duels.map((d: { slug: string; status: string }) => [d.slug, d.status])).toEqual([["d2", "active"], ["d1", "active"], ["d3", "lobby"]]);
+  expect(data.duels.find((d: { slug: string }) => d.slug === "d1")).toMatchObject({ name: "Table d1", format: "1v1", formatLabel: "1v1 duel", players: ["Ann", "Bo"], ranked: true, genesys: true,
+    startedAt: Date.parse("2026-10-19T11:55:00Z"), watchHref: "/admin/watch/duel/d1" });
+  expect(data.duels.find((d: { slug: string }) => d.slug === "d3")).toMatchObject({ formatLabel: "Tag duel", players: ["Ann"], startedAt: null, ranked: false, genesys: false, watchHref: "/admin/watch/duel/d3" });
+  expect(data.drafts.map((d: { slug: string }) => d.slug)).toEqual(["dr1", "dr2", "dr3"]); // running first, then lobbies
   expect(data.drafts.find((d: { slug: string }) => d.slug === "dr1")).toMatchObject({
-    status: "active", players: ["Bo", "Ann"], progress: "Round 2, pick 3", startedAt: Date.parse("2026-10-19T11:00:00Z"), href: "/draft/dr1" });
+    status: "active", players: ["Bo", "Ann"], progress: "Round 2, pick 3", startedAt: Date.parse("2026-10-19T11:00:00Z"), href: "/admin/watch/draft/dr1" });
 });
 
 it("adds seats with pictures and bots, the turn from the clock, and draft progress", async () => {
@@ -144,4 +144,16 @@ it("shows an error result, not a throw, when the database read fails", async () 
   const body = await (await section("live")).json();
   expect(body).toMatchObject({ state: "error", message: "Live duels and drafts could not be read from the database." });
   expect(JSON.stringify(body)).not.toContain("secret");
+});
+
+it("includes private and public open rows beyond the former 100-row cap", async () => {
+  for (let id = 1; id <= 105; id++) {
+    duel(id, `live-${id}`, { status: "active", created: "2026-10-19 08:00:00", started: "2026-10-19 08:00:00", settings: JSON.stringify({ visibility: id % 2 ? "private" : "public" }), seats: [12,13] });
+    draft(id, `draft-${id}`, { status: "active", created: "2026-10-19 08:00:00", players: [12,13] });
+  }
+  db.exec("update drafts set visibility='private' where id%2=1");
+  const { data } = await (await section("live")).json();
+  expect(data.duels).toHaveLength(105); expect(data.drafts).toHaveLength(105);
+  expect(data.duels.find((d: { slug: string }) => d.slug === "live-1")).toMatchObject({ visibility: "private", watchHref: "/admin/watch/duel/live-1" });
+  expect(data.drafts.find((d: { slug: string }) => d.slug === "draft-1")).toMatchObject({ visibility: "private", href: "/admin/watch/draft/draft-1" });
 });

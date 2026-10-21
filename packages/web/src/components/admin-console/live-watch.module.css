@@ -1,0 +1,15 @@
+.watch { max-width: 1500px; margin: 0 auto; padding: 24px; color: var(--color-text-primary, #e8e8ed); }
+.heading { margin-bottom: 24px; }
+.heading h1 { font-size: 28px; font-weight: 600; margin: 12px 0 4px; }
+.heading p, .panel small { color: var(--color-text-muted, #a4a4b5); }
+.selector { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
+.selector select { padding: 8px 12px; background: var(--color-bg-elevated, #20202c); border: 1px solid var(--color-border, #454553); border-radius: 6px; color: inherit; }
+.panel { margin-top: 20px; padding: 16px; border: 1px solid var(--color-border, #454553); border-radius: 8px; }
+.panel h2 { font-size: 18px; font-weight: 600; margin-bottom: 12px; }
+.panel ol, .panel ul { padding-left: 24px; }
+.board { min-height: 500px; position: relative; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 14px; }
+.cards figure { max-width: 180px; }
+.cards img { width: 100%; aspect-ratio: 0.686; object-fit: contain; }
+.cards figcaption { margin-top: 6px; font-size: 12px; }
+@media (max-width: 640px) { .watch { padding: 12px; } .selector { align-items: flex-start; flex-direction: column; } }

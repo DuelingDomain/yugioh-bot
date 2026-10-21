@@ -78,13 +78,13 @@ it("lists every duel that started today (UTC without tz), newest first, with sea
     ],
   });
   // A running duel links to the table and shows the clock turn; no end time, no outcome yet.
-  expect(bySlug.t4).toMatchObject({ formatLabel: "4-way duel", turns: 3, endedAt: null, href: "/duels/t4" });
+  expect(bySlug.t4).toMatchObject({ formatLabel: "4-way duel", turns: 3, endedAt: null, href: "/admin/watch/duel/t4" });
   expect(bySlug.t4.seats.map((s: { name: string; outcome: unknown }) => [s.name, s.outcome])).toEqual([["Ann", null], ["Bo", null], ["Cy", null], ["Practice Bot", null]]);
-  expect(bySlug.t5).toMatchObject({ result: "idle", href: "/duels/t5", turns: 7 });
+  expect(bySlug.t5).toMatchObject({ result: "idle", href: "/admin/watch/duel/t5", turns: 7 });
   expect(bySlug.t6.seats.map((s: { outcome: unknown }) => s.outcome)).toEqual(["draw", "draw"]);
   expect(bySlug.t8).toMatchObject({ href: "/duels/t8/replay", endedAt: Date.parse("2026-10-20T02:05:00Z") });
   // Only internal paths.
-  for (const d of data.duels) expect(d.href).toMatch(/^\/duels\/[a-z0-9-]+(\/replay)?$/);
+  for (const d of data.duels) expect(d.href).toMatch(/^(\/duels\/[a-z0-9-]+\/replay|\/admin\/watch\/duel\/[a-z0-9-]+)$/);
 });
 
 it("uses the browser day from ?start= (local midnight): Tag partners win together, an interrupted duel has no winner", async () => {
