@@ -21,7 +21,7 @@ function memberNumber(c: FeatureContext, userId: string, assign: boolean): numbe
   }).immediate();
 }
 
-async function card(c: FeatureContext, member: GuildMember, assign: boolean) {
+async function card(c: FeatureContext, member: GuildMember | PartialGuildMember, assign: boolean) {
   const number = memberNumber(c, member.id, assign);
   try {
     return await renderWelcomeCard({ displayName: member.displayName, number,
@@ -38,8 +38,18 @@ export function startWelcome(c: FeatureContext) {
   const maxPending = 20, maxAge = 2 * 60_000, cooldown = 24 * 60 * 60_000;
   let pending = Promise.resolve();
   let queued = 0, destinationValidUntil = 0;
-  const onJoin = (member: GuildMember) => {
-    if (c.signal.aborted || member.guild.id !== c.config.guildId || member.user.bot || member.pending || queued >= maxPending) return;
+  // Keep recent screening eligibility even if Discord's bounded member cache
+  // evicts the member. Abandoned entries expire before taking another slot.
+  const screening = new Map<string, number>();
+  const onJoin = (member: GuildMember | PartialGuildMember) => {
+    if (c.signal.aborted || member.guild.id !== c.config.guildId || member.user.bot) return;
+    if (member.pending) {
+      for (const [id, at] of screening) if (Date.now() - at > maxAge) screening.delete(id);
+      if (screening.size < maxPending) screening.set(member.id, Date.now());
+      return;
+    }
+    screening.delete(member.id);
+    if (queued >= maxPending) return;
     const queuedAt = Date.now();
     queued++;
     pending = pending.then(async () => {
@@ -71,11 +81,25 @@ export function startWelcome(c: FeatureContext) {
   const onUpdate = (previous: GuildMember | PartialGuildMember, member: GuildMember) => {
     if (previous.pending === true && member.pending === false) onJoin(member);
   };
+  const onAvailable = (member: GuildMember | PartialGuildMember) => {
+    if (member.guild.id !== c.config.guildId || member.pending !== false) return;
+    const at = screening.get(member.id);
+    screening.delete(member.id);
+    if (at !== undefined && Date.now() - at <= maxAge) onJoin(member);
+  };
+  const onRemove = (member: GuildMember | PartialGuildMember) => {
+    if (member.guild.id === c.config.guildId) screening.delete(member.id);
+  };
   c.client.on(Events.GuildMemberAdd, onJoin);
   c.client.on(Events.GuildMemberUpdate, onUpdate);
+  c.client.on(Events.GuildMemberAvailable, onAvailable);
+  c.client.on(Events.GuildMemberRemove, onRemove);
   return async () => {
     c.client.off(Events.GuildMemberAdd, onJoin);
     c.client.off(Events.GuildMemberUpdate, onUpdate);
+    c.client.off(Events.GuildMemberAvailable, onAvailable);
+    c.client.off(Events.GuildMemberRemove, onRemove);
+    screening.clear();
     await pending;
   };
 }

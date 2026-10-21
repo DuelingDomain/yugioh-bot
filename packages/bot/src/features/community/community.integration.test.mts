@@ -464,6 +464,8 @@ it("welcomes Gateway joins with one user mention and a PNG, and reuses durable n
   expect(posts(stub)[0].body).toMatchObject({ content: `Hey <@${other}>, welcome to **Dueling Domain**!`,
     allowed_mentions: { parse: [], users: [other], roles: [], replied_user: false },
     filenames: ["welcome.png"], png: true });
+  await expect.poll(() => db.prepare("select last_welcomed_at from discord_welcome_members").get())
+    .toEqual({ last_welcomed_at: expect.any(Number) });
   const row = db.prepare("select * from discord_welcome_members").get();
   expect(row).toMatchObject({ guild_id: guild, discord_user_id: other, number: 1 });
   stub.leave();
@@ -559,6 +561,33 @@ it("waits for membership screening and welcomes the pending-to-approved transiti
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
+it("welcomes screened joins after member-cache eviction and expires abandoned screening slots", async () => {
+  stubAvatar();
+  const { stub, db, bot } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: announce });
+  stub.join(other, false, guild, { pending: true });
+  for (let n = 0; n < 101; n++) stub.join(String(100000000000010000n + BigInt(n)), false, guild, { pending: true });
+  await stub.response(stub.command("stats"));
+  expect(bot.client.guilds.cache.get(guild)!.members.cache.has(other)).toBe(false);
+  // An ordinary update for an uncached existing member must not create a greeting.
+  stub.updateMember("100000000000000099", false);
+  await stub.response(stub.command("stats"));
+  expect(posts(stub)).toHaveLength(0);
+  stub.updateMember(other, false);
+  await expect.poll(() => posts(stub).length).toBe(1);
+  stub.updateMember(other, false);
+  // Abandoned/evicted pending members must not occupy the bounded tracking
+  // slots forever, even if discord.js suppresses their removal events.
+  vi.spyOn(Date, "now").mockReturnValue(Date.now() + 120_001);
+  const fresh = "100000000000000088";
+  stub.join(fresh, false, guild, { pending: true });
+  for (let n = 0; n < 101; n++) stub.join(String(100000000000020000n + BigInt(n)), false, guild, { pending: true });
+  await stub.response(stub.command("stats"));
+  expect(bot.client.guilds.cache.get(guild)!.members.cache.has(fresh)).toBe(false);
+  stub.updateMember(fresh, false);
+  await expect.poll(() => posts(stub).length).toBe(2);
+  expect(db.prepare("select count(*) as n from discord_welcome_members").get()).toEqual({ n: 2 });
+});
+
 it("revalidates the cached welcome destination after one minute before numbering", async () => {
   stubAvatar();
   const reported = vi.spyOn(observability, "report").mockImplementation(() => {});
@@ -587,7 +616,7 @@ it("migrates existing welcome rows without changing their durable member numbers
   cleanups.push(() => restarted.stop());
   stub.join();
   await expect.poll(() => posts(stub).length).toBe(1);
-  expect(reopened.prepare("select number, last_welcomed_at from discord_welcome_members where discord_user_id=?").get(other))
+  await expect.poll(() => reopened.prepare("select number, last_welcomed_at from discord_welcome_members where discord_user_id=?").get(other))
     .toEqual({ number: 178, last_welcomed_at: expect.any(Number) });
 });
 
