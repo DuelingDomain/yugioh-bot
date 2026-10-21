@@ -296,9 +296,16 @@ describe("cube API routes", () => {
       }) as any,
     );
 
+    const { getDb } = await import("../src/lib/db");
+    getDb().prepare("update cubes set banlist = ? where id = ?").run("tcg-2026-11-11", cube.id);
+    const { GET: getCube } = await import("../app/api/cubes/[id]/route");
+    const detail = await getCube(new Request("http://x"), { params: Promise.resolve({ id: String(cube.id) }) });
+    expect(detail.status).toBe(200);
+    expect((await detail.json()).cube.banlist).toBe("tcg-2026-10-19");
+
     const body = await (await listCubes()).json();
     const built = body.cubes.find((c: any) => c.name === "Dark Magician");
-    expect(built).toMatchObject({ mainCount: 1, extraCount: 1, mainCards: [{ id: 1, copies: 1 }], customCardIds: [] });
+    expect(built).toMatchObject({ banlist: "tcg-2026-10-19", mainCount: 1, extraCount: 1, mainCards: [{ id: 1, copies: 1 }], customCardIds: [] });
     const saved = body.cubes.find((c: any) => c.name === "Saved");
     expect(saved).toMatchObject({ setNames: ["Set A"], customCardIds: [1, 1], mainCards: [] });
   });

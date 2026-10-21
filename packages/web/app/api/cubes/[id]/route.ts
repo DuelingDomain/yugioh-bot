@@ -1,3 +1,4 @@
+import { normalizeBanlistId } from "@yugidraft/shared/duels";
 import { NextResponse } from "next/server";
 import { requireWebAccess } from "@/lib/web-access";
 import { cubeOwnerAccess } from "@/lib/cube-access";
@@ -59,7 +60,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       guildId: cube.guild_id,
       name: cube.name,
       archetype: cube.archetype,
-      banlist: cube.banlist,
+      banlist: cube.banlist == null ? null : normalizeBanlistId(cube.banlist),
       createdByUserId: cube.created_by_user_id,
       draftType: cubeDraftTypeOf(cube.config_json),
       settings: cubeDraftSettingsOf(cube.config_json),

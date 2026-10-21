@@ -1,4 +1,4 @@
-import { DUEL_BANLIST_OPTIONS, NO_BANLIST_ID, PINNED_TCG_BANLIST_ID } from "./banlist-options.js";
+import { DUEL_BANLIST_OPTIONS, normalizeBanlistId, NO_BANLIST_ID, PINNED_TCG_BANLIST_ID } from "./banlist-options.js";
 
 export type DuelVisibility = "public" | "private";
 export type DuelCardPool = "both" | "tcg" | "ocg";
@@ -240,10 +240,11 @@ function asBanlist(value: unknown): string {
   if (typeof value !== "string" || value.length === 0 || value.length > 128 || value !== value.trim()) {
     fail("banlist must be a known versioned id");
   }
-  if (!DUEL_BANLIST_OPTIONS.some((option) => option.id === value)) {
+  const id = normalizeBanlistId(value);
+  if (!DUEL_BANLIST_OPTIONS.some((option) => option.id === id)) {
     fail("banlist must be a known versioned id");
   }
-  return value;
+  return id;
 }
 
 function asTurnSeconds(value: unknown): number {
