@@ -13,6 +13,7 @@ import { isCustomDomain, seatCountFor, type DuelAnswer, type DuelCard, type Duel
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { SurrenderModal } from "./surrender-modal";
+import { KickPlayerButton } from "./player-kick";
 import { useTestDuelQuit } from "./test-duel-quit";
 import { forgetTestDuelReturn, testDuelReturnPath } from "@/components/decks/test-duel";
 import { DeckSurrenderContext, type DeckSurrenderValue } from "./deck-surrender";
@@ -30,6 +31,9 @@ import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import { useBlockBrowserContextMenu } from "@/lib/hooks/use-block-browser-context-menu";
 import {
   acceptDuelInvite,
+  DuelRequestError,
+  kickDuelPlayer,
+  inviteDuelPlayer,
   addPracticeBot,
   chooseOpeningOrder,
   pickOpeningMove,
@@ -202,6 +206,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // Set while a fork view is refused (access lost). It holds until a room that arrived after the refusal is on screen, so a
   // cached or laggy view never comes back by itself.
   const [accessLostAt, setAccessLostAt] = useState<{ slug: string; at: number } | null>(null);
+  const [kickedSlug, setKickedSlug] = useState<string | null>(null);
   const { data: rawData, error, isLoading, mutate } = useSWR(
     slug ? duelRoomKey(slug, spectate, forkView.view) : null,
     async () => {
@@ -238,8 +243,22 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   );
   const idleDeadline = useDuelRoomActivity(rawData?.session.kind === "play" && rawData.session.status === "lobby"
     && rawData.mySeat != null && rawData.opening == null ? slug : null);
+  const kicked = kickedSlug === slug || (error instanceof DuelRequestError && error.code === "DUEL_KICKED");
+  useEffect(() => {
+    if (!kicked) return;
+    void mutate(undefined, { revalidate: false });
+    router.replace("/duels?notice=kicked");
+  }, [kicked, mutate, router]);
   const refreshRoom = useCallback(
-    () => mutate(() => getDuelRoom(slug, spectate, forkView.view), { revalidate: false }),
+    () => mutate(async () => {
+      try { return await getDuelRoom(slug, spectate, forkView.view); }
+      catch (error) {
+        // SWR mutation failures do not populate useSWR.error. Realtime refresh and polling
+        // must revoke the cached seat too, even if this player never presses another button.
+        if (error instanceof DuelRequestError && error.code === "DUEL_KICKED") setKickedSlug(slug);
+        throw error;
+      }
+    }, { revalidate: false }),
     [mutate, slug, spectate, forkView.view],
   );
   // A replay fork keeps the creator's identity at seat 0 (the websocket, the token) and plays every seat. The table below
@@ -247,7 +266,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const forkRefused = isDuelAccessError(error) && (rawData?.session.kind === "replay-fork" || forkSeenFor.current === slug);
   const forkAccessLost = forkRefused
     || (accessLostAt != null && accessLostAt.slug === slug && !(rawData != null && rawData.receivedAt > accessLostAt.at));
-  const visibleRoom = forkAccessLost ? undefined : rawData;
+  const visibleRoom = forkAccessLost || kicked ? undefined : rawData;
   useEffect(() => {
     if (!forkRefused) return;
     setAccessLostAt((current) => (current?.slug === slug ? current : { slug, at: performance.now() }));
@@ -1110,6 +1129,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         onTakeSeat={(seat) => void run(() => takeDuelSeat(slug, seat))}
         onAddBot={(seat) => void run(() => addPracticeBot(slug, seat))}
         onRemoveBot={(seat) => void run(() => removePracticeBot(slug, seat))}
+        onKick={(playerId) => void run(() => kickDuelPlayer(slug, playerId))}
+        onInvite={(playerId) => void run(() => inviteDuelPlayer(slug, playerId))}
         onReady={(deck) => void run(() => setDuelDeck(slug, deck))}
         onMarkReady={() => void run(() => markDuelReady(slug))}
         onMarkUnready={() => void run(() => markDuelUnready(slug))}
@@ -1150,6 +1171,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <>
         {lobby}
         <OpeningScreen opening={opening} receivedAt={data.receivedAt} mySeat={data.mySeat} names={Array.from({ length: seatCountFor(data.session.format) }, (_, seat) => seatName(seat))} busy={busy} error={actionError} reducedMotion={preferences.reducedMotion}
+          hostControls={data.session.seats.find(seat => seat.seat === data.mySeat)?.playerId === data.session.organizerPlayerId
+            ? <div>{data.session.seats.filter(seat => !seat.isBot && seat.playerId != null && seat.playerId !== data.session.organizerPlayerId).map(player => (
+              <div key={player.playerId}><span>{player.displayName}</span><KickPlayerButton playerId={player.playerId!} displayName={player.displayName}
+                busy={busy} onKick={playerId => void run(() => kickDuelPlayer(slug, playerId))} /></div>
+            ))}</div> : null}
           onPick={(move) => void run(() => pickOpeningMove(slug, move))}
           onChoose={(choice) => void run(() => chooseOpeningOrder(slug, choice))} />
         {startingNow ? <StartingDuel room={data} variant={startingNow} reducedMotion={preferences.reducedMotion} /> : null}
@@ -1246,6 +1272,18 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     </> : null;
   const leaveControl = !forkMode && (data.mySeat == null || viewerOut) ?
     <button type="button" className={styles.tool} onClick={exitDuel}>Leave room</button> : null;
+  const hostPlayers = !forkMode && data.session.status === "active"
+    && (actorPlayerId ?? data.session.seats.find(seat => seat.seat === data.mySeat)?.playerId) === data.session.organizerPlayerId
+    ? data.session.seats.filter(seat => !seat.isBot && seat.playerId != null && seat.playerId !== data.session.organizerPlayerId
+      && !data.kickedPlayers?.some(player => player.playerId === seat.playerId)) : [];
+  const kickControls = hostPlayers.length ? <details className={styles.tool}>
+    <summary>Players</summary>
+    {hostPlayers.map(player => <div key={player.playerId}>
+      <span>{player.displayName}</span>
+      <KickPlayerButton playerId={player.playerId!} displayName={player.displayName} active
+        busy={busy || catchingUp || Boolean(error)} onKick={playerId => void run(() => kickDuelPlayer(slug, playerId))} />
+    </div>)}
+  </details> : null;
   const testQuitControl = testDuel && canSurrender ?
     <button type="button" className={styles.tool} data-testid="test-duel-quit" disabled={testQuit.busy || busy} onClick={testQuit.quit}>Quit</button> : null;
   const forkBusy = busy || catchingUp || Boolean(error);
@@ -1317,6 +1355,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {forkMode ? null : <ReportButton slug={slug} />}
         {popOutControl}
         {leaveControl}
+        {kickControls}
         {testQuitControl}
         {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error) || tossLocked}
           onClick={askSurrender}>Surrender</Button> : null}
@@ -1616,6 +1655,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       {forkMode ? null : <ReportButton slug={slug} />}
       {popOutControl}
       {leaveControl}
+      {kickControls}
       {testQuitControl}
       {hasResult && hideResult ? (
         <button type="button" className={styles.tool} onClick={() => setHideResult(false)}>

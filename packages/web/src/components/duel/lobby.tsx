@@ -625,6 +625,9 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId 
       </header>
 
       <section className={styles.section}>
+        {searchParams?.get("notice") === "kicked" ? (
+          <p className={ui.hint} role="alert">You were removed from the duel by the host. You can return only if the host re-invites you.</p>
+        ) : null}
         <div className={styles.bar}>
           <h2 className={ui.sectionTitle}>{history ? "Match history" : "Live tables"}</h2>
           <div className={styles.controls}>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, type CSSProperties } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import type { DuelDiceOpeningView } from "@yugidraft/shared/duels";
 import { DiceDie } from "./dice-die";
 import {
@@ -39,13 +39,14 @@ export interface DiceOpeningScreenProps {
   names: string[];
   error?: string | null;
   reducedMotion?: boolean;
+  hostControls?: ReactNode;
 }
 
 /**
  * The opening of a 3-way or 4-way duel: every player rolls a die, tied players roll again, and the order decides
  * the seats. The server rolls and decides everything; this draws the view on the server clock.
  */
-export function DiceOpeningScreen({ opening, receivedAt, mySeat, names, error = null, reducedMotion = false }: DiceOpeningScreenProps) {
+export function DiceOpeningScreen({ opening, receivedAt, mySeat, names, error = null, reducedMotion = false, hostControls }: DiceOpeningScreenProps) {
   const skin = useDiceSkin();
   const now = useNow(opening, receivedAt, 100);
   const timeline = reducedMotion ? DICE_TIMELINE_REDUCED : DICE_TIMELINE;
@@ -152,6 +153,7 @@ export function DiceOpeningScreen({ opening, receivedAt, mySeat, names, error = 
           </div>
         ) : null}
         {error ? <p className={rootStyles.error} role="alert">{error}</p> : null}
+        {hostControls}
       </div>
     </div>
   );

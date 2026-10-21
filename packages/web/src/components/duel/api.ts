@@ -490,6 +490,18 @@ export async function surrenderDuel(slug: string): Promise<ReceivedDuelRoom> {
   ));
 }
 
+export async function kickDuelPlayer(slug: string, playerId: number): Promise<{ session: DuelSession }> {
+  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/kick`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ playerId }),
+  }));
+}
+
+export async function inviteDuelPlayer(slug: string, playerId: number): Promise<{ session: DuelSession }> {
+  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/invite`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ playerId }),
+  }));
+}
+
 export async function leaveDuel(slug: string): Promise<{ session: DuelSession }> {
   return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/leave`, { method: "POST" }));
 }
