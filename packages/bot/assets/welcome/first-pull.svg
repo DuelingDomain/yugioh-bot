@@ -5,7 +5,7 @@
 <linearGradient id="holo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff7ad9"/><stop offset=".25" stop-color="#b08cff"/><stop offset=".5" stop-color="#8fd3ff"/><stop offset=".75" stop-color="#9dffc6"/><stop offset="1" stop-color="#ffe38a"/></linearGradient>
 <filter id="blur8" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="8"/></filter>
 <filter id="blur3" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
-<filter id="blur18" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="18"/></filter><radialGradient id="Bbg" cx=".5" cy=".5" r=".75"><stop offset="0" stop-color="#1d0e06"/><stop offset="1" stop-color="#3a1d0b"/></radialGradient>
+<filter id="blur18" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="18"/></filter>
 <radialGradient id="Bgl" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#d9772a" stop-opacity=".45"/><stop offset="1" stop-color="#d9772a" stop-opacity="0"/></radialGradient>
 <radialGradient id="Bbg" cx=".27" cy=".5" r=".85"><stop offset="0" stop-color="#3A1E6E"/><stop offset=".5" stop-color="#160F33"/><stop offset="1" stop-color="#06070F"/></radialGradient>
 <radialGradient id="Bray" gradientUnits="userSpaceOnUse" cx="300" cy="250" r="760"><stop offset="0" stop-color="#FFF0C2" stop-opacity=".55"/><stop offset=".35" stop-color="#F59E0B" stop-opacity=".14"/><stop offset="1" stop-color="#F59E0B" stop-opacity="0"/></radialGradient>
