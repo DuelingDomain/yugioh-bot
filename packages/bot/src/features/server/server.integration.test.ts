@@ -200,6 +200,10 @@ it("creates and reuses the admin layout with exact visibility and prints env lin
   expect(BigInt(everyone.deny) & P.SendMessages).toBe(P.SendMessages);
   expect(f.replies.at(-1).content).toContain(`DISCORD_WAITLIST_CHANNEL_ID=${signups.id}`);
   expect(f.replies.at(-1).content).toContain(`DISCORD_MOD_LOG_CHANNEL_ID=${LOG}`);
+  const welcome = f.channels.find(c => c.name === "welcome");
+  expect(welcome.parent_id).toBeNull();
+  expect(welcome.permission_overwrites).toEqual(announcements.permission_overwrites);
+  expect(f.replies.at(-1).content).toContain(`DISCORD_WELCOME_CHANNEL_ID=${welcome.id}`);
   const created = f.requests.filter(r => r.method === "POST").length;
   const writes = f.writes().length;
   f.context.cooldown = new Cooldown();
@@ -233,7 +237,7 @@ it("edits all channel settings and clears its category", async () => {
   await f.command("channel", "edit", { channel: CH, uncategorized: true }); expect(f.channels[0].parent_id).toBeNull();
 });
 
-it.each(["modLogChannelId", "waitlistChannelId", "statusChannelId", "announceChannelId"] as const)("protects the configured %s channel", async key => {
+it.each(["modLogChannelId", "waitlistChannelId", "statusChannelId", "announceChannelId", "welcomeChannelId"] as const)("protects the configured %s channel", async key => {
   const f = await fixture(); f.context.config[key] = CH;
   await f.command("channel", "delete", { channel: CH });
   expect(f.writes()).toHaveLength(0); expect(f.replies.at(-1).content).toContain("configured bot channel");
