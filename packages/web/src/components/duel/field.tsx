@@ -368,7 +368,10 @@ export function PileSlot({
   const circleTone = pileSummonTone({ kind, side, count, keys, legalKeys });
   const fan = fanEntries(kind, cards, count);
   const chip = CHIP_TEXT[kind];
-  const hoverTop = kind === "gy" || kind === "banish" ? (cards[cards.length - 1] ?? null) : null;
+  // A pile never opens the card drawer on plain hover where the drawer would cover it: the face-up Extra Deck top (its
+  // "Open" chip would be unreachable) and the Graveyard / banished piles of the left column. A click opens the pile list.
+  const hoverBlocked = kind === "extra" || (column === "left" && (kind === "gy" || kind === "banish"));
+  const hoverTop = !hoverBlocked && (kind === "gy" || kind === "banish") ? (cards[cards.length - 1] ?? null) : null;
 
   const surrender = useDeckSurrender();
   const deckMenu = kind === "deck" && ownerSeat != null && deckOffersSurrender(surrender, ownerSeat);
@@ -485,7 +488,7 @@ export function PileSlot({
                 className={styles.fanCard}
                 data-fi={fi}
                 onMouseEnter={(event) =>
-                  onHoverCard?.(entry.card?.code != null ? entry.card : null, event.currentTarget)
+                  onHoverCard?.(!hoverBlocked && entry.card?.code != null ? entry.card : null, event.currentTarget)
                 }
               >
                 <CardFace card={entry.card} sleeve={sleeve ?? (kind === "extra" ? "extra" : "deck")} reveal={kind !== "banish"} />

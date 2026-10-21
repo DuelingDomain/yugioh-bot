@@ -170,6 +170,9 @@
 .shell[data-phase="battle"] .whoPill { border-color: rgb(var(--duel-ember-rgb) / 0.6); }
 .status { display: flex; align-items: center; justify-content: flex-end; gap: calc(4 * var(--duel-unit)); min-width: 0; color: var(--duel-ink-2); font-size: var(--duel-t-body); }
 .pref { white-space: nowrap; }
+/* A header button never wraps its label or gives up width to its neighbours: when the row is short of room, the rules for
+   the narrow headers (grid-hud.module.css, tag-header.module.css) hide the low-priority items instead. */
+.status > * { flex: none; white-space: nowrap; }
 /* Spectating: light purple type with a soft glow, so the viewer knows they only watch. */
 .viewerRole {
   display: inline-flex;
@@ -224,6 +227,13 @@
 /* On a phone a live duel shows the red lamp alone: the words stay for screen readers and the header keeps its room.
    Any other state ("Reconnecting", "Offline") keeps its words, because they ask the player to act or wait. */
 @media (max-width: 600px) {
+  /* A phone header is one flex row. The brand has a zero flex basis, so it takes only what "Turn N" and the buttons leave (down to a
+     stub with an ellipsis) and never pushes them onto each other; the phase name is on the station track already. */
+  .header { display: flex; gap: 8px; padding: 0 8px 0 10px; }
+  .identity { flex: 1 1 0; min-width: 44px; }
+  .turn { flex: none; }
+  .turn .phaseName, .turn .whoPill { display: none; }
+  .status { flex: none; }
   .connectionStatus[data-live="true"] { gap: 0; margin-right: 0; padding: 0 8px; }
   .connectionStatus[data-live="true"] .connectionText {
     position: absolute;
@@ -782,7 +792,8 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
   align-items: start;
-  gap: 6px 10px;
+  /* The rows stand 8px apart: at 6px the brand link and the turn pill touched on the largest screens. */
+  gap: 8px 10px;
 }
 .shell[data-hud="room"] .hudBar > * { grid-row: 1; }
 .shell[data-hud="room"] .hudBar > :nth-child(1) { grid-column: 1; }

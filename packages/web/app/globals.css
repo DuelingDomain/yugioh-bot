@@ -43,7 +43,7 @@
   --duel-z-prompt: 20;          /* what the player must read or click: prompt panel, card strip, bars, prompt dock */
   --duel-z-chain: 22;           /* the chain: numbered badges, the card callout and the chain stack, over the prompt */
   --duel-z-prompt-front: 24;    /* the pile viewer, opened over a prompt (inside the board box: the chain front layer yields to it) */
-  --duel-z-drawer: 41;          /* the left card drawer (a hover or a pin), in the duel root: over the prompts and the pile viewer, under the sheets and menus */
+  --duel-z-drawer: 47;          /* the left card drawer (a hover or a pin), in the duel root: over the prompts, the pile viewer and the edge drawer tabs (45), under the sheets and menus */
   --duel-z-tooltip: 90;         /* hover card info (portal) */
   --duel-z-menu: 100;           /* anchored card action menu (portal) */
   --duel-z-confirm: 110;        /* attack confirm (portal), over the menu layer */

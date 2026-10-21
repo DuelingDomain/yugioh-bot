@@ -7,6 +7,7 @@ import { phaseLabel } from "./constants";
 import { BATTLE, phaseStations, STATIONS, type PhaseMove } from "./phase-hub-model";
 import { ChainModeSwitch } from "./chain-mode-switch";
 import { useIsNarrow } from "./side-panel";
+import { useDuelTip } from "./duel-tip";
 import { duelFontClasses } from "./fonts";
 import { useSkinStyles } from "./skin";
 import { useForkLabels } from "./table/fork-labels";
@@ -221,6 +222,7 @@ export function StationTrack({
 }: StationTrackProps) {
   const styles = useSkinStyles(baseStyles, "station");
   const forkLabels = useForkLabels();
+  const tip = useDuelTip();
   // The hub shows the phases on the board, but only where it fits. On a phone the bar keeps its own strip.
   const narrow = useIsNarrow();
   const hubbed = phases === "hub" && !narrow;
@@ -371,7 +373,7 @@ export function StationTrack({
         ) : null}
         <div className={styles.moves}>
         {attackLock ? (
-          <span className={styles.lock} data-testid={attackLockTestId} title={`Attacks open on turn ${attackLock.firstTurn}`}>
+          <span className={styles.lock} data-testid={attackLockTestId} {...tip.on(`Attacks open on turn ${attackLock.firstTurn}`)}>
             <Lock strokeWidth={2} aria-hidden="true" />
             <span>No attack until turn {attackLock.firstTurn}</span>
           </span>
@@ -403,7 +405,7 @@ export function StationTrack({
             type="button"
             className={styles.secondary}
             aria-label="End Turn"
-            title={endTurn.label}
+            {...tip.on(endTurn.label)}
             data-glow={glowId === "to_ep" ? "true" : "false"}
             onClick={() => onChoose(endTurn.id)}
           >
@@ -415,7 +417,7 @@ export function StationTrack({
           <button
             type="button"
             className={styles.primary}
-            title={primary.label}
+            {...tip.on(primary.label)}
             data-glow={glowId === primaryId ? "true" : "false"}
             onClick={() => onChoose(primary.id)}
           >
@@ -430,6 +432,7 @@ export function StationTrack({
         )}
         </div>
       </div>
+    {tip.node}
     </nav>
   );
 }

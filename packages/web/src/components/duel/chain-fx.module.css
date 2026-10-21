@@ -191,7 +191,7 @@
 /* A card of a turned field (3-way, 4-way): the badge stays upright on the card's corner nearest the top right of the screen.
    Its centre (--bx, --by, in the slot's pixels) is set in JS, and includes the step --shift makes. */
 .slot[data-turned="true"] .badge { right: auto; left: var(--bx, 0px); top: var(--by, 0px); translate: -50% -50%; }
-/* The highest link is larger and sits on top (the slot z-index is the link number). */
+/* The highest link is larger and sits on top (the slot z-index is the link number; the callout slot is raised above all of them). */
 .slot[data-top="true"] .badge { scale: 1.16; }
 /* Under an open prompt (set by the frame loop): the badge steps back so it never covers the question. */
 .slot[data-covered="true"] .badge { visibility: hidden; }

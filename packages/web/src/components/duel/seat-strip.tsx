@@ -57,7 +57,7 @@ export function SeatStrip({
         const content = (
           <>
             <span className={styles.order} aria-hidden="true">{view.seat + 1}</span>
-            <span className={styles.name}>{nameOf(view.seat)}</span>
+            <span className={styles.name} title={nameOf(view.seat)}>{nameOf(view.seat)}</span>
             {relation === "self" && !replay ? <span className={styles.rel}>{forkLabels ? "Acting" : "You"}</span> : relation === "partner" ? <span className={styles.rel}>Partner</span> : null}
             {status ? <span className={styles.status} data-kind={out ? "out" : turn ? "turn" : "next"}>{status}</span> : null}
             {answering ? <span className={styles.status} data-kind="answer">Choosing</span> : null}

@@ -46,7 +46,7 @@ export function TagBaton({ engine, nameOf, toneOf }: Pick<TagTrackProps, "engine
           >
             {index > 0 ? <span className={styles.arrow} aria-hidden="true">&rarr;</span> : null}
             <b>{stop.code}</b>
-            <span>{nameOf(stop.seat).split(" ")[0]}</span>
+            <span title={nameOf(stop.seat)}>{nameOf(stop.seat).split(" ")[0]}</span>
             {stop.now ? <em>now</em> : stop.next ? <em>next</em> : null}
           </li>
         );

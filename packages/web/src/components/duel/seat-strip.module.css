@@ -151,13 +151,15 @@ button.hit:focus-visible {
 }
 .compact .item {
   position: relative;
-  flex: none;
+  /* A tag gives way when the header row is short: its name ends in an ellipsis (the full name is the title), the status chip stays whole. */
+  flex: 0 1 auto;
   min-width: 0;
   border-radius: 999px;
   font-size: calc(12.5px * var(--tt, 1));
 }
 .compact .hit {
   width: auto;
+  max-width: 100%;
   padding: 3px 9px 3px 8px;
   gap: 5px;
 }
@@ -177,7 +179,8 @@ button.hit:focus-visible {
   padding: 0;
 }
 .compact .name {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 9ch;
 }
 .compact .status {
