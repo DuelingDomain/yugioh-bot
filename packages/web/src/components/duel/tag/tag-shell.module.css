@@ -58,7 +58,7 @@
     radial-gradient(70% 60% at 52% 46%, rgb(22 34 62 / 0.55), transparent 72%),
     linear-gradient(180deg, #0a1122 0%, #070b15 55%, #05080f 100%);
 }
-.shell[data-viewport="true"] { position: fixed; inset: 0; height: 100dvh; }
+.shell[data-viewport="true"] { position: fixed; inset: var(--admin-bar-h, 0px) 0 0 0; height: calc(100dvh - var(--admin-bar-h, 0px)); }
 .shell[data-turn="opp"] { --duel-rule-a: 0.24; }
 .shell * { scrollbar-width: thin; scrollbar-color: rgb(var(--duel-rule-rgb) / 0.45) transparent; }
 .shell button { cursor: pointer; font: inherit; color: inherit; background: none; border: 0; }

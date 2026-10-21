@@ -48,8 +48,9 @@ export function engineCardTypes(card: { type: number; race: string }): EngineCar
 
 export interface HostActor {
   guildId: string;
-  /** A player of the draft: the host refuses calls without one. */
+  /** The requesting viewer's existing player; never borrow the watched draft player. */
   playerId: number;
+  userId?: number;
 }
 
 type HostCall = (input: { op: "card-details" | "normalize-codes"; codes: number[] }, actor: HostActor) => Promise<unknown>;
@@ -175,7 +176,7 @@ const hostLookup = createEngineTypeLookup({
   call: async (input, actor) => {
     // Imported on use: the host client pulls in auth, which a room load that never needs it should not load.
     const { callDuelHost } = await import("@/lib/duel-host");
-    const result = await callDuelHost({ ...input, guildId: actor.guildId, playerId: actor.playerId });
+    const result = await callDuelHost({ ...input, guildId: actor.guildId, playerId: actor.playerId, ...(actor.userId !== undefined ? { userId: actor.userId } : {}) });
     if (!result.ok) throw new Error(`${input.op} failed (${result.response.status})`);
     return result.data;
   },

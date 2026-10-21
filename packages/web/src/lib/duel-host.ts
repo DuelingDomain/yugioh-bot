@@ -20,7 +20,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { CardDataStatus } from "@yugidraft/shared/types";
 
-export type DuelHostOp = "kick" | "invite-player" | "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "suggestion-scope" | "deck-suggestions" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode";
+export type DuelHostOp = "admin-spectate" | "kick" | "invite-player" | "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "suggestion-scope" | "deck-suggestions" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode";
 
 /** Read-only seat identity stays separate from creator identity. Unknown control flags fail closed. */
 export function readDuelControl(request: Request, room?: DuelRoom, allowed: "view" | "action" | "cards" | "none" = "none") {
@@ -64,7 +64,7 @@ export type DuelActor =
   | { ok: true; guildId: string; playerId: number; userId: number; duels: DuelService }
   | { ok: false; response: NextResponse };
 
-export async function requireDuelActor(): Promise<DuelActor> {
+export async function requireDuelActor(options: { createPlayer?: boolean } = {}): Promise<DuelActor> {
   const actor = await requireWebAccess();
   if (!actor.ok) { actor.response.headers.set("cache-control", "private, no-store"); return actor; }
   const guildId = env.discordGuildId;
@@ -72,7 +72,10 @@ export async function requireDuelActor(): Promise<DuelActor> {
     return { ok: false, response: NextResponse.json({ error: "Guild is not configured" }, { status: 500, headers: { "cache-control": "private, no-store" } }) };
   }
   const db = getDb();
-  const player = createPlayerService(db).findOrCreate(guildId, actor.userId, actor.userName);
+  const players = createPlayerService(db);
+  const player = options.createPlayer === false ? players.findByGuildAndUser(guildId, actor.userId)
+    : players.findOrCreate(guildId, actor.userId, actor.userName);
+  if (!player) return { ok: false, response: NextResponse.json({ error: "Player not found" }, { status: 404 }) };
   return { ok: true, guildId, playerId: player.id, userId: actor.userId, duels: createDuelService(db) };
 }
 
@@ -141,7 +144,8 @@ export async function callDuelHost(input: {
   reportId?: number;
   slug?: string;
   guildId: string;
-  playerId: number;
+  /** Admin spectate POV or add-bot target seat. Never an action identity. */
+  seat?: number | null;
   /** Trusted web session users.id. Owner operations must recheck its stored player mapping on the host. */
   userId?: number;
   as?: number;
@@ -170,8 +174,6 @@ export async function callDuelHost(input: {
   includeCanonical?: boolean;
   /** Host-only kick or explicit player invitation. Never an acting identity. */
   targetPlayerId?: number;
-  /** add-bot only: the 0-based empty seat to fill. */
-  seat?: number;
   /** start-preset only. */
   presetId?: string;
   /** start-preset only: four decimal strings (the core seed). */
@@ -203,7 +205,7 @@ export async function callDuelHost(input: {
   choice?: DuelFirstChoice;
   /** chain-mode only: the response switch position for the caller's own seat. */
   chainMode?: DuelChainMode;
-}): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse; retryable?: boolean }> {
+} & ({ op: "admin-spectate"; userId: number; playerId?: never } | { op: Exclude<DuelHostOp, "admin-spectate">; playerId: number })): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse; retryable?: boolean }> {
   const replayOp = input.op === "bug-replay-frame" || input.op === "replay" || input.op === "owner-replay" || input.op === "replay-fork"
     || input.op === "fork-list" || input.op === "fork-restart" || input.op === "fork-cancel";
   const failure = (body: NonNullable<ReturnType<typeof hostErrorBody>>["body"], status: number): NextResponse => NextResponse.json({
@@ -307,7 +309,7 @@ export async function callDuelHost(input: {
   } catch {
     return { ok: false, response: failure({ error: "Invalid engine response" }, 502) };
   }
-  return { ok: true, data: redactDuelResult(data, input.guildId, input.playerId) };
+  return { ok: true, data: input.op === "admin-spectate" ? data : redactDuelResult(data, input.guildId, input.playerId) };
 }
 
 /** Strict query parsing prevents private view flags from reaching the ordinary host operation. */

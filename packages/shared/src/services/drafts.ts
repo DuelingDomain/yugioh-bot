@@ -1461,7 +1461,7 @@ export function createDraftService(
   });
 
   // Legal choices first; a fully capped booster pack permits one forced pick.
-  const currentPackOptionsInternal = (draftId: number, playerId: number, pickableOnly = false, swapping = false): DraftCard[] => {
+  const currentPackOptionsInternal = (draftId: number, playerId: number, pickableOnly = false, swapping = false, readOnly = false): DraftCard[] => {
     const draft = findById(draftId);
     if (draft.status === "completed") {
       return [];
@@ -1501,7 +1501,7 @@ export function createDraftService(
       .all(pack.id)
       .map(mapDraftCard);
     let cards = readCards();
-    if (draft.config.copyLimit === false) return cards;
+    if (draft.config.copyLimit === false || readOnly) return cards;
 
     const held = heldCopies(draftId, playerId);
     let legal = cards.filter((card) => !isCapped(held, card.catalogCardId));
@@ -1683,8 +1683,9 @@ export function createDraftService(
       return startDraft.immediate(draftId, now, options);
     },
 
-    currentPackOptions(draftId: number, playerId: number): DraftCard[] {
-      return currentPackOptionsInternal(draftId, playerId);
+    currentPackOptions(draftId: number, playerId: number, options?: { readOnly?: boolean }): DraftCard[] {
+      // Spectators inspect the already-dealt pack; only player reads may exchange capped cards.
+      return currentPackOptionsInternal(draftId, playerId, false, false, options?.readOnly === true);
     },
 
     currentWaveCards(draftId: number): DraftCard[] {

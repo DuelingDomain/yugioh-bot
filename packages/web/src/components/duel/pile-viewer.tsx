@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import type { DuelCard } from "@yugidraft/shared/duels";
 import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardBack } from "./card-face";
-import { hasCardName, loadDuelCardInfo } from "./card-info";
+import { hasCardName, DuelCardInfoLoaderContext } from "./card-info";
 import {
   cardArtUrl,
   cardInspectLines,
@@ -197,6 +197,7 @@ export function PileViewer({
   const tone = usableGlowToneForPile(cards);
   const anyLegal = entries.some((entry) => legalKeys?.has(zoneKey(entry.card.controller, entry.card.location, entry.card.sequence)));
 
+  const loadCardInfo = useContext(DuelCardInfoLoaderContext);
   // A pile card that came without a name gets it by passcode (from the shared lookup cache), so the grid label and aria-label name it too.
   useEffect(() => {
     if (!open) return;
@@ -204,14 +205,14 @@ export function PileViewer({
     if (codes.length === 0) return;
     let live = true;
     // The shared lookup cache: a new engine state with the same cards sends no new request.
-    void Promise.all(codes.map((code) => loadDuelCardInfo(code))).then((infos) => {
+    void Promise.all(codes.map((code) => loadCardInfo(code))).then((infos) => {
       if (!live) return;
       const names = new Map<number, string>();
       for (const info of infos) if (info && hasCardName(info)) names.set(info.code, info.name);
       setLookedNames(names);
     });
     return () => { live = false; };
-  }, [open, entries]);
+  }, [open, entries, loadCardInfo]);
 
   // Only the render that opens the viewer decides where it starts (entries are read through a ref, so a chain that starts
   // while the player browses never moves the list). A chain card is the start: it is selected and focused, the grid scrolls

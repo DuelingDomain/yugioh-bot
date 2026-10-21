@@ -90,3 +90,4 @@ export { createDeckCopyRepairService } from "./deck-copy-repair.js";
 export * from "./cube-era.js";
 
 export { createPrereleaseDateLookup } from "./card-release-dates.js";
+export * from "./admin-spectate.js";

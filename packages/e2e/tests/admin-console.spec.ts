@@ -43,7 +43,7 @@ test("Overview: four large numbers, what needs attention, and who is online and 
     await expect(overview).toContainText("New error: TypeError: cannot read properties of undefined (reading 'seat')");
     await expect(overview).toContainText("2 people wait for approval");
     await expect(overview.getByRole("button", { name: /kaibaCorp/ })).toBeVisible();
-    await expect(overview.getByRole("link", { name: "Watch" }).first()).toHaveAttribute("href", /^\/duels\/e2e-adm-/);
+    await expect(overview.getByRole("link", { name: "Watch" }).first()).toHaveAttribute("href", /^\/admin\/watch\/duel\/e2e-adm-/);
     // Every view is in the menu with its live count.
     await expect(menu(page).getByRole("button")).toHaveCount(VIEWS.length + 1);
     await expect(menu(page).getByRole("button", { name: /^Waitlist/ })).toContainText("2");
@@ -89,7 +89,7 @@ test("People: filter by activity, open a person, see the current duel with Watch
     await expect(detail.getByRole("heading", { name: "kaibaCorp" })).toBeVisible();
     await expect(detail).toContainText("4-way duel · Friday Fours");
     await expect(detail).toContainText("Turn 9 · Ranked");
-    await expect(detail.getByRole("link", { name: "Watch duel" })).toHaveAttribute("href", `/duels/${FLOOR.fours}`);
+    await expect(detail.getByRole("link", { name: "Watch duel" })).toHaveAttribute("href", `/admin/watch/duel/${FLOOR.fours}`);
     await expect(detail).toContainText("Recent activity");
     await expect(detail.getByRole("link", { name: /Won 3-way duel · Three way/ })).toHaveAttribute("href", "/duels/e2e-adm-end-2/replay");
   } finally { await context.close(); }
@@ -127,12 +127,12 @@ test("Duels: live tables with seats and turns, the draft with progress, and a se
     const fours = duels.getByRole("row").filter({ hasText: "Friday Fours" });
     await expect(fours).toContainText("T9");
     for (const name of ["kaibaCorp", "ruby.lynx", "neo_spacian", "valon_x"]) await expect(fours).toContainText(name);
-    await expect(fours.getByRole("link", { name: "Watch" })).toHaveAttribute("href", `/duels/${FLOOR.fours}`);
+    await expect(fours.getByRole("link", { name: "Watch" })).toHaveAttribute("href", `/admin/watch/duel/${FLOOR.fours}`);
     await expect(duels.getByRole("row").filter({ hasText: "joey's table" })).toContainText("Practice Bot");
     const draft = view(page, "Duels").getByRole("table", { name: "Live drafts" }).getByRole("row").filter({ hasText: "Sunday Cube" });
     await expect(draft).toContainText("Round 2, pick 6");
     await expect(draft).toContainText("21 of 45 picks");
-    await expect(draft.getByRole("link", { name: "Open" })).toHaveAttribute("href", `/draft/${FLOOR.draft}`);
+    await expect(draft.getByRole("link", { name: "Watch" })).toHaveAttribute("href", `/admin/watch/draft/${FLOOR.draft}`);
     // A seat opens that person.
     await fours.getByRole("button", { name: /ruby\.lynx/ }).click();
     await expect(page).toHaveURL(/#people$/);
@@ -151,7 +151,7 @@ test("Duels today: every duel of the local day with result per player, replay or
     const list = view(page, "Duels").getByRole("table", { name: "Duels today" });
     await expect(list).toBeInViewport({ ratio: 0.05 });
     await expect(view(page, "Duels")).toContainText(/Since 00:00 UTC[+\u2212]?\d*/);
-    const row = (slug: string) => list.getByRole("row").filter({ has: page.locator(`a[href^="/duels/${slug}"]`) });
+    const row = (slug: string) => list.getByRole("row").filter({ has: page.locator(`a[href^="/duels/${slug}"], a[href="/admin/watch/duel/${slug}"]`) });
 
     // Tag: partners win together.
     const tag = row(FLOOR.tag);
@@ -168,7 +168,7 @@ test("Duels today: every duel of the local day with result per player, replay or
     // A duel that still runs is in the list with Watch, not Replay.
     const live = row(FLOOR.fours);
     await expect(live).toContainText("Live");
-    await expect(live.getByRole("link", { name: "Watch" })).toHaveAttribute("href", `/duels/${FLOOR.fours}`);
+    await expect(live.getByRole("link", { name: "Watch" })).toHaveAttribute("href", `/admin/watch/duel/${FLOOR.fours}`);
     await expect(live.getByRole("link", { name: "Replay" })).toHaveCount(0);
 
     // Filters: Multi hides the 1v1 duels, Ranked keeps only ranked ones.

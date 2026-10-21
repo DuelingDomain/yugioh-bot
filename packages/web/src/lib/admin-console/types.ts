@@ -111,6 +111,8 @@ export interface LiveSeat {
   userId: UserKey | null;
 }
 export interface LiveDuel {
+  visibility?: "public" | "private";
+  modeLabel?: string;
   slug: string;
   name: string;
   format: LiveDuelFormat;
@@ -126,7 +128,7 @@ export interface LiveDuel {
   ranked?: boolean;
   /** Played with Genesys point rules. */
   genesys?: boolean;
-  /** Page the admin opens to watch, for example /duels/<slug>. */
+  /** Page the admin opens to watch, for example /admin/watch/duel/<slug>. */
   watchHref: string;
   /** One entry per seat, seat order. Same names as `players`, plus picture and bot flag. */
   seats?: LiveSeat[];
@@ -138,6 +140,7 @@ export interface LiveDuel {
   lastActivityAt?: number | null;
 }
 export interface LiveDraft {
+  visibility?: "open" | "private";
   slug: string;
   name: string;
   status: "pending" | "active";

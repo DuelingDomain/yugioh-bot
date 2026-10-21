@@ -95,7 +95,7 @@ export function loadTodayDuels(db: Database.Database, guild: string, now: number
       result, seats: (seats.get(row.id) ?? []).map((seat, i) => ({ ...seat, outcome: outcome(i) })),
       turns: ended ? safeInt(row.turn_count) : safeInt(row.clock_turn),
       startedAt, endedAt: ended ? dbTimeMs(row.ended_at) : null,
-      href: ended ? `/duels/${row.web_slug}/replay` : `/duels/${row.web_slug}`,
+      href: ended ? `/duels/${row.web_slug}/replay` : `/admin/watch/duel/${row.web_slug}`,
     };
   });
   return { tzOffsetMinutes, dayStart, counts, duels, limit: TODAY_LIMIT };

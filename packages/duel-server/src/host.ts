@@ -1,6 +1,6 @@
 import { formatStaples } from "@yugidraft/shared/cards/effects";
 import { ExpectedError, errorResponseBody, log, report } from "@yugidraft/shared/observability";
-import { createBugReportService, createStoredBoardReader, readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, DUEL_LIVE_IDLE_REASON, parseDeckSuggestionQuery, type StoredDuelBoards } from "@yugidraft/shared/services";
+import { canAdminSpectate, createBugReportService, createStoredBoardReader, readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, DUEL_LIVE_IDLE_REASON, parseDeckSuggestionQuery, type StoredDuelBoards } from "@yugidraft/shared/services";
 import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
@@ -142,7 +142,7 @@ const TRACE_LIMIT = 40;
 const BUG_CONTEXT_LOG_LINES = 15;
 /** Only recognized operation names may appear in unexpected request error logs. */
 const DUEL_OPS = new Set([
-  "engine-data-status", "capabilities", "view", "start", "respond", "deck", "validate-deck", "cards",
+  "admin-spectate", "engine-data-status", "capabilities", "view", "start", "respond", "deck", "validate-deck", "cards",
   "card-details", "card-artworks", "card-query", "card-facets", "surrender", "kick", "invite-player", "add-bot", "archive", "cancel",
   "replay", "owner-replay", "replay-fork", "fork-list", "fork-restart", "fork-cancel", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
   "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset", "start-test-duel", "warm-test-duel",
@@ -485,6 +485,7 @@ export function createDuelHost(options: {
     return spare.worker;
   }
 
+
   async function spawn(session?: DuelSession, spawnOptions: {
     duelRef?: number | (() => number | undefined);
     recordErrors?: () => boolean;
@@ -505,7 +506,7 @@ export function createDuelHost(options: {
       spawnOptions.signal?.throwIfAborted();
       if (stopped) throw new RequestError("The duel server is shutting down.", 503);
       const duelRef = spawnOptions.duelRef ?? session?.id;
-      const recordErrors = spawnOptions.recordErrors ?? (() => true);
+      const recordErrors = () => spawnOptions.recordErrors?.() ?? true;
       const table = spawnOptions.table ?? session?.slug;
       const callbacks = {
         onScriptError: duelRef === undefined ? undefined : (error: DuelScriptError) => {
@@ -3221,8 +3222,33 @@ export function createDuelHost(options: {
     catch { return undefined; }
   }
 
+  /** Owner inspection never enters player view: no clocks, bot answers, presence or activity writes. */
+  async function adminSpectate(body: Record<string, unknown>): Promise<DuelRoom> {
+    const { slug, guildId, userId, seat } = body;
+    if (typeof slug !== "string" || typeof guildId !== "string" || typeof userId !== "number"
+      || !canAdminSpectate(options.db, { kind: "duel", slug, guildId, userId })) throw new RequestError("Not found", 404);
+    const state = service.privateSnapshot(slug, guildId);
+    if (seat !== null && (typeof seat !== "number" || !Number.isInteger(seat) || seat < 0 || seat >= seatCountFor(state.session.format))) {
+      throw new RequestError("Invalid seat", 400);
+    }
+    const pov = seat as number | null;
+    const game = state.session.status === "active" ? games.get(slug)?.game : undefined;
+    const live = !!game?.running;
+    // Never recover/replay a worker for a watch read. Cold reads use the last durable projection.
+    // Keep the worker's script diagnostics enabled, including concurrent player operations.
+    const engine = live
+      ? await withTimeout(game!.view(pov), debugReadTimeoutMs, "admin spectator view")
+      : state.session.status === "lobby" ? null : readStoredBoard(savedReplayBoards(slug, guildId), pov);
+    if (!canAdminSpectate(options.db, { kind: "duel", slug, guildId, userId })) throw new RequestError("Not found", 404);
+    return stampRoomClock({ session: service.get(slug, guildId), role: "spectator", mySeat: pov,
+      myDeck: pov === null ? null : state.decks[pov] ?? null, mySide: null, engine,
+      clock: state.clock ? { ...state.clock, serverNow: now() } : null, metadataOnly: engine === null,
+      ...(!live && state.session.status === "active" ? { stale: true } : {}) }, now());
+  }
+
   async function operate(body: Record<string, unknown>, ctl?: { abandoned: boolean; signal?: AbortSignal }): Promise<unknown> {
     ctl?.signal?.throwIfAborted();
+    if (body.op === "admin-spectate") return adminSpectate(body);
     const { op, guildId, playerId } = body;
     if (typeof guildId !== "string" || !guildId || !Number.isSafeInteger(playerId) || (playerId as number) <= 0) {
       throw new RequestError("Authenticated guild and player are required", 400);
@@ -4118,7 +4144,7 @@ export function createDuelHost(options: {
             deadline.abort(error); reject(error);
           }, Math.min(28_000, options.replayRequestTimeoutMs ?? 28_000));
         }) : undefined;
-        const queued = (body.op === "deck-suggestions" || body.op === "card-query" || body.op === "debug-trace" || body.op === "bug-context" || body.op === "bug-replay-frame" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body, ctl) : enqueue(key, () => operate(body, ctl)));
+        const queued = (body.op === "admin-spectate" || body.op === "deck-suggestions" || body.op === "card-query" || body.op === "debug-trace" || body.op === "bug-context" || body.op === "bug-replay-frame" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body, ctl) : enqueue(key, () => operate(body, ctl)));
         const rendered = (async () => {
           const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
           if (fork) assertReplayForkAccess(options.db, body.slug as string, { guildId: body.guildId as string,
