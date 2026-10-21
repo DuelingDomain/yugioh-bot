@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type { DuelFirstChoice, DuelOpeningView, DuelRpsOpeningView, DuelRpsMove } from "@yugidraft/shared/duels";
 import { DUEL_RPS_MOVES } from "@yugidraft/shared/duels";
 import { duelFontClasses } from "./fonts";
@@ -62,7 +63,7 @@ function Countdown({ iso, label, now }: { iso: string; label: string; now: numbe
  * The opening of a match: rock-paper-scissors, then the winner chooses to go first or second.
  * Picks stay hidden until both are in; the server decides the result and the timeouts.
  */
-function RpsOpeningScreen({ opening, receivedAt, mySeat, names, busy = false, error = null, onPick, onChoose }: {
+function RpsOpeningScreen({ opening, receivedAt, mySeat, names, busy = false, error = null, onPick, onChoose, hostControls }: {
   opening: DuelRpsOpeningView;
   /** Monotonic client time when the room response arrived; retained with cached rooms. */
   receivedAt?: number;
@@ -72,6 +73,7 @@ function RpsOpeningScreen({ opening, receivedAt, mySeat, names, busy = false, er
   error?: string | null;
   onPick: (move: DuelRpsMove) => void;
   onChoose: (choice: DuelFirstChoice) => void;
+  hostControls?: ReactNode;
 }) {
   const now = useNow(opening, receivedAt);
   if (now == null) return null;
@@ -156,6 +158,7 @@ function RpsOpeningScreen({ opening, receivedAt, mySeat, names, busy = false, er
         ) : null}
 
         {error ? <p className={styles.error} role="alert">{error}</p> : null}
+        {hostControls}
       </div>
     </div>
   );
@@ -165,6 +168,7 @@ function RpsOpeningScreen({ opening, receivedAt, mySeat, names, busy = false, er
 /** The opening of a match: rock-paper-scissors for 1v1, a dice roll for the 3-way and 4-way. */
 export function OpeningScreen(props: {
   opening: DuelOpeningView;
+  hostControls?: ReactNode;
   receivedAt?: number;
   mySeat: number | null;
   names: string[];
@@ -178,5 +182,5 @@ export function OpeningScreen(props: {
   if (!("rounds" in props.opening)) {
     return <RpsOpeningScreen {...props} opening={props.opening} names={[props.names[0]!, props.names[1]!]} />;
   }
-  return <DiceOpeningScreen opening={props.opening} receivedAt={props.receivedAt} mySeat={props.mySeat} names={props.names} error={props.error} reducedMotion={props.reducedMotion} />;
+  return <DiceOpeningScreen opening={props.opening} receivedAt={props.receivedAt} mySeat={props.mySeat} names={props.names} error={props.error} reducedMotion={props.reducedMotion} hostControls={props.hostControls} />;
 }

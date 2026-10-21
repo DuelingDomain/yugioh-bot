@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLobbyLeaveGuard } from "./lobby-leave-guard";
-import { Bot, CheckCircle2, CircleDashed, Lock, Globe, Swords, UserPlus, X, type LucideIcon } from "lucide-react";
+import { Bot, CheckCircle2, CircleDashed, Lock, Globe, Mail, Swords, UserPlus, X, type LucideIcon } from "lucide-react";
 import { isCustomDomain, type DuelDeck, type DuelRoom, type DuelSeat } from "@yugidraft/shared/duels";
 import type { DuelPresencePayload } from "@yugidraft/shared/ws";
 import { DeckCardPreview } from "./deck-card-preview";
@@ -18,12 +18,13 @@ import { practiceBotNote } from "./series-model";
 import { StartBlockedNotice } from "./start-blocked-notice";
 import { LOCKED_DECK_BLOCKED_TEXT, NEUTRAL_START_BLOCKED_TEXT, ownStartBlocked } from "./start-blocked";
 import { cx, SheetButton, sheetButtonClass, sheetPage } from "./sheet-ui";
+import { KickPlayerButton, type KickRequest } from "./player-kick";
 import ui from "./sheet-ui.module.css";
 import styles from "./room-lobby.module.css";
 import seriesStyles from "./series.module.css";
 
 function SeatCard({
-  index, taken, mine, code, waitLabel, onTakeSeat, onAddBot, onRemoveBot, botBusy, present,
+  index, taken, mine, code, waitLabel, onTakeSeat, onAddBot, onRemoveBot, onAskKick, kicked = false, botBusy, present,
 }: {
   index: number;
   taken: DuelSeat | undefined;
@@ -35,6 +36,10 @@ function SeatCard({
   onAddBot?: (seat: number) => void;
   /** Set only for the organizer of a lobby table: shows the quiet remove control on a bot's seat. */
   onRemoveBot?: (seat: number) => void;
+  /** Set only for the host: opens the Kick dialog for a human on this seat. */
+  onAskKick?: (request: KickRequest) => void;
+  /** The host removed this player; they must be re-invited before they can ready again. */
+  kicked?: boolean;
   botBusy: boolean;
   present: boolean | null;
 }) {
@@ -65,8 +70,11 @@ function SeatCard({
     );
   }
   const Icon: LucideIcon = taken.ready ? CheckCircle2 : CircleDashed;
+  // Never on the host's own row, a bot's seat (it has the remove control) or a seat already removed.
+  const canKick = !taken.isBot && !mine && !kicked && taken.playerId != null && onAskKick != null;
   return (
-    <li className={styles.seat} data-ready={taken.ready ? "true" : "false"} data-mine={mine ? "true" : undefined}>
+    <li className={styles.seat} data-ready={taken.ready ? "true" : "false"} data-mine={mine ? "true" : undefined}
+      data-kickable={canKick ? "true" : undefined} data-removed={kicked ? "true" : undefined}>
       <span className={styles.avatar} aria-hidden>
         {taken.isBot ? <Bot size={18} strokeWidth={1.5} /> : (taken.displayName.trim()[0] ?? "?").toUpperCase()}
       </span>
@@ -79,12 +87,16 @@ function SeatCard({
       <span className={styles.seatActions}>
         <span className={cx(styles.status, taken.ready && styles.statusReady)}>
           <Icon size={15} strokeWidth={1.7} aria-hidden />
-          {taken.ready ? "Ready" : waitLabel}
+          {kicked ? "Removed · waiting for re-invite" : taken.ready ? "Ready" : waitLabel}
         </span>
         {!taken.isBot ? <span className={styles.presence} data-present={present === true}>
           <i aria-hidden />{present === null ? "Presence unavailable" : present ? "In the room" : "Away"}
         </span> : null}
       </span>
+      {canKick ? (
+        <KickPlayerButton className={styles.seatKick} player={{ playerId: taken.playerId!, displayName: taken.displayName }}
+          scope="seated" busy={botBusy} onAsk={onAskKick!} />
+      ) : null}
       {taken.isBot && onRemoveBot ? (
         <button type="button" className={styles.seatRemove} onClick={() => onRemoveBot(index)} disabled={botBusy}
           aria-label="Remove practice bot" title="Remove practice bot">
@@ -130,6 +142,8 @@ export function RoomLobby({
   onTakeSeat,
   onAddBot,
   onRemoveBot,
+  onAskKick,
+  onInvite,
   onReady,
   onMarkReady,
   onMarkUnready,
@@ -153,6 +167,10 @@ export function RoomLobby({
   onAddBot: (seat?: number) => void;
   /** Organizer only: takes a practice bot out of its seat so a human can join. `seat` is the bot's 0-based seat. */
   onRemoveBot: (seat?: number) => void;
+  /** Organizer only: opens the Kick dialog for a joined or invited player. */
+  onAskKick?: (request: KickRequest) => void;
+  /** Organizer only: takes a removed player back. */
+  onInvite?: (playerId: number) => void;
   onReady: (deck: DuelDeck) => void;
   /** Ready with the registered tournament deck or the saved deck for a later game. */
   onMarkReady?: () => void;
@@ -249,6 +267,8 @@ export function RoomLobby({
                         onTakeSeat={mySeat == null && !seatsLocked ? onTakeSeat : undefined}
                         onAddBot={canAddBot ? onAddBot : undefined}
                         onRemoveBot={isOrganizer && !seatsLocked ? onRemoveBot : undefined}
+                        onAskKick={isOrganizer ? onAskKick : undefined}
+                        kicked={room.kickedPlayers?.some(player => session.seats.find(item => item.seat === seat)?.playerId === player.playerId)}
                         botBusy={busy}
                         present={presence === null ? null : presence.onlineSeats.includes(seat)}
                       />
@@ -256,6 +276,45 @@ export function RoomLobby({
                   </ul>
                 </div>
               ))}
+              {isOrganizer && onAskKick && room.invitedPlayers?.length ? (
+                <div className={styles.group}>
+                  <h2 className={styles.groupTitle}>Invited players</h2>
+                  <ul className={styles.seats} data-testid="invited-players">
+                    {room.invitedPlayers.map(player => <li className={styles.seat} key={player.playerId} data-kickable="true">
+                      <span className={styles.avatar} aria-hidden>{(player.displayName.trim()[0] ?? "?").toUpperCase()}</span>
+                      <span className={styles.seatText}>
+                        <span className={styles.seatName}>{player.displayName}</span>
+                        <span className={styles.seatMeta}>Invited · not seated yet</span>
+                      </span>
+                      <span className={styles.seatActions}>
+                        <span className={styles.status}><Mail size={15} strokeWidth={1.7} aria-hidden />Invited</span>
+                      </span>
+                      <KickPlayerButton className={styles.seatKick} player={player} scope="invited"
+                        busy={busy} onAsk={onAskKick} />
+                    </li>)}
+                  </ul>
+                </div>
+              ) : null}
+              {isOrganizer && onInvite && room.kickedPlayers?.length ? (
+                <div className={styles.group}>
+                  <h2 className={styles.groupTitle}>Removed players</h2>
+                  <ul className={styles.seats} data-testid="removed-players">
+                    {room.kickedPlayers.map(player => <li className={styles.seat} key={player.playerId} data-removed="true">
+                      <span className={styles.avatar} aria-hidden>{(player.displayName.trim()[0] ?? "?").toUpperCase()}</span>
+                      <span className={styles.seatText}>
+                        <span className={styles.seatName}>{player.displayName}</span>
+                        <span className={styles.seatMeta}>Removed by you</span>
+                      </span>
+                      <span className={styles.seatActions}>
+                        <SheetButton kind="quiet" size="sm" disabled={busy} onClick={() => onInvite(player.playerId)}
+                          aria-label={`Re-invite ${player.displayName}`}>
+                          <UserPlus size={14} strokeWidth={1.6} aria-hidden />Re-invite
+                        </SheetButton>
+                      </span>
+                    </li>)}
+                  </ul>
+                </div>
+              ) : null}
               {mySeat != null ? (
                 <p className={styles.help} role="status">
                   {tournamentGame

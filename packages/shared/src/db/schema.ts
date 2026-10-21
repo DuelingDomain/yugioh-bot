@@ -1084,6 +1084,13 @@ export function migrate(db: Database.Database) {
       primary key (duel_id, player_id)
     );
     create index if not exists duel_invite_grants_player_idx on duel_invite_grants (player_id);
+    create table if not exists duel_kicked_players (
+      duel_id integer not null references duels(id) on delete cascade,
+      player_id integer not null references players(id) on delete cascade,
+      created_at text not null default current_timestamp,
+      primary key (duel_id, player_id)
+    );
+    create index if not exists duel_kicked_players_player_idx on duel_kicked_players (player_id);
     create unique index if not exists duels_invite_code_idx on duels (invite_code) where invite_code is not null;
 
     update duels

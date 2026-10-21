@@ -4,6 +4,12 @@
 .headText { display: grid; gap: 6px; }
 .headActions { display: flex; flex-wrap: wrap; gap: 10px; }
 .section { display: grid; gap: 12px; container-type: inline-size; }
+.kickedNotice { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 14px 14px 14px 16px; border: 1px solid rgb(228 90 77 / 0.4); border-radius: 10px; background: var(--duel-loss-soft); color: var(--duel-loss-ink); }
+.kickedNotice strong { color: var(--duel-ink); font-size: 15px; font-weight: 450; }
+.kickedNotice p { margin: 2px 0 0; color: var(--duel-ink-2); font-size: 13.5px; line-height: 1.5; }
+.kickedDismiss { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--duel-ink-3); cursor: pointer; }
+.kickedDismiss:hover { background: var(--duel-panel-3); color: var(--duel-ink); }
+.kickedDismiss:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
 .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--duel-rule-lo); }
 .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 

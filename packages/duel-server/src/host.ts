@@ -143,7 +143,7 @@ const BUG_CONTEXT_LOG_LINES = 15;
 /** Only recognized operation names may appear in unexpected request error logs. */
 const DUEL_OPS = new Set([
   "engine-data-status", "capabilities", "view", "start", "respond", "deck", "validate-deck", "cards",
-  "card-details", "card-artworks", "card-query", "card-facets", "surrender", "add-bot", "archive", "cancel",
+  "card-details", "card-artworks", "card-query", "card-facets", "surrender", "kick", "invite-player", "add-bot", "archive", "cancel",
   "replay", "owner-replay", "replay-fork", "fork-list", "fork-restart", "fork-cancel", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
   "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset", "start-test-duel", "warm-test-duel",
   "report", "debug-trace", "bug-context", "bug-replay-frame", "chain-mode", "validate-deck-master", "suggestion-scope", "deck-suggestions",
@@ -1564,7 +1564,9 @@ export function createDuelHost(options: {
       ...(state.setup?.presetId ? { presetId: state.setup.presetId } : {}),
     });
     recordRecoveryErrors = true;
-    if (!fork) rememberReportCapture(slug, guildId, await game.view(null, { fullLog: true }));
+    if (!fork) {
+      if (service.get(slug, guildId).status === "active") rememberReportCapture(slug, guildId, await game.view(null, { fullLog: true }));
+    }
     await driveBot(slug, guildId, game);
     return game;
   }
@@ -2940,7 +2942,7 @@ export function createDuelHost(options: {
       deckStartBlocks.delete(slug);
       startBackoff.delete(slug);
       games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), traces: new Map() });
-      rememberReportCapture(slug, guildId, await game.view(null, { fullLog: true }));
+      if (service.get(slug, guildId).status === "active") rememberReportCapture(slug, guildId, await game.view(null, { fullLog: true }));
       startingGames.delete(slug);
       await emitChange(slug, guildId);
       await driveBot(slug, guildId, game);
@@ -3517,9 +3519,16 @@ export function createDuelHost(options: {
     if (typeof body.slug !== "string" || !body.slug || body.slug.length > 128) throw new RequestError("Duel slug is required", 400);
     const slug = body.slug;
     if (op === "replay" || op === "owner-replay") return replayRequest(body, slug, guildId, actor, ctl?.signal);
-    let room = service.room(slug, guildId, actor, { includeStoredBoard: false });
+    const roomOptions = { includeStoredBoard: false, allowKickedHistory: op === "view" };
+    let room = service.room(slug, guildId, actor, roomOptions);
+    if (op === "kick") {
+      const session = service.kickPlayer(slug, guildId, actor, body.targetPlayerId as number);
+      clearOpeningTimer(slug);
+      await emitChange(slug, guildId);
+      return { session };
+    }
     if (competitive(room.session) && await settleRankedDeadline(slug, guildId)) {
-      room = service.room(slug, guildId, actor, { includeStoredBoard: false });
+      room = service.room(slug, guildId, actor, roomOptions);
     }
     if (isReplayFork(room.session) && ["start", "ready", "unready", "deck", "validate-deck", "add-bot", "opening-pick", "opening-choose",
       "series-first", "series-side", "series-ready", "series-unready"].includes(String(op))) {
@@ -3527,7 +3536,12 @@ export function createDuelHost(options: {
     }
     if (room.session.seriesId && !isReplayFork(room.session)) {
       repairDeckCopies().series(room.session.seriesId);
-      room = service.room(slug, guildId, actor, { includeStoredBoard: false });
+      room = service.room(slug, guildId, actor, roomOptions);
+    }
+    if (op === "invite-player") {
+      service.invitePlayer(slug, guildId, actor, body.targetPlayerId as number);
+      await emitChange(slug, guildId);
+      return { session: service.get(slug, guildId) };
     }
     if (op === "view") {
       // A timeout that no timer caught yet (a restart, a late timer) is applied here.
@@ -4131,7 +4145,7 @@ export function createDuelHost(options: {
         const status = error instanceof DeckLegalityError ? 400 : error.status;
         return Response.json({ error: error.message,
           ...(status === 500 ? { expected: true } : {}),
-          ...((error instanceof RequestError || error instanceof ExtraDeckCardError || error instanceof ReplayAccessError || error instanceof ReplayForkLaunchError || error instanceof ReplayCursorError || error instanceof ReplayForkStorageError) && error.code ? { code: error.code } : {}),
+          ...((error instanceof DuelServiceError || error instanceof RequestError || error instanceof ExtraDeckCardError || error instanceof ReplayAccessError || error instanceof ReplayForkLaunchError || error instanceof ReplayCursorError || error instanceof ReplayForkStorageError) && error.code ? { code: error.code } : {}),
           ...(error instanceof ReplayForkLaunchError ? error.recovery : {}),
           ...(error instanceof RequestError && error.finalBoard ? { finalBoard: error.finalBoard } : {}),
           ...(error instanceof RequestError ? error.unverified : {}) }, { status });
