@@ -4,7 +4,7 @@ import type { TypedServer, TypedSocket } from "./events.js";
 
 type Occupant = { socket: TypedSocket; observe: boolean; visible: boolean };
 
-export function registerDuelEventHandlers(io: TypedServer, opts: { secret: string; canReadDuel: (claims: DuelConnectionTokenClaims) => boolean }) {
+export function registerDuelEventHandlers(io: TypedServer, opts: { secret: string; canReadDuel: (claims: DuelConnectionTokenClaims) => boolean; beforePresence?: (slug: string, guildId: string) => void }) {
   const occupancy = new Map<string, Map<string, Occupant>>();
   const expiryTimers = new Map<string, NodeJS.Timeout>();
 
@@ -24,6 +24,7 @@ export function registerDuelEventHandlers(io: TypedServer, opts: { secret: strin
   }
 
   function emitPresence(roomKey: string, slug: string, guildId: string): void {
+    opts.beforePresence?.(slug, guildId);
     pruneDuelRoom(slug, guildId);
     const snapshot = presenceSnapshot(roomKey);
     io.to(roomKey).emit("duel:presence", {

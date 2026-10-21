@@ -1,5 +1,7 @@
 import Database from "better-sqlite3";
 import { createServiceReporter } from "@yugidraft/shared/health";
+import { registerAdminSpectateHandlers } from "./admin-spectate-events.js";
+import { createAdminSpectateAccessReader } from "@yugidraft/shared/services";
 import { log } from "@yugidraft/shared/observability";
 import "dotenv/config";
 import { createServer } from "http";
@@ -36,6 +38,9 @@ try {
   try { healthDb?.close(); } catch { /* Health must never prevent ws startup. */ }
 }
 const roomManager = new DraftRoomManager();
+const adminAccess = createAdminSpectateAccessReader();
+const adminEvents = registerAdminSpectateHandlers(io, { secret: WS_INTERNAL_SECRET, canRead: adminAccess.canRead });
+httpServer.on("close", () => adminAccess.close());
 const draftAccess = createDraftAccessReader();
 const tournamentAccess = createTournamentAccessReader();
 const duelAccess = createDuelAccessReader();
@@ -47,7 +52,8 @@ const draftEvents = registerEventHandlers(io, roomManager, {
   canReadDraft: draftAccess.canReadDraft,
   canReadTournament: tournamentAccess.canReadTournament,
 });
-const duelEvents = registerDuelEventHandlers(io, { secret: WS_INTERNAL_SECRET, canReadDuel: duelAccess.canReadDuel });
+const duelEvents = registerDuelEventHandlers(io, { secret: WS_INTERNAL_SECRET, canReadDuel: duelAccess.canReadDuel,
+  beforePresence: (slug, guildId) => adminEvents.prune("duel", slug, guildId) });
 
 httpServer.listen(WS_PORT, () => {
   console.log(`[ws] Socket.IO server listening on port ${WS_PORT}`);
@@ -57,9 +63,10 @@ httpServer.listen(WS_PORT, () => {
 if (WS_INTERNAL_SECRET) {
   listenInternalHttp({
     io, secret: WS_INTERNAL_SECRET, port: WS_INTERNAL_PORT,
-    beforeDraftBroadcast: draftEvents.pruneDraftRoom,
+    beforeDraftBroadcast: slug => { adminEvents.prune("draft", slug); draftEvents.pruneDraftRoom(slug); },
     beforeTournamentBroadcast: draftEvents.pruneTournamentRoom,
     beforeDuelBroadcast: (slug, guildId) => {
+      adminEvents.prune("duel", slug, guildId);
       duelEvents.pruneDuelRoom(slug, guildId);
       return duelAccess.findDuelEventTarget(slug, guildId) !== null;
     },

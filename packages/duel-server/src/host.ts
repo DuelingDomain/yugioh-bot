@@ -1,6 +1,6 @@
 import { formatStaples } from "@yugidraft/shared/cards/effects";
 import { ExpectedError, errorResponseBody, log, report } from "@yugidraft/shared/observability";
-import { createBugReportService, createStoredBoardReader, readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, DUEL_LIVE_IDLE_REASON, parseDeckSuggestionQuery, type StoredDuelBoards } from "@yugidraft/shared/services";
+import { canAdminSpectate, createBugReportService, createStoredBoardReader, readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, DUEL_LIVE_IDLE_REASON, parseDeckSuggestionQuery, type StoredDuelBoards } from "@yugidraft/shared/services";
 import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
 import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
@@ -142,7 +142,7 @@ const TRACE_LIMIT = 40;
 const BUG_CONTEXT_LOG_LINES = 15;
 /** Only recognized operation names may appear in unexpected request error logs. */
 const DUEL_OPS = new Set([
-  "engine-data-status", "capabilities", "view", "start", "respond", "deck", "validate-deck", "cards",
+  "admin-spectate", "engine-data-status", "capabilities", "view", "start", "respond", "deck", "validate-deck", "cards",
   "card-details", "card-artworks", "card-query", "card-facets", "surrender", "kick", "invite-player", "add-bot", "archive", "cancel",
   "replay", "owner-replay", "replay-fork", "fork-list", "fork-restart", "fork-cancel", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
   "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset", "start-test-duel", "warm-test-duel",
@@ -485,6 +485,8 @@ export function createDuelHost(options: {
     return spare.worker;
   }
 
+  const readOnlyViews = new WeakMap<DuelGameWorker, number>();
+
   async function spawn(session?: DuelSession, spawnOptions: {
     duelRef?: number | (() => number | undefined);
     recordErrors?: () => boolean;
@@ -505,7 +507,7 @@ export function createDuelHost(options: {
       spawnOptions.signal?.throwIfAborted();
       if (stopped) throw new RequestError("The duel server is shutting down.", 503);
       const duelRef = spawnOptions.duelRef ?? session?.id;
-      const recordErrors = spawnOptions.recordErrors ?? (() => true);
+      const recordErrors = () => !(readOnlyViews.get(game) ?? 0) && (spawnOptions.recordErrors?.() ?? true);
       const table = spawnOptions.table ?? session?.slug;
       const callbacks = {
         onScriptError: duelRef === undefined ? undefined : (error: DuelScriptError) => {
@@ -3221,8 +3223,51 @@ export function createDuelHost(options: {
     catch { return undefined; }
   }
 
+  /** Owner inspection never enters player view: no clocks, bot answers, presence or activity writes. */
+  async function adminSpectate(body: Record<string, unknown>): Promise<DuelRoom> {
+    const { slug, guildId, userId, seat } = body;
+    if (typeof slug !== "string" || typeof guildId !== "string" || typeof userId !== "number"
+      || !canAdminSpectate(options.db, { kind: "duel", slug, guildId, userId })) throw new RequestError("Not found", 404);
+    const state = service.privateState(slug, guildId);
+    if (seat !== null && (typeof seat !== "number" || !Number.isInteger(seat) || seat < 0 || seat >= seatCountFor(state.session.format))) {
+      throw new RequestError("Invalid seat", 400);
+    }
+    const pov = seat as number | null;
+    let isolated: DuelGameWorker | undefined;
+    let engine: DuelEngineView | null = null;
+    try {
+      if (state.session.status === "active") {
+        let game = games.get(slug)?.game;
+        if (!game?.running) {
+          // Read-only journal recovery: do not install a live worker, drive bots, settle deadlines or record errors.
+          const resources = await resourcesOfSource(state, "live-recovery");
+          const result = await runJournalPrefix({ source: journalSourceOf(state), resources: journalResourcesOf(resources),
+            prefixCount: state.commands.length,
+            createWorker: async () => (isolated = await spawn(state.session, { recordErrors: () => false, players: [] })),
+          });
+          game = result.worker;
+        }
+        // Query-time Lua errors from an inspection must not write script-error counters or block cards.
+        // Keep suppression until the actual query settles, even if the HTTP read times out first.
+        const readingGame = game;
+        readOnlyViews.set(readingGame, (readOnlyViews.get(readingGame) ?? 0) + 1);
+        const reading = Promise.resolve().then(() => readingGame.view(pov)).finally(() => {
+          const pending = (readOnlyViews.get(readingGame) ?? 1) - 1;
+          if (pending === 0) readOnlyViews.delete(readingGame); else readOnlyViews.set(readingGame, pending);
+        });
+        engine = await withTimeout(reading, debugReadTimeoutMs, "admin spectator view");
+      } else if (state.session.status !== "lobby") engine = readStoredBoard(savedReplayBoards(slug, guildId), pov);
+      // Recheck after awaiting a worker: revoked owners receive no private snapshot.
+      if (!canAdminSpectate(options.db, { kind: "duel", slug, guildId, userId })) throw new RequestError("Not found", 404);
+      return stampRoomClock({ session: service.get(slug, guildId), role: "spectator", mySeat: pov,
+        myDeck: pov === null ? null : state.decks[pov] ?? null, mySide: null, engine,
+        clock: state.clock ? { ...state.clock, serverNow: now() } : null, metadataOnly: engine === null }, now());
+    } finally { if (isolated) await safeClose(isolated); }
+  }
+
   async function operate(body: Record<string, unknown>, ctl?: { abandoned: boolean; signal?: AbortSignal }): Promise<unknown> {
     ctl?.signal?.throwIfAborted();
+    if (body.op === "admin-spectate") return adminSpectate(body);
     const { op, guildId, playerId } = body;
     if (typeof guildId !== "string" || !guildId || !Number.isSafeInteger(playerId) || (playerId as number) <= 0) {
       throw new RequestError("Authenticated guild and player are required", 400);
