@@ -687,6 +687,33 @@ docker compose -f docker-compose.yml up -d --no-build
 
 Image builds take several minutes. The resource bundle is not rebuilt on container restart.
 
+### Optional effect search AI helper
+
+The `duel` service calls the runtime phrase reader from its `card-query` operation.
+The `web` service calls it from `/api/cards/insights` and `/api/cards/resolve`.
+Only these two services receive the three AI helper variables.
+
+Complete the [runtime ledger token setup](../effect-tagging.md#owner-setup-runtime-ledger-token)
+first. Then add these exact lines to `/opt/yugioh-bot/.env`. Replace
+`YOUR_ANTHROPIC_API_KEY` and `YOUR_LEDGER_TOKEN` with the runtime credentials:
+
+```dotenv
+EFFECT_SEARCH=1
+DECK_SUGGESTIONS=1
+ANTHROPIC_API_KEY=YOUR_ANTHROPIC_API_KEY
+EFFECT_TAGGING_LEDGER_TOKEN=YOUR_LEDGER_TOKEN
+EFFECT_TAGGING_LEDGER_REPOSITORY=DuelingDomain/yugioh-bot
+```
+
+Both feature flags default to `0` in Compose. The three AI helper variables
+default to empty values, which keep the paid fallback off. Do not add `GITHUB_TOKEN`.
+The Actions API secret does not configure the VM runtime.
+
+`deploy.yml` needs no change. It runs Compose from `/opt/yugioh-bot`, where
+Compose uses the VM `.env` for interpolation. Use the normal deploy procedure
+to apply the change. The `duel` and `web` containers must be recreated;
+`restart` does not load new environment values.
+
 ### Verify
 
 ```bash

@@ -307,10 +307,33 @@ Pinned search and rule readings still work.
    active branch ruleset. Allow normal fast-forward updates; a PR requirement
    on this branch would block ledger CAS. Use the existing ledger; never reset it.
 7. Put the token in the runtime secret manager as `EFFECT_TAGGING_LEDGER_TOKEN`.
-   Set `EFFECT_TAGGING_LEDGER_REPOSITORY=DuelingDomain/yugioh-bot`. Restart the
-   calling web/duel services. Add the runtime `ANTHROPIC_API_KEY` only after
+   Set `EFFECT_TAGGING_LEDGER_REPOSITORY=DuelingDomain/yugioh-bot`. Recreate the
+   calling web/duel containers. Add the runtime `ANTHROPIC_API_KEY` only after
    token approval and branch protection are complete. Do not give these services
    a general `GITHUB_TOKEN`. The Actions tagging job keeps its own job token.
+
+For production, add these exact lines to `/opt/yugioh-bot/.env`. Replace
+`YOUR_ANTHROPIC_API_KEY` and `YOUR_LEDGER_TOKEN` with the runtime credentials:
+
+```dotenv
+EFFECT_SEARCH=1
+DECK_SUGGESTIONS=1
+ANTHROPIC_API_KEY=YOUR_ANTHROPIC_API_KEY
+EFFECT_TAGGING_LEDGER_TOKEN=YOUR_LEDGER_TOKEN
+EFFECT_TAGGING_LEDGER_REPOSITORY=DuelingDomain/yugioh-bot
+```
+
+The `duel` service calls the fallback from its `card-query` operation. The `web`
+service calls it from `/api/cards/insights` and `/api/cards/resolve`. Compose
+passes the three AI helper variables only to these services. Both feature flags
+default to `0`; the three AI helper variables default to empty values, which keep
+the paid fallback off. Do not add `GITHUB_TOKEN`.
+
+The Actions API secret does not configure the VM runtime. `deploy.yml` needs no
+change: it runs Compose from `/opt/yugioh-bot`, where the VM `.env` supplies
+interpolation values. Use the [normal deploy procedure](deployment/vm-runbook.md#deployment-pipeline)
+after the edit. The `duel` and `web` containers must be recreated; `restart` does
+not load new environment values.
 
 GitHub fine-grained tokens support repository and permission limits, not a
 single file or branch limit. This code writes only `ledger.json` on
