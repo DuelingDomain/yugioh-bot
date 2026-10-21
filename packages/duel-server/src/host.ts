@@ -3118,14 +3118,27 @@ export function createDuelHost(options: {
       where s.duel_id = ? and k.needs_surrender = 1`).all(session.id).map(row => row.seat);
   }
 
-  /** A durable pending loss survives an engine error or restart between activation and concession. */
+  /** Settle each durable concession once; a failed loss must not block every later recovery. */
   async function applyPendingKicks(slug: string, guildId: string, game: DuelGameWorker): Promise<void> {
     const session = service.get(slug, guildId);
     for (const seat of kickedSeats(session)) {
-      if (service.get(slug, guildId).status === "active") await forfeitSeat(slug, guildId, game, seat, "Surrender", false);
-      options.db.prepare(`update duel_kicked_players set needs_surrender = 0 where duel_id = ?
-        and player_id = (select player_id from duel_seats where duel_id = ? and seat = ?)`)
-        .run(session.id, session.id, seat);
+      try {
+        if (service.get(slug, guildId).status === "active") await forfeitSeat(slug, guildId, game, seat, "Surrender", false);
+      } catch (error) {
+        report(error, { tags: { operation: "[duel] pending kick concession failed", table: slug }, extra: { seat } });
+        // The removed player cannot answer any remaining prompt. Stop the table without a result
+        // rather than leaving an inaccessible seat in play or retrying the same engine failure.
+        if (service.get(slug, guildId).status === "active") {
+          service.interrupt(slug, guildId, "The engine could not apply a removed player's surrender.");
+          await disposeGame(slug);
+          await emitChange(slug, guildId);
+          await afterGameEnded(slug, guildId);
+        }
+      } finally {
+        options.db.prepare(`update duel_kicked_players set needs_surrender = 0 where duel_id = ?
+          and player_id = (select player_id from duel_seats where duel_id = ? and seat = ?)`)
+          .run(session.id, session.id, seat);
+      }
     }
   }
 
@@ -3539,9 +3552,10 @@ export function createDuelHost(options: {
     if (typeof body.slug !== "string" || !body.slug || body.slug.length > 128) throw new RequestError("Duel slug is required", 400);
     const slug = body.slug;
     if (op === "replay" || op === "owner-replay") return replayRequest(body, slug, guildId, actor, ctl?.signal);
-    let room = service.room(slug, guildId, actor, { includeStoredBoard: false });
+    const roomOptions = { includeStoredBoard: false, allowKickedHistory: op === "view" };
+    let room = service.room(slug, guildId, actor, roomOptions);
     if (competitive(room.session) && await settleRankedDeadline(slug, guildId)) {
-      room = service.room(slug, guildId, actor, { includeStoredBoard: false });
+      room = service.room(slug, guildId, actor, roomOptions);
     }
     if (isReplayFork(room.session) && ["start", "ready", "unready", "deck", "validate-deck", "add-bot", "opening-pick", "opening-choose",
       "series-first", "series-side", "series-ready", "series-unready"].includes(String(op))) {
@@ -3549,7 +3563,7 @@ export function createDuelHost(options: {
     }
     if (room.session.seriesId && !isReplayFork(room.session)) {
       repairDeckCopies().series(room.session.seriesId);
-      room = service.room(slug, guildId, actor, { includeStoredBoard: false });
+      room = service.room(slug, guildId, actor, roomOptions);
     }
     if (op === "kick") {
       const targetPlayerId = body.targetPlayerId as number;
@@ -3563,8 +3577,11 @@ export function createDuelHost(options: {
       }
       let session = service.kickPlayer(slug, guildId, actor, targetPlayerId);
       clearOpeningTimer(slug);
-      session = await autoStart(slug, guildId, session);
-      await emitChange(slug, guildId);
+      try {
+        session = await autoStart(slug, guildId, session);
+      } finally {
+        await emitChange(slug, guildId);
+      }
       return { session };
     }
     if (op === "invite-player") {

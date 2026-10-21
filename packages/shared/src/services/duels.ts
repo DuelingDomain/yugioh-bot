@@ -232,7 +232,8 @@ export interface DuelService {
    */
   removePracticeBot(slug: string, guildId: string, organizerPlayerId: number, seat?: number): DuelSession;
   setDeck(slug: string, guildId: string, playerId: number, deck: DuelDeck): DuelSession;
-  room(slug: string, guildId: string, playerId: number, options?: { includeStoredBoard?: boolean }): DuelRoom;
+  /** Mutation prechecks must set `allowKickedHistory: false`; former seats may read their finished games. */
+  room(slug: string, guildId: string, playerId: number, options?: { includeStoredBoard?: boolean; allowKickedHistory?: boolean }): DuelRoom;
   privateState(slug: string, guildId: string): DuelPrivateState;
   /**
    * Marks a seated player ready with the deck already in the seat (a
@@ -855,8 +856,10 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     return !!selectGrant.get(row.id, playerId);
   };
 
-  const assertRoomAccess = (row: DuelRow, playerId: number, ownerRead = false) => {
-    assertNotKicked(row, playerId);
+  const assertRoomAccess = (row: DuelRow, playerId: number, ownerRead = false, allowKickedHistory = false) => {
+    const terminalPlayerRead = allowKickedHistory && row.kind === "play" && isTerminalStatus(row.status)
+      && seatRows(row.id).some(seat => seat.player_id === playerId);
+    if (!terminalPlayerRead) assertNotKicked(row, playerId);
     if (!hasPrivateAccess(row, playerId)
       && !(ownerRead && row.kind === "play" && isTerminalStatus(row.status)
         && resolveOwnerPlayer(db, { guildId: row.guild_id, playerId }))) {
@@ -1816,7 +1819,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       assertPlayerGuild(playerId, guildId);
       // Read-only owner inspection grants no seat, deck, invite or mutation authority.
       // hasPrivateAccess still enforces the fork creator check before any override.
-      assertRoomAccess(row, playerId, true);
+      assertRoomAccess(row, playerId, true, options?.allowKickedHistory !== false);
       const session = mapSession(row);
       const seated = session.seats.find((seat) => seat.playerId === playerId);
       const role: DuelActorRole = seated ? "player" : "spectator";

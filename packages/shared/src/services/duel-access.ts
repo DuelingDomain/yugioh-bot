@@ -66,8 +66,9 @@ export function canReadDuel(db: Database.Database, claims: Pick<DuelConnectionTo
     const queries = statements(db);
     const player = queries.player.get(claims.playerId, claims.guildId);
     if (!player) return false;
-    if (queries.kicked.get(row.id, claims.playerId)) return false;
     const seat = queries.seat.get(row.id, claims.playerId);
+    const terminalPlayerRead = row.kind === "play" && ["completed", "interrupted", "cancelled"].includes(row.status) && seat !== undefined;
+    if (!terminalPlayerRead && queries.kicked.get(row.id, claims.playerId)) return false;
     if (isReplayFork(target)) return claims.seat === 0 && seat?.seat === 0
       && row.organizer_player_id === claims.playerId && target.ownerUserId === player.user_id && isOwnerUser(player.user_id);
     // Ordinary openings can reorder seats while this identity's token is still valid.

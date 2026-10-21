@@ -37,7 +37,7 @@ import { GET as roomGet } from "../app/api/duels/[slug]/route";
 import { GET as connectionGet } from "../app/api/duels/[slug]/connection/route";
 import { DuelRoomView } from "@/components/duel/room";
 
-afterEach(() => { cleanup(); sockets.length = 0; state.replace.mockReset(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { vi.useRealTimers(); cleanup(); sockets.length = 0; state.replace.mockReset(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 it.each(["duel:changed", "duel:subscription-expired"])("redirects a connected kicked player after %s, clearing their private room", async event => {
   const db = new Database(":memory:"); migrate(db);
@@ -63,8 +63,10 @@ it.each(["duel:changed", "duel:subscription-expired"])("redirects a connected ki
     // This database mutation is what the signed host operation commits; the client uses
     // real GET/connection routes, SWR and its normal websocket refresh/poll path.
     duels.kickPlayer(slug, "g", owner.playerId, guest.playerId);
-    act(() => { sockets[0]!.handlers.get(event)?.({ slug }); });
-    await waitFor(() => expect(state.replace).toHaveBeenCalledWith("/duels?notice=kicked"), { timeout: 5000 });
+    vi.useFakeTimers();
+    await act(async () => { sockets[0]!.handlers.get(event)?.({ slug }); });
+    // Do not advance the polling timers: the socket event must trigger the redirect.
+    expect(state.replace).toHaveBeenCalledWith("/duels?notice=kicked");
     expect(screen.queryByText("Deck editor")).toBeNull();
   } finally { cleanup(); db.close(); }
 });
