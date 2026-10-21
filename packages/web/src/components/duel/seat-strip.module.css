@@ -180,8 +180,20 @@ button.hit:focus-visible {
 }
 .compact .name {
   flex: 0 1 auto;
-  min-width: 0;
+  /* A floor: the name never shrinks to nothing, even beside the status chips. */
+  min-width: 3ch;
   max-width: 9ch;
+}
+/* "To play" already says whose turn it is, so a "Choosing" chip next to it gives its room to the name (it stays for screen readers). */
+.compact .status[data-kind="turn"] + .status[data-kind="answer"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  padding: 0;
+  border: 0;
 }
 .compact .status {
   font-size: calc((9px + 3px * var(--ft, 0)) * var(--tt, 1));
