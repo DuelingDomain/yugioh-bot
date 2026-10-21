@@ -25,13 +25,13 @@ Panels refresh on their own (10 to 60 seconds, by section) and stop while the ta
 
 ## Live watch
 
-Watch opens `/admin/watch/duel/[slug]` or `/admin/watch/draft/[slug]`. Every page, snapshot request and subscription requires a current `OWNER_USER_IDS` user in the configured `DISCORD_GUILD_ID`. This revision has no Discord permission-based web admin role (`discord-web-access.ts` was removed); guild owner, Manage Server and Administrator permissions do not independently grant console access.
+Watch opens `/admin/watch/duel/[slug]` or `/admin/watch/draft/[slug]`. Every page, snapshot request and subscription requires a current `OWNER_USER_IDS` user in the configured `DISCORD_GUILD_ID`. Owners with a seat or invite grant in a live duel (`lobby`/`active`) or draft (`pending`/`active`) cannot use admin watch, including the public POV. They must use the player view. This revision has no Discord permission-based web admin role (`discord-web-access.ts` was removed); guild owner, Manage Server and Administrator permissions do not independently grant console access.
 
-Duel watch offers a neutral public projection and each engine seat, including 1v1, FFA3, FFA4 and Tag. Seat projections include that player's hand and prompt. The existing board is read-only and the prompt is displayed separately without action controls. A live worker is read directly; after a restart a missing worker is reconstructed from its journal in isolation and closed after the read. Watching never drives bots, settles clocks, refreshes duel activity, claims a seat or contributes to presence. Card inspection stays with the snapshot rather than calling player APIs.
+Duel watch offers a neutral public projection and each engine seat, including 1v1, FFA3, FFA4 and Tag. Seat projections include that player's hand and prompt. The existing board is read-only and the prompt is displayed separately without action controls. A live worker is read directly; when no worker is running, the last saved seat/public board is returned with `stale: true` for active games (or metadata only when no board was saved). Watch reads never replay the journal, parse saved moves, start workers or enter the player queue. Watching never drives bots, settles clocks, refreshes duel activity, claims a seat or contributes to presence. Card inspection stays with the snapshot rather than calling player APIs.
 
 Draft watch offers each player's current pack, pool, chronological picks, saved draft deck and pick timer for booster and theme drafts. It reuses the player page projection with lobby ticking, pick expiration, capped-pack exchanges and saved-deck repair disabled. Pending drafts stay pending when watched. An owner never becomes a participant or receives an invite grant.
 
-The live list includes all persisted open rows, including overdue rows until the responsible service closes them. It has no silent row cap. It excludes replay-fork sandboxes; the existing replay browser handles those.
+The live list includes private and public games, with at most 100 duels and 100 drafts. It filters idle duels, empty/idle lobbies and pending drafts older than 24 hours. It excludes replay-fork sandboxes; the existing replay browser handles those.
 
 Server routes (all private, no-store):
 
@@ -40,7 +40,11 @@ Server routes (all private, no-store):
 - `GET /api/admin/duels/[slug]/spectate/connection`
 - `GET /api/admin/drafts/[slug]/spectate/connection`
 
-Connection routes mint a 60-second, purpose-separated HMAC token with `role: admin-spectator`. Socket.IO `admin:spectate` joins the existing invalidation room outside player occupancy. Both services recheck the owner allowlist and guild before private reads and each broadcast; expired or revoked subscriptions leave the room. Tokens are unusable as normal draft or duel tokens. Private POV data is fetched only through the authenticated snapshot routes, never broadcast to players. The client refreshes on room events, reconnect and periodically as a fallback. Connection opens are recorded in the existing structured server log as `Admin spectate opened` (user ID, kind and slug, no cards or token); there is no console audit table.
+Connection routes mint a 60-second, purpose-separated HMAC token with `role: admin-spectator`. Socket.IO `admin:spectate` joins the existing invalidation room outside player occupancy. Both services recheck the owner allowlist, guild and live participation before private reads and each broadcast; expired or revoked subscriptions leave the room. Tokens are unusable as normal draft or duel tokens. Private POV data is fetched only through the authenticated snapshot routes, never broadcast to players. The client refreshes on room events, reconnect and periodically as a fallback; draft event bursts are debounced. Authorization is rechecked after asynchronous reads, but session/identity caches and process environment changes mean revocation is not guaranteed to be immediate. Restart web, ws and duel when changing `OWNER_USER_IDS`.
+
+Successful hidden POV reads write `admin_spectate` rows to the existing `mod_actions` table. Parameters contain `{kind, slug, seat}` for duels or `{kind, slug, playerId}` for drafts, never cards or tokens. Reads of the same POV by the same admin are deduplicated across processes for five minutes. Public duel reads and connection-token renewals do not write audit rows. These audit rows are not mirrored to the Discord mod-log channel. If auditing fails, hidden data is not returned.
+
+Compose passes `DISCORD_GUILD_ID` and `OWNER_USER_IDS` to all three services; CI checks the production wiring with `node scripts/ci/check-admin-spectate-compose.mjs`, without reading local env files.
 
 Targeted checks:
 

@@ -5,7 +5,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { canAdminSpectate, isAdminSpectateParticipant } from "@yugidraft/shared/services";
 import { ADMIN_SPECTATE_TTL_MS, createAdminSpectateToken } from "@yugidraft/shared/ws";
-import { log } from "@yugidraft/shared/observability";
+import { recordModAction } from "@yugidraft/shared/discord-admin";
 
 export const spectateJson = (data: unknown, status = 200) => NextResponse.json(data, { status, headers: { "Cache-Control": "private, no-store" } });
 export async function requireAdminSpectate(kind: "duel" | "draft", slug: string) {
@@ -40,8 +40,20 @@ export function spectateConnection(kind: "duel" | "draft") {
     const actor = await requireAdminSpectate(kind, slug); if (!actor.ok) return actor.response;
     if (!env.wsInternalSecret) return spectateJson({ error: "The live feed is unavailable" }, 503);
     const claims = { kind, slug, guildId: actor.guildId, userId: actor.userId, role: "admin-spectator" as const, expiresAt: Date.now() + ADMIN_SPECTATE_TTL_MS };
-    // No existing console audit store: use the structured server log, with no cards or token.
-    log("info", "Admin spectate opened", { userId: actor.userId, operation: "admin-spectate", kind, slug });
     return spectateJson({ token: createAdminSpectateToken(claims, env.wsInternalSecret), expiresAt: claims.expiresAt });
   };
+}
+
+/** Audit successful hidden POV reads, deduped across processes for five minutes. Never log cards. */
+export function auditSpectateRead(actor: { db: ReturnType<typeof getDb>; guildId: string; userId: number },
+  kind: "duel" | "draft", slug: string, pov: number | null) {
+  if (pov === null) return;
+  const params = kind === "duel" ? { kind, slug, seat: pov } : { kind, slug, playerId: pov };
+  actor.db.transaction(() => {
+    const recent = actor.db.prepare(`select 1 from mod_actions where guild_id=? and actor_user_id=?
+      and action='admin_spectate' and result='success' and created_at>=? and params_json=? limit 1`)
+      .get(actor.guildId, actor.userId, Date.now() - 5 * 60_000, JSON.stringify(params));
+    if (!recent) recordModAction(actor.db, { guildId: actor.guildId, actorSiteUserId: actor.userId,
+      action: "admin_spectate", params, result: "success", notifyDiscord: false });
+  }).immediate();
 }

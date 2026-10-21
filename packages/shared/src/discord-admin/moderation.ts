@@ -4,6 +4,8 @@ import { enqueueOutbox } from "./outbox.js";
 export interface ModActionInput {
   guildId: string; actorSiteUserId?: number; actorDiscordId?: string;
   action: string; targetSiteUserId?: number; targetDiscordId?: string;
+  /** Suppress the Discord mirror for private console reads. Persistence is always required. */
+  notifyDiscord?: boolean;
   reason?: string; params?: Record<string, unknown>; result: "success" | "failure" | "denied";
 }
 
@@ -16,7 +18,7 @@ export function recordModAction(db: Database.Database, input: ModActionInput): n
         input.targetSiteUserId ?? null, input.targetDiscordId ?? null, input.reason ?? null,
         JSON.stringify(input.params ?? {}), input.result, Date.now()).lastInsertRowid);
     const channelId = process.env.DISCORD_MOD_LOG_CHANNEL_ID?.trim();
-    if (process.env.DISCORD_BOT_ENABLED === "1" && channelId) enqueueOutbox(db, {
+    if (input.notifyDiscord !== false && process.env.DISCORD_BOT_ENABLED === "1" && channelId) enqueueOutbox(db, {
       idempotencyKey: `mod-action:${id}`, kind: "mod_log", channelId, modActionId: id,
       payload: { embeds: [{ title: "Moderation action", fields: [
         { name: "Action", value: input.action.slice(0, 200) },

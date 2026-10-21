@@ -36,7 +36,7 @@ function seedDraft(mode: "booster" | "theme", active = true) {
   drafts.join(d.id, 13); if (active) drafts.start(d.id);
   db.prepare("update drafts set visibility='private',pick_deadline_at='2000-01-01T00:00:00Z' where id=?").run(d.id); return d;
 }
-const rows = () => db.prepare("select name from sqlite_master where type='table' and name not like 'sqlite_%' order by name").all().map((r: any) => [r.name, db.prepare(`select * from "${r.name}"`).all()]);
+const rows = () => db.prepare("select name from sqlite_master where type='table' and name not like 'sqlite_%' and name <> 'mod_actions' order by name").all().map((r: any) => [r.name, db.prepare(`select * from "${r.name}"`).all()]);
 it("owner duel reads use session identity and a dedicated host operation, never create a player", async () => {
   table(); const before = rows(); const res = await duel("?seat=2&userId=2&playerId=12");
   expect(res.status).toBe(200); expect(res.headers.get("cache-control")).toContain("no-store");
@@ -127,4 +127,47 @@ it.each(["seat", "invite"])("denies an owner's live draft %s", async mode => {
   const response = await draft(d.webSlug!, "?seat=13");
   expect(response.status).toBe(404); expect(await response.json()).toMatchObject({ code: "ADMIN_SPECTATE_PARTICIPANT" });
   expect(callHost).not.toHaveBeenCalled();
+});
+
+it("audits successful hidden duel reads once per POV in five minutes, never token renewal or public reads", async () => {
+  table(); vi.stubEnv("DISCORD_BOT_ENABLED", "1"); vi.stubEnv("DISCORD_MOD_LOG_CHANNEL_ID", "mod-log");
+  const { GET } = await import("../app/api/admin/duels/[slug]/spectate/connection/route");
+  for (let poll = 0; poll < 5; poll++) {
+    expect((await duel("?seat=0")).status).toBe(200);
+    expect((await GET(request("duels", "table"), ctx("table"))).status).toBe(200);
+  }
+  expect((await duel("?seat=1")).status).toBe(200);
+  expect((await duel()).status).toBe(200);
+  const audit = () => db.prepare("select action,actor_user_id,params_json,result from mod_actions order by id").all() as any[];
+  expect(audit()).toHaveLength(2);
+  expect(audit().map(r => ({ ...r, params_json: JSON.parse(r.params_json) }))).toEqual([0,1].map(seat => ({
+    action: "admin_spectate", actor_user_id: 1, params_json: { kind: "duel", slug: "table", seat }, result: "success",
+  })));
+  expect(db.prepare("select * from discord_outbox").all()).toEqual([]);
+  db.exec("update mod_actions set created_at=created_at-300001");
+  expect((await duel("?seat=0")).status).toBe(200); expect(audit()).toHaveLength(3);
+});
+it("audits the actual draft player, including the default POV", async () => {
+  const d = seedDraft("booster");
+  for (const query of ["", "?seat=12", "?seat=13", "?seat=13"]) expect((await draft(d.webSlug!, query)).status).toBe(200);
+  const audit = db.prepare("select params_json from mod_actions where action='admin_spectate' order by id").all() as any[];
+  expect(audit.map(r => JSON.parse(r.params_json))).toEqual([12,13].map(playerId => ({kind: "draft", slug: d.webSlug, playerId})));
+});
+it("does not return hidden data when the audit write fails", async () => {
+  table(); db.exec("create trigger refuse_audit before insert on mod_actions begin select raise(abort,'unavailable'); end");
+  const response = await duel("?seat=0"); expect(response.status).toBe(503);
+  expect(await response.text()).not.toContain("Choose");
+});
+it.each(["duel", "draft"])("returns a no-store 404 if the %s disappears after access validation", async kind => {
+  const slug = kind === "duel" ? (table(), "table") : "vanishing-draft";
+  if (kind === "draft") db.exec("insert into drafts(guild_id,channel_id,name,web_slug,created_by_user_id,status) values('g','c','Draft','vanishing-draft',2,'pending')");
+  const prepare = db.prepare.bind(db);
+  const tableName = kind === "duel" ? "duels" : "drafts";
+  const remove = prepare(`delete from ${tableName} where web_slug=?`);
+  const sql = kind === "duel" ? "select format from duels where web_slug=? and guild_id=?" : "select id from drafts where web_slug=? and guild_id=?";
+  const spy = vi.spyOn(db, "prepare").mockImplementation(query => { if (query === sql) remove.run(slug); return prepare(query); });
+  try {
+    const response = kind === "duel" ? await duel("?seat=1") : await draft(slug);
+    expect(response.status).toBe(404); expect(response.headers.get("cache-control")).toContain("no-store");
+  } finally { spy.mockRestore(); }
 });
