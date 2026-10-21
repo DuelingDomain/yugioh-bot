@@ -95,6 +95,7 @@ import { duelFontClasses } from "./fonts";
 import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
 import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "./animation-speed-control";
 import { DuelCardTextSizeControl } from "./card-text-size-control";
+import { DuelCardHoverInfoControl } from "./card-hover-info-control";
 import { DuelDiceSkinControl } from "./dice-skin-control";
 import { CardInspector, cardScrollerProps, type InspectTarget } from "./inspector";
 import {
@@ -1459,6 +1460,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <h2>Presentation</h2>
       <DuelAnimationSpeedControl />
       <DuelCardTextSizeControl />
+      <DuelCardHoverInfoControl />
       <DuelDiceSkinControl />
       <DuelSoundControls enabled={preferences.soundEnabled} volume={preferences.soundVolume}
         onEnabledChange={preferences.setSoundEnabled} onVolumeChange={preferences.setSoundVolume} />
