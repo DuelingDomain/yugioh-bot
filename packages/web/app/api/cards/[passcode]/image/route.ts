@@ -65,9 +65,9 @@ async function aliasOf(passcode: number): Promise<number | null | undefined> {
   aliases.delete(passcode);
   const artwork = artworkOf(passcode);
   if (artwork && artwork.card_id !== passcode) return rememberAlias(passcode, artwork.card_id);
-  const actor = await requireDuelActor();
+  const actor = await requireDuelActor({ createPlayer: false });
   if (!actor.ok) {
-    if (actor.response.status === 401 || actor.response.status === 403) return undefined;
+    if (actor.response.status === 401 || actor.response.status === 403 || actor.response.status === 404) return undefined;
     throw new CardFetchError(1, actor.response.status);
   }
   const result = await callDuelHost({ op: "card-details", guildId: actor.guildId, playerId: actor.playerId, codes: [passcode] });

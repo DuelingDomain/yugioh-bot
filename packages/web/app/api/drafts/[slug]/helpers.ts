@@ -10,6 +10,7 @@ import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import {
+  canAdminSpectate,
   createCardCatalogService,
   createCardInsightService,
   createCardLookupBudget,
@@ -116,11 +117,20 @@ function mapDraftCardDetails(
   });
 }
 
-export async function buildDraftResponse(slug: string, actor: { userId: number; discordUserId: string | null }) {
-  const userId = actor.userId;
+export async function buildDraftResponse(slug: string, actor: { userId: number; discordUserId: string | null }, spectator?: { playerId: number | null }) {
+  let userId = actor.userId;
   const db = getDb();
   const drafts = createDraftService(db);
   const guildId = env.discordGuildId;
+  // This option is server-only and grants no mutation, seat, invite or timeout authority.
+  if (spectator) {
+    if (!canAdminSpectate(db, { kind: "draft", slug, guildId, userId: actor.userId })) return null;
+    const selected = spectator.playerId === null ? undefined : db.prepare(`select p.user_id from players p
+      join draft_players dp on dp.player_id=p.id join drafts d on d.id=dp.draft_id
+      where d.web_slug=? and d.guild_id=? and p.guild_id=? and p.id=?`).get(slug, guildId, guildId, spectator.playerId) as { user_id: number | null } | undefined;
+    if (spectator.playerId !== null && !selected) return null;
+    userId = selected?.user_id ?? 0;
+  }
 
   const draftIdRow = db
     .prepare("select id, status, lobby_start_token, lobby_auto_start, lobby_auto_held from drafts where web_slug = ? and guild_id = ?")
@@ -131,7 +141,7 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     return null;
   }
 
-  if (draftIdRow.status === "pending" && (draftIdRow.lobby_start_token !== null
+  if (!spectator && draftIdRow.status === "pending" && (draftIdRow.lobby_start_token !== null
     || (draftIdRow.lobby_auto_start === 1 && draftIdRow.lobby_auto_held === 0))) {
     // GET is a start entry point even without a background timer. The shared
     // tick commits the winning transition before its notifications are sent.
@@ -139,7 +149,7 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
     await notifyDraftLobbyTick(transitions);
   }
 
-  if (drafts.findById(draftIdRow.id).status === "active") {
+  if (!spectator && drafts.findById(draftIdRow.id).status === "active") {
     // The timeout sweep also runs in the worker. If it fails here, the page still loads the draft as it is.
     const { autoPickedPlayerIds } = degrade(slug, "pick expiry", { autoPickedPlayerIds: [] as number[] }, () =>
       drafts.expireCurrentPickStep(draftIdRow.id),
@@ -217,9 +227,9 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
       joinedAt: toUtcIso(row.joined_at),
     }));
 
-  const currentPlayer = db
-    .prepare("select id from players where guild_id = ? and user_id = ?")
-    .get(draft.guild_id, userId) as { id: number } | undefined;
+  const currentPlayer = spectator
+    ? spectator.playerId === null ? undefined : { id: spectator.playerId }
+    : db.prepare("select id from players where guild_id = ? and user_id = ?").get(draft.guild_id, userId) as { id: number } | undefined;
 
   const isParticipant = currentPlayer
     ? players.some((p: any) => p.playerId === currentPlayer.id)
@@ -266,7 +276,7 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
   const currentPackCards =
     draft.status === "active" && currentPlayer && isParticipant
       ? degrade(slug, "current pack", [] as Array<{ draftCardId: number; catalogCardId: number }>, () =>
-          drafts.currentPackOptions(draft.id, currentPlayer.id).map((card) => ({
+          drafts.currentPackOptions(draft.id, currentPlayer.id, { readOnly: !!spectator }).map((card) => ({
             draftCardId: card.id,
             catalogCardId: card.catalogCardId,
           })),
@@ -423,7 +433,7 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
 
   // The viewer's saved draft deck, so the results page offers Edit deck instead of Create deck.
   // A saved deck that cannot be read only hides that button; the results still load.
-  const myDeckId = isParticipant && draft.status === "completed"
+  const myDeckId = !spectator && isParticipant && draft.status === "completed"
     ? degrade(slug, "saved deck lookup", null as number | null, () =>
         createSavedDeckService(db).findByDraft(draft.guild_id, userId, draft.id)?.id ?? null,
       )
