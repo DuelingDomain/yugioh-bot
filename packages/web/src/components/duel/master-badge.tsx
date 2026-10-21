@@ -113,10 +113,11 @@ function visible(el: Element): DOMRect | null {
   return r.width >= 20 && r.height >= 20 ? r : null;
 }
 
-/** The name plate that holds the badge slot: the first ancestor that is plate sized. */
+/** The name plate that holds the badge slot: the marked plate (a team plate, a holo panel, a 1v1 tally), else the first ancestor that is plate sized. */
 function plateOf(slot: HTMLElement | null): DOMRect | null {
-  const team = slot?.closest("[data-team-plate]");
-  if (team) return team.getBoundingClientRect();
+  // A 1v1 tally can be under 40 px tall (1366 x 768): the size walk would then take the hand strip for the plate.
+  const marked = slot?.closest("[data-team-plate], [data-holo], [data-lp-seat]");
+  if (marked) return marked.getBoundingClientRect();
   let el: HTMLElement | null = slot?.parentElement ?? null;
   for (let depth = 0; el && depth < 4; depth += 1, el = el.parentElement) {
     const r = el.getBoundingClientRect();
