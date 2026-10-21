@@ -26,7 +26,13 @@ export function RelaxHints({ relax, onRemove, testId = "relax-hints" }: { relax:
 
 /** The title over a "cards like X" or "how to beat X" search. */
 export function intentTitle(intent: EffectIntent): string {
-  return intent.kind === "similar" ? `Cards like ${intent.name}` : `How to beat ${intent.archetype}`;
+  switch (intent.kind) {
+    case "similar": return `Cards like ${intent.name}`;
+    case "counters": return `How to beat ${intent.archetype}`;
+    case "outside": return `Cards for ${intent.archetype} decks`;
+    case "archetype_role": return `For ${intent.archetype} decks`;
+    case "staples": return "Format staples";
+  }
 }
 
 export function IntentHeading({ intent, count, testId = "intent-heading" }: { intent: EffectIntent; count?: number; testId?: string }) {

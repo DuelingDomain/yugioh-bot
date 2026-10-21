@@ -119,10 +119,12 @@ describe("deleteUserAccount", () => {
     expect(db.prepare("select count(*) c from players where user_id=3").get()).toEqual({ c: 0 });
     expect(db.prepare("select count(*) c from saved_decks where owner_user_id=3").get()).toEqual({ c: 0 });
     expect(db.prepare("select count(*) c from waitlist_signups where email='three@example.com'").get()).toEqual({ c: 0 });
-    // Nothing else changed.
+    // Deleting a saved list invalidates the private aggregate; other data is unchanged.
     const after = dump();
+    expect(after.card_staple_source_revision).toEqual([{ id: 1,
+      revision: (before.card_staple_source_revision![0] as {revision:number}).revision + 1 }]);
     for (const table of Object.keys(before)) {
-      if (["users", "players", "saved_decks", "waitlist_signups", "product_events"].includes(table)) continue;
+      if (["users", "players", "saved_decks", "waitlist_signups", "product_events", "card_staple_source_revision"].includes(table)) continue;
       expect(after[table], table).toEqual(before[table]);
     }
     expect(db.pragma("foreign_key_check")).toEqual([]);

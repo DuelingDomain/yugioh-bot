@@ -74,7 +74,7 @@ function matchObject(what: MatchFilter, wanted: ObjectQuery): number | null {
 }
 
 function matchEvent(event: MatchEvent, wanted: EventQuery): number | null {
-  if (!wanted.verbs.includes(event.verb)) return null;
+  if (!wanted.verbs.includes(event.verb) && !(wanted.verbs.includes("destroy") && event.verb==="destroy_by_battle")) return null;
   // No zone given means none was stated: a zoneless verb, or the card's own event ("If this card is
   // Tributed"), which happens wherever the card is.
   const anywhere = !event.from.length && (ZONELESS.has(event.verb) || (wanted.self && event.what.this_card));
@@ -154,5 +154,15 @@ export function matchCard(card: Card, tags: MatchTags | undefined, query: Effect
   if (!query.roles.every((role) => tags.roles.includes(role))) return null;
   if (query.supports && !matchSupports(card, tags, query.supports)) return null;
   if (!query.does && !query.reactsTo && !query.quick && !query.worksFrom) return 0;
+  if (query.recruiter) {
+    let score: number | null = null;
+    for (const effect of tags.effects) {
+      if (!effect.triggers.some(event=>event.what.this_card && ["destroy", "destroy_by_battle"].includes(event.verb))
+        || !effect.actions.some(event=>event.verb==="special_summon" && event.from.includes("deck") && !event.what.this_card)) continue;
+      const fit=matchEffects([effect],query);
+      if (fit!==null) score=Math.max(score??0,fit+(/1500 or (?:less|lower) ATK/i.test(card.text)?10:0));
+    }
+    return score;
+  }
   return matchEffects(tags.effects, query);
 }

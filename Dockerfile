@@ -102,6 +102,7 @@ COPY --from=bot-runtime-deps /app/node_modules ./node_modules
 COPY --from=bot-build /app/packages/shared/package*.json packages/shared/
 COPY --from=bot-build /app/packages/shared/dist packages/shared/dist
 COPY --from=bot-build /app/packages/shared/data/effects packages/shared/data/effects
+COPY --from=bot-build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
 COPY --from=bot-build /app/packages/bot/package*.json packages/bot/
 COPY --from=bot-build /app/packages/bot/dist packages/bot/dist
 RUN mkdir -p /app/data && chown node:node /app/data
@@ -121,6 +122,7 @@ COPY --from=runtime-deps /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
+COPY --from=build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
 COPY --from=build /app/packages/ws/package*.json packages/ws/
 COPY --from=build /app/packages/ws/dist packages/ws/dist
 RUN mkdir -p /app/data && chown node:node /app/data
@@ -141,6 +143,7 @@ COPY --from=runtime-deps /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
+COPY --from=build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
 COPY --from=build /app/packages/duel-server/package*.json packages/duel-server/
 COPY --from=build /app/packages/duel-server/card-block-list.json packages/duel-server/card-block-list.json
 COPY --from=build /app/packages/duel-server/dist packages/duel-server/dist
@@ -170,6 +173,7 @@ COPY --from=web-build /app/packages/web/.next/standalone ./
 COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
+COPY --from=build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
 RUN mkdir -p /app/data /app/packages/web/.next/cache && \
     chown node:node /app/data && chown -R node:node /app/packages/web/.next/cache
 VOLUME ["/app/data"]
@@ -187,6 +191,7 @@ COPY --from=runtime-deps /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/shared/data/effects packages/shared/data/effects
+COPY --from=build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
 COPY --from=build /app/packages/worker/package*.json packages/worker/
 COPY --from=build /app/packages/worker/dist packages/worker/dist
 RUN mkdir -p /app/data && chown node:node /app/data

@@ -1,9 +1,12 @@
 import Database from "better-sqlite3";
 import { migrate } from "../src/db/schema.js";
 import { gunzipSync } from "node:zlib";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
 import { interpret, buildArchetypeMatcher } from "../src/cards/effects/query.js";
@@ -426,6 +429,99 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
     }
   });
 
+  it.each(["missing","json","size","integrity","schema","counts"])("keeps real effect search working with a %s staple artifact",kind=>{
+    const base=resolve(".status/review");mkdirSync(base,{recursive:true});
+    const directory=mkdtempSync(join(base,"staple-artifact-"));
+    try {
+      cpSync(fileURLToPath(new URL("../dist/",import.meta.url)),join(directory,"dist"),{recursive:true});
+      mkdirSync(join(directory,"data/staples"),{recursive:true});
+      writeFileSync(join(directory,"package.json"),JSON.stringify({type:"module"}));
+      const artifact=JSON.parse(readFileSync(new URL("../data/staples/usage.json",import.meta.url),"utf8"));
+      if(kind==="integrity")artifact.version="0".repeat(64);
+      if(kind==="schema" || kind==="counts"){
+        if(kind==="schema")artifact.schemaVersion=999;
+        else artifact.formats.tcg.genericUsage[0].decks=artifact.formats.tcg.deckCount+1;
+        const {version:_,...identity}=artifact;
+        artifact.version=createHash("sha256").update(JSON.stringify(identity)).digest("hex");
+      }
+      if(kind!=="missing")writeFileSync(join(directory,"data/staples/usage.json"),kind==="json"?"{":kind==="size"?" ".repeat(500001):JSON.stringify(artifact));
+      const child=`
+        import assert from 'node:assert/strict';
+        import Database from 'better-sqlite3';
+        const {formatStaples}=await import(${JSON.stringify(pathToFileURL(join(directory,"dist/cards/effects/staples.js")).href)});
+        const {createCardInsightService}=await import(${JSON.stringify(pathToFileURL(join(directory,"dist/services/card-insights.js")).href)});
+        assert.equal(formatStaples().cards.size,0);
+        const db=new Database(${JSON.stringify(database.name)},{readonly:true,fileMustExist:true});
+        try{
+          const service=createCardInsightService(db,{dataDirectory:${JSON.stringify(suggestionEngineDirectory)}});
+          const recruiters=service.effectSearch('recruiters',undefined,{limit:4});
+          const staples=service.effectSearch('staples',undefined,{limit:4});
+          assert(recruiters.total>0);assert(staples.total>0);
+          console.log(JSON.stringify({recruiters:recruiters.total,staples:staples.total}));
+        }finally{db.close();}
+      `;
+      const result=spawnSync("prlimit",["--core=0","--",process.execPath,"--input-type=module","--eval",child],{encoding:"utf8",timeout:20000});
+      expect(result.status,result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout).recruiters).toBeGreaterThan(0);
+      expect(result.stderr).toContain("Staple usage unavailable");
+    }finally{rmSync(directory,{recursive:true,force:true});}
+  },25000);
+
+  it.each(["Genex Searcher","Scrap Searcher","Ally of Justice Searcher"])("keeps exact card names out of archetype intents: %s",name=>{
+    for(const text of [name,name.toLowerCase(),name.replaceAll(" ","")]){
+      const result=service.effectSearch(text);
+      expect(result.reading,text).toBeNull();
+      expect(result.total,text).toBe(0);
+    }
+    expect(service.effectSearch("Branded searchers").reading?.query.intent?.kind).toBe("archetype_role");
+  });
+
+  it("scopes saved usage to a guild, counts each owner once, and hides small owner cohorts", async () => {
+    const { formatStaples } = await import("../src/cards/effects/staples.js");
+    const { seedIdentity } = await import("./helpers/identity.js");
+    const guild = "staple-owner-eval", otherGuild = "staple-owner-other";
+    const fixtures = suggestionFixture.fixtures.filter(fixture => fixture.format === "normal");
+    const ash = 14558127;
+    const variants = fixtures.flatMap(fixture => Array.from({ length: 7 }, (_, index) => {
+      const side = fixture.fullDeck.side.filter(code => code !== ash).slice(index, 14);
+      if (!fixture.fullDeck.main.includes(ash) && !fixture.fullDeck.extra.includes(ash)) side.push(ash);
+      return { ...fixture.fullDeck, side };
+    }));
+    const insert = database.prepare("INSERT INTO saved_decks(guild_id,owner_user_id,name,mode,deck_json) VALUES(?,?,'Sourced deck','normal',?)");
+    const owners = Array.from({length:10},()=>seedIdentity(database,{guildId:guild}).userId);
+    const foreign = seedIdentity(database,{guildId:otherGuild}).userId;
+    const usage = () => formatStaples("normal", undefined, database, guild);
+    const original = usage();
+    try {
+      for (const deck of variants) insert.run(guild, owners[0], JSON.stringify(deck));
+      expect(usage().version,"one owner cannot publish many private variants").toBe(original.version);
+      for (const deck of variants) insert.run(otherGuild, foreign, JSON.stringify(deck));
+      for(let i=1;i<9;i++) insert.run(guild,owners[i],JSON.stringify(variants[Math.floor((i-1)/3)*7]));
+      expect(usage().version,"nine local owners plus a foreign owner do not meet the floor").toBe(original.version);
+      const privateOnly=19665973; // Battle Fader appears in just this owner's list.
+      insert.run(guild,owners[9],JSON.stringify({...variants[14],side:[privateOnly,...variants[14]!.side.filter(id=>id!==ash).slice(0,13),...(variants[14]!.side.includes(ash)?[ash]:[])]}));
+      const aggregate = usage();
+      expect(aggregate.version).not.toBe(original.version);
+      expect(aggregate.cards.get(ash)?.decks).toBe(10);
+      expect(aggregate.cards.get(ash)?.playShare).toBe(1);
+      expect([...aggregate.cards.values()].every(row=>row.decks>=3 && Object.values(row.archetypes).every(n=>n>=3))).toBe(true);
+      expect(aggregate.archetypes.size,"private archetype percentages are not published").toBe(0);
+      expect(aggregate.cards.has(privateOnly)).toBe(false);
+      expect(aggregate.playShares.has(privateOnly),"role search must not disclose a one-owner card").toBe(false);
+      expect([...aggregate.playShares.keys()].sort()).toEqual([...aggregate.cards.keys()].sort());
+      const {createCardInsightService}=await import("../src/services/card-insights.js");
+      const privateService=createCardInsightService(database,{catalog,guildId:guild});
+      expect(privateService.effectSearch("Branded hand traps",[privateOnly]).cards).toEqual([]);
+      expect(formatStaples("normal",undefined,database,otherGuild).version).toBe(original.version);
+      expect(formatStaples("normal",undefined,database).version,"no guild means public usage only").toBe(original.version);
+      expect(JSON.stringify([...aggregate.cards.values()])).not.toMatch(/owner_user_id|guild_id|deck_json/);
+      database.prepare("UPDATE saved_decks SET name='A new name' WHERE guild_id=?").run(guild);
+      expect(usage().version,"name-only changes do not rescan usage").toBe(aggregate.version);
+      database.prepare("DELETE FROM saved_decks WHERE guild_id=? AND owner_user_id=?").run(guild,owners[9]);
+      expect(usage().version,"dropping to nine owners restores the public source").toBe(original.version);
+    } finally { database.prepare("DELETE FROM saved_decks WHERE guild_id IN (?,?)").run(guild,otherGuild); }
+  });
+
   it.each(suggestionFixture.fixtures)("measures $id precision without restricting candidates to expected cards", async fixture => {
     const { defaultDuelSettings } = await import("../src/duels/settings.js");
     const mode = fixture.format === "domain" ? "domain" : "normal";
@@ -453,6 +549,12 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
       const illegal = shown.filter(card => !admitted.has(card.passcode) || (held.get(group(card.passcode)) ?? 0) + 1 > (legality.limits[card.passcode] ?? (fixture.format === "domain" ? 1 : 3)));
       const owned = new Set([...scenario.deck.main, ...scenario.deck.extra, ...scenario.deck.side, ...(master ? [master] : [])].map(canonical));
       const staples = result.rows.find(row => row.id === "staples")!;
+      expect(staples.cards.length).toBeGreaterThan(0);
+      expect(staples.cards.every(card => card.reason.match(/^Played in \d+% of (TCG|Domain) decks$/))).toBe(true);
+      if (fixture.id === "branded" && scenario.id === "trimmed") expect(staples.cards.map(card => card.name)).toEqual(expect.arrayContaining(["Ash Blossom & Joyous Spring", "Infinite Impermanence"]));
+      if (fixture.id === "domain" && scenario.id === "trimmed") expect(staples.cards.map(card => card.name)).toEqual(expect.arrayContaining(["Graceful Charity", "Raigeki", "Infinite Impermanence"]));
+      const stapleScores = staples.cards.map(card => card.score);
+      expect(stapleScores).toEqual([...stapleScores].sort((a,b)=>b-a));
       const outside = result.rows.find(row => row.id === "outside")!;
       const archetype = result.rows.find(row => row.id === "archetype")!;
       if (fixture.id === "branded") {

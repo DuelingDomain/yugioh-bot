@@ -1,5 +1,10 @@
+import {rankArchetypeRole} from "../cards/effects/role-ranking.js";
+import {archetypeMember} from "../cards/effects/archetype-roles.js";
+import { describeFormat } from "../cards/effects/format-query.js";
+import { formatStaples, stapleReason } from "../cards/effects/staples.js";
 import { cardEraBoost, deriveCardEra, matchesReleased, compareNewest, cardReleaseInfo, cardEraDate, type ReleasedRange, type CardEra, type ReleaseDates } from "../cards/effects/releases.js";
 import type Database from "better-sqlite3";
+import type { Card } from "../cards/effects/card.js";
 import type { DuelDeck } from "../duels/index.js";
 import { isBarredFromGenesys, isExtraDeckCard } from "../cards/effects/card.js";
 import { buildArchetypeMatcher, describe, interpret, omitReadingChips, type Interpretation } from "../cards/effects/query.js";
@@ -18,6 +23,8 @@ import { suggestDeckRows, type DeckSuggestionOptions, type DeckSuggestionLegalit
 
 export type CardInsightFormat = "normal" | "domain" | "genesys" | "genesys-domain";
 export interface CardInsightOptions {
+  /** Internal format predicate supplied by an authoritative host; never accepted from HTTP. */
+  formatAdmission?: (candidate: Card) => boolean;
   released?: ReleasedRange;
   sort?: "match" | "newest";
   era?: CardEra;
@@ -86,9 +93,12 @@ const withoutPopularity = (ranked: Retained[]) => ranked.map(({ popularity: _pop
 const codesOf = (deck: DuelDeck | readonly number[]): readonly number[] => Array.isArray(deck) ? deck : [...(deck as DuelDeck).main, ...(deck as DuelDeck).extra, ...(deck as DuelDeck).side];
 const synergyTarget = (text: string) => text.trim().match(/^(?:cards?\s+that\s+)?(?:works?\s+(?:well\s+)?with|synerg(?:y|ies|izes?)\s+(?:with|for)|partners?\s+for)\s+(.+?)\s*[?.!]?$/i)?.[1];
 
+const exactNameCaches = new WeakMap<Database.Database, { revision: number; names: Set<string> }>();
+
 /** SQL-backed, read-only insights. Only anchors, their profiles and the retained page live in memory. */
 export function createCardInsightService(db: Database.Database, options: {
   dataDirectory?: string;
+  guildId?: string;
   /** Borrowed for this operation; its caller owns closing it. */
   catalog?: InsightCatalog;
 } = {}) {
@@ -111,6 +121,14 @@ export function createCardInsightService(db: Database.Database, options: {
     return best?.passcode;
   };
   const readQuery = (text: string): Interpretation | null => {
+    const revision = (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as {revision:number}).revision;
+    let exactNames = exactNameCaches.get(db);
+    if (!exactNames || exactNames.revision !== revision) {
+      const rows = db.prepare<[],{name:string}>("SELECT name FROM card_catalog").all();
+      exactNames = {revision,names:new Set(rows.map(row=>compactEffectName(row.name)))};
+      exactNameCaches.set(db,exactNames);
+    }
+    if (exactNames.names.has(compactEffectName(text))) return null;
     const matcher = archetypeMatcher();
     const target = synergyTarget(text);
     const intent = intentReading(text, name => {
@@ -120,9 +138,11 @@ export function createCardInsightService(db: Database.Database, options: {
     }, name => resolveEffectName([...effectArchetypes(db)].map(name => ({ name })), name)?.name);
     if (intent) return intent;
     if (searchIntentTarget(text)?.kind === "outside") return null;
+    const deterministic=interpret(text,matcher);
+    if (deterministic && (deterministic.query.recruiter || deterministic.query.formatFilter || deterministic.query.released || deterministic.query.sort)) return deterministic;
     const cached = cachedEffectReading(db, text);
     if (cached) return cached;
-    if (!target) return interpret(text, matcher);
+    if (!target) return deterministic;
     const named = resolveTarget(target);
     const name = named === undefined ? undefined : (db.prepare("SELECT name FROM card_catalog WHERE ygoprodeck_id=?").get(named) as { name: string } | undefined)?.name;
     if (!name) return interpret(`${target} support`, matcher);
@@ -186,6 +206,9 @@ export function createCardInsightService(db: Database.Database, options: {
         released: { ...opts.released, region: opts.released?.region ?? reading.query.released?.region } };
       return withCatalog(catalog => {
         if (reading.query.intent?.kind === "outside") {
+          // The suggestion worker has one authoritative scope. Do not display an extra interpreted
+          // format/date filter over rows from a different scope; unsupported combinations fail closed.
+          if (reading.query.formatFilter || reading.query.released || reading.query.sort) return {reading,cards:[],total:0};
           const archetype = reading.query.intent.archetype;
           const inferredMain: number[] = [];
           if (!opts.suggestionContext?.deck) for (const { card } of catalog.suggestionCandidates()) {
@@ -194,7 +217,7 @@ export function createCardInsightService(db: Database.Database, options: {
             if (inferredMain.length === 60) break;
           }
           const deck = opts.suggestionContext?.deck ?? { main: inferredMain, extra: [], side: [] };
-          const rows = suggestDeckRows(db, catalog, deck, { ...opts, ...opts.suggestionContext, format: opts.format ?? "normal", pool }, options.dataDirectory);
+          const rows = suggestDeckRows(db, catalog, deck, { ...opts, ...opts.suggestionContext, format: opts.format ?? "normal", pool, guildId: options.guildId }, options.dataDirectory);
           const cards = rows.rows[1]!.cards;
           return { reading, cards, total: cards.length };
         }
@@ -203,6 +226,9 @@ export function createCardInsightService(db: Database.Database, options: {
           return { reading, ...rank(catalog, candidate ? [candidate] : [], pool, effective) };
         }
         const ranked: Retained[] = [];
+        const usesUsage = reading.query.intent?.kind === "staples" || reading.query.intent?.kind === "archetype_role";
+        const staples = usesUsage ? formatStaples(reading.query.formatFilter?.format??opts.format, opts.suggestionContext?.banlist, db, options.guildId) : undefined;
+        const roleIntent=reading.query.intent?.kind==="archetype_role"?reading.query.intent:undefined;
         const similar = reading.query.intent?.kind === "similar" ? catalog.candidate(reading.query.intent.passcode) : undefined;
         const archetype = reading.query.intent?.kind === "counters" ? reading.query.intent.archetype : undefined;
         const row = archetype ? db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE").get(archetype) : undefined;
@@ -210,6 +236,11 @@ export function createCardInsightService(db: Database.Database, options: {
         try { if (row) counter = counterProfileFromHooks(ArchetypeProfile.parse({ plan: row.plan, hooks: JSON.parse(row.hooks_json) })); } catch { /* Optional profile: fail closed. */ }
         const match = (candidate: Candidate, query = reading.query): number | null => {
           if ((effective.sort === "newest" || query.released || opts.released) && candidate.card.dateSearchEligible === false) return null;
+          if (query.formatFilter && !opts.formatAdmission?.(candidate.card)) return null;
+          if (matchCard(candidate.card, candidate.tags, query.intent?.kind === "archetype_role" ? {...query, roles: []} : query) === null) return null;
+          if (query.intent?.kind === "archetype_role") return rankArchetypeRole(candidate.card,candidate.tags,query.intent.archetype,query.intent.role,archetypeMember(candidate.card,query.intent.archetype),staples!)?.score??null;
+          if (query.intent?.kind === "staples") return staples!.cards.size ? staples!.cards.get(candidate.card.id)?.playShare ?? null
+            : candidate.tags?.roles.some(role => ["hand_trap", "board_breaker", "negation"].includes(role)) ? 1 : null;
           const base = matchCard(candidate.card, candidate.tags, query);
           if (base === null) return null;
           if (query.intent?.kind === "similar") return similar ? cardSimilarity(similar, candidate) : null;
@@ -223,7 +254,7 @@ export function createCardInsightService(db: Database.Database, options: {
           const score = match(candidate);
           if (score === null) continue;
           total++;
-          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + cardEraBoost(candidate.card, opts.era), linkedCards: 0, reason: counter && archetype ? counterLink(counter, archetype, candidate)!.reason
+          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + (roleIntent ? 0 : cardEraBoost(candidate.card, opts.era)), linkedCards: 0, reason: roleIntent ? rankArchetypeRole(candidate.card,candidate.tags,roleIntent.archetype,roleIntent.role,archetypeMember(candidate.card,roleIntent.archetype),staples!)!.reason : reading.query.intent?.kind === "staples" && staples!.cards.size ? stapleReason(staples!.cards.get(candidate.card.id)!, staples!.label) : counter && archetype ? counterLink(counter, archetype, candidate)!.reason
             : similar ? shortReason(`Similar ${candidate.tags?.roles.find(role => similar.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${similar.card.name}`)
             : effectMatchReason(candidate.card, candidate.tags, reading.query, candidate.tags?.summary),
             ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), currentMonth, effective);
@@ -231,7 +262,7 @@ export function createCardInsightService(db: Database.Database, options: {
         const relax: Array<{ chip: string; count: number }> = [];
         if (!total) {
           for (const chip of reading.chips) {
-            if (chip.startsWith("Text:") || chip.startsWith("Sort:")) continue;
+            if (chip.startsWith("Text:") || chip.startsWith("Sort:") || describeFormat(reading.query.formatFilter).includes(chip)) continue;
             const query = omitReadingChips(reading, [chip])!.query;
             let count = 0;
             for (const candidate of catalog.candidates(pool)) if (allowed(candidate, opts) && match(candidate, query) !== null) count++;
@@ -292,7 +323,7 @@ export function createCardInsightService(db: Database.Database, options: {
       });
     },
     suggestRows(deck: DuelDeck, opts: DeckSuggestionOptions) {
-      return withCatalog(catalog => suggestDeckRows(db, catalog, deck, opts, options.dataDirectory));
+      return withCatalog(catalog => suggestDeckRows(db, catalog, deck, { ...opts, guildId: options.guildId }, options.dataDirectory));
     },
     poolHealth(codes: readonly number[], opts: { era?: CardEra } = {}): CardPoolHealth {
       return withCatalog(catalog => {

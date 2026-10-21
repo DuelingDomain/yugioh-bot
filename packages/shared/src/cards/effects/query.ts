@@ -6,6 +6,8 @@
  * of phrase rules rather than a model call, so it costs nothing per search and always gives the
  * same reading, which the site shows back to the user.
  */
+import { readFormatQuery, describeFormat, type EffectFormatFilter } from "./format-query.js";
+import type { ArchetypeRole } from "./archetype-roles.js";
 import { readReleaseQuery, describeReleased } from "./release-query.js";
 import type { ReleasedRange } from "./releases.js";
 import { resolveEffectName, compactEffectName } from "./name-match.js";
@@ -40,7 +42,9 @@ export interface EventQuery {
 }
 
 export interface EffectQuery {
-  intent?: { kind: "similar"; passcode: number; name: string } | { kind: "counters"; archetype: string } | { kind: "outside"; archetype: string };
+  recruiter?: true;
+  formatFilter?: EffectFormatFilter;
+  intent?: { kind: "archetype_role"; archetype: string; role: ArchetypeRole } | { kind: "staples" } | { kind: "similar"; passcode: number; name: string } | { kind: "counters"; archetype: string } | { kind: "outside"; archetype: string };
   /** What the card itself must be. */
   card: ObjectQuery;
   released?: ReleasedRange;
@@ -345,7 +349,7 @@ export function buildArchetypeMatcher(names: Iterable<string>): (text: string) =
 /** Returns null when the search contains nothing the rules recognise, i.e. it is a plain text search. */
 /**
  * Player terms for kinds of card, said in the words the reader understands. "Recruiter" is not a
- * tag of its own: it is a monster that Special Summons from the Deck when destroyed by battle.
+ * tag of its own: it is a monster that Special Summons another monster from the Deck on its own destruction.
  */
 const PLAYER_TERMS: [RegExp, string][] = [
   [/\brecruiters?\b/g, "when destroyed by battle special summon a monster from the deck"],
@@ -357,14 +361,17 @@ export function interpret(
   input: string,
   findArchetypes: ReturnType<typeof buildArchetypeMatcher> = () => [],
 ): Interpretation | null {
-  const release = readReleaseQuery(input);
+  const format = readFormatQuery(input);
+  const release = readReleaseQuery(format.text);
+  const recruiter = /\brecruiters?\b/i.test(input);
   let text = release.text
     .toLowerCase()
     .replace(/[“”"]/g, " ")
     .replace(/\bgrave ?yards?\b|\bgraves?\b/g, "gy")
     .replace(/\s+/g, " ")
     .trim();
-  if (!text && !release.released && !release.sort) return null;
+  if (!text && !release.released && !release.sort && !format.filter) return null;
+  text = text.replace(/(destroyed(?: by battle)?) and (?:is )?sent to (?:the )?gy/g, "$1");
   for (const [term, meaning] of PLAYER_TERMS) text = text.replace(term, meaning);
 
   let atkMin: number | undefined, atkMax: number | undefined;
@@ -420,7 +427,7 @@ export function interpret(
   // "is banished", "gets destroyed": a verb right after an auxiliary is something that happens to a card.
   const passive = (mark: Mark) => AUXILIARY.test(text.slice(Math.max(0, mark.start - 7), mark.start));
 
-  const query: EffectQuery = { card: emptyObject(), roles: [], quick: false, text: "",
+  const query: EffectQuery = { ...(format.filter ? { formatFilter: format.filter } : {}), ...(recruiter ? { recruiter: true as const } : {}), card: emptyObject(), roles: [], quick: false, text: "",
     ...(release.released ? { released: release.released, releaseLabel: release.releaseLabel } : {}), ...(release.sort ? { sort: release.sort } : {}) };
   if (atkMin !== undefined || atkMax !== undefined) Object.assign(query.card, { atkMin, atkMax });
   const newEvent = (): EventQuery & { to?: Zone; rule?: VerbRule } => ({ verbs: [], from: [], self: false, object: emptyObject() });
@@ -567,8 +574,9 @@ export function interpret(
   const strip = ({ verbs, from, player, self, object }: EventQuery): EventQuery => ({ verbs, from: [...new Set(from)], player, self, object });
   if (does) query.does = strip(does);
   if (reactsTo) query.reactsTo = strip(reactsTo);
+  if (recruiter && query.reactsTo) query.reactsTo.verbs = ["destroy", "destroy_by_battle"];
 
-  const understood = query.released || query.sort || query.does || query.reactsTo || query.supports || query.roles.length || query.quick || query.worksFrom || !isEmptyObject(query.card);
+  const understood = query.formatFilter || query.released || query.sort || query.does || query.reactsTo || query.supports || query.roles.length || query.quick || query.worksFrom || !isEmptyObject(query.card);
   if (!understood) return null;
 
   // Whatever no rule claimed only boosts ranking, as ordinary text.
@@ -656,7 +664,9 @@ function describeEvent(event: EventQuery): string {
 }
 
 export function describe(query: EffectQuery): string[] {
-  const chips: string[] = [];
+  const chips: string[] = describeFormat(query.formatFilter);
+  if (query.intent?.kind === "archetype_role") chips.push(`For ${query.intent.archetype} decks`);
+  if (query.intent?.kind === "staples") chips.push("Format staples");
   if (query.intent?.kind === "similar") chips.push(`Like: ${query.intent.name}`);
   if (query.intent?.kind === "counters") chips.push(`Counters: ${query.intent.archetype}`);
   if (query.intent?.kind === "outside") chips.push(`Outside: ${query.intent.archetype}`);
@@ -679,10 +689,27 @@ export function omitReadingChips(reading: Interpretation, omitted: readonly stri
   const query = structuredClone(reading.query);
   const base = (): EffectQuery => ({ card: emptyObject(), roles: [], quick: false, text: "" });
   const removed = (partial: Partial<EffectQuery>) => describe({ ...base(), ...partial }).some(label => omitted.includes(label));
+  if (query.formatFilter) {
+    const filter = query.formatFilter;
+    for (const field of ["genesysMax", "copies", "limit", "region", "format"] as const) {
+      if (filter[field] === undefined) continue;
+      const label = describeFormat(filter).find(value => field === "format" ? value.startsWith("Legal in ")
+        : field === "region" ? value.startsWith("Pool:") : field === "limit" ? value.startsWith("Limit:")
+        : field === "genesysMax" ? value.startsWith("Genesys:") : value === "3 copies in Genesys");
+      if (label && omitted.includes(label)) {
+        delete filter[field];
+        if (field === "format") { delete filter.genesysMax; delete filter.copies; }
+      }
+    }
+    if (!Object.keys(filter).length) delete query.formatFilter;
+  }
   if (removed({ intent: query.intent })) delete query.intent;
   if (removed({ released: query.released, releaseLabel: query.releaseLabel })) { delete query.released; delete query.releaseLabel; }
   if (removed({ sort: query.sort })) delete query.sort;
   if (removed({ card: query.card })) query.card = emptyObject();
+  if (query.intent?.kind === "archetype_role" && removed({ roles: query.roles })) {
+    query.intent.role = "any";
+  }
   query.roles = query.roles.filter(role => !removed({ roles: [role] }));
   if (removed({ quick: query.quick })) query.quick = false;
   if (removed({ worksFrom: query.worksFrom })) delete query.worksFrom;
@@ -690,6 +717,7 @@ export function omitReadingChips(reading: Interpretation, omitted: readonly stri
   if (removed({ reactsTo: query.reactsTo })) delete query.reactsTo;
   if (removed({ supports: query.supports })) delete query.supports;
   if (removed({ text: query.text })) query.text = "";
+  if (!query.does || !query.reactsTo) delete query.recruiter;
   const chips = describe(query);
   return { query, chips };
 }

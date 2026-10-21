@@ -3,7 +3,7 @@ import { cardAdmissionContext, type CardAdmissionContext } from "@/lib/card-admi
 import { NextResponse } from "next/server";
 import { CardQueryError, parseCardQuery, type CardQuery } from "@yugidraft/shared/duels";
 import { parseDeckSuggestionQuery } from "@yugidraft/shared/services";
-import { searchIntentTarget } from "@yugidraft/shared/cards/effects";
+import { searchIntentTarget, readFormatQuery } from "@yugidraft/shared/cards/effects";
 import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
 import { effectSearchEnabled, deckSuggestionsEnabled } from "@/lib/effect-search";
 import { loadDeckSuggestions } from "@/lib/deck-suggestions";
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     if (error instanceof CardQueryError) return NextResponse.json({ error: error.message }, { status: 400 });
     return apiErrorResponse(error, "[api/decks/cards]");
   }
-  if (!cardQuery.exact && cardQuery.scope !== "name" && searchIntentTarget(cardQuery.text)?.kind === "outside") {
+  if (!cardQuery.exact && cardQuery.scope !== "name" && searchIntentTarget(cardQuery.text)?.kind === "outside" && !readFormatQuery(cardQuery.text).filter) {
     if (!effectSearchEnabled()) return NextResponse.json({ effectSearchEnabled: false, error: "effect_search_disabled" }, { status: 404 });
     if (!deckSuggestionsEnabled()) return NextResponse.json({ deckSuggestionsEnabled: false, error: "deck_suggestions_disabled" }, { status: 404 });
     const input = parseCardInsightRequest({ op: "effectSearch", text: cardQuery.text, deck: body.deck,

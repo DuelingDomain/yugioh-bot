@@ -8,7 +8,7 @@ import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
 import type { ArchetypeGuide, CardEra } from "@yugidraft/shared/cards/effects";
 
-export type EffectIntent = { kind: "similar"; passcode: number; name: string } | { kind: "counters"; archetype: string };
+export type EffectIntent = NonNullable<import("@yugidraft/shared/cards/effects").EffectQuery["intent"]>;
 
 /** A card that matched a description, with the one-line reason it matched. */
 export interface EffectCard extends CardSummary {

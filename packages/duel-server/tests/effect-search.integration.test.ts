@@ -551,7 +551,7 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
   it.each(['hand trap', 'hand traps'])('keeps the effect group for the full-catalog role query: %s', text => {
     const result = search(text);
     expect(result.effectSearchEnabled).toBe(true);
-    expect(result.reading?.chips).toEqual(['Role: hand trap']);
+    expect(result.reading?.chips).toEqual(text === 'hand traps' ? ['Format staples','Role: hand trap'] : ['Role: hand trap']);
     expect(result.cards).toEqual([]);
     expect(result.total).toBe(0);
     expect(result.effectHits?.map(card => card.code)).toEqual(expect.arrayContaining([
@@ -563,6 +563,13 @@ describe(`${expectedQueries}-query real-artifact effect/name/synergy/format eval
     const include = ['Elemental HERO Stratos', 'Elemental HERO Shadow Mist'];
     const exclude = ['Dark Magician', 'Blue-Eyes White Dragon'];
     const result = search(text, [...include, ...exclude].map(code));
+    if(text.endsWith('staples')) {
+      expect(result.reading?.query.intent).toEqual({kind:'archetype_role',archetype:'Elemental HERO',role:'staples'});
+      expect(result.reading?.chips).toEqual(['For Elemental HERO decks']);
+      expect(result.effectHits?.map(card=>card.name)).toContain('Elemental HERO Stratos');
+      expect(result.effectHits?.every(card=>card.reason==='Elemental HERO card')).toBe(true);
+      return;
+    }
     expect(result.reading?.query.supports?.archetypes).toEqual(['Elemental HERO']);
     expect(result.reading?.query.text).toBe('');
     expect(result.reading?.chips).toEqual(['Works with: "Elemental HERO"']);
@@ -935,4 +942,211 @@ it('does no artifact or tag writes at duel boot with EFFECT_SEARCH off', async (
       expect(isolated.prepare(`SELECT count(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
     }
   } finally { vi.unstubAllEnvs(); isolated.close(); }
+});
+
+// Uses the full real engine catalog and the production effect index.
+it.each(["staples", "format staples", "best staples", "hand traps"])("finds measured format staples for %s", text => {
+  const result = search(text);
+  expect(result.reading?.query.intent?.kind).toBe("staples");
+  expect(result.cards).toEqual([]);
+  expect(result.effectHits?.map(card => card.name)).toContain("Ash Blossom & Joyous Spring");
+  expect(result.effectHits?.map(card => card.name)).toContain("Infinite Impermanence");
+  expect(result.effectHits?.every(card => /^Played in [\d.]+% of TCG decks$/.test(card.reason))).toBe(true);
+});
+
+it("uses the selected format and preserves real card names and search filters", () => {
+  const domain = search("staples", undefined, { format: "domain" });
+  expect(domain.effectHits?.[0]?.name).toBe("Graceful Charity");
+  expect(domain.effectHits?.every(card => /of Domain decks$/.test(card.reason))).toBe(true);
+  const genesys = search("staples", undefined, { format: "genesys" });
+  expect(genesys.effectHits?.[0]?.name).toBe("Lava Golem");
+  expect(genesys.effectHits?.every(card => /of Genesys decks$/.test(card.reason))).toBe(true);
+  expect(search("Morphtronic Staplen").cards[0]?.name).toBe("Morphtronic Staplen");
+  expect(search("Morphtronic Staplen").reading).toBeNull();
+  expect(search("staples", []).effectHits).toEqual([]);
+  expect(search("staples", [code("Ash Blossom & Joyous Spring"), code("Infinite Impermanence")]).effectTotal).toBe(2);
+  expect(search("staples", undefined, { kind: "spell" }).effectHits?.every(card => (card.type & 2) !== 0)).toBe(true);
+  expect(search("staples", undefined, { exact: true }).reading).toBeNull();
+  expect(search("staples", undefined, { scope: "name" }).reading).toBeNull();
+});
+
+it.each(['recruiters', 'water recruiter', 'recruiters 1500 atk or less'])('returns classic recruiters for %s', text => {
+  const result = search(text);
+  console.info('RECRUITER_BASELINE', JSON.stringify({text,reading:result.reading,total:result.total,effectTotal:result.effectTotal,names:result.effectHits?.map(card=>card.name)}));
+  const expected = text.startsWith('water') ? ['Mother Grizzly'] : ['Mother Grizzly','Mystic Tomato','Giant Rat','Shining Angel'];
+  expect(result.effectHits?.slice(0,12).map(card=>card.name)).toEqual(expect.arrayContaining(expected));
+});
+
+it('includes any-destruction recruiters and reads the complete destruction condition', () => {
+  expect(search('recruiters',['Baobaboon','Mother Grizzly','Raigeki'].map(code)).effectHits?.map(card=>card.name)).toContain('Baobaboon');
+  const data=search('when destroyed and sent to the GY special summon a monster from the deck');
+  expect(data.effectHits?.map(card=>card.name)).toEqual(expect.arrayContaining(['Mother Grizzly','Mystic Tomato','Giant Rat','Shining Angel']));
+});
+it.each(['Blue-Eyes','Branded','Snake-Eye','Tenpai Dragon'])('finds generic and native roles for %s', archetype => {
+  const data=search(`${archetype} hand traps`);
+  expect(data.reading?.query.intent?.kind).toBe('archetype_role');
+  expect(data.reading?.chips).toContain(`For ${archetype} decks`);
+  expect(data.effectHits?.map(card=>card.name)).toEqual(expect.arrayContaining(['Ash Blossom & Joyous Spring','Infinite Impermanence']));
+  expect(data.effectHits?.map(card=>card.name)).toContain('Droll & Lock Bird');
+});
+it('reads a plain released year as a full year', () => {
+  expect(cardEffectIndex(cards)!.readQuery('released 2024')?.query.released).toEqual({from:'2024-01',to:'2024-12'});
+});
+
+it.each(['legal in Genesys','Genesys','Domain legal','TCG only','OCG only','banned in TCG','limited','semi-limited','unlimited','at 3 in Genesys','Genesys under 10 points'])('reads explicit format filters: %s', text => {
+  expect(cardEffectIndex(cards)!.readQuery(text)?.query.formatFilter).toBeTruthy();
+  expect(cardEffectIndex(cards)!.readQuery(text)?.query.text).toBe('');
+});
+it('uses the deck-check banlist and official Genesys point values for format searches', async () => {
+  const {banlistLimitsFor}=await import('../src/banlists/index.js');
+  const {PINNED_TCG_BANLIST_ID,PINNED_OCG_BANLIST_ID}=await import('@yugidraft/shared/duels');
+  const limits=banlistLimitsFor(PINNED_TCG_BANLIST_ID)!;
+  const banned=search('banned in TCG');
+  expect(banned.effectTotal).toBeGreaterThan(10);
+  expect(banned.effectHits?.every(card=>limits[card.canonicalPasscode??card.code]===0)).toBe(true);
+  for(const [text,limit] of [['limited',1],['semi-limited',2],['unlimited',3]] as const){
+    const result=search(text);expect(result.effectTotal).toBeGreaterThan(0);
+    expect(result.effectHits?.every(card=>(limits[card.canonicalPasscode??card.code]??3)===limit)).toBe(true);
+    expect(result.effectHits?.every(card=>card.reason.includes(text))).toBe(true);
+  }
+  expect(search('OCG only').effectHits?.every(card=>(card.ot&1)!==0)).toBe(true);
+  expect(search('TCG only').effectHits?.every(card=>(card.ot&2)!==0)).toBe(true);
+  const official=JSON.parse((await import('node:fs')).readFileSync(new URL('../../shared/tests/fixtures/genesys-official-2026-10-05.json',import.meta.url),'utf8')) as Record<string,number>;
+  const names=['Ash Blossom & Joyous Spring','Infinite Impermanence','Pot of Greed','Raigeki','Effect Veiler','Skull Meister'];
+  const points=new Map(names.map(name=>[code(name),official[name]??0]));
+  const query={...emptyCardQuery(),text:'Genesys under 10 points',passcodes:names.map(code),limit:120};
+  const result=queryCards(cards,query,undefined,points);
+  expect(result.effectTotal).toBeGreaterThan(0);
+  expect(result.effectHits?.every(card=>points.get(card.code)!<10)).toBe(true);
+  const three=queryCards(cards,{...query,text:'at 3 in Genesys'},undefined,points);
+  expect(three.effectHits?.every(card=>points.get(card.code)!*3<=100)).toBe(true);
+  expect(queryCards(cards,query,undefined,new Map()).effectTotal).toBe(0);
+  expect(banlistLimitsFor(PINNED_OCG_BANLIST_ID)).toBeTruthy();
+});
+
+it('applies release words to real cards, including usage-ranked results in both readers', () => {
+  const sql=createCardInsightService(db,{dataDirectory:engineDataDirectory});
+  for(const [text,from,to] of [['released 2024','2024-01','2024-12'],['before 2010',undefined,'2009-12'],['from 2023 to 2024','2023-01','2024-12']] as const){
+    const data=search(text);
+    expect(data.effectTotal).toBeGreaterThan(0);
+    expect(data.effectHits?.every(card=>!!card.release?.date && (!from||card.release.date>=from) && card.release.date<=to)).toBe(true);
+    const shared=sql.effectSearch(text,undefined,{limit:30});
+    expect(shared.total).toBeGreaterThan(0);
+    expect(shared.cards.every(card=>!!card.release?.date && (!from||card.release.date>=from) && card.release.date<=to)).toBe(true);
+  }
+  expect(search('newest').cards).toEqual([]);
+  const newest=search('newest').effectHits!;
+  expect(newest.length).toBeGreaterThan(0);
+  expect(newest.map(card=>card.release!.date)).toEqual(newest.map(card=>card.release!.date).sort().reverse());
+  for(const text of ['hand traps before 2015','Blue-Eyes hand traps before 2015']){
+    for(const rows of [search(text).effectHits!,sql.effectSearch(text).cards]){
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.map(card=>card.name)).toContain('Effect Veiler');
+      expect(rows.map(card=>card.name)).not.toContain('Ash Blossom & Joyous Spring');
+      expect(rows.every(card=>!!card.release?.date && card.release.date<'2015-01')).toBe(true);
+    }
+  }
+});
+it('removes one format constraint or a role constraint without hidden filters',()=>{
+  const effects=cardEffectIndex(cards)!;
+  const reading=effects.readQuery('Genesys under 10 points', ['Genesys: under 10 points'])!;
+  expect(reading.query.formatFilter).toEqual({format:'genesys'});
+  expect(reading.chips).toEqual(['Legal in Genesys']);
+  const role=search('Blue-Eyes hand traps',['Blue-Eyes White Dragon','Ash Blossom & Joyous Spring','Dark Magician'].map(code),{effectOmit:['Role: hand trap']});
+  expect(role.reading?.query.intent).toEqual({kind:'archetype_role',archetype:'Blue-Eyes',role:'any'});
+  expect(role.reading?.query.roles).toEqual([]);
+  expect(role.effectHits?.map(card=>card.name)).toEqual(['Blue-Eyes White Dragon']);
+});
+it('ranks native cards before compatible measured cards for each requested archetype and role',()=>{
+  const evidence: Record<string,unknown>={};
+  for(const archetype of ['Blue-Eyes','Branded','Snake-Eye','Tenpai'])for(const role of ['hand traps','removal','extenders','board breakers','staples']){
+    const result=search(`${archetype} ${role}`), rows=result.effectHits!;
+    expect(result.reading?.query.intent?.kind,`${archetype} ${role}`).toBe('archetype_role');
+    expect(rows.length,`${archetype} ${role}`).toBeGreaterThan(0);
+    const canonical=(result.reading!.query.intent as {archetype:string}).archetype;
+    const firstGeneric=rows.findIndex(card=>card.reason!==`${canonical} card`);
+    if(firstGeneric>=0)expect(rows.slice(firstGeneric).every(card=>card.reason!==`${canonical} card`)).toBe(true);
+    expect(rows.every(card=>card.reason===`${canonical} card` || /^Run in \d+% of .+ decks$/.test(card.reason)||card.reason==='Format staple')).toBe(true);
+    evidence[`${archetype} ${role}`]=rows.slice(0,10).map(card=>({name:card.name,reason:card.reason}));
+  }
+  mkdirSync('.status/recruiters',{recursive:true});
+  writeFileSync('.status/recruiters/role-results.json',JSON.stringify(evidence,null,2));
+});
+it.each([
+  ['rank-up-magic limited',"Rank-Up-Magic Limited Barian's Force"],
+  ['rank up magic limited',"Rank-Up-Magic Limited Barian's Force"],
+])('preserves a matching card name containing limit words: %s',(text,name)=>{
+  const result=search(text);
+  expect(result.cards.map(card=>card.name)).toContain(name);
+  expect(result.reading?.query.formatFilter).toBeUndefined();
+});
+it.each(['limited','semi-limited','unlimited'])('keeps standalone limit chips: %s',text=>{
+  expect(search(text).reading?.query.formatFilter?.limit).toBeDefined();
+});
+
+it('loads staple usage only for usage intents and reuses public format maps',async()=>{
+  const effects=cardEffectIndex(cards)!;
+  const calls=vi.spyOn(effects,'staples');
+  try {
+    for(const text of ['Ash Blossom','recruiters','released 2024'])queryCards(cards,{...emptyCardQuery(),text},undefined,undefined,{effects});
+    expect(calls).not.toHaveBeenCalled();
+    queryCards(cards,{...emptyCardQuery(),text:'staples'},undefined,undefined,{effects});
+    expect(calls).toHaveBeenCalledTimes(1);
+    queryCards(cards,{...emptyCardQuery(),text:'Branded hand traps'},undefined,undefined,{effects});
+    expect(calls).toHaveBeenCalledTimes(2);
+    const {formatStaples}=await import('@yugidraft/shared/cards/effects');
+    expect(formatStaples('normal')).toBe(formatStaples('normal'));
+    expect(formatStaples('domain')).toBe(formatStaples('domain'));
+  }finally{calls.mockRestore();}
+});
+
+it('uses signed host Domain admission and preserves the archetype play guide',async()=>{
+  vi.stubEnv('EFFECT_SEARCH','1');
+  const post=async(cardQuery:object)=>{
+    const body=JSON.stringify({op:'card-query',guildId:'eval',playerId,cardQuery});
+    const response=await host.handle(new Request('http://local/internal/duel',{method:'POST',body,headers:await signedHeaders(body,'eval-secret','http://local/internal/duel','duel-host')}));
+    expect(response.status).toBe(200);return response.json();
+  };
+  const master=code('Blue-Eyes White Dragon');
+  const scope=await import('../src/deck-legality.js');
+  const {normalizeDuelSettings}=await import('@yugidraft/shared/duels');
+  const allowed=new Set(scope.deckSuggestionScope('domain',engineDataDirectory,normalizeDuelSettings('domain',{banlist:'none'}),{deckMaster:master}).allowed);
+  const result=await post({text:'Domain legal',deckMaster:master,limit:30});
+  expect(result.effectTotal).toBeGreaterThan(0);
+  expect(result.effectHits.every((card:{code:number})=>allowed.has(card.code))).toBe(true);
+  expect((await post({text:'Domain legal',limit:30})).effectTotal).toBe(0);
+  const blue=await post({text:'Blue-Eyes removal',limit:30});
+  expect(blue.profile?.archetype).toBe('Blue-Eyes');
+});
+
+
+it.each(['Blue-Eyes','Branded','Snake-Eye','Tenpai Dragon'])('ranks generic %s hand traps only by measured archetype then format shares in both readers',async archetype=>{
+  const {formatStaples,archetypePlayShare}=await import('@yugidraft/shared/cards/effects');
+  const usage=formatStaples('normal');
+  const pool=['Ash Blossom & Joyous Spring','Droll & Lock Bird','Ghost Ogre & Snow Rabbit','Effect Veiler','Infinite Impermanence'].map(code);
+  const expected=[...pool].sort((a,b)=>{
+    const left=archetypePlayShare(usage,archetype,a)??0,right=archetypePlayShare(usage,archetype,b)??0;
+    return Number(right>0)-Number(left>0) || right-left || usage.cards.get(b)!.playShare-usage.cards.get(a)!.playShare;
+  });
+  const host=search(`${archetype} hand traps`,pool).effectHits!;
+  const sql=createCardInsightService(db,{dataDirectory:engineDataDirectory});
+  const shared=sql.effectSearch(`${archetype} hand traps`,pool,{era:{medianYear:2010,spread:1}}).cards;
+  expect(host.map(card=>card.code)).toEqual(expected);
+  expect(shared.map(card=>card.passcode)).toEqual(expected);
+  expect(host.find(card=>card.name==='Droll & Lock Bird')).toBeTruthy();
+  expect(shared.find(card=>card.name==='Droll & Lock Bird')).toBeTruthy();
+  expect(shared.map(card=>card.score)).toEqual(host.map(card=>card.score));
+});
+
+it('uses real format play share for generic role cards below the global staple threshold',()=>{
+  const names=['Effect Veiler','Ghost Belle & Haunted Mansion'];
+  const pool=names.map(code);
+  const host=search('Blue-Eyes hand traps',pool,{format:'genesys'}).effectHits!;
+  const sql=createCardInsightService(db,{dataDirectory:engineDataDirectory});
+  const shared=sql.effectSearch('Blue-Eyes hand traps',pool,{format:'genesys'}).cards;
+  // Six versus four of the 80 real Genesys lists. Neither qualifies as a global staple.
+  expect(host.map(card=>card.name)).toEqual(names);
+  expect(shared.map(card=>card.name)).toEqual(names);
+  expect(host[0].score).toBeGreaterThan(host[1].score);
+  expect(shared.map(card=>card.score)).toEqual(host.map(card=>card.score));
 });

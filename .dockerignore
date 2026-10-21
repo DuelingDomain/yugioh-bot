@@ -4,6 +4,8 @@ data/
 !packages/shared/data/
 !packages/shared/data/effects/
 !packages/shared/data/effects/**
+!packages/shared/data/staples/
+!packages/shared/data/staples/**
 .env
 .env.*
 !.env.example

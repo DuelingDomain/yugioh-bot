@@ -24,6 +24,10 @@ export async function packageStandalone({
     await mkdir(dirname(target), { recursive: true });
     await cp(resolve(repositoryRoot, file), target, { force: true, verbatimSymlinks: true });
   }
+  // Both bundled routes and unbundled shared imports need the small usage table.
+  const staples = resolve(outputRoot, "packages/shared/data/staples");
+  await mkdir(staples, { recursive: true });
+  await cp(resolve(repositoryRoot, "packages/shared/data/staples/usage.json"), resolve(staples, "usage.json"));
   const sharedLink = resolve(outputRoot, "node_modules/@yugidraft/shared");
   await mkdir(dirname(sharedLink), { recursive: true });
   await rm(sharedLink, { recursive: true, force: true });

@@ -173,7 +173,7 @@ export async function queryDeckCards(query: CardQuery, signal?: AbortSignal, con
   const body = await parseBody<Partial<CardQueryResult>>(await fetch("/api/decks/cards", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...query, ...context }),
+    body: JSON.stringify({ ...query, format: query.format ?? (query.excludeGenesysForbidden ? context.mode === "domain" ? "genesys-domain" : "genesys" : context.mode ?? "normal"), ...context }),
     signal,
   }));
   if (!Array.isArray(body.cards) || typeof body.total !== "number") {

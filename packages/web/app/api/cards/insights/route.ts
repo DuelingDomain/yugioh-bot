@@ -1,3 +1,4 @@
+import {loadFormatEffectSearch} from "@/lib/format-effect-search";
 import { NextResponse } from "next/server";
 import { createCardInsightService, parseDeckSuggestionQuery, readArchetypeGuide } from "@yugidraft/shared/services";
 import { requireWebAccess } from "@/lib/web-access";
@@ -7,7 +8,7 @@ import { effectSearchEnabled, deckSuggestionsEnabled } from "@/lib/effect-search
 import { loadDeckSuggestions } from "@/lib/deck-suggestions";
 import { readCardInsightRequest } from "@/lib/card-insights-api";
 import { apiErrorResponse } from "@/lib/api-errors";
-import { lowConfidenceReading, searchIntentTarget } from "@yugidraft/shared/cards/effects";
+import { lowConfidenceReading, searchIntentTarget, readFormatQuery } from "@yugidraft/shared/cards/effects";
 import { fallbackEffectReading } from "@yugidraft/shared/cards/effects/reading-fallback";
 
 export const runtime = "nodejs";
@@ -24,6 +25,10 @@ export async function POST(request: Request) {
     const input = body.value;
     const outside = (input.op === "effectSearch" || input.op === "read") && !("exact" in input && input.exact) && searchIntentTarget(input.text)?.kind === "outside";
     if ((input.op === "suggestRows" || outside) && !deckSuggestionsEnabled()) return NextResponse.json({ deckSuggestionsEnabled: false, error: "deck_suggestions_disabled" }, { status: 404, headers: { "Cache-Control": "private, no-store" } });
+    if (input.op==="effectSearch" && !input.exact && readFormatQuery(input.text).filter) {
+      const loaded=await loadFormatEffectSearch(input); if(!loaded.ok)return loaded.response;
+      return NextResponse.json({effectSearchEnabled:true,...loaded.result},{headers:{"Cache-Control":"private, no-store"}});
+    }
     if (input.op === "suggestRows" || (input.op === "effectSearch" && outside)) {
       const query = parseDeckSuggestionQuery(input);
       if (!query) return NextResponse.json({ error: "Invalid deck suggestion query" }, { status: 400 });
@@ -31,7 +36,7 @@ export async function POST(request: Request) {
       if (!found.ok) return found.response;
       return NextResponse.json({ effectSearchEnabled: true, deckSuggestionsEnabled: true, ...found.result }, { headers: { "Cache-Control": "private, no-store" } });
     }
-    const service = createCardInsightService(getDb());
+    const service = createCardInsightService(getDb(), { guildId: env.discordGuildId });
     let data: object;
     switch (input.op) {
       case "summary": data = { summary: service.summary(input.passcode) }; break;

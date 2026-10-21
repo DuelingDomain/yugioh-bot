@@ -1,3 +1,4 @@
+import { formatStaples } from "@yugidraft/shared/cards/effects";
 import { ExpectedError, errorResponseBody, log, report } from "@yugidraft/shared/observability";
 import { createBugReportService, createStoredBoardReader, readStoredBoard, storedBoardStamp, STORED_BOARD_COLUMNS, duelSnapshotRetentionConfig, runDuelSnapshotRetention, DUEL_LIVE_IDLE_REASON, parseDeckSuggestionQuery, type StoredDuelBoards } from "@yugidraft/shared/services";
 import { cardBlockIndex, loadCardBlockList, mergeCardBlockEntries, type CardBlockEntry } from "./card-block-list.js";
@@ -3399,12 +3400,12 @@ export function createDuelHost(options: {
         const revision = (options.db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
         const pointsRevision = (options.db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
         const contextVersion = createHash("sha256").update(JSON.stringify([
-          "deck-suggestions-host-v3", suggestionQueryIdentity(query), legality.version, revision, pointsRevision ?? null, new Date().toISOString().slice(0, 7),
+          "deck-suggestions-host-v4", formatStaples(query.format, query.banlist, options.db, guildId).version, suggestionQueryIdentity(query), legality.version, revision, pointsRevision ?? null, new Date().toISOString().slice(0, 7),
         ])).digest("hex");
         if (typeof body.suggestionVersion === "string" && body.suggestionVersion.toLowerCase() === contextVersion) {
           return { contextVersion, notModified: true };
         }
-        const result = await suggestionWorkers.run({ query, legality, deckMaster: master });
+        const result = await suggestionWorkers.run({ query, legality, deckMaster: master, guildId });
         return { contextVersion, result };
       } finally { suggestingPlayers.delete(actor); }
     }
@@ -3459,12 +3460,18 @@ export function createDuelHost(options: {
         const catalog = loadCardDatabase(options.dataDirectory);
         const enabled = effectSearchEnabled();
         const query = parseCardQuery(body.cardQuery);
+        query.format ??= query.excludeGenesysForbidden ? body.mode === "domain" ? "genesys-domain" : "genesys" : body.mode === "domain" ? "domain" : "normal";
         const effects = enabled ? cardEffectIndex(catalog) ?? await initializeCardEffectIndex(options.db, catalog) : undefined;
         const releases = !enabled && (query.released || query.sort === "newest") ? cardReleaseIndex(options.db, catalog) : undefined;
         const entries = cardRequestEntries(body, guildId, actor), points = await genesysAdmissionPoints();
-        const search = () => queryCards(catalog, query, entries, points, { effects, releases, effectSearchEnabled: enabled });
+        const formatReading = enabled && !query.exact && query.scope!=="name" ? effects?.readQuery(query.text,query.effectOmit)?.query.formatFilter : undefined;
+        const mode=formatReading?.format==="domain"?"domain":"normal";
+        const formatAllowed=formatReading?.format ? new Set(deckSuggestionScope(mode,options.dataDirectory,
+          normalizeDuelSettings(mode, formatReading.format==="genesys"?{genesys:{}}:{banlist:query.banlist==="none"?"none":query.banlist}),
+          {deckMaster:query.deckMaster,cardBlocks:cardRequestEntries({...body,mode},guildId,actor)}).allowed):undefined;
+        const search = () => queryCards(catalog, query, entries, points, { effects, releases, effectSearchEnabled: enabled, formatAllowed, guildId });
         let result = search();
-        if (enabled && !query.exact && query.scope !== "name" && query.text.trim() && query.passcodes?.length !== 0 && !query.effectOmit?.length && !result.total) {
+        if (enabled && !query.exact && query.scope !== "name" && query.text.trim() && query.passcodes?.length !== 0 && !query.effectOmit?.length && !result.total && !result.reading?.query.intent && !result.reading?.query.formatFilter && !result.reading?.query.recruiter && !result.reading?.query.released && !result.reading?.query.sort) {
           const { lowConfidenceReading } = await import("@yugidraft/shared/cards/effects");
           if (!result.effectTotal || lowConfidenceReading(query.text, result.reading ?? null)) {
             const { fallbackEffectReading } = await import("@yugidraft/shared/cards/effects/reading-fallback");
