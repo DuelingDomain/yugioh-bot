@@ -5,7 +5,6 @@
  *   https://www.yugioh-card.com/en/limited/list_2026-10-19/
  *   Passcodes: ProjectIgnis/LFLists `!2026.10 TCG`.
  *   SHA-256(0TCG.lflist.conf)=24a78cae14a067b41b1aa669011ae725e4a7c0bacfbcdf6aba5bf9dfcced128c
- *   November 11 is a separate future snapshot: Perfectron Hydradrive Dragon becomes Limited.
  *   Source audit, compiled hashes and counts: docs/banlists/2026-10.md.
  *
  * Historical TCG September 2026 (id `tcg-2026-09`):
@@ -44,7 +43,12 @@ export const DUEL_BANLIST_OPTIONS: readonly DuelBanlistOption[] = [
   { id: NO_BANLIST_ID, label: "None", region: "none", effectiveFrom: null },
   { id: "tcg-2026-09", label: "TCG September 2026", region: "tcg", effectiveFrom: "2026-09-21" },
   { id: PINNED_TCG_BANLIST_ID, label: "TCG — October 19, 2026", region: "tcg", effectiveFrom: "2026-10-19" },
-  { id: "tcg-2026-11-11", label: "TCG — November 11, 2026", region: "tcg", effectiveFrom: "2026-11-11" },
   { id: "ocg-2026-07", label: "OCG July 2026", region: "ocg", effectiveFrom: "2026-07-01" },
   { id: PINNED_OCG_BANLIST_ID, label: "OCG — October 2026", region: "ocg", effectiveFrom: "2026-10-01" },
 ];
+
+/** Hidden compatibility alias for saved settings; never expose it as a selectable list. */
+export function normalizeBanlistId(id: string): string {
+  // Keep the target fixed even when a later list becomes the current TCG default.
+  return id === "tcg-2026-11-11" ? "tcg-2026-10-19" : id;
+}

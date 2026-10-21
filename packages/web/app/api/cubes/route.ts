@@ -1,3 +1,4 @@
+import { normalizeBanlistId } from "@yugidraft/shared/duels";
 import { CardListError } from "@/lib/card-list-parser";
 import { ExpectedError } from "@yugidraft/shared/observability";
 import { apiErrorResponse } from "@/lib/api-errors";
@@ -80,7 +81,7 @@ export async function GET() {
       id: row.id,
       name: row.name,
       archetype: row.archetype,
-      banlist: row.banlist,
+      banlist: row.banlist == null ? null : normalizeBanlistId(row.banlist),
       draftType: cubeDraftTypeOf(row.config_json),
       createdByUserId: row.created_by_user_id,
       createdByName: row.created_by_name ?? null,
