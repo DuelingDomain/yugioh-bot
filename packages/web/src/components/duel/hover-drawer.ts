@@ -1,6 +1,6 @@
 /**
  * The card drawer owns the first Esc and the first right click. The prompt panels check these before they answer, so one press closes the
- * drawer and the next press goes to the prompt.
+ * drawer and the next press goes to the prompt. (The drawer may close in the same event, so the claim stays set for later listeners.)
  */
 const claimed = new WeakSet<Event>();
 
