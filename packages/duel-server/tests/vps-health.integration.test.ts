@@ -1,4 +1,7 @@
 import Database from "better-sqlite3";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { migrate } from "@yugidraft/shared/db";
 import { collectVpsHealth, createHostSampler, createServiceReporter, readVpsHealth } from "@yugidraft/shared/health";
 import { expect, it } from "vitest";
@@ -24,3 +27,29 @@ it("persists actual worker reservations and queued replay rebuilds, including ca
     expect(readVpsHealth(db, "guild", at + 120_000).current?.services.duel?.capacity).toEqual({ engineWorkers: 0, maxWorkers: 1, queuedRebuilds: 0 });
   } finally { release(); pool.close(); db.close(); }
 });
+
+it("skips contended health writes on the duel thread and preserves the gameplay busy timeout", async () => {
+  const root = mkdtempSync(join(tmpdir(), "duel-health-"));
+  const db = new Database(join(root, "test.sqlite")); migrate(db); db.pragma("journal_mode = WAL"); db.pragma("busy_timeout = 5000");
+  const locker = new Database(db.name);
+  const pool = new WorkerPool(1, 3);
+  const reporter = createServiceReporter({ db, service: "duel", capacity: () => pool.diagnostics() });
+  const at = Date.now();
+  try {
+    locker.exec("BEGIN IMMEDIATE");
+    const before = performance.now();
+    expect(() => reporter.tick(at)).not.toThrow();
+    const elapsed = performance.now() - before;
+    expect(elapsed).toBeLessThan(250);
+    expect(db.pragma("busy_timeout", { simple: true })).toBe(5000);
+    expect(db.prepare("select count(*) n from vps_service_health").get()).toEqual({ n: 0 });
+    const release = await pool.acquire([1]); release();
+    locker.exec("ROLLBACK");
+    reporter.tick(at + 60_000);
+    expect(db.prepare("select at from vps_service_health where service = 'duel'").get()).toEqual({ at: at + 60_000 });
+    db.exec("drop table vps_service_health");
+    expect(() => { const missing = createServiceReporter({ db, service: "duel" }); missing.start(); missing.stop(); }).not.toThrow();
+  } finally {
+    if (locker.inTransaction) locker.exec("ROLLBACK"); locker.close(); pool.close(); db.close(); rmSync(root, { recursive: true, force: true });
+  }
+}, 10_000);

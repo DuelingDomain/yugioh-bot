@@ -1,4 +1,4 @@
-import { openDatabase } from "@yugidraft/shared/db";
+import Database from "better-sqlite3";
 import { createServiceReporter } from "@yugidraft/shared/health";
 import { log } from "@yugidraft/shared/observability";
 import "dotenv/config";
@@ -23,10 +23,18 @@ const io: TypedServer = new Server(httpServer, {
   cors: { origin: WEB_URL, methods: ["GET", "POST"], credentials: true },
 });
 
-const healthDb = openDatabase(resolveDraftDatabasePath(process.env.DATABASE_PATH));
-const health = createServiceReporter({ db: healthDb, service: "ws", capacity: () => ({ connectedSockets: io.engine.clientsCount }) });
-health.start();
-httpServer.on("close", () => { health.stop(); healthDb.close(); });
+let healthDb: Database.Database | undefined;
+try {
+  // Health is optional: ws neither creates the database nor runs migrations.
+  healthDb = new Database(resolveDraftDatabasePath(process.env.DATABASE_PATH), { fileMustExist: true, timeout: 0 });
+  healthDb.pragma("busy_timeout = 0");
+  const health = createServiceReporter({ db: healthDb, service: "ws", capacity: () => ({ connectedSockets: io.engine.clientsCount }) });
+  health.start();
+  const db = healthDb;
+  httpServer.on("close", () => { health.stop(); db.close(); });
+} catch {
+  try { healthDb?.close(); } catch { /* Health must never prevent ws startup. */ }
+}
 const roomManager = new DraftRoomManager();
 const draftAccess = createDraftAccessReader();
 const tournamentAccess = createTournamentAccessReader();
