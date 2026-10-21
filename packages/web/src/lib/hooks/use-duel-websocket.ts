@@ -244,7 +244,10 @@ export function useDuelWebsocket(
           const response = await fetch(`/api/duels/${encodeURIComponent(slug)}/connection${spectate ? "?spectate=1" : ""}`, {
             cache: "no-store", signal: AbortSignal.any([request.signal, AbortSignal.timeout(8000)]),
           });
-          if (!response.ok) throw new Error("Room subscription unavailable");
+          if (!response.ok) {
+            if (response.status === 403) void refresh({ recovery: true }).catch(() => {});
+            throw new Error("Room subscription unavailable");
+          }
           credentials = await response.json() as DuelConnectionResponse;
           if (!isCurrent() || socket.id !== socketId || !socket.connected) return;
           guildId = credentials.guildId;
@@ -337,6 +340,7 @@ export function useDuelWebsocket(
       subscribed = false;
       updateLive(false);
       patch({ connected: false, presence: null, recovering: true });
+      void refresh({ recovery: true }).catch(() => {});
       void join();
     });
     window.addEventListener("focus", onFocus);

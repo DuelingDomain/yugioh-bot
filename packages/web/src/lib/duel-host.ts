@@ -20,7 +20,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { CardDataStatus } from "@yugidraft/shared/types";
 
-export type DuelHostOp = "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "suggestion-scope" | "deck-suggestions" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode";
+export type DuelHostOp = "kick" | "invite-player" | "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "suggestion-scope" | "deck-suggestions" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode";
 
 /** Read-only seat identity stays separate from creator identity. Unknown control flags fail closed. */
 export function readDuelControl(request: Request, room?: DuelRoom, allowed: "view" | "action" | "cards" | "none" = "none") {
@@ -97,7 +97,7 @@ export function duelErrorResponse(error: unknown) {
     error instanceof TournamentDuelError ||
     error instanceof SavedDeckServiceError
   ) {
-    return NextResponse.json({ error: error.message }, { status: error.status, headers: { "cache-control": "private, no-store" } });
+    return NextResponse.json({ error: error.message, ...(error instanceof DuelServiceError && error.code ? { code: error.code } : {}) }, { status: error.status, headers: { "cache-control": "private, no-store" } });
   }
   const { body, status } = errorResponseBody(error, { tags: { operation: "[api/duels]" } });
   return NextResponse.json(body, { status, headers: { "cache-control": "private, no-store" } });
@@ -168,6 +168,8 @@ export async function callDuelHost(input: {
   lookupLimit?: number;
   cacheOnly?: boolean;
   includeCanonical?: boolean;
+  /** Host-only kick or explicit player invitation. Never an acting identity. */
+  targetPlayerId?: number;
   /** add-bot only: the 0-based empty seat to fill. */
   seat?: number;
   /** start-preset only. */
@@ -222,6 +224,7 @@ export async function callDuelHost(input: {
     guildId: input.guildId,
     playerId: input.playerId,
   };
+  if (input.targetPlayerId !== undefined) payload.targetPlayerId = input.targetPlayerId;
   if (input.reportId !== undefined) payload.reportId = input.reportId;
   if (input.userId !== undefined) payload.userId = input.userId;
   if (input.as !== undefined) payload.as = input.as;

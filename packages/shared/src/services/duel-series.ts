@@ -1195,7 +1195,11 @@ export function createDuelSeriesService(db: Database.Database, engine?: DeckType
       }),
     });
     // Admission follows the series, including grants inherited by the previous game.
-    if (latest) inheritInviteGrants.run(game.id, latest.id);
+    if (latest) {
+      inheritInviteGrants.run(game.id, latest.id);
+      db.prepare(`insert or ignore into duel_kicked_players (duel_id, player_id)
+        select ?, player_id from duel_kicked_players where duel_id = ?`).run(game.id, latest.id);
+    }
     resetToActive.run(row.id);
     return duels.get(game.slug, guildId);
   });

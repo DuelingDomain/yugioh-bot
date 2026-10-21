@@ -114,11 +114,13 @@ export function resolveMasterRule(_mode: DuelMode, value: unknown, format: DuelF
 
 export class DuelServiceError extends Error {
   readonly status: number;
+  readonly code?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = "DuelServiceError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -215,6 +217,11 @@ export interface DuelService {
   /** Claims an open human seat before any opening or series has started. Defaults to the first open seat. */
   takeSeat(slug: string, guildId: string, playerId: number, seat?: number): DuelSession;
   leave(slug: string, guildId: string, playerId: number): DuelSession;
+  /** Validate before a queued host operation; an invite may have no seat yet. */
+  kickTarget(slug: string, guildId: string, hostPlayerId: number, playerId: number): DuelSeat | null;
+  /** Removes lobby access before the duel starts, cancelling any unfinished opening without a result. */
+  kickPlayer(slug: string, guildId: string, hostPlayerId: number, playerId: number): DuelSession;
+  invitePlayer(slug: string, guildId: string, hostPlayerId: number, playerId: number): void;
   /** Navigation departure before start: the host closes the lobby; a guest releases their seat. */
   leaveLobby(slug: string, guildId: string, playerId: number): DuelSession;
   /** `seat` picks the empty seat (for example a Tag partner). Without it the lowest empty seat is used. */
@@ -225,7 +232,8 @@ export interface DuelService {
    */
   removePracticeBot(slug: string, guildId: string, organizerPlayerId: number, seat?: number): DuelSession;
   setDeck(slug: string, guildId: string, playerId: number, deck: DuelDeck): DuelSession;
-  room(slug: string, guildId: string, playerId: number, options?: { includeStoredBoard?: boolean }): DuelRoom;
+  /** Mutation prechecks must set `allowKickedHistory: false`; former seats may read their finished games. */
+  room(slug: string, guildId: string, playerId: number, options?: { includeStoredBoard?: boolean; allowKickedHistory?: boolean }): DuelRoom;
   privateState(slug: string, guildId: string): DuelPrivateState;
   /**
    * Marks a seated player ready with the deck already in the seat (a
@@ -676,6 +684,12 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
   const selectGrant = db.prepare<[number, number], { ok: number }>(
     "select 1 as ok from duel_invite_grants where duel_id = ? and player_id = ?",
   );
+  const selectKick = db.prepare<[number, number]>("select 1 from duel_kicked_players where duel_id = ? and player_id = ?");
+  const assertNotKicked = (row: DuelRow, playerId: number) => {
+    if (selectKick.get(row.id, playerId)) {
+      throw new DuelServiceError("You were removed from this duel by the host. Ask the host to re-invite you.", 403, "DUEL_KICKED");
+    }
+  };
   const updateActivity = db.prepare<[string, number]>("update duels set last_activity_at = ? where id = ?");
   const touchActivity = (duelId: number) => updateActivity.run(new Date().toISOString(), duelId);
   const updateSetup = db.prepare<[string | null, number]>("update duels set setup_json = ? where id = ?");
@@ -695,6 +709,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       from duels
       where guild_id = @guild
         and status in ('lobby', 'active')
+        and not exists (select 1 from duel_kicked_players k where k.duel_id = duels.id and k.player_id = @viewer)
         and archived_at is null
         and ${LIST_ACCESS_SQL}
         and ${duelSeriesTournamentReadScope("duels.series_id")}
@@ -841,7 +856,10 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     return !!selectGrant.get(row.id, playerId);
   };
 
-  const assertRoomAccess = (row: DuelRow, playerId: number, ownerRead = false) => {
+  const assertRoomAccess = (row: DuelRow, playerId: number, ownerRead = false, allowKickedHistory = false) => {
+    const terminalPlayerRead = allowKickedHistory && row.kind === "play" && isTerminalStatus(row.status)
+      && seatRows(row.id).some(seat => seat.player_id === playerId);
+    if (!terminalPlayerRead) assertNotKicked(row, playerId);
     if (!hasPrivateAccess(row, playerId)
       && !(ownerRead && row.kind === "play" && isTerminalStatus(row.status)
         && resolveOwnerPlayer(db, { guildId: row.guild_id, playerId }))) {
@@ -1461,6 +1479,56 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     return leaveTx(slug, guildId, playerId);
   });
 
+  const requireHost = (row: DuelRow, guildId: string, hostPlayerId: number, playerId: number) => {
+    assertPlay(row);
+    assertPlayerGuild(hostPlayerId, guildId);
+    if (row.organizer_player_id !== hostPlayerId) throw new DuelServiceError("Only the host can manage players", 403);
+    if (!Number.isSafeInteger(playerId) || playerId <= 0) throw new DuelServiceError("A valid playerId is required", 400);
+    if (playerId === hostPlayerId) throw new DuelServiceError("The host cannot kick themself", 400);
+    assertPlayerGuild(playerId, guildId);
+  };
+  const kickTarget = (slug: string, guildId: string, hostPlayerId: number, playerId: number) => {
+    const row = loadDuelRow(slug, guildId);
+    requireHost(row, guildId, hostPlayerId, playerId);
+    if (row.status !== "lobby" || row.started_at !== null) {
+      throw new DuelServiceError("Players can only be kicked before the duel starts", 409);
+    }
+    const seat = seatRows(row.id).find(entry => entry.player_id === playerId);
+    if (!seat && !selectGrant.get(row.id, playerId)) throw new DuelServiceError("Player is not seated or invited to this duel", 404);
+    return seat ? mapSeat(seat) : null;
+  };
+  const kickPlayerTx = db.transaction((slug: string, guildId: string, hostPlayerId: number, playerId: number) => {
+    const target = kickTarget(slug, guildId, hostPlayerId, playerId);
+    const row = loadDuelRow(slug, guildId);
+    // The queue serializes this with opening timers and activation. An unfinished opening is cancelled.
+    if (row.opening_json !== null) db.prepare("update duels set opening_json = null where id = ?").run(row.id);
+    if (target) {
+      const current = loadDuelRow(slug, guildId);
+      if (current.series_id !== null && !isPendingChallenge(current)) {
+        // Preserve fixed assignments and registered decks, but keep the game in the lobby.
+        // A host re-invite and the player's own readiness are required before it can start.
+        updateUnready.run(row.id, playerId);
+      } else {
+        leaveLobbyTx(slug, guildId, playerId);
+      }
+    }
+    db.prepare("delete from duel_invite_grants where duel_id = ? and player_id = ?").run(row.id, playerId);
+    db.prepare("insert or ignore into duel_kicked_players (duel_id, player_id) values (?, ?)").run(row.id, playerId);
+    touchActivity(row.id);
+    return mapSession(loadDuelRow(slug, guildId));
+  });
+  const invitePlayerTx = db.transaction((slug: string, guildId: string, hostPlayerId: number, playerId: number) => {
+    const row = loadDuelRow(slug, guildId);
+    requireHost(row, guildId, hostPlayerId, playerId);
+    if (row.status !== "lobby") throw new DuelServiceError("Players can only be invited before the duel starts", 409);
+    assertNoOpening(row);
+    // Reinstating a fixed seat requires that player's own confirmation again.
+    if (selectKick.get(row.id, playerId)) updateUnready.run(row.id, playerId);
+    db.prepare("delete from duel_kicked_players where duel_id = ? and player_id = ?").run(row.id, playerId);
+    insertGrant.run(row.id, playerId);
+    touchActivity(row.id);
+  });
+
   const hostedLiveRows = (guildId: string, playerId: number) => db.prepare<[string, number], DuelRow>(`
     select * from duels where guild_id = ? and organizer_player_id = ?
       and kind = 'play' and status in ('lobby', 'active')
@@ -1715,6 +1783,14 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       return leaveTx(slug, guildId, playerId);
     },
 
+    kickTarget,
+    kickPlayer(slug, guildId, hostPlayerId, playerId) {
+      return kickPlayerTx.immediate(slug, guildId, hostPlayerId, playerId);
+    },
+    invitePlayer(slug, guildId, hostPlayerId, playerId) {
+      invitePlayerTx.immediate(slug, guildId, hostPlayerId, playerId);
+    },
+
     leaveLobby(slug, guildId, playerId) {
       // Acquire the writer lock before checking state: a concurrent start/claim must serialize here.
       return leaveLobbyTx.immediate(slug, guildId, playerId);
@@ -1737,7 +1813,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       assertPlayerGuild(playerId, guildId);
       // Read-only owner inspection grants no seat, deck, invite or mutation authority.
       // hasPrivateAccess still enforces the fork creator check before any override.
-      assertRoomAccess(row, playerId, true);
+      assertRoomAccess(row, playerId, true, options?.allowKickedHistory !== false);
       const session = mapSession(row);
       const seated = session.seats.find((seat) => seat.playerId === playerId);
       const role: DuelActorRole = seated ? "player" : "spectator";
@@ -1755,6 +1831,17 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       };
       if (!isReplayFork(row) && session.settings.visibility === "private" && playerId === session.organizerPlayerId && row.invite_code) {
         room.inviteCode = row.invite_code;
+      }
+      if (!isReplayFork(row) && playerId === session.organizerPlayerId) {
+        room.invitedPlayers = db.prepare<[number], { playerId: number; displayName: string }>(`
+          select p.id as playerId, p.display_name as displayName from duel_invite_grants g
+          join players p on p.id = g.player_id where g.duel_id = ?
+          and not exists (select 1 from duel_seats s where s.duel_id = g.duel_id and s.player_id = g.player_id)
+        `).all(row.id);
+        room.kickedPlayers = db.prepare<[number], { playerId: number; displayName: string }>(`
+          select p.id as playerId, p.display_name as displayName from duel_kicked_players k
+          join players p on p.id = k.player_id where k.duel_id = ?
+        `).all(row.id);
       }
       const linked = isReplayFork(row) || row.series_id === null ? undefined : series.byId(row.series_id);
       room.series = linked ? series.summarize(linked) : null;
@@ -1875,6 +1962,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       const row = loadDuelRow(slug, guildId);
       assertPlay(row);
       assertPlayerGuild(playerId, guildId);
+      assertNotKicked(row, playerId);
       if (rowSettings(row).visibility !== "private" || !row.invite_code) {
         throw new DuelServiceError("Duel is not invite-only", 400);
       }

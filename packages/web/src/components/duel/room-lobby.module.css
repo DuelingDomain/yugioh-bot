@@ -48,6 +48,11 @@
 .seatRemove:hover:not(:disabled) { background: var(--duel-panel-3); color: var(--duel-ink); }
 .seatRemove:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
 .seatRemove:disabled { opacity: 0.5; cursor: default; }
+/* Host kick control: same corner as the remove-bot X; the name keeps clear of it. */
+.seatKick { position: absolute; top: 8px; right: 8px; }
+.seat[data-kickable="true"] .seatText { padding-right: 74px; }
+.seat[data-removed="true"] { border-style: dashed; border-color: rgb(228 90 77 / 0.3); }
+.seat[data-removed="true"] .avatar { color: var(--duel-ink-3); }
 .seatOpen { border-style: dashed; border-color: var(--duel-rule-lo); background: none; }
 .seatAction { grid-area: status; justify-self: start; }
 .avatar { grid-area: avatar; display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--duel-rule); border-radius: 50%; background: var(--duel-panel-3); color: var(--duel-ink); font-size: 18px; font-weight: 400; }
@@ -83,6 +88,10 @@
   .seats { grid-template-columns: minmax(0, 1fr); }
   .seat { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "avatar text status"; padding: 12px; gap: 10px; }
   .seatActions { flex-direction: column; align-items: flex-end; gap: 6px; }
+  /* The Kick control moves into its own row so it never covers the status pills. */
+  .seat[data-kickable="true"] { grid-template-areas: "avatar text status" "kick kick kick"; }
+  .seat[data-kickable="true"] .seatText { padding-right: 0; }
+  .seatKick { position: static; grid-area: kick; justify-self: end; }
   .group[data-team="true"] { padding: 10px; }
   .panel { padding: 16px; }
   .footer > button:first-child { flex: 1 1 100%; }
