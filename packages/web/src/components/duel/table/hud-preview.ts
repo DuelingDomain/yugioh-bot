@@ -2,7 +2,7 @@ import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 
 type Owner = { name: string; main: string; ink: string };
 
-export type HudPreview = { card: DuelCard | DuelCardInfo; owner: Owner | null; pinned?: true };
+export type HudPreview = { card: DuelCard | DuelCardInfo; owner: Owner | null; pinned?: true; /** Shown for an open card action menu, so the player reads the card they are acting on: "Off" keeps it. */ held?: true };
 
 /**
  * What the HUD's left hover preview shows. A hovered or focused board card wins (a different card switches the panel).
@@ -27,6 +27,10 @@ export function hudPreview(
   // A menu card without a code has no art to show, as on the hover path.
   const menuBoard = menuCard && menuCard.code != null ? menuCard : null;
   const board = hover ?? menuBoard;
-  if (board) return { card: board, owner: ownerOf(board) };
+  if (board) {
+    const held = menuBoard != null && (hover == null || (hover.code === menuBoard.code && hover.controller === menuBoard.controller
+      && hover.location === menuBoard.location && hover.sequence === menuBoard.sequence));
+    return held ? { card: board, owner: ownerOf(board), held: true } : { card: board, owner: ownerOf(board) };
+  }
   return rowCard ? { card: rowCard, owner: null } : null;
 }
