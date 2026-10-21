@@ -171,3 +171,17 @@ it.each(["duel", "draft"])("returns a no-store 404 if the %s disappears after ac
     expect(response.status).toBe(404); expect(response.headers.get("cache-control")).toContain("no-store");
   } finally { spy.mockRestore(); }
 });
+
+it("attributes draft card lookups to the owner's existing player, never the watched player", async () => {
+  db.exec("insert into players(id,guild_id,discord_user_id,display_name,user_id) values(11,'g','owner','Owner',1)");
+  const d = seedDraft("booster");
+  expect((await draft(d.webSlug!, "?seat=13")).status).toBe(200);
+  const lookups = callHost.mock.calls.map(([input]) => input).filter(input => ["normalize-codes", "card-details"].includes(input.op));
+  expect(lookups.length).toBeGreaterThan(0);
+  for (const input of lookups) expect(input).toMatchObject({ playerId: 11, userId: 1 });
+});
+it("does not borrow the draft POV identity when the owner has no gameplay player", async () => {
+  const d = seedDraft("booster"); expect((await draft(d.webSlug!, "?seat=13")).status).toBe(200);
+  expect(callHost.mock.calls.map(([input]) => input).filter(input => ["normalize-codes", "card-details"].includes(input.op))).toEqual([]);
+  expect(db.prepare("select id from players where user_id=1").all()).toEqual([]);
+});

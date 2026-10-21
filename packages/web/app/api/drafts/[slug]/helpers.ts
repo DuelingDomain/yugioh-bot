@@ -296,10 +296,13 @@ export async function buildDraftResponse(slug: string, actor: { userId: number; 
 
   // Monster type and spell/trap kind come from the duel engine. Without it (or without a seat to ask
   // it as) the cards carry no types and the room hides those chip rows.
-  const engineTypes = currentPlayer && isParticipant
+  const lookupPlayer = spectator
+    ? db.prepare("select id from players where guild_id=? and user_id=?").get(draft.guild_id, actor.userId) as { id: number } | undefined
+    : currentPlayer;
+  const engineTypes = lookupPlayer && isParticipant
     ? await lookupDraftCardTypes(
         [...currentPackCards, ...myPoolCards].map((card) => card.catalogCardId),
-        { guildId: draft.guild_id, playerId: currentPlayer.id },
+        { guildId: draft.guild_id, playerId: lookupPlayer.id, userId: actor.userId },
       )
     : new Map<number, EngineCardTypes>();
   // The whole pack is sent. A card the viewer already holds the per-player maximum of is marked

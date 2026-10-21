@@ -1,3 +1,4 @@
+import { isOwnerUser } from "@/lib/owner-access";
 import { auth } from "@/lib/auth";
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
@@ -65,7 +66,10 @@ async function aliasOf(passcode: number): Promise<number | null | undefined> {
   aliases.delete(passcode);
   const artwork = artworkOf(passcode);
   if (artwork && artwork.card_id !== passcode) return rememberAlias(passcode, artwork.card_id);
-  const actor = await requireDuelActor({ createPlayer: false });
+  const session = await auth();
+  // Owner watch must not register gameplay identity; normal image readers keep alias fallback.
+  const owner = !!session && isOwnerUser(Number(session.user.id));
+  const actor = await requireDuelActor({ createPlayer: !owner });
   if (!actor.ok) {
     if (actor.response.status === 401 || actor.response.status === 403 || actor.response.status === 404) return undefined;
     throw new CardFetchError(1, actor.response.status);
