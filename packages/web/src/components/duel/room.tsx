@@ -111,6 +111,7 @@ import {
   optionsForCard,
   optionZoneKeys,
   PromptTray,
+  ReadOnlyPromptContext,
   promptLegalKeys,
   promptSelectedKeys,
   usePromptDraft,
@@ -1370,7 +1371,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }
   // Every board of this duel (live tables, 3D, flat) cracks from the same scope: duel id for the seed, starting LP of one side.
   const withCracks = (node: ReactNode) => (
-    <FieldCracksScope duelKey={slug} format={data.session.format} settings={data.session.settings} replay={forkMode}>{node}</FieldCracksScope>
+    <ReadOnlyPromptContext.Provider value={readOnly}>
+      <FieldCracksScope duelKey={slug} format={data.session.format} settings={data.session.settings} replay={forkMode}>{node}</FieldCracksScope>
+    </ReadOnlyPromptContext.Provider>
   );
   if (liveTable && liveController) {
     // One seam set for both live shells, so the room stays one code path.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useEffect, useId, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type {
   DuelAnswer,
   DuelCard,
@@ -21,6 +21,9 @@ import { tributeClick, tributeState } from "./tribute-pick";
 import baseStyles from "./prompts.module.css";
 import { anyEdgeDrawerOpen } from "./edge-drawer";
 import { useSkinStyles } from "./skin";
+
+/** Watching another seat must not make gameplay requests on the viewer's behalf. */
+export const ReadOnlyPromptContext = createContext(false);
 
 export interface PromptDraft {
   selected: string[];
@@ -384,6 +387,7 @@ export function AnnounceSearch({
 }) {
   const styles = useSkinStyles(baseStyles, "tray");
   const fork = useContext(ForkSearchContext);
+  const readOnly = useContext(ReadOnlyPromptContext);
   // The search is tied to a seat, a prompt and a revision. A new reading of the same prompt must not restart it, and
   // results found for another binding must not stay pickable.
   const forkKey = fork ? `${fork.as}:${fork.promptId}:${fork.revision}` : "";
@@ -403,6 +407,7 @@ export function AnnounceSearch({
   const pending = searching || (!error && stale);
 
   useEffect(() => {
+    if (readOnly) return;
     let cancelled = false;
     setSearching(true);
     setError(null);
@@ -433,11 +438,13 @@ export function AnnounceSearch({
       cancelled = true;
       if (handle !== undefined) window.clearTimeout(handle);
     };
-  }, [trimmed, slug, forkKey]);
+  }, [trimmed, slug, forkKey, readOnly]);
 
   useEffect(() => {
     list.current?.querySelector<HTMLElement>(`[data-active="true"]`)?.scrollIntoView?.({ block: "nearest" });
   }, [highlight, response]);
+
+  if (readOnly) return null;
 
   return (
     <div className={styles.search}>
