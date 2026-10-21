@@ -63,6 +63,7 @@ export function Ffa3Preview({ stateId, cam, lock, review = false, out = null, af
           initialLock={preview.lock}
           initialOutOrder={state.ui?.initialOutOrder}
           chainMode={preview.chainMode}
+          headerTools={preview.headerTools}
         />
       )}
     />

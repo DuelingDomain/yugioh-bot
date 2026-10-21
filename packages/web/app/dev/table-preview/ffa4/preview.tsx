@@ -70,6 +70,7 @@ export function Ffa4Preview({ stateId, cam, lock, review = false, out = null, pi
           initialLock={preview.lock}
           initialOutOrder={state.ui?.initialOutOrder}
           chainMode={preview.chainMode}
+          headerTools={preview.headerTools}
           hubPlace={hub === "center" ? "center" : "band"}
         />
       )}
