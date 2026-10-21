@@ -168,10 +168,12 @@ services:
       target: worker
     restart: unless-stopped
     init: true
+    mem_limit: 384m
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     stop_grace_period: 150s
     environment:
+      - NODE_OPTIONS=--max-old-space-size=256
       - SENTRY_DSN=${SENTRY_DSN:-}
       - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
       - SENTRY_RELEASE=${SENTRY_RELEASE:-}
