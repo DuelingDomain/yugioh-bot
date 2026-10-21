@@ -63,7 +63,7 @@ function Detail({ userId, fallback, live, onClose, open }: { userId: UserKey | n
             <div className={styles.whereV}>{current.label} · {current.name}</div>
             <div className={styles.whereD}>{placeDetail(current, live)}</div>
             <div className={styles.btns}>
-              <WatchLink href={current.href} primary label={current.kind === "duel" ? "Watch duel" : "Watch draft"} />
+              <WatchLink href={`/admin/watch/${current.kind}/${current.slug}`} primary label={current.kind === "duel" ? "Watch duel" : "Watch draft"} />
             </div>
           </>
         ) : (
