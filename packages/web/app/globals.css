@@ -35,7 +35,7 @@
    A new duel layer takes the first token that fits; it does not take a new number. */
 :root {
   /* The width of the left card drawer; the pile window leaves this much room on its left (pile-viewer.module.css). */
-  --duel-drawer-w: min(88vw, clamp(300px, 24vw, 500px));
+  --duel-drawer-w: min(88vw, clamp(260px, 22vw, 460px));
   --app-z-sheet: 50;           /* shared Sheet dialogs and notices immediately below them */
   --duel-z-board: 1;            /* the board box: hand cards grow over the header and station track */
   --duel-z-fx: 10;              /* board FX: aim arrow, equip links, chain badges, card flights, wipe canvas */
