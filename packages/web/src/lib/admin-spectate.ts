@@ -3,7 +3,7 @@ import { isOwnerUser } from "@/lib/owner-access";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { canAdminSpectate } from "@yugidraft/shared/services";
+import { canAdminSpectate, isAdminSpectateParticipant } from "@yugidraft/shared/services";
 import { ADMIN_SPECTATE_TTL_MS, createAdminSpectateToken } from "@yugidraft/shared/ws";
 import { log } from "@yugidraft/shared/observability";
 
@@ -15,7 +15,13 @@ export async function requireAdminSpectate(kind: "duel" | "draft", slug: string)
   const guildId = env.discordGuildId;
   try {
     const db = getDb();
-    if (!canAdminSpectate(db, { kind, slug, guildId, userId: actor.userId })) return { ok: false as const, response: spectateJson({ error: "Not found" }, 404) };
+    const target = { kind, slug, guildId, userId: actor.userId };
+    if (!canAdminSpectate(db, target)) {
+      const participant = isAdminSpectateParticipant(db, target);
+      return { ok: false as const, response: spectateJson(participant
+        ? { error: "Admin watch is unavailable while you are a player or invitee in this live game. Open the player view instead.", code: "ADMIN_SPECTATE_PARTICIPANT" }
+        : { error: "Not found" }, 404) };
+    }
     return { ...actor, db, guildId };
   } catch { return { ok: false as const, response: spectateJson({ error: "Spectating is unavailable" }, 503) }; }
 }

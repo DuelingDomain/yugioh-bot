@@ -69,3 +69,24 @@ it("prunes revoked admins before ordinary player presence is broadcast", async (
   await player.emitWithAck("duel:join", { token: createDuelConnectionToken({ slug: "private", guildId: "g", playerId: 12, seat: 0, expiresAt: Date.now() + 60_000 }, secret) });
   await expired; expect(seen).toEqual([]);
 });
+
+it.each(["duel", "draft"] as const)("refuses a seated owner and a pending invitee for %s", async kind => {
+  db.exec("insert into players(id,guild_id,discord_user_id,display_name,user_id) values(11,'g','owner','Owner',1)");
+  if (kind === "duel") db.exec("insert into duel_seats(duel_id,seat,player_id) values(1,0,11)");
+  else db.exec("insert into draft_players(draft_id,player_id) values(1,11)");
+  const c = await client();
+  expect(await c.emitWithAck("admin:spectate", { token: token(kind) })).toEqual({ ok: false });
+  if (kind === "duel") db.exec("delete from duel_seats; insert into duel_invite_grants(duel_id,player_id) values(1,11)");
+  else db.exec("delete from draft_players; insert into draft_invite_grants(draft_id,user_id) values(1,1)");
+  expect(await c.emitWithAck("admin:spectate", { token: token(kind) })).toEqual({ ok: false });
+  expect([...io.sockets.sockets.get(c.id!)!.rooms]).toEqual([c.id]);
+});
+
+it("prunes an existing watch subscription when the owner takes a seat", async () => {
+  const c = await client();
+  expect(await c.emitWithAck("admin:spectate", { token: token() })).toEqual({ ok: true });
+  db.exec("insert into players(id,guild_id,discord_user_id,display_name,user_id) values(11,'g','owner','Owner',1); insert into duel_seats(duel_id,seat,player_id) values(1,0,11)");
+  const expired = new Promise(resolve => c.once("admin:spectate-expired", resolve));
+  events.prune("duel", "private", "g"); await expired;
+  expect(io.sockets.adapter.rooms.get("duel:g:private")?.size ?? 0).toBe(0);
+});

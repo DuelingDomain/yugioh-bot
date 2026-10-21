@@ -3,10 +3,30 @@ import { isOwnerUser } from "../access/owner-access.js";
 import type { AdminSpectateClaims } from "../ws/admin-spectate-token.js";
 import { resolveDraftDatabasePath } from "./draft-access.js";
 
-/** Current owner policy and configured guild, checked before any private read or broadcast. No writes. */
-export function canAdminSpectate(db: Database.Database, claims: Pick<AdminSpectateClaims, "userId" | "guildId" | "slug" | "kind">): boolean {
+type SpectateTarget = Pick<AdminSpectateClaims, "userId" | "guildId" | "slug" | "kind">;
+
+/** A live player or invitee must use the ordinary player view, even when they own the site. */
+export function isAdminSpectateParticipant(db: Database.Database, claims: SpectateTarget): boolean {
+  if (claims.kind === "duel") return !!db.prepare(`select 1 from duels d
+    where d.web_slug=? and d.guild_id=? and d.status in ('lobby','active') and (
+      exists(select 1 from duel_seats s join players p on p.id=s.player_id
+        where s.duel_id=d.id and p.user_id=?) or
+      exists(select 1 from duel_invite_grants i join players p on p.id=i.player_id
+        where i.duel_id=d.id and p.user_id=?))`).get(claims.slug, claims.guildId, claims.userId, claims.userId);
+  if (claims.kind === "draft") return !!db.prepare(`select 1 from drafts d
+    where d.web_slug=? and d.guild_id=? and d.status in ('pending','active') and (
+      exists(select 1 from draft_players dp join players p on p.id=dp.player_id
+        where dp.draft_id=d.id and p.user_id=?) or
+      exists(select 1 from draft_invite_grants i where i.draft_id=d.id and i.user_id=?))`)
+    .get(claims.slug, claims.guildId, claims.userId, claims.userId);
+  return false;
+}
+
+/** Current owner policy, guild and live participation, checked before private reads or broadcasts. No writes. */
+export function canAdminSpectate(db: Database.Database, claims: SpectateTarget): boolean {
   if (!isOwnerUser(claims.userId) || !process.env.DISCORD_GUILD_ID || claims.guildId !== process.env.DISCORD_GUILD_ID) return false;
   if (!db.prepare("select 1 from users where id=?").get(claims.userId)) return false;
+  if (isAdminSpectateParticipant(db, claims)) return false;
   if (claims.kind === "duel") return !!db.prepare("select 1 from duels where web_slug=? and guild_id=? and kind='play'").get(claims.slug, claims.guildId);
   if (claims.kind === "draft") return !!db.prepare("select 1 from drafts where web_slug=? and guild_id=?").get(claims.slug, claims.guildId);
   return false;

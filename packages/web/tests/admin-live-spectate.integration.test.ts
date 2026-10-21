@@ -107,3 +107,24 @@ it("does not return a private host response after owner access is revoked in fli
   const response = await duel("?seat=0"); expect(response.status).toBe(404);
   expect(await response.text()).not.toContain("secret"); expect(response.headers.get("cache-control")).toContain("no-store");
 });
+
+it.each(["seat", "invite"])("denies an owner's live duel %s for both public and opposing POVs", async mode => {
+  table();
+  db.exec("insert into players(id,guild_id,discord_user_id,display_name,user_id) values(11,'g','owner','Owner',1)");
+  if (mode === "seat") db.exec("insert into duel_seats(duel_id,seat,player_id) values(1,0,11)");
+  else db.exec("insert into duel_invite_grants(duel_id,player_id) values(1,11)");
+  for (const seat of ["public", "1"]) {
+    const response = await duel(`?seat=${seat}`);
+    expect(response.status).toBe(404); expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(await response.json()).toMatchObject({ code: "ADMIN_SPECTATE_PARTICIPANT" });
+  }
+  expect(callHost).not.toHaveBeenCalled();
+});
+it.each(["seat", "invite"])("denies an owner's live draft %s", async mode => {
+  const d = seedDraft("booster");
+  if (mode === "seat") db.exec("update players set user_id=1 where id=12");
+  else db.prepare("insert into draft_invite_grants(draft_id,user_id) values(?,1)").run(d.id);
+  const response = await draft(d.webSlug!, "?seat=13");
+  expect(response.status).toBe(404); expect(await response.json()).toMatchObject({ code: "ADMIN_SPECTATE_PARTICIPANT" });
+  expect(callHost).not.toHaveBeenCalled();
+});
