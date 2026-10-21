@@ -137,6 +137,25 @@ function tinyHandRect(row: HTMLElement | null): DOMRect | null {
   return box;
 }
 
+/**
+ * An empty hand (every card played or discarded): where the first card would stand in the row, at the size of the hidden
+ * card probe beside the row (`data-hand-size-probe` of a field hand, `data-emblem-probe` of the Tag hand). The emblem then
+ * keeps its place and size beside the hand instead of falling back onto the name plate. The probe is the element, so its
+ * layout box gives the card size. Null: no probe.
+ */
+function loneHandCard(row: HTMLElement): { rect: DOMRect; el: HTMLElement } | null {
+  const probe = row.parentElement?.querySelector<HTMLElement>('[data-hand-size-probe][data-side="you"], [data-emblem-probe]');
+  const size = probe ? visible(probe) : null;
+  if (!probe || !size) return null;
+  const box = row.getBoundingClientRect();
+  const style = getComputedStyle(row);
+  const px = (value: string) => Number.parseFloat(value) || 0;
+  // A centred row (a field hand) puts a lone card in its middle; a row that starts at its left (Tag) puts it first.
+  const left = style.justifyContent.includes("center") ? box.left + box.width / 2 - size.width / 2 : box.left + px(style.paddingLeft);
+  const top = style.alignItems.includes("start") ? box.top + px(style.paddingTop) : box.bottom - px(style.paddingBottom) - size.height;
+  return { rect: new DOMRect(left, top, size.width, size.height), el: probe };
+}
+
 /** Does a box come within a few pixels of a control the emblem must not cover? */
 function overlapsControl(controls: DOMRect[], x: number, y: number, w: number, h: number): boolean {
   return controls.some((r) => x < r.right + 4 && x + w > r.left - 4 && y < r.bottom + 1 && y + h > r.top - 1);
@@ -227,6 +246,7 @@ export function measureEmblem(slot: HTMLElement | null, seat: number, apart: boo
       const rect = visible(el);
       if (rect && (!first || rect.left < first.rect.left)) first = { rect, el };
     }
+    if (!first) first = loneHandCard(row);
   }
   if (first && apart === "corner") {
     const spot = cornerSpot(seat, first.rect, vh, controls);

@@ -83,6 +83,8 @@ export function OwnHand({ seat, cards, legalKeys, selectedKeys, onActivate, onIn
           <small>hand</small>
         </div>
       </div>
+      {/* One card's size, for the Deck Master emblem beside an empty hand (master-badge.tsx). It takes no space and no pointer. */}
+      <span className={`${styles.hcard} ${styles.hprobe}`} data-emblem-probe="" aria-hidden="true" />
     </div>
   );
 }
