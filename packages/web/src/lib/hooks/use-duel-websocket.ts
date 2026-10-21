@@ -56,12 +56,14 @@ export function useDuelWebsocket(
   onChange: () => Promise<unknown>,
   spectate = false,
   quiet?: () => boolean,
+  /** Admin watch: a read-only subscription to any table (see use-admin-spectate.ts). It joins with the admin token and never sends a player event. */
+  admin = false,
 ): DuelWebsocketState {
   const changeRef = useRef(onChange);
   changeRef.current = onChange;
   const quietRef = useRef(quiet);
   quietRef.current = quiet;
-  const roomKey = `${slug}:${String(seat)}:${spectate}`;
+  const roomKey = `${slug}:${String(seat)}:${spectate}:${admin}`;
   const roomKeyRef = useRef(roomKey);
   roomKeyRef.current = roomKey;
   const [connection, setConnection] = useState<Snapshot>(idle("", { syncing: false, recovering: false }));
@@ -74,7 +76,7 @@ export function useDuelWebsocket(
       return;
     }
 
-    const myKey = `${slug}:${String(seat)}:${spectate}`;
+    const myKey = `${slug}:${String(seat)}:${spectate}:${admin}`;
     let disposed = false;
     let joining = false;
     let subscribed = false;
@@ -241,7 +243,8 @@ export function useDuelWebsocket(
       try {
         let result!: DuelJoinAck;
         for (let attempt = 0; attempt < 2; attempt++) {
-          const response = await fetch(`/api/duels/${encodeURIComponent(slug)}/connection${spectate ? "?spectate=1" : ""}`, {
+          const response = await fetch(admin ? `/api/admin/duels/${encodeURIComponent(slug)}/connection`
+            : `/api/duels/${encodeURIComponent(slug)}/connection${spectate ? "?spectate=1" : ""}`, {
             cache: "no-store", signal: AbortSignal.any([request.signal, AbortSignal.timeout(8000)]),
           });
           if (!response.ok) {
@@ -253,6 +256,13 @@ export function useDuelWebsocket(
           guildId = credentials.guildId;
           const token = credentials.token;
           result = await new Promise<DuelJoinAck>((resolve, reject) => {
+            if (admin) {
+              socket.timeout(5000).emit("admin:spectate", { token }, (error: Error | null, answer: { ok: boolean }) => {
+                if (error) reject(error);
+                else resolve(answer?.ok ? { ok: true, onlineSeats: [], spectatorCount: 0 } as DuelJoinAck : { ok: false, error: "invalid token" } as DuelJoinAck);
+              });
+              return;
+            }
             socket.timeout(5000).emit("duel:join", { token, visible: document.visibilityState === "visible" }, (error: Error | null, answer: DuelJoinAck) => {
               if (error) reject(error);
               else resolve(answer);
@@ -268,11 +278,11 @@ export function useDuelWebsocket(
         subscribed = true;
         joinRetryMs = JOIN_RETRY_MS;
         // Visibility can change while the join acknowledgement is in flight.
-        socket.emit("duel:visibility", { visible: document.visibilityState === "visible" });
+        if (!admin) socket.emit("duel:visibility", { visible: document.visibilityState === "visible" });
         patch((current) => ({
           ...current,
           slug,
-          presence: { onlineSeats: result.onlineSeats, spectatorCount: result.spectatorCount },
+          presence: admin ? null : { onlineSeats: result.onlineSeats, spectatorCount: result.spectatorCount },
           syncing: true,
           connected: recoverSnapshot ? false : current.connected,
           recovering: recoverSnapshot ? true : current.recovering,
@@ -308,7 +318,7 @@ export function useDuelWebsocket(
     // the window is not lost to a disabled button. A failed read still raises `recovering` (see pump).
     const onFocus = () => { void refresh(live ? { quiet: true } : { recovery: true }).catch(() => {}); };
     const onVisibility = () => {
-      if (socket.connected && subscribed) socket.emit("duel:visibility", { visible: document.visibilityState === "visible" });
+      if (socket.connected && subscribed && !admin) socket.emit("duel:visibility", { visible: document.visibilityState === "visible" });
       if (document.visibilityState !== "visible") return;
       // Coming back to the tab is a catch-up read, as a window focus is: on a live socket it stays quiet. Raising
       // `recovering` here shut every prompt button until the read ended, and the first click after alt-tabbing back was lost.
@@ -320,7 +330,7 @@ export function useDuelWebsocket(
       if (event.persisted) onVisibility();
     };
     const onPageHide = () => {
-      if (socket.connected && subscribed) socket.emit("duel:visibility", { visible: false });
+      if (socket.connected && subscribed && !admin) socket.emit("duel:visibility", { visible: false });
     };
 
     socket.on("connect", () => void join());
@@ -341,6 +351,14 @@ export function useDuelWebsocket(
       updateLive(false);
       patch({ connected: false, presence: null, recovering: true });
       void refresh({ recovery: true }).catch(() => {});
+      void join();
+    });
+    // The admin feed ends on its own clock; the join above asks for a new token.
+    socket.on("admin:spectate-expired", (event: { kind: string; slug: string }) => {
+      if (!admin || event.slug !== slug || !isCurrent()) return;
+      subscribed = false;
+      updateLive(false);
+      patch({ connected: false, presence: null, recovering: true });
       void join();
     });
     window.addEventListener("focus", onFocus);
@@ -367,7 +385,7 @@ export function useDuelWebsocket(
       if (guildId && socket.connected) socket.emit("duel:leave", { slug, guildId });
       socket.disconnect();
     };
-  }, [slug, seat, spectate]);
+  }, [slug, seat, spectate, admin]);
 
   if (connection.slug === slug) return { ...connection, resync };
   return { ...idle(slug, { syncing: Boolean(slug), recovering: Boolean(slug) }), resync };

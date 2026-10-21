@@ -13,3 +13,45 @@
 .cards img { width: 100%; aspect-ratio: 0.686; object-fit: contain; }
 .cards figcaption { margin-top: 6px; font-size: 12px; }
 @media (max-width: 640px) { .watch { padding: 12px; } .selector { align-items: flex-start; flex-direction: column; } }
+
+/* ---- Duel watch: the real player board with a floating read-only bar ---- */
+.watchRoot { position: relative; }
+.bar {
+  position: fixed; z-index: 90; top: 6px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 16px);
+  padding: 5px 8px 5px 10px; border-radius: 12px;
+  background: rgb(8 11 20 / 0.92); border: 1px solid rgb(200 165 95 / 0.45);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.55); backdrop-filter: blur(6px);
+  color: #e8e8ed; font-size: 12px; line-height: 1.2;
+}
+.badge { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: #e4c77a; font-weight: 600; }
+.badge em { font-style: normal; font-weight: 500; color: #a4a4b5; padding-left: 6px; border-left: 1px solid rgb(255 255 255 / 0.18); }
+.chips { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.chip {
+  --tone: #8a8a9a; --tone-ink: #ddd;
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 28px; padding: 3px 9px; border-radius: 8px;
+  border: 1px solid rgb(255 255 255 / 0.14); background: rgb(255 255 255 / 0.04); color: #cfd0da; cursor: pointer;
+}
+.chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--tone); box-shadow: 0 0 6px var(--tone); }
+.chip small { color: #8e8fa0; font-size: 10px; }
+.chipName { font-weight: 600; max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip:hover { border-color: var(--tone); color: #fff; }
+.chip[data-active] { border-color: var(--tone); background: color-mix(in srgb, var(--tone) 22%, transparent); color: #fff; }
+.chip:focus-visible, .back:focus-visible { outline: 2px solid #e4c77a; outline-offset: 2px; }
+.turnMark, .actMark { font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 1px 4px; border-radius: 4px; }
+.turnMark { background: rgb(255 255 255 / 0.14); color: #fff; }
+.actMark { background: #e4b64f; color: #1a1306; }
+.status { white-space: nowrap; color: #a4a4b5; }
+.back { white-space: nowrap; color: #e4c77a; padding: 4px 8px; border-radius: 6px; border: 1px solid rgb(200 165 95 / 0.35); text-decoration: none; }
+.back:hover { background: rgb(200 165 95 / 0.15); }
+.lobby { max-width: 560px; margin: 90px auto 0; padding: 24px; color: #e8e8ed; }
+.lobby h1 { font-size: 24px; font-weight: 600; margin-bottom: 6px; }
+.lobby p { color: #a4a4b5; margin-bottom: 16px; }
+.lobby ul { display: grid; gap: 8px; list-style: none; padding: 0; }
+.lobby li { display: grid; grid-template-columns: 70px 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid rgb(255 255 255 / 0.14); border-radius: 8px; }
+.lobbySeat, .lobbyState { color: #a4a4b5; font-size: 12px; }
+@media (max-width: 720px) {
+  .bar { top: 0; left: 0; right: 0; transform: none; max-width: none; border-radius: 0 0 10px 10px; flex-wrap: wrap; row-gap: 4px; }
+  .chips { order: 3; flex-basis: 100%; }
+  .status { margin-left: auto; }
+}

@@ -62,6 +62,10 @@ export interface DraftRoomProps {
    * draft has changed; it rejects with the words to show. Left out, the room has no Cancel button.
    */
   onCancel?: () => Promise<void>;
+  /** Admin live watch: the room shows one player's view and sends nothing (no pick, no table talk, no cancel). */
+  readOnly?: boolean;
+  /** Admin live watch: the point-of-view bar. It lives inside the room layer, which makes the rest of the page inert. */
+  adminBar?: React.ReactNode;
 }
 
 const PHONE = "(max-width: 900px)";
@@ -87,7 +91,7 @@ const canRestoreFocus = (el: HTMLElement | null | undefined): el is HTMLElement 
   return true;
 };
 
-export function DraftRoom({ slug, name, config, isParticipant, onCancel }: DraftRoomProps) {
+export function DraftRoom({ slug, name, config, isParticipant, onCancel, readOnly = false, adminBar }: DraftRoomProps) {
   const rs = useRoomState(config, isParticipant);
   const { sizes, deal, turn, direction } = rs;
   const [motion, setMotion] = useMotionSetting();
@@ -167,7 +171,7 @@ export function DraftRoom({ slug, name, config, isParticipant, onCancel }: Draft
   /* ---------- table talk: a few fixed words to the table ---------- */
   const heard = useTalkStore((s) => s.heard);
   const myPlayerId = useDraftStore((s) => s.seats.find((x) => x.isCurrentPlayer)?.playerId ?? null);
-  const canSay = isParticipant && myPlayerId != null;
+  const canSay = isParticipant && !readOnly && myPlayerId != null;
   const sayOpen = sayAnchor != null;
   const cancelling = cancelOpen && !!onCancel;
   useEffect(() => {
@@ -464,6 +468,7 @@ export function DraftRoom({ slug, name, config, isParticipant, onCancel }: Draft
 
   const doPick = useCallback(
     (cardId: number): Promise<boolean> => {
+      if (readOnly) return Promise.resolve(false);
       const root = rootRef.current;
       const card = deal.dealt.find((c) => c.id === cardId);
       // a card the player holds the maximum copies of cannot be picked
@@ -480,7 +485,7 @@ export function DraftRoom({ slug, name, config, isParticipant, onCancel }: Draft
         return sent;
       });
     },
-    [deal.dealt, pick],
+    [deal.dealt, pick, readOnly],
   );
 
   useEffect(() => {
@@ -504,7 +509,7 @@ export function DraftRoom({ slug, name, config, isParticipant, onCancel }: Draft
   /* ---------- selecting ---------- */
   const select = useCallback(
     (id: number | null, focus: boolean) => {
-      if (turn !== "picking" || holdDeal) return;
+      if (turn !== "picking" || holdDeal || readOnly) return;
       setSelectedId(id);
       if (id == null) return;
       if (focus) {
@@ -513,16 +518,16 @@ export function DraftRoom({ slug, name, config, isParticipant, onCancel }: Draft
       }
       if (phone) openSheet("card");
     },
-    [turn, holdDeal, phone, openSheet],
+    [turn, holdDeal, phone, openSheet, readOnly],
   );
   const onCardClick = useCallback(
     (card: RoomCard) => {
-      if (turn !== "picking") return;
+      if (turn !== "picking" || readOnly) return;
       if (phone) return select(card.id, false);
       if (selectedId === card.id) return doPick(card.id);
       select(card.id, false);
     },
-    [turn, phone, selectedId, select, doPick],
+    [turn, phone, selectedId, select, doPick, readOnly],
   );
   const onCardFocus = useCallback(
     (card: RoomCard) => {
@@ -822,6 +827,7 @@ export function DraftRoom({ slug, name, config, isParticipant, onCancel }: Draft
 
   return (
     <FullscreenLayer ref={rootRef} label="Draft room" attrs={attrs}>
+      {adminBar}
       {/* The confirm dialog is a sibling of .room, so the whole room is locked while it is open: no Tab, click or key reaches it. */}
       <div className="room" inert={cancelling}>
         <RoomBar

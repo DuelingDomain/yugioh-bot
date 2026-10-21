@@ -306,6 +306,16 @@ export async function getDuelRoom(slug: string, spectate = false, fork: ForkView
   return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(duelRoomKey(slug, spectate, fork), { cache: "no-store" })));
 }
 
+/** Admin watch: the room as one seat sees it (`pov`) or the neutral public view (null). Read-only; the server refuses everyone but the owner. */
+export function adminDuelRoomKey(slug: string, pov: number | null): string {
+  return `/api/admin/duels/${encodeURIComponent(slug)}/spectate?seat=${pov ?? "public"}`;
+}
+
+export async function getAdminDuelRoom(slug: string, pov: number | null): Promise<ReceivedDuelRoom> {
+  const body = await parseBody<{ room: DuelRoom }>(await fetch(adminDuelRoomKey(slug, pov), { cache: "no-store" }));
+  return withRoomReceivedAt(body.room);
+}
+
 export async function acceptDuelInvite(slug: string, inviteCode: string): Promise<ReceivedDuelRoom> {
   return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(`/api/duels/${encodeURIComponent(slug)}/invite`, {
     method: "POST",

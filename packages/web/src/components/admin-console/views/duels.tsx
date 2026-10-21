@@ -159,7 +159,7 @@ export function DuelsView({ s, actions }: { s: Snapshots; actions: ConsoleAction
                   <small className={styles.ago}>{d.startedAt ? <><Since at={d.startedAt} /> playing</> : <>open <Since at={d.createdAt} /></>}</small>
                 </div>
                 <div className={`${styles.cAgo} ${styles.num}`} role="cell"><Since at={d.startedAt ?? d.createdAt} suffix=" ago" /></div>
-                <div className={styles.cAct} role="cell"><WatchLink href={d.watchHref} label={d.status === "lobby" ? "Open" : "Watch"} /></div>
+                <div className={styles.cAct} role="cell"><WatchLink href={d.watchHref} label="Watch" title={d.status === "lobby" ? "Waiting table: opens the seat list" : undefined} /></div>
               </div>
             );
           })}
@@ -190,7 +190,7 @@ export function DuelsView({ s, actions }: { s: Snapshots; actions: ConsoleAction
                     <div className={styles.bar}><span style={{ width: `${pct}%` }} /></div>
                   </div>
                   <div className={`${styles.cAgo} ${styles.num}`} role="cell"><Since at={d.startedAt ?? d.createdAt} suffix=" ago" /></div>
-                  <div className={styles.cAct} role="cell"><WatchLink href={d.href} label="Open" /></div>
+                  <div className={styles.cAct} role="cell"><WatchLink href={d.href} label="Watch" title={d.status === "pending" ? "Waiting lobby: opens the player list" : undefined} /></div>
                 </div>
               );
             })}

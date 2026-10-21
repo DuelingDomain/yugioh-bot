@@ -20,6 +20,7 @@ import { DeckSurrenderContext, type DeckSurrenderValue } from "./deck-surrender"
 import { BugReportHeaderButton } from "../bug-report/bug-report-header-button";
 import { BugReportMenuButton } from "../bug-report/bug-report-menu-button";
 import { useBugReportRoom } from "../bug-report/room-store";
+import { AdminLobbyPanel } from "../admin-console/watch-lobby";
 import { connectionLabel as labelForConnection } from "./connection-label";
 import { Sheet } from "@/components/ui/sheet";
 import { useDuelWebsocket } from "@/lib/hooks/use-duel-websocket";
@@ -43,6 +44,8 @@ import {
   cancelReplayFork,
   duelRoomKey,
   getDuelRoom,
+  getAdminDuelRoom,
+  adminDuelRoomKey,
   isDuelAccessError,
   takeDuelSeat,
   leaveDuel,
@@ -173,8 +176,19 @@ const SOLID_SHEET_CLASS = "bg-[color:var(--ink-1)] border-t border-[color:var(--
 type AimLock = { promptId: string; optionId: string; key: string; anchor: HTMLElement; name: string };
 
 
-export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage = false, spectate = false, actorPlayerId = null, viewOverride }: {
+/**
+ * Admin watch (owner only): the same room, drawn for one seat's point of view (`pov`) or the neutral public view (null).
+ * Read-only: nothing is sent to the duel, no player event reaches the table, and every action button stays off.
+ */
+export type AdminWatchControl = {
+  pov: number | null;
+  /** Where Exit duel leads (the admin console). */
+  backHref: string;
+};
+
+export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage = false, spectate = false, actorPlayerId = null, viewOverride, adminWatch }: {
   slug: string; inviteCode?: string; windowed?: boolean; legacyStage?: boolean; spectate?: boolean; actorPlayerId?: number | null;
+  adminWatch?: AdminWatchControl;
   /** The page query `?view=3d|classic`: wins over the saved board look for this visit and is not saved. */
   viewOverride?: BoardMode;
 }) {
@@ -186,6 +200,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
   // Replay forks only: Follow prompt, Reveal hands and the seat the creator picked. Ordinary tables never leave the defaults,
   // and the room key then stays the plain one.
+  const readOnly = adminWatch != null;
   const { mutate: purgeCache } = useSWRConfig();
   // Each fork view (seat and Reveal choice) has its own cache key. All of them go together, so a key used earlier
   // never shows its old room when it is asked for again.
@@ -208,8 +223,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const [accessLostAt, setAccessLostAt] = useState<{ slug: string; at: number } | null>(null);
   const [kickedSlug, setKickedSlug] = useState<string | null>(null);
   const { data: rawData, error, isLoading, mutate } = useSWR(
-    slug ? duelRoomKey(slug, spectate, forkView.view) : null,
+    slug ? (adminWatch ? adminDuelRoomKey(slug, adminWatch.pov) : duelRoomKey(slug, spectate, forkView.view)) : null,
     async () => {
+      if (adminWatch) return getAdminDuelRoom(slug, adminWatch.pov);
       let admitError: unknown = null;
       if (inviteCode && (admitted.current?.slug !== slug || admitted.current.inviteCode !== inviteCode)) {
         // Try each invite once. A public table, a stale code or an existing grant must not block
@@ -233,7 +249,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // A fork changes its key when the creator picks a seat; the old view stays up until the new one arrives (and answers wait for it).
     // Never after access was lost: SWR would hand the private view of the old key back.
     { revalidateOnFocus: false, revalidateOnReconnect: false,
-      keepPreviousData: forkSeenFor.current === slug && !(accessLostAt != null && accessLostAt.slug === slug),
+      keepPreviousData: readOnly || (forkSeenFor.current === slug && !(accessLostAt != null && accessLostAt.slug === slug)),
       // A fork view is asked for with a new key, and the purge above stamps a newer mutation time on it: SWR throws away a
       // request that started before that stamp. A finished request that is still shared (the default is 2 s) would be reused
       // for the same view asked for again and then discarded, and the table would stay on "catching up". So in a fork a finished
@@ -241,7 +257,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       // keep the default.
       dedupingInterval: forkSeenFor.current === slug ? 0 : undefined },
   );
-  const idleDeadline = useDuelRoomActivity(rawData?.session.kind === "play" && rawData.session.status === "lobby"
+  const idleDeadline = useDuelRoomActivity(!readOnly && rawData?.session.kind === "play" && rawData.session.status === "lobby"
     && rawData.mySeat != null && rawData.opening == null ? slug : null);
   const kicked = kickedSlug === slug || (error instanceof DuelRequestError && error.code === "DUEL_KICKED");
   useEffect(() => {
@@ -251,7 +267,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }, [kicked, mutate, router]);
   const refreshRoom = useCallback(
     () => mutate(async () => {
-      try { return await getDuelRoom(slug, spectate, forkView.view); }
+      try { return await (adminWatch ? getAdminDuelRoom(slug, adminWatch.pov) : getDuelRoom(slug, spectate, forkView.view)); }
       catch (error) {
         // SWR mutation failures do not populate useSWR.error. Realtime refresh and polling
         // must revoke the cached seat too, even if this player never presses another button.
@@ -259,7 +275,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         throw error;
       }
     }, { revalidate: false }),
-    [mutate, slug, spectate, forkView.view],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mutate, slug, spectate, forkView.view, adminWatch?.pov],
   );
   // A replay fork keeps the creator's identity at seat 0 (the websocket, the token) and plays every seat. The table below
   // reads `data.mySeat` as the seat that acts, so it gets the acting seat; only the websocket keeps the stored one.
@@ -304,7 +321,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }, [roomStale, refreshRoom]);
   // The change notice that an answer of this player causes is not a reason to shut the prompts (see duel-echo-window.ts).
   const echo = useMemo(() => createEchoWindow(), []);
-  const realtime = useDuelWebsocket(slug, visibleRoom?.mySeat, refreshRoom, spectate, echo.quiet);
+  // The admin feed keeps one subscription for every point of view: a switch only reads the room again.
+  const realtime = useDuelWebsocket(slug, readOnly ? null : visibleRoom?.mySeat, refreshRoom, spectate, echo.quiet, readOnly);
   // Only a recovering connection holds the buttons. A routine re-read (a change notice that is not the player's echo,
   // a window focus, a clock tick) does not: it shut the button between the press and the release, and the click was lost.
   // The server still refuses a stale answer by prompt id and revision.
@@ -323,9 +341,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const testDuel = data?.session.testDuel === true;
   const duelLive = !forkMode && data?.session.status === "active" && !data.engine?.result &&
     (!isMultiSeat(data?.engine) || !data.engine?.seats.some((seat) => seat.seat === data.mySeat && (seat.eliminated || seat.pendingElimination)));
-  useDuelLeaveGuard({ slug, active: duelLive && !testDuel, role: data?.mySeat == null ? "spectator" : "player" });
+  useDuelLeaveGuard({ slug, active: duelLive && !testDuel && !readOnly, role: data?.mySeat == null ? "spectator" : "player" });
   const exitRef = useRef<() => void>(() => router.replace("/duels"));
-  const testQuit = useTestDuelQuit({ slug, active: duelLive && testDuel && data?.mySeat != null, onQuit: () => exitRef.current() });
+  const testQuit = useTestDuelQuit({ slug, active: duelLive && testDuel && data?.mySeat != null && !readOnly, onQuit: () => exitRef.current() });
   const [busy, setBusy] = useState(false);
   const [forkChainBusy, setForkChainBusy] = useState(false);
   const inFlight = useRef(false);
@@ -447,7 +465,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     }),
     soundEnabled: preferences.soundEnabled,
   });
-  const catchingUp = syncing || startBeats.active || !forkSettled || forkChainBusy;
+  // An admin watch never answers: every prompt, menu and card action reads as "catching up" (buttons off).
+  const catchingUp = readOnly || syncing || startBeats.active || !forkSettled || forkChainBusy;
   // The engine drops its prompt when the duel ends; guard here too, so no answer path can open between the end and the result screen.
   const prompt = data?.engine?.result ? null : (data?.engine?.prompt ?? null);
   const forkDraftKey = forkControl
@@ -479,7 +498,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // The chain as the pile viewer marks it (the card a link activated from), live while the viewer is open.
   const pileChainLinks = useLiveChainLinks(data?.engine?.events ?? NO_CHAIN_EVENTS, data?.engine?.chain ?? NO_CHAIN_LINKS, duelOver);
   // A fork plays every seat: one that is out is not a viewer who goes to spectate.
-  const viewerEliminated = !forkMode && (liveFormat === "ffa3" || liveFormat === "ffa4") && viewerSeat?.eliminated === true && !duelOver;
+  const viewerEliminated = !forkMode && !readOnly && (liveFormat === "ffa3" || liveFormat === "ffa4") && viewerSeat?.eliminated === true && !duelOver;
   // The own crumble plays on the table first: the spectate switch re-keys the room and would unmount it at once.
   // A seat that was already out on load (a reload) has no crumble to wait for, and neither has the legacy stage.
   const sawViewerIn = useRef(false);
@@ -687,8 +706,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }, [mutate]);
   const run = useCallback(
     async (work: () => Promise<DuelRoom | { session: unknown } | void>, kind?: "seat-pick"): Promise<boolean> => {
-      // A coin toss is playing: nothing is sent, and the open menu stays as it is.
-      if (isCoinTossActive()) return false;
+      // A coin toss is playing: nothing is sent, and the open menu stays as it is. An admin watch sends nothing at all.
+      if (readOnly || isCoinTossActive()) return false;
       // React's busy state alone cannot reject two clicks within one render.
       if (inFlight.current) return false;
       inFlight.current = true;
@@ -721,7 +740,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         setBusy(false);
       }
     },
-    [mutate, echo, applyReply],
+    [mutate, echo, applyReply, readOnly],
   );
 
   // The host's Kick dialog: one for the lobby and the opening (kick is not offered in a live duel). It stays open until the kick lands,
@@ -752,7 +771,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   useEffect(() => {
     if (watchingCurrent) setWatchedLive(slug);
   }, [watchingCurrent, slug]);
-  const nextTarget = data ? nextGameTarget(data, slug, { followAsSpectator: watchedLive === slug }) : null;
+  const nextTarget = data && !readOnly ? nextGameTarget(data, slug, { followAsSpectator: watchedLive === slug }) : null;
   const goToGame = useCallback((next: string) => {
     // The window this tab opened follows the series on its own; name it for the next game now, so the
     // next room finds it before the window has finished moving.
@@ -783,7 +802,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
 
   const onSubmitAnswer = useCallback(
     (answer: DuelAnswer) => {
-      if (isCoinTossActive()) return;
+      if (readOnly || isCoinTossActive()) return;
       if (!data?.engine || !prompt || fieldHeld || error || catchingUp || data.mySeat !== prompt.seat ||
           data.session.status !== "active" || viewerOut || inFlight.current) return;
       const command = { promptId: prompt.id, revision: data.engine.revision, answer };
@@ -808,7 +827,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         }
       }, isOpponentPick(prompt) || isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
     },
-    [data, prompt, fieldHeld, error, catchingUp, run, slug, pick.noteAnswer, pick.clearAnswer, viewerOut, forkControl?.actingSeat],
+    [data, prompt, fieldHeld, error, catchingUp, run, slug, pick.noteAnswer, pick.clearAnswer, viewerOut, forkControl?.actingSeat, readOnly],
   );
 
   /** A prompt tile or response row under the pointer: show the card in the inspector, as board cards do. */
@@ -971,7 +990,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // seat's choice to every seat the creator plays.
     remember: !forkMode,
     serverMode: data?.engine?.chainMode,
-    enabled: data?.mySeat != null && !spectate && !viewerOut && !ownWindowGate && data.session.status === "active" && !data.engine?.result && forkSettled,
+    enabled: !readOnly && data?.mySeat != null && !spectate && !viewerOut && !ownWindowGate && data.session.status === "active" && !data.engine?.result && forkSettled,
     suspended: confirmSurrender || confirmCancel || deckMenuOpen || (forkMode && (busy || catchingUp || Boolean(error))),
     send: async (mode) => {
       const now = latestRoom.current;
@@ -1103,7 +1122,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       .finally(() => { inFlight.current = false; setBusy(false); });
   };
 
-  useBugReportRoom(forkMode ? null : data ?? null);
+  useBugReportRoom(forkMode || readOnly ? null : data ?? null);
   // Access to a fork was lost: nothing private stays on screen. The viewer may ask again (a newer room is the only way back).
   if (forkAccessLost) {
     return (
@@ -1143,6 +1162,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   if (isStartingNextGame(data) && !showTable && !ownWindowGate) {
     return <NextGameStarting room={data} onShowTable={() => setShowTable(true)} />;
   }
+  // The table has not started: an admin sees who sits where, without a seat, a deck or a Start button.
+  if (readOnly && data.session.status === "lobby") return <AdminLobbyPanel room={data} />;
   if (data.session.status === "lobby" && !ownWindowGate) {
     const opening = data.opening;
     const canKick = data.series?.tournamentMatchId == null && data.series?.tournamentId == null
@@ -1224,22 +1245,23 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const canAct = mine && !busy && !error && !catchingUp && data.session.status === "active" && !viewerOut;
   // An opponent pick also answers by tapping the offered seat on the table (after the same human beat as the panel).
   const seatPick = multi && canAct && revealed ? seatPickFor(prompt, engine, onSubmitAnswer) : null;
-  const canSurrender = !forkMode && data.session.status === "active" && data.mySeat != null && !engine?.result && !viewerOut;
+  const canSurrender = !readOnly && !forkMode && data.session.status === "active" && data.mySeat != null && !engine?.result && !viewerOut;
   const terminal = data.session.status !== "active";
   const isOrganizer = actorPlayerId === data.session.organizerPlayerId || data.session.seats.some((seat) =>
     seat.seat === data.mySeat && seat.playerId === data.session.organizerPlayerId);
-  const canCancel = !forkMode && !terminal && isOrganizer && !data.session.ranked && data.session.seriesId == null && data.series == null;
-  const canArchive = !forkMode && terminal && isOrganizer && !data.session.archivedAt;
+  const canCancel = !readOnly && !forkMode && !terminal && isOrganizer && !data.session.ranked && data.session.seriesId == null && data.series == null;
+  const canArchive = !readOnly && !forkMode && terminal && isOrganizer && !data.session.archivedAt;
   const series = data.series ?? null;
   const myIndex = series ? seriesPlayerIndex(data, series) : null;
   const hasResult = engine?.result != null || terminal;
   // A series player sees the side deck screen, not the result screen, once the last game has played out.
   const betweenGames = series != null && myIndex != null && isBetweenGames(data, slug);
-  const showBetweenGames = !forkMode && betweenGames && resultReady && hasResult;
-  const showResult = !forkMode && !hideResult && !showBetweenGames && resultReady && (engine?.result != null || terminal);
+  const showBetweenGames = !readOnly && !forkMode && betweenGames && resultReady && hasResult;
+  const showResult = !readOnly && !forkMode && !hideResult && !showBetweenGames && resultReady && (engine?.result != null || terminal);
   const exitDuel = () => {
     // A fork is not left open behind the creator: leaving it closes it and goes back to the replay.
     if (forkControl) { endFork(); return; }
+    if (adminWatch) { router.push(adminWatch.backHref); return; }
     leavingRoom.current = true;
     const home = testDuel ? testDuelReturnPath(slug) : "/duels";
     if (testDuel) forgetTestDuelReturn(slug);
@@ -1289,12 +1311,12 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const leavingNotice = viewerLeaving ? <p className={styles.leavingNotice} role="status" data-testid="self-leaving">
     Leaving — you leave the duel when the current chain finishes
   </p> : null;
-  const popOutControl = !forkMode && data.mySeat != null && !viewerOut && !inDuelWindow && data.session.status === "active" && !engine?.result ?
+  const popOutControl = !readOnly && !forkMode && data.mySeat != null && !viewerOut && !inDuelWindow && data.session.status === "active" && !engine?.result ?
     <>
       <button type="button" className={styles.tool} onClick={popOut}>Pop out</button>
       {popBlocked ? <span className={styles.tool} role="status">Your browser blocked the window.</span> : null}
     </> : null;
-  const leaveControl = !forkMode && (data.mySeat == null || viewerOut) ?
+  const leaveControl = !readOnly && !forkMode && (data.mySeat == null || viewerOut) ?
     <button type="button" className={styles.tool} onClick={exitDuel}>Leave room</button> : null;
   const testQuitControl = testDuel && canSurrender ?
     <button type="button" className={styles.tool} data-testid="test-duel-quit" disabled={testQuit.busy || busy} onClick={testQuit.quit}>Quit</button> : null;
@@ -1360,11 +1382,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       initialOutOrder: eliminationOrder(liveController.engine),
       connection: { ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy },
       actions: { onExit: exitDuel, onSeriesChanged: () => void refreshRoom(), onNavigate: goToGame },
-      ...(forkMode ? { noResultScreen: true, replayCarry: forkCarry, resetKey: forkDraftKey } : {}),
+      ...(forkMode ? { noResultScreen: true, replayCarry: forkCarry, resetKey: forkDraftKey } : readOnly ? { noResultScreen: true } : {}),
       headerTools: <>
         {forkBar}
-        {forkMode ? null : <BugReportHeaderButton room={data} />}
-        {forkMode ? null : <ReportButton slug={slug} />}
+        {forkMode || readOnly ? null : <BugReportHeaderButton room={data} />}
+        {forkMode || readOnly ? null : <ReportButton slug={slug} />}
         {popOutControl}
         {leaveControl}
         {testQuitControl}
@@ -1390,7 +1412,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // The shells keep their own piles, inspector and menus. A spectator view remounts them. A fork never does: a seat
     // switch, a Follow switch or a Reveal change clears them through `resetKey`, and the camera, the grid focus and the
     // zoom stay where the creator put them.
-    const shellKey = forkMode ? `${slug}:fork` : watchingOnly ? `${slug}:watching` : slug;
+    const shellKey = readOnly ? `${slug}:admin:${adminWatch?.pov ?? "public"}` : forkMode ? `${slug}:fork` : watchingOnly ? `${slug}:watching` : slug;
     return withCracks(<ForkLabelsContext.Provider value={forkMode}><ForkSearchContext.Provider value={forkSearch}><DeckSurrenderContext.Provider value={deckSurrender}>
       <MasterSeatsContext.Provider value={data?.engine?.seats ?? NO_SEATS}>
       {liveTagTable ? <TagShell key={shellKey} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={shellKey} {...shellProps} />}
@@ -1571,7 +1593,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           ))}
         </div>
       ) : null}
-      {forkMode ? null : <BugReportMenuButton room={data} />}
+      {forkMode || readOnly ? null : <BugReportMenuButton room={data} />}
       {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || tossLocked}
         onClick={askSurrender}>Surrender</Button> : null}
       {canCancel ? <Button type="button" variant="secondary" size="sm" disabled={busy || tossLocked}
@@ -1662,8 +1684,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const headerTools = (
     <>
       {forkBar}
-      {forkMode ? null : <BugReportHeaderButton room={data} />}
-      {forkMode ? null : <ReportButton slug={slug} />}
+      {forkMode || readOnly ? null : <BugReportHeaderButton room={data} />}
+      {forkMode || readOnly ? null : <ReportButton slug={slug} />}
       {popOutControl}
       {leaveControl}
       {testQuitControl}

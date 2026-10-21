@@ -119,7 +119,7 @@ export function OverviewView({ s, actions }: { s: Snapshots; actions: ConsoleAct
                 {d.progress ?? "Lobby"}
               </div>
               <div className={styles.when}><Since at={d.startedAt ?? d.createdAt} /></div>
-              <WatchLink href={d.href} label="Open" />
+              <WatchLink href={d.href} />
             </div>
           ))}
         </div>

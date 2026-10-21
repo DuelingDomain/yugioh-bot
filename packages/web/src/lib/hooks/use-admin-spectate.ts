@@ -10,7 +10,7 @@ export function useAdminSpectate<T>(kind: "duel" | "draft", slug: string, seat: 
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(response.status === 401 || response.status === 404 ? "This watch session is no longer available." : "The live view is unavailable. Retrying…");
     return response.json();
-  }, { refreshInterval: 15_000, keepPreviousData: false });
+  }, { refreshInterval: 15_000, keepPreviousData: true });
   const { mutate } = state;
   useEffect(() => {
     const socket = io(WS_URL);
