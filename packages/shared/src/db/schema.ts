@@ -1368,6 +1368,14 @@ export function migrate(db: Database.Database) {
 
   // Shared admin state follows identity migration. No email text is stored in decisions.
   db.exec(`
+    create table if not exists discord_welcome_members (
+      guild_id text not null,
+      discord_user_id text not null,
+      number integer not null check (number > 0),
+      first_joined_at text not null default current_timestamp,
+      primary key (guild_id, discord_user_id),
+      unique (guild_id, number)
+    );
     create table if not exists discord_waitlist_actions (
       id text primary key not null,
       subject_hash text unique,

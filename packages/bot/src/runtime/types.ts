@@ -21,6 +21,7 @@ export interface BotConfig {
   waitlistChannelId?: string;
   statusChannelId?: string;
   announceChannelId?: string;
+  welcomeChannelId?: string;
   healthPath: string;
   /** Programmatic network-edge injection for integration tests. Never read from env. */
   restApi?: string;

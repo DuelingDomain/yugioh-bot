@@ -15,6 +15,7 @@ export function readConfig(): BotConfig {
     waitlistChannelId: process.env.DISCORD_WAITLIST_CHANNEL_ID,
     statusChannelId: process.env.DISCORD_STATUS_CHANNEL_ID,
     announceChannelId: process.env.DISCORD_ANNOUNCE_CHANNEL_ID,
+    welcomeChannelId: process.env.DISCORD_WELCOME_CHANNEL_ID?.trim() || undefined,
     healthPath: process.env.BOT_HEALTH_PATH ?? "/tmp/yugidraft-bot-health.json",
   };
 }
