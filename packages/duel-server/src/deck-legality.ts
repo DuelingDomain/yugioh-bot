@@ -85,6 +85,7 @@ const OT_HIDDEN = 0x1000;
 
 const ATTRIBUTE_DIVINE = 0x40;
 const RACE_DIVINE = 0x200000;
+const DOMAIN_EXODIA_CARDS = new Set([33396948, 7902349, 8124921, 44519536, 70903634]);
 
 const ATTRIBUTES: Record<string, number> = {
   earth: 0x1,
@@ -654,6 +655,8 @@ function buildDomain(dm: EngineCard, catalog: Catalog): Domain {
 }
 
 function inDomain(card: EngineCard, domain: Domain, catalog: Catalog): boolean {
+  // Owner rule: all five Exodia pieces may join any Domain, including Genesys Domain.
+  if (DOMAIN_EXODIA_CARDS.has(canonicalCardCode(card.id, catalog.cards))) return true;
   if (domain.attributes.has(card.attribute) || domain.races.has(card.race)) return true;
   if (domain.namedCards.has(card.name.toLowerCase())) return true;
   for (const code of expandSetcodes(card.setcodes, catalog)) {

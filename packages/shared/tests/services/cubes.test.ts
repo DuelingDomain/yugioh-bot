@@ -445,6 +445,8 @@ describe("cube service Discord-template-compatible ops", () => {
     const saved = cubes.save("g", "My Booster", config, seedUser(db, "u").userId);
     expect(saved.name).toBe("My Booster");
     expect(saved.config).toEqual(config);
+    db.prepare("update cubes set banlist = ? where id = ?").run("tcg-2026-11-11", saved.id);
+    expect(cubes.findCube(saved.id).banlist).toBe("tcg-2026-10-19");
 
     const found = cubes.findByName("g", "My Booster", seedUser(db, "u").userId);
     expect(found?.config).toEqual(config);

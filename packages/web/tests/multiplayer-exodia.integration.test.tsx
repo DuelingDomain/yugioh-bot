@@ -18,6 +18,37 @@ vi.mock("../../duel-server/tests/engine-data-dir.js", () => {
   const engineDataDirectory = process.env.DUEL_DATA_DIR ?? `${process.cwd()}/../../data/duel-engine-next`;
   return { engineDataDirectory, currentEngineDataDirectory: () => engineDataDirectory };
 });
+describeWithCores("real 1v1 Domain Exodia result screen", [needs.cards(DATA), needs.domain(DATA),
+  needs.file("legacy Domain core", `${DATA}/ocgcore.domain.legacy.wasm`)], () => {
+  const cases = (["legacy", "pinned"] as const).flatMap(engine => [0, 1].map(winner => ({ engine, winner })));
+  it.each(cases)("$engine: seat $winner wins with reason 0x10 and both players see the result", async ({ engine, winner }) => {
+    const settings = { ...defaultDuelSettings("domain"), shuffleDeck: false, validateDeck: false };
+    const worker = new GameWorker();
+    try {
+      await worker.create({ engine, mode: "domain", format: "1v1", dataDirectory: DATA, seed: ["1", "2", "3", "4"], settings,
+        decks: [0, 1].map(seat => ({ main: [...(seat === winner ? PIECES : Array(5).fill(15025844)), ...Array(55).fill(15025844)],
+          extra: [], side: [], deckMaster: 48305365 })) });
+      const result = (await worker.view(null)).result!;
+      expect(result).toEqual({ winnerSeat: winner, reason: 'Victory by the effect of "Exodia the Forbidden One"' });
+      if (engine === "pinned") expect(await worker.diagnostics()).toContainEqual(
+        expect.objectContaining({ kind: "win", detail: `player ${winner} reason 16` }));
+      for (const viewer of [0, 1, null]) {
+        const base = makeSeriesRoom({ mySeat: viewer, series: null });
+        const room: DuelRoom = { ...base, session: { ...base.session, mode: "domain", format: "1v1", settings,
+          winnerSeat: winner, resultReason: result.reason }, engine: await worker.view(viewer) };
+        const model = describeDuelResult(room);
+        expect(model.outcome).toBe(viewer === null ? "spectator" : viewer === winner ? "win" : "lose");
+        expect(model.reason).toBe(result.reason);
+        render(<DuelResultScreen room={room} slug={room.session.slug} reducedMotion soundEnabled={false} onClose={() => undefined} />);
+        expect(screen.getByRole("dialog")).toHaveAccessibleName(model.headline);
+        expect(screen.getByRole("dialog")).toHaveAccessibleDescription(result.reason);
+        expect(screen.getByRole("list", { name: "Final Life Points" }).querySelector("[data-winner=true]"))
+          .toHaveAttribute("data-seat", String(winner));
+        cleanup();
+      }
+    } finally { cleanup(); await worker.close(); }
+  }, 30_000);
+});
 describeWithCores("real multiplayer Exodia result screen", [needs.cards(DATA), needs.installedMulti(DATA), needs.file("Domain multi core", `${DATA}/ocgcore.multi-domain.wasm`)], () => {
   for (const mode of ["normal", "domain"] as const) {
     const cases = (["ffa3", "ffa4", "tag"] as const).flatMap(format => [false, true].map(draw => ({ format, draw })));
