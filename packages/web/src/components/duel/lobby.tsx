@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { ArrowRight, Check, ChevronDown, Copy, Eye, Lock, Plus, Swords, Users } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, Copy, Eye, Lock, Plus, Swords, UserX, Users, X } from "lucide-react";
 import { isCustomDomain, type DuelFormat, type DuelHistoryScope, type DuelListItem } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -460,6 +460,7 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId 
   initialFilters?: HistoryFilters;
 }) {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [initial] = useState(() => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     const parsed = parseHistoryParams(params);
@@ -475,6 +476,7 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId 
   const [qText, setQText] = useState(initial.filters.q);
   const [cardText, setCardText] = useState(initial.filters.card);
   const [more, setMore] = useState<MorePages | null>(null);
+  const [kickedDismissed, setKickedDismissed] = useState(false);
   const [closing, setClosing] = useState<DuelListItem | null>(null);
   const [closeBusy, setCloseBusy] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
@@ -625,8 +627,20 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId 
       </header>
 
       <section className={styles.section}>
-        {searchParams?.get("notice") === "kicked" ? (
-          <p className={ui.hint} role="alert">You were removed from the duel by the host. You can return only if the host re-invites you.</p>
+        {searchParams?.get("notice") === "kicked" && !kickedDismissed ? (
+          <div className={styles.kickedNotice} role="alert" data-testid="kicked-notice">
+            <UserX size={18} strokeWidth={1.7} aria-hidden />
+            <div>
+              <strong>The host removed you from that duel</strong>
+              <p>You can open it again only if the host invites you.</p>
+            </div>
+            <button type="button" className={styles.kickedDismiss} aria-label="Dismiss" onClick={() => {
+              setKickedDismissed(true);
+              const params = new URLSearchParams(searchParams?.toString() ?? "");
+              params.delete("notice");
+              router.replace(params.size ? `/duels?${params}` : "/duels");
+            }}><X size={15} strokeWidth={1.7} aria-hidden /></button>
+          </div>
         ) : null}
         <div className={styles.bar}>
           <h2 className={ui.sectionTitle}>{history ? "Match history" : "Live tables"}</h2>
