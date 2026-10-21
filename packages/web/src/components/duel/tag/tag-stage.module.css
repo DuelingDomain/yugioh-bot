@@ -1243,6 +1243,17 @@ button.bpill[data-targets="true"] { border-color: rgb(240 192 96 / 0.85); }
 
 .hcard > :first-child { border-radius: 4px; overflow: hidden; }
 
+/* The size of one hand card (it follows .hcard), for the Deck Master emblem when the hand is empty. No space, no pointer, unseen. */
+.hprobe {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  visibility: hidden;
+  pointer-events: none;
+  box-shadow: none;
+  transition: none;
+}
+
 .ringSel {
   position: absolute;
   inset: -5px;
