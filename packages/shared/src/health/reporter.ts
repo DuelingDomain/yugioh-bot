@@ -11,6 +11,7 @@ export function createServiceReporter(input: {
   const sample = createCgroupSampler(input.procDir, input.cgroupDir);
   const instance = randomUUID();
   let save: Database.Statement | undefined;
+  let latest: Database.Statement | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   const tick = (at = Date.now()) => {
     let timeout: number | undefined;
@@ -20,6 +21,11 @@ export function createServiceReporter(input: {
       // thread, including during statement preparation. Restore gameplay's timeout.
       timeout = input.db.pragma("busy_timeout", { simple: true }) as number;
       input.db.pragma("busy_timeout = 0");
+      latest ??= input.db.prepare("select json from vps_service_health where service = ?");
+      const row = latest.get(input.service) as { json: string } | undefined;
+      let previous: ServiceReport | undefined;
+      try { if (row) previous = JSON.parse(row.json) as ServiceReport; } catch { /* Rebase corrupt diagnostics. */ }
+      if (previous) report.restartedAt = previous.instance !== instance ? at : previous.restartedAt;
       save ??= input.db.prepare("insert into vps_service_health(service, at, json) values (?, ?, ?) on conflict(service) do update set at = excluded.at, json = excluded.json");
       save.run(input.service, at, JSON.stringify(report));
     } catch { /* SQLITE_BUSY, a missing table, etc.: skip this optional report. */ }

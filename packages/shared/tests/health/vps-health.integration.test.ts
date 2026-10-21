@@ -20,6 +20,7 @@ function fixture() {
     writeFileSync(join(proc, "stat"), `cpu ${tick} 0 0 ${tick} 0 0 0 0 100 0\ncpu0 1\ncpu1 1\n`);
     writeFileSync(join(proc, "loadavg"), `${load} 0.8 0.5 1/99 1\n`);
     writeFileSync(join(proc, "uptime"), "3600.00 100.00\n");
+    writeFileSync(join(proc, "vmstat"), "pgfault 42\noom_kill 3\n");
     writeFileSync(join(cgroup, "memory.current"), "104857600\n");
     writeFileSync(join(cgroup, "memory.max"), "402653184\n");
     writeFileSync(join(cgroup, "memory.events"), "oom 0\noom_kill 0\n");
@@ -55,9 +56,8 @@ it("only escalates continuous 15-minute pressure, detects OOM and never carries 
   expect(readVpsHealth(f.db, "guild", start + 15 * minute)).toMatchObject({ status: "Upgrade soon", reasons: expect.arrayContaining([expect.stringMatching(/RAM.*15/), expect.stringMatching(/load.*15/)]) });
   collectVpsHealth(f.db, host(), "guild", start + 20 * minute);
   expect(readVpsHealth(f.db, "guild", start + 20 * minute).status).toBe("High");
-  const reporter = createServiceReporter({ db: f.db, service: "ws", procDir: f.proc, cgroupDir: f.cgroup });
-  writeFileSync(join(f.cgroup, "memory.events"), "oom_kill 1\n"); await reporter.tick(start + 21 * minute);
-  f.files(20, 0.2); // Reporter has already captured the kill, even if the cgroup is then reset.
+  f.files(20, 0.2);
+  writeFileSync(join(f.proc, "vmstat"), "oom_kill 4\n");
   collectVpsHealth(f.db, host(), "guild", start + 21 * minute);
   expect(readVpsHealth(f.db, "guild", start + 21 * minute)).toMatchObject({ status: "Upgrade soon", reasons: expect.arrayContaining([expect.stringMatching(/OOM/)]) });
 });
@@ -95,9 +95,64 @@ it("does not infer current pressure from an expired service report in a fresh wo
   const reporter = createServiceReporter({ db: f.db, service: "duel", procDir: f.proc, cgroupDir: f.cgroup, capacity: () => ({ engineWorkers: 8, maxWorkers: 12, queuedRebuilds: 1 }) });
   reporter.tick(start); collectVpsHealth(f.db, host(), "guild", start + 3 * minute);
   expect(readVpsHealth(f.db, "guild", start + 4 * minute)).toMatchObject({ status: "OK", current: { services: { duel: null } } });
-  writeFileSync(join(f.cgroup, "memory.events"), "oom_kill 1\n"); reporter.tick(start + 5 * minute);
-  collectVpsHealth(f.db, createHostSampler(join(f.root, "missing"))(), "guild", start + 5 * minute);
-  expect(readVpsHealth(f.db, "guild", start + 5 * minute)).toMatchObject({ status: null, reasons: expect.arrayContaining([expect.stringMatching(/OOM/)]) });
+  writeFileSync(join(f.proc, "vmstat"), "oom_kill 4\n");
+  collectVpsHealth(f.db, host(), "guild", start + 5 * minute);
+  collectVpsHealth(f.db, createHostSampler(join(f.root, "missing"))(), "guild", start + 6 * minute);
+  expect(readVpsHealth(f.db, "guild", start + 6 * minute)).toMatchObject({ status: null, reasons: expect.arrayContaining([expect.stringMatching(/OOM/)]) });
+});
+it("stores host OOM deltas across worker restarts and minute replacements, expires events, and rebases after reboot", () => {
+  const f = fixture();
+  collectVpsHealth(f.db, createHostSampler(f.proc)(), "guild", start);
+  expect(readVpsHealth(f.db, "guild", start)).toMatchObject({ status: "OK", current: { host: { oomKills: 3 }, oomKillDelta: null } });
+  writeFileSync(join(f.proc, "vmstat"), "oom_kill 4\n");
+  collectVpsHealth(f.db, createHostSampler(f.proc)(), "guild", start + minute);
+  collectVpsHealth(f.db, createHostSampler(f.proc)(), "guild", start + minute + 1000);
+  expect(readVpsHealth(f.db, "guild", start + minute + 1000)).toMatchObject({ status: "Upgrade soon", current: { oomKillDelta: 1 }, reasons: expect.arrayContaining([expect.stringMatching(/host.*OOM/i)]) });
+  rmSync(join(f.proc, "vmstat"));
+  collectVpsHealth(f.db, createHostSampler(f.proc)(), "guild", start + minute + 2000);
+  expect(readVpsHealth(f.db, "guild", start + minute + 2000)).toMatchObject({ status: "Upgrade soon", current: { host: { oomKills: null }, oomKillDelta: 1 } });
+  writeFileSync(join(f.proc, "vmstat"), "oom_kill 4\n");
+  collectVpsHealth(f.db, createHostSampler(f.proc)(), "guild", start + minute + 3000);
+  collectVpsHealth(f.db, createHostSampler(f.proc)(), "guild", start + 2 * minute);
+  expect(readVpsHealth(f.db, "guild", start + 2 * minute).current).toMatchObject({ oomKillDelta: 0 });
+  expect(readVpsHealth(f.db, "guild", start + 6 * minute)).toMatchObject({ status: null, reasons: expect.arrayContaining([expect.stringMatching(/OOM/)]) });
+  collectVpsHealth(f.db, createHostSampler(f.proc)(), "guild", start + 24 * 60 * minute + 2 * minute);
+  expect(readVpsHealth(f.db, "guild", start + 24 * 60 * minute + 2 * minute)).toMatchObject({ status: "OK", reasons: [] });
+  writeFileSync(join(f.proc, "vmstat"), "oom_kill 1\n");
+  writeFileSync(join(f.proc, "uptime"), "10 0\n");
+  collectVpsHealth(f.db, createHostSampler(f.proc)(), "guild", start + 24 * 60 * minute + 3 * minute);
+  expect(readVpsHealth(f.db, "guild", start + 24 * 60 * minute + 3 * minute)).toMatchObject({ status: "OK", current: { oomKillDelta: null } });
+});
+it("marks a changed reporter instance as restarted even across missing samples, without treating an old cgroup counter as a new OOM", () => {
+  const f = fixture(); const host = createHostSampler(f.proc);
+  const report = () => createServiceReporter({ db: f.db, service: "ws", procDir: f.proc, cgroupDir: f.cgroup });
+  writeFileSync(join(f.cgroup, "memory.events"), "oom_kill 2\n");
+  const first = report(); first.tick(start); collectVpsHealth(f.db, host(), "guild", start);
+  first.tick(start + minute); collectVpsHealth(f.db, host(), "guild", start + minute);
+  expect(readVpsHealth(f.db, "guild", start + minute)).toMatchObject({ status: "OK", restarts: {} });
+  collectVpsHealth(f.db, host(), "guild", start + 5 * minute);
+  const restarted = report(); restarted.tick(start + 6 * minute); collectVpsHealth(f.db, host(), "guild", start + 6 * minute);
+  expect(readVpsHealth(f.db, "guild", start + 6 * minute)).toMatchObject({ status: "OK", restarts: { ws: start + 6 * minute } });
+  restarted.tick(start + 7 * minute); collectVpsHealth(f.db, host(), "guild", start + 7 * minute);
+  expect(readVpsHealth(f.db, "guild", start + 7 * minute).restarts).toEqual({ ws: start + 6 * minute });
+  const again = report(); again.tick(start + 7 * minute + 1000); collectVpsHealth(f.db, host(), "guild", start + 7 * minute + 1000);
+  expect(readVpsHealth(f.db, "guild", start + 7 * minute + 1000).restarts).toEqual({ ws: start + 7 * minute + 1000 });
+  // The report before the restart has expired, but the event is still under 24h.
+  expect(readVpsHealth(f.db, "guild", start + 24 * 60 * minute + 6 * minute).restarts).toEqual({ ws: start + 7 * minute + 1000 });
+  expect(readVpsHealth(f.db, "guild", start + 25 * 60 * minute).restarts).toEqual({});
+});
+it("requires four queued rebuilds for five continuous minutes and ignores missing or repeated stale reports", () => {
+  const f = fixture(); const host = createHostSampler(f.proc); let queued = 1;
+  const reporter = createServiceReporter({ db: f.db, service: "duel", procDir: f.proc, cgroupDir: f.cgroup, capacity: () => ({ engineWorkers: 1, maxWorkers: 12, queuedRebuilds: queued }) });
+  const tick = (i: number) => { reporter.tick(start + i * minute); collectVpsHealth(f.db, host(), "guild", start + i * minute); return readVpsHealth(f.db, "guild", start + i * minute); };
+  for (let i = 0; i <= 6; i++) expect(tick(i).status).toBe("OK");
+  queued = 4;
+  for (let i = 7; i < 12; i++) expect(tick(i).status).toBe("OK");
+  expect(tick(12).status).toBe("High");
+  expect(tick(15).status).toBe("OK"); // A sampling gap breaks continuity.
+  for (let i = 16; i <= 21; i++) collectVpsHealth(f.db, host(), "guild", start + i * minute);
+  expect(readVpsHealth(f.db, "guild", start + 21 * minute).status).toBe("OK");
+  queued = 1; expect(tick(22).status).toBe("OK");
 });
 it("does not label a shared native login scope as each service's own resource usage", async () => {
   const f = fixture(); mkdirSync(join(f.cgroup, "user.slice/user-1000.slice/user@1000.service/app.slice/terminal.scope"), { recursive: true });

@@ -58,11 +58,12 @@ export function VpsHealthPanel({ data }: { data: VpsHealth }) {
     </div>
     <div className={styles.tableWrap}><table className={styles.table}>
       <caption>Service containers · CPU 100% = one vCPU</caption>
-      <thead><tr><th scope="col">Service</th><th scope="col">Memory / limit</th><th scope="col">Used</th><th scope="col">CPU</th><th scope="col">OOM kills</th><th scope="col">Sample</th></tr></thead>
-      <tbody>{(["ws", "duel", "web", "worker", "caddy"] as const).map(id => {
+      <thead><tr><th scope="col">Service</th><th scope="col">Memory / limit</th><th scope="col">Used</th><th scope="col">CPU</th><th scope="col">Cgroup OOM kills</th><th scope="col">Sample</th><th scope="col">Restarted · 24h</th></tr></thead>
+      <tbody>{(["ws", "duel", "web", "worker"] as const).map(id => {
         const report = sample?.services[id], c = report?.cgroup;
+        const restartedAt = data.restarts?.[id];
         const percent = c?.memoryBytes != null && c.memoryLimitBytes ? 100 * c.memoryBytes / c.memoryLimitBytes : null;
-        return <tr key={id}><th scope="row">{id}</th><td>{c ? `${bytes(c.memoryBytes)} / ${c.memoryLimitBytes == null ? "n/a (no readable limit)" : bytes(c.memoryLimitBytes)}` : "n/a"}</td><td>{pct(percent)}</td><td>{pct(c?.cpuPercent)}</td><td data-warning={(c?.oomKills ?? 0) > 0}>{count(c?.oomKills)}</td><td>{report ? ago(report.at) : "n/a"}</td></tr>;
+        return <tr key={id}><th scope="row">{id}</th><td>{c ? `${bytes(c.memoryBytes)} / ${c.memoryLimitBytes == null ? "n/a (no readable limit)" : bytes(c.memoryLimitBytes)}` : "n/a"}</td><td>{pct(percent)}</td><td>{pct(c?.cpuPercent)}</td><td data-warning={(c?.oomKills ?? 0) > 0}>{count(c?.oomKills)}</td><td>{report ? ago(report.at) : "n/a"}</td><td>{restartedAt != null ? <time dateTime={new Date(restartedAt).toISOString()} title={new Date(restartedAt).toISOString()}>Restarted {ago(restartedAt)}</time> : "—"}</td></tr>;
       })}</tbody>
     </table></div>
     <div className={styles.historyHead}><h3>Last 24 hours</h3><span>{data.history.length} / 1440 minute samples · gaps are n/a</span></div>
@@ -73,7 +74,8 @@ export function VpsHealthPanel({ data }: { data: VpsHealth }) {
       <Sparkline history={data.history} field="engineWorkers" label="Engine workers" ceiling={duel?.maxWorkers ?? 12} threshold={duel?.maxWorkers ? Math.ceil(duel.maxWorkers * 2 / 3) : undefined} />
     </div>
     <details className={styles.details}><summary>Thresholds and data coverage</summary>
-      <p>High: current RAM above 80%, CPU above 85%, load above vCPU count, engine workers at two-thirds capacity, or queued rebuilds. Upgrade soon: RAM or load stays high for 15 continuous minutes; workers reach two-thirds capacity (8 of 12) in 15 sampled minutes of the last hour; or any reported OOM kill in the last 24 hours. An OOM can also mean a service limit needs raising.</p>
+      <p>High: current RAM above 80%, CPU above 85%, load above vCPU count, engine workers at two-thirds capacity, or at least 4 queued rebuilds for 5 continuous minutes. Upgrade soon: RAM or load stays high for 15 continuous minutes; workers reach two-thirds capacity (8 of 12) in 15 sampled minutes of the last hour; or a host OOM kill observed in the last 24 hours. An OOM can also mean a service limit needs raising.</p>
+      <p>Host OOM events come from changes in the host counter, even when a container restarts. Service OOM counters cover the current cgroup lifetime. Restart markers mean the reporter instance changed between observations; deployments also cause restarts. Caddy metrics are not collected.</p>
       <p>Dashed lines mark pressure thresholds. CPU needs two samples. Missing reports become n/a after 3 minutes. History survives restarts; the first 15 minutes cannot establish sustained host pressure. Limits come from the running service; unlimited or unreadable limits show n/a.</p>
       {data.incomplete.length ? <ul>{data.incomplete.map(message => <li key={message}>{message}</li>)}</ul> : null}
     </details>

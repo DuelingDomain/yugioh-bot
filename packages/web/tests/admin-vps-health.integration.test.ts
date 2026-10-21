@@ -31,7 +31,7 @@ it("is private/no-store, returns n/a before the worker starts, and never exposes
     insert into drafts(guild_id,channel_id,name,status,created_by_user_id) values
       ('guild-1','c','Draft','active',1), ('other-guild','c','Other','active',1);`);
   const { collectVpsHealth } = await import("@yugidraft/shared/health");
-  collectVpsHealth(db, { cpuPercent: 25, vcpuCount: 2, load: [0.5, 0.3, 0.1], memory: { usedBytes: 2, availableBytes: 2, totalBytes: 4, usedPercent: 50 }, swap: { usedBytes: 0, totalBytes: 0 }, uptimeSeconds: 200 }, "other-guild");
+  collectVpsHealth(db, { cpuPercent: 25, vcpuCount: 2, load: [0.5, 0.3, 0.1], memory: { usedBytes: 2, availableBytes: 2, totalBytes: 4, usedPercent: 50 }, swap: { usedBytes: 0, totalBytes: 0 }, uptimeSeconds: 200, oomKills: null }, "other-guild");
   expect(await (await request()).json()).toMatchObject({ status: "OK", current: { activity: null } });
   const { createHostSampler } = await import("@yugidraft/shared/health");
   collectVpsHealth(db, createHostSampler()(), "guild-1");
@@ -41,10 +41,24 @@ it("renders persisted metrics, capacity, n/a and a gap-aware sparkline through t
   const { collectVpsHealth } = await import("@yugidraft/shared/health");
   const { createElement } = await import("react"); const { renderToStaticMarkup } = await import("react-dom/server");
   const { VpsHealthPanel } = await import("../src/components/admin-console/views/vps-health");
-  collectVpsHealth(db, { cpuPercent: 25, vcpuCount: 2, load: [0.5, 0.3, 0.1], memory: { usedBytes: 2e9, availableBytes: 2e9, totalBytes: 4e9, usedPercent: 50 }, swap: { usedBytes: 0, totalBytes: 0 }, uptimeSeconds: 200 }, "guild-1");
+  collectVpsHealth(db, { cpuPercent: 25, vcpuCount: 2, load: [0.5, 0.3, 0.1], memory: { usedBytes: 2e9, availableBytes: 2e9, totalBytes: 4e9, usedPercent: 50 }, swap: { usedBytes: 0, totalBytes: 0 }, uptimeSeconds: 200, oomKills: null }, "guild-1");
   const data = await (await request()).json();
   const html = renderToStaticMarkup(createElement(VpsHealthPanel, { data }));
   expect(html).toContain("VPS health"); expect(html).toContain("25%"); expect(html).toContain("2 vCPU");
   expect(html).toContain("No swap"); expect(html).toContain("n/a"); expect(html).toContain("Live duels");
-  expect(html).toContain("ws"); expect(html).toContain("caddy"); expect(html).toContain("Last 24 hours");
+  expect(html).toContain("ws"); expect(html).not.toContain("caddy"); expect(html).toContain("Last 24 hours");
+});
+
+it("renders a restarted service and host OOM reason from retained history even after cgroup counters reset", async () => {
+  const { collectVpsHealth, createServiceReporter } = await import("@yugidraft/shared/health");
+  const { createElement } = await import("react"); const { renderToStaticMarkup } = await import("react-dom/server");
+  const { VpsHealthPanel } = await import("../src/components/admin-console/views/vps-health");
+  const at = Math.floor(Date.now() / 60_000) * 60_000;
+  const host = { cpuPercent: 25, vcpuCount: 2, load: [0.5, 0.3, 0.1] as [number, number, number], memory: { usedBytes: 2e9, availableBytes: 2e9, totalBytes: 4e9, usedPercent: 50 }, swap: { usedBytes: 0, totalBytes: 0 }, uptimeSeconds: 200, oomKills: 3 };
+  createServiceReporter({ db, service: "ws" }).tick(at - 60_000); collectVpsHealth(db, host, "guild-1", at - 60_000);
+  createServiceReporter({ db, service: "ws" }).tick(at); collectVpsHealth(db, { ...host, oomKills: 4 }, "guild-1", at);
+  const data = await (await request()).json();
+  expect(data).toMatchObject({ status: "Upgrade soon", restarts: { ws: at }, current: { oomKillDelta: 1 } });
+  const html = renderToStaticMarkup(createElement(VpsHealthPanel, { data }));
+  expect(html).toMatch(/Restarted/); expect(html).toContain(new Date(at).toISOString()); expect(html).toContain("OOM");
 });

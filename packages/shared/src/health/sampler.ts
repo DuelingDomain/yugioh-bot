@@ -37,6 +37,7 @@ export function createHostSampler(procDir = "/proc") {
     } : null;
     const load = read(join(procDir, "loadavg"))?.trim().split(/\s+/).slice(0, 3).map(Number);
     return {
+      oomKills: fields(read(join(procDir, "vmstat"))).oom_kill ?? null,
       cpuPercent, vcpuCount: stat ? stat.match(/^cpu\d+\s/gm)?.length ?? null : null,
       load: load?.length === 3 && load.every(n => Number.isFinite(n) && n >= 0) ? load as [number, number, number] : null,
       memory, swap: mem.SwapTotal >= 0 && mem.SwapFree >= 0 && mem.SwapFree <= mem.SwapTotal ? { totalBytes: mem.SwapTotal * 1024, usedBytes: (mem.SwapTotal - mem.SwapFree) * 1024 } : null,
