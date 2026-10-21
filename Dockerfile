@@ -137,7 +137,8 @@ CMD ["node", "--import", "./packages/ws/dist/instrument.js", "packages/ws/dist/s
 # Private automated duel engine. Browsers use authenticated Next routes.
 FROM node:22-bookworm-slim AS duel
 WORKDIR /app
-ENV NODE_ENV=production
+# Bound allocator retention; four arenas preserved measured live-action latency.
+ENV NODE_ENV=production MALLOC_ARENA_MAX=4
 # The bundle installer reads the sibling SQLite database to protect active duels.
 RUN apt-get update && apt-get install -y --no-install-recommends python3 && \
     rm -rf /var/lib/apt/lists/*

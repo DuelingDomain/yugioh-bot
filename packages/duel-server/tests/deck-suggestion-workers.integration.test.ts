@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import type { Worker } from "node:worker_threads";
+import { once } from "node:events";
 import { rmSync } from "node:fs";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -43,5 +44,28 @@ it("caps both real scanner heaps and replaces a crashed worker before the next s
     expect(jobs().map(job => job.worker)).not.toContain(crashed);
     expect(jobs()).toHaveLength(2);
     expect(await Promise.all(recovered)).toEqual(results);
+  } finally { await pool.close(); db.close(); }
+});
+
+it("reuses a scanner during a burst, retires it after idle, and opens a fresh scanner", async () => {
+  const db = new Database(":memory:"); migrate(db);
+  const pool = new DeckSuggestionWorkers(db, directory, 500);
+  const jobs = () => (pool as unknown as { jobs: { worker: Worker }[] }).jobs;
+  const scan = {
+    query: parseDeckSuggestionQuery({ op: "suggestRows", deck: { main: [89631139], extra: [], side: [] } })!,
+    legality: deckSuggestionScope("normal", directory, defaultDuelSettings("normal"), { cardBlocks: [] }),
+  };
+  try {
+    const result = await pool.run(scan);
+    const worker = jobs()[0].worker;
+    const exited = once(worker, "exit");
+    const reused = pool.run(scan);
+    expect(jobs()[0].worker).toBe(worker);
+    expect(await reused).toEqual(result);
+    await exited;
+    expect(jobs()).toHaveLength(0);
+    expect(worker.threadId).toBe(-1);
+    expect(await pool.run(scan)).toEqual(result);
+    expect(jobs()[0].worker).not.toBe(worker);
   } finally { await pool.close(); db.close(); }
 });
