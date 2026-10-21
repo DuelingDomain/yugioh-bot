@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
-import { safeAvatarUrl } from "@yugidraft/shared/admin";
-import { TEST_BOT_DISCORD_PREFIX } from "@yugidraft/shared/services";
+import { PENDING_DRAFT_MAX_AGE_MS, safeAvatarUrl } from "@yugidraft/shared/admin";
+import { DUEL_WAITING_IDLE_TIMEOUT_MS } from "@yugidraft/shared/duels";
+import { DUEL_LIVE_IDLE_AFTER_MS, TEST_BOT_DISCORD_PREFIX } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { failed, notConfigured, ok, type SectionLoader } from "./section";
@@ -8,6 +9,7 @@ import type { LiveData, LiveDraft, LiveDuel, LiveDuelFormat, LiveSeat } from "./
 
 export const FORMAT_LABEL: Record<LiveDuelFormat, string> = { "1v1": "1v1 duel", tag: "Tag duel", ffa3: "3-way duel", ffa4: "4-way duel" };
 const PRACTICE_BOT_NAME = "Practice Bot";
+const MAX_ROWS = 100;
 /** Main-round picks per player when the draft config does not say. */
 const DEFAULT_PICKS = 40;
 
@@ -67,9 +69,13 @@ function liveDuels(db: Database.Database, guild: string, now: number): LiveDuel[
       case when json_valid(d.clock_json) then json_extract(d.clock_json, '$.activeSeat') end as active_seat
     from duels d
     where d.guild_id = ? and d.status in ('lobby', 'active') and d.kind = 'play' and d.archived_at is null
-    order by d.id desc`).all(guild) as DuelRow[];
-  // An overdue persisted active table is still watchable until the host actually closes it.
-  const open = rows;
+    order by d.id desc limit 500`).all(guild) as DuelRow[];
+  // Match the host's live/lobby idle cutoffs before loading seat details.
+  const open = rows.filter((row) => {
+    const activity = dbTimeMs(row.activity_at) ?? 0;
+    if (row.status === "active") return now - activity <= DUEL_LIVE_IDLE_AFTER_MS;
+    return row.seat_count > 0 && now - activity <= DUEL_WAITING_IDLE_TIMEOUT_MS;
+  }).slice(0, MAX_ROWS);
   if (open.length === 0) return [];
 
   const seats = seatsOf(db, open.map((row) => row.id));
@@ -110,8 +116,8 @@ function liveDrafts(db: Database.Database, guild: string, now: number): LiveDraf
       case when json_valid(config_json) then json_extract(config_json, '$.cardsPerPlayer') end as cards_per_player
     from drafts
     where guild_id = ? and status in ('pending', 'active') and web_slug is not null
-    order by id desc`).all(guild) as DraftRow[];
-  const open = rows;
+    order by id desc limit 200`).all(guild) as DraftRow[];
+  const open = rows.filter((row) => row.status === "active" || now - (dbTimeMs(row.created_at) ?? now) <= PENDING_DRAFT_MAX_AGE_MS).slice(0, MAX_ROWS);
   if (open.length === 0) return [];
 
   const playerRows = db.prepare(`
