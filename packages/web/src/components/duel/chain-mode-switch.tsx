@@ -3,6 +3,7 @@
 import type { KeyboardEvent } from "react";
 import { DUEL_CHAIN_MODES, type DuelChainMode } from "@yugidraft/shared/duels";
 import { CHAIN_MODE_HINT, CHAIN_MODE_LABEL } from "./chain-mode";
+import { useDuelTip } from "./duel-tip";
 import type { ChainModeControl } from "./use-chain-mode";
 import styles from "./chain-mode-switch.module.css";
 
@@ -12,6 +13,7 @@ import styles from "./chain-mode-switch.module.css";
  * Violet marks Auto and Always; Off is gold, because it is the state that can cost you a play.
  */
 export function ChainModeSwitch({ mode, onChange }: ChainModeControl) {
+  const tip = useDuelTip();
   function onKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1
       : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
@@ -39,7 +41,7 @@ export function ChainModeSwitch({ mode, onChange }: ChainModeControl) {
             tabIndex={entry === mode ? 0 : -1}
             className={styles.option}
             data-mode={entry}
-            title={CHAIN_MODE_HINT[entry]}
+            {...tip.on(CHAIN_MODE_HINT[entry])}
             onClick={() => { if (entry !== mode) onChange(entry); }}
             onKeyDown={(event) => onKeyDown(event, index)}
           >
@@ -47,6 +49,7 @@ export function ChainModeSwitch({ mode, onChange }: ChainModeControl) {
           </button>
         ))}
       </div>
+      {tip.node}
       <span className={styles.srOnly} role="status" aria-live="polite" aria-atomic="true">
         Responses: {CHAIN_MODE_LABEL[mode]}
       </span>
