@@ -57,14 +57,14 @@ async function post(extra = {}, signed = true) {
 }
 const rows = () => ["duels", "duel_seats", "duel_commands", "duel_series", "duel_invite_grants"].map(t => db.prepare(`select * from ${t}`).all());
 it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("reads every %s seat and neutral POV without driving clocks, bots or changing state", async format => {
-  table(format); const before = rows();
+  table(format); expect((await post({ op: "view", playerId: 62, userId: 102 })).status).toBe(200); const before = rows();
   for (const seat of [null, ...Array.from({ length: seatCountFor(format) }, (_, i) => i)]) {
     const result = await post({ seat }); expect(result.status, JSON.stringify(result.body)).toBe(200);
     expect(result.body).toMatchObject({ role: "spectator", mySeat: seat });
     for (const s of result.body.engine.seats) expect(s.hand[0].code).toBe(s.seat === seat ? 900 + s.seat : undefined);
     expect(result.body.engine.prompt?.seat ?? null).toBe(seat === 0 ? 0 : null);
   }
-  expect(rows()).toEqual(before); expect(onChange).not.toHaveBeenCalled(); expect(workers.every(w => w.closed === 1)).toBe(true);
+  expect(rows()).toEqual(before); expect(onChange).not.toHaveBeenCalled(); expect(workers).toHaveLength(1); expect(workers[0].closed).toBe(0);
 });
 it("rejects forged, wrong-guild, revoked, unseated player and invalid POV requests before worker reads", async () => {
   table("1v1");
@@ -74,12 +74,12 @@ it("rejects forged, wrong-guild, revoked, unseated player and invalid POV reques
   vi.stubEnv("OWNER_USER_IDS", ""); expect((await post()).status).toBe(404); expect(workers).toHaveLength(0);
 });
 it("rechecks owner access after an asynchronous worker view", async () => {
-  table("1v1"); const original = ReplayWorker.prototype.view;
+  table("1v1"); await post({ op: "view", playerId: 62, userId: 102 }); const original = ReplayWorker.prototype.view;
   vi.spyOn(ReplayWorker.prototype, "view").mockImplementation(async function(this: ReplayWorker, seat) { const view = await original.call(this, seat); vi.stubEnv("OWNER_USER_IDS", ""); return view; });
   expect((await post({ seat: 0 })).status).toBe(404);
 });
 
-it("does not persist resident-worker query errors during an admin read", async () => {
+it("keeps resident-worker script error recording during an admin read", async () => {
   await host.close();
   host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000 });
   table("1v1");
@@ -87,9 +87,56 @@ it("does not persist resident-worker query errors during an admin read", async (
   expect(warm.status, JSON.stringify(warm.body)).toBe(200);
   const before = rows(); queryErrors.emit = true;
   const watched = await post({ seat: 0 }); expect(watched.status, JSON.stringify(watched.body)).toBe(200);
-  expect(db.prepare("select * from card_script_error_occurrences").all()).toEqual([]);
+  expect(db.prepare("select * from card_script_error_occurrences").all().length).toBeGreaterThan(0);
   expect(rows()).toEqual(before);
   // The same resident worker still records diagnostics for a normal player read.
   expect((await post({ op: "view", playerId: 62, userId: 102 })).status).toBe(200);
   expect(db.prepare("select * from card_script_error_occurrences").all().length).toBeGreaterThan(0);
+});
+
+it("cold polls use saved per-seat boards without journal parsing or worker creation", async () => {
+  table("ffa4");
+  const fixture = new ReplayWorker(); fixture.created = { decks: replaySource("ffa4").decks } as any;
+  const views = await Promise.all([0, 1, 2, 3].map(seat => fixture.view(seat)));
+  db.prepare("update duels set snapshot_public_json=?,snapshot_seats_json=? where web_slug=?")
+    .run(JSON.stringify(await fixture.view(null)), JSON.stringify(views), slug);
+  const command = JSON.stringify({ revision: 1, promptId: "sentinel-command", answer: { choice: "next" } });
+  db.prepare("insert into duel_commands(duel_id,seq,seat,command_json) select id,1,0,? from duels where web_slug=?").run(command, slug);
+  const parse = vi.spyOn(JSON, "parse");
+  for (const seat of [null, 3, 3]) {
+    const result = await post({ seat }); expect(result.status, JSON.stringify(result.body)).toBe(200);
+    expect(result.body).toMatchObject({ stale: true, metadataOnly: false, mySeat: seat });
+    for (const s of result.body.engine.seats) expect(s.hand[0].code).toBe(s.seat === seat ? 900 + s.seat : undefined);
+  }
+  expect(parse.mock.calls.some(([value]) => value === command)).toBe(false);
+  expect(workers).toHaveLength(0); expect(resourceRead).not.toHaveBeenCalled();
+});
+it("cold polls without a saved board return metadata without rebuilding", async () => {
+  table("1v1");
+  for (let poll = 0; poll < 3; poll++) expect((await post({ seat: 1 })).body).toMatchObject({ engine: null, metadataOnly: true, stale: true });
+  expect(workers).toHaveLength(0);
+});
+it("a slow admin view does not queue player responses behind it", async () => {
+  table("1v1"); expect((await post({ op: "view", playerId: 62, userId: 102 })).status).toBe(200);
+  const original = ReplayWorker.prototype.view;
+  let release!: () => void, entered!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  let reading = false;
+  vi.spyOn(ReplayWorker.prototype, "view").mockImplementation(async function(this: ReplayWorker, seat) {
+    if (seat === 1 && !reading) { reading = true; entered(); await blocked; }
+    return original.call(this, seat);
+  });
+  const watched = post({ seat: 1 }); await started;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const player = post({ op: "respond", playerId: 62, userId: 102, command: { revision: 1, promptId: "p1", answer: { choice: "next" } } });
+    const result = await Promise.race([player, new Promise<null>(resolve => { timeout = setTimeout(() => resolve(null), 1000); })]);
+    expect(result?.status, JSON.stringify(result)).toBe(200);
+  } finally { clearTimeout(timeout); release(); await watched; }
+});
+it("denies a seated owner on the signed host for public and opposing POVs", async () => {
+  table("1v1"); vi.stubEnv("OWNER_USER_IDS", "102");
+  for (const seat of [null, 1]) expect((await post({ userId: 102, seat })).status).toBe(404);
+  expect(workers).toHaveLength(0);
 });

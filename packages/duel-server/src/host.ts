@@ -485,7 +485,6 @@ export function createDuelHost(options: {
     return spare.worker;
   }
 
-  const readOnlyViews = new WeakMap<DuelGameWorker, number>();
 
   async function spawn(session?: DuelSession, spawnOptions: {
     duelRef?: number | (() => number | undefined);
@@ -507,7 +506,7 @@ export function createDuelHost(options: {
       spawnOptions.signal?.throwIfAborted();
       if (stopped) throw new RequestError("The duel server is shutting down.", 503);
       const duelRef = spawnOptions.duelRef ?? session?.id;
-      const recordErrors = () => !(readOnlyViews.get(game) ?? 0) && (spawnOptions.recordErrors?.() ?? true);
+      const recordErrors = () => spawnOptions.recordErrors?.() ?? true;
       const table = spawnOptions.table ?? session?.slug;
       const callbacks = {
         onScriptError: duelRef === undefined ? undefined : (error: DuelScriptError) => {
@@ -3228,41 +3227,23 @@ export function createDuelHost(options: {
     const { slug, guildId, userId, seat } = body;
     if (typeof slug !== "string" || typeof guildId !== "string" || typeof userId !== "number"
       || !canAdminSpectate(options.db, { kind: "duel", slug, guildId, userId })) throw new RequestError("Not found", 404);
-    const state = service.privateState(slug, guildId);
+    const state = service.privateSnapshot(slug, guildId);
     if (seat !== null && (typeof seat !== "number" || !Number.isInteger(seat) || seat < 0 || seat >= seatCountFor(state.session.format))) {
       throw new RequestError("Invalid seat", 400);
     }
     const pov = seat as number | null;
-    let isolated: DuelGameWorker | undefined;
-    let engine: DuelEngineView | null = null;
-    try {
-      if (state.session.status === "active") {
-        let game = games.get(slug)?.game;
-        if (!game?.running) {
-          // Read-only journal recovery: do not install a live worker, drive bots, settle deadlines or record errors.
-          const resources = await resourcesOfSource(state, "live-recovery");
-          const result = await runJournalPrefix({ source: journalSourceOf(state), resources: journalResourcesOf(resources),
-            prefixCount: state.commands.length,
-            createWorker: async () => (isolated = await spawn(state.session, { recordErrors: () => false, players: [] })),
-          });
-          game = result.worker;
-        }
-        // Query-time Lua errors from an inspection must not write script-error counters or block cards.
-        // Keep suppression until the actual query settles, even if the HTTP read times out first.
-        const readingGame = game;
-        readOnlyViews.set(readingGame, (readOnlyViews.get(readingGame) ?? 0) + 1);
-        const reading = Promise.resolve().then(() => readingGame.view(pov)).finally(() => {
-          const pending = (readOnlyViews.get(readingGame) ?? 1) - 1;
-          if (pending === 0) readOnlyViews.delete(readingGame); else readOnlyViews.set(readingGame, pending);
-        });
-        engine = await withTimeout(reading, debugReadTimeoutMs, "admin spectator view");
-      } else if (state.session.status !== "lobby") engine = readStoredBoard(savedReplayBoards(slug, guildId), pov);
-      // Recheck after awaiting a worker: revoked owners receive no private snapshot.
-      if (!canAdminSpectate(options.db, { kind: "duel", slug, guildId, userId })) throw new RequestError("Not found", 404);
-      return stampRoomClock({ session: service.get(slug, guildId), role: "spectator", mySeat: pov,
-        myDeck: pov === null ? null : state.decks[pov] ?? null, mySide: null, engine,
-        clock: state.clock ? { ...state.clock, serverNow: now() } : null, metadataOnly: engine === null }, now());
-    } finally { if (isolated) await safeClose(isolated); }
+    const game = state.session.status === "active" ? games.get(slug)?.game : undefined;
+    const live = !!game?.running;
+    // Never recover/replay a worker for a watch read. Cold reads use the last durable projection.
+    // Keep the worker's script diagnostics enabled, including concurrent player operations.
+    const engine = live
+      ? await withTimeout(game!.view(pov), debugReadTimeoutMs, "admin spectator view")
+      : state.session.status === "lobby" ? null : readStoredBoard(savedReplayBoards(slug, guildId), pov);
+    if (!canAdminSpectate(options.db, { kind: "duel", slug, guildId, userId })) throw new RequestError("Not found", 404);
+    return stampRoomClock({ session: service.get(slug, guildId), role: "spectator", mySeat: pov,
+      myDeck: pov === null ? null : state.decks[pov] ?? null, mySide: null, engine,
+      clock: state.clock ? { ...state.clock, serverNow: now() } : null, metadataOnly: engine === null,
+      ...(!live && state.session.status === "active" ? { stale: true } : {}) }, now());
   }
 
   async function operate(body: Record<string, unknown>, ctl?: { abandoned: boolean; signal?: AbortSignal }): Promise<unknown> {
@@ -4163,7 +4144,7 @@ export function createDuelHost(options: {
             deadline.abort(error); reject(error);
           }, Math.min(28_000, options.replayRequestTimeoutMs ?? 28_000));
         }) : undefined;
-        const queued = (body.op === "deck-suggestions" || body.op === "card-query" || body.op === "debug-trace" || body.op === "bug-context" || body.op === "bug-replay-frame" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body, ctl) : enqueue(key, () => operate(body, ctl)));
+        const queued = (body.op === "admin-spectate" || body.op === "deck-suggestions" || body.op === "card-query" || body.op === "debug-trace" || body.op === "bug-context" || body.op === "bug-replay-frame" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body, ctl) : enqueue(key, () => operate(body, ctl)));
         const rendered = (async () => {
           const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
           if (fork) assertReplayForkAccess(options.db, body.slug as string, { guildId: body.guildId as string,
