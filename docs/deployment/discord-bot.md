@@ -1,12 +1,12 @@
 # Dueling Domain admin Discord bot
 
-The bot runs in its own container and shares SQLite with web and worker. It registers 21 slash commands and the **User info** user context command in one configured guild. Old player commands, the announce HTTP server, reminder jobs, notification cleanup and duplicate Genesys sync have been removed. Worker still owns gameplay jobs. This release has no deploy ping.
+The bot runs in its own container and shares SQLite with web and worker. It registers 22 slash commands and the **User info** user context command in one configured guild. Old player commands, the announce HTTP server, reminder jobs, notification cleanup and duplicate Genesys sync have been removed. Worker still owns gameplay jobs. This release has no deploy ping.
 
 ## Developer Portal and invite
 
 1. Open the [Discord Developer Portal](https://discord.com/developers/applications). Reuse the Dueling Domain application with its bot user, or create an application. Copy General Information → Application ID to `DISCORD_CLIENT_ID`.
 2. Open **Bot**. Reset the token and save it in the private VM `.env`. Set **Public Bot** off and **Requires OAuth2 Code Grant** off.
-3. Enable **Server Members Intent**. This is the only privileged intent requested. Keep **Presence Intent** and **Message Content Intent** off. The runtime requests `Guilds`, `GuildMembers`, `GuildModeration` and `AutoModerationExecution`; member lookups use `GuildMembers`. Site presence for `/online` comes from SQLite, not Discord presence. See [Gateway intents](https://docs.discord.com/developers/events/gateway#privileged-intents).
+3. Enable **Server Members Intent**. This is the only privileged intent requested. Keep **Presence Intent** and **Message Content Intent** off. The runtime requests `Guilds`, `GuildMembers`, `GuildModeration` and `AutoModerationExecution`; member lookups and `GuildMemberAdd` welcome delivery use `GuildMembers`. Site presence for `/online` comes from SQLite, not Discord presence. See [Gateway intents](https://docs.discord.com/developers/events/gateway#privileged-intents).
 4. Under **Installation**, enable **Guild Install** only and disable **User Install**. For a private application, select a custom install link or no provided link if required by the Portal.
 5. Enable Discord Developer Mode under User Settings → Advanced. Copy the bot server ID to `DISCORD_BOT_GUILD_ID`. Keep `DISCORD_GUILD_ID` at its existing site data value. Open the invite below as the server owner, with both IDs replaced.
 
@@ -53,8 +53,9 @@ In Server Settings → Roles, put the bot below the server owner's role and abov
    | **#mod-log** | Linked owners, bot and Moderator role. |
    | **#online-now** | Linked owners and bot; reserved status destination. `/online` replies privately and does not maintain a pinned status message. |
    | **#announcements**, outside Admin | Public reading; owner and bot posting. |
+   | **#welcome**, outside Admin | Public reading; owner and bot posting; automatic member welcome cards. |
 
-6. Copy the printed `DISCORD_WAITLIST_CHANNEL_ID`, `DISCORD_MOD_LOG_CHANNEL_ID`, `DISCORD_STATUS_CHANNEL_ID`, `DISCORD_ANNOUNCE_CHANNEL_ID` and Moderator role ID into the private environment. Setup prints values; it does not save them. Recreate the bot to load them. Set producer channel IDs before enabling automatic sign-up delivery.
+6. Copy the printed `DISCORD_WAITLIST_CHANNEL_ID`, `DISCORD_MOD_LOG_CHANNEL_ID`, `DISCORD_STATUS_CHANNEL_ID`, `DISCORD_ANNOUNCE_CHANNEL_ID`, `DISCORD_WELCOME_CHANNEL_ID` and Moderator role ID into the private environment. Setup prints values; it does not save them. Recreate the bot to load them. Set producer channel IDs before enabling automatic sign-up delivery.
 
 Setup reuses unique names and replaces their parents and overwrites. Rename duplicate names or incompatible channel types first. It does not create the Moderator role. The invite omits thread creation permissions; if ordinary roles grant thread creation that the bot cannot deny, setup refuses before writing. Remove those grants and repeat setup. A Discord failure during a multi-step setup can leave completed steps; correct the cause and run setup again. Configured destination channels are protected from `/channel delete`.
 
@@ -62,7 +63,7 @@ Setup reuses unique names and replaces their parents and overwrites. Rename dupl
 
 `DISCORD_GUILD_ID` is the site's data guild: players, duels, drafts, cubes, seasons and admin-console data stay under this value. Changing it hides the existing data from the site. To move the admin bot from an old server (for example, Computer Screen Ballers) to Dueling Domain, set only `DISCORD_BOT_GUILD_ID` to the new Discord server ID. No data migration is needed. Empty or unset `DISCORD_BOT_GUILD_ID` keeps the previous single-server behavior. For an invite with no override, replace the bot-guild placeholder with `DISCORD_GUILD_ID`.
 
-All bot channel IDs (signups, mod-log, status and announcements) and the Moderator role must belong to the bot server. Discord moderation records, warnings and lock snapshots use the bot server. Waitlist decision audit records keep the site data guild for both web and Discord decisions; their outbox messages go to channels in the bot server. `/online` reads site presence and uses the data guild for duel labels. `/stats` reads site duels and drafts from the data guild. `/card` reads the existing shared card catalog and engine data. The web channel picker also lists the bot server's channels, so Compose passes the override to web. Current web login uses Clerk and site owner IDs, with no Discord guild membership check. The admin console System panel does not display a guild ID; its duel probes keep using the data guild.
+All bot channel IDs (signups, mod-log, status, announcements and welcome) and the Moderator role must belong to the bot server. Discord moderation records, warnings and lock snapshots use the bot server. Waitlist decision audit records keep the site data guild for both web and Discord decisions; their outbox messages go to channels in the bot server. `/online` reads site presence and uses the data guild for duel labels. `/stats` reads site duels and drafts from the data guild. `/card` reads the existing shared card catalog and engine data. The web channel picker also lists the bot server's channels, so Compose passes the override to web. Current web login uses Clerk and site owner IDs, with no Discord guild membership check. The admin console System panel does not display a guild ID; its duel probes keep using the data guild.
 
 Use a separate application, guild, Clerk instance and database for tests. Keep secrets in runtime environment only, outside Git and Docker build arguments. `DISCORD_CLIENT_ID` is the application ID; `DISCORD_APPLICATION_ID` is not read.
 
@@ -79,6 +80,7 @@ DISCORD_WAITLIST_CHANNEL_ID=<signups-channel-id>
 DISCORD_MOD_LOG_CHANNEL_ID=<mod-log-channel-id>
 DISCORD_STATUS_CHANNEL_ID=<online-now-channel-id>
 DISCORD_ANNOUNCE_CHANNEL_ID=<announcements-channel-id>
+DISCORD_WELCOME_CHANNEL_ID=<welcome-channel-id>
 DISCORD_ADMIN_SHOW_FULL_EMAIL=0
 DATABASE_PATH=/app/data/bot.sqlite
 BOT_HEALTH_PATH=/tmp/yugidraft-bot-health.json
@@ -101,6 +103,7 @@ SENTRY_RELEASE=<release-sha>
 | `DISCORD_MOD_LOG_CHANNEL_ID` | Shared audit/outbox destination. |
 | `DISCORD_STATUS_CHANNEL_ID` | Reserved #online-now ID; no automatic status publisher. |
 | `DISCORD_ANNOUNCE_CHANNEL_ID` | Same-guild text or announcement channel. Own posts are crossposted in announcement channels. |
+| `DISCORD_WELCOME_CHANNEL_ID` | Optional same-guild text or announcement channel for member welcomes. Empty or unset disables automatic welcomes without an error. |
 | `DISCORD_ADMIN_SHOW_FULL_EMAIL` | Keep `0` for masked addresses. Opt-in `1` can reveal trusted Clerk addresses in private lists and delivery; stored alert payloads and audit remain masked. |
 | `DATABASE_PATH` | Same absolute SQLite file for every service. Bot defaults to `/app/data/bot.sqlite` in Compose; match web's fixed path. |
 | `BOT_HEALTH_PATH` | Native override; Compose fixes a container-local heartbeat file. |
@@ -126,6 +129,16 @@ The signing secret verifies Clerk `waitlistEntry.created` and optional `user.cre
 
 If the outbox flag is off, the notifier uses `DISCORD_ADMIN_WEBHOOK_URL`. If the flag is on but the channel ID is missing, it logs one warning per process and uses that same webhook fallback. Missing channel configuration does not fail the Clerk receipt or return 503. Actual receipt/outbox storage errors still permit Clerk retries. See [join alert setup](discord-join-alerts.md). Recreate web after changing producer settings and enable the bot container to drain its queue. `/waitlist` and its private decision buttons work independently.
 
+## Member welcomes
+
+With `DISCORD_WELCOME_CHANNEL_ID` set, a non-bot member joining the configured bot guild receives `Hey <@userId>, welcome to **Dueling Domain**!` and the approved **B — First Pull** PNG. Only that member may be mentioned. The destination is checked against the bot guild before delivery. Other guilds and bot accounts are ignored. Enable **Server Members Intent** in the Developer Portal as above; no additional privileged intent is needed.
+
+The shared SQLite migration creates `discord_welcome_members`. Numbers start at 1 for members welcomed after this feature is enabled, are allocated in an immediate transaction, and remain stable across departures, re-joins and bot restarts. Existing members are not backfilled; re-joining reposts their welcome. Keep the shared database backed up to preserve numbers.
+
+The renderer loads bundled OFL-licensed Chakra Petch and Russo One TTF files with system fonts disabled. It measures names, shrinks to a minimum size, then ellipsizes. Emoji and glyphs outside the bundled Latin subsets are removed; accents retain their base letters, and an entirely unsupported name displays as “Duelist.” The 256px avatar download has a 2.5-second timeout, a 512 KiB cap and a decoded-dimension check; failure uses gradient initials. Joins and previews share one render queue. Each native render runs in a short-lived worker with a 32 MB JavaScript heap and exits before the next render, releasing bitmap allocations within the 256 MB container / 160 MB parent heap. Rendering errors still deliver the text greeting; delivery errors are reported without retrying the public post.
+
+The bot image copies the artwork and fonts and explicitly installs optional npm platform packages. Its Debian Bookworm base uses the GNU/libc resvg binary for the target architecture (amd64 locally, ARM64 in production); the build checks that the native module loads. Font provenance and conversion instructions are in `packages/bot/assets/welcome/README.md`.
+
 ## Deploy commands and run
 
 Use Node 22. From the repository root, build shared before consumers:
@@ -138,7 +151,7 @@ DISCORD_BOT_ENABLED=1 DOTENV_CONFIG_PATH="$PWD/.env" npm run commands:deploy --w
 DISCORD_BOT_ENABLED=1 DOTENV_CONFIG_PATH="$PWD/.env" npm run dev:bot
 ```
 
-For native use, set checkout-local absolute `DATABASE_PATH` and a unique `BOT_HEALTH_PATH`. The deploy script uses the same four-module registry as Gateway dispatch. It bulk-overwrites only `Routes.applicationGuildCommands(clientId, guildId)`: **22 guild commands** (21 slash commands plus User info), no global registration. Existing commands in the selected bot guild are replaced. Moving the bot does not remove commands from the previous guild; remove those separately if needed. Old global commands, if present, need separate removal after their origin is checked.
+For native use, set checkout-local absolute `DATABASE_PATH` and a unique `BOT_HEALTH_PATH`. The deploy script uses the same four-module registry as Gateway dispatch. It bulk-overwrites only `Routes.applicationGuildCommands(clientId, guildId)`: **23 guild commands** (22 slash commands plus User info), no global registration. Existing commands in the selected bot guild are replaced. Moving the bot does not remove commands from the previous guild; remove those separately if needed. Old global commands, if present, need separate removal after their origin is checked.
 
 The normal deployment builds the bot image and starts it after web; gameplay health does not wait for Discord. The production CMD registers the guild commands on each enabled start. To repeat registration, inspect health and inspect logs:
 
@@ -176,12 +189,13 @@ Use disposable resources in the private test guild. Confirm owner access, Modera
 | `/role create`, `/role edit` | Check name, colour, hoist and mentionable; new roles have no server permissions. |
 | `/role delete` | Confirm a disposable lower role; refuse managed/@everyone and hierarchy violations. |
 | `/role give`, `/role take` | Verify membership changes; refuse protected member/role targets. |
-| `/setup channels` | Confirm layout and printed IDs; repeat without duplicates; check private channels, read-only announcements and ambiguous-name refusal. |
+| `/setup channels` | Confirm layout and printed IDs; repeat without duplicates; check private channels, read-only announcements/welcome and ambiguous-name refusal. |
 | `/waitlist [page]` | Check pending Clerk entries, ten per page, masking, Previous/Refresh/Next and owner-only access. |
 | `/waitlist action:approve entry:<exact email or Clerk ID>` | Verify one Clerk invitation, decision audit and a queued edit. Repeat without a second Clerk call. |
 | `/waitlist action:reject entry:<exact email or Clerk ID>` | Reject a separate entry; verify conflict handling for an already approved entry. |
 | Waitlist **Approve / Reject** buttons | Verify same shared service, double press/race, Clerk 409 success, 5xx retry and retained buttons on failure; restart with queued work. |
 | `/announce [role]` | Fill modal title/body/optional HTTPS image; Cancel then Post preview; check role hierarchy, one-use expiry, selected-role-only mentions and announcement-channel crosspost. |
+| `/welcome preview [member]` | Linked owners only. Privately attach a welcome PNG for the selected current member (default self), even with automatic welcomes disabled. Preview reuses an assigned number or displays the next number without reserving it. |
 | `/card name` | As an ordinary member, select catalog, pre-release and engine-only cards. Check public image URLs and labels, autocomplete, alternate arts and five-lookups-per-30-seconds limit. |
 | `/online` | Check private 120-second site presence list (up to 500 users), section labels and long-list attachment. Without the separate presence migration, expect `presence not available`. |
 | `/stats` | Check seven UTC days, distinct weekly users, duel/draft counts and live tables; replay forks excluded. Without presence columns, verify the play-only note. |

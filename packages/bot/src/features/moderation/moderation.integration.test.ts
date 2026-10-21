@@ -163,8 +163,10 @@ it("rejects nonmoderators, revoked roles, protected members, hierarchy and forei
   await t.command("slowmode", { channel, seconds: 5 }); expect(t.writes()).toHaveLength(0);
 });
 
-it("denies a Moderator channel actions in the configured #mod-log", async () => {
+it.each(["modLogChannelId", "welcomeChannelId"] as const)("denies a Moderator channel actions in configured %s", async key => {
   const t = await setup();
+  t.context.config.modLogChannelId = undefined;
+  t.context.config[key] = modLogChannel;
   for (const name of ["slowmode", "purge", "lock", "unlock"]) {
     t.context.cooldown = new Cooldown();
     const values: Record<string, string | number> = name === "purge" ? { count: 1 }

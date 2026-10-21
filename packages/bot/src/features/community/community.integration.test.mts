@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { FeatureModule } from "../../runtime/types.js";
 import Database from "better-sqlite3";
+import { GatewayIntentBits, GuildMember } from "discord.js";
+import * as observability from "@yugidraft/shared/observability";
 import { WebSocketServer, type WebSocket } from "ws";
 import { afterEach, expect, it, vi } from "vitest";
 import { openDatabase } from "@yugidraft/shared/db";
@@ -12,6 +14,8 @@ import { startBot } from "../../runtime/app.js";
 import { deployCommands } from "../../runtime/deploy.js";
 import { readConfig } from "../../runtime/config.js";
 import { community } from "./index.js";
+import * as welcomeCard from "./welcome-card.js";
+import { startWelcome } from "./welcome.js";
 
 const dataGuild = "100000000000000010";
 const guild = "100000000000000001", app = "100000000000000002", admin = "100000000000000003";
@@ -22,16 +26,25 @@ afterEach(async () => {
   vi.restoreAllMocks();
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 async function stubDiscord() {
   const requests: { method: string; path: string; body: any }[] = [];
   let socket: WebSocket, sequence = 0;
-  const state = { channelGuild: guild, channelType: 5, rolePosition: 1, roleMentionable: true, nextStatus: 0, crosspostStatus: 0, replyStatus: 0 };
+  const guilds = new Set<string>();
+  const state = { channelGuild: guild, channelType: 5, rolePosition: 1, roleMentionable: true, nextStatus: 0, crosspostStatus: 0, replyStatus: 0, memberName: "Tester", intents: 0 };
   const server = createServer(async (req, res) => {
-    let raw = "";
-    for await (const chunk of req) raw += chunk;
-    const body = raw ? JSON.parse(raw) : null;
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    const bytes = Buffer.concat(chunks);
+    const raw = bytes.toString();
+    const multipart = req.headers["content-type"]?.startsWith("multipart/form-data");
+    const body = multipart ? JSON.parse(raw.match(/name="payload_json"\r\n\r\n([^\r]+)\r\n/)![1]) : raw ? JSON.parse(raw) : null;
+    if (multipart) {
+      body.png = bytes.includes(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+      body.filenames = [...raw.matchAll(/filename="([^"]+)"/g)].map(match => match[1]);
+    }
     const path = req.url!.replace("/api/v10", "");
     requests.push({ method: req.method!, path, body });
     res.setHeader("content-type", "application/json");
@@ -45,7 +58,7 @@ async function stubDiscord() {
       { id: highRole, name: "Staff", position: 10, permissions: "0", managed: false, mentionable: false },
     ]);
     if (path.startsWith(`/guilds/${guild}/members/`)) return send({ user: { id: path.split("/").at(-1), username: "Tester" },
-      roles: [highRole], permissions: "0", joined_at: new Date().toISOString() });
+      nick: state.memberName, roles: [highRole], permissions: "0", joined_at: new Date().toISOString() });
     if (path.includes("/commands")) return send(body);
     if (path.includes("/callback")) { res.statusCode = 204; res.removeHeader("content-type"); return res.end(); }
     if (req.method === "GET" && path.startsWith("/channels/")) return send({ id: path.split("/").at(-1), guild_id: state.channelGuild, type: state.channelType });
@@ -65,10 +78,12 @@ async function stubDiscord() {
   });
   const ws = new WebSocketServer({ server });
   ws.on("connection", client => {
+    guilds.clear();
     socket = client;
     client.send(JSON.stringify({ op: 10, d: { heartbeat_interval: 1000 } }));
     client.on("message", raw => {
       const packet = JSON.parse(raw.toString());
+      if (packet.op === 2) state.intents = packet.d.intents;
       if (packet.op === 1) client.send(JSON.stringify({ op: 11, d: null }));
       if (packet.op === 2) client.send(JSON.stringify({ op: 0, t: "READY", s: ++sequence, d: {
         v: 10, user: { id: app, username: "Bot", discriminator: "0000", bot: true }, guilds: [], session_id: "test",
@@ -99,6 +114,28 @@ async function stubDiscord() {
     return request.body?.data ?? request.body;
   };
   return { api: `${gatewayUrl.replace("ws:", "http:")}/api`, requests, state, emit, response,
+    join(id = other, bot = false, guildId = guild, options: { pending?: boolean; avatar?: string } = {}) {
+      if (!guilds.has(guildId)) socket.send(JSON.stringify({ op: 0, t: "GUILD_CREATE", s: ++sequence, d: {
+        id: guildId, name: "Test", owner_id: admin, roles: [], emojis: [], stickers: [], features: [], channels: [], members: [],
+        member_count: 3, large: false, unavailable: false, joined_at: new Date().toISOString(),
+      } }));
+      guilds.add(guildId);
+      socket.send(JSON.stringify({ op: 0, t: "GUILD_MEMBER_ADD", s: ++sequence, d: {
+        guild_id: guildId, user: { id, username: "NovaDuelist", discriminator: "0000", bot, avatar: options.avatar },
+        nick: "NovaDuelist", roles: [], pending: options.pending ?? false, joined_at: new Date().toISOString(),
+      } }));
+    },
+    updateMember(id: string, pending: boolean) {
+      socket.send(JSON.stringify({ op: 0, t: "GUILD_MEMBER_UPDATE", s: ++sequence, d: {
+        guild_id: guild, user: { id, username: "NovaDuelist", discriminator: "0000" },
+        nick: "Updated Duelist", roles: [], pending,
+      } }));
+    },
+    leave(id = other) {
+      socket.send(JSON.stringify({ op: 0, t: "GUILD_MEMBER_REMOVE", s: ++sequence, d: {
+        guild_id: guild, user: { id, username: "NovaDuelist", discriminator: "0000" },
+      } }));
+    },
     command(name: string, options: unknown[] = [], actor = admin) { return emit({ data: { name, type: 1, id: app, options } }, actor); },
     modal(id: string, image = "https://app.duelingdomain.com/news.png", actor = admin) {
       return emit({ type: 5, data: { custom_id: id, components: [
@@ -112,7 +149,7 @@ async function stubDiscord() {
   };
 }
 
-async function fixture(presence = false, modules: FeatureModule[] = [community], options: { botGuildId?: string } = { botGuildId: guild }) {
+async function fixture(presence = false, modules: FeatureModule[] = [community], options: { botGuildId?: string; welcomeChannelId?: string } = { botGuildId: guild }) {
   const directory = mkdtempSync(join(tmpdir(), "bot-community-"));
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   vi.stubEnv("DISCORD_BOT_ENABLED", "1"); vi.stubEnv("OWNER_USER_IDS", "1,3");
@@ -120,6 +157,7 @@ async function fixture(presence = false, modules: FeatureModule[] = [community],
   vi.stubEnv("DISCORD_GUILD_ID", options.botGuildId ? dataGuild : guild);
   vi.stubEnv("DISCORD_BOT_GUILD_ID", options.botGuildId);
   vi.stubEnv("DISCORD_ANNOUNCE_CHANNEL_ID", announce);
+  vi.stubEnv("DISCORD_WELCOME_CHANNEL_ID", options.welcomeChannelId ?? "");
   vi.stubEnv("DISCORD_MOD_LOG_CHANNEL_ID", log); vi.stubEnv("SITE_DOMAIN", "app.example.test");
   vi.stubEnv("DUEL_DATA_DIR", join(directory, "duel-engine"));
   const db = openDatabase(join(directory, "bot.sqlite"));
@@ -145,7 +183,7 @@ it.each([undefined, "", guild])("deploys guild commands with bot guild override 
   await deployCommands(bot.context.config, [community]);
   expect(stub.requests.find(r => r.method === "PUT")!.path).toBe(`/applications/${app}/guilds/${guild}/commands`);
   const definitions = stub.requests.find(r => r.method === "PUT")!.body;
-  expect(definitions.map((c: any) => c.name).sort()).toEqual(["announce", "card", "online", "stats"]);
+  expect(definitions.map((c: any) => c.name).sort()).toEqual(["announce", "card", "online", "stats", "welcome"]);
   expect(definitions.find((c: any) => c.name === "card")).toMatchObject({ default_member_permissions: null, contexts: [0], options: [{ name: "name", autocomplete: true }] });
   for (const definition of definitions.filter((c: any) => c.name !== "card")) expect(definition.default_member_permissions).toBe("8");
 });
@@ -409,4 +447,316 @@ it("keeps catalog lookup working when the optional duel-server package is absent
   expect(card.embeds[0].fields).toBeUndefined();
   expect(card.embeds[0].description).toContain("Pre-release");
   expect(card.embeds[0].image.url).toBe("https://pics.projectignis.org:2096/pics/99999.jpg");
+});
+
+function stubAvatar() {
+  // A real 1x1 PNG; no Discord CDN calls leave the integration fixture.
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3foAAAAASUVORK5CYII=", "base64");
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(png, { headers: { "content-type": "image/png" } })));
+  return png;
+}
+
+it("welcomes Gateway joins with one user mention and a PNG, and reuses durable numbers after restart", async () => {
+  stubAvatar();
+  const { stub, db, bot, directory } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: announce });
+  stub.join();
+  await expect.poll(() => posts(stub).length).toBe(1);
+  expect(posts(stub)[0].body).toMatchObject({ content: `Hey <@${other}>, welcome to **Dueling Domain**!`,
+    allowed_mentions: { parse: [], users: [other], roles: [], replied_user: false },
+    filenames: ["welcome.png"], png: true });
+  await expect.poll(() => db.prepare("select last_welcomed_at from discord_welcome_members").get())
+    .toEqual({ last_welcomed_at: expect.any(Number) });
+  const row = db.prepare("select * from discord_welcome_members").get();
+  expect(row).toMatchObject({ guild_id: guild, discord_user_id: other, number: 1 });
+  stub.leave();
+  stub.join();
+  await stub.response(stub.command("stats"));
+  expect(posts(stub)).toHaveLength(1);
+  expect(db.prepare("select * from discord_welcome_members").all()).toEqual([row]);
+  stub.join("100000000000000011");
+  await expect.poll(() => posts(stub).length).toBe(2);
+  expect(db.prepare("select number from discord_welcome_members where discord_user_id=?").get("100000000000000011")).toEqual({ number: 2 });
+  await bot.stop();
+  const reopened = openDatabase(join(directory, "bot.sqlite"));
+  const restarted = await startBot({ config: { ...bot.context.config, healthPath: join(directory, "restart-health.json") }, db: reopened, modules: [community] });
+  cleanups.push(() => restarted.stop());
+  stub.join();
+  await stub.response(stub.command("stats"));
+  expect(posts(stub)).toHaveLength(2);
+  // A fresh database connection retains the cooldown, then permits a later
+  // welcome without changing either the member number or first join time.
+  reopened.prepare("update discord_welcome_members set last_welcomed_at=? where discord_user_id=?")
+    .run(Date.now() - 24 * 60 * 60 * 1000 - 1, other);
+  stub.leave();
+  stub.join();
+  await expect.poll(() => posts(stub).length).toBe(3);
+  expect(posts(stub).every(post => post.body.png)).toBe(true);
+  expect(reopened.prepare("select * from discord_welcome_members where discord_user_id=?").get(other))
+    .toMatchObject({ guild_id: guild, discord_user_id: other, number: 1, first_joined_at: (row as any).first_joined_at });
+});
+
+it("caps a 50-member Gateway join raid before assigning numbers and caches the destination", async () => {
+  const png = stubAvatar();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const render = vi.spyOn(welcomeCard, "renderWelcomeCard").mockImplementation(async () => { await gate; return png; });
+  let drain: ReturnType<typeof startWelcome>;
+  const { stub, db } = await fixture(false, [{ ...community, start(c) { return drain = startWelcome(c); } }],
+    { botGuildId: guild, welcomeChannelId: announce });
+  cleanups.push(() => release());
+  for (let n = 0; n < 50; n++) stub.join(String(100000000000010000n + BigInt(n)));
+  await stub.response(stub.command("stats"));
+  expect(render).toHaveBeenCalledTimes(1);
+  release();
+  await drain!();
+  expect(posts(stub)).toHaveLength(20);
+  expect(db.prepare("select count(*) as n, max(number) as last from discord_welcome_members").get()).toEqual({ n: 20, last: 20 });
+  expect(stub.requests.filter(r => r.method === "GET" && r.path === `/channels/${announce}`)).toHaveLength(1);
+});
+
+it("drops joins queued for more than two minutes before assigning a number", async () => {
+  const png = stubAvatar();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.spyOn(welcomeCard, "renderWelcomeCard").mockImplementation(async () => { await gate; return png; });
+  let drain: ReturnType<typeof startWelcome>;
+  const { stub, db } = await fixture(false, [{ ...community, start(c) { return drain = startWelcome(c); } }],
+    { botGuildId: guild, welcomeChannelId: announce });
+  cleanups.push(() => release());
+  stub.join();
+  stub.join("100000000000000011");
+  await stub.response(stub.command("stats"));
+  vi.spyOn(Date, "now").mockReturnValue(Date.now() + 120_001);
+  release();
+  await drain!();
+  expect(posts(stub)).toHaveLength(1);
+  expect(db.prepare("select discord_user_id, number from discord_welcome_members").all()).toEqual([{ discord_user_id: other, number: 1 }]);
+});
+
+it("requests a static PNG for an animated member avatar", async () => {
+  stubAvatar();
+  const { stub } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: announce });
+  stub.join(other, false, guild, { avatar: "a_0123456789abcdef0123456789abcdef" });
+  await expect.poll(() => posts(stub).length).toBe(1);
+  expect(fetch).toHaveBeenCalledWith(`https://cdn.discordapp.com/avatars/${other}/a_0123456789abcdef0123456789abcdef.png?size=256`, expect.anything());
+  expect(posts(stub)[0].body.png).toBe(true);
+});
+
+it("waits for membership screening and welcomes the pending-to-approved transition once", async () => {
+  stubAvatar();
+  const { stub, db, bot } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: announce });
+  expect(stub.state.intents & GatewayIntentBits.GuildMembers).toBe(GatewayIntentBits.GuildMembers);
+  stub.join(other, false, guild, { pending: true });
+  await stub.response(stub.command("stats"));
+  expect(posts(stub)).toHaveLength(0);
+  expect(db.prepare("select count(*) as n from discord_welcome_members").get()).toEqual({ n: 0 });
+  stub.updateMember(other, false);
+  await expect.poll(() => posts(stub).length).toBe(1);
+  stub.updateMember(other, false);
+  stub.updateMember(other, true);
+  stub.updateMember(other, false);
+  await stub.response(stub.command("stats"));
+  await bot.stop();
+  expect(posts(stub)).toHaveLength(1);
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it("welcomes screened joins after member-cache eviction and expires abandoned screening slots", async () => {
+  stubAvatar();
+  const { stub, db, bot } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: announce });
+  stub.join(other, false, guild, { pending: true });
+  for (let n = 0; n < 101; n++) stub.join(String(100000000000010000n + BigInt(n)), false, guild, { pending: true });
+  await stub.response(stub.command("stats"));
+  expect(bot.client.guilds.cache.get(guild)!.members.cache.has(other)).toBe(false);
+  // An ordinary update for an uncached existing member must not create a greeting.
+  stub.updateMember("100000000000000099", false);
+  await stub.response(stub.command("stats"));
+  expect(posts(stub)).toHaveLength(0);
+  stub.updateMember(other, false);
+  await expect.poll(() => posts(stub).length).toBe(1);
+  stub.updateMember(other, false);
+  // Abandoned/evicted pending members must not occupy the bounded tracking
+  // slots forever, even if discord.js suppresses their removal events.
+  vi.spyOn(Date, "now").mockReturnValue(Date.now() + 120_001);
+  const fresh = "100000000000000088";
+  stub.join(fresh, false, guild, { pending: true });
+  for (let n = 0; n < 101; n++) stub.join(String(100000000000020000n + BigInt(n)), false, guild, { pending: true });
+  await stub.response(stub.command("stats"));
+  expect(bot.client.guilds.cache.get(guild)!.members.cache.has(fresh)).toBe(false);
+  stub.updateMember(fresh, false);
+  await expect.poll(() => posts(stub).length).toBe(2);
+  expect(db.prepare("select count(*) as n from discord_welcome_members").get()).toEqual({ n: 2 });
+});
+
+it("revalidates the cached welcome destination after one minute before numbering", async () => {
+  stubAvatar();
+  const reported = vi.spyOn(observability, "report").mockImplementation(() => {});
+  const { stub, db } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: announce });
+  stub.join();
+  await expect.poll(() => posts(stub).length).toBe(1);
+  vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_001);
+  stub.state.channelGuild = other;
+  stub.join("100000000000000011");
+  await expect.poll(() => reported.mock.calls.some(([, context]) => context?.tags?.operation === "bot.welcome.join")).toBe(true);
+  expect(posts(stub)).toHaveLength(1);
+  expect(db.prepare("select count(*) as n from discord_welcome_members").get()).toEqual({ n: 1 });
+  expect(stub.requests.filter(r => r.method === "GET" && r.path === `/channels/${announce}`)).toHaveLength(2);
+});
+
+it("migrates existing welcome rows without changing their durable member numbers", async () => {
+  stubAvatar();
+  const { stub, bot, directory, db } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: announce });
+  db.prepare("insert into discord_welcome_members(guild_id, discord_user_id, number) values(?,?,?)").run(guild, other, 178);
+  await bot.stop();
+  const legacy = new Database(join(directory, "bot.sqlite"));
+  legacy.exec("alter table discord_welcome_members drop column last_welcomed_at");
+  legacy.close();
+  const reopened = openDatabase(join(directory, "bot.sqlite"));
+  const restarted = await startBot({ config: { ...bot.context.config, healthPath: join(directory, "restart-health.json") }, db: reopened, modules: [community] });
+  cleanups.push(() => restarted.stop());
+  stub.join();
+  await expect.poll(() => posts(stub).length).toBe(1);
+  await expect.poll(() => reopened.prepare("select number, last_welcomed_at from discord_welcome_members where discord_user_id=?").get(other))
+    .toEqual({ number: 178, last_welcomed_at: expect.any(Number) });
+});
+
+it("keeps a member's number and allows retry after a failed welcome post", async () => {
+  stubAvatar();
+  const reported = vi.spyOn(observability, "report").mockImplementation(() => {});
+  const { stub, db } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: announce });
+  stub.state.nextStatus = 403;
+  stub.join();
+  await expect.poll(() => reported.mock.calls.some(([, context]) => context?.tags?.operation === "bot.welcome.join")).toBe(true);
+  expect(db.prepare("select number, last_welcomed_at from discord_welcome_members").get()).toEqual({ number: 1, last_welcomed_at: null });
+  stub.leave(); stub.join();
+  await expect.poll(() => db.prepare("select last_welcomed_at from discord_welcome_members").get())
+    .toEqual({ last_welcomed_at: expect.any(Number) });
+  expect(posts(stub)).toHaveLength(2);
+  expect(db.prepare("select number from discord_welcome_members").all()).toEqual([{ number: 1 }]);
+});
+
+it.each(["off", "bot", "foreign"])("skips welcome delivery for %s", async kind => {
+  stubAvatar();
+  const { stub, bot } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: kind === "off" ? "" : announce });
+  stub.join(other, kind === "bot", kind === "foreign" ? other : guild);
+  // A subsequent interaction fences Gateway processing and queued delivery.
+  await stub.response(stub.command("stats"));
+  await bot.stop();
+  expect(posts(stub)).toHaveLength(0);
+  // stop closes SQLite, so only assert no CDN work for skipped joins.
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("posts the greeting even when welcome rendering fails", async () => {
+  vi.spyOn(welcomeCard, "renderWelcomeCard").mockRejectedValue(new Error("render failed"));
+  const { stub, db } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: announce });
+  stub.join();
+  await expect.poll(() => posts(stub).length).toBe(1);
+  expect(posts(stub)[0].body.content).toBe(`Hey <@${other}>, welcome to **Dueling Domain**!`);
+  expect(posts(stub)[0].body.attachments).toBeUndefined();
+  expect(db.prepare("select number from discord_welcome_members").get()).toEqual({ number: 1 });
+});
+
+it("terminates a stalled render worker, posts text, and renders the next join", async () => {
+  stubAvatar();
+  const isolated = mkdtempSync(join(tmpdir(), "bot-welcome-timeout-"));
+  cleanups.push(() => rmSync(isolated, { recursive: true, force: true }));
+  const source = join(isolated, "src/features/community"), assets = join(isolated, "assets/welcome");
+  mkdirSync(source, { recursive: true }); mkdirSync(assets, { recursive: true });
+  symlinkSync(fileURLToPath(new URL("../../../../../node_modules/", import.meta.url)), join(isolated, "node_modules"));
+  const originalAssets = fileURLToPath(new URL("../../../assets/welcome/", import.meta.url));
+  symlinkSync(join(originalAssets, "fonts"), join(assets, "fonts"));
+  copyFileSync(join(originalAssets, "first-pull.svg"), join(assets, "first-pull.svg"));
+  copyFileSync(fileURLToPath(new URL("welcome-card.ts", import.meta.url)), join(source, "welcome-card.ts"));
+  const marker = join(isolated, "started");
+  writeFileSync(join(assets, "render.cjs"), `
+    const fs = require("node:fs");
+    if (fs.existsSync(${JSON.stringify(marker)})) require(${JSON.stringify(join(originalAssets, "render.cjs"))});
+    else { fs.writeFileSync(${JSON.stringify(marker)}, "started"); setInterval(() => {}, 1000); }
+  `);
+  const renderer = await import(pathToFileURL(join(source, "welcome-card.ts")).href);
+  vi.spyOn(welcomeCard, "renderWelcomeCard").mockImplementation(renderer.renderWelcomeCard);
+  const reported = vi.spyOn(observability, "report").mockImplementation(() => {});
+  const { stub } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: announce });
+  stub.join();
+  await expect.poll(() => posts(stub).length, { timeout: 12_000 }).toBe(1);
+  expect(posts(stub)[0].body.content).toBe(`Hey <@${other}>, welcome to **Dueling Domain**!`);
+  expect(posts(stub)[0].body.attachments).toBeUndefined();
+  expect(reported).toHaveBeenCalledWith(expect.objectContaining({ message: "Welcome render worker timed out" }),
+    { tags: { operation: "bot.welcome.render" } });
+  stub.join("100000000000000011");
+  await expect.poll(() => posts(stub).length).toBe(2);
+  expect(posts(stub)[1].body.png).toBe(true);
+}, 20_000);
+
+it("previews a real card privately for linked owners only, defaulting to self or a chosen member", async () => {
+  stubAvatar();
+  const { stub, db } = await fixture();
+  const options = [{ name: "preview", type: 1 }];
+  expect((await stub.response(stub.command("welcome", options, "100000000000000011"))).content).toContain("access");
+  const token = stub.command("welcome", options);
+  const reply = await stub.response(token);
+  expect(reply).toMatchObject({ filenames: ["welcome.png"], png: true });
+  expect(stub.requests.find(r => r.path.includes(token) && r.path.includes("/callback"))!.body.data.flags).toBe(64);
+  const chosen = stub.emit({ data: { name: "welcome", type: 1, id: app,
+    options: [{ name: "preview", type: 1, options: [{ name: "member", type: 6, value: other }] }],
+    resolved: { users: { [other]: { id: other, username: "Other" } } } } });
+  expect((await stub.response(chosen)).png).toBe(true);
+  expect(db.prepare("select count(*) as n from discord_welcome_members").get()).toEqual({ n: 0 });
+  expect(posts(stub)).toHaveLength(0);
+});
+
+it("renders safely with failed avatars, XML, emoji and long unsupported names", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
+  const { stub } = await fixture();
+  stub.state.memberName = "Alexandria<&\" 魔法😀".repeat(12);
+  expect((await stub.response(stub.command("welcome", [{ name: "preview", type: 1 }]))).png).toBe(true);
+  stub.state.memberName = "魔法😀";
+  expect((await stub.response(stub.command("welcome", [{ name: "preview", type: 1 }]))).png).toBe(true);
+});
+
+it.each(["http-error", "too-large-header", "too-large-stream", "bad-png", "corrupt-png", "oversized-bitmap"])("falls back to initials for %s avatar responses", async kind => {
+  const displayAvatar = vi.spyOn(GuildMember.prototype, "displayAvatarURL");
+  const fetchAvatar = vi.fn(async () => {
+    if (kind === "http-error") return new Response(null, { status: 500 });
+    if (kind === "too-large-header") return new Response("", { headers: { "content-length": "524289" } });
+    if (kind === "too-large-stream") return new Response(Buffer.alloc(524289));
+    if (kind === "bad-png") return new Response("not a PNG");
+    const bytes = Buffer.alloc(24);
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(bytes);
+    const dimension = kind === "corrupt-png" ? 256 : 2048;
+    bytes.writeUInt32BE(dimension, 16); bytes.writeUInt32BE(dimension, 20);
+    return new Response(bytes);
+  });
+  vi.stubGlobal("fetch", fetchAvatar);
+  const { stub } = await fixture();
+  expect((await stub.response(stub.command("welcome", [{ name: "preview", type: 1 }]))).png).toBe(true);
+  expect(displayAvatar).toHaveBeenCalledWith({ extension: "png", size: 256, forceStatic: true });
+  expect(fetchAvatar).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/cdn\.discordapp\.com\/.*\.png/), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+});
+
+it("refuses a welcome channel in another guild and recovers for the next valid join", async () => {
+  stubAvatar();
+  const reported = vi.spyOn(observability, "report").mockImplementation(() => {});
+  const { stub, db } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: announce });
+  stub.state.channelGuild = other;
+  stub.join();
+  await expect.poll(() => reported.mock.calls.some(([, context]) => context?.tags?.operation === "bot.welcome.join")).toBe(true);
+  expect(posts(stub)).toHaveLength(0);
+  expect(fetch).not.toHaveBeenCalled();
+  expect(db.prepare("select count(*) as n from discord_welcome_members").get()).toEqual({ n: 0 });
+  stub.state.channelGuild = guild;
+  stub.join();
+  await expect.poll(() => posts(stub).length).toBe(1);
+  expect(posts(stub)[0].body.png).toBe(true);
+});
+
+it("times out a stalled avatar download and still sends the welcome PNG", async () => {
+  vi.stubGlobal("fetch", vi.fn((_url: string, options: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    options.signal!.addEventListener("abort", () => reject(options.signal!.reason), { once: true });
+  })));
+  const { stub } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: announce });
+  stub.join();
+  await expect.poll(() => posts(stub).length, { timeout: 4000 }).toBe(1);
+  expect(posts(stub)[0].body.png).toBe(true);
 });

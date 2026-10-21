@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="500" viewBox="0 0 1100 500">
+<defs>
+<linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F7E3A8"/><stop offset=".35" stop-color="#C9A45C"/><stop offset=".6" stop-color="#8A6326"/><stop offset=".8" stop-color="#E9C77E"/><stop offset="1" stop-color="#F7E3A8"/></linearGradient>
+<linearGradient id="goldText" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FBEBC0"/><stop offset=".55" stop-color="#E2BC6E"/><stop offset="1" stop-color="#B88838"/></linearGradient>
+<linearGradient id="holo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff7ad9"/><stop offset=".25" stop-color="#b08cff"/><stop offset=".5" stop-color="#8fd3ff"/><stop offset=".75" stop-color="#9dffc6"/><stop offset="1" stop-color="#ffe38a"/></linearGradient>
+<filter id="blur8" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="8"/></filter>
+<filter id="blur3" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
+<filter id="blur18" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="18"/></filter>
+<radialGradient id="Bgl" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#d9772a" stop-opacity=".45"/><stop offset="1" stop-color="#d9772a" stop-opacity="0"/></radialGradient>
+<radialGradient id="Bbg" cx=".27" cy=".5" r=".85"><stop offset="0" stop-color="#3A1E6E"/><stop offset=".5" stop-color="#160F33"/><stop offset="1" stop-color="#06070F"/></radialGradient>
+<radialGradient id="Bray" gradientUnits="userSpaceOnUse" cx="300" cy="250" r="760"><stop offset="0" stop-color="#FFF0C2" stop-opacity=".55"/><stop offset=".35" stop-color="#F59E0B" stop-opacity=".14"/><stop offset="1" stop-color="#F59E0B" stop-opacity="0"/></radialGradient>
+<linearGradient id="Bframe" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3B2A12"/><stop offset="1" stop-color="#1a1208"/></linearGradient>
+<linearGradient id="Bshine" x1="0" y1="0" x2="1" y2="1"><stop offset=".3" stop-color="#fff" stop-opacity="0"/><stop offset=".46" stop-color="#fff" stop-opacity=".55"/><stop offset=".52" stop-color="#fff" stop-opacity="0"/><stop offset=".62" stop-color="#fff" stop-opacity=".25"/><stop offset=".66" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<clipPath id="Bart"><rect x="202" y="147.5" width="196" height="184"/></clipPath>
+<clipPath id="Bcard"><rect x="182" y="77.5" width="236" height="345" rx="10"/></clipPath>
+</defs>
+<rect width="1100" height="500" fill="url(#Bbg)"/>
+<path d="M300 250L1198.4 196.6L1198.4 303.4ZM300 250L1177.1 451.9L1147.0 554.3ZM300 250L1084.7 690.8L1026.9 780.6ZM300 250L928.7 894.0L848.0 963.9ZM300 250L721.8 1045.1L624.7 1089.4ZM300 250L480.7 1131.7L375.0 1146.9ZM300 250L225.0 1146.9L119.3 1131.7ZM300 250L-24.7 1089.4L-121.8 1045.1ZM300 250L-248.0 963.9L-328.7 894.0ZM300 250L-426.9 780.6L-484.7 690.8ZM300 250L-547.0 554.3L-577.1 451.9ZM300 250L-598.4 303.4L-598.4 196.6ZM300 250L-577.1 48.1L-547.0 -54.3ZM300 250L-484.7 -190.8L-426.9 -280.6ZM300 250L-328.7 -394.0L-248.0 -463.9ZM300 250L-121.8 -545.1L-24.7 -589.4ZM300 250L119.3 -631.7L225.0 -646.9ZM300 250L375.0 -646.9L480.7 -631.7ZM300 250L624.7 -589.4L721.8 -545.1ZM300 250L848.0 -463.9L928.7 -394.0ZM300 250L1026.9 -280.6L1084.7 -190.8ZM300 250L1147.0 -54.3L1177.1 48.1Z" fill="url(#Bray)"/>
+<path d="M300 250L895.8 321.0L892.3 345.9ZM300 250L851.6 486.0L841.3 508.9ZM300 250L762.8 631.9L746.4 650.9ZM300 250L636.5 746.8L615.4 760.4ZM300 250L482.9 821.5L458.8 828.6ZM300 250L314.5 849.8L289.3 849.9ZM300 250L144.9 829.6L120.8 822.6ZM300 250L-12.1 762.4L-33.3 748.9ZM300 250L-143.8 653.7L-160.4 634.8ZM300 250L-239.6 512.3L-250.1 489.5ZM300 250L-291.7 349.7L-295.3 324.8ZM300 250L-295.8 179.0L-292.3 154.1ZM300 250L-251.6 14.0L-241.3 -8.9ZM300 250L-162.8 -131.9L-146.4 -150.9ZM300 250L-36.5 -246.8L-15.4 -260.4ZM300 250L117.1 -321.5L141.2 -328.6ZM300 250L285.5 -349.8L310.7 -349.9ZM300 250L455.1 -329.6L479.2 -322.6ZM300 250L612.1 -262.4L633.3 -248.9ZM300 250L743.8 -153.7L760.4 -134.8ZM300 250L839.6 -12.3L850.1 10.5ZM300 250L891.7 150.3L895.3 175.2Z" fill="url(#Bray)"/>
+<circle cx="300" cy="250" r="170" fill="#FFD98A" opacity=".35" filter="url(#blur18)"/>
+<!-- fanned backs -->
+<g transform="translate(300 270) rotate(-17) translate(-105 -160)" opacity=".95"><g>
+<rect width="210" height="307" rx="9" fill="url(#Bbg)"/>
+<ellipse cx="105" cy="153" rx="75" ry="112" fill="url(#Bgl)"/>
+<ellipse cx="105" cy="153" rx="52" ry="76" fill="none" stroke="#e9a23f" stroke-opacity=".55" stroke-width="2"/>
+<path d="M105 82L114 139L149 153L114 167L105 224L96 167L61 153L96 139Z" fill="#f0c877"/>
+<ellipse cx="105" cy="153" rx="8.5" ry="12.5" fill="#030201"/>
+<rect x="4" y="4" width="202" height="299" rx="8" fill="none" stroke="url(#gold)" stroke-width="7"/>
+<rect x="12" y="12" width="186" height="283" rx="4" fill="none" stroke="#f0c877" stroke-opacity=".5" stroke-width="1"/></g></g>
+<g transform="translate(300 270) rotate(15) translate(-105 -160)" opacity=".95"><g>
+<rect width="210" height="307" rx="9" fill="url(#Bbg)"/>
+<ellipse cx="105" cy="153" rx="75" ry="112" fill="url(#Bgl)"/>
+<ellipse cx="105" cy="153" rx="52" ry="76" fill="none" stroke="#e9a23f" stroke-opacity=".55" stroke-width="2"/>
+<path d="M105 82L114 139L149 153L114 167L105 224L96 167L61 153L96 139Z" fill="#f0c877"/>
+<ellipse cx="105" cy="153" rx="8.5" ry="12.5" fill="#030201"/>
+<rect x="4" y="4" width="202" height="299" rx="8" fill="none" stroke="url(#gold)" stroke-width="7"/>
+<rect x="12" y="12" width="186" height="283" rx="4" fill="none" stroke="#f0c877" stroke-opacity=".5" stroke-width="1"/></g></g>
+<!-- front card: our own frame -->
+<rect x="176" y="71.5" width="248" height="357" rx="14" fill="#FFE7A8" opacity=".7" filter="url(#blur8)"/>
+<g clip-path="url(#Bcard)">
+<rect x="182" y="77.5" width="236" height="345" fill="url(#Bframe)"/>
+<rect x="182" y="77.5" width="236" height="345" fill="url(#holo)" opacity=".22"/>
+<rect x="196" y="91.5" width="208" height="30" rx="3" fill="#120c05" stroke="#E2BC6E" stroke-width="1"/>
+<text x="206" y="113.5" font-family="Chakra Petch" font-weight="700" font-size="17" letter-spacing="3" fill="#FFE7A8">NEW DUELIST</text>
+<circle cx="388" cy="132.5" r="6.5" fill="#B23A1E" stroke="#F3DDA0" stroke-width="1.2"/><path d="M388 127.5Q388.7 131.8 393 132.5Q388.7 133.2 388 137.5Q387.3 133.2 383 132.5Q387.3 131.8 388 127.5Z" fill="#FFE7A8" opacity="1"/><circle cx="371" cy="132.5" r="6.5" fill="#B23A1E" stroke="#F3DDA0" stroke-width="1.2"/><path d="M371 127.5Q371.7 131.8 376 132.5Q371.7 133.2 371 137.5Q370.3 133.2 366 132.5Q370.3 131.8 371 127.5Z" fill="#FFE7A8" opacity="1"/><circle cx="354" cy="132.5" r="6.5" fill="#B23A1E" stroke="#F3DDA0" stroke-width="1.2"/><path d="M354 127.5Q354.7 131.8 359 132.5Q354.7 133.2 354 137.5Q353.3 133.2 349 132.5Q353.3 131.8 354 127.5Z" fill="#FFE7A8" opacity="1"/><circle cx="337" cy="132.5" r="6.5" fill="#B23A1E" stroke="#F3DDA0" stroke-width="1.2"/><path d="M337 127.5Q337.7 131.8 342 132.5Q337.7 133.2 337 137.5Q336.3 133.2 332 132.5Q336.3 131.8 337 127.5Z" fill="#FFE7A8" opacity="1"/><circle cx="320" cy="132.5" r="6.5" fill="#B23A1E" stroke="#F3DDA0" stroke-width="1.2"/><path d="M320 127.5Q320.7 131.8 325 132.5Q320.7 133.2 320 137.5Q319.3 133.2 315 132.5Q319.3 131.8 320 127.5Z" fill="#FFE7A8" opacity="1"/><circle cx="303" cy="132.5" r="6.5" fill="#B23A1E" stroke="#F3DDA0" stroke-width="1.2"/><path d="M303 127.5Q303.7 131.8 308 132.5Q303.7 133.2 303 137.5Q302.3 133.2 298 132.5Q302.3 131.8 303 127.5Z" fill="#FFE7A8" opacity="1"/><circle cx="286" cy="132.5" r="6.5" fill="#B23A1E" stroke="#F3DDA0" stroke-width="1.2"/><path d="M286 127.5Q286.7 131.8 291 132.5Q286.7 133.2 286 137.5Q285.3 133.2 281 132.5Q285.3 131.8 286 127.5Z" fill="#FFE7A8" opacity="1"/>
+<rect x="198" y="143.5" width="204" height="192" fill="#050711" stroke="url(#gold)" stroke-width="3"/>
+{{AVATAR}}
+<rect x="202" y="147.5" width="196" height="184" fill="url(#holo)" opacity=".18"/>
+<rect x="196" y="357.5" width="208" height="52" rx="3" fill="#f3e6c6" stroke="#E2BC6E"/>
+<text x="300" y="393.5" text-anchor="middle" font-family="Chakra Petch" font-weight="700" font-size="28" letter-spacing="2" fill="#2a1a08">No. {{NUMBER}}</text>
+<rect x="122" y="37.5" width="356" height="425" fill="url(#Bshine)"/>
+</g>
+<rect x="185" y="80.5" width="230" height="339" rx="9" fill="none" stroke="url(#gold)" stroke-width="6"/>
+<path d="M414 63.5Q417.08 82.42 436 85.5Q417.08 88.58 414 107.5Q410.92 88.58 392 85.5Q410.92 82.42 414 63.5Z" fill="#FFF6D8" opacity="1"/><path d="M152 136.5Q153.54 145.96 163 147.5Q153.54 149.04 152 158.5Q150.46 149.04 141 147.5Q150.46 145.96 152 136.5Z" fill="#FFF6D8" opacity="0.85"/><path d="M458 369.5Q459.82 380.68 471 382.5Q459.82 384.32 458 395.5Q456.18 384.32 445 382.5Q456.18 380.68 458 369.5Z" fill="#FFF6D8" opacity="0.8"/><path d="M130 413Q130.98 419.02 137 420Q130.98 420.98 130 427Q129.02 420.98 123 420Q129.02 419.02 130 413Z" fill="#FFF6D8" opacity="0.6"/><path d="M560 52Q561.12 58.88 568 60Q561.12 61.12 560 68Q558.88 61.12 552 60Q558.88 58.88 560 52Z" fill="#FFF6D8" opacity="0.6"/>
+<!-- text -->
+<text x="560" y="140" font-family="Chakra Petch" font-weight="700" font-size="26" letter-spacing="5" fill="url(#goldText)">A NEW CARD WAS PULLED</text>
+<text x="557" y="226" font-family="Russo One" font-size="{{NAME_SIZE}}" fill="#F4F6FB">{{NAME}}</text>
+<text x="560" y="286" font-family="Chakra Petch" font-weight="700" font-size="40" letter-spacing="1" fill="#FFE7A8">Duelist #{{NUMBER}}</text>
+<line x1="560" y1="318" x2="1040" y2="318" stroke="url(#gold)" stroke-width="1.5" opacity=".7"/>
+<text x="560" y="358" font-family="Chakra Petch" font-weight="500" font-size="28" fill="#C4CBE3">Build your deck. Take your seat.</text>
+<g transform="translate(560 400) scale(0.4)">
+<g fill="#C9A45C"><path fill-rule="evenodd" d="M18 12H56L78 34V62L56 84H18Z M33 26H55A3 3 0 0 1 58 29V67A3 3 0 0 1 55 70H33A3 3 0 0 1 30 67V29A3 3 0 0 1 33 26Z"/><path d="M44 41L51 48L44 55L37 48Z"/></g>
+<g fill="#E8ECF4"><path transform="translate(120 32)" d="M0 0H16L24 8V24L16 32H0Z M6 6V26H13L18 21V11L13 6Z"/><path transform="translate(149 32)" d="M0 0H6V24L8 26H16L18 24V0H24V26L18 32H6L0 26Z"/><path transform="translate(178 32)" d="M0 0H22V6H6V13H19V19H6V26H22V32H0Z"/><path transform="translate(205 32)" d="M0 0H6V26H22V32H0Z"/><path transform="translate(232 32)" d="M0 0H6V32H0Z"/><path transform="translate(243 32)" d="M0 32V0H6L18 21V0H24V32H18L6 11V32Z"/><path transform="translate(272 32)" d="M6 0H24V6H9L6 9V23L9 26H18V19H12V13H24V32H6L0 26V6Z"/></g>
+<g fill="#C9A45C"><path transform="translate(318 32)" d="M0 0H16L24 8V24L16 32H0Z M6 6V26H13L18 21V11L13 6Z"/><path transform="translate(347 32)" d="M6 0H18L24 6V26L18 32H6L0 26V6Z M8 6L6 8V24L8 26H16L18 24V8L16 6Z"/><path transform="translate(376 32)" d="M0 32V0H6L14 12L22 0H28V32H22V11L14 23L6 11V32Z"/><path transform="translate(409 32)" d="M0 32V8L8 0H16L24 8V32H18V21H6V32Z M6 15H18V10L14 6H10L6 10Z"/><path transform="translate(438 32)" d="M0 0H6V32H0Z"/><path transform="translate(449 32)" d="M0 32V0H6L18 21V0H24V32H18L6 11V32Z"/></g></g>
+</svg>

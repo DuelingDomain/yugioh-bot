@@ -1366,6 +1366,20 @@ export function migrate(db: Database.Database) {
     );
   `);
 
+  // Durable Discord welcome numbers and the last successful greeting time.
+  db.exec(`
+    create table if not exists discord_welcome_members (
+      guild_id text not null,
+      discord_user_id text not null,
+      number integer not null check (number > 0),
+      first_joined_at text not null default current_timestamp,
+      last_welcomed_at integer,
+      primary key (guild_id, discord_user_id),
+      unique (guild_id, number)
+    );
+  `);
+  addColumnIfMissing(db, "discord_welcome_members", "last_welcomed_at", "integer");
+
   // Shared admin state follows identity migration. No email text is stored in decisions.
   db.exec(`
     create table if not exists discord_waitlist_actions (

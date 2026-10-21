@@ -93,7 +93,7 @@ function effectivePermissions(guild: APIGuild, roles: APIRole[], member: Member,
 export async function requireActorChannelPermission(context: FeatureContext, actor: Actor, permission: bigint,
   channel: GuildChannel, resolvedPermissions?: string | null) {
   if (!actor.admin && [context.config.modLogChannelId, context.config.waitlistChannelId,
-    context.config.statusChannelId, context.config.announceChannelId].includes(channel.id))
+    context.config.statusChannelId, context.config.announceChannelId, context.config.welcomeChannelId].includes(channel.id))
     throw new Refusal("Only site admins can moderate a configured bot channel.");
   const required = permission | P.ViewChannel;
   const requirePermission = (bits: bigint) => {
