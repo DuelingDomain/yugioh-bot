@@ -628,6 +628,38 @@ it("posts the greeting even when welcome rendering fails", async () => {
   expect(db.prepare("select number from discord_welcome_members").get()).toEqual({ number: 1 });
 });
 
+it("terminates a stalled render worker, posts text, and renders the next join", async () => {
+  stubAvatar();
+  const isolated = mkdtempSync(join(tmpdir(), "bot-welcome-timeout-"));
+  cleanups.push(() => rmSync(isolated, { recursive: true, force: true }));
+  const source = join(isolated, "src/features/community"), assets = join(isolated, "assets/welcome");
+  mkdirSync(source, { recursive: true }); mkdirSync(assets, { recursive: true });
+  symlinkSync(fileURLToPath(new URL("../../../../../node_modules/", import.meta.url)), join(isolated, "node_modules"));
+  const originalAssets = fileURLToPath(new URL("../../../assets/welcome/", import.meta.url));
+  symlinkSync(join(originalAssets, "fonts"), join(assets, "fonts"));
+  copyFileSync(join(originalAssets, "first-pull.svg"), join(assets, "first-pull.svg"));
+  copyFileSync(fileURLToPath(new URL("welcome-card.ts", import.meta.url)), join(source, "welcome-card.ts"));
+  const marker = join(isolated, "started");
+  writeFileSync(join(assets, "render.cjs"), `
+    const fs = require("node:fs");
+    if (fs.existsSync(${JSON.stringify(marker)})) require(${JSON.stringify(join(originalAssets, "render.cjs"))});
+    else { fs.writeFileSync(${JSON.stringify(marker)}, "started"); setInterval(() => {}, 1000); }
+  `);
+  const renderer = await import(pathToFileURL(join(source, "welcome-card.ts")).href);
+  vi.spyOn(welcomeCard, "renderWelcomeCard").mockImplementation(renderer.renderWelcomeCard);
+  const reported = vi.spyOn(observability, "report").mockImplementation(() => {});
+  const { stub } = await fixture(false, [community], { botGuildId: guild, welcomeChannelId: announce });
+  stub.join();
+  await expect.poll(() => posts(stub).length, { timeout: 12_000 }).toBe(1);
+  expect(posts(stub)[0].body.content).toBe(`Hey <@${other}>, welcome to **Dueling Domain**!`);
+  expect(posts(stub)[0].body.attachments).toBeUndefined();
+  expect(reported).toHaveBeenCalledWith(expect.objectContaining({ message: "Welcome render worker timed out" }),
+    { tags: { operation: "bot.welcome.render" } });
+  stub.join("100000000000000011");
+  await expect.poll(() => posts(stub).length).toBe(2);
+  expect(posts(stub)[1].body.png).toBe(true);
+}, 20_000);
+
 it("previews a real card privately for linked owners only, defaulting to self or a chosen member", async () => {
   stubAvatar();
   const { stub, db } = await fixture();

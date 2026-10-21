@@ -67,12 +67,17 @@ function renderIsolated(svg: string, fallbackSvg: string, avatar: string | undef
     let png: Buffer | undefined;
     let failure: unknown;
     const abort = () => { void worker.terminate(); };
+    const timeout = setTimeout(() => {
+      failure = new Error("Welcome render worker timed out");
+      void worker.terminate();
+    }, 10_000);
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) abort();
     worker.once("message", (bytes: Uint8Array) => { png = Buffer.from(bytes); });
     worker.once("error", error => { failure = error; });
     // Wait for exit, so all native bitmaps are released before the next render.
     worker.once("exit", code => {
+      clearTimeout(timeout);
       signal?.removeEventListener("abort", abort);
       if (signal?.aborted) reject(signal.reason);
       else if (failure) reject(failure);
