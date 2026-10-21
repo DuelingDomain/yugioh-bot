@@ -648,6 +648,9 @@ export interface DuelRoom {
   /** A recorded lobby start failed on another seat's deck. Seated viewers only; no private deck details. */
   startBlockedByOther?: true;
   inviteCode?: string;
+  /** Organizer only: admitted players without a seat, and players they may re-invite. */
+  invitedPlayers?: Array<{ playerId: number; displayName: string }>;
+  kickedPlayers?: Array<{ playerId: number; displayName: string }>;
   /** The series of this game, or null. */
   series?: DuelSeriesSummary | null;
   /** The viewer's series decks when the viewer is a series player; otherwise null. */

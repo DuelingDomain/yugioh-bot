@@ -28,6 +28,7 @@ function prepareAccessStatements(db: Database.Database) {
       "select seat from duel_seats where duel_id=? and player_id=?"),
     grant: db.prepare<[number, number], { allowed: number }>(
       "select 1 as allowed from duel_invite_grants where duel_id=? and player_id=?"),
+    kicked: db.prepare<[number, number]>("select 1 from duel_kicked_players where duel_id=? and player_id=?"),
   };
 }
 
@@ -65,6 +66,7 @@ export function canReadDuel(db: Database.Database, claims: Pick<DuelConnectionTo
     const queries = statements(db);
     const player = queries.player.get(claims.playerId, claims.guildId);
     if (!player) return false;
+    if (queries.kicked.get(row.id, claims.playerId)) return false;
     const seat = queries.seat.get(row.id, claims.playerId);
     if (isReplayFork(target)) return claims.seat === 0 && seat?.seat === 0
       && row.organizer_player_id === claims.playerId && target.ownerUserId === player.user_id && isOwnerUser(player.user_id);
