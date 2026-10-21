@@ -17,7 +17,7 @@ export function DuelCardHoverInfoControl() {
           </button>
         ))}
       </div>
-      <p className={fxStyles.shakeNote}>Drawer opens the card info when you hover a card. Off opens it only after a click. Esc or a right click closes it.</p>
+      <p className={fxStyles.shakeNote}>Drawer opens the card info when you hover a card. Off opens it only after a click on a card. Esc or a right click closes an open drawer first; the next press goes to the prompt.</p>
     </div>
   );
 }

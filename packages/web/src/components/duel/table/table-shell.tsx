@@ -1013,7 +1013,7 @@ function TableShellBody({
       ) : null}
       {!hud ? (
         <GridHoverPreview card={drawerPreview?.card ?? null} owner={drawerPreview?.owner ?? null} reducedMotion={controller.reducedMotion}
-          pinned={drawerPreview?.pinned === true} onClose={() => setPinnedCard(null)} />
+          pinned={drawerPreview?.pinned === true} held={drawerPreview?.held === true} onClose={() => setPinnedCard(null)} />
       ) : null}
       {showResult ? (
         <DuelResultScreen
