@@ -38,7 +38,7 @@ function SeatCard({
   onRemoveBot?: (seat: number) => void;
   /** Set only for the host: opens the Kick dialog for a human on this seat. */
   onAskKick?: (request: KickRequest) => void;
-  /** The host removed this player; the seat surrenders when the series game starts. */
+  /** The host removed this player; they must be re-invited before they can ready again. */
   kicked?: boolean;
   botBusy: boolean;
   present: boolean | null;
@@ -87,7 +87,7 @@ function SeatCard({
       <span className={styles.seatActions}>
         <span className={cx(styles.status, taken.ready && styles.statusReady)}>
           <Icon size={15} strokeWidth={1.7} aria-hidden />
-          {kicked ? "Removed · will surrender at start" : taken.ready ? "Ready" : waitLabel}
+          {kicked ? "Removed · waiting for re-invite" : taken.ready ? "Ready" : waitLabel}
         </span>
         {!taken.isBot ? <span className={styles.presence} data-present={present === true}>
           <i aria-hidden />{present === null ? "Presence unavailable" : present ? "In the room" : "Away"}

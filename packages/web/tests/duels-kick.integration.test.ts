@@ -189,8 +189,8 @@ describe("host player removal through the signed duel API and SQLite", () => {
     expect(duels.room(slug, "g", owner.playerId).opening).toBeNull();
   });
 
-  it("cancels an unseated invitation, refuses the old link, and permits only a host re-invite", async () => {
-    slug = duels.create({ guildId: "g", organizerPlayerId: owner.playerId, name: "Private", mode: "normal", settings: { visibility: "private" } }).slug;
+  it.each([1, 3] as const)("cancels an unseated invitation in a best-of-%s lobby and permits only a host re-invite", async bestOf => {
+    slug = duels.create({ guildId: "g", organizerPlayerId: owner.playerId, name: "Private", mode: "normal", bestOf, settings: { visibility: "private" } }).slug;
     const inviteCode = duels.room(slug, "g", owner.playerId).inviteCode!;
     duels.admit(slug, "g", guest.playerId, inviteCode);
     expect(duels.room(slug, "g", owner.playerId).invitedPlayers).toEqual([{ playerId: guest.playerId, displayName: "Guest" }]);
@@ -366,29 +366,35 @@ describe("host player removal through the signed duel API and SQLite", () => {
     expect(duels.room(slug, "g", guest.playerId).mySeat).toBe(1);
   });
 
-  it("blocks a later fixed-seat series lobby without awarding another win", async () => {
-    table("1v1", true, 3);
+  it.each([
+    { ranked: false, winnerSeat: 0, opening: false },
+    { ranked: true, winnerSeat: 0, opening: false },
+    { ranked: false, winnerSeat: null, opening: true },
+  ])("refuses a later series lobby kick (ranked=$ranked, winner=$winnerSeat, opening=$opening)", async ({ ranked, winnerSeat, opening }) => {
+    table("1v1", true, 3, ranked);
     const series = createDuelSeriesService(db);
     const seriesId = duels.get(slug, "g").seriesId!;
-    duels.complete(slug, "g", 0, "Surrender");
+    duels.complete(slug, "g", winnerSeat, winnerSeat === null ? "Draw" : "Surrender");
     slug = series.createNextGame(seriesId, "g").slug;
+    if (opening) duels.startOpening(slug, "g", owner.playerId, Date.now());
     const before = series.get(seriesId, "g");
+    const room = duels.room(slug, "g", owner.playerId);
     const matches = db.prepare("select * from matches").all();
-    const response = await kick();
-    expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
-    expect(duels.get(slug, "g")).toMatchObject({ status: "lobby", winnerPlayerId: null, resultReason: null });
-    expect(duels.get(slug, "g").seats.find(seat => seat.playerId === guest.playerId)?.ready).toBe(false);
+    for (const response of [await kick(), await internal({ op: "kick", targetPlayerId: guest.playerId })]) {
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ error: expect.stringMatching(/only.*before.*game 1.*series starts/i) });
+    }
+    expect(() => duels.kickPlayer(slug, "g", owner.playerId, guest.playerId)).toThrow(/only.*before.*game 1.*series starts/i);
+    expect(duels.room(slug, "g", owner.playerId)).toEqual({ ...room,
+      opening: room.opening ? { ...room.opening, serverNow: expect.any(Number) } : null });
+    expect(duels.room(slug, "g", guest.playerId).role).toBe("player");
     expect(series.get(seriesId, "g")).toEqual(before);
     expect(db.prepare("select * from matches").all()).toEqual(matches);
-    expect((await internal({ op: "start" })).status).toBe(409);
-    expect(() => duels.room(slug, "g", guest.playerId)).toThrow(/removed.*host/i);
+    expect(broadcasts).toEqual([]);
   });
 
-  it("broadcasts a lobby kick without auto-starting a series with an illegal deck", async () => {
-    table("1v1", true, 3);
-    const seriesId = duels.get(slug, "g").seriesId!;
-    duels.complete(slug, "g", 0, "Surrender");
-    slug = createDuelSeriesService(db).createNextGame(seriesId, "g").slug;
+  it("broadcasts a first-lobby kick without auto-starting a best-of-three with an illegal deck", async () => {
+    table("1v1", false, 3);
     db.prepare("update duel_seats set deck_json=? where duel_id=? and player_id=?")
       .run(JSON.stringify({ ...deck, extra: [999999] }), duels.get(slug, "g").id, owner.playerId);
     const response = await kick();
@@ -398,7 +404,7 @@ describe("host player removal through the signed duel API and SQLite", () => {
     expect(() => duels.room(slug, "g", guest.playerId)).toThrow(/removed.*host/i);
   });
 
-  it.each([false, true])("blocks a fixed tournament lobby seat without changing the bracket or awarding a win (opening=%s)", async opening => {
+  it.each([false, true])("refuses a tournament lobby kick without changing the bracket or awarding a win (opening=%s)", async opening => {
     const game = tournamentLobby();
     if (opening) {
       duels.markReady(slug, "g", owner.playerId); duels.markReady(slug, "g", guest.playerId);
@@ -406,24 +412,25 @@ describe("host player removal through the signed duel API and SQLite", () => {
     }
     const series = createDuelSeriesService(db);
     const before = series.get(game.series.id, "g");
+    const room = duels.room(slug, "g", owner.playerId);
     const bracket = db.prepare("select * from tournament_matches").all();
-    const response = await kick();
-    expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
-    expect(() => duels.room(slug, "g", guest.playerId)).toThrow(/removed.*host/i);
-    const ready = await internal({ op: "ready" });
-    expect(ready.status, JSON.stringify(await ready.clone().json())).toBe(200);
-    expect(duels.get(slug, "g")).toMatchObject({ status: "lobby", winnerPlayerId: null, resultReason: null });
-    expect(duels.room(slug, "g", owner.playerId).opening).toBeNull();
+    for (const response of [await kick(), await internal({ op: "kick", targetPlayerId: guest.playerId })]) {
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ error: expect.stringMatching(/cannot.*kick.*tournament match/i) });
+    }
+    expect(() => duels.kickPlayer(slug, "g", owner.playerId, guest.playerId)).toThrow(/cannot.*kick.*tournament match/i);
+    expect(duels.room(slug, "g", owner.playerId)).toEqual({ ...room,
+      opening: room.opening ? { ...room.opening, serverNow: expect.any(Number) } : null });
+    expect(duels.room(slug, "g", guest.playerId).role).toBe("player");
     expect(series.get(game.series.id, "g")).toEqual(before);
     expect(db.prepare("select * from tournament_matches").all()).toEqual(bracket);
     expect(db.prepare("select count(*) as count from matches").get()).toEqual({ count: 0 });
-    expect((await internal({ op: "start" })).status).toBe(409);
+    expect(broadcasts).toEqual([]);
   });
 
-  it("requires a reinstated fixed-seat player to confirm readiness again", async () => {
+  it("lets tournament players ready and start after a refused kick", async () => {
     tournamentLobby();
-    expect((await kick()).status).toBe(200);
-    expect((await invite({ playerId: guest.playerId })).status).toBe(200);
+    expect((await kick()).status).toBe(409);
     expect(duels.get(slug, "g").seats.find(seat => seat.playerId === guest.playerId)?.ready).toBe(false);
     expect((await internal({ op: "ready" })).status).toBe(200);
     expect(duels.get(slug, "g").status).toBe("lobby");
@@ -432,20 +439,39 @@ describe("host player removal through the signed duel API and SQLite", () => {
     expect(duels.room(slug, "g", guest.playerId).role).toBe("player");
   });
 
-  it("keeps a fixed-seat lobby kick blocked after a host restart without settling a result", async () => {
+  it("lets a later series game auto-start after a refused kick and host restart", async () => {
     table("1v1", true, 3);
     const series = createDuelSeriesService(db);
     const seriesId = duels.get(slug, "g").seriesId!;
     duels.complete(slug, "g", 0, "Surrender");
     slug = series.createNextGame(seriesId, "g").slug;
-    duels.kickPlayer(slug, "g", owner.playerId, guest.playerId);
+    expect((await kick()).status).toBe(409);
     await host.close(); worker = new FixtureWorker(); host = openHost();
     expect((await internal({ op: "view" })).status).toBe(200);
-    expect((await internal({ op: "start" })).status).toBe(409);
-    expect(duels.get(slug, "g")).toMatchObject({ status: "lobby", winnerPlayerId: null });
+    await vi.waitFor(() => expect(duels.get(slug, "g")).toMatchObject({ status: "active", winnerPlayerId: null }));
     expect(series.get(seriesId, "g").wins).toEqual([1, 0]);
-    expect((await internal({ op: "view", playerId: guest.playerId })).status).toBe(403);
+    expect((await internal({ op: "view", playerId: guest.playerId })).status).toBe(200);
     expect(worker.eliminations).toEqual([]);
+  });
+
+  it("refuses kicks during side decking without changing the series or either player's access", async () => {
+    table("1v1", true, 3);
+    const series = createDuelSeriesService(db);
+    const seriesId = duels.get(slug, "g").seriesId!;
+    duels.complete(slug, "g", 0, "Surrender");
+    const before = series.get(seriesId, "g");
+    expect(before.status).toBe("between_games");
+    const room = duels.room(slug, "g", owner.playerId);
+    const matches = db.prepare("select * from matches").all();
+    for (const response of [await kick(), await internal({ op: "kick", targetPlayerId: guest.playerId })]) {
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ error: expect.stringMatching(/only.*before.*duel starts/i) });
+    }
+    expect(series.get(seriesId, "g")).toEqual(before);
+    expect(db.prepare("select * from matches").all()).toEqual(matches);
+    expect(duels.room(slug, "g", owner.playerId)).toEqual(room);
+    expect(duels.room(slug, "g", guest.playerId).role).toBe("player");
+    expect(broadcasts).toEqual([]);
   });
 
   it("refuses active tournament kicks without changing match or bracket records", async () => {
