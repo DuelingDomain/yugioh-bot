@@ -63,25 +63,35 @@ function stop() {
 type Box = { left: number; top: number; right: number; bottom: number };
 
 /** An open card inspector or edge drawer panel: it lies over the whole board, so these layers must not draw over it either. */
-const OPEN_DRAWER = "[data-testid='hover-preview'][data-open='true'], [data-edge-drawer][data-state='open'] [role='dialog']";
+const OPEN_DRAWER = "[data-testid='hover-preview'], [data-edge-drawer][data-state='open'] [role='dialog']";
 
 const near = (r: Box, box: DOMRect) =>
   r.right > box.left - COVER_REACH && r.left < box.right + COVER_REACH && r.bottom > box.top - COVER_REACH && r.top < box.bottom + COVER_REACH;
 
-/** Holes that touch each other become one box: an even-odd polygon would fill their overlap again. */
-function mergeBoxes(list: Box[]): Box[] {
-  // A DOMRect keeps its sides on the prototype: copy them one by one.
-  const out = list.map(({ left, top, right, bottom }) => ({ left, top, right, bottom }));
-  for (let i = 0; i < out.length; i += 1) {
-    for (let j = i + 1; j < out.length; j += 1) {
-      const a = out[i];
-      const b = out[j];
-      if (a.right < b.left || b.right < a.left || a.bottom < b.top || b.bottom < a.top) continue;
-      out[i] = { left: Math.min(a.left, b.left), top: Math.min(a.top, b.top), right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom) };
-      out.splice(j, 1);
-      i = -1;
-      break;
-    }
+/** Part of `box` that `cut` does not cover: up to four boxes (above, below, left and right of the overlap). */
+function subtract(box: Box, cut: Box): Box[] {
+  if (cut.right <= box.left || cut.left >= box.right || cut.bottom <= box.top || cut.top >= box.bottom) return [box];
+  const out: Box[] = [];
+  if (cut.top > box.top) out.push({ left: box.left, top: box.top, right: box.right, bottom: cut.top });
+  if (cut.bottom < box.bottom) out.push({ left: box.left, top: cut.bottom, right: box.right, bottom: box.bottom });
+  const top = Math.max(box.top, cut.top);
+  const bottom = Math.min(box.bottom, cut.bottom);
+  if (cut.left > box.left) out.push({ left: box.left, top, right: cut.left, bottom });
+  if (cut.right < box.right) out.push({ left: cut.right, top, right: box.right, bottom });
+  return out;
+}
+
+/**
+ * The holes as boxes that do not overlap: an even-odd polygon would fill the overlap of two holes again. Each box keeps only the part
+ * the earlier ones do not cover, so the union stays exact (a hovered card beside the drawer does not cut the layer between them).
+ */
+function disjoint(list: Box[]): Box[] {
+  let out: Box[] = [];
+  for (const { left, top, right, bottom } of list) {
+    // A DOMRect keeps its sides on the prototype: copy them one by one.
+    let pieces: Box[] = [{ left, top, right, bottom }];
+    for (const done of out) pieces = pieces.flatMap((piece) => subtract(piece, done));
+    out = out.concat(pieces);
   }
   return out;
 }
@@ -93,6 +103,8 @@ function tick() {
   const holes: Box[] = [];
   if (card) holes.push((card.querySelector<HTMLElement>("[data-card-frame]") ?? card).getBoundingClientRect());
   for (const drawer of document.querySelectorAll<HTMLElement>(OPEN_DRAWER)) {
+    // A drawer that is closing keeps its hole until it has slid out (its `visibility` flips after the slide).
+    if (getComputedStyle(drawer).visibility === "hidden") continue;
     const box = drawer.getBoundingClientRect();
     if (box.width > 0 && box.height > 0) holes.push(box);
   }
@@ -111,7 +123,7 @@ function tick() {
   for (const [layer, box] of reads) {
     const el = layer.wrap.current;
     if (!el || !box) continue;
-    const cuts = mergeBoxes(holes.filter((r) => near(r, box)));
+    const cuts = disjoint(holes.filter((r) => near(r, box)));
     if (cuts.length === 0) {
       setCut(layer, "");
       continue;
@@ -157,6 +169,8 @@ function enter(target: EventTarget | null) {
 }
 
 function leave() {
+  // Only a tracked hand card needs the hold; an open drawer is followed by its own attribute and transition events.
+  if (!card) return;
   holdUntil = performance.now() + COVER_HOLD_MS;
   wake();
 }

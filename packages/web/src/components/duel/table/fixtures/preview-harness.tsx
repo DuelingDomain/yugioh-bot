@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { isDuelChainMode, type DuelChainMode, type DuelEvent } from "@yugidraft/shared/duels";
 import { BugReportHeaderButton } from "@/components/bug-report/bug-report-header-button";
+import { Ban, Flag } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { HeaderToolLabel } from "../../header-tool-label";
 import type { ChainModeControl } from "../../use-chain-mode";
 import { useDuelAnimationSpeed } from "../../animation-speed-control";
 import { duelFontClasses } from "../../fonts";
@@ -203,8 +205,8 @@ export function PreviewHeaderTools({ room }: { room: TableFixtureState["room"] }
   return (
     <>
       <BugReportHeaderButton room={room} />
-      <Button type="button" variant="danger" size="sm">Surrender</Button>
-      <Button type="button" variant="secondary" size="sm">Cancel duel</Button>
+      <Button type="button" variant="danger" size="sm" title="Surrender"><HeaderToolLabel icon={Flag}>Surrender</HeaderToolLabel></Button>
+      <Button type="button" variant="secondary" size="sm" title="Cancel duel"><HeaderToolLabel icon={Ban}>Cancel duel</HeaderToolLabel></Button>
     </>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type FocusEvent, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { duelFontClasses } from "./fonts";
 import styles from "./duel-tip.module.css";
 
 /**
@@ -18,6 +19,7 @@ export interface DuelTip {
   on: (text: string) => {
     onPointerEnter: (event: PointerEvent<HTMLElement>) => void;
     onPointerLeave: () => void;
+    onPointerDown: () => void;
     onFocus: (event: FocusEvent<HTMLElement>) => void;
     onBlur: () => void;
     "aria-description": string;
@@ -42,6 +44,8 @@ export function useDuelTip(): DuelTip {
     // A finger has no hover: a tap would leave the box open until the next tap.
     onPointerEnter: (event: PointerEvent<HTMLElement>) => { if (event.pointerType !== "touch") show(text, event.currentTarget); },
     onPointerLeave: hide,
+    // A press may change the control's label (End Turn, the primary button): the box closes rather than show the old text.
+    onPointerDown: hide,
     onFocus: (event: FocusEvent<HTMLElement>) => { if (event.currentTarget.matches(":focus-visible")) show(text, event.currentTarget); },
     onBlur: hide,
     "aria-description": text,
@@ -76,7 +80,7 @@ function TipBox({ open, onDismiss }: { open: Open; onDismiss: () => void }) {
     };
   }, [onDismiss]);
   return (
-    <div ref={box} className={styles.tip} role="tooltip" style={place ?? { left: 0, top: 0, visibility: "hidden" }}>
+    <div ref={box} className={`${duelFontClasses} ${styles.tip}`} role="tooltip" style={place ?? { left: 0, top: 0, visibility: "hidden" }}>
       {open.text}
     </div>
   );
