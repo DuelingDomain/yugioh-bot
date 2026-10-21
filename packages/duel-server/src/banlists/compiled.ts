@@ -28,11 +28,9 @@
 //   SHA-256(Konami list HTML)=e21c0291ddc5959f3365c3361228f299850374c64cf49c9deef6ed6e4f68e777
 //   SHA-256(Yugipedia API JSON)=186f25f8d6357ccac2a62b353de5a25979aa359e8e6b8855903d6030913f0989
 //   SHA-256(compiled tcg-2026-10-19 entries)=707bb8cca4f32d1a1772591178c5e78e80c003ab19ca5692830a25533eb848d4
-//   SHA-256(compiled tcg-2026-11-11 entries)=f1bfc82204f451bce3697dfd81e214bb5418f0c898d1dcd26507a68418339fa7
 //   New hashes use numeric passcode order, UTF-8 "passcode limit\n" for each entry.
 //   Droll & Lock Bird is Limited in Konami Part 1 and the published full list.
-//   Perfectron Hydradrive Dragon becomes LIMITED on 2026-11-11, not Forbidden.
-//   Omit it from October; the separate November ID includes it without mutating history.
+//   Omit the delayed Perfectron Hydradrive Dragon limit from the October snapshot.
 //   Counts, source disagreements and all source hashes: docs/banlists/2026-10.md.
 
 // OCG: Konami Japan Limit Regulation effective 2026-10-01 (current).
@@ -536,12 +534,6 @@ export const TCG_2026_10_19_LIMITS: Record<number, BanlistLimit> = {
   99243014: 1,
   99266988: 1,
   99937011: 1,
-};
-
-// Explicit future snapshot; it is selectable, but is not the current default.
-export const TCG_2026_11_11_LIMITS: Record<number, BanlistLimit> = {
-  ...TCG_2026_10_19_LIMITS,
-  13203964: 1, // Perfectron Hydradrive Dragon, effective with Magnificent Maestros.
 };
 
 export const OCG_2026_07_LIMITS: Record<number, BanlistLimit> = {

@@ -105,7 +105,7 @@ describe("multiplayer forbidden list in deck validation", () => {
 
   it("flags an all-format card in Tag too", () => {
     const deck = deckWith(FINAL_COUNTDOWN);
-    for (const banlist of ["none", "tcg-2026-10-19", "tcg-2026-11-11"]) {
+    for (const banlist of ["none", "tcg-2026-10-19"]) {
       const rules = { ...settings, banlist };
       expect(inspectDeck("normal", deck, DATA, rules, { table: "1v1" }).issues).toEqual([]);
       for (const table of ["ffa3", "ffa4", "tag"] as const) {

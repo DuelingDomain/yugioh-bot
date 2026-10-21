@@ -1,3 +1,4 @@
+import { normalizeBanlistId } from "../duels/banlist-options.js";
 import { recordProductEvent } from "../analytics/index.js";
 import { ExpectedError, report } from "../observability/index.js";
 import type { CardIdentityCatalog } from "../duels/pool.js";
@@ -106,7 +107,7 @@ function mapCube(row: any): Cube {
     guildId: row.guild_id,
     name: row.name,
     archetype: row.archetype ?? null,
-    banlist: row.banlist ?? null,
+    banlist: row.banlist == null ? null : normalizeBanlistId(row.banlist),
     config: JSON.parse(row.config_json ?? "{}") as DraftConfig,
     createdByUserId: row.created_by_user_id,
   };

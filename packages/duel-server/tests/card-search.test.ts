@@ -93,7 +93,8 @@ describe("deck editor card search", () => {
     expect(facets["tcg-2026-09"]?.[24224830]).toBe(1);
     expect(facets["tcg-2026-10-19"]?.[94145021]).toBe(1);
     expect(facets["tcg-2026-10-19"]?.[13203964]).toBeUndefined();
-    expect(facets["tcg-2026-11-11"]?.[13203964]).toBe(1);
+    expect(facets).not.toHaveProperty("tcg-2026-11-11");
+    expect(banlistLimitsFor("tcg-2026-11-11")).toBe(banlistLimitsFor("tcg-2026-10-19"));
     expect(facets["ocg-2026-07"]?.[91800273]).toBe(1);
     expect(facets["ocg-2026-10"]?.[91800273]).toBe(0);
     expect(forbidden.cards.every((card) => limits[card.code] === 0 || limits[card.alias] === 0)).toBe(true);

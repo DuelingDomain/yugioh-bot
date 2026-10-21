@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { emptyCardQuery, normalizeDuelSettings, type DuelMode } from "@yugidraft/shared/duels";
+import { DUEL_BANLIST_OPTIONS, emptyCardQuery, normalizeDuelSettings, type DuelMode } from "@yugidraft/shared/duels";
 import { inspectDeck, validateDeck, type MultiplayerTable } from "../src/deck-legality.js";
 import { queryCards } from "../src/card-search.js";
 import { loadCardDatabase } from "../src/cards.js";
@@ -51,7 +51,7 @@ const reason = "Repeated script failure under investigation";
 const modes: DuelMode[] = ["normal", "domain"];
 const tables: MultiplayerTable[] = ["1v1", "tag", "ffa3", "ffa4"];
 const cases = modes.flatMap(mode => tables.flatMap(table =>
-  ["none", "tcg-2026-09", "tcg-2026-10-19", "tcg-2026-11-11", "ocg-2026-07", "ocg-2026-10"].flatMap(banlist => [true, false].map(validateDeck =>
+  DUEL_BANLIST_OPTIONS.flatMap(({ id: banlist }) => [true, false].map(validateDeck =>
     ({ mode, table, banlist, validateDeck })))));
 
 describe("repository card blocks at deck admission", () => {

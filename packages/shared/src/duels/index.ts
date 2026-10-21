@@ -110,7 +110,7 @@ export {
 } from "./opening.js";
 export type { CardIdentityCatalog, DeckPoolIssue } from "./pool.js";
 export { canonicalCardCode, checkDeckAgainstPool, deckCardCounts, mapDeckCodes } from "./pool.js";
-export { DUEL_BANLIST_OPTIONS, PINNED_OCG_BANLIST_ID } from "./banlist-options.js";
+export { DUEL_BANLIST_OPTIONS, normalizeBanlistId, PINNED_OCG_BANLIST_ID } from "./banlist-options.js";
 
 export interface DuelDeck {
   main: number[];
