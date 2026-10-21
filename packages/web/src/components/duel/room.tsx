@@ -1145,13 +1145,15 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }
   if (data.session.status === "lobby" && !ownWindowGate) {
     const opening = data.opening;
+    const canKick = data.series?.tournamentMatchId == null && data.series?.tournamentId == null
+      && (data.session.gameNumber ?? 1) <= 1;
     const lobby = (
       <RoomLobby room={data} presence={realtime.presence} idleDeadline={idleDeadline} slug={slug} busy={busy} starting={starting} actionError={actionError}
         onDeckLocked={() => void refreshRoom()}
         onTakeSeat={(seat) => void run(() => takeDuelSeat(slug, seat))}
         onAddBot={(seat) => void run(() => addPracticeBot(slug, seat))}
         onRemoveBot={(seat) => void run(() => removePracticeBot(slug, seat))}
-        onAskKick={askKick}
+        onAskKick={canKick ? askKick : undefined}
         onInvite={(playerId) => void run(() => inviteDuelPlayer(slug, playerId))}
         onReady={(deck) => void run(() => setDuelDeck(slug, deck))}
         onMarkReady={() => void run(() => markDuelReady(slug))}
@@ -1193,7 +1195,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <>
         {lobby}
         <OpeningScreen opening={opening} receivedAt={data.receivedAt} mySeat={data.mySeat} names={Array.from({ length: seatCountFor(data.session.format) }, (_, seat) => seatName(seat))} busy={busy} error={actionError} reducedMotion={preferences.reducedMotion}
-          hostControls={data.session.seats.find(seat => seat.seat === data.mySeat)?.playerId === data.session.organizerPlayerId
+          hostControls={canKick && data.session.seats.find(seat => seat.seat === data.mySeat)?.playerId === data.session.organizerPlayerId
             ? <HostOpeningKick busy={busy} onAsk={askKick}
               players={data.session.seats.filter(seat => !seat.isBot && seat.playerId != null && seat.playerId !== data.session.organizerPlayerId)
                 .map(seat => ({ playerId: seat.playerId!, displayName: seat.displayName }))} /> : null}

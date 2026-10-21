@@ -1493,6 +1493,12 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     if (row.status !== "lobby" || row.started_at !== null) {
       throw new DuelServiceError("Players can only be kicked before the duel starts", 409);
     }
+    if (tournamentMatchId(row) != null) {
+      throw new DuelServiceError("Players cannot be kicked from a tournament match", 409);
+    }
+    if ((row.game_number ?? 1) > 1) {
+      throw new DuelServiceError("Players can only be kicked before game 1 of the series starts", 409);
+    }
     const seat = seatRows(row.id).find(entry => entry.player_id === playerId);
     if (!seat && !selectGrant.get(row.id, playerId)) throw new DuelServiceError("Player is not seated or invited to this duel", 404);
     return seat ? mapSeat(seat) : null;
