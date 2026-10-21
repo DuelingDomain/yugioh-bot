@@ -1,5 +1,6 @@
 "use client";
 
+import { VpsHealthSection } from "./vps-health";
 import type { ReactNode } from "react";
 import { duration, gb, plural } from "@/lib/admin-console/format";
 import type { DiskStatus, ServiceHealth, SystemData } from "@/lib/admin-console/types";
@@ -76,6 +77,8 @@ export function HealthView({ s }: { s: Snapshots }) {
           );
         })}
       </div>
+
+      <VpsHealthSection />
 
       <div className={styles.healthSplit}>
         <div>

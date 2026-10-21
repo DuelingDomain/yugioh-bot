@@ -17,7 +17,7 @@ All keys are read on the web server only. They are never sent to the browser and
 | Stats | Sign-ups, active users, duels and drafts started and finished: today and the last 7 days. Days are UTC | SQLite | `DISCORD_GUILD_ID` |
 | Errors | Error count for the last 24 hours and the latest issues | Sentry API | `SENTRY_API_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` |
 | Usage | Visitors today and for 7 days, page views, top pages, a link to the dashboard | PostHog query API | `POSTHOG_PERSONAL_API_KEY`, `POSTHOG_PROJECT_ID` |
-| System | Deployed version, card-data update state, health of web, duel server, ws, worker, bot and database, disk space (total, used, free, what uses it, warnings) | SQLite, duel host `/internal`, ws `GET /health`, `SENTRY_RELEASE`, worker disk snapshot | `DUEL_INTERNAL_URL`, `DUEL_INTERNAL_SECRET`, `WS_INTERNAL_URL`, `SENTRY_RELEASE` |
+| System | Deployed version, card-data update state, health of web, duel server, ws, worker, bot and database, disk space (total, used, free, what uses it, warnings), VPS health and capacity history | SQLite, duel host `/internal`, ws `GET /health`, `SENTRY_RELEASE`, worker disk snapshot | `DUEL_INTERNAL_URL`, `DUEL_INTERNAL_SECRET`, `WS_INTERNAL_URL`, `SENTRY_RELEASE` |
 
 The summary strip at the top shows six figures: Online now, Live duels, Pending waitlist, Errors in the last 24 hours, Sign-ups today and System ("OK", or the number of problems: a service down or stale, or disk space at warn or fail). Each one links to its section. A figure turns gold when the waitlist has people waiting, and orange when there are errors or system problems. A figure shows a dash when its section is not configured or failed.
 
@@ -46,6 +46,29 @@ Compose passes all of these to the `web` service. Put them in the VM `.env` (see
 | `POSTHOG_DASHBOARD_URL` | Usage section | Optional. The "Open PostHog" link |
 
 The worker must run the new build too. It writes a heartbeat row on each health tick and clears old presence every 10 minutes. The disk measurement runs once an hour, because it walks the whole data folder including the image cache. Until it runs, System shows "No heartbeat yet" for the worker. The worker also measures disk use (the database folder, `CARD_IMAGE_CACHE_DIR`, `DUEL_DATA_DIR` and the backups) and stores a snapshot in SQLite (`disk_usage_snapshot`, `disk_usage_history`); the web only reads it. The worker container needs read access to those folders. Until the first snapshot, the disk line is empty.
+
+## VPS health
+
+System includes a separate VPS health panel next to the existing disk diagnostics. Its owner-only `GET /api/admin/console/vps-health` route uses `web-access.ts` and `isOwnerUser`, the same guards as the console. (`discord-web-access.ts` was replaced by the application identity guard.) Responses are private/no-store. Live duel and draft counts are scoped to `DISCORD_GUILD_ID`; CPU, memory, worker reservations, replay queue and sockets are VPS-wide totals and the UI labels their scope.
+
+- Host: CPU usage from deltas of `/proc/stat` (100% = the whole host), logical vCPU count, 1/5/15-minute load averages, RAM used/available/total and percentage from `MemAvailable`, swap used/total (or “No swap”), and host uptime. The CAX11 baseline is 2 ARM vCPU, 4 GB RAM, no swap; the panel reads actual values instead of hard-coding that baseline.
+- Services: ws, duel, web and worker report their own cgroup v2 `memory.current`, `memory.max`, `memory.events` `oom_kill` counter, and CPU deltas from `cpu.stat` `usage_usec`. Service CPU 100% means one vCPU, so a service can exceed 100%. Limits are read from the running cgroup, including the ws 384 MiB and duel 1 GiB Compose defaults; an unlimited/unreadable limit is “n/a”. The panel does not assume a worker memory limit: this revision of Compose leaves it unlimited (the 256 MiB limit belongs to bot). Systemd services with a dedicated `.service` cgroup work too; a shared native login scope, absent proc files, or unsupported cgroup versions show “n/a”. CPU needs two samples.
+- Capacity: active play duels and active drafts in this guild; actual engine pool reservations in use versus `DUEL_MAX_WORKERS` (12 by default), queued replay rebuilds, and connected ws transport sockets. Reservations include live games, replay work and workers still closing; a duel database row alone does not prove an engine thread is running. These are resource counts, not distinct people.
+
+Every service reports once a minute into `vps_service_health` in the already shared SQLite database. Web starts its reporter from Node instrumentation, independently of admin page visits. The worker reads host proc metrics, reports its own cgroup, imports Caddy’s report and saves one aggregate minute bucket in `vps_health_history`. Retention deletes buckets older than 24 hours and bounds history to 1,440 rows (a few MiB). History survives process/worker restarts. Browser polling is once a minute while visible; the route reads SQLite only. Disk sampling keeps its existing hourly directory walk.
+
+Caddy has no SQLite dependency. Compose runs `scripts/deployment/caddy-vps-health.sh` alongside its normal Caddy command. The script reads only Caddy’s own cgroup and atomically writes a small JSON snapshot to the private `vps_health` named volume; the worker mounts that volume read-only. There is no public metrics endpoint, Docker socket, privileged container, or host cgroup mount. No new secrets or configuration keys are required. Deploy the updated worker, ws, duel, web **and Caddy** together so all reporters start.
+
+The status is:
+
+| Status | Trigger |
+| --- | --- |
+| OK | Fresh host measurements with no current or sustained pressure detected |
+| High | Current host RAM >80%, host CPU >85%, 1-minute load >vCPU count, engine reservations at least two-thirds of capacity (8/12), or a nonempty replay rebuild queue |
+| Upgrade soon | RAM >80% for 15 continuous minutes; 1-minute load >vCPU count for 15 continuous minutes; engine reservations at least two-thirds of capacity in 15 distinct sampled minutes of the last hour; or any service OOM kill reported in retained 24-hour history |
+| n/a | No worker snapshot yet, snapshot over 3 minutes old, or required host RAM/load/vCPU metrics unavailable |
+
+No gap longer than 90 seconds counts toward continuous host pressure. Multiple collections in the same minute replace that bucket; repeated old duel reports do not count as distinct pressure minutes. Reports older than 3 minutes show “n/a” and cannot trigger current pressure. OOM reasons remain visible when measurements go stale. An OOM counter is cumulative for the current cgroup: a nonzero count remains an upgrade signal until that cgroup resets and its last observation expires from history. An OOM can mean a service limit needs adjusting; inspect that before deciding to upgrade the VPS. Events that occur and reset entirely between samples cannot be observed. A new deployment needs at least 15 minutes of history to establish sustained host pressure. Sparklines show CPU, RAM, load and engine workers over 24 hours, with gaps for missing samples; dashed lines mark pressure thresholds. The coverage disclosure lists missing services.
 
 The Discord bot writes `bot_heartbeat(id, at, pid)` when enabled. System reads `at` in epoch milliseconds. A missing table shows "Not deployed"; an empty table shows "No heartbeat yet"; a heartbeat older than 3 minutes shows "Late". With `DISCORD_BOT_ENABLED=0`, the bot container stays idle and writes no heartbeat.
 
@@ -78,6 +101,15 @@ The waitlist route resolves the entry email by ID from the cached Clerk list on 
 The browser hides waitlist emails until the owner chooses Show emails, but masking is a UI feature only. The waitlist JSON that `/api/admin/console/waitlist` sends to an owner's browser holds the full email addresses, so they are visible in the network tab. The route is for owners only (`OWNER_USER_IDS`); do not add anyone you would not trust with the waitlist.
 
 ## Local checks
+
+VPS health checks (no real credentials, Docker socket or engine data):
+
+- `npx vitest run packages/shared/tests/health/vps-health.integration.test.ts` — temporary proc/cgroup files, real SQLite persistence/retention, CPU deltas, native fallback and status thresholds.
+- `npx vitest run tests/vps-health.integration.test.ts -c vitest.config.ts` from `packages/worker` — real Caddy shell report, worker ingestion, CPU delta, staleness and sampler shutdown.
+- `npx vitest run tests/vps-health.integration.test.ts -c vitest.config.ts` from `packages/duel-server` — real engine pool reservations, replay queue/release/cancellation and persisted capacity (no engine resources).
+- `npx vitest run packages/web/tests/admin-vps-health.integration.test.ts packages/web/tests/admin-console-system.integration.test.ts -c packages/web/vitest.config.ts` — owner/session guard, privacy, guild scope, rendered diagnostics and existing disk/service regressions.
+
+Existing console checks:
 
 - Integration tests: `npx vitest run packages/web/tests/admin-console -c packages/web/vitest.config.ts`. They use a real SQLite file and stub Clerk, Sentry and PostHog at the network edge.
 - Browser test: `E2E_ADMIN_CONSOLE=1 E2E_OWNER_USER_IDS=101 E2E_SLOT=N E2E_WORKERS=1 npx playwright test tests/admin-console.spec -c packages/e2e/playwright.config.ts`. `E2E_ADMIN_CONSOLE=1` gives the stack fake keys and a fetch stub (`packages/e2e/stack/admin-stubs.mjs`) for Clerk, Sentry and PostHog. `E2E_OWNER_USER_IDS=101` makes the first test player the owner.
