@@ -57,7 +57,9 @@ function WatchBar({ room, pov, onPov, loading }: { room: DuelRoom | undefined; p
           );
         })}
       </div>
-      <span className={styles.status}>{room ? statusLine(room) : "Loading"}</span>
+      <span className={styles.status}>{room?.stale
+        ? <span className={styles.staleBadge}>Saved board · not live</span>
+        : room ? statusLine(room) : "Loading"}</span>
       <Link href={BACK_HREF} className={styles.back} data-testid="watch-back">Admin console</Link>
     </div>
   );
