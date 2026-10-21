@@ -6,7 +6,7 @@ The selected changes reduce the complete workload's idle RSS from **568 to 382 M
 
 The supplied production observation was 16 hours uptime, one live duel, 806 MB cgroup memory (613 MB anonymous; 175 MB file, including 169 MB inactive file), and Node RSS 655 MB with 14 threads. The 169 MB inactive file is reclaimable cache; it is not all retained Node heap. The 256 MB worker setting is a V8 limit, not an eagerly reserved 256 MB allocation, and does not cap WASM/external memory.
 
-No production process was contacted or changed. All writes used scratch SQLite copies. Engine resources were read only from `/home/sulman633/repos/yugioh-bot/data/engine-main-prerelease`; neither live engine directory was accessed. No `.env` file was read: the benchmark preload intercepts dotenv's attempted reads. No rules, core, card loader, journal behavior, engine heap cap, worker capacity or FIFO limit changed.
+No production process was contacted or changed. All writes used scratch SQLite copies. Engine resources were read only from a scratch `<engine-data-dir>`; neither live engine directory was accessed. No `.env` file was read: the benchmark preload intercepts dotenv's attempted reads. No rules, core, card loader, journal behavior, engine heap cap, worker capacity or FIFO limit changed.
 
 Baseline: `origin/main` at `277f266fa`. Local platform: x86_64 Linux, Node 22.23.3, glibc 2.39; production's Docker base is Node 22 Bookworm. The copied local application DB has 2,047 cached catalog rows; the engine CDB has 15,004 cards. Startup imported the pinned **13,693 effect tags and 530 profiles**. Sentry's SDK was preloaded in every performance variant, with an empty DSN to avoid network delivery; a separate smoke check confirmed that main-thread reporting still delivers an error envelope to a local receiver. Enabled production tracing and longer traffic history were not reproduced.
 
@@ -19,7 +19,7 @@ Heap snapshots identify these major holders. Sizes below are approximate JS owne
 | Full card catalog, labels, name search and script path index | About **35 MB per engine isolate**, also present in the host; script path map alone about 8.5 MB. A warm spare had 58 MB total retained JS before, about 43–44 MB after. | Preserve local, warm engine data and the spare to avoid adding lookup/start latency. Lua files are read as needed, not an eager copy of every script's text. |
 | Host admission catalog | About **30 MB**, including its own card records and script paths; another shared metadata/identity catalog about **11 MB**. | Preserve admission semantics and fast starts; consolidating these needs a separate engine-data design. |
 | Host effect/search indexes | Compact effect facets about **14 MB**, card search about **9 MB**, artwork-family index about **11 MB**. Fully warmed host heap stays about **149 MB** before and after. | Already finite, shared within the host, and not initialized in every engine. Preserve these useful warm caches. |
-| Suggestion scanners | Two persist indefinitely before the fix: about **32 MB retained JS each** after idle GC (44–45 MB during scans), plus module, SQLite and allocator overhead. | Retire after 30 s idle; reuse during a burst, retain two-worker admission and 256 MB heap caps. |
+| Suggestion scanners | Two persist indefinitely before the fix: about **32 MB retained JS each** after idle GC (44–45 MB during scans), plus module, SQLite and allocator overhead. | Retire after 120 s idle; reuse during a burst, retain two-worker admission and 256 MB heap caps. |
 | Inherited Sentry imports | Resource worker's retained graph about **21.7 MB** before versus 7–8 MB after; engine/spare heaps lose about **13–14 MB per thread** too. | Dynamically import SDK only inside the main-thread branch. The host still reports engine errors. |
 | Live WASM/external memory | About **21–23 MB external per live engine** in these normal duels, around 18 MB above a warm spare. It disappears when the engine thread exits. | Do not change core allocation or heap settings. This reproduction did not show a surviving WASM leak after worker close. |
 | glibc retention | Identical original workload: **568 MB idle RSS with defaults vs 441 MB with 2 arenas**, with nearly unchanged live JS heap. After worker fixes, defaults vs 4 arenas are **452 vs 382 MB**. | Use **4 arenas**. Two saves another 32 MB in the final workload but produced less favorable action tail latency. |
@@ -29,7 +29,7 @@ A single live duel is only part of the process: the host retains search/admissio
 
 ## Before / after
 
-All numbers are decimal MB from `/proc/PID/status`; RSS includes file-backed code/libraries. The full workload includes effect search, staples, release sorting, two suggestion scans, practice summon + placement, response-mode actions, three parallel practice duels, surrender and a verified replay response.
+All numbers are decimal MB from `/proc/PID/status`; RSS includes file-backed code/libraries. The full workload includes effect search, staples, release sorting, two suggestion scans, practice summon + placement, response-mode actions, three parallel practice duels, surrender and a verified replay response. These memory measurements used the initial 30 s scanner expiry. The follow-up below raises it to 120 s; early cleanup rows do not describe the revised timer, and memory was not remeasured with that timer.
 
 | Phase | Before RSS | After RSS | Before anon | After anon |
 |---|---:|---:|---:|---:|
@@ -61,7 +61,7 @@ The host alone was explicitly GC'd once after searches/scans: its used heap is *
 | Worker fixes, 2 arenas (rejected) | 991 | 385 | 351 | 280 |
 | Worker fixes, 4 arenas (selected) | 1025 | 422 | 382 | 311 |
 
-The main-thread SDK guard and scanner expiry alone are useful; allocator tuning is an additional measured reduction. Four arenas were chosen over two to favor duel input latency.
+The main-thread SDK guard and scanner expiry alone are useful; allocator tuning is an additional measured reduction. Four arenas were chosen over two to favor duel input latency. Compose sets `MALLOC_ARENA_MAX=${DUEL_MALLOC_ARENA_MAX:-4}` for the duel service, so operators can change `DUEL_MALLOC_ARENA_MAX` and recreate the service without rebuilding the image.
 
 ## Duel latency
 
@@ -78,6 +78,18 @@ Three concurrently active engine workers also ran 9,000 warmed `setChainMode` + 
 
 The full-workload summon + placement median is **9.37 → 8.06 ms** (two actions each); response-mode median **3.29 → 2.79 ms** (12 each); practice-start median **655 → 628 ms** (three each); replay rebuild **945 → 573 ms** (one each). These small cold samples are not tail-latency guarantees. The 2-arena variant had a 33.8 ms cold response and 5.5–5.8 ms per-run sustained HTTP p95, so it was not selected despite lower RSS. The warmed spare and all live-engine caches stay intact.
 
+## Scanner startup follow-up
+
+Seven fresh pools each ran one timed `pool.run(scan)` for `suggestRows`, followed by three identical scans reusing that worker. Timings include worker startup, module loading, read-only SQLite open, scanning and message transport; parent setup and shutdown are excluded. Every reused result matched the cold result and used the same worker. This used built JavaScript, inherited production preloads, Node 22.23.3 on local x86_64/glibc 2.39 with four arenas, a scratch database migrated and seeded through server startup (2,051 catalog rows; 13,693 tags and 530 profiles), the 15,004-card scratch engine bundle, and a 40-card normal practice deck. Fresh workers had cold isolates; filesystem caches were not cleared.
+
+| Scan | Samples | Median, ms | Range, ms |
+|---|---:|---:|---:|
+| Fresh worker | 7 | 713.6 | 688.6–840.4 |
+| First reuse | 7 | 509.2 | 461.9–593.7 |
+| All reused scans | 21 | 476.7 | 409.0–593.7 |
+
+Cold scans exceed the roughly 300 ms threshold, so scanner idle expiry is now **120 s**. The short measurement run waits 125 s after its last scan to observe retirement. These local timings do not establish production arm64 latency.
+
 ## Verification and reproduction
 
 - Duel package typecheck and build passed.
@@ -86,6 +98,7 @@ The full-workload summon + placement median is **9.37 → 8.06 ms** (two actions
 - Selected real Standard / legacy Domain worker integration: **2 passed**; other engine combinations were deliberately excluded.
 - Main-thread Sentry envelope delivered to a loopback receiver with a synthetic DSN.
 - Review addressed both pending-retirement shutdown tracking and already-signaled child cleanup in the measurement driver.
+- Follow-up validation: **10 scanner/signed-host integrations passed**; duel-server build/typecheck and measurement-driver syntax check passed. Compose rendered four arenas by default and two with an override, scoped to duel only, using synthetic variables and no environment file. No additional Sentry test was run.
 
 Build the two packages, then run the committed Linux-only driver against an input database opened read-only for SQLite backup:
 
@@ -93,13 +106,13 @@ Build the two packages, then run the committed Linux-only driver against an inpu
 prlimit --core=0 -- npm run build --workspace=packages/shared
 prlimit --core=0 -- npm run build --workspace=packages/duel-server
 prlimit --core=0 -- env MALLOC_ARENA_MAX=4 node packages/duel-server/scripts/measure-memory.mjs \
-  --database /path/to/source.sqlite \
-  --data /home/sulman633/repos/yugioh-bot/data/engine-main-prerelease \
-  --output /tmp/duel-memory-fresh-run --port 4023 --inspect-port 9223
+  --database '<source-database>' \
+  --data '<engine-data-dir>' \
+  --output '<output-dir>' --port 4023 --inspect-port 9223
 ```
 
 Use a fresh output directory. `--single` measures the continuously active single duel; `--short` stops after scanner expiry; `--snapshot` writes the main heap snapshot only after the measurements. The driver rejects ports 3000/4003, verifies the inspector PID, blocks dotenv reads, sets `core=0`, uses its own writable DB copy, and stops its own child by PID. To reproduce the original SDK-only single-duel control after building the fix, the scratch driver used a transpilation of `origin/main`'s preload; no scanner was started and the engine source was unchanged.
 
-Full local raw results, main/worker heap snapshots, analyses, HTTP action timings, and the original reproduction driver remain under `/tmp/duel-memory-20261021/`. `before-full`, `before-arena`, `after-default`, `after-arena`, and `after-arena4` contain the allocator/worker ablations; `single-before`, `single-after-default`, and `single-after-arena4` hold single-duel runs. The compact checked-in JSON contains no actor data or database contents. Built `dist` output is removed after verification.
+Full local raw results and heap snapshots are not published. The compact checked-in JSON contains no actor data or database contents. Built `dist` output is removed after verification.
 
 Mechanism references: [Node worker preloads inherit CLI flags](https://nodejs.org/docs/latest-v22.x/api/worker_threads.html#launching-worker-threads-from-preload-scripts) and [glibc allocator tunables](https://www.gnu.org/software/libc/manual/html_node/Memory-Allocation-Tunables.html). The SDK holder and allocator deltas above were measured locally, not inferred from those references.

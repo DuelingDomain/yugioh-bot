@@ -64,6 +64,7 @@ services:
       - DUEL_MAX_WORKERS=${DUEL_MAX_WORKERS:-12}
       - DUEL_MAX_TABLES_PER_PLAYER=${DUEL_MAX_TABLES_PER_PLAYER:-3}
       - DUEL_WORKER_HEAP_MB=${DUEL_WORKER_HEAP_MB:-256}
+      - MALLOC_ARENA_MAX=${DUEL_MALLOC_ARENA_MAX:-4}
       - DUEL_OP_TIMEOUT_MS=${DUEL_OP_TIMEOUT_MS:-15000}
       - DUEL_CREATE_TIMEOUT_MS=${DUEL_CREATE_TIMEOUT_MS:-120000}
       # Tag, 3-player and 4-player tables. Off by default: only 1v1 tables start. The web service needs the same value.

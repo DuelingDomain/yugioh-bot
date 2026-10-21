@@ -322,7 +322,7 @@ try {
   await evaluate("global.gc();memoryProbe()");
   await measure("host-gc");
   if (values.short) {
-    await measure("scanner-idle", 35000);
+    await measure("scanner-idle", 125000);
   } else {
     const first = await post({
       op: "start-test-duel",

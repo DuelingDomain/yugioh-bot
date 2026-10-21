@@ -10,7 +10,7 @@ export class DeckSuggestionWorkers {
   private readonly jobs: Job[] = [];
   private readonly retiring = new Set<Promise<number>>();
   constructor(private readonly db: Database.Database, private readonly dataDirectory: string,
-    private readonly idleMs = 30_000) {}
+    private readonly idleMs = 120_000) {}
 
   private retire(job: Job): void {
     clearTimeout(job.idle);
