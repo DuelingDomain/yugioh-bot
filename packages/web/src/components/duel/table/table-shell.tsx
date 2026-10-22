@@ -470,13 +470,14 @@ function TableShellBody({
   };
   const playersText = session.seats.map((seat) => seat.displayName).join(" v ");
   const logVisible = hud ? hudState.pane === "log" : ui.pane === "log" && (narrow ? sheetOpen : drawer.open);
-  const drawerPreview = hud || sheetOpen || ui.pile?.open ? null : hudPreview(
+  const drawerPreview = hud || sheetOpen ? null : hudPreview(
     ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), pinnedCard);
   const inspectCard = (target: InspectTarget) => {
     if (target.type !== "pile") {
       if (!hud) setPinnedCard(target.card);
       if (!narrow) { if (hud) ui.inspectCard(target); return; }
     }
+    else if (!hud) setPinnedCard(null);
     ui.inspectCard(target);
     if (narrow && target.type === "pile") setSheetOpen(true);
   };

@@ -364,6 +364,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const [mobileInspect, setMobileInspect] = useState(false);
   // The shells without the HUD (phone, 3D, live table): a click or tap on a card pins it in the same left drawer as the HUD shells.
   const [pinnedCard, setPinnedCard] = useState<DuelCard | DuelCardInfo | null>(null);
+  const pileOpening = useRef(false);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   // The Surrender menu on your own deck is open: prompt keys and the right-click decline wait for it.
@@ -850,6 +851,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setHover(null);
       setMobileInspect(false);
       if (hud) hudState.pinCard(null);
+      else setPinnedCard(null);
+      pileOpening.current = true;
+      queueMicrotask(() => { pileOpening.current = false; });
       // Tables of 3 or 4 seats: the owner is the controller of the pile's cards, not "the other seat".
       const pileSeat = first && isMultiSeat(data?.engine) ? first.controller : undefined;
       setPile({ title: target.title, owner, cards: target.cards, open: true, seat: pileSeat, host: target.host });
@@ -919,12 +923,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // TableShell owns card menus and field picks. Its adapter still routes every answer through onSubmitAnswer.
     if (liveTable) return;
     setHover(null);
+    // A zone with one card opens its pile and then activates that card in the same click: the viewer opens with no drawer, so no pin.
+    const opensPile = pileOpening.current;
     // The pin goes with any click on a zone; the HUD pins the card again at the end, when no prompt took the click.
     if (hud && !preserveInspector) hudState.pinCard(null);
     // The HUD pins the card in the left peek only when no prompt took the click (below): a pick or a menu keeps the board clear.
-    if (card && !preserveInspector && !hud) showInspector({ type: "card", card });
+    if (card && !preserveInspector && !hud && !opensPile) showInspector({ type: "card", card });
     if (busy || error || catchingUp || fieldHeld) {
-      if (card && !preserveInspector && hud) pinClicked(card, anchor);
+      if (card && !preserveInspector && hud && !opensPile) pinClicked(card, anchor);
       return;
     }
     const mine = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat;
@@ -960,7 +966,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       shakeRefusedCard(anchor, preferences.reducedMotion);
       setPickHint({ anchor, text: refusal.text, promptId: prompt.id });
     });
-    if (card && !handled) {
+    if (card && !handled && !opensPile) {
       if (hud && !preserveInspector) pinClicked(card, anchor);
       else showInspector({ type: "card", card }, true);
     }
@@ -1636,7 +1642,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     (engine?.seats ?? []).map((seat) => [seat.seat, seat.seat === localSeat ? SEAT_TONE_HEX.ice : SEAT_TONE_HEX.rose]),
   );
   // The drawer of the shells without the HUD: the same hover / pin / row logic, with the pin held here.
-  const drawerPreview = hud || mobileInspect || pile?.open ? null : hudPreview(
+  const drawerPreview = hud || mobileInspect ? null : hudPreview(
     hover?.card ?? null, activeMenu?.card, rowPreview.card,
     (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), pinnedCard);
   const hudMaster = (seatView: NonNullable<typeof engine>["seats"][number] | undefined, local: boolean, title: string) =>
@@ -1813,7 +1819,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       {pile ? (
         <PileViewer title={livePileTitle(pile, livePileCards(pile, engine, localSeat))} owner={pile.owner} open={pile.open}
           cards={livePileCards(pile, engine, localSeat)} onClose={closePile}
-          onInspectCard={(card) => { setInspect({ type: "card", card }); if (pane !== "log") setPane("card"); }}
+          onInspectCard={(card) => {
+            setInspect({ type: "card", card });
+            // A click pins the card in the drawer: in the HUD through its pin, in the other layouts through the drawer pin. A phone has no drawer.
+            // A face-down card has no art: the HUD would open its 400px Card flyout over the window for it, so the tile label says it alone.
+            if (hud) { if (card.code != null) hudState.pinCard(card); }
+            else if (!narrow) setPinnedCard(card);
+            if (!hud && pane !== "log") setPane("card");
+          }}
           onHoverCard={(card) => rowPreview.show(card?.code != null ? card : null)}
           onActivateCard={onInspectorActivate}
           legalKeys={fieldLegalKeys} selectedKeys={selectedKeys} chainLinks={pileChainLinks}
