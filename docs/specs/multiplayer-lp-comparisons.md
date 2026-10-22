@@ -2,9 +2,11 @@
 
 The source is the owner's supplied ruling for [issue #435](https://github.com/DuelingDomain/yugioh-bot/issues/435): **"Lower than ALL"**, with strict higher treated symmetrically. [ADR 0002](../adr/0002-multiplayer-duel-rules.md) records the rule, mixed/tie behavior and the two Equip Spells' reduced fallback.
 
-Reviewed the original 100 local LP-query candidates at card-script pin `432617da992b2520c387e5d0b0eaf3107b39ae8e`: 69 comparison candidates and 31 other queries. A broader scan of all 255 official LP-query scripts found four additional comparison cards. The complete reviewed comparison set is **73 cards: 61 covered by the shared helper, 12 exceptions**. The ignored discovery JSON is not a shipped input.
+Reviewed the original 100 local LP-query candidates at the pinned card-script revision: 69 comparison candidates and 31 other queries. A broader scan of all 255 official LP-query scripts found four additional comparison cards. The complete reviewed comparison set is **73 cards: 61 covered by the shared helper, 12 exceptions**. The ignored discovery JSON is not a shipped input.
 
 `aux.MPCompareLP` reads every living opponent through the read-only real-seat query added by core patch 0119. It never changes an existing opponent binding or seat rebind, and never asks for an opponent. FFA-only suffixes leave stock 1v1 and Tag scripts unchanged. Existing all-duelist overlays keep their operations and decision picks.
+
+Self-Destruct Button now requires the controller's LP to be at least 7000 below **every living opponent**, replacing the previous any-qualifying-opponent activation rule. Once that condition holds, its existing opponent pick and pair-only LP-zero operation remain unchanged. A single opponent with a smaller gap prevents activation; Tag still compares the two team LP pools.
 
 For an LP difference, this ruling determines **whether** a lower/higher branch can apply. It does not specify which opponent supplies a numerical difference. We preserve the existing amount formula and its existing scope (a chosen opponent in an activated effect, or the existing aggregate in an unbound continuous value). Those cards are marked **condition only** below. Ancient Sacred Wyvern returns zero adjustment when neither strict relation holds; Mars grants no bonus unless higher than all; Gorgoneio grants no bonus unless lower than all. Their amount formulas otherwise remain unchanged. Psychic End Punisher's separate ATK-difference effect and Handigallop's ATK value are not resolved by this ruling.
 
