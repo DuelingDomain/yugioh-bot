@@ -124,8 +124,11 @@ export function startStatusPublisher(c: FeatureContext) {
         const permissions = new PermissionsBitField(BigInt(everyone.permissions));
         const admin = permissions.has(PermissionFlagsBits.Administrator);
         const overwrite = channel.permission_overwrites.find(row => row.id === c.config.guildId && row.type === 0);
-        if (overwrite) permissions.remove(BigInt(overwrite.deny)).add(BigInt(overwrite.allow));
-        includeNames = !admin && !permissions.has(PermissionFlagsBits.ViewChannel);
+        // Require the privateOverwrites pattern; another role can override @everyone's deny.
+        const roleAllowsView = channel.permission_overwrites.some(row => row.type === 0
+          && (BigInt(row.allow) & PermissionFlagsBits.ViewChannel) !== 0n);
+        includeNames = !admin && !!overwrite && (BigInt(overwrite.deny) & PermissionFlagsBits.ViewChannel) !== 0n
+          && !roleAllowsView;
       }
       const embed = statusEmbed(c,includeNames);
       // The relative timestamp describes the last content update, not the last poll.

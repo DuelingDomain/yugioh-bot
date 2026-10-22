@@ -526,8 +526,13 @@ it("edits status on change, ignores presence refresh/order and timestamps, and t
 
 it.each([
   ["1024", [], false],
-  ["0", [], true],
+  ["0", [], false],
   ["1024", [{ id: guild, type: 0, allow: "0", deny: "1024" }], true],
+  ["0", [{ id: guild, type: 0, allow: "0", deny: "1024" }], true],
+  ["1024", [{ id: guild, type: 0, allow: "0", deny: "1024" }, { id: role, type: 0, allow: "1024", deny: "0" }], false],
+  ["1024", [{ id: guild, type: 0, allow: "0", deny: "1024" }, { id: role, type: 0, allow: "0", deny: "1024" }], true],
+  ["1024", [{ id: guild, type: 0, allow: "0", deny: "1024" }, { id: admin, type: 1, allow: "1024", deny: "0" }], true],
+  ["1024", [{ id: guild, type: 0, allow: "1024", deny: "1024" }], false],
   ["0", [{ id: guild, type: 0, allow: "1024", deny: "0" }], false],
   ["1032", [{ id: guild, type: 0, allow: "0", deny: "1024" }], false],
 ])("checks everyone permission %s and overwrites %j before publishing", async (permissions, overwrites, privateChannel) => {
