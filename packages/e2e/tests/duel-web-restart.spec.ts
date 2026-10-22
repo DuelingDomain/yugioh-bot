@@ -317,6 +317,17 @@ test("retry exhaustion shows the existing error and the room recovers without re
 
 test("socket credentials and state recover when web returns during a reconnect", async ({ player }) => {
   const alice = await player("p1"), bob = await player("p2");
+  await alice.page.addInitScript(() => {
+    const NativeWebSocket = window.WebSocket;
+    const sockets: WebSocket[] = [];
+    window.WebSocket = class extends NativeWebSocket {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        sockets.push(this);
+      }
+    };
+    Object.assign(window, { disconnectDuelSockets: () => sockets.splice(0).forEach(socket => socket.close()) });
+  });
   const { slug } = await startDuel(alice, bob, "socket-recovery",
     { main: withFiller([FILLER], 14) }, { main: withFiller([FILLER], 14) });
   const live = alice.page.getByRole("status").filter({ hasText: "Live duel" });
@@ -328,6 +339,8 @@ test("socket credentials and state recover when web returns during a reconnect",
     return route.continue();
   });
   await alice.context.setOffline(true);
+  // Offline emulation can leave existing sockets open until their heartbeat.
+  await alice.page.evaluate(() => (window as Window & { disconnectDuelSockets: () => void }).disconnectDuelSockets());
   await expect(live).toHaveCount(0);
   await alice.context.setOffline(false);
   await expect.poll(() => credentials, { timeout: 30_000 }).toBeGreaterThanOrEqual(3);
