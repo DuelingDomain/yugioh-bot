@@ -1,4 +1,4 @@
-if Duel.MPMode()~=1 then return end
+if not (Duel.MPMode and Duel.MPMode()==1) then return end
 -- R-FFA-LP-COMPARE: unanimous living-opponent conditions; stock amounts/actions.
 function s.spcon(e,c)
 	if c==nil then return true end
@@ -6,4 +6,3 @@ function s.spcon(e,c)
 	return aux.MPCompareLP(tp,"<=",2000)
 		and Duel.GetLocationCount(tp,LOCATION_MZONE)>0
 end
-	--Unique on field check

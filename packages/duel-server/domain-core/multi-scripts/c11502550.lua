@@ -1,4 +1,4 @@
-if Duel.MPMode()~=1 then return end
+if not (Duel.MPMode and Duel.MPMode()==1) then return end
 -- R-FFA-LP-COMPARE: gate the bonus unanimously; retain its stock amount formula.
 function s.atkval(e,c)
 	if not aux.MPCompareLP(c:GetControler(),"<") then return 0 end

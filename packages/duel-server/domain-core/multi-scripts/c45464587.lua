@@ -1,4 +1,4 @@
-if Duel.MPMode()~=1 then return end
+if not (Duel.MPMode and Duel.MPMode()==1) then return end
 -- R-FFA-LP-COMPARE: unanimous living-opponent conditions; stock amounts/actions.
 function s.destg(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
 	if chkc then return chkc:IsLocation(LOCATION_MZONE) and chkc:IsFaceup() and chkc:IsType(TYPE_EXTRA) end

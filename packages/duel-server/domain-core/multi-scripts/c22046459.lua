@@ -1,4 +1,4 @@
-if Duel.MPMode()~=1 then return end
+if not (Duel.MPMode and Duel.MPMode()==1) then return end
 -- Same lower-first/equality rule as Unstable Evolution (R-FFA-LP-COMPARE).
 function s.condition(e)
 	return not aux.MPCompareLP(e:GetHandlerPlayer(),"==")
