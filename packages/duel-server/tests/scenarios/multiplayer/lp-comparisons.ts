@@ -1,4 +1,4 @@
-import { activate, changePhase, defineScenario, endTurn, expectBoard, expectEliminated, expectNotOffered, expectOffered, expectTurn, normalSummon, specialSummon, surrender, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, changePhase, defineScenario, endTurn, expectBoard, expectEliminated, expectNotOffered, expectOffered, expectPickOptions, expectTurn, normalSummon, pickOpponent, select, specialSummon, surrender, zone, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
 import { domainVariant } from "./domain-variants.js";
 import { compileBoard } from "../../support/board.js";
 import { Session, nseatWasmBinary, domainNseatWasmBinary } from "../../support/session.js";
@@ -6,7 +6,7 @@ import { createEngineGame } from "../../../src/engine.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { readFileSync } from "node:fs";
 
-const SOURCE = "Owner ruling 2026-10-21, https://github.com/DuelingDomain/yugioh-bot/issues/435 [R-FFA-LP-COMPARE]";
+const SOURCE = "Owner rulings 2026-10-21 and 2026-10-22, https://github.com/DuelingDomain/yugioh-bot/issues/435 [R-FFA-LP-COMPARE]";
 const seat = (i: number) => `p${i}` as DuelistId;
 
 export async function runLpComparison(scenario: Scenario): Promise<void> {
@@ -123,7 +123,7 @@ for (const [card, code, higher] of [["Gold Pride - Leon", 23512906, false], ["Dy
   }
 }
 
-for (const [card, code, attack] of [["Ancient Sacred Wyvern", 25958491, 2100], ["The Agent of Force - Mars", 91123920, 0]] as const) {
+for (const [card, code, attack] of [["The Agent of Force - Mars", 91123920, 0]] as const) {
   const scenario = defineScenario({ id: `lp-comparison-continuous-${code}-mixed`, title: `${card}: neither strict LP branch applies with mixed totals`, source: SOURCE,
     rules: ["R-FFA-LP-COMPARE"], tags: ["multiplayer", "ffa4", `card:${code}`],
     setup: { format: "ffa4", skipOpeningDraw: true, p0: { lp: 5000, hand: ["Battle Ox"], monsters: [card], field: "The Sanctuary in the Sky" }, p1: { lp: 3000 }, p2: { lp: 7000 }, p3: { lp: 9000 } },
@@ -132,15 +132,84 @@ for (const [card, code, attack] of [["Ancient Sacred Wyvern", 25958491, 2100], [
   LP_COMPARISON_SCENARIOS.push(scenario, domainVariant(scenario));
 }
 
-// These cards have independent lower/higher conditions, so mixed totals do not
-// inherit the Equip Spells' explicitly documented reduced fallback.
-for (const [label, opponents, offered, lp] of [["mixed", [3000, 7000, 9000], false, 5000], ["lower", [6000, 7000, 9000], true, 7000], ["higher", [1000, 2000, 3000], true, 4000]] as const) {
-  const card = "Supremacy Berry";
-  LP_COMPARISON_SCENARIOS.push(domainVariant(defineScenario({ id: `lp-comparison-berry-${label}`, title: `Supremacy Berry: ${label}`,
-    source: SOURCE, rules: ["R-FFA-LP-COMPARE"], tags: ["multiplayer", "ffa4", "card:98380593"],
-    setup: { format: "ffa4", skipOpeningDraw: true, p0: { lp: 5000, hand: [card, "Battle Ox"] }, p1: { lp: opponents[0] }, p2: { lp: opponents[1] }, p3: { lp: opponents[2] } },
-    steps: [normalSummon("Battle Ox"), ...(offered ? [activate(card), expectBoard({ p0: { lp, grave: [card] } })] : [expectNotOffered("activate", card), expectBoard({ p0: { lp, hand: [card] } })])],
-  })));
+// Two-branch cards use the higher branch for mixed LP and partial ties.
+// All equal stays neutral; one-branch cards elsewhere retain strict comparisons.
+for (const format of ["ffa3", "ffa4"] as const) {
+  for (const [label, opponents, lp, attack] of [
+    ["mixed", [3000, 7000, 9000], 4000, format === "ffa3" ? 4100 : 6100],
+    ["lower", [6000, 7000, 9000], 7000, format === "ffa3" ? 100 : 0],
+    ["higher", [1000, 2000, 3000], 4000, format === "ffa3" ? 5100 : 4100],
+    ["partial-tie-lower", [5000, 7000, 9000], 4000, format === "ffa3" ? 4100 : 6100],
+    ["partial-tie-higher", [3000, 5000, 5000], 4000, 2100],
+    ["all-equal", [5000, 5000, 5000], 5000, 2100],
+  ] as const) {
+    for (const [card, code] of [["Supremacy Berry", 98380593], ["Ancient Sacred Wyvern", 25958491]] as const) {
+      const berry = card === "Supremacy Berry";
+      const scenario = defineScenario({ id: `lp-comparison-${berry ? "berry" : "wyvern"}-${format}-${label}`,
+        title: `${card}: ${format} ${label}`, source: SOURCE, rules: ["R-FFA-LP-COMPARE"], tags: ["multiplayer", format, `card:${code}`],
+        setup: { format, skipOpeningDraw: true,
+          p0: { lp: 5000, hand: ["Battle Ox", ...(berry ? [card] : [])], monsters: berry ? [] : [card] },
+          p1: { lp: opponents[0] }, p2: { lp: opponents[1] }, ...(format === "ffa4" ? { p3: { lp: opponents[2] } } : {}) },
+        steps: [normalSummon("Battle Ox"), ...(berry
+          ? label === "all-equal"
+            ? [expectNotOffered("activate", card), expectBoard({ p0: { lp, hand: [card] } })]
+            : [expectOffered("activate", card), activate(card), expectBoard({ p0: { lp, grave: [card] } })]
+          : [expectBoard({ p0: { zones: { m0: { card, attack } } } })])],
+      });
+      LP_COMPARISON_SCENARIOS.push(scenario, domainVariant(scenario));
+    }
+  }
+}
+
+// Soul Drain Dragon is summoned by a real Dragon Xyz effect (Atum), which
+// sets its ATK to 0 before its mandatory LP-conditioned summon trigger.
+for (const [label, opponents, attack] of [
+  ["mixed", [3000, 7000, 9000], 0], ["lower", [6000, 7000, 9000], 4000],
+  ["partial-tie", [5000, 7000, 9000], 0], ["higher", [1000, 2000, 3000], 0],
+] as const) {
+  const scenario = defineScenario({ id: `lp-comparison-soul-drain-${label}`, title: `Soul Drain Dragon: ${label} LP on Special Summon`,
+    source: SOURCE, rules: ["R-FFA-LP-COMPARE"], tags: ["multiplayer", "ffa4", "card:55735315"],
+    setup: { format: "ffa4", skipOpeningDraw: true,
+      p0: { lp: 5000, monsters: [{ card: "Hieratic Dragon King of Atum", materials: ["Luster Dragon #2"] }], deck: ["Soul Drain Dragon"] },
+      p1: { lp: opponents[0] }, p2: { lp: opponents[1] }, p3: { lp: opponents[2] } },
+    steps: [activate("Hieratic Dragon King of Atum"), ...(label === "lower" ? [pickOpponent("p3")] : []),
+      expectBoard({ p0: { grave: ["Luster Dragon #2"], zones: { m0: { card: "Hieratic Dragon King of Atum", materials: 0 }, m1: { card: "Soul Drain Dragon", attack } } } })],
+  });
+  LP_COMPARISON_SCENARIOS.push(scenario, domainVariant(scenario));
+}
+
+// Sweet Marjoram is a one-branch higher-LP protection: prove actual opponent
+// target options, including an unprotected non-Plant on the same field.
+for (const [label, opponents, protectedPlants] of [
+  ["mixed", [3000, 7000, 9000], false], ["higher", [1000, 2000, 3000], true],
+  ["partial-tie", [3000, 4000, 5000], false], ["lower", [6000, 7000, 9000], false],
+] as const) {
+  const scenario = defineScenario({ id: `lp-comparison-sweet-marjoram-${label}`, title: `Sweet Marjoram: ${label} LP targeting protection`,
+    source: SOURCE, rules: ["R-FFA-LP-COMPARE"], tags: ["multiplayer", "ffa4", "card:79656239"],
+    setup: { format: "ffa4", skipOpeningDraw: true,
+      p0: { lp: 5000, monsters: ["Aromaseraphy Sweet Marjoram", "Lonefire Blossom", "Battle Ox", "Celtic Guardian"] },
+      p1: { lp: opponents[0], hand: ["Book of Moon"] }, p2: { lp: opponents[1] }, p3: { lp: opponents[2] } },
+    steps: [endTurn("p0"), activate("Book of Moon", "p1"), zone("p1", "s0"),
+      expectPickOptions({ include: [{ card: "Battle Ox", seat: "p0" }, { card: "Celtic Guardian", seat: "p0" }, ...(!protectedPlants ? [{ card: "Aromaseraphy Sweet Marjoram", seat: "p0" as const }, { card: "Lonefire Blossom", seat: "p0" as const }] : [])],
+        ...(protectedPlants ? { exclude: [{ card: "Aromaseraphy Sweet Marjoram" }, { card: "Lonefire Blossom" }] } : {}) }, "p1"),
+      select({ card: "Battle Ox", owner: "p0" }), expectBoard({ p0: { zones: { m2: { card: "Battle Ox", pos: "facedown" } } }, p1: { grave: ["Book of Moon"] } })],
+  });
+  LP_COMPARISON_SCENARIOS.push(scenario, domainVariant(scenario));
+}
+
+for (const [card, code] of [["Supremacy Berry", 98380593], ["Ancient Sacred Wyvern", 25958491]] as const) {
+  const berry = card === "Supremacy Berry";
+  const scenario = defineScenario({ id: `lp-comparison-${berry ? "berry" : "wyvern"}-elimination`,
+    title: `${card}: surrender changes mixed LP to lower than every survivor`, source: SOURCE, rules: ["R-FFA-LP-COMPARE"], tags: ["multiplayer", "ffa4", `card:${code}`],
+    setup: { format: "ffa4", skipOpeningDraw: true,
+      p0: { lp: 5000, hand: berry ? [card] : [], monsters: berry ? [] : [card] },
+      p1: { lp: 3000 }, p2: { lp: 7000 }, p3: { lp: 9000 } },
+    steps: [...(berry ? [expectOffered("activate", card)] : [expectBoard({ p0: { zones: { m0: { card, attack: 6100 } } } })]),
+      surrender("p1"), expectEliminated("p1"),
+      ...(berry ? [activate(card), expectBoard({ p0: { lp: 7000, grave: [card] } })]
+        : [expectBoard({ p0: { zones: { m0: { card, attack: 0 } } } }), surrender("p3"), expectEliminated("p1", "p3"), expectBoard({ p0: { zones: { m0: { card, attack: 100 } } } })])],
+  });
+  LP_COMPARISON_SCENARIOS.push(scenario, domainVariant(scenario));
 }
 
 for (const format of ["1v1", "tag"] as const) {
@@ -152,6 +221,26 @@ for (const format of ["1v1", "tag"] as const) {
         setup: { format, skipOpeningDraw: true, p0: { lp: 5000, hand: [card], monsters: ["Battle Ox"] }, p1: { lp: other }, ...(format === "tag" ? { p2: { lp: 5000 }, p3: { lp: other } } : {}) },
         steps: [activate(card), expectBoard({ p0: { lp: 5000, zones: { m0: { card: "Battle Ox", attack } } }, p1: { lp: other }, ...(format === "tag" ? { p2: { lp: 5000 }, p3: { lp: other } } : {}) })],
       }));
+    }
+  }
+}
+
+for (const format of ["1v1", "tag"] as const) {
+  for (const [card, code] of [["Supremacy Berry", 98380593], ["Ancient Sacred Wyvern", 25958491]] as const) {
+    for (const [other, label] of [[3000, "higher"], [5000, "equal"], [7000, "lower"]] as const) {
+      const berry = card === "Supremacy Berry";
+      const lp = other === 5000 ? 5000 : other > 5000 ? 7000 : 4000;
+      const scenario = defineScenario({ id: `lp-comparison-control-${format}-${code}-${label}`,
+        title: `${format}: ${card} keeps stock ${label} LP result`, source: SOURCE, rules: ["R-FFA-LP-COMPARE"], tags: [format, `card:${code}`],
+        setup: { format, skipOpeningDraw: true,
+          p0: { lp: 5000, hand: ["Battle Ox", ...(berry ? [card] : [])], monsters: berry ? [] : [card] }, p1: { lp: other },
+          ...(format === "tag" ? { p2: { lp: 5000 }, p3: { lp: other } } : {}) },
+        steps: [normalSummon("Battle Ox"), ...(berry
+          ? other === 5000 ? [expectNotOffered("activate", card), expectBoard({ p0: { lp, hand: [card] } })]
+            : [activate(card), expectBoard({ p0: { lp, grave: [card] }, ...(format === "tag" ? { p2: { lp } } : {}) })]
+          : [expectBoard({ p0: { zones: { m0: { card, attack: 2100 + 5000 - other } } } })])],
+      });
+      LP_COMPARISON_SCENARIOS.push(scenario, domainVariant(scenario));
     }
   }
 }

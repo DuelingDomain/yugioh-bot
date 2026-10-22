@@ -1,7 +1,8 @@
 if not (Duel.MPMode and Duel.MPMode()==1) then return end
--- R-FFA-LP-COMPARE: unanimous living-opponent conditions; stock amounts/actions.
+-- R-FFA-LP-COMPARE (owner 2026-10-22): lower than ALL, otherwise higher;
+-- all equal is neutral. Stock recovery/damage amounts and operation stay unchanged.
 function s.rectg(e,tp,eg,ep,ev,re,r,rp,chk)
-	if chk==0 then return e:IsHasType(EFFECT_TYPE_ACTIVATE) and (aux.MPCompareLP(tp,"<") or aux.MPCompareLP(tp,">")) end
+	if chk==0 then return e:IsHasType(EFFECT_TYPE_ACTIVATE) and not aux.MPCompareLP(tp,"==") end
 	Duel.SetTargetPlayer(tp)
 	if aux.MPCompareLP(tp,"<") then
 		e:SetLabel(0)
