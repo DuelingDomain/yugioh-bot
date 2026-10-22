@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import type { DuelCommand } from "@yugidraft/shared/duels";
 import { test, expect } from "../helpers/fixtures";
-import { handCard, pickLegalZone, startDuel as startLiveDuel, useCard } from "../helpers/board";
+import { expectReadyToAct, handCard, pickLegalZone, startDuel as startLiveDuel, useCard, watchDuel } from "../helpers/board";
 import { FILLER, withFiller } from "../helpers/decks";
 import { dbPath } from "../stack/env.mjs";
 
@@ -41,6 +41,7 @@ const cases = [
   { failure: 503, width: 2560, height: 1440 },
   { failure: 504, width: 1366, height: 768 },
   { failure: "network", width: 390, height: 844 },
+  { failure: "upstream", width: 1440, height: 900 },
 ] as const;
 
 for (const { failure, width, height } of cases) {
@@ -55,6 +56,8 @@ for (const { failure, width, height } of cases) {
       commands.push(route.request().postDataJSON() as DuelCommand);
       if (commands.length > 3) return route.continue();
       if (failure === "network") return route.abort("connectionreset");
+      if (failure === "upstream") return route.fulfill({ status: 503, contentType: "application/json",
+        body: JSON.stringify({ error: "Duel host unavailable", code: "DUEL_UPSTREAM_UNAVAILABLE" }) });
       return route.fulfill({ status: failure, contentType: "application/json", body: JSON.stringify({ error: "web restarting" }) });
     });
     await pickLegalZone(alice.page, "mz");
@@ -115,7 +118,7 @@ test("a lost accepted response is replayed safely and a different stale answer i
   expect(acceptedCount(slug, commands[0]!)).toBe(1);
 });
 
-test("room reads recover after web returns while the socket remains connected", async ({ player }) => {
+test("brief background read failures keep the live badge and open menu", async ({ player }) => {
   const alice = await player("p1"), bob = await player("p2");
   const { slug } = await startDuel(alice, bob, "read-recovery",
     { main: withFiller([FILLER], 14) }, { main: withFiller([FILLER], 14) });
@@ -124,13 +127,170 @@ test("room reads recover after web returns while the socket remains connected", 
     if (++reads <= 3) return route.fulfill({ status: 503, body: "web restarting" });
     return route.continue();
   });
+  await expectReadyToAct(alice.page);
+  await handCard(alice.page, FILLER).click();
+  const menu = alice.page.getByRole("menu");
+  await expect(menu).toBeVisible();
   await alice.page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect(alice.page.getByRole("status").filter({ hasText: "Reconnecting" })).toBeVisible();
   await expect.poll(() => reads).toBeGreaterThanOrEqual(4);
+  await expect(alice.page.getByRole("status").filter({ hasText: "Reconnecting" })).toHaveCount(0);
+  await expect(menu).toBeVisible();
   await expect(alice.page.getByRole("status").filter({ hasText: "Live duel" })).toBeVisible();
-  await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
+  await menu.getByRole("menuitem", { name: /^Normal Summon/ }).click();
   await pickLegalZone(alice.page, "mz");
   await expect(alice.page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"]')).toHaveCount(1);
+});
+
+test("sustained background read failures eventually show Reconnecting", async ({ player }) => {
+  const alice = await player("p1"), bob = await player("p2");
+  const { slug } = await startDuel(alice, bob, "sustained-read-outage",
+    { main: withFiller([FILLER], 14) }, { main: withFiller([FILLER], 14) });
+  let reads = 0;
+  await alice.page.route(`**/api/duels/${slug}`, async route => {
+    if (++reads <= 5) return route.fulfill({ status: 503, body: "web restarting" });
+    return route.continue();
+  });
+  const started = Date.now();
+  await alice.page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(alice.page.getByRole("status").filter({ hasText: "Reconnecting" })).toBeVisible();
+  expect(Date.now() - started).toBeGreaterThanOrEqual(2900);
+  await expect.poll(() => reads).toBeGreaterThanOrEqual(6);
+  await expect(alice.page.getByRole("status").filter({ hasText: "Live duel" })).toBeVisible();
+});
+
+test("a fast background engine error keeps the live room quiet", async ({ player }) => {
+  const alice = await player("p1"), bob = await player("p2");
+  const { slug } = await startDuel(alice, bob, "background-engine-error",
+    { main: withFiller([FILLER], 14) }, { main: withFiller([FILLER], 14) });
+  await expectReadyToAct(alice.page);
+  await handCard(alice.page, FILLER).click();
+  const menu = alice.page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  let reads = 0;
+  await alice.page.route(`**/api/duels/${slug}`, route => {
+    reads++;
+    return route.fulfill({ status: 502, contentType: "application/json",
+      body: JSON.stringify({ error: "Invalid engine response", code: "DUEL_ENGINE_ERROR" }) });
+  });
+  await alice.page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => reads).toBe(1);
+  await alice.page.waitForTimeout(750); // Observe the settled background failure.
+  await expect(menu).toBeVisible();
+  await expect(alice.page.getByRole("status").filter({ hasText: "Live duel" })).toBeVisible();
+  await expect(alice.page.getByRole("status").filter({ hasText: "Reconnecting" })).toHaveCount(0);
+  expect(reads).toBe(1);
+  await alice.page.unroute(`**/api/duels/${slug}`);
+  await menu.getByRole("menuitem", { name: /^Normal Summon/ }).click();
+  await pickLegalZone(alice.page, "mz");
+  await expect(alice.page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"]')).toHaveCount(1);
+});
+
+test("leaving the room cancels background retry attempts", async ({ player }) => {
+  const alice = await player("p1"), bob = await player("p2"), eve = await player("p5");
+  const { slug } = await startDuel(alice, bob, "cancel-read-retry",
+    { main: withFiller([FILLER], 14) }, { main: withFiller([FILLER], 14) });
+  await watchDuel(eve, slug);
+  let reads = 0;
+  await eve.page.route(`**/api/duels/${slug}`, route => {
+    reads++;
+    return route.fulfill({ status: 503, body: "web restarting" });
+  });
+  await eve.page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => reads).toBeGreaterThanOrEqual(3);
+  // SPA navigation unmounts the room while the browser stays alive.
+  eve.page.once("dialog", dialog => dialog.accept());
+  await eve.page.getByRole("link", { name: "Dueling Domain", exact: true }).click();
+  await expect(eve.page).toHaveURL(/\/duels$/);
+  const stoppedAt = reads;
+  await eve.page.waitForTimeout(4000); // Observe beyond the longest retry delay.
+  expect(reads).toBe(stoppedAt);
+});
+
+test("an aborted accepted response body retries and never installs an empty room", async ({ player }) => {
+  const alice = await player("p1"), bob = await player("p2");
+  const { slug } = await startDuel(alice, bob, "aborted-body",
+    { main: withFiller([FILLER], 14) }, { main: withFiller([FILLER], 14) });
+  await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
+  await alice.page.evaluate(() => {
+    const json = Response.prototype.json;
+    let aborted = false;
+    Response.prototype.json = function () {
+      if (!aborted && this.url.endsWith("/actions")) {
+        aborted = true;
+        return Promise.reject(new DOMException("Body read aborted", "AbortError"));
+      }
+      return json.call(this);
+    };
+  });
+  const commands: DuelCommand[] = [];
+  await alice.page.route(`**/api/duels/${slug}/actions`, route => {
+    commands.push(route.request().postDataJSON() as DuelCommand);
+    return route.continue();
+  });
+  await pickLegalZone(alice.page, "mz");
+  await expect.poll(() => commands.length).toBe(2);
+  await expect(alice.page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"]')).toHaveCount(1);
+  expect(commands[1]).toEqual(commands[0]);
+  expect(acceptedCount(slug, commands[0]!)).toBe(1);
+  await expect(alice.page.getByRole("main").getByRole("alert")).toHaveCount(0);
+});
+
+test("an action held beyond thirty seconds completes without a client timeout", async ({ player }) => {
+  const alice = await player("p1"), bob = await player("p2");
+  const { slug } = await startDuel(alice, bob, "held-action",
+    { main: withFiller([FILLER], 14) }, { main: withFiller([FILLER], 14) });
+  await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
+  let attempts = 0;
+  await alice.page.route(`**/api/duels/${slug}/actions`, async route => {
+    attempts++;
+    await new Promise(resolve => setTimeout(resolve, 31_000)); // Caddy hold plus engine work.
+    await route.continue();
+  });
+  await pickLegalZone(alice.page, "mz");
+  await expect(alice.page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"]')).toHaveCount(1, { timeout: 40_000 });
+  expect(attempts).toBe(1);
+  await expect(alice.page.getByRole("main").getByRole("alert")).toHaveCount(0);
+});
+
+test("an action timeout re-fetches the accepted state instead of showing an error", async ({ player }) => {
+  const alice = await player("p1"), bob = await player("p2");
+  const { slug } = await startDuel(alice, bob, "action-timeout-state",
+    { main: withFiller([FILLER], 14) }, { main: withFiller([FILLER], 14) });
+  await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
+  // Simulate expiry after the real POST commits, without waiting a minute.
+  await alice.page.evaluate(slug => {
+    let pendingTimeout: AbortController | undefined;
+    let timedOut = false;
+    document.documentElement.dataset.timeoutRecoveryReads = "0";
+    const timeout = AbortSignal.timeout;
+    AbortSignal.timeout = ms => {
+      if (ms === 60_000) {
+        pendingTimeout = new AbortController();
+        return pendingTimeout.signal;
+      }
+      return timeout(ms);
+    };
+    const fetch = window.fetch;
+    window.fetch = async (...args) => {
+      const attemptTimeout = pendingTimeout;
+      if (timedOut && String(args[0]) === `/api/duels/${slug}`) {
+        document.documentElement.dataset.timeoutRecoveryReads = String(
+          Number(document.documentElement.dataset.timeoutRecoveryReads) + 1,
+        );
+      }
+      const response = await fetch(...args);
+      if (String(args[0]).endsWith("/actions")) {
+        timedOut = true;
+        attemptTimeout?.abort(new DOMException("Request timed out", "TimeoutError"));
+        args[1]?.signal?.throwIfAborted();
+      }
+      return response;
+    };
+  }, slug);
+  await pickLegalZone(alice.page, "mz");
+  await expect(alice.page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"]')).toHaveCount(1);
+  await expect.poll(() => alice.page.evaluate(() => Number(document.documentElement.dataset.timeoutRecoveryReads))).toBeGreaterThan(0);
+  await expect(alice.page.getByRole("main").getByRole("alert")).toHaveCount(0);
 });
 
 test("retry exhaustion shows the existing error and the room recovers without reloading", async ({ player }) => {
