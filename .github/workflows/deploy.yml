@@ -663,6 +663,11 @@ jobs:
                for _attempt in $(seq 1 "$attempts"); do
                  container=$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q "$service")
                  state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.Health.Status}}' "$container")
+                 restarts=$(printf '%s\n' "$state" | awk '{print $2}')
+                 if [ "$service" = duel ] && [ "$restarts" -gt 0 ]; then
+                   echo "The duel container restarted during startup: $state" >&2
+                   break
+                 fi
                  if [ "$state" = "running 0 healthy" ]; then healthy=1; break; fi
                  sleep 5
                done

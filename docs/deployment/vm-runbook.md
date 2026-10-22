@@ -239,7 +239,8 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    by the compiled host). Set `DUEL_BUNDLE_SRC_ON_START=/opt/duel-engine` only for a deliberate fresh-volume
    installation with drained duels; normal production starts should leave it unset. Container restarts
    do not replace, re-download or recompile the bundle.
-   After the duel startup check (`running restarts=0`), WS/worker health checks (`running 0 healthy`),
+   After duel reports `running 0 healthy` (startup finished and the event loop answers),
+   WS/worker health checks (`running 0 healthy`),
    and anonymous web auth checks (`/sign-in` 200 and `/api/auth/session` 200 with `null`), the workflow runs
    image helper to remove only GHCR tags with 40 lowercase hexadecimal characters for the four services.
    GHCR SHA bookkeeping tags remain while their image IDs match local `:latest` or `:prev`. Older SHA
@@ -343,7 +344,17 @@ sh scripts/deployment/prepare-runtime-data.sh data
 docker compose -f docker-compose.yml up -d --no-build ws duel web worker caddy
 ```
 
-Repeat the deploy health checks. Image rollback does not reverse database migrations, Clerk changes,
+Repeat the deploy health checks for WS, worker and web. For duel images with a declared healthcheck,
+require `running 0 healthy`. For older duel images without one, require `running 0` and confirm that
+the private listener answers `GET /` with exactly 404 after startup:
+
+```sh
+docker inspect -f '{{.State.Status}} {{.RestartCount}}' "$(docker compose -f docker-compose.yml ps -q duel)"
+docker compose -f docker-compose.yml exec -T duel node -e 'fetch("http://127.0.0.1:4003/",{signal:AbortSignal.timeout(2000)}).then(r=>process.exit(r.status===404?0:1),()=>process.exit(1))'
+```
+
+Recheck duel is running with zero restarts after the other checks before accepting recovery.
+Image rollback does not reverse database migrations, Clerk changes,
 engine/passcode changes or new writes. For the first release after this change, the previous images
 can be VM-built images with no GHCR SHA tag; use `:prev` and the matching release backup for those.
 

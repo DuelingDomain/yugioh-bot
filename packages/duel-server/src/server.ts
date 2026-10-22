@@ -79,8 +79,9 @@ const server = createServer(async (request, response) => {
     restarting(response);
     return;
   }
-  // This private listener opens only after migrations, clock recovery and worker
-  // pool setup finish. Game workers are created on demand; probes do no DB work.
+  // This private listener opens after startup, including migrations and clock recovery.
+  // A successful probe confirms startup finished and the event loop answers, with no DB work.
+  // WorkerPool is a synchronous concurrency limiter; game workers start on demand.
   if (request.method === "GET" && request.url === "/healthz") {
     response.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" });
     response.end("ok\n");

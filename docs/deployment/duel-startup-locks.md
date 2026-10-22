@@ -65,9 +65,10 @@ before every attempt, so a retry cannot reuse an open transaction or stale snaps
 
 ## Readiness and deploy confirmation
 
-`GET /healthz` on the private duel listener returns only `ok` after startup has
-finished, including clock recovery and worker-pool setup. Game workers start on
-demand; advisory resource-cache warming does not gate readiness. The listener is
+`GET /healthz` on the private duel listener returns only `ok`, confirming startup
+has finished (including migrations and clock recovery) and the event loop answers.
+`WorkerPool` is a synchronous concurrency limiter; game workers start on demand.
+Advisory resource-cache warming does not gate this check. The listener is
 absent while startup retries and closes during shutdown (requests received while
 closing get 503). The probe does no database work and requires no secret. Port
 4003 is not published and Caddy does not route to it.
@@ -77,9 +78,10 @@ retries and a five-minute startup grace period. During startup, probes run every
 five seconds; success marks the container healthy immediately, even within the
 grace period. The probe itself bounds HTTP waits to two seconds.
 
-Deploy polls duel every five seconds for up to six minutes, then checks ws and
-worker with their existing three-minute budgets. It rechecks duel is running,
-healthy and has zero restarts after the web auth checks, before recording healthy
+Deploy polls duel every five seconds for up to six minutes and fails immediately
+if its restart count exceeds zero. Once duel passes, it checks ws and worker with
+their existing three-minute budgets. It rechecks duel is running, healthy and has
+zero restarts after the web auth checks, before recording healthy
 images. A failure follows the existing deploy failure path. There is no fixed
 20-second sleep or five-minute delay for a ready service. Web keeps its
 `service_started` dependency so unrelated pages can start while duel recovers.
