@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import type { DuelCard } from "@yugidraft/shared/duels";
 import { Check, X } from "lucide-react";
@@ -162,9 +162,13 @@ export function PileViewer({
 }: PileViewerProps) {
   const styles = useSkinStyles(baseStyles, "pile");
   const headingId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLUListElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
+  // The tile the player moved focus to (arrows, Tab, a click). The viewer's own first focus on open never counts: it must not open the drawer.
+  const userFocusRef = useRef<string | null>(null);
+  const openingRef = useRef(false);
   // `pinnedKey` is the last click or keyboard focus. `hoverKey` only counts while the pointer is on the grid, so a
   // pointer that crosses other cards on its way to the text never replaces the clicked card.
   const [pinnedKey, setPinnedKey] = useState<string | null>(null);
@@ -228,12 +232,37 @@ export function PileViewer({
     const chainKey = entriesRef.current.find((entry) => entry.marks.length > 0)?.key ?? null;
     const chainCard = chainKey == null ? null : [...(grid?.querySelectorAll<HTMLElement>("[data-pile-card]") ?? [])].find((el) => el.dataset.cardKey === chainKey) ?? null;
     const first = chainCard ?? panel?.querySelector<HTMLElement>("[data-pile-card]") ?? panel?.querySelector<HTMLElement>(FOCUSABLE);
+    userFocusRef.current = null;
+    openingRef.current = true;
     first?.focus({ preventScroll: true });
+    openingRef.current = false;
     if (chainCard && grid) scrollGridTo(grid, chainCard);
     return () => {
       const back = restoreRef.current;
       restoreRef.current = null;
       if (back && back.isConnected) back.focus({ preventScroll: true });
+    };
+  }, [open]);
+
+  // The window stands in the middle of the screen. The board box it is mounted in can sit off the middle (a side rail, the header
+  // strip), so the panel is moved by the difference between the screen middle and the box middle.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const panel = panelRef.current;
+    if (!open || !root || !panel) return;
+    const place = () => {
+      const box = root.getBoundingClientRect();
+      const dx = Math.round(window.innerWidth / 2 - (box.left + box.width / 2));
+      const dy = Math.round(window.innerHeight / 2 - (box.top + box.height / 2));
+      panel.style.translate = dx === 0 && dy === 0 ? "" : `${dx}px ${dy}px`;
+    };
+    place();
+    const watch = new ResizeObserver(place);
+    watch.observe(root);
+    window.addEventListener("resize", place);
+    return () => {
+      watch.disconnect();
+      window.removeEventListener("resize", place);
     };
   }, [open]);
 
@@ -249,6 +278,13 @@ export function PileViewer({
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.stopPropagation();
+        // A card pinned in the drawer (a click on a tile) closes first; the next Esc closes the window.
+        const pin = document.querySelector<HTMLElement>("[data-testid='hover-preview'][data-pinned][data-open='true'] [data-testid='hover-preview-close']");
+        if (pin) {
+          event.preventDefault();
+          pin.click();
+          return;
+        }
         onClose();
       }
     }
@@ -328,7 +364,7 @@ export function PileViewer({
   function onGridLeave() {
     setHoverKey(null);
     const focused = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>("[data-pile-card]") : null;
-    const key = focused && gridRef.current?.contains(focused) ? focused.dataset.cardKey : null;
+    const key = focused && gridRef.current?.contains(focused) && focused.dataset.cardKey === userFocusRef.current ? focused.dataset.cardKey : null;
     onHoverCard?.(entries.find((entry) => entry.key === key)?.card ?? null);
   }
 
@@ -339,7 +375,7 @@ export function PileViewer({
     ? { card: activeEntry.card, ...cardInspectLines(activeEntry.card) }
     : null;
   return (
-    <div className={cn(duelFontClasses, styles.root)} data-reduced={reducedMotion ? "true" : "false"} data-owner={owner} data-has-legal={anyLegal ? "true" : "false"}
+    <div ref={rootRef} className={cn(duelFontClasses, styles.root)} data-reduced={reducedMotion ? "true" : "false"} data-owner={owner} data-has-legal={anyLegal ? "true" : "false"}
       data-toned={ownerTag ? "true" : undefined}
       data-pick={pick ? "true" : undefined}
       data-attached={attached ? "true" : undefined}
@@ -404,9 +440,16 @@ export function PileViewer({
                   onFocus={() => {
                     setPinnedKey(key);
                     setHoverKey(null);
-                    onHoverCard?.(card);
+                    // Focus the viewer put on a tile when it opened (the effect above) is not the player's choice: no drawer until they act.
+                    if (!openingRef.current) {
+                      userFocusRef.current = key;
+                      onHoverCard?.(card);
+                    }
                   }}
-                  onBlur={() => onHoverCard?.(null)}
+                  onBlur={() => {
+                    if (userFocusRef.current === key) userFocusRef.current = null;
+                    onHoverCard?.(null);
+                  }}
                   onKeyDown={(event) => onCardKeyDown(event, index)}
                   onClick={(event) => onCardClick(event, key, card, legal, id)}
                 >

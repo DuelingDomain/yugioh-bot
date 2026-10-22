@@ -88,14 +88,14 @@ export function TagHeader({ session, engine, viewerSeat, nameOf, teamNames, pref
   const turnNode = (
     <div className={styles.turn}>
       <strong data-tag-turn>{tagTurnText(engine.turn)}</strong>
-      <span className={styles.phase}>{phase}</span>
+      <span className={styles.phase} title={phase}>{phase}</span>
       <span
         className={styles.turnPill}
         data-mine={myTurn ? "true" : "false"}
         data-testid="who-pill"
         style={{ "--turn": hexToRgbTriplet(tone.main) } as CSSProperties}
       >
-        <span className={styles.turnLabel}>
+        <span className={styles.turnLabel} title={spectator ? `${nameOf(turnSeat)} to play` : youTurn ? "Your turn" : `${nameOf(turnSeat)}'s turn`}>
           {spectator ? `${nameOf(turnSeat)} to play` : youTurn ? "Your turn" : `${nameOf(turnSeat)}'s turn`}
         </span>
         <small>&middot; {teamNames[turnTeam]}</small>
@@ -111,7 +111,7 @@ export function TagHeader({ session, engine, viewerSeat, nameOf, teamNames, pref
           <span className={roomStyles.connectionText}>Replay</span>
         </span>
       ) : (
-        <span className={roomStyles.connectionStatus} role="status" aria-live="polite" data-live={live}>
+        <span className={roomStyles.connectionStatus} role="status" aria-live="polite" data-live={live} data-spectator={spectator}>
           {live ? <i className={roomStyles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
           <span className={roomStyles.connectionText}>
             {live ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}

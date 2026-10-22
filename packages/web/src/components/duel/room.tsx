@@ -1668,19 +1668,19 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   );
   const headerTurn = (
     <div className={styles.turn}>
-      <strong>Turn {engine?.turn ?? "—"}</strong><span className={styles.phaseName} data-step={battleStep ?? undefined}>{headerPhase}</span>
+      <strong>Turn {engine?.turn ?? "—"}</strong><span className={styles.phaseName} data-step={battleStep ?? undefined} title={headerPhase}>{headerPhase}</span>
       {turnText ? (
         <span className={styles.whoPill} data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}>
           {spectator ? <Eye size={13} strokeWidth={1.75} aria-hidden /> : myTurn
             ? <Diamond size={13} strokeWidth={1.75} fill="currentColor" aria-hidden />
             : <Circle size={13} strokeWidth={1.75} aria-hidden />}
-          {turnText}
+          <span className={styles.whoText} title={turnText}>{turnText}</span>
         </span>
       ) : null}
     </div>
   );
   const connectionStatus = (
-    <span className={styles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
+    <span className={styles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"} data-spectator={spectator}>
       {connectionLabel === "Live" ? <i className={styles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
       <span className={styles.connectionText}>
         {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}

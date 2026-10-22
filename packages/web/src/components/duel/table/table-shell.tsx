@@ -555,7 +555,7 @@ function TableShellBody({
   const turnNode = (
     <div className={roomStyles.turn}>
       <strong>Turn {engine.turn}</strong>
-      <span className={roomStyles.phaseName} data-step={battleStep ?? undefined}>{headerPhase}</span>
+      <span className={roomStyles.phaseName} data-step={battleStep ?? undefined} title={headerPhase}>{headerPhase}</span>
       <span
         className={`${roomStyles.whoPill} ${styles.whoTone}`}
         data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
@@ -565,7 +565,7 @@ function TableShellBody({
         {spectator ? <Eye size={13} strokeWidth={1.75} aria-hidden /> : myTurn
           ? <Diamond size={13} strokeWidth={1.75} fill="currentColor" aria-hidden />
           : <Circle size={13} strokeWidth={1.75} aria-hidden />}
-        {turnText}
+        <span className={roomStyles.whoText} title={turnText}>{turnText}</span>
       </span>
     </div>
   );
@@ -578,7 +578,7 @@ function TableShellBody({
           <span className={roomStyles.connectionText}>Replay</span>
         </span>
       ) : (
-        <span className={roomStyles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
+        <span className={roomStyles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"} data-spectator={spectator}>
           {connectionLabel === "Live" ? <i className={roomStyles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
           <span className={roomStyles.connectionText}>
             {connectionLabel === "Live" ? spectator ? "Live duel · watching" : "Live duel" : connectionLabel}

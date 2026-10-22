@@ -4,6 +4,11 @@ type Owner = { name: string; main: string; ink: string };
 
 export type HudPreview = { card: DuelCard | DuelCardInfo; owner: Owner | null; pinned?: true; /** Shown for an open card action menu, so the player reads the card they are acting on: "Off" keeps it. */ held?: true };
 
+function sameCard(a: DuelCard | DuelCardInfo, b: DuelCard | DuelCardInfo): boolean {
+  if ("location" in a && "location" in b) return a.controller === b.controller && a.location === b.location && a.sequence === b.sequence && a.code === b.code;
+  return !("location" in a) && !("location" in b) && a.code === b.code;
+}
+
 /**
  * What the HUD's left hover preview shows. A hovered or focused board card wins (a different card switches the panel).
  * With none under the pointer, an open card action menu keeps its own card in the panel, so the panel stays while the
@@ -20,7 +25,8 @@ export function hudPreview(
   ownerOf: (card: DuelCard) => Owner,
   pinned: DuelCard | DuelCardInfo | null = null,
 ): HudPreview | null {
-  if (rowCard && pinned && pinned.code != null) return { card: rowCard, owner: null };
+  // The pile viewer reports the pointer's card as a row card: the pinned card itself under the pointer stays the pinned drawer.
+  if (rowCard && pinned && pinned.code != null && !sameCard(rowCard, pinned)) return { card: rowCard, owner: null };
   // The card of an Inspect on a prompt row or a log row has no seat: no owner line.
   if (pinned && pinned.code != null && hover && hover.code != null) return { card: hover, owner: ownerOf(hover), pinned: true };
   if (pinned && pinned.code != null) return { card: pinned, owner: "location" in pinned ? ownerOf(pinned) : null, pinned: true };

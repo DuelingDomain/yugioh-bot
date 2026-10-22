@@ -151,8 +151,14 @@
 .identity span { flex-shrink: 4; color: var(--duel-ink-2); font-size: var(--duel-t-body); overflow: hidden; text-overflow: ellipsis; }
 .format::before { content: "/"; margin-right: calc(10 * var(--duel-unit)); color: var(--duel-rule-hi); }
 .turn { justify-content: center; }
-.turn strong { font-size: var(--duel-t-head); font-weight: 500; }
+.turn strong { font-size: var(--duel-t-head); font-weight: 500; font-variant-numeric: tabular-nums; }
 .turn > span { color: var(--duel-ink-2); font-size: var(--duel-t-head); }
+/* The header never changes size when its words do. The phase name has a slot as wide as its longest usual value
+   ("Battle Phase · Damage Step"; the rare "Damage Calculation" ends in an ellipsis and keeps its full text in the title).
+   The narrow headers below drop the slot, because they hide or shrink the phase name already. */
+@media (min-width: 901px) {
+  .turn > .phaseName { box-sizing: content-box; width: 23ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+}
 .turn strong + span::before { content: "·"; margin-right: calc(8 * var(--duel-unit)); color: var(--duel-rule-hi); }
 .phaseName { transition: color 0.4s; }
 .shell[data-phase="battle"] .phaseName { color: rgb(var(--duel-ember-rgb)); }
@@ -166,6 +172,8 @@
   transition: border-color 0.4s, color 0.4s;
 }
 .turn .whoPill { margin-left: calc(2 * var(--duel-unit)); font-size: var(--duel-t-body); }
+/* "Your turn" and "Practice Bot (seat 1)'s turn" take the same room: the name ends in an ellipsis (its full text is the title). */
+.whoText { display: block; box-sizing: content-box; width: 15ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .whoPill[data-turn="you"] { color: var(--duel-ink); border-color: var(--duel-rule-hi); }
 .shell[data-phase="battle"] .whoPill { border-color: rgb(var(--duel-ember-rgb) / 0.6); }
 .status { display: flex; align-items: center; justify-content: flex-end; gap: calc(4 * var(--duel-unit)); min-width: 0; color: var(--duel-ink-2); font-size: var(--duel-t-body); }
@@ -190,27 +198,40 @@
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
-.connectionStatus { display: inline-flex; align-items: center; gap: 6px; padding: 0 calc(9 * var(--duel-unit)); white-space: nowrap; color: var(--duel-chain-ink); }
-/* A live duel reads at a glance: a small red lamp and a short label, sized like the Report bug button beside it
-   (24px high, 12px type) so the pill never outgrows the header row. */
-.connectionStatus[data-live="true"] {
+/* One box for every state: the live pill and the plain "Polling" / "Reconnecting" notes share its height, border and padding,
+   and the label sits in a slot as wide as the longest label of its kind (a spectator's "Live duel · watching" is longer).
+   The lamp and the radio icon share one 15px slot. So a change of state moves nothing beside it. */
+.connectionStatus {
   box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
   height: 24px;
   gap: 6px;
   margin-right: calc(4 * var(--duel-unit));
   padding: 0 9px 0 8px;
-  border: 1px solid rgb(255 84 72 / 0.28);
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: rgb(255 84 72 / 0.06);
-  color: #ff8a80;
+  white-space: nowrap;
+  color: var(--duel-chain-ink);
   font-size: calc(12px * var(--tt, 1));
   font-weight: 500;
   line-height: 1;
   letter-spacing: 0.01em;
 }
+.connectionText { display: block; box-sizing: content-box; width: 11ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.connectionStatus[data-spectator="true"] .connectionText { width: 15ch; }
+/* A live duel reads at a glance: a small red lamp and a short label, sized like the Report bug button beside it
+   (24px high, 12px type) so the pill never outgrows the header row. */
+.connectionStatus[data-live="true"] {
+  border-color: rgb(255 84 72 / 0.28);
+  background: rgb(255 84 72 / 0.06);
+  color: #ff8a80;
+}
 .liveDot {
   flex: none;
+  /* 6px lamp + 4.5px each side = the 15px of the radio icon */
+  margin-inline: 4.5px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -257,6 +278,8 @@
 }
 .tool:hover { border-color: var(--duel-rule); color: var(--duel-ink); }
 .tool b { font-weight: 500; color: var(--duel-ink); }
+/* "Sound On" and "Sound Off" take the same room. */
+.pref b { display: inline-block; min-width: 3ch; text-align: left; }
 
 /* ---------- three-column layout ---------- */
 .layout {
@@ -894,6 +917,8 @@
   .turn strong, .turn > span { font-size: calc((13px + 1px * var(--ft, 0)) * var(--tt, 1)); }
   .turn > .phaseName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .connectionStatus { padding: 0 4px; font-size: calc((11px + 1px * var(--ft, 0)) * var(--tt, 1)); }
+  /* A phone header is compact: the label takes its own width. */
+  .connectionText, .connectionStatus[data-spectator="true"] .connectionText { width: auto; }
   .track { padding-bottom: 0; }
   .mobileBar {
     display: block;
