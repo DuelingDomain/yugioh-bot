@@ -31,7 +31,7 @@ console.log(`[duel] 1v1 engines: Standard=${duel1v1EngineForMode("normal")}, Dom
 const dataDirectory = resolve(root, process.env.DUEL_DATA_DIR ?? "data/duel-engine");
 verifyEngineBundle(dataDirectory);
 const db = retryStartupDatabase("open and migrate", () => openDatabase(resolve(root, process.env.DATABASE_PATH ?? "data/bot.sqlite")));
-const migration = retryStartupDatabase("engine card remaps", () => applyEngineCardRemaps(db, dataDirectory));
+const migration = retryStartupDatabase("engine card remaps", () => applyEngineCardRemaps(db, dataDirectory), { db });
 if (!migration.skipped) console.log(`[duel] Passcode migration applied for ${migration.remappedPasscodes} remaps`);
 const cards = loadCardDatabase(dataDirectory);
 await initializeServerCardEffects(db, cards, dataDirectory);
@@ -77,6 +77,14 @@ function restarting(response: ServerResponse) {
 const server = createServer(async (request, response) => {
   if (closing) {
     restarting(response);
+    return;
+  }
+  // This private listener opens after startup, including migrations and clock recovery.
+  // A successful probe confirms startup finished and the event loop answers, with no DB work.
+  // WorkerPool is a synchronous concurrency limiter; game workers start on demand.
+  if (request.method === "GET" && request.url === "/healthz") {
+    response.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" });
+    response.end("ok\n");
     return;
   }
   try {

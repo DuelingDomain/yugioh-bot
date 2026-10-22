@@ -11,7 +11,7 @@ export async function initializeServerCardEffects(db: Database.Database, cards: 
   const imported = retryStartupDatabase("effect artifact import", () => importCardEffectArtifact(db, {
     remaps: loadCardPasscodeRemaps(dataDirectory),
     canonicalize: createCanonicalEffectResolver(cards),
-  }));
+  }), { db });
   if (!imported.skipped) console.log(`[duel] Effect tags imported: ${imported.tags} cards, ${imported.profiles} profiles (${imported.version})`);
   await initializeCardEffectIndex(db, cards);
 }

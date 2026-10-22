@@ -427,7 +427,7 @@ export function createDuelHost(options: {
         hashes.set(key, cardScriptHash(loadCardDatabase(options.dataDirectory), code, kind, revisionOverlay, helperScripts));
       }
       return hashes.get(key)!;
-    }, now: options.now }));
+    }, now: options.now }), { db: options.db });
   const admissionEntries = (mode: DuelMode = "normal", format: DuelFormat = "1v1", engine: DuelEngineChoice = duel1v1EngineForMode(mode)) =>
     mergeCardBlockEntries(loadCardBlockList(undefined, options.dataDirectory), autoBlocks.entries(scriptEngineKind(mode, format, engine)));
   const recordScriptError = createScriptErrorRecorder(options.db, undefined, autoBlocks);
@@ -4086,7 +4086,7 @@ export function createDuelHost(options: {
   }
 
   // Finish cleanup before rebasing, so none of its lock waits charge players.
-  retryStartupDatabase("resume competitive clocks", () => service.resumeCompetitiveClocks(now));
+  retryStartupDatabase("resume competitive clocks", () => service.resumeCompetitiveClocks(now), { db: options.db });
   const timer = setInterval(() => {
     void tick();
   }, pollIntervalMs);

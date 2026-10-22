@@ -1,7 +1,6 @@
 # Duel startup SQLite contention
 
-Deploy run [39837708720](https://github.com/DuelingDomain/yugioh-bot/actions/runs/39837708720),
-at main `4ccfadbea`, restarted duel once after `resumeCompetitiveClocks` failed
+A deploy restarted duel once after `resumeCompetitiveClocks` failed
 writing `duel_host_heartbeat`. The subsequent startup succeeded. The deploy
 requirement of `running restarts=0` correctly rejected this rollout.
 
@@ -61,4 +60,38 @@ The integration suite uses a real WAL file and a worker-thread connection
 holding write transactions for 6.25 and 11.25 seconds. It verifies host startup,
 one clock rebase without charging lock waits, database-open/migration recovery,
 retry exhaustion and other-error handling.
-No new unit tests or deploy-check changes are involved.
+The retry helper asserts that an existing connection is outside a transaction
+before every attempt, so a retry cannot reuse an open transaction or stale snapshot.
+
+## Readiness and deploy confirmation
+
+`GET /healthz` on the private duel listener returns only `ok`, confirming startup
+has finished (including migrations and clock recovery) and the event loop answers.
+`WorkerPool` is a synchronous concurrency limiter; game workers start on demand.
+Advisory resource-cache warming does not gate this check. The listener is
+absent while startup retries and closes during shutdown (requests received while
+closing get 503). The probe does no database work and requires no secret. Port
+4003 is not published and Caddy does not route to it.
+
+The image and Compose probe every 10 seconds, with a five-second timeout, three
+retries and a five-minute startup grace period. During startup, probes run every
+five seconds; success marks the container healthy immediately, even within the
+grace period. The probe itself bounds HTTP waits to two seconds.
+
+Deploy polls duel every five seconds for up to six minutes and fails immediately
+if its restart count exceeds zero. Once duel passes, it checks ws and worker with
+their existing three-minute budgets. It rechecks duel is running, healthy and has
+zero restarts after the web auth checks, before recording healthy
+images. A failure follows the existing deploy failure path. There is no fixed
+20-second sleep or five-minute delay for a ready service. Web keeps its
+`service_started` dependency so unrelated pages can start while duel recovers.
+
+For an explicit rollback to a release without a duel healthcheck, Deploy adds a
+probe to its temporary runtime Compose configuration. It requires exactly 404
+from `GET /` on the old private listener, which also opens only after startup.
+This retains readiness and zero-restart checks for older images without requiring
+them to implement `/healthz`. Current releases use their declared healthcheck.
+
+The real-server integration check holds a SQLite write lock past the busy timeout,
+verifies the endpoint is absent during retries, releases the lock, and checks the
+unauthenticated 200 response and that gameplay still requires authentication.
