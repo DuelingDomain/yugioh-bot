@@ -126,6 +126,8 @@ const NO_CONDITION_RUN: Record<number, string> = {
   12247206: "Inferno Reckless Summon: the condition needs p0 to Special Summon exactly one weak monster while an opponent has a monster; the generic driver does not play it",
   36898537: "Metaphys Horus: the triggers need a Synchro Summon of this card; the generic game has no Synchro materials",
   // R1 and fix cards. Each is an event or Flip card; the live scenarios of the cards (tests/scenarios/multiplayer) play the event.
+  55735315: "Soul Drain Dragon: its only condition runs on its Special Summon by a Dragon Xyz effect; the generic game preloads its field copy and never makes that summon",
+  79656239: "Aromaseraphy Sweet Marjoram: its triggers need its Synchro Summon or an LP gain, and its targeting protection needs a Plant-targeting check; the generic game raises none of these events",
   12694768: "Abaki: the trigger is the destruction of this card by battle (EVENT_BATTLE_DESTROYED); the generic game does not destroy it in battle",
   58071123: "Oxygeddon: the trigger is the destruction of this card by battle (EVENT_BATTLE_DESTROYED); in FFA3 the generic game does not destroy it in battle",
   39180960: "Rigorous Reaver: a Flip effect and a trigger on its destruction by battle; the generic game neither flips nor destroys it in battle",
