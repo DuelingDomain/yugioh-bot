@@ -162,8 +162,9 @@ export function startStatusPublisher(c: FeatureContext) {
           createUncertain ||= !(error instanceof RateLimitError || (error instanceof DiscordAPIError && error.status < 500));
           throw error;
         }
-        // Nonce deduplication can return the earlier payload; reconcile changes, including privacy, before saving its hash.
-        if (reconcile) await edit();
+        // Persist the recovered ID before editing so a failed edit followed by restart cannot create another message.
+        // An empty hash forces reconciliation of the earlier payload, including privacy, on the next attempt.
+        if (reconcile) { save(""); await edit(); }
       }
       save(contentHash);
     } finally { rest.clearHashSweeper(); rest.clearHandlerSweeper(); }

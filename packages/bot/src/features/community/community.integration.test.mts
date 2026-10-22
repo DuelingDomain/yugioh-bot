@@ -746,6 +746,40 @@ it.each(["rejected 503", "503", "timeout", "disconnect"])("retries an ambiguous 
   expect(statusPosts(stub)).toHaveLength(2);
 }, 20_000);
 
+it("persists a recovered message before a failed reconcile edit and reuses it after restart", async () => {
+  const schedule = statusSchedule();
+  const warning = vi.spyOn(observability,"log").mockImplementation(() => {});
+  const warnings = () => warning.mock.calls.filter(call => call[2]?.operation === "bot.status");
+  vi.spyOn(observability,"report").mockImplementation(() => {});
+  const { db, stub, bot, directory } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel, setup(db,stub) {
+    stub.state.createFailure = "503";
+    db.prepare("update users set last_seen_at=?,last_route='/decks/new' where id=1").run(Date.now());
+  } });
+  await expect.poll(() => warnings().length).toBe(1);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  stub.state.overwrites = [];
+  stub.state.editStatus = 503;
+  await schedule.advance();
+  expect(statusPosts(stub)).toHaveLength(2);
+  expect(statusEdits(stub)).toHaveLength(1);
+  const messageId = [...stub.messages.keys()][0];
+  expect(db.prepare("select message_id,content_hash from discord_status_messages").get())
+    .toEqual({ message_id: messageId, content_hash: "" });
+  const config = bot.context.config;
+  await bot.stop();
+  stub.state.editStatus = 0;
+  await schedule.advance(30_000);
+  const reopened = openDatabase(join(directory,"bot.sqlite"));
+  const restarted = await startBot({ config, db: reopened, modules: [community] });
+  cleanups.push(() => restarted.stop());
+  await expect.poll(() => stub.messages.get(messageId).embeds[0].fields[0].value).toBe("1 player online.");
+  await expect.poll(() => (reopened.prepare("select content_hash from discord_status_messages").get() as { content_hash: string }).content_hash).not.toBe("");
+  expect(statusPosts(stub)).toHaveLength(2);
+  expect(statusEdits(stub).map(request => request.path)).toEqual(Array(2).fill(`/channels/${statusChannel}/messages/${messageId}`));
+  expect(stub.messages.size).toBe(1);
+  expect(reopened.prepare("select message_id from discord_status_messages").get()).toEqual({ message_id: messageId });
+});
+
 it("reports Discord errors once per outage and warns again after a successful save", async () => {
   const schedule = statusSchedule();
   const warning = vi.spyOn(observability,"log").mockImplementation(() => {});
