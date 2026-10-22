@@ -467,6 +467,26 @@ it("publishes one bounded online status with the report sources in the data guil
   expect(payload.embeds[0].fields.every((field: any) => field.value.length <= 1024)).toBe(true);
 });
 
+it.each([
+  ["multi-day with future deadline", "active", -172_800_000, 86_400_000, "1"],
+  ["multi-day at deadline", "active", -172_800_000, 0, "1"],
+  ["recent with expired deadline", "active", 0, -1, "0"],
+  ["recent without deadline", "active", 0, null, "1"],
+  ["at 24 hours without deadline", "active", -86_400_000, null, "1"],
+  ["past 24 hours without deadline", "active", -86_400_001, null, "0"],
+  ["completed with future deadline", "completed", 0, 86_400_000, "0"],
+])("counts active tournaments: %s", async (_name, status, age, deadline, expected) => {
+  statusSchedule();
+  const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel, setup(db) {
+    const at = new Date(Date.now()+age).toISOString();
+    db.prepare(`insert into tournaments(guild_id,name,format,status,created_by_user_id,created_at,started_at,deadline_at)
+      values(?,'Tournament','swiss',?,1,?,?,?)`)
+      .run(dataGuild,status,at,at,deadline === null ? null : new Date(Date.now()+deadline).toISOString());
+  } });
+  await statusReady(db);
+  expect(statusPosts(stub)[0].body.embeds[0].fields.find((field: any) => field.name === "Active tournaments").value).toBe(expected);
+});
+
 it("labels only current players at live non-test tables", async () => {
   const { db, stub } = await fixture(true);
   const now = Date.now(), at = new Date(now).toISOString();

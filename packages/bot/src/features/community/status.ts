@@ -63,11 +63,13 @@ function statusEmbed(c: FeatureContext, includeNames: boolean): APIEmbed {
           : `${online.count}${online.count === 500 ? "+" : ""} player${online.count === 1 ? "" : "s"} online.` },
       { name: "Live duels", value: `1v1: ${live.duels["1v1"]}\nTag: ${live.duels.tag}\nFFA3: ${live.duels.ffa3}\nFFA4: ${live.duels.ffa4}`, inline: true },
       { name: "Active drafts", value: String(live.drafts.active), inline: true },
-      { name: "Active tournaments", value: boundedCount("tournaments", "status='active' and julianday(coalesce(started_at,created_at)) >= julianday(@after)",
-        { after: new Date(now-LIVE_EVENT_MAX_AGE_MS).toISOString() }), inline: true },
+      { name: "Active tournaments", value: boundedCount("tournaments", `status='active' and
+        (julianday(deadline_at) >= julianday(@now) or (deadline_at is null
+          and julianday(coalesce(started_at,created_at)) >= julianday(@after)))`,
+        { now: new Date(now).toISOString(), after: new Date(now-LIVE_EVENT_MAX_AGE_MS).toISOString() }), inline: true },
       { name: "Active series", value: seriesCount, inline: true },
     ],
-    footer: { text: "Site presence: last 2 minutes • Up to 500 players / 100 live tables • Scheduled series breaks: ±10 min • Drafts/tournaments: 24h" },
+    footer: { text: "Site presence: last 2 minutes • Up to 500 players / 100 live tables • Scheduled series breaks: ±10 min • Drafts: 24h • Tournaments: deadline or 24h" },
   };
 }
 
