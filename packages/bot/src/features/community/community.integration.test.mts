@@ -21,6 +21,7 @@ const dataGuild = "100000000000000010";
 const guild = "100000000000000001", app = "100000000000000002", admin = "100000000000000003";
 const channel = "100000000000000004", other = "100000000000000005", announce = "100000000000000006";
 const role = "100000000000000007", highRole = "100000000000000008", log = "100000000000000009";
+const statusChannel = "100000000000000020";
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -33,7 +34,9 @@ async function stubDiscord() {
   const requests: { method: string; path: string; body: any }[] = [];
   let socket: WebSocket, sequence = 0;
   const guilds = new Set<string>();
-  const state = { channelGuild: guild, channelType: 5, rolePosition: 1, roleMentionable: true, nextStatus: 0, crosspostStatus: 0, replyStatus: 0, memberName: "Tester", intents: 0 };
+  const messages = new Map<string, any>();
+  const state = { channelGuild: guild, channelType: 5, channelStatus: 0, messageStatus: 0, editStatus: 0,
+    rolePosition: 1, roleMentionable: true, nextStatus: 0, crosspostStatus: 0, replyStatus: 0, memberName: "Tester", intents: 0 };
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
@@ -61,7 +64,29 @@ async function stubDiscord() {
       nick: state.memberName, roles: [highRole], permissions: "0", joined_at: new Date().toISOString() });
     if (path.includes("/commands")) return send(body);
     if (path.includes("/callback")) { res.statusCode = 204; res.removeHeader("content-type"); return res.end(); }
-    if (req.method === "GET" && path.startsWith("/channels/")) return send({ id: path.split("/").at(-1), guild_id: state.channelGuild, type: state.channelType });
+    if (req.method === "GET" && path.startsWith(`/channels/${statusChannel}/messages/`)) {
+      const message = messages.get(path.split("/").at(-1)!);
+      if (state.messageStatus || !message) {
+        res.statusCode = state.messageStatus || 404;
+        return send({ code: res.statusCode === 404 ? 10008 : 50013, message: "Message unavailable" });
+      }
+      return send(message);
+    }
+    if (req.method === "GET" && path.startsWith("/channels/")) {
+      if (state.channelStatus) { res.statusCode = state.channelStatus; return send({ code: 10003, message: "Channel unavailable" }); }
+      return send({ id: path.split("/").at(-1), guild_id: state.channelGuild, type: state.channelType });
+    }
+    if (req.method === "PATCH" && path.startsWith(`/channels/${statusChannel}/messages/`)) {
+      const id = path.split("/").at(-1)!;
+      if (state.editStatus || !messages.has(id)) {
+        res.statusCode = state.editStatus || 404;
+        if (res.statusCode === 429) res.setHeader("retry-after", "90");
+        return send({ code: res.statusCode === 404 ? 10008 : 50013, message: "Edit unavailable", retry_after: 90 });
+      }
+      const message = { ...messages.get(id), ...body };
+      messages.set(id, message);
+      return send(message);
+    }
     if (req.method === "PATCH" && path.startsWith("/webhooks/") && state.replyStatus) {
       res.statusCode = state.replyStatus; state.replyStatus = 0;
       return send({ code: 50013, message: "private reply failure" });
@@ -72,6 +97,12 @@ async function stubDiscord() {
       res.statusCode = status;
       if (status === 429) res.setHeader("retry-after", "0.01");
       return send({ code: status === 404 ? 10003 : 50013, message: "private upstream text", retry_after: 0.01 });
+    }
+    if (req.method === "POST" && path === `/channels/${statusChannel}/messages`) {
+      const id = String(100000000000000099n + BigInt(messages.size));
+      const message = { id, channel_id: statusChannel, author: { id: app, username: "Bot", bot: true }, ...body };
+      messages.set(id, message);
+      return send(message);
     }
     return send({ id: "100000000000000099", channel_id: announce, content: "", author: { id: app, username: "Bot", bot: true },
       timestamp: new Date().toISOString(), attachments: [], embeds: [] });
@@ -113,7 +144,7 @@ async function stubDiscord() {
     const request = requests.find(r => r.path.includes(token) && (r.method === "PATCH" || r.body?.data?.content || r.body?.type === 8 || r.body?.type === 9 || r.body?.data?.embeds))!;
     return request.body?.data ?? request.body;
   };
-  return { api: `${gatewayUrl.replace("ws:", "http:")}/api`, requests, state, emit, response,
+  return { api: `${gatewayUrl.replace("ws:", "http:")}/api`, requests, state, messages, emit, response,
     join(id = other, bot = false, guildId = guild, options: { pending?: boolean; avatar?: string } = {}) {
       if (!guilds.has(guildId)) socket.send(JSON.stringify({ op: 0, t: "GUILD_CREATE", s: ++sequence, d: {
         id: guildId, name: "Test", owner_id: admin, roles: [], emojis: [], stickers: [], features: [], channels: [], members: [],
@@ -149,7 +180,10 @@ async function stubDiscord() {
   };
 }
 
-async function fixture(presence = false, modules: FeatureModule[] = [community], options: { botGuildId?: string; welcomeChannelId?: string } = { botGuildId: guild }) {
+async function fixture(presence = false, modules: FeatureModule[] = [community], options: {
+  botGuildId?: string; welcomeChannelId?: string; statusChannelId?: string;
+  setup?: (db: Database.Database, stub: Awaited<ReturnType<typeof stubDiscord>>) => void;
+} = { botGuildId: guild }) {
   const directory = mkdtempSync(join(tmpdir(), "bot-community-"));
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   vi.stubEnv("DISCORD_BOT_ENABLED", "1"); vi.stubEnv("OWNER_USER_IDS", "1,3");
@@ -158,6 +192,7 @@ async function fixture(presence = false, modules: FeatureModule[] = [community],
   vi.stubEnv("DISCORD_BOT_GUILD_ID", options.botGuildId);
   vi.stubEnv("DISCORD_ANNOUNCE_CHANNEL_ID", announce);
   vi.stubEnv("DISCORD_WELCOME_CHANNEL_ID", options.welcomeChannelId ?? "");
+  vi.stubEnv("DISCORD_STATUS_CHANNEL_ID", options.statusChannelId ?? "");
   vi.stubEnv("DISCORD_MOD_LOG_CHANNEL_ID", log); vi.stubEnv("SITE_DOMAIN", "app.example.test");
   vi.stubEnv("DUEL_DATA_DIR", join(directory, "duel-engine"));
   const db = openDatabase(join(directory, "bot.sqlite"));
@@ -165,6 +200,7 @@ async function fixture(presence = false, modules: FeatureModule[] = [community],
     .run(admin, "100000000000000011", other);
   if (!presence) db.exec("drop index if exists users_last_seen_idx; alter table users drop column last_seen_at; alter table users drop column last_route;");
   const stub = await stubDiscord();
+  options.setup?.(db, stub);
   const bot = await startBot({ config: { ...readConfig(), restApi: stub.api, healthPath: join(directory, "health.json") }, db, modules });
   cleanups.push(() => bot.stop());
   return { directory, db, stub, bot };
@@ -335,6 +371,197 @@ it("guards absent presence columns for both private reports", async () => {
   expect(JSON.stringify(stats)).toContain("presence not available");
   expect(stats.embeds[0].title).toContain("Stats");
   for (const callback of stub.requests.filter(r => r.body?.type === 5)) expect(callback.body.data.flags).toBe(64);
+});
+
+// Exercise the real publisher and HTTP edge without waiting a minute between polls.
+function statusSchedule() {
+  const original = globalThis.setInterval;
+  let poll: (() => Promise<void> | void) | undefined;
+  let now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+  vi.spyOn(globalThis, "setInterval").mockImplementation(((callback: () => void, delay: number, ...args: any[]) => {
+    if (delay === 60_000) poll = callback;
+    return original(callback, delay, ...args);
+  }) as typeof setInterval);
+  return {
+    get installed() { return !!poll; },
+    async advance(ms = 60_000) { now += ms; expect(poll).toBeTypeOf("function"); await poll!(); },
+    clock,
+  };
+}
+const statusPosts = (stub: Awaited<ReturnType<typeof stubDiscord>>) => stub.requests.filter(r => r.method === "POST" && r.path === `/channels/${statusChannel}/messages`);
+const statusEdits = (stub: Awaited<ReturnType<typeof stubDiscord>>) => stub.requests.filter(r => r.method === "PATCH" && r.path.startsWith(`/channels/${statusChannel}/messages/`));
+async function statusReady(db: Database.Database) {
+  await expect.poll(() => db.prepare("select message_id from discord_status_messages where guild_id=? and channel_id=?").get(guild, statusChannel)).toBeTruthy();
+}
+
+it("publishes one bounded online status with the report sources in the data guild", async () => {
+  statusSchedule();
+  const { stub, db } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel, setup(db) {
+    const now = Date.now(), at = new Date(now).toISOString();
+    db.prepare("update users set last_seen_at=?,last_route='/decks/new' where id=1").run(now);
+    db.prepare("update users set last_seen_at=?,last_route='/duels/[slug]' where id=2").run(now);
+    db.prepare("update users set last_seen_at=? where id=3").run(now - 120_001);
+    const user = db.prepare("insert into users(id,username,display_name,last_seen_at,last_route) values(?,?,?,?,'/dashboard')");
+    for (let id = 4; id < 14; id++) user.run(id, `zed${id}`, `Zed ${String(id).padStart(2,"0")}`, now);
+    db.prepare("insert into players(id,guild_id,user_id,display_name) values(1,?,1,'Owner'),(2,?,2,'User')").run(dataGuild,dataGuild);
+    const duel = db.prepare(`insert into duels(guild_id,web_slug,name,organizer_player_id,mode,status,format,kind,last_activity_at)
+      values(?,?,?,1,'match',?,?,?,?)`);
+    for (const [index,format] of ["1v1","tag","ffa3","ffa4"].entries()) duel.run(dataGuild,`status-${index}`,format,"active",format,"play",at);
+    duel.run(dataGuild,"status-stale","Stale","active","ffa3","play",new Date(now-600_001).toISOString());
+    duel.run(dataGuild,"status-fork","Replay","active","ffa4","replay-fork",at);
+    duel.run(guild,"status-foreign","Foreign","active","ffa4","play",at);
+    db.exec("insert into duel_seats(duel_id,seat,player_id) values(2,0,2),(7,0,2)");
+    db.prepare("insert into drafts(guild_id,channel_id,name,status,created_by_user_id,web_slug) values(?,'c','Live draft','active',1,'status-draft'),(?,'c','Foreign','active',1,'foreign-draft')").run(dataGuild,guild);
+    db.prepare("insert into tournaments(guild_id,name,format,status,created_by_user_id) values(?,'Live','swiss','active',1),(?,'Done','swiss','completed',1),(?,'Foreign','swiss','active',1)").run(dataGuild,dataGuild,guild);
+    const series = db.prepare("insert into duel_series(guild_id,player0_id,player1_id,created_by_player_id,mode,settings_json,status) values(?,1,2,1,'match','{}',?)");
+    series.run(dataGuild,"active"); series.run(dataGuild,"between_games"); series.run(dataGuild,"completed"); series.run(guild,"active");
+  } });
+  await expect.poll(() => statusPosts(stub).length).toBe(1);
+  await statusReady(db);
+  expect(statusPosts(stub)).toHaveLength(1);
+  const payload = statusPosts(stub)[0].body;
+  expect(payload.allowed_mentions).toMatchObject({ parse: [] });
+  expect(payload.embeds).toHaveLength(1);
+  expect(payload.embeds[0]).toMatchObject({ title: "Dueling Domain • Online now", color: 0x7652b8,
+    description: `Updated <t:${Math.floor(Date.now()/1000)}:R>`, fields: [
+      { name: "Players online • 12", value: "Owner — Deck builder\nUser — Tag duel\nZed 04 — Dashboard\nZed 05 — Dashboard\nZed 06 — Dashboard\nZed 07 — Dashboard\nZed 08 — Dashboard\nZed 09 — Dashboard\nZed 10 — Dashboard\nZed 11 — Dashboard\n+2 more" },
+      { name: "Live duels", value: "1v1: 1\nTag: 1\nFFA3: 1\nFFA4: 1" },
+      { name: "Active drafts", value: "1" }, { name: "Active tournaments", value: "1" }, { name: "Active series", value: "2" },
+    ] });
+  expect(payload.embeds[0].fields.every((field: any) => field.value.length <= 1024)).toBe(true);
+});
+
+it("edits status on change, ignores presence refresh/order and timestamps, and throttles edits", async () => {
+  const schedule = statusSchedule();
+  const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel, setup(db) {
+    db.prepare("update users set last_seen_at=?,last_route='/app' where id in (1,2)").run(Date.now());
+  } });
+  await statusReady(db);
+  const before = stub.requests.length;
+  // The input row order changes as heartbeats arrive, but the displayed list does not.
+  db.prepare("update users set last_seen_at=? where id=2").run(Date.now()+1);
+  await schedule.advance();
+  expect(stub.requests).toHaveLength(before);
+  db.prepare("update users set display_name='@everyone **Duelist**' where id=1").run();
+  await schedule.advance(1);
+  expect(statusEdits(stub)).toHaveLength(1);
+  expect(statusEdits(stub)[0].body.allowed_mentions).toMatchObject({ parse: [] });
+  expect(JSON.stringify(statusEdits(stub)[0].body)).toContain("Duelist");
+  db.prepare("update users set display_name='Changed again',last_seen_at=? where id=1").run(Date.now());
+  await schedule.advance(29_999);
+  expect(statusEdits(stub)).toHaveLength(1);
+  await schedule.advance(1);
+  expect(statusEdits(stub)).toHaveLength(2);
+  expect(new Set(statusEdits(stub).map(r => r.path)).size).toBe(1);
+  expect(statusPosts(stub)).toHaveLength(1);
+});
+
+it("reuses a stored bot message after restart without posting or editing unchanged content", async () => {
+  const schedule = statusSchedule();
+  const { db, stub, bot, directory } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel });
+  await statusReady(db);
+  const config = bot.context.config;
+  const saved = db.prepare("select message_id from discord_status_messages").get() as { message_id: string };
+  await bot.stop();
+  const reopened = openDatabase(join(directory,"bot.sqlite"));
+  const restarted = await startBot({ config, db: reopened, modules: [community] });
+  cleanups.push(() => restarted.stop());
+  await expect.poll(() => stub.requests.some(r => r.method === "GET" && r.path.endsWith(`/messages/${saved.message_id}`))).toBe(true);
+  await schedule.advance();
+  expect(statusPosts(stub)).toHaveLength(1);
+  expect(statusEdits(stub)).toHaveLength(0);
+  reopened.prepare("update users set last_seen_at=?,last_route='/app' where id=1").run(Date.now());
+  await schedule.advance(1);
+  expect(statusEdits(stub).map(r => r.path)).toEqual([`/channels/${statusChannel}/messages/${saved.message_id}`]);
+});
+
+it.each(["missing", "foreign author", "wrong channel"])("replaces a saved %s message once", async invalid => {
+  const schedule = statusSchedule();
+  const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel, setup(db, stub) {
+    db.prepare("insert into discord_status_messages(guild_id,channel_id,message_id,content_hash,updated_at) values(?,?,?,'old',0)").run(guild,statusChannel,"old-message");
+    if (invalid !== "missing") stub.messages.set("old-message", { id: "old-message", channel_id: invalid === "wrong channel" ? channel : statusChannel,
+      author: { id: invalid === "foreign author" ? other : app }, embeds: [] });
+  } });
+  await statusReady(db);
+  await expect.poll(() => statusPosts(stub).length).toBe(1);
+  await schedule.advance();
+  expect(statusPosts(stub)).toHaveLength(1);
+  expect(statusEdits(stub)).toHaveLength(0);
+});
+
+it("disables the publisher when DISCORD_STATUS_CHANNEL_ID is empty", async () => {
+  const schedule = statusSchedule();
+  const { stub, db } = await fixture(true);
+  await stub.response(stub.command("online"));
+  expect(schedule.installed).toBe(false);
+  expect(statusPosts(stub)).toHaveLength(0);
+  expect(db.prepare("select * from discord_status_messages").all()).toEqual([]);
+});
+
+it.each([404,403,"foreign guild","wrong type"])("keeps running with status destination %s, warns once and retries later", async unavailable => {
+  const schedule = statusSchedule();
+  const warning = vi.spyOn(observability,"log").mockImplementation(() => {});
+  const { stub, db, bot } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel, setup(_db,stub) {
+    if (typeof unavailable === "number") stub.state.channelStatus = unavailable;
+    if (unavailable === "foreign guild") stub.state.channelGuild = dataGuild;
+    if (unavailable === "wrong type") stub.state.channelType = 2;
+  } });
+  await expect.poll(() => warning.mock.calls.length).toBe(1);
+  await schedule.advance();
+  expect(warning).toHaveBeenCalledTimes(1);
+  expect(bot.client.isReady()).toBe(true);
+  expect(statusPosts(stub)).toHaveLength(0);
+  stub.state.channelStatus = 0; stub.state.channelGuild = guild; stub.state.channelType = 0;
+  await schedule.advance();
+  await statusReady(db);
+  expect(statusPosts(stub)).toHaveLength(1);
+});
+
+it("does not replace a stored message on transient permission failure", async () => {
+  const schedule = statusSchedule();
+  vi.spyOn(observability,"log").mockImplementation(() => {});
+  const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel, setup(db,stub) {
+    db.prepare("insert into discord_status_messages(guild_id,channel_id,message_id,content_hash,updated_at) values(?,?,?,'old',0)").run(guild,statusChannel,"existing");
+    stub.messages.set("existing", { id: "existing", channel_id: statusChannel, author: { id: app }, embeds: [] });
+    stub.state.messageStatus = 403;
+  } });
+  await expect.poll(() => stub.requests.some(r => r.path.endsWith("/messages/existing"))).toBe(true);
+  await schedule.advance();
+  expect(statusPosts(stub)).toHaveLength(0);
+  stub.state.messageStatus = 0;
+  await schedule.advance();
+  expect(statusEdits(stub)).toHaveLength(1);
+  expect(statusPosts(stub)).toHaveLength(0);
+  expect(db.prepare("select message_id from discord_status_messages").get()).toEqual({ message_id: "existing" });
+});
+
+it("backs off a rate-limited edit and never posts twice when its new message is deleted", async () => {
+  const schedule = statusSchedule();
+  vi.spyOn(observability,"log").mockImplementation(() => {});
+  const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel });
+  await statusReady(db);
+  db.prepare("update users set last_seen_at=?,last_route='/app' where id=1").run(Date.now()+180_000);
+  stub.state.editStatus = 429;
+  await schedule.advance();
+  expect(statusEdits(stub)).toHaveLength(1);
+  const before = stub.requests.length;
+  await schedule.advance();
+  expect(stub.requests).toHaveLength(before);
+  stub.state.editStatus = 0;
+  await schedule.advance();
+  expect(statusEdits(stub)).toHaveLength(2);
+  stub.messages.clear();
+  db.prepare("update users set display_name='After deletion' where id=1").run();
+  await schedule.advance();
+  await schedule.advance();
+  expect(statusPosts(stub)).toHaveLength(1);
+});
+
+it("publishes a status even without the optional presence columns", async () => {
+  const { db, stub } = await fixture(false, [community], { botGuildId: guild, statusChannelId: statusChannel });
+  await statusReady(db);
+  expect(statusPosts(stub)[0].body.embeds[0].fields[0]).toEqual({ name: "Players online", value: "presence not available" });
 });
 
 it("registers in the bot guild and keeps site reports and duel labels in the data guild", async () => {
