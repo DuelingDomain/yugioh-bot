@@ -94,7 +94,6 @@ export function startStatusPublisher(c: FeatureContext) {
       .run(c.config.guildId,channelId,messageId,contentHash,Date.now());
     hash = contentHash;
     nextWriteAt = Date.now() + MIN_EDIT_MS;
-    warned = false;
   };
   const publish = async () => {
     if (Date.now() < retryAt) return;
@@ -132,6 +131,7 @@ export function startStatusPublisher(c: FeatureContext) {
         includeNames = !admin && !!overwrite && (BigInt(overwrite.deny) & PermissionFlagsBits.ViewChannel) !== 0n
           && !roleAllowsView;
       }
+      warned = false;
       const embed = statusEmbed(c,includeNames);
       // The relative timestamp describes the last content update, not the last poll.
       const contentHash = createHash("sha256").update(JSON.stringify(embed)).digest("hex");

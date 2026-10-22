@@ -36,7 +36,7 @@ async function stubDiscord() {
   const guilds = new Set<string>();
   const messages = new Map<string, any>();
   let messageSequence = 0;
-  const state = { channelGuild: guild, channelType: 5, channelStatus: 0, messageStatus: 0, editStatus: 0,
+  const state = { channelGuild: guild, channelType: 5, channelStatus: 0, rolesStatus: 0, messageStatus: 0, editStatus: 0,
     everyonePermissions: "1024", overwrites: [{ id: guild, type: 0, allow: "0", deny: "1024" }],
     createFailure: "",
     rolePosition: 1, roleMentionable: true, nextStatus: 0, crosspostStatus: 0, replyStatus: 0, memberName: "Tester", intents: 0 };
@@ -58,6 +58,10 @@ async function stubDiscord() {
     if (path === "/gateway/bot") return send({ url: gatewayUrl, shards: 1,
       session_start_limit: { total: 1000, remaining: 1000, reset_after: 60_000, max_concurrency: 1 } });
     if (path.split("?")[0] === `/guilds/${guild}`) return send({ id: guild, name: "Test", roles: [], emojis: [], stickers: [], features: [], owner_id: other });
+    if (path === `/guilds/${guild}/roles` && state.rolesStatus) {
+      res.statusCode = state.rolesStatus;
+      return send({ code: 50013, message: "Roles unavailable" });
+    }
     if (path === `/guilds/${guild}/roles`) return send([
       { id: guild, name: "@everyone", position: 0, permissions: state.everyonePermissions, managed: false, mentionable: false },
       { id: role, name: "News", position: state.rolePosition, permissions: "0", managed: false, mentionable: state.roleMentionable },
@@ -799,6 +803,30 @@ it("reports Discord errors once per outage and warns again after a successful sa
   stub.state.channelStatus = 403;
   await schedule.advance();
   expect(warning).toHaveBeenCalledTimes(2);
+  expect(reported).toHaveBeenCalledTimes(2);
+});
+
+it.each(["channelStatus", "rolesStatus"] as const)("warns again after %s recovers with unchanged content", async endpoint => {
+  const schedule = statusSchedule();
+  const warning = vi.spyOn(observability,"log").mockImplementation(() => {});
+  const warnings = () => warning.mock.calls.filter(call => call[2]?.operation === "bot.status");
+  const reported = vi.spyOn(observability,"report").mockImplementation(() => {});
+  const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel });
+  await statusReady(db);
+  const saved = db.prepare("select * from discord_status_messages").get();
+  stub.state[endpoint] = 403;
+  await schedule.advance();
+  await schedule.advance();
+  expect(warnings()).toHaveLength(1);
+  expect(reported).toHaveBeenCalledTimes(1);
+  stub.state[endpoint] = 0;
+  await schedule.advance();
+  expect(statusPosts(stub)).toHaveLength(1);
+  expect(statusEdits(stub)).toHaveLength(0);
+  expect(db.prepare("select * from discord_status_messages").get()).toEqual(saved);
+  stub.state[endpoint] = 403;
+  await schedule.advance();
+  expect(warnings()).toHaveLength(2);
   expect(reported).toHaveBeenCalledTimes(2);
 });
 
