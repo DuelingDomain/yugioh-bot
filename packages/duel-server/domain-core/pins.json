@@ -15,7 +15,7 @@
   },
   "cardScripts": {
     "repository": "https://github.com/ProjectIgnis/CardScripts",
-    "commit": "432617da992b2520c387e5d0b0eaf3107b39ae8e"
+    "commit": "5caccbf54d7d27b5208bef3b7bf49936eafc203c"
   },
   "emscripten": {
     "image": "docker.io/emscripten/emsdk:4.0.9",
