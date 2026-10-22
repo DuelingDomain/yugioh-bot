@@ -59,6 +59,8 @@ The 109-patch pinned builds use `LUA_FIXED_SEED=1` with the pinned image above. 
 | Domain multiplayer | `d3d7486b68568e4085e5c6ab31251a93b87abe29a8216eadc2b49f5dbc9e2711` |
 | Domain 1v1 | `01611db77c00ddef07a3d4cfc88800f5c523e3a388c3732616a79fa19b3c4a63` |
 
+The 2026-10-22 mixed-LP follow-up changes only the Lua overlay and documentation: Supremacy Berry and Ancient Sacred Wyvern now use the higher branch for mixed LP and partial ties; all equal stays neutral. Unstable Evolution and Megamorph already implement that fallback. The overlay folder fingerprint is `7b3743963d0ad284cb074d5920ffc33699eaef43a578e09aa29f7c57837dbd1e`; `scripts/native/golden.tsv` records this new input fingerprint and retains its duel rows for CI verification. Both 109-patch multiplayer cores were rebuilt locally with Emscripten 4.0.9 and `LUA_FIXED_SEED=1` and match the pinned hashes above exactly, so `expected-sha256.txt` needs no change. The touched LP scenario suite passes all 172 real-engine cases with `NSEAT_LIVE=1 DUEL_REQUIRE_CORES=1`, including Soul Drain Dragon and Aromaseraphy Sweet Marjoram. No local unit or native suites were run.
+
 The previous 103-patch inputs were also built locally on 2026-10-07 without `LUA_FIXED_SEED` for deployment:
 
 | Deploy core | SHA-256 |
