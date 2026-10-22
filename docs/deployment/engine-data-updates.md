@@ -194,7 +194,7 @@ Re-record `scripts/native/golden.tsv` with `packages/duel-server/scripts/run-ndu
 
 ## 2026-10-22 candidate review (PR #443)
 
-Merged main at `49c894688` (PR #441), including all 61 LP-comparison overlays,
+Merged main at `1a3bd8c87` (PRs #441 and #444), including all 61 LP-comparison overlays,
 patch 0119 and its verified core binary pins. None of the four retained upstream
 script changes overlaps those cards or any existing multiplayer overlay stock path:
 `official/c74730899.lua`, `card_counter_constants.lua`, `constant.lua` and

@@ -1,6 +1,6 @@
-# FFA LP comparison review (owner, 2026-10-21)
+# FFA LP comparison review (owner, 2026-10-21; follow-up 2026-10-22)
 
-The source is the owner's supplied ruling for [issue #435](https://github.com/DuelingDomain/yugioh-bot/issues/435): **"Lower than ALL"**, with strict higher treated symmetrically. [ADR 0002](../adr/0002-multiplayer-duel-rules.md) records the rule, mixed/tie behavior and the two Equip Spells' reduced fallback.
+The source is the owner's supplied ruling for [issue #435](https://github.com/DuelingDomain/yugioh-bot/issues/435): **"Lower than ALL"**, and the **2026-10-22 follow-up**: two-branch lower/higher cards use their higher branch whenever the controller is not lower than every living opponent, except that all equal stays neutral. [ADR 0002](../adr/0002-multiplayer-duel-rules.md) records both decisions. A one-branch lower or higher condition still requires the corresponding strict relation against every living opponent.
 
 Reviewed the original 100 local LP-query candidates at the pinned card-script revision: 69 comparison candidates and 31 other queries. A broader scan of all 255 official LP-query scripts found four additional comparison cards. The complete reviewed comparison set is **73 cards: 61 covered by the shared helper, 12 exceptions**. The ignored discovery JSON is not a shipped input.
 
@@ -8,9 +8,22 @@ Reviewed the original 100 local LP-query candidates at the pinned card-script re
 
 Self-Destruct Button now requires the controller's LP to be at least 7000 below **every living opponent**, replacing the previous any-qualifying-opponent activation rule. Once that condition holds, its existing opponent pick and pair-only LP-zero operation remain unchanged. A single opponent with a smaller gap prevents activation; Tag still compares the two team LP pools.
 
-For an LP difference, this ruling determines **whether** a lower/higher branch can apply. It does not specify which opponent supplies a numerical difference. We preserve the existing amount formula and its existing scope (a chosen opponent in an activated effect, or the existing aggregate in an unbound continuous value). Those cards are marked **condition only** below. Ancient Sacred Wyvern returns zero adjustment when neither strict relation holds; Mars grants no bonus unless higher than all; Gorgoneio grants no bonus unless lower than all. Their amount formulas otherwise remain unchanged. Psychic End Punisher's separate ATK-difference effect and Handigallop's ATK value are not resolved by this ruling.
+For an LP difference, this ruling determines **whether** a lower/higher branch can apply. It does not specify which opponent supplies a numerical difference. We preserve the existing amount formula and its existing scope (a chosen opponent in an activated effect, or the existing aggregate in an unbound continuous value). Those cards are marked **condition only** below. Ancient Sacred Wyvern uses the absolute magnitude of its existing LP difference, subtracting it when lower than all and adding it otherwise; all equal gives zero adjustment; Mars grants no bonus unless higher than all; Gorgoneio grants no bonus unless lower than all. Their amount formulas otherwise remain unchanged. Psychic End Punisher's separate ATK-difference effect and Handigallop's ATK value are not resolved by this ruling.
 
-Supremacy Berry has independent lower/higher conditions: mixed totals and partial ties allow neither result. Its activation therefore requires one of those conditions. The two lower-first Equip Spells have the separately documented owner-example fallback.
+## Two-branch cards (owner follow-up, 2026-10-22)
+
+The inventory contains four cards with lower/higher branches. Mixed totals and partial ties use the higher branch for all four. Equality with every living opponent stays neutral. This replaces the earlier neutral Wyvern / unavailable Berry interpretation; the two Equip Spells already followed this fallback.
+
+| Card | Lower than every living opponent | Otherwise, including mixed LP and partial ties | All equal |
+| --- | --- | --- | --- |
+| Unstable Evolution | 2400 ATK | 1000 ATK | No ATK change |
+| Megamorph | Double original ATK | Half original ATK | No ATK change |
+| Supremacy Berry | Recover 2000 LP | Can activate; take 1000 damage | Cannot activate |
+| Ancient Sacred Wyvern | Lose ATK equal to the existing difference magnitude | Gain ATK equal to the existing difference magnitude | Zero adjustment |
+
+For example, at 5000 vs 3000/7000/9000, Unstable Evolution gives 1000 ATK, Megamorph halves ATK, Supremacy Berry can activate and deals 1000 to its controller, and Wyvern gains 4000 ATK (6100 total). Wyvern keeps the current unbound maximum-opponent LP query for the amount: `abs(5000 - 9000) = 4000`; this follow-up selects the branch/sign without choosing a new opponent or changing the amount scope. After the 3000-LP opponent surrenders, Wyvern instead loses 4000 ATK because 5000 is now below every survivor.
+
+Single-branch effects retain unanimous comparisons. Soul Drain Dragon gains ATK on Special Summon only when lower than all; mixed LP and partial ties do not trigger it. Aromaseraphy Sweet Marjoram protects Plants from opposing effect targeting only when higher than all. Mars, Gorgoneio and other one-branch cards remain unchanged. Eliminated seats, even with positive LP, are excluded. 1v1 and Tag retain stock behavior.
 
 ## Comparison candidates
 
@@ -21,14 +34,14 @@ Supremacy Berry has independent lower/higher conditions: mixed totals and partia
 | 17178486 | Life Equalizer | Prior owner ruling (2026-10-18): compare and change one chosen pair. |
 | 1969506 | Puppet Ritual | Shared unanimous comparison helper. |
 | 21200905 | Aromaseraphy Jasmine | Shared unanimous comparison helper. |
-| 22046459 | Megamorph | Shared unanimous comparison helper. |
+| 22046459 | Megamorph | Two-branch lower-first fallback; see table above. |
 | 22174866 | Aromage Cananga | Shared unanimous comparison helper. |
 | 22390469 | Gold Pride - Star Leon | Shared unanimous comparison helper. |
 | 23512906 | Gold Pride - Leon | Shared unanimous comparison helper. |
 | 2434862 | Cubic Ascension | Shared unanimous comparison helper. |
 | 25334372 | Tsukumo Slash | Battle-specific ATK difference; no lower/higher condition. Needs a separate amount ruling. |
 | 25861589 | Aroma Blend | Shared unanimous comparison helper. |
-| 25958491 | Ancient Sacred Wyvern | Condition only; existing numerical difference unchanged. |
+| 25958491 | Ancient Sacred Wyvern | Two-branch sign; existing difference magnitude and scope retained. |
 | 26357901 | Imprudent Intrusion | Condition only; existing numerical difference unchanged. |
 | 28265983 | Dried Winds | Condition only; existing numerical difference unchanged. |
 | 28497830 | Gold Pride - Pin Baller | Shared unanimous comparison helper. |
@@ -56,7 +69,7 @@ Supremacy Berry has independent lower/higher conditions: mixed totals and partia
 | 59900655 | Gold Pride - Nytro Head | Shared unanimous comparison helper. |
 | 60203670 | Gold Pride - Eliminator | Shared unanimous comparison helper. |
 | 60465049 | Psychic End Punisher | Condition only; existing numerical difference unchanged. |
-| 62991886 | Unstable Evolution | Shared unanimous comparison helper. |
+| 62991886 | Unstable Evolution | Two-branch lower-first fallback; see table above. |
 | 63875853 | Trading Places | Prior owner ruling (ADR Q4): exchange LP with one chosen opponent. |
 | 65430834 | Jurassic Impact | Shared unanimous comparison helper. |
 | 65892585 | Gold Pride - Chariot Carrie | Shared unanimous comparison helper. |
@@ -84,7 +97,7 @@ Supremacy Berry has independent lower/higher conditions: mixed totals and partia
 | 96789758 | Aromage Jasmine | Shared unanimous comparison helper. |
 | 97637162 | Handigallop | Condition only; existing numerical difference unchanged. |
 | 97926515 | Emerging Emergency Rescute Rescue | Shared unanimous comparison helper. |
-| 98380593 | Supremacy Berry | Shared unanimous comparison helper. |
+| 98380593 | Supremacy Berry | Two-branch lower-first fallback; see table above. |
 
 The broader review adds these four cards, which the original discovery regex missed because they use controller expressions rather than `tp`:
 
@@ -137,4 +150,4 @@ The original stock script produces **2400 rather than 1000** for Unstable Evolut
 
 The public issue reports two survivors but supplies no LP totals, card controllers or replay. On the current real Domain core, all eight stock controls (all four Equip controllers, richer opponents surrendering before and after equip) correctly recalculate to 1000. A further stock control reaches turn 34, seat 2 End Phase, with seats 0 and 2 alive and verifies 1000 ATK inside that phase; it also passes before the overlay fix. Infinite Cards prevents unrelated hand-limit choices during this long control. Thus the exact two-survivor capture is **not reproduced** and cannot be attributed to eliminated LP without more evidence. A possible observation mismatch exists in `host.ts`'s bug-context path: it can use an older paired report capture while counting living seats against the current surrendered set. This is a hypothesis, not an established cause of #435. Keep these late-game scenarios as regressions rather than claiming they previously failed.
 
-The scenario kit covers mixed totals, all opponents lower, all opponents higher, partial ties, all equal, positive-LP surrendered seats, every controller seat, bound and nested scopes, global Pin Baller protection, exact required gaps, draws for every living player, turn 34 timing, named/inline summon conditions, higher-LP Aroma conditions, independent Supremacy Berry branches and stock 1v1/Tag Equip results. Only touched scenario families are run with `test:engine`, `NSEAT_LIVE=1` and `DUEL_REQUIRE_CORES=1`. No unit tests were added. All 61 reviewed overlay scripts also load through real Standard and Domain cores in FFA3, FFA4 and Tag.
+The scenario kit covers mixed totals, all opponents lower, all opponents higher, partial ties, all equal, positive-LP surrendered seats, every controller seat, bound and nested scopes, global Pin Baller protection, exact required gaps, draws for every living player, turn 34 timing, named/inline summon conditions, higher-LP Aroma conditions, Supremacy Berry and Wyvern lower-first branches, Soul Drain Dragon's real Special Summon trigger, Sweet Marjoram's actual target protection, and stock 1v1/Tag results. Only touched scenario families are run with `test:engine`, `NSEAT_LIVE=1` and `DUEL_REQUIRE_CORES=1`. No unit tests were added. All 61 reviewed overlay scripts also load through real Standard and Domain cores in FFA3, FFA4 and Tag.

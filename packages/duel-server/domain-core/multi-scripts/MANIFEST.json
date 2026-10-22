@@ -2085,7 +2085,7 @@
         "condition",
         "value"
       ],
-      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: lower than every living opponent; all equal is neutral; otherwise reduced fallback. FFA only."
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-22: lower than every living opponent, otherwise higher branch (mixed and partial ties included); all equal is neutral. FFA only."
     },
     {
       "code": 22174866,
@@ -2570,7 +2570,7 @@
         "atkval"
       ],
       "stockSha256": "cc3f16b84b627228f658f8447b9c76df89dfecbeb223e41d078cef69b5aaa898",
-      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-22: lower than every living opponent, otherwise higher branch (mixed and partial ties included); all equal is neutral. FFA only. Keep the existing LP-difference magnitude and scope."
     },
     {
       "code": 26273196,
@@ -6001,7 +6001,7 @@
         "condition",
         "value"
       ],
-      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: lower than every living opponent; all equal is neutral; otherwise reduced fallback. FFA only."
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-22: lower than every living opponent, otherwise higher branch (mixed and partial ties included); all equal is neutral. FFA only."
     },
     {
       "code": 63009228,
@@ -9100,7 +9100,7 @@
         "rectg"
       ],
       "stockSha256": "fd01f65627449fd8e828d7fcb53c73e036a00ff4dba124a0a01109d0c5ac3ee2",
-      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-22: lower than every living opponent, otherwise higher branch (mixed and partial ties included); all equal is neutral. FFA only."
     },
     {
       "code": 98520301,
