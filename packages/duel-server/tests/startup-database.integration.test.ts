@@ -1,16 +1,70 @@
 import Database from "better-sqlite3";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { rmSync } from "node:fs";
+import { createServer } from "node:net";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { openDatabase } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { retryStartupDatabase } from "../src/startup-database.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 import { seedIdentity } from "./helpers/identity.js";
+
+it("exposes private readiness only after real server startup recovers from a database lock", async () => {
+  const directory = createHostDataFixture([]);
+  const path = join(directory, "bot.sqlite");
+  const writer = openDatabase(path);
+  const reservation = createServer();
+  reservation.listen(0, "127.0.0.1");
+  await once(reservation, "listening");
+  const port = (reservation.address() as { port: number }).port;
+  await new Promise<void>((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()));
+  writer.exec("begin immediate");
+  const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
+    cwd: new URL("../", import.meta.url),
+    env: { ...process.env, DATABASE_PATH: path, DUEL_DATA_DIR: directory,
+      DUEL_INTERNAL_HOST: "127.0.0.1", DUEL_INTERNAL_PORT: String(port), DUEL_1V1_ENGINE: "pinned",
+      DUEL_INTERNAL_SECRET: "readiness-test", EFFECT_SEARCH: "0", DECK_SUGGESTIONS: "0",
+      WS_INTERNAL_URL: "", WS_INTERNAL_SECRET: "", SENTRY_DSN: "" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const exited = once(child, "exit");
+  let output = "";
+  child.stdout.on("data", chunk => { output += chunk; });
+  child.stderr.on("data", chunk => { output += chunk; });
+  const url = `http://127.0.0.1:${port}/healthz`;
+  try {
+    await vi.waitFor(() => expect(output).toContain("startup database busy; retrying"), { timeout: 10_000 });
+    await expect(fetch(url, { signal: AbortSignal.timeout(1000) })).rejects.toThrow();
+    writer.exec("commit");
+    await expect.poll(async () => {
+      if (child.exitCode !== null) throw new Error(output);
+      try { return (await fetch(url, { signal: AbortSignal.timeout(1000) })).status; }
+      catch { return 0; }
+    }, { timeout: 10_000 }).toBe(200);
+    const response = await fetch(url);
+    expect(await response.text()).toBe("ok\n");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    // Readiness does not bypass authentication on the gameplay endpoint.
+    expect((await fetch(`http://127.0.0.1:${port}/internal/duel`, { method: "POST", body: "{}" })).status).toBe(401);
+  } finally {
+    const deadline = setTimeout(() => child.kill("SIGKILL"), 7000);
+    try {
+      if (child.exitCode === null) child.kill("SIGTERM");
+      await exited;
+    } finally {
+      clearTimeout(deadline);
+      if (writer.inTransaction) writer.exec("rollback");
+      writer.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+  expect(child.exitCode, output).toBe(0);
+}, 25_000);
 
 // A separate thread must release the real file lock while better-sqlite3 blocks
 // this thread. The timer starts only when the caller is about to attempt startup.
