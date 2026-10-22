@@ -58,12 +58,68 @@ App links and account-deletion redirects to the marketing home include `?home=1`
 
 The installed SDKs identify `__client_uat` and instance-suffixed variants, but do not define the production Frontend API's domain/HttpOnly attributes for these cookies. Offline inspection cannot confirm that they reach `duelingdomain.com`; the app-owned hint makes this routing independent of those attributes. After deployment, inspect cookie attributes and request cookie **names** in browser tools without copying tokens or secrets. Check sign-in, sign-out, the escape hatch, and a stale hint with an inactive session. App and Caddy changes must deploy together.
 
+## Web-only restarts during live duels
+
+The app host's `web:3000` proxy holds requests for up to 30 seconds while no
+upstream is available (`lb_try_duration 30s`, `lb_try_interval 250ms`). Passive
+health tracking remembers a failed connection for one second, so concurrent
+requests wait briefly before dialing again. No active probe depends on app
+authentication. Socket.IO still goes directly to `ws:3001`; a web-only recreate
+does not close its existing connections. Marketing and legacy routing are unchanged.
+
+POST safety follows Caddy's default `lb_retry_match` (GET only). A POST can be
+retried after a **dial failure**, when the upstream received no request; a failed
+round trip after connecting is not replayed. An upstream 503 response is passed
+back rather than retried by this proxy. Do not broaden `lb_retry_match` to POST.
+See [Caddy's retry rules](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy#load-balancing)
+and [the dial-error check in Caddy 2.11.2](https://github.com/caddyserver/caddy/blob/v2.11.2/modules/caddyhttp/reverseproxy/reverseproxy.go).
+The integration check below exercises a real 20-second upstream outage, one
+delivery of the held POST, and a connected POST whose response is dropped.
+
+The duel page also retries room GETs and `/actions` on network errors or
+502/503/504, with backoff from 250ms to 3s and a total 30-second request budget.
+It uses the existing connection badge to show `Reconnecting`, keeps the board,
+and shows the existing error after exhaustion. 401/403 authentication/access
+denials, explicit access-unavailable errors (including 503), illegal moves and
+stale-choice errors fail immediately. Other POSTs (opening, response
+switch, surrender, deck changes, etc.) are not automatically retried by the client.
+
+An action's existing `(duel, seat, promptId, revision)` is its retry identity;
+the same serialized command is reused for every attempt. The duel host runs each
+duel's commands in one queue. Its revision/prompt check prevents a second engine
+answer, and its durable accepted-command journal now recognizes an exact replay
+(including the answer) and returns current state, even if the original reply was
+lost or the duel has since ended. Another answer or seat cannot claim that result.
+Replay-fork actions are excluded from automatic retries because a fork rewind or
+restart can reuse prompt/revision identities; their GETs still retry safely.
+No new nonce or in-memory deduplication cache is needed. State reads re-fetch the
+authoritative room; existing polling and token/join retries resume live updates
+after web returns without a page reload. Duel clocks keep running during an outage.
+
+Deploy the duel-host replay handling and web client together through the existing
+guarded workflow, and install the Caddy change before relying on this protection.
+After editing only web runtime env, recreate only web:
+
+```bash
+docker compose -f docker-compose.yml up -d --no-build --no-deps --force-recreate web
+```
+
+This covers short **web-only** outages with duel, ws and Caddy still running.
+The current `.github/workflows/deploy.yml` checks activity again immediately
+before stopping **web, duel, worker and ws**, then migrates/installs resources and
+runs `compose down --remove-orphans` before starting the stack. That also stops
+Caddy and can replace the engine bundle. Keep its live-duel idle guard unchanged:
+this hold cannot protect a stopped proxy or make engine/schema changes safe.
+A future deploy path restricted to web, with no shared schema/bundle or other
+service changes, could assess relaxing its own guard after restart validation.
+
 ## Checks
 
 Routing checks need Docker and a preloaded `caddy:2-alpine` image; they never pull an image. They validate/adapt the real Caddyfile and exercise cookie/query/method cases against Caddy. Browser checks need local Caddy with `SITE_DOMAIN=localhost`, `MARKETING_DOMAIN=marketing.localhost`, `LEGACY_DOMAIN=legacy.localhost`, plus Playwright and Chromium. Production curls use normal TLS validation and do not follow redirects.
 ```bash
 python3 -I site/src/verify-static.py
 python3 -I scripts/deployment/verify-domain-routing.py
+python3 -I scripts/deployment/verify-web-restart.py
 MARKETING_URL=https://marketing.localhost CHROMIUM=/path/to/chromium SHOTS_DIR=/tmp/dd-site-shots node site/src/verify-browser.mjs
 curl -sS -i https://duelingdomain.com/
 curl -sS -i https://duelingdomain.com/ -H 'Cookie: dd_signed_in=1'
