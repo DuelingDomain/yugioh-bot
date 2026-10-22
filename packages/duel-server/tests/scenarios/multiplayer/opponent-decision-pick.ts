@@ -221,14 +221,14 @@ OPPONENT_DECISION_PICK_SCENARIOS.push(defineScenario({
 
 OPPONENT_DECISION_PICK_SCENARIOS.push(defineScenario({
   id: "opponent-decision-pick-ffa3-rescute-rescue-condition-does-not-declare",
-  title: "FFA3: Rescute Rescue needs one opponent with higher LP but a different opponent may decide at resolution",
-  source: SOURCE_RULE, rules: ["R-COMMON-OPP-DECISION", "R-FFA-OPP-ONE"],
+  title: "FFA3: Rescute Rescue needs lower LP than all opponents; the chosen opponent decides at resolution",
+  source: SOURCE_RULE + " [R-FFA-LP-COMPARE] owner 2026-10-21", rules: ["R-COMMON-OPP-DECISION", "R-FFA-OPP-ONE", "R-FFA-LP-COMPARE"],
   tags: ["multiplayer", "opponent-pick", "ffa3", "card:97926515"],
-  setup: { format: "ffa3", p0: { lp: 4000, hand: ["Emerging Emergency Rescute Rescue"], deck: ["Rescue Rabbit", "Rescue Cat", "Rescue Hamster", "Rescue Ferret"] }, p1: { lp: 8000, spells: [{ card: MST, pos: "set" }] }, p2: { lp: 2000 } },
+  setup: { format: "ffa3", p0: { lp: 4000, hand: ["Emerging Emergency Rescute Rescue"], deck: ["Rescue Rabbit", "Rescue Cat", "Rescue Hamster", "Rescue Ferret"] }, p1: { lp: 8000, spells: [{ card: MST, pos: "set" }] }, p2: { lp: 6000 } },
   steps: [
     activate("Emerging Emergency Rescute Rescue", "p0"), expectPrompt({ by: "p1", context: "chain" }), pass("p1"),
     select("Rescue Rabbit", "Rescue Cat", "Rescue Hamster"), expectPickSeats(["p1", "p2"], "p0"), pickOpponent("p2", "p0"),
     expectPrompt({ by: "p2", kind: "cards" }), { op: "select", sels: ["Rescue Cat"], by: "p2" },
-    expectBoard({ p0: { lp: 4000, hand: ["Rescue Cat"], grave: ["Emerging Emergency Rescute Rescue"] }, p1: { lp: 8000, spells: [MST] }, p2: { lp: 2000, hand: [], monsters: [] } }),
+    expectBoard({ p0: { lp: 4000, hand: ["Rescue Cat"], grave: ["Emerging Emergency Rescute Rescue"] }, p1: { lp: 8000, spells: [MST] }, p2: { lp: 6000, hand: [], monsters: [] } }),
   ],
 }));

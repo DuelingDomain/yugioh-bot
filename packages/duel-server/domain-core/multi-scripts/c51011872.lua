@@ -1,10 +1,9 @@
 if not aux.MPForEachDuelist then return end
--- The activator draws 1 card (2 if its LP is 2000 or more above the LP of ANY one opponent) and every other duelist draws 1 (R1, Q3, Tag
+-- The activator draws 1 card (2 if its LP is 2000 or more above every living opponent in FFA) and every other duelist draws 1 (R1, Q3, Tag
 -- partner included). The first duelist of the loop is the activator. The target needs every duelist to be able to draw.
 function s.drtg(e,tp,eg,ep,ev,re,r,rp,chk)
 	local ct=1
-	local own=Duel.GetLP(tp)
-	if aux.MPAnyOpponent(tp,function(tp_i) return own>=Duel.GetLP(tp_i)+2000 end) then ct=2 end
+	if aux.MPCompareLP(tp,">=",2000) then ct=2 end
 	if chk==0 then
 		local first=true
 		return aux.MPAllDuelists(function(tp_i)
