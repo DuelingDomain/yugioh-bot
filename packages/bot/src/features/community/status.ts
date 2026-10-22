@@ -17,7 +17,8 @@ function statusName(name: string): string {
   const raw = name.replace(/[\r\n\u2028\u2029]/g," ").replaceAll("<","‹");
   const parts = [...graphemes.segment(raw)];
   const clipped = parts.length <= 60 ? raw : `${parts.slice(0,59).map(part => part.segment).join("")}…`;
-  return escapeMarkdown(clipped, { heading: true, bulletedList: true, numberedList: true, maskedLink: true });
+  return escapeMarkdown(clipped, { heading: true, bulletedList: true, numberedList: true, maskedLink: true })
+    .replace(/^(?:>|-#) /, "\\$&");
 }
 
 /** Only small presence/activity projections are read; never boards, decks or weekly stats. */

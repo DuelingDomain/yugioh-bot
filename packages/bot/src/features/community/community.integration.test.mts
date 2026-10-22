@@ -597,6 +597,7 @@ it("clips names at grapheme boundaries before escaping Discord formatting and to
   for (const [name, escaped] of [
     ["[x](https://evil.example)", "\\[x](https://evil.example)"],
     ["# big", "\\# big"], ["- list", "\\- list"], ["1. list", "1\\. list"],
+    ["> quote", "\\> quote"], ["-# small", "\\-# small"],
     ["<@123> <#123> <t:123:R>", "‹@123> ‹#123> ‹t:123:R>"],
     ["a".repeat(58)+"😀tail", "a".repeat(58)+"😀…"],
     ["a".repeat(58)+family+"tail", "a".repeat(58)+family+"…"],
