@@ -1967,6 +1967,19 @@
       "chooserClass": "CH-DECISION"
     },
     {
+      "code": 22046459,
+      "file": "c22046459.lua",
+      "name": "Megamorph",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "0336cff8e71d74c220b08e55983aa5942c591557acce174cfaa35f4a3557a3d3",
+      "redefined": [
+        "condition",
+        "value"
+      ],
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: lower than every living opponent; all equal is neutral; otherwise reduced fallback. FFA only."
+    },
+    {
       "code": 22404570,
       "file": "c22404570.lua",
       "name": "Power Patron Shade of the Final Hour",
@@ -5541,6 +5554,19 @@
         "damtg",
         "damop"
       ]
+    },
+    {
+      "code": 62991886,
+      "file": "c62991886.lua",
+      "name": "Unstable Evolution",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "0a839a0ccc365f18202bacd6878fcf6a561ef2dce3f74fa80ded6887ac7fb79f",
+      "redefined": [
+        "condition",
+        "value"
+      ],
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: lower than every living opponent; all equal is neutral; otherwise reduced fallback. FFA only."
     },
     {
       "code": 63009228,
