@@ -15,6 +15,7 @@ import { DUEL_1V1_ENGINE_ENV, DUEL_STANDARD_1V1_ENGINE_ENV, duel1v1EngineForMode
 import { loadCardDatabase } from "./cards.js";
 import { verifyEngineBundle } from "./engine-bundle.js";
 import { createDuelHost } from "./host.js";
+import { retryStartupDatabase } from "./startup-database.js";
 import { createIssueSource } from "./presets/issue-source.js";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -29,8 +30,8 @@ for (const key of [DUEL_1V1_ENGINE_ENV, DUEL_STANDARD_1V1_ENGINE_ENV]) {
 console.log(`[duel] 1v1 engines: Standard=${duel1v1EngineForMode("normal")}, Domain=${duel1v1EngineForMode("domain")}`);
 const dataDirectory = resolve(root, process.env.DUEL_DATA_DIR ?? "data/duel-engine");
 verifyEngineBundle(dataDirectory);
-const db = openDatabase(resolve(root, process.env.DATABASE_PATH ?? "data/bot.sqlite"));
-const migration = applyEngineCardRemaps(db, dataDirectory);
+const db = retryStartupDatabase("open and migrate", () => openDatabase(resolve(root, process.env.DATABASE_PATH ?? "data/bot.sqlite")));
+const migration = retryStartupDatabase("engine card remaps", () => applyEngineCardRemaps(db, dataDirectory));
 if (!migration.skipped) console.log(`[duel] Passcode migration applied for ${migration.remappedPasscodes} remaps`);
 const cards = loadCardDatabase(dataDirectory);
 await initializeServerCardEffects(db, cards, dataDirectory);
