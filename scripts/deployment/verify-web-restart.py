@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Integration: real Caddy holds a POST across 20s of Docker upstream downtime.
 
-Uses the cached caddy:2-alpine image, temporary containers/network, no live services.
+Uses the cached caddy:2.11.2-alpine image, temporary containers/network, no live services.
 """
 from concurrent.futures import ThreadPoolExecutor
 import importlib.util
