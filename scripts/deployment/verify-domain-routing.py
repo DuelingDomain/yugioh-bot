@@ -2,7 +2,7 @@
 """Exercise the real Caddyfile with Docker + curl; no app, DNS, or site/ writes.
 
 Run from any directory: python3 scripts/deployment/verify-domain-routing.py
-Requires Docker daemon access, a cached caddy:2-alpine image, curl, Python 3.
+Requires Docker daemon access, a cached caddy:2.11.2-alpine image, curl, Python 3.
 All containers/networks are temporary; output and adapted JSON stay in /tmp.
 """
 import json
@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS = Path(tempfile.mkdtemp(prefix="dueling-domain-caddy-"))
 NETWORK = "domain-verify-" + uuid.uuid4().hex[:10]
 CONTAINERS = []
-IMAGE = "caddy:2-alpine"
+IMAGE = "caddy:2.11.2-alpine"
 BASELINE = """{$SITE_DOMAIN} {
     handle /socket.io/* {
         reverse_proxy ws:3001
@@ -186,11 +186,15 @@ def main():
     _, headers, _ = check(p, "marketing.localhost", body="marketing index")
     assert headers["cache-control"] == "private, no-store"
     assert varies_on_cookie(headers)
-    assert headers["etag"] and headers["x-frame-options"] == "DENY"
+    assert headers["x-frame-options"] == "DENY"
     assert headers["x-content-type-options"] == "nosniff"
     assert headers["referrer-policy"] == "strict-origin-when-cross-origin"
-    _, conditional, _ = check(p, "marketing.localhost", status=304, extra=["-H", "If-None-Match: " + headers["etag"]])
-    assert conditional["cache-control"] == "private, no-store" and varies_on_cookie(conditional)
+    # Caddy 2.11.2 removes validators from templated home HTML. Static pages
+    # still support conditional requests and retain their cache policy on 304.
+    _, static_headers, _ = check(p, "marketing.localhost", "/privacy", body="privacy clean URL")
+    _, conditional, _ = check(p, "marketing.localhost", "/privacy", status=304,
+                              extra=["-H", "If-None-Match: " + static_headers["etag"]])
+    assert conditional["cache-control"] == static_headers["cache-control"]
     signed_in = ["-H", "Cookie: dd_signed_in=1"]
     # Exercise the real matcher, including exact cookie names, values and boundaries.
     for path in ("/", "/index.html"):
@@ -218,7 +222,7 @@ def main():
         check(p, "marketing.localhost", path, method="POST", status=405, extra=signed_in)
     # A conditional signed-in request must redirect before serving a cached HTML variant.
     check(p, "marketing.localhost", status=302, location="https://app.localhost/",
-        extra=signed_in + ["-H", "If-None-Match: " + headers["etag"]])
+        extra=signed_in + ["-H", 'If-None-Match: "cached-home"'])
     for page in ("privacy", "terms"):
         check(p, "marketing.localhost", f"/{page}", body=f"{page} clean URL")
         check(p, "marketing.localhost", f"/{page}.html", body=f"{page} clean URL")
@@ -303,7 +307,16 @@ def main():
         if scheme == "https" and host == "localhost":
             assert "x-robots-tag" not in old[1], old
             assert new[1].get("x-robots-tag") == "noindex, nofollow", new
-            without_noindex = {k: v for k, v in new[1].items() if k != "x-robots-tag"}
+            # The current app also adds shared security headers to the original
+            # minimal routing baseline. Validate them before comparing routing.
+            assert new[1].get("strict-transport-security") == "max-age=31536000"
+            assert new[1].get("x-frame-options") == "DENY"
+            assert new[1].get("x-content-type-options") == "nosniff"
+            assert new[1].get("referrer-policy") == "strict-origin-when-cross-origin"
+            assert "default-src 'self'" in new[1].get("content-security-policy-report-only", "")
+            added_headers = {"x-robots-tag", "strict-transport-security", "x-frame-options",
+                             "x-content-type-options", "referrer-policy", "content-security-policy-report-only"}
+            without_noindex = {k: v for k, v in new[1].items() if k not in added_headers}
             if path == "/robots.txt":
                 assert old[0] == new[0] == 200, (old, new)
                 assert old[2].strip() == "web GET /robots.txt", old

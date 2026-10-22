@@ -247,7 +247,7 @@ services:
       start_interval: 5s
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2.11.2-alpine
     restart: unless-stopped
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]

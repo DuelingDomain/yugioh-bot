@@ -11,6 +11,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { readSignedRequest } from "@yugidraft/shared/internal-auth";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import type Database from "better-sqlite3";
 import { assertDuelForkAccess, assertOwnerReplaySourceAccess, assertReplayForkAccess, resolveOwnerPlayer, ReplayAccessError } from "@yugidraft/shared/access/owner-access";
 import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
@@ -3773,7 +3774,7 @@ export function createDuelHost(options: {
       const game = games.get(slug)?.game;
       return await project(slug, guildId, actor, game);
     }
-    if (room.session.status !== "active") throw new RequestError("This duel is not active", 409);
+    if (room.session.status !== "active" && op !== "respond") throw new RequestError("This duel is not active", 409);
     if (op === "chain-mode") return setChainMode(slug, guildId, actor, seat, body.mode, { revision: body.revision, promptId: body.promptId });
     if (op === "surrender") {
       const game = await recover(slug, guildId);
@@ -3788,6 +3789,16 @@ export function createDuelHost(options: {
     if (!command || typeof command.promptId !== "string" || !Number.isSafeInteger(command.revision)) {
       throw new RequestError("Invalid engine command", 400);
     }
+    // The per-duel queue serializes retries with the original request. The existing
+    // seat + prompt + revision identifies a command; only the exact accepted answer
+    // may read back its result. The durable journal survives a web restart.
+    const alreadyAccepted = () => service.privateState(slug, guildId).commands.some(entry =>
+      entry.seat === seat && entry.command.promptId === command.promptId
+      && entry.command.revision === command.revision && isDeepStrictEqual(entry.command.answer, command.answer));
+    if (room.session.status !== "active") {
+      if (alreadyAccepted()) return project(slug, guildId, actor, games.get(slug)?.game, false, isReplayFork(room.session) ? { as: seat } : {});
+      throw new RequestError("This duel is not active", 409);
+    }
     const game = await recover(slug, guildId);
     if (service.get(slug, guildId).status !== "active") return project(slug, guildId, actor);
     const live = games.get(slug)?.game ?? game;
@@ -3795,6 +3806,7 @@ export function createDuelHost(options: {
     const before: DuelEngineView = await live.view(seat);
     if (before.revision !== command.revision || before.prompt?.id !== command.promptId) {
       await settleClock(slug, guildId, live);
+      if (alreadyAccepted()) return project(slug, guildId, actor, games.get(slug)?.game, false, isReplayFork(room.session) ? { as: seat } : {});
       if (service.get(slug, guildId).status !== "active") return project(slug, guildId, actor);
       throw new RequestError("That choice is stale. Refresh the current duel state.", 409);
     }

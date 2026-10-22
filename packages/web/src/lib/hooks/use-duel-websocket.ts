@@ -22,7 +22,7 @@ export type DuelWebsocketState = {
   presence: Presence | null;
   /** In-flight GET from invalidation, join, resync, or recovery — not silent live polls. */
   syncing: boolean;
-  /** True until a GET succeeds; also set when the latest GET fails. */
+  /** Lost connection or sustained read failure; brief background failures stay quiet. */
   recovering: boolean;
   /** Recovery GET. Rejects if that GET fails. */
   resync: () => Promise<void>;
@@ -41,14 +41,14 @@ function idle(slug: string, flags: Pick<Snapshot, "syncing" | "recovering">): Sn
  *
  * `quiet` (optional): when it returns true as a change notice arrives, the notice is the echo of the player's own answer.
  * The room is still read again (a trailing read is kept), but the `syncing` flag stays down, so the room shows no re-read
- * for it. A failed read still raises `recovering`.
+ * for it. Only sustained read failures raise `recovering` on a live connection.
  *
  * Parent SWR: initial load and action mutate only. No `refreshInterval`.
  * `revalidateOnFocus: false`, `revalidateOnReconnect: false`.
  * `syncing` marks a routine re-read (a change notice that is not the player's echo): the room shows it, but it does not
  * gate prompts, because it shut a button between a press and its release. Gate prompts with `recovering` (a lost socket,
- * a failed read, a first join). Hide/remount DuelFeedback only while `recovering`.
- * Routine polls and a window focus on a live socket raise neither flag; other explicit refreshes and failures do.
+ * sustained read failures, a first join). Hide/remount DuelFeedback only while `recovering`.
+ * Routine polls and a window focus on a live socket raise neither flag.
  */
 export function useDuelWebsocket(
   slug: string,
@@ -90,6 +90,7 @@ export function useDuelWebsocket(
     let inFlight: Promise<void> | null = null;
     let resolveFlight: (() => void) | null = null;
     let rejectFlight: ((reason: unknown) => void) | null = null;
+    let readsFailedAt: number | undefined;
 
     const socket = io(WS_URL, {
       autoConnect: false,
@@ -151,12 +152,15 @@ export function useDuelWebsocket(
       try {
         while (trailing && isCurrent()) {
           trailing = false;
+          const startedAt = Date.now();
           try {
             await changeRef.current();
             if (!isCurrent()) break;
+            readsFailedAt = undefined;
             lastError = undefined;
             succeeded = true;
           } catch (error) {
+            readsFailedAt ??= startedAt;
             lastError = error;
             succeeded = false;
             if (!trailing) break;
@@ -167,11 +171,14 @@ export function useDuelWebsocket(
           settleFlight();
           return;
         }
-        const nextLive = succeeded && subscribed && socket.connected;
+        // The request layer announces long transient retries while they wait.
+        // A fast application error must also leave a live room's menus/FX alone.
+        const briefFailure = !succeeded && live && Date.now() - readsFailedAt! < 3000;
+        const nextLive = (succeeded || briefFailure) && subscribed && socket.connected;
         updateLive(nextLive);
         patch({
           syncing: false,
-          recovering: !succeeded,
+          recovering: !succeeded && !nextLive,
           connected: nextLive,
         });
         if (succeeded) settleFlight();
@@ -185,7 +192,7 @@ export function useDuelWebsocket(
       trailing = true;
       // Routine polls leave the flags alone: raising them every second in Polling mode
       // closed card menus, blocked answers and remounted DuelFeedback on each tick.
-      // A failed poll still ends with `recovering: true` (see pump).
+      // Brief failed reads stay quiet too; the pump tracks sustained failures.
       if (!opts.poll && !opts.quiet) {
         patch((current) => ({
           ...current,
@@ -315,7 +322,7 @@ export function useDuelWebsocket(
     };
 
     // A window focus is a catch-up read, not a lost connection: while the socket is live it stays quiet, so a click into
-    // the window is not lost to a disabled button. A failed read still raises `recovering` (see pump).
+    // the window is not lost to a disabled button. Sustained failures recover through the pump.
     const onFocus = () => { void refresh(live ? { quiet: true } : { recovery: true }).catch(() => {}); };
     const onVisibility = () => {
       if (socket.connected && subscribed && !admin) socket.emit("duel:visibility", { visible: document.visibilityState === "visible" });
