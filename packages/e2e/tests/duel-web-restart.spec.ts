@@ -178,8 +178,15 @@ test("socket credentials and state recover when web returns during a reconnect",
   await expect(alice.page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"]')).toHaveCount(1);
 });
 
-for (const status of [200, 400, 401, 403, 409, 503]) {
-  test(`a rejected action (${status}) is not retried`, async ({ player }) => {
+for (const { status, code } of [
+  ...[200, 400, 401, 403, 409].map(status => ({ status, code: undefined })),
+  { status: 503, code: "ACCESS_UNAVAILABLE" },
+  { status: 503, code: "DUEL_ENGINE_CONFIG" },
+  { status: 502, code: "DUEL_ENGINE_ERROR" },
+  { status: 503, code: "DUEL_ENGINE_ERROR" },
+  { status: 504, code: "DUEL_ENGINE_ERROR" },
+]) {
+  test(`a rejected action (${status}/${code ?? "no code"}) is not retried`, async ({ player }) => {
     const alice = await player("p1"), bob = await player("p2");
     const { slug } = await startDuel(alice, bob, "retry-rejection",
       { main: withFiller([FILLER], 14) }, { main: withFiller([FILLER], 14) });
@@ -189,7 +196,7 @@ for (const status of [200, 400, 401, 403, 409, 503]) {
       attempts++;
       if (status === 200) return route.fulfill({ status, body: "invalid successful response" });
       return route.fulfill({ status, contentType: "application/json", body: JSON.stringify({
-        error: "Action refused", ...(status === 503 ? { code: "ACCESS_UNAVAILABLE" } : {}),
+        error: "Action refused", ...(code ? { code } : {}),
       }) });
     });
     await pickLegalZone(alice.page, "mz");

@@ -321,7 +321,7 @@ describe("callDuelHost error messages", () => {
       response = await POST(new NextRequest("http://web.test/api/duels/abc/actions", { method: "POST", body: "{}" }), context);
     }
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "restarting" });
+    expect(await response.json()).toEqual({ error: "restarting", code: "DUEL_ENGINE_ERROR" });
   });
 });
 

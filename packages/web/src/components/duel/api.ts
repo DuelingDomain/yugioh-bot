@@ -119,7 +119,8 @@ async function retryDuelRequest<T>(url: string, init: RequestInit, notice?: Reco
         // are revoked, including the explicit ACCESS_UNAVAILABLE 503 response.
         if (isDuelAccessError(error)) throw error;
         const transient = error instanceof TypeError
-          || (error instanceof DuelRequestError && response && [502, 503, 504].includes(response.status));
+          || (error instanceof DuelRequestError && response && [502, 503, 504].includes(response.status)
+            && (error.code === undefined || error.code === "DUEL_UPSTREAM_UNAVAILABLE"));
         if (!transient) throw error instanceof DOMException && error.name === "TimeoutError" ? lastError ?? error : error;
         if (Date.now() >= deadline) throw error;
         lastError = error;
