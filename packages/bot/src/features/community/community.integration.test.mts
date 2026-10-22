@@ -846,6 +846,7 @@ it.each([403,429])("preserves an earlier ambiguous create through a later %s rej
   db.prepare("update users set last_seen_at=? where id=1").run(Date.now()+60_000);
   await schedule.advance();
   expect(statusPosts(stub)).toHaveLength(2);
+  expect(warnings()).toHaveLength(1);
   expect(db.prepare("select * from discord_status_messages").all()).toEqual([]);
   stub.state.overwrites = [];
   await schedule.advance();

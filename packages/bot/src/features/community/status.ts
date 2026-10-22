@@ -132,11 +132,11 @@ export function startStatusPublisher(c: FeatureContext) {
         includeNames = !admin && !!overwrite && (BigInt(overwrite.deny) & PermissionFlagsBits.ViewChannel) !== 0n
           && !roleAllowsView;
       }
-      warned = false;
       const embed = statusEmbed(c,includeNames);
       // The relative timestamp describes the last content update, not the last poll.
       const contentHash = createHash("sha256").update(JSON.stringify(embed)).digest("hex");
-      if (hash === contentHash || (messageId && Date.now() < nextWriteAt) || stopped || c.signal.aborted) return;
+      if (hash === contentHash) { warned = false; return; }
+      if ((messageId && Date.now() < nextWriteAt) || stopped || c.signal.aborted) return;
       const body = { embeds: [{ ...embed, description: `Updated <t:${Math.floor(Date.now()/1000)}:R>` }], allowed_mentions: NO_API_MENTIONS };
       // Drain started writes so a successful POST is persisted even during shutdown.
       const writeSignal = AbortSignal.timeout(15_000);
@@ -168,6 +168,7 @@ export function startStatusPublisher(c: FeatureContext) {
         if (reconcile) { save(""); await edit(); }
       }
       save(contentHash);
+      warned = false;
     } finally { rest.clearHashSweeper(); rest.clearHandlerSweeper(); }
   };
   const tick = () => {
