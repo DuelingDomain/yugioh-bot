@@ -76,12 +76,22 @@ and [the dial-error check in Caddy 2.11.2](https://github.com/caddyserver/caddy/
 The integration check below exercises a real 20-second upstream outage, one
 delivery of the held POST, and a connected POST whose response is dropped.
 
-The duel page also retries room GETs and `/actions` on network errors or
-502/503/504, with backoff from 250ms to 3s and a total 30-second request budget.
-It uses the existing connection badge to show `Reconnecting`, keeps the board,
-and shows the existing error after exhaustion. 401/403 authentication/access
-denials, explicit access-unavailable errors (including 503), illegal moves and
-stale-choice errors fail immediately. Other POSTs (opening, response
+The duel page also retries room GETs and `/actions` on network errors, proxy
+502/503/504, or the web adapter's `DUEL_UPSTREAM_UNAVAILABLE` response. Backoff
+runs from 250ms to 3s, with a 30-second window for starting retries. Each attempt
+can finish within 60 seconds, allowing Caddy's 30-second hold plus engine work;
+an action timeout re-fetches the authoritative room instead of reporting a
+failed move. Aborted body reads propagate to recovery, and leaving the room
+aborts pending requests and backoff timers.
+
+The existing connection badge shows `Reconnecting` for an action retry or after
+background reads have failed continuously for three seconds. Brief background
+failures keep menus, effects and the live badge unchanged. The board stays up
+during recovery, and exhaustion shows the existing error. 401/403 access
+denials, explicit access-unavailable errors (including 503), engine errors
+(`DUEL_ENGINE_ERROR`), missing configuration/secret mismatches
+(`DUEL_ENGINE_CONFIG`), illegal moves and stale choices fail immediately.
+Other POSTs (opening, response
 switch, surrender, deck changes, etc.) are not automatically retried by the client.
 
 An action's existing `(duel, seat, promptId, revision)` is its retry identity;
@@ -115,7 +125,7 @@ service changes, could assess relaxing its own guard after restart validation.
 
 ## Checks
 
-Routing checks need Docker and a preloaded `caddy:2-alpine` image; they never pull an image. They validate/adapt the real Caddyfile and exercise cookie/query/method cases against Caddy. Browser checks need local Caddy with `SITE_DOMAIN=localhost`, `MARKETING_DOMAIN=marketing.localhost`, `LEGACY_DOMAIN=legacy.localhost`, plus Playwright and Chromium. Production curls use normal TLS validation and do not follow redirects.
+Routing checks need Docker and a preloaded `caddy:2.11.2-alpine` image; they never pull an image. They validate/adapt the real Caddyfile and exercise cookie/query/method cases against Caddy. Browser checks need local Caddy with `SITE_DOMAIN=localhost`, `MARKETING_DOMAIN=marketing.localhost`, `LEGACY_DOMAIN=legacy.localhost`, plus Playwright and Chromium. Production curls use normal TLS validation and do not follow redirects.
 ```bash
 python3 -I site/src/verify-static.py
 python3 -I scripts/deployment/verify-domain-routing.py

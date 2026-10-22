@@ -83,7 +83,9 @@ function replayErrorDetail(body: unknown): ReplayErrorDetail | undefined {
 async function parseBody<T>(res: Response): Promise<T> {
   if (res.redirected) throw new DuelRequestError("Your session expired. Sign in again to return to this table.", 401);
   const body: unknown = await res.json().catch((error: unknown) => {
-    if (error instanceof TypeError) throw error; // A dropped response body is a network failure.
+    // Only malformed JSON is a parsed empty body. Dropped or aborted reads must
+    // reach the retry loop, including an AbortError after headers arrived.
+    if (!(error instanceof SyntaxError)) throw error;
     return null;
   });
   if (!res.ok) {
@@ -105,34 +107,53 @@ async function retryDuelRequest<T>(url: string, init: RequestInit, notice?: Reco
   const deadline = Date.now() + 30_000;
   let delay = 250;
   let recovering = false;
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
   let lastError: unknown;
   try {
     for (;;) {
+      init.signal?.throwIfAborted();
       const remaining = deadline - Date.now();
       if (remaining <= 0) throw lastError;
       let response: Response | undefined;
+      // Caddy can spend 30s waiting to dial web before the engine does any work.
+      // The retry window limits new attempts, not an attempt already in flight.
+      const timeout = AbortSignal.timeout(60_000);
       try {
-        response = await fetch(url, { ...init, signal: AbortSignal.timeout(remaining) });
+        response = await fetch(url, { ...init, signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout });
         return await parseBody<T>(response);
       } catch (error) {
+        init.signal?.throwIfAborted();
+        if (timeout.aborted) throw timeout.reason;
         // Access failures must reach the room immediately so cached private views
         // are revoked, including the explicit ACCESS_UNAVAILABLE 503 response.
         if (isDuelAccessError(error)) throw error;
         const transient = error instanceof TypeError
+          || (error instanceof DOMException && error.name === "AbortError")
           || (error instanceof DuelRequestError && response && [502, 503, 504].includes(response.status)
             && (error.code === undefined || error.code === "DUEL_UPSTREAM_UNAVAILABLE"));
-        if (!transient) throw error instanceof DOMException && error.name === "TimeoutError" ? lastError ?? error : error;
+        if (!transient) throw error;
         if (Date.now() >= deadline) throw error;
         lastError = error;
-        if (!recovering) {
+        const announce = () => {
           recovering = true;
           notice?.(true);
+        };
+        if (!recovering && noticeTimer === undefined) {
+          if (init.method === "POST") announce();
+          else noticeTimer = setTimeout(announce, 3000);
         }
-        await new Promise(resolve => setTimeout(resolve, Math.min(delay, deadline - Date.now())));
+        await new Promise<void>((resolve, reject) => {
+          const done = () => { init.signal?.removeEventListener("abort", abort); resolve(); };
+          const timer = setTimeout(done, Math.min(delay, deadline - Date.now()));
+          const abort = () => { clearTimeout(timer); reject(init.signal!.reason); };
+          init.signal?.addEventListener("abort", abort, { once: true });
+          if (init.signal?.aborted) abort();
+        });
         delay = Math.min(delay * 2, 3000);
       }
     }
   } finally {
+    clearTimeout(noticeTimer);
     if (recovering) notice?.(false);
   }
 }
@@ -344,8 +365,8 @@ export function withRoomReceivedAt(room: DuelRoom & { receivedAt?: number }): Re
   return { ...room, receivedAt: room.receivedAt ?? performance.now() };
 }
 
-export async function getDuelRoom(slug: string, spectate = false, fork: ForkViewControl | null = null, notice?: RecoveryNotice): Promise<ReceivedDuelRoom> {
-  return withRoomReceivedAt(await retryDuelRequest<DuelRoom>(duelRoomKey(slug, spectate, fork), { cache: "no-store" }, notice));
+export async function getDuelRoom(slug: string, spectate = false, fork: ForkViewControl | null = null, notice?: RecoveryNotice, signal?: AbortSignal): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await retryDuelRequest<DuelRoom>(duelRoomKey(slug, spectate, fork), { cache: "no-store", signal }, notice));
 }
 
 /** Admin watch: the room as one seat sees it (`pov`) or the neutral public view (null). Read-only; the server refuses everyone but the owner. */
@@ -353,8 +374,8 @@ export function adminDuelRoomKey(slug: string, pov: number | null): string {
   return `/api/admin/duels/${encodeURIComponent(slug)}/spectate?seat=${pov ?? "public"}`;
 }
 
-export async function getAdminDuelRoom(slug: string, pov: number | null, notice?: RecoveryNotice): Promise<ReceivedDuelRoom> {
-  const body = await retryDuelRequest<{ room: DuelRoom }>(adminDuelRoomKey(slug, pov), { cache: "no-store" }, notice);
+export async function getAdminDuelRoom(slug: string, pov: number | null, notice?: RecoveryNotice, signal?: AbortSignal): Promise<ReceivedDuelRoom> {
+  const body = await retryDuelRequest<{ room: DuelRoom }>(adminDuelRoomKey(slug, pov), { cache: "no-store", signal }, notice);
   return withRoomReceivedAt(body.room);
 }
 
@@ -507,14 +528,25 @@ export async function sendDuelAction(
   command: DuelCommand,
   as?: number,
   notice?: RecoveryNotice,
+  signal?: AbortSignal,
 ): Promise<ReceivedDuelRoom> {
   const url = `/api/duels/${encodeURIComponent(slug)}/actions${as === undefined ? "" : `?as=${as}`}`;
-  const init = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command) };
+  const init = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command), signal };
   // Restarting/rewinding a replay fork can reuse prompt/revision identities. Only
   // ordinary live duels have a monotonic journal for the lifetime of these retries.
-  const room = as === undefined ? await retryDuelRequest<DuelRoom>(url, init, notice)
-    : await parseBody<DuelRoom>(await fetch(url, init));
-  return withRoomReceivedAt(room);
+  try {
+    const room = as === undefined ? await retryDuelRequest<DuelRoom>(url, init, notice)
+      : await parseBody<DuelRoom>(await fetch(url, init));
+    return withRoomReceivedAt(room);
+  } catch (error) {
+    signal?.throwIfAborted();
+    // A timed-out POST may already have committed. Read the authoritative room
+    // instead of reporting that the player's move failed.
+    if (as === undefined && error instanceof DOMException && error.name === "TimeoutError") {
+      return getDuelRoom(slug, false, null, notice, signal);
+    }
+    throw error;
+  }
 }
 
 /** Replay forks bind a response change to one seat, one revision and, when the seat has one, one prompt. */
