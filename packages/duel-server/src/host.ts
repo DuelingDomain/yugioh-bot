@@ -6,6 +6,7 @@ import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { createScriptErrorRecorder } from "./script-error-store.js";
+import { retryStartupDatabase } from "./startup-database.js";
 import { scriptErrorModeFromEnv, type DuelScriptError, type DuelScriptFatalError } from "./script-errors.js";
 import { createHash, randomBytes } from "node:crypto";
 import { readSignedRequest } from "@yugidraft/shared/internal-auth";
@@ -392,6 +393,7 @@ export function createDuelHost(options: {
     && isCompetitiveDuel(session.ranked === true, series.forDuel(session.id)?.tournamentMatchId);
   const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as EngineDataManifest;
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
+  const now = options.now ?? Date.now;
   const localCardDataStatus = createLocalCardDataStatus(options.db, options.dataDirectory, { manifest, now: options.now });
   const githubCardDataStatus = createGithubCardDataStatus({ now: options.now });
   setCatalogDirectory(options.dataDirectory);
@@ -408,7 +410,7 @@ export function createDuelHost(options: {
     ? loadCardPasscodeRemaps(options.dataDirectory) : new Map<number, number>();
   const hashes = new Map<string, string | null>();
   let revisionOverlay: ReturnType<typeof loadMultiScriptsFor> | undefined;
-  const autoBlocks = createAutoBlockPolicy(options.db, { bundleVersion: manifest.bundleVersion,
+  const autoBlocks = retryStartupDatabase("auto-block refresh", () => createAutoBlockPolicy(options.db, { bundleVersion: manifest.bundleVersion,
     remaps,
     exactCodes: code => {
       const codes = new Set([code]);
@@ -425,7 +427,7 @@ export function createDuelHost(options: {
         hashes.set(key, cardScriptHash(loadCardDatabase(options.dataDirectory), code, kind, revisionOverlay, helperScripts));
       }
       return hashes.get(key)!;
-    }, now: options.now });
+    }, now: options.now }));
   const admissionEntries = (mode: DuelMode = "normal", format: DuelFormat = "1v1", engine: DuelEngineChoice = duel1v1EngineForMode(mode)) =>
     mergeCardBlockEntries(loadCardBlockList(undefined, options.dataDirectory), autoBlocks.entries(scriptEngineKind(mode, format, engine)));
   const recordScriptError = createScriptErrorRecorder(options.db, undefined, autoBlocks);
@@ -547,7 +549,6 @@ export function createDuelHost(options: {
   const archiveAfterMs = options.archiveAfterMs ?? DEFAULT_ARCHIVE_AFTER_MS;
   const idleWorkerMs = options.idleWorkerMs ?? DEFAULT_IDLE_WORKER_MS;
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const now = options.now ?? Date.now;
   const botLoops = new Map<string, BotLoop>();
   const advanceTimers = new Map<number, ReturnType<typeof setTimeout>>();
   /** One timer per duel with a running opening: it fires at the phase deadline. */
@@ -4084,7 +4085,8 @@ export function createDuelHost(options: {
     }
   }
 
-  service.resumeCompetitiveClocks(now());
+  // Finish cleanup before rebasing, so none of its lock waits charge players.
+  retryStartupDatabase("resume competitive clocks", () => service.resumeCompetitiveClocks(now));
   const timer = setInterval(() => {
     void tick();
   }, pollIntervalMs);
