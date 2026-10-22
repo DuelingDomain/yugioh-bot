@@ -1397,6 +1397,19 @@ export function migrate(db: Database.Database) {
   `);
   addColumnIfMissing(db, "discord_welcome_members", "last_welcomed_at", "integer");
 
+  // One live status destination per bot guild/channel; reused across bot restarts.
+  db.exec(`
+    create table if not exists discord_status_messages (
+      guild_id text not null,
+      channel_id text not null,
+      message_id text not null,
+      content_hash text not null,
+      updated_at integer not null,
+      primary key (guild_id, channel_id)
+    );
+    create index if not exists duel_series_guild_status_idx on duel_series(guild_id, status);
+  `);
+
   // Shared admin state follows identity migration. No email text is stored in decisions.
   db.exec(`
     create table if not exists discord_waitlist_actions (

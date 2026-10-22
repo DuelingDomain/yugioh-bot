@@ -5,7 +5,9 @@ import { PRESENCE_ROUTES, isPresenceRoute } from "./presence-routes.js";
 
 // Definitions copied from origin/feat/admin-console-live-stats (5a2bfb54f).
 // The console's DUEL_LIVE_IDLE_AFTER_MS is 10 minutes; avoid the heavy services barrel.
-const DUEL_LIVE_IDLE_AFTER_MS = 10 * 60 * 1000;
+export const DUEL_LIVE_IDLE_AFTER_MS = 10 * 60 * 1000;
+// Use the site's 24-hour abandoned-lobby window to bound long-running activity too.
+export const LIVE_EVENT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const STAT_KEYS = ["signups", "activeUsers", "duelsStarted", "duelsFinished", "draftsStarted", "draftsCompleted"] as const;
 type StatKey = typeof STAT_KEYS[number];
 export type StatsData = { timezone: "UTC"; days: string[]; series: Record<StatKey, number[]>;
@@ -34,11 +36,25 @@ export function listOnline(db: Database.Database, now: number, guild: string) {
     { id: number; display_name: string; username: string; last_seen_at: number; last_route: string | null }[];
   const duelLabel = db.prepare(`select d.status,d.format from duels d
     join duel_seats s on s.duel_id=d.id join players p on p.id=s.player_id
-    where p.user_id=? and d.guild_id=? and p.guild_id=? and d.status in ('lobby','active') and d.kind='play' order by d.id desc limit 1`);
+    where p.user_id=@user and d.guild_id=@guild and p.guild_id=@guild and s.is_bot=0
+      and d.status in ('lobby','active') and d.kind='play' and d.archived_at is null
+      and case when json_valid(d.setup_json) then coalesce(json_extract(d.setup_json,'$.testDuel'),0) else 0 end=0
+      and julianday(coalesce(d.last_activity_at,d.started_at,d.created_at)) >=
+        julianday(case when d.status='active' then @activeAfter else @waitingAfter end)
+      and not exists (select 1 from duel_kicked_players k where k.duel_id=d.id and k.player_id=s.player_id)
+      and not exists (select 1 from json_each(case when json_valid(d.setup_json) then d.setup_json end,'$.eliminatedSeats') gone where gone.value=s.seat)
+      and not exists (select 1 from json_each(case when json_valid(d.setup_json) then d.setup_json end,'$.surrenderedSeats') gone where gone.value=s.seat
+        and not exists (select 1 from duel_commands c where c.duel_id=d.id and c.seat=s.seat
+          and json_extract(c.command_json,'$.promptId') glob 'eliminate-eot:*'))
+      and not exists (select 1 from duel_commands c where c.duel_id=d.id and c.seat=s.seat
+        and json_extract(c.command_json,'$.promptId') glob 'eliminate:*')
+    order by d.id desc limit 1`);
+  const activity = { guild, activeAfter: new Date(now-DUEL_LIVE_IDLE_AFTER_MS).toISOString(),
+    waitingAfter: new Date(now-DUEL_WAITING_IDLE_TIMEOUT_MS).toISOString() };
   const users: OnlineUser[] = rows.map(row => {
     const route = isPresenceRoute(row.last_route) ? row.last_route : "/app";
-    const duel = route === "/duels/[slug]" ? duelLabel.get(row.id,guild,guild) as { status: string; format: string } | undefined : undefined;
-    const label = duel ? duel.status === "lobby" ? "Duel lobby" : FORMAT_LABEL[duel.format as Format] ?? "Duel" : PRESENCE_ROUTES[route];
+    const duel = route === "/duels/[slug]" ? duelLabel.get({ ...activity, user: row.id }) as { status: string; format: string } | undefined : undefined;
+    const label = duel ? duel.status === "lobby" ? "Duel lobby" : FORMAT_LABEL[duel.format as Format] ?? "Duel" : route === "/duels/[slug]" ? "Duel page" : PRESENCE_ROUTES[route];
     return { userId: row.id, name: row.display_name || row.username, label, lastSeenAt: row.last_seen_at };
   });
   const groups = new Map<string, number>();
@@ -47,12 +63,13 @@ export function listOnline(db: Database.Database, now: number, guild: string) {
   return { count: users.length, windowSeconds: 120, users, bySection };
 }
 
-/** Same source queries, idle cut-offs and row caps as loadLive; only the display is aggregated. */
+/** Site live-table rules, plus a 24-hour age limit for abandoned active drafts. */
 export function liveCounts(db: Database.Database, guild: string, now: number) {
   const rows = db.prepare(`select d.id,d.status,d.format,d.created_at,d.started_at,
     coalesce(d.last_activity_at,d.started_at,d.created_at) as activity_at,
     (select count(*) from duel_seats s where s.duel_id=d.id) as seat_count
     from duels d where d.guild_id=? and d.status in ('lobby','active') and d.kind='play' and d.archived_at is null
+    and case when json_valid(d.setup_json) then coalesce(json_extract(d.setup_json,'$.testDuel'),0) else 0 end=0
     order by d.id desc limit 500`).all(guild) as
     { status: string; format: string; activity_at: string | null; seat_count: number }[];
   const open = rows.filter(row => row.status === "active" ? now - (dbTimeMs(row.activity_at) ?? 0) <= DUEL_LIVE_IDLE_AFTER_MS
@@ -64,10 +81,11 @@ export function liveCounts(db: Database.Database, guild: string, now: number) {
     const format = Object.hasOwn(FORMAT_LABEL,row.format) ? row.format as Format : "1v1";
     duels[format]++;
   }
-  const drafts = db.prepare(`select status,created_at from drafts
-    where guild_id=? and status in ('pending','active') and web_slug is not null order by id desc limit 200`).all(guild) as
-    { status: string; created_at: string }[];
-  const liveDrafts = drafts.filter(row => row.status === "active" || now-(dbTimeMs(row.created_at) ?? now) <= DAY_MS).slice(0,100);
+  const liveDrafts = db.prepare(`select status from drafts
+    where guild_id=? and status in ('pending','active') and web_slug is not null
+      and julianday(case when status='active' then coalesce(started_at,created_at) else created_at end) >= julianday(?)
+    order by id desc limit 100`).all(guild,new Date(now-LIVE_EVENT_MAX_AGE_MS).toISOString()) as
+    { status: string }[];
   return { duels, lobbies, drafts: { active: liveDrafts.filter(row => row.status === "active").length,
     waiting: liveDrafts.filter(row => row.status === "pending").length } };
 }
