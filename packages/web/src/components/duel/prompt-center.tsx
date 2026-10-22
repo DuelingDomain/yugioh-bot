@@ -1851,7 +1851,7 @@ export function PromptCenter(props: PromptCenterProps) {
       // A badge opened by mouse keeps focus outside its portal but owns the keys.
       if (document.querySelector("[data-master-popover]")) return;
       // An open edge drawer owns Escape too (it closes on it).
-      if (event.key === "Escape" && (escapeHeldRef.current || anyEdgeDrawerOpen() || hoverDrawerOpen())) return;
+      if (event.key === "Escape" && (escapeHeldRef.current || anyEdgeDrawerOpen() || hoverDrawerOpen() || drawerClaimed(event))) return;
       // A menu owns its keys: Escape closes it, and n / y in it must not answer the prompt behind.
       if (event.target instanceof Element && event.target.closest("[data-duel-menu],[role='menu']")) return;
       if (kindRef.current == null || barRef.current) return;

@@ -120,20 +120,26 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
   const hoverOnly = !pinned;
   const showable = card != null && !isHiddenCard(card) && card.code != null
     && !(hoverOnly && ((hoverInfo === "off" && !held) || dismissed === cardKey)) ? card : null;
+  const [open, setOpen] = useState(false);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   // An open drawer owns the first Esc (hover only: a pinned drawer closes with the HUD's own Esc) and the first right click (hover and pinned).
   // The press is claimed, so the prompt panels let it go and the next press answers.
+  // The listeners stay while the drawer is still on screen in its hide delay, so a press then still closes it at once.
   useEffect(() => {
-    if (!showable) return;
+    if (!showable && !open) return;
     const onContext = (event: MouseEvent) => {
       claimDrawerPress(event);
       event.preventDefault();
-      if (pinned) closeRef.current?.(false);
+      if (!showable) setOpen(false);
+      else if (pinned) closeRef.current?.(false);
       else setDismissed(cardKey);
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented && !pinned) setDismissed(cardKey);
+      if (event.key !== "Escape" || event.defaultPrevented || pinned) return;
+      claimDrawerPress(event);
+      if (!showable) setOpen(false);
+      else setDismissed(cardKey);
     };
     document.addEventListener("keydown", onKey);
     document.addEventListener("contextmenu", onContext, true);
@@ -141,10 +147,9 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("contextmenu", onContext, true);
     };
-  }, [showable, pinned, cardKey]);
+  }, [showable, open, pinned, cardKey]);
   // The last card stays on screen during the hide delay, so the drawer slides out with its content.
   const [shown, setShown] = useState<DuelCard | DuelCardInfo | null>(null);
-  const [open, setOpen] = useState(false);
   // The layout of the shown card: the drawer keeps it while it slides out, so it does not lose its X button on the way.
   const [shownPinned, setShownPinned] = useState(false);
   useEffect(() => {
