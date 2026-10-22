@@ -51,7 +51,7 @@ In Server Settings → Roles, put the bot below the server owner's role and abov
    | **Admin** category | Linked owners and bot. |
    | **#signups** | Linked owners and bot; waitlist alerts and decision buttons. |
    | **#mod-log** | Linked owners, bot and Moderator role. |
-   | **#online-now** | Linked owners and bot; reserved status destination. `/online` replies privately and does not maintain a pinned status message. |
+   | **#online-now** | Linked owners and bot; one live site-status embed, edited in place when activity changes. `/online` still replies privately. |
    | **#announcements**, outside Admin | Public reading; owner and bot posting. |
    | **#welcome**, outside Admin | Public reading; owner and bot posting; automatic member welcome cards. |
 
@@ -63,7 +63,7 @@ Setup reuses unique names and replaces their parents and overwrites. Rename dupl
 
 `DISCORD_GUILD_ID` is the site's data guild: players, duels, drafts, cubes, seasons and admin-console data stay under this value. Changing it hides the existing data from the site. To move the admin bot from an old server (for example, Computer Screen Ballers) to Dueling Domain, set only `DISCORD_BOT_GUILD_ID` to the new Discord server ID. No data migration is needed. Empty or unset `DISCORD_BOT_GUILD_ID` keeps the previous single-server behavior. For an invite with no override, replace the bot-guild placeholder with `DISCORD_GUILD_ID`.
 
-All bot channel IDs (signups, mod-log, status, announcements and welcome) and the Moderator role must belong to the bot server. Discord moderation records, warnings and lock snapshots use the bot server. Waitlist decision audit records keep the site data guild for both web and Discord decisions; their outbox messages go to channels in the bot server. `/online` reads site presence and uses the data guild for duel labels. `/stats` reads site duels and drafts from the data guild. `/card` reads the existing shared card catalog and engine data. The web channel picker also lists the bot server's channels, so Compose passes the override to web. Current web login uses Clerk and site owner IDs, with no Discord guild membership check. The admin console System panel does not display a guild ID; its duel probes keep using the data guild.
+All bot channel IDs (signups, mod-log, status, announcements and welcome) and the Moderator role must belong to the bot server. Discord moderation records, warnings and lock snapshots use the bot server. Waitlist decision audit records keep the site data guild for both web and Discord decisions; their outbox messages go to channels in the bot server. `/online` reads site presence and uses the data guild for duel labels. `/stats` reads site duels and drafts from the data guild. The #online-now publisher uses those same report sources plus data-guild tournaments and series. `/card` reads the existing shared card catalog and engine data. The web channel picker also lists the bot server's channels, so Compose passes the override to web. Current web login uses Clerk and site owner IDs, with no Discord guild membership check. The admin console System panel does not display a guild ID; its duel probes keep using the data guild.
 
 Use a separate application, guild, Clerk instance and database for tests. Keep secrets in runtime environment only, outside Git and Docker build arguments. `DISCORD_CLIENT_ID` is the application ID; `DISCORD_APPLICATION_ID` is not read.
 
@@ -101,7 +101,7 @@ SENTRY_RELEASE=<release-sha>
 | `DISCORD_MODERATOR_ROLE_ID` | Moderation tier; empty disables role-based access. |
 | `DISCORD_WAITLIST_CHANNEL_ID` | Private #signups destination. |
 | `DISCORD_MOD_LOG_CHANNEL_ID` | Shared audit/outbox destination. |
-| `DISCORD_STATUS_CHANNEL_ID` | Reserved #online-now ID; no automatic status publisher. |
+| `DISCORD_STATUS_CHANNEL_ID` | Optional #online-now text or announcement channel in the bot guild. Maintains one live status embed; empty or unset disables the publisher. |
 | `DISCORD_ANNOUNCE_CHANNEL_ID` | Same-guild text or announcement channel. Own posts are crossposted in announcement channels. |
 | `DISCORD_WELCOME_CHANNEL_ID` | Optional same-guild text or announcement channel for member welcomes. Empty or unset disables automatic welcomes without an error. |
 | `DISCORD_ADMIN_SHOW_FULL_EMAIL` | Keep `0` for masked addresses. Opt-in `1` can reveal trusted Clerk addresses in private lists and delivery; stored alert payloads and audit remain masked. |
@@ -128,6 +128,14 @@ DISCORD_ADMIN_DASHBOARD_URL=
 The signing secret verifies Clerk `waitlistEntry.created` and optional `user.created` deliveries to the app host's `/api/webhooks/clerk`. Set **`DISCORD_ADMIN_OUTBOX_ENABLED=1`** and **`DISCORD_WAITLIST_CHANNEL_ID`** on web to queue durable alerts for the bot. Compose passes both settings to web and keeps its legacy gameplay `DISCORD_BOT_ENABLED=0`, so the deleted port 4001 path stays off. Set both alert-type flags to `1` for join requests and sign-ups; the durable path defaults both on, while webhook fallback defaults sign-up alerts off. Only literal `1` enables a switch. Empty dashboard URL uses the Clerk Dashboard.
 
 If the outbox flag is off, the notifier uses `DISCORD_ADMIN_WEBHOOK_URL`. If the flag is on but the channel ID is missing, it logs one warning per process and uses that same webhook fallback. Missing channel configuration does not fail the Clerk receipt or return 503. Actual receipt/outbox storage errors still permit Clerk retries. See [join alert setup](discord-join-alerts.md). Recreate web after changing producer settings and enable the bot container to drain its queue. `/waitlist` and its private decision buttons work independently.
+
+## Live site status
+
+With `DISCORD_STATUS_CHANNEL_ID` set, the bot polls SQLite at startup and about every 60 seconds. One **Dueling Domain • Online now** embed shows players seen on the site in the last two minutes, up to ten names with app/duel labels and a `+N more` line, live 1v1/Tag/FFA3/FFA4 duel counts, active drafts, active tournaments and active/between-game series. These are site users, not Discord presence. Duels and drafts use the same idle cutoffs, replay-fork exclusions and bounded reads as `/stats`. Presence reads at most 500 users; live tables are capped at 100 per list, while tournament and series counts display `100+` above that bound. No boards, decks or historical stats are loaded.
+
+The publisher hashes displayed content without its relative timestamp. Unchanged activity makes no Discord API calls after startup verification. Changed activity edits the saved message, with at least 30 seconds between edit attempts and additional backoff on rate limits. `Updated <t:unix:R>` records the last content update, so it stays unchanged during idle polls. Posts and edits suppress all mentions.
+
+The additive shared migration creates `discord_status_messages`, keyed by bot guild and channel, to save the message ID, content hash and last successful write time. On restart, the bot checks the destination's guild and the saved message's channel and author before reuse. A deleted or invalid saved message permits one new post per start. If a message created during this start is later deleted, restart the bot to replace it. Missing channels or permissions produce one warning and are retried on later polls without stopping the bot. A create request with an ambiguous transport failure is not repeated during the same start, to avoid duplicate posts. Empty configuration disables both the poller and its Discord calls; an existing status message remains in the channel.
 
 ## Member welcomes
 
