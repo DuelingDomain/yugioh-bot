@@ -918,7 +918,8 @@
   .turn > .phaseName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .connectionStatus { padding: 0 4px; font-size: calc((11px + 1px * var(--ft, 0)) * var(--tt, 1)); }
   /* A phone header is compact: the label takes its own width. */
-  .connectionText, .connectionStatus[data-spectator="true"] .connectionText { width: auto; }
+  /* (not the live lamp: its label stays hidden at 1px, see the 600px rule) */
+  .connectionText, .connectionStatus[data-spectator="true"]:not([data-live="true"]) .connectionText { width: auto; }
   .track { padding-bottom: 0; }
   .mobileBar {
     display: block;

@@ -163,6 +163,9 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
     setQueued(null);
   }, []);
   const closePile = useCallback(() => setPile((current) => (current ? { ...current, open: false } : null)), []);
+  // A zone with one card opens the pile and then activates that card in the same click: that second step must not pin the card
+  // in the drawer (the viewer opens with no drawer). The flag lives for the rest of the click only.
+  const pileOpening = useRef(false);
 
   const showInspector = useCallback(
     (target: InspectTarget, reveal = false, openDrawer = reveal) => {
@@ -173,6 +176,8 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
         const owner: "you" | "opp" = first ? (first.controller === local && viewerSeat != null ? "you" : "opp") : "opp";
         setHover(null);
         if (hud) onPinCard?.(null);
+        pileOpening.current = true;
+        queueMicrotask(() => { pileOpening.current = false; });
         setPile({ title: target.title, owner, cards: target.cards, open: true, seat: target.host?.controller ?? first?.controller, host: target.host });
         return;
       }
@@ -271,14 +276,14 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
       if (hud && !preserveInspector) onPinCard?.(null);
       // The HUD keeps the Card flyout shut while a click is a prompt pick or opens a card menu: see the end.
       // A click on a card that offers a move is the start of that move: the drawer stays as it is. Any other click inspects.
-      if (card && !hud) {
+      if (card && !hud && !pileOpening.current) {
         const startsMove = canAct && mine && keys.some((key) => base.legalKeys.has(key));
         showInspector({ type: "card", card }, false, !startsMove);
         if (!startsMove) onTapCard?.(card);
       }
       base.onActivate(keys, card, anchor);
       if (busy || !canAct || !prompt) {
-        if (card && hud) { if (preserveInspector) showInspector({ type: "card", card }, true); else pinClicked(card, anchor); }
+        if (card && hud && !pileOpening.current) { if (preserveInspector) showInspector({ type: "card", card }, true); else pinClicked(card, anchor); }
         return;
       }
       if (mine && (prompt.kind === "choice" || prompt.kind === "toggle")) {
@@ -309,7 +314,7 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
       }
       setMenu(null);
       const handled = activatePromptFromField(prompt, mine, keys, card, draft, submit);
-      if (card && hud && !handled) { if (preserveInspector) showInspector({ type: "card", card }, true); else pinClicked(card, anchor); }
+      if (card && hud && !handled && !pileOpening.current) { if (preserveInspector) showInspector({ type: "card", card }, true); else pinClicked(card, anchor); }
     },
     [base, busy, canAct, draft, hud, mine, onPinCard, pinClicked, prompt, revision, showInspector, submit],
   );

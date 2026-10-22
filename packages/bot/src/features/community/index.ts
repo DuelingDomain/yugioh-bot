@@ -3,6 +3,7 @@ import { announcementHandlers } from "./announce.js";
 import { cardHandler } from "./card.js";
 import { startWelcome, welcomePreview } from "./welcome.js";
 import { online, stats } from "./reports.js";
+import { startStatusPublisher } from "./status.js";
 
 const announcements = announcementHandlers(), cards = cardHandler();
 export const community: FeatureModule = {
@@ -10,6 +11,7 @@ export const community: FeatureModule = {
   buttons: [announcements.button], modals: [announcements.modal],
   start(context) {
     const stopWelcome = startWelcome(context);
-    return async () => { announcements.stop(); cards.stop(); await stopWelcome?.(); };
+    const stopStatus = startStatusPublisher(context);
+    return async () => { announcements.stop(); cards.stop(); await Promise.all([stopWelcome?.(), stopStatus?.()]); };
   },
 };

@@ -16,6 +16,7 @@ import {
   zoneKey,
 } from "./constants";
 import { duelFontClasses } from "./fonts";
+import { getCardHoverInfo } from "./card-hover-info";
 import { ChainGlyph } from "./chain-glyph";
 import type { ChainLinkState } from "./chain-state";
 import { pileChainMarks, type PileChainMark } from "./pile-chain-marks";
@@ -24,6 +25,8 @@ import { useSkinStyles } from "./skin";
 import baseStyles from "./pile-viewer.module.css";
 import { UsableGlow } from "./usable-glow";
 import { usableGlowToneForPile } from "./usable-glow-model";
+
+const PINNED_DRAWER = "[data-testid='hover-preview'][data-pinned][data-open='true']";
 
 export type PileViewerProps = {
   title: string;
@@ -175,6 +178,12 @@ export function PileViewer({
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const hoverCbRef = useRef(onHoverCard);
   hoverCbRef.current = onHoverCard;
+  // With "Card info on hover: Off" the viewer reports no card to the drawer on hover or focus: such a card would take the drawer over from
+  // a card the player pinned with a click (and the drawer would not show it anyway). Clearing is always allowed.
+  const report = (card: DuelCard | null) => {
+    if (card && getCardHoverInfo() === "off") return;
+    hoverCbRef.current?.(card);
+  };
   const [lookedNames, setLookedNames] = useState<ReadonlyMap<number, string>>(new Map());
 
   // The Materials view of an Xyz is this viewer too: its cards sit in the Overlay location.
@@ -257,11 +266,12 @@ export function PileViewer({
       panel.style.translate = dx === 0 && dy === 0 ? "" : `${dx}px ${dy}px`;
     };
     place();
-    const watch = new ResizeObserver(place);
-    watch.observe(root);
+    // jsdom (the unit tests) has no ResizeObserver; the window resize listener still places the panel there.
+    const watch = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
+    watch?.observe(root);
     window.addEventListener("resize", place);
     return () => {
-      watch.disconnect();
+      watch?.disconnect();
       window.removeEventListener("resize", place);
     };
   }, [open]);
@@ -279,17 +289,34 @@ export function PileViewer({
       if (event.key === "Escape") {
         event.stopPropagation();
         // A card pinned in the drawer (a click on a tile) closes first; the next Esc closes the window.
-        const pin = document.querySelector<HTMLElement>("[data-testid='hover-preview'][data-pinned][data-open='true'] [data-testid='hover-preview-close']");
+        const pin = document.querySelector<HTMLElement>(`${PINNED_DRAWER} [data-testid='hover-preview-close']`);
         if (pin) {
           event.preventDefault();
           pin.click();
+          // The drawer closes fully: the tile under the pointer or focus must not bring it back as a hover (until the pointer or focus moves on).
+          hoverCbRef.current?.(null);
           return;
         }
         onClose();
       }
     }
+    // A right click on a pinned drawer closes it the same way (the drawer's own listener closes the pin).
+    const onContext = () => {
+      if (document.querySelector(PINNED_DRAWER)) hoverCbRef.current?.(null);
+    };
+    // A press on the pinned drawer's text must not take focus out of the dialog (the drawer stands outside it): buttons (the X) keep working.
+    const onPress = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest("[data-testid='hover-preview'][data-pinned]") && !target.closest("button, a, input, textarea, select")) event.preventDefault();
+    };
     document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
+    document.addEventListener("contextmenu", onContext, true);
+    document.addEventListener("mousedown", onPress, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("contextmenu", onContext, true);
+      document.removeEventListener("mousedown", onPress, true);
+    };
   }, [open, onClose]);
 
   if (!open) return null;
@@ -365,7 +392,7 @@ export function PileViewer({
     setHoverKey(null);
     const focused = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>("[data-pile-card]") : null;
     const key = focused && gridRef.current?.contains(focused) && focused.dataset.cardKey === userFocusRef.current ? focused.dataset.cardKey : null;
-    onHoverCard?.(entries.find((entry) => entry.key === key)?.card ?? null);
+    report(entries.find((entry) => entry.key === key)?.card ?? null);
   }
 
   const total = entries.length;
@@ -435,7 +462,7 @@ export function PileViewer({
                   aria-pressed={selected}
                   onMouseEnter={() => {
                     setHoverKey(key);
-                    onHoverCard?.(card);
+                    report(card);
                   }}
                   onFocus={() => {
                     setPinnedKey(key);
@@ -443,12 +470,12 @@ export function PileViewer({
                     // Focus the viewer put on a tile when it opened (the effect above) is not the player's choice: no drawer until they act.
                     if (!openingRef.current) {
                       userFocusRef.current = key;
-                      onHoverCard?.(card);
+                      report(card);
                     }
                   }}
                   onBlur={() => {
                     if (userFocusRef.current === key) userFocusRef.current = null;
-                    onHoverCard?.(null);
+                    report(null);
                   }}
                   onKeyDown={(event) => onCardKeyDown(event, index)}
                   onClick={(event) => onCardClick(event, key, card, legal, id)}
