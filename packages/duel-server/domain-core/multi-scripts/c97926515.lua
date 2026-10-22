@@ -1,8 +1,7 @@
 if not aux.MPAny then return end
 -- Emerging Emergency Rescute Rescue: the deciding opponent is chosen during resolution (rulebook v1.4).
 function s.condition(e,tp,eg,ep,ev,re,r,rp)
-	local lp=Duel.GetLP(tp)
-	return aux.MPAnyOpponent(tp,function(p) return lp<Duel.GetLP(p) end)
+	return aux.MPCompareLP(tp,"<")
 end
 function s.activate(e,tp,eg,ep,ev,re,r,rp)
 	local g=Duel.GetMatchingGroup(s.thfilter,tp,LOCATION_DECK,0,nil)

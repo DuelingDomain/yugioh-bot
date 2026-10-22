@@ -1,0 +1,43 @@
+if Duel.MPMode()~=1 then return end
+-- R-FFA-LP-COMPARE: unanimous living-opponent conditions; stock amounts/actions.
+function s.initial_effect(c)
+	--Special Summon itself from the hand
+	local e1=Effect.CreateEffect(c)
+	e1:SetDescription(aux.Stringid(id,0))
+	e1:SetCategory(CATEGORY_SPECIAL_SUMMON)
+	e1:SetType(EFFECT_TYPE_IGNITION)
+	e1:SetRange(LOCATION_HAND)
+	e1:SetCountLimit(1,id)
+	e1:SetCondition(function(_,tp) return aux.MPCompareLP(tp,"<") end)
+	e1:SetTarget(s.sptg1)
+	e1:SetOperation(s.spop1)
+	c:RegisterEffect(e1)
+	--Special Summon 1 "Gold Pride" monster from the GY
+	local e2=Effect.CreateEffect(c)
+	e2:SetDescription(aux.Stringid(id,1))
+	e2:SetCategory(CATEGORY_SPECIAL_SUMMON)
+	e2:SetType(EFFECT_TYPE_SINGLE+EFFECT_TYPE_TRIGGER_O)
+	e2:SetProperty(EFFECT_FLAG_DELAY+EFFECT_FLAG_CARD_TARGET)
+	e2:SetCode(EVENT_SUMMON_SUCCESS)
+	e2:SetCountLimit(1,{id,1})
+	e2:SetTarget(s.sptg2)
+	e2:SetOperation(s.spop2)
+	c:RegisterEffect(e2)
+	local e3=e2:Clone()
+	e3:SetCode(EVENT_SPSUMMON_SUCCESS)
+	c:RegisterEffect(e3)
+	--Synchro Summon using only "Gold Pride" monsters
+	local e4=Effect.CreateEffect(c)
+	e4:SetDescription(aux.Stringid(id,2))
+	e4:SetCategory(CATEGORY_SPECIAL_SUMMON)
+	e4:SetType(EFFECT_TYPE_QUICK_O)
+	e4:SetCode(EVENT_FREE_CHAIN)
+	e4:SetRange(LOCATION_MZONE)
+	e4:SetHintTiming(0,TIMINGS_CHECK_MONSTER|TIMING_MAIN_END)
+	e4:SetCountLimit(1,{id,2})
+	e4:SetCondition(function(_,tp) return Duel.IsTurnPlayer(1-tp) and Duel.IsMainPhase() end)
+	e4:SetTarget(s.synchtg)
+	e4:SetOperation(s.synchop)
+	c:RegisterEffect(e4)
+end
+s.listed_series={SET_GOLD_PRIDE}

@@ -1,0 +1,41 @@
+if Duel.MPMode()~=1 then return end
+-- R-FFA-LP-COMPARE: unanimous living-opponent conditions; stock amounts/actions.
+function s.initial_effect(c)
+	--Special Summon itself from the hand
+	local e1=Effect.CreateEffect(c)
+	e1:SetDescription(aux.Stringid(id,0))
+	e1:SetCategory(CATEGORY_SPECIAL_SUMMON)
+	e1:SetType(EFFECT_TYPE_IGNITION)
+	e1:SetRange(LOCATION_HAND)
+	e1:SetCountLimit(1,id)
+	e1:SetCondition(function(_,tp) return aux.MPCompareLP(tp,"<") end)
+	e1:SetTarget(s.sptg)
+	e1:SetOperation(s.spop)
+	c:RegisterEffect(e1)
+	--Search 1 "Gold Pride" Trap card
+	local e2=Effect.CreateEffect(c)
+	e2:SetDescription(aux.Stringid(id,0))
+	e2:SetCategory(CATEGORY_TOHAND+CATEGORY_SEARCH)
+	e2:SetType(EFFECT_TYPE_SINGLE+EFFECT_TYPE_TRIGGER_O)
+	e2:SetProperty(EFFECT_FLAG_DELAY)
+	e2:SetCode(EVENT_SUMMON_SUCCESS)
+	e2:SetCountLimit(1,{id,1})
+	e2:SetTarget(s.thtg)
+	e2:SetOperation(s.thop)
+	c:RegisterEffect(e2)
+	local e3=e2:Clone()
+	e3:SetCode(EVENT_SPSUMMON_SUCCESS)
+	c:RegisterEffect(e3)
+	--Increase the ATK of a "Gold Pride" monster Summoned from the Extra Deck
+	local e4=Effect.CreateEffect(c)
+	e4:SetDescription(aux.Stringid(id,1))
+	e4:SetCategory(CATEGORY_REMOVE+CATEGORY_ATKCHANGE)
+	e4:SetType(EFFECT_TYPE_SINGLE+EFFECT_TYPE_TRIGGER_O)
+	e4:SetProperty(EFFECT_FLAG_CARD_TARGET+EFFECT_FLAG_DELAY)
+	e4:SetCode(EVENT_TO_GRAVE)
+	e4:SetCountLimit(1,{id,2})
+	e4:SetTarget(s.atktg)
+	e4:SetOperation(s.atkop)
+	c:RegisterEffect(e4)
+end
+s.listed_series={SET_GOLD_PRIDE}
