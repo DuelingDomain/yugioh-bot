@@ -1,16 +1,21 @@
 import { log } from "@yugidraft/shared/observability";
+import assert from "node:assert/strict";
+import type Database from "better-sqlite3";
 
 const pause = new Int32Array(new SharedArrayBuffer(4));
 
 /** Only for synchronous, retry-safe startup work, before timers or requests run.
  * SQLite rolls back failed transactions; openDatabase closes failed connections.
  * The normal five-second busy timeout still applies to each attempt.
+ * Pass db for existing connections so no attempt can reuse an open transaction.
  */
-export function retryStartupDatabase<T>(operation: string, run: () => T, timeoutMs = 60_000): T {
+export function retryStartupDatabase<T>(operation: string, run: () => T,
+  { db, timeoutMs = 60_000 }: { db?: Database.Database; timeoutMs?: number } = {}): T {
   const started = performance.now();
   let delayMs = 100;
   let attempt = 0;
   for (;;) {
+    assert(!db?.inTransaction, "Startup database retries must run outside a transaction");
     try { return run(); }
     catch (error) {
       const code = (error as { code?: unknown } | null)?.code;

@@ -119,17 +119,22 @@ it("bounds retries on a persistent real lock and fails immediately on other SQLi
   const db = openDatabase(join(directory, "bot.sqlite"));
   const writer = new Database(db.name);
   try {
+    db.transaction(() => {
+      expect(() => retryStartupDatabase("nested startup", () => db.prepare("select 1").get(), { db }))
+        .toThrow("Startup database retries must run outside a transaction");
+    })();
     db.pragma("busy_timeout = 0");
     writer.exec("begin immediate");
     const started = performance.now();
-    expect(() => retryStartupDatabase("heartbeat", () => db.prepare("insert into duel_host_heartbeat values(1, 1)").run(), 100))
+    expect(() => retryStartupDatabase("heartbeat", () => db.prepare("insert into duel_host_heartbeat values(1, 1)").run(), { db, timeoutMs: 100 }))
       .toThrowError(expect.objectContaining({ code: "SQLITE_BUSY" }));
     expect(performance.now() - started).toBeLessThan(1_000);
     expect(db.inTransaction).toBe(false);
-    expect(() => retryStartupDatabase("invalid schema", () => db.prepare("select * from missing_startup_table").get()))
+    expect(() => retryStartupDatabase("invalid schema", () => db.prepare("select * from missing_startup_table").get(), { db }))
       .toThrowError(expect.objectContaining({ code: "SQLITE_ERROR" }));
   } finally {
-    writer.exec("rollback"); writer.close(); db.close();
+    if (writer.inTransaction) writer.exec("rollback");
+    writer.close(); db.close();
     rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -150,7 +155,7 @@ it("rolls back a stale WAL snapshot and retries the whole startup transaction", 
         if (attempts++ === 0) writer.prepare("update duel_host_heartbeat set last_tick_at = 2 where id = 1").run();
         db.prepare("update duel_host_heartbeat set last_tick_at = ? where id = 1").run(row.last_tick_at + 1);
       })();
-    });
+    }, { db });
     expect(attempts).toBe(2);
     expect(db.prepare("select last_tick_at from duel_host_heartbeat where id = 1").get()).toEqual({ last_tick_at: 3 });
     expect(db.inTransaction).toBe(false);
