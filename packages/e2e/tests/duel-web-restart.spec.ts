@@ -340,7 +340,11 @@ test("socket credentials and state recover when web returns during a reconnect",
   });
   await alice.context.setOffline(true);
   // Offline emulation can leave existing sockets open until their heartbeat.
-  await alice.page.evaluate(() => (window as Window & { disconnectDuelSockets: () => void }).disconnectDuelSockets());
+  await alice.page.evaluate(() => {
+    const disconnect = Reflect.get(window, "disconnectDuelSockets");
+    if (typeof disconnect !== "function") throw new Error("Socket outage hook was not installed");
+    disconnect();
+  });
   await expect(live).toHaveCount(0);
   await alice.context.setOffline(false);
   await expect.poll(() => credentials, { timeout: 30_000 }).toBeGreaterThanOrEqual(3);
