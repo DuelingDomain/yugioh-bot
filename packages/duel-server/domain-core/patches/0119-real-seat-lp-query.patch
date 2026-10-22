@@ -13,9 +13,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 diff --git a/libduel.cpp b/libduel.cpp
 --- a/libduel.cpp
 +++ b/libduel.cpp
-@@ -5364,6 +5364,19 @@
- 		&& (f.n_duelists <= 2 || f.is_alive(static_cast<uint8_t>(seat))));
- 	return 1;
+@@ -5366,2 +5366,15 @@
  }
 +// Read one living real seat's LP without changing the Lua perspective or opponent binding.
 +// Used by the multiplayer LP comparison overlay, including inside an existing seat rebind.
@@ -31,5 +29,3 @@ diff --git a/libduel.cpp b/libduel.cpp
 +	return 1;
 +}
  // Duel.MPAttackedSeat(): the real seat of the duelist that the current attack goes at (the controller of the attack target, or the
- // defender of a direct attack), or nil when there is no attack, no such seat, or the seat is not alive. More than two duelists
- // only: with two duelists it gives nil (the Lua player of the attacked side is always 1 - the attacker's, so it is not needed).
