@@ -470,13 +470,14 @@ function TableShellBody({
   };
   const playersText = session.seats.map((seat) => seat.displayName).join(" v ");
   const logVisible = hud ? hudState.pane === "log" : ui.pane === "log" && (narrow ? sheetOpen : drawer.open);
-  const drawerPreview = hud || sheetOpen || ui.pile?.open ? null : hudPreview(
+  const drawerPreview = hud || sheetOpen ? null : hudPreview(
     ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), pinnedCard);
   const inspectCard = (target: InspectTarget) => {
     if (target.type !== "pile") {
       if (!hud) setPinnedCard(target.card);
       if (!narrow) { if (hud) ui.inspectCard(target); return; }
     }
+    else if (!hud) setPinnedCard(null);
     ui.inspectCard(target);
     if (narrow && target.type === "pile") setSheetOpen(true);
   };
@@ -555,7 +556,7 @@ function TableShellBody({
   const turnNode = (
     <div className={roomStyles.turn}>
       <strong>Turn {engine.turn}</strong>
-      <span className={roomStyles.phaseName} data-step={battleStep ?? undefined}>{headerPhase}</span>
+      <span className={roomStyles.phaseName} data-step={battleStep ?? undefined} title={headerPhase}>{headerPhase}</span>
       <span
         className={`${roomStyles.whoPill} ${styles.whoTone}`}
         data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
@@ -565,7 +566,7 @@ function TableShellBody({
         {spectator ? <Eye size={13} strokeWidth={1.75} aria-hidden /> : myTurn
           ? <Diamond size={13} strokeWidth={1.75} fill="currentColor" aria-hidden />
           : <Circle size={13} strokeWidth={1.75} aria-hidden />}
-        {turnText}
+        <span className={roomStyles.whoText} title={turnText}>{turnText}</span>
       </span>
     </div>
   );
@@ -578,7 +579,7 @@ function TableShellBody({
           <span className={roomStyles.connectionText}>Replay</span>
         </span>
       ) : (
-        <span className={roomStyles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
+        <span className={roomStyles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"} data-spectator={spectator}>
           {connectionLabel === "Live" ? <i className={roomStyles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
           <span className={roomStyles.connectionText}>
             {connectionLabel === "Live" ? spectator ? "Live duel · watching" : "Live duel" : connectionLabel}

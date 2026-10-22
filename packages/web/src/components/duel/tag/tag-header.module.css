@@ -43,6 +43,11 @@
 .turn { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
 .turn strong { font-size: var(--duel-t-head); font-weight: 500; letter-spacing: 0.01em; font-variant-numeric: tabular-nums; }
 .phase { color: var(--duel-ink-2); font-size: var(--duel-t-sm); }
+/* The header never changes size when its words do: the phase has a slot as wide as its longest value, and the turn pill's
+   name and team have fixed slots too (a long team or player name ends in an ellipsis; the full text is the title). */
+@media (min-width: 901px) {
+  .phase { box-sizing: content-box; width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
 .turnPill {
   display: inline-flex;
   align-items: center;
@@ -94,6 +99,10 @@
 /* The label is its own box, so a long name ends in an ellipsis instead of being cut mid-word. */
 .turnLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .turnPill { max-width: 100%; }
+@media (min-width: 901px) {
+  .turnLabel { box-sizing: content-box; width: 15ch; }
+  .turnPill small { display: block; box-sizing: content-box; width: 9ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
 
 /* A phone: the brand fills what the turn and the buttons leave, down to a small stub, and the turn column gives way
    only after that. The turn pill keeps "Your turn" whole, or ends a long name in an ellipsis, while the Report bug

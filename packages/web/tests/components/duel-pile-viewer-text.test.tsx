@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DuelCard } from "@yugidraft/shared/duels";
 
@@ -45,9 +45,10 @@ describe("pile viewer card details go to the drawer", () => {
     view([card(0), card(1), card(2)], onHoverCard);
     fireEvent.mouseEnter(screen.getByRole("button", { name: /^Card 1 name, 2 of 3/ }));
     expect(onHoverCard).toHaveBeenLastCalledWith(expect.objectContaining({ sequence: 1 }));
+    // The window opens on the top card, but that focus is not the player's choice: it shows no drawer. A tile the player focused does.
+    act(() => screen.getByRole("button", { name: /^Card 0 name, 3 of 3/ }).focus());
     fireEvent.mouseLeave(screen.getByRole("list", { name: /newest first/ }));
-    // The top card has focus from the start: the drawer goes back to it.
-    expect(onHoverCard).toHaveBeenLastCalledWith(expect.objectContaining({ sequence: 2 }));
+    expect(onHoverCard).toHaveBeenLastCalledWith(expect.objectContaining({ sequence: 0 }));
   });
 
   it("reports the focused card, and null on blur", () => {
