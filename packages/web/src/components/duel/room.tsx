@@ -225,10 +225,22 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // cached or laggy view never comes back by itself.
   const [accessLostAt, setAccessLostAt] = useState<{ slug: string; at: number } | null>(null);
   const [kickedSlug, setKickedSlug] = useState<string | null>(null);
+  const recoveryKey = useMemo(() => Symbol("duel request view"),
+    [slug, spectate, adminWatch?.pov, forkView.view?.as, forkView.view?.reveal]);
+  const currentRecoveryKey = useRef(recoveryKey);
+  currentRecoveryKey.current = recoveryKey;
+  const [recovery, setRecovery] = useState({ key: recoveryKey, count: 0 });
+  const noticeRecovery = useCallback((recovering: boolean) => {
+    if (currentRecoveryKey.current !== recoveryKey) return;
+    setRecovery(current => currentRecoveryKey.current !== recoveryKey ? current : {
+      key: recoveryKey,
+      count: Math.max(0, (current.key === recoveryKey ? current.count : 0) + (recovering ? 1 : -1)),
+    });
+  }, [recoveryKey]);
   const { data: rawData, error, isLoading, mutate } = useSWR(
     slug ? (adminWatch ? adminDuelRoomKey(slug, adminWatch.pov) : duelRoomKey(slug, spectate, forkView.view)) : null,
     async () => {
-      if (adminWatch) return getAdminDuelRoom(slug, adminWatch.pov);
+      if (adminWatch) return getAdminDuelRoom(slug, adminWatch.pov, noticeRecovery);
       let admitError: unknown = null;
       if (inviteCode && (admitted.current?.slug !== slug || admitted.current.inviteCode !== inviteCode)) {
         // Try each invite once. A public table, a stale code or an existing grant must not block
@@ -244,7 +256,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         }
       }
       try {
-        return await getDuelRoom(slug, spectate, forkView.view);
+        return await getDuelRoom(slug, spectate, forkView.view, noticeRecovery);
       } catch (err) {
         throw admitError ?? err;
       }
@@ -270,7 +282,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }, [kicked, mutate, router]);
   const refreshRoom = useCallback(
     () => mutate(async () => {
-      try { return await (adminWatch ? getAdminDuelRoom(slug, adminWatch.pov) : getDuelRoom(slug, spectate, forkView.view)); }
+      try { return await (adminWatch ? getAdminDuelRoom(slug, adminWatch.pov, noticeRecovery) : getDuelRoom(slug, spectate, forkView.view, noticeRecovery)); }
       catch (error) {
         // SWR mutation failures do not populate useSWR.error. Realtime refresh and polling
         // must revoke the cached seat too, even if this player never presses another button.
@@ -279,7 +291,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       }
     }, { revalidate: false }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mutate, slug, spectate, forkView.view, adminWatch?.pov],
+    [mutate, slug, spectate, forkView.view, adminWatch?.pov, noticeRecovery],
   );
   // A replay fork keeps the creator's identity at seat 0 (the websocket, the token) and plays every seat. The table below
   // reads `data.mySeat` as the seat that acts, so it gets the acting seat; only the websocket keeps the stored one.
@@ -325,7 +337,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // The change notice that an answer of this player causes is not a reason to shut the prompts (see duel-echo-window.ts).
   const echo = useMemo(() => createEchoWindow(), []);
   // The admin feed keeps one subscription for every point of view: a switch only reads the room again.
-  const realtime = useDuelWebsocket(slug, readOnly ? null : visibleRoom?.mySeat, refreshRoom, spectate, echo.quiet, readOnly);
+  const subscription = useDuelWebsocket(slug, readOnly ? null : visibleRoom?.mySeat, refreshRoom, spectate, echo.quiet, readOnly);
+  const realtime = recovery.key === recoveryKey && recovery.count > 0
+    ? { ...subscription, recovering: true, syncing: false } : subscription;
   // Only a recovering connection holds the buttons. A routine re-read (a change notice that is not the player's echo,
   // a window focus, a clock tick) does not: it shut the button between the press and the release, and the click was lost.
   // The server still refuses a stale answer by prompt id and revision.
@@ -823,14 +837,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       // A refused answer (a stale choice, a rejected move) is no cause for a follow-up: forget it, so the next prompt keeps its beat.
       void run(async () => {
         try {
-          return await (forkControl ? sendDuelAction(slug, command, forkControl.actingSeat) : sendDuelAction(slug, command));
+          return await sendDuelAction(slug, command, forkControl?.actingSeat, noticeRecovery);
         } catch (err) {
           pick.clearAnswer();
           throw err;
         }
       }, isOpponentPick(prompt) || isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
     },
-    [data, prompt, fieldHeld, error, catchingUp, run, slug, pick.noteAnswer, pick.clearAnswer, viewerOut, forkControl?.actingSeat, readOnly],
+    [data, prompt, fieldHeld, error, catchingUp, run, slug, pick.noteAnswer, pick.clearAnswer, viewerOut, forkControl?.actingSeat, readOnly, noticeRecovery],
   );
 
   /** A prompt tile or response row under the pointer: show the card in the inspector, as board cards do. */

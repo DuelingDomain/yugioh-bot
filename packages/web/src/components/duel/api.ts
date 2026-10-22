@@ -82,7 +82,10 @@ function replayErrorDetail(body: unknown): ReplayErrorDetail | undefined {
 
 async function parseBody<T>(res: Response): Promise<T> {
   if (res.redirected) throw new DuelRequestError("Your session expired. Sign in again to return to this table.", 401);
-  const body: unknown = await res.json().catch(() => null);
+  const body: unknown = await res.json().catch((error: unknown) => {
+    if (error instanceof TypeError) throw error; // A dropped response body is a network failure.
+    return null;
+  });
   if (!res.ok) {
     const code = body && typeof body === "object" && "code" in body && typeof body.code === "string" ? body.code : undefined;
     const finalBoard = body && typeof body === "object" && "finalBoard" in body
@@ -93,6 +96,44 @@ async function parseBody<T>(res: Response): Promise<T> {
     throw new DuelRequestError("The server returned an invalid response. Your last game state is unchanged.", 502);
   }
   return body as T;
+}
+
+type RecoveryNotice = (recovering: boolean) => void;
+
+/** Only room reads and journal-deduplicated action commands use this retry loop. */
+async function retryDuelRequest<T>(url: string, init: RequestInit, notice?: RecoveryNotice): Promise<T> {
+  const deadline = Date.now() + 30_000;
+  let delay = 250;
+  let recovering = false;
+  let lastError: unknown;
+  try {
+    for (;;) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw lastError;
+      let response: Response | undefined;
+      try {
+        response = await fetch(url, { ...init, signal: AbortSignal.timeout(remaining) });
+        return await parseBody<T>(response);
+      } catch (error) {
+        // Access failures must reach the room immediately so cached private views
+        // are revoked, including the explicit ACCESS_UNAVAILABLE 503 response.
+        if (isDuelAccessError(error)) throw error;
+        const transient = error instanceof TypeError
+          || (error instanceof DuelRequestError && response && [502, 503, 504].includes(response.status));
+        if (!transient) throw error instanceof DOMException && error.name === "TimeoutError" ? lastError ?? error : error;
+        if (Date.now() >= deadline) throw error;
+        lastError = error;
+        if (!recovering) {
+          recovering = true;
+          notice?.(true);
+        }
+        await new Promise(resolve => setTimeout(resolve, Math.min(delay, deadline - Date.now())));
+        delay = Math.min(delay * 2, 3000);
+      }
+    }
+  } finally {
+    if (recovering) notice?.(false);
+  }
 }
 
 export const DUEL_LIST_KEY = "/api/duels";
@@ -302,8 +343,8 @@ export function withRoomReceivedAt(room: DuelRoom & { receivedAt?: number }): Re
   return { ...room, receivedAt: room.receivedAt ?? performance.now() };
 }
 
-export async function getDuelRoom(slug: string, spectate = false, fork: ForkViewControl | null = null): Promise<ReceivedDuelRoom> {
-  return withRoomReceivedAt(await parseBody<DuelRoom>(await fetch(duelRoomKey(slug, spectate, fork), { cache: "no-store" })));
+export async function getDuelRoom(slug: string, spectate = false, fork: ForkViewControl | null = null, notice?: RecoveryNotice): Promise<ReceivedDuelRoom> {
+  return withRoomReceivedAt(await retryDuelRequest<DuelRoom>(duelRoomKey(slug, spectate, fork), { cache: "no-store" }, notice));
 }
 
 /** Admin watch: the room as one seat sees it (`pov`) or the neutral public view (null). Read-only; the server refuses everyone but the owner. */
@@ -311,8 +352,8 @@ export function adminDuelRoomKey(slug: string, pov: number | null): string {
   return `/api/admin/duels/${encodeURIComponent(slug)}/spectate?seat=${pov ?? "public"}`;
 }
 
-export async function getAdminDuelRoom(slug: string, pov: number | null): Promise<ReceivedDuelRoom> {
-  const body = await parseBody<{ room: DuelRoom }>(await fetch(adminDuelRoomKey(slug, pov), { cache: "no-store" }));
+export async function getAdminDuelRoom(slug: string, pov: number | null, notice?: RecoveryNotice): Promise<ReceivedDuelRoom> {
+  const body = await retryDuelRequest<{ room: DuelRoom }>(adminDuelRoomKey(slug, pov), { cache: "no-store" }, notice);
   return withRoomReceivedAt(body.room);
 }
 
@@ -464,14 +505,15 @@ export async function sendDuelAction(
   slug: string,
   command: DuelCommand,
   as?: number,
+  notice?: RecoveryNotice,
 ): Promise<ReceivedDuelRoom> {
-  return withRoomReceivedAt(await parseBody<DuelRoom>(
-    await fetch(`/api/duels/${encodeURIComponent(slug)}/actions${as === undefined ? "" : `?as=${as}`}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(command),
-    }),
-  ));
+  const url = `/api/duels/${encodeURIComponent(slug)}/actions${as === undefined ? "" : `?as=${as}`}`;
+  const init = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command) };
+  // Restarting/rewinding a replay fork can reuse prompt/revision identities. Only
+  // ordinary live duels have a monotonic journal for the lifetime of these retries.
+  const room = as === undefined ? await retryDuelRequest<DuelRoom>(url, init, notice)
+    : await parseBody<DuelRoom>(await fetch(url, init));
+  return withRoomReceivedAt(room);
 }
 
 /** Replay forks bind a response change to one seat, one revision and, when the seat has one, one prompt. */
