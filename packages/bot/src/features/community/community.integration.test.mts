@@ -740,6 +740,34 @@ it("reports Discord errors once per outage and warns again after a successful sa
   expect(reported).toHaveBeenCalledTimes(2);
 });
 
+it.each([403,429])("preserves an earlier ambiguous create through a later %s rejection", async rejection => {
+  const schedule = statusSchedule();
+  const warning = vi.spyOn(observability,"log").mockImplementation(() => {});
+  const warnings = () => warning.mock.calls.filter(call => call[2]?.operation === "bot.status");
+  vi.spyOn(observability,"report").mockImplementation(() => {});
+  const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel, setup(db,stub) {
+    stub.state.createFailure = "503";
+    db.prepare("update users set last_seen_at=?,last_route='/decks/new' where id=1").run(Date.now());
+  } });
+  await expect.poll(() => warnings().length).toBe(1);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  stub.state.nextStatus = rejection;
+  db.prepare("update users set last_seen_at=? where id=1").run(Date.now()+60_000);
+  await schedule.advance();
+  expect(statusPosts(stub)).toHaveLength(2);
+  expect(db.prepare("select * from discord_status_messages").all()).toEqual([]);
+  stub.state.overwrites = [];
+  await schedule.advance();
+  await statusReady(db);
+  expect(statusPosts(stub)).toHaveLength(3);
+  expect(new Set(statusPosts(stub).map(request => request.body.nonce)).size).toBe(1);
+  expect(stub.messages.size).toBe(1);
+  expect([...stub.messages.values()][0].embeds[0].fields[0].value).toBe("1 player online.");
+  const before = statusEdits(stub).length;
+  await schedule.advance(1);
+  expect(statusEdits(stub)).toHaveLength(before);
+});
+
 it("publishes a status even without the optional presence columns", async () => {
   const { db, stub } = await fixture(false, [community], { botGuildId: guild, statusChannelId: statusChannel });
   await statusReady(db);

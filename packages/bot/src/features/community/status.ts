@@ -153,7 +153,7 @@ export function startStatusPublisher(c: FeatureContext) {
           createUncertain = false;
         } catch (error) {
           // The next poll reuses this nonce so Discord can return an already accepted message.
-          createUncertain = !(error instanceof RateLimitError || (error instanceof DiscordAPIError && error.status < 500));
+          createUncertain ||= !(error instanceof RateLimitError || (error instanceof DiscordAPIError && error.status < 500));
           throw error;
         }
         // Nonce deduplication can return the earlier payload; reconcile changes, including privacy, before saving its hash.
