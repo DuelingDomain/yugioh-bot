@@ -77,20 +77,24 @@ export function startStatusPublisher(c: FeatureContext) {
   const saved = c.db.prepare("select message_id,content_hash,updated_at from discord_status_messages where guild_id=? and channel_id=?")
     .get(c.config.guildId,channelId) as SavedStatus | undefined;
   let messageId = saved?.message_id, hash = saved?.content_hash;
-  let verified = false, createAttempted = false, stopped = false, warned = false;
+  let verified = false, createUncertain = false, stopped = false, warned = false;
   let nextWriteAt = (saved?.updated_at ?? 0) + MIN_EDIT_MS, retryAt = 0;
   let pending: Promise<void> | undefined;
-  const nonce = randomBytes(12).toString("hex");
+  let nonce = randomBytes(12).toString("hex");
+  const forgetMessage = () => {
+    messageId = undefined; hash = undefined; verified = false; createUncertain = false;
+    nonce = randomBytes(12).toString("hex");
+  };
   const save = (contentHash: string) => {
     c.db.prepare(`insert into discord_status_messages(guild_id,channel_id,message_id,content_hash,updated_at) values(?,?,?,?,?)
       on conflict(guild_id,channel_id) do update set message_id=excluded.message_id,content_hash=excluded.content_hash,updated_at=excluded.updated_at`)
       .run(c.config.guildId,channelId,messageId,contentHash,Date.now());
     hash = contentHash;
     nextWriteAt = Date.now() + MIN_EDIT_MS;
+    warned = false;
   };
   const publish = async () => {
     if (Date.now() < retryAt) return;
-    if (!messageId && createAttempted) return;
     // No hidden write retries: every edit attempt observes our 30-second floor.
     // Short-lived REST handlers also leave no rate-limit sleeps behind on shutdown.
     const rest = new REST({ ...(c.config.restApi ? { api: c.config.restApi } : {}),
@@ -107,7 +111,7 @@ export function startStatusPublisher(c: FeatureContext) {
         catch (error) { if (!(error instanceof DiscordAPIError && error.code === 10008)) throw error; }
         // Only Unknown Message, or a response proving the saved target is invalid, permits replacement.
         if (!message || message.id !== messageId || message.channel_id !== channelId || message.author.id !== c.client.user?.id) {
-          messageId = undefined; hash = undefined;
+          forgetMessage();
         }
       }
       verified = true;
@@ -129,29 +133,31 @@ export function startStatusPublisher(c: FeatureContext) {
       const body = { embeds: [{ ...embed, description: `Updated <t:${Math.floor(Date.now()/1000)}:R>` }], allowed_mentions: NO_API_MENTIONS };
       // Drain started writes so a successful POST is persisted even during shutdown.
       const writeSignal = AbortSignal.timeout(15_000);
-      if (messageId) {
+      const edit = async () => {
         nextWriteAt = Date.now() + MIN_EDIT_MS;
-        try { await rest.patch(Routes.channelMessage(channelId,messageId), { body, signal: writeSignal }); }
+        try { await rest.patch(Routes.channelMessage(channelId,messageId!), { body, signal: writeSignal }); }
         catch (error) {
-          if (error instanceof DiscordAPIError && error.code === 10008) {
-            messageId = undefined; hash = undefined; verified = false;
-          }
+          if (error instanceof DiscordAPIError && error.code === 10008) forgetMessage();
           throw error;
         }
+      };
+      if (messageId) {
+        await edit();
       } else {
-        if (createAttempted) return;
-        createAttempted = true;
+        const reconcile = createUncertain;
         try {
           const message = await rest.post(Routes.channelMessages(channelId), {
             body: { ...body, nonce, enforce_nonce: true }, signal: writeSignal,
           }) as StatusMessage;
           messageId = message.id;
+          createUncertain = false;
         } catch (error) {
-          // A definite rejection created nothing. Retry later; an ambiguous transport
-          // failure consumes this start's one create attempt to avoid duplicate posts.
-          if (error instanceof RateLimitError || (error instanceof DiscordAPIError && [400,401,403,404,429].includes(error.status))) createAttempted = false;
+          // The next poll reuses this nonce so Discord can return an already accepted message.
+          createUncertain = !(error instanceof RateLimitError || (error instanceof DiscordAPIError && error.status < 500));
           throw error;
         }
+        // Nonce deduplication can return the earlier payload; reconcile changes, including privacy, before saving its hash.
+        if (reconcile) await edit();
       }
       save(contentHash);
     } finally { rest.clearHashSweeper(); rest.clearHandlerSweeper(); }
@@ -164,7 +170,7 @@ export function startStatusPublisher(c: FeatureContext) {
       if (!warned) {
         warned = true;
         log("warn", "Online status unavailable; retrying on later polls", { operation: "bot.status", channelId });
-        if (!(error instanceof DiscordAPIError || error instanceof RateLimitError) && !(error instanceof Error && error.message.startsWith("Status destination"))) {
+        if (!(error instanceof Error && error.message.startsWith("Status destination"))) {
           report(error, { tags: { operation: "bot.status" } });
         }
       }

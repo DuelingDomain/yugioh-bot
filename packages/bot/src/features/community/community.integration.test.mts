@@ -35,8 +35,10 @@ async function stubDiscord() {
   let socket: WebSocket, sequence = 0;
   const guilds = new Set<string>();
   const messages = new Map<string, any>();
+  let messageSequence = 0;
   const state = { channelGuild: guild, channelType: 5, channelStatus: 0, messageStatus: 0, editStatus: 0,
     everyonePermissions: "1024", overwrites: [{ id: guild, type: 0, allow: "0", deny: "1024" }],
+    createFailure: "",
     rolePosition: 1, roleMentionable: true, nextStatus: 0, crosspostStatus: 0, replyStatus: 0, memberName: "Tester", intents: 0 };
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -100,9 +102,16 @@ async function stubDiscord() {
       return send({ code: status === 404 ? 10003 : 50013, message: "private upstream text", retry_after: 0.01 });
     }
     if (req.method === "POST" && path === `/channels/${statusChannel}/messages`) {
-      const id = String(100000000000000099n + BigInt(messages.size));
+      const duplicate = body.enforce_nonce && [...messages.values()].find(message => message.nonce === body.nonce);
+      if (duplicate) return send(duplicate);
+      const id = String(100000000000000099n + BigInt(messageSequence++));
       const message = { id, channel_id: statusChannel, author: { id: app, username: "Bot", bot: true }, ...body };
       messages.set(id, message);
+      const failure = state.createFailure;
+      state.createFailure = "";
+      if (failure === "timeout") return;
+      if (failure === "disconnect") return req.socket.destroy();
+      if (failure === "503") { res.statusCode = 503; return send({ message: "Ambiguous create failure" }); }
       return send(message);
     }
     return send({ id: "100000000000000099", channel_id: announce, content: "", author: { id: app, username: "Bot", bot: true },
@@ -659,7 +668,7 @@ it("does not replace a stored message on transient permission failure", async ()
   expect(db.prepare("select message_id from discord_status_messages").get()).toEqual({ message_id: "existing" });
 });
 
-it("backs off a rate-limited edit and never posts twice when its new message is deleted", async () => {
+it("backs off a rate-limited edit and replaces its new message after deletion with a fresh nonce", async () => {
   const schedule = statusSchedule();
   vi.spyOn(observability,"log").mockImplementation(() => {});
   const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel });
@@ -678,7 +687,57 @@ it("backs off a rate-limited edit and never posts twice when its new message is 
   db.prepare("update users set display_name='After deletion' where id=1").run();
   await schedule.advance();
   await schedule.advance();
+  expect(statusPosts(stub)).toHaveLength(2);
+  expect(statusPosts(stub)[1].body.nonce).not.toBe(statusPosts(stub)[0].body.nonce);
+  expect(db.prepare("select message_id from discord_status_messages").get()).toEqual({ message_id: [...stub.messages.keys()][0] });
+});
+
+it.each(["rejected 503", "503", "timeout", "disconnect"])("retries an ambiguous %s create on the next poll with the same nonce", async failure => {
+  const schedule = statusSchedule();
+  const warning = vi.spyOn(observability,"log").mockImplementation(() => {});
+  const reported = vi.spyOn(observability,"report").mockImplementation(() => {});
+  const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel, setup(db,stub) {
+    if (failure === "rejected 503") stub.state.nextStatus = 503;
+    else stub.state.createFailure = failure;
+    db.prepare("update users set last_seen_at=?,last_route='/decks/new' where id=1").run(Date.now());
+  } });
+  await expect.poll(() => warning.mock.calls.length, { timeout: 15_000 }).toBe(1);
+  expect(reported).toHaveBeenCalledTimes(1);
   expect(statusPosts(stub)).toHaveLength(1);
+  expect(db.prepare("select * from discord_status_messages").all()).toEqual([]);
+  // A retry can recover an already accepted private payload. It must reconcile current public visibility too.
+  stub.state.overwrites = [];
+  await schedule.advance();
+  await statusReady(db);
+  expect(statusPosts(stub)).toHaveLength(2);
+  expect(statusPosts(stub)[1].body.nonce).toBe(statusPosts(stub)[0].body.nonce);
+  expect(statusPosts(stub)[1].body.enforce_nonce).toBe(true);
+  expect(stub.messages.size).toBe(1);
+  expect([...stub.messages.values()][0].embeds[0].fields[0].value).toBe("1 player online.");
+  await schedule.advance(1);
+  expect(statusPosts(stub)).toHaveLength(2);
+}, 20_000);
+
+it("reports Discord errors once per outage and warns again after a successful save", async () => {
+  const schedule = statusSchedule();
+  const warning = vi.spyOn(observability,"log").mockImplementation(() => {});
+  const reported = vi.spyOn(observability,"report").mockImplementation(() => {});
+  const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel, setup(_db,stub) {
+    stub.state.channelStatus = 403;
+  } });
+  await expect.poll(() => warning.mock.calls.length).toBe(1);
+  expect(reported).toHaveBeenCalledTimes(1);
+  expect(reported.mock.calls[0][1]).toMatchObject({ tags: { operation: "bot.status" } });
+  await schedule.advance();
+  expect(warning).toHaveBeenCalledTimes(1);
+  expect(reported).toHaveBeenCalledTimes(1);
+  stub.state.channelStatus = 0;
+  await schedule.advance();
+  await statusReady(db);
+  stub.state.channelStatus = 403;
+  await schedule.advance();
+  expect(warning).toHaveBeenCalledTimes(2);
+  expect(reported).toHaveBeenCalledTimes(2);
 });
 
 it("publishes a status even without the optional presence columns", async () => {
