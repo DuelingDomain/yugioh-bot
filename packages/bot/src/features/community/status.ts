@@ -1,24 +1,41 @@
 import { createHash, randomBytes } from "node:crypto";
-import { DiscordAPIError, RateLimitError, REST, Routes, escapeMarkdown, type APIEmbed } from "discord.js";
+import { DiscordAPIError, PermissionFlagsBits, PermissionsBitField, RateLimitError, REST, Routes, escapeMarkdown, type APIEmbed } from "discord.js";
 import { log, report } from "@yugidraft/shared/observability";
 import type { FeatureContext } from "../../runtime/types.js";
 import { DUEL_LIVE_IDLE_AFTER_MS, LIVE_EVENT_MAX_AGE_MS, listOnline, liveCounts } from "./admin-data.js";
 import { DUEL_WAITING_IDLE_TIMEOUT_MS } from "@yugidraft/shared/duels";
-import { NO_API_MENTIONS, PURPLE, clip } from "./common.js";
+import { NO_API_MENTIONS, PURPLE } from "./common.js";
 
 const POLL_MS = 60_000, MIN_EDIT_MS = 30_000, MAX_NAMES = 10;
 type SavedStatus = { message_id: string; content_hash: string; updated_at: number };
 type StatusMessage = { id: string; channel_id: string; author: { id: string } };
+type StatusChannel = { guild_id?: string; type: number;
+  permission_overwrites?: { id: string; type: number; allow: string; deny: string }[] };
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function statusName(name: string): string {
+  const raw = name.replace(/[\r\n\u2028\u2029]/g," ").replaceAll("<","‹");
+  const parts = [...graphemes.segment(raw)];
+  const clipped = parts.length <= 60 ? raw : `${parts.slice(0,59).map(part => part.segment).join("")}…`;
+  return escapeMarkdown(clipped, { heading: true, bulletedList: true, numberedList: true, maskedLink: true });
+}
 
 /** Only small presence/activity projections are read; never boards, decks or weekly stats. */
-function statusEmbed(c: FeatureContext): APIEmbed {
+function statusEmbed(c: FeatureContext, includeNames: boolean): APIEmbed {
   const now = Date.now(), guild = c.config.dataGuildId;
   const online = listOnline(c.db, now, guild), live = liveCounts(c.db, guild, now);
   // Heartbeats change query order and last_seen_at. Neither changes the displayed content.
   const users = online?.users.sort((a,b) => a.name.localeCompare(b.name) || a.userId-b.userId) ?? [];
-  const names = users.slice(0, MAX_NAMES).map(user =>
-    `${clip(escapeMarkdown(user.name.replace(/[\r\n]/g," ")),60)} — ${user.label}`);
-  if (users.length > names.length) names.push(`+${users.length-names.length} more`);
+  const names: string[] = [];
+  if (includeNames) {
+    for (const user of users.slice(0,MAX_NAMES)) {
+      const line = `${statusName(user.name)} — ${user.label}`;
+      const remaining = users.length-names.length-1;
+      if ([...names,line,...(remaining ? [`+${remaining} more`] : [])].join("\n").length > 1024) break;
+      names.push(line);
+    }
+    if (users.length > names.length) names.push(`+${users.length-names.length} more`);
+  }
   const boundedCount = (table: "tournaments" | "duel_series", filter: string, params: Record<string,string>) => {
     const { count } = c.db.prepare(`select count(*) as count from
       (select 1 from ${table} where guild_id=@guild and ${filter} limit 101)`).get({ guild, ...params }) as { count: number };
@@ -41,7 +58,8 @@ function statusEmbed(c: FeatureContext): APIEmbed {
     title: "Dueling Domain • Online now", color: PURPLE,
     fields: [
       { name: online ? `Players online • ${online.count}${online.count === 500 ? "+" : ""}` : "Players online",
-        value: online ? names.join("\n") || "No players seen in the last 2 minutes." : "presence not available" },
+        value: !online ? "presence not available" : includeNames ? names.join("\n") || "No players seen in the last 2 minutes."
+          : `${online.count}${online.count === 500 ? "+" : ""} player${online.count === 1 ? "" : "s"} online.` },
       { name: "Live duels", value: `1v1: ${live.duels["1v1"]}\nTag: ${live.duels.tag}\nFFA3: ${live.duels.ffa3}\nFFA4: ${live.duels.ffa4}`, inline: true },
       { name: "Active drafts", value: String(live.drafts.active), inline: true },
       { name: "Active tournaments", value: boundedCount("tournaments", "status='active' and julianday(coalesce(started_at,created_at)) >= julianday(@after)",
@@ -72,10 +90,6 @@ export function startStatusPublisher(c: FeatureContext) {
   };
   const publish = async () => {
     if (Date.now() < retryAt) return;
-    const embed = statusEmbed(c);
-    // The relative timestamp describes the last content update, not the last poll.
-    const contentHash = createHash("sha256").update(JSON.stringify(embed)).digest("hex");
-    if (verified && (hash === contentHash || Date.now() < nextWriteAt)) return;
     if (!messageId && createAttempted) return;
     // No hidden write retries: every edit attempt observes our 30-second floor.
     // Short-lived REST handlers also leave no rate-limit sleeps behind on shutdown.
@@ -83,7 +97,7 @@ export function startStatusPublisher(c: FeatureContext) {
       timeout: 10_000, retries: 0, rejectOnRateLimit: () => true }).setToken(c.config.token);
     const signal = AbortSignal.any([c.signal, AbortSignal.timeout(30_000)]);
     try {
-      const channel = await rest.get(Routes.channel(channelId), { signal }) as { guild_id?: string; type: number };
+      const channel = await rest.get(Routes.channel(channelId), { signal }) as StatusChannel;
       if (channel.guild_id !== c.config.guildId || ![0,5].includes(channel.type)) {
         throw new Error("Status destination must be a text or announcement channel in the bot guild");
       }
@@ -97,6 +111,20 @@ export function startStatusPublisher(c: FeatureContext) {
         }
       }
       verified = true;
+      // Fetch current permissions even when activity is unchanged: a formerly private channel may now be public.
+      const roles = await rest.get(Routes.guildRoles(c.config.guildId), { signal }) as { id: string; permissions: string }[];
+      const everyone = roles.find(role => role.id === c.config.guildId);
+      let includeNames = false;
+      if (everyone && channel.permission_overwrites) {
+        const permissions = new PermissionsBitField(BigInt(everyone.permissions));
+        const admin = permissions.has(PermissionFlagsBits.Administrator);
+        const overwrite = channel.permission_overwrites.find(row => row.id === c.config.guildId && row.type === 0);
+        if (overwrite) permissions.remove(BigInt(overwrite.deny)).add(BigInt(overwrite.allow));
+        includeNames = !admin && !permissions.has(PermissionFlagsBits.ViewChannel);
+      }
+      const embed = statusEmbed(c,includeNames);
+      // The relative timestamp describes the last content update, not the last poll.
+      const contentHash = createHash("sha256").update(JSON.stringify(embed)).digest("hex");
       if (hash === contentHash || (messageId && Date.now() < nextWriteAt) || stopped || c.signal.aborted) return;
       const body = { embeds: [{ ...embed, description: `Updated <t:${Math.floor(Date.now()/1000)}:R>` }], allowed_mentions: NO_API_MENTIONS };
       // Drain started writes so a successful POST is persisted even during shutdown.

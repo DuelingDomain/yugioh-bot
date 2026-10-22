@@ -36,6 +36,7 @@ async function stubDiscord() {
   const guilds = new Set<string>();
   const messages = new Map<string, any>();
   const state = { channelGuild: guild, channelType: 5, channelStatus: 0, messageStatus: 0, editStatus: 0,
+    everyonePermissions: "1024", overwrites: [{ id: guild, type: 0, allow: "0", deny: "1024" }],
     rolePosition: 1, roleMentionable: true, nextStatus: 0, crosspostStatus: 0, replyStatus: 0, memberName: "Tester", intents: 0 };
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -56,7 +57,7 @@ async function stubDiscord() {
       session_start_limit: { total: 1000, remaining: 1000, reset_after: 60_000, max_concurrency: 1 } });
     if (path.split("?")[0] === `/guilds/${guild}`) return send({ id: guild, name: "Test", roles: [], emojis: [], stickers: [], features: [], owner_id: other });
     if (path === `/guilds/${guild}/roles`) return send([
-      { id: guild, name: "@everyone", position: 0, permissions: "0", managed: false, mentionable: false },
+      { id: guild, name: "@everyone", position: 0, permissions: state.everyonePermissions, managed: false, mentionable: false },
       { id: role, name: "News", position: state.rolePosition, permissions: "0", managed: false, mentionable: state.roleMentionable },
       { id: highRole, name: "Staff", position: 10, permissions: "0", managed: false, mentionable: false },
     ]);
@@ -74,7 +75,7 @@ async function stubDiscord() {
     }
     if (req.method === "GET" && path.startsWith("/channels/")) {
       if (state.channelStatus) { res.statusCode = state.channelStatus; return send({ code: 10003, message: "Channel unavailable" }); }
-      return send({ id: path.split("/").at(-1), guild_id: state.channelGuild, type: state.channelType });
+      return send({ id: path.split("/").at(-1), guild_id: state.channelGuild, type: state.channelType, permission_overwrites: state.overwrites });
     }
     if (req.method === "PATCH" && path.startsWith(`/channels/${statusChannel}/messages/`)) {
       const id = path.split("/").at(-1)!;
@@ -495,7 +496,8 @@ it("edits status on change, ignores presence refresh/order and timestamps, and t
   // The input row order changes as heartbeats arrive, but the displayed list does not.
   db.prepare("update users set last_seen_at=? where id=2").run(Date.now()+1);
   await schedule.advance();
-  expect(stub.requests).toHaveLength(before);
+  expect(stub.requests.slice(before).every(r => r.method === "GET")).toBe(true);
+  expect(statusEdits(stub)).toHaveLength(0);
   db.prepare("update users set display_name='@everyone **Duelist**' where id=1").run();
   await schedule.advance(1);
   expect(statusEdits(stub)).toHaveLength(1);
@@ -508,6 +510,74 @@ it("edits status on change, ignores presence refresh/order and timestamps, and t
   expect(statusEdits(stub)).toHaveLength(2);
   expect(new Set(statusEdits(stub).map(r => r.path)).size).toBe(1);
   expect(statusPosts(stub)).toHaveLength(1);
+});
+
+it.each([
+  ["1024", [], false],
+  ["0", [], true],
+  ["1024", [{ id: guild, type: 0, allow: "0", deny: "1024" }], true],
+  ["0", [{ id: guild, type: 0, allow: "1024", deny: "0" }], false],
+  ["1032", [{ id: guild, type: 0, allow: "0", deny: "1024" }], false],
+])("checks everyone permission %s and overwrites %j before publishing", async (permissions, overwrites, privateChannel) => {
+  statusSchedule();
+  const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel, setup(db,stub) {
+    stub.state.everyonePermissions = permissions;
+    stub.state.overwrites = overwrites;
+    db.prepare("update users set last_seen_at=?,last_route='/decks/new' where id=1").run(Date.now());
+  } });
+  await statusReady(db);
+  const field = statusPosts(stub)[0].body.embeds[0].fields[0];
+  expect(field.name).toBe("Players online • 1");
+  expect(field.value).toBe(privateChannel ? "Owner — Deck builder" : "1 player online.");
+});
+
+it("removes names and pages when an unchanged status channel becomes public, and restores them when private", async () => {
+  const schedule = statusSchedule();
+  const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel, setup(db) {
+    db.prepare("update users set last_seen_at=?,last_route='/decks/new' where id=1").run(Date.now());
+  } });
+  await statusReady(db);
+  stub.state.overwrites = [];
+  await schedule.advance(30_000);
+  expect(statusEdits(stub)).toHaveLength(1);
+  expect(statusEdits(stub)[0].body.embeds[0].fields[0].value).toBe("1 player online.");
+  expect(JSON.stringify(statusEdits(stub)[0].body)).not.toMatch(/Owner|Deck builder/);
+  stub.state.overwrites = [{ id: guild, type: 0, allow: "0", deny: "1024" }];
+  await schedule.advance(30_000);
+  expect(statusEdits(stub)).toHaveLength(2);
+  expect(statusEdits(stub)[1].body.embeds[0].fields[0].value).toBe("Owner — Deck builder");
+});
+
+it("clips names at grapheme boundaries before escaping Discord formatting and tokens", async () => {
+  const schedule = statusSchedule();
+  const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel });
+  await statusReady(db);
+  const family = "👩‍👩‍👧‍👦";
+  for (const [name, escaped] of [
+    ["[x](https://evil.example)", "\\[x](https://evil.example)"],
+    ["# big", "\\# big"], ["- list", "\\- list"], ["1. list", "1\\. list"],
+    ["<@123> <#123> <t:123:R>", "‹@123> ‹#123> ‹t:123:R>"],
+    ["a".repeat(58)+"😀tail", "a".repeat(58)+"😀…"],
+    ["a".repeat(58)+family+"tail", "a".repeat(58)+family+"…"],
+    ["a".repeat(58)+"\\tail", "a".repeat(58)+"\\\\…"],
+  ]) {
+    db.prepare("update users set display_name=?,last_seen_at=?,last_route='/app' where id=1").run(name,Date.now()+30_000);
+    await schedule.advance(30_000);
+    expect(statusEdits(stub).at(-1)!.body.embeds[0].fields[0].value).toBe(`${escaped} — App`);
+  }
+});
+
+it("keeps heavily escaped names within the Discord field limit", async () => {
+  statusSchedule();
+  const { db, stub } = await fixture(true, [community], { botGuildId: guild, statusChannelId: statusChannel, setup(db) {
+    const insert = db.prepare("insert into users(username,display_name,last_seen_at,last_route) values(?,?,?,'/duels/[slug]')");
+    for (let i=0; i<12; i++) insert.run(`escaped${i}`,"*".repeat(80),Date.now());
+  } });
+  await statusReady(db);
+  const field = statusPosts(stub)[0].body.embeds[0].fields[0];
+  expect(field.value.length).toBeLessThanOrEqual(1024);
+  expect(field.value).toContain("… — Duel page");
+  expect(field.value).toMatch(/\+\d+ more$/);
 });
 
 it("reuses a stored bot message after restart without posting or editing unchanged content", async () => {
