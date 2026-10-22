@@ -177,6 +177,12 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   useHudEscape(hudState, hud, suspended);
   usePinSync(hudState, engine.seats);
   usePinFollowsHover(hud, hudState.pinned, ui.hover?.card, hudState.pinCard);
+  // The click that opens a pile also pins the card under it (the Extra Deck's top card): the viewer opens with no drawer, so that pin goes.
+  const pileOpen = ui.pile?.open === true;
+  const releasePin = hudState.pinCard;
+  useEffect(() => {
+    if (pileOpen && hud) releasePin(null);
+  }, [pileOpen, hud, releasePin]);
   // An open flyout, a pinned card or the pinned phone drawer holds only Esc (it closes it).
   const hudOpen = (hud && (hudState.pane != null || hudState.pinned != null)) || (narrow && phoneCard != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.

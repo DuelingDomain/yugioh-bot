@@ -466,14 +466,8 @@
   translate: -34% -34%;
 }
 
-/* ---------- the left card drawer: the window is placed in the space right of it from the start, so the drawer never covers it
-   and the window does not move when the drawer opens on a hover (the width is the drawer's own: --duel-drawer-w in globals.css) ---------- */
-
-@media (min-width: 901px) {
-  .root {
-    padding-left: calc(var(--duel-drawer-w) + var(--pv-pad));
-  }
-}
+/* ---------- the left card drawer: the window stays centred in the board box, owned or not. The drawer floats over the window
+   only on a hover and takes the side that does not cover the hovered tile (grid-preview.tsx). ---------- */
 
 /* ---------- the card text inside the window: phones only (a wide screen has the left drawer for it) ---------- */
 
