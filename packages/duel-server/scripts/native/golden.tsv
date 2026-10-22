@@ -1,9 +1,9 @@
 n	mode	seed	steps	hash
 # turns=60 lp=3000
-# data-pins-sha256=8aa1beefaa4ce6b941b36567ee1042f6dbf2d3f6de6c99e07a40bcb09577d254
+# data-pins-sha256=440fa02a001f69661d9d3ef752efcbb5127b4b4783f6f757bcb8ca4fc826f5b8
 # multi-scripts-sha256=7b3743963d0ad284cb074d5920ffc33699eaef43a578e09aa29f7c57837dbd1e
 # patches-sha256=de12e886a1513b2c2fb137e37389abf491090926d1dac0bd3c6f361683e92192
-# card-script-patches-sha256=90d09af5d5aa84d5d14abc846ed1bf1904745f70cf503e64aefad6ab3dcf30d9
+# card-script-patches-sha256=ca6b5265c8d854bb48fbe4d2aa10c093a09378ce77f1602f29ecde9f364e4f1d
 2	ffa	1	474	0994a1d3833e8a59
 2	ffa	2	217	1b11b13debf697ef
 2	ffa	3	279	c3e73036c7562303

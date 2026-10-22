@@ -1,5 +1,24 @@
 [
   {
+    "date": "2026-10-22T10:47:28.079Z",
+    "label": "Project Ignis 2026-10-22",
+    "pullRequest": {
+      "number": 443,
+      "url": "https://github.com/DuelingDomain/yugioh-bot/pull/443"
+    },
+    "counts": {
+      "newCards": 0,
+      "changedCards": 0,
+      "removedCards": 0,
+      "changedScripts": 4,
+      "newSetCodes": 0
+    },
+    "setCodes": [],
+    "newCards": [],
+    "cardListAvailable": true,
+    "note": "Card counts compare loaded database rows. The card list follows the report and excludes blocked pre-release cards and graduations. Set codes are known sets of listed new cards."
+  },
+  {
     "date": "2026-10-19T17:47:58.615Z",
     "label": "Project Ignis 2026-10-19",
     "pullRequest": {
