@@ -220,6 +220,8 @@ The same fix is useful for the production standard core. It is not applied there
 
 ## Status of the series
 
+`0119-real-seat-lp-query.patch` adds `Duel.MPGetLP(realSeat)`, a read-only LP query that returns nil for eliminated or invalid seats. The FFA comparison overlay uses it to inspect every living opponent without changing the caller's seat scope or opponent binding. Rebuild both `multi` and `multi-domain` cores when installing this overlay. Stock `Duel.GetLP`, 1v1 and Tag comparisons retain their existing behavior. Live proof: `tests/scenarios/multiplayer/lp-comparisons.test.ts`.
+
 - Patches 2, 3 and 4 pass the differential gate. The reference is patches 1 and 2. The multi core is patches 1 to 4.
 - The results in this section are for patches 1 to 4. They were not repeated for patches 5 to 52 when these files were added.
 - Before the freed-effect fix: 200 seeds (base seed 20260930) and 1,000 seeds gave zero stock differences and zero multi differences.

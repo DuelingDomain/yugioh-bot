@@ -15,19 +15,20 @@ function pin(format: Format, lower: boolean, mixed = false, deadHigh = false): S
   const actor: Seat = format === "ffa3" ? "p2" : "p3";
   const lp = format === "tag" ? (lower ? 12000 : 17000) : (lower ? 6000 : 9000);
   const other: Seat = format === "tag" ? "p2" : "p1";
+  const protectedEffect = lower && !mixed;
   const spec: Parameters<typeof everySeat>[1] = {};
   for (const seat of SEATS[format]) spec[seat] = { hand: seat === "p0" ? [] : [ELF], lp: format === "tag" ? (Number(seat.slice(1)) % 2 === 1 ? lp : 14500) : 8000 };
   spec[other] = { ...spec[other], hand: [ELF], monsters: [ELF] };
-  spec.p0 = { hand: [], monsters: lower ? [] : [ELF], grave: [STRIKE], lp: format === "tag" ? 14500 : mixed ? 3500 : 6500 };
-  spec[actor] = lower
+  spec.p0 = { hand: [], monsters: protectedEffect ? [] : [ELF], grave: [STRIKE], lp: format === "tag" ? 14500 : mixed ? 3500 : 6500 };
+  spec[actor] = protectedEffect
     ? { hand: [ELF], lp, monsters: [PIN], spells: [ELF], grave: [POLY, ROLLER, LEON], extra: [] }
     : { hand: [ELF], lp, grave: [POLY, ROLLER, LEON, PIN], extra: [] };
   if (deadHigh) spec.p2 = { lp: 12000, hand: [], deckCount: 0 };
   return defineScenario({
     id: `leftover-pin-${format}-${mixed ? "middle-lp" : deadHigh ? "dead-high-lp" : lower ? "lower-control" : "higher-control"}`,
     title: `${format}: Pin Baller compares every living opposing LP pool`,
-    source: `${SOURCE} [${format === "tag" ? "R-TAG-LP" : "R-FFA-OPP-ONE"}] a condition needs one living opposing LP pool that meets it`,
-    rules: [format === "tag" ? "R-TAG-LP" : "R-FFA-OPP-ONE"],
+    source: `${SOURCE} [${format === "tag" ? "R-TAG-LP" : "R-FFA-LP-COMPARE"}] ${format === "tag" ? "compare the two team LP pools" : "negation protection requires lower LP than every living opponent"}`,
+    rules: [format === "tag" ? "R-TAG-LP" : "R-FFA-LP-COMPARE"],
     tags: ["multiplayer", "global-effect", "lp", format, "card:28497830"],
     setup: baseSetup(format, {
       p0: { ...(mixed ? { lp: 5000 } : {}), monsters: [ELF], spells: [faceDown(STRIKE)] },
