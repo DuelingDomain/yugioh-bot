@@ -10,7 +10,7 @@ export function cardScriptPatchesHash(scriptDirectory: string): string {
   if (!Array.isArray(receipt)) throw new Error("Card script patch receipt must be a list");
   const paths = receipt.map((patch: unknown) => {
     const path = (patch as { stockPath?: unknown } | null)?.stockPath;
-    if (typeof path !== "string" || !/^(?:[A-Za-z0-9_-]+\/)*c[0-9]+\.lua$/.test(path)) {
+    if (typeof path !== "string" || (path !== "card_counter_constants.lua" && !/^(?:[A-Za-z0-9_-]+\/)*c[0-9]+\.lua$/.test(path))) {
       throw new Error("Invalid card script patch stockPath");
     }
     return path;
