@@ -412,10 +412,32 @@ it("publishes one bounded online status with the report sources in the data guil
     duel.run(dataGuild,"status-fork","Replay","active","ffa4","replay-fork",at);
     duel.run(guild,"status-foreign","Foreign","active","ffa4","play",at);
     db.exec("insert into duel_seats(duel_id,seat,player_id) values(2,0,2),(7,0,2)");
+    duel.run(dataGuild,"status-test","Deck test","active","tag","play",at);
+    db.exec(`update duels set setup_json='{"testDuel":true}' where web_slug='status-test'`);
+    duel.run(dataGuild,"status-invalid-json","Invalid setup","active","1v1","play",at);
+    db.exec("update duels set setup_json='invalid' where web_slug='status-invalid-json'");
     db.prepare("insert into drafts(guild_id,channel_id,name,status,created_by_user_id,web_slug) values(?,'c','Live draft','active',1,'status-draft'),(?,'c','Foreign','active',1,'foreign-draft')").run(dataGuild,guild);
     db.prepare("insert into tournaments(guild_id,name,format,status,created_by_user_id) values(?,'Live','swiss','active',1),(?,'Done','swiss','completed',1),(?,'Foreign','swiss','active',1)").run(dataGuild,dataGuild,guild);
     const series = db.prepare("insert into duel_series(guild_id,player0_id,player1_id,created_by_player_id,mode,settings_json,status) values(?,1,2,1,'match','{}',?)");
     series.run(dataGuild,"active"); series.run(dataGuild,"between_games"); series.run(dataGuild,"completed"); series.run(guild,"active");
+    // Interrupted games leave an unscheduled between_games row forever; neither it nor an orphan active row is live.
+    series.run(dataGuild,"active");
+    db.exec("update duels set series_id=1,game_number=1 where web_slug='status-0'");
+    series.run(dataGuild,"between_games");
+    db.prepare("update duel_series set next_game_at=? where id=6").run(new Date(now+60_000).toISOString());
+    series.run(dataGuild,"between_games");
+    db.prepare("update duel_series set next_game_at=? where id=7").run(new Date(now-600_001).toISOString());
+    series.run(dataGuild,"active");
+    db.exec("update duels set series_id=8,game_number=1 where web_slug='status-stale'");
+    series.run(dataGuild,"active");
+    db.exec("update duels set series_id=9,game_number=1 where web_slug='status-test'");
+    series.run(dataGuild,"active");
+    db.exec("update duels set series_id=10,game_number=1 where web_slug='status-1'");
+    const ended = duel.run(dataGuild,"status-ended","Latest ended","completed","tag","play",at);
+    db.prepare("update duels set series_id=10,game_number=2 where id=?").run(ended.lastInsertRowid);
+    const old = new Date(now-86_400_001).toISOString();
+    db.prepare("insert into drafts(guild_id,channel_id,name,status,created_by_user_id,web_slug,created_at,started_at) values(?,'c','Abandoned','active',1,'abandoned',?,?)").run(dataGuild,old,old);
+    db.prepare("insert into tournaments(guild_id,name,format,status,created_by_user_id,created_at,started_at) values(?,'Abandoned','swiss','active',1,?,?)").run(dataGuild,old,old);
   } });
   await expect.poll(() => statusPosts(stub).length).toBe(1);
   await statusReady(db);
@@ -426,10 +448,41 @@ it("publishes one bounded online status with the report sources in the data guil
   expect(payload.embeds[0]).toMatchObject({ title: "Dueling Domain • Online now", color: 0x7652b8,
     description: `Updated <t:${Math.floor(Date.now()/1000)}:R>`, fields: [
       { name: "Players online • 12", value: "Owner — Deck builder\nUser — Tag duel\nZed 04 — Dashboard\nZed 05 — Dashboard\nZed 06 — Dashboard\nZed 07 — Dashboard\nZed 08 — Dashboard\nZed 09 — Dashboard\nZed 10 — Dashboard\nZed 11 — Dashboard\n+2 more" },
-      { name: "Live duels", value: "1v1: 1\nTag: 1\nFFA3: 1\nFFA4: 1" },
+      { name: "Live duels", value: "1v1: 2\nTag: 1\nFFA3: 1\nFFA4: 1" },
       { name: "Active drafts", value: "1" }, { name: "Active tournaments", value: "1" }, { name: "Active series", value: "2" },
     ] });
   expect(payload.embeds[0].fields.every((field: any) => field.value.length <= 1024)).toBe(true);
+});
+
+it("labels only current players at live non-test tables", async () => {
+  const { db, stub } = await fixture(true);
+  const now = Date.now(), at = new Date(now).toISOString();
+  vi.spyOn(Date,"now").mockReturnValue(now);
+  db.prepare("update users set last_seen_at=?,last_route='/duels/[slug]' where id=2").run(now);
+  db.prepare("insert into players(id,guild_id,user_id,display_name) values(1,?,2,'User')").run(dataGuild);
+  db.prepare(`insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status,format,kind,last_activity_at)
+    values(1,?,'label-live','Live',1,'match','active','tag','play',?)`).run(dataGuild,at);
+  db.exec("insert into duel_seats(duel_id,seat,player_id) values(1,0,1)");
+  expect(JSON.stringify(await stub.response(stub.command("online")))).toContain("Tag duel");
+  for (const setup of [
+    () => db.prepare("update duels set last_activity_at=?").run(new Date(now-600_001).toISOString()),
+    () => db.prepare("update duels set status='lobby',last_activity_at=?").run(new Date(now-600_001).toISOString()),
+    () => db.prepare("update duels set archived_at=?").run(at),
+    () => db.exec(`update duels set setup_json='{"testDuel":true}'`),
+    () => db.exec(`update duels set setup_json='{"eliminatedSeats":[0]}'`),
+    () => db.exec(`update duels set setup_json='{"surrenderedSeats":[0]}'`),
+    () => db.exec(`insert into duel_commands(duel_id,seq,seat,command_json) values(1,1,0,'{"promptId":"eliminate:0"}')`),
+    () => db.exec("insert into duel_kicked_players(duel_id,player_id) values(1,1)"),
+    () => db.exec("delete from duel_seats"),
+  ]) {
+    db.prepare("update duels set status='active',archived_at=null,setup_json='{}',last_activity_at=?").run(at);
+    setup();
+    const response = JSON.stringify(await stub.response(stub.command("online")));
+    expect(response).not.toContain("Tag duel");
+    expect(response).not.toContain("Duel lobby");
+    expect(response).toContain("Duel page");
+    db.exec("delete from duel_commands; delete from duel_kicked_players");
+  }
 });
 
 it("edits status on change, ignores presence refresh/order and timestamps, and throttles edits", async () => {

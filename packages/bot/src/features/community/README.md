@@ -20,11 +20,11 @@ Implementation plan (owner-approved scope in `bot-phase1-common.md` and `discord
 
 ## Data definitions
 
-Online = latest server-recorded presence within 120 seconds, capped at 500 users. Only stored route templates are mapped to labels. Duel routes use the user's newest play lobby/active table for the format label, as in the console.
+Online = latest server-recorded presence within 120 seconds, capped at 500 users. Only stored route templates are mapped to labels. Duel routes use the user's newest live play lobby/active table where they still occupy a playing seat; idle, archived, test, kicked, surrendered and eliminated seats are excluded. Other visitors receive the label "Duel page".
 
 Statistics cover seven UTC days ending today. Sign-ups use `users.created_at`. Started duels include a `started_at` or active/completed/interrupted status; only completed duels count as finished. Replay forks are excluded. Drafts use `started_at` and completed `ended_at`. Active users are distinct site users in started duels/drafts or with their latest presence on that day; weekly users are a union, not a sum. Past presence cannot reconstruct earlier visits.
 
-Live rows use the console's query limits and filters: same guild, play duels, no archived rows, no idle active/lobby tables past 10 minutes, no empty lobbies; pending drafts older than 24 hours are excluded, active drafts are retained. Up to 100 rows per kind are included. The report distinguishes active tables from waiting lobbies.
+Live rows use the console's filters: same guild, play duels, no archived or deck-editor test rows, no idle active/lobby tables past 10 minutes, no empty lobbies. Drafts are limited to 24 hours from their start (creation for pending drafts); up to 100 live rows per kind are included. The report distinguishes active tables from waiting lobbies. Status tournaments have the same 24-hour age limit. Status series require a live latest game or a scheduled between-game deadline within ten minutes of now; orphan active rows and interrupted games without a deadline are excluded.
 
 ## Public card images
 

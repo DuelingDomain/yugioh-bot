@@ -2,7 +2,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { DiscordAPIError, RateLimitError, REST, Routes, escapeMarkdown, type APIEmbed } from "discord.js";
 import { log, report } from "@yugidraft/shared/observability";
 import type { FeatureContext } from "../../runtime/types.js";
-import { listOnline, liveCounts } from "./admin-data.js";
+import { DUEL_LIVE_IDLE_AFTER_MS, LIVE_EVENT_MAX_AGE_MS, listOnline, liveCounts } from "./admin-data.js";
+import { DUEL_WAITING_IDLE_TIMEOUT_MS } from "@yugidraft/shared/duels";
 import { NO_API_MENTIONS, PURPLE, clip } from "./common.js";
 
 const POLL_MS = 60_000, MIN_EDIT_MS = 30_000, MAX_NAMES = 10;
@@ -18,11 +19,24 @@ function statusEmbed(c: FeatureContext): APIEmbed {
   const names = users.slice(0, MAX_NAMES).map(user =>
     `${clip(escapeMarkdown(user.name.replace(/[\r\n]/g," ")),60)} — ${user.label}`);
   if (users.length > names.length) names.push(`+${users.length-names.length} more`);
-  const boundedCount = (table: "tournaments" | "duel_series", statuses: string) => {
+  const boundedCount = (table: "tournaments" | "duel_series", filter: string, params: Record<string,string>) => {
     const { count } = c.db.prepare(`select count(*) as count from
-      (select 1 from ${table} where guild_id=? and status in (${statuses}) limit 101)`).get(guild) as { count: number };
+      (select 1 from ${table} where guild_id=@guild and ${filter} limit 101)`).get({ guild, ...params }) as { count: number };
     return count > 100 ? "100+" : String(count);
   };
+  const activeAfter = new Date(now-DUEL_LIVE_IDLE_AFTER_MS).toISOString();
+  const seriesCount = boundedCount("duel_series", `(
+    (status='active' and exists (
+      select 1 from duels d where d.series_id=duel_series.id and d.guild_id=@guild and d.kind='play'
+        and d.id=(select g.id from duels g where g.series_id=duel_series.id order by g.game_number desc,g.id desc limit 1)
+        and d.status in ('active','lobby') and d.archived_at is null
+        and case when json_valid(d.setup_json) then coalesce(json_extract(d.setup_json,'$.testDuel'),0) else 0 end=0
+        and julianday(coalesce(d.last_activity_at,d.started_at,d.created_at)) >=
+          julianday(case when d.status='active' then @activeAfter else @waitingAfter end)))
+    or (status='between_games' and next_game_at is not null
+      and julianday(next_game_at) between julianday(@activeAfter) and julianday(@nextBefore)))`,
+  { activeAfter, waitingAfter: new Date(now-DUEL_WAITING_IDLE_TIMEOUT_MS).toISOString(),
+    nextBefore: new Date(now+DUEL_LIVE_IDLE_AFTER_MS).toISOString() });
   return {
     title: "Dueling Domain • Online now", color: PURPLE,
     fields: [
@@ -30,10 +44,11 @@ function statusEmbed(c: FeatureContext): APIEmbed {
         value: online ? names.join("\n") || "No players seen in the last 2 minutes." : "presence not available" },
       { name: "Live duels", value: `1v1: ${live.duels["1v1"]}\nTag: ${live.duels.tag}\nFFA3: ${live.duels.ffa3}\nFFA4: ${live.duels.ffa4}`, inline: true },
       { name: "Active drafts", value: String(live.drafts.active), inline: true },
-      { name: "Active tournaments", value: boundedCount("tournaments", "'active'"), inline: true },
-      { name: "Active series", value: boundedCount("duel_series", "'active','between_games'"), inline: true },
+      { name: "Active tournaments", value: boundedCount("tournaments", "status='active' and julianday(coalesce(started_at,created_at)) >= julianday(@after)",
+        { after: new Date(now-LIVE_EVENT_MAX_AGE_MS).toISOString() }), inline: true },
+      { name: "Active series", value: seriesCount, inline: true },
     ],
-    footer: { text: "Site presence: last 2 minutes • Up to 500 players / 100 live tables • Series include between games" },
+    footer: { text: "Site presence: last 2 minutes • Up to 500 players / 100 live tables • Scheduled series breaks: ±10 min • Drafts/tournaments: 24h" },
   };
 }
 
