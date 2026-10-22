@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Wed, 21 Oct 2026 20:00:00 +0000
+Subject: [PATCH] core: read living-seat LP without changing Lua scope
+
+The LP comparison overlay must inspect every living opponent even in a
+bound effect or nested MPNthDuelist rebind. Give it a read-only real-seat
+query rather than temporarily replacing the caller's scope. Stock GetLP
+and every 1v1/Tag card script keep their existing behavior.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+diff --git a/libduel.cpp b/libduel.cpp
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -5364,6 +5364,19 @@
+ 		&& (f.n_duelists <= 2 || f.is_alive(static_cast<uint8_t>(seat))));
+ 	return 1;
+ }
++// Read one living real seat's LP without changing the Lua perspective or opponent binding.
++// Used by the multiplayer LP comparison overlay, including inside an existing seat rebind.
++LUA_STATIC_FUNCTION(MPGetLP) {
++	check_param_count(L, 1);
++	const auto seat = lua_get<int64_t>(L, 1);
++	const auto& f = *pduel->game_field;
++	if(seat < 0 || seat >= f.n_duelists || !f.is_alive(static_cast<uint8_t>(seat))) {
++		lua_pushnil(L);
++		return 1;
++	}
++	lua_pushinteger(L, pduel->game_field->lp_ref(static_cast<uint8_t>(seat)));
++	return 1;
++}
+ // Duel.MPAttackedSeat(): the real seat of the duelist that the current attack goes at (the controller of the attack target, or the
+ // defender of a direct attack), or nil when there is no attack, no such seat, or the seat is not alive. More than two duelists
+ // only: with two duelists it gives nil (the Lua player of the attacked side is always 1 - the attacker's, so it is not needed).

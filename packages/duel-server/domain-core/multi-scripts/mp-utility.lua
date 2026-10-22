@@ -205,51 +205,6 @@ function aux.MPAnyOpponent(tp,fn)
 	end)
 end
 
--- R-FFA-LP-COMPARE (owner 2026-10-21): compare with EVERY living opponent,
--- including when an activation, event or lasting effect has bound only one opponent.
--- A margin is a required gap: <=,2000 means own LP + 2000 <= each opponent's LP.
--- No pick and no GetLP override. Tag keeps the stock shared-team comparison.
-local function mp_compare_lp(own,other,relation,margin)
-	if relation=="<" then return own+margin<other end
-	if relation=="<=" then return own+margin<=other end
-	if relation==">" then return own>other+margin end
-	if relation==">=" then return own>=other+margin end
-	if relation=="==" then return own==other end
-	error("Unknown LP comparison: "..tostring(relation))
-end
-
--- Real-seat form also works in a global callback (for example Pin Baller's chain protection).
-function aux.MPCompareLPSeat(me,relation,margin)
-	margin=margin or 0
-	local points={}
-	if Duel.MPNthDuelist(1) then
-		Duel.MPNthDuelist(0)
-		aux.MPForEachDuelist(function(p,seat) points[seat]=Duel.GetLP(p) end)
-	else
-		-- No effect scope: Lua player values already are real seats.
-		for seat=0,3 do
-			if Duel.MPIsAlive(seat) then points[seat]=Duel.GetLP(seat) end
-		end
-	end
-	local own=points[me]
-	if own==nil then return false end
-	local found=false
-	for seat,lp in pairs(points) do
-		if seat~=me then
-			found=true
-			if not mp_compare_lp(own,lp,relation,margin) then return false end
-		end
-	end
-	return found
-end
-
-function aux.MPCompareLP(tp,relation,margin)
-	if Duel.MPMode()~=1 then
-		return mp_compare_lp(Duel.GetLP(tp),Duel.GetLP(1-tp),relation,margin or 0)
-	end
-	return aux.MPCompareLPSeat(aux.MPKey(tp),relation,margin)
-end
-
 -- Decision-only "your opponent": call during resolution, after the activator prepares the choices.
 -- Use the ordinary option prompt with the same seat descriptors as the core's declaration prompt.
 -- Unlike a declaration, this ignores an event/chain opponent: any living opponent can decide.
@@ -588,4 +543,45 @@ function aux.MPDirectAttackCondition(fn)
   end
   return false
  end
+end
+
+-- Append helpers here: activated_lock.h pins MPChooseOpponent's existing source lines.
+-- R-FFA-LP-COMPARE (owner 2026-10-21): compare with EVERY living opponent,
+-- including when an activation, event or lasting effect has bound only one opponent.
+-- A margin is a required gap: <=,2000 means own LP + 2000 <= each opponent's LP.
+-- No pick and no GetLP override. Tag keeps the stock shared-team comparison.
+local function mp_compare_lp(own,other,relation,margin)
+	if relation=="<" then return own+margin<other end
+	if relation=="<=" then return own+margin<=other end
+	if relation==">" then return own>other+margin end
+	if relation==">=" then return own>=other+margin end
+	if relation=="==" then return own==other end
+	error("Unknown LP comparison: "..tostring(relation))
+end
+
+-- FFA real-seat form also works in a global callback (for example Pin Baller's chain protection).
+function aux.MPCompareLPSeat(me,relation,margin)
+	margin=margin or 0
+	local points={}
+	-- Patch 0119: raw, living-seat reads preserve an enclosing rebind/window.
+	for seat=0,3 do
+		points[seat]=Duel.MPGetLP(seat)
+	end
+	local own=points[me]
+	if own==nil then return false end
+	local found=false
+	for seat,lp in pairs(points) do
+		if seat~=me then
+			found=true
+			if not mp_compare_lp(own,lp,relation,margin) then return false end
+		end
+	end
+	return found
+end
+
+function aux.MPCompareLP(tp,relation,margin)
+	if Duel.MPMode()~=1 then
+		return mp_compare_lp(Duel.GetLP(tp),Duel.GetLP(1-tp),relation,margin or 0)
+	end
+	return aux.MPCompareLPSeat(aux.MPKey(tp),relation,margin)
 end
