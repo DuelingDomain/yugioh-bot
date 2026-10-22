@@ -445,6 +445,9 @@ it("publishes one bounded online status with the report sources in the data guil
     db.exec("update duels set series_id=10,game_number=1 where web_slug='status-1'");
     const ended = duel.run(dataGuild,"status-ended","Latest ended","completed","tag","play",at);
     db.prepare("update duels set series_id=10,game_number=2 where id=?").run(ended.lastInsertRowid);
+    series.run(dataGuild,"active");
+    const empty = duel.run(dataGuild,"status-empty","Empty lobby","lobby","tag","play",at);
+    db.prepare("update duels set series_id=11,game_number=1 where id=?").run(empty.lastInsertRowid);
     const old = new Date(now-86_400_001).toISOString();
     db.prepare("insert into drafts(guild_id,channel_id,name,status,created_by_user_id,web_slug,created_at,started_at) values(?,'c','Abandoned','active',1,'abandoned',?,?)").run(dataGuild,old,old);
     db.prepare("insert into tournaments(guild_id,name,format,status,created_by_user_id,created_at,started_at) values(?,'Abandoned','swiss','active',1,?,?)").run(dataGuild,old,old);

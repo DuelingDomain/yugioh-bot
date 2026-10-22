@@ -47,6 +47,7 @@ function statusEmbed(c: FeatureContext, includeNames: boolean): APIEmbed {
       select 1 from duels d where d.series_id=duel_series.id and d.guild_id=@guild and d.kind='play'
         and d.id=(select g.id from duels g where g.series_id=duel_series.id order by g.game_number desc,g.id desc limit 1)
         and d.status in ('active','lobby') and d.archived_at is null
+        and (d.status='active' or exists (select 1 from duel_seats seat where seat.duel_id=d.id))
         and case when json_valid(d.setup_json) then coalesce(json_extract(d.setup_json,'$.testDuel'),0) else 0 end=0
         and julianday(coalesce(d.last_activity_at,d.started_at,d.created_at)) >=
           julianday(case when d.status='active' then @activeAfter else @waitingAfter end)))
