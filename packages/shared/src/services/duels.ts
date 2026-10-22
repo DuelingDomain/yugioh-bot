@@ -286,7 +286,7 @@ export interface DuelService {
   setClock(slug: string, guildId: string, clock: DuelClockState | null): void;
   dueClocks(now: number, limit: number): Array<{ slug: string; guildId: string }>;
   /** Host startup only: rebase competitive banks without charging server downtime. */
-  resumeCompetitiveClocks(now: number): void;
+  resumeCompetitiveClocks(now: number | (() => number)): void;
   recordHostHeartbeat(now: number): void;
   /**
    * Starts a lobby opening: 1v1 RPS or FFA dice, with all seats ready. Idempotent while an
@@ -2021,8 +2021,13 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       return rows.map(({ slug, guildId }) => ({ slug, guildId }));
     },
 
-    resumeCompetitiveClocks(at) {
+    resumeCompetitiveClocks(resumeAt) {
+      // Acquire the writer slot before reading. WAL read-to-write upgrades can
+      // fail immediately with SQLITE_BUSY(_SNAPSHOT), bypassing busy_timeout.
       db.transaction(() => {
+        // A successful BEGIN can itself wait. Sample after acquiring its lock
+        // so that startup contention is excluded from the players' clock time.
+        const at = typeof resumeAt === "function" ? resumeAt() : resumeAt;
         const heartbeat = db.prepare<[], { last_tick_at: number }>("select last_tick_at from duel_host_heartbeat where id = 1").get();
         const lastTick = heartbeat ? Math.min(at, heartbeat.last_tick_at) : null;
         const rows = db.prepare<[], DuelRow>(`select * from duels where kind = 'play' and status = 'active' and ${COMPETITIVE_SQL}`).all();
@@ -2051,7 +2056,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         }
         // Commit the rebases and heartbeat together so another restart never applies the same outage twice.
         writeHeartbeat.run(at);
-      })();
+      }).immediate();
     },
 
     recordHostHeartbeat(at) { writeHeartbeat.run(at); },
