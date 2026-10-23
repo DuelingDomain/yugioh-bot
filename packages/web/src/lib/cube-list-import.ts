@@ -26,7 +26,7 @@ export async function resolveImportedCardList(catalog: CardCatalogService, text:
   engine?: CardIdentityCatalog;
   find?: (code: number) => DeckCardType | undefined;
   lookupBudget?: CardLookupBudget;
-  onUnknown?: (entry: CardListEntry) => void;
+  onUnknown?: (entry: CardListEntry, lookupLimited: boolean) => void;
   /** Bulk previews check numeric entries with the host, including simulator-only artwork IDs. */
   deferPasscodes?: boolean;
 } = {}): Promise<{
@@ -83,7 +83,7 @@ export async function resolveImportedCardList(catalog: CardCatalogService, text:
   }
   const resolved: Array<{ entry: CardListEntry; card: ImportedCard; copies: number }> = [];
   const unknown = new Set<string>();
-  const unresolved = (entry: CardListEntry) => { unknown.add(entry.original); onUnknown?.(entry); };
+  const unresolved = (entry: CardListEntry, lookupLimited = false) => { unknown.add(entry.original); onUnknown?.(entry, lookupLimited); };
   const corrected = new Map<string, { from: string; to: string }>();
   for (const entry of parsed) {
     if (entry.heading) { unresolved(entry); continue; }
@@ -94,7 +94,10 @@ export async function resolveImportedCardList(catalog: CardCatalogService, text:
     const fallbackCard = (entry.fallbackName && engineName(entry.fallbackName))
       || (fallback && !fallback.corrected ? fallback.card : undefined);
     const card = typeof entry.query === "number" ? byCode.get(entry.query) : engineName(entry.query) ?? resolution?.card ?? fallbackCard;
-    if (!card) { unresolved(entry); continue; }
+    if (!card) {
+      unresolved(entry, typeof entry.query === "string" ? !!(resolution?.lookupLimited || fallback?.lookupLimited) : lookupBudget.lookupLimited);
+      continue;
+    }
     if (resolution?.corrected) corrected.set(resolution.corrected.from, resolution.corrected);
     const copies = resolution?.card || typeof entry.query === "number" || engineName(entry.query) ? entry.copies : 1;
     resolved.push({ entry, card, copies });

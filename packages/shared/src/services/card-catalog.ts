@@ -68,6 +68,8 @@ export interface CardNameResolution {
   name: string;
   card?: CardCatalogCard;
   corrected?: { from: string; to: string };
+  /** At least one search for this unresolved name was skipped because its allowance was exhausted. */
+  lookupLimited?: true;
 }
 
 export type SyncDraftPoolInput = {
@@ -716,11 +718,15 @@ export function createCardCatalogService(
         for (const card of cards) fetched.set(normalizeImportedCardName(card.name), card);
       };
       const fetchable = missing.filter((name) => name.length <= 200 && normalizeImportedCardName(name));
+      const limitedNames = new Set<string>();
       // YGOPRODeck supports pipe-separated exact names. Small batches keep URLs bounded.
       for (let offset = 0; offset < fetchable.length; offset += 20) {
-        remember(await fetchCards("name", fetchable.slice(offset, offset + 20).map(straightenCardQuotes).join("|"), lookupBudget));
+        const batch = fetchable.slice(offset, offset + 20);
+        if (lookupBudget.remaining <= 0) for (const name of batch) limitedNames.add(normalizeImportedCardName(name));
+        remember(await fetchCards("name", batch.map(straightenCardQuotes).join("|"), lookupBudget));
       }
       const probes = new Map<string, YgoprodeckCard[]>();
+      const limitedProbes = new Set<string>();
       for (const name of fetchable) {
         const key = normalizeImportedCardName(name);
         if (fetched.has(key)) continue;
@@ -729,7 +735,11 @@ export function createCardCatalogService(
         const words = [...new Set(key.split(" "))].filter((word) => word.length >= 3)
           .sort((a, b) => b.length - a.length).slice(0, 2);
         for (const word of words) {
-          if (!probes.has(word)) probes.set(word, await fetchCards("fname", word, lookupBudget));
+          if (!probes.has(word)) {
+            if (lookupBudget.remaining <= 0) limitedProbes.add(word);
+            probes.set(word, await fetchCards("fname", word, lookupBudget));
+          }
+          if (limitedProbes.has(word)) limitedNames.add(key);
           remember(probes.get(word)!);
         }
       }
@@ -745,7 +755,8 @@ export function createCardCatalogService(
         const match = matches[i];
         if (match) ensureEngineCard(match.id);
         const card = match && findByIds([canonicalId(match.id)])[0];
-        return { name, card, ...(card && normalizeImportedCardName(name) !== normalizeImportedCardName(card.name)
+        return { name, card, ...(!card && limitedNames.has(normalizeImportedCardName(name)) ? { lookupLimited: true as const } : {}),
+          ...(card && normalizeImportedCardName(name) !== normalizeImportedCardName(card.name)
           ? { corrected: { from: name, to: card.name } } : {}) };
       });
     },

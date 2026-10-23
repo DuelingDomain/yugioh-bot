@@ -68,7 +68,7 @@ export function useBulkImport(onImported: () => void) {
   const [view, setView] = useState<ImportView>({ phase: "idle" });
   /** Why the preview or the import call failed. The preview, if any, stays on screen. */
   const [error, setError] = useState<string | null>(null);
-  /** Files left out before the call, with the reason. */
+  /** Notes about source picks, including files left out and replaced paste rows. */
   const [notes, setNotes] = useState<string[]>([]);
   /** Counts up on reset and unmount, so a reply for a list that is gone is dropped. */
   const epoch = useRef(0);
@@ -219,11 +219,14 @@ export function useBulkImport(onImported: () => void) {
       }
       for (const source of tagged) known.current.set(source.id, source);
       // The numbering is worked out here, not in the state update, because React may run an update twice.
-      const base = Math.max(imported.current, highestImportedNumber(current(shown.current).items));
+      const existing = current(shown.current).items;
+      const retained = existing.filter((item) => !replaced.has(item.row.sourceId));
+      const base = Math.max(replacesPaste ? 0 : imported.current, highestImportedNumber(retained));
       const renamed = renumberImported(found.rows, base);
       imported.current = renamed.top;
       const added = toItems(renamed.rows, requested);
       const more = pending.current > 1;
+      if (retained.length < existing.length) setNotes((previous) => [...previous, "Replaced the earlier pasted decks."]);
       setView((state) => {
         const kept = current(state);
         return {

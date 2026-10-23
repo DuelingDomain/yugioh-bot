@@ -373,8 +373,9 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
     for (const row of named) {
       const text = nameSources.get(row)!;
       try {
-        const unknown: CardListEntry[] = [];
-        const result = await resolveImportedCardList(catalog, text, { keepDeckSections: true, engine, find, lookupBudget, deferPasscodes: true, onUnknown: entry => unknown.push(entry) });
+        const unknown: Array<{ entry: CardListEntry; lookupLimited: boolean }> = [];
+        const result = await resolveImportedCardList(catalog, text, { keepDeckSections: true, engine, find, lookupBudget, deferPasscodes: true,
+          onUnknown: (entry, lookupLimited) => unknown.push({ entry, lookupLimited }) });
         for (const { entry, card, copies } of result.resolved) {
           const section = entry.section ?? entry.pool;
           const code = card.ygoprodeckId;
@@ -388,8 +389,8 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
           const line = entry.line;
           if (line !== undefined && !sourceLines.get(row)!.has(code)) sourceLines.get(row)!.set(code, line);
         }
-        row.errors.push(...unknown.map(({ original, line }) => ({ code: result.lookupLimited ? "lookup_limited" : "unknown_card",
-          message: result.lookupLimited ? `${original.slice(0, 120)}: the card check hit its limit. Check this deck again in a moment.`
+        row.errors.push(...unknown.map(({ entry: { original, line }, lookupLimited }) => ({ code: lookupLimited ? "lookup_limited" : "unknown_card",
+          message: lookupLimited ? `${original.slice(0, 120)}: the card check hit its limit. Check this deck again in a moment.`
             : `${original.slice(0, 120)}: card name not found. Check the name in the deck list.`, line })));
         row.notes.push(...result.corrected.map(({ from, to }) => ({ code: "corrected_name", message: `${from} read as ${to}.` })));
         const valid = validateImportRow({ name: row.name, mode: row.mode, deck: row.deck }, true);
@@ -402,6 +403,11 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
         if (isCardFetchError(error)) return errorResponse("Card database is unavailable. Try again shortly.", 503);
         if (!(error instanceof CardListError)) throw error;
         row.errors.push({ code: "invalid_list", message: error.message });
+      }
+      if (row.errors.length) {
+        const routed = routeDeckSections({ ...row.deck, deckMaster: row.deck.deckMaster ?? undefined }, find);
+        row.deck = { ...routed.deck, deckMaster: routed.deck.deckMaster ?? null };
+        row.warnings.push(...sectionIssues(routed.messages));
       }
       row.counts = { main: row.deck.main.length, extra: row.deck.extra.length, side: row.deck.side.length };
     }
