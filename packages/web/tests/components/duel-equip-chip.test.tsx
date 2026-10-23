@@ -204,6 +204,14 @@ describe("inspector", () => {
     expect(getByText("Equipped with Axe of Despair, Neo Blue-Eyes Ultimate Dragon")).toBeTruthy();
   });
 
+  it("shows the real LP opponent and updates it when the living fallback changes", () => {
+    const { getByText, queryByText, rerender } = render(<CardInspector target={{ type: "card", card: { ...dragon, lpOpponent: 1 } }} />);
+    expect(getByText("LP opponent: Player 2")).toBeTruthy();
+    rerender(<CardInspector target={{ type: "card", card: { ...dragon, lpOpponent: 3 } }} />);
+    expect(queryByText("LP opponent: Player 2")).toBeNull();
+    expect(getByText("LP opponent: Player 4")).toBeTruthy();
+  });
+
   it("says nothing without links", () => {
     const { queryByText } = render(<CardInspector target={{ type: "card", card: neo }} />);
     expect(queryByText(/Equipped/)).toBeNull();

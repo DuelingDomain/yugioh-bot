@@ -2487,6 +2487,20 @@
       "stockSha256": "4fbef28b5d6037dd098c575e516605da110b604e8630a81b4e64dff11456c962"
     },
     {
+      "code": 25334372,
+      "file": "c25334372.lua",
+      "name": "Tsukumo Slash",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "mpbattlelp",
+        "atkcon",
+        "atkop"
+      ],
+      "stockSha256": "a892e6d8909904977e13d9b03805a83525dbf07d799be167bfdbc3b44cd9e7bb",
+      "note": "Owner ruling 2026-10-23: battle opponent LP supplies both availability and the ATK difference, with highest-living fallback if unavailable. Public card hint. FFA only; Tag and 1v1 unchanged."
+    },
+    {
       "code": 25388971,
       "file": "c25388971.lua",
       "name": "Sangen Kaiho",
@@ -4424,6 +4438,19 @@
         "R1"
       ],
       "stockSha256": "55127880a2557cf77a7fc6de8bcd2ad38c9259a3306d37c9c64286633d8f54b1"
+    },
+    {
+      "code": 46497537,
+      "file": "c46497537.lua",
+      "name": "Pig Iron vs. Pen Peg",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect",
+        "settg"
+      ],
+      "stockSha256": "5a3a7030f36e3939284a0ef8f7ce5c1ed5631dde28546eeabf5a1d5488ff7afa",
+      "note": "Owner ruling 2026-10-23: GY Set is available if any living opponent has equal LP; use one matching opponent, choosing among multiple matches. First activation stays stock. FFA only; Tag and 1v1 unchanged."
     },
     {
       "code": 46613515,
@@ -6440,6 +6467,28 @@
       "stockSha256": "16c6302fae39792f9ea034398141cfb9d0d7cec90899cb831a9bbde9d4ed2d0b"
     },
     {
+      "code": 70219023,
+      "file": "c70219023.lua",
+      "name": "Coordius the Triphasic Dealmon",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "atkop",
+        "target",
+        "atktg"
+      ],
+      "stockSha256": "75eca247d96f1be0672661db5ddfcda00a6fc6b99932fc798a39f11184e5f156",
+      "note": "Owner ruling 2026-10-23: choose at activation; destruction and half the post-cost LP difference use that same opponent. Highest-living LP fallback after elimination; public card hint. FFA only; Tag and 1v1 unchanged.",
+      "wrap": {
+        "MPTarget": [
+          "destg"
+        ],
+        "MPOne": [
+          "desop"
+        ]
+      }
+    },
+    {
       "code": 70333910,
       "file": "c70333910.lua",
       "name": "Noctovision Dragon",
@@ -7492,6 +7541,36 @@
       "note": "Script fix (R1 target controller, R-COMMON-SEAT-STATE, lead decision 2026-10-01): \"your opponent gains 1000 LP\" reads the Lua value 1-tp, which at 3 or more seats is ONE opponent that the user chooses in a window (Choose an opponent), not the controller of the destroyed monster, so the user could give the 1000 LP to any opponent. The target and the operation now bind the value 1 to the controller of the target (aux.MPForEachController): the controller of the destroyed monster gains the LP, in Tag the team of that controller. Not part of R1 or R2 (a script fix)."
     },
     {
+      "code": 81758313,
+      "file": "c81758313.lua",
+      "name": "Myriaday Dragon",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect",
+        "mptarget",
+        "mpoperation"
+      ],
+      "stockSha256": "30a817c216ee52754f46f8fe2e55d38cc537cf7f8da0c4b8886a44c11192bedb",
+      "note": "Owner ruling 2026-10-23: choose a legal living opponent when resolving the Main Phase counter effect; floor(abs(LP difference)/1000). Highest-living fallback if no legal choice remains; public card hint. End Phase and counter threshold stay stock. FFA only."
+    },
+    {
+      "code": 81916745,
+      "file": "c81916745.lua",
+      "name": "Lycoris Lilyreaper",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect",
+        "regop",
+        "mpeffectlp",
+        "tgtg",
+        "tgop"
+      ],
+      "stockSha256": "9f34c60756ad638b2f75aa47b9d1a0a0e2444fc63a6c995a146187bb02848f86",
+      "note": "Owner ruling 2026-10-23: field GY tracking remembers one opponent from summon/first field application. The GY trigger and its LP amount use the same effect-damaged opponent; all fields remain selectable. Highest-living fallback on elimination; public card hint. FFA only."
+    },
+    {
       "code": 81965543,
       "name": "Distrust Paranoia",
       "file": "c81965543.lua",
@@ -8241,6 +8320,23 @@
       ],
       "stockSha256": "3566c0b4bd37f44de47b249344c347aca4f4bef4fe5f5319b898f1f4317dbf26",
       "note": "Script fix (#218, OD-OJAMA-KING): the controller picks one opponent with a free Main Monster Zone, once (label); the 3 zones are all of that opponent. If it leaves the duel, nothing is blocked and nobody is picked again."
+    },
+    {
+      "code": 90162951,
+      "file": "c90162951.lua",
+      "name": "Number 35: Ravenous Tarantula",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect",
+        "val",
+        "damcon",
+        "damop",
+        "destg",
+        "desop"
+      ],
+      "stockSha256": "c6ab9916a4965d711120f12ef58150863f36b48b6022192f368fe988f452a6d1",
+      "note": "Owner ruling 2026-10-23: choose once on summon/first field application. ATK/DEF, Special Summon burn and destruction use that opponent throughout the field stay; highest-living fallback after elimination. Public card hint. FFA only; Tag and 1v1 unchanged."
     },
     {
       "code": 90173539,

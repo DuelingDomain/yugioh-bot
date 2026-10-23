@@ -1,3 +1,4 @@
+import { LpOpponentHints } from "./lp-opponent-hints.js";
 import { ChainOptions } from "./chain-options.js";
 import { ChainActivator } from "./chain-activator.js";
 import { scriptErrorCoreFactory } from "./script-load-scope.js";
@@ -759,7 +760,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     for (const stored of drainDeferredDestroys(eventContext, cards, nextEventId)) pushEvent(stored);
   };
 
+  const lpOpponentHints = new LpOpponentHints();
   const applyMessage = (message: OcgMessage, activator?: number) => {
+    if (format === "ffa3" || format === "ffa4") lpOpponentHints.observe(message);
     eliminationGroup = null;
     battleStep = nextBattleStep(battleStep, message);
     switch (message.type) {
@@ -1289,6 +1292,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           && isLeaving(entry.seat);
         const mask = disabledZones.get(entry.seat);
         if (mask) entry.disabledZones = mask;
+      }
+      for (const entry of projected.seats) {
+        for (const card of [...entry.monsters, ...entry.spells, ...entry.graveyard, ...entry.banished]) lpOpponentHints.project(card, projected.seats);
       }
       return projected;
     },
