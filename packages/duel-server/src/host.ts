@@ -1109,6 +1109,9 @@ export function createDuelHost(options: {
     note?: string,
     touchActivity = true,
   ): Promise<void> {
+    // The answer stays in client format. Stamp every accepted live answer, including bots and forks;
+    // old unmarked commands in the same journal must retain their original sort encoding on recovery.
+    command = { ...command, sortOrderVersion: 1 };
     const state = service.privateState(slug, guildId);
     if (isReplayFork(state.session)) {
       service.recordCommand(slug, guildId, seat, note ? ({ ...command, note } as DuelCommand) : command, null);
@@ -1132,7 +1135,7 @@ export function createDuelHost(options: {
       isSeatIndex(seat) ? seat : undefined,
       graceEndsAt,
     );
-    // The journal keeps the reason of a scripted bot in `note`. Replay reads only promptId, revision and answer.
+    // The journal keeps the reason of a scripted bot in `note`. Replay reads promptId, revision, answer and sortOrderVersion.
     options.db.transaction(() => {
       service.recordCommand(slug, guildId, seat, note ? ({ ...command, note } as DuelCommand) : command, clock, {
         touchActivity: touchActivity && !state.session.seats.some(s => s.seat === seat && s.isBot)

@@ -816,7 +816,7 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
   }
 }
 
-export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: string, answer: DuelAnswer, cards: CardDatabase): OcgResponse {
+export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: string, answer: DuelAnswer, cards: CardDatabase, sortOrderVersion: 0 | 1 = 1): OcgResponse {
   if (seat !== pending.seat) throw new EngineAnswerError("Wrong seat");
   if (promptId !== pending.id) throw new EngineAnswerError("Stale prompt");
   const { message, prompt } = pending;
@@ -972,7 +972,7 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
       if (ids.length !== message.cards.length) throw new EngineAnswerError("Invalid answer");
       const order = uniqueIndices(ids, "card:");
       if (order.some((index) => index >= message.cards.length)) throw new EngineAnswerError("Invalid answer");
-      return sortCardResponse(order);
+      return sortCardResponse(order, sortOrderVersion);
     }
     case OcgMessageType.ANNOUNCE_RACE: {
       const ids = selectedIds(prompt, answer);

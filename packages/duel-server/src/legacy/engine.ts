@@ -103,7 +103,7 @@ export interface EngineGameOptions {
 export interface EngineGame {
   diagnostics(): EngineDiagnostic[]; // LEGACY-1V1: private display error diagnostics
   view(seat: number | null, history?: EngineViewHistory): DuelEngineView;
-  answer(seat: number, promptId: string, answer: DuelAnswer): void;
+  answer(seat: number, promptId: string, answer: DuelAnswer, sortOrderVersion?: 0 | 1): void;
   searchCards(query: string, seat?: number): DuelCardInfo[]; // LEGACY-1V1: seat-scoped card announcement search
   /** LEGACY-1V1: set a seat's chain response mode; true when it passed the open window. See ../engine.ts EngineGame.setChainMode. */
   setChainMode(seat: number, mode: DuelChainMode): boolean;
@@ -814,12 +814,12 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       revision += 1;
       return true;
     },
-    answer(seat, promptId, answer) {
+    answer(seat, promptId, answer, sortOrderVersion) {
       scriptErrorEventSent = false;
       if (closed) throw new Error("Engine is closed");
       if (result) throw new EngineAnswerError("Duel is over");
       if (!pending) throw new EngineAnswerError("No prompt is waiting");
-      const response = resolveAnswer(pending, seat, promptId, answer, cards);
+      const response = resolveAnswer(pending, seat, promptId, answer, cards, sortOrderVersion);
       const previous = pending;
       const previousSummon = synchroSummon;
       if (pending.message.type === OcgMessageType.SELECT_IDLECMD && answer.choice?.startsWith("spsummon:")) {

@@ -739,6 +739,8 @@ export interface DuelCommand {
   promptId: string;
   revision: number;
   answer: DuelAnswer;
+  /** Server-owned journal metadata. Absent: historical sort bytes; 1: invert client click order at encoding. */
+  sortOrderVersion?: 1;
 }
 
 /**

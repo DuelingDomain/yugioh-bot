@@ -1468,6 +1468,21 @@ it("replay rebuilds wait for the same capacity as live games", async () => {
 
 
 describe("host answer validation", () => {
+  it("stores sort click order unchanged with a server-owned encoding version", async () => {
+    const worker = new FakeWorker();
+    worker.promptOverride = { id: "p1", seat: 0, kind: "order", title: "Sort", min: 4, max: 4,
+      options: Array.from({ length: 4 }, (_, index) => ({ id: `card:${index}`, label: `Card ${index}` })) };
+    const { db, host } = openHost(() => worker);
+    const { p1, p2 } = seedPlayers(db);
+    const { session, duels } = readyLobby(db, p1, p2);
+    expect((await post(host, { op: "start", slug: session.slug, guildId: "g1", playerId: p1 })).status).toBe(200);
+    const selected = ["card:3", "card:1", "card:0", "card:2"];
+    expect((await post(host, { op: "respond", slug: session.slug, guildId: "g1", playerId: p1,
+      command: { promptId: "p1", revision: 1, answer: { selected }, sortOrderVersion: 0 } })).status).toBe(200);
+    expect(duels.privateState(session.slug, "g1").commands[0]!.command)
+      .toEqual({ promptId: "p1", revision: 1, answer: { selected }, sortOrderVersion: 1 });
+  });
+
   const option = { id: "card:0", label: "Card", max: 2, values: [2] };
   const cases: Array<{ kind: DuelPrompt["kind"]; invalid: unknown; valid: DuelAnswer }> = [
     { kind: "cards", invalid: { selected: "card:0" }, valid: { selected: ["card:0"] } },

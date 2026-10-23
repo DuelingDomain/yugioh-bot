@@ -124,7 +124,7 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
       }
       case "answer": {
         if (!game) return { id: request.id, ok: false, error: "No game" };
-        game.answer(request.seat, request.promptId, request.answer);
+        game.answer(request.seat, request.promptId, request.answer, request.sortOrderVersion);
         return { id: request.id, ok: true };
       }
       case "search": {

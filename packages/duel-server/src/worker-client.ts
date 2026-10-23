@@ -59,7 +59,7 @@ export interface DuelGameWorker {
   /** Optional batched replay; test doubles and older adapters retain the journal transport. */
   buildReplay?(options: ReplayWorkerOptions): Promise<ReplayWorkerResult>;
   view(seat: number | null, history?: EngineViewHistory): Promise<DuelEngineView>;
-  answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void>;
+  answer(seat: number, promptId: string, answer: DuelAnswer, sortOrderVersion?: 0 | 1): Promise<void>;
   search(query: string, seat?: number): Promise<DuelCardInfo[]>;
   /** Flag a core loss. `atTurnEnd` identifies retired journal commands, which the engine refuses. */
   eliminate?(seat: number, reason: number, atTurnEnd?: boolean): Promise<void>;
@@ -235,8 +235,8 @@ export class GameWorker implements DuelGameWorker {
     return this.request({ op: "view", seat, ...(history ? { history } : {}) });
   }
 
-  answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void> {
-    return this.request({ op: "answer", seat, promptId, answer });
+  answer(seat: number, promptId: string, answer: DuelAnswer, sortOrderVersion?: 0 | 1): Promise<void> {
+    return this.request({ op: "answer", seat, promptId, answer, ...(sortOrderVersion !== undefined ? { sortOrderVersion } : {}) });
   }
 
   search(query: string, seat?: number): Promise<DuelCardInfo[]> {

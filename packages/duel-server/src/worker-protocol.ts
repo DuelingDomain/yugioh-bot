@@ -45,7 +45,7 @@ export type DuelWorkerRequest =
   | { id: number; op: "replay"; options: ReplayWorkerOptions }
   | { id: number; op: "create"; options: DuelWorkerCreateOptions }
   | { id: number; op: "view"; seat: number | null; history?: EngineViewHistory }
-  | { id: number; op: "answer"; seat: number; promptId: string; answer: DuelAnswer }
+  | { id: number; op: "answer"; seat: number; promptId: string; answer: DuelAnswer; sortOrderVersion?: 0 | 1 }
   | { id: number; op: "search"; query: string; seat?: number }
   | { id: number; op: "eliminate"; seat: number; reason: number; atTurnEnd?: boolean }
   | { id: number; op: "chain-mode"; seat: number; mode: DuelChainMode }

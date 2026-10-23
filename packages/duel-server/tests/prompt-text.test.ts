@@ -519,6 +519,6 @@ describe("sort response encoding", () => {
     expect(sortCardResponse([0])).toEqual({ type: OcgResponseType.SORT_CARD, order: null });
     const response = sortCardResponse([2, 0, 1]) as unknown as { type: number; places: Array<{ player: number; location: number; sequence: number }> };
     expect(response.type).toBe(OcgResponseType.SELECT_PLACE);
-    expect(response.places).toEqual([{ player: 2, location: 0, sequence: 1 }]);
+    expect(response.places).toEqual([{ player: 1, location: 2, sequence: 0 }]);
   });
 });

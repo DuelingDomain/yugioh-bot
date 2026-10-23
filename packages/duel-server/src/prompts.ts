@@ -1,4 +1,4 @@
-import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelErrorCode, DuelFormat, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelFormat, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
 import { DUEL_SEAT_LEFT_ERROR_CODE, teamOfSeat } from "@yugidraft/shared/duels";
 import { chainWindowPasses, effectYesNoPasses, effectiveChainMode } from "./chain-mode.js";
 import {
@@ -26,8 +26,10 @@ import { cardInfoLabel } from "./cards.js";
 import { attributeName, fillPlaceholders, locationLabel, positionLabel, raceName, type TemplateValue } from "./text.js";
 import { DOMAIN_LEAVE_TAX_STEP, DUELIST_NONE, type DomainSeatState } from "./views.js";
 import { sortCardResponse } from "./sort-response.js";
+import { EngineAnswerError } from "./engine-answer-error.js";
 import { annotateDeckMasterActions } from "./domain-action-prompts.js";
 export { sortCardResponse } from "./sort-response.js";
+export { EngineAnswerError } from "./engine-answer-error.js";
 
 export interface MapPromptExtras {
   recall?: { card: DuelCardInfo; returns: number; nextCost: number };
@@ -110,13 +112,6 @@ export function recallPromptContext(
     returns: state.returns,
     nextCost: (state.returns + 1) * DOMAIN_LEAVE_TAX_STEP,
   };
-}
-
-export class EngineAnswerError extends Error {
-  constructor(message: string, readonly code?: DuelErrorCode) {
-    super(message);
-    this.name = "EngineAnswerError";
-  }
 }
 
 export interface PendingPrompt {
@@ -980,7 +975,7 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
   }
 }
 
-export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: string, answer: DuelAnswer, cards: CardDatabase): OcgResponse {
+export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: string, answer: DuelAnswer, cards: CardDatabase, sortOrderVersion: 0 | 1 = 1): OcgResponse {
   if (seat !== pending.seat) throw new EngineAnswerError("Wrong seat");
   if (promptId !== pending.id) throw new EngineAnswerError("Stale prompt");
   const { message, prompt } = pending;
@@ -1161,7 +1156,7 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
       if (ids.length !== message.cards.length) throw new EngineAnswerError("Invalid answer");
       const order = uniqueIndices(ids, "card:");
       if (order.some((index) => index >= message.cards.length)) throw new EngineAnswerError("Invalid answer");
-      return sortCardResponse(order);
+      return sortCardResponse(order, sortOrderVersion);
     }
     case OcgMessageType.ANNOUNCE_RACE: {
       const ids = selectedIds(prompt, answer);
