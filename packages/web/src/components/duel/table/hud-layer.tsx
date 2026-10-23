@@ -39,9 +39,9 @@ export interface HudPaneState {
   pinAnchor: HTMLElement | null;
   /** A click on a board card pins it in the peek (another card moves the pin); `null` lets the pin go (a flyout stays). A face-down card has no peek: it opens the Card flyout (1v1) or does nothing. */
   pinCard: (card: DuelCard | DuelCardInfo | null, anchor?: HTMLElement | null, keep?: boolean) => void;
-  /** Takes the fresh copy of the pinned card from the board, or lets the pin go when the card is gone (see `usePinSync`). */
+  /** Takes the fresh copy of the pinned card from the board. A card that left its zone keeps its last copy (see `usePinSync`). */
   syncPin: (seats: readonly DuelSeatView[]) => void;
-  /** Counts every change of the pane or the pin: a press on a zone that changes nothing by its click lets the pin go (see `useHudEscape`). */
+  /** Counts every change of the pane or the pin. */
   epoch: () => number;
   /** The Card tab only shows while it is the open pane: it is not a dock icon. */
   tabs: readonly HudPane[];
@@ -152,12 +152,13 @@ export function useHudPane({ camera = false, log = true, cardPane = true, initia
     }
     if (target && target.type !== "pile") pinCard(target.card, null, true);
   }, [cardPane, pinCard, setPane]);
-  // A functional update, so a pin that another effect of the same commit just removed (a new prompt) stays removed.
+  // A functional update, so a pin that the player just closed stays closed.
   const syncPin = useCallback((seats: readonly DuelSeatView[]) => {
     setPin((current) => {
       if (!current || current.keep) return current;
       const found = findLiveCard(current.card, seats, current.handSize);
-      if (found == null) return "location" in current.card ? null : current;
+      // A card that left its zone (an activated hand card, a monster that was sent away) keeps the pin with its last copy: the pin ends only by the player.
+      if (found == null) return current;
       return found.card === current.card && found.handSize === current.handSize ? current : { card: found.card, anchor: current.anchor, handSize: found.handSize };
     });
   }, []);
@@ -169,61 +170,20 @@ export function useHudPane({ camera = false, log = true, cardPane = true, initia
 }
 
 /**
- * Esc and a press outside close the open flyout and the pinned peek. A card menu or the pile viewer (`suspended`) keeps Esc, and so does a
+ * Esc and a press outside close the open flyout. Esc, the X button and a right click close the pinned peek; a press elsewhere does not: a card menu, a
+ * prompt button or a click on the board must not lose the card the player pinned. A card menu or the pile viewer (`suspended`) keeps Esc, and so does a
  * modal dialog. Pass `hud.pane != null || hud.pinned != null` to the prompt panel's `escapeHeld` as well, or the same Esc also declines the
  * prompt. The other prompt keys keep answering while a flyout is open.
  */
 export function useHudEscape(hud: HudPaneState, enabled: boolean, suspended: boolean): void {
-  // A press on a board card never lets the pin go at once: the click that follows pins that card, or a prompt takes it and unpins.
-  // A press on a zone whose click changes nothing (no handler, a camera drag that starts on a zone) lets it go after that click.
   const pinned = hud.pinned != null;
-  const onBoard = useCallback((target: Element | null) => pinned && target?.closest?.("[data-zones]") != null, [pinned]);
-  useHudDismiss(enabled && (hud.pane != null || pinned), suspended, hud.close, onBoard);
-  const { close, epoch } = hud;
-  useEffect(() => {
-    if (!enabled || !pinned) return;
-    let down: number | null = null;
-    let timer: number | undefined;
-    const onDown = (event: Event) => {
-      const target = event.target as Element | null;
-      down = target?.closest?.("[data-hud-keep]") == null && target?.closest?.("[data-zones]") != null ? epoch() : null;
-    };
-    // Capture phase, then a timer: it runs after the click handlers, even one that stops the event.
-    const onClick = () => {
-      if (down == null) return;
-      const at = down;
-      down = null;
-      timer = window.setTimeout(() => { if (epoch() === at) close(); }, 0);
-    };
-    document.addEventListener("pointerdown", onDown, true);
-    document.addEventListener("click", onClick, true);
-    return () => {
-      document.removeEventListener("pointerdown", onDown, true);
-      document.removeEventListener("click", onClick, true);
-      window.clearTimeout(timer);
-    };
-  }, [enabled, pinned, close, epoch]);
+  const paneOpen = hud.pane != null;
+  // With no flyout open, a press never closes the pin (only Esc does).
+  const keepPress = useCallback(() => !paneOpen, [paneOpen]);
+  useHudDismiss(enabled && (paneOpen || pinned), suspended, hud.close, keepPress);
+  const { close } = hud;
   // The HUD is gone (a narrow window): no flyout or pin waits for the HUD to come back.
   useEffect(() => { if (!enabled) close(); }, [enabled, close]);
-}
-
-/**
- * A pin follows the pointer: while a card is pinned, hovering ANOTHER face-up board card pins that one instead, so the drawer shows it and
- * keeps it after the pointer leaves. Leaving to the empty board keeps the last card. A pin only means "do not close when the pointer leaves".
- * Pair it with `hudPreview`, which shows the hovered card over the pin so the swap has no lagging frame.
- */
-export function usePinFollowsHover(
-  enabled: boolean,
-  pinned: DuelCard | DuelCardInfo | null,
-  hover: DuelCard | null | undefined,
-  pin: (card: DuelCard) => void,
-): void {
-  useEffect(() => {
-    if (!enabled || !pinned || !hover || hover.code == null) return;
-    const same = "location" in pinned && pinned.code === hover.code && pinned.controller === hover.controller
-      && pinned.location === hover.location && pinned.sequence === hover.sequence;
-    if (!same) pin(hover);
-  }, [enabled, pinned, hover, pin]);
 }
 
 const SYNCED_LOCATIONS: ReadonlySet<number> = new Set([LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, LOCATION_FZONE, LOCATION_PZONE, LOCATION_GRAVE, LOCATION_REMOVED, LOCATION_EXTRA]);
@@ -232,18 +192,18 @@ const MODAL_OPEN = '[aria-modal="true"], [role="menu"], [role="dialog"]:not([ari
 
 /**
  * The left drawer pin of the shells without the HUD (3D, live table, phones). It does what the HUD shells do for their pin:
- * - Esc and, for a tap, a press outside the drawer close it. The Esc is only the drawer's: it is not taken when a menu, a dialog or a
+ * - Esc and, for a tap, a press on the bare background close it. The Esc is only the drawer's: it is not taken when a menu, a dialog or a
  *   modal is open, or when another handler used it; and it is `preventDefault`ed, so the prompt does not take the same key. Pass
- *   `pinned != null` to the prompt panel's `escapeHeld` as well, or the older prompt listener answers first.
- * - A new prompt for you lets it go: the drawer must not cover the cards or the answers the prompt asks for.
- * - The board sync: a card that left its zone or turned face-down lets it go; a card that stays takes its fresh copy (ATK/DEF, position).
+ *   `pinned != null` to the prompt panel's `escapeHeld` as well, or the older prompt listener answers first. A press on a button, a menu
+ *   or the board does not close it, so a card menu or a prompt answer never loses the pinned card.
+ * - A new prompt does not close it: the pin ends only when the player closes it.
+ * - The board sync: a card that stays takes its fresh copy (ATK/DEF, position); a card that left its zone keeps its last copy.
  *   A card that is not in a zone (a Deck Master, a material) is left alone.
- * A press on a board zone does not close it: the click that follows pins that card.
  */
 export function useDrawerPin(
   pinned: DuelCard | DuelCardInfo | null,
   setPinned: Dispatch<SetStateAction<DuelCard | DuelCardInfo | null>>,
-  { seats, suspended, promptId, promptMine }: { seats: readonly DuelSeatView[] | undefined; suspended: boolean; promptId: string | number | null; promptMine: boolean },
+  { seats, suspended }: { seats: readonly DuelSeatView[] | undefined; suspended: boolean },
 ): void {
   const has = pinned != null;
   const set = useRef(setPinned);
@@ -261,7 +221,7 @@ export function useDrawerPin(
       // A right button belongs to the card drawer (grid-preview.tsx): it closes the pin on the contextmenu and claims that press from the prompt.
       if ((event as PointerEvent).button === 2) return;
       const target = event.target as Element | null;
-      if (target?.closest?.("[data-hud-keep], [data-edge-drawer], [data-zones], [role='menu'], [role='dialog']")) return;
+      if (target?.closest?.("[data-hud-keep], [data-edge-drawer], [data-zones], button, a, input, select, textarea, [role='button'], [role='menu'], [role='dialog']")) return;
       set.current(null);
     };
     window.addEventListener("keydown", onKey, true);
@@ -271,10 +231,6 @@ export function useDrawerPin(
       document.removeEventListener("pointerdown", onDown, true);
     };
   }, [has, suspended]);
-  useEffect(() => {
-    if (promptId != null && promptMine) set.current(null);
-    // Only a new prompt decides this.
-  }, [promptId]); // eslint-disable-line react-hooks/exhaustive-deps
   const hand = useRef<number | undefined>(undefined);
   const mine = useRef<DuelCard | DuelCardInfo | null>(null);
   useEffect(() => {
@@ -283,10 +239,9 @@ export function useDrawerPin(
     if (mine.current !== pinned) hand.current = undefined;
     const found = findLiveCard(pinned, seats, hand.current);
     hand.current = found?.handSize ?? hand.current;
-    // Functional updates: a pin that another effect of the same commit just removed (a new prompt) stays removed.
+    // Functional updates: a pin that the player just closed stays closed.
     if (found == null) {
-      mine.current = null;
-      set.current((current) => (current === pinned ? null : current));
+      mine.current = pinned;
     } else if (found.card !== pinned) {
       mine.current = found.card;
       set.current((current) => (current === pinned ? found.card : current));
@@ -294,6 +249,18 @@ export function useDrawerPin(
       mine.current = pinned;
     }
   }, [pinned, seats]);
+}
+
+/**
+ * The card under the pointer, after the board changed (a new revision or prompt): the hover stays while its element is still on the page
+ * and its card is still there, with the fresh copy (stats, position). A moved or gone card, or an element that left the page, ends it.
+ * A plain `null` here made the drawer close at every chain link and answer, and the player had to hover the card again.
+ */
+export function refreshHover<T extends { card: DuelCard; anchor: HTMLElement }>(hover: T | null, seats: readonly DuelSeatView[] | undefined): T | null {
+  if (!hover || !seats || !hover.anchor.isConnected) return null;
+  const found = findLiveCard(hover.card, seats, undefined);
+  if (found == null) return null;
+  return found.card === hover.card ? hover : { ...hover, card: found.card };
 }
 
 /**
