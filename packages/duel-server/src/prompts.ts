@@ -857,6 +857,8 @@ function uniqueIndices(ids: string[], prefix: string): number[] {
 }
 
 export interface AutoResponseOptions {
+  /** False only for journals recorded before host rules v8. */
+  keepDamageStepWindows?: boolean;
   /**
    * Ask about every response window that lists a card, even when none fits the window's timing.
    * When false, Auto skips off-timing windows outside Draw, Standby and the Damage Step.
@@ -893,7 +895,7 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
       // spe_count counts timing hints, not legal effects. In the Damage Step the core's
       // list is already restricted to eligible cards, even when none declares this timing.
       // Auto keeps those windows; Off still passes optional windows and Always asks.
-      if (chainWindowPasses(message, effectiveChainMode(options), options.phase, options.battleStep)) {
+      if (chainWindowPasses(message, effectiveChainMode(options), options.phase, options.battleStep, options.keepDamageStepWindows)) {
         return { type: OcgResponseType.SELECT_CHAIN, index: null };
       }
       return null;

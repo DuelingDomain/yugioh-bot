@@ -742,6 +742,7 @@ export function createDuelHost(options: {
       settings,
       firstTurnDraw,
       scriptErrorMode,
+      keepDamageStepWindows: true,
       ...(resources ? { engineIdentity: resources.identity,
         ...(resources.multiScriptsDirectory ? { multiScriptsDirectory: resources.multiScriptsDirectory } : {}) } : {}),
     };

@@ -745,7 +745,7 @@ export interface DuelCommand {
 
 /**
  * How a seat wants to be asked at response windows (chain links), changeable at any time during the duel.
- * - `auto`: ask only when a listed card fits the window (today's behaviour at a 1v1 table).
+ * - `auto`: ask when a listed card fits the timing, and for every nonempty Draw, Standby or Damage Step window.
  * - `always`: ask at every window that lists a card, even when none fits (a bluff; the default at a table of three or four).
  * - `off`: pass every optional response window at once. Forced prompts and mandatory effects still ask.
  * The mode is private to its seat and is applied by the duel host, never by a client.

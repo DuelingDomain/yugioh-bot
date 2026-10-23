@@ -34,7 +34,7 @@ const HONEST = 37742478, LANCE = 27243130, LILY = 79575620, DRAGON = 89631139, D
 const WARRIOR = 7572887, RAT = 97017120, JAMMER = 77414722, MIRROR_FORCE = 44095762, MST = 5318639;
 const ids = ["p0", "p1", "p2", "p3"] as const;
 
-async function open(format: DuelFormat, mode: DuelMode, legacy: boolean, auto: boolean, holder: number, effect: number): Promise<EngineGame> {
+async function open(format: DuelFormat, mode: DuelMode, legacy: boolean, auto: boolean, holder: number, effect: number, keepDamageStepWindows = true): Promise<EngineGame> {
   const board: BoardSpec = { format, mode, attackFirstTurn: true, skipOpeningDraw: true,
     p0: { monsters: [effect === LILY ? LILY : DRAGON] },
     p1: { monsters: [effect === WARRIOR || effect === RAT ? effect : DEFENDER], deck: ["Beaver Warrior"] } };
@@ -52,7 +52,7 @@ async function open(format: DuelFormat, mode: DuelMode, legacy: boolean, auto: b
   const compiled = compileBoard(board);
   fixture.scripts = legacy ? compiled.options.startupScripts! : [];
   const create = legacy ? createLegacyGame as unknown as typeof createEngineGame : createEngineGame;
-  return create({ ...compiled.options, dataDirectory: engineDataDirectory, seed: ["1", "2", "3", "4"],
+  return create({ ...compiled.options, dataDirectory: engineDataDirectory, seed: ["1", "2", "3", "4"], keepDamageStepWindows,
     settings: { ...compiled.options.settings!, stopAtEveryWindow: !auto } });
 }
 
@@ -87,6 +87,17 @@ for (const legacy of [false, true]) for (const mode of ["normal", "domain"] as c
       for (const format of (legacy ? ["1v1"] : ["1v1", "tag", "ffa3", "ffa4"]) as DuelFormat[]) {
         testEffect(format, HONEST, 1, "defender's Honest", "damage");
         testEffect(format, LILY, 0, "Injection Fairy Lily", "damage-calculation");
+        if (auto) it(`${format}: v7 Auto still passes the defender's zero-hint Honest windows`, async () => {
+          const game = await open(format, mode, legacy, auto, 1, HONEST, false);
+          try {
+            drive(game, view => {
+              if (view.battleStep === "damage") expect(view.prompt!.options.some(o => o.card?.code === HONEST)).toBe(false);
+              return undefined;
+            });
+            expect(game.view(null).seats[1]!.lp).toBe((format === "tag" ? 16000 : 8000) - 1000);
+            expect(game.view(1).seats[1]!.hand.some(c => c.code === HONEST)).toBe(true);
+          } finally { game.close(); }
+        });
         if (auto) it(`${format}: Off still passes optional Damage Step windows`, async () => {
           const game = await open(format, mode, legacy, auto, 1, HONEST);
           try {

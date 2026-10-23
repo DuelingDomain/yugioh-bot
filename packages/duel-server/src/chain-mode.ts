@@ -51,14 +51,15 @@ export function chainWindowPasses(
   mode: DuelChainMode,
   phase: string | undefined,
   battleStep?: DuelBattleStep | null,
+  keepDamageStepWindows = true,
 ): boolean {
   if (window.forced) return false;
   switch (mode) {
     case "off":
       return true;
     case "auto":
-      if (battleStep === "damage" || battleStep === "before-damage-calculation"
-        || battleStep === "damage-calculation" || battleStep === "after-damage-calculation" || battleStep === "damage-end") return false;
+      if (keepDamageStepWindows && (battleStep === "damage" || battleStep === "before-damage-calculation"
+        || battleStep === "damage-calculation" || battleStep === "after-damage-calculation" || battleStep === "damage-end")) return false;
       return window.spe_count === 0 && phase !== "draw" && phase !== "standby";
     case "always":
       return false;
