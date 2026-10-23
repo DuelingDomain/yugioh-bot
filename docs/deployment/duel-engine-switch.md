@@ -111,7 +111,7 @@ The pin is rebuilt from main's scripts and checked again by the proof in the mer
 
 - Ordered card and chain picks use the shared raw-index response encoder. The wrapper's length prefix made the legacy core reject valid orders; this fixes wire encoding without changing sort rules.
 - The pendulum summon log line is "Special Summon" in legacy mode and "Pendulum Summon" in the merged engine. The legacy engine is main's, so it prints main's text. The e2e spec `card-pendulum-summon.spec.ts` accepts this in legacy mode (`E2E_1V1_ENGINE=legacy`).
-- Counters: the legacy engine reads a counter from the core as main does (count first). `tests/ocgcore-wrapper-abi.test.ts` checks both layouts for `duelQuery` and `duelQueryLocation`.
+- Counters: both parsers read the core's `u16 type, u16 count` records. This fixes the historical legacy count/type swap. `tests/ocgcore-wrapper-abi.test.ts` and real card-status tests check `duelQuery`, `duelQueryLocation`, and public views.
 - The host answers a blocked `view` or `report` with a stale view only when `DUEL_SCENARIOS=1` (the scenario runner). In production, the host waits for the real answer as main does.
 - The multi cores (3, 4 players, Tag) are built from a newer patch series than main's Domain core (the 0053 core-seats patch series). They are used by multi-seat tables only, and those are on by default in Compose (`MULTIPLAYER_TABLES`).
 

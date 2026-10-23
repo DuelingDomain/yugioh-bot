@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { expect, it } from "vitest";
 import type { DuelCard, DuelFormat } from "@yugidraft/shared/duels";
+import { getDuelCounterMetadata } from "@yugidraft/shared/duels";
 import { OcgCardHintType, OcgLocation, OcgMessageType, type OcgMessage } from "ocgcore-wasm";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
 import { createLegacyEngineGame } from "../src/legacy/index.js";
@@ -117,6 +118,18 @@ for (const { name, format, legacy } of variants) {
         expect(ids(fieldCard(game))).toEqual([UNKNOWN]);
         act();
         expect(fieldCard(game)?.hints).toBeUndefined();
+      } finally { game.close(); }
+    });
+
+    it("preserves a counter's WITHOUT_PERMIT flag in the shared catalog lookup", async () => {
+      const { game, act } = await open(format, legacy, "", ["assert(subject:AddCounter(0x100e,2))"]);
+      try {
+        act();
+        const counters = fieldCard(game)?.counters;
+        expect(counters).toEqual([{ type: 0x100e, count: 2 }]);
+        expect(getDuelCounterMetadata(counters![0]!.type)).toEqual({
+          key: "a", name: "A-Counter", family: "combat", glyph: "a",
+        });
       } finally { game.close(); }
     });
 

@@ -17,7 +17,7 @@ const monsters = [
 ];
 const flags = (OcgQueryFlags.CODE | OcgQueryFlags.ATTACK | OcgQueryFlags.DEFENSE
   | OcgQueryFlags.BASE_ATTACK | OcgQueryFlags.BASE_DEFENSE | OcgQueryFlags.LEVEL
-  | OcgQueryFlags.RANK | OcgQueryFlags.LINK) as OcgQueryFlags;
+  | OcgQueryFlags.RANK | OcgQueryFlags.LINK | OcgQueryFlags.COUNTERS) as OcgQueryFlags;
 
 for (const variant of ["legacy", "legacy-domain", "standard", "domain", "multi", "multi-domain"] as const) {
   const wasmName = variant === "legacy" ? undefined
@@ -50,6 +50,8 @@ for (const variant of ["legacy", "legacy-domain", "standard", "domain", "multi",
               location, sequence, position: OcgPosition.FACEUP_ATTACK });
           }
         }
+        assert(core.loadScript(handle, "query-counter-layout.lua",
+          "assert(Duel.GetFieldCard(0,LOCATION_MZONE,0):AddCounter(0x100e,2))"));
         for (const location of [OcgLocation.HAND, OcgLocation.MZONE]) {
           const queries = core.duelQueryLocation(handle, { controller: 0, location, flags });
           for (const [sequence, monster] of monsters.entries()) {
@@ -60,6 +62,7 @@ for (const variant of ["legacy", "legacy-domain", "standard", "domain", "multi",
               baseDefense: location === OcgLocation.HAND ? monster.printed : Math.max(0, monster.printed),
             });
             expect(queries[sequence], monster.name).toEqual(single);
+            if (location === OcgLocation.MZONE && sequence === 0) expect(single?.counters).toEqual({ [0x100e]: 2 });
           }
         }
         // The real effect tracks LP, and the core clamps ATK reductions below zero.
