@@ -31,7 +31,10 @@ function commandIdentity(request: DuelWorkerRequest): string {
   // A saved seed identifies creation across recovery; failed new starts use a fresh seed.
   // Count accepted journal commands instead of hashing their transport representation.
   const { id: _id, ...command } = request;
+  // Replay adds sort encoding metadata to both old and new answers. Keep the original
+  // logical answer key so recovery cannot count an already recorded Lua error again.
   const value = request.op === "create" ? { op: "create", seed: request.options.seed }
+    : request.op === "answer" ? { op: request.op, seat: request.seat, promptId: request.promptId, answer: request.answer }
     : request.op === "eliminate" ? { ...command, atTurnEnd: request.atTurnEnd ?? false } : command;
   const prefix = request.op === "create" ? "start" : `${creationIdentity}:${journalPosition}`;
   return createHash("sha256").update(prefix).update("\n").update(JSON.stringify(canonicalCommand(value))).digest("hex");
