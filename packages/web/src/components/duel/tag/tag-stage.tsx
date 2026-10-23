@@ -422,6 +422,10 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     world.style.transform = roofTransform(pose, fit);
     paintedFitRef.current = fit;
     pillsRef.current?.style.setProperty("--flip", Math.cos((pose.yaw * Math.PI) / 180) < 0 ? "180deg" : "0deg");
+    // The fields' ATK / DEF plates turn back by what the camera turns the roof by (see `.seatField .plate`), so they read upright from the rival end
+    // and in a free orbit. They glide with a camera move (glide() lifts `data-plate-still`) and follow a free orbit at once.
+    world.style.setProperty("--roof-turn", `${pose.yaw.toFixed(2)}deg`);
+    if (!tweenRef.current) world.setAttribute("data-plate-still", "true");
 
     const box = root.getBoundingClientRect();
     const pad = padRef.current?.getBoundingClientRect();
@@ -518,6 +522,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     poseRef.current = end;
     apply();
     if (!animated || world == null) return;
+    world.removeAttribute("data-plate-still");
+    world.style.setProperty("--plate-glide", `${ms}ms`);
     const start = origin ?? visible;
     const ease = fly ? easeFly : easeCam;
     const steps = Math.min(60, Math.max(8, Math.round(ms / 16)));
