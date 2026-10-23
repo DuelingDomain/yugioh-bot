@@ -42,9 +42,10 @@ export class LpOpponentHints {
       this.remap(zone => message.cards.some(card => key(card.from) === key(zone)) ? null : zone);
     } else if (message.type === OcgMessageType.SWAP_GRAVE_DECK) {
       this.remap(zone => zone.controller === message.player && (zone.location === OcgLocation.DECK || zone.location === OcgLocation.GRAVE || zone.location === OcgLocation.EXTRA) ? null : zone);
-    } else if (message.type === OcgMessageType.RELOAD_FIELD) {
-      this.seats.clear();
     }
+    // RELOAD_FIELD is a snapshot, not a flag reset. Keep the tracked labels:
+    // unchanged Lua flags emit no new DESC_ADD, and the stock snapshot decoder
+    // only exposes two seats. Moves, removals and flag resets remain authoritative.
   }
 
   private remap(transform: (zone: DuelZoneRef) => DuelZoneRef | null): void {
@@ -60,11 +61,10 @@ export class LpOpponentHints {
     if (!card?.code || (card.position & OcgPosition.FACEUP) === 0) return;
     let seat = this.seats.get(key(card));
     if (seat == null) return;
-    // Continuous values recalculate immediately on elimination, before the next
-    // Adjust can refresh their hint. Project that same highest-living fallback.
-    if ((card.code === 90162951 || card.code === 81916745) &&
-      (seat === card.controller || !seats[seat] || seats[seat].eliminated || seats[seat].pendingElimination)) {
-      seat = seats.filter(other => other.seat !== card.controller && !other.eliminated && !other.pendingElimination)
+    // Match MPGetLP/is_alive: a pending loss still has usable LP until the
+    // core eliminates that seat. Every LP hint uses the same living fallback.
+    if (seat === card.controller || !seats[seat] || seats[seat].eliminated) {
+      seat = seats.filter(other => other.seat !== card.controller && !other.eliminated)
         .sort((a, b) => b.lp - a.lp || a.seat - b.seat)[0]?.seat;
     }
     if (seat != null) card.lpOpponent = seat;

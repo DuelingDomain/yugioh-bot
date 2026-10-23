@@ -629,12 +629,12 @@ function aux.MPSelectLPOpponent(tp,check)
 end
 -- Reserved card-hint descriptions 0xfffd0000..3 name the actual LP opponent.
 -- The host projects these into the card inspector.
-function aux.MPLPOpponentHint(c,seat)
+function aux.MPLPOpponentHint(c,seat,reset)
 	local code=0x7ffd0000
-	if c:GetFlagEffectLabel(code)==seat then return end
+	if c:GetFlagEffectLabel(code)==seat and not reset then return end
 	c:ResetFlagEffect(code)
 	if seat~=nil then
-		c:RegisterFlagEffect(code,RESET_EVENT|(RESETS_STANDARD&~RESET_CONTROL&~RESET_TURN_SET),EFFECT_FLAG_CLIENT_HINT,1,seat,0xfffd0000+seat)
+		c:RegisterFlagEffect(code,RESET_EVENT|RESETS_STANDARD|RESET_CONTROL|(reset or 0),EFFECT_FLAG_CLIENT_HINT,1,seat,0xfffd0000+seat)
 	end
 end
 function aux.MPCardLPOpponent(c)
@@ -645,7 +645,7 @@ function aux.MPCardLPOpponent(c)
 	return aux.MPHighestLPOpponent(me)
 end
 -- Choose once when summoned / first face-up application (also copied effects and
--- preset boards). A flag survives control changes and being Set, but not leaving.
+-- preset boards). Being Set, changing control or leaving resets the choice.
 -- Never prompt in a continuous value/condition callback.
 function aux.MPRegisterLPOpponent(c)
 	local code=0x7ffc0000
@@ -658,18 +658,9 @@ function aux.MPRegisterLPOpponent(c)
 		if not c:IsFaceup() then return end
 		if c:GetFlagEffect(code)==0 then
 			local seat=aux.MPSelectLPOpponent(tp)
-			c:RegisterFlagEffect(code,RESET_EVENT|(RESETS_STANDARD&~RESET_CONTROL&~RESET_TURN_SET),0,1,seat or -1)
+			c:RegisterFlagEffect(code,RESET_EVENT|RESETS_STANDARD|RESET_CONTROL,0,1,seat or -1)
 		end
 		aux.MPLPOpponentHint(c,aux.MPCardLPOpponent(c))
 	end)
 	c:RegisterEffect(e)
-	-- A field effect cannot run while Set. A single position-change listener
-	-- clears only the display hint, preserving the choice; Adjust re-emits it
-	-- at the actual coordinates on reveal, including after a hidden shuffle.
-	local pos=Effect.CreateEffect(c)
-	pos:SetType(EFFECT_TYPE_SINGLE|EFFECT_TYPE_CONTINUOUS)
-	pos:SetProperty(EFFECT_FLAG_CANNOT_DISABLE|EFFECT_FLAG_SET_AVAILABLE)
-	pos:SetCode(EVENT_CHANGE_POS)
-	pos:SetOperation(function() c:ResetFlagEffect(0x7ffd0000) end)
-	c:RegisterEffect(pos)
 end

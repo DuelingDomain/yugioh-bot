@@ -12,9 +12,9 @@ function s.atkop(e,tp,eg,ep,ev,re,r,rp)
 		seat,other=aux.MPHighestLPOpponent(aux.MPKey(tp))
 		if seat~=nil then Duel.MPBindSeat(seat) end
 	end
-	if Duel.MPBound() then aux.MPLPOpponentHint(c,Duel.MPSeat(1-tp)) end
 	local diff=math.abs(own-other)
 	if diff==0 then return end
+	if Duel.MPBound() then aux.MPLPOpponentHint(c,Duel.MPSeat(1-tp),RESET_PHASE|PHASE_END) end
 	local e1=Effect.CreateEffect(c)
 	e1:SetType(EFFECT_TYPE_SINGLE)
 	e1:SetCode(EFFECT_UPDATE_ATTACK)
@@ -40,14 +40,20 @@ s.destg=aux.MPTarget(s.destg)
 s.desop=aux.MPOne(s.desop)
 local mp_target=s.target
 function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
-	if chk~=0 and Duel.MPBound() then aux.MPLPOpponentHint(e:GetHandler(),Duel.MPSeat(1-tp)) end
+	if chk~=0 and Duel.MPBound() then aux.MPLPOpponentHint(e:GetHandler(),Duel.MPSeat(1-tp),RESET_CHAIN) end
 	return mp_target(e,tp,eg,ep,ev,re,r,rp,chk)
 end
 function s.atktg(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then
 		Duel.GetLP(1-tp) -- Preserve the core's activation-probe dependency.
+		local own=Duel.GetLP(tp)
+		-- Cost checks precede the chain relation; keep that guard at resolution.
+		local related=Duel.GetCurrentChain()==0 or e:GetHandler():IsRelateToEffect(e)
+		if not Duel.MPBound() then
+			return related and aux.MPAnyOpponentLP(tp,function(lp) return lp~=own end)
+		end
 		local other=Duel.MPBound() and Duel.MPGetLP(Duel.MPSeat(1-tp))
 		if not other then local seat; seat,other=aux.MPHighestLPOpponent(aux.MPKey(tp)) end
-		return e:GetHandler():IsRelateToEffect(e) and Duel.GetLP(tp)~=other
+		return related and own~=other
 	end
 end

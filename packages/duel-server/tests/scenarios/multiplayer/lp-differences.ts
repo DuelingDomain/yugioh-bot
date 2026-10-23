@@ -132,13 +132,13 @@ for (const format of ["ffa3", "ffa4"] as const) {
     endTurn("p1"), specialSummon("Cyber Dragon", "p2"),
     expectBoard({ p0: { zones: { m0: { card: TARANTULA, attack: 1400, lpOpponent: 1 } } }, p1: { lp: 6400 }, p2: { lp: 10000 } }),
   ]);
-  add(90162951, "set-keeps-choice", "Turning Tarantula face-down hides its hint without resetting the field-stay choice", {
+  add(90162951, "set-new-choice", "Turning Tarantula face-down resets its choice; revealing it chooses again", {
     p0: { lp: 5000, monsters: [TARANTULA], hand: ["Book of Moon", "Book of Taiyou"] },
   }, [
     pickOpponent("p1"), activate("Book of Moon"),
     expectBoard({ p0: { zones: { m0: { card: TARANTULA, pos: "set" } } } }),
-    activate("Book of Taiyou"),
-    expectBoard({ p0: { zones: { m0: { card: TARANTULA, attack: 2000, lpOpponent: 1 } } } }),
+    activate("Book of Taiyou"), expectPickSeats([...opponents]), pickOpponent("p2"),
+    expectBoard({ p0: { zones: { m0: { card: TARANTULA, attack: 5000, lpOpponent: 2 } } } }),
   ]);
   add(90162951, "leave-and-resummon", "Tarantula chooses again after leaving and returning to the field", {
     p0: { lp: 5000, monsters: [TARANTULA, "Night Express Knight", "Super Express Bullet Train"], spells: [{ card: "Compulsory Evacuation Device", pos: "set" }] },
@@ -158,16 +158,17 @@ for (const format of ["ffa3", "ffa4"] as const) {
   }, [
     pickOpponent("p1"), pickOpponent("p2"), activate({ card: "Book of Moon", nth: 0 }), select(TARANTULA), pass("p0"), activate("Book of Moon"),
     activate("Shifting Shadows"), expectBoard({ p0: { lp: 4700, monsters: [TARANTULA, LYCORIS] } }),
-    activate({ card: "Book of Taiyou", nth: 0 }), select(TARANTULA), expectBoard({ p0: { monsters: [TARANTULA, LYCORIS] } }),
-    activate("Book of Taiyou"), expectBoard({ p0: { monsters: [TARANTULA, LYCORIS] } }),
+    activate({ card: "Book of Taiyou", nth: 0 }), select(TARANTULA), pickOpponent("p1"), expectBoard({ p0: { monsters: [TARANTULA, LYCORIS] } }),
+    activate("Book of Taiyou"), pickOpponent("p2"), expectBoard({ p0: { monsters: [TARANTULA, LYCORIS] } }),
   ]);
   LP_DIFFERENCE_SCENARIOS.at(-1)!.tags.push("lp-shuffle-hints");
-  add(90162951, "control-change", "Tarantula keeps its original field-stay choice across a temporary control change", {
+  add(90162951, "control-change", "Tarantula's new controller chooses again, including when temporary control returns", {
     p0: { lp: 7000, hand: ["Change of Heart"] }, p1: { lp: 10000 }, p2: { lp: 5000, monsters: [TARANTULA] },
   }, [
-    pickOpponent("p0", "p2"), activate("Change of Heart"),
-    expectBoard({ p0: { zones: { m0: { card: TARANTULA, attack: format === "ffa4" ? 5000 : 3000, lpOpponent: format === "ffa4" ? 3 : 1 } } } }),
-    endTurn("p0"), expectBoard({ p2: { zones: { m0: { card: TARANTULA, attack: 2000, lpOpponent: 0 } } } }),
+    pickOpponent("p0", "p2"), activate("Change of Heart"), expectPickSeats([...opponents]), pickOpponent("p2"),
+    expectBoard({ p0: { zones: { m0: { card: TARANTULA, attack: 2000, lpOpponent: 2 } } } }),
+    endTurn("p0"), expectPickSeats(format === "ffa4" ? ["p0", "p1", "p3"] : ["p0", "p1"], "p2"), pickOpponent("p1", "p2"),
+    expectBoard({ p2: { zones: { m0: { card: TARANTULA, attack: 5000, lpOpponent: 1 } } } }),
   ]);
   add(25334372, "nonzero-attacker", "Tsukumo Slash uses the actual defender when the attacker belongs to seat 2", {
     p0: { lp: 7000, monsters: ["Blue-Eyes White Dragon"] }, p1: { lp: 10000 },
@@ -178,10 +179,10 @@ for (const format of ["ffa3", "ffa4"] as const) {
   ]);
   add(81758313, "choose-higher", "Myriaday's chosen LP source changes its real counter amount", {
     p0: { lp: 5000, monsters: [MYRIAD] },
-  }, [activate(MYRIAD), pickOpponent("p2"), expectBoard({ p0: { zones: { m0: { card: MYRIAD, counters: { 0x21d: 5 }, lpOpponent: 2 } } } })]);
+  }, [activate(MYRIAD), pickOpponent("p2"), expectBoard({ p0: { zones: { m0: { card: MYRIAD, counters: { 0x21d: 5 } } } } })]);
   add(81758313, "no-choice-at-resolution", "Myriaday uses the highest-living fallback if every counter choice becomes illegal", {
     p0: { lp: 5000, monsters: [MYRIAD] },
-  }, [activate(MYRIAD), expectBoard({ p0: { zones: { m0: { card: MYRIAD, counters: {}, lpOpponent: 1 } } }, p1: { lp: 5000 }, p2: { lp: 5000 } })]);
+  }, [activate(MYRIAD), expectBoard({ p0: { zones: { m0: { card: MYRIAD, counters: {} } } }, p1: { lp: 5000 }, p2: { lp: 5000 } })]);
   LP_DIFFERENCE_SCENARIOS.at(-1)!.tags.push("lp-equal-at-resolution");
   add(81916745, "banished-list-hint", "Lycoris's public hint follows it when earlier banished cards return to hand", {
     p0: { lp: 5000, monsters: ["Black Luster Soldier - Envoy of the Beginning"], grave: [LYCORIS], banished: ["Mystical Elf", "Axe Raider"], hand: ["Ookazi", "Primal Seed"] },
@@ -225,6 +226,14 @@ for (const format of ["ffa3", "ffa4"] as const) {
     pickOpponent("p1"), number(4000), choose("Destroy"), choose("ATK"),
     expectBoard({ p0: { lp: 16000, zones: { m0: { card: COORDIUS, attack: 6000, lpOpponent: 1 } } }, p1: { monsters: [] }, p2: { monsters: ["Blue-Eyes White Dragon", "Axe Raider", "Beaver Warrior"] } }),
     endTurn("p0"), expectBoard({ p0: { zones: { m0: { card: COORDIUS, attack: 3000 } } } }),
+  ]);
+  add(70219023, "highest-equal-legal-lower", "Coordius can activate with an empty GY when only a lower-LP opponent permits the ATK option", {
+    p0: { lp: 10000, field: "Fusion Gate", monsters: ["Stardust Dragon", "Number 39: Utopia", "Link Spider"], extra: [COORDIUS] },
+    p1: { lp: 6000 }, p2: { lp: 10000 }, ...(format === "ffa4" ? { p3: { lp: 10000 } } : {}),
+  }, [
+    activate("Fusion Gate"), select("Stardust Dragon", "Number 39: Utopia", "Link Spider"), activate(COORDIUS),
+    number(2000),
+    expectBoard({ p0: { lp: 8000, grave: [], zones: { m0: { card: COORDIUS, attack: 4000, lpOpponent: 1 } } } }),
   ]);
   add(46497537, "choose-equal", "Pig Iron offers only equal living opponents, even when a richer opponent lives", {
     p0: { lp: 5000, grave: [PIG] }, p1: { lp: 5000 }, p2: { lp: 5000 },

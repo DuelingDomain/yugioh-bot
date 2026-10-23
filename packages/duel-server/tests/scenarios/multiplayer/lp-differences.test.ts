@@ -1,5 +1,7 @@
 import { expect } from "vitest";
+import { OcgMessageType, type OcgMessageReloadField } from "ocgcore-wasm";
 import { createEngineGame } from "../../../src/engine.js";
+import { LpOpponentHints } from "../../../src/lp-opponent-hints.js";
 import { createLegacyEngineGame } from "../../../src/legacy/index.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { compileBoard } from "../../support/board.js";
@@ -60,15 +62,31 @@ swap:SetOperation(function(e,tp)
 end)
 c:RegisterEffect(swap)
 ` });
+  const hintsAfterReload = new LpOpponentHints();
   const game = await (legacy ? createLegacyEngineGame : createEngineGame)({
     ...compiled.options, dataDirectory: engineDataDirectory, seed: ["1", "2", "3", "4"],
+    onCoreMessage: message => hintsAfterReload.observe(message),
     ...(!legacy ? { multiWasmBinary: scenario.setup.mode === "domain" ? domainNseatWasmBinary() : nseatWasmBinary() } : {}),
   });
   try {
     const session = new Session(scenario, game);
     session.reachMainPhase(); session.startRecording();
     scenario.steps.forEach((step, i) => {
+      const beforeSurrender = step.op === "surrender" ? game.view(null) : null;
       session.run(step, i + 1);
+      if (beforeSurrender) {
+        const view = game.view(null);
+        for (const seat of beforeSurrender.seats) for (const old of seat.monsters) {
+          if (old?.lpOpponent == null) continue;
+          const current = view.seats[old.controller].monsters[old.sequence];
+          if (!current || current.code !== old.code) continue;
+          const expected = view.seats[old.lpOpponent].eliminated
+            ? view.seats.filter(other => other.seat !== current.controller && !other.eliminated)
+              .sort((a, b) => b.lp - a.lp || a.seat - b.seat)[0]?.seat
+            : old.lpOpponent;
+          expect(current.lpOpponent).toBe(expected);
+        }
+      }
       if (scenario.tags.includes("lp-shuffle-hints") && i === 1) session.reachMainPhase();
       if (scenario.tags.includes("lp-shuffle-hints") && step.op === "expectBoard") {
         for (const viewer of [null, 0, 1, 2]) for (const card of game.view(viewer).seats[0].monsters) {
@@ -77,6 +95,34 @@ c:RegisterEffect(swap)
       }
       if (scenario.tags.includes("lp-banished-hint") && step.op === "expectBoard") {
         for (const viewer of [null, 0, 1, 2]) expect(game.view(viewer).seats[0].banished.find(c => c.code === 81916745)?.lpOpponent).toBe(1);
+      }
+      if (step.op === "expectBoard") {
+        for (const viewer of [null, 0, 1, 2]) {
+          if (legacy && viewer === 2) continue;
+          const view = game.view(viewer);
+          // Replay real engine hints through a field reload. The stock decoder
+          // reports only two players, even when a hinted card belongs to p2/p3.
+          const reload = { type: OcgMessageType.RELOAD_FIELD, flags: 0n, chain: [],
+            players: view.seats.slice(0, 2).map(seat => ({
+              monsters: seat.monsters.map(card => card && { position: card.position, materials: card.materials?.length ?? 0 }),
+              spells: seat.spells.map(card => card && { position: card.position, materials: card.materials?.length ?? 0 }),
+              deck_size: seat.deckCount, hand_size: seat.hand.length, grave_size: seat.graveyard.length,
+              banish_size: seat.banished.length, extra_size: seat.extraCount, extra_faceup_count: 0,
+            })),
+          } as unknown as OcgMessageReloadField; // View masks/arrays correspond to the wrapper's enum/tuple fields.
+          hintsAfterReload.observe(reload);
+          for (const seat of view.seats) for (const card of [...seat.monsters, ...seat.spells, ...seat.graveyard, ...seat.banished]) {
+            if (!card) continue;
+            const reloaded = { ...card, lpOpponent: undefined };
+            hintsAfterReload.project(reloaded, view.seats);
+            expect(reloaded.lpOpponent).toBe(card.lpOpponent);
+          }
+          for (const seat of view.seats) for (const card of seat.monsters) {
+            if (card?.code === 81758313 || (card?.code === 70219023 && card.attack === 3000)) {
+              expect(card.lpOpponent).toBeUndefined();
+            }
+          }
+        }
       }
       // Hints are public for face-up cards; they must not identify a Set card.
       for (const viewer of [null, 0, 1, 2]) {

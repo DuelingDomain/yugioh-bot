@@ -34,7 +34,8 @@ function s.mpoperation(e,tp,eg,ep,ev,re,r,rp)
 		local count=math.abs(own-lp)//1000
 		return count>0 and c:IsCanAddCounter(0x21d,count)
 	end)
-	aux.MPLPOpponentHint(c,seat)
+	aux.MPLPOpponentHint(c,seat,RESET_CHAIN)
 	local count=math.abs(Duel.GetLP(tp)-other)//1000
 	if count>0 then c:AddCounter(0x21d,count) end
+	aux.MPLPOpponentHint(c,nil)
 end
