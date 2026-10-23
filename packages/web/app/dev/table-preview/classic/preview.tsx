@@ -6,6 +6,7 @@ import { isDuelChainMode, type DuelChainMode } from "@yugidraft/shared/duels";
 import { BattleFx } from "@/components/duel/battle-fx";
 import { withDestroyCards } from "@/components/duel/destroy-cards";
 import { DeckSurrenderContext } from "@/components/duel/deck-surrender";
+import { withCardStatusEngine } from "@/components/duel/table/fixtures/card-status";
 import { isBattlePhase } from "@/components/duel/constants";
 import { ChainFx } from "@/components/duel/chain-fx";
 import { DuelField } from "@/components/duel/field";
@@ -43,7 +44,7 @@ export function classicStateId(raw: string | null | undefined): SolidStateId {
  * The classic 1v1 room on fixture data: the room's own layout (header, board column, station track) with the real
  * DuelField, PhaseHub and StationTrack, and none of the room's network. Phase moves are logged, not sent.
  */
-export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp, lpAfter }: { stateId: string | null; chain: string | null; reduced: boolean; attack?: string | null; lp?: string | null; lpAfter?: string | null }) {
+export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp, lpAfter, status = false }: { stateId: string | null; chain: string | null; reduced: boolean; attack?: string | null; lp?: string | null; lpAfter?: string | null; status?: boolean }) {
   const id = classicStateId(stateId);
   const { room: base } = useMemo(() => solidFixture(id), [id]);
   // `?attack=<seat>:<seq>><target>[:<seq>]` declares a late attack, as the multiplayer previews do.
@@ -63,7 +64,7 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp
   }, [lpDelay]);
   const room = useMemo(() => {
     const event = parseAttackParam(attack ?? null);
-    let next = base;
+    let next = status && base.engine ? { ...base, engine: withCardStatusEngine(base.engine) } : base;
     const values = (lp ?? "").split(",").map(Number).filter((value) => Number.isFinite(value));
     if (values.length > 0 && lpLate && base.engine) {
       const seats = base.engine.seats.map((seat) => ({ ...seat, lp: values[seat.seat % values.length] }));
@@ -73,7 +74,7 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp
     const events = next.engine.events;
     const eventId = Math.max(0, ...events.map((entry) => entry.id)) + 1;
     return { ...next, engine: { ...next.engine, battleStep: "battle" as const, events: [...events, { ...event, id: eventId }] } };
-  }, [base, attack, late, lp, lpLate]);
+  }, [base, attack, late, lp, lpLate, status]);
   const engine = room.engine!;
   useDuelAnimationSpeed(reduced);
   const [chain, setChain] = useState<DuelChainMode>(isDuelChainMode(chainParam) ? chainParam : "auto");

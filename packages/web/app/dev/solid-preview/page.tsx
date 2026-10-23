@@ -33,6 +33,7 @@ export default async function SolidPreviewPage({ searchParams }: { searchParams:
         activate={one(query.act) === "1"}
         lp={one(query.lp)}
         lpAfter={one(query.lpafter)}
+        status={one(query.status) === "1"}
       />
     </div>
   );
