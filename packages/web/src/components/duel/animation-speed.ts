@@ -1,4 +1,4 @@
-/** Browser-local presentation preference. Never sent to the duel server. */
+/** Browser presentation preference, also used for bounded server animation credit. */
 export const ANIMATION_SPEED_KEY = "yugidraft.duelAnimationSpeed.v1";
 export const MIN_ANIMATION_SPEED = 0.5;
 export const MAX_ANIMATION_SPEED = 2;

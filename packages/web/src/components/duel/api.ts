@@ -1,3 +1,4 @@
+import { duelFxClock } from "./fx-clock";
 import type {
   DuelBestOf,
   DuelChainMode,
@@ -366,7 +367,7 @@ export function withRoomReceivedAt(room: DuelRoom & { receivedAt?: number }): Re
 }
 
 export async function getDuelRoom(slug: string, spectate = false, fork: ForkViewControl | null = null, notice?: RecoveryNotice, signal?: AbortSignal): Promise<ReceivedDuelRoom> {
-  return withRoomReceivedAt(await retryDuelRequest<DuelRoom>(duelRoomKey(slug, spectate, fork), { cache: "no-store", signal }, notice));
+  return withRoomReceivedAt(await retryDuelRequest<DuelRoom>(duelRoomKey(slug, spectate, fork), { cache: "no-store", signal, headers: { "x-duel-animation-speed": String(duelFxClock.factor()) } }, notice));
 }
 
 /** Admin watch: the room as one seat sees it (`pov`) or the neutral public view (null). Read-only; the server refuses everyone but the owner. */
@@ -531,7 +532,7 @@ export async function sendDuelAction(
   signal?: AbortSignal,
 ): Promise<ReceivedDuelRoom> {
   const url = `/api/duels/${encodeURIComponent(slug)}/actions${as === undefined ? "" : `?as=${as}`}`;
-  const init = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(command), signal };
+  const init = { method: "POST", headers: { "Content-Type": "application/json", "x-duel-animation-speed": String(duelFxClock.factor()) }, body: JSON.stringify(command), signal };
   // Restarting/rewinding a replay fork can reuse prompt/revision identities. Only
   // ordinary live duels have a monotonic journal for the lifetime of these retries.
   try {
@@ -561,7 +562,7 @@ export async function setChainResponseMode(slug: string, mode: DuelChainMode, fo
   return withRoomReceivedAt(await parseBody<DuelRoom>(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/chain-mode${fork ? `?as=${fork.as}` : ""}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-duel-animation-speed": String(duelFxClock.factor()) },
       body: JSON.stringify(fork
         ? { mode, revision: fork.revision, ...(fork.promptId !== undefined ? { promptId: fork.promptId } : {}) }
         : { mode }),

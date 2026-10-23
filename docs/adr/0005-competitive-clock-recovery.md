@@ -27,3 +27,21 @@ closes it. An unlimited tournament retains its null clock.
 Integration coverage uses the real SQLite services, host request/sweep lifecycle and installer subprocess, with
 fixture engine workers and isolated temporary data. See `host-live-idle.test.ts`, `install-engine-bundle.test.ts` and
 `scripts/deployment/deploy.test.ts`.
+
+Decision time follows the engine's pending prompt owner, independently of the turn seat. The engine exposes one
+pending decision at a time, including sequential FFA3/FFA4 and Tag response windows. Other seats' banks stay still.
+The host holds clocks only for engine work: accepted responses, chain-mode changes, bot planning/actions,
+actual recovery, starts and timeout settlement. Queueing and resident room/card/capability reads grant no credit
+and do not write clock state. Rejected answers receive no server-work credit. Credit accumulates up to ten seconds
+per prompt, including across nonpassing chain-mode changes and recovery. Excess work charges that prompt's owner;
+an exhausted loss remains due across handoff, before any later turn regain. A deadline already due when an
+operation starts still settles normally. Player-input activity and the ten-minute idle backstop remain independent.
+Final snapshot failures are logged and use a minimal clock read so projection errors cannot leave a bank paused.
+
+Fresh presentation events defer decision time by their expected animation duration at the next viewer's effective
+FX speed, bounded to five seconds for ordinary effects and fifteen seconds for coin sequences including backlog.
+Only a handoff to another seat adds its reveal/delivery allowance; the seat that just acted receives only real FX
+time. Historical events never grant fresh grace. Event-free clocked handoffs and reconnects expose controls
+immediately when the server clock is running and the client is quiet. Fresh FX and catch-up still keep their reveal
+beat even if the server's clock has started. During a submitted move or chain-mode request the client freezes its
+old snapshot; the authoritative reply replaces it. Paused/future clocks show a static bank without an answering marker.

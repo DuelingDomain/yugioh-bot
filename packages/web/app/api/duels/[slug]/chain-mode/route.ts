@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDuelChainMode, isReplayFork } from "@yugidraft/shared/duels";
-import { readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { duelAnimationSpeed, readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 
 export const runtime = "nodejs";
 
@@ -44,6 +44,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const result = await callDuelHost({
+    ...duelAnimationSpeed(request),
     op: "chain-mode",
     slug,
     guildId: actor.guildId,

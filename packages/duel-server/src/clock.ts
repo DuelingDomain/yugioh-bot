@@ -143,7 +143,7 @@ export function syncDecisionClock(
     turn: view.turn,
     remainingMs: remaining,
     activeSeat: nextSeat,
-    startedAt: inGrace || (nextSeat !== null && (remaining[nextSeat] ?? 0) > 0) ? startAt : null,
+    startedAt: inGrace || (nextSeat !== null && (timeout === "loss" || (remaining[nextSeat] ?? 0) > 0)) ? startAt : null,
   };
 }
 
