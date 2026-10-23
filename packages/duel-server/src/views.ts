@@ -1,3 +1,4 @@
+import type { CardHints } from "./card-hints.js";
 import type { DuelChainLink, DuelBattleStep, DuelCard, DuelFormat, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelMoveReason, DuelPrompt, DuelPromptOption, DuelSeatView, DuelSummonKind, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
   OcgHintType,
@@ -142,6 +143,8 @@ const QUERY_FLAGS = (
   OcgQueryFlags.RACE |
   OcgQueryFlags.ATTACK |
   OcgQueryFlags.DEFENSE |
+  OcgQueryFlags.BASE_ATTACK |
+  OcgQueryFlags.BASE_DEFENSE |
   OcgQueryFlags.OVERLAY_CARD |
   OcgQueryFlags.EQUIP_CARD |
   OcgQueryFlags.COUNTERS |
@@ -236,6 +239,8 @@ function queryToCard(
     description: info?.description,
     attack: query.attack,
     defense: query.defense,
+    baseAttack: query.baseAttack,
+    baseDefense: query.baseDefense,
     level,
     type: info?.type,
     attribute: query.attribute ?? info?.attribute,
@@ -1657,6 +1662,7 @@ export function projectView(args: {
   domainState?: DomainSeatState[];
   /** Hand animation identities (the engine query still decides what the hand holds and in which order). */
   handIdentities?: HandIdentities;
+  cardHints?: CardHints;
   /** Seat and team layout. Default `1v1`. More than two seats: the view fills `format`, `team` and `eliminated`. */
   format?: DuelFormat;
   /** Seats that lost while the duel goes on (FFA seat, or every seat of a Tag team). */
@@ -1750,6 +1756,13 @@ export function projectView(args: {
     }
     return view;
   });
+
+  if (args.cardHints) {
+    for (const seat of seats) {
+      seat.monsters = seat.monsters.map(card => card ? args.cardHints!.project(card, args.cards) : null);
+      seat.spells = seat.spells.map(card => card ? args.cardHints!.project(card, args.cards) : null);
+    }
+  }
 
   const chain = field ? field.chain.map((link, index) => {
     const info = args.cards.get(link.code);

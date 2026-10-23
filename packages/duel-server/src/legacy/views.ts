@@ -1,3 +1,4 @@
+import type { CardHints } from "../card-hints.js";
 import type { DuelChainLink, DuelBattleStep, DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelMoveReason, DuelPrompt, DuelPromptOption, DuelSeatView, DuelSummonKind, DuelZoneRef } from "@yugidraft/shared/duels"; // LEGACY-1V1: public chosen chain options
 import {
   OcgHintType,
@@ -105,6 +106,8 @@ const QUERY_FLAGS = (
   OcgQueryFlags.RACE |
   OcgQueryFlags.ATTACK |
   OcgQueryFlags.DEFENSE |
+  OcgQueryFlags.BASE_ATTACK |
+  OcgQueryFlags.BASE_DEFENSE |
   OcgQueryFlags.OVERLAY_CARD |
   OcgQueryFlags.EQUIP_CARD |
   OcgQueryFlags.COUNTERS |
@@ -196,6 +199,8 @@ function queryToCard(
     description: info?.description,
     attack: query.attack,
     defense: query.defense,
+    baseAttack: query.baseAttack,
+    baseDefense: query.baseDefense,
     level,
     type: info?.type,
     attribute: query.attribute ?? info?.attribute,
@@ -1524,6 +1529,7 @@ export function projectView(args: {
   genesys?: boolean;
   domainState?: DomainSeatState[];
   handIdentities?: HandIdentities;
+  cardHints?: CardHints;
 }): DuelEngineView {
   const field = args.lib.duelQueryField(args.handle);
   const seats: DuelSeatView[] = [0, 1].map((seat) => {
@@ -1587,6 +1593,13 @@ export function projectView(args: {
     }
     return view;
   });
+
+  if (args.cardHints) {
+    for (const seat of seats) {
+      seat.monsters = seat.monsters.map(card => card ? args.cardHints!.project(card, args.cards) : null);
+      seat.spells = seat.spells.map(card => card ? args.cardHints!.project(card, args.cards) : null);
+    }
+  }
 
   const chain = field.chain.map((link, index) => {
     const info = args.cards.get(link.code);

@@ -1,3 +1,4 @@
+import { CardHints } from "../card-hints.js";
 import { scriptErrorCoreFactory } from "../script-load-scope.js"; // LEGACY-1V1: distinguish load failures from runtime errors
 import { EngineLoopError } from "../engine-loop-error.js"; // LEGACY-1V1: shared core loop invariant
 import { CARD_SCRIPT_ERROR_TEXT, CORE_PROCESS_CALL_LIMIT, createScriptErrorPolicy, type DuelScriptError, type DuelScriptFatalError } from "../script-errors.js"; // LEGACY-1V1: owner runtime script-error policy
@@ -238,6 +239,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   let scriptErrorEventSent = false; // LEGACY-1V1: coalesce runtime errors per answer
   const scopedCreateCore = scriptErrorCoreFactory(legacyCreateCore, scriptErrors);
   const eventContext = createEventContext();
+  const cardHints = new CardHints();
   const cardReader = (code: number) => {
     if (!code) return null;
     return cards.cardData(code);
@@ -524,6 +526,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   };
 
   const applyMessage = (message: OcgMessage) => {
+    cardHints.observe(message);
     battleStep = nextBattleStep(battleStep, message);
     switch (message.type) {
       case OcgMessageType.RETRY:
@@ -679,6 +682,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       try { status = lib.duelProcess(handle); }
       finally { scriptErrors.leaveProcess(); } // LEGACY-1V1: only runtime process errors are tolerable
       const messages = lib.duelGetMessage(handle);
+      cardHints.beginBatch(messages);
       for (const message of messages) {
         applyMessage(message);
         recordEvent(message);
@@ -784,6 +788,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         result,
         reveals,
         handIdentities: eventContext.handIdentities,
+        cardHints,
         mode: options.mode,
         genesys: options.settings?.genesys != null,
         domainState: readDomainState(),

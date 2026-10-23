@@ -90,7 +90,8 @@ for (const [format, legacy] of [["1v1", false], ["1v1", true], ["ffa3", false], 
           const prompt = game.view(1).prompt;
           expect(prompt?.options.some(option => option.card?.name === "Solemn Judgment")).toBe(true);
           for (const viewer of [0, 1, null]) {
-            expect(game.view(viewer).seats[0].monsters[0]).toMatchObject({ code: 16306932, attack: -2, defense: -2 });
+            expect(game.view(viewer).seats[0].monsters[0]).toMatchObject({ code: 16306932, attack: -2, defense: -2,
+              baseAttack: -2, baseDefense: -2 });
           }
           assert(prompt);
           game.answer(1, prompt.id, { cancel: true });
