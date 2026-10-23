@@ -27,11 +27,52 @@ Engine-known IDs take priority and supported artwork remains intact. Explicit
 database aliases supply canonical identity for duplicate and card-count checks;
 the existing catalog/name resolver handles other known external IDs.
 
-For the reported missing ID, an exact compatibility entry permits
-`70828913 → 70828912` only when the target is a playable, alias-free engine row
-named **Premature Burial**. This is the observed Dueling Book export exception,
-not a general “subtract one” rule. An existing engine row for `70828913` wins.
-Other unproven neighbors, including `70828914`, remain unresolved.
+Dueling Book's public [card data](https://static.duelingbook.com/cards.json) supplies
+an explicit compatibility table in
+`packages/duel-server/duelingbook-alt-passcodes.json`. Its `cards` array uses `n`,
+`s`, and `s2`, which `loadCards` in the exporter expands into `name`,
+`serial_number`, and `alt_passcode`. Both that object and a bare card array are
+accepted by the refresh script; full field names are also supported. No login,
+session, or private endpoint is used.
+
+Refresh locally after preparing the pinned engine data with Node 22:
+
+```sh
+node --import tsx packages/duel-server/scripts/update-duelingbook-passcodes.ts
+# An alternate prepared bundle can be selected with --data-dir or DUEL_DATA_DIR.
+```
+
+The script makes one GET with a 30-second timeout and no retries. A mapping is
+kept only if its source ID is absent from the engine, its target is a playable,
+alias-free engine row, and the Dueling Book and engine names match after Unicode
+normalization, case folding, and removal of accents, spacing and punctuation.
+It reports skipped counts and up to five examples per reason, excludes conflicting
+targets for the same alternate ID, and writes deterministic JSON. A companion
+`duelingbook-alt-passcode-names.json` records engine names so imports recheck the
+target name and playability even when using an older prepared bundle.
+
+The first refresh (2026-10-23) found **292 alternate rows** among **18,535 cards**:
+**78 mappings**, **211 engine-known IDs preserved**, and **3 missing targets**.
+There were **0 name mismatches**, unplayable targets, invalid passcodes or
+ambiguous alternates. Preserved IDs include `41356846` (Acid Trap Hole) and
+`70095155` (Cyber Dragon). Missing targets are Dueling Book's anime IDs
+`10000023` (Slifer the Sky Dragon), `10000003` (Obelisk the Tormentor), and
+`10000013` (The Winged Dragon of Ra). These are skipped rather than guessed.
+
+Verified examples include `70828913 → 70828912` (**Premature Burial**),
+`81480461 → 81480460` (**Barrel Dragon**), and `10000050 → 1784686`
+(**The Eye of Timaeus**). This uses explicit export data, never a “subtract one”
+rule. Unproven neighbors, including `70828914`, remain unresolved. If an engine
+update introduces any mapped source ID, that engine row wins immediately.
+
+The **Engine data update** workflow refreshes these files every Monday and
+Thursday at 06:00 UTC, after preparing the candidate engine database. It also
+supports table-only changes when Ignis pins stay unchanged. An unavailable,
+malformed, or alternate-free feed retains the committed files and does not fail
+the engine-data update. The scheduled PR report includes refresh counts; the
+full examples are in its `duelingbook.json` artifact and job log. The publication
+allowlist admits only the two generated JSON paths alongside the existing pin
+paths, validating the JSON and file modes before writing anything.
 
 Every changed ID has a preview note naming the selected card, for example
 “70828913 read as Premature Burial.” This avoids silently substituting a card
