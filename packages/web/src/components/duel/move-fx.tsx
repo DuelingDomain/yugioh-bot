@@ -26,7 +26,7 @@ import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, isDefenseAt, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED, TYPE_PENDULUM } from "./constants";
-import { collectFreshEvents, departureTurn, destinationCardSize, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation, zoneCardParts, zoneFrameOf } from "./event-queue";
+import { collectFreshEvents, departureTurn, destinationCardSize, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation, nearestTurn, zoneCardParts, zoneFrameOf } from "./event-queue";
 import {
   getMovePlan,
   planMoves,
@@ -91,6 +91,11 @@ export type FlightParams = {
   startScale: number;
   startRot: number;
   endRot: number;
+  /**
+   * The turn the card shows while it travels, when that is not the turn of its start and end: a card shown from a
+   * rival's hand is read by the viewer, so its face flies upright for the screen and turns to its seat only on landing.
+   */
+  revealRot?: number;
   /** Card height at the destination, px (the lift and arc scale with it). */
   cardH: number;
   /** Signed spin for tosses, degrees. */
@@ -119,7 +124,7 @@ function tuningFor(style: MoveStyle, cardH: number, dist: number): Tuning {
 
 /** Keyframes for one flight. Position, tilt, size and shadow are sampled along a quadratic arc. */
 export function buildFlight(params: FlightParams): Flight {
-  const { style, dx, dy, startScale, startRot, endRot, cardH, spin } = params;
+  const { style, dx, dy, startScale, startRot, endRot, revealRot, cardH, spin } = params;
   const dist = Math.hypot(dx, dy);
   const tune = tuningFor(style, cardH, dist);
   const toss = style === "toss";
@@ -146,7 +151,7 @@ export function buildFlight(params: FlightParams): Flight {
       const q = easeOutCubic(liftEnd === 0 ? 1 : u / liftEnd);
       x = dx;
       y = dy - tune.liftPx * q;
-      rot = startRot + tilt * q;
+      rot = (revealRot == null ? startRot : lerp(startRot, revealRot, q)) + tilt * q;
       scale = startScale * lerp(1, tune.peak, q);
       shadeOpacity = 0.6 * q;
     } else if (u < settleStart || tune.settle === 0) {
@@ -155,7 +160,8 @@ export function buildFlight(params: FlightParams): Flight {
       const at = bez(e);
       x = at.x;
       y = at.y;
-      rot = lerp(startRot + tilt, endRot, e) + (toss ? spin * e : 0);
+      // A shown card holds the screen-upright turn for the first part of the glide, then turns to its seat as it arrives.
+      rot = (revealRot == null ? lerp(startRot + tilt, endRot, e) : lerp(revealRot + tilt, endRot, easeInOutSine(clamp((e - 0.45) / 0.55, 0, 1)))) + (toss ? spin * e : 0);
       scale = lerp(startScale * tune.peak, toss ? tune.landScale : 1.05, e);
       shadeOpacity = toss ? lerp(0.6, 0.2, e) : lerp(0.6, 0.5, e);
     } else {
@@ -332,6 +338,8 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   const endUp = card != null && plan.event.faceDown !== true && !toDeckPile;
   // A destroyed card leaves as the pieces it broke into, never as the intact card.
   const pieces = card != null && source != null ? plan.pieces : null;
+  // A face shown from a rival's hand: the sleeve turns over on the way (see revealRot in buildFlight).
+  const revealsFromRivalHand = card != null && source != null && source.side === "opp" && plan.event.from?.location === LOCATION_HAND && endUp && plan.pieces == null;
   const startAngle = card == null ? 0 : startUp ? 0 : 180;
   const endAngle = card == null ? 0 : endUp ? 0 : 180;
 
@@ -380,11 +388,18 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
     const startTurn = source ? departureTurn(plan.event.from, sideTurn) ?? sideTurn : 0;
     // The card rests turned as its seat field turns it on screen, and flies to that turn the short way.
     const endTurn = dest ? moveDestinationRotation(dest, false, startTurn) : cardTurn(target.side, endDefense);
+    // A card shown from a rival's hand (an activation, a summon) is read by the viewer: its face is upright for the
+    // screen however its seat is turned, and it turns to its seat as it lands. The board rule (a card faces its
+    // controller) holds for the card at rest, not for this reveal.
+    const reveal = revealsFromRivalHand && source ? nearestTurn(0, startTurn) : null;
     let liveFlight: ReturnType<typeof retargetFlight> | undefined;
 
     if (plan.style === "fade" || !source) {
       const fadeMs = plan.reduced ? plan.durationMs : Math.min(plan.durationMs, 300);
-      track.play(el, [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }], { duration: fadeMs, easing: "ease-out", delay, fill: delay > 0 ? "both" : "auto" });
+      const fadeFrames: Keyframe[] = reveal == null
+        ? [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }]
+        : [{ opacity: 0, transform: `rotate(${reveal}deg)` }, { opacity: 1, transform: `rotate(${reveal}deg)`, offset: 0.5 }, { opacity: 1, transform: endTurn !== 0 ? `rotate(${endTurn}deg)` : "none" }];
+      track.play(el, fadeFrames, { duration: fadeMs, easing: "ease-out", delay, fill: delay > 0 ? "both" : "auto" });
       // Reduced motion: the card does not travel. Its stand-in sits on the source zone (opacity 1 from the first
       // frame, in the pose it had) and fades out there while the card fades in on its pile.
       const standIn = standInRef.current;
@@ -403,6 +418,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         startScale: clamp(source.rect.height / h, 0.35, 2.4),
         startRot: startTurn,
         endRot: endTurn,
+        revealRot: reveal ?? undefined,
         cardH: h,
         spin: seededSign(plan.id) * (14 + (plan.id % 5) * 3),
       });
