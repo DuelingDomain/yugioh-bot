@@ -294,8 +294,10 @@ export async function runUpdate(options: Options = {}) {
     const conflicts = detectOverlayConflicts(manifest.cards, stock);
     report.push("", `## Overlay conflicts (${conflicts.length})`, "", "Compared every MANIFEST stockSha256 against candidate stock scripts. A human/Codex must update affected overlay files and review their baseline hashes; this job does not regenerate them.", "",
       ...(conflicts.length ? conflicts.map((card) => `- \`${card.file}\` ${markdown(names.get(card.code) ?? card.name ?? "")} — stock \`${card.stockSha256 ?? "unrecorded"}\` → \`${card.actualSha256 ?? "removed"}\``) : ["None."]));
-    const patches = JSON.parse(await readFile(join(root, packagePath, "card-script-patches/MANIFEST.json"), "utf8")) as Array<{ stockPath: string; stockSha256: string }>;
-    const patchConflicts = detectOverlayConflicts(patches.map(patch => ({
+    const patches = JSON.parse(await readFile(join(root, packagePath, "card-script-patches/MANIFEST.json"), "utf8")) as Array<{ stockPath: string; stockSha256?: string }>;
+    // Host-owned scripts have no upstream baseline; retain review gates for stock suffixes.
+    const patchConflicts = detectOverlayConflicts(patches.filter((patch): patch is typeof patch & { stockSha256: string } =>
+      patch.stockSha256 !== undefined).map(patch => ({
       ...patch, code: codeOf(patch.stockPath), file: patch.stockPath.split("/").pop()!,
     })), stock);
     report.push("", "## Card script patches", "",

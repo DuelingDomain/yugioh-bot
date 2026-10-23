@@ -143,8 +143,6 @@ const QUERY_FLAGS = (
   OcgQueryFlags.RACE |
   OcgQueryFlags.ATTACK |
   OcgQueryFlags.DEFENSE |
-  OcgQueryFlags.BASE_ATTACK |
-  OcgQueryFlags.BASE_DEFENSE |
   OcgQueryFlags.OVERLAY_CARD |
   OcgQueryFlags.EQUIP_CARD |
   OcgQueryFlags.COUNTERS |
@@ -239,8 +237,7 @@ function queryToCard(
     description: info?.description,
     attack: query.attack,
     defense: query.defense,
-    baseAttack: query.baseAttack,
-    baseDefense: query.baseDefense,
+    ...(location === OcgLocation.MZONE ? { baseAttack: query.baseAttack, baseDefense: query.baseDefense } : {}),
     level,
     type: info?.type,
     attribute: query.attribute ?? info?.attribute,
@@ -268,7 +265,9 @@ function queryLocation(
   controller: number,
   location: OcgLocationValue,
 ) {
-  return lib.duelQueryLocation(handle, { flags: QUERY_FLAGS, controller: controller as 0 | 1, location });
+  const flags = (location === OcgLocation.MZONE
+    ? QUERY_FLAGS | OcgQueryFlags.BASE_ATTACK | OcgQueryFlags.BASE_DEFENSE : QUERY_FLAGS) as OcgQueryFlagsValue;
+  return lib.duelQueryLocation(handle, { flags, controller: controller as 0 | 1, location });
 }
 
 function overlayMaterials(controller: number, cards: CardDatabase, overlayCards?: number[]): DuelCard[] {
