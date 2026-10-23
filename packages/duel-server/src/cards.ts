@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { canonicalCardCode, type DeckCardInfo, type DuelCardInfo, type DuelDeck } from "@yugidraft/shared/duels";
 import { createCardNameSearch } from "./card-name-search.js";
+import { HOST_CARD_HINT_DESCRIPTIONS } from "./card-script-patches.js";
 import type { ScriptOverlay } from "./multi-scripts.js";
 import {
   OcgType,
@@ -242,6 +243,8 @@ function loadFromDisk(root: string): LoadedCardDatabase {
     },
     resolveLabel(desc) {
       const value = typeof desc === "bigint" ? desc : BigInt(desc);
+      const hostHint = HOST_CARD_HINT_DESCRIPTIONS.get(Number(value));
+      if (hostHint) return hostHint;
       if (value > 0n && value <= 0xffffffffn) {
         const named = info.get(Number(value));
         if (named?.name) return named.name;

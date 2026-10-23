@@ -132,7 +132,7 @@ try:
     paths = []
     for patch in receipt:
         path = patch.get("stockPath") if isinstance(patch, dict) else None
-        if not isinstance(path, str) or (path != "card_counter_constants.lua" and not re.fullmatch(r"(?:[A-Za-z0-9_-]+/)*c[0-9]+\.lua", path)):
+        if not isinstance(path, str) or (path not in ("card_counter_constants.lua", "utility.lua") and not re.fullmatch(r"(?:[A-Za-z0-9_-]+/)*c[0-9]+\.lua", path)):
             raise ValueError("invalid stockPath")
         paths.append(path)
     if len(set(paths)) != len(paths):
