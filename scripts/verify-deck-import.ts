@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { openDatabase } from "@yugidraft/shared/db";
 import { defaultDuelSettings, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
-import { encodeYdke } from "@yugidraft/shared/decks";
+import { decodeYdke, encodeYdke } from "@yugidraft/shared/decks";
 import { createDeckTypeLookup, createDuelService, createSavedDeckService } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../packages/duel-server/src/host.js";
 import { validateExtraDeckTypes } from "../packages/duel-server/src/deck-legality.js";
@@ -39,6 +39,7 @@ import { POST as bulk } from "../packages/web/app/api/decks/import/bulk/route";
 import { POST as createDeck } from "../packages/web/app/api/decks/route";
 import { PUT as updateDeck } from "../packages/web/app/api/decks/[id]/route";
 import { fixMisplaced, placementBlock, type CardCatalog } from "../packages/web/src/components/decks/model";
+import { pasteSource, readSources } from "../packages/web/src/components/decks/bulk-import";
 
 type EngineCard = { id: number; alias: number; type: number; name: string; level: number; atk: number; def: number; attribute: number; race: number; desc: string };
 type Fixture = { name: string; mode: DuelMode; deck: DuelDeck; bad?: number; misplaced?: true; overflow?: true; unknown?: true };
@@ -99,6 +100,9 @@ beforeAll(() => {
     { name: "Explicit Side Extra monsters", mode: "normal", deck: { main: blueMain, extra: mixedExtra.slice(0, 12), side: [12381100, 43321985, 1861629] } },
     { name: "Unknown engine types", mode: "normal", unknown: true, deck: { main: [...blueMain, 9995767], extra: [...mixedExtra.slice(0, 14), 10000120], side: [10000110] } },
   ];
+});
+
+function assertFixtures() {
   for (const fixture of fixtures) {
     for (const code of [...fixture.deck.main, ...fixture.deck.extra, ...fixture.deck.side, ...(fixture.deck.deckMaster ? [fixture.deck.deckMaster] : [])]) {
       expect(engine.has(code), `Real engine card ${code}`).toBe(true);
@@ -111,7 +115,7 @@ beforeAll(() => {
   const domainCodes = [...fixtures[0].deck.main, ...fixtures[0].deck.extra, ...fixtures[0].deck.side, fixtures[0].deck.deckMaster!];
   expect(new Set(domainCodes.map(code => engine.get(code)!.alias || code)).size).toBe(70);
   for (const bit of [0x40, 0x2000, 0x800000]) expect(mixedExtra.some(code => (engine.get(code)!.type & (bit | 0x1000000)) === (bit | 0x1000000))).toBe(true);
-});
+}
 
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), "verify-deck-import-"));
@@ -175,7 +179,55 @@ function seedStaleCatalog() {
   } })();
 }
 
+describe("reported simulator exports", () => {
+  const reported = "ydke://V6uBAudWLQGTXbUFfxdRAScUYwOWqtwElSK4BZR6pQUmy0UBlU16AyblLgMBY1oFgKA2AMafbgFBjNIBdf/OAk9IcANCEogCgx0xAzvfTAWY0FEAaIi1AfAokwOqPNwFQ+E7Al7M3QNRbmoFrLJsAieV7gC4hT0AfXrfAZCZiwKxYYME+9wUAXRHKwEofxADEeP9A4xxFQLTSPkB6iz5BKeIZwEzGHcCWwm+AkH/4AC4yokBEblxAGeOUgNKcEkDccM4BH32vwCmm/QBZFvNAyuzvQI9iI0CHjeCASetUgMiSJkAN7o7BQ35OgWFwGIB!6DUqAlYtDgUnWqQBbWn6BHbm5QMoMWYC3fKgBG3XQwGXIWQFwPShACOQswSCStUFHYiSA0BAzAHKGr8B!ACSFAw==!";
+  it.each(["standard", "domain"] as const)("previews and saves the supplied one-line YDKE in %s", async mode => {
+    const picked = pasteSource(reported);
+    const response = await preview(request({ sources: picked.sources.map(source => ({ ...source, mode })) }));
+    expect(response.status).toBe(200);
+    const { rows } = await response.json();
+    expect(rows).toHaveLength(1);
+    const shown = rows[0];
+    expect(shown.errors).toEqual([]);
+    expect(shown.counts).toEqual({ main: 60, extra: 15, side: mode === "domain" ? 0 : 1 });
+    expect(shown.deck.deckMaster).toBe(mode === "domain" ? 59057152 : null);
+    expect(shown.deck.main).toContain(70828912);
+    expect(shown.deck.main).not.toContain(70828913);
+    expect(shown.notes).toContainEqual(expect.objectContaining({ from: 70828913, to: 70828912, line: 1,
+      message: expect.stringContaining("70828913 read as Premature Burial") }));
+    const saved = await bulk(request({ rows }));
+    expect(saved.status).toBe(200);
+    const result = await saved.json();
+    expect(result.failed).toEqual([]);
+    const stored = decks.get(result.created[0].id, boundary.guildId, boundary.actor.ownerUserId as number)!;
+    expect(stored.deck.main).toEqual(shown.deck.main);
+    expect(stored.deck.extra).toEqual(shown.deck.extra);
+    expect(stored.deck.side).toEqual(shown.deck.side);
+    expect(stored.deck.deckMaster ?? null).toBe(shown.deck.deckMaster);
+  });
+
+  it.each(["paste", "file"])("imports the reported cards as a %s name list with an empty catalog", async kind => {
+    const decoded = decodeYdke(reported);
+    if ("error" in decoded) throw new Error(decoded.error.message);
+    const raw = { main: decoded.deck.main.map(code => code === 70828913 ? 70828912 : code), extra: decoded.deck.extra, side: decoded.deck.side };
+    const text = textFor(raw, "names").replace("main Deck:", "Main Deck (60):\nMonsters:");
+    const picked = kind === "paste" ? pasteSource(text) : await readSources([new File([text], "Medraut.txt")]);
+    const response = await preview(request({ sources: picked.sources.map(source => ({ ...source, mode: "domain" })) }));
+    expect(response.status).toBe(200);
+    const { rows: [shown] } = await response.json();
+    expect(shown.errors).toEqual([]);
+    expect(shown.counts).toEqual({ main: 60, extra: 15, side: 0 });
+    expect(shown.deck.deckMaster).toBe(59057152);
+    expect(shown.deck.main).toContain(70828912);
+    expect(shown.warnings.filter((issue: { code: string }) => issue.code === "invalid_passcode")).toEqual([]);
+    const result = await (await bulk(request({ rows: [shown] }))).json();
+    expect(result.failed).toEqual([]);
+    expect(result.created).toHaveLength(1);
+  });
+});
+
 describe.each(["empty", "stale"])("real engine deck imports: %s catalog", cache => {
+  beforeAll(assertFixtures);
   for (let index = 0; index < fixtureCount; index++) {
     describe(`deck ${index + 1}`, () => {
       it.each(paths)("%s", async path => {

@@ -297,7 +297,7 @@ export function resolveImportDeck(deck: DeckSections, codes: ReadonlyMap<number,
     const line = lines.get(code);
     const position = line === undefined ? {} : { line };
     // A card the host cannot resolve may still have a catalog name. A remapped card is named by its engine copy first.
-    const name = nameOf(code) ?? (resolved == null ? undefined : nameOf(resolved));
+    const name = (resolved == null ? undefined : nameOf(resolved)) ?? nameOf(code);
     const label = name ?? `Card ${code}`;
     if (resolved == null) errors.push(limited.has(code)
       ? { code: "lookup_limited", message: `${label}: the card check hit its limit. Check this deck again in a moment.`, passcode: code, ...position }
@@ -305,7 +305,7 @@ export function resolveImportDeck(deck: DeckSections, codes: ReadonlyMap<number,
         ? `${name}: this card is not in the game's card data. Remove it from the deck file to import the rest.`
         : `${label}: not found in the game's card data. Check the passcode in the deck file.`, passcode: code, ...position });
     else if (resolved !== code) notes.push({ code: "remapped", message: name
-      ? `${name}: uses the game's own copy of this card. No action needed.`
+      ? `${code} read as ${name}. Uses the game's own copy of this card. No action needed.`
       : `${label}: uses the game's copy under ID ${resolved}. No action needed.`, from: code, to: resolved, ...position });
   }
   const map = (code: number) => codes.get(code) ?? code;

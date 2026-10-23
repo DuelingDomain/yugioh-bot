@@ -619,7 +619,7 @@ describe("preview", () => {
     const [shown] = await previewRows([{ ...source(text), mode }]);
     expect(shown).toMatchObject({ mode, deck: { ...deck(), deckMaster: 40235813 }, counts: { main: 1, extra: 0, side: 0 }, errors: [] });
     expect(shown.notes).toContainEqual(expect.objectContaining({ code: "remapped", from: 101402052, to: 40235813 }));
-    expect(shown.notes[0].message).toBe("Official Test Card: uses the game's own copy of this card. No action needed.");
+    expect(shown.notes[0].message).toBe("101402052 read as Official Test Card. Uses the game's own copy of this card. No action needed.");
     expect(shown.warnings.filter((issue: { code: string }) => issue.code === "remapped")).toEqual([]);
     expect(mocks.callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "validate-deck-master", deck: { main: [], extra: [], side: [], deckMaster: 40235813 } }));
     const response = await bulk(request({ rows: [shown] }));
@@ -938,4 +938,71 @@ it("uses the real bundle resolver for approved chained remaps, protected artwork
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+it("uses the real resolver for the reported simulator artwork ID and rejects unproven neighboring IDs", async () => {
+  advanceFetchClock();
+  const directory = mkdtempSync(join(tmpdir(), "deck-import-simulator-"));
+  try {
+    const engine = new Database(join(directory, "cards.cdb"));
+    engine.exec(`
+      create table datas (id integer primary key, ot integer, alias integer, type integer);
+      create table texts (id integer primary key, name text);
+      insert into datas values (70828912, 3, 0, 130), (89631139, 3, 0, 17), (89631140, 3, 89631139, 17);
+      insert into texts values (70828912, 'Premature Burial'), (89631139, 'Blue-Eyes White Dragon'), (89631140, 'Blue-Eyes White Dragon');
+    `);
+    engine.close();
+    mocks.engine.set(70828912, { name: "Premature Burial", type: 130 });
+    const { normalizeCardCodes } = await import("../../duel-server/src/deck-import.js");
+    const upstream = vi.fn(async () => Response.json({ error: "No card matching your query was found" }, { status: 400 }));
+    mocks.callDuelHost.mockImplementation(async (input: { op: string; codes: number[]; preserveArtwork: boolean; lookupLimit: number }) => {
+      const canonicalCodes = new Map<number, number | null>();
+      const codes = await normalizeCardCodes(input.codes, directory, db, { preserveArtwork: input.preserveArtwork,
+        fetch: upstream, canonicalCodes, lookupBudget: { remaining: input.lookupLimit, lookupLimited: false } });
+      return { ok: true, data: { codes: Object.fromEntries(codes), canonicalCodes: Object.fromEntries(canonicalCodes) } };
+    });
+    const [shown] = await previewRows([source(encodeYdke(deck([70828913, 89631140])))]);
+    expect(shown.errors).toEqual([]);
+    expect(shown.deck.main).toEqual([70828912, 89631140]);
+    expect(shown.notes).toContainEqual(expect.objectContaining({ code: "remapped", from: 70828913, to: 70828912, line: 1,
+      message: expect.stringContaining("70828913 read as Premature Burial") }));
+    expect(upstream).not.toHaveBeenCalled();
+    const result = await (await bulk(request({ rows: [shown] }))).json();
+    expect(result.failed).toEqual([]);
+    expect(decks.get(result.created[0].id, "g", 1)?.deck.main).toEqual([70828912, 89631140]);
+    db.exec("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (70828912,'Premature Burial','Spell Card','spell','','','[]','test')");
+    vi.stubGlobal("fetch", upstream);
+    const [counted] = await previewRows([source("Main Deck\n1x 70828913\nPremature Burial", "counted")]);
+    expect(counted.errors).toEqual([]);
+    expect(counted.deck.main).toEqual([70828912, 70828912]);
+    expect(counted.notes).toContainEqual(expect.objectContaining({ from: 70828913, to: 70828912, line: 2 }));
+    const [unknown] = await previewRows([source("#main\n70828914\n89631141", "unknown")]);
+    expect(unknown.errors.map((issue: { passcode: number }) => issue.passcode)).toEqual([70828914, 89631141]);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+it.each([
+  { name: "Another card", alias: 0, ot: 3, sourceKnown: false },
+  { name: "Premature Burial", alias: 123, ot: 3, sourceKnown: false },
+  { name: "Premature Burial", alias: 0, ot: 32, sourceKnown: false },
+  { name: "Premature Burial", alias: 0, ot: 3, sourceKnown: true },
+])("validates simulator artwork evidence and gives an existing source row priority: %j", async fixture => {
+  const directory = mkdtempSync(join(tmpdir(), "deck-import-artwork-evidence-"));
+  try {
+    const engine = new Database(join(directory, "cards.cdb"));
+    engine.exec("create table datas (id integer primary key, ot integer, alias integer, type integer); create table texts (id integer primary key, name text)");
+    engine.prepare("insert into datas values (70828912, ?, ?, 2)").run(fixture.ot, fixture.alias);
+    engine.prepare("insert into texts values (70828912, ?)").run(fixture.name);
+    if (fixture.sourceKnown) engine.exec("insert into datas values (70828913, 3, 0, 17); insert into texts values (70828913, 'Different engine card')");
+    engine.close();
+    const { normalizeCardCodes } = await import("../../duel-server/src/deck-import.js");
+    mocks.callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({ ok: true, data: {
+      codes: Object.fromEntries(await normalizeCardCodes(input.codes, directory, db, { preserveArtwork: true,
+        fetch: async () => Response.json({ error: "No card matching your query was found" }, { status: 400 }) })),
+    } }));
+    const [shown] = await previewRows([source("#main\n70828913")]);
+    expect(shown.deck.main).toEqual([70828913]);
+    expect(shown.notes).toEqual([]);
+    expect(shown.errors).toEqual(fixture.sourceKnown ? [] : [expect.objectContaining({ code: "unknown_card", passcode: 70828913 })]);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
