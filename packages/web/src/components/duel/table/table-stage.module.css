@@ -205,7 +205,8 @@
   left: 0;
   top: 0;
   z-index: 40;
-  transition: transform 0.76s cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* While a drawer reflows the table the strip glides in the drawer's own time (the shell sets --glide-hub), not for 0.76 s after it. */
+  transition: transform var(--glide-hub, 0.76s) var(--glide-hub-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
 }
 /* The FINAL DUEL regroup of a 3-way table: the strip and the turn ring wait and glide with the boards. */
 .board[data-regroup="true"] .hub,

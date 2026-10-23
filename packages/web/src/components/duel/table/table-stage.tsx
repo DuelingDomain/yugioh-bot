@@ -185,8 +185,6 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   const play = useMemo(() => aliveLayout(layout, outSet), [layout, outSet]);
   // Your own field zoomed stays zoomed when a seat goes out: the table regroups face to face under the same camera zoom (the camera
   // never zooms by itself). The seats are placed as at home, and the view is fitted again to the new field once they stand still.
-  // A seat that leaves, or a camera view that changes, re-lays the table out: with reduced motion nothing glides, so hold clicks for a moment.
-  useHoldOnLayoutChange(`${play.slots.map((slot) => slot.seat).join(",")}|${viewCamera.mode}|${viewCamera.focusSeat ?? ""}|${viewCamera.lookSeat ?? ""}`);
   const ownKept = play !== layout && isOwnFocus(layout, viewCamera) && play.slots.some((slot) => slot.seat === layout.anchorSeat);
   const camera = useMemo(() => (ownKept ? { ...viewCamera, mode: "home" as const, focusSeat: null } : viewCamera), [ownKept, viewCamera]);
 
@@ -223,6 +221,9 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   const stageHeight = Math.max(0, box.height - stageTop - (portrait ? 40 + phonePromptHeight : 0));
   const fitBox = useMemo(() => ({ ...box, height: stageHeight * STAGE.height / canvasHeight }), [box, stageHeight, canvasHeight]);
   const k = portrait ? Math.min(box.width / portrait.width, stageHeight / portrait.height) : stageFit(fitBox);
+  // A seat that leaves, a camera view that changes or a refit of the stage (a chain band, a resize, a drawer) re-lays the table out: the canvas
+  // refit has no transition, and with reduced motion nothing glides, so hold clicks for a moment.
+  useHoldOnLayoutChange(`${play.slots.map((slot) => slot.seat).join(",")}|${viewCamera.mode}|${viewCamera.focusSeat ?? ""}|${viewCamera.lookSeat ?? ""}|${Math.round(k * 100)}|${Math.round(stageTop)}`);
   // Only a table that regroups glides; a table that keeps its places has nothing to move.
   const regroup = play !== layout;
   const threeWay = slotPlan(play, { mode: "home" }) != null;

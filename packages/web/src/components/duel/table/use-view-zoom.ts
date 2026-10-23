@@ -294,8 +294,8 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
       if (!instant) settle();
       return;
     }
-    // A wheel step of the player's own hand has no settle time: the view stops where the wheel left it.
-    state.motion ??= beginBoardMotion(hand ? 0 : undefined);
+    // A move of the player's own hand (a wheel step, a drag) is no move to guard against: the point under the pointer is the one the player aimed at.
+    if (!hand) state.motion ??= beginBoardMotion();
     if (!state.raf) {
       state.last = 0;
       state.raf = requestAnimationFrame(tick);

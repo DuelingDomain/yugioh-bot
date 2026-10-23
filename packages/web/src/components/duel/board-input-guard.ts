@@ -4,10 +4,12 @@ import { useEffect, useRef } from "react";
 import { boardMoving, boardMotionStamp, holdBoardMotion, onBoardMotionStart, watchBoardTransitions } from "./board-motion";
 
 /**
- * What a click may do to the game: a card or a zone, the hand, a pile, the phase hub, the card menu and the attack confirm.
- * Hover, the inspector, the camera controls, the plates and the prompt panels are not here: they stay live while the board moves.
+ * What a click may do to the game: a card or a zone, the hand, a pile that can act (a deck that draws, an Extra Deck that summons),
+ * the phase hub, the card menu and the attack confirm. A pile that only opens its viewer is not here, and neither are the
+ * Deck Master docks (`data-no-guard`: their inspect buttons are info; the button that acts says `data-action-click`), the
+ * account menu, the inspector, the camera controls, the plates and the prompt panels: they stay live while the board moves.
  */
-export const ACTION_SURFACE = "[data-zones], [data-legal], [data-hand-seat], [data-pile], [data-hub-slot], [data-grid-hub], [data-hub], [role='menu'], [data-attack-confirm]";
+export const ACTION_SURFACE = "[data-zones]:not([data-pile]), [data-pile][data-legal='true'], [data-legal='true']:not([data-no-guard]), [data-action-click], [data-hand-seat], [data-hub-slot], [data-grid-hub], [data-phase][data-live='true'], [data-card-menu], [data-attack-confirm]";
 /** What a press is on: the same card or zone at press and release, or it is no click. */
 const PRESS_TARGET = `${ACTION_SURFACE}, button, a, [role='button'], [role='menuitem']`;
 /** The click that follows a release arrives within the same input event; this long is plenty. */
@@ -17,6 +19,32 @@ type Pressed = { key: string | Element | null; surface: boolean; stamp: number }
 
 const clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
+/** The last input was a key: a keyboard player's menu or aim lock does not close when the board moves (Enter, Enter must still send). */
+let keyboardDriven = false;
+
+/** A held click gets a short ring where the pointer was, so the player knows the board was not ready (not a missed click). */
+function showHeldCue(host: Window, x: number, y: number) {
+  const doc = host.document;
+  if (!doc.body) return;
+  const cue = doc.createElement("span");
+  cue.setAttribute("aria-hidden", "true");
+  cue.setAttribute("data-click-held", "");
+  Object.assign(cue.style, {
+    position: "fixed", left: `${x - 14}px`, top: `${y - 14}px`, width: "28px", height: "28px", borderRadius: "50%",
+    border: "2px solid rgba(255, 214, 140, 0.85)", boxShadow: "0 0 10px rgba(255, 214, 140, 0.35)", pointerEvents: "none", zIndex: "2147483000",
+  });
+  doc.body.appendChild(cue);
+  const done = () => cue.remove();
+  if (typeof cue.animate !== "function") {
+    host.setTimeout(done, 380);
+    return;
+  }
+  const calm = host.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+  const frames = calm ? [{ opacity: 0.9 }, { opacity: 0 }] : [{ opacity: 0.9, transform: "scale(0.55)" }, { opacity: 0, transform: "scale(1.25)" }];
+  const run = cue.animate(frames, { duration: 380, easing: "ease-out" });
+  run.onfinish = done;
+  run.oncancel = done;
+}
 /** A stable name for what a press is on (a card moves in the DOM while it stays the same card). */
 function pressKey(target: EventTarget | null): Pick<Pressed, "key" | "surface"> {
   const node = (target as Element | null)?.closest?.(PRESS_TARGET) ?? null;
@@ -39,7 +67,11 @@ export function installBoardInputGuard(host: Window = window): () => void {
   let dropUntil = 0;
   const stopWatching = watchBoardTransitions(host);
 
+  const onKey = () => {
+    keyboardDriven = true;
+  };
   const onDown = (event: PointerEvent) => {
+    keyboardDriven = false;
     if (event.button !== 0 && event.pointerType === "mouse") return;
     pressed = { ...pressKey(event.target), stamp: boardMotionStamp() };
   };
@@ -63,14 +95,17 @@ export function installBoardInputGuard(host: Window = window): () => void {
     if (!dropped && !(onSurface && boardMoving())) return;
     event.stopImmediatePropagation();
     event.preventDefault();
+    if (event.type === "click") showHeldCue(host, event.clientX, event.clientY);
   };
 
+  host.addEventListener("keydown", onKey, true);
   host.addEventListener("pointerdown", onDown, true);
   host.addEventListener("pointerup", onUp, true);
   host.addEventListener("pointercancel", onCancel, true);
   host.addEventListener("click", onClick, true);
   host.addEventListener("dblclick", onClick, true);
   return () => {
+    host.removeEventListener("keydown", onKey, true);
     host.removeEventListener("pointerdown", onDown, true);
     host.removeEventListener("pointerup", onUp, true);
     host.removeEventListener("pointercancel", onCancel, true);
@@ -98,9 +133,14 @@ export function useBoardInputGuard(): void {
   }, []);
 }
 
-/** Runs `onStart` each time the board goes from still to moving (the card menu closes: its anchor is about to slide). */
+/**
+ * Runs `onStart` each time the board goes from still to moving (the card menu and a locked aim close: their anchor is about to
+ * slide). A player on the keyboard keeps both: Enter then Enter must still send, and the focus ring follows the card.
+ */
 export function useOnBoardMotionStart(onStart: () => void): void {
-  useEffect(() => onBoardMotionStart(onStart), [onStart]);
+  useEffect(() => onBoardMotionStart(() => {
+    if (!keyboardDriven) onStart();
+  }), [onStart]);
 }
 
 /**

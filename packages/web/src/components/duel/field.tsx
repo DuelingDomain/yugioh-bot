@@ -1306,6 +1306,7 @@ export function MasterDock({
   return (
     <section
       className={styles.masterDock}
+      data-no-guard=""
       data-local={local ? "true" : "false"}
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
@@ -1317,6 +1318,7 @@ export function MasterDock({
           <button
             type="button"
             className={styles.masterHit}
+            data-action-click={card ? "true" : undefined}
             aria-label={`${title}: ${master.card.name}${inUse ? `, in use (${status})` : ""}`}
             aria-pressed={selected}
             onClick={(event) => {
