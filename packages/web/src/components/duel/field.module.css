@@ -2724,8 +2724,56 @@
   font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
 }
 
+/* The whole field turns by the seat angle, so a rival's plate would lie upside down or on its side. The plate stays on the card's
+   bottom edge (the controller's side) but turns back by the seat's turn (`--seat-turn`, set by the seat field, the fly yaw included),
+   so the viewer reads ATK / DEF upright. It turns about its centre, so it also slides along the card's depth: a horizontal strip of
+   --pw on a sideways card would otherwise stick out of the edge. --pw is the card's width, or the text's width if that is more (the
+   text floor of a small field). The slide is (plate height - the turned strip's depth) / 2 along the edge-to-centre axis: 0 at 0 and
+   180 degrees, -(--pw - --ph) / 2 at a quarter turn. --pdir is -1 for a card that hangs from the top (a card of another seat in a
+   shared Extra Monster Zone, whose plate sits at the top edge). The turn follows the glide of the field. */
+.seatField .plate {
+  font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
+}
+
+/* The whole field turns by the seat angle, so a rival's plate would lie upside down or on its side. The plate stays on the card's
+   bottom edge (the controller's side) but turns back by the seat's turn (`--seat-turn`, set by the seat field, the fly yaw included),
+   so the viewer reads ATK / DEF upright. It turns about its centre, so it also slides along the card's depth: a horizontal strip of
+   --pw (the card's width, or the text if that is wider: the text floor of a small field) on a sideways card would otherwise stick out of the edge. The slide is (plate height - the turned strip's depth) / 2 along the
+   edge-to-centre axis, which is 0 at 0 and 180 degrees and -(--pw - --ph) / 2 at a quarter turn. --pdir is -1 for a card that hangs
+   from the top (a card of another seat in a shared Extra Monster Zone, whose plate sits at the top edge). It follows the glide of the field. */
+.seatField .plate {
+  --ph: calc(1.2em + 2px);
+  --pw: max(calc(var(--cw) - 6px), calc(var(--plate-em, 0) * 1em));
+  --pdir: 1;
+  left: calc(50% - var(--pw) / 2);
+  right: auto;
+  width: var(--pw);
+  rotate: calc(var(--seat-turn, 0deg) * -1);
+  translate: 0 calc(var(--pdir) * (var(--ph) - abs(var(--pw) * sin(var(--seat-turn, 0deg))) - abs(var(--ph) * cos(var(--seat-turn, 0deg)))) / 2);
+  transition:
+    rotate var(--glide, 0.76s) var(--glide-ease, cubic-bezier(0.2, 0.7, 0.2, 1)),
+    translate var(--glide, 0.76s) var(--glide-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
+}
+
+.seatField .zone[data-side="opp"]:not([data-kind="hand"]) .plate {
+  --pdir: -1;
+}
+
+:global([data-glide="true"]) .seatField .plate {
+  transition-duration: 1.4s;
+  transition-delay: 2.2s;
+  transition-timing-function: cubic-bezier(0.5, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seatField .plate {
+    transition: none;
+  }
+}
+
 /* A hand card is narrower than a zone: the text floor may lift the stats, but never past what "1400 / 1200" needs to fit in the card. */
 .seatField .handCard .plate {
+  --pw: max(calc(var(--cardw) - 4px), calc(var(--plate-em, 0) * 1em));
   font-size: min(max(calc(var(--z) * 0.116 * var(--ts)), var(--fl)), calc(var(--cardw) * 0.2));
 }
 
