@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 import { migrate } from "@yugidraft/shared/db";
 import { createSavedDeckService } from "@yugidraft/shared/services";
 import { encodeYdke } from "@yugidraft/shared/decks";
+import { pasteSource, readSources } from "../src/components/decks/bulk-import";
 
 const mocks = vi.hoisted(() => ({ getDb: vi.fn(), savedActor: vi.fn(), duelActor: vi.fn(), callDuelHost: vi.fn(),
   engine: new Map<number, { name: string; type: number }>(),
@@ -40,6 +41,10 @@ const request = (body: unknown, headers?: HeadersInit) => new Request("http://te
 const wide = (codes: number[]) => ({ main: codes.slice(0, 60), extra: codes.slice(60, 75), side: codes.slice(75, 90), deckMaster: null });
 const row = (name = "Blue-Eyes", value: unknown = deck()) => ({ name, deck: value });
 const previewRows = async (sources: unknown[] = [source()]) => (await (await preview(request({ sources }))).json()).rows;
+const advanceFetchClock = () => {
+  const started = performance.now();
+  vi.mocked(Date.now).mockImplementation(() => testTime + Math.floor(performance.now() - started));
+};
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -59,7 +64,75 @@ beforeEach(() => {
       : { ok: true },
   }));
 });
-afterEach(() => { db.close(); vi.restoreAllMocks(); });
+afterEach(() => { db.close(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+describe("simulator name lists", () => {
+  function seedNames() {
+    advanceFetchClock();
+    db.exec(`insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values
+      (901,'Test Spell','Spell Card','spell','','','[]','test'),
+      (902,'Test Trap','Trap Card','trap','','','[]','test'),
+      (903,'Test Fusion','Fusion Monster','fusion','','','[]','test'),
+      (904,'Test Monster','Effect Monster','effect','','','[]','test')`);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "No card matching your query was found" }, { status: 400 })));
+  }
+
+  it.each(["paste", "file"])("previews and saves a simulator %s list with section and category headings", async kind => {
+    seedNames();
+    const text = "Main Deck (5):\nMonsters (2):\n2x Test Monster\nSpells\nTest Spell x2\nTraps:\n1 Test Trap\nExtra Deck\n1x Test Fusion\nSide Deck:\n1 Test Spell\n1 Test Fusion";
+    const picked = kind === "paste" ? pasteSource(text) : await readSources([new File([text], "Simulator.txt")]);
+    const [shown] = await previewRows(picked.sources);
+    expect(shown.name).toBe(kind === "paste" ? "Pasted deck" : "Simulator");
+    expect(shown.errors).toEqual([]);
+    expect(shown.deck).toEqual({ main: [904, 904, 901, 901, 902], extra: [903], side: [901, 903], deckMaster: null });
+    expect(shown.warnings.filter((issue: { code: string }) => issue.code === "invalid_passcode")).toEqual([]);
+    const result = await (await bulk(request({ rows: [shown] }))).json();
+    expect(result.failed).toEqual([]);
+    expect(decks.get(result.created[0].id, "g", 1)?.deck).toEqual({ main: shown.deck.main, extra: shown.deck.extra, side: shown.deck.side });
+  });
+
+  it("routes Extra monsters listed in Main and promotes one Domain Side card to Master", async () => {
+    seedNames();
+    const [shown] = await previewRows([{ ...pasteSource("Monsters:\nTest Monster\nTest Fusion\nSide\nTest Monster").sources[0], mode: "domain" }]);
+    expect(shown.errors).toEqual([]);
+    expect(shown.deck).toEqual({ main: [904], extra: [903], side: [], deckMaster: 904 });
+    expect(shown.counts).toEqual({ main: 1, extra: 1, side: 0 });
+  });
+
+  it("reports unresolved names with their original source lines and keeps independent rows usable", async () => {
+    seedNames();
+    const rows = await previewRows([source(`Monsters:\n2x Test Monster\n\n3x Missing Card (my note)\n${"Long name".repeat(40)}`, "names", "Names.txt"), source()]);
+    expect(rows[0].deck.main).toEqual([904, 904]);
+    expect(rows[0].errors).toContainEqual(expect.objectContaining({ code: "unknown_card", line: 4, message: expect.stringContaining("3x Missing Card (my note)") }));
+    expect(rows[0].errors).toContainEqual(expect.objectContaining({ code: "unknown_card", line: 5, message: expect.stringContaining("Long name") }));
+    expect(rows[1].errors).toEqual([]);
+  });
+
+  it("keeps invalid name-list copy counts local to their row", async () => {
+    seedNames();
+    const rows = await previewRows([source("0x Test Monster", "bad"), source()]);
+    expect(rows[0].errors).toContainEqual(expect.objectContaining({ code: "invalid_list", message: expect.stringContaining("Invalid copy count") }));
+    expect(rows[1].errors).toEqual([]);
+  });
+
+  it("shares one lookup allowance across name lists and numeric YDK rows", async () => {
+    seedNames();
+    const response = await preview(request({ sources: [source("Missing Card", "names"), source()] }));
+    expect(response.status).toBe(200);
+    const remote = vi.mocked(fetch).mock.calls.length;
+    expect(remote).toBeGreaterThan(0);
+    expect(mocks.callDuelHost.mock.calls[0][0].lookupLimit).toBe(50 - remote);
+  });
+
+  it("holds name-list picks for a retry when the card database is unavailable", async () => {
+    seedNames();
+    vi.mocked(fetch).mockRejectedValue(new Error("offline"));
+    const response = await preview(request({ sources: [source("Missing Card")] }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Card database is unavailable. Try again shortly." });
+    expect(decks.list("g", 1)).toEqual([]);
+  });
+});
 
 describe("backend review fixes", () => {
   it("previews and saves a 70-card Domain deck with engine-only Extra cards", async () => {
@@ -353,6 +426,8 @@ describe("backend review fixes", () => {
   });
 
   it.each(["#main\n#extra\n!side", "ydke://!!!", "#main\nbad"])('rejects an empty parsed deck from %s', async text => {
+    advanceFetchClock();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "No card matching your query was found" }, { status: 400 })));
     const [shown] = await previewRows([source(text)]);
     expect(shown.errors).toContainEqual({ code: "empty_deck", message: "No cards found" });
     expect(mocks.callDuelHost).not.toHaveBeenCalled();

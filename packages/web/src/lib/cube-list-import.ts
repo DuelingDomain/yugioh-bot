@@ -1,5 +1,5 @@
 import { routeDeckSections, type DeckCardType, type DeckSectionMove, type CardIdentityCatalog } from "@yugidraft/shared/duels";
-import { createCardLookupBudget, loadArtworkIdentityCatalog, normalizeImportedCardName, type CardCatalogService, type CubeImportEntry, type CardCatalogCard } from "@yugidraft/shared/services";
+import { createCardLookupBudget, loadArtworkIdentityCatalog, normalizeImportedCardName, type CardCatalogService, type CubeImportEntry, type CardCatalogCard, type CardLookupBudget } from "@yugidraft/shared/services";
 import { CardListError, parseCardList, type CardListEntry } from "./card-list-parser";
 import { YDK_MAX_COPIES } from "./ydk-file";
 
@@ -20,11 +20,15 @@ export interface ListImportResult {
 type ImportedCard = Pick<CardCatalogCard, "ygoprodeckId" | "name"> & { type: string | number };
 
 /** Resolve once, without merging copies or deck sections. Both deck and cube imports use this path. */
-export async function resolveImportedCardList(catalog: CardCatalogService, text: unknown, { keepDeckSections = false, engine, find }: {
+export async function resolveImportedCardList(catalog: CardCatalogService, text: unknown, { keepDeckSections = false, engine, find, lookupBudget = createCardLookupBudget(), onUnknown, deferPasscodes = false }: {
   keepDeckSections?: boolean;
   /** Numeric deck imports can use engine identity without requiring persisted catalog metadata. */
   engine?: CardIdentityCatalog;
   find?: (code: number) => DeckCardType | undefined;
+  lookupBudget?: CardLookupBudget;
+  onUnknown?: (entry: CardListEntry) => void;
+  /** Bulk previews check numeric entries with the host, including simulator-only artwork IDs. */
+  deferPasscodes?: boolean;
 } = {}): Promise<{
   resolved: Array<{ entry: CardListEntry; card: ImportedCard; copies: number }>;
   unknown: string[];
@@ -33,7 +37,6 @@ export async function resolveImportedCardList(catalog: CardCatalogService, text:
 }> {
   if (typeof text !== "string") throw new CardListError("Add a card list file or paste a list.");
   const parsed = parseCardList(text, { keepDeckSections });
-  const lookupBudget = createCardLookupBudget();
   // Exact engine names work offline, including cards not yet in the API catalog.
   // Prefer a base passcode when several artworks have the same printed name.
   const engineNames = new Map<string, ImportedCard>();
@@ -61,7 +64,7 @@ export async function resolveImportedCardList(catalog: CardCatalogService, text:
     && !preferFullName.has(entry) && !engineName(entry.query) && !resolutions.get(entry.query)?.card && entry.fallbackName ? [entry.fallbackName] : []).filter(name => !engineName(name)))];
   const fallbacks = new Map((await catalog.resolveCardNames(fallbackNames, { lookupBudget })).map((result) => [result.name, result]));
   const codes = [...new Set(parsed.flatMap((entry) => typeof entry.query === "number" ? [entry.query] : []))];
-  const catalogCodes = codes.filter(code => !engine?.has(code) && !find?.(code));
+  const catalogCodes = deferPasscodes ? [] : codes.filter(code => !engine?.has(code) && !find?.(code));
   await catalog.prefetchCardsByIds(catalogCodes, { lookupBudget });
   const byCode = new Map<number, ImportedCard>(catalog.findByIds(catalogCodes).map((card) => [card.ygoprodeckId, card]));
   for (const code of codes) {
@@ -70,15 +73,20 @@ export async function resolveImportedCardList(catalog: CardCatalogService, text:
       byCode.set(code, { ygoprodeckId: code, name: engineCard.name?.trim() || catalog.findByIds([code])[0]?.name || `card ${code}`, type: engineCard.type ?? "" });
       continue;
     }
+    if (deferPasscodes) {
+      byCode.set(code, { ygoprodeckId: code, name: `card ${code}`, type: "" });
+      continue;
+    }
     if (byCode.has(code) && catalog.hasCatalogRow(code)) continue;
     const card = await catalog.syncCardById(code, { lookupBudget });
     if (card && catalog.hasCatalogRow(code)) byCode.set(code, card);
   }
   const resolved: Array<{ entry: CardListEntry; card: ImportedCard; copies: number }> = [];
   const unknown = new Set<string>();
+  const unresolved = (entry: CardListEntry) => { unknown.add(entry.original); onUnknown?.(entry); };
   const corrected = new Map<string, { from: string; to: string }>();
   for (const entry of parsed) {
-    if (entry.heading) { unknown.add(entry.original); continue; }
+    if (entry.heading) { unresolved(entry); continue; }
     const resolution = typeof entry.query === "string" && !preferFullName.has(entry) ? resolutions.get(entry.query) : undefined;
     // Fallback printed names must match exactly after normalization, never through typo correction.
     const fallback = entry.fallbackName
@@ -86,7 +94,7 @@ export async function resolveImportedCardList(catalog: CardCatalogService, text:
     const fallbackCard = (entry.fallbackName && engineName(entry.fallbackName))
       || (fallback && !fallback.corrected ? fallback.card : undefined);
     const card = typeof entry.query === "number" ? byCode.get(entry.query) : engineName(entry.query) ?? resolution?.card ?? fallbackCard;
-    if (!card) { unknown.add(entry.original); continue; }
+    if (!card) { unresolved(entry); continue; }
     if (resolution?.corrected) corrected.set(resolution.corrected.from, resolution.corrected);
     const copies = resolution?.card || typeof entry.query === "number" || engineName(entry.query) ? entry.copies : 1;
     resolved.push({ entry, card, copies });

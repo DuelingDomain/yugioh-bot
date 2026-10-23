@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { decodeYdke, MAX_DECK_ISSUES, parseYdk, splitImportText, type DeckSections, type FormatIssue } from "@yugidraft/shared/decks";
 import { assertExtraDeckCards, capDeckSections, DEFAULT_GENESYS_POINT_CAP, DECK_SECTION_LIMITS, DECK_SECTION_NAMES, ExtraDeckCardError, routeDeckSections, type DeckCardType, type DuelDeck, type DuelMode, type GenesysSettings } from "@yugidraft/shared/duels";
-import { CARD_LOOKUP_LIMIT, createDeckTypeLookup, SavedDeckServiceError, validateSavedDeckWrite } from "@yugidraft/shared/services";
+import { CARD_LOOKUP_LIMIT, createCardCatalogService, createDeckTypeLookup, deckEngineDataDirectory, isCardFetchError, loadArtworkIdentityCatalog, SavedDeckServiceError, validateSavedDeckWrite } from "@yugidraft/shared/services";
+import { CardListError, type CardListEntry } from "@/lib/card-list-parser";
+import { resolveImportedCardList } from "@/lib/cube-list-import";
 import { getDb } from "@/lib/db";
 import { normalizeDraftCardCodes } from "@/lib/draft-deck-codes";
 import { requireDuelActor } from "@/lib/duel-host";
@@ -35,6 +37,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => !!value &
 const isImportMode = (value: unknown): value is ImportMode => value === "standard" || value === "domain" || value === "genesys" || value === "genesys-domain";
 const importMode = (mode: DuelMode, genesys: GenesysSettings | null): ImportMode => genesys ? (mode === "domain" ? "genesys-domain" : "genesys") : mode === "domain" ? "domain" : "standard";
 const sourceLines = new WeakMap<ImportPreviewRow, Map<number, number>>();
+const nameSources = new WeakMap<ImportPreviewRow, string>();
 
 /** The card name for a person to read: the engine or catalog name, never the "card 123" placeholder. */
 export type CardNamer = (code: number) => string | undefined;
@@ -213,6 +216,7 @@ export function parseImportSources(sources: unknown[]): { ok: true; rows: Import
       let mode: ImportMode = sourceMode;
       let errors: ImportIssue[] = [];
       let warnings: ImportIssue[] = [];
+      let nameText: string | undefined;
       const cardLines = new Map<number, number>();
       if (input.kind === "ydke") {
         const parsed = decodeYdke(input.text);
@@ -225,9 +229,15 @@ export function parseImportSources(sources: unknown[]): { ok: true; rows: Import
         const parsed = parseYdk(input.text, { onCard: (code, line) => { if (!cardLines.has(code)) cardLines.set(code, line); } });
         warnings = parsed.issues;
         deck = { ...parsed.deck, deckMaster: parsed.deck.deckMaster ?? null };
+        // Numeric YDK files keep their tolerant bad-line diagnostics. A source without YDK
+        // passcodes can be a simulator name list, including mixed names and counted IDs.
+        if (allCodes(deck).length === 0 && input.text.split(/\r\n|\n|\r/).some(line => /^[^#!\s]/.test(line.trim()) && !line.trim().startsWith("//") && !/^\d+$/.test(line.trim()))) {
+          nameText = input.text;
+          warnings = [];
+        }
       }
       const name = input.kind === "ydke" ? `Imported deck ${++ydkeNumber}` : input.name;
-      if (errors.length === 0) {
+      if (errors.length === 0 && nameText === undefined) {
         const valid = validateImportRow({ name, deck, mode }, true);
         if (!valid.ok) errors = valid.errors;
         else {
@@ -238,6 +248,7 @@ export function parseImportSources(sources: unknown[]): { ok: true; rows: Import
       const row: ImportPreviewRow = { rowId: `${sourceId}#${index}`, sourceId, name, mode, deck,
         counts: { main: deck.main.length, extra: deck.extra.length, side: deck.side.length }, errors, warnings, notes: [] };
       sourceLines.set(row, cardLines);
+      if (nameText !== undefined) nameSources.set(row, nameText);
       rows.push(row);
     });
   }
@@ -247,7 +258,7 @@ export function parseImportSources(sources: unknown[]): { ok: true; rows: Import
 const allCodes = (deck: DeckSections) => [...deck.main, ...deck.extra, ...deck.side, ...(deck.deckMaster == null ? [] : [deck.deckMaster])];
 
 /** Share the existing engine resolver and its validated effective remaps. Keep known artwork passcodes. */
-export async function resolveImportCodes(actor: Actor, decks: DeckSections[], cacheOnly = false) {
+export async function resolveImportCodes(actor: Actor, decks: DeckSections[], cacheOnly = false, maxLookups = CARD_LOOKUP_LIMIT) {
   const codes = [...new Set(decks.flatMap(allCodes))];
   if (!cacheOnly && codes.length > MAX_IMPORT_CODES) return { ok: false as const, response: errorResponse(`Import must contain at most ${MAX_IMPORT_CODES} unique card codes`) };
   const now = Date.now();
@@ -259,7 +270,7 @@ export async function resolveImportCodes(actor: Actor, decks: DeckSections[], ca
   const duelActor = await requireDuelActor();
   if (!duelActor.ok) return duelActor;
   const bucket = importBucket(actor);
-  const lookupLimit = cacheOnly ? 0 : Math.min(CARD_LOOKUP_LIMIT, Math.floor(bucket.lookupTokens));
+  const lookupLimit = cacheOnly ? 0 : Math.min(maxLookups, Math.floor(bucket.lookupTokens));
   // Reserve before calling the host. Refund only a validated remainder; a lost response cannot grant fresh lookups.
   bucket.lookupTokens -= lookupLimit;
   const result = await normalizeDraftCardCodes({ guildId: actor.guildId, playerId: duelActor.playerId, codes: pending, preserveArtwork: true,
@@ -348,6 +359,55 @@ const sectionIssues = (messages: string[]): ImportIssue[] => messages.map(messag
 }));
 
 export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]): Promise<NextResponse> {
+  const named = rows.filter(row => nameSources.has(row));
+  let lookupRemaining = CARD_LOOKUP_LIMIT;
+  if (named.length) {
+    const db = getDb();
+    const catalog = createCardCatalogService(db, { memberId: actor.ownerUserId });
+    const engine = loadArtworkIdentityCatalog(deckEngineDataDirectory(db.name));
+    const find = createDeckTypeLookup(db).snapshot();
+    const bucket = importBucket(actor);
+    const reserved = Math.min(CARD_LOOKUP_LIMIT, Math.floor(bucket.lookupTokens));
+    const lookupBudget = { remaining: reserved, lookupLimited: false };
+    bucket.lookupTokens -= reserved;
+    for (const row of named) {
+      const text = nameSources.get(row)!;
+      try {
+        const unknown: CardListEntry[] = [];
+        const result = await resolveImportedCardList(catalog, text, { keepDeckSections: true, engine, find, lookupBudget, deferPasscodes: true, onUnknown: entry => unknown.push(entry) });
+        for (const { entry, card, copies } of result.resolved) {
+          const section = entry.section ?? entry.pool;
+          const code = card.ygoprodeckId;
+          if (section === "deckmaster") {
+            if (row.deck.deckMaster != null || copies !== 1) throw new CardListError("A deck must have at most one Deck Master.");
+            row.deck.deckMaster = code;
+          } else {
+            if (copies > 300 || row.deck[section].length + copies > 300) throw new CardListError("A deck section can contain at most 300 cards.");
+            row.deck[section].push(...Array<number>(copies).fill(code));
+          }
+          const line = entry.line;
+          if (line !== undefined && !sourceLines.get(row)!.has(code)) sourceLines.get(row)!.set(code, line);
+        }
+        row.errors.push(...unknown.map(({ original, line }) => ({ code: result.lookupLimited ? "lookup_limited" : "unknown_card",
+          message: result.lookupLimited ? `${original.slice(0, 120)}: the card check hit its limit. Check this deck again in a moment.`
+            : `${original.slice(0, 120)}: card name not found. Check the name in the deck list.`, line })));
+        row.notes.push(...result.corrected.map(({ from, to }) => ({ code: "corrected_name", message: `${from} read as ${to}.` })));
+        const valid = validateImportRow({ name: row.name, mode: row.mode, deck: row.deck }, true);
+        if (!valid.ok) row.errors.push(...valid.errors);
+        else {
+          row.mode = importMode(valid.mode, valid.genesys);
+          row.deck = { ...valid.deck, deckMaster: valid.deck.deckMaster ?? null };
+        }
+      } catch (error) {
+        if (isCardFetchError(error)) return errorResponse("Card database is unavailable. Try again shortly.", 503);
+        if (!(error instanceof CardListError)) throw error;
+        row.errors.push({ code: "invalid_list", message: error.message });
+      }
+      row.counts = { main: row.deck.main.length, extra: row.deck.extra.length, side: row.deck.side.length };
+    }
+    bucket.lookupTokens = Math.min(LOOKUP_BURST, bucket.lookupTokens + lookupBudget.remaining);
+    lookupRemaining -= reserved - lookupBudget.remaining;
+  }
   const valid = rows.filter(row => row.errors.length === 0);
   const response = () => {
     for (const row of rows) Object.assign(row, boundIssues(row.errors, row.warnings), { notes: boundNotes(row.notes) });
@@ -355,7 +415,7 @@ export async function finishImportPreview(actor: Actor, rows: ImportPreviewRow[]
   };
   if (valid.length === 0) return response();
   const saved = actor.decks.list(actor.guildId, actor.ownerUserId);
-  const resolved = await resolveImportCodes(actor, valid.map(row => row.deck));
+  const resolved = await resolveImportCodes(actor, valid.map(row => row.deck), false, lookupRemaining);
   if (!resolved.ok) return resolved.response;
   const savedCodes = await resolveImportCodes(actor, saved.map(row => row.deck), true);
   if (!savedCodes.ok) return savedCodes.response;
