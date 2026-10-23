@@ -711,7 +711,7 @@
   display: block;
   flex: none;
   /* The drawer width, and no taller than the window leaves room for: the header (--pv-top) and ~300px for the name, the lines and some text. */
-  width: min(100%, calc((100dvh - var(--pv-top) - 300px) * 421 / 614));
+  width: min(100%, max(150px, calc((100dvh - var(--pv-top) - 300px - var(--status-px, 0px) - max(0px, var(--text-chars, 0) * var(--pv-ct) * 0.035 - 80px)) * 421 / 614)));
   aspect-ratio: 421 / 614;
   height: auto;
   margin: 0 auto;
@@ -720,9 +720,19 @@
   background: transparent;
 }
 .previewId { flex: none; min-width: 0; }
+/* A short window (1366 x 768): a card with status rows puts the art beside its name and lines, so the whole effect still shows without scrolling. */
+@media (max-height: 820px) {
+  .preview[data-status] { --pv-ct: var(--ct, 15.5px); padding: 10px 14px 12px; }
+  .preview[data-status][data-pinned="true"] { padding-top: 40px; }
+  .preview[data-status] .previewHead { flex-direction: row; align-items: flex-start; gap: 10px; }
+  .preview[data-status] .previewArt { width: 40%; margin: 0; }
+  .preview[data-status] .previewId { flex: 1 1 0; }
+  .preview[data-status] .previewText { margin-top: 8px; padding-top: 8px; }
+}
 .preview h3 { margin: 0; font-size: calc(var(--pv-ct) * 1.35); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
 .previewType { margin: 3px 0 0; color: var(--duel-ink-2); font-size: calc(var(--pv-ct) * 0.95); line-height: 1.35; }
 .previewStats { margin: 5px 0 0; font-size: calc(var(--pv-ct) * 1.25); font-weight: 500; letter-spacing: 0.02em; }
+.previewBase { margin: 2px 0 0; color: var(--duel-ink-3); font-size: calc(var(--pv-ct) * 0.92); font-variant-numeric: tabular-nums lining-nums; line-height: 1.2; }
 /* No line clamp: the whole effect shows while it fits. */
 .previewText {
   flex: 0 1 auto;

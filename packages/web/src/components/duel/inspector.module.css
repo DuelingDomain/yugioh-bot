@@ -37,7 +37,7 @@
   flex: none;
   /* The whole width of the pane, but never taller than the window leaves room for: the name, the facts line and a few lines of text must
      stay in view under it (the pane scrolls for the rest of a long text). 421 / 614 is the card frame ratio. */
-  width: min(100%, max(200px, calc((100dvh - 340px) * 421 / 614)));
+  width: min(100%, max(200px, calc((100dvh - 340px - var(--status-px, 0px) - max(0px, var(--text-chars, 0) * var(--ct, 13px) * 0.035 - 80px)) * 421 / 614)));
   min-width: 0;
   margin: 0 auto calc(4 * var(--duel-unit, 1px));
   background: #06080e;
@@ -96,6 +96,14 @@
   font-weight: 450;
   letter-spacing: 0.01em;
   line-height: 1.1;
+}
+
+.baseStats {
+  margin: 0;
+  color: var(--duel-ink-3, #958f81);
+  font-size: calc(var(--ct, 13px) * 0.92);
+  font-variant-numeric: tabular-nums lining-nums;
+  line-height: 1.2;
 }
 
 .text {
@@ -221,7 +229,7 @@
     overflow-x: hidden;
   }
 
-  .art { width: min(100%, 16rem, max(160px, calc((100dvh - 340px) * 421 / 614))); }
+  .art { width: min(100%, 16rem, max(160px, calc((100dvh - 340px - var(--status-px, 0px) - max(0px, var(--text-chars, 0) * var(--ct, 13px) * 0.035 - 80px)) * 421 / 614))); }
   .pileGrid { grid-template-columns: repeat(auto-fill, minmax(3.1rem, 1fr)); }
 }
 

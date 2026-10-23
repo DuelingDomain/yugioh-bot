@@ -148,3 +148,27 @@ export function statusSentence(model: CardStatusModel): string | null {
 export function countText(count: number): string {
   return count > 99 ? "99+" : String(count);
 }
+
+/** The printed ATK / DEF of a monster-zone card when the current values differ ("Base ATK 2500 / DEF 2000"), else null. `baseAttack` / `baseDefense` are optional on the wire. */
+export function baseStatsText(card: DuelCard | null | undefined): string | null {
+  if (!card) return null;
+  const baseAtk = typeof card.baseAttack === "number" ? card.baseAttack : null;
+  const baseDef = typeof card.baseDefense === "number" ? card.baseDefense : null;
+  const atkDiffers = baseAtk != null && baseAtk !== card.attack;
+  const defDiffers = baseDef != null && baseDef !== card.defense;
+  if (!atkDiffers && !defDiffers) return null;
+  const parts: string[] = [];
+  if (baseAtk != null) parts.push(`ATK ${baseAtk}`);
+  if (baseDef != null) parts.push(`DEF ${baseDef}`);
+  return `Base ${parts.join(" / ")}`;
+}
+
+/** Rows of the inspector status list (the negated line has its own row in the extras). */
+export function statusListRows(model: CardStatusModel): number {
+  return model.lines.filter((line) => !line.negated).length + model.counters.length;
+}
+
+/** The height the status list and the base line take, in px: the inspector art gives it up (capped, so the art never vanishes). */
+export function statusReservePx(model: CardStatusModel, baseLine: boolean): number {
+  return Math.min(170, statusListRows(model) * 26 + (baseLine ? 22 : 0));
+}

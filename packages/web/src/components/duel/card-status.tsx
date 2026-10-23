@@ -112,3 +112,33 @@ export function CardStatusLayer({ model, flip, defense }: { model: CardStatusMod
     </span>
   );
 }
+
+/**
+ * The full list for the card inspector and the card drawer: each protection or status with its glyph and the whole engine text,
+ * then each counter with its coin, name and count. The negated line is not here (the extras list carries it).
+ */
+export function CardStatusList({ model, className }: { model: CardStatusModel; className?: string }) {
+  const lines = model.lines.filter((line) => !line.negated);
+  if (lines.length === 0 && model.counters.length === 0) return null;
+  return (
+    <ul className={`${styles.list} ${className ?? ""}`} data-testid="card-status-list">
+      {lines.map((line, index) => (
+        <li key={`l${index}`} className={styles.listRow} data-status-line>
+          <span className={styles.listGlyphs}>
+            {line.kinds.map((kind) => (
+              <span key={kind} className={styles.listGlyph} data-status-kind={kind}><StatusGlyph kind={kind} /></span>
+            ))}
+          </span>
+          <span className={styles.listText}>{line.text}</span>
+        </li>
+      ))}
+      {model.counters.map((badge) => (
+        <li key={`c${badge.type}`} className={styles.listRow} data-status-counter={badge.type}>
+          <span className={styles.listGlyphs}><CounterCoin badge={badge} className={styles.listCoin} /></span>
+          <span className={styles.listText}>{badge.name}</span>
+          <b className={styles.listCount}>{`\u00d7${badge.count}`}</b>
+        </li>
+      ))}
+    </ul>
+  );
+}

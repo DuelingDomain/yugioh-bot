@@ -5,6 +5,8 @@ import { X } from "lucide-react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { useCardHoverInfo } from "../card-hover-info";
 import { cardTextStyle, useCardTextSize } from "../card-text-size";
+import { CardStatusList } from "../card-status";
+import { baseStatsText, cardStatusModel, statusReservePx } from "../card-status-model";
 import { claimDrawerPress } from "../hover-drawer";
 import { NEGATED_LINE } from "../inspector";
 import { cardArtUrl, cardInspectLines, isDefenseAt, isHiddenCard } from "../constants";
@@ -216,6 +218,9 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
   if (!current) return null;
 
   const { facts, combat } = cardInspectLines(current);
+  const status = cardStatusModel(current as DuelCard);
+  const baseStats = combat ? baseStatsText(current as DuelCard) : null;
+  const reserve = statusReservePx(status, baseStats != null);
   const position = combat && "location" in current && current.position != null ? (isDefenseAt(current.location, current.position) ? "Defense Position" : "Attack Position") : null;
   return (
     <aside
@@ -230,7 +235,8 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
       data-hud-keep={frozen ? "" : undefined}
       aria-label={frozen ? "Pinned card" : undefined}
       data-card-text={textSize}
-      style={{ ...cardTextStyle(textSize), ...(owner ? { "--seat-main": owner.main, "--seat-ink": owner.ink } : null) } as CSSProperties}
+      data-status={reserve > 0 ? "" : undefined}
+      style={{ ...cardTextStyle(textSize), ...(owner ? { "--seat-main": owner.main, "--seat-ink": owner.ink } : null), ...(reserve > 0 ? { "--status-px": `${reserve}px`, "--text-chars": current.description?.length ?? 0 } : null) } as CSSProperties}
     >
       <div className={styles.previewHead}>
         {current.code != null ? <img className={styles.previewArt} src={cardArtUrl(current.code, "full")} alt="" draggable={false} /> : null}
@@ -238,11 +244,13 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
           <h3>{current.name ?? `Card ${current.code}`}</h3>
           {facts ? <p className={styles.previewType}>{facts}</p> : null}
           {combat ? <p className={styles.previewStats}>{combat}</p> : null}
+          {baseStats ? <p className={styles.previewBase} data-testid="hover-preview-base-stats">{baseStats}</p> : null}
           {owner ? (
             <p className={styles.previewOwner}>
               <i aria-hidden="true" />Owner <b>{owner.name}</b>{position ? ` · ${position}` : ""}
             </p>
           ) : position ? <p className={styles.previewOwner}>{position}</p> : null}
+          <CardStatusList model={status} />
         </div>
       </div>
       {current.description ? (
