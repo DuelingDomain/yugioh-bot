@@ -1,0 +1,285 @@
+/* The status layer of a board card: a rail of protection glyphs on the inner edge (top-left on your side, bottom-right
+   on theirs, clear of the equip chip, the Xyz count, the pendulum mark and the ATK / DEF plate), and a stack of counter
+   coins above the plate on the other edge. Glyphs, colours and sizes are the owner-approved demo (2026-10-23).
+   The layer never takes a click. Both groups live in the two side columns of the card, because a turned seat field
+   keeps its ATK / DEF plate upright in the middle of the card (field.module.css, .seatField .plate). Every chip
+   turns back by the seat's turn about its own centre (`--seat-turn`), so a rival's glyphs read upright for the viewer.
+   A card under 70px wide shows glyph-only protections and one merged counter coin with the total. */
+
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  container-type: size;
+  pointer-events: none;
+  --imM: #e0a35a;
+  --imS: #4fd1b0;
+  --imT: #d765c8;
+  --imAll: #f4d690;
+  --prot: #8fb8ff;
+  --neg: #ff6b6b;
+  --info: #aab3cc;
+  --ink: #efe7d5;
+  --back: #0a0e1c;
+}
+
+.inner {
+  position: absolute;
+  inset: 0;
+  /* The glyph size: a share of the card height with a floor and a ceiling (the demo's --chip). */
+  --st: clamp(11px, 15cqh, 22px);
+  --upright: calc(var(--seat-turn, 0deg) * -1);
+}
+
+.rail {
+  position: absolute;
+  top: 25%;
+  left: 3%;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--st) * 0.14);
+}
+
+.layer[data-side="opp"] .rail {
+  top: auto;
+  right: 3%;
+  bottom: 25%;
+  left: auto;
+  flex-direction: column-reverse;
+}
+
+.chip,
+.more,
+.coin,
+.total {
+  rotate: var(--upright);
+  transition: rotate var(--glide, 0.76s) var(--glide-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
+}
+
+:global([data-glide="true"]) :is(.chip, .more, .coin, .total) {
+  transition-duration: 1.4s;
+  transition-delay: 2.2s;
+  transition-timing-function: cubic-bezier(0.5, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip,
+  .more,
+  .coin,
+  .total {
+    transition: none;
+  }
+}
+
+.chip {
+  display: block;
+  width: var(--st);
+  height: var(--st);
+  flex: none;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.7));
+}
+
+.chip[data-status-kind="imM"] { color: var(--imM); }
+.chip[data-status-kind="imS"] { color: var(--imS); }
+.chip[data-status-kind="imT"] { color: var(--imT); }
+.chip[data-status-kind="imAll"] { color: var(--imAll); }
+.chip[data-status-kind="noBD"],
+.chip[data-status-kind="noED"],
+.chip[data-status-kind="noTgt"],
+.chip[data-status-kind="noAtk"] { color: var(--prot); }
+.chip[data-status-kind="neg"] { color: var(--neg); }
+.chip[data-status-kind="info"] { color: var(--info); }
+
+.glyph {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.shield {
+  fill: var(--back);
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+}
+
+.mark {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.markFill,
+.letter {
+  fill: currentColor;
+}
+
+.negDisc {
+  fill: var(--back);
+  stroke: currentColor;
+  stroke-width: 2.2;
+}
+
+.negSlash {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.more {
+  display: none;
+  box-sizing: border-box;
+  min-width: var(--st);
+  height: var(--st);
+  padding: 0 0.4em;
+  border: 1px solid rgb(214 196 150 / 0.4);
+  border-radius: 99px;
+  background: rgb(8 12 26 / 0.9);
+  color: var(--ink);
+  font: 700 calc(var(--st) * 0.6) / calc(var(--st) - 2px) var(--f-num, "Arial Narrow"), sans-serif;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Slots by card height: 2 under 73px, 3 up to 174px, 4 above. A rail that is longer folds its tail into "+N". */
+@container (max-height: 72.99px) {
+  .chip[data-h2] { display: none; }
+  .more[data-m2] { display: block; }
+}
+
+@container (min-height: 73px) and (max-height: 174.99px) {
+  .chip[data-h3] { display: none; }
+  .more[data-m3] { display: block; }
+}
+
+@container (min-height: 175px) {
+  .chip[data-h4] { display: none; }
+  .more[data-m4] { display: block; }
+}
+
+/* ---- counters: a vertical stack of coins and the total, above the plate ---- */
+
+.stack {
+  position: absolute;
+  right: 4%;
+  bottom: calc(var(--plate-fs, 10px) * 1.2 + 9px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  width: calc(var(--st) * 1.14);
+  padding: calc(var(--st) * 0.07) 0;
+  border: 1px solid rgb(214 196 150 / 0.32);
+  border-radius: 99px;
+  background: rgb(8 12 26 / 0.88);
+}
+
+.layer[data-side="opp"] .stack {
+  top: calc(var(--plate-fs, 10px) * 1.2 + 9px);
+  right: auto;
+  bottom: auto;
+  left: 4%;
+  flex-direction: column-reverse;
+}
+
+/* A card lying in Defense is a sideways band in the middle of its slot: the stack stays inside the band. */
+.layer[data-defense="true"] .stack {
+  bottom: calc((100cqh - var(--cw, 100cqh)) / 2 + 3px);
+}
+
+.layer[data-defense="true"][data-side="opp"] .stack {
+  top: calc((100cqh - var(--cw, 100cqh)) / 2 + 3px);
+  bottom: auto;
+}
+
+.coin {
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: var(--st);
+  height: var(--st);
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--c) 75%, #000);
+  border-radius: 50%;
+  background: rgb(8 12 26 / 0.95);
+  box-shadow: 0 0 calc(var(--st) * 0.35) color-mix(in srgb, var(--c) 38%, transparent);
+  color: var(--c);
+}
+
+.coin svg {
+  width: 66%;
+  height: 66%;
+}
+
+.initials {
+  font: 800 calc(var(--st) * 0.42) / 1 Arial, sans-serif;
+}
+
+.stack > .coin + .coin {
+  margin-top: calc(var(--st) * -0.38);
+}
+
+.layer[data-side="opp"] .stack > .coin + .coin {
+  margin-top: 0;
+  margin-bottom: calc(var(--st) * -0.38);
+}
+
+.total {
+  min-width: var(--st);
+  color: var(--ink);
+  font: 700 calc(var(--st) * 0.7) / var(--st) var(--f-num, "Arial Narrow"), sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.8);
+}
+
+/* ---- a card under 70px wide: glyph only, one merged counter coin ---- */
+
+@container (max-width: 69.99px) {
+  .letter { display: none; }
+  .shield { fill: currentColor; }
+  .mark { stroke: var(--back); }
+  .markFill { fill: var(--back); }
+  .stack > .coin:nth-child(n + 2) { display: none; }
+  .total { font-size: calc(var(--st) * 0.62); }
+}
+
+/* ---- the card inspector list (inspector.tsx): the same glyphs at a fixed size, never inside a card ---- */
+
+.listGlyph {
+  --st: 22px;
+  --upright: 0deg;
+  display: inline-block;
+  width: var(--st);
+  height: var(--st);
+  flex: none;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5));
+  --imM: #e0a35a;
+  --imS: #4fd1b0;
+  --imT: #d765c8;
+  --imAll: #f4d690;
+  --prot: #8fb8ff;
+  --neg: #ff6b6b;
+  --info: #aab3cc;
+  --back: #0a0e1c;
+}
+
+.listGlyph[data-status-kind="imM"] { color: var(--imM); }
+.listGlyph[data-status-kind="imS"] { color: var(--imS); }
+.listGlyph[data-status-kind="imT"] { color: var(--imT); }
+.listGlyph[data-status-kind="imAll"] { color: var(--imAll); }
+.listGlyph[data-status-kind="noBD"],
+.listGlyph[data-status-kind="noED"],
+.listGlyph[data-status-kind="noTgt"],
+.listGlyph[data-status-kind="noAtk"] { color: var(--prot); }
+.listGlyph[data-status-kind="neg"] { color: var(--neg); }
+.listGlyph[data-status-kind="info"] { color: var(--info); }
+
+.listCoin {
+  --st: 22px;
+  --upright: 0deg;
+  transition: none;
+}

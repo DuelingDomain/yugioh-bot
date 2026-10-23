@@ -1134,6 +1134,8 @@
   width: var(--cw);
   height: var(--z);
   max-width: 100%;
+  /* The font size of the ATK / DEF plate: the status layer (card-status.module.css) keeps its coin stack above the plate by it. */
+  --plate-fs: var(--n3);
   border: 1px solid var(--sheet);
   border-radius: var(--r);
   transition:
@@ -2722,6 +2724,10 @@
 
 .seatField .plate {
   font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
+}
+
+.seatField .frame {
+  --plate-fs: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
 }
 
 /* The whole field turns by the seat angle, so a rival's plate would lie upside down or on its side. The plate stays on the card's
