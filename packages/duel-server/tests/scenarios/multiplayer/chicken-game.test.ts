@@ -7,9 +7,56 @@ import { createEngineGame } from "../../../src/legacy/engine.js";
 import { choosePracticeBotAnswer } from "../../../src/practice-bot.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { CHICKEN_GAME_SCENARIOS } from "./chicken-game.js";
+import { createEngineGame as createMultiEngineGame } from "../../../src/engine.js";
+import { Session, nseatWasmBinary, domainNseatWasmBinary } from "../../support/session.js";
+import type { Scenario } from "../../support/dsl.js";
+
+async function runChickenGame(scenario: Scenario): Promise<void> {
+  const compiled = compileBoard(scenario.setup);
+  const preserveEffect = scenario.tags.includes("preserve-change-damage") ? "EFFECT_CHANGE_DAMAGE"
+    : scenario.tags.includes("preserve-no-effect-damage") ? "EFFECT_NO_EFFECT_DAMAGE" : null;
+  const game = await createMultiEngineGame({ ...compiled.options, dataDirectory: engineDataDirectory,
+    multiWasmBinary: scenario.setup.mode === "domain" ? domainNseatWasmBinary() : nseatWasmBinary(),
+    seed: ["1", "2", "3", "4"],
+    startupScripts: [...compiled.options.startupScripts!, ...(preserveEffect ? [{ name: "pseudo-space-existing-effect.lua", content: `
+local c=Duel.GetFieldCard(0,LOCATION_FZONE,0)
+local e=Effect.CreateEffect(c)
+e:SetType(EFFECT_TYPE_FIELD)
+e:SetProperty(EFFECT_FLAG_PLAYER_TARGET)
+e:SetCode(${preserveEffect})
+e:SetRange(LOCATION_FZONE)
+e:SetOwnerPlayer(Duel.MPActionSeat(1))
+e:SetAbsoluteRange(e:GetOwnerPlayer(),1,0)
+e:SetValue(0)
+c:RegisterEffect(e)
+${preserveEffect === "EFFECT_NO_EFFECT_DAMAGE" ? `
+-- NO_EFFECT_DAMAGE is a Lua hint, not a core damage replacement. Check that
+-- the original effect survives the real copy and mark completion with 100 LP.
+local retained=e
+local check=Effect.CreateEffect(c)
+check:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)
+check:SetRange(LOCATION_FZONE)
+check:SetCode(EVENT_CHAIN_END)
+check:SetOperation(function(e)
+  local found=false
+  for _,owned in ipairs({c:GetOwnEffects()}) do if owned==retained then found=true end end
+  assert(found,"Copying Chicken Game removed a pre-existing EFFECT_NO_EFFECT_DAMAGE")
+  Duel.Recover(0,100,REASON_EFFECT)
+  e:Reset()
+end)
+c:RegisterEffect(check)
+` : ""}
+` }] : [])],
+  });
+  try {
+    const session = new Session(scenario, game);
+    session.reachMainPhase(); session.startRecording();
+    scenario.steps.forEach((step, index) => session.run(step, index + 1));
+  } finally { game.close(); }
+}
 
 describeWithCores("live Chicken Game damage protection", [liveNseat, ...needs.domainMulti()], () => {
-  runScenarios("multiplayer/chicken-game", CHICKEN_GAME_SCENARIOS);
+  runScenarios("multiplayer/chicken-game", CHICKEN_GAME_SCENARIOS, runChickenGame);
 });
 
 describeWithCores("legacy 1v1 Chicken Game", [needs.cards(), needs.scripts()], () => {

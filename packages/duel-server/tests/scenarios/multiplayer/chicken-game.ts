@@ -73,8 +73,9 @@ for (const format of ["ffa3", "ffa4"] as const) {
     title: `${format}: Tremendous Fire checks both recipients before its simultaneous damage`,
     source: SOURCE, rules: ["R-FFA-LP-COMPARE"], tags: ["multiplayer", format, "card:67616300"],
     setup: { format, skipOpeningDraw: true, p0: { lp: 7000, hand: ["Tremendous Fire"] },
-      p1: { lp: 7500 }, p2: { lp: 8000, field: "Chicken Game" }, ...(format === "ffa4" ? { p3: { lp: 8000 } } : {}) },
-    steps: [activate("Tremendous Fire"), pickOpponent("p1"), expectBoard({ p0: { lp: 7000 }, p1: { lp: 6500 } })],
+      p1: { lp: 7200 }, p2: { lp: 8000, field: "Chicken Game" }, ...(format === "ffa4" ? { p3: { lp: 8000 } } : {}) },
+    // Sequential damage to p1 first would make p0 lose its protection and take 500.
+    steps: [activate("Tremendous Fire"), pickOpponent("p1"), expectBoard({ p0: { lp: 7000 }, p1: { lp: 6200 } })],
   }));
 
   standard.push(defineScenario({
@@ -121,6 +122,20 @@ for (const format of ["ffa3", "ffa4"] as const) {
       endTurn("p0"), activate("Hinotama", "p1"), pickOpponent("p0", "p1"),
       expectBoard({ p0: { lp: 1350, spells: ["Pseudo Space"] }, p1: { lp: 7000 } })],
   }));
+
+  for (const effect of ["change-damage", "no-effect-damage"] as const) {
+    standard.push(defineScenario({
+      id: `chicken-game-${format}-pseudo-space-preserves-${effect}`,
+      title: `${format}: copying Chicken Game preserves Pseudo Space's pre-existing ${effect} effect`,
+      source: SOURCE, rules: ["R-FFA-LP-COMPARE"], tags: ["multiplayer", format, "card:67616300", `preserve-${effect}`],
+      setup: { format, skipOpeningDraw: true,
+        p0: { lp: 1850, field: "Pseudo Space", grave: ["Chicken Game"], hand: ["Tremendous Fire"] },
+        p1: { lp: 8000 }, p2: { lp: 7000 }, ...(format === "ffa4" ? { p3: { lp: 7000 } } : {}) },
+      steps: [activate("Pseudo Space"), activate("Tremendous Fire"), pickOpponent("p1"),
+        expectBoard({ p0: { lp: effect === "change-damage" ? 1850 : 1950, banished: ["Chicken Game"] },
+          p1: { lp: effect === "change-damage" ? 8000 : 7000 } })],
+    }));
+  }
 }
 
 // Tag keeps the stock comparison between the two shared team pools.

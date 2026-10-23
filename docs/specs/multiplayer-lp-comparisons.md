@@ -86,7 +86,7 @@ Single-branch effects retain unanimous comparisons. Soul Drain Dragon gains ATK 
 | 81916745 | Lycoris Lilyreaper | Absolute LP difference sets a card-selection amount; separate amount ruling needed. |
 | 85636437 | Edge of the Ring | Shared unanimous comparison helper. |
 | 856784 | Draw of Fate | Shared unanimous comparison helper. |
-| 85787173 | Generation Next | LP difference is a selection limit; no explicit lower/higher condition to replace without choosing a numerical policy. |
+| 85787173 | Generation Next | owner ruling 2026-10-23: unchanged — compares with the selected opponent |
 | 85967160 | Aromage Bergamot | Existing card-specific rule compares the attacked opponent (issue #215); retain it. |
 | 86532744 | Number S39: Utopia Prime | Shared unanimous comparison helper. |
 | 91123920 | The Agent of Force - Mars | Condition only; existing numerical difference unchanged. |
@@ -131,13 +131,15 @@ These **ten official relative-LP scripts have no multiplayer overlay** and are l
 | 70219023 | Coordius the Triphasic Dealmon | Nonzero difference enables an ATK effect; amount/inequality policy needed. |
 | 81758313 | Myriaday Dragon | Absolute LP difference sets counters. |
 | 81916745 | Lycoris Lilyreaper | Absolute LP difference sets a selection amount. |
-| 85787173 | Generation Next | LP difference limits selection; changing it requires an amount policy. |
+| 85787173 | Generation Next | owner ruling 2026-10-23: unchanged — compares with the selected opponent |
 | 81332143 | Yu-Jo Friendship | Average/share a chosen pair; no lower-LP protection condition. |
 | 90162951 | Number 35: Ravenous Tarantula | Absolute LP difference sets ATK. |
 
 Other reviewed lookalikes are outside this bug class: Reflect Bounder (2851070) and prerelease Zombyra (100459012) compare a recipient's LP before/after damage; they do not compare two players. Prerelease Armor Wizard Pazoo (100200297) checks a fixed 4000-LP threshold. Dinomorphia damage-prevention effects check their controller against **2000 LP**, not another player. Fixed opponent thresholds (for example Meteor of Destruction and Meteor Flare), LP exchanges/halving, and LP-derived ATK amounts (for example Life Hack, Endless Decay and Odd-Eyes Revolution Dragon) need their existing recipient/amount policies, not this unanimous comparison change. Existing overlays already cover Psychic End Punisher, Pin Baller, Aromaseraphy Sweet Marjoram and all other reviewed lower/higher protection conditions; Bergamot retains its attacked-opponent ruling.
 
 The wider scan also finds lower/higher/equality comparisons in bundled unofficial, Rush and Skill scripts. None of those card IDs are present in the shipped merged `cards.cdb`; no overlays are added for them. They would need a separate rules/support decision before enabling those card pools.
+
+Review regressions also cover copying Chicken Game onto Pseudo Space with a pre-existing `EFFECT_CHANGE_DAMAGE` or `EFFECT_NO_EFFECT_DAMAGE`: only the stock protection effects added by that initialization call are reset. The simultaneous Tremendous Fire case starts at 7000/7200 LP and ends at 7000/6200; sequential opponent-first damage would instead remove the 7000-LP player's protection before their 500 damage. These regressions run on both multiplayer cores in FFA3/FFA4.
 
 ## LP queries without a relative comparison
 
@@ -181,4 +183,4 @@ The original stock script produces **2400 rather than 1000** for Unstable Evolut
 
 The public issue reports two survivors but supplies no LP totals, card controllers or replay. On the current real Domain core, all eight stock controls (all four Equip controllers, richer opponents surrendering before and after equip) correctly recalculate to 1000. A further stock control reaches turn 34, seat 2 End Phase, with seats 0 and 2 alive and verifies 1000 ATK inside that phase; it also passes before the overlay fix. Infinite Cards prevents unrelated hand-limit choices during this long control. Thus the exact two-survivor capture is **not reproduced** and cannot be attributed to eliminated LP without more evidence. A possible observation mismatch exists in `host.ts`'s bug-context path: it can use an older paired report capture while counting living seats against the current surrendered set. This is a hypothesis, not an established cause of #435. Keep these late-game scenarios as regressions rather than claiming they previously failed.
 
-The scenario kit covers mixed totals, all opponents lower, all opponents higher, partial ties, all equal, positive-LP surrendered seats, every controller seat, bound and nested scopes, global Pin Baller protection, exact required gaps, draws for every living player, turn 34 timing, named/inline summon conditions, higher-LP Aroma conditions, Supremacy Berry and Wyvern lower-first branches, Soul Drain Dragon's real Special Summon trigger, Sweet Marjoram's actual target protection, and stock 1v1/Tag results. Only touched scenario families are run with `test:engine`, `NSEAT_LIVE=1` and `DUEL_REQUIRE_CORES=1`. No unit tests were added. All 61 reviewed overlay scripts also load through real Standard and Domain cores in FFA3, FFA4 and Tag.
+The scenario kit covers mixed totals, all opponents lower, all opponents higher, partial ties, all equal, positive-LP surrendered seats, every controller seat, bound and nested scopes, global Pin Baller protection, exact required gaps, draws for every living player, turn 34 timing, named/inline summon conditions, higher-LP Aroma conditions, Supremacy Berry and Wyvern lower-first branches, Soul Drain Dragon's real Special Summon trigger, Sweet Marjoram's actual target protection, and stock 1v1/Tag results. Only touched scenario families are run with `test:engine`, `NSEAT_LIVE=1` and `DUEL_REQUIRE_CORES=1`. No unit tests were added. All 63 reviewed overlay scripts also load through real Standard and Domain cores in FFA3, FFA4 and Tag.

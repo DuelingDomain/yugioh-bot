@@ -4,9 +4,12 @@ if not (Duel.MPMode and Duel.MPMode()==1) then return end
 -- the Field Spell's controller or a bound attack/effect opponent.
 local stock_initial_effect=s.initial_effect
 function s.initial_effect(c)
+	-- A copying card can already own unrelated damage effects.
+	local existing={}
+	for _,e in ipairs({c:GetOwnEffects()}) do existing[e]=true end
 	stock_initial_effect(c)
 	for _,e in ipairs({c:GetOwnEffects()}) do
-		if e:GetCode()==EFFECT_CHANGE_DAMAGE or e:GetCode()==EFFECT_NO_EFFECT_DAMAGE then e:Reset() end
+		if not existing[e] and (e:GetCode()==EFFECT_CHANGE_DAMAGE or e:GetCode()==EFFECT_NO_EFFECT_DAMAGE) then e:Reset() end
 	end
 	-- initial_effect can run before the card has an owner, with no Lua seat
 	-- scope. Explicit action seats also work when an existing card copies it.
