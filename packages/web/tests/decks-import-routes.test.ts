@@ -3,12 +3,14 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react/pure";
 import { NextResponse } from "next/server";
 import { migrate } from "@yugidraft/shared/db";
 import { createSavedDeckService } from "@yugidraft/shared/services";
 import { encodeYdke } from "@yugidraft/shared/decks";
 import { pasteSource, readSources } from "../src/components/decks/bulk-import";
+import { useBulkImport } from "../src/components/decks/use-bulk-import";
 
 const mocks = vi.hoisted(() => ({ getDb: vi.fn(), savedActor: vi.fn(), duelActor: vi.fn(), callDuelHost: vi.fn(),
   engine: new Map<number, { name: string; type: number }>(),
@@ -65,6 +67,100 @@ beforeEach(() => {
   }));
 });
 afterEach(() => { db.close(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+describe("pasted preview lifecycle through the import routes", () => {
+  let window: Window;
+  beforeAll(async () => {
+    // Keep Node's File and Request implementations for the real client/route boundary.
+    const jsdom = "jsdom";
+    const { JSDOM } = await import(jsdom);
+    window = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://test" }).window;
+  });
+  afterAll(() => window.close());
+  beforeEach(() => {
+    vi.stubGlobal("window", window);
+    vi.stubGlobal("document", window.document);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
+      const req = new Request(new URL(input, "http://test"), init);
+      if (req.url.endsWith("/api/decks/import/preview")) return preview(req);
+      if (req.url.endsWith("/api/decks/import/bulk")) return bulk(req);
+      if (req.url.endsWith("/api/duels/cards")) return Response.json({ cards: [], missing: [] });
+      throw new Error(`Unexpected request ${req.url}`);
+    }));
+  });
+  afterEach(() => cleanup());
+
+  it.each(["YDK", "YDKE", "name list"])("replaces earlier invalid pastes with one %s deck and preserves edited file rows", async format => {
+    db.exec("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (46986414,'Dark Magician','Normal Monster','normal','','','[]','test')");
+    const { result } = renderHook(() => useBulkImport(vi.fn()));
+    const items = () => "items" in result.current.view ? result.current.view.items : [];
+    act(() => result.current.previewFiles([new File([source().text], "Picked.ydk")]));
+    await waitFor(() => expect(result.current.view.phase).toBe("preview"));
+    act(() => {
+      result.current.rename(items()[0].row.rowId, "Keep this file name");
+      result.current.toggle(items()[0].row.rowId);
+    });
+    const kept = items()[0];
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await act(async () => { expect(await result.current.previewPaste("#main\n0\n#extra\n!side")).toBe(true); });
+    }
+    const text = format === "YDKE" ? encodeYdke(deck([46986414]))
+      : format === "name list" ? "Main Deck:\n1x Dark Magician" : "#main\n46986414\n#extra\n!side";
+    await act(async () => { expect(await result.current.previewPaste(` \t\r\n \r\n${text}\r\n \t\n\r `)).toBe(true); });
+    expect(items()).toHaveLength(2);
+    expect(items()[0]).toBe(kept);
+    expect(items()[0]).toMatchObject({ name: "Keep this file name", selected: false });
+    expect(items()[1]).toMatchObject({ row: { deck: deck([46986414]), errors: [] }, selected: true });
+    await act(async () => { await result.current.importSelected(); });
+    expect(decks.list("g", 1).map(saved => saved.deck.main)).toEqual([[46986414]]);
+    expect(items()).toEqual([kept]);
+  });
+
+  it("replaces selected and renamed paste rows while later file picks still append", async () => {
+    const { result } = renderHook(() => useBulkImport(vi.fn()));
+    const items = () => "items" in result.current.view ? result.current.view.items : [];
+    const code = encodeYdke(deck());
+    await act(async () => { await result.current.previewPaste(`${code}\n${code}`); });
+    expect(items()).toHaveLength(2);
+    act(() => result.current.rename(items()[0].row.rowId, "Old pasted name"));
+    act(() => result.current.toggle(items()[1].row.rowId));
+    act(() => result.current.previewFiles([new File([source().text], "First.ydk")]));
+    await waitFor(() => expect(result.current.view.phase).toBe("preview"));
+    expect(items()).toHaveLength(3);
+    await act(async () => { await result.current.previewPaste(`\n \t\r\n${code}\n \r\n`); });
+    expect(items()).toHaveLength(2);
+    expect(items().map(item => item.name)).not.toContain("Old pasted name");
+    act(() => result.current.previewFiles([new File([source().text], "Second.ydk")]));
+    await waitFor(() => expect(result.current.view.phase).toBe("preview"));
+    expect(items()).toHaveLength(3);
+    expect(items().filter(item => item.row.sourceId.endsWith("-paste"))).toHaveLength(1);
+  });
+
+  it("keeps the visible preview on request failure and supersedes held pastes without dropping held files", async () => {
+    const { result } = renderHook(() => useBulkImport(vi.fn()));
+    const items = () => "items" in result.current.view ? result.current.view.items : [];
+    await act(async () => { await result.current.previewPaste(source().text); });
+    const original = items()[0];
+    const unavailable = () => mocks.savedActor.mockResolvedValueOnce({ ok: false, response: NextResponse.json({ error: "Unavailable" }, { status: 503 }) });
+    unavailable();
+    await act(async () => { expect(await result.current.previewPaste("#main\n46986414")).toBe(false); });
+    expect(items()).toEqual([original]);
+    expect(result.current.heldCount).toBe(1);
+    unavailable();
+    act(() => result.current.previewFiles([new File([source().text], "Retry file.ydk")]));
+    await waitFor(() => expect(result.current.view.phase).toBe("preview"));
+    expect(result.current.heldCount).toBe(2);
+    await act(async () => { await result.current.previewPaste(encodeYdke(deck([46986414]))); });
+    expect(items()).toHaveLength(1);
+    expect(items()[0].row.deck).toEqual(deck([46986414]));
+    expect(result.current.heldCount).toBe(1);
+    act(() => result.current.retryHeld());
+    await waitFor(() => expect(result.current.view.phase).toBe("preview"));
+    expect(result.current.heldCount).toBe(0);
+    expect(items().map(item => item.row.deck.main)).toEqual([[46986414], [89631139]]);
+  });
+});
 
 describe("simulator name lists", () => {
   function seedNames() {

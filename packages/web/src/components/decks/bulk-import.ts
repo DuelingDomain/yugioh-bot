@@ -119,7 +119,7 @@ export function pasteSource(text: string): SourceBatch {
 
 /**
  * Gives every source of one pick a batch prefix and the chosen mode. The server builds row ids from source ids,
- * so the prefix keeps row ids unique when a later pick is added to the rows already on screen.
+ * so the prefix keeps row ids unique when later file picks append or a paste replaces earlier paste rows.
  */
 export function tagSources(sources: ImportSource[], batch: number, mode: ImportMode): ImportSource[] {
   return sources.map((source) => ({ ...source, id: `b${batch}-${source.id}`, mode }));
