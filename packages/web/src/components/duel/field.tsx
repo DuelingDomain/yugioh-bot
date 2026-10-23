@@ -74,6 +74,12 @@ export { EquipLinksContext };
 
 type CssVars = CSSProperties & Record<`--${string}`, string | number>;
 
+/** About how wide the ATK / DEF text is, in the plate's own em (a digit is about 0.47em, the "/" with its gaps 1.1em). A seat field that turns a rival's plate back
+ *  upright needs the length of the strip to place it (`.seatField .plate`); a small error only moves the strip a little. */
+function plateTextEm(atk: string, def: string | null): number {
+  return Math.round((atk.length * 0.47 + (def != null ? def.length * 0.47 + 1.1 : 0)) * 100) / 100;
+}
+
 // DuelField, SeatField and the row components keep the base styles; the skinned primitives below read the skin.
 const styles = baseStyles;
 
@@ -284,7 +290,7 @@ export function ZoneSlot({
           {pendulum ? <span className={styles.pendulumMark} data-zone-label>P</span> : null}
           {card ? <CardFace card={card} sleeve={sleeve} /> : sleeve ? <CardFace card={null} sleeve={sleeve} /> : null}
           {atk ? (
-            <span className={styles.plate} data-card-plate>
+            <span className={styles.plate} data-card-plate style={{ "--plate-em": plateTextEm(atk, def) } as CssVars}>
               <b>{atk}</b>
               {def != null ? (
                 <>
