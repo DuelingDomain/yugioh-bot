@@ -1,9 +1,13 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import createCore, { OcgDuelMode, OcgMessageType, OcgProcessResult, type OcgMessage, type OcgMessageCardHint } from "ocgcore-wasm";
 import { installCardScriptPatches } from "../scripts/card-script-patches.js";
+import { cardScriptPatchesHash } from "../src/card-script-patches.js";
 import { loadCardDatabase } from "../src/cards.js";
 import { loadMultiScripts, repoMultiScriptsDirectory } from "../src/multi-scripts.js";
 import { legacyNormalScript } from "../src/legacy/script-compat.js";
@@ -22,9 +26,9 @@ let directory = "";
 beforeAll(() => {
   directory = mkdtempSync(join(tmpdir(), "protection-hints-"));
   for (const name of ["cards.cdb", "strings.conf"]) symlinkSync(join(engineDataDirectory, name), join(directory, name));
-  for (const name of readdirSync(engineDataDirectory).filter(name => name.endsWith(".wasm"))) symlinkSync(join(engineDataDirectory, name), join(directory, name));
+  for (const name of readdirSync(engineDataDirectory).filter(name => name.endsWith(".wasm") || name.endsWith(".sha256"))) symlinkSync(join(engineDataDirectory, name), join(directory, name));
   const scripts = join(directory, "card-scripts");
-  const patched = new Set(["utility.lua", "card_counter_constants.lua", "c3743515.lua", ...PROTECTION_CARDS.map(code => `c${code}.lua`)]);
+  const patched = new Set(["host-protection-hints.lua", "utility.lua", "card_counter_constants.lua", "c3743515.lua", ...PROTECTION_CARDS.map(code => `c${code}.lua`)]);
   for (const name of readdirSync(join(engineDataDirectory, "card-scripts"), { recursive: true }).map(String).filter(name => name.endsWith(".lua"))) {
     const destination = join(scripts, name);
     mkdirSync(dirname(destination), { recursive: true });
@@ -37,10 +41,44 @@ beforeAll(() => {
   for (const [name, path] of [["card_counter_constants.lua", "card_counter_constants.lua"], ["c3743515.lua", "official/c3743515.lua"], ["utility.lua", "utility.lua"]]) {
     copyFileSync(new URL(`./fixtures/card-scripts/${name}`, import.meta.url), join(scripts, path!));
   }
+  // Shared upstream utility changes must not require reviewing twenty unchanged card suffixes.
+  writeFileSync(join(scripts, "utility.lua"), readFileSync(join(scripts, "utility.lua"), "utf8") + "\n-- upstream utility update\n");
   installCardScriptPatches(scripts);
 });
 afterAll(() => {
   if (directory) { loadCardDatabase(directory).close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+it("receipts validate the host helper and installation rejects tampered helper bytes", () => {
+  const scripts = join(directory, "card-scripts");
+  const manifest = JSON.parse(readFileSync(join(engineDataDirectory, "manifest.json"), "utf8"));
+  manifest.integrity.cardScriptPatches = cardScriptPatchesHash(scripts);
+  writeFileSync(join(directory, "manifest.json"), JSON.stringify(manifest));
+  symlinkSync(join(engineDataDirectory, "multi-scripts"), join(directory, "multi-scripts"));
+  const utility = readFileSync(join(scripts, "utility.lua"), "utf8");
+  // A cached bundle made before the helper extraction must restore stock utility.lua.
+  const receipt = join(scripts, ".host-card-script-patches.json");
+  const previous = JSON.parse(readFileSync(receipt, "utf8"));
+  previous.push({ stockPath: "utility.lua", stockSha256: createHash("sha256").update(utility).digest("hex"), suffix: "utility.lua" });
+  writeFileSync(receipt, JSON.stringify(previous));
+  writeFileSync(join(scripts, "utility.lua"), utility + "\n-- BEGIN HOST CARD SCRIPT PATCH\n" + readFileSync(join(scripts, "host-protection-hints.lua"), "utf8"));
+  expect(installCardScriptPatches(scripts)).toBe(manifest.integrity.cardScriptPatches);
+  expect(utility).not.toContain("BEGIN HOST CARD SCRIPT PATCH");
+  expect(installCardScriptPatches(scripts)).toBe(manifest.integrity.cardScriptPatches);
+  expect(readFileSync(join(scripts, "utility.lua"), "utf8")).toBe(utility);
+  const helper = join(scripts, "host-protection-hints.lua"), original = readFileSync(helper, "utf8");
+  const preflight = () => spawnSync("sh", [fileURLToPath(new URL("../scripts/install-engine-bundle.sh", import.meta.url))], {
+    encoding: "utf8", env: { ...process.env, DUEL_PREFLIGHT: "1", DUEL_BUNDLE_SRC: directory, DUEL_DATA_DIR: join(directory, "preflight-target") },
+  });
+  try {
+    const valid = preflight();
+    expect(valid.status, valid.stdout + valid.stderr).toBe(0);
+    writeFileSync(helper, original + "\n-- tampered\n");
+    expect(cardScriptPatchesHash(scripts)).not.toBe(manifest.integrity.cardScriptPatches);
+    const invalid = preflight();
+    expect(invalid.status).not.toBe(0);
+    expect(invalid.stderr).toContain("patched file hash mismatch");
+  } finally { writeFileSync(helper, original); }
 });
 
 type Variant = "legacy" | "pinned" | "multi" | "legacy-domain" | "pinned-domain" | "multi-domain";

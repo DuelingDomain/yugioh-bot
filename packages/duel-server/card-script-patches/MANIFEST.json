@@ -10,9 +10,8 @@
     "suffix": "c3743515.lua"
   },
   {
-    "stockPath": "utility.lua",
-    "stockSha256": "59ebe317dbec0ef5134f485f039bbe0cee031aa68e6d0ac028123a318ee2cd2a",
-    "suffix": "utility.lua"
+    "stockPath": "host-protection-hints.lua",
+    "suffix": "host-protection-hints.lua"
   },
   {
     "stockPath": "official/c44001993.lua",

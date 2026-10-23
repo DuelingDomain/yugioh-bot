@@ -59,6 +59,21 @@ for (const { name, format, legacy } of variants) {
       expect(snapshots[1]).toEqual(snapshots[0]);
     });
 
+    it("only publishes queried base stats in monster zones", async () => {
+      const { game } = await open({ p0: { hand: [BREAKER], monsters: ["Dark Magician"],
+        spells: ["Supply Squad"], grave: ["Blue-Eyes White Dragon"], banished: [BREAKER],
+        extra: ["Stardust Dragon"] }, p1: {} }, format, legacy);
+      try {
+        const seat = game.view(0).seats[0];
+        expect(seat.monsters[0]).toMatchObject({ baseAttack: 2500, baseDefense: 2100 });
+        for (const card of [...seat.hand, ...seat.spells, ...seat.graveyard, ...seat.banished, ...seat.extra]) {
+          if (!card) continue;
+          expect(card.baseAttack).toBeUndefined();
+          expect(card.baseDefense).toBeUndefined();
+        }
+      } finally { game.close(); }
+    });
+
     it("shows typed Spell Counters and queried base ATK/DEF on Breaker", async () => {
       const { game, run } = await open({ p0: { hand: [BREAKER] }, p1: {} }, format, legacy);
       try {

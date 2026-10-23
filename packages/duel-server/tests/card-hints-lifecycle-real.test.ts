@@ -4,6 +4,9 @@ import type { DuelCard, DuelFormat } from "@yugidraft/shared/duels";
 import { getDuelCounterMetadata } from "@yugidraft/shared/duels";
 import { OcgCardHintType, OcgLocation, OcgMessageType, type OcgMessage } from "ocgcore-wasm";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
+import { CardHints } from "../src/card-hints.js";
+import { loadCardDatabase } from "../src/cards.js";
+import { sameReplayBoard } from "../src/replay-board-comparator.js";
 import { createLegacyEngineGame } from "../src/legacy/index.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
 import { compileBoard, type BoardSpec } from "./support/board.js";
@@ -133,6 +136,160 @@ for (const { name, format, legacy } of variants) {
       } finally { game.close(); }
     });
 
+    it("compares legacy lossy counter boards only when explicitly allowed", async () => {
+      const { game, act } = await open(format, legacy, "", ["assert(subject:AddCounter(0x100e,2))"]);
+      try {
+        act();
+        const rebuilt = game.view(null), saved = structuredClone(rebuilt);
+        saved.seats[0].monsters[1]!.counters = [{ type: 2, count: 0x100e }];
+        expect(sameReplayBoard(saved, rebuilt)).toBe(false);
+        expect(sameReplayBoard(saved, rebuilt, { allowLegacyCounters: true })).toBe(true);
+        // The old decoder keyed by count: equal counts lost all but the last type.
+        rebuilt.seats[0].monsters[1]!.counters!.push({ type: 0x100f, count: 2 });
+        saved.seats[0].monsters[1]!.counters = [{ type: 2, count: 0x100f }];
+        expect(sameReplayBoard(saved, rebuilt, { allowLegacyCounters: true })).toBe(true);
+        saved.seats[0].lp--;
+        expect(sameReplayBoard(saved, rebuilt, { allowLegacyCounters: true })).toBe(false);
+      } finally { game.close(); }
+    });
+
+    it("retains hints through a face-down reset only when their core effects survive", async () => {
+      const { game, act } = await open(format, legacy,
+        `mark(subject,${KNOWN},RESETS_STANDARD&~RESET_TURN_SET); mark(subject,${UNKNOWN})`, [
+          "assert(Duel.ChangePosition(subject,POS_FACEDOWN_DEFENSE)>0)",
+          "assert(Duel.ChangePosition(subject,POS_FACEUP_ATTACK)>0)",
+        ]);
+      try {
+        expect(ids(fieldCard(game))).toEqual([KNOWN, UNKNOWN]);
+        act();
+        for (const viewer of [0, 1, null]) expect(game.view(viewer).seats[0].monsters[1]?.hints).toBeUndefined();
+        act();
+        expect(ids(fieldCard(game))).toEqual([KNOWN]);
+      } finally { game.close(); }
+    });
+
+    it("retains a hint registered face-down until its core effect resets", async () => {
+      const { game, act } = await open(format, legacy, "", [
+        `assert(Duel.ChangePosition(subject,POS_FACEDOWN_DEFENSE)>0); local hidden=mark(subject,${KNOWN})`,
+        "assert(Duel.ChangePosition(subject,POS_FACEUP_ATTACK)>0)",
+      ]);
+      try {
+        act();
+        expect(fieldCard(game)?.hints).toBeUndefined();
+        act();
+        expect(ids(fieldCard(game))).toEqual([KNOWN]);
+      } finally { game.close(); }
+    });
+
+    it("retains off-field hints when the core carries them onto the field", async () => {
+      const { game, act } = await open(format, legacy,
+        `local waiting=Duel.GetFieldGroup(0,LOCATION_GRAVE,0):GetFirst(); mark(waiting,${KNOWN},0)`, [
+          "assert(Duel.SpecialSummon(waiting,0,0,0,false,false,POS_FACEUP_ATTACK)>0)",
+        ], { p0: { monsters: [ACTOR, SUBJECT], grave: ["Blue-Eyes White Dragon"] }, p1: {} });
+      try {
+        expect(game.view(null).seats[0].graveyard[0]?.hints).toBeUndefined();
+        act();
+        const summoned = game.view(null).seats[0].monsters.find(card => card?.name === "Blue-Eyes White Dragon");
+        expect(ids(summoned)).toEqual([KNOWN]);
+      } finally { game.close(); }
+    });
+
+    it("compacts hinted piles after simultaneous removals using the original coordinates", async () => {
+      const { game, act } = await open(format, legacy, `
+        local pile=Duel.GetFieldGroup(0,LOCATION_GRAVE,0)
+        local waiting=pile:Filter(Card.IsCode,nil,89631139):GetFirst()
+        assert(waiting:GetSequence()==2)
+        local removed=pile:Filter(function(c) return c~=waiting end,nil)
+        mark(waiting,${KNOWN},0)
+        for c in aux.Next(removed) do mark(c,${UNKNOWN},0) end
+      `, ["Duel.RemoveCards(removed)", "assert(Duel.SpecialSummon(waiting,0,0,0,false,false,POS_FACEUP_ATTACK)>0)"], {
+        p0: { monsters: [ACTOR, SUBJECT], grave: [SUBJECT, "Celtic Guardian", "Blue-Eyes White Dragon"] }, p1: {},
+      });
+      try {
+        act();
+        expect(game.view(null).seats[0].graveyard.map(card => card.name)).toEqual(["Blue-Eyes White Dragon"]);
+        act();
+        const summoned = game.view(null).seats[0].monsters.find(card => card?.name === "Blue-Eyes White Dragon");
+        expect(ids(summoned)).toEqual([KNOWN]);
+      } finally { game.close(); }
+    });
+
+    it("does not assign old Extra Deck hints to cards inserted by a deck/grave swap", async () => {
+      const { game, act } = await open(format, legacy, `
+        local waiting=Debug.AddCard(16178681,0,0,LOCATION_EXTRA,0,POS_FACEUP_DEFENSE)
+        mark(waiting,${KNOWN},0)
+        local returned=Duel.GetFieldGroup(0,LOCATION_GRAVE,0):GetFirst()
+      `, ["Duel.SwapDeckAndGrave(0)", "assert(Duel.SpecialSummon(returned,0,0,0,true,true,POS_FACEUP_ATTACK)>0)"], {
+        p0: { monsters: [ACTOR, SUBJECT], grave: ["Stardust Dragon"] }, p1: {},
+      });
+      try {
+        act();
+        expect(game.view(0).seats[0].extra.map(card => card.name)).toEqual(["Stardust Dragon", "Odd-Eyes Pendulum Dragon"]);
+        act();
+        const summoned = game.view(null).seats[0].monsters.find(card => card?.name === "Stardust Dragon");
+        expect(summoned).toBeDefined();
+        expect(summoned?.hints).toBeUndefined();
+      } finally { game.close(); }
+    });
+
+    it("keeps hints on face-up Extra cards whose sequence a shuffle does not change", async () => {
+      const { game, act } = await open(format, legacy, `
+        local waiting=Debug.AddCard(16178681,0,0,LOCATION_EXTRA,0,POS_FACEUP_DEFENSE)
+        mark(waiting,${KNOWN},0)
+      `, ["Duel.ShuffleExtra(0)", "assert(Duel.SpecialSummon(waiting,0,0,0,true,true,POS_FACEUP_ATTACK)>0)"], {
+        p0: { monsters: [ACTOR, SUBJECT], extra: ["Stardust Dragon", "Black Rose Dragon"] }, p1: {},
+      });
+      try {
+        act();
+        act();
+        const summoned = game.view(null).seats[0].monsters.find(card => card?.name === "Odd-Eyes Pendulum Dragon");
+        expect(ids(summoned)).toEqual([KNOWN]);
+      } finally { game.close(); }
+    });
+
+    it("re-derives shuffled hand hints from the core without duplicating descriptor counts", async () => {
+      const { game, act } = await open(format, legacy, `
+        local waiting=Duel.GetFieldGroup(0,LOCATION_HAND,0):Filter(Card.IsCode,nil,89631139):GetFirst()
+        local first=mark(waiting,${KNOWN},0)
+      `, ["Duel.ShuffleHand(0)", "assert(Duel.SpecialSummon(waiting,0,0,0,true,true,POS_FACEUP_ATTACK)>0)", "first:Reset()"], {
+        p0: { monsters: [ACTOR, SUBJECT], hand: ["Blue-Eyes White Dragon", "Celtic Guardian"] }, p1: {},
+      });
+      try {
+        act();
+        act();
+        const summoned = () => game.view(null).seats[0].monsters.find(card => card?.name === "Blue-Eyes White Dragon");
+        expect(ids(summoned())).toEqual([KNOWN]);
+        act();
+        expect(summoned()?.hints).toBeUndefined();
+      } finally { game.close(); }
+    });
+
+    it("keeps an Xyz host's hints on the host through material moves and removals", async () => {
+      const { game, act, messages } = await open(format, legacy, `
+        mark(subject,${KNOWN},0)
+        local material=subject:GetOverlayGroup():GetFirst()
+      `, ["assert(Duel.SendtoGrave(material,REASON_EFFECT)>0)", "assert(Duel.SpecialSummon(material,0,0,0,true,true,POS_FACEUP_ATTACK)>0)",
+        "Duel.Overlay(subject,material)", "Duel.RemoveCards(subject:GetOverlayGroup())"], {
+        p0: { monsters: [ACTOR, { card: "Number 39: Utopia", materials: ["Blue-Eyes White Dragon"] }] }, p1: {},
+      });
+      try {
+        act();
+        expect(ids(fieldCard(game))).toEqual([KNOWN]);
+        act();
+        expect(ids(fieldCard(game))).toEqual([KNOWN]);
+        const summoned = game.view(null).seats[0].monsters.find(card => card?.name === "Blue-Eyes White Dragon");
+        expect(summoned).toBeDefined();
+        expect(summoned?.hints).toBeUndefined();
+        act();
+        expect(ids(fieldCard(game))).toEqual([KNOWN]);
+        expect(fieldCard(game)?.materials).toHaveLength(1);
+        act();
+        expect(ids(fieldCard(game))).toEqual([KNOWN]);
+        if (!legacy) expect(messages.some(message => message.type === OcgMessageType.REMOVE_CARDS
+          && message.cards.some(card => card.overlay_sequence != null))).toBe(true);
+      } finally { game.close(); }
+    });
+
     it("follows field moves and an atomic swap without leaving hints on the old slot", async () => {
       const { game, act, messages } = await open(format, legacy,
         `mark(subject,${KNOWN}); mark(Duel.GetFieldCard(0,LOCATION_MZONE,2),${UNKNOWN})`, [
@@ -227,6 +384,22 @@ for (const format of ["ffa3", "ffa4"] as const) {
           const card = fieldCard(game, (source + 1) % seats);
           expect(card?.code).toBe(codes[source]);
           expect.soft(ids(card), `Card from seat ${source} moved to seat ${(source + 1) % seats}`).toEqual([KNOWN, uniqueIds[source]]);
+        }
+        // Feed the real core stream in batches ending at each MOVE. Rotations may yield
+        // between moves; displaced occupants must survive the next beginBatch call.
+        const rebuilt = new CardHints();
+        let start = 0;
+        for (let end = 0; end <= messages.length; end++) {
+          if (end < messages.length && messages[end].type !== OcgMessageType.MOVE) continue;
+          const batch = messages.slice(start, end + 1);
+          rebuilt.beginBatch(batch);
+          for (const message of batch) rebuilt.observe(message);
+          start = end + 1;
+        }
+        for (let seat = 0; seat < seats; seat++) {
+          const original = fieldCard(game, seat)!;
+          const { hints: _hints, ...bare } = original;
+          expect(ids(rebuilt.project(bare, loadCardDatabase(engineDataDirectory)))).toEqual(ids(original));
         }
         const removeIndex = messages.findIndex(message => message.type === OcgMessageType.CARD_HINT
           && message.card_hint === OcgCardHintType.DESC_REMOVE && message.description === BigInt(KNOWN));
