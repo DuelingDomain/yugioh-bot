@@ -47,6 +47,7 @@ import { batonOrder, lastTeamDamage, responseWindow, rivalPickOptions, teamGlyph
 import { useForkLabels } from "../table/fork-labels";
 import { plateState, TeamLpPlate, type PlateMember } from "./team-lp-plate";
 import { sessionBoardRule } from "../genesys";
+import { holdBoardMotion, trackBoardMotion } from "../board-motion";
 import styles from "./tag-stage.module.css";
 
 export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
@@ -517,6 +518,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const end = m ? resolvePose(targetRef.current, m) : targetRef.current;
     poseRef.current = end;
     apply();
+    // A camera that snaps (reduced motion, a jump) is a move too: a click right after it would land on the old place of a card.
+    if (!animated) holdBoardMotion();
     if (!animated || world == null) return;
     const start = origin ?? visible;
     const ease = fly ? easeFly : easeCam;
@@ -529,7 +532,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const tween: Tween = { from: start, to: end, start: performance.now(), dur: ms, ease, fit: fitRef.current };
     tweenRef.current = tween;
     world.style.willChange = "transform";
-    const run = world.animate(frames, { duration: ms, easing: "linear" });
+    const run = trackBoardMotion(world.animate(frames, { duration: ms, easing: "linear" }));
     const anims = [run];
     // The floating boxes glide the same way (a transform from the old place to 0). One that was not on screen fades in.
     for (const [node, now] of placedRef.current) {

@@ -5,6 +5,8 @@
  * box of a move that is still running) has no DOM and is unit tested.
  */
 
+import { holdBoardMotion, trackBoardMotion } from "../board-motion";
+
 export const FLIP_MS = 500;
 export const FLIP_EASING = "cubic-bezier(.2,.8,.2,1)";
 
@@ -138,11 +140,15 @@ export function playFlip(el: HTMLElement, previous: FlipTrack | undefined, next:
   cancelTrack(previous);
   const rest: FlipTrack = { box: next, turn: options.turn, delta: null, anim: null, text: [] };
   const turning = fromTurn !== options.turn;
-  if (!animate || !from || (!turning && !boxesDiffer(from, next)) || !canAnimate(el)) return rest;
+  if (!animate || !from || (!turning && !boxesDiffer(from, next)) || !canAnimate(el)) {
+    // A box that jumps (reduced motion, a resize) is a move too: a click right after it would land on its old place.
+    if (from && (turning || boxesDiffer(from, next))) holdBoardMotion();
+    return rest;
+  }
   const delta = flipDelta(from, next);
   const duration = options.duration ?? FLIP_MS;
   const keyframes = turning ? turningKeyframes(delta, fromTurn, options.turn) : [{ transform: flipTransform(delta, options.turn) }, { transform: "none" }];
-  const anim = el.animate(keyframes, { duration, easing: options.easing ?? FLIP_EASING });
+  const anim = trackBoardMotion(el.animate(keyframes, { duration, easing: options.easing ?? FLIP_EASING }));
   const clear = () => {
     if (rest.anim === anim) {
       rest.anim = null;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { beginBoardMotion, holdBoardMotion } from "../board-motion";
 import { easeCam, ROOF_ZOOM_MS } from "../tag/roof-camera";
 import {
   clampView,
@@ -165,6 +166,8 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     byHand: false,
     /** The count of moves by hand (see `handMoves`). */
     handMoves: 0,
+    /** Ends the board-motion mark of a move that runs on frames (board-motion.ts): no click lands on a view that moves. */
+    motion: null as (() => void) | null,
     /** The fixed nodes and where each stands at the identity view (canvas px, see counterTransform). */
     origins: new Map<Element, Point>(),
   });
@@ -246,6 +249,8 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     if (state.raf) cancelAnimationFrame(state.raf);
     state.raf = 0;
     state.anim = null;
+    state.motion?.();
+    state.motion = null;
     write(true);
     // At the identity view the nodes stand at their 1x places: the next move measures them again (a resize or a new hand moved them).
     if (isIdentity(state.current)) releaseFixed(state);
@@ -273,7 +278,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
   }, [settle, write]);
 
   /** Moves the view to `next`: eased, or at once (a drag, a pinch, reduced motion). */
-  const go = useCallback((next: View, instant: boolean) => {
+  const go = useCallback((next: View, instant: boolean, hand = false) => {
     const state = live.current;
     // A gesture or a reset takes over from a timed camera move.
     state.anim = null;
@@ -289,6 +294,8 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
       if (!instant) settle();
       return;
     }
+    // A wheel step of the player's own hand has no settle time: the view stops where the wheel left it.
+    state.motion ??= beginBoardMotion(hand ? 0 : undefined);
     if (!state.raf) {
       state.last = 0;
       state.raf = requestAnimationFrame(tick);
@@ -304,7 +311,7 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
       live.current.byHand = true;
       live.current.handMoves += 1;
     }
-    go(next, instant);
+    go(next, instant, true);
   }, [go]);
 
   const zoomTo = useCallback((view: View, ms: number = ROOF_ZOOM_MS): View => {
@@ -314,11 +321,14 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     const next = clampView(view, sizeOf(root), insetsOf(root));
     state.byHand = false;
     if (ms <= 0 || state.reducedMotion) {
+      // The view jumps: a click right after it would land on the old place of a card.
+      if (!viewsClose(state.current, next)) holdBoardMotion();
       go(next, true);
       settle();
       return next;
     }
     if (viewsClose(state.current, next) && viewsClose(state.target, next)) return next;
+    state.motion ??= beginBoardMotion();
     if (state.raf) cancelAnimationFrame(state.raf);
     state.raf = 0;
     state.held = null;
@@ -361,8 +371,15 @@ export function useViewZoom({ rootRef, layerRef, enabled, reducedMotion, resetKe
     if (lastKey.current === resetKey) return;
     lastKey.current = resetKey;
     if (isIdentity(live.current.target) && isIdentity(live.current.current)) return;
+    if (live.current.reducedMotion) holdBoardMotion();
     reset();
   }, [resetKey, reset]);
+
+  // The hook leaves with a move on frames still running: the mark of that move ends with it.
+  useEffect(() => () => {
+    live.current.motion?.();
+    live.current.motion = null;
+  }, []);
 
   // Off (the fly-in view): the identity at once, so the fly camera never sees a zoomed layer.
   useLayoutEffect(() => {

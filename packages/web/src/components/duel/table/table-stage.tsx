@@ -26,6 +26,7 @@ import { useFlyGestures } from "./use-fly-gestures";
 import { useFlyWorld } from "./use-fly-world";
 import { GLIDE_MS, useSeatExits } from "./use-seat-exits";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
+import { useHoldOnLayoutChange } from "../board-input-guard";
 import { ROOF_ZOOM_MS } from "../tag/roof-camera";
 import { zoneKey } from "../constants";
 import { sameRects, type Rect } from "./rect-util";
@@ -184,6 +185,8 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   const play = useMemo(() => aliveLayout(layout, outSet), [layout, outSet]);
   // Your own field zoomed stays zoomed when a seat goes out: the table regroups face to face under the same camera zoom (the camera
   // never zooms by itself). The seats are placed as at home, and the view is fitted again to the new field once they stand still.
+  // A seat that leaves, or a camera view that changes, re-lays the table out: with reduced motion nothing glides, so hold clicks for a moment.
+  useHoldOnLayoutChange(`${play.slots.map((slot) => slot.seat).join(",")}|${viewCamera.mode}|${viewCamera.focusSeat ?? ""}|${viewCamera.lookSeat ?? ""}`);
   const ownKept = play !== layout && isOwnFocus(layout, viewCamera) && play.slots.some((slot) => slot.seat === layout.anchorSeat);
   const camera = useMemo(() => (ownKept ? { ...viewCamera, mode: "home" as const, focusSeat: null } : viewCamera), [ownKept, viewCamera]);
 
@@ -743,7 +746,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       data-strip-pending={stripPending ? "true" : undefined}
       style={stripRoom || (rooms?.panel && !nearBox) ? ({ ...(stripRoom ? { "--sr-x": `${stripRoom.x}px`, "--sr-y": `${stripRoom.y}px`, "--sr-w": `${stripRoom.width}px`, "--sr-h": `${stripRoom.height}px`, "--sr-card": `${stripRoom.card}px` } : {}), ...(rooms?.panel && !nearBox ? { "--room-x": `${rooms.panel.x}px`, "--room-y": `${rooms.panel.y}px`, "--room-w": `${rooms.panel.width}px`, "--room-h": `${rooms.panel.height}px` } : {}) } as CSSProperties) : undefined}
     >
-      <div ref={canvasRef} className={styles.canvas} style={canvas} data-fly-capable={threeWay ? "true" : undefined}>
+      <div ref={canvasRef} className={styles.canvas} style={canvas} data-board-motion="" data-fly-capable={threeWay ? "true" : undefined}>
         {threeWay ? (
           <>
             <div className={styles.sky} aria-hidden="true" />
@@ -891,6 +894,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
               <div
                 className={styles.hub}
                 data-hub-slot="true"
+                data-board-motion=""
                 {...{ [FOLLOW_ATTR]: "" }}
                 data-hub-size={hubAt.size}
                 style={{

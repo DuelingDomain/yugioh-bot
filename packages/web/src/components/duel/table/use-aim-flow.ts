@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DuelAnswer, DuelPromptOption } from "@yugidraft/shared/duels";
 import { zoneKey } from "../constants";
 import { targetName } from "../card-interactions";
+import { useOnBoardMotionStart } from "../board-input-guard";
 import { isAttackDuelistPrompt, isAttackTargetPrompt, optionsForKeys, optionZoneKeys, type PromptAim } from "../prompts";
 import type { AimArrowProps, AimPointerSpot } from "./aim-arrow";
 import { aimPromptFor, aimTargetOf } from "./attack-aim";
@@ -385,6 +386,8 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     else preRef.current?.cancel();
   }, []);
   suspendedRef.current = options.suspended === true;
+  // A locked aim waits for its confirm at the place of the target; when the board moves that place is gone, so the lock is let go.
+  useOnBoardMotionStart(useCallback(() => { if (liveRef.current) setLock(null); }, []));
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target) || suspendedRef.current) return;
