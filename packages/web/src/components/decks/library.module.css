@@ -84,19 +84,25 @@
 
 /* ---------- import panel ---------- */
 .import { display: grid; gap: 16px; }
-.importSource { display: grid; gap: 14px; max-width: 760px; }
+.importSource { display: grid; gap: 14px; max-width: 760px; container: imp / inline-size; }
 :global(.ms) .importSource :global(.seg) button { min-height: 38px; font-size: 15px; }
 :global(.ms) .import :global(.sv-status) { font-size: 15.5px; }
-/* Four format names must fit a phone: tighter padding keeps "Genesys Domain" whole at the larger size. */
-@media (max-width: 520px) {
+/* Four equal tabs need about 540px. Below that the tabs size to their text so "Genesys Domain" is never cut.
+   The sliding fill assumes equal tabs, so it is replaced by a fill on the pressed tab. Tabs keep a 44px tap target. */
+@container imp (max-width: 560px) {
   :global(.ms) .importSource :global(.seg) { grid-auto-columns: auto; }
-  :global(.ms) .importSource :global(.seg) button { padding: 0 6px; font-size: 14.5px; }
+  :global(.ms) .importSource :global(.seg) button { min-width: 44px; min-height: 44px; padding: 0 8px; font-size: 14.5px; }
+  :global(.ms) .importSource :global(.seg[data-slide])::before { display: none; }
+  :global(.ms) .importSource :global(.seg[data-slide]) button[aria-pressed="true"] { background: var(--pen-soft); }
+}
+@container imp (max-width: 340px) {
+  :global(.ms) .importSource :global(.seg) button { padding: 0 4px; font-size: 14px; }
 }
 .importSource :global(.seg) { justify-self: start; }
 .hintText { margin: 0; color: var(--ink-3); font-size: 15px; line-height: 1.55; }
 .hintText code, .pasteBox code { padding: 1px 5px; border-radius: 4px; background: var(--panel-2); color: var(--ink-2); font: 14.5px/1.4 ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
 .pasteBox { display: grid; gap: 10px; }
-.pasteBox :global(.label) { margin-bottom: 8px; color: var(--ink-2); font-size: 15px; font-weight: 500; }
+:global(.ms) .pasteBox :global(.label) { margin-bottom: 8px; color: var(--ink-2); font-size: 15px; font-weight: 500; }
 /* Beats the shared .ms textarea.input (13px). The pasted codes and card names must read at a glance. */
 :global(.ms) .pasteBox textarea:global(.input) { min-height: 190px; padding: 12px 14px; font-size: 15px; line-height: 1.6; }
 .pvLoading { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--ink-2); font-size: 15.5px; }
@@ -132,7 +138,7 @@
 .pvRow:not([data-selected]) .counts { opacity: 0.8; }
 .pvMain { display: grid; gap: 7px; min-width: 0; }
 .pvName { max-width: 460px; }
-:global(.ms) .pvName { font-size: 16px; }
+:global(.ms) .pvHead .pvName:global(.input) { font-size: 16px; }
 .pvTop { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 .pvHead { display: grid; flex: 1 1 0; gap: 7px; min-width: 0; }
 .pvLead { flex: 1 1 200px; min-width: 0; font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
