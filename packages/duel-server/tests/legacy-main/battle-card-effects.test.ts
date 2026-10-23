@@ -1,3 +1,4 @@
+// Damage Step display assertions follow the owner-requested five-sub-step contract (legacy-1v1/README.md).
 // MAIN'S TEST, run against the legacy 1v1 engine (src/legacy). A copy of packages/duel-server/tests/battle-card-effects.test.ts from origin/main (09b4196a)
 // with only the import paths changed. Do not edit it to make the legacy engine pass: the legacy engine must match the approved legacy pin. See legacy-1v1/README.md.
 import { describe, expect, it } from "vitest";
@@ -180,7 +181,7 @@ describe.each(["normal", "domain"] as const)("%s battle card effects", mode => {
       let enteredBattle = false, equipped = false;
       const damageStepAttacks: number[] = [];
       drive(game, w => {
-        if (w.view.battleStep === "damage" || w.view.battleStep === "damage-calculation") {
+        if (w.view.battleStep === "damage" || w.view.battleStep === "before-damage-calculation" || w.view.battleStep === "damage-calculation") {
           const attacker = w.view.seats[1].monsters.find(c => c?.code === INJECTION_FAIRY_LILY);
           if (attacker?.attack != null) damageStepAttacks.push(attacker.attack);
         }

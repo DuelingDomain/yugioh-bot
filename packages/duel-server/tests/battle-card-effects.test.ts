@@ -181,7 +181,7 @@ describe.each(["normal", "domain"] as const)("%s battle card effects", mode => {
       let enteredBattle = false, equipped = false;
       const damageStepAttacks: number[] = [];
       drive(game, w => {
-        if (w.view.battleStep === "damage" || w.view.battleStep === "damage-calculation") {
+        if (w.view.battleStep === "damage" || w.view.battleStep === "before-damage-calculation" || w.view.battleStep === "damage-calculation") {
           const attacker = w.view.seats[1].monsters.find(c => c?.code === INJECTION_FAIRY_LILY);
           if (attacker?.attack != null) damageStepAttacks.push(attacker.attack);
         }

@@ -417,10 +417,12 @@ export type DuelSummonKind =
 
 /**
  * Where the Battle Phase is. "start" = Start Step, "battle" = Battle Step (attacks are declared
- * here), "damage" = Damage Step (before or after damage calculation), "damage-calculation" =
- * damage calculation inside the Damage Step, "end" = End Step. null outside the Battle Phase.
+ * here), "damage" = start of the Damage Step, then before/during/after damage calculation
+ * and "damage-end" = end of the Damage Step. "end" = end of the Battle Phase.
+ * null outside the Battle Phase. Older views may use "damage" for the whole Damage Step.
  */
-export type DuelBattleStep = "start" | "battle" | "damage" | "damage-calculation" | "end";
+export type DuelBattleStep = "start" | "battle" | "damage" | "before-damage-calculation"
+  | "damage-calculation" | "after-damage-calculation" | "damage-end" | "end";
 
 /** The core's actual stats at damage calculation, before temporary effects expire. */
 export interface DuelBattleStats {

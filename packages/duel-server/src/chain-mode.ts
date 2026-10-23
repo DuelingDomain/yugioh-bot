@@ -1,4 +1,4 @@
-import { defaultChainMode, type DuelChainMode } from "@yugidraft/shared/duels";
+import { defaultChainMode, type DuelBattleStep, type DuelChainMode } from "@yugidraft/shared/duels";
 
 /**
  * The description the core puts on the SELECT_EFFECTYN that asks for ONE optional trigger of the duelist
@@ -40,7 +40,9 @@ export function effectiveChainMode(options: { chainMode?: DuelChainMode; stopAtE
 /**
  * Whether a non-empty SELECT_CHAIN window is passed without asking. Windows with no listed card, and a forced
  * single choice, are decided before this (autoResponse). A forced window never passes here.
- * - auto: pass when no listed effect fits the window, except in the Draw and Standby Phase.
+ * - auto: pass off-timing windows, except in Draw, Standby and the Damage Step.
+ *   During the Damage Step the core already restricts the list to legal effects; spe_count is
+ *   only a script timing hint and can be zero (notably at the start of the Damage Step).
  * - always: never pass.
  * - off: pass every optional window.
  */
@@ -48,12 +50,15 @@ export function chainWindowPasses(
   window: { forced: boolean; spe_count: number },
   mode: DuelChainMode,
   phase: string | undefined,
+  battleStep?: DuelBattleStep | null,
 ): boolean {
   if (window.forced) return false;
   switch (mode) {
     case "off":
       return true;
     case "auto":
+      if (battleStep === "damage" || battleStep === "before-damage-calculation"
+        || battleStep === "damage-calculation" || battleStep === "after-damage-calculation" || battleStep === "damage-end") return false;
       return window.spe_count === 0 && phase !== "draw" && phase !== "standby";
     case "always":
       return false;

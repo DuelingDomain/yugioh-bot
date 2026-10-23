@@ -343,8 +343,9 @@ button.plate[data-next="true"]:hover {
   vertical-align: middle;
 }
 .stepList {
-  flex: none;
+  flex: 0 1 auto;
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
   margin: 0;
