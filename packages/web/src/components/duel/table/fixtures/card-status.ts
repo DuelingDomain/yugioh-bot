@@ -1,6 +1,6 @@
 import type { DuelCard, DuelCardHint, DuelEngineView, DuelProtectionCategory } from "@yugidraft/shared/duels";
-import { isFacedown } from "../../constants";
-import type { TableFixtureSet } from "./common";
+import { isFacedown, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../../constants";
+import { cardAt, MZ, TABLE_CARDS, type TableFixtureSet } from "./common";
 
 /** A hint in the engine's wire shape; ids only need to differ inside one card. */
 function hint(id: number, text: string, ...categories: DuelProtectionCategory[]): DuelCardHint {
@@ -30,11 +30,18 @@ const DECORATIONS: ReadonlyArray<(card: DuelCard) => DuelCard> = [
   (card) => ({ ...card, hints: [hint(9, "Unaffected by other cards' effects", "unaffected-effects")] }),
 ];
 
-/** The same engine view with the face-up monsters of every seat decorated (see DECORATIONS). */
+/** The monsters a thin field is filled with (the 1v1 fixtures hold one or two per side): Attack and Defense, so both card shapes carry badges. */
+const FILL = [TABLE_CARDS.blueEyes, TABLE_CARDS.jinzo, TABLE_CARDS.envoy, TABLE_CARDS.jinzo, TABLE_CARDS.blueEyes] as const;
+
+/** The same engine view with the face-up monsters of every seat decorated (see DECORATIONS). A seat with fewer than 4 monsters gets 5 zones filled first. */
 export function withCardStatusEngine(engine: DuelEngineView): DuelEngineView {
   const seats = engine.seats.map((view) => {
     let next = 0;
-    const monsters = view.monsters.map((card) => {
+    const filled = view.monsters.slice(0, 5).filter(Boolean).length < 4 && !view.eliminated;
+    const row = filled
+      ? view.monsters.map((card, sequence) => (sequence < 5 && !card ? cardAt(FILL[sequence], MZ(view.seat, sequence), sequence % 2 === 1 ? POS_FACEUP_DEFENSE : POS_FACEUP_ATTACK) : card))
+      : view.monsters;
+    const monsters = row.map((card) => {
       if (!card || card.code == null || isFacedown(card.position)) return card;
       const decorateCard = DECORATIONS[next % DECORATIONS.length];
       next += 1;

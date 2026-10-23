@@ -65,10 +65,10 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp
   const room = useMemo(() => {
     const event = parseAttackParam(attack ?? null);
     let next = status && base.engine ? { ...base, engine: withCardStatusEngine(base.engine) } : base;
-    const values = (lp ?? "").split(",").map(Number).filter((value) => Number.isFinite(value));
-    if (values.length > 0 && lpLate && base.engine) {
-      const seats = base.engine.seats.map((seat) => ({ ...seat, lp: values[seat.seat % values.length] }));
-      next = { ...base, engine: { ...base.engine, seats } };
+    const values = (lp ?? "").split(",").filter((part) => part.trim() !== "").map(Number).filter((value) => Number.isFinite(value));
+    if (values.length > 0 && lpLate && next.engine) {
+      const seats = next.engine.seats.map((seat) => ({ ...seat, lp: values[seat.seat % values.length] }));
+      next = { ...next, engine: { ...next.engine, seats } };
     }
     if (!event || !late || !next.engine) return next;
     const events = next.engine.events;

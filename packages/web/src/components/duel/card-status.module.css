@@ -28,6 +28,9 @@
   inset: 0;
   /* The glyph size: a share of the card height with a floor and a ceiling (the demo's --chip). */
   --st: clamp(11px, 15cqh, 22px);
+  /* The font size of the ATK / DEF plate, from the card height (field.module.css sets the factors). Board sizes such as --z hold container
+     units that would read this layer's own box here, so the plate size is rebuilt from the layer's height instead of inherited. */
+  --plate-fs: max(clamp(var(--plate-lo, 0px), calc(100cqh * var(--plate-k, 0.13)), var(--plate-hi, 9999px)), min(var(--plate-floor, 0px), 20cqh));
   --upright: calc(var(--seat-turn, 0deg) * -1);
 }
 
@@ -187,11 +190,11 @@
 
 /* A card lying in Defense is a sideways band in the middle of its slot: the stack stays inside the band. */
 .layer[data-defense="true"] .stack {
-  bottom: calc((100cqh - var(--cw, 100cqh)) / 2 + 3px);
+  bottom: calc((100cqh - 100cqw * var(--dfit, 1)) / 2 + 6px);
 }
 
 .layer[data-defense="true"][data-side="opp"] .stack {
-  top: calc((100cqh - var(--cw, 100cqh)) / 2 + 3px);
+  top: calc((100cqh - 100cqw * var(--dfit, 1)) / 2 + 6px);
   bottom: auto;
 }
 
@@ -250,7 +253,7 @@
 /* ---- the card inspector list (inspector.tsx): the same glyphs at a fixed size, never inside a card ---- */
 
 .listGlyph {
-  --st: 22px;
+  --st: 20px;
   --upright: 0deg;
   display: inline-block;
   width: var(--st);
@@ -279,7 +282,46 @@
 .listGlyph[data-status-kind="info"] { color: var(--info); }
 
 .listCoin {
-  --st: 22px;
+  --st: 20px;
   --upright: 0deg;
   transition: none;
+}
+
+/* The status list of the inspector and the drawer: one row per protection (glyph + engine text) or counter (coin + name + count). */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--duel-ink-2, #c3bba8);
+  font-size: calc(var(--pv-ct, var(--ct, 13px)) * 0.92);
+  line-height: 1.25;
+}
+
+.listRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.listGlyphs {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+}
+
+.listText {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.listCount {
+  flex: none;
+  color: var(--duel-ink, #efe7d5);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 600;
 }
