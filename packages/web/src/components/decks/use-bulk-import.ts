@@ -58,9 +58,9 @@ function current(view: ImportView): { items: PreviewItem[]; maxDecks: number; ou
 
 /**
  * The library import: pick files or paste text, preview the decks the server found, then save the checked
- * ones. A new pick is added to the rows on screen, so name edits and checks stay. After an import the created
- * rows leave the list and the failed rows stay for a retry. `onImported` runs after any deck was created so
- * the library can refresh its list.
+ * ones. File picks append, keeping name edits and checks. A new paste replaces the earlier paste rows after
+ * a successful preview. After an import the created rows leave the list and the failed rows stay for a
+ * retry. `onImported` runs after any deck was created so the library can refresh its list.
  */
 export function useBulkImport(onImported: () => void) {
   const [tab, setTab] = useState<ImportTab>("files");
@@ -68,7 +68,7 @@ export function useBulkImport(onImported: () => void) {
   const [view, setView] = useState<ImportView>({ phase: "idle" });
   /** Why the preview or the import call failed. The preview, if any, stays on screen. */
   const [error, setError] = useState<string | null>(null);
-  /** Files left out before the call, with the reason. */
+  /** Notes about source picks, including files left out and replaced paste rows. */
   const [notes, setNotes] = useState<string[]>([]);
   /** Counts up on reset and unmount, so a reply for a list that is gone is dropped. */
   const epoch = useRef(0);
@@ -188,6 +188,12 @@ export function useBulkImport(onImported: () => void) {
         if (skipped.length === 0) setError("There is nothing to import.");
         return false;
       }
+      const replacesPaste = sources.some((source) => source.id === "paste");
+      if (replacesPaste) {
+        // Only the latest paste can be retried; file picks still wait independently.
+        held.current = held.current.filter(({ picked }) => !picked.sources.some((source) => source.id === "paste"));
+        setHeldCount(held.current.length);
+      }
       batch.current += 1;
       const tagged = tagSources(sources, batch.current, requested);
       let found: ImportPreview;
@@ -201,18 +207,31 @@ export function useBulkImport(onImported: () => void) {
         throw reason;
       }
       if (!live()) return false;
+      const replaced = new Set<string>();
+      if (replacesPaste) {
+        // tagSources gives pastes b<batch>-paste ids; files use b<batch>-f<index>.
+        for (const id of known.current.keys()) {
+          if (id.endsWith("-paste")) {
+            replaced.add(id);
+            known.current.delete(id);
+          }
+        }
+      }
       for (const source of tagged) known.current.set(source.id, source);
       // The numbering is worked out here, not in the state update, because React may run an update twice.
-      const base = Math.max(imported.current, highestImportedNumber(current(shown.current).items));
+      const existing = current(shown.current).items;
+      const retained = existing.filter((item) => !replaced.has(item.row.sourceId));
+      const base = Math.max(replacesPaste ? 0 : imported.current, highestImportedNumber(retained));
       const renamed = renumberImported(found.rows, base);
       imported.current = renamed.top;
       const added = toItems(renamed.rows, requested);
       const more = pending.current > 1;
+      if (retained.length < existing.length) setNotes((previous) => [...previous, "Replaced the earlier pasted decks."]);
       setView((state) => {
         const kept = current(state);
         return {
           phase: more ? "loading" : "preview",
-          items: [...kept.items, ...added],
+          items: [...kept.items.filter((item) => !replaced.has(item.row.sourceId)), ...added],
           maxDecks: found.maxDecks,
           outcome: kept.outcome,
         };

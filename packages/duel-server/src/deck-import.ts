@@ -52,6 +52,13 @@ const OT_HIDDEN = 0x1000;
 
 const engineIndexes = new Map<string, EngineIndex>();
 
+// Dueling Book exports alt_passcode instead of serial_number for some artworks:
+// https://static.duelingbook.com/utils.js (exportDeckYDK / exportDeckYDKE).
+// Only confirmed external IDs belong here. A nearby number alone is not artwork evidence.
+const simulatorArtworkIds = new Map<number, { code: number; name: string }>([
+  [70828913, { code: 70828912, name: "Premature Burial" }],
+]);
+
 function fail(message: string): never {
   throw new DeckLegalityError(message);
 }
@@ -154,13 +161,19 @@ async function resolveMissingIds(
 ): Promise<Map<number, number>> {
   const missing: number[] = [];
   const seenMissing = new Set<number>();
+  const resolved = new Map<number, number>();
   for (const id of allIds) {
     if (index.byId.has(id) || seenMissing.has(id)) continue;
     seenMissing.add(id);
+    const artwork = simulatorArtworkIds.get(id);
+    const original = artwork && index.byId.get(artwork.code);
+    if (original && original.alias === 0 && isPlayable(original) && normalizeName(original.name) === normalizeName(artwork!.name)) {
+      resolved.set(id, original.id);
+      continue;
+    }
     missing.push(id);
   }
 
-  const resolved = new Map<number, number>();
   if (missing.length > 0) {
     const catalog = createCardCatalogService(db, { fetch: options.fetch });
     const cached = catalog.findByIds(missing);
