@@ -22,7 +22,7 @@ import roomStyles from "../room.module.css";
 import { SeriesBanner } from "../series-banner";
 import { useIsNarrow } from "../side-panel";
 import { resolveBattleStep, StationTrack } from "../station-track";
-import { RowPreviewBoundary, useHudEscape, useHudPane, useDrawerPin, usePinFollowsHover, usePinSync, useRowPreview } from "../table/hud-layer";
+import { RowPreviewBoundary, useHudEscape, useHudPane, useDrawerPin, usePinSync, useRowPreview } from "../table/hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "../table/hud-shared";
 import { useForkLabels } from "../table/fork-labels";
 import { MasterBadgeContext, type MasterBadgeSource } from "../master-badge";
@@ -176,7 +176,6 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   const suspended = tagInputSuspended({ inputSuspended, menu: ui.menu, pile: ui.pile, narrow, sheetOpen });
   useHudEscape(hudState, hud, suspended);
   usePinSync(hudState, engine.seats);
-  usePinFollowsHover(hud, hudState.pinned, ui.hover?.card, hudState.pinCard);
   // An open flyout, a pinned card or the pinned phone drawer holds only Esc (it closes it).
   const hudOpen = (hud && (hudState.pane != null || hudState.pinned != null)) || (narrow && phoneCard != null);
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
@@ -270,8 +269,8 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
 
   const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
-  // The phone drawer pin: Esc, a press outside, a new prompt and the board sync (see useDrawerPin).
-  useDrawerPin(narrow ? phoneCard : null, setPhoneCard, { seats: engine.seats, suspended, promptId: prompt?.id ?? null, promptMine });
+  // The phone drawer pin: Esc, a press on the bare background and the board sync (see useDrawerPin).
+  useDrawerPin(narrow ? phoneCard : null, setPhoneCard, { seats: engine.seats, suspended });
   const centeredUnrevealed = centered && !controller.revealed;
   // No prompt moves the camera: a close-up stays through a target pick too. A field with targets that is out of view gets a hint on
   // its nameplate pill (tag-stage.tsx); the viewer presses the pill to look at it.
