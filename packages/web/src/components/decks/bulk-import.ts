@@ -47,7 +47,7 @@ function byteLength(text: string): number {
 
 /**
  * How many decks the server will make of this text. Once a ydke:// line is present, every nonblank line is one
- * deck. Otherwise the text is one YDK list.
+ * deck. Otherwise the text is one YDK or card-name list.
  */
 export function deckCount(text: string): number {
   const lines = text.split(/\r\n|\r|\n/).map((line) => line.trim()).filter(Boolean);
@@ -55,7 +55,7 @@ export function deckCount(text: string): number {
 }
 
 /**
- * The part of a source that made one row: its own YDKE line, or the whole text of a YDK file. A new check
+ * The part of a source that made one row: its own YDKE line, or the whole YDK or card-name list. A new check
  * sends only this, so the other rows of the same source cannot use up the server's lookup limit. `line` is the
  * line of the source the row came from (counted from 1), so the issues keep their first line number.
  */
@@ -119,7 +119,7 @@ export function pasteSource(text: string): SourceBatch {
 
 /**
  * Gives every source of one pick a batch prefix and the chosen mode. The server builds row ids from source ids,
- * so the prefix keeps row ids unique when a later pick is added to the rows already on screen.
+ * so the prefix keeps row ids unique when later file picks append or a paste replaces earlier paste rows.
  */
 export function tagSources(sources: ImportSource[], batch: number, mode: ImportMode): ImportSource[] {
   return sources.map((source) => ({ ...source, id: `b${batch}-${source.id}`, mode }));

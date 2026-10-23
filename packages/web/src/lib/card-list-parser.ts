@@ -14,6 +14,8 @@ export interface CardListEntry {
   section?: "main" | "extra" | "side" | "deckmaster";
   /** Trimmed input line, including count and notes, for not-found diagnostics. */
   original: string;
+  /** One-based source line, retained even when an overlong diagnostic is shortened. */
+  line?: number;
   /** A bare leading number can also be part of a printed name, e.g. 7 Colored Fish. */
   fallbackName?: string;
   /** Google Doc labels separated by two blank lines that repeat a counted card in their section. */
@@ -32,7 +34,7 @@ export function parseCardList(text: string, { keepDeckSections = false } = {}): 
   if (typeof text !== "string" || !text.trim()) throw new CardListError("Add a card list file or paste a list.");
   if (text.length > LIST_MAX_CHARS) throw new CardListError("That list text is too large. The limit is 64 Ki characters.");
   const clean = text.replace(/^\uFEFF/, "");
-  const rawLines = clean.split(/\r?\n/).map((line) => line.trim());
+  const rawLines = clean.split(/\r\n|\n|\r/).map((line) => line.trim());
   const lines = rawLines.filter(Boolean);
   let entries: CardListEntry[] = [];
   const isYdk = lines.some((line) => /^#(?:main|extra|deckmaster)|^!side/i.test(line))
@@ -75,10 +77,19 @@ export function parseCardList(text: string, { keepDeckSections = false } = {}): 
       if (/^(?:#extra|extra(?: deck)?\s*:)$/i.test(original)) { pool = "extra"; section = "extra"; continue; }
       if (/^(?:!side|#side|side(?: deck)?\s*:)$/i.test(original)) { pool = "main"; section = "side"; continue; }
       if (/^(?:#main|main(?: deck)?\s*:)$/i.test(original)) { pool = "main"; section = "main"; continue; }
+      const heading = /^(main(?: deck)?|extra(?: deck)?|side(?: deck)?|monsters?(?: cards?)?|spells?(?: cards?)?|traps?(?: cards?)?)(?:\s*(?:\(\s*\d+\s*\)|\[\s*\d+\s*\]|:\s*\d+))?\s*:?$/i.exec(original);
+      if (heading) {
+        const label = heading[1].toLowerCase();
+        if (/^(main|extra|side)/.test(label)) {
+          section = label.split(" ")[0] as "main" | "extra" | "side";
+          pool = section === "extra" ? "extra" : "main";
+        }
+        continue;
+      }
       if (/^(?:#|\/\/)/.test(original)) continue;
       if (original.length > LIST_LINE_MAX_CHARS) {
         // Reported as not found, without a lookup, and with a short copy of the text.
-        entries.push({ query: "", copies: 1, pool, original: `${original.slice(0, 80)}…`, heading: true });
+        entries.push({ query: "", copies: 1, pool, original: `${original.slice(0, 80)}…`, line: lineIndex + 1, heading: true });
         continue;
       }
       let query = original;
@@ -114,7 +125,7 @@ export function parseCardList(text: string, { keepDeckSections = false } = {}): 
       }
       if (!Number.isSafeInteger(copies) || copies <= 0) throw new CardListError(`Invalid copy count in "${original}".`);
       query = query.trim();
-      const entry: CardListEntry = { query: /^\d{1,10}$/.test(query) && Number(query) > 0 ? Number(query) : query, copies, pool: linePool, original, ...(keepDeckSections ? { section: lineSection } : {}),
+      const entry: CardListEntry = { query: /^\d{1,10}$/.test(query) && Number(query) > 0 ? Number(query) : query, copies, pool: linePool, original, line: lineIndex + 1, ...(keepDeckSections ? { section: lineSection } : {}),
         ...(fallbackName ? { fallbackName } : {}), ...(prefix || suffix ? { counted: true } : {}) };
       entries.push(entry);
       byLine.set(lineIndex, { entry, counted: !!(prefix || suffix) });

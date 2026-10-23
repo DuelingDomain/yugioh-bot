@@ -3,11 +3,14 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react/pure";
 import { NextResponse } from "next/server";
 import { migrate } from "@yugidraft/shared/db";
 import { createSavedDeckService } from "@yugidraft/shared/services";
 import { encodeYdke } from "@yugidraft/shared/decks";
+import { pasteSource, readSources } from "../src/components/decks/bulk-import";
+import { useBulkImport } from "../src/components/decks/use-bulk-import";
 
 const mocks = vi.hoisted(() => ({ getDb: vi.fn(), savedActor: vi.fn(), duelActor: vi.fn(), callDuelHost: vi.fn(),
   engine: new Map<number, { name: string; type: number }>(),
@@ -40,6 +43,10 @@ const request = (body: unknown, headers?: HeadersInit) => new Request("http://te
 const wide = (codes: number[]) => ({ main: codes.slice(0, 60), extra: codes.slice(60, 75), side: codes.slice(75, 90), deckMaster: null });
 const row = (name = "Blue-Eyes", value: unknown = deck()) => ({ name, deck: value });
 const previewRows = async (sources: unknown[] = [source()]) => (await (await preview(request({ sources }))).json()).rows;
+const advanceFetchClock = () => {
+  const started = performance.now();
+  vi.mocked(Date.now).mockImplementation(() => testTime + Math.floor(performance.now() - started));
+};
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -59,7 +66,169 @@ beforeEach(() => {
       : { ok: true },
   }));
 });
-afterEach(() => { db.close(); vi.restoreAllMocks(); });
+afterEach(() => { db.close(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+describe("pasted preview lifecycle through the import routes", () => {
+  let window: Window;
+  beforeAll(async () => {
+    // Keep Node's File and Request implementations for the real client/route boundary.
+    const jsdom = "jsdom";
+    const { JSDOM } = await import(jsdom);
+    window = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://test" }).window;
+  });
+  afterAll(() => window.close());
+  beforeEach(() => {
+    vi.stubGlobal("window", window);
+    vi.stubGlobal("document", window.document);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
+      const req = new Request(new URL(input, "http://test"), init);
+      if (req.url.endsWith("/api/decks/import/preview")) return preview(req);
+      if (req.url.endsWith("/api/decks/import/bulk")) return bulk(req);
+      if (req.url.endsWith("/api/duels/cards")) return Response.json({ cards: [], missing: [] });
+      throw new Error(`Unexpected request ${req.url}`);
+    }));
+  });
+  afterEach(() => cleanup());
+
+  it.each(["YDK", "YDKE", "name list"])("replaces earlier invalid pastes with one %s deck and preserves edited file rows", async format => {
+    db.exec("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (46986414,'Dark Magician','Normal Monster','normal','','','[]','test')");
+    const { result } = renderHook(() => useBulkImport(vi.fn()));
+    const items = () => "items" in result.current.view ? result.current.view.items : [];
+    act(() => result.current.previewFiles([new File([source().text], "Picked.ydk")]));
+    await waitFor(() => expect(result.current.view.phase).toBe("preview"));
+    act(() => {
+      result.current.rename(items()[0].row.rowId, "Keep this file name");
+      result.current.toggle(items()[0].row.rowId);
+    });
+    const kept = items()[0];
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await act(async () => { expect(await result.current.previewPaste("#main\n0\n#extra\n!side")).toBe(true); });
+    }
+    const text = format === "YDKE" ? encodeYdke(deck([46986414]))
+      : format === "name list" ? "Main Deck:\n1x Dark Magician" : "#main\n46986414\n#extra\n!side";
+    await act(async () => { expect(await result.current.previewPaste(` \t\r\n \r\n${text}\r\n \t\n\r `)).toBe(true); });
+    expect(items()).toHaveLength(2);
+    expect(items()[0]).toBe(kept);
+    expect(items()[0]).toMatchObject({ name: "Keep this file name", selected: false });
+    expect(items()[1]).toMatchObject({ row: { deck: deck([46986414]), errors: [] }, selected: true });
+    await act(async () => { await result.current.importSelected(); });
+    expect(decks.list("g", 1).map(saved => saved.deck.main)).toEqual([[46986414]]);
+    expect(items()).toEqual([kept]);
+  });
+
+  it("replaces selected and renamed paste rows while later file picks still append", async () => {
+    const { result } = renderHook(() => useBulkImport(vi.fn()));
+    const items = () => "items" in result.current.view ? result.current.view.items : [];
+    const code = encodeYdke(deck());
+    await act(async () => { await result.current.previewPaste(`${code}\n${code}`); });
+    expect(items()).toHaveLength(2);
+    act(() => result.current.rename(items()[0].row.rowId, "Old pasted name"));
+    act(() => result.current.toggle(items()[1].row.rowId));
+    act(() => result.current.previewFiles([new File([source().text], "First.ydk")]));
+    await waitFor(() => expect(result.current.view.phase).toBe("preview"));
+    expect(items()).toHaveLength(3);
+    await act(async () => { await result.current.previewPaste(`\n \t\r\n${code}\n \r\n`); });
+    expect(items()).toHaveLength(2);
+    expect(items().map(item => item.name)).not.toContain("Old pasted name");
+    act(() => result.current.previewFiles([new File([source().text], "Second.ydk")]));
+    await waitFor(() => expect(result.current.view.phase).toBe("preview"));
+    expect(items()).toHaveLength(3);
+    expect(items().filter(item => item.row.sourceId.endsWith("-paste"))).toHaveLength(1);
+  });
+
+  it("keeps the visible preview on request failure and supersedes held pastes without dropping held files", async () => {
+    const { result } = renderHook(() => useBulkImport(vi.fn()));
+    const items = () => "items" in result.current.view ? result.current.view.items : [];
+    await act(async () => { await result.current.previewPaste(source().text); });
+    const original = items()[0];
+    const unavailable = () => mocks.savedActor.mockResolvedValueOnce({ ok: false, response: NextResponse.json({ error: "Unavailable" }, { status: 503 }) });
+    unavailable();
+    await act(async () => { expect(await result.current.previewPaste("#main\n46986414")).toBe(false); });
+    expect(items()).toEqual([original]);
+    expect(result.current.heldCount).toBe(1);
+    unavailable();
+    act(() => result.current.previewFiles([new File([source().text], "Retry file.ydk")]));
+    await waitFor(() => expect(result.current.view.phase).toBe("preview"));
+    expect(result.current.heldCount).toBe(2);
+    await act(async () => { await result.current.previewPaste(encodeYdke(deck([46986414]))); });
+    expect(items()).toHaveLength(1);
+    expect(items()[0].row.deck).toEqual(deck([46986414]));
+    expect(result.current.heldCount).toBe(1);
+    act(() => result.current.retryHeld());
+    await waitFor(() => expect(result.current.view.phase).toBe("preview"));
+    expect(result.current.heldCount).toBe(0);
+    expect(items().map(item => item.row.deck.main)).toEqual([[46986414], [89631139]]);
+  });
+});
+
+describe("simulator name lists", () => {
+  function seedNames() {
+    advanceFetchClock();
+    db.exec(`insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values
+      (901,'Test Spell','Spell Card','spell','','','[]','test'),
+      (902,'Test Trap','Trap Card','trap','','','[]','test'),
+      (903,'Test Fusion','Fusion Monster','fusion','','','[]','test'),
+      (904,'Test Monster','Effect Monster','effect','','','[]','test')`);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "No card matching your query was found" }, { status: 400 })));
+  }
+
+  it.each(["paste", "file"])("previews and saves a simulator %s list with section and category headings", async kind => {
+    seedNames();
+    const text = "Main Deck (5):\nMonsters (2):\n2x Test Monster\nSpells\nTest Spell x2\nTraps:\n1 Test Trap\nExtra Deck\n1x Test Fusion\nSide Deck:\n1 Test Spell\n1 Test Fusion";
+    const picked = kind === "paste" ? pasteSource(text) : await readSources([new File([text], "Simulator.txt")]);
+    const [shown] = await previewRows(picked.sources);
+    expect(shown.name).toBe(kind === "paste" ? "Pasted deck" : "Simulator");
+    expect(shown.errors).toEqual([]);
+    expect(shown.deck).toEqual({ main: [904, 904, 901, 901, 902], extra: [903], side: [901, 903], deckMaster: null });
+    expect(shown.warnings.filter((issue: { code: string }) => issue.code === "invalid_passcode")).toEqual([]);
+    const result = await (await bulk(request({ rows: [shown] }))).json();
+    expect(result.failed).toEqual([]);
+    expect(decks.get(result.created[0].id, "g", 1)?.deck).toEqual({ main: shown.deck.main, extra: shown.deck.extra, side: shown.deck.side });
+  });
+
+  it("routes Extra monsters listed in Main and promotes one Domain Side card to Master", async () => {
+    seedNames();
+    const [shown] = await previewRows([{ ...pasteSource("Monsters:\nTest Monster\nTest Fusion\nSide\nTest Monster").sources[0], mode: "domain" }]);
+    expect(shown.errors).toEqual([]);
+    expect(shown.deck).toEqual({ main: [904], extra: [903], side: [], deckMaster: 904 });
+    expect(shown.counts).toEqual({ main: 1, extra: 1, side: 0 });
+  });
+
+  it("reports unresolved names with their original source lines and keeps independent rows usable", async () => {
+    seedNames();
+    const rows = await previewRows([source(`Monsters:\n2x Test Monster\n\n3x Missing Card (my note)\n${"Long name".repeat(40)}`, "names", "Names.txt"), source()]);
+    expect(rows[0].deck.main).toEqual([904, 904]);
+    expect(rows[0].errors).toContainEqual(expect.objectContaining({ code: "unknown_card", line: 4, message: expect.stringContaining("3x Missing Card (my note)") }));
+    expect(rows[0].errors).toContainEqual(expect.objectContaining({ code: "unknown_card", line: 5, message: expect.stringContaining("Long name") }));
+    expect(rows[1].errors).toEqual([]);
+  });
+
+  it("keeps invalid name-list copy counts local to their row", async () => {
+    seedNames();
+    const rows = await previewRows([source("0x Test Monster", "bad"), source()]);
+    expect(rows[0].errors).toContainEqual(expect.objectContaining({ code: "invalid_list", message: expect.stringContaining("Invalid copy count") }));
+    expect(rows[1].errors).toEqual([]);
+  });
+
+  it("shares one lookup allowance across name lists and numeric YDK rows", async () => {
+    seedNames();
+    const response = await preview(request({ sources: [source("Missing Card", "names"), source()] }));
+    expect(response.status).toBe(200);
+    const remote = vi.mocked(fetch).mock.calls.length;
+    expect(remote).toBeGreaterThan(0);
+    expect(mocks.callDuelHost.mock.calls[0][0].lookupLimit).toBe(50 - remote);
+  });
+
+  it("holds name-list picks for a retry when the card database is unavailable", async () => {
+    seedNames();
+    vi.mocked(fetch).mockRejectedValue(new Error("offline"));
+    const response = await preview(request({ sources: [source("Missing Card")] }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Card database is unavailable. Try again shortly." });
+    expect(decks.list("g", 1)).toEqual([]);
+  });
+});
 
 describe("backend review fixes", () => {
   it("previews and saves a 70-card Domain deck with engine-only Extra cards", async () => {
@@ -353,6 +522,8 @@ describe("backend review fixes", () => {
   });
 
   it.each(["#main\n#extra\n!side", "ydke://!!!", "#main\nbad"])('rejects an empty parsed deck from %s', async text => {
+    advanceFetchClock();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "No card matching your query was found" }, { status: 400 })));
     const [shown] = await previewRows([source(text)]);
     expect(shown.errors).toContainEqual({ code: "empty_deck", message: "No cards found" });
     expect(mocks.callDuelHost).not.toHaveBeenCalled();
@@ -544,7 +715,7 @@ describe("preview", () => {
     const [shown] = await previewRows([{ ...source(text), mode }]);
     expect(shown).toMatchObject({ mode, deck: { ...deck(), deckMaster: 40235813 }, counts: { main: 1, extra: 0, side: 0 }, errors: [] });
     expect(shown.notes).toContainEqual(expect.objectContaining({ code: "remapped", from: 101402052, to: 40235813 }));
-    expect(shown.notes[0].message).toBe("Official Test Card: uses the game's own copy of this card. No action needed.");
+    expect(shown.notes[0].message).toBe("101402052 read as Official Test Card. Uses the game's own copy of this card. No action needed.");
     expect(shown.warnings.filter((issue: { code: string }) => issue.code === "remapped")).toEqual([]);
     expect(mocks.callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "validate-deck-master", deck: { main: [], extra: [], side: [], deckMaster: 40235813 } }));
     const response = await bulk(request({ rows: [shown] }));
@@ -863,4 +1034,71 @@ it("uses the real bundle resolver for approved chained remaps, protected artwork
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+it("uses the real resolver for the reported simulator artwork ID and rejects unproven neighboring IDs", async () => {
+  advanceFetchClock();
+  const directory = mkdtempSync(join(tmpdir(), "deck-import-simulator-"));
+  try {
+    const engine = new Database(join(directory, "cards.cdb"));
+    engine.exec(`
+      create table datas (id integer primary key, ot integer, alias integer, type integer);
+      create table texts (id integer primary key, name text);
+      insert into datas values (70828912, 3, 0, 130), (89631139, 3, 0, 17), (89631140, 3, 89631139, 17);
+      insert into texts values (70828912, 'Premature Burial'), (89631139, 'Blue-Eyes White Dragon'), (89631140, 'Blue-Eyes White Dragon');
+    `);
+    engine.close();
+    mocks.engine.set(70828912, { name: "Premature Burial", type: 130 });
+    const { normalizeCardCodes } = await import("../../duel-server/src/deck-import.js");
+    const upstream = vi.fn(async () => Response.json({ error: "No card matching your query was found" }, { status: 400 }));
+    mocks.callDuelHost.mockImplementation(async (input: { op: string; codes: number[]; preserveArtwork: boolean; lookupLimit: number }) => {
+      const canonicalCodes = new Map<number, number | null>();
+      const codes = await normalizeCardCodes(input.codes, directory, db, { preserveArtwork: input.preserveArtwork,
+        fetch: upstream, canonicalCodes, lookupBudget: { remaining: input.lookupLimit, lookupLimited: false } });
+      return { ok: true, data: { codes: Object.fromEntries(codes), canonicalCodes: Object.fromEntries(canonicalCodes) } };
+    });
+    const [shown] = await previewRows([source(encodeYdke(deck([70828913, 89631140])))]);
+    expect(shown.errors).toEqual([]);
+    expect(shown.deck.main).toEqual([70828912, 89631140]);
+    expect(shown.notes).toContainEqual(expect.objectContaining({ code: "remapped", from: 70828913, to: 70828912, line: 1,
+      message: expect.stringContaining("70828913 read as Premature Burial") }));
+    expect(upstream).not.toHaveBeenCalled();
+    const result = await (await bulk(request({ rows: [shown] }))).json();
+    expect(result.failed).toEqual([]);
+    expect(decks.get(result.created[0].id, "g", 1)?.deck.main).toEqual([70828912, 89631140]);
+    db.exec("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (70828912,'Premature Burial','Spell Card','spell','','','[]','test')");
+    vi.stubGlobal("fetch", upstream);
+    const [counted] = await previewRows([source("Main Deck\n1x 70828913\nPremature Burial", "counted")]);
+    expect(counted.errors).toEqual([]);
+    expect(counted.deck.main).toEqual([70828912, 70828912]);
+    expect(counted.notes).toContainEqual(expect.objectContaining({ from: 70828913, to: 70828912, line: 2 }));
+    const [unknown] = await previewRows([source("#main\n70828914\n89631141", "unknown")]);
+    expect(unknown.errors.map((issue: { passcode: number }) => issue.passcode)).toEqual([70828914, 89631141]);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+it.each([
+  { name: "Another card", alias: 0, ot: 3, sourceKnown: false },
+  { name: "Premature Burial", alias: 123, ot: 3, sourceKnown: false },
+  { name: "Premature Burial", alias: 0, ot: 32, sourceKnown: false },
+  { name: "Premature Burial", alias: 0, ot: 3, sourceKnown: true },
+])("validates simulator artwork evidence and gives an existing source row priority: %j", async fixture => {
+  const directory = mkdtempSync(join(tmpdir(), "deck-import-artwork-evidence-"));
+  try {
+    const engine = new Database(join(directory, "cards.cdb"));
+    engine.exec("create table datas (id integer primary key, ot integer, alias integer, type integer); create table texts (id integer primary key, name text)");
+    engine.prepare("insert into datas values (70828912, ?, ?, 2)").run(fixture.ot, fixture.alias);
+    engine.prepare("insert into texts values (70828912, ?)").run(fixture.name);
+    if (fixture.sourceKnown) engine.exec("insert into datas values (70828913, 3, 0, 17); insert into texts values (70828913, 'Different engine card')");
+    engine.close();
+    const { normalizeCardCodes } = await import("../../duel-server/src/deck-import.js");
+    mocks.callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({ ok: true, data: {
+      codes: Object.fromEntries(await normalizeCardCodes(input.codes, directory, db, { preserveArtwork: true,
+        fetch: async () => Response.json({ error: "No card matching your query was found" }, { status: 400 }) })),
+    } }));
+    const [shown] = await previewRows([source("#main\n70828913")]);
+    expect(shown.deck.main).toEqual([70828913]);
+    expect(shown.notes).toEqual([]);
+    expect(shown.errors).toEqual(fixture.sourceKnown ? [] : [expect.objectContaining({ code: "unknown_card", passcode: 70828913 })]);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

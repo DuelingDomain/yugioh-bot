@@ -108,13 +108,13 @@ export function DeckImportPanel({
                 }}
               />
               <Upload size={20} aria-hidden="true" />
-              {dragging ? "Let go to preview" : "Drop .ydk or .ydke files here"}
+              {dragging ? "Let go to preview" : "Drop .ydk, .ydke or .txt files here"}
               <small>{dragging ? "You can check every deck before it saves." : "or click to choose. You can pick many at once."}</small>
             </label>
           ) : (
             <div className={styles.pasteBox}>
               <label>
-                <span className="label">YDK text or YDKE codes</span>
+                <span className="label">Card names, YDK text or YDKE codes</span>
                 <textarea
                   className="input"
                   rows={6}
@@ -126,7 +126,7 @@ export function DeckImportPanel({
                 />
               </label>
               <p className={styles.hintText}>
-                Paste one YDK list, or one <code>ydke://</code> code per line. Each code becomes its own deck. Example:{" "}
+                Paste one card-name list (for example, <code>3x Dark Hole</code>), one YDK list, or one <code>ydke://</code> code per line. Main, Extra and Side headings are supported. Each code becomes its own deck. Example:{" "}
                 <code>{PASTE_EXAMPLE}</code>
               </p>
               <div>
