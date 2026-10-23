@@ -23,7 +23,7 @@ Numeric YDK files retain their existing bad-passcode warnings.
 
 ## Alternate artwork policy
 
-Engine-known IDs take priority and supported artwork remains intact. Explicit
+Playable engine IDs take priority and supported artwork remains intact. Explicit
 database aliases supply canonical identity for duplicate and card-count checks;
 the existing catalog/name resolver handles other known external IDs.
 
@@ -43,16 +43,17 @@ node --import tsx packages/duel-server/scripts/update-duelingbook-passcodes.ts
 ```
 
 The script makes one GET with a 30-second timeout and no retries. A mapping is
-kept only if its source ID is absent from the engine, its target is a playable,
-alias-free engine row, and the Dueling Book and engine names match after Unicode
+kept only if its source ID is absent from the engine or belongs to an unplayable
+row with a different name, its target is a playable, alias-free engine row, and
+the Dueling Book and target engine names match after Unicode
 normalization, case folding, and removal of accents, spacing and punctuation.
 It reports skipped counts and up to five examples per reason, excludes conflicting
 targets for the same alternate ID, and writes deterministic JSON. A companion
 `duelingbook-alt-passcode-names.json` records engine names so imports recheck the
 target name and playability even when using an older prepared bundle.
 
-The first refresh (2026-10-23) found **292 alternate rows** among **18,535 cards**:
-**78 mappings**, **211 engine-known IDs preserved**, and **3 missing targets**.
+The reviewed refresh (2026-10-23) found **292 alternate rows** among **18,535 cards**:
+**80 mappings**, **209 engine-known IDs preserved**, and **3 missing targets**.
 There were **0 name mismatches**, unplayable targets, invalid passcodes or
 ambiguous alternates. Preserved IDs include `41356846` (Acid Trap Hole) and
 `70095155` (Cyber Dragon). Missing targets are Dueling Book's anime IDs
@@ -63,7 +64,9 @@ Verified examples include `70828913 → 70828912` (**Premature Burial**),
 `81480461 → 81480460` (**Barrel Dragon**), and `10000050 → 1784686`
 (**The Eye of Timaeus**). This uses explicit export data, never a “subtract one”
 rule. Unproven neighbors, including `70828914`, remain unresolved. If an engine
-update introduces any mapped source ID, that engine row wins immediately.
+update introduces a playable row at any mapped source ID, that engine row wins
+immediately. Verified mappings override token collisions: `27204312 → 27204311`
+(**Nibiru, the Primal Being**) and `53855410 → 53855409` (**Doppelwarrior**).
 
 The **Engine data update** workflow refreshes these files every Monday and
 Thursday at 06:00 UTC, after preparing the candidate engine database. It also

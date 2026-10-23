@@ -132,7 +132,9 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   }
   const original = git("show", `${baseSha}:${PIN_FILE}`);
   const old = readPinsFromSource(original);
-  if (pinKeys.every((key) => old[key] === artifact.next[key]) && !compatibilityChanged) return skip("identical-pins");
+  const pinsChanged = pinKeys.some((key) => old[key] !== artifact.next[key]);
+  if (!pinsChanged && !compatibilityChanged) return skip("identical-pins");
+  if (!pinsChanged) historyRepair = null;
   let expected = original;
   for (const key of pinKeys) expected = expected.replace(pinPattern(key), (_, prefix, _old, suffix) => `${prefix}${artifact.next[key]}${suffix}`);
   const expectedSources = new Map(expected === original ? [] : [[PIN_FILE, expected]]);
@@ -189,9 +191,10 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   // Older checkouts/artifacts can still publish pins. History is generated here by trusted
   // code, never accepted as a writable path in the untrusted candidate patch.
   const history = historyRepair ?? (existsSync(join(cwd, HISTORY_FILE)) ? JSON.parse(readFileSync(join(cwd, HISTORY_FILE), "utf8")) : null);
-  const details = history === null ? null : historyDetails(artifact);
+  const details = history === null || !pinsChanged ? null : historyDetails(artifact);
   const date = new Date().toISOString();
-  const title = `chore(engine): update Project Ignis card data to ${date.slice(0, 10)}`;
+  const title = pinsChanged ? `chore(engine): update Project Ignis card data to ${date.slice(0, 10)}`
+    : "chore(engine): update Dueling Book passcode table";
   const recordHistory = (url) => {
     writeFileSync(join(cwd, HISTORY_FILE), JSON.stringify(appendHistory(history, details,
       { date, label: `Project Ignis ${date.slice(0, 10)}`, url, repository: repo }), null, 2) + "\n");

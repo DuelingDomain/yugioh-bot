@@ -123,7 +123,7 @@ function canonicalForName(index: EngineIndex, name: string, sourceId: number): n
   fail(`Unknown card ${sourceId} (${name})`);
 }
 
-/** Maps ids the engine card database lacks to engine passcodes, through the synced catalog and card names. */
+/** Resolve verified simulator ids over missing/unplayable engine rows; use catalog names only for missing ids. */
 async function resolveMissingIds(
   index: EngineIndex,
   allIds: number[],
@@ -134,7 +134,8 @@ async function resolveMissingIds(
   const seenMissing = new Set<number>();
   const resolved = new Map<number, number>();
   for (const id of allIds) {
-    if (index.byId.has(id) || seenMissing.has(id)) continue;
+    const source = index.byId.get(id);
+    if ((source && isPlayable(source)) || seenMissing.has(id)) continue;
     seenMissing.add(id);
     const artwork = simulatorArtworkIds.get(id);
     const original = artwork === undefined ? undefined : index.byId.get(artwork);
@@ -143,7 +144,7 @@ async function resolveMissingIds(
       resolved.set(id, original.id);
       continue;
     }
-    missing.push(id);
+    if (!source) missing.push(id);
   }
 
   if (missing.length > 0) {
@@ -228,7 +229,7 @@ export async function normalizeCardCodes(
   const result = new Map<number, number | null>();
   for (const inputId of inputIds) {
     const id = graduated.get(inputId) ?? inputId;
-    const known = index.byId.has(id) ? id : resolved.get(id);
+    const known = resolved.get(id) ?? (index.byId.has(id) ? id : undefined);
     const canonical = known === undefined ? null : canonicalCardCode(known, index.byId);
     result.set(inputId, known === undefined ? null : options.preserveArtwork ? known : canonical);
     options.canonicalCodes?.set(inputId, canonical);

@@ -83,7 +83,10 @@ export async function refreshDuelingBookPasscodes(options: Options = {}): Promis
     const table = new Map<number, number>(), names = new Map<number, string>();
     for (const { alt, code, name } of candidates) {
       const detail = `${alt} -> ${code} (${name})`;
-      if (ids.has(alt)) { skip("engineKnown", detail); continue; }
+      const source = engine.get(alt);
+      if (ids.has(alt) && (!source || isPlayable(source) || normalizeArtworkName(name) === normalizeArtworkName(source.name))) {
+        skip("engineKnown", detail); continue;
+      }
       if (targets.get(alt)!.size > 1) { skip("ambiguous", detail); continue; }
       const row = engine.get(code);
       if (!row) { skip("missingTarget", detail); continue; }

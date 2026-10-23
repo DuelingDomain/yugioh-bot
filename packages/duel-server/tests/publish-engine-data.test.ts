@@ -148,6 +148,25 @@ describe("engine data publication", () => {
     expect(f.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").split("\n").sort()).toEqual(files.sort());
   });
 
+  it.each([false, true])("uses a table-only title and preserves pin history with an existing PR: %s", async existingPr => {
+    const f = fixture(old, true);
+    if (existingPr) { f.branch(old); f.setPr(); }
+    const compatibility = { [tableFile]: json({ 70828913: 70828912, 81480461: 81480460 }),
+      [namesFile]: json({ 70828912: "Premature Burial", 81480460: "Barrel Dragon" }) };
+    f.patch(source(old), undefined, coreSource(old.scripts), compatibility);
+    writeFileSync(join(f.artifact, "update.json"), JSON.stringify({ ...f.update, files: [tableFile, namesFile] }));
+    expect(await f.publish()).toMatchObject({ status: "published" });
+    expect(JSON.parse(f.git("show", `HEAD:${historyFile}`))).toEqual([]);
+    expect(f.git("log", "-1", "--format=%s")).toBe("chore(engine): update Dueling Book passcode table");
+    const publication = f.calls.find(call => call.command === "gh" && call.args[0] === "pr" &&
+      call.args[1] === (existingPr ? "edit" : "create") && call.args.includes("--title"))!;
+    expect(publication.args[publication.args.indexOf("--title") + 1]).toBe("chore(engine): update Dueling Book passcode table");
+    expect(pushed(f)).toHaveLength(1);
+    f.setPr();
+    expect(await f.publish()).toMatchObject({ status: "skipped", reason: "identical-data" });
+    expect(pushed(f)).toHaveLength(1);
+  });
+
   it.each(["invalid-code", "self-map", "missing-name", "extra-name", "code-in-name", "unreported", "format", "mode"])("rejects unsafe Dueling Book artifact: %s", async kind => {
     const f = fixture();
     const table: Record<string, unknown> = { 81480461: 81480460 };
