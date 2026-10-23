@@ -1,30 +1,24 @@
-// Cards that compare or end the LP of "you and your opponent": Self-Destruct Button (57585212) and Tri-and-Guess (73988674). Both were
-// listed as "legal but wrong"; the live probes show the stock script is right once the opponent value is the picked opponent, so these
-// scenarios PROVE the existing behaviour (no overlay file). They would catch a regression of the opponent pick.
+// Cards that compare or end the LP of "you and your opponent": Self-Destruct Button (57585212) and Tri-and-Guess (73988674).
 //
-// Self-Destruct Button: "If your LP is 7000 or more lower than your opponent's: both players' LP become 0". The Lua value 1-tp folds to ONE
-// opponent: the condition holds when ANY opponent leads by 7000 or more, and the activation picks one of the opponents that do (a pick only
-// when two or more qualify). You and that opponent lose together (R-COMMON-OPP-PICK, the duel-style reading Q4); every other seat plays
-// on. In Tag the opposing team is the folded opponent, so both teams reach 0 LP together and the duel is a draw.
+// Self-Destruct Button: the FFA condition requires every living opponent to lead by 7000 or more (R-FFA-LP-COMPARE).
+// Once legal, activation picks ONE opponent. You and that opponent lose together (R-COMMON-OPP-PICK, the duel-style reading Q4);
+// every other seat plays on. In Tag the opposing team is the folded opponent, so both teams reach 0 LP together and the duel is a draw.
 //
 // Tri-and-Guess: "Each player confirms their Extra Deck, the one with more cards of the type that you named recovers 3000 LP". The activation picks
 // ONE opponent (only an opponent that has an Extra Deck is offered, in Tag the pick is one of the opposing team); the owner of the
 // card and that opponent confirm their Extra Decks to each other and compare the count of the named type. Every other seat is not involved.
 
-import { activate, choose, endTurn, expectBoard, expectEliminated, expectLp, expectPickSeats, expectResult, expectTurn, faceDown, pickOpponent, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { activate, choose, endTurn, expectBoard, expectEliminated, expectLp, expectNotOffered, expectPickSeats, expectResult, faceDown, normalSummon, pickOpponent, type Scenario } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, type Seat } from "./seat-kit.js";
 
 const BUTTON = "Self-Destruct Button";
 const BUTTON_CODE = 57585212;
-// What the VIEW shows for an eliminated seat (src/views.ts, emptySeatView): the cards left the game with the seat.
-const OUT: DuelistExpect = { lp: 0, hand: { count: 0 }, spells: { count: 0 }, monsters: { count: 0 }, grave: { count: 0 } };
 const TRI = "Tri-and-Guess";
 const TRI_CODE = 73988674;
 const SYNCHRO = "Goyo Guardian";
 const FUSION = "Elemental HERO Necroid Shaman";
-const ALIVE = (lp: number): DuelistExpect => ({ lp, monsters: [], spells: [], grave: [], banished: [] });
 
 export const LP_PAIR_SCENARIOS: Scenario[] = [
   defineScenario({
@@ -46,40 +40,36 @@ export const LP_PAIR_SCENARIOS: Scenario[] = [
     ],
   }),
   defineScenario({
-    id: "lp-pair-ffa3-button-one-qualifies-no-pick-p1-wins",
-    title: "FFA3: p0 (1000 LP) activates Self-Destruct Button, only p2 (8000 LP) is 7000 or more above (p1 has 2000): no pick, p0 and p2 lose together and p1 wins",
-    source: `${SOURCE} [R-COMMON-OPP-PICK] only an opponent that meets the condition can be the folded opponent`,
-    rules: ["R-COMMON-OPP-PICK", "R-FFA-ELIMINATION"],
+    id: "lp-pair-ffa3-button-one-gap-too-small-cannot-activate",
+    title: "FFA3: Self-Destruct Button cannot activate at 1000 LP against 2000/8000 LP: every living opponent must lead by at least 7000",
+    source: `${SOURCE} [R-FFA-LP-COMPARE] the required 7000 LP gap must hold against every living opponent`,
+    rules: ["R-FFA-LP-COMPARE"],
     tags: ["multiplayer", "opponent-pick", "lp", "ffa3", `card:${BUTTON_CODE}`],
-    setup: baseSetup("ffa3", { p0: { lp: 1000, spells: [faceDown(BUTTON)] }, p1: { lp: 2000 }, p2: { lp: 8000 } }),
+    setup: baseSetup("ffa3", { p0: { lp: 1000, hand: ["Battle Ox"], spells: [faceDown(BUTTON)] }, p1: { lp: 2000 }, p2: { lp: 8000 } }),
     steps: [
-      activate(BUTTON, "p0"),
-      expectEliminated("p0", "p2"),
-      expectResult({ seat: "p1", reason: "lp" }),
-      expectLp({ seat: "p0" }, 0),
+      normalSummon("Battle Ox", "p0"),
+      expectNotOffered("activate", BUTTON, "p0"),
+      expectBoard({ p0: { monsters: ["Battle Ox"], spells: [BUTTON] } }),
+      expectLp({ seat: "p0" }, 1000),
       expectLp({ seat: "p1" }, 2000),
-      expectLp({ seat: "p2" }, 0),
+      expectLp({ seat: "p2" }, 8000),
     ],
   }),
   defineScenario({
-    id: "lp-pair-ffa4-button-pick-p3-the-others-play-on",
-    title: "FFA4: p0 (1000 LP) activates Self-Destruct Button, p1 and p3 qualify (p2 has 2000): the pick offers exactly p1 and p3, p3 is picked, p0 and p3 are out, p1 and p2 keep their LP and the turn skips the seats that are out",
-    source: `${SOURCE} [R-COMMON-OPP-PICK] the pick offers only the opponents that meet the condition; every other seat plays on`,
-    rules: ["R-COMMON-OPP-PICK", "R-FFA-ELIMINATION"],
+    id: "lp-pair-ffa4-button-one-gap-too-small-cannot-activate",
+    title: "FFA4: Self-Destruct Button cannot activate at 1000 LP against 8000/2000/8000 LP: two qualifying opponents are insufficient",
+    source: `${SOURCE} [R-FFA-LP-COMPARE] one living opponent below the required 7000 LP gap prevents activation`,
+    rules: ["R-FFA-LP-COMPARE"],
     tags: ["multiplayer", "opponent-pick", "lp", "ffa4", `card:${BUTTON_CODE}`],
-    setup: baseSetup("ffa4", { p0: { lp: 1000, spells: [faceDown(BUTTON)] }, p1: { lp: 8000 }, p2: { lp: 2000 }, p3: { lp: 8000 } }),
+    setup: baseSetup("ffa4", { p0: { lp: 1000, hand: ["Battle Ox"], spells: [faceDown(BUTTON)] }, p1: { lp: 8000 }, p2: { lp: 2000 }, p3: { lp: 8000 } }),
     steps: [
-      activate(BUTTON, "p0"),
-      expectPickSeats(["p1", "p3"], "p0"),
-      pickOpponent("p3", "p0"),
-      expectEliminated("p0", "p3"),
-      expectBoard({ p0: OUT, p1: ALIVE(8000), p2: ALIVE(2000), p3: OUT }),
-      // The turn player is out: the turn goes to the next living seat at once.
-      expectTurn("p1", 2),
-      endTurn("p1"),
-      expectTurn("p2", 3),
-      endTurn("p2"),
-      expectTurn("p1", 4),
+      normalSummon("Battle Ox", "p0"),
+      expectNotOffered("activate", BUTTON, "p0"),
+      expectBoard({ p0: { monsters: ["Battle Ox"], spells: [BUTTON] } }),
+      expectLp({ seat: "p0" }, 1000),
+      expectLp({ seat: "p1" }, 8000),
+      expectLp({ seat: "p2" }, 2000),
+      expectLp({ seat: "p3" }, 8000),
     ],
   }),
   defineScenario({

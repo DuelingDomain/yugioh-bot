@@ -156,6 +156,7 @@ COPY --from=build /app/packages/duel-server/scripts/verify-effect-artifact.py pa
 COPY --from=build /app/packages/duel-server/scripts/verify-deploy-multi-cores.mjs packages/duel-server/scripts/verify-deploy-multi-cores.mjs
 RUN mkdir -p /app/data && chown node:node /app/data
 USER node
+HEALTHCHECK --interval=10s --timeout=5s --start-period=5m --start-interval=5s --retries=3 CMD ["node", "-e", "fetch('http://127.0.0.1:4003/healthz',{signal:AbortSignal.timeout(2000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
 CMD ["sh", "-c", "sh packages/duel-server/scripts/install-engine-bundle.sh && exec node --import ./packages/duel-server/dist/instrument.js packages/duel-server/dist/server.js"]
 
 # CI compiles the pinned engine bundle before it reaches the VM. The deploy

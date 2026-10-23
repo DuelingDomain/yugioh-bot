@@ -588,12 +588,20 @@ jobs:
              # config resolves bind paths against /opt/yugioh-bot; keep the private runtime values in a 0600 temp file.
              runtime_compose=$(mktemp /tmp/yugidraft-runtime-compose.XXXXXX.json)
              docker compose -f docker-compose.yml config --format json | python3 -c '
-          import json,sys
+          import json,os,sys
           config=json.load(sys.stdin)
           for name, service in config["services"].items():
               service.pop("build", None)
               if name in ("duel", "web", "worker", "ws", "bot"):
                   service["image"]="yugioh-bot-"+name+":latest"
+              # Older rollback images have no /healthz. Their private listener
+              # also opens after startup; GET / returns exactly 404 without DB work.
+              if name == "duel" and os.environ["DEPLOY_ROLLBACK"] == "true" and "healthcheck" not in service:
+                  service["healthcheck"]={
+                      "test": ["CMD", "node", "-e", "fetch(\"http://127.0.0.1:4003/\",{signal:AbortSignal.timeout(2000)}).then(r=>process.exit(r.status===404?0:1),()=>process.exit(1))"],
+                      "interval": "10s", "timeout": "5s", "retries": 3,
+                      "start_period": "5m0s", "start_interval": "5s",
+                  }
           json.dump(config, sys.stdout)
              ' > "$runtime_compose"
              # Re-read the generated model before any service stops. Never print private values.
@@ -646,19 +654,20 @@ jobs:
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot up -d --no-build ws duel web worker caddy $bot_service
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=40
-             sleep 20
-             duel_state=$(docker inspect -f "{{.State.Status}} restarts={{.RestartCount}}" "$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q duel)")
-             echo "duel container: $duel_state"
-             if [ "$duel_state" != "running restarts=0" ]; then
-               docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=60 duel
-               echo "The duel container is not running cleanly." >&2
-               exit 1
-             fi
-             for service in ws worker; do
+             for service in duel ws worker; do
                healthy=0
-               for _attempt in $(seq 1 36); do
+               # Duel can retry several startup DB phases. A ready service passes
+               # immediately; the five-minute health start period is not a sleep.
+               attempts=36
+               if [ "$service" = duel ]; then attempts=72; fi
+               for _attempt in $(seq 1 "$attempts"); do
                  container=$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q "$service")
                  state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.Health.Status}}' "$container")
+                 restarts=$(printf '%s\n' "$state" | awk '{print $2}')
+                 if [ "$service" = duel ] && [ "$restarts" -gt 0 ]; then
+                   echo "The duel container restarted during startup: $state" >&2
+                   break
+                 fi
                  if [ "$state" = "running 0 healthy" ]; then healthy=1; break; fi
                  sleep 5
                done
@@ -672,6 +681,15 @@ jobs:
                  .then(async ([page, session]) => { if(page.status !== 200 || session.status !== 200 || (await session.text()).trim() !== "null") process.exit(1); })
                  .catch(() => process.exit(1));
              '
+             # Duel must still be healthy with no restarts after the other checks,
+             # immediately before confirming any images as good for rollback.
+             duel_state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.Health.Status}}' "$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q duel)")
+             echo "duel container: $duel_state"
+             if [ "$duel_state" != "running 0 healthy" ]; then
+               docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=60 duel
+               echo "The duel container is not healthy with zero restarts." >&2
+               exit 1
+             fi
              # Record success only after every health check passes. Retries keep the good :prev.
              : > data/production-image-ids.tmp
              for service in duel web worker ws $bot_service; do

@@ -37,5 +37,5 @@ python3 site/src/verify-static.py
 python3 scripts/deployment/verify-domain-routing.py
 MARKETING_URL=https://marketing.localhost CHROMIUM=/path/to/chromium SHOTS_DIR=/tmp/dd-site-shots node site/src/verify-browser.mjs
 ```
-Static checks use Python's standard library and cover heading order, canonical URLs, social image dimensions, JSON-LD and `llms.txt` links. Routing checks need a running Docker daemon and a cached `caddy:2-alpine` image. Browser checks need Playwright, Chromium and local Caddy; they run headless, mock waitlist POSTs and write screenshots to `SHOTS_DIR`.
+Static checks use Python's standard library and cover heading order, canonical URLs, social image dimensions, JSON-LD and `llms.txt` links. Routing checks need a running Docker daemon and a cached `caddy:2.11.2-alpine` image. Browser checks need Playwright, Chromium and local Caddy; they run headless, mock waitlist POSTs and write screenshots to `SHOTS_DIR`.
 See [domains.md](../docs/deployment/domains.md) for live hosts, production checks and waitlist operations.

@@ -109,7 +109,7 @@ it("keeps public and seated views in separate fetch/cache keys", async () => {
   globalThis.fetch = fetch;
   try {
     await getDuelRoom("abc", true);
-    expect(fetch).toHaveBeenCalledWith("/api/duels/abc?spectate=1", { cache: "no-store" });
+    expect(fetch).toHaveBeenCalledWith("/api/duels/abc?spectate=1", expect.objectContaining({ cache: "no-store" }));
     expect(duelRoomKey("abc")).toBe("/api/duels/abc");
   } finally { globalThis.fetch = original; }
 });

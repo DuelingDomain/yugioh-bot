@@ -192,6 +192,58 @@ The merged database also makes Bingo Card, Red-Eyes Black Dragon Exceed, Swiftwi
 
 Re-record `scripts/native/golden.tsv` with `packages/duel-server/scripts/run-nduel.sh --record`, then verify it with `--check`, after changing the merged database or release filtering even when the three source pins stay the same. The native driver samples the effective card pool, so the merge changes seeded duels and their recorded hashes. Overlay edits also require an explicitly recorded fingerprint. This prerelease update rebuilds the native test driver and records all 80 duels (`n2`, `n3`, `n4`, `tag`, 20 seeds each, 60 turns, 3,000 LP); the subsequent check verifies 80 rows with zero skips or mismatches. All 80 rows change while the three fingerprint headers stay unchanged because pins, overlays and patches did not change. WASM engine checks reuse existing cores without rebuilding them. The review correction restores all five alternate artworks and re-records/checks the same 80-duel matrix from fresh card dumps using the existing native driver: 42 row hashes change, all fingerprint headers remain unchanged, and the check has zero skips or mismatches.
 
+## 2026-10-22 candidate review (PR #443)
+
+Merged main at `1a3bd8c87` (PRs #441 and #444), including all 61 LP-comparison overlays,
+patch 0119 and its verified core binary pins. None of the four retained upstream
+script changes overlaps those cards or any existing multiplayer overlay stock path:
+`official/c74730899.lua`, `card_counter_constants.lua`, `constant.lua` and
+`unofficial/c511777010.lua`. All multiplayer stock hashes match the new corpus;
+no LP overlay needs rebasing. Batteryman Fuel Cell's upstream cost filter now checks
+for a return target after excluding the Tributed monster and its Equip Cards.
+
+The shared-script review found an upstream regression: `card_counter_constants.lua`
+removed `CARD_PRINCESS_COLOGNE`, still referenced by Doll Happiness (71595845),
+Doll House (67331360) and Grandpa Demetto (44190146). The shared suffix patch restores
+`75574498` for every engine. Its manifest stock hash was calculated from the reviewed
+candidate file at CardScripts `5caccbf54d7d`; preparation must reject future upstream
+changes until reviewed. The remaining removed card/effect constants have no references
+in the retained candidate corpus or multiplayer overlays. New card constants are for
+Rush scripts; `EFFECT_ARS_MAGNA_CITRINITAS` now matches the final official code 37279096.
+`mp-utility.lua` references none of the removed constants and needs no change.
+
+Solemn Authority (Anime), `unofficial/c511777010.lua`, revises Trap immunity to the
+controller's monsters and replaces its countdown implementation. It is retained as a
+possible dependency, but passcode 511777010 is absent from the prepared database:
+unofficial card databases are excluded. No shipped script references that passcode.
+
+The reported compatibility error, `Missing global X1000`, is a tokenizer false
+positive on unchanged `FUSPROC_CANCELABLE = 0X1000` in `constant.lua`. Lua accepts
+the uppercase hexadecimal prefix; the probe tokenizes its suffix as an identifier.
+The candidate constants and utility load successfully on the oldest npm core.
+Probing the four changed scripts plus the three Princess Cologne consumers first
+reproduced both missing-global findings; after shared patch installation only this
+hexadecimal false positive remains. The scanner is unchanged in this data update.
+
+The original native CI failure was its golden input guard, after 84 passing checks:
+`data pins changed: re-record with run-nduel.sh --record`. A fresh ASan/UBSan native
+build with all 109 patches recorded all 80 rows against the patched candidate, and
+`--check` checked 80 with zero skips or mismatches. All transcript steps/hashes match
+main; only the data-pins and shared-card-script-patches fingerprints changed.
+Core binary hashes remain #441's verified pins; this fix changes shared Lua only.
+
+Local validation used #441 main-run artifacts whose Domain/multiplayer hashes match
+`expected-sha256.txt`, since Docker is unavailable in this WSL environment. Candidate
+preparation and bundle installation pass. The runtime and installer receipt validators
+now allow the exact `card_counter_constants.lua` helper path alongside numbered card
+scripts. Existing patch/preparation/bundle/overlay and LP-comparison suites pass
+242 tests; the optional local triage-file check is skipped. No unit tests were added;
+existing preparation fixtures now include the reviewed stock constants file.
+The four-card smoke run checked 180 engine cases and their replays across Standard
+and Domain 1v1/FFA3/FFA4: Fuel Cell and Doll Happiness pass; Doll House and Grandpa
+Demetto warn only about effects that the generic setups did not exercise, with no
+case failures. These smoke results do not claim complete ruling coverage.
+
 ## Shared card-script bug fixes: Steamed Sabersaurus (3743515)
 
 `domain-core/multi-scripts` appends/replaces scripts only for tables with more than two seats;

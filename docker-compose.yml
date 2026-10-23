@@ -89,6 +89,14 @@ services:
     mem_limit: ${DUEL_MEM_LIMIT:-1g}
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4003/healthz',{signal:AbortSignal.timeout(2000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      # Startup retries several database phases for up to a minute each.
+      start_period: 5m
+      start_interval: 5s
 
   web:
     image: yugioh-bot-web:latest
@@ -162,6 +170,7 @@ services:
       - ./data:/app/data
     depends_on:
       - ws
+      # Other web pages can start while duel retries startup database work.
       - duel
 
   worker:
@@ -247,7 +256,7 @@ services:
       start_interval: 5s
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2.11.2-alpine
     restart: unless-stopped
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]

@@ -1,0 +1,220 @@
+import Database from "better-sqlite3";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { createRequire } from "node:module";
+import { join } from "node:path";
+import { Worker } from "node:worker_threads";
+import { expect, it, vi } from "vitest";
+import { openDatabase } from "@yugidraft/shared/db";
+import { createDuelService } from "@yugidraft/shared/services";
+import { createDuelHost, type DuelHost } from "../src/host.js";
+import { retryStartupDatabase } from "../src/startup-database.js";
+import { createHostDataFixture } from "./helpers/host-data-fixture.js";
+import { seedIdentity } from "./helpers/identity.js";
+
+it("exposes private readiness only after real server startup recovers from a database lock", async () => {
+  const directory = createHostDataFixture([]);
+  const path = join(directory, "bot.sqlite");
+  const writer = openDatabase(path);
+  const reservation = createServer();
+  reservation.listen(0, "127.0.0.1");
+  await once(reservation, "listening");
+  const port = (reservation.address() as { port: number }).port;
+  await new Promise<void>((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()));
+  writer.exec("begin immediate");
+  const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
+    cwd: new URL("../", import.meta.url),
+    env: { ...process.env, DATABASE_PATH: path, DUEL_DATA_DIR: directory,
+      DUEL_INTERNAL_HOST: "127.0.0.1", DUEL_INTERNAL_PORT: String(port), DUEL_1V1_ENGINE: "pinned",
+      DUEL_INTERNAL_SECRET: "readiness-test", EFFECT_SEARCH: "0", DECK_SUGGESTIONS: "0",
+      WS_INTERNAL_URL: "", WS_INTERNAL_SECRET: "", SENTRY_DSN: "" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const exited = once(child, "exit");
+  let output = "";
+  child.stdout.on("data", chunk => { output += chunk; });
+  child.stderr.on("data", chunk => { output += chunk; });
+  const url = `http://127.0.0.1:${port}/healthz`;
+  try {
+    await vi.waitFor(() => expect(output).toContain("startup database busy; retrying"), { timeout: 10_000 });
+    await expect(fetch(url, { signal: AbortSignal.timeout(1000) })).rejects.toThrow();
+    writer.exec("commit");
+    await expect.poll(async () => {
+      if (child.exitCode !== null) throw new Error(output);
+      try { return (await fetch(url, { signal: AbortSignal.timeout(1000) })).status; }
+      catch { return 0; }
+    }, { timeout: 10_000 }).toBe(200);
+    const response = await fetch(url);
+    expect(await response.text()).toBe("ok\n");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    // Readiness does not bypass authentication on the gameplay endpoint.
+    expect((await fetch(`http://127.0.0.1:${port}/internal/duel`, { method: "POST", body: "{}" })).status).toBe(401);
+  } finally {
+    const deadline = setTimeout(() => child.kill("SIGKILL"), 7000);
+    try {
+      if (child.exitCode === null) child.kill("SIGTERM");
+      await exited;
+    } finally {
+      clearTimeout(deadline);
+      if (writer.inTransaction) writer.exec("rollback");
+      writer.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+  expect(child.exitCode, output).toBe(0);
+}, 25_000);
+
+// A separate thread must release the real file lock while better-sqlite3 blocks
+// this thread. The timer starts only when the caller is about to attempt startup.
+async function holdStartupWrite(path: string) {
+  const worker = new Worker(`
+    const { parentPort, workerData } = require('node:worker_threads');
+    const Database = require(workerData.sqlite);
+    const db = new Database(workerData.path);
+    db.exec('begin immediate');
+    db.prepare('insert or replace into worker_heartbeat(id, at, pid) values (1, ?, ?)').run(Date.now(), process.pid);
+    parentPort.once('message', delay => setTimeout(() => {
+      db.exec('commit'); db.close(); parentPort.postMessage('released'); parentPort.close();
+    }, delay));
+    parentPort.postMessage('locked');
+  `, { eval: true, workerData: { path, sqlite: createRequire(import.meta.url).resolve("better-sqlite3") } });
+  try { expect((await once(worker, "message"))[0]).toBe("locked"); }
+  catch (error) { await worker.terminate(); throw error; }
+  return worker;
+}
+
+it("starts the duel host and rebases clocks once after a startup writer exceeds the busy timeout", async () => {
+  const directory = createHostDataFixture([]);
+  const db = openDatabase(join(directory, "bot.sqlite"));
+  const playerId = seedIdentity(db, { guildId: "g", name: "Host" }).playerId;
+  const duels = createDuelService(db);
+  const session = duels.create({ guildId: "g", organizerPlayerId: playerId, name: "Recover", mode: "normal" });
+  const clock = { turn: 1, activeSeat: 0, startedAt: 900_000, remainingMs: [180_000, 180_000] };
+  db.prepare("update duels set status = 'active', ranked = 1, clock_json = ? where id = ?").run(JSON.stringify(clock), session.id);
+  db.prepare("insert into duel_host_heartbeat(id, last_tick_at) values (1, 950000)").run();
+  const busyTimeout = db.pragma("busy_timeout", { simple: true }) as number;
+  const writer = await holdStartupWrite(db.name);
+  let host: DuelHost | undefined;
+  try {
+    const released = once(writer, "message");
+    const started = performance.now();
+    // The host's best-effort telemetry prune can use one full busy timeout
+    // before clock recovery. Keep the writer locked past both waits.
+    writer.postMessage(2 * busyTimeout + 1_250);
+    host = createDuelHost({ db, dataDirectory: directory, secret: "startup-lock-test", searchCards: () => [],
+      now: () => 1_000_000 + Math.floor(performance.now() - started), pollIntervalMs: 60_000 });
+    expect(performance.now() - started).toBeGreaterThan(busyTimeout);
+    expect((await released)[0]).toBe("released");
+    const resumed = duels.privateState(session.slug, "g").clock!;
+    expect(resumed).toEqual({ ...clock, startedAt: expect.any(Number), remainingMs: [130_000, 180_000] });
+    // Waiting for startup writers is downtime, never time charged to a player.
+    expect(resumed.startedAt).toBeGreaterThanOrEqual(1_000_000 + 2 * busyTimeout + 1_000);
+    const heartbeat = db.prepare<[], { last_tick_at: number }>("select last_tick_at from duel_host_heartbeat where id = 1").get()!;
+    expect(heartbeat.last_tick_at).toBeGreaterThanOrEqual(resumed.startedAt!);
+    expect(db.pragma("busy_timeout", { simple: true })).toBe(busyTimeout);
+    expect(db.inTransaction).toBe(false);
+  } finally {
+    await writer.terminate();
+    await host?.close();
+    db.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 20_000);
+
+it("opens and migrates after another startup writer holds the file beyond five seconds", async () => {
+  const directory = createHostDataFixture([]);
+  const path = join(directory, "bot.sqlite");
+  openDatabase(path).close();
+  const writer = await holdStartupWrite(path);
+  let db: Database.Database | undefined;
+  try {
+    const released = once(writer, "message");
+    writer.postMessage(6_250);
+    db = retryStartupDatabase("open and migrate", () => openDatabase(path));
+    expect((await released)[0]).toBe("released");
+    expect(db.prepare("select count(*) as n from worker_heartbeat").get()).toEqual({ n: 1 });
+    expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
+    expect(db.pragma("busy_timeout", { simple: true })).toBe(5_000);
+    expect(db.inTransaction).toBe(false);
+  } finally {
+    await writer.terminate();
+    db?.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 15_000);
+
+it("retries clearing a stale script auto-block during contended host startup", async () => {
+  const directory = createHostDataFixture([{ code: 89631139, name: "Blue-Eyes White Dragon" }]);
+  const db = openDatabase(join(directory, "bot.sqlite"));
+  db.prepare(`insert into card_script_auto_blocks
+    (code, reason, blocked_at, distinct_duels, error_count, threshold, window_days, bundle_version, script_hash)
+    values (89631139, 'script_error', datetime('now'), 3, 3, 3, 7, 'old-bundle', 'old-hash')`).run();
+  const writer = await holdStartupWrite(db.name);
+  let host: DuelHost | undefined;
+  try {
+    const released = once(writer, "message");
+    writer.postMessage(6_250);
+    host = createDuelHost({ db, dataDirectory: directory, secret: "startup-block-test", searchCards: () => [], pollIntervalMs: 60_000 });
+    expect((await released)[0]).toBe("released");
+    expect(db.prepare("select cleared_at from card_script_auto_blocks where code = 89631139").get())
+      .toEqual({ cleared_at: expect.any(String) });
+    expect(db.inTransaction).toBe(false);
+  } finally {
+    await writer.terminate();
+    await host?.close(); db.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 15_000);
+
+it("bounds retries on a persistent real lock and fails immediately on other SQLite errors", () => {
+  const directory = createHostDataFixture([]);
+  const db = openDatabase(join(directory, "bot.sqlite"));
+  const writer = new Database(db.name);
+  try {
+    db.transaction(() => {
+      expect(() => retryStartupDatabase("nested startup", () => db.prepare("select 1").get(), { db }))
+        .toThrow("Startup database retries must run outside a transaction");
+    })();
+    db.pragma("busy_timeout = 0");
+    writer.exec("begin immediate");
+    const started = performance.now();
+    expect(() => retryStartupDatabase("heartbeat", () => db.prepare("insert into duel_host_heartbeat values(1, 1)").run(), { db, timeoutMs: 100 }))
+      .toThrowError(expect.objectContaining({ code: "SQLITE_BUSY" }));
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(db.inTransaction).toBe(false);
+    expect(() => retryStartupDatabase("invalid schema", () => db.prepare("select * from missing_startup_table").get(), { db }))
+      .toThrowError(expect.objectContaining({ code: "SQLITE_ERROR" }));
+  } finally {
+    if (writer.inTransaction) writer.exec("rollback");
+    writer.close(); db.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it("rolls back a stale WAL snapshot and retries the whole startup transaction", () => {
+  const directory = createHostDataFixture([]);
+  const db = openDatabase(join(directory, "bot.sqlite"));
+  const writer = new Database(db.name);
+  let attempts = 0;
+  try {
+    db.prepare("insert into duel_host_heartbeat values (1, 1)").run();
+    retryStartupDatabase("snapshot recovery", () => {
+      expect(db.inTransaction).toBe(false);
+      db.transaction(() => {
+        const row = db.prepare<[], { last_tick_at: number }>("select last_tick_at from duel_host_heartbeat where id = 1").get()!;
+        // A real commit after the read makes the first transaction's snapshot
+        // unwritable. The retry must read the new value after SQLite rolls back.
+        if (attempts++ === 0) writer.prepare("update duel_host_heartbeat set last_tick_at = 2 where id = 1").run();
+        db.prepare("update duel_host_heartbeat set last_tick_at = ? where id = 1").run(row.last_tick_at + 1);
+      })();
+    }, { db });
+    expect(attempts).toBe(2);
+    expect(db.prepare("select last_tick_at from duel_host_heartbeat where id = 1").get()).toEqual({ last_tick_at: 3 });
+    expect(db.inTransaction).toBe(false);
+  } finally {
+    writer.close(); db.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

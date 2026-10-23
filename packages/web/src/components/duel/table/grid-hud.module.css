@@ -93,9 +93,9 @@
 .topRight { flex: none; gap: 10px; padding: 0 8px 0 14px; justify-content: flex-end; }
 
 .topLeft a { flex: none; white-space: nowrap; }
-/* On a narrower screen the live and sound pills fall back to their icons, so the three pills keep one row. */
+/* Live and sound pills collapse on narrow screens; recovery status keeps its words. */
 @media (max-width: 1560px) {
-  .topRight [role="status"] > span:not(:first-child) { display: none; }
+  .topRight [role="status"][data-live="true"] > span:not(:first-child) { display: none; }
   .topRight button[aria-label^="Sound"] span { display: none; }
 }
 

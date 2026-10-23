@@ -209,14 +209,15 @@ export async function callDuelHost(input: {
   const replayOp = input.op === "bug-replay-frame" || input.op === "replay" || input.op === "owner-replay" || input.op === "replay-fork"
     || input.op === "fork-list" || input.op === "fork-restart" || input.op === "fork-cancel";
   const failure = (body: NonNullable<ReturnType<typeof hostErrorBody>>["body"], status: number): NextResponse => NextResponse.json({
-    ...body, ...(replayOp && !body.code && status >= 500 ? { code: "ENGINE_BUSY" } : {}),
+    ...body, ...(!body.code && (replayOp ? status >= 500 : [502, 503, 504].includes(status))
+      ? { code: replayOp ? "ENGINE_BUSY" : "DUEL_ENGINE_ERROR" } : {}),
   }, { status: replayOp && status >= 500 ? 503 : status,
     headers: { "cache-control": "private, no-store" } });
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
   if (configProblem) {
     log("warn", "[duel-host] configuration is incomplete");
-    return { ok: false, response: failure({ error: configProblem }, 503), retryable: false };
+    return { ok: false, response: failure({ error: configProblem, ...(!replayOp ? { code: "DUEL_ENGINE_CONFIG" } : {}) }, 503), retryable: false };
   }
   const transport = signedTransport({ ...cfg, purpose: "duel-host", ...(input.op === "engine-data-status" || input.op === "bug-context" ? { timeoutMs: 5000 }
     : input.op === "normalize-codes" || input.op === "validate-deck-master" ? { timeoutMs: 20000 }
@@ -285,13 +286,13 @@ export async function callDuelHost(input: {
       const error = result.text === "Internal request timed out"
         ? "The duel engine request timed out. It may be restarting. Try again in a moment."
         : "The duel engine did not answer. It may be restarting. Try again in a moment.";
-      return { ok: false, response: failure({ error }, 503) };
+      return { ok: false, response: failure({ error, ...(!replayOp ? { code: "DUEL_UPSTREAM_UNAVAILABLE" } : {}) }, 503) };
     }
     if (result.status === 401) {
       // The host answers 401 only for a bad signature.
       const error = "The duel engine refused the web server: their DUEL_INTERNAL_SECRET values do not match. Ask the server admin to fix .env and restart both services.";
       log("warn", "[duel-host] request was refused", { status: result.status });
-      return { ok: false, response: failure({ error }, 503) };
+      return { ok: false, response: failure({ error, ...(!replayOp ? { code: "DUEL_ENGINE_CONFIG" } : {}) }, 503) };
     }
     const parsed = hostErrorBody(result.text, result.status);
     if (!parsed || (result.status === 500 && !parsed.expected)) {

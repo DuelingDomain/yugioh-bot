@@ -6,11 +6,13 @@ import { createAutoBlockPolicy } from "./script-error-autoblock.js";
 import { cardScriptHash, scriptEngineKind, type ScriptEngineKind } from "./card-script-hash.js";
 import { loadCardPasscodeRemaps } from "@yugidraft/shared/db";
 import { createScriptErrorRecorder } from "./script-error-store.js";
+import { retryStartupDatabase } from "./startup-database.js";
 import { scriptErrorModeFromEnv, type DuelScriptError, type DuelScriptFatalError } from "./script-errors.js";
 import { createHash, randomBytes } from "node:crypto";
 import { readSignedRequest } from "@yugidraft/shared/internal-auth";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import type Database from "better-sqlite3";
 import { assertDuelForkAccess, assertOwnerReplaySourceAccess, assertReplayForkAccess, resolveOwnerPlayer, ReplayAccessError } from "@yugidraft/shared/access/owner-access";
 import { createLocalCardDataStatus, type EngineDataManifest } from "./card-data-status.js";
@@ -391,6 +393,7 @@ export function createDuelHost(options: {
     && isCompetitiveDuel(session.ranked === true, series.forDuel(session.id)?.tournamentMatchId);
   const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as EngineDataManifest;
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
+  const now = options.now ?? Date.now;
   const localCardDataStatus = createLocalCardDataStatus(options.db, options.dataDirectory, { manifest, now: options.now });
   const githubCardDataStatus = createGithubCardDataStatus({ now: options.now });
   setCatalogDirectory(options.dataDirectory);
@@ -407,7 +410,7 @@ export function createDuelHost(options: {
     ? loadCardPasscodeRemaps(options.dataDirectory) : new Map<number, number>();
   const hashes = new Map<string, string | null>();
   let revisionOverlay: ReturnType<typeof loadMultiScriptsFor> | undefined;
-  const autoBlocks = createAutoBlockPolicy(options.db, { bundleVersion: manifest.bundleVersion,
+  const autoBlocks = retryStartupDatabase("auto-block refresh", () => createAutoBlockPolicy(options.db, { bundleVersion: manifest.bundleVersion,
     remaps,
     exactCodes: code => {
       const codes = new Set([code]);
@@ -424,7 +427,7 @@ export function createDuelHost(options: {
         hashes.set(key, cardScriptHash(loadCardDatabase(options.dataDirectory), code, kind, revisionOverlay, helperScripts));
       }
       return hashes.get(key)!;
-    }, now: options.now });
+    }, now: options.now }), { db: options.db });
   const admissionEntries = (mode: DuelMode = "normal", format: DuelFormat = "1v1", engine: DuelEngineChoice = duel1v1EngineForMode(mode)) =>
     mergeCardBlockEntries(loadCardBlockList(undefined, options.dataDirectory), autoBlocks.entries(scriptEngineKind(mode, format, engine)));
   const recordScriptError = createScriptErrorRecorder(options.db, undefined, autoBlocks);
@@ -546,7 +549,6 @@ export function createDuelHost(options: {
   const archiveAfterMs = options.archiveAfterMs ?? DEFAULT_ARCHIVE_AFTER_MS;
   const idleWorkerMs = options.idleWorkerMs ?? DEFAULT_IDLE_WORKER_MS;
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const now = options.now ?? Date.now;
   const botLoops = new Map<string, BotLoop>();
   const advanceTimers = new Map<number, ReturnType<typeof setTimeout>>();
   /** One timer per duel with a running opening: it fires at the phase deadline. */
@@ -3773,7 +3775,7 @@ export function createDuelHost(options: {
       const game = games.get(slug)?.game;
       return await project(slug, guildId, actor, game);
     }
-    if (room.session.status !== "active") throw new RequestError("This duel is not active", 409);
+    if (room.session.status !== "active" && op !== "respond") throw new RequestError("This duel is not active", 409);
     if (op === "chain-mode") return setChainMode(slug, guildId, actor, seat, body.mode, { revision: body.revision, promptId: body.promptId });
     if (op === "surrender") {
       const game = await recover(slug, guildId);
@@ -3788,6 +3790,16 @@ export function createDuelHost(options: {
     if (!command || typeof command.promptId !== "string" || !Number.isSafeInteger(command.revision)) {
       throw new RequestError("Invalid engine command", 400);
     }
+    // The per-duel queue serializes retries with the original request. The existing
+    // seat + prompt + revision identifies a command; only the exact accepted answer
+    // may read back its result. The durable journal survives a web restart.
+    const alreadyAccepted = () => service.privateState(slug, guildId).commands.some(entry =>
+      entry.seat === seat && entry.command.promptId === command.promptId
+      && entry.command.revision === command.revision && isDeepStrictEqual(entry.command.answer, command.answer));
+    if (room.session.status !== "active") {
+      if (alreadyAccepted()) return project(slug, guildId, actor, games.get(slug)?.game, false, isReplayFork(room.session) ? { as: seat } : {});
+      throw new RequestError("This duel is not active", 409);
+    }
     const game = await recover(slug, guildId);
     if (service.get(slug, guildId).status !== "active") return project(slug, guildId, actor);
     const live = games.get(slug)?.game ?? game;
@@ -3795,6 +3807,7 @@ export function createDuelHost(options: {
     const before: DuelEngineView = await live.view(seat);
     if (before.revision !== command.revision || before.prompt?.id !== command.promptId) {
       await settleClock(slug, guildId, live);
+      if (alreadyAccepted()) return project(slug, guildId, actor, games.get(slug)?.game, false, isReplayFork(room.session) ? { as: seat } : {});
       if (service.get(slug, guildId).status !== "active") return project(slug, guildId, actor);
       throw new RequestError("That choice is stale. Refresh the current duel state.", 409);
     }
@@ -4072,7 +4085,8 @@ export function createDuelHost(options: {
     }
   }
 
-  service.resumeCompetitiveClocks(now());
+  // Finish cleanup before rebasing, so none of its lock waits charge players.
+  retryStartupDatabase("resume competitive clocks", () => service.resumeCompetitiveClocks(now), { db: options.db });
   const timer = setInterval(() => {
     void tick();
   }, pollIntervalMs);

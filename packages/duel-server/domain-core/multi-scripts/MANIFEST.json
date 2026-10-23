@@ -21,6 +21,18 @@
       "note": "Apply Level -1 to the existing hand monsters of every living duelist, including the Tag partner. Register the stock effect for later hand additions once."
     },
     {
+      "code": 856784,
+      "file": "c856784.lua",
+      "name": "Draw of Fate",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "drcon"
+      ],
+      "stockSha256": "fa537640b5323a5f29f75df9c9b54b27422d83aed38f4139e9c1d1fc61cd4ff7",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 1804528,
       "file": "c1804528.lua",
       "name": "Dark Coffin",
@@ -78,6 +90,18 @@
       "stockSha256": "80fc7da42b311e738ba46fac03c62ba816f702bc0afd668463c04626818f9070"
     },
     {
+      "code": 1969506,
+      "file": "c1969506.lua",
+      "name": "Puppet Ritual",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "5e09a7f6274732fc4cc5d0ef7f6ed8f07450fb8ffc461ee6bde0faa1c70dd1db",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 2139640,
       "file": "c2139640.lua",
       "name": "Amabie",
@@ -87,6 +111,18 @@
       ],
       "stockSha256": "9024f2f871b35a816e54a7be2f077f8cd821a1030fa9392b13c4dc8257182580",
       "replace": true
+    },
+    {
+      "code": 2434862,
+      "file": "c2434862.lua",
+      "name": "Cubic Ascension",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "415de7929023ff836f8edf2217e80c523f57159ded5169d1c9db07496539d613",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 2625939,
@@ -243,6 +279,18 @@
       "r2Class": "LITERAL",
       "stockSha256": "428821a10cff6ef61b554727f8abba04380c089933b8413223f44d487f7ee98b",
       "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
+    },
+    {
+      "code": 4017398,
+      "file": "c4017398.lua",
+      "name": "Zexal Entrust",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "thcon"
+      ],
+      "stockSha256": "2ffa2ab59988f5598db2da86f2a865b0afe361c4ae842fc8ec840287939480f2",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 4145915,
@@ -925,6 +973,18 @@
       "r2Class": "EACH-CONTROLLER"
     },
     {
+      "code": 11502550,
+      "file": "c11502550.lua",
+      "name": "Elemental HERO Air Neos",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "atkval"
+      ],
+      "stockSha256": "39c6326713d11133f499a277fa289ffddad62f6468d9ad02682d6f578603201c",
+      "note": "R-FFA-LP-COMPARE: broader LP-query review addition, unanimous FFA condition only; retain the stock numerical amount and Tag behavior."
+    },
+    {
       "code": 11685347,
       "file": "c11685347.lua",
       "name": "Blast Asmodian",
@@ -1026,6 +1086,18 @@
       "compareIn": [
         "spcon"
       ]
+    },
+    {
+      "code": 12510878,
+      "file": "c12510878.lua",
+      "name": "Neo-Parshath, the Sky Paladin",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "val"
+      ],
+      "stockSha256": "e2ba00ea6646cf8211a5489b9a04e4b38313c2db3986d6ccb55ffca86056e6e9",
+      "note": "R-FFA-LP-COMPARE: broader LP-query review addition, unanimous FFA condition only; retain the stock numerical amount and Tag behavior."
     },
     {
       "code": 12694768,
@@ -1143,6 +1215,18 @@
       ],
       "stockSha256": "747ddad8a7d7e9c7fd48aed984d67a5b3e4718ce5a3c830f2a8db3628a07afbf",
       "note": "Tag: apply battle damage protection to both partners (R-TAG-TEAM-DAMAGE, owner decision 2026-10-06). Keep existing FFA and 1v1 behavior. Keep the FFA removed-source-link guard in damop."
+    },
+    {
+      "code": 14169843,
+      "file": "c14169843.lua",
+      "name": "Aromage Laurel",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "23f645ab11f0be36adaccdbe4e892945d7d2cfede3966f13cfc78910b82b1ae3",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 14220547,
@@ -1304,6 +1388,18 @@
       ],
       "stockSha256": "34f35e8258a25d1addb3b838dd9103dbf5da0a80d786bbec3dfaef2775e927ee",
       "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 16759958,
+      "file": "c16759958.lua",
+      "name": "Aromaseraphy Angelica",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "9178e8b9f67436a0bdecd60f9bdf33537375030049b1759824a98a86a525d078",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 16832845,
@@ -1865,6 +1961,18 @@
       "stockSha256": "703cb7e4a6daaa1050dbce4b1b220808c693290e90b8510766630b524d2603ba"
     },
     {
+      "code": 21200905,
+      "file": "c21200905.lua",
+      "name": "Aromaseraphy Jasmine",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "indcon"
+      ],
+      "stockSha256": "60d770bb7bb194b47a91e43ef5b55832224302ff2827fae39697accd210e4ba8",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 21219755,
       "file": "c21219755.lua",
       "name": "Destruction Ring",
@@ -1967,6 +2075,43 @@
       "chooserClass": "CH-DECISION"
     },
     {
+      "code": 22046459,
+      "file": "c22046459.lua",
+      "name": "Megamorph",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "0336cff8e71d74c220b08e55983aa5942c591557acce174cfaa35f4a3557a3d3",
+      "redefined": [
+        "condition",
+        "value"
+      ],
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-22: lower than every living opponent, otherwise higher branch (mixed and partial ties included); all equal is neutral. FFA only."
+    },
+    {
+      "code": 22174866,
+      "file": "c22174866.lua",
+      "name": "Aromage Cananga",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "adcon"
+      ],
+      "stockSha256": "4d5be20bcb5031acc7c351676d4e375ed5926650c1d2c278b909476d6619e51d",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
+      "code": 22390469,
+      "file": "c22390469.lua",
+      "name": "Gold Pride - Star Leon",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "atkop"
+      ],
+      "stockSha256": "c941eff47f04659fba8f55f735263945aeb492ef05ba6a9ef4a1cd7168aa9d81",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 22404570,
       "file": "c22404570.lua",
       "name": "Power Patron Shade of the Final Hour",
@@ -2058,6 +2203,18 @@
       "stockSha256": "a4697fd3eb8570bda1ce2a31590ada1dd14560adbcf6d24f76fa8a433848c238",
       "note": "Decision-only opponent pick at resolution; no activation declaration.",
       "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 23512906,
+      "file": "c23512906.lua",
+      "name": "Gold Pride - Leon",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect"
+      ],
+      "stockSha256": "197378dd7676a1f11fdfd0ebd87f747386bd0148d040429f880e8a05f2b8478f",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 23557835,
@@ -2382,6 +2539,18 @@
       ]
     },
     {
+      "code": 25861589,
+      "file": "c25861589.lua",
+      "name": "Aroma Blend",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "extrafil"
+      ],
+      "stockSha256": "c039153f8fa72e35d612da7f7f3da739ec7ff48efc095157dcb8f7b690164126",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 25926710,
       "file": "c25926710.lua",
       "name": "Kelbek the Ancient Vanguard",
@@ -2390,6 +2559,18 @@
         "R1"
       ],
       "stockSha256": "7bf55c3d6d037af36db5c32628b5cde0febf4b60340f189d56f1cd3fe1a8dfd0"
+    },
+    {
+      "code": 25958491,
+      "file": "c25958491.lua",
+      "name": "Ancient Sacred Wyvern",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "atkval"
+      ],
+      "stockSha256": "cc3f16b84b627228f658f8447b9c76df89dfecbeb223e41d078cef69b5aaa898",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-22: lower than every living opponent, otherwise higher branch (mixed and partial ties included); all equal is neutral. FFA only. Keep the existing LP-difference magnitude and scope."
     },
     {
       "code": 26273196,
@@ -2404,6 +2585,18 @@
           "destg"
         ]
       }
+    },
+    {
+      "code": 26357901,
+      "file": "c26357901.lua",
+      "name": "Imprudent Intrusion",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "2f08ba5996ead238e85a11ee58fb3840fc72c6255959da9bd74c45860c24dec9",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 26775203,
@@ -2565,6 +2758,18 @@
       "note": "the global check compares the reason player with 1-previous controller; it compares the keys (seat in FFA, team in Tag) and writes the flag for the real previous controller."
     },
     {
+      "code": 28265983,
+      "file": "c28265983.lua",
+      "name": "Dried Winds",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "descon2"
+      ],
+      "stockSha256": "a7a4efef43d459b513f3b9e53132da0e5c7eb9df8a6f049d59ab8bacbc80568e",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 28403802,
       "file": "c28403802.lua",
       "name": "P.U.N.K. JAM Dragon Drive",
@@ -2585,7 +2790,31 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "46059a0ed50acf73a65bba6db3ccf61c304db2fda001c15e16fe02dbf83e4081",
-      "note": "Pin Baller cannot be negated when any living opposing LP pool is greater than its own. The selected equip opponent does not limit this condition."
+      "note": "Pin Baller cannot be negated when any living opposing LP pool is greater than its own. The selected equip opponent does not limit this condition. LP condition: R-FFA-LP-COMPARE (owner 2026-10-21), every living opponent in FFA; stock amount and recipient rules remain."
+    },
+    {
+      "code": 28957126,
+      "file": "c28957126.lua",
+      "name": "Evil Eye of Gorgoneio",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "atkcon"
+      ],
+      "stockSha256": "9b8292809b58b029dd16ac4ac6bdc6095e074728489db818ab48bb408e96ec07",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
+      "code": 29189613,
+      "file": "c29189613.lua",
+      "name": "Aroma Gardening",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "1dfe7c8861cd3ace8481872a7b1319ca668212b640962a6c99e67eefc44d7584",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 29307554,
@@ -2598,6 +2827,18 @@
       "r2Class": "LITERAL",
       "stockSha256": "4b0b3f19c27381fda1aad05907ebd2cbb3aa51cc6e6b61ee8e4304ef35054fd8",
       "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
+    },
+    {
+      "code": 29353756,
+      "file": "c29353756.lua",
+      "name": "ZW - Eagle Claw",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "25f0015a02d60f59796689a50b770d607057b50b5e39ef3e5d9720911cb5b626",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 29400787,
@@ -2842,6 +3083,18 @@
       ]
     },
     {
+      "code": 32164201,
+      "file": "c32164201.lua",
+      "name": "ZW - Pegasus Twin Saber",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "aeea66e0486d7caf757b45aceb6c30266b00edc7544148f684af2dc6073bcc7f",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 32360466,
       "file": "c32360466.lua",
       "name": "Beginning of Heaven and Earth",
@@ -2917,7 +3170,8 @@
         "activate",
         "condition"
       ],
-      "stockSha256": "8e26bb6c68fe54e3563199d82a4fd5ad7c2295aee014b18365a1dac03e776993"
+      "stockSha256": "8e26bb6c68fe54e3563199d82a4fd5ad7c2295aee014b18365a1dac03e776993",
+      "note": " LP condition: R-FFA-LP-COMPARE (owner 2026-10-21), every living opponent in FFA; stock amount and recipient rules remain."
     },
     {
       "code": 33298291,
@@ -3049,6 +3303,18 @@
       ],
       "stockSha256": "5d376c4c525078587c6cef5e7ce8f2f4ea476477d4a6164ae3d08ffaf0dff14a",
       "note": "Reads the Graveyard and the banished zone (field class) of the bound opponent. Tag: the target picks the opposing duelist (MPTarget) and the operation runs bound to that duelist (MPOne), who may Special Summon from the Deck. The triage text that calls it OK-BIND is wrong."
+    },
+    {
+      "code": 34137269,
+      "file": "c34137269.lua",
+      "name": "Hailon, the Timelord",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "damtg"
+      ],
+      "stockSha256": "bab6e1873131326bcdfbb34d987e0144e599d7e029bab9ec3d482371b66da4fc",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 34267821,
@@ -3233,6 +3499,18 @@
       ]
     },
     {
+      "code": 35705817,
+      "file": "c35705817.lua",
+      "name": "Ghost Fusion",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "fextra"
+      ],
+      "stockSha256": "aa68d4be3658c77fa89b50129020f5ca54fd31bc9c901ec99468656740d33c05",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 35842855,
       "file": "c35842855.lua",
       "name": "Pyrorex the Elemental Lord",
@@ -3251,6 +3529,18 @@
         "R1"
       ],
       "stockSha256": "741dec2cee2771d962b659961885de0a4286a908e3667603eba1212c0453aefd"
+    },
+    {
+      "code": 36224040,
+      "file": "c36224040.lua",
+      "name": "Rank-Up-Magic Zexal Force",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "drcon"
+      ],
+      "stockSha256": "00f1046e90ab5ae0c631167b0071f9d48c256baf67435297f880dbe8d3b81849",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 36415522,
@@ -3451,6 +3741,18 @@
       "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
+      "code": 38148100,
+      "file": "c38148100.lua",
+      "name": "Aromaseraphy Rosemary",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "adcon"
+      ],
+      "stockSha256": "9f039c81763b8a07b4ec233d6d488252ff9eb5ef550efcccb9e09b5020c9394b",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 38522377,
       "file": "c38522377.lua",
       "name": "Meklord Astro Dragon Asterisk",
@@ -3527,6 +3829,18 @@
         "R1"
       ],
       "stockSha256": "4fd45c718cd3997813bf4402614e42b3023dab2f261190cbf4cdedd7fce3b1cc"
+    },
+    {
+      "code": 39396763,
+      "file": "c39396763.lua",
+      "name": "Dyna Base",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect"
+      ],
+      "stockSha256": "0acdf29ded6296d3f4d22d9e1a907f821956e55e85e55fe7071ad8cbfe2845e4",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 39513225,
@@ -3678,6 +3992,18 @@
       ],
       "stockSha256": "09622bcf802fc9ce22e4c180b9a6876f8aa31aef6386d61d29a52b762828eafb",
       "note": "Tag: test battle damage on either living partner and register damage prevention for both. Keep the stock opponent-turn check; FFA and 1v1 keep the stock effect."
+    },
+    {
+      "code": 40663548,
+      "file": "c40663548.lua",
+      "name": "Aromage Marjoram",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "atkcon"
+      ],
+      "stockSha256": "ff1842f6a92a79d1cc7dae92502f3093e9e5a2f2dfebb0e5a01067fadee7d2a5",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 41424250,
@@ -4021,6 +4347,18 @@
         "spcon"
       ],
       "stockSha256": "6abecfeb2cbc06c941b78d2b13c22b9951482655b7b30fdb9fe1d0be1bf358a8"
+    },
+    {
+      "code": 45464587,
+      "file": "c45464587.lua",
+      "name": "Gold Pride - Eradicator",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "destg"
+      ],
+      "stockSha256": "e604d20b63494d61f2f82ef0674c4b513bfeb01db8c5975dc8dc6fc26e75fdc1",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 45742626,
@@ -4494,7 +4832,8 @@
       "classes": [
         "R1"
       ],
-      "stockSha256": "ac36ccebd90d1564a77f38918805e1090362cadf415e05194d1d7f7fdd679375"
+      "stockSha256": "ac36ccebd90d1564a77f38918805e1090362cadf415e05194d1d7f7fdd679375",
+      "note": " LP condition: R-FFA-LP-COMPARE (owner 2026-10-21), every living opponent in FFA; stock amount and recipient rules remain."
     },
     {
       "code": 51194046,
@@ -4782,6 +5121,31 @@
       ]
     },
     {
+      "code": 55673611,
+      "file": "c55673611.lua",
+      "name": "Psychic Trigger",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "21065d89db2dd09ecc507093f12cb7d7e132ce4c7e5c48230ed747aed9479b4d",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
+      "code": 55735315,
+      "file": "c55735315.lua",
+      "name": "Soul Drain Dragon",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "atkcon",
+        "atkop"
+      ],
+      "stockSha256": "c360079c47ccf6dd4d2a4ff24d449ad744b0c33a9b975b0181eff3a74837d308",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 55787576,
       "file": "c55787576.lua",
       "name": "World Legacy - \"World Shield\"",
@@ -4945,6 +5309,18 @@
       "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
+      "code": 57069605,
+      "file": "c57069605.lua",
+      "name": "Frozen Soul",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "6ba5166c144474d326d479e8f3744cc15da6676fd90c04acf8850f25a1826bac",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 57314798,
       "file": "c57314798.lua",
       "name": "Number 100: Numeron Dragon",
@@ -4960,6 +5336,18 @@
       "chooserClass": "CH-EACH",
       "stockSha256": "5b731e5173025a5bc6f734cdc61382bf3da103ffe62c418010c8326d752b5822",
       "note": "Numeron Dragon: desop loops over every living duelist with aux.MPForEachDuelist (Tag partners included): each chooses from its own scope (in Tag the Graveyard of the team, the card of the partner is not offered again), then each Sets its card in a second pass. spcon in FFA counts only a direct attack that can only go to you (no other seat without a monster): the core has no read of the attacked duelist."
+    },
+    {
+      "code": 57585212,
+      "file": "c57585212.lua",
+      "name": "Self-Destruct Button",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "8f211616aff07a8cbf1996d0ee2c5ddfe04e3db48e2857981c54778bc734d542",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 57775790,
@@ -5051,6 +5439,18 @@
       "note": "The target stores the operation info for the activator when the group is not 2 cards (the core demands 2 for PLAYER_ALL); the operation Special Summons each target for the duelist whose Graveyard holds it (windows)."
     },
     {
+      "code": 58569561,
+      "file": "c58569561.lua",
+      "name": "Aromage Rosemary",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "accon"
+      ],
+      "stockSha256": "fd9cd2804e9b9d2194c9c95c144fb923ca91070b306bbeac5b304e8ef1f786c0",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 58577036,
       "file": "c58577036.lua",
       "name": "Reasoning",
@@ -5115,6 +5515,18 @@
       "stockSha256": "542cfa7da2d4773e906d0caece52c965b4913c39028602d9db11da7a9b78ecfc",
       "note": "Decision-only opponent pick at resolution; no activation declaration.",
       "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 58884063,
+      "file": "c58884063.lua",
+      "name": "Gold Pride - Nytro Blaster",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "desop"
+      ],
+      "stockSha256": "7f7048944e907f2c7145fa3d9fbae32e4e84504cf608d78667462631b9b7c496",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 59011257,
@@ -5197,6 +5609,18 @@
       ]
     },
     {
+      "code": 59900655,
+      "file": "c59900655.lua",
+      "name": "Gold Pride - Nytro Head",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect"
+      ],
+      "stockSha256": "3d28c3cf3ccf09be1fc32a1fec2f764b5eba0dfd1fb00c73f6bb941d65f98261",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 60018643,
       "file": "c60018643.lua",
       "name": "Cynet Codec",
@@ -5226,6 +5650,18 @@
         "s"
       ],
       "seatInit": "false"
+    },
+    {
+      "code": 60203670,
+      "file": "c60203670.lua",
+      "name": "Gold Pride - Eliminator",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect"
+      ],
+      "stockSha256": "6c9e9052b8cad46c737aacc24a4d891ef3b2b6527bc41578e823f89b68485a08",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 60312997,
@@ -5284,6 +5720,18 @@
       ],
       "stockSha256": "e773dfa73a39489178ecda139920ac7dd544d1651e86acb01836bf0c1b93c292",
       "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 60465049,
+      "file": "c60465049.lua",
+      "name": "Psychic End Punisher",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "immcon"
+      ],
+      "stockSha256": "ab10e06bc5a3b9f899f7c7e2274fe7553c1438a9a8c2bfa1a711cc644c20515a",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 60534585,
@@ -5543,6 +5991,19 @@
       ]
     },
     {
+      "code": 62991886,
+      "file": "c62991886.lua",
+      "name": "Unstable Evolution",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "0a839a0ccc365f18202bacd6878fcf6a561ef2dce3f74fa80ded6887ac7fb79f",
+      "redefined": [
+        "condition",
+        "value"
+      ],
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-22: lower than every living opponent, otherwise higher branch (mixed and partial ties included); all equal is neutral. FFA only."
+    },
+    {
       "code": 63009228,
       "file": "c63009228.lua",
       "name": "Rescue Interlacer",
@@ -5642,6 +6103,18 @@
       "note": "Select one Tag opponent at activation for the optional Trap Set."
     },
     {
+      "code": 65430834,
+      "file": "c65430834.lua",
+      "name": "Jurassic Impact",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "f391a84768220079d5d819a58461edde36bf28e0748099ec1234b978c5aa9ce9",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 65541655,
       "file": "c65541655.lua",
       "name": "Red Nova Dragon - Burning Soul",
@@ -5662,6 +6135,18 @@
         "R1"
       ],
       "stockSha256": "1aa606fc269b4f15957a5aafc01b806a22ee8c77c35e6b3747b0ed48f8081dbd"
+    },
+    {
+      "code": 65892585,
+      "file": "c65892585.lua",
+      "name": "Gold Pride - Chariot Carrie",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "thop"
+      ],
+      "stockSha256": "f1a16bca07f8416dea9a7b381221f7bee34f47bbae3db24734695839bbac86db",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 66078354,
@@ -6346,6 +6831,18 @@
       "stockSha256": "d1e2fc4b90bfa3ef0971260803a0ef11fa4d98f6a7cd457e6527e68b67d9f27e"
     },
     {
+      "code": 73167098,
+      "file": "c73167098.lua",
+      "name": "Aromalilith Magnolia",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "indcon"
+      ],
+      "stockSha256": "5fd6ab064173690c8d10c58e740ece9f3edbf4d54e0f79102debe0d86f3ae2ab",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 73443672,
       "file": "c73443672.lua",
       "name": "Underworld Circle",
@@ -6388,6 +6885,18 @@
       "stockSha256": "3f6458be1b47880de2342d46a9cf70cc1de2503bbb415182af0209daa6673b2f",
       "note": "Decision-only opponent pick at resolution; no activation declaration.",
       "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 74202664,
+      "file": "c74202664.lua",
+      "name": "One or Eight",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "b68a5ac4aab2007b17832173a5729b672a44d54e8ed9d67a3d9475ba4a78542b",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 74271714,
@@ -6837,6 +7346,30 @@
       ],
       "stockSha256": "f92471e595af4669ae94d55f3db13b4145dfa4111c4f29052f90fb1a51c6f48a",
       "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 79656239,
+      "file": "c79656239.lua",
+      "name": "Aromaseraphy Sweet Marjoram",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "adcon"
+      ],
+      "stockSha256": "ce0abdfb7607737143e9373fa6208c22b2c812abd797eb456de795175e2981a4",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
+      "code": 80036543,
+      "file": "c80036543.lua",
+      "name": "Hope for Escape",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "50a245f4dde5e8869b65f586cc5297957ecf9aad98270fce1019f3f187bbca53",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 80208158,
@@ -7332,6 +7865,18 @@
       "note": "the global check loops over the players 0 and 1; it loops over every living duelist (aux.MPForEachDuelist) and writes the flag for the real seat."
     },
     {
+      "code": 85636437,
+      "file": "c85636437.lua",
+      "name": "Edge of the Ring",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "62c4f76cbcd279fdee0e04c872b7a85bdad59f3a035e7c5f0a3ec8888a31098f",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 85862791,
       "file": "c85862791.lua",
       "name": "Fighting Dirty",
@@ -7395,6 +7940,18 @@
         "damage",
         "damop"
       ]
+    },
+    {
+      "code": 86532744,
+      "file": "c86532744.lua",
+      "name": "Number S39: Utopia Prime",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect"
+      ],
+      "stockSha256": "6f1c9fa8d42f2b0af553b392f36c72b56d8199661a21dca45c024be568018005",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 86682165,
@@ -7771,6 +8328,18 @@
       "seatExtra": "c90846359.extra.lua"
     },
     {
+      "code": 91123920,
+      "file": "c91123920.lua",
+      "name": "The Agent of Force - Mars",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "val"
+      ],
+      "stockSha256": "8c360ab5fa9e1e606d5b14e4b1e6ac69364c816043786cbad7bd0222882d0bcc",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 91286284,
       "file": "c91286284.lua",
       "name": "Gold Pride - That Came Out of Nowhere!",
@@ -7784,6 +8353,18 @@
       },
       "stockSha256": "0aed4a4e239213db3baf7b4077e6d989687dc898377c3c4b0f58678a344a20e3",
       "note": "In Tag, select one opponent at activation for the optional summon from the hand or GY. Keep the joined team field."
+    },
+    {
+      "code": 91345518,
+      "file": "c91345518.lua",
+      "name": "The Agent of Judgment - Saturn",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "damtg"
+      ],
+      "stockSha256": "236b8e8d213d7383ee225eb6fc7bb4baa5eff6342d2e1d3f123b50dcfd343608",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 91592030,
@@ -7886,6 +8467,18 @@
       "stockSha256": "26a66dc18367bcfa8156b470d21ba9dfa2d0a7d488473254343335b0f0a5a9f5"
     },
     {
+      "code": 92003832,
+      "file": "c92003832.lua",
+      "name": "Gold Pride - Roller Baller",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect"
+      ],
+      "stockSha256": "188a6d4d76caa4d57a371a0ea2793f8eb4a20082a34e5968a93a3cbed884eab4",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 92182447,
       "file": "c92182447.lua",
       "name": "Mischief of the Time Goddess",
@@ -7907,6 +8500,30 @@
         "R1"
       ],
       "stockSha256": "f0158a7bc654cc077cebb2545de1b3cf088916e4d4231663c2566c42c836f4ee"
+    },
+    {
+      "code": 92266279,
+      "file": "c92266279.lua",
+      "name": "Humid Winds",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "reccon"
+      ],
+      "stockSha256": "f9eaf35da85d3ddda197bf3ef608859dfbcc9bc0d1c5b106871dcad24d627f5b",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
+      "code": 92346415,
+      "file": "c92346415.lua",
+      "name": "Psychic Sword",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "atkval"
+      ],
+      "stockSha256": "ad43a38fa5fd98ddee1b5ea4f630b91fa9b37f9bb70f56969e757aa98bced344",
+      "note": "R-FFA-LP-COMPARE: broader LP-query review addition, unanimous FFA condition only; retain the stock numerical amount and Tag behavior."
     },
     {
       "code": 92394653,
@@ -8328,6 +8945,18 @@
       "stockSha256": "5d32b89e57e2c143e14df36c2fc1904be1f6b456451ffa7cbebbd415989df92d"
     },
     {
+      "code": 96305350,
+      "file": "c96305350.lua",
+      "name": "Gold Pride - Captain Carrie",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect"
+      ],
+      "stockSha256": "72a6d875019eb03b458ec552aa9d207857c7c21e6b868e7672c1c9715cd752c6",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 96427353,
       "file": "c96427353.lua",
       "name": "Aqua Armor Ninja",
@@ -8344,6 +8973,42 @@
       "compareIn": [
         "condition"
       ]
+    },
+    {
+      "code": 96592102,
+      "file": "c96592102.lua",
+      "name": "Raidraptor - Blade Burner Falcon",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect"
+      ],
+      "stockSha256": "a886b10fa7b8a67969cab13da439035f9114fd254348b5e928036816f54e8407",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
+      "code": 96661780,
+      "file": "c96661780.lua",
+      "name": "Riryoku Guardian",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect"
+      ],
+      "stockSha256": "56901493e92189ebbc9688fb2130968a4c8965db774b03a69060f73c7d20f920",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
+      "code": 96789758,
+      "file": "c96789758.lua",
+      "name": "Aromage Jasmine",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "excon"
+      ],
+      "stockSha256": "89c555264561522e3c799f799c1e0ee4f17f3944466dab9a14ab0d36c681424c",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
       "code": 97345699,
@@ -8371,6 +9036,18 @@
       "note": "Chooser card with a compare in an inline condition (MPAny); the file replaces the script. The triage did not list it as a compare card."
     },
     {
+      "code": 97637162,
+      "file": "c97637162.lua",
+      "name": "Handigallop",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "dmgcond"
+      ],
+      "stockSha256": "4a672540f8cc239735230f156c3a057d02fc3b8661f66fb3965babf3196efc9b",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
+    },
+    {
       "code": 97926515,
       "file": "c97926515.lua",
       "name": "Emerging Emergency Rescute Rescue",
@@ -8383,7 +9060,7 @@
         "activate"
       ],
       "stockSha256": "9f5dfaa1ed1ab18270a0385689517bf4a636855f7ba510f1d2eb5bb4e65db555",
-      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "note": "Decision-only opponent pick at resolution; no activation declaration. LP condition: R-FFA-LP-COMPARE (owner 2026-10-21), every living opponent in FFA; stock amount and recipient rules remain.",
       "chooserClass": "CH-DECISION"
     },
     {
@@ -8412,6 +9089,18 @@
       "stockSha256": "d736ef0bebd4e7ac9111964f2a0f8574fea2b927e1bb341d347df62f904fadbf",
       "note": "Decision-only opponent pick at resolution; no activation declaration.",
       "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 98380593,
+      "file": "c98380593.lua",
+      "name": "Supremacy Berry",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "rectg"
+      ],
+      "stockSha256": "fd01f65627449fd8e828d7fcb53c73e036a00ff4dba124a0a01109d0c5ac3ee2",
+      "note": "R-FFA-LP-COMPARE, owner 2026-10-22: lower than every living opponent, otherwise higher branch (mixed and partial ties included); all equal is neutral. FFA only."
     },
     {
       "code": 98520301,

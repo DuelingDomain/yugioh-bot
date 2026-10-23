@@ -1,5 +1,10 @@
 [
   {
+    "stockPath": "card_counter_constants.lua",
+    "stockSha256": "aae363faae28e75d1fbca72aca938201e7a6b6bab3a396039d3715d12e746d5f",
+    "suffix": "card_counter_constants.lua"
+  },
+  {
     "stockPath": "official/c3743515.lua",
     "stockSha256": "0efda8bf0727ede4a05fc10dd06479b227664670d45d50b36de382d465af80d3",
     "suffix": "c3743515.lua"

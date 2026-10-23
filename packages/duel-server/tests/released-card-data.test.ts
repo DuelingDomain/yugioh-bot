@@ -57,6 +57,7 @@ function fixture() {
   const scripts = join(dir, "stock"); mkdirSync(join(scripts, "official"), { recursive: true }); mkdirSync(join(scripts, "pre-release"));
   for (const file of ["official/c1.lua", "official/c2.lua", "pre-release/c17242022.lua", "pre-release/c999.lua"]) writeFileSync(join(scripts, file), `-- ${file}\n`);
   cpSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), join(scripts, "official/c3743515.lua"));
+  cpSync(new URL("./fixtures/card-scripts/card_counter_constants.lua", import.meta.url), join(scripts, "card_counter_constants.lua"));
   const archive = execFileSync("tar", ["-czf", "-", "-C", dir, "stock"]);
   const request = vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
@@ -140,6 +141,7 @@ it("restores stock bytes when a shared patch is retired from a cached recipe", (
   const stock = readFileSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), "utf8");
   const path = join(scripts, "official/c3743515.lua");
   writeFileSync(path, stock);
+  cpSync(new URL("./fixtures/card-scripts/card_counter_constants.lua", import.meta.url), join(scripts, "card_counter_constants.lua"));
   installCardScriptPatches(scripts, recipe);
   expect(readFileSync(path, "utf8")).not.toBe(stock);
   writeFileSync(join(recipe, "MANIFEST.json"), "[]\n");
@@ -606,6 +608,7 @@ it("smoke-checks unchanged prerelease scripts during preparation, removes failur
  writeFileSync(join(scripts,"pre-release/c100000002.lua"),"local s,id=GetID();function s.initial_effect(c) error('broken preview') end");
  writeFileSync(join(scripts,"official/c1.lua"),"local s,id=GetID();function s.initial_effect(c) error('released error') end");
  cpSync(new URL("./fixtures/card-scripts/c3743515.lua",import.meta.url),join(scripts,"official/c3743515.lua"));
+ cpSync(new URL("./fixtures/card-scripts/card_counter_constants.lua",import.meta.url),join(scripts,"card_counter_constants.lua"));
  const archive=execFileSync("tar",["-czf","-","-C",dir,"stock"]);
  const original=f.request.getMockImplementation()!;
  f.request.mockImplementation(async(input:string|URL|Request)=>String(input).includes("/git/trees/")?Response.json(tree([...f.databases.keys()])):String(input).includes("codeload")?new Response(new Uint8Array(archive)):original(input));
