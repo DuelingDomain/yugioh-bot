@@ -3847,22 +3847,21 @@ export function createDuelHost(options: {
     if (service.get(slug, guildId).status !== "active") return project(slug, guildId, actor);
     const live = games.get(slug)?.game ?? game;
     if (!isReplayFork(service.get(slug, guildId)) && games.get(slug)?.surrendered.has(seat)) throw new RequestError("You surrendered this duel", 409);
-    const before: DuelEngineView = await live.view(seat);
-    if (before.revision !== command.revision || before.prompt?.id !== command.promptId) {
-      await settleClock(slug, guildId, live);
-      if (alreadyAccepted()) return project(slug, guildId, actor, games.get(slug)?.game, false, isReplayFork(room.session) ? { as: seat } : {});
-      if (service.get(slug, guildId).status !== "active") return project(slug, guildId, actor);
-      throw new RequestError("That choice is stale. Refresh the current duel state.", 409);
-    }
-    validateAnswer(before.prompt!, command.answer);
-    const decidedAt = now();
-    await settleClock(slug, guildId, live, decidedAt);
-    if (service.get(slug, guildId).status !== "active") {
-      return project(slug, guildId, actor);
-    }
     return withServerClockPaused(slug, guildId, async () => {
-      await settleClock(slug, guildId, live);
-      if (service.get(slug, guildId).status !== "active") return project(slug, guildId, actor);
+      // Prompt lookup and validation share the answer's finite server-work credit.
+      const before: DuelEngineView = await live.view(seat);
+      if (before.revision !== command.revision || before.prompt?.id !== command.promptId) {
+        await settleClock(slug, guildId, live);
+        if (alreadyAccepted()) return project(slug, guildId, actor, games.get(slug)?.game, false, isReplayFork(room.session) ? { as: seat } : {});
+        if (service.get(slug, guildId).status !== "active") return project(slug, guildId, actor);
+        throw new RequestError("That choice is stale. Refresh the current duel state.", 409);
+      }
+      validateAnswer(before.prompt!, command.answer);
+      const decidedAt = now();
+      await settleClock(slug, guildId, live, decidedAt);
+      if (service.get(slug, guildId).status !== "active") {
+        return project(slug, guildId, actor);
+      }
       if (!isReplayFork(service.get(slug, guildId)) && (games.get(slug)?.surrendered.has(seat) || service.privateState(slug, guildId).setup?.eliminatedSeats?.includes(seat))) throw new RequestError("You are out of this duel", 409);
       try {
         await live.answer(seat, command.promptId, command.answer);

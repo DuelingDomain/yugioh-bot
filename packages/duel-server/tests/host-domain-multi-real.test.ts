@@ -242,7 +242,14 @@ describeWithCores("Domain tables through the real host and worker", [needs.cards
         expect(view.seats[0]!.deckMaster?.inZone).toBe(false);
         expect(view.turnSeat).toBe(1);
       }
-      for (let seat = 1; seat < seatCountFor(format) - 1; seat++) { t.time.now += 61_000; await t.room(seat); }
+      for (let seat = 1; seat < seatCountFor(format) - 1; seat++) {
+        // Eliminating the prior seat can add presentation time before this bank starts.
+        const clock = (await t.room(seat)).clock!;
+        expect(clock.activeSeat).toBe(seat);
+        expect(clock.startedAt).not.toBeNull();
+        t.time.now = clock.startedAt! + clock.remainingMs[seat]! + 1;
+        await t.room(seat);
+      }
       for (let seat = 0; seat < seatCountFor(format); seat++) {
         const room = await t.room(seat);
         expect(room.session.status).toBe("completed");
