@@ -9,6 +9,10 @@ import { HISTORY_FILE, historyDetails, appendHistory } from "./engine-data-histo
 export const PIN_FILE = "packages/duel-server/scripts/prepare-data.ts";
 const CORE_PIN_FILES = ["packages/duel-server/domain-core/pins.json", "packages/duel-server/legacy-1v1/domain-core/pins.json"];
 const PIN_FILES = [PIN_FILE, ...CORE_PIN_FILES];
+const TABLE_FILE = "packages/duel-server/duelingbook-alt-passcodes.json";
+const NAMES_FILE = "packages/duel-server/duelingbook-alt-passcode-names.json";
+const COMPATIBILITY_FILES = [TABLE_FILE, NAMES_FILE];
+const DATA_FILES = [...PIN_FILES, ...COMPATIBILITY_FILES];
 export const BOT = { name: "github-actions[bot]", email: "41898282+github-actions[bot]@users.noreply.github.com" };
 const pinKeys = ["scripts", "database", "strings"];
 const pinPattern = (key) => new RegExp(`(["']?\\b${key}\\b["']?\\s*:\\s*["'])([a-f0-9]{40})(["'])`, "g");
@@ -32,13 +36,36 @@ export function validateArtifact(artifact) {
   if (artifact.matchingPrHead !== undefined && !/^[a-f0-9]{40}$/.test(artifact.matchingPrHead)) {
     throw new Error("Artifact matchingPrHead must be a full commit SHA");
   }
-  if (!Array.isArray(artifact.files) || !artifact.files.includes(PIN_FILE) ||
-      new Set(artifact.files).size !== artifact.files.length || artifact.files.some((file) => !PIN_FILES.includes(file))) {
-    throw new Error(`Artifact files must match the exact allowlist: ${PIN_FILES.join(", ")}`);
+  if (!Array.isArray(artifact.files) || !artifact.files.length ||
+      new Set(artifact.files).size !== artifact.files.length || artifact.files.some((file) => !DATA_FILES.includes(file))) {
+    throw new Error(`Artifact files must match the exact allowlist: ${DATA_FILES.join(", ")}`);
   }
   if (!artifact.next || Object.keys(artifact.next).length !== pinKeys.length ||
       pinKeys.some((key) => !/^[a-f0-9]{40}$/.test(artifact.next[key] ?? ""))) {
     throw new Error("Artifact next must contain exactly three full data pin SHAs");
+  }
+}
+
+/** The optional writable paths contain inert, bounded JSON only, never executable source. */
+function validateCompatibility(tableBytes, nameBytes) {
+  const parse = (bytes) => {
+    if (Buffer.byteLength(bytes) > 1_000_000) throw new Error("Dueling Book JSON is too large");
+    const value = JSON.parse(bytes);
+    if (!value || typeof value !== "object" || Array.isArray(value) || !Object.keys(value).length ||
+        Object.keys(value).length > 10_000 || JSON.stringify(value, null, 2) + "\n" !== bytes) {
+      throw new Error("Dueling Book JSON must be a nonempty canonical object");
+    }
+    return value;
+  };
+  const code = (value) => Number.isSafeInteger(value) && value > 0 && value <= 0xffffffff;
+  const key = (value) => /^[1-9]\d*$/.test(value) && code(Number(value));
+  const table = parse(tableBytes), names = parse(nameBytes);
+  const targets = new Set(Object.values(table).map(String));
+  if (Object.entries(table).some(([alt, real]) => !key(alt) || !code(real) || Number(alt) === real) ||
+      Object.entries(names).some(([id, name]) => !key(id) || !targets.has(id) || typeof name !== "string" ||
+        !name.trim() || name.length > 400 || /[\r\n\x00-\x1f]/.test(name)) ||
+      [...targets].some(id => !Object.hasOwn(names, id))) {
+    throw new Error("Dueling Book JSON must contain passcode pairs and matching card-name evidence");
   }
 }
 
@@ -52,6 +79,7 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   const artifactDir = resolve(cwd, env.UPDATE_ARTIFACT_DIR);
   const artifact = JSON.parse(readFileSync(join(artifactDir, "update.json"), "utf8"));
   validateArtifact(artifact);
+  const compatibilityChanged = artifact.files?.some(file => COMPATIBILITY_FILES.includes(file));
   const skip = (reason) => { log(`::warning::Engine data publication skipped: ${reason}`); return { status: "skipped", reason, pushed: false }; };
   if (!artifact.changed) return skip("unchanged");
   const base = env.BASE_BRANCH || "main";
@@ -98,16 +126,16 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
         if (!Array.isArray(published)) throw new Error("Invalid card data history");
         if (!published.some(entry => entry.pullRequest.url === pr)) historyRepair = published;
       }
-      if (historyRepair === null) return skip("identical-pins");
+      if (historyRepair === null && !compatibilityChanged) return skip("identical-pins");
     }
-    if (historyRepair === null && artifact.matchingPrHead === updateSha) return skip("identical-data");
+    if (historyRepair === null && artifact.matchingPrHead === updateSha && !compatibilityChanged) return skip("identical-data");
   }
   const original = git("show", `${baseSha}:${PIN_FILE}`);
   const old = readPinsFromSource(original);
-  if (pinKeys.every((key) => old[key] === artifact.next[key])) return skip("identical-pins");
+  if (pinKeys.every((key) => old[key] === artifact.next[key]) && !compatibilityChanged) return skip("identical-pins");
   let expected = original;
   for (const key of pinKeys) expected = expected.replace(pinPattern(key), (_, prefix, _old, suffix) => `${prefix}${artifact.next[key]}${suffix}`);
-  const expectedSources = new Map([[PIN_FILE, expected]]);
+  const expectedSources = new Map(expected === original ? [] : [[PIN_FILE, expected]]);
   for (const file of CORE_PIN_FILES) {
     const source = git("show", `${baseSha}:${file}`);
     const pattern = /("cardScripts"\s*:\s*\{[^{}]*"commit"\s*:\s*")([a-f0-9]{40})(")/g;
@@ -118,9 +146,9 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
     const updated = source.replace(pattern, (_, prefix, _old, suffix) => `${prefix}${artifact.next.scripts}${suffix}`);
     if (updated !== source) expectedSources.set(file, updated);
   }
-  const expectedFiles = [...expectedSources.keys()].sort();
+  const expectedFiles = [...expectedSources.keys(), ...artifact.files.filter(file => COMPATIBILITY_FILES.includes(file))].sort();
   if (JSON.stringify([...artifact.files].sort()) !== JSON.stringify(expectedFiles)) {
-    throw new Error("Artifact files must include exactly the changed synchronized pin files");
+    throw new Error("Artifact files must include exactly the changed synchronized pins and Dueling Book JSON");
   }
 
   // Apply only to a disposable index, then verify exact paths, modes and pin-only content. The untrusted patch
@@ -134,6 +162,11 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
     indexGit("apply", "--cached", join(artifactDir, "update.patch"));
     const changed = indexGit("diff", "--cached", "--name-status", "-z", baseSha);
     if (changed !== expectedFiles.map((file) => `M\0${file}\0`).join("")) throw new Error("Patch changes files outside the exact pin allowlist");
+    if (compatibilityChanged) {
+      const table = indexGit("show", `:${TABLE_FILE}`), names = indexGit("show", `:${NAMES_FILE}`);
+      validateCompatibility(table, names);
+      for (const file of COMPATIBILITY_FILES) if (artifact.files.includes(file)) expectedSources.set(file, file === TABLE_FILE ? table : names);
+    }
     for (const [file, source] of expectedSources) {
       const modeBefore = git("ls-tree", baseSha, "--", file).split(" ")[0];
       const modeAfter = indexGit("ls-files", "--stage", "--", file).split(" ")[0];
@@ -141,6 +174,14 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
       if (indexGit("show", `:${file}`) !== source) throw new Error(`Patch must only replace the data pins in ${file}`);
     }
   } finally { rmSync(temporary, { recursive: true, force: true }); }
+
+  if (pr && updateSha && compatibilityChanged) {
+    const identical = DATA_FILES.every(file => git("ls-tree", updateSha, "--", file).trim() &&
+      git("show", `${updateSha}:${file}`) === (expectedSources.get(file) ?? git("show", `${baseSha}:${file}`)));
+    // History-only recovery is valid only for the same candidate, including both JSON files.
+    if (!identical) historyRepair = null;
+    else if (historyRepair === null) return skip("identical-data");
+  }
 
   if (git("status", "--porcelain", "--untracked-files=no").trim()) throw new Error("Publication requires a clean tracked checkout");
   const body = join(artifactDir, existsSync(join(artifactDir, "pr-body.md")) ? "pr-body.md" : "report.md");
