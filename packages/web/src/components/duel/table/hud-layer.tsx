@@ -7,7 +7,9 @@ import { ChainTower, DOCK_PANES, DOCK_PANES_CAMERA, GridDock, GridFlyout, useHud
 import { EdgeHud } from "./grid-edge";
 import { LOCATION_EXTRA, LOCATION_FZONE, LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_PZONE, LOCATION_REMOVED, LOCATION_SZONE } from "../constants";
 import type { EquipLinks } from "../equip-links";
-import { cardExtraLines, NEGATED_LINE } from "../inspector";
+import { pinnedExtraLines, NEGATED_LINE } from "../inspector";
+import { promptOwnsPress } from "../hover-drawer";
+import { isStaleCopy, staleCopy } from "../stale-pin";
 import { GridHoverPreview } from "./grid-preview";
 import type { DuelActivateHandler, InspectTarget } from "./types";
 
@@ -155,10 +157,14 @@ export function useHudPane({ camera = false, log = true, cardPane = true, initia
   // A functional update, so a pin that the player just closed stays closed.
   const syncPin = useCallback((seats: readonly DuelSeatView[]) => {
     setPin((current) => {
-      if (!current || current.keep) return current;
+      if (!current || current.keep || isStaleCopy(current.card)) return current;
       const found = findLiveCard(current.card, seats, current.handSize);
-      // A card that left its zone (an activated hand card, a monster that was sent away) keeps the pin with its last copy: the pin ends only by the player.
-      if (found == null) return current;
+      // A card that left its zone (an activated hand card, a monster that was sent away) keeps the pin, with a stale copy of it (printed card only,
+      // no ATK / DEF, counters or links, and a line that says it is gone): the pin ends only by the player.
+      if (found == null) {
+        const card = current.card;
+        return "location" in card && SYNCED_LOCATIONS.has(card.location) ? { ...current, card: staleCopy(card) } : current;
+      }
       return found.card === current.card && found.handSize === current.handSize ? current : { card: found.card, anchor: current.anchor, handSize: found.handSize };
     });
   }, []);
@@ -180,7 +186,9 @@ export function useHudEscape(hud: HudPaneState, enabled: boolean, suspended: boo
   const paneOpen = hud.pane != null;
   // With no flyout open, a press never closes the pin (only Esc does).
   const keepPress = useCallback(() => !paneOpen, [paneOpen]);
-  useHudDismiss(enabled && (paneOpen || pinned), suspended, hud.close, keepPress);
+  // With only the pin open, a prompt that Esc answers (Pass, No, Cancel) or that asks for a pick takes the key: the pin stays. A flyout still closes on Esc.
+  const skipKey = useCallback(() => !paneOpen && promptOwnsPress(), [paneOpen]);
+  useHudDismiss(enabled && (paneOpen || pinned), suspended, hud.close, keepPress, skipKey);
   const { close } = hud;
   // The HUD is gone (a narrow window): no flyout or pin waits for the HUD to come back.
   useEffect(() => { if (!enabled) close(); }, [enabled, close]);
@@ -197,7 +205,7 @@ const MODAL_OPEN = '[aria-modal="true"], [role="menu"], [role="dialog"]:not([ari
  *   `pinned != null` to the prompt panel's `escapeHeld` as well, or the older prompt listener answers first. A press on a button, a menu
  *   or the board does not close it, so a card menu or a prompt answer never loses the pinned card.
  * - A new prompt does not close it: the pin ends only when the player closes it.
- * - The board sync: a card that stays takes its fresh copy (ATK/DEF, position); a card that left its zone keeps its last copy.
+ * - The board sync: a card that stays takes its fresh copy (ATK/DEF, position); a card that left its zone keeps a stale copy (stale-pin.ts).
  *   A card that is not in a zone (a Deck Master, a material) is left alone.
  */
 export function useDrawerPin(
@@ -213,6 +221,8 @@ export function useDrawerPin(
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
       if (document.querySelector(MODAL_OPEN)) return;
+      // A prompt that Esc answers (Pass, No, Cancel) or that asks for a pick takes the key: the pin stays.
+      if (promptOwnsPress()) return;
       event.preventDefault();
       event.stopPropagation();
       set.current(null);
@@ -234,14 +244,17 @@ export function useDrawerPin(
   const hand = useRef<number | undefined>(undefined);
   const mine = useRef<DuelCard | DuelCardInfo | null>(null);
   useEffect(() => {
-    if (!pinned || !seats || !("location" in pinned) || !SYNCED_LOCATIONS.has(pinned.location)) return;
+    if (!pinned || !seats || !("location" in pinned) || !SYNCED_LOCATIONS.has(pinned.location) || isStaleCopy(pinned)) return;
     // A pin that the sync did not make: the hand size it starts from is the size of the hand now.
     if (mine.current !== pinned) hand.current = undefined;
     const found = findLiveCard(pinned, seats, hand.current);
     hand.current = found?.handSize ?? hand.current;
     // Functional updates: a pin that the player just closed stays closed.
     if (found == null) {
-      mine.current = pinned;
+      // The card left its zone (or turned face-down): the pin keeps a stale copy of it.
+      const stale = staleCopy(pinned);
+      mine.current = stale;
+      set.current((current) => (current === pinned ? stale : current));
     } else if (found.card !== pinned) {
       mine.current = found.card;
       set.current((current) => (current === pinned ? found.card : current));
@@ -265,7 +278,7 @@ export function refreshHover<T extends { card: DuelCard; anchor: HTMLElement }>(
 
 /**
  * Keeps the pinned card true to the board: at each new revision it finds the card again by its zone and code, and takes
- * the fresh copy (stats, position, counters). A card that left the zone, or turned face-down, lets the pin go.
+ * the fresh copy (stats, position, counters). A card that left the zone, or turned face-down, keeps the pin with a stale copy (stale-pin.ts).
  */
 export function usePinSync(hud: HudPaneState, seats: readonly DuelSeatView[] | undefined): void {
   const { syncPin, pinned } = hud;
@@ -344,7 +357,7 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
   // A hovered board card says only what the art already shows (negated); a pinned one adds its equip, counter and material lines.
   const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
   const extras = useMemo(
-    () => (pinnedBoard ? cardExtraLines(pinnedBoard, equipLinks) : hoveredBoard?.negated === true ? [NEGATED_LINE] : []),
+    () => (pinnedBoard ? pinnedExtraLines(pinnedBoard, equipLinks) : hoveredBoard?.negated === true ? [NEGATED_LINE] : []),
     [pinnedBoard, hoveredBoard, equipLinks],
   );
   // The X button: the pin goes. With the keyboard, focus returns to the card that was clicked (a mouse click would only bring the hover peek back).

@@ -577,13 +577,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   useHudEscape({ ...hudState, pane: null }, hud, Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen);
   usePinSync(hudState, data?.engine?.seats);
   // The drawer pin of the shells without the HUD: Esc, a press on the bare background and the board sync (see useDrawerPin).
-  const drawerPinned = !hud && pinnedCard != null;
   useDrawerPin(hud ? null : pinnedCard, setPinnedCard, {
     seats: data?.engine?.seats, suspended: Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen,
   });
     const promptMenuOpen = Boolean(activeMenu) || deckMenuOpen;
-  // An open flyout or a pinned card holds only Esc (it closes it); the other prompt keys keep answering.
-  const hudFlyoutOpen = hud && (hudState.pane != null || hudState.pinned != null);
+  // An open flyout holds only Esc (it closes it); the other prompt keys keep answering. A pinned card does not hold it: the prompt checks that itself
+  // (prompt-center.tsx), because a prompt that Esc answers (Pass, No, Cancel) takes the key and the pin stays.
+  const hudFlyoutOpen = hud && hudState.pane != null;
   const rowPreview = useRowPreview(prompt?.id ?? null);
 
   // Human attack flow: pick the attacker in the menu (preview arrow), aim at a target, confirm.
@@ -1767,7 +1767,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       data-prompt-surface={dockMode === "idle" ? undefined : ""}
     >
       <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
-        draft={draft} onSubmit={onSubmitAnswer} menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen || drawerPinned}
+        draft={draft} onSubmit={onSubmitAnswer} menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen}
         active={data.session.status === "active" && !viewerOut} aim={promptAim} headless={centered} suspended={centered && !revealed}
         waitingName={(multi || forkMode) && prompt ? playerName(prompt.seat) : null}
         disabledIds={engine ? outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats)) : undefined} />
@@ -1831,7 +1831,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <RowPreviewBoundary row={rowPreview} enabled>
         <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}
         busy={busy || Boolean(error) || catchingUp || (prompt == null && pick.waiting != null)} offline={Boolean(error)} draft={draft} onSubmit={onSubmitAnswer}
-        menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen || drawerPinned} chain={engine.chain} aim={promptAim}
+        menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen} chain={engine.chain} aim={promptAim}
         aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
         reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
         outSeats={outOrLeavingSeats(engine.seats)} leavingSeats={leavingOnlySeats(engine.seats)}

@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { X } from "lucide-react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { useCardHoverInfo } from "../card-hover-info";
 import { cardTextStyle, useCardTextSize } from "../card-text-size";
-import { claimDrawerPress } from "../hover-drawer";
+import { aimPressClaimed, claimDrawerPress, pickPromptId, promptOwnsPress, subscribePickPrompt } from "../hover-drawer";
+import { useIsNarrow } from "../side-panel";
+import { isStaleCopy } from "../stale-pin";
 import { NEGATED_LINE } from "../inspector";
 import { cardArtUrl, cardInspectLines, isDefenseAt, isHiddenCard } from "../constants";
 import styles from "./grid-hud.module.css";
@@ -82,6 +84,36 @@ function chooseSide(aside: HTMLElement, current: "left" | "right", open: boolean
   return open ? current : "left";
 }
 
+/** The boxes a pick prompt asks the viewer to click: every legal zone, card or hand slot on the table. */
+function legalBoxes(): Box[] {
+  const out: Box[] = [];
+  for (const el of document.querySelectorAll<HTMLElement>('[data-legal="true"]')) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) out.push(box(rect, el.closest("[data-hand-seat]") ? rect.width * HAND_GROW : 0));
+  }
+  return out;
+}
+
+/**
+ * Where a pinned drawer stands while the viewer has a pick prompt (a zone, a target, a card): on a side that covers none of the legal boxes. The
+ * side it has comes first, then the other one. With both covered it tucks away (`tuck`): the pin stays and comes back when the prompt ends. The check
+ * runs on the pointer-taking drawer, so it must not stay on top of a target: the drawer takes the click, not the zone under it.
+ */
+function pickPlacement(aside: HTMLElement, current: "left" | "right"): { side: "left" | "right"; tuck: boolean } {
+  const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
+  const width = aside.offsetWidth;
+  const strips = {
+    left: { left: parent.left, right: parent.left + width, top: parent.top, bottom: parent.bottom },
+    right: { left: parent.right - width, right: parent.right, top: parent.top, bottom: parent.bottom },
+  };
+  const targets = legalBoxes();
+  const covered = (strip: Box) => targets.some((target) => area(target, strip) > 0);
+  if (!covered(strips[current])) return { side: current, tuck: false };
+  const other = current === "left" ? "right" : "left";
+  if (!covered(strips[other])) return { side: other, tuck: false };
+  return { side: current, tuck: true };
+}
+
 /** The drawer lingers this long after the pointer leaves, so a move between two cards does not flicker. */
 export const PREVIEW_HIDE_MS = 150;
 
@@ -123,12 +155,17 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
   const [open, setOpen] = useState(false);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
-  // An open drawer owns the first Esc (hover only: a pinned drawer closes with the HUD's own Esc) and the first right click (hover and pinned).
-  // The press is claimed, so the prompt panels let it go and the next press answers.
+  // An open hover drawer owns the first Esc and the first right click; a pinned drawer owns the right click (its Esc is the HUD's own: hud-layer.tsx).
+  // The press is claimed, so the prompt panels let it go and the next press answers. A pinned drawer gives the press to the prompt when the prompt
+  // uses it (it answers Pass / No / Cancel, or it asks for a pick): the pin stays then, and the X button is the way to close it.
   // The listeners stay while the drawer is still on screen in its hide delay, so a press then still closes it at once.
   useEffect(() => {
     if (!showable && !open) return;
     const onContext = (event: MouseEvent) => {
+      // The attack aim used this right click before (it dropped the aim): one right click does one thing. (The page blocks the browser menu with
+      // preventDefault before any of us run, so `defaultPrevented` cannot tell.)
+      if (aimPressClaimed(event)) return;
+      if (pinned && showable && promptOwnsPress()) return;
       claimDrawerPress(event);
       event.preventDefault();
       if (!showable) setOpen(false);
@@ -191,6 +228,47 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
     setSide(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showable, pinned, currentKey]);
+  // A pick prompt of the viewer (a zone, a target, a card) must not find the pinned drawer on top of its boxes: the drawer takes the click, not the
+  // zone under it. It takes the side that covers none of them; with both covered it tucks away (the pin stays) and comes back when the prompt ends or
+  // changes. On a narrow screen the drawer is most of the board, so it always tucks while the viewer picks.
+  const pickId = useSyncExternalStore(subscribePickPrompt, pickPromptId, () => null);
+  const narrow = useIsNarrow();
+  const [tucked, setTucked] = useState(false);
+  const sideRef = useRef(side);
+  sideRef.current = side;
+  const holdingPin = pinned && showable != null;
+  useLayoutEffect(() => {
+    const aside = asideRef.current;
+    if (!aside || !holdingPin || pickId == null) {
+      setTucked(false);
+      return;
+    }
+    if (narrow) {
+      setTucked(true);
+      return;
+    }
+    let frame = 0;
+    const place = () => {
+      const next = pickPlacement(aside, sideRef.current);
+      setTucked(next.tuck);
+      if (next.side !== sideRef.current) setSide(next.side);
+    };
+    place();
+    const again = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(place);
+    };
+    window.addEventListener("resize", again);
+    // The legal boxes change while the prompt stays (a toggle pick, a sum): look again.
+    const observer = typeof MutationObserver === "undefined" ? null : new MutationObserver(again);
+    observer?.observe(aside.offsetParent ?? document.body, { subtree: true, attributes: true, attributeFilter: ["data-legal"] });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", again);
+      observer?.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holdingPin, pickId, narrow, currentKey]);
   // The drawer starts under the header pills that stand over its edge (the turn pill, the clocks): the header sits at a different height in each shell.
   useLayoutEffect(() => {
     const aside = asideRef.current;
@@ -215,17 +293,22 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
 
   if (!current) return null;
 
-  const { facts, combat } = cardInspectLines(current);
+  const lines = cardInspectLines(current);
+  // A stale pin (the card left the board) shows the printed card only: its old ATK / DEF and position no longer hold.
+  const stale = isStaleCopy(current);
+  const { facts } = lines;
+  const combat = stale ? null : lines.combat;
   const position = combat && "location" in current && current.position != null ? (isDefenseAt(current.location, current.position) ? "Defense Position" : "Attack Position") : null;
   return (
     <aside
       ref={asideRef}
       className={styles.preview}
       data-testid="hover-preview"
-      data-open={open ? "true" : "false"}
+      data-open={open && !tucked ? "true" : "false"}
+      data-tucked={tucked ? "true" : undefined}
       data-side={side}
       data-motion={reducedMotion ? "none" : "slide"}
-      aria-hidden={open ? undefined : "true"}
+      aria-hidden={open && !tucked ? undefined : "true"}
       data-pinned={frozen ? "true" : undefined}
       data-hud-keep={frozen ? "" : undefined}
       aria-label={frozen ? "Pinned card" : undefined}

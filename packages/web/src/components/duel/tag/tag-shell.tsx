@@ -178,6 +178,8 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
   usePinSync(hudState, engine.seats);
   // An open flyout, a pinned card or the pinned phone drawer holds only Esc (it closes it).
   const hudOpen = (hud && (hudState.pane != null || hudState.pinned != null)) || (narrow && phoneCard != null);
+  // Only a flyout holds the prompt's Esc; a pinned card does not (the prompt checks it: a prompt that Esc answers takes the key and the pin stays).
+  const paneOpen = hud && hudState.pane != null;
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
   // A replay suspends input while another card view loads: the open flyout stays (the table is hidden and inert meanwhile).
@@ -339,7 +341,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
       busy={controller.busy}
       draft={controller.draft}
       onSubmit={controller.onAnswer}
-      menuOpen={suspended} escapeHeld={hudOpen}
+      menuOpen={suspended} escapeHeld={paneOpen}
       active={!terminal && !viewerOut}
       aim={flow.promptAim ?? undefined}
       headless={centered}
@@ -475,7 +477,7 @@ function TagShellBody(props: TagShellRootProps & { preferences: DuelPreferences 
                     offline={controller.offline}
                     draft={controller.draft}
                     onSubmit={controller.onAnswer}
-                    menuOpen={suspended} escapeHeld={hudOpen}
+                    menuOpen={suspended} escapeHeld={paneOpen}
                     chain={engine.chain}
                     aim={flow.promptAim ?? undefined}
                     aimLocked={flow.locked}

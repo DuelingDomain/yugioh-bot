@@ -3,7 +3,7 @@
 import { useCallback, useMemo, type ReactNode } from "react";
 import { Info, ScrollText, SlidersHorizontal, X } from "lucide-react";
 import { EdgeDrawer } from "./edge-drawer";
-import { cardExtraLines, cardScrollerProps, NEGATED_LINE } from "./inspector";
+import { pinnedExtraLines, cardScrollerProps, NEGATED_LINE } from "./inspector";
 import { ChainTower, HUD_PANE_LABEL, type HudPane } from "./table/grid-hud";
 import { GridHoverPreview } from "./table/grid-preview";
 import { HUD_KEEP, type HudLayerProps } from "./table/hud-layer";
@@ -50,7 +50,7 @@ export function RoomEdgeLayer({
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
   const extras = useMemo(
-    () => (pinnedBoard ? cardExtraLines(pinnedBoard, equipLinks) : hoveredBoard?.negated === true ? [NEGATED_LINE] : []),
+    () => (pinnedBoard ? pinnedExtraLines(pinnedBoard, equipLinks) : hoveredBoard?.negated === true ? [NEGATED_LINE] : []),
     [pinnedBoard, hoveredBoard, equipLinks],
   );
   const { pinAnchor } = hud;
