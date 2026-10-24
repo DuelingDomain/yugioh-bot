@@ -939,6 +939,9 @@ export class Session {
       if (expect.defense != null && card.defense !== expect.defense) {
         problems.push(`${label}: expected DEF ${expect.defense}, got ${card.defense}`);
       }
+      if (expect.lpOpponent != null && card.lpOpponent !== expect.lpOpponent) {
+        problems.push(`${label}: expected LP opponent ${expect.lpOpponent}, got ${card.lpOpponent}`);
+      }
       if (expect.negated != null && (card.negated ?? false) !== expect.negated) {
         problems.push(`${label}: expected negated ${expect.negated}, got ${card.negated ?? false}`);
       }

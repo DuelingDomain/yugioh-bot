@@ -137,6 +137,7 @@ export const NEGATED_LINE = "Effects negated";
 export function cardExtraLines(card: DuelCard, equipLinks?: EquipLinks): string[] {
   const extras: string[] = [];
   if (card.negated === true) extras.push(NEGATED_LINE);
+  if (card.lpOpponent != null) extras.push(`LP opponent: Player ${card.lpOpponent + 1}`);
   const equipText = equipLinks ? equipSentence(roleOfCard(equipLinks, card)) : null;
   if (equipText) extras.push(equipText);
   if (card.counters?.length) {

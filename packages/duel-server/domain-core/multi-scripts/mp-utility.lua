@@ -585,3 +585,82 @@ function aux.MPCompareLP(tp,relation,margin)
 	end
 	return aux.MPCompareLPSeat(aux.MPKey(tp),relation,margin)
 end
+
+-- Owner ruling 2026-10-23: real-seat LP choices. Like MPChooseOpponent, use the
+-- ordinary seat descriptors, but leave the caller's binding/window untouched.
+function aux.MPOpponentLPs(tp)
+	local me=aux.MPKey(tp)
+	local points={}
+	for seat=0,3 do
+		local lp=Duel.MPGetLP(seat)
+		if seat~=me and lp~=nil then points[#points+1]={seat=seat,lp=lp} end
+	end
+	return points
+end
+function aux.MPAnyOpponentLP(tp,check)
+	for _,other in ipairs(aux.MPOpponentLPs(tp)) do
+		if check(other.lp,other.seat) then return true end
+	end
+	return false
+end
+-- No legal choice (or an eliminated remembered seat): highest living opponent.
+-- Read-only and independent of the current folded Lua perspective.
+function aux.MPHighestLPOpponent(me)
+	local best,highest
+	for seat=0,3 do
+		local lp=Duel.MPGetLP(seat)
+		if seat~=me and lp~=nil and (highest==nil or lp>highest) then best,highest=seat,lp end
+	end
+	return best,highest or Duel.MPGetLP(me) or 0
+end
+function aux.MPSelectLPOpponent(tp,check)
+	local choices={}
+	for _,other in ipairs(aux.MPOpponentLPs(tp)) do
+		if not check or check(other.lp,other.seat) then choices[#choices+1]=other.seat end
+	end
+	local seat=choices[1]
+	if #choices>1 then
+		local options={}
+		for i,other in ipairs(choices) do options[i]=0xfffe0000+other end
+		seat=choices[Duel.SelectOption(tp,table.unpack(options))+1]
+	end
+	if seat~=nil and Duel.MPGetLP(seat)~=nil then return seat,Duel.MPGetLP(seat) end
+	return aux.MPHighestLPOpponent(aux.MPKey(tp))
+end
+-- Reserved card-hint descriptions 0xfffd0000..3 name the actual LP opponent.
+-- The host projects these into the card inspector.
+function aux.MPLPOpponentHint(c,seat,reset)
+	local code=0x7ffd0000
+	if c:GetFlagEffectLabel(code)==seat and not reset then return end
+	c:ResetFlagEffect(code)
+	if seat~=nil then
+		c:RegisterFlagEffect(code,RESET_EVENT|RESETS_STANDARD|RESET_CONTROL|(reset or 0),EFFECT_FLAG_CLIENT_HINT,1,seat,0xfffd0000+seat)
+	end
+end
+function aux.MPCardLPOpponent(c)
+	local code=0x7ffc0000
+	local me=Duel.MPSeatOf(c)
+	local seat=c:GetFlagEffectLabel(code)
+	if seat~=nil and seat~=me and Duel.MPGetLP(seat)~=nil then return seat,Duel.MPGetLP(seat) end
+	return aux.MPHighestLPOpponent(me)
+end
+-- Choose once when summoned / first face-up application (also copied effects and
+-- preset boards). Being Set, changing control or leaving resets the choice.
+-- Never prompt in a continuous value/condition callback.
+function aux.MPRegisterLPOpponent(c)
+	local code=0x7ffc0000
+	local e=Effect.CreateEffect(c)
+	e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+	e:SetProperty(EFFECT_FLAG_CANNOT_DISABLE)
+	e:SetCode(EVENT_ADJUST)
+	e:SetRange(LOCATION_MZONE)
+	e:SetOperation(function(e,tp)
+		if not c:IsFaceup() then return end
+		if c:GetFlagEffect(code)==0 then
+			local seat=aux.MPSelectLPOpponent(tp)
+			c:RegisterFlagEffect(code,RESET_EVENT|RESETS_STANDARD|RESET_CONTROL,0,1,seat or -1)
+		end
+		aux.MPLPOpponentHint(c,aux.MPCardLPOpponent(c))
+	end)
+	c:RegisterEffect(e)
+end

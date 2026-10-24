@@ -71,6 +71,8 @@ export type ZoneExpect =
       /** Current ATK, including continuous effects and negation. */
       attack?: number;
       defense?: number;
+      /** Public real seat shown as this card's LP opponent. */
+      lpOpponent?: number;
       /** The negated mark of the view: true = effects negated, false = not (the field is absent when false). */
       negated?: boolean;
       /** Exact counters on the card: counter type to count. {} means no counters. */
