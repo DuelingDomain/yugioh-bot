@@ -23,9 +23,12 @@ export function parseActiveDuel(body: unknown): ActiveDuel | null {
   return { slug, state, role, format: format as ActiveDuel["format"] };
 }
 
-/** Pages that must keep working while a game runs: auth, sign-out, API, static assets, dev previews. */
+/**
+ * Pages that must keep working while a game runs: auth, sign-out, API, static assets, dev previews, and the admin
+ * console. The guard only moves the player; the admin pages and APIs still check access on the server.
+ */
 const EXEMPT_PREFIXES = [
-  "/api", "/_next", "/sign-in", "/sign-up", "/sso-callback", "/login", "/access", "/welcome-back", "/monitoring", "/dev",
+  "/api", "/_next", "/sign-in", "/sign-up", "/sso-callback", "/login", "/access", "/welcome-back", "/monitoring", "/dev", "/admin",
 ];
 
 function stripTrailingSlash(path: string): string {
