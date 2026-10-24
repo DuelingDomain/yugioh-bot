@@ -253,4 +253,4 @@ These docs stay next to their code.
 
 ## Waiting for an owner decision
 
-These files may be deleted after owner approval, so this index does not link them: `design/table-space-v2/`, `specs/ffa3-columns.md`, `specs/ffa3-columns-validation.md`, `specs/2026-10-07-tag-rules-verification.md`, `specs/2026-10-07-ffa-dice-opening-investigation.md`, `format-staples-follow-up.md`, the two alpha-access plans and the two design specs under `superpowers/`, and the two `effect-search-*missing-tags.csv` lists.
+The two `effect-search-*missing-tags.csv` lists may be deleted after owner approval, so this index does not link them.
