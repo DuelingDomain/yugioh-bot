@@ -65,8 +65,7 @@ with Pendulum Zones does not make them Pendulum Zones in Genesys.
 
 PR verification keeps real-worker, SQLite-backed deck-legality, and real-host
 admission tests. Pure unit files and the obsolete host-rule fingerprint fixture
-removed by the test cleanup stay deleted. See [the integration record](genesys-integration.md)
-for the current checks, retained tests, and local engine-data limits.
+removed by the test cleanup stay deleted.
 
 ## Integration status
 

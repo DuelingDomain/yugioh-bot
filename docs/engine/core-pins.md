@@ -1,10 +1,8 @@
-# Staging status and local engine checks
+# Engine pins and core hashes
 
-Staging is removed for now; it returns later on a separate server.
+This page records the pinned engine inputs, the verified core hashes and the local checks for the engine bundle.
 
-The staging workflow, Compose file, Caddy file and deployment scripts are removed.
-Restore them from git only when the separate server is ready. The shared engine
-pins and local build checks below remain in use.
+`scripts/ci/build-core.test.mjs` reads the `| Domain 1v1 |`, `| Standard multiplayer |` and `| Domain multiplayer |` rows of the first hash table below. It compares them with `packages/duel-server/domain-core/expected-sha256.txt`. Keep that table format.
 
 ## Engine files and image build
 
@@ -14,7 +12,7 @@ The `duel-bundled` image uses that bundle through the named `engine` context.
 The VM pulls the image and installs the matching bundle before starting services.
 Production runs the carried `prepare-runtime-data.sh` ownership helper after bundle installation
 and again immediately before starting services, so the pulled images can run as uid/gid 1000.
-See [the deployment pipeline](vm-runbook.md#deployment-pipeline) for the full procedure.
+See [the deployment pipeline](../deployment/vm-runbook.md#deployment-pipeline) for the full procedure.
 
 | Mode and layout | WASM loaded by the engine | Start guard |
 | --- | --- | --- |
@@ -79,8 +77,8 @@ databases and the shared Steamed Sabersaurus script patch, yielding 14,984 passc
 in the isolated Tag cache. The merged native golden
 was explicitly re-recorded with fresh card data: all 60 1v1/FFA rows match main,
 while 19 of 20 Tag rows differ with the Tag rules. `run-nduel.sh --check` passed
-all 80 rows with no skips or mismatches. Details and targeted checks are in
-[Tag rules verification](../specs/2026-10-07-tag-rules-verification.md#main-integration).
+all 80 rows with no skips or mismatches. The Tag rules are in
+[ADR 0002](../adr/0002-multiplayer-duel-rules.md).
 
 The earlier released-card preparation used `cards.cdb` plus `release-betb.cdb` at the
 same BabelCDB pin, yielding 14,845 passcodes (86 added). That data-only change
@@ -103,7 +101,7 @@ The prepared bundle version without optional built-core metadata changes from
 `661ab25721cdf1dfd2ad78e9e127899837ad769519c9ae5e3dd3d15ca815472d`.
 Versions with built-core metadata change too. The owner must approve merging/deployment;
 active-duel and replay version checks still apply. Selection, merge ordering and script
-coverage are documented in [engine data updates](engine-data-updates.md#released-card-data).
+coverage are documented in [engine data updates](../deployment/engine-data-updates.md#released-card-data).
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
 build/packaging scripts, pins, patches and Domain sources. Each cache stores both WASMs and their

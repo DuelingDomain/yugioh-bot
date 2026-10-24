@@ -7,7 +7,7 @@ costs, targets, immunity values, conditions, summoning rules or reset timing.
 ## Selection and rationale
 
 The evidence is the checked-in 2026-10-20 format sample described in
-[format-staples.md](format-staples.md):
+[format-staples.md](../architecture/effect-search/format-staples.md):
 `packages/shared/data/staples/decks.json` contains 79 TCG, 75 Domain and 80 Genesys
 accepted lists; `usage.json` records the sample provenance and policy. These are
 bounded public deck samples, not a claim about all games or tournament strength.
