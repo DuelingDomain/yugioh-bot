@@ -17,7 +17,7 @@ vi.mock("next/link", () => ({
 const nav = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => nav, usePathname: () => "/", useSearchParams: () => new URLSearchParams() }));
 
-const swr = vi.hoisted(() => ({ data: null as unknown, error: undefined as unknown, keys: [] as unknown[], mutate: vi.fn() }));
+const swr = vi.hoisted(() => ({ data: null as unknown, error: undefined as unknown, keys: [] as unknown[], mutate: vi.fn(async (..._args: unknown[]) => undefined) }));
 vi.mock("swr", () => ({
   default: (key: unknown) => { swr.keys.push(key); return { data: swr.data, error: swr.error, isLoading: false, mutate: swr.mutate }; },
   useSWRConfig: () => ({ mutate: swr.mutate }),
@@ -706,16 +706,17 @@ describe("the live room of a fork", () => {
     swr.data = forkRoom();
     const view = render(<DuelRoomView slug="fork-1" />);
     const reads = () => swr.mutate.mock.calls.filter(([value, options]) => typeof value === "function" && options !== undefined).length;
-    expect(reads()).toBe(1);
+    // One read reports the initial animation speed; another follows the answering seat.
+    expect(reads()).toBe(2);
     view.rerender(<DuelRoomView slug="fork-1" />);
     view.rerender(<DuelRoomView slug="fork-1" />);
-    expect(reads()).toBe(1);
+    expect(reads()).toBe(2);
     // A later revision that waits on the other seat again is a new request.
     const next = forkRoom();
     next.engine = { ...next.engine!, revision: next.engine!.revision + 1 };
     swr.data = next;
     view.rerender(<DuelRoomView slug="fork-1" />);
-    expect(reads()).toBe(2);
+    expect(reads()).toBe(3);
   });
 
   it("holds a seat picked by hand and offers a switch to the seat that must answer", () => {

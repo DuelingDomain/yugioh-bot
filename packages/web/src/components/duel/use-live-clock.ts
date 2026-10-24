@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DuelClock } from "@yugidraft/shared/duels";
 import { clockReceivedAt, liveClockMs } from "./clock-beep";
 
@@ -25,4 +25,18 @@ export function useLiveClockMs(clock: DuelClock | null | undefined, seat: number
   if (!clock) return null;
   const ms = liveClockMs(clock, seat, tick != null && tick.clock === clock ? tick.elapsed : 0);
   return Number.isFinite(ms) ? ms : null;
+}
+
+/** The old snapshot stops ticking as soon as an action is submitted; the reply replaces it. */
+export function useServerWaitClock(clock: DuelClock | null | undefined, waiting: boolean): DuelClock | null | undefined {
+  return useMemo(() => {
+    if (!clock || !waiting) return clock;
+    const elapsed = performance.now() - clockReceivedAt(clock);
+    return {
+      ...clock,
+      remainingMs: clock.remainingMs.map((_, seat) => liveClockMs(clock, seat, elapsed)),
+      activeSeat: null,
+      startedAt: null,
+    };
+  }, [clock, waiting]);
 }

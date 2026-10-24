@@ -721,7 +721,7 @@ describe("duel host clocks", () => {
     expect(stored?.snapshot_public_json).not.toContain("111");
   });
 
-  it("loses at validation after an awaited view crosses the deadline and does not journal", async () => {
+  it("accepts a decision received before the deadline when server validation crosses it", async () => {
     const db = new Database(":memory:");
     migrate(db);
     const { p1, p2 } = seedPlayers(db);
@@ -748,13 +748,12 @@ describe("duel host clocks", () => {
       command: { promptId: "p1", revision: 1, answer: { choice: "pass" } },
     });
     expect(late.status).toBe(200);
-    expect(readRoom(late.data).session.status).toBe("completed");
-    expect(readRoom(late.data).session.winnerSeat).toBe(1);
-    expect(readRoom(late.data).session.resultReason).toBe("Time limit");
-    expect(worker.revision).toBe(1);
-    expect(worker.turn).toBe(1);
-    expect(duels.privateState(session.slug, "g1").commands).toEqual([]);
-    expect(duels.get(session.slug, "g1").status).toBe("completed");
+    expect(readRoom(late.data).session.status).toBe("active");
+    expect(worker.revision).toBe(2);
+    expect(worker.turn).toBe(2);
+    expect(duels.privateState(session.slug, "g1").commands).toHaveLength(1);
+    expect(storedClock(duels, session.slug)?.activeSeat).toBe(1);
+    expect(storedClock(duels, session.slug)?.startedAt).toBe(31_001);
   });
 
   it("accepts an on-time answer whose engine work crosses the deadline and starts the next turn later", async () => {
