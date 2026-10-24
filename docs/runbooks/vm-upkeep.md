@@ -10,7 +10,7 @@ Keep the VM patched, with free disk and memory.
 
 | Task | Schedule | In repo? |
 |---|---|---|
-| OS patches | Manual. [Operations checklist](../deployment/operations-checklist.md) says `apt update && apt upgrade -y` | Text only |
+| OS patches | Manual. Run `apt update && apt upgrade -y` on the VM. See [VM setup](../deployment/vm-runbook.md#vm-setup-hetzner-cax11-or-similar) | Text only |
 | Weekly disk clean | Planned, **not set up** (ask owner) | No |
 | Swap file and disk/memory alerts | Planned, **not set up** (ask owner) | No |
 | Duel storage VACUUM | Manual, after compaction | [Runbook section](../deployment/vm-runbook.md#manual-duel-storage-vacuum) |

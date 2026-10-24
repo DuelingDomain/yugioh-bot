@@ -1,6 +1,6 @@
 # Worker timers
 
-Service: `worker` (`packages/worker`, Compose service `worker`). Code: `packages/worker/src/index.ts`. Map: [architecture](../architecture.md).
+Service: `worker` (`packages/worker`, Compose service `worker`). Code: `packages/worker/src/index.ts`. Map: [architecture](../architecture/README.md).
 
 ## Purpose
 

@@ -1,6 +1,6 @@
 # Format staples
 
-Runs as the `staples` job inside the [effect tagging](effect-tagging.md) workflow. Full design: [format-staples.md](../format-staples.md).
+Runs as the `staples` job inside the [effect tagging](effect-tagging.md) workflow. Full design: [format-staples.md](../architecture/effect-search/format-staples.md).
 
 ## Purpose
 

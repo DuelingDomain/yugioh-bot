@@ -49,8 +49,9 @@ Names in the first part of the table match `gh secret list -R DuelingDomain/yugi
 
 ## Related docs
 
-- [Architecture](../architecture.md)
+- [Docs index](../README.md)
+- [Architecture](../architecture/README.md)
 - [VM runbook](../deployment/vm-runbook.md) (deploy, rollback, restore)
 - [Engine data updates](../deployment/engine-data-updates.md)
-- [Effect tagging](../effect-tagging.md)
+- [Effect tagging](../architecture/effect-search/tagging.md)
 - [Discord bot setup](../deployment/discord-bot.md)
