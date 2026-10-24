@@ -52,7 +52,7 @@ import { placeTributeDock, sameDock, type DockPlace } from "./tribute-dock-place
 import base from "./prompts.module.css";
 import baseStyles from "./prompt-center.module.css";
 import { anyEdgeDrawerOpen } from "./edge-drawer";
-import { drawerClaimed, hoverDrawerOpen } from "./hover-drawer";
+import { drawerClaimed, hoverDrawerOpen, pinnedDrawerOpen, promptOwnsPress, setPickPrompt, setPromptDeclines, setViewerPrompt } from "./hover-drawer";
 import { useSkinExtra, useSkinStyles } from "./skin";
 import { useForkLabels } from "./table/fork-labels";
 import { useMedia } from "@/components/draft/room/use-media";
@@ -1619,6 +1619,25 @@ export function PromptCenter(props: PromptCenterProps) {
   // The compact yes/no bar is up (kind "response" with a pre-check, list not opened), or the list behind it.
   const precheck = kind === "response" ? precheckKind(prompt) : null;
   const checking = precheck != null && listFor !== prompt?.id;
+  // What the card drawer needs to know: Esc and a right click answer this prompt (so a pinned card stays), or it asks for a pick on the board (so the
+  // pinned card must not cover the targets).
+  const picksOnBoard = revealed && kind === "select" && onBoard !== false && prompt != null;
+  const declinable = revealed && kind != null && prompt != null && !(kind === "select" && onBoard !== false) && (checking || dismissAnswer(prompt) != null);
+  const pickId = picksOnBoard ? prompt.id : null;
+  useEffect(() => {
+    setPromptDeclines(declinable);
+    return () => setPromptDeclines(false);
+  }, [declinable]);
+  useEffect(() => {
+    setPickPrompt("panel", pickId);
+    return () => setPickPrompt("panel", null);
+  }, [pickId]);
+  // Any prompt the panel shows to the viewer: the pinned drawer keeps clear of its panel, and a narrow screen tucks it away (grid-preview.tsx).
+  const shownId = revealed && kind != null && prompt != null ? prompt.id : null;
+  useEffect(() => {
+    setViewerPrompt(shownId);
+    return () => setViewerPrompt(null);
+  }, [shownId]);
   const precheckRef = useRef<{ checking: boolean; backable: boolean; listFollows: boolean; yes: () => void; no: () => void; back: () => void } | null>(null);
   const answerYes = () => {
     if (!prompt || busy) return;
@@ -1856,7 +1875,8 @@ export function PromptCenter(props: PromptCenterProps) {
       // A badge opened by mouse keeps focus outside its portal but owns the keys.
       if (document.querySelector("[data-master-popover]")) return;
       // An open edge drawer owns Escape too (it closes on it).
-      if (event.key === "Escape" && (escapeHeldRef.current || anyEdgeDrawerOpen() || hoverDrawerOpen() || drawerClaimed(event))) return;
+      // A pinned card drawer owns the Esc too, unless this prompt answers it (Pass, No, Cancel): then the pin stays and the prompt is answered.
+      if (event.key === "Escape" && (escapeHeldRef.current || anyEdgeDrawerOpen() || hoverDrawerOpen() || (pinnedDrawerOpen() && !promptOwnsPress()) || drawerClaimed(event))) return;
       // A menu owns its keys: Escape closes it, and n / y in it must not answer the prompt behind.
       if (event.target instanceof Element && event.target.closest("[data-duel-menu],[role='menu']")) return;
       if (kindRef.current == null || barRef.current) return;

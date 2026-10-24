@@ -46,16 +46,19 @@ const DOCK_ICON = { log: ScrollText, settings: SlidersHorizontal, camera: Video 
  * (`suspended`) keeps Esc for itself, and so does an open modal dialog (Surrender). This listener does not run before
  * every other key handler: the prompt panel's capture listener on the window is older and runs first, so a shell passes
  * it "a flyout is open" as `escapeHeld` (it then ignores Esc only) instead of relying on `stopPropagation` here.
+ * `skipKey`: the Esc is not ours now (a prompt answers it).
  */
-export function useHudDismiss(active: boolean, suspended: boolean, onClose: () => void, keepPress?: (target: Element | null) => boolean): void {
+export function useHudDismiss(active: boolean, suspended: boolean, onClose: () => void, keepPress?: (target: Element | null) => boolean, skipKey?: () => boolean): void {
   const close = useRef(onClose);
   close.current = onClose;
   const keep = useRef(keepPress);
   keep.current = keepPress;
+  const skip = useRef(skipKey);
+  skip.current = skipKey;
   useEffect(() => {
     if (!active) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || suspended) return;
+      if (event.key !== "Escape" || suspended || skip.current?.()) return;
       // A modal dialog (Surrender) owns its Esc: the flyout stays shut behind it and the modal gets the key.
       if (document.querySelector('[aria-modal="true"]')) return;
       event.preventDefault();

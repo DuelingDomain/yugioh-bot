@@ -7,6 +7,7 @@ import { hasCardName, useDuelCardInfo } from "./card-info";
 import { cardTextStyle, useCardTextSize } from "./card-text-size";
 import { cardArtUrl, cardInspectLines, isHiddenCard } from "./constants";
 import { equipSentence, roleOfCard, type EquipLinks } from "./equip-links";
+import { isStaleCopy, staleLine } from "./stale-pin";
 import baseStyles from "./inspector.module.css";
 import type { PileHost } from "./pile-focus";
 import { useSkinStyles } from "./skin";
@@ -153,6 +154,11 @@ export function cardExtraLines(card: DuelCard, equipLinks?: EquipLinks): string[
     );
   }
   return extras;
+}
+
+/** The extra lines of a pinned board card: a stale copy (the card left the board) says so and shows nothing live: no equip link, counters or materials. */
+export function pinnedExtraLines(card: DuelCard, equipLinks?: EquipLinks): string[] {
+  return isStaleCopy(card) ? [staleLine(card)] : cardExtraLines(card, equipLinks);
 }
 
 /** The seat that owns a card, for tables of 3 or more seats: the inspector adds an "Owner" line in the seat colour. */

@@ -5,7 +5,7 @@ import { Link2, ScrollText, SlidersHorizontal, Video, X } from "lucide-react";
 import type { DuelCard, DuelCardInfo, DuelChainLink } from "@yugidraft/shared/duels";
 import { EdgeDrawer } from "../edge-drawer";
 import type { EquipLinks } from "../equip-links";
-import { cardExtraLines, NEGATED_LINE } from "../inspector";
+import { pinnedExtraLines, NEGATED_LINE } from "../inspector";
 import { ChainTower, HUD_PANE_LABEL, type HudPane } from "../table/grid-hud";
 import { GridHoverPreview } from "../table/grid-preview";
 import type { HudPaneState } from "../table/hud-layer";
@@ -108,7 +108,7 @@ export interface TagDrawersProps {
   nameOf: (seat: number) => string;
   seatTones: ReadonlyMap<number, { main: string; ink: string }>;
   logUnread: number;
-  preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean; held?: boolean } | null;
+  preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean; held?: boolean; pin?: DuelCard | DuelCardInfo } | null;
   equipLinks?: EquipLinks;
   /** Hold the preview back (a pick refusal hint stands over its card). */
   previewHidden?: boolean;
@@ -116,11 +116,11 @@ export interface TagDrawersProps {
 }
 
 export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion }: TagDrawersProps) {
-  const { pane, setPane, close, pinAnchor } = hud;
+  const { pane, setPane, close, closePane, pinAnchor } = hud;
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
   const extras = useMemo(
-    () => (pinnedBoard ? cardExtraLines(pinnedBoard, equipLinks) : hoveredBoard?.negated === true ? [NEGATED_LINE] : []),
+    () => (pinnedBoard ? pinnedExtraLines(pinnedBoard, equipLinks) : hoveredBoard?.negated === true ? [NEGATED_LINE] : []),
     [pinnedBoard, hoveredBoard, equipLinks],
   );
   const closePin = useCallback((byKeyboard: boolean) => {
@@ -166,7 +166,7 @@ export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, l
             size={LEFT_SIZE.chain}
             tabOffset={leftTabOffset(leftPanes.length, heights)}
           >
-            <PaneHead title="Chain" onClose={close} />
+            <PaneHead title="Chain" onClose={closePane} />
             <div className={styles.chainHost}>
               <ChainTower chain={chain} nameOf={nameOf} tones={seatTones} />
             </div>
@@ -179,6 +179,7 @@ export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, l
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
         held={preview?.held === true}
+        pin={preview?.pin ?? null}
         extras={extras}
         onClose={closePin}
       />

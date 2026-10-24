@@ -9,6 +9,7 @@ import { isAttackDuelistPrompt, isAttackTargetPrompt, optionsForKeys, optionZone
 import type { AimArrowProps, AimPointerSpot } from "./aim-arrow";
 import { aimPromptFor, aimTargetOf } from "./attack-aim";
 import { isOutOrLeaving } from "../multi-seat";
+import { claimAimPress } from "../hover-drawer";
 import { seatBehindBoard } from "./seat-at-point";
 import { targetChoices } from "./targets";
 import type { BattleAim, DuelActivateHandler, SeatPick, SeatTone, TableController, TableLayout } from "./types";
@@ -350,6 +351,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     // A right click drops the aim that came before the attack (the prompt panel does it for the core's own target step).
     const onContext = (event: MouseEvent) => {
       if (!preRef.current || suspendedFlag.current) return;
+      claimAimPress(event);
       event.preventDefault();
       if (liveRef.current) setLock(null);
       else preRef.current.cancel();

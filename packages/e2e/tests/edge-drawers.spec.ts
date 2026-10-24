@@ -200,6 +200,16 @@ for (const format of FORMATS) {
         await expect(page.locator('[data-edge-drawer="Inspect"], [data-edge-drawer="Card"]')).toHaveCount(0);
         // The pop-out has the large art and a close button.
         await expect(preview.locator("img").first()).toBeVisible();
+        // A pinned card stays: hovering another card does not replace it.
+        const pinnedArt = await preview.locator("img").first().getAttribute("src");
+        const others = page.locator('[data-kind="mz"]:has([data-card-art])');
+        for (let index = 0; index < await others.count(); index += 1) {
+          const box = await others.nth(index).boundingBox();
+          const pin = await preview.boundingBox();
+          if (box && box.width > 20 && pin && !overlaps(box, pin)) { await others.nth(index).hover({ force: true }); }
+        }
+        await expect(pinned).toHaveCount(1);
+        expect(await preview.locator("img").first().getAttribute("src")).toBe(pinnedArt);
         await info.attach("card-popout", { body: await page.screenshot(), contentType: "image/png" });
         await preview.getByTestId("hover-preview-close").click();
         await expect(pinned).toHaveCount(0);
