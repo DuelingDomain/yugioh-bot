@@ -52,7 +52,7 @@ The "Online now" message in Discord must change when a person goes online.
 | Messages stuck | Outbox paused by a rate limit. Wait. Check logs. |
 | Login fails | Reset `DISCORD_TOKEN` in the Discord developer portal. |
 
-Health: **unknown**. The owner must say whether the bot runs in production. The [VM runbook](../deployment/vm-runbook.md) says there is no bot service. `docker-compose.yml` has one (default off). The worker always has `DISCORD_BOT_ENABLED=0`.
+Health: the deploy starts the `bot` container in production (owner confirmed, 2026-10-24). It logs in only when `DISCORD_BOT_ENABLED=1` in the VM `.env`; otherwise it stays idle. The worker always has `DISCORD_BOT_ENABLED=0`.
 
 ## Cost/limits
 
