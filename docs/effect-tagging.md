@@ -33,9 +33,11 @@ excluded. Normal Pendulum Monsters with effects remain eligible.
    `report.profileCandidates`; hand-written profiles and the pinned synergy
    examples (Dark World and Tearlaments) must never be refresh candidates.
 4. To submit/collect, dispatch with `dry_run=false`. Approved `main` changes to
-   the engine preparation pin also trigger a run; a daily 07:30 UTC run collects
-   completed work. Without the API secret paid runs skip cleanly and emit the
-   warning `ANTHROPIC_API_KEY not set: N new cards not tagged` in the log and
+   the engine preparation pin also trigger a run. Scheduled runs collect completed
+   work at 07:30 UTC on Monday, Wednesday and Friday (every 2-3 days). Engine-data
+   updates start at 06:00 UTC on Monday and Thursday. Without the API secret,
+   paid runs skip cleanly and emit the warning
+   `ANTHROPIC_API_KEY not set: N new cards not tagged` in the log and
    job summary. The report separates new untagged cards from changed effects
    that need retagging. Free release-month updates can still be published.
    Explicit dry runs remain available. All runs share
@@ -193,9 +195,10 @@ These checks need no API secret and issue no GitHub writes or paid requests.
   `packages/shared/src/cards/effects/artifact.ts`. Each compressed file and its
   uncompressed content have SHA-256 descriptors.
 - `.github/workflows/effect-tagging.yml`: starts after an approved engine pin
-  merges to main, including Monday/Thursday engine update PRs; daily runs collect
-  completed batches. It tags the approved catalog, rather than sending unreviewed
-  engine PR input to the paid API. Engine update PRs do not wait for Batch completion.
+  merges to main, including Monday/Thursday engine update PRs; scheduled
+  Monday/Wednesday/Friday runs collect completed batches. It tags the approved
+  catalog, rather than sending unreviewed engine PR input to the paid API.
+  Engine update PRs do not wait for Batch completion.
 - Runtime APIs, `card_tags`, `card_tag_profiles`, `EFFECT_SEARCH=1`, the attribution
   constant, and summary display are unchanged. No API key is needed to search pinned tags. The optional hard-phrase reader
 uses a runtime key and the same durable ledger.
@@ -247,9 +250,9 @@ free. User identities are hashed only for this local rate table. Never delete
 claims to retry uncertain spend. Search responses contain no model attribution.
 
 
-## Daily release months
+## Release months
 
-The daily job also fills missing release months from the free
+The effect-tagging workflow also fills missing release months from the free
 [YGOPRODeck bulk API](https://ygoprodeck.com/api-guide/). This step makes no AI
 or paid calls and runs even when the tagging key is absent. Explicit workflow
 dry runs and ledger initialization skip it. The command reuses a 24-hour local disk cache. Disposable CI runs fetch fresh data
