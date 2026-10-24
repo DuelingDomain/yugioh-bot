@@ -1,6 +1,6 @@
 # Card status backend contract
 
-All symbols below are exported from `@yugidraft/shared/duels`. The same contract is produced by the legacy 1v1 engine, pinned 1v1 engine, FFA3, FFA4, and Tag. No UI is included.
+All symbols below are exported from `@yugidraft/shared/duels`. The same contract is produced by the legacy 1v1 engine, pinned 1v1 engine, FFA3, FFA4, and Tag. The board and inspector UI that reads it is described in [card status UI](#ui) at the end of this page.
 
 | `DuelCard` field | Type | Meaning |
 | --- | --- | --- |
@@ -34,4 +34,12 @@ Hint memory is derived solely from engine message order. Description add/remove 
 
 Stock coverage remains limited to cards that emit client hints. The selected staple overlays and their preparation/deployment path are documented in [card-status protection overlays](card-status-protection-overlays.md). No broad printed-text inference is used.
 
-Verification completed with Node 22.23.3: 224 targeted real-engine cases plus two existing real-core counter decoder cases passed, as did 44 existing installer integration checks. Shared/server builds and typechecks passed. The legacy query decoder now reads counter type before count; nonmatching IDs/counts are checked in public views and single/location queries across all six core variants. No UI was built. The overlay documentation includes resource provenance and rerun instructions; prepared data must be regenerated with the existing `duel:prepare` workflow to install the new suffixes.
+Verification completed with Node 22.23.3: 224 targeted real-engine cases plus two existing real-core counter decoder cases passed, as did 44 existing installer integration checks. Shared/server builds and typechecks passed. The legacy query decoder now reads counter type before count; nonmatching IDs/counts are checked in public views and single/location queries across all six core variants. The overlay documentation includes resource provenance and rerun instructions; prepared data must be regenerated with the existing `duel:prepare` workflow to install the new suffixes.
+
+## UI
+
+The web client reads this contract in `packages/web/src/components/duel/card-status-model.ts` (one pure model shared by the board and the drawers) and draws it in `card-status.tsx`.
+
+- Board: each face-up card has a status layer below the ATK / DEF plate, the Xyz material count and the equip chip, so those numbers are never covered. Protections are glyphs in an edge rail (top-left for you, bottom-right for a rival; a rail longer than the slots folds into "+N"). Counters are a stack of coins and a total (capped at "99+"); at most 3 coin types show and a "+" follows the total when there are more. The stack sits above the plate. On a turned seat field its offset is the real depth of the turned plate. Every glyph turns back to read upright for the viewer. Under 70px card width, protections are glyph-only (Spell, Trap and Monster immunities differ by shape, not only by colour) and the counters merge into one coin with the total. The layer never takes a click. The zone's accessible name and its tooltip list every item.
+- Card drawer (hover or pinned) and Card tab: a status list in this order, negated first, then each protection with its whole engine text, then each counter with its name and count, then (for a monster whose ATK or DEF differs from the printed value) a "Base ATK / DEF" line. On short windows (up to 820px high) the art stands beside the name and the list takes the full width under both, so a card with six long hints and a long effect text does not scroll.
+- Fixtures: `?status=1` on the table previews (`/dev/table-preview/{classic,ffa3,ffa4,tag}`) and `/dev/solid-preview` decorates every seat with the cases above, an equipped Xyz with materials and three counter types, a Continuous Spell and a Field Spell with counters. `packages/e2e/tests/negation-indicator.spec.ts` checks that no status box covers a plate or material count.

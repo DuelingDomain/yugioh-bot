@@ -37,6 +37,9 @@ export function StatusGlyph({ kind, label = false }: { kind: StatusKind; label?:
   return (
     <svg {...common} data-kind={kind} aria-hidden="true">
       <path className={styles.shield} d={SHIELD} />
+      {/* Under 70px the letters go; Spell and Trap immunity then differ from Monster immunity by outline, not only by colour (a circle, a diamond). */}
+      {kind === "imS" ? <circle className={styles.altShape} cx="12" cy="12" r="10" /> : null}
+      {kind === "imT" ? <path className={styles.altShape} d="M12 1.2L22.8 12 12 22.8 1.2 12z" /> : null}
       {kind === "imM" ? <Letter ch="M" /> : null}
       {kind === "imS" ? <Letter ch="S" /> : null}
       {kind === "imT" ? <Letter ch="T" /> : null}
@@ -78,17 +81,20 @@ export function CounterCoin({ badge, className }: { badge: CounterBadge; classNa
   );
 }
 
-/** Rail slots by container height: the glyphs that do not fit fold into one "+N" chip (so the rail never reaches the ATK / DEF plate). */
-const TIERS = [2, 3, 4] as const;
+/** Rail slots by the room between the rail and the ATK / DEF plate: the glyphs that do not fit fold into one "+N" chip. */
+const TIERS = [1, 2, 3, 4] as const;
 
-export function CardStatusLayer({ model, flip, defense }: { model: CardStatusModel; flip?: boolean; defense?: boolean }) {
+export function CardStatusLayer({ model, flip, defense, materials, equipped }: { model: CardStatusModel; flip?: boolean; defense?: boolean; materials?: boolean; equipped?: boolean }) {
   const { rail, counters, total } = model;
   if (rail.length === 0 && counters.length === 0) return null;
   const count = rail.length;
+  // "99+" already says "more"; the "+" of a stack with more than 3 coin types goes after a plain number only.
+  const capped = countText(total);
+  const totalText = counters.length > 3 && !capped.endsWith("+") ? `${capped}+` : capped;
   // For a tier of `cap` slots, a rail longer than `cap` shows cap - 1 glyphs and a "+N" chip.
   const hiddenAt = (index: number) => Object.fromEntries(TIERS.filter((cap) => count > cap && index >= cap - 1).map((cap) => [`data-h${cap}`, ""]));
   return (
-    <span className={styles.layer} data-card-status data-side={flip ? "opp" : "you"} data-defense={defense ? "true" : undefined}>
+    <span className={styles.layer} data-card-status data-side={flip ? "opp" : "you"} data-defense={defense ? "true" : undefined} data-materials={materials ? "" : undefined} data-equipped={equipped ? "" : undefined}>
       <span className={styles.inner}>
         {rail.length > 0 ? (
           <span className={styles.rail} data-status-rail>
@@ -103,9 +109,11 @@ export function CardStatusLayer({ model, flip, defense }: { model: CardStatusMod
           </span>
         ) : null}
         {counters.length > 0 ? (
-          <span className={styles.stack} data-status-counters={total}>
-            {counters.slice(0, 3).map((badge) => <CounterCoin key={badge.type} badge={badge} />)}
-            <b className={styles.total}>{countText(total)}{counters.length > 3 ? "+" : ""}</b>
+          <span className={styles.stackBox}>
+            <span className={styles.stack} data-status-counters={total}>
+              {counters.slice(0, 3).map((badge) => <CounterCoin key={badge.type} badge={badge} />)}
+              <b className={styles.total} data-status-total>{totalText}</b>
+            </span>
           </span>
         ) : null}
       </span>
@@ -114,16 +122,16 @@ export function CardStatusLayer({ model, flip, defense }: { model: CardStatusMod
 }
 
 /**
- * The full list for the card inspector and the card drawer: each protection or status with its glyph and the whole engine text,
- * then each counter with its coin, name and count. The negated line is not here (the extras list carries it).
+ * The full list for the card inspector and the card drawer: the negated line first (it carries the hooks the e2e specs read), then each
+ * protection or status with its glyph and the whole engine text, then each counter with its coin, name and count.
  */
 export function CardStatusList({ model, className }: { model: CardStatusModel; className?: string }) {
-  const lines = model.lines.filter((line) => !line.negated);
+  const lines = model.lines;
   if (lines.length === 0 && model.counters.length === 0) return null;
   return (
     <ul className={`${styles.list} ${className ?? ""}`} data-testid="card-status-list">
       {lines.map((line, index) => (
-        <li key={`l${index}`} className={styles.listRow} data-status-line>
+        <li key={`l${index}`} className={styles.listRow} data-status-line {...(line.negated ? { "data-negated": "true", "data-testid": "inspector-negated" } : {})}>
           <span className={styles.listGlyphs}>
             {line.kinds.map((kind) => (
               <span key={kind} className={styles.listGlyph} data-status-kind={kind}><StatusGlyph kind={kind} /></span>

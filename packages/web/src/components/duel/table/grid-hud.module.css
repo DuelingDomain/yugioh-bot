@@ -711,7 +711,7 @@
   display: block;
   flex: none;
   /* The drawer width, and no taller than the window leaves room for: the header (--pv-top) and ~300px for the name, the lines and some text. */
-  width: min(100%, max(150px, calc((100dvh - var(--pv-top) - 300px - var(--status-px, 0px) - max(0px, var(--text-chars, 0) * var(--pv-ct) * 0.035 - 80px)) * 421 / 614)));
+  width: min(100%, max(120px, calc((100dvh - var(--pv-top) - 300px - var(--status-px, 0px) - max(0px, var(--text-chars, 0) * var(--pv-ct) * 0.035 - 80px)) * 421 / 614)));
   aspect-ratio: 421 / 614;
   height: auto;
   margin: 0 auto;
@@ -722,7 +722,7 @@
 .previewId { flex: none; min-width: 0; }
 /* A short window (1366 x 768): a card with status rows puts the art beside its name and lines, so the whole effect still shows without scrolling. */
 @media (max-height: 820px) {
-  .preview[data-status] { --pv-ct: var(--ct, 15.5px); padding: 10px 14px 12px; }
+  .preview[data-status] { --pv-ct: var(--ct, 15.5px); --pv-w: max(var(--duel-drawer-w), min(380px, 30vw)); padding: 10px 14px 12px; }
   .preview[data-status][data-pinned="true"] { padding-top: 40px; }
   .preview[data-status] .previewHead { flex-direction: row; align-items: flex-start; gap: 10px; }
   .preview[data-status] .previewArt { width: 40%; margin: 0; }
@@ -771,9 +771,6 @@
   line-height: 1.4;
 }
 .previewExtras li { padding: 3px 0; border-top: 1px solid rgb(255 255 255 / 0.08); overflow-wrap: anywhere; }
-/* "Effects negated" in the pinned peek: the slashed circle of the card mark, then the words. */
-.previewExtras li.previewNegated { display: flex; align-items: center; gap: 0.4em; color: var(--duel-ink, #efe7d5); }
-.previewNegated svg { flex: none; width: 1.15em; height: 1.15em; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
 .previewClose {
   position: absolute;
   top: 8px;

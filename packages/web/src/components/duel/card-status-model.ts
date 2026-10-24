@@ -13,6 +13,7 @@ import {
   type DuelCounterGlyph,
   type DuelProtectionCategory,
 } from "@yugidraft/shared/duels";
+import { formatStat, TYPE_LINK } from "./constants";
 
 /** Rail glyphs in the order they show (most important first). */
 export type StatusKind = "neg" | "imM" | "imS" | "imT" | "imAll" | "noBD" | "noED" | "noTgt" | "noAtk" | "info";
@@ -154,21 +155,27 @@ export function baseStatsText(card: DuelCard | null | undefined): string | null 
   if (!card) return null;
   const baseAtk = typeof card.baseAttack === "number" ? card.baseAttack : null;
   const baseDef = typeof card.baseDefense === "number" ? card.baseDefense : null;
+  // A Link monster has no DEF.
+  const link = ((card.type ?? 0) & TYPE_LINK) !== 0;
   const atkDiffers = baseAtk != null && baseAtk !== card.attack;
-  const defDiffers = baseDef != null && baseDef !== card.defense;
+  const defDiffers = !link && baseDef != null && baseDef !== card.defense;
   if (!atkDiffers && !defDiffers) return null;
   const parts: string[] = [];
-  if (baseAtk != null) parts.push(`ATK ${baseAtk}`);
-  if (baseDef != null) parts.push(`DEF ${baseDef}`);
+  if (baseAtk != null) parts.push(`ATK ${formatStat(baseAtk)}`);
+  if (baseDef != null && !link) parts.push(`DEF ${formatStat(baseDef)}`);
   return `Base ${parts.join(" / ")}`;
 }
 
-/** Rows of the inspector status list (the negated line has its own row in the extras). */
+/** Rows of the status list: the negated line first, then each hint, then each counter. */
 export function statusListRows(model: CardStatusModel): number {
-  return model.lines.filter((line) => !line.negated).length + model.counters.length;
+  return model.lines.length + model.counters.length;
 }
 
-/** The height the status list and the base line take, in px: the inspector art gives it up (capped, so the art never vanishes). */
+/**
+ * The height the status list and the base line take, in px: the inspector art gives it up (capped, so the art never vanishes). A row is
+ * one 26px line, and a long engine text wraps (about 34 characters to a line in the drawer), each wrapped line adding 19px.
+ */
 export function statusReservePx(model: CardStatusModel, baseLine: boolean): number {
-  return Math.min(170, statusListRows(model) * 26 + (baseLine ? 22 : 0));
+  const lines = model.lines.reduce((sum, line) => sum + 26 + 19 * (Math.ceil(line.text.length / 34) - 1), 0);
+  return Math.min(480, lines + model.counters.length * 26 + (baseLine ? 22 : 0));
 }

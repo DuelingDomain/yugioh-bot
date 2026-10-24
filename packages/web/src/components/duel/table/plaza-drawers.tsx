@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link2, ScrollText, SlidersHorizontal, Video, X } from "lucide-react";
 import { EdgeDrawer } from "../edge-drawer";
-import { cardExtraLines, NEGATED_LINE } from "../inspector";
+import { cardExtraLines } from "../inspector";
 import { useLeftTabHeights } from "../tag/tag-drawers";
 import { ChainTower, HUD_PANE_LABEL, type HudPane } from "./grid-hud";
 import { GridHoverPreview } from "./grid-preview";
@@ -75,10 +75,9 @@ export function PlazaDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones,
   const settingsMounted = useLinger(pane === "settings");
 
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
-  const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
   const extras = useMemo(
-    () => (pinnedBoard ? cardExtraLines(pinnedBoard, equipLinks) : hoveredBoard?.negated === true ? [NEGATED_LINE] : []),
-    [pinnedBoard, hoveredBoard, equipLinks],
+    () => (pinnedBoard ? cardExtraLines(pinnedBoard, equipLinks) : []),
+    [pinnedBoard, equipLinks],
   );
   const closePin = useCallback((byKeyboard: boolean) => {
     close();

@@ -8,7 +8,6 @@ import { cardTextStyle, useCardTextSize } from "../card-text-size";
 import { CardStatusList } from "../card-status";
 import { baseStatsText, cardStatusModel, statusReservePx } from "../card-status-model";
 import { claimDrawerPress } from "../hover-drawer";
-import { NEGATED_LINE } from "../inspector";
 import { cardArtUrl, cardInspectLines, isDefenseAt, isHiddenCard } from "../constants";
 import styles from "./grid-hud.module.css";
 
@@ -93,7 +92,8 @@ export const PREVIEW_HIDE_MS = 150;
  * read the card text on it; the name, the type line, ATK / DEF, the owner and the effect text stand under it.
  * Hover: the drawer takes no pointer events, so the board under it keeps working and a hover on another card shows that card.
  * Pinned (`pinned`): the drawer stays when the pointer leaves, until `onClose` (the X button, Esc, a press outside, or a click on another card, which pins
- * that one). It then takes the pointer, adds the extra lines of the card (equip link, counters, materials) and the X button.
+ * that one). It then takes the pointer, adds the extra lines of the card (equip link, materials) and the X button. Every card with a status (negated, protections, counters)
+ * shows its status list under the type line, hovered or pinned.
  * It starts below the header pills that stand over its edge (`--pv-top`, measured), and it stays above the closed drawer tabs. Face-down cards of a rival show nothing.
  */
 export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, held = false, extras = [], onClose }: {
@@ -105,7 +105,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
   pinned?: boolean;
   /** `card` belongs to an open card action menu: with "Card info on hover: Off" it still shows, so the player reads the card they act on. */
   held?: boolean;
-  /** The extra lines of a pinned board card (equip link, counters, materials): the same ones as the Card drawer. */
+  /** The extra lines of a pinned board card (equip link, materials): the same ones as the Card drawer. */
   extras?: readonly string[];
   /** The X button was pressed. `byKeyboard`: Enter or Space, so focus should go back to the card (a mouse click would show the card's hover peek again). */
   onClose?: (byKeyboard: boolean) => void;
@@ -250,22 +250,16 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
               <i aria-hidden="true" />Owner <b>{owner.name}</b>{position ? ` · ${position}` : ""}
             </p>
           ) : position ? <p className={styles.previewOwner}>{position}</p> : null}
-          <CardStatusList model={status} />
         </div>
       </div>
+      {/* Full width under the art and the name, also on a short window where the art stands beside the name: the rows do not wrap in a narrow column. */}
+      <CardStatusList model={status} />
       {current.description ? (
         <p key={`${current.code}-${current.name}`} className={styles.previewText}>{current.description}</p>
       ) : null}
       {extras.length > 0 ? (
         <ul className={styles.previewExtras} data-testid="hover-preview-extras">
-          {extras.map((line) =>
-            line === NEGATED_LINE ? (
-              <li key={line} className={styles.previewNegated} data-negated="true" data-testid="inspector-negated">
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.6" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                {line}
-              </li>
-            ) : <li key={line}>{line}</li>,
-          )}
+          {extras.map((line) => <li key={line}>{line}</li>)}
         </ul>
       ) : null}
       {frozen ? (

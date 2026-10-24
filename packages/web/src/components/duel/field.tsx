@@ -282,6 +282,8 @@ export function ZoneSlot({
         type="button"
         className={styles.zoneHit}
         aria-label={name}
+        // The tooltip and the accessible description say what the glyphs and coins on the card mean (the layer itself takes no pointer).
+        title={statusSentence(status) ?? undefined}
         aria-pressed={selected}
         // A ghost is the facing seat's card: a click on it acts on nothing (hover still previews it).
         onClick={(event) => {
@@ -313,7 +315,7 @@ export function ZoneSlot({
             </span>
           ) : null}
           <EquipChip role={equipRole} flip={flip} />
-          <CardStatusLayer model={status} flip={flip} defense={defense} />
+          <CardStatusLayer model={status} flip={flip} defense={defense} materials={materialCount > 0} equipped={equipRole != null} />
           <ZoneMarks legal={legal} selected={selected} />
         </div>
         {pileCount != null ? <PileLabel kind={kind} count={pileCount} /> : null}
