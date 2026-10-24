@@ -725,7 +725,8 @@
   .preview[data-status] { --pv-ct: var(--ct, 15.5px); --pv-w: max(var(--duel-drawer-w), min(380px, 30vw)); padding: 10px 14px 12px; }
   .preview[data-status][data-pinned="true"] { padding-top: 40px; }
   .preview[data-status] .previewHead { flex-direction: row; align-items: flex-start; gap: 10px; }
-  .preview[data-status] .previewArt { width: 40%; margin: 0; }
+  .preview[data-status] .previewArt { width: 29%; margin: 0; }
+  .preview[data-status] { --pv-list: 0.86; }
   .preview[data-status] .previewId { flex: 1 1 0; }
   .preview[data-status] .previewText { margin-top: 8px; padding-top: 8px; }
 }

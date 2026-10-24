@@ -118,7 +118,7 @@ function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
 
   // The art is large and full width; the name, one compact facts line and ATK / DEF stand under it, then the effect text.
   return (
-    <div ref={rootRef} className={styles.root} data-header="stack" data-card-text={textSize} style={reserve > 0 ? { ...textStyle, "--status-px": `${reserve}px`, "--text-chars": description.length } as CSSProperties : textStyle}>
+    <div ref={rootRef} className={styles.root} data-header="stack" data-status={reserve > 0 ? "" : undefined} data-card-text={textSize} style={reserve > 0 ? { ...textStyle, "--status-px": `${reserve}px`, "--text-chars": description.length } as CSSProperties : textStyle}>
       <div className={`${styles.art} card-frame`}>
         <img src={cardArtUrl(code, "full")} alt="" />
       </div>

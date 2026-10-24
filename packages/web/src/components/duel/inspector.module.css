@@ -37,7 +37,7 @@
   flex: none;
   /* The whole width of the pane, but never taller than the window leaves room for: the name, the facts line and a few lines of text must
      stay in view under it (the pane scrolls for the rest of a long text). 421 / 614 is the card frame ratio. */
-  width: min(100%, max(200px, calc((100dvh - 340px - var(--status-px, 0px) - max(0px, var(--text-chars, 0) * var(--ct, 13px) * 0.035 - 80px)) * 421 / 614)));
+  width: min(100%, max(160px, calc((100dvh - 340px - var(--status-px, 0px) - max(0px, var(--text-chars, 0) * var(--ct, 13px) * 0.035 - 80px)) * 421 / 614)));
   min-width: 0;
   margin: 0 auto calc(4 * var(--duel-unit, 1px));
   background: #06080e;
@@ -213,6 +213,16 @@
 
   .art { width: min(100%, 16rem, max(160px, calc((100dvh - 340px - var(--status-px, 0px) - max(0px, var(--text-chars, 0) * var(--ct, 13px) * 0.035 - 80px)) * 421 / 614))); }
   .pileGrid { grid-template-columns: repeat(auto-fill, minmax(3.1rem, 1fr)); }
+}
+
+/* A short desktop window (1366 x 768): a card with status rows puts the art beside its name and facts, and the list and the text run full width under them, so the rows and most of the effect stay in view. */
+@media (max-height: 820px) and (min-width: 901px) {
+  .root[data-status] { --pv-list: 0.86; display: grid; grid-template-columns: 30% minmax(0, 1fr); grid-template-rows: auto 1fr; column-gap: calc(12 * var(--duel-unit, 1px)); row-gap: calc(6 * var(--duel-unit, 1px)); align-items: start; }
+  .root[data-status] .body { display: contents; }
+  .root[data-status] .art { grid-column: 1; grid-row: 1 / span 2; width: 100%; margin: 0; }
+  .root[data-status] .name { grid-column: 2; grid-row: 1; }
+  .root[data-status] .facts { grid-column: 2; grid-row: 2; }
+  .root[data-status] .body > :nth-child(n+3) { grid-column: 1 / -1; }
 }
 
 /* Owner line (tables of 3 or more seats): a dot in the seat colour, then the name. */

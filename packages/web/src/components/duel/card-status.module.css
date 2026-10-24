@@ -390,7 +390,7 @@
   padding: 0;
   list-style: none;
   color: var(--duel-ink-2, #c3bba8);
-  font-size: calc(var(--pv-ct, var(--ct, 13px)) * 0.92);
+  font-size: calc(var(--pv-ct, var(--ct, 13px)) * var(--pv-list, 0.92));
   line-height: 1.25;
 }
 

@@ -177,5 +177,5 @@ export function statusListRows(model: CardStatusModel): number {
  */
 export function statusReservePx(model: CardStatusModel, baseLine: boolean): number {
   const lines = model.lines.reduce((sum, line) => sum + 26 + 19 * (Math.ceil(line.text.length / 34) - 1), 0);
-  return Math.min(480, lines + model.counters.length * 26 + (baseLine ? 22 : 0));
+  return Math.min(480, Math.round((lines + model.counters.length * 26 + (baseLine ? 22 : 0)) * 1.12));
 }

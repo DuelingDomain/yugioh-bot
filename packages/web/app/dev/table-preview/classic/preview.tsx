@@ -10,6 +10,7 @@ import { withCardStatusEngine } from "@/components/duel/table/fixtures/card-stat
 import { isBattlePhase } from "@/components/duel/constants";
 import { ChainFx } from "@/components/duel/chain-fx";
 import { DuelField } from "@/components/duel/field";
+import { CardInspector, type InspectTarget } from "@/components/duel/inspector";
 import { FieldCracksScope } from "@/components/duel/field-cracks/context";
 import { duelFontClasses } from "@/components/duel/fonts";
 import { seatNamer } from "@/components/duel/multi-seat";
@@ -77,6 +78,8 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp
   }, [base, attack, late, lp, lpLate, status]);
   const engine = room.engine!;
   useDuelAnimationSpeed(reduced);
+  // `?status=1` also mounts the real desktop inspector, so the Card tab's status rows can be checked on hover.
+  const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [chain, setChain] = useState<DuelChainMode>(isDuelChainMode(chainParam) ? chainParam : "auto");
   const playerName = useMemo(() => seatNamer(room.session.seats), [room.session.seats]);
   const prompt = engine.prompt;
@@ -113,12 +116,13 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp
           <span />
         </header>
         <div className={roomStyles.layout}>
-          <aside className={roomStyles.inspector} />
+          <aside className={roomStyles.inspector}>{status ? <CardInspector target={inspect} onInspectCard={(card) => setInspect({ type: "card", card })} /> : null}</aside>
           <section className={roomStyles.boardColumn} aria-label="Duel field">
             <div className={roomStyles.board}>
               <DuelField
                 engine={engine} mySeat={mySeat} masterRule={sessionBoardRule(room.session, engine)} reducedMotion={reduced} priorityLive
                 legalKeys={legalKeys} selectedKeys={NO_KEYS} onActivate={noop} onInspect={noop}
+                onHoverCard={status ? (card) => { if (card && card.code != null) setInspect({ type: "card", card }); } : undefined}
                 bottomName={playerName(mySeat ?? 0)} topName={playerName(1 - (mySeat ?? 0))}
                 hub={
                   <PhaseHub
