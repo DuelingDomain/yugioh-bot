@@ -67,10 +67,10 @@ player hint retain their existing behavior.
 ## Implementation and delivery
 
 `packages/duel-server/card-script-patches/MANIFEST.json` pins the upstream SHA-256
-of every appended script, including `utility.lua`. The pin is
-[ProjectIgnis/CardScripts 5caccbf54d7d27b5208bef3b7bf49936eafc203c](https://github.com/ProjectIgnis/CardScripts/tree/5caccbf54d7d27b5208bef3b7bf49936eafc203c).
-Every selected official script matches the owner-provided installed data and
-that pin byte-for-byte. The utility fixture is the exact pinned stock helper.
+of every appended script, including `utility.lua`. The stock scripts come from
+the ProjectIgnis/CardScripts revision that `packages/duel-server/scripts/prepare-data.ts`
+pins. Every selected official script matches the owner-provided installed data and
+that revision byte-for-byte. The utility fixture is the exact pinned stock helper.
 
 The utility suffix registers one global `EVENT_ADJUST` observer when a selected
 script loads. It scans public face-up field cards, obtains the core's applicable

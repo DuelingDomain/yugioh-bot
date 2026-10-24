@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,8 @@ let directory = "";
 beforeAll(() => {
   directory = mkdtempSync(join(tmpdir(), "protection-hints-"));
   for (const name of ["cards.cdb", "strings.conf"]) symlinkSync(join(engineDataDirectory, name), join(directory, name));
+  // The manifest names the remap artifact in its integrity block, so the preflight and the engine need the file too.
+  if (existsSync(join(engineDataDirectory, "card-remaps.json"))) symlinkSync(join(engineDataDirectory, "card-remaps.json"), join(directory, "card-remaps.json"));
   for (const name of readdirSync(engineDataDirectory).filter(name => name.endsWith(".wasm") || name.endsWith(".sha256"))) symlinkSync(join(engineDataDirectory, name), join(directory, name));
   const scripts = join(directory, "card-scripts");
   const patched = new Set(["host-protection-hints.lua", "utility.lua", "card_counter_constants.lua", "c3743515.lua", ...PROTECTION_CARDS.map(code => `c${code}.lua`)]);
