@@ -245,6 +245,7 @@ export function GridMasterToken({
       {whole ? null : flyout}
       <section
         className={styles.master}
+        data-no-guard=""
         aria-label={title}
         data-legal={legal ? "true" : "false"}
         data-selected={selected ? "true" : "false"}
@@ -256,6 +257,7 @@ export function GridMasterToken({
           <button
             type="button"
             className={styles.masterToken}
+            data-action-click={pickable ? "true" : undefined}
             data-testid={id("hud-master-token")}
             aria-label={`${title}: ${master.card.name}${inUse ? `, in use (${status})` : ""}${summonLine ? `, ${summonLine}` : ""}`}
             aria-expanded={pickable ? undefined : open}

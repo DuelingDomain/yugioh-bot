@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { DuelCommand } from "@yugidraft/shared/duels";
-import { readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { duelAnimationSpeed, readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 
 export const runtime = "nodejs";
 
@@ -27,6 +27,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const result = await callDuelHost({
+    ...duelAnimationSpeed(request),
     op: "respond",
     slug,
     guildId: actor.guildId,

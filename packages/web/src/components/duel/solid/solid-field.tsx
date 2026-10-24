@@ -249,7 +249,7 @@ export function SolidField(props: SolidFieldProps) {
     >
       {rail("opp")}
       <div className={table.fieldwrap}>
-        <div className={table.plane} data-sv-plane="" data-light={activity.turnSeat === bottomIndex ? "you" : "opp"}>
+        <div className={table.plane} data-sv-plane="" data-board-motion="" data-light={activity.turnSeat === bottomIndex ? "you" : "opp"}>
           {/* The plane is one mat for both players: each half cracks from its own LP, split at the clock row. */}
           <FieldCracks seat={topIndex} lp={top?.lp} part="top" avoidSelector="[data-sv-clock]" splitSelector='[data-sv-clock="opp"]' />
           <FieldCracks seat={bottomIndex} lp={bottom?.lp} part="bottom" avoidSelector="[data-sv-clock]" splitSelector='[data-sv-clock="opp"]' />

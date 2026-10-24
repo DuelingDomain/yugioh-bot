@@ -398,9 +398,11 @@ export interface StoredDuelEvent {
  *   SELECT_BATTLECMD / ATTACK                 -> "battle"   (the Battle Step: attacks are declared)
  *   NEW_PHASE battle_step                     -> "battle"
  *   DAMAGE_STEP_START / NEW_PHASE damage      -> "damage"
- *   HINT event 40, 41 (start / before calc)   -> "damage"
+ *   HINT event 40 (start of Damage Step)     -> "damage"
+ *   HINT event 41 (before calc)              -> "before-damage-calculation"
  *   BATTLE / NEW_PHASE damage_cal / HINT 42   -> "damage-calculation"
- *   HINT event 43, 44 (after calc / end)      -> "damage"
+ *   HINT event 43 (after calc)               -> "after-damage-calculation"
+ *   HINT event 44 (end of Damage Step)       -> "damage-end"
  *   DAMAGE_STEP_END                           -> "battle"
  *   HINT event 25, 29 / NEW_PHASE battle(end) -> "end"     (the End Step)
  *   NEW_PHASE main2 / end, NEW_TURN           -> null
@@ -441,7 +443,10 @@ export function nextBattleStep(step: DuelBattleStep | null, message: OcgMessage)
     case OcgMessageType.HINT: {
       if (message.hint_type !== OcgHintType.EVENT) return step;
       const hint = Number(message.hint);
-      if (hint === 40 || hint === 41 || hint === 43 || hint === 44) return "damage";
+      if (hint === 40) return "damage";
+      if (hint === 41) return "before-damage-calculation";
+      if (hint === 43) return "after-damage-calculation";
+      if (hint === 44) return "damage-end";
       if (hint === 42) return "damage-calculation";
       if (hint === 25 || hint === 29) return "end";
       return step;

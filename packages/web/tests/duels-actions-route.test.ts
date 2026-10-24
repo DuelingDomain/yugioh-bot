@@ -41,6 +41,17 @@ describe("POST /api/duels/[slug]/actions error forwarding", () => {
     });
   });
 
+  it("forwards the viewer's chosen animation rate with an authenticated action", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, _init: RequestInit) => Response.json({ session: { slug: "table" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { POST } = await import("../app/api/duels/[slug]/actions/route");
+    const command = { promptId: "p1", revision: 0, answer: {} };
+    await POST(new NextRequest("http://localhost/api/duels/table/actions", {
+      method: "POST", headers: { "x-duel-animation-speed": "1.5" }, body: JSON.stringify(command),
+    }), { params: Promise.resolve({ slug: "table" }) });
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body as string)).toMatchObject({ animationSpeed: 1.5, playerId: 1 });
+  });
+
   it("forwards an active table cancellation with the authenticated actor", async () => {
     const cancelled = { session: { slug: "table", status: "cancelled", winnerSeat: null } };
     const fetchMock = vi.fn(async (_url: unknown, _init: RequestInit) => Response.json(cancelled));

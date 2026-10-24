@@ -1,9 +1,9 @@
-import { chainModeOf, type DuelAnswer } from "@yugidraft/shared/duels";
+import { chainModeOf, type DuelCommand } from "@yugidraft/shared/duels";
 import { eliminationAtTurnEnd, eliminationCodeOf, type EngineGame } from "./engine.js";
 import type { DuelGameWorker } from "./worker-client.js";
 
 /** Dispatch in journal order. Callers check the saved revision and ordinary prompt first. */
-export async function applyWorkerJournalCommand(game: DuelGameWorker, seat: number, command: { promptId: string; answer: DuelAnswer }): Promise<void> {
+export async function applyWorkerJournalCommand(game: DuelGameWorker, seat: number, command: Pick<DuelCommand, "promptId" | "answer" | "sortOrderVersion">): Promise<void> {
   const elimination = eliminationCodeOf(command.promptId);
   const mode = chainModeOf(command.promptId);
   if (mode !== null) {
@@ -13,7 +13,7 @@ export async function applyWorkerJournalCommand(game: DuelGameWorker, seat: numb
     if (!game.eliminate) throw new Error("Journal replay needs an engine that can eliminate a duelist");
     await game.eliminate(seat, elimination, eliminationAtTurnEnd(command.promptId));
   } else {
-    await game.answer(seat, command.promptId, command.answer);
+    await game.answer(seat, command.promptId, command.answer, command.sortOrderVersion ?? 0);
   }
 }
 
@@ -26,10 +26,10 @@ export function isPromptlessCommand(promptId: string): boolean {
 }
 
 /** Apply one journaled command to a game, the way a recover does. */
-export function applyJournaledCommand(game: EngineGame, seat: number, command: { promptId: string; answer: DuelAnswer }): void {
+export function applyJournaledCommand(game: EngineGame, seat: number, command: Pick<DuelCommand, "promptId" | "answer" | "sortOrderVersion">): void {
   const elimination = eliminationCodeOf(command.promptId);
   const mode = chainModeOf(command.promptId);
   if (mode !== null) game.setChainMode(seat, mode);
   else if (elimination !== null) game.eliminate(seat, elimination, eliminationAtTurnEnd(command.promptId));
-  else game.answer(seat, command.promptId, command.answer);
+  else game.answer(seat, command.promptId, command.answer, command.sortOrderVersion ?? 0);
 }

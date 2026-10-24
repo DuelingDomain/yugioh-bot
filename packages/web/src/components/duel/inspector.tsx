@@ -139,9 +139,10 @@ function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
   );
 }
 
-/** The extra lines of a board card: its equip link and Xyz materials (negation, protections and counters have their own list, card-status.tsx). The Card flyout and the pinned peek both show them. */
+/** The extra lines of a board card: its LP opponent, equip link and Xyz materials (negation, protections and counters have their own list, card-status.tsx). The Card flyout and the pinned peek both show them. */
 export function cardExtraLines(card: DuelCard, equipLinks?: EquipLinks): string[] {
   const extras: string[] = [];
+  if (card.lpOpponent != null) extras.push(`LP opponent: Player ${card.lpOpponent + 1}`);
   const equipText = equipLinks ? equipSentence(roleOfCard(equipLinks, card)) : null;
   if (equipText) extras.push(equipText);
   if (card.materials?.length) {

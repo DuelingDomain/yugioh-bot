@@ -53,6 +53,13 @@ if (metadata.changed) {
   await writeFile(join(artifact, "update.json"), JSON.stringify(metadata, null, 2) + "\n");
 }
 report = report.replace(/## Script errors in prod \(last 7 days\)\n[\s\S]*?(?=\n## |$)/, prodSection);
+if (metadata.duelingBook) {
+  const { source, mapped, skipped } = metadata.duelingBook;
+  report += `\n## Dueling Book alternate passcodes\n\nRefreshed from [public static card data](${source}). ${mapped} verified mappings. `
+    + `Skipped: ${Object.entries(skipped).map(([reason, count]) => `${reason}: ${count}`).join(", ")}.\n`;
+} else {
+  report += "\n## Dueling Book alternate passcodes\n\nRefresh unavailable; the committed compatibility table is retained.\n";
+}
 await writeFile(reportPath, report);
 const runUrl = `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 await writeFile(join(artifact, "pr-body.md"), boundedReport(report, runUrl, 60_000));

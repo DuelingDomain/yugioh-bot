@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, type ReactNode } from "react";
 import { useClerk } from "@clerk/nextjs";
+import { clearAuthDraft } from "@/components/bug-report/auth-draft";
 
 type SignOut = () => Promise<void>;
 
@@ -38,6 +39,7 @@ export function useSignOut(): SignOut {
   const signOut = useContext(SignOutContext);
   return useCallback(async () => {
     if (!signOut) throw new Error("useSignOut needs a SignOutProvider");
+    clearAuthDraft();
     await signOut();
   }, [signOut]);
 }

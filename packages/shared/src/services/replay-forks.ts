@@ -29,7 +29,7 @@ export interface ReplayForkCreateInput {
   source: ReplaySource;
   origin: ForkOrigin;
   /** Selected and checked by the host. Original source matching and prefix copying still use source. */
-  resources?: { bundleVersion: string; engineIdentity: EngineIdentity; firstTurnDraw: boolean; scriptErrorMode: "strict" | "tolerant" };
+  resources?: { bundleVersion: string; engineIdentity: EngineIdentity; firstTurnDraw: boolean; scriptErrorMode: "strict" | "tolerant"; keepDamageStepWindows?: boolean };
 }
 
 export interface ReplayForkRetryInput {
@@ -200,10 +200,12 @@ export function createReplayForkService(db: Database.Database): ReplayForkServic
         || (unknownChoice ? identity.coreFamily === "multi"
           : identity.coreFamily !== (source.session.format === "1v1" ? sourceEngineChoice(source) : "multi"))
         || !input.resources.bundleVersion.trim() || typeof input.resources.firstTurnDraw !== "boolean"
+        || (input.resources.keepDamageStepWindows !== undefined && typeof input.resources.keepDamageStepWindows !== "boolean")
         || (input.resources.scriptErrorMode !== "strict" && input.resources.scriptErrorMode !== "tolerant")) mismatch("Invalid selected fork resources");
       setup.engineIdentity = identity;
       setup.firstTurnDraw = input.resources.firstTurnDraw;
       setup.scriptErrorMode = input.resources.scriptErrorMode;
+      if (typeof input.resources.keepDamageStepWindows === "boolean") setup.keepDamageStepWindows = input.resources.keepDamageStepWindows;
       if (identity.coreFamily !== "multi") setup.engine = identity.coreFamily;
     }
     // Retain recorded engine rules in settings. A null clock disables live timers; no opening or invite is created.

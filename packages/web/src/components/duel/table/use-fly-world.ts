@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
+import { beginBoardMotion, holdBoardMotion } from "../board-motion";
 import { CAMERA_HOME_MS } from "./camera-model";
 import { normalizeAngle, type FlyWorld } from "./geometry";
 import { SEAT_TONE_HEX, type SeatTone } from "./types";
@@ -67,6 +68,9 @@ export function useFlyWorld(options: FlyWorldOptions): void {
     const id = ++tween.current;
     const t0 = performance.now();
     let frame = 0;
+    // The fly camera is a board move: no click lands on it while it turns (board-motion.ts). A jump holds for the settle time.
+    const endMotion = instant ? null : beginBoardMotion();
+    if (instant && !same) holdBoardMotion();
     const step = (now: number) => {
       if (id !== tween.current) return;
       const p = instant ? 1 : Math.min(1, (now - t0) / DURATION_MS);
@@ -77,9 +81,13 @@ export function useFlyWorld(options: FlyWorldOptions): void {
       pose.current = next;
       apply(next);
       if (p < 1) frame = requestAnimationFrame(step);
+      else endMotion?.();
     };
     step(t0);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      endMotion?.();
+    };
     // The pose values, not the object, decide: a new object with the same numbers must not restart the tween.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, target.yawDeg, target.tiltDeg, target.zoom, target.fx, target.fy, target.oy, free, reducedMotion]);

@@ -6,6 +6,7 @@ import { zoneKey } from "../constants";
 import { activatePromptFromField, isAttackDuelistPrompt, isDirectAttackPrompt, isAttackTargetPrompt, optionsForCard } from "../prompts";
 import { livePileCards, shouldClosePileForPrompt, type PileView } from "../pile-focus";
 import type { CardMenuState } from "../card-interactions";
+import { useBoardInputGuard, useOnBoardMotionStart } from "../board-input-guard";
 import { promptLegalKeys } from "../prompts";
 import { DEFAULT_SIDE_PANE, type SidePane } from "../side-panel";
 import { aimPromptFor, attackAimOf, isAttackStepPrompt, queuedAnswer, type AttackAim, type AttackAimTarget, type AttackTargets } from "./attack-aim";
@@ -162,6 +163,9 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
   }, [promptId]);
 
   const closeMenu = useCallback(() => setMenu(null), []);
+  // No click lands on a board that moves (board-motion.ts), and the card menu is anchored to a card that is about to slide: it closes.
+  useBoardInputGuard();
+  useOnBoardMotionStart(closeMenu);
   const reset = useCallback(() => {
     setMenu(null);
     setHover(null);

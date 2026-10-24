@@ -6,6 +6,7 @@ import { Check, LayoutGrid, Link2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardFace, cardFieldStats, materialsTarget } from "./card-face";
 import { CardActionMenu } from "./card-interactions";
+import { useOnBoardMotionStart } from "./board-input-guard";
 import { DECK_SURRENDER_ID, DECK_USE_ID, deckMenuOptions, deckOffersSurrender, useDeckSurrender } from "./deck-surrender";
 import { EquipChip, EquipLinksContext, useEquipRole } from "./equip-chip";
 import { EquipFx } from "./equip-fx";
@@ -418,6 +419,7 @@ export function PileSlot({
   const deckActs = legal || selected;
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const closeMenu = useCallback(() => setMenuAnchor(null), []);
+  useOnBoardMotionStart(closeMenu);
   const hold = useRef<{ timer: number; x: number; y: number } | null>(null);
   const clearHold = () => {
     if (hold.current != null) window.clearTimeout(hold.current.timer);
@@ -1325,6 +1327,7 @@ export function MasterDock({
   return (
     <section
       className={styles.masterDock}
+      data-no-guard=""
       data-local={local ? "true" : "false"}
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
@@ -1336,6 +1339,7 @@ export function MasterDock({
           <button
             type="button"
             className={styles.masterHit}
+            data-action-click={card ? "true" : undefined}
             aria-label={`${title}: ${master.card.name}${inUse ? `, in use (${status})` : ""}`}
             aria-pressed={selected}
             onClick={(event) => {

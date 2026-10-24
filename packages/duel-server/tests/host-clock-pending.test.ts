@@ -14,7 +14,7 @@ import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import { compileBoard, type BoardSpec } from "../src/presets/board.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
-import { currentMultiWasm, describeWithCores, needs } from "./support/cores.js";
+import { currentDomainMultiWasm, currentMultiWasm, describeWithCores, needs } from "./support/cores.js";
 
 const multiWasmPath = currentMultiWasm();
 const SECRET = "clock-pending-secret";
@@ -26,7 +26,7 @@ class BoardWorker implements DuelGameWorker {
   constructor(private readonly board: BoardSpec) {}
   get running() { return !this.stopped; }
   async create(options: GameOptions) {
-    const bytes = readFileSync(multiWasmPath);
+    const bytes = readFileSync(this.board.mode === "domain" ? currentDomainMultiWasm() : multiWasmPath);
     const multiWasmBinary = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
     const compiled = compileBoard(this.board, DATA).options;
     this.game = await createEngineGame({ ...options, decks: compiled.decks, startupScripts: compiled.startupScripts, multiWasmBinary });
@@ -64,13 +64,13 @@ async function table(format: DuelFormat, humans: number, board: BoardSpec) {
     players.push(seedIdentity(db, { guildId: "g1", name: `P${index}`, userId: seedUser(db, `u${index}`).userId, discordUserId: seedUser(db, `u${index}`).discordUserId ?? `u${index}` }).playerId);
   }
   const duels = createDuelService(db);
-  const session = duels.create({ guildId: "g1", organizerPlayerId: players[0]!, name: "Duel", mode: "normal", format, settings: { turnSeconds: 60, timeout: "loss" } });
+  const session = duels.create({ guildId: "g1", organizerPlayerId: players[0]!, name: "Duel", mode: board.mode ?? "normal", format, settings: { turnSeconds: 60, timeout: "loss" } });
   const worker = new BoardWorker(board);
   const time = { now: 1_000_000 };
   const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000, createWorker: () => worker, now: () => time.now });
   hosts.push(host);
   for (const player of players.slice(1)) duels.takeSeat(session.slug, "g1", player);
-  const deck = buildPracticeBotDeck("normal", DATA);
+  const deck = buildPracticeBotDeck(board.mode ?? "normal", DATA);
   for (const player of players) duels.setDeck(session.slug, "g1", player, deck);
   const organizer = { slug: session.slug, guildId: "g1", playerId: players[0]! };
   const view = async (seat: number) => (await post(host, { op: "view", slug: session.slug, guildId: "g1", playerId: players[seat] })).data.engine as DuelEngineView;
@@ -152,5 +152,27 @@ describeWithCores("clock after a time-limit loss that is still pending (real eng
     expect(clock.activeSeat).toBe(3);
     expect(clock.startedAt).toBe(t.time.now);
     expect(t.duels.get(t.slug, "g1").status).toBe("active");
+  }, 60_000);
+});
+
+describeWithCores("Domain FFA4 decision ownership (real engine)", needs.domainMulti(DATA), () => {
+  it("charges each responder on seat 0's turn and pauses the other three seats", async () => {
+    const board: BoardSpec = { ...BOARD, mode: "domain",
+      p0: { ...BOARD.p0, deckMaster: "Mystical Elf" }, p1: { ...BOARD.p1, deckMaster: "Mystical Elf" },
+      p2: { ...BOARD.p2, deckMaster: "Mystical Elf" }, p3: { ...BOARD.p3, deckMaster: "Mystical Elf" } };
+    const t = await table("ffa4", 4, board);
+    expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
+    for (const seat of [1, 2, 3]) {
+      const view = await t.view(seat);
+      expect(view.turnSeat).toBe(0);
+      expect(view.prompt?.seat).toBe(seat);
+      expect(t.clock().activeSeat).toBe(seat);
+      const before = [...t.clock().remainingMs];
+      t.time.now = Math.max(t.time.now, t.clock().startedAt ?? t.time.now) + 10_000;
+      expect((await post(t.host, { op: "respond", slug: t.slug, guildId: "g1", playerId: t.players[seat],
+        command: { promptId: view.prompt!.id, revision: view.revision, answer: { selected: [] } } })).status).toBe(200);
+      expect(t.clock().remainingMs).toEqual(before.map((ms, index) => index === seat ? ms - 10_000 + DUEL_CLOCK_INCREMENT_MS : ms));
+      expect(t.clock().activeSeat).not.toBe(seat);
+    }
   }, 60_000);
 });

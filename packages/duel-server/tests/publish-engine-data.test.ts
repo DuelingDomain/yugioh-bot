@@ -9,6 +9,10 @@ const { publishEngineData, hasHumanCommits } = await import(fileURLToPath(new UR
 const roots: string[] = [];
 const prepare = "packages/duel-server/scripts/prepare-data.ts";
 const coreFiles = ["packages/duel-server/domain-core/pins.json", "packages/duel-server/legacy-1v1/domain-core/pins.json"];
+const tableFile = "packages/duel-server/duelingbook-alt-passcodes.json";
+const namesFile = "packages/duel-server/duelingbook-alt-passcode-names.json";
+const historyFile = "packages/web/src/lib/card-data-history.json";
+const json = (value: unknown) => JSON.stringify(value, null, 2) + "\n";
 const coreSource = (scripts: string) => JSON.stringify({ ygoproCore: { commit: "1".repeat(40) }, cardScripts: { repository: "https://github.com/ProjectIgnis/CardScripts", commit: scripts } }, null, 2) + "\n";
 const bot = { name: "github-actions[bot]", email: "41898282+github-actions[bot]@users.noreply.github.com" };
 const old = { scripts: "a".repeat(40), database: "b".repeat(40), strings: "c".repeat(40) };
@@ -21,7 +25,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function fixture(candidate = next) {
+function fixture(candidate = next, withHistory = false) {
   const root = mkdtempSync(join(tmpdir(), "publish-data-"));
   roots.push(root);
   const cwd = join(root, "checkout");
@@ -36,16 +40,24 @@ function fixture(candidate = next) {
   git("remote", "add", "origin", remote);
   mkdirSync(dirname(join(cwd, prepare)), { recursive: true });
   writeFileSync(join(cwd, prepare), source());
+  writeFileSync(join(cwd, tableFile), json({ 70828913: 70828912 }));
+  writeFileSync(join(cwd, namesFile), json({ 70828912: "Premature Burial" }));
   for (const file of coreFiles) {
     mkdirSync(dirname(join(cwd, file)), { recursive: true });
     writeFileSync(join(cwd, file), coreSource(old.scripts));
   }
-  git("add", prepare, ...coreFiles); git("commit", "-qm", "base"); git("push", "origin", "main");
+  if (withHistory) {
+    mkdirSync(dirname(join(cwd, historyFile)), { recursive: true });
+    writeFileSync(join(cwd, historyFile), "[]\n");
+    git("add", historyFile);
+  }
+  git("add", prepare, ...coreFiles, tableFile, namesFile); git("commit", "-qm", "base"); git("push", "origin", "main");
   const baseSha = git("rev-parse", "HEAD");
   const update = { changed: true, next: candidate, files: [prepare, ...(candidate.scripts === old.scripts ? [] : coreFiles)], baseSha };
-  function patch(content = source(candidate), extra?: string, coreContent = coreSource(candidate.scripts)) {
+  function patch(content = source(candidate), extra?: string, coreContent = coreSource(candidate.scripts), compatibility: Record<string, string> = {}) {
     for (const file of coreFiles) writeFileSync(join(cwd, file), coreContent);
     writeFileSync(join(cwd, prepare), content);
+    for (const [file, bytes] of Object.entries(compatibility)) writeFileSync(join(cwd, file), bytes);
     if (extra) { writeFileSync(join(cwd, extra), "untrusted\n"); git("add", "-N", extra); }
     writeFileSync(join(artifact, "update.patch"), execFileSync("git", ["diff", "--binary"], { cwd, encoding: "utf8" }));
     git("reset", "--hard", baseSha);
@@ -94,6 +106,90 @@ const pushed = (f: ReturnType<typeof fixture>) => f.calls.filter((c) => c.comman
 const dispatched = (f: ReturnType<typeof fixture>) => f.calls.filter((c) => c.command === "gh" && c.args[0] === "workflow");
 
 describe("engine data publication", () => {
+  it("updates an older bot PR that predates the Dueling Book JSON files", async () => {
+    const f = fixture();
+    f.branch(next); f.setPr();
+    f.git("switch", "chore/engine-data-update");
+    f.git("rm", tableFile, namesFile);
+    f.git("commit", "-qm", "legacy PR without compatibility assets");
+    f.git("push", "origin", "chore/engine-data-update");
+    f.git("switch", "main");
+    const compatibility = { [tableFile]: json({ 70828913: 70828912, 81480461: 81480460 }),
+      [namesFile]: json({ 70828912: "Premature Burial", 81480460: "Barrel Dragon" }) };
+    f.patch(source(next), undefined, coreSource(next.scripts), compatibility);
+    writeFileSync(join(f.artifact, "update.json"), JSON.stringify({ ...f.update, files: [...f.update.files, tableFile, namesFile] }));
+    expect(await f.publish()).toMatchObject({ status: "published" });
+    for (const [file, bytes] of Object.entries(compatibility)) expect(f.git("show", `HEAD:${file}`)).toBe(bytes.trim());
+  });
+
+  it("keeps newer Dueling Book JSON when recovering a missing PR history commit", async () => {
+    const f = fixture(next, true);
+    f.branch(next); f.setPr();
+    const compatibility = { [tableFile]: json({ 70828913: 70828912, 81480461: 81480460 }),
+      [namesFile]: json({ 70828912: "Premature Burial", 81480460: "Barrel Dragon" }) };
+    f.patch(source(next), undefined, coreSource(next.scripts), compatibility);
+    writeFileSync(join(f.artifact, "update.json"), JSON.stringify({ ...f.update, files: [...f.update.files, tableFile, namesFile] }));
+    expect(await f.publish()).toMatchObject({ status: "published" });
+    for (const [file, bytes] of Object.entries(compatibility)) expect(f.git("show", `HEAD:${file}`)).toBe(bytes.trim());
+    expect(JSON.parse(f.git("show", `HEAD:${historyFile}`))[0].pullRequest.url).toBe(existingUrl);
+  });
+
+  it.each([false, true])("publishes validated Dueling Book JSON with pin changes: %s", async pinsChanged => {
+    const candidate = pinsChanged ? next : old;
+    const f = fixture(candidate);
+    const compatibility = { [tableFile]: json({ 70828913: 70828912, 81480461: 81480460 }),
+      [namesFile]: json({ 70828912: "Premature Burial", 81480460: "Barrel Dragon" }) };
+    f.patch(source(candidate), undefined, coreSource(candidate.scripts), compatibility);
+    const files = [...(pinsChanged ? f.update.files : []), tableFile, namesFile];
+    writeFileSync(join(f.artifact, "update.json"), JSON.stringify({ ...f.update, files }));
+    expect(await f.publish()).toMatchObject({ status: "published" });
+    for (const [file, bytes] of Object.entries(compatibility)) expect(f.git("show", `HEAD:${file}`)).toBe(bytes.trim());
+    expect(f.git("show", `HEAD:${prepare}`)).toBe(source(candidate).trim());
+    expect(f.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").split("\n").sort()).toEqual(files.sort());
+  });
+
+  it.each([false, true])("uses a table-only title and preserves pin history with an existing PR: %s", async existingPr => {
+    const f = fixture(old, true);
+    if (existingPr) { f.branch(old); f.setPr(); }
+    const compatibility = { [tableFile]: json({ 70828913: 70828912, 81480461: 81480460 }),
+      [namesFile]: json({ 70828912: "Premature Burial", 81480460: "Barrel Dragon" }) };
+    f.patch(source(old), undefined, coreSource(old.scripts), compatibility);
+    writeFileSync(join(f.artifact, "update.json"), JSON.stringify({ ...f.update, files: [tableFile, namesFile] }));
+    expect(await f.publish()).toMatchObject({ status: "published" });
+    expect(JSON.parse(f.git("show", `HEAD:${historyFile}`))).toEqual([]);
+    expect(f.git("log", "-1", "--format=%s")).toBe("chore(engine): update Dueling Book passcode table");
+    const publication = f.calls.find(call => call.command === "gh" && call.args[0] === "pr" &&
+      call.args[1] === (existingPr ? "edit" : "create") && call.args.includes("--title"))!;
+    expect(publication.args[publication.args.indexOf("--title") + 1]).toBe("chore(engine): update Dueling Book passcode table");
+    expect(pushed(f)).toHaveLength(1);
+    f.setPr();
+    expect(await f.publish()).toMatchObject({ status: "skipped", reason: "identical-data" });
+    expect(pushed(f)).toHaveLength(1);
+  });
+
+  it.each(["invalid-code", "self-map", "missing-name", "extra-name", "code-in-name", "unreported", "format", "mode"])("rejects unsafe Dueling Book artifact: %s", async kind => {
+    const f = fixture();
+    const table: Record<string, unknown> = { 81480461: 81480460 };
+    const names: Record<string, unknown> = { 81480460: "Barrel Dragon" };
+    if (kind === "invalid-code") table[81480461] = "81480460";
+    if (kind === "self-map") table[81480461] = 81480461;
+    if (kind === "missing-name") delete names[81480460];
+    if (kind === "extra-name") names[123] = "Extra";
+    if (kind === "code-in-name") names[81480460] = { execute: "untrusted" };
+    f.patch(source(next), undefined, coreSource(next.scripts), {
+      [tableFile]: kind === "format" ? JSON.stringify(table) : json(table), [namesFile]: json(names),
+    });
+    if (kind === "mode") {
+      const patch = readFileSync(join(f.artifact, "update.patch"), "utf8").replace(/(diff --git a\/packages\/duel-server\/duelingbook-alt-passcodes.json[^]*?)(index [^\n]+) 100644\n/, "$1old mode 100644\nnew mode 100755\n$2\n");
+      writeFileSync(join(f.artifact, "update.patch"), patch);
+    }
+    writeFileSync(join(f.artifact, "update.json"), JSON.stringify({ ...f.update,
+      files: kind === "unreported" ? f.update.files : [...f.update.files, tableFile, namesFile] }));
+    await expect(f.publish()).rejects.toThrow(/Dueling Book|patch|allowlist|mode/i);
+    expect(pushed(f)).toHaveLength(0);
+    expect(f.git("status", "--porcelain")).toBe("");
+  });
+
   it("requires an exact author identity without normalizing whitespace", () => {
     expect(hasHumanCommits(` ${bot.name}\0${bot.email}\n`)).toBe(true);
     expect(hasHumanCommits(`${bot.name}\0${bot.email} \n`)).toBe(true);

@@ -82,6 +82,18 @@ function sourceRows(app: ReturnType<typeof fixture>) {
 }
 
 describe("atomic replay fork storage", () => {
+  it.each([false, true])("preserves the resolved Damage Step rule %s across fork setup reads and writes", keepDamageStepWindows => {
+    const app = fixture();
+    const { session } = app.forks.create({ ...app.input, resources: {
+      engineIdentity: app.source.engineIdentity!, bundleVersion: "current-bundle", firstTurnDraw: true,
+      scriptErrorMode: "strict", keepDamageStepWindows } });
+    const setup = app.forks.privateState(session.slug, app.actor).setup!;
+    expect(setup).toHaveProperty("keepDamageStepWindows", keepDamageStepWindows);
+    app.duels.setSetup(session.slug, app.actor.guildId, setup);
+    expect(app.forks.privateState(session.slug, app.actor).setup?.keepDamageStepWindows).toBe(keepDamageStepWindows);
+    expect(() => app.duels.setSetup(session.slug, app.actor.guildId,
+      { ...setup, keepDamageStepWindows: !keepDamageStepWindows })).toThrow(/immutable/);
+  });
   it("pins the authorized family for an unknown source while preserving the original row", () => {
     const app = fixture(), selected = { ...app.source.engineIdentity!, coreFamily: "pinned" as const };
     app.source.engineIdentity = null; delete app.source.setup!.engine; delete app.source.setup!.startupScripts;

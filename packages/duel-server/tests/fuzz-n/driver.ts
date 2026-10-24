@@ -19,7 +19,7 @@ export interface NScenario {
 }
 
 export type JournalItem =
-  | { kind: "answer"; seat: number; promptId: string; revision: number; answer: DuelAnswer }
+  | { kind: "answer"; seat: number; promptId: string; revision: number; answer: DuelAnswer; sortOrderVersion?: 1 }
   | { kind: "eliminate"; seat: number; reason: number; revision: number };
 
 export interface NFailure {
@@ -319,13 +319,15 @@ export async function playDuel(scenario: NScenario, options: PlayOptions): Promi
       }
 
       const revision = views.spectator.revision;
+      const sortOrderVersion = scripted ? scripted.sortOrderVersion ?? 0 : 1;
+      const sortMetadata = sortOrderVersion === 1 ? { sortOrderVersion: 1 as const } : {};
       let accepted: DuelAnswer | null = null;
       let lastError: unknown = null;
       for (let i = 0; i < plan.candidates.length; i++) {
         const candidate = plan.candidates[i] as DuelAnswer;
-        hooks.onPending?.({ kind: "answer", seat, promptId: prompt.id, revision, answer: candidate }, prompt, outcome.steps);
+        hooks.onPending?.({ kind: "answer", seat, promptId: prompt.id, revision, answer: candidate, ...sortMetadata }, prompt, outcome.steps);
         try {
-          game.answer(seat, prompt.id, candidate);
+          game.answer(seat, prompt.id, candidate, sortOrderVersion);
           accepted = candidate;
           break;
         } catch (error) {
@@ -351,7 +353,7 @@ export async function playDuel(scenario: NScenario, options: PlayOptions): Promi
         }
       }
       if (!accepted) {
-        const pending: JournalItem = { kind: "answer", seat, promptId: prompt.id, revision, answer: plan.candidates[0] as DuelAnswer };
+        const pending: JournalItem = { kind: "answer", seat, promptId: prompt.id, revision, answer: plan.candidates[0] as DuelAnswer, ...sortMetadata };
         if (lastError instanceof EngineAnswerError) {
           fail({
             invariant: "rejected-all-candidates",
@@ -366,7 +368,7 @@ export async function playDuel(scenario: NScenario, options: PlayOptions): Promi
         }
         break;
       }
-      const item: JournalItem = { kind: "answer", seat, promptId: prompt.id, revision, answer: accepted };
+      const item: JournalItem = { kind: "answer", seat, promptId: prompt.id, revision, answer: accepted, ...sortMetadata };
       outcome.journal.push(item);
       hooks.onJournal?.(item);
       outcome.steps++;

@@ -293,15 +293,20 @@
 /* The table glides to its new fit in the drawer's own time (transform only); a window drag or reduced motion skips it. */
 .shell.shell [data-wide="true"][data-glide="drawer-in"] {
   --glide: var(--d-drawer-in, 300ms);
+  --glide-hub: var(--d-drawer-in, 300ms);
+  --glide-hub-ease: var(--ease-drawer, cubic-bezier(0.32, 0.72, 0, 1));
   --glide-ease: var(--ease-drawer, cubic-bezier(0.32, 0.72, 0, 1));
 }
 .shell.shell [data-wide="true"][data-glide="drawer-out"] {
   --glide: var(--d-drawer-out, 220ms);
+  --glide-hub: var(--d-drawer-out, 220ms);
+  --glide-hub-ease: var(--ease-drawer, cubic-bezier(0.32, 0.72, 0, 1));
   --glide-ease: var(--ease-drawer, cubic-bezier(0.32, 0.72, 0, 1));
 }
 .shell.shell [data-wide="true"][data-glide="resize"],
 .shell.shell [data-wide="true"][data-glide="none"] {
   --glide: 0s;
+  --glide-hub: 0s;
 }
 
 /* ---------- replay mode: the transport slot (ReplayShellMode) ---------- */

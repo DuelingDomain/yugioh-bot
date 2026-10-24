@@ -363,6 +363,7 @@ describe("the overlay files", () => {
 
   it("uses only helpers that mp-utility.lua defines and core functions of the F7 window", () => {
     const coreApi = new Set(["MPMode", "MPBound", "MPOppCount", "MPNeedPick", "MPBindOpponent", "MPWindow", "MPWindowEnd", "MPAssertBound", "MPTurnOwns", "MPAttackedSeat", "MPSeatOf", "MPBindSeat", "MPNthDuelist", "MPSeat", "MPChainSeat", "MPSharedZones", "MPAcrossSeat", "MPSeatBinding"]);
+    coreApi.add("MPGetLP");
     coreApi.add("MPActionSeat");
     coreApi.add("MPOwnerSeat");
     coreApi.add("MPTurnSeat");

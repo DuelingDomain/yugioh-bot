@@ -52,12 +52,13 @@ export async function createLegacyEngineGame(options: EngineGameOptions): Promis
     seed: options.seed,
     dataDirectory: options.dataDirectory,
     firstTurnDraw: options.firstTurnDraw,
+    keepDamageStepWindows: options.keepDamageStepWindows,
     ...(options.masterRule ? { masterRule: options.masterRule } : {}),
     ...(options.settings ? { settings: options.settings } : {}),
   });
   return {
     view: (seat, history) => inner.view(seat, history),
-    answer: (seat, promptId, answer) => inner.answer(seat, promptId, answer),
+    answer: (seat, promptId, answer, sortOrderVersion) => inner.answer(seat, promptId, answer, sortOrderVersion),
     searchCards: (query, seat) => inner.searchCards(query, seat),
     setChainMode: (seat, mode) => inner.setChainMode(seat, mode),
     eliminate() {
