@@ -8,6 +8,7 @@ The layer decision is [ADR 0003](../adr/0003-duel-test-layers.md). The CI job de
 
 - Use Node 22.
 - Build shared first: `npm run build --workspace=packages/shared`. Other packages import `shared/dist`.
+- Do not add new unit tests. New tests are e2e (`packages/e2e`) or integration tests (engine scenarios, host tests with a real core). Owner rule, 2026-10-16.
 - Locally, run only the test files for the areas you changed. CI runs the full suites.
 - Engine tests need the built engine bundle in `data/duel-engine-next` (or set `DUEL_DATA_DIR`).
 
