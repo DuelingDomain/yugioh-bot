@@ -148,6 +148,7 @@ import { centerKind, PromptCenter } from "./prompt-center";
 import { skipsAnswerableWait, usePickContinuation } from "./pick-continuation";
 import { pendingBoardAnimations, promptRevealHoldMs, usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
 import { boardQuietNow, useResultGate } from "./result-reveal";
+import { useBoardInputGuard, useOnBoardMotionStart } from "./board-input-guard";
 import { useBoardView, type BoardMode } from "./board-view";
 import { useQuietViewChange } from "./quiet-view-change";
 import type { SolidRoomProps } from "./solid/solid-room";
@@ -522,6 +523,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const legalKeys = useMemo(() => promptLegalKeys(prompt), [prompt]);
   const selectedKeys = useMemo(() => promptSelectedKeys(prompt, draft.selected), [draft.selected, prompt]);
   const closeMenu = useCallback(() => setMenu(null), []);
+  // No click lands on a board that moves (the 3D plane tilts, the table glides), and the menu is anchored to a card that is about to slide.
+  useBoardInputGuard();
+  useOnBoardMotionStart(closeMenu);
   const pickHintShown = pickHint != null && pickHint.promptId === prompt?.id && !menu && pickHint.anchor.isConnected;
   const boardRef = useRef<HTMLDivElement>(null);
   // 3D mode and Tilt|Flat change the look only when the board is quiet (see quiet-view-change.ts).
