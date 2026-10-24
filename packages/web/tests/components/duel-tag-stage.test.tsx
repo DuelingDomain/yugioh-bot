@@ -77,6 +77,11 @@ describe("TagStage FX hooks", () => {
     }
   });
 
+  it("does not mark a paused seat clock as ticking just because that seat owns the turn", () => {
+    const root = mount("main");
+    expect(root.querySelector('[data-tick="true"]')).toBeNull();
+  });
+
   it("marks cards with data-zones and the art with data-card-art", () => {
     const root = mount("main");
     expect(root.querySelectorAll("[data-zones]").length).toBeGreaterThan(10);

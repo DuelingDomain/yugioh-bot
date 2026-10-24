@@ -1,3 +1,5 @@
+import { DUEL_PHASE_GRACE_MS, DUEL_PROMPT_GRACE_MS } from "@yugidraft/shared/duels";
+
 /**
  * One place for the pace of the duel board. Every number here is a length of time a player sees:
  * the rule is that an effect must stay on screen long enough to tell that it happened and what
@@ -213,7 +215,7 @@ export const PHASE_TIMING = {
   /** The player may act this long after the Main Phase 1 ribbon starts. */
   releaseLeadMs: 250,
   /** Nothing holds the player for longer than this, whatever the timers do. */
-  capMs: 15000,
+  capMs: DUEL_PHASE_GRACE_MS,
 } as const;
 
 export const CHAIN_TIMING = {
@@ -257,7 +259,7 @@ export const GATE_TIMING: Record<"resultPauseMs" | "resultCapMs" | "resultReduce
   promptBeatMs: 600,
   promptSettleMs: 500,
   /** Raised from 6500 so a whole wipe piece (up to 6000 ms, see fx3d/scene-plan.ts) can finish before the prompt. */
-  promptCapMs: 8000,
+  promptCapMs: DUEL_PROMPT_GRACE_MS,
   promptReducedMs: 200,
   /** After a pick, the board holds this long before the next prompt. */
   pickHoldMs: 1600,

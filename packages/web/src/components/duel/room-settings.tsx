@@ -164,7 +164,7 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false, bank =
     setElapsed(performance.now() - receivedAt);
     const timer = window.setInterval(() => setElapsed(performance.now() - receivedAt), 250);
     return () => window.clearInterval(timer);
-  }, [clock.activeSeat, clock.startedAt]);
+  }, [clock]);
   useEffect(() => {
     const key = memoryKey;
     const memory = clockMemory.get(key);
@@ -188,7 +188,7 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false, bank =
       <div className={clockStyles.bank} role="timer" aria-label="Decision clocks" aria-live="off" data-count={clock.remainingMs.length}>
         {clock.remainingMs.map((remaining, seat) => {
           if (seats && !seats.includes(seat)) return null;
-          const active = clock.activeSeat === seat && clock.startedAt != null;
+          const active = clock.activeSeat === seat && clock.startedAt != null && clock.serverNow + elapsed >= clock.startedAt;
           const seconds = clockSeconds(remaining - (active ? Math.max(0, clock.serverNow + elapsed - clock.startedAt!) : 0));
           const time = formatClock(seconds);
           const low = seconds <= LOW_CLOCK_MS / 1000;
@@ -214,7 +214,7 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false, bank =
     <div className={styles.clock} role="timer" aria-label="Decision clocks" aria-live="off">
       {clock.remainingMs.map((remaining, seat) => {
         if (seats && !seats.includes(seat)) return null;
-        const active = clock.activeSeat === seat && clock.startedAt != null;
+        const active = clock.activeSeat === seat && clock.startedAt != null && clock.serverNow + elapsed >= clock.startedAt;
         const seconds = clockSeconds(remaining - (active ? Math.max(0, clock.serverNow + elapsed - clock.startedAt!) : 0));
         const time = formatClock(seconds);
         const low = seconds <= LOW_CLOCK_MS / 1000;

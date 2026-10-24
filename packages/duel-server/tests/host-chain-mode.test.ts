@@ -108,7 +108,8 @@ async function table(worker = new ScriptedWorker(), now?: () => number) {
 
 describe("chain-mode op", () => {
   it("journals a change that passes nothing and touches nothing else", async () => {
-    const t = await table();
+    const now = Date.now();
+    const t = await table(undefined, () => now);
     const clock = JSON.stringify(t.duels.privateState(t.slug, "g").clock);
     const opponentBefore = JSON.stringify((await t.post({ op: "view" }, t.players[1]!)).data.engine);
     const spectatorBefore = JSON.stringify((await t.post({ op: "view", spectate: true }, t.players[0]!)).status);
