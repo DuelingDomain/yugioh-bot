@@ -89,3 +89,4 @@ queued-permission-prompt	queued-later-prompt	permission	ready	Saved opponent lea
 queued-cost-prompt	queued-later-prompt	cost	ready	Saved opponent leaves during cost prompt; skip target without rechecking or refunding paid cost.
 ffa3-column-review	ffa3-column-review	-	ready	Fixed FFA3/FFA4 facing peers for every elimination mask; activation bindings never choose a column peer.
 engine-data-cards	engine-data-cards	-	ready	Real Mind Crush and D.D. Designator hit/miss flows, Acropolis searches and declaration resets in FFA3/FFA4/Tag
+temporary-return-banisher-gone	temporary-return-banisher-gone	-	ready	Time Chain fuzz crash (n2/n3 seed 73): Duel.ReturnToField of a temporarily banished card after the banishing effect was deleted; patch 0120

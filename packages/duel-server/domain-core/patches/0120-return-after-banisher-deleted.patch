@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sat, 24 Oct 2026 20:00:00 +0000
+Subject: [PATCH] core: return a temporarily banished card after its banisher effect is gone
+
+A card banished "until" a later phase returns through MoveToField with
+ret = 1, which compares the owner of the effect that banished it with the
+owner of the returning effect. Time Chain (100463005) banishes with its
+EVENT_BATTLED effect, which resets at the end of the Damage Phase, long before
+the return. delete_effect then clears current.reason_effect (patch 0001), and
+the compare read a null effect (UBSan in the nightly fuzz, n2 and n3 seed 73).
+
+A missing effect cannot name another source, so the owner check now applies
+only while both effects exist. The card returns as its text says. Cards whose
+banisher effect is still alive keep the stock check.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+diff --git a/operations.cpp b/operations.cpp
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -5736,3 +5736,6 @@ bool field::process(Processors::MoveToField& arg) {
+ 			return TRUE;
+-		if((ret == 1) && (!(target->current.reason & REASON_TEMPORARY) || (target->current.reason_effect->owner != core.reason_effect->owner)))
++		// The effect that banished the card can be gone before the return (a Duel.RegisterEffect effect with a short reset,
++		// like Time Chain's EVENT_BATTLED effect); delete_effect then clears current.reason_effect. A missing effect cannot
++		// name another source, so the owner check only applies while both effects exist.
++		if((ret == 1) && (!(target->current.reason & REASON_TEMPORARY) || (target->current.reason_effect && core.reason_effect && target->current.reason_effect->owner != core.reason_effect->owner)))
+ 			return TRUE;
