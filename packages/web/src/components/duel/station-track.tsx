@@ -2,7 +2,7 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { ArrowRight, Check, Hourglass, Lock } from "lucide-react";
-import type { DuelPromptOption } from "@yugidraft/shared/duels";
+import type { DuelBattleStep, DuelPromptOption } from "@yugidraft/shared/duels";
 import { phaseLabel } from "./constants";
 import { BATTLE, phaseStations, STATIONS, type PhaseMove } from "./phase-hub-model";
 import { ChainModeSwitch } from "./chain-mode-switch";
@@ -28,14 +28,17 @@ export function hasNoLegalMoves(options: readonly DuelPromptOption[]): boolean {
 /* ---------- Battle Phase steps ---------- */
 
 /** Sub-steps of the Battle Phase, as the engine reports them (DuelEngineView.battleStep). */
-export type BattleStep = "start" | "battle" | "damage" | "damage-calculation" | "end";
+export type BattleStep = DuelBattleStep;
 
 export const BATTLE_STEPS: ReadonlyArray<{ id: BattleStep; name: string; short: string; hint: string }> = [
   { id: "start", name: "Start Step", short: "Start", hint: "Battle Phase begins — Quick Effects and Traps can be activated before any attack" },
   { id: "battle", name: "Battle Step", short: "Battle", hint: "Attack declared — you can respond with Quick Effects and Traps" },
-  { id: "damage", name: "Damage Step", short: "Damage", hint: "Only cards that change ATK/DEF or Counter Traps can be activated" },
-  { id: "damage-calculation", name: "Damage Calculation", short: "Calc", hint: "Damage is being calculated; only damage-calculation effects apply" },
-  { id: "end", name: "End Step", short: "End", hint: "Battle done — respond before the next attack or the end of the Battle Phase" },
+  { id: "damage", name: "Start of Damage Step", short: "Damage", hint: "Damage Step begins; the engine offers effects eligible at this timing" },
+  { id: "before-damage-calculation", name: "Before Damage Calculation", short: "Before calc", hint: "Last window for most ATK/DEF changes before damage calculation" },
+  { id: "damage-calculation", name: "Damage Calculation", short: "Calc", hint: "Damage calculation; only effects eligible at this timing can activate" },
+  { id: "after-damage-calculation", name: "After Damage Calculation", short: "After calc", hint: "Damage has been calculated; eligible after-calculation effects can activate" },
+  { id: "damage-end", name: "End of Damage Step", short: "Damage end", hint: "Battle destruction and end-of-Damage-Step effects resolve before the next attack" },
+  { id: "end", name: "End Step", short: "End", hint: "Battle Phase ends; respond before moving to the next phase" },
 ];
 
 /** Raw engine phase strings that already name a battle step (used when the view carries no battleStep). */

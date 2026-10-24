@@ -86,6 +86,8 @@ function legacyDomainWasm(dataDirectory: string): Uint8Array {
 }
 
 export interface EngineGameOptions {
+  /** Keep eligible Auto Damage Step windows (v8+). Omission enables the live rule. */
+  keepDamageStepWindows?: boolean;
   scriptErrorMode?: DuelScriptErrorMode;
   /** Private telemetry callback; omitted by standalone replay tools. */
   onScriptError?: (error: DuelScriptError) => void; // LEGACY-1V1: shared owner policy
@@ -738,7 +740,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       } catch (error) { // LEGACY-1V1: display data must not stop a duel
         diagnose("chain-options", next.seat, `recordPrompt: ${String(error)}`); // LEGACY-1V1: private display error diagnostics
       } // LEGACY-1V1: display data must not stop a duel
-      const automated = autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase }); // LEGACY-1V1: per-seat chain mode
+      const automated = autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase, battleStep, keepDamageStepWindows: options.keepDamageStepWindows }); // LEGACY-1V1: per-seat chain mode
       if (automated) {
         // The player had no choice: the core offered exactly one card to target. Say so once the target message arrives.
         autoPickSeat = next.message.type === OcgMessageType.SELECT_CARD && next.message.min === 1 && next.message.max === 1 && next.prompt.options.length === 1 ? next.seat : null;
@@ -801,7 +803,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       const open = pending;
       if (!open || open.seat !== seat) return false;
       if (open.message.type !== OcgMessageType.SELECT_CHAIN && open.message.type !== OcgMessageType.SELECT_EFFECTYN) return false;
-      const automated = autoResponse(open, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: mode, phase });
+      const automated = autoResponse(open, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: mode, phase, battleStep, keepDamageStepWindows: options.keepDamageStepWindows });
       if (!automated) return false;
       sawRetry = false;
       respond(open, automated); // LEGACY-1V1: public chosen chain options

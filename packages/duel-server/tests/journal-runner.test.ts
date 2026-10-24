@@ -87,6 +87,31 @@ function identity(): EngineIdentity { return { version: 1, coreFamily: "legacy",
   domainScriptHash: null, multiOverlayHash: null, hostRuleVersion: "1" }; }
 
 describe("journal prefix runner", () => {
+  it.each(["play", "replay-fork"] as const)("honors a persisted Damage Step override only for %s", async kind => {
+    const input = source(), worker = new TestWorker();
+    input.session.kind = kind;
+    input.setup!.keepDamageStepWindows = false;
+    input.engineIdentity = { ...identity(), hostRuleVersion: "duel-rules-8:null" };
+    const result = await runJournalPrefix({ source: input, prefixCount: 0,
+      resources: { ...resources(), engineIdentity: input.engineIdentity }, createWorker: () => worker });
+    expect(worker.created?.keepDamageStepWindows).toBe(kind === "play");
+    expect(result.creationRules.keepDamageStepWindows).toBe(kind === "play");
+    await worker.close();
+  });
+  it.each([
+    [null, false], ["duel-rules-7:null", false], ["duel-rules-8:null", true],
+    ["duel-rules-9:{}", true], ["duel-rules-18:null", true],
+  ] as const)("uses recorded Damage Step Auto rules for %s with current resources", async (version, expected) => {
+    const input = source(), worker = new TestWorker();
+    input.engineIdentity = version === null ? null : { ...identity(), hostRuleVersion: version };
+    const before = structuredClone(input);
+    await runJournalPrefix({ source: input, prefixCount: 0, resources: { ...resources(),
+      engineIdentity: { ...identity(), hostRuleVersion: "duel-rules-8:null" }, allowVersionMismatch: true },
+      createWorker: () => worker });
+    expect(worker.created).toHaveProperty("keepDamageStepWindows", expected);
+    expect(input).toEqual(before);
+    await worker.close();
+  });
   it("uses the trusted selected family for an unknown 1v1 cross-version source", async () => {
     const input = source(), before = structuredClone(input), worker = new TestWorker();
     await runJournalPrefix({ source: input, prefixCount: 1, resources: { ...resources(),

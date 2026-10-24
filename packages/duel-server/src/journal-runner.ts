@@ -68,7 +68,7 @@ export interface JournalRunOptions {
 
 export interface JournalRunResult {
   /** Persist these resolved historical defaults when pinning a new fork identity. */
-  creationRules: { firstTurnDraw: boolean; scriptErrorMode: "strict" | "tolerant" };
+  creationRules: { firstTurnDraw: boolean; scriptErrorMode: "strict" | "tolerant"; keepDamageStepWindows: boolean };
   worker: DuelGameWorker;
   prefixCount: number;
   views: JournalTargetViews;
@@ -166,6 +166,11 @@ function creationOptions({ source, resources, prefixCount, checkpointSeat, targe
     mode: session.mode, decks: structuredClone(source.decks), seed: [...source.seed], dataDirectory: resources.dataDirectory,
     // Preserve Genesys along with the other saved settings across recovery, replay and forks.
     masterRule: session.masterRule, settings: structuredClone(session.settings), firstTurnDraw, scriptErrorMode,
+    // Use the recorded rules even when verification selects today's worker/resources.
+    // Unversioned journals predate v8 and retain the historical Auto behavior.
+    keepDamageStepWindows: session.kind === "replay-fork" && typeof setup?.keepDamageStepWindows === "boolean"
+      ? setup.keepDamageStepWindows
+      : Number(/^duel-rules-(\d+)(?=:|$)/.exec(source.engineIdentity?.hostRuleVersion ?? "")?.[1] ?? 0) >= 8,
     ...(resources.engineIdentity ? { engineIdentity: resources.engineIdentity } : {}),
     ...(engine ? { engine } : { format: session.format, multiScriptsDirectory }),
     ...(setup?.startupScripts?.length ? { startupScripts: setup.startupScripts.map((content, index) => ({ name: `startup-${index}.lua`, content })) } : {}),
@@ -220,7 +225,8 @@ export async function runJournalPrefix(options: JournalRunOptions): Promise<Jour
       if (options.target && (views.public.revision !== options.target.revision
         || (options.target.stateDigest !== undefined && stateDigest !== options.target.stateDigest))) mismatch("Journal replay did not reproduce the selected target state");
       return { worker, prefixCount: options.prefixCount, views, stateDigest,
-        creationRules: { firstTurnDraw: created.firstTurnDraw!, scriptErrorMode: created.scriptErrorMode! } };
+        creationRules: { firstTurnDraw: created.firstTurnDraw!, scriptErrorMode: created.scriptErrorMode!,
+          keepDamageStepWindows: created.keepDamageStepWindows! } };
     };
     return await (worker.initialize ? worker.initialize(run) : run());
   } catch (error) {

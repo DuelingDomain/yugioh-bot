@@ -33,6 +33,7 @@ export function replaySourceVersion(source: ReplaySource): string {
         ...(settings.genesys != null ? { genesys: settings.genesys } : {}) },
       winnerSeat: session.winnerSeat, resultReason: session.resultReason },
     setup: setup ? { engine: setup.engine, firstTurnDraw: setup.firstTurnDraw, scriptErrorMode: setup.scriptErrorMode,
+      keepDamageStepWindows: setup.keepDamageStepWindows,
       startupScripts: setup.startupScripts, surrenderedSeats: setup.surrenderedSeats } : undefined,
     decks: source.decks, seed: source.seed, bundleVersion: source.bundleVersion,
     engineIdentity: source.engineIdentity, commands: source.commands,
