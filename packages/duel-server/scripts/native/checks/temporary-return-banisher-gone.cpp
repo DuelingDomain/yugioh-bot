@@ -5,6 +5,8 @@
 // Scenario (stock scripts, no overlay): a Spell of seat 0 registers an End Phase effect "d" (reset at the end of that phase).
 // "d" banishes the monster of seat 0 with REASON_TEMPORARY. After "d" is deleted, the next Standby Phase of seat 1 runs a
 // second effect that calls Duel.ReturnToField. The monster must be back on the field of seat 0 and no Lua error may occur.
+// Stock case (live = true): "d" has no reset, so it still exists at the return, and the returning effect is owned by the
+// monster, not by the Spell. The owners differ, so the stock check applies and the monster must stay banished.
 #include "scripted-duel.h"
 #include "card.h"
 static constexpr uint32_t kSpell = 91701;
@@ -20,6 +22,7 @@ end
 function s.op(e,tp)
 	local c=e:GetHandler()
 	local m=Duel.GetFirstMatchingCard(Card.IsCode,tp,LOCATION_MZONE,0,nil,91702)
+	local live=@LIVE@
 	local d=Effect.CreateEffect(c)
 	d:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)
 	d:SetCode(EVENT_PHASE+PHASE_END)
@@ -27,7 +30,7 @@ function s.op(e,tp)
 	d:SetOperation(function(e,tp)
 		Duel.Remove(m,POS_FACEUP,REASON_EFFECT+REASON_TEMPORARY)
 		Debug.Message("CHK removed "..m:GetLocation())
-		local r=Effect.CreateEffect(c)
+		local r=Effect.CreateEffect(live and m or c)
 		r:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)
 		r:SetCode(EVENT_PHASE+PHASE_STANDBY)
 		r:SetOperation(function(e,tp)
@@ -39,14 +42,16 @@ function s.op(e,tp)
 		end)
 		Duel.RegisterEffect(r,tp)
 	end)
-	d:SetReset(RESET_PHASE+PHASE_END)
+	if not live then d:SetReset(RESET_PHASE+PHASE_END) end
 	Duel.RegisterEffect(d,tp)
 end
 )LUA";
 
-static void flow(int n) {
+static void flow(int n, bool live) {
 	sd::types[kSpell] = TYPE_SPELL;
-	sd::scripts[kSpell] = kScript;
+	std::string script = kScript;
+	script.replace(script.find("@LIVE@"), 6, live ? "true" : "false");
+	sd::scripts[kSpell] = script;
 	sd::stray_logs = 0;
 	std::vector<std::string> lines;
 	sd::on_line = [&](const std::string& t) { lines.push_back(t); };
@@ -92,15 +97,23 @@ static void flow(int n) {
 	}
 	auto has = [&](const std::string& want) { for(const auto& t : lines) if(t == want) return true; return false; };
 	EXPECT(has("CHK removed 32"), "n%d: the monster is banished by the End Phase effect", n);
-	EXPECT(has("CHK reason effect gone true"), "n%d: the banishing effect was deleted before the return", n);
-	EXPECT(sd::mzone_count(d, 0) == 1 && sd::F(d).player[0].list_remove.empty(), "n%d: the monster is back in a monster zone of seat 0", n);
+	EXPECT(has("CHK return called"), "n%d live=%d: the return effect ran", n, live);
+	if(live) {
+		EXPECT(has("CHK reason effect gone false"), "n%d: the banishing effect still exists at the return", n);
+		EXPECT(sd::mzone_count(d, 0) == 0 && sd::F(d).player[0].list_remove.size() == 1, "n%d: a different owner does not return the monster", n);
+	} else {
+		EXPECT(has("CHK reason effect gone true"), "n%d: the banishing effect was deleted before the return", n);
+		EXPECT(sd::mzone_count(d, 0) == 1 && sd::F(d).player[0].list_remove.empty(), "n%d: the monster is back in a monster zone of seat 0", n);
+	}
 	EXPECT(sd::stray_logs == 0, "n%d: Lua errors %d", n, sd::stray_logs);
 	OCG_DestroyDuel(d);
-	std::printf("ok temporary return after the banisher effect is gone: %d seats\n", n);
+	std::printf("ok temporary return, banisher %s: %d seats\n", live ? "alive, other owner stays banished" : "gone, monster returns", n);
 }
 int main() {
-	flow(2);
-	flow(3);
+	flow(2, false);
+	flow(3, false);
+	flow(2, true);
+	flow(3, true);
 	std::printf("%s temporary-return-banisher-gone: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
 	return failures ? 1 : 0;
 }

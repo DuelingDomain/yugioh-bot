@@ -223,7 +223,7 @@ The same fix is useful for the production standard core. It is not applied there
 
 `0119-real-seat-lp-query.patch` adds `Duel.MPGetLP(realSeat)`, a read-only LP query that returns nil for eliminated or invalid seats. The FFA comparison overlay uses it to inspect every living opponent without changing the caller's seat scope or opponent binding. Rebuild both `multi` and `multi-domain` cores when installing this overlay. Stock `Duel.GetLP`, 1v1 and Tag comparisons retain their existing behavior. Live proof: `tests/scenarios/multiplayer/lp-comparisons.test.ts`.
 
-`0120-return-after-banisher-deleted.patch` fixes the nightly fuzz crash (n2 and n3 seed 73, from 2026-10-20). Patch 0001 clears `current.reason_effect` when an effect is deleted. Time Chain banishes with an EVENT_BATTLED effect that resets after the Damage Phase, so the later return found a null effect in the stock owner compare.
+`0120-return-after-banisher-deleted.patch` fixes the nightly fuzz crash (n2 and n3 seed 73, from 2026-10-20). Patch 0001 clears `current.reason_effect` when an effect is deleted. Time Chain banishes with an EVENT_BATTLED effect that resets after the Damage Phase, so the later return found a null effect in the stock owner compare. The pinned Standard and Domain 1v1 builds have the same edit in `src/apply-core-fixes.mjs`, because they carry the patch 0001 pointer clear too.
 
 - Patches 2, 3 and 4 pass the differential gate. The reference is patches 1 and 2. The multi core is patches 1 to 4.
 - The results in this section are for patches 1 to 4. They were not repeated for patches 5 to 52 when these files were added.
