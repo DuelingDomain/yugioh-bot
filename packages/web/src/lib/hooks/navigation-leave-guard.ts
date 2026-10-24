@@ -88,7 +88,7 @@ export function useNavigationLeaveGuard(active: boolean, message: string, scope 
       if (!dest) return;
       if (dest.protocol !== "http:" && dest.protocol !== "https:") return;
       if (dest.origin !== window.location.origin) return;
-      if (isSamePath(new URL(window.location.href), dest)) return;
+      if (isSameRoute(new URL(window.location.href), dest)) return;
       const custom = interceptRef.current;
       if (custom) {
         event.preventDefault();
@@ -121,7 +121,7 @@ export function useNavigationLeaveGuard(active: boolean, message: string, scope 
       if (!event.destination?.sameDocument) return;
       if (!event.destination || typeof event.destination.url !== "string") return;
       const dest = parseHref(event.destination.url);
-      if (!dest || isSamePath(new URL(window.location.href), dest)) return;
+      if (!dest || isSameRoute(new URL(window.location.href), dest)) return;
       const approved = approvedHref === dest.href;
       approvedHref = null;
       if (approved) return;
@@ -214,6 +214,14 @@ export function useNavigationLeaveGuard(active: boolean, message: string, scope 
       }
     };
   }, [active, message, scope, intercepting]);
+}
+
+/**
+ * The same page, whatever the query: a seat or view switch rewrites `?as=` and the like in place, which is not a
+ * leave. A different path (another page or another duel) still is.
+ */
+function isSameRoute(left: URL, right: URL): boolean {
+  return left.origin === right.origin && left.pathname === right.pathname;
 }
 
 function isSamePath(left: URL, right: URL): boolean {
