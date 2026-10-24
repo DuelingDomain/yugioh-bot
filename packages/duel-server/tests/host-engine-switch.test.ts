@@ -111,7 +111,7 @@ describe("DUEL_1V1_ENGINE on a new table", () => {
       const t = await table("1v1", mode);
       expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
       const engine = mode === "normal" ? "pinned" : "legacy";
-      expect(t.workers[0]!.created).toMatchObject({ engine, firstTurnDraw: false });
+      expect(t.workers[0]!.created).toMatchObject({ engine, firstTurnDraw: false, keepDamageStepWindows: true });
       expect(setupOf(t.duels, t.session.slug)).toMatchObject({ engine, firstTurnDraw: false });
     }
   });

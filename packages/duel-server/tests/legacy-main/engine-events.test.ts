@@ -1,3 +1,4 @@
+// Damage Step display assertions follow the owner-requested five-sub-step contract (legacy-1v1/README.md).
 // Draw/Standby integration cases mirrored from main cec00380 (included in afd5f228).
 // MAIN'S TEST, run against the legacy 1v1 engine (src/legacy). A copy of packages/duel-server/tests/engine-events.test.ts from origin/main (09b4196a)
 // with only the import paths changed: engine, views and prompts come from ../../src/legacy, the other sources from ../../src, and
@@ -765,7 +766,7 @@ describe("prompt text, battle steps and position changes from a real duel", () =
       expect(trigger!.options[0]!.cardText).toContain("destroyed by battle");
       expect(steps).toEqual([
         ["attack", "battle"],
-        ["trigger", "damage"],
+        ["trigger", "damage-end"],
         ["after-battle", "battle"],
         ["main2", null],
       ]);

@@ -163,6 +163,8 @@ export async function callDuelHost(input: {
   /** view only: an eliminated FFA player watches through the public view. */
   spectate?: boolean;
   command?: DuelCommand;
+  /** Bounded presentation preference of this authenticated viewer. */
+  animationSpeed?: number;
   deck?: DuelDeck;
   query?: string;
   codes?: number[];
@@ -243,6 +245,7 @@ export async function callDuelHost(input: {
   if (input.slug) payload.slug = input.slug;
   if (input.op === "view" && input.spectate === true) payload.spectate = true;
   if (input.command) payload.command = input.command;
+  if (input.animationSpeed !== undefined) payload.animationSpeed = input.animationSpeed;
   if (input.deck) payload.deck = input.deck;
   if (input.query !== undefined) payload.query = input.query;
   if (input.codes !== undefined) payload.codes = input.codes;
@@ -350,4 +353,12 @@ export async function callEngineDataStatus(input: { guildId: string; playerId: n
   const result = await callDuelHost({ ...input, op: "engine-data-status" });
   if (!result.ok) return result;
   return { ok: true, data: result.data as CardDataStatus };
+}
+
+/** Ignore absent/invalid preferences; the host clamps valid rates again. */
+export function duelAnimationSpeed(request: Request): { animationSpeed?: number } {
+  const raw = request.headers.get("x-duel-animation-speed");
+  if (raw === null) return {};
+  const speed = Number(raw);
+  return Number.isFinite(speed) && speed >= 0.5 && speed <= 2 ? { animationSpeed: speed } : {};
 }

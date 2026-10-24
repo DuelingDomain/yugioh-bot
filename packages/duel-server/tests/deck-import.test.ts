@@ -186,7 +186,7 @@ describe("normalizeImportedDeck shape", () => {
 });
 
 describe("normalizeImportedDeck reported passcodes", () => {
-  it("rewrites the reported Barrel Dragon artwork id to the engine canonical without a hardcoded exception", async () => {
+  it("rewrites the reported Barrel Dragon artwork id using generated evidence without a remote lookup", async () => {
     const { db, fetch, fetchCalls } = catalogFixture({
       [String(BARREL_EXTERNAL)]: [ygoproCard(BARREL_EXTERNAL, "Barrel Dragon")],
     });
@@ -196,15 +196,16 @@ describe("normalizeImportedDeck reported passcodes", () => {
     expect(normalized.main[0]).toBe(BARREL_CANONICAL);
     expect(normalized.main).not.toContain(BARREL_EXTERNAL);
     expect(normalized.main.slice(1)).toEqual(fillers);
-    expect(fetchCalls.some((url) => new URL(url).searchParams.get("id") === String(BARREL_EXTERNAL))).toBe(true);
+    expect(fetchCalls).toEqual([]);
     expect(() => validateDeck("normal", normalized, DATA)).not.toThrow();
   });
 
   it("uses a cached catalog name without fetching", async () => {
     const { db, fetch, fetchCalls } = catalogFixture();
-    seedCatalog(db, BARREL_EXTERNAL, "  barrel dragon ");
+    const external = 90000002; // No generated Dueling Book evidence: exercise the catalog fallback.
+    seedCatalog(db, external, "  barrel dragon ");
     const normalized = await normalizeImportedDeck(
-      { main: [BARREL_EXTERNAL], extra: [], side: [] },
+      { main: [external], extra: [], side: [] },
       DATA,
       db,
       { fetch },
@@ -214,11 +215,12 @@ describe("normalizeImportedDeck reported passcodes", () => {
   });
 
   it("maps using the fetched name even when YGOPRODeck returns a different id", async () => {
+    const external = 90000002;
     const { db, fetch } = catalogFixture({
-      [String(BARREL_EXTERNAL)]: [ygoproCard(BARREL_CANONICAL, "Barrel Dragon")],
+      [String(external)]: [ygoproCard(BARREL_CANONICAL, "Barrel Dragon")],
     });
     const normalized = await normalizeImportedDeck(
-      { main: [BARREL_EXTERNAL], extra: [BARREL_EXTERNAL], side: [BARREL_EXTERNAL], deckMaster: BARREL_EXTERNAL },
+      { main: [external], extra: [external], side: [external], deckMaster: external },
       DATA,
       db,
       { fetch },

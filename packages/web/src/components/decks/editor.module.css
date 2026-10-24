@@ -133,7 +133,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-pop { position: fixed; z-index: 80; display: grid; gap: 10px; width: min(340px, calc(100% - 24px)); max-height: calc(100dvh - 24px); overflow: auto; padding: 16px; border: 1px solid var(--rule); border-radius: 10px; background: var(--panel-2); box-shadow: 0 30px 60px -30px #000; }
 .de-pop-h { font-size: 15px; font-weight: 500; }
 .de-pop-a { display: flex; justify-content: flex-end; gap: 8px; }
-.de-paste { height: auto; padding: 8px 10px; font: 13px/1.4 var(--f-num); resize: vertical; }
+.de-paste { height: auto; padding: 10px 12px; font: 15px/1.5 var(--f-num); resize: vertical; }
 .de-empty { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 12px 0; color: var(--ink-3); font-size: 14px; }
 .de-empty p { flex: 1 1 180px; margin: 0; }
 .de-empty-zones { display: inline-flex; gap: 10px; flex: none; }
@@ -234,9 +234,12 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 :global(.ms) .actionsHead .chipBad { color: var(--loss-ink); border-color: rgb(228 90 77 / 0.4); background: var(--loss-soft); }
 .de-pop [data-autofocus] { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 .drop { display: grid; justify-items: center; gap: 4px; padding: 18px 12px; border: 1px dashed var(--rule); border-radius: 8px; background: rgb(4 7 14 / 0.4); color: var(--ink-2); cursor: pointer; }
-.drop small { color: var(--ink-3); }
+.drop small { color: var(--ink-3); font-size: 14px; }
 .drop:hover, .drop[data-dragging], .drop:focus-within { border-color: var(--pen); background: var(--pen-soft); }
-:global(.ms) .de-paste { height: auto; font: 13px/1.4 var(--f-num); }
+:global(.ms) .de-paste { height: auto; font: 15px/1.5 var(--f-num); }
+/* The import popover's paste label and help text match the library import (15px / 14px). */
+:global(.ms) .de-pop :global(.label) { color: var(--ink-2); font-size: 14.5px; }
+:global(.ms) .de-pop :global(.small) { font-size: 14px; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; padding: 8px 0; border-top: 1px solid var(--rule-lo); color: var(--ink-2); font-size: 14px; }
 .inspectNotice { color: var(--ink-3); font-size: 13.5px; line-height: 1.55; }
 :global(.ms) .de-tabs { display: none; }

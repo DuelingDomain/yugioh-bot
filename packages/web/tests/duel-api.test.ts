@@ -4,6 +4,7 @@ import {
   duelReplayKey, getDuelReplay, getDuelRoom, leaveDuel, listDuels, pickOpeningMove,
   sendDuelAction, setChainResponseMode, startDuel, surrenderDuel, takeDuelSeat, validateDuelDeck,
 } from "../src/components/duel/api";
+import { duelFxClock } from "../src/components/duel/fx-clock";
 import { makeSeriesRoom } from "./helpers/duel-series";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
@@ -126,5 +127,18 @@ describe("duel list, leave and replay helpers", () => {
     expect(duelReplayKey("t")).toBe("/api/duels/t/replay");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Replay unavailable" }, { status: 409 })));
     await expect(getDuelReplay("t")).rejects.toMatchObject({ message: "Replay unavailable", status: 409 });
+  });
+});
+
+
+describe("viewer FX speed", () => {
+  it.each(["view", "respond", "chain-mode"])("reports the effective animation rate with %s requests", async op => {
+    vi.spyOn(duelFxClock, "factor").mockReturnValue(1.75);
+    const fetch = vi.fn().mockResolvedValue(Response.json(makeSeriesRoom()));
+    vi.stubGlobal("fetch", fetch);
+    if (op === "view") await getDuelRoom("table");
+    else if (op === "respond") await sendDuelAction("table", { promptId: "p1", revision: 1, answer: {} });
+    else await setChainResponseMode("table", "off");
+    expect(new Headers(fetch.mock.calls[0]![1].headers).get("x-duel-animation-speed")).toBe("1.75");
   });
 });

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor, redactDuelResult } from "@/lib/duel-host";
+import { duelAnimationSpeed, readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor, redactDuelResult } from "@/lib/duel-host";
 
 export const runtime = "nodejs";
 
@@ -23,6 +23,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     }
     try {
       const result = await callDuelHost({
+    ...duelAnimationSpeed(request),
         op: "view", slug, guildId: actor.guildId, playerId: actor.playerId,
         ...(actor.userId !== undefined ? { userId: actor.userId } : {}), ...control,
         ...(spectate ? { spectate: true } : {}),

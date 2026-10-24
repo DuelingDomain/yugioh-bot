@@ -129,6 +129,11 @@ export const DUEL_CLOCK_REGAIN_MIN_MS = 30_000;
 /** Bounded presentation grace at game start: the hands and turn-one phase beats precede decisions. */
 export const DUEL_OPENING_GRACE_MS = 8_000;
 
+/** Maximum ordinary board/prompt hold in presentation milliseconds before a new decision can be answered. */
+export const DUEL_PROMPT_GRACE_MS = 8_000;
+/** Turn-start phase ribbons can hold input for this many presentation milliseconds. */
+export const DUEL_PHASE_GRACE_MS = 15_000;
+
 export function duelClockBankMs(turnSeconds: number): number | null {
   if (!Number.isFinite(turnSeconds) || turnSeconds <= 0) return null;
   return turnSeconds * 1000;
@@ -187,7 +192,9 @@ export interface DuelClockState {
   turn: number;
   /** One entry per seat (2 to 4). */
   remainingMs: number[];
+  /** The pending prompt owner, independent of whose turn it is; null when nobody is asked. */
   activeSeat: number | null;
+  /** Null while paused; a future timestamp excludes bounded presentation time. */
   startedAt: number | null;
 }
 

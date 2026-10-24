@@ -47,6 +47,7 @@ import { batonOrder, lastTeamDamage, responseWindow, rivalPickOptions, teamGlyph
 import { useForkLabels } from "../table/fork-labels";
 import { plateState, TeamLpPlate, type PlateMember } from "./team-lp-plate";
 import { sessionBoardRule } from "../genesys";
+import { holdBoardMotion, trackBoardMotion } from "../board-motion";
 import styles from "./tag-stage.module.css";
 
 export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
@@ -422,6 +423,10 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     world.style.transform = roofTransform(pose, fit);
     paintedFitRef.current = fit;
     pillsRef.current?.style.setProperty("--flip", Math.cos((pose.yaw * Math.PI) / 180) < 0 ? "180deg" : "0deg");
+    // The fields' ATK / DEF plates turn back by what the camera turns the roof by (see `.seatField .plate`), so they read upright from the rival end
+    // and in a free orbit. They glide with a camera move (glide() lifts `data-plate-still`) and follow a free orbit at once.
+    world.style.setProperty("--roof-turn", `${pose.yaw.toFixed(2)}deg`);
+    if (!tweenRef.current) world.setAttribute("data-plate-still", "true");
 
     const box = root.getBoundingClientRect();
     const pad = padRef.current?.getBoundingClientRect();
@@ -517,7 +522,11 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const end = m ? resolvePose(targetRef.current, m) : targetRef.current;
     poseRef.current = end;
     apply();
+    // A camera that snaps (reduced motion, a jump) is a move too: a click right after it would land on the old place of a card.
+    if (!animated) holdBoardMotion();
     if (!animated || world == null) return;
+    world.removeAttribute("data-plate-still");
+    world.style.setProperty("--plate-glide", `${ms}ms`);
     const start = origin ?? visible;
     const ease = fly ? easeFly : easeCam;
     const steps = Math.min(60, Math.max(8, Math.round(ms / 16)));
@@ -529,7 +538,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     const tween: Tween = { from: start, to: end, start: performance.now(), dur: ms, ease, fit: fitRef.current };
     tweenRef.current = tween;
     world.style.willChange = "transform";
-    const run = world.animate(frames, { duration: ms, easing: "linear" });
+    const run = trackBoardMotion(world.animate(frames, { duration: ms, easing: "linear" }));
     const anims = [run];
     // The floating boxes glide the same way (a transform from the old place to 0). One that was not on screen fades in.
     for (const [node, now] of placedRef.current) {

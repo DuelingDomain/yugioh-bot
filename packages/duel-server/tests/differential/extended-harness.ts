@@ -113,7 +113,7 @@ export async function recordBoard(
             note = `self-play ended early: no accepted answer for "${prompt.title}"`;
             break;
           }
-          journal.push({ seat, promptId: prompt.id, revision, answer: accepted });
+          journal.push({ seat, promptId: prompt.id, revision, answer: accepted, sortOrderVersion: 1 });
           turnActions++;
           views = readViews(game);
         }
@@ -150,7 +150,7 @@ export async function replayRecorded(recorded: RecordedDuel, dataDirectory: stri
         const view = game.view(command.seat);
         if (view.revision !== command.revision) throw new Error(`journal entry ${i}: revision ${view.revision}, journal ${command.revision}`);
         if (view.prompt?.id !== command.promptId) throw new Error(`journal entry ${i}: prompt ${view.prompt?.id ?? "none"}, journal ${command.promptId}`);
-        game.answer(command.seat, command.promptId, command.answer);
+        game.answer(command.seat, command.promptId, command.answer, command.sortOrderVersion ?? 0);
       }
       return { trace, finalHash: viewsHash(readViews(game)) };
     } finally {

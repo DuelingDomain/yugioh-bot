@@ -6292,6 +6292,19 @@
       "stockSha256": "061576f8addd5a0bfa9711d72e93269ab65a9542e628a08b545725407ba36f89"
     },
     {
+      "code": 67616300,
+      "file": "c67616300.lua",
+      "name": "Chicken Game",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD",
+      "redefined": [
+        "initial_effect"
+      ],
+      "stockSha256": "86a970b4271c7a2d1f4137aab8e19570b1a0cbd7575d3b7eca6d38b7d0c528a2",
+      "note": "R-FFA-LP-COMPARE, owner #449: each damaged player is protected only when strictly lower than every other living player. Ties and mixed LP are unprotected; eliminated seats excluded. FFA only; stock activation and ignition effects retained."
+    },
+    {
       "code": 67630339,
       "file": "c67630339.lua",
       "name": "Confusion Chaff",
@@ -9315,6 +9328,19 @@
       "stockPath": "pre-release/c100459024.lua",
       "stockSha256": "783600b77e8e00f8f6d218f0c48c7792e57c336dda5ff40632914fc5a0871ba5",
       "note": "A target can change control before resolution. Destroy it without assuming the extra Tribute effect exists; ignore a missing target."
+    },
+    {
+      "code": 101403001,
+      "file": "c101403001.lua",
+      "name": "The Sun God's Poet - Helpoemer",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "thop"
+      ],
+      "stockSha256": "fe0673b4c90b185e7c98ab8a5afc31be8a735c4f815d297d8eb228f1ebead3b7",
+      "note": "R-FFA-LP-COMPARE, #449 audit: the optional discard requires every living opponent to have at least 2000 more LP, even with an opponent bound. Preserve the search and chosen discard recipient. FFA only; Tag unchanged.",
+      "stockPath": "pre-release/c101403001.lua"
     }
   ]
 }

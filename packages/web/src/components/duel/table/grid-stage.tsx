@@ -34,6 +34,7 @@ import { hexToRgbTriplet } from "./seat-angle";
 import { bandHubFit } from "../phase-hub-model";
 import { SEAT_TONE_HEX, type SeatFieldProps, type SeatPose, type SeatTone } from "./types";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
+import { useHoldOnLayoutChange } from "../board-input-guard";
 import { watchMeasure } from "./measure-watch";
 import { useStripRoom } from "./use-strip-room";
 import { zoneKey } from "../constants";
@@ -567,6 +568,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
 
   // A focused seat that goes out stays in focus while its field crumbles, then the focus goes home (grid-focus.ts).
   const crumbling = useMemo(() => exitState.exits.map((exit) => exit.seat), [exitState.exits]);
+  // A seat that leaves or a focus that changes re-lays the fields out: a jump (reduced motion, a resize) holds clicks for a moment like a glide does.
+  useHoldOnLayoutChange(`${outSeats.join(",")}|${focus.seat ?? "all"}|${frameKey}`);
   const { hold } = focusControl;
   useLayoutEffect(() => {
     hold(crumbling);

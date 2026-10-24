@@ -12,6 +12,7 @@ export interface JournalEntry {
   promptId: string;
   revision: number;
   answer: DuelAnswer;
+  sortOrderVersion?: 1;
 }
 
 export interface FuzzFailure {
@@ -225,7 +226,7 @@ export async function runDuel(scenario: Scenario, dataDirectory: string, options
         }
         break;
       }
-      outcome.journal.push({ seat, promptId: prompt.id, revision, answer: accepted });
+      outcome.journal.push({ seat, promptId: prompt.id, revision, answer: accepted, sortOrderVersion: 1 });
       outcome.steps++;
       turnActions++;
 

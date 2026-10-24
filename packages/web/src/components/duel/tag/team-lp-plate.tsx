@@ -3,7 +3,7 @@ import type { DuelClock } from "@yugidraft/shared/duels";
 import { LifePoints } from "../life-points";
 import { useForkLabels } from "../table/fork-labels";
 import { formatClock } from "../table/holo-lp";
-import { isLowClock } from "../clock-beep";
+import { clockReceivedAt, isLowClock } from "../clock-beep";
 import { useLiveClockMs } from "../use-live-clock";
 import type { ResponderState } from "./tag-logic";
 import styles from "./tag-stage.module.css";
@@ -83,6 +83,8 @@ function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number)
   const liveMs = useLiveClockMs(member.clock, member.seat);
   const shownMs = member.clock ? liveMs : member.clockMs;
   const clock = formatClock(shownMs);
+  const clockRuns = member.clock ? member.clock.activeSeat === member.seat && member.clock.startedAt != null
+    && member.clock.serverNow + performance.now() - clockReceivedAt(member.clock) >= member.clock.startedAt : member.clockRuns;
   const lowClock = shownMs != null && isLowClock(shownMs);
   const pick = () => {
     if (member.pickable) onPick?.(member.seat);
@@ -127,7 +129,7 @@ function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number)
         <div className={styles.m2}>
           <span title="Hand"><HandIcon />{member.hand}</span>
           <span title="Deck"><DeckIcon />{member.deck}</span>
-          {clock ? <span className={styles.clk} data-tick={member.clockRuns ? "true" : undefined} data-low={lowClock ? "true" : undefined}>{clock}</span> : null}
+          {clock ? <span className={styles.clk} data-tick={clockRuns ? "true" : undefined} data-low={lowClock ? "true" : undefined}>{clock}</span> : null}
         </div>
       </div>
       {member.badge ? <div className={styles.mbadge} data-dm-slot="" data-dm-compact="">{member.badge}</div> : null}

@@ -761,7 +761,7 @@ describe("prompt text, battle steps and position changes from a real duel", () =
       expect(trigger!.options[0]!.cardText).toContain("destroyed by battle");
       expect(steps).toEqual([
         ["attack", "battle"],
-        ["trigger", "damage"],
+        ["trigger", "damage-end"],
         ["after-battle", "battle"],
         ["main2", null],
       ]);
