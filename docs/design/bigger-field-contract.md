@@ -2,7 +2,7 @@
 
 Owner spec 2026-10-16: the duel field and its cards are as large as possible in every format (1v1 normal, 1v1 3D, Tag, FFA3, FFA4). The field stays 2D (no tilt). Nothing covers the field in normal play. Side content moves into drawers that are closed by default.
 
-This file is the contract for the shared pieces in `packages/web/src/components/duel/edge-drawer/`. Each format builds on these pieces and does not make its own drawer or fit code. The study with the measurements is in the session scratchpad (`bigfield/report.md`).
+This file is the contract for the shared pieces in `packages/web/src/components/duel/edge-drawer/`. Each format builds on these pieces and does not make its own drawer or fit code.
 
 Import everything from `@/components/duel/edge-drawer`.
 

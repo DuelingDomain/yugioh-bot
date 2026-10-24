@@ -2,7 +2,7 @@
 
 A is the chosen design (owner, 2026-10-06)
 
-This is the finished HTML/CSS specification. Port A faithfully; the Discord-only implementation brief overrides the mock where it removes email authentication or changes access-error copy and links.
+This is the finished HTML/CSS specification. Port A faithfully. The app (`packages/web/src/components/auth/`) has both sign-in methods of the mock: Clerk email (password, email code, new password) and Discord.
 
 ## Files and folders
 
@@ -12,7 +12,7 @@ This is the finished HTML/CSS specification. Port A faithfully; the Discord-only
 - `shared/fonts/`: Chakra Petch 400/500/600/700 and Russo One 400 WOFF2 files, with their OFL licenses.
 - `shared/logo/`: SVG lockup and mark assets. A uses inline symbols, including `dd-clip` and `dd-glint` for the pack mark.
 - `reference/`: `all-steps.dom.html` is the rendered A step markup. Each `section.scr[data-screen]` is a stable reference for a future auth adapter.
-- `shots/`: target renders at 1440 × 900 and 390 × 844. Today's implementation follows `a-signin-*`, `a-err-service-*` and `a-err-invite-*`, with the brief's Discord-only changes.
+- `shots/`: target renders at 1440 × 900 and 390 × 844. The app steps in `auth/steps/` follow the `a-*` shots.
 - `workshop.html`: comparison page and design rationale, retained as a record.
 - `review/`: the owner's mock-vs-build review page for PRs #208 and #209 (static; open with any local server).
 
@@ -40,15 +40,15 @@ The create-account consent checkbox links to `https://duelingdomain.com/terms` a
 
 ## Application CSS map
 
-The application styles live in `packages/web/src/components/auth/sign-in-shell.module.css`. Source order is shared base, pack, then A layout, as in the mock. CSS Modules scope the original class names. The following table accounts for the mock's blocks; later email-auth controls remain documented here instead of being shipped unused.
+The application styles live in `packages/web/src/components/auth/sign-in-shell.module.css`. Source order is shared base, pack, then A layout, as in the mock. CSS Modules scope the original class names. The following table accounts for the mock's blocks.
 
 | Mock block | Application destination or disposition |
 | --- | --- |
 | `base.css` font faces | `auth/fonts.ts` uses `next/font/local`; all five WOFF2 files and both OFL texts are in `auth/fonts/`. Variables are applied only to the shell. |
 | `base.css` tokens, document defaults, focus, hidden, skip | Start of `sign-in-shell.module.css`, scoped to `.a-page`; native link underlines are restored after the application's global reset. |
-| `base.css` `.form`, buttons, `.fine` | Same named module rules, used by the Discord form and panel actions. Button transitions retain only `transform`, following the brief's motion limit; hover border/shadow values are unchanged. |
+| `base.css` `.form`, buttons, `.fine` | Same named module rules, used by the sign-in forms and panel actions. Button transitions retain only `transform`, following the motion limit; hover border/shadow values are unchanged. |
 | `base.css` `.banner` | Same module rules for bad notices. The added `[data-tone="info"]` variant uses neutral surface, border and text tokens. `.code` retains the diagnostic label and small text line. |
-| `base.css` `.spinner`, `dd-spin` | Same module rules for the existing Discord pending state. |
+| `base.css` `.spinner`, `dd-spin` | Same module rules for the pending state. |
 | `base.css` `.foot-links`, `.legal` | Same module rules, rendered by `SignInStep` and `SignInFootLinks`; marketing links are conditional. |
 | `base.css` fields, reveal, hints, field errors, locked inputs, generic links, dividers, identifier row, consent, CAPTCHA, OTP, resend, signing row, note box, screen-reader utility | Ported for the step cards (PR 2, Task 3a). Field parts (`.field`, `.input-wrap`, `.reveal`, `.hint`, `.ferr`, locked input, `.idrow`, `.check`, `.captcha-slot`, `.otp`, `.resend`, `.signing`, `.note-box`) are in `steps.module.css`, rendered by `fields.tsx`. Generic `.sr`, `.link`, `.alt-links` and `.or` are in `sign-in-shell.module.css` next to the buttons. The framed CAPTCHA placeholder is preview-only; the live mount is an empty `#clerk-captcha` that Clerk fills. |
 | `base.css` mock strip and non-shot body padding | Not ported: workshop controls only. |
@@ -65,7 +65,7 @@ The application styles live in `packages/web/src/components/auth/sign-in-shell.m
 | `a/style.css` both 900px media blocks | Same module rules, including the final 22px stage margin and 64px page padding correction. |
 | `a/style.css` reduced-motion settled frame | Same module rules; pointer transforms are also reset when motion is reduced. |
 
-The brief intentionally removes the identifier field, divider and email Continue button, changes access-error wording/actions, and hides marketing links until configured. Those changes alter form height compared with the archived shots; the remaining spacing and proportions keep the mock values. The info palette and diagnostic line extend a mock that only supplied the bad banner. Browser comparison remains the owner's visual check.
+Marketing links stay hidden until a marketing URL is set. Access-error wording and actions can differ from the mock; spacing and proportions keep the mock values. The info palette and diagnostic line extend a mock that only supplied the bad banner. Browser comparison remains the owner's visual check.
 
 ## Design fix
 

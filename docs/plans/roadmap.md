@@ -2,7 +2,7 @@
 
 ## Multi-player duels (Tag 2v2, 3-way, 4-way) - done
 
-Built and deployed (PR #101 and #124, 2026-10-04). Rules: [ADR-0002](adr/0002-multiplayer-duel-rules.md). Test layers: [ADR-0003](adr/0003-duel-test-layers.md). Tables are open when `MULTIPLAYER_TABLES` is on, which is the Compose default. The 4-player table still uses the Plaza layout on main.
+Built and deployed (PR #101 and #124, 2026-10-04). Rules: [ADR-0002](../adr/0002-multiplayer-duel-rules.md). Test layers: [ADR-0003](../adr/0003-duel-test-layers.md). Tables are open when `MULTIPLAYER_TABLES` is on, which is the Compose default. The 4-player table still uses the Plaza layout on main.
 
 ## Also queued (from the UI review)
 
