@@ -1,0 +1,29 @@
+# Report bug authentication investigation — 2026-10-23
+
+## Finding
+
+The exact browser-side trigger is unproven because the duel-time logs are gone. The best hypothesis is that interrupted Clerk token refresh during network loss briefly left the browser with an expired or missing session token. The confirmed application defect is that the report flow made no attempt to refresh that token or retry an authentication refusal, and offered no sign-in action.
+
+Evidence:
+
+- Read-only production queries confirm report 21 was saved at `2026-10-23T18:04:35.306Z`, linked to GitHub issue [450](https://github.com/DuelingDomain/yugioh-bot/issues/450), and filed by a seated player in duel 160. The owner reports that the same player also saw authentication failures. This was intermittent.
+- Both the main revision preceding the duel (`4c53a1997`) and the investigated `origin/main` (`fedcdc3c8`) use the same session guard for reports and duel HTTP routes. There is no report-specific login or Discord membership check.
+- The original report client sent plain cookie-authenticated fetches, ignored failed prechecks, and stopped after a failed submit. It mapped **401 and 403** to “Sign in again to send a report.” Network failures already had a connection message; 5xx responses had a generic failure message. We did not find a catch-all “not logged in” mapping.
+- A real-route integration reproduction injects a single submit 401. Before the fix it displays the sign-in message and never retries. The successful report proves access worked at least once; it does not prove which Clerk failure preceded it.
+- Current production runs `fedcdc3c8`. Web logs available since the restart contain no bug-report entries or session-unavailable/handshake/clock-skew warnings. Ordinary proxy 401 responses are not access-logged, so this cannot exclude earlier or current 401s. NTP is synchronized now; historical browser clock skew cannot be established.
+
+## How authentication works
+
+The current code uses Clerk, not NextAuth. Email/password and Discord sign-in activate a Clerk session. The browser SDK maintains the short-lived `__session` JWT cookie, normally renewing it in the background about every minute. A token can expire while the longer-lived session is still valid, especially when the browser cannot reach Clerk. [Clerk session model](https://clerk.com/docs/guides/how-clerk-works/overview).
+
+`packages/web/proxy.ts` runs Clerk middleware: protected pages redirect to `/sign-in`, while protected APIs return JSON 401 when unsigned. Clerk can also initiate a redirect handshake to restore an expired cookie. `src/lib/session-identity.ts` resolves the Clerk user to the application's `users.id`; it synchronizes missing or stale profiles (older than five minutes) through Clerk's Backend API. `src/lib/auth.ts` exposes the compatible session shape. Its constructed `expires` value is not the Clerk JWT's actual expiry. `src/lib/web-access.ts` exposes `requireWebAccess()` to routes: no identity gives 401; an unavailable identity check gives 503. The old `discord-web-access.ts` was removed during the Clerk migration; current web access has no Discord membership gate. `players.user_id` connects the application identity to gameplay history.
+
+Duel routes call `requireDuelActor()`, which uses the same web guard, resolves the community player, and checks room/seat access. `/api/duels/[slug]/connection` issues a separate five-minute HMAC-signed token containing the room, community, player, seat and expiry. Socket.IO verifies it and room access; the client renews it before expiry. The socket carries presence and change notices, **not gameplay actions or the board**. Board reads and actions still use authenticated HTTP APIs. An existing socket token and cached board can temporarily outlive a failed Clerk request; timing and retries can make the duel appear healthy while a report fails. This does not permit indefinite play without Clerk authentication.
+
+## Fix and scope
+
+Both report endpoints now intercept a 401 or handshake redirect, call Clerk `getToken({ skipCache: true })`, and retry once with the identical serialized payload and an explicit Bearer token. Fetch uses manual redirects so report text cannot be replayed at a handshake endpoint. Refresh and retry share the existing request timeout and cancellation signal. [Clerk refresh API](https://clerk.com/docs/guides/sessions/force-token-refresh).
+
+A remaining auth refusal, including a rejected Clerk refresh (401 or missing session 404), shows **Sign in again**, opening another tab while both report fields and the review state stay in the original tab. Before refresh, the text is also saved for 30 minutes in this tab's session storage, scoped to the original user and page. If Clerk forces a navigation, reopening Report bug as the same user restores it. Sign-out, successful submission or explicitly closing the dialog clears it; expired, invalid or mismatched drafts are removed when read. No board data or tokens are stored there. The player returns and sends again. Other Clerk refresh HTTP failures map to 503; report permission, server and network failures have distinct messages. No auth guard or permission is weakened. Existing server deduplication protects repeated submissions.
+
+Validation passed: 179 tests across the report-route, precheck, real-route integration, proxy, session-identity and duel-actor suites; five Chromium scenarios plus five auth setup checks; all seven package typechecks; and the production E2E stack build. No new unit tests. SQLite test fixtures used a temporary RAM filesystem after ordinary filesystem syncs caused setup timeouts. Offline E2E exercises signed test-cookie expiry/recovery and the browser behavior. Clerk refresh itself is exercised through the actual provider with a mocked token endpoint method in integration tests; this does not reproduce the missing production browser trace.
