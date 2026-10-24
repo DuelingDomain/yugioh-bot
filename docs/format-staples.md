@@ -58,7 +58,7 @@ because saved decks do not store a region. No private data is sent to GitHub.
 
 ## Refresh and safety
 
-The existing effect-tagging workflow runs the independent staples job daily.
+The existing effect-tagging workflow runs the independent staples job on its schedule (Monday, Wednesday, Friday).
 It needs no paid model key. Fetches have 20-second timeouts, response limits and
 a three-minute overall deadline. Output files have a 500 KB publication limit.
 Both publication and the runtime reader validate schema, counts and versions.

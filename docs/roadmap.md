@@ -27,7 +27,7 @@ When it is on, the weekly card-data PR shows which cards had script errors in pr
 
 ## Parked: faster card updates
 
-Parked by the owner on 2026-10-08. Today the card-data job runs each Monday and takes new cards and scripts from Project Ignis. Possible later steps:
+Parked by the owner on 2026-10-08. Today the card-data job runs each Monday and Thursday and takes new cards and scripts from Project Ignis. Possible later steps:
 - Check for new cards each day, and make a PR only when Ignis or YGOPRODeck has new cards.
 - Add our own scripts (and card data) for new cards that Ignis does not have yet. Today `card-script-patches` can only change a script that Ignis already has.
 - A report of cards that YGOPRODeck has but Ignis does not have yet.

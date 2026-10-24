@@ -68,7 +68,7 @@ update introduces a playable row at any mapped source ID, that engine row wins
 immediately. Verified mappings override token collisions: `27204312 → 27204311`
 (**Nibiru, the Primal Being**) and `53855410 → 53855409` (**Doppelwarrior**).
 
-The **Engine data update** workflow refreshes these files every Monday and
+The **Engine data update** workflow refreshes these files every Monday and Thursday and
 Thursday at 06:00 UTC, after preparing the candidate engine database. It also
 supports table-only changes when Ignis pins stay unchanged. An unavailable,
 malformed, or alternate-free feed retains the committed files and does not fail

@@ -153,6 +153,7 @@ flowchart LR
 - Draft dealing: [draft-engine.md](draft-engine.md). Core ABI: [engine/ocgcore-wasm-abi.md](engine/ocgcore-wasm-abi.md).
 - Deploy and ops: [deployment/vm-runbook.md](deployment/vm-runbook.md), [deployment/duel-engine-switch.md](deployment/duel-engine-switch.md).
 - Weekly card data updates: [deployment/engine-data-updates.md](deployment/engine-data-updates.md).
+- Every scheduled or recurring job, with manual run steps: [runbooks/README.md](runbooks/README.md).
 
 ## Card artwork selection
 
