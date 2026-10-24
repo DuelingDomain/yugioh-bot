@@ -184,6 +184,36 @@ describe("Haiku Batch tagging against a fake HTTP endpoint and durable ledger", 
     expect(api.events).toEqual([]); expect(await context.store.read()).toEqual(before);
   });
 
+  it("counts new untagged cards separately from changed printed effects", async () => {
+    const context = await setup();
+    const cards = [...changedCards(), { ...fixtureCards()[0], id: 99999997, name: "CI untagged fixture", aliases: [] }];
+    const report = await context.runTagging({ cards, store: context.store, now: context.now });
+    expect(report.candidates).toBe(7);
+    expect(report.newCards).toBe(1);
+  });
+
+  it.each([0, 1])("warns in the CLI log and report when a missing key leaves %i new cards untagged", async newCards => {
+    const context = await setup(), engine = join(context.directory, "engine"), output = join(context.directory, "output");
+    mkdirSync(join(engine, "card-scripts"), { recursive: true }); writeFileSync(join(engine, "strings.conf"), "");
+    const cdb = new Database(join(engine, "cards.cdb"));
+    cdb.exec(`CREATE TABLE datas(id INTEGER PRIMARY KEY,ot INTEGER,alias INTEGER,setcode INTEGER,type INTEGER,atk INTEGER,def INTEGER,level INTEGER,race INTEGER,attribute INTEGER);
+      CREATE TABLE texts(id INTEGER PRIMARY KEY,name TEXT,desc TEXT);`);
+    const cards = [changedCards()[0], ...Array.from({ length: newCards }, () => ({ ...fixtureCards()[0], id: 99999997, name: "CI untagged fixture" }))];
+    for (const card of cards) {
+      cdb.prepare("INSERT INTO datas VALUES(?,3,0,0,33,0,1800,3,16,4)").run(card.id);
+      cdb.prepare("INSERT INTO texts VALUES(?,?,?)").run(card.id, card.name, card.text);
+    }
+    cdb.close();
+    const log = execFileSync(process.execPath, ["--import", "tsx", "scripts/effects/tag-cards.ts", "--engine-directory", engine, "--output", output], {
+      cwd: rootPath, encoding: "utf8", env: { ...process.env, ANTHROPIC_API_KEY: "", GITHUB_REPOSITORY: "" },
+    });
+    const warning = `ANTHROPIC_API_KEY not set: ${newCards} new cards not tagged`;
+    expect(log).toContain(`::warning::${warning}`);
+    expect(readFileSync(join(output, "report.md"), "utf8")).toContain(warning);
+    expect(JSON.parse(readFileSync(join(output, "report.json"), "utf8"))).toMatchObject({ mode: "dry-run", newCards, candidates: newCards + 1, submitted: 0, collected: 0, usedMicros: 0 });
+    expect(await context.store.read()).toMatchObject({ ledger: { reservations: [] } });
+  });
+
   it("aligns uniquely named source artwork IDs before deciding that a card needs paid tags", async () => {
     const context = await setup();
     const original = await context.runTagging({ cards: fixtureCards(), store: context.store, now: context.now });

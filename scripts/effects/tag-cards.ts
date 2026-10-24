@@ -19,7 +19,7 @@ import { buildSynergyPrompt, resolveSynergyPrompt } from "./synergy-prompt.js";
 import { writeEffectArtifactCandidate } from "./artifact-output.js";
 
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
-export interface TaggingReport { mode: "dry-run" | "live"; candidates: number; profileCandidates: number; acceptedProfiles: AcceptedProfile[]; submitted: number; collected: number; reused: number; pending: number; usedMicros: number; deferred: string[]; accepted: AcceptedTag[] }
+export interface TaggingReport { mode: "dry-run" | "live"; candidates: number; newCards: number; profileCandidates: number; acceptedProfiles: AcceptedProfile[]; submitted: number; collected: number; reused: number; pending: number; usedMicros: number; deferred: string[]; accepted: AcceptedTag[] }
 export interface TaggingOptions { cards: Card[]; store: LedgerStore; client?: BatchClient; dryRun?: boolean; now?: () => Date; maxRequests?: number; artifactDirectory?: string }
 const isObject = (value: unknown): value is Record<string, any> => Boolean(value && typeof value === "object" && !Array.isArray(value));
 
@@ -98,7 +98,7 @@ export async function runTagging(options: TaggingOptions): Promise<TaggingReport
   if (!snapshot && !dryRun) throw new Error("Durable budget ledger is missing; explicit initialization is required");
   let ledger = snapshot?.ledger ?? createEmptyLedger(), revision = snapshot?.revision;
   const persist = async () => { revision = await options.store.compareAndSwap(revision, ledger); };
-  const report: TaggingReport = { mode: dryRun ? "dry-run" : "live", candidates: candidates.length, profileCandidates: profiles.length, acceptedProfiles: [], submitted: 0, collected: 0, reused: 0, pending: 0, usedMicros: 0, deferred: [], accepted: [] };
+  const report: TaggingReport = { mode: dryRun ? "dry-run" : "live", candidates: candidates.length, newCards: candidates.filter(card => !aligned.tagIds.has(card.id)).length, profileCandidates: profiles.length, acceptedProfiles: [], submitted: 0, collected: 0, reused: 0, pending: 0, usedMicros: 0, deferred: [], accepted: [] };
   if (!dryRun) {
     if (!options.client) throw new Error("Live tagging requires a Batch client");
     // Reserved runtime rows have never crossed the paid-call intent boundary.
@@ -212,8 +212,10 @@ async function main() {
   }
   const report = await runTagging({ cards, store, client, dryRun: !values.live, maxRequests: values["max-requests"] === undefined ? undefined : Number(values["max-requests"]) });
   const output = resolve(values.output ?? ".status/effect-tagging"); mkdirSync(output, { recursive: true });
+  const warning = !process.env.ANTHROPIC_API_KEY ? `ANTHROPIC_API_KEY not set: ${report.newCards} new cards not tagged` : "";
+  if (warning) console.log(`::warning::${warning}`);
   writeFileSync(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
-  writeFileSync(join(output, "report.md"), `Effect tagging: ${report.mode}\n\nCandidates: ${report.candidates}; submitted batches: ${report.submitted}; collected batches: ${report.collected}; reusable tags: ${report.reused}; profile candidates: ${report.profileCandidates}; accepted profiles: ${report.acceptedProfiles.length}; pending reservations: ${report.pending}.\n\nMonthly spent + held: $${(report.usedMicros / 1_000_000).toFixed(6)} of $10. Deferred: ${report.deferred.join(", ") || "none"}.\n`);
+  writeFileSync(join(output, "report.md"), `Effect tagging: ${report.mode}\n\n${warning ? `> **Warning:** ${warning}. Paid tagging skipped; no Anthropic requests made.\n\n` : ""}Candidates: ${report.candidates} (${report.newCards} new cards; ${report.candidates - report.newCards} changed effects); submitted batches: ${report.submitted}; collected batches: ${report.collected}; reusable tags: ${report.reused}; profile candidates: ${report.profileCandidates}; accepted profiles: ${report.acceptedProfiles.length}; pending reservations: ${report.pending}.\n\nMonthly spent + held: $${(report.usedMicros / 1_000_000).toFixed(6)} of $10. Deferred: ${report.deferred.join(", ") || "none"}.\n`);
   if (values.live) writeEffectArtifactCandidate({ root: process.cwd(), outputDirectory: output, baseSha: process.env.EFFECT_BASE_SHA ?? process.env.GITHUB_SHA ?? "", accepted: report.accepted, acceptedProfiles: report.acceptedProfiles });
   console.log(JSON.stringify({ ...report, accepted: report.accepted.length, acceptedProfiles: report.acceptedProfiles.length }));
 }

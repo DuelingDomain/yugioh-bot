@@ -12,25 +12,35 @@ excluded. Normal Pendulum Monsters with effects remain eligible.
 ## Enable and run
 
 1. Set the repository Actions secret `ANTHROPIC_API_KEY` for a dedicated
-   Anthropic workspace. Enable repository Actions to create pull requests.
-   The workflow token needs contents write for the ledger and artifact branch,
-   pull requests write, and actions write for the explicit Test dispatch.
-   `EFFECT_TAGGING_PR_TOKEN` is an optional replacement publication token with
-   these permissions; it is only exposed to the publication job.
+   Anthropic workspace. The Actions job token writes the budget ledger.
+   Both effect-artifact and format-staples publishers use the existing
+   `ENGINE_DATA_PR_TOKEN`, matching Engine data update: credential-free checkout,
+   step-scoped `GH_TOKEN`, `gh auth setup-git`, then branch push and PR creation.
+   This token needs contents write, pull requests write, and actions write for
+   the explicit Test dispatch. It is only exposed to publication steps.
+   The fallback Actions token can create PRs only if the repository permits it;
+   keep `ENGINE_DATA_PR_TOKEN` configured when Actions PR creation is disabled.
 2. Before **any** spend, manually dispatch **Effect tagging** on `main` with
    `dry_run=false` and `initialize_ledger=true`. This creates the independent
    `state/effect-tagging` branch containing `ledger.json` and makes no Anthropic
    request. Initialization refuses to replace an existing ledger. If tagging
    has ever run, restore a lost ledger from its Git history or backups instead
    of initializing an empty one.
-3. For an inspection, dispatch with the default `dry_run=true`. It reads the
+3. For an inspection, dispatch with the default `dry_run=true` (also allowed on
+   a PR branch; live tagging and publication remain restricted to `main`). It reads the
    catalog/artifact and ledger, writes a report artifact, and performs no paid
    requests, ledger mutations or publication. Before the first paid run, inspect
    `report.profileCandidates`; hand-written profiles and the pinned synergy
    examples (Dark World and Tearlaments) must never be refresh candidates.
 4. To submit/collect, dispatch with `dry_run=false`. Approved `main` changes to
-   the engine preparation pin also trigger a run; a daily 07:30 UTC run collects
-   completed work. Without the API secret paid runs skip cleanly and emit an Actions notice. Explicit dry runs remain available. All runs share
+   the engine preparation pin also trigger a run. Scheduled runs collect completed
+   work at 07:30 UTC on Monday, Wednesday and Friday (every 2-3 days). Engine-data
+   updates start at 06:00 UTC on Monday and Thursday. Without the API secret,
+   paid runs skip cleanly and emit the warning
+   `ANTHROPIC_API_KEY not set: N new cards not tagged` in the log and
+   job summary. The report separates new untagged cards from changed effects
+   that need retagging. Free release-month updates can still be published.
+   Explicit dry runs remain available. All runs share
    one concurrency group with cancellation disabled.
 
 The CLI also defaults to a keyless dry run. Build shared first, then point it at
@@ -48,6 +58,14 @@ pending reservations, spent plus held dollars and reasons for deferral. Reports
 are downloadable for 14 days. Completed accepted tags remain in the durable
 ledger and are reused until their artifact PR merges, preventing repeated paid
 tagging of the same inputs.
+
+Owner credentials have separate destinations: add `ANTHROPIC_API_KEY` as a
+repository Actions secret for CI tagging. For the optional runtime reader, add
+`ANTHROPIC_API_KEY` and `EFFECT_TAGGING_LEDGER_TOKEN` to the runtime secret
+manager (production `/opt/yugioh-bot/.env`), as described below. The runtime
+ledger token needs Contents read/write on this repository; CI uses its own
+Actions token for that ledger and does not require this extra secret. The
+existing `ENGINE_DATA_PR_TOKEN` is reused; no `EFFECT_TAGGING_PR_TOKEN` is needed.
 
 ## Hard monthly budget
 
@@ -177,9 +195,10 @@ These checks need no API secret and issue no GitHub writes or paid requests.
   `packages/shared/src/cards/effects/artifact.ts`. Each compressed file and its
   uncompressed content have SHA-256 descriptors.
 - `.github/workflows/effect-tagging.yml`: starts after an approved engine pin
-  merges to main, including Monday/Thursday engine update PRs; daily runs collect
-  completed batches. It tags the approved catalog, rather than sending unreviewed
-  engine PR input to the paid API. Engine update PRs do not wait for Batch completion.
+  merges to main, including Monday/Thursday engine update PRs; scheduled
+  Monday/Wednesday/Friday runs collect completed batches. It tags the approved
+  catalog, rather than sending unreviewed engine PR input to the paid API.
+  Engine update PRs do not wait for Batch completion.
 - Runtime APIs, `card_tags`, `card_tag_profiles`, `EFFECT_SEARCH=1`, the attribution
   constant, and summary display are unchanged. No API key is needed to search pinned tags. The optional hard-phrase reader
 uses a runtime key and the same durable ledger.
@@ -231,9 +250,9 @@ free. User identities are hashed only for this local rate table. Never delete
 claims to retry uncertain spend. Search responses contain no model attribution.
 
 
-## Daily release months
+## Release months
 
-The daily job also fills missing release months from the free
+The effect-tagging workflow also fills missing release months from the free
 [YGOPRODeck bulk API](https://ygoprodeck.com/api-guide/). This step makes no AI
 or paid calls and runs even when the tagging key is absent. Explicit workflow
 dry runs and ledger initialization skip it. The command reuses a 24-hour local disk cache. Disposable CI runs fetch fresh data

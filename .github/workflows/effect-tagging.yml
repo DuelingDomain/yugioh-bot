@@ -12,7 +12,7 @@ on:
       - scripts/ci/publish-effect-tags.mjs
       - .github/workflows/effect-tagging.yml
   schedule:
-    - cron: "30 7 * * *"
+    - cron: "30 7 * * 1,3,5"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -41,7 +41,8 @@ concurrency:
 
 jobs:
   validate:
-    if: github.ref == 'refs/heads/main'
+    # Branch dispatches may validate a repair without paid requests or publication.
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -61,7 +62,7 @@ jobs:
           fi
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
       - id: base
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -194,7 +195,7 @@ jobs:
           path: .status/effect-tagging
       - name: Publish verified artifact PR while preserving reviewed branch edits
         env:
-          GH_TOKEN: ${{ secrets.EFFECT_TAGGING_PR_TOKEN || github.token }}
+          GH_TOKEN: ${{ secrets.ENGINE_DATA_PR_TOKEN || github.token }}
         run: |
           gh auth setup-git
           prlimit --core=0 -- node scripts/ci/publish-effect-tags.mjs
@@ -232,7 +233,7 @@ jobs:
       - name: Publish a new artifact-only PR; never replace existing branch edits
         if: ${{ !inputs.dry_run }}
         env:
-          GH_TOKEN: ${{ secrets.EFFECT_TAGGING_PR_TOKEN || github.token }}
+          GH_TOKEN: ${{ secrets.ENGINE_DATA_PR_TOKEN || github.token }}
         run: |
           gh auth setup-git
           prlimit --core=0 -- node scripts/staples/publish.mjs
