@@ -273,4 +273,4 @@ and the stored summary. Similarity and counters explain their mechanical link.
 The existing `score` is a relative ordering value, not a probability. No UI
 component or new request field is required. The optional hard-phrase fallback
 uses these same response shapes with no model label; its operational and
-budget contract is in [effect-tagging.md](effect-tagging.md#optional-runtime-phrase-reader).
+budget contract is in [tagging.md](../architecture/effect-search/tagging.md#optional-runtime-phrase-reader).

@@ -4,7 +4,7 @@ Verified on 2026-10-19 against the pinned effect artifact and the real read-only
 
 ## Sources and fixtures
 
-All deck pages and source-card API metadata were retrieved on 2026-10-19. Full Main, Extra and Side passcode arrays, card names, retrieval timestamps, HTML hashes, explicit trimming decisions and expected omitted cards are preserved in [the source fixture](../packages/shared/tests/fixtures/deck-suggestions-quality.json). The [metadata fixture](../packages/shared/tests/fixtures/deck-suggestions-card-metadata.json) preserves real YGOPRODeck cache fields for all 169 unique source cards (170 passcodes including artwork), so the evaluator does not substitute an arbitrary first engine setcode for their API archetype. Other candidates come from the full engine catalog; expected relevance never restricts the candidate universe.
+All deck pages and source-card API metadata were retrieved on 2026-10-19. Full Main, Extra and Side passcode arrays, card names, retrieval timestamps, HTML hashes, explicit trimming decisions and expected omitted cards are preserved in [the source fixture](../../packages/shared/tests/fixtures/deck-suggestions-quality.json). The [metadata fixture](../../packages/shared/tests/fixtures/deck-suggestions-card-metadata.json) preserves real YGOPRODeck cache fields for all 169 unique source cards (170 passcodes including artwork), so the evaluator does not substitute an arbitrary first engine setcode for their API archetype. Other candidates come from the full engine catalog; expected relevance never restricts the candidate universe.
 
 | Scenario | Published source | Event / status |
 | --- | --- | --- |
@@ -79,4 +79,4 @@ DECK_SUGGESTIONS_EVAL_OUTPUT=.status/deck-suggestions-quality-report.json \
 prlimit --core=0 npm exec --workspace @yugidraft/shared -- vitest run tests/effect-search.integration.test.ts -t 'sourced deck suggestion'
 ```
 
-The catalog snapshot contains 14,845 raw engine records and 13,694 imported effect tags. The artifact version is `7ce6daa3e4f6251f353b6e41de3bd9ccbf842aa214740dba5d75e21c3a2b828f`. See [the integration evaluator](../packages/shared/tests/effect-search.integration.test.ts) and [the reusable catalog loader](../packages/shared/tests/fixtures/deck-suggestions-quality.ts).
+The catalog snapshot contains 14,845 raw engine records and 13,694 imported effect tags. The artifact version is `7ce6daa3e4f6251f353b6e41de3bd9ccbf842aa214740dba5d75e21c3a2b828f`. See [the integration evaluator](../../packages/shared/tests/effect-search.integration.test.ts) and [the reusable catalog loader](../../packages/shared/tests/fixtures/deck-suggestions-quality.ts).
