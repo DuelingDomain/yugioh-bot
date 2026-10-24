@@ -1,3 +1,4 @@
+import { authorizeDuelControl, sandboxErrorResponse } from "@/lib/sandbox-access";
 import { NextResponse } from "next/server";
 import { readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 
@@ -9,15 +10,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   const { slug } = await params;
 
   let fork = false;
+  let control: { as?: number; reveal?: boolean };
   try {
     const room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
-    readDuelControl(request, room);
+    const authorized = await authorizeDuelControl(request, room, room.session.sandbox ? "action" : "none");
+    if (!authorized.ok) return authorized.response;
+    control = authorized.control;
     fork = room?.session.kind === "replay-fork";
   } catch (error) {
-    return duelErrorResponse(error);
+    return sandboxErrorResponse(error);
   }
 
   const result = await callDuelHost({
+    ...control,
     op: "surrender",
     slug,
     guildId: actor.guildId,

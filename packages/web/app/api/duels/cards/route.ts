@@ -1,3 +1,4 @@
+import { authorizeDuelControl, sandboxErrorResponse } from "@/lib/sandbox-access";
 import { cardAdmissionContext, type CardAdmissionContext } from "@/lib/card-admission-context";
 import { NextRequest, NextResponse } from "next/server";
 import { createCardCatalogService } from "@yugidraft/shared/services";
@@ -42,10 +43,12 @@ export async function GET(request: NextRequest) {
   let control: ReturnType<typeof readDuelControl>;
   try {
     const room = slug ? actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false }) : undefined;
-    control = readDuelControl(request, room, "cards");
+    const authorized = await authorizeDuelControl(request, room, "cards");
+    if (!authorized.ok) return authorized.response;
+    control = authorized.control;
     fork = room?.session.kind === "replay-fork";
   }
-  catch (error) { return duelErrorResponse(error); }
+  catch (error) { return sandboxErrorResponse(error); }
   const result = await callDuelHost({
     op: "cards",
     slug,
@@ -56,7 +59,7 @@ export async function GET(request: NextRequest) {
   if (!result.ok) return result.response;
   if (fork && slug) {
     try { actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false }); }
-    catch (error) { return duelErrorResponse(error); }
+    catch (error) { return sandboxErrorResponse(error); }
   }
   const data = result.data as { cards: DuelCardInfo[] };
   return NextResponse.json({ ...data, cards: withCatalogCardText(data.cards) }, { headers: { "cache-control": "private, no-store" } });

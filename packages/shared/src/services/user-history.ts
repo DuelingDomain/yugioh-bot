@@ -13,6 +13,7 @@ export const playerReferences: Readonly<Record<string, readonly string[]>> = {
   player_ratings: ["player_id"], point_awards: ["player_id"], season_standings: ["player_id"], player_achievements: ["player_id"],
   duels: ["organizer_player_id", "winner_player_id"], duel_seats: ["player_id"], duel_invite_grants: ["player_id"],
   duel_kicked_players: ["player_id"],
+  sandbox_scenarios: ["owner_player_id"],
   duel_series: ["player0_id", "player1_id", "winner_player_id", "created_by_player_id"], bug_reports: ["player_id"],
   draft_cards: ["picked_by_player_id"], draft_picks: ["player_id"], draft_passes: ["player_id"],
 };

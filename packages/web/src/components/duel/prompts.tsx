@@ -10,7 +10,7 @@ import type {
   DuelPromptOption,
 } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
-import { searchDuelCards } from "./api";
+import { searchDuelCards, type SandboxView } from "./api";
 import { ForkSearchContext } from "./replay-fork-control";
 import { cardArtUrl, LOCATION_HAND, LOCATION_MZONE, zoneKey } from "./constants";
 import { stripCardsPerRow } from "./card-strip";
@@ -377,11 +377,13 @@ function OptionButton({
 
 export function AnnounceSearch({
   slug,
+  sandbox,
   cardCode,
   busy,
   onPick,
 }: {
   slug: string;
+  sandbox?: SandboxView;
   cardCode: number | null;
   busy: boolean;
   onPick: (card: DuelCardInfo) => void;
@@ -391,9 +393,9 @@ export function AnnounceSearch({
   const readOnly = useContext(ReadOnlyPromptContext);
   // The search is tied to a seat, a prompt and a revision. A new reading of the same prompt must not restart it, and
   // results found for another binding must not stay pickable.
-  const forkKey = fork ? `${fork.as}:${fork.promptId}:${fork.revision}` : "";
-  const forkNow = useRef(fork);
-  forkNow.current = fork;
+  const forkKey = fork ? `${fork.as}:${fork.promptId}:${fork.revision}` : sandbox ? `sandbox:${sandbox.as}:${sandbox.reveal}` : "";
+  const forkNow = useRef(fork ?? sandbox);
+  forkNow.current = fork ?? sandbox;
   const inputId = useId();
   const listId = `${inputId}-results`;
   const list = useRef<HTMLUListElement>(null);
@@ -626,6 +628,7 @@ export function PromptTray({
   prompt,
   mySeat,
   slug,
+  sandbox,
   busy,
   draft,
   onSubmit,
@@ -641,6 +644,7 @@ export function PromptTray({
   prompt: DuelPrompt | null;
   mySeat: number | null;
   slug: string;
+  sandbox?: SandboxView;
   busy: boolean;
   draft: PromptDraft;
   onSubmit: (answer: DuelAnswer) => void;
@@ -963,6 +967,7 @@ export function PromptTray({
         <AnnounceSearch
           key={prompt.id}
           slug={slug}
+          sandbox={sandbox}
           cardCode={draft.cardCode}
           busy={busy}
           onPick={(card) => {

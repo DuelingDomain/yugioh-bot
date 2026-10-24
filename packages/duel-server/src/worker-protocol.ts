@@ -1,3 +1,4 @@
+import type { SandboxEngineSnapshot } from "./sandbox-snapshot.js";
 import type { ReplayWorkerOptions, ReplayWorkerResult } from "./replay-worker.js";
 import type { ReplayBuildErrorCode } from "./replay-builder.js";
 import type { DuelScriptError, DuelScriptFatalError } from "./script-errors.js";
@@ -51,11 +52,12 @@ export type DuelWorkerRequest =
   | { id: number; op: "search"; query: string; seat?: number }
   | { id: number; op: "eliminate"; seat: number; reason: number; atTurnEnd?: boolean }
   | { id: number; op: "chain-mode"; seat: number; mode: DuelChainMode }
+  | { id: number; op: "sandbox-snapshot" }
   | { id: number; op: "diagnostics" }
   /** Load the card data into this thread ahead of a create. Changes no game state. */
   | { id: number; op: "warm"; dataDirectory: string }
   | { id: number; op: "close" };
 
 export type DuelWorkerResponse =
-  | { id: number; ok: true; value?: ReplayWorkerResult | DuelEngineView | DuelCardInfo[] | EngineDiagnostic[] | boolean; createTimings?: WorkerCreateTimings; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] }
+  | { id: number; ok: true; value?: SandboxEngineSnapshot | ReplayWorkerResult | DuelEngineView | DuelCardInfo[] | EngineDiagnostic[] | boolean; createTimings?: WorkerCreateTimings; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] }
   | { id: number; ok: false; replayError?: { code: ReplayBuildErrorCode; familyFailed: boolean; diagnostic?: { message: string; name: string; stack?: string } }; error: string; message?: string; name?: string; stack?: string; answerError?: true; engineLoop?: true; code?: DuelErrorCode | "ENGINE_UNAVAILABLE_FOR_SOURCE"; scriptErrors?: DuelScriptError[]; fatalScriptErrors?: DuelScriptFatalError[] };

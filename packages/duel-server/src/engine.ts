@@ -1,3 +1,4 @@
+import { readSandboxEngineSnapshot, type SandboxEngineSnapshot } from "./sandbox-snapshot.js";
 import { LpOpponentHints } from "./lp-opponent-hints.js";
 import { ChainOptions } from "./chain-options.js";
 import { ChainActivator } from "./chain-activator.js";
@@ -237,6 +238,7 @@ export interface EngineViewHistory {
 }
 
 export interface EngineGame {
+  sandboxSnapshot?(): SandboxEngineSnapshot;
   view(seat: number | null, history?: EngineViewHistory): DuelEngineView;
   /** Live answers default to version 1; journal replay supplies the saved sort encoding version. */
   answer(seat: number, promptId: string, answer: DuelAnswer, sortOrderVersion?: 0 | 1): void;
@@ -1479,6 +1481,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // the departed turn player; that window and prompts held by leavers also receive automatic answers.
       answerForLeavingSeats();
       revision += 1;
+    },
+    sandboxSnapshot() {
+      if (closed) throw new Error("Engine is closed");
+      return readSandboxEngineSnapshot(lib, handle, game.view(0), options.mode === "domain", (code) => cards.cardData(code)?.type);
     },
     diagnostics() {
       return diagnostics.map((entry) => ({ ...entry }));

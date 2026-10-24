@@ -1,0 +1,166 @@
+/* Sandbox table view. It lives inside the builder (Match Sheet root), which gives the colour tokens. Stage px: 1100 x 860. */
+
+.root { position: relative; min-width: 0; width: 100%; --sbx-table-chrome: 150px; color: var(--ink); }
+
+/* ---- table ----------------------------------------------------------------------------- */
+
+.frame {
+  position: relative;
+  width: 100%;
+  max-width: calc((100dvh - var(--sbx-table-chrome)) * 1100 / 860);
+  margin: 0 auto;
+  border: 1px solid var(--rule-lo);
+  border-radius: 14px;
+  background: #0d1220;
+  overflow: hidden;
+}
+.stage { position: absolute; left: 0; top: 0; width: 1100px; height: 860px; transform-origin: 0 0; }
+.floor {
+  position: absolute; left: 50%; top: 50%; width: 1500px; height: 1500px; translate: -50% -50%; border-radius: 50%;
+  background:
+    radial-gradient(closest-side, rgb(30 40 70 / 0.5), transparent 62%),
+    repeating-radial-gradient(circle at 50% 50%, transparent 0 26px, rgb(0 0 0 / 0.4) 26px 28.5px),
+    radial-gradient(closest-side, #182033, #121827 70%, #0f1420);
+  opacity: 0.7;
+  pointer-events: none;
+}
+.tile { position: absolute; }
+.stackTile { position: relative; overflow: hidden; }
+.stackTile > .tile { position: absolute; left: 0; top: 0; }
+
+/* ---- field box ------------------------------------------------------------------------- */
+
+.box {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr repeat(5, var(--zw)) 1fr;
+  grid-template-rows: repeat(3, 112px);
+  gap: 8px;
+  width: 100%;
+  height: 380px;
+  padding: 14px;
+  box-sizing: border-box;
+  border: 2px solid rgb(var(--tone) / 0.55);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgb(var(--tone) / 0.1), rgb(8 12 24 / 0.82));
+  box-shadow: 0 0 40px rgb(var(--tone) / 0.12);
+}
+.tile[data-active="true"] .box { border-color: rgb(var(--tone) / 0.95); box-shadow: 0 0 0 3px rgb(var(--tone) / 0.28), 0 0 40px rgb(var(--tone) / 0.2); }
+.tile[data-drawer="true"] .box { background: linear-gradient(180deg, rgb(var(--tone) / 0.16), rgb(8 12 24 / 0.82) 40%); }
+
+.emzL { grid-row: 1; grid-column: 3; }
+.emzR { grid-row: 1; grid-column: 5; }
+.emzCell { display: flex; justify-content: center; gap: 2px; height: 100%; }
+.emzCell[data-count="2"] > [data-sbx-slot] { width: 50%; }
+.emzOwner {
+  grid-row: 1; grid-column: 4; align-self: center; justify-self: center; padding: 3px 10px; border: 1px solid rgb(var(--tone) / 0.6); border-radius: 999px;
+  background: rgb(var(--tone) / 0.14); color: var(--ink); font-size: 14px; letter-spacing: 0.06em; cursor: pointer; white-space: nowrap;
+}
+.emzOwner[data-turn="true"] { transform: rotate(180deg); }
+.shared { grid-row: 1; grid-column: 2 / 7; align-self: center; margin: 0; font-size: 13px; color: var(--ink-3); text-align: center; }
+.fieldCell { grid-row: 2; grid-column: 1; }
+.graveCell { grid-row: 2; grid-column: 7; }
+.mCell { grid-row: 2; }
+.sCell { grid-row: 3; }
+.pendL { grid-row: 3; grid-column: 1; }
+.pendR { grid-row: 3; grid-column: 7; }
+
+/* A slot or pile fills its cell by height: a card keeps its 59:86 shape. */
+.box > div { min-width: 0; min-height: 0; display: grid; }
+.box > div > [data-sbx-slot] { width: 100%; height: 100%; }
+.box > div > [data-sbx-slot] > button, .emzCell > [data-sbx-slot] > button, .dm > [data-sbx-slot] > button {
+  width: auto; height: 100%; max-width: 100%; aspect-ratio: 59 / 86; border-radius: 7px;
+}
+.emzCell > [data-sbx-slot] { height: 100%; }
+.box [data-sbx-slot] > button[data-empty="true"] > span { display: none; }
+.box [data-sbx-slot] > button[data-empty="true"] > svg { width: 26px; height: 26px; }
+.box [data-sbx-slot] > button[data-empty="true"] { border-color: rgb(var(--tone) / 0.35); }
+
+/* ---- lane: hand strip and piles --------------------------------------------------------- */
+
+.lane {
+  position: absolute; left: 0; top: 387px; width: 100%; height: 74px; box-sizing: border-box;
+  display: flex; align-items: center; gap: 8px; padding-left: 213px;
+}
+.lane[data-stack="true"] { padding-left: 0; }
+/* A field turned 180 keeps the plate at the left of the screen: after the turn that is the right of the lane. */
+.tile[data-flip="true"] .lane { padding-left: 0; padding-right: 213px; }
+.hand {
+  position: relative; display: flex; align-items: center; flex: 1 1 0; min-width: 0; height: 100%; padding: 4px 36px 4px 8px; overflow: hidden;
+  border: 1px solid rgb(var(--tone) / 0.4); border-radius: 10px; background: rgb(8 12 24 / 0.7); cursor: pointer;
+}
+.hand[data-open="true"] { border-color: rgb(var(--tone) / 0.95); }
+.handCard { flex: none; width: 36px; height: 52px; margin-right: -12px; overflow: hidden; border: 1px solid var(--rule); border-radius: 4px; background: var(--panel-3); }
+.handCard img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.handCard > span { font-size: 6px; }
+.handCount { position: absolute; right: 9px; top: 50%; translate: 0 -50%; font-size: 24px; color: var(--ink); }
+.dm { flex: none; width: 50px; height: 70px; display: grid; }
+.dm > [data-sbx-slot] { width: 100%; height: 100%; }
+
+.chip {
+  position: relative; display: grid; place-items: center; flex: none; width: 56px; height: 70px; padding: 0; overflow: hidden;
+  border: 1px solid rgb(var(--tone) / 0.4); border-radius: 8px; background: rgb(8 12 24 / 0.78); color: var(--ink-2); cursor: pointer;
+}
+.chip[data-variant="side"] { width: auto; height: 100%; max-width: 100%; aspect-ratio: 59 / 86; border-radius: 7px; border-style: dashed; justify-self: center; }
+.chip[data-has="true"] { border-style: solid; }
+.chip[data-target="true"] { border-color: var(--pen); }
+.chip[data-open="true"] { border-color: rgb(var(--tone) / 0.95); box-shadow: 0 0 0 2px rgb(var(--tone) / 0.3); }
+.chip[data-over="true"] { border-color: var(--chain); background: var(--chain-soft); }
+.chip:disabled { cursor: default; }
+.chipArt { position: absolute; inset: 0; opacity: 0.55; }
+.chipArt img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.chipArt > span { font-size: 7px; }
+.chipName { position: absolute; left: 0; right: 0; top: 5px; font-size: 12px; letter-spacing: 0; text-transform: uppercase; text-align: center; text-shadow: 0 1px 3px #000; }
+.chipCount { position: absolute; left: 0; right: 0; bottom: 4px; font-size: 24px; text-align: center; color: var(--ink); text-shadow: 0 1px 4px #000; }
+
+/* ---- out seat ---------------------------------------------------------------------------- */
+
+.tile[data-out="true"] .box, .tile[data-out="true"] .lane { filter: grayscale(1) brightness(0.55); pointer-events: none; }
+.outLabel {
+  position: absolute; left: 0; top: 0; width: 100%; height: 380px; display: grid; place-items: center; pointer-events: none;
+  font-family: var(--f-disp); font-size: 96px; letter-spacing: 0.12em; text-transform: uppercase; color: rgb(255 255 255 / 0.55);
+  text-shadow: 0 2px 16px #000; transform: rotate(calc(-1 * var(--turn, 0deg)));
+}
+
+/* ---- seat badge: unscaled, over the table ------------------------------------------------ */
+
+.badges { position: absolute; inset: 0; pointer-events: none; }
+.badge {
+  position: absolute; z-index: 5; display: grid; gap: 4px; width: 126px; box-sizing: border-box; padding: 6px 8px; translate: -50% -50%;
+  border: 1px solid rgb(var(--tone) / 0.6); border-radius: 10px; background: rgb(10 15 28 / 0.94); pointer-events: auto;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+}
+.badge[data-active="true"] { border-color: rgb(var(--tone) / 1); box-shadow: 0 0 0 2px rgb(var(--tone) / 0.3), 0 6px 18px rgb(0 0 0 / 0.45); }
+.badge[data-out="true"] { filter: grayscale(1); opacity: 0.8; }
+.badgeRow { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.badgeName {
+  padding: 0; border: 0; background: none; color: var(--ink); cursor: pointer;
+  font-family: var(--f-disp); font-size: 14px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.badgeName span { margin-left: 4px; font-size: 11px; color: var(--pen-ink); }
+.badge[data-out="true"] .badgeName { text-decoration: line-through; }
+.toggle {
+  display: inline-grid; grid-auto-flow: column; padding: 2px; border: 1px solid var(--rule); border-radius: 999px; background: var(--ground); cursor: pointer;
+}
+.toggle:disabled { cursor: not-allowed; opacity: 0.55; }
+.toggle > span { padding: 1px 8px; border-radius: 999px; font-size: 11.5px; line-height: 1.5; color: var(--ink-3); }
+.toggle > span[data-on="true"] { background: var(--pen-soft); color: var(--ink); font-weight: 600; }
+.toggle > span[data-on="true"]:last-child { background: var(--loss-soft); color: var(--loss-ink); }
+.badge :global(.input) { width: 64px; height: 26px; font-size: 13px; }
+.badge label { justify-content: space-between; }
+
+/* ---- drawer and popover layer ------------------------------------------------------------- */
+
+.drawer {
+  position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 20; display: grid; gap: 4px; padding: 8px 10px;
+  border: 1px solid var(--rule-hi); border-radius: 12px; background: var(--panel-2); box-shadow: 0 14px 34px rgb(0 0 0 / 0.55);
+}
+.drawerHead { display: flex; align-items: center; justify-content: space-between; font-family: var(--f-disp); letter-spacing: 0.05em; }
+.popLayer { position: fixed; z-index: 60; pointer-events: none; }
+.popLayer > * { pointer-events: auto; }
+
+/* ---- phone: seats in a stack -------------------------------------------------------------- */
+
+.stackList { display: grid; gap: 14px; }
+.stackItem { position: relative; display: grid; grid-template-rows: auto 1fr; gap: 8px; }
+.stackItem .badge { position: static; translate: none; width: auto; grid-auto-flow: column; align-items: center; justify-content: space-between; }

@@ -47,7 +47,7 @@ const OWN_SQL = `
     coalesce(d.last_activity_at, d.created_at) as activity
   from duels d
   join duel_seats me on me.duel_id = d.id and me.player_id = @viewer
-  where d.kind = 'play' and d.guild_id = @guild
+  where d.sandbox = 0 and d.kind = 'play' and d.guild_id = @guild
     and not exists (select 1 from duel_kicked_players k where k.duel_id = d.id and k.player_id = @viewer)
     and case when json_valid(d.setup_json) then coalesce(json_extract(d.setup_json, '$.testDuel'), 0) else 0 end = 0
     and ${duelSeriesTournamentReadScope("d.series_id")}
@@ -82,7 +82,7 @@ const OWN_SQL = `
 const COUNT_SQL = `
   select count(*) as n
   from duels
-  where kind = 'play' and guild_id = @guild
+  where sandbox = 0 and kind = 'play' and guild_id = @guild
     and not exists (select 1 from duel_kicked_players k where k.duel_id = duels.id and k.player_id = @viewer)
     and case when json_valid(setup_json) then coalesce(json_extract(setup_json, '$.testDuel'), 0) else 0 end = 0
     and ${duelSeriesTournamentReadScope("duels.series_id", "coalesce(@user, (select viewer.user_id from players viewer where viewer.id = @viewer and viewer.guild_id = @guild))")}
@@ -118,7 +118,7 @@ export function createLiveNowService(db: Database.Database): LiveNowService {
     select x.seat, case when x.is_bot = 1 then @bot else p.display_name end as name, x.is_bot
     from duels d join duel_seats x on x.duel_id = d.id
     left join players p on p.id = x.player_id
-    where d.kind = 'play' and d.guild_id = @guild and d.web_slug = @slug
+    where d.sandbox = 0 and d.kind = 'play' and d.guild_id = @guild and d.web_slug = @slug
       and (x.player_id is null or x.player_id != @viewer)
     order by x.seat
   `);

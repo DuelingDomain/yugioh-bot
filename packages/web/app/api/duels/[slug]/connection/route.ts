@@ -1,3 +1,4 @@
+import { requireSandboxActor } from "@/lib/sandbox-access";
 import { NextResponse } from "next/server";
 import { createDuelConnectionToken, DUEL_CONNECTION_TTL_MS } from "@yugidraft/shared/ws";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
@@ -26,6 +27,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
       throw new ReplayAccessError();
     }
     let room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
+    if (room.session.sandbox) {
+      const sandboxActor = await requireSandboxActor();
+      if (!sandboxActor.ok) return sandboxActor.response;
+    }
     if (query.get("spectate") === "1") {
       const result = await callDuelHost({ op: "view", slug, guildId: actor.guildId, playerId: actor.playerId, spectate: true });
       if (!result.ok) return result.response;

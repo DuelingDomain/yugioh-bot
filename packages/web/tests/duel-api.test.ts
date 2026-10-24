@@ -142,3 +142,17 @@ describe("viewer FX speed", () => {
     expect(new Headers(fetch.mock.calls[0]![1].headers).get("x-duel-animation-speed")).toBe("1.75");
   });
 });
+
+it("sends an explicit reveal choice for a sandbox room without changing fork defaults", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(Response.json(makeSeriesRoom()));
+  vi.stubGlobal("fetch", fetchMock);
+  await getDuelRoom("sandbox", false, null, undefined, undefined, { as: 1, reveal: true });
+  expect(fetchMock).toHaveBeenCalledWith("/api/duels/sandbox?as=1&reveal=1", expect.anything());
+});
+
+it("sends the sandbox acting seat and reveal choice for its response switch", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(Response.json(makeSeriesRoom()));
+  vi.stubGlobal("fetch", fetchMock);
+  await setChainResponseMode("sandbox", "always", { as: 1, reveal: false });
+  expect(fetchMock).toHaveBeenCalledWith("/api/duels/sandbox/chain-mode?as=1&reveal=0", expect.objectContaining({ body: JSON.stringify({ mode: "always" }) }));
+});

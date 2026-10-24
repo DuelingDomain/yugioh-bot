@@ -14,13 +14,14 @@ import {
   type DeckSuggestionQuery,
 } from "@yugidraft/shared/services";
 import { isReplayFork, seatCountFor, type CardQuery, type DuelChainMode, type DuelCommand, type DuelDeck, type DuelFirstChoice,
-  type DuelFormat, type DuelMasterRule, type DuelMode, type DuelRpsMove, type DuelRoom, type ReplayForkRequest, type ReplayUnverifiedReason } from "@yugidraft/shared/duels";
+  type DuelFormat, type DuelMasterRule, type DuelMode, type DuelRpsMove, type DuelRoom, type ReplayForkRequest, type ReplayUnverifiedReason,
+  type SandboxHostOp, type SandboxBoard, type SandboxRun, type SandboxBotMode } from "@yugidraft/shared/duels";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { CardDataStatus } from "@yugidraft/shared/types";
 
-export type DuelHostOp = "admin-spectate" | "kick" | "invite-player" | "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "suggestion-scope" | "deck-suggestions" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode";
+export type DuelHostOp = "admin-spectate" | "kick" | "invite-player" | "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "suggestion-scope" | "deck-suggestions" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode" | SandboxHostOp;
 
 /** Read-only seat identity stays separate from creator identity. Unknown control flags fail closed. */
 export function readDuelControl(request: Request, room?: DuelRoom, allowed: "view" | "action" | "cards" | "none" = "none") {
@@ -163,6 +164,11 @@ export async function callDuelHost(input: {
   /** view only: an eliminated FFA player watches through the public view. */
   spectate?: boolean;
   command?: DuelCommand;
+  board?: SandboxBoard;
+  run?: SandboxRun;
+  scenarioId?: number;
+  control?: SandboxBotMode;
+  to?: string;
   /** Bounded presentation preference of this authenticated viewer. */
   animationSpeed?: number;
   deck?: DuelDeck;
@@ -274,6 +280,14 @@ export async function callDuelHost(input: {
   if (input.move !== undefined) payload.move = input.move;
   if (input.choice !== undefined) payload.choice = input.choice;
   if (input.chainMode !== undefined) payload.mode = input.chainMode;
+
+  if (input.as !== undefined) payload.as = input.as;
+  if (input.reveal !== undefined) payload.reveal = input.reveal;
+  if (input.board !== undefined) payload.board = input.board;
+  if (input.run !== undefined) payload.run = input.run;
+  if (input.scenarioId !== undefined) payload.scenarioId = input.scenarioId;
+  if (input.control !== undefined) payload.control = input.control;
+  if (input.to !== undefined) payload.to = input.to;
 
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {

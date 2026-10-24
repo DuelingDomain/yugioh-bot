@@ -1,10 +1,12 @@
-import { LayoutDashboard, Trophy, Medal, Layers, Boxes, Swords, Library, UserCog, DatabaseZap, Bug, Gauge, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Trophy, Medal, Layers, Boxes, Swords, Library, UserCog, DatabaseZap, Bug, Gauge, FlaskConical, type LucideIcon } from "lucide-react";
 
 export interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
   match: "exact" | "prefix";
+  /** Shown only to listed developers. The shell asks `/api/sandbox/access`; pages and APIs still gate on their own. */
+  sandboxOnly?: boolean;
 }
 
 export const navItems: NavItem[] = [
@@ -14,6 +16,7 @@ export const navItems: NavItem[] = [
   { href: "/duels", label: "Duels", icon: Swords, match: "prefix" },
   { href: "/decks", label: "Decks", icon: Library, match: "prefix" },
   { href: "/cubes", label: "Cubes", icon: Boxes, match: "prefix" },
+  { href: "/sandbox", label: "Sandbox", icon: FlaskConical, match: "prefix", sandboxOnly: true },
   { href: "/leaderboard", label: "Leaderboard", icon: Medal, match: "exact" },
   { href: "/admin", label: "Admin console", icon: Gauge, match: "prefix" },
   { href: "/settings/card-data", label: "Card data", icon: DatabaseZap, match: "prefix" },
