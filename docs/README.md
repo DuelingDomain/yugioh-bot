@@ -235,7 +235,6 @@ These docs stay next to their code.
 | [packages/e2e/stack/MANUAL.md](../packages/e2e/stack/MANUAL.md) | Run the isolated stack by hand |
 | [packages/duel-server/legacy-1v1/README.md](../packages/duel-server/legacy-1v1/README.md) | Legacy 1v1 engine pin |
 | [packages/duel-server/domain-core/patches/README.md](../packages/duel-server/domain-core/patches/README.md) | Domain core patch series |
-| [packages/duel-server/domain-core/proposals/domain-nseat-stress/README.md](../packages/duel-server/domain-core/proposals/domain-nseat-stress/README.md) | Engine patch proposals not yet applied |
 | [packages/duel-server/tests/scenarios/README.md](../packages/duel-server/tests/scenarios/README.md) | Scenario test layer |
 | [packages/duel-server/tests/scenarios/generated/README.md](../packages/duel-server/tests/scenarios/generated/README.md) | Generated scenarios from failures |
 | [packages/duel-server/tests/differential/README.md](../packages/duel-server/tests/differential/README.md) | Differential engine tests |
@@ -250,7 +249,3 @@ These docs stay next to their code.
 | [packages/shared/scripts/README.md](../packages/shared/scripts/README.md) | Repair scoring after overturned results |
 | [packages/shared/data/effects/NOTICE.md](../packages/shared/data/effects/NOTICE.md) | Effect data attribution |
 | [site/README.md](../site/README.md) | Marketing site |
-
-## Waiting for an owner decision
-
-The two `effect-search-*missing-tags.csv` lists may be deleted after owner approval, so this index does not link them.
