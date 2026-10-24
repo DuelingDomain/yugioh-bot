@@ -25,6 +25,7 @@ const active = new Set<symbol>();
 const startListeners = new Set<Listener>();
 let quietAt = 0;
 let stamp = 0;
+let settleTimer: ReturnType<typeof setTimeout> | null = null;
 
 const clock = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
@@ -46,6 +47,21 @@ export function onBoardMotionStart(listener: Listener): () => void {
   };
 }
 
+/**
+ * Tells the page the board came to rest (moving to settled, after the settle time): anything placed against the board
+ * (the pinned card drawer) re-places itself on this window event. Fires once per rest, not once per move.
+ */
+function armSettled() {
+  if (typeof window === "undefined") return;
+  if (settleTimer) clearTimeout(settleTimer);
+  if (active.size > 0) return;
+  settleTimer = setTimeout(() => {
+    settleTimer = null;
+    if (boardMoving()) return armSettled();
+    window.dispatchEvent(new Event("duel:board-settled"));
+  }, Math.max(0, quietAt - clock()) + 1);
+}
+
 function started(wasMoving: boolean) {
   stamp += 1;
   if (wasMoving) return;
@@ -62,6 +78,7 @@ export function beginBoardMotion(settleMs: number = BOARD_SETTLE_MS): () => void
     if (!active.delete(token)) return;
     clearTimeout(cap);
     quietAt = Math.max(quietAt, clock() + settleMs);
+    armSettled();
   };
   started(wasMoving);
   return end;
@@ -72,6 +89,7 @@ export function holdBoardMotion(ms: number = BOARD_SETTLE_MS): void {
   const wasMoving = boardMoving();
   quietAt = Math.max(quietAt, clock() + ms);
   started(wasMoving);
+  armSettled();
 }
 
 /** A Web Animation that moves the board. It counts as motion until it finishes or is cancelled. Returns the animation. */
