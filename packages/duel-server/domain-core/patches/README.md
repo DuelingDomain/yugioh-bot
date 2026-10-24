@@ -117,6 +117,7 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 | `0117-real-summon-target-seat.patch` | `Duel.MPSummonTargetSeat()` preserves the exact receiving seat before summon restriction and forced-position callback parameters fold into Lua team/opponent values. Nested callbacks restore the previous receiver; other callbacks read -1. | Existing player folding and 1v1 behavior stay unchanged. Standard/Domain Angelechy and Kaiju scenarios check the real receiver with summoner-owned and third-seat Rivalry. |
 | `0118-simultaneous-loss-notice-group.patch` | Send all loss notices from one check before card cleanup. | Card Destruction deck-out scenarios keep a shared third place through foreign Xyz material moves and disabled-zone updates. Direct elimination callers keep their normal notice. |
 | `0118-tag-joined-control-swap.patch` | `Duel.MPTagSwapControl` exchanges joined Tag fields in one control-change event group. Every monster crosses fixed facing seats 0/1 or 2/3. Outgoing slots are available for preflight; each receiver chooses its own MMZ before any card moves. Per-card forced-zone masks are recomputed against reserved virtual placements, and each choice retains a complete placement. | Existing SwapControl, FFA rotation and 1v1 behavior stay unchanged. Standard/Domain Switcheroroo scenarios cover mixed real controllers, uneven facing counts, twenty occupied MMZ, Rivalry race exchange, rejected six-monster overflow, per-card zone masks, placement pruning, atomic refusal of conflicting masks (including the last full receiving field) and official Lane Restriction dynamic masks. |
+| `0120-return-after-banisher-deleted.patch` | `MoveToField` with `ret = 1` (Duel.ReturnToField of a temporarily banished card) compares the owner of the banishing effect only while that effect and the returning effect both exist. | A card banished "until" a phase by an effect that already reset (Time Chain, 100463005) returns instead of reading a null effect. Live banisher effects keep the stock owner check. Native check `temporary-return-banisher-gone`. |
 
 ## Commands
 
@@ -221,6 +222,8 @@ The same fix is useful for the production standard core. It is not applied there
 ## Status of the series
 
 `0119-real-seat-lp-query.patch` adds `Duel.MPGetLP(realSeat)`, a read-only LP query that returns nil for eliminated or invalid seats. The FFA comparison overlay uses it to inspect every living opponent without changing the caller's seat scope or opponent binding. Rebuild both `multi` and `multi-domain` cores when installing this overlay. Stock `Duel.GetLP`, 1v1 and Tag comparisons retain their existing behavior. Live proof: `tests/scenarios/multiplayer/lp-comparisons.test.ts`.
+
+`0120-return-after-banisher-deleted.patch` fixes the nightly fuzz crash (n2 and n3 seed 73, from 2026-10-20). Patch 0001 clears `current.reason_effect` when an effect is deleted. Time Chain banishes with an EVENT_BATTLED effect that resets after the Damage Phase, so the later return found a null effect in the stock owner compare.
 
 - Patches 2, 3 and 4 pass the differential gate. The reference is patches 1 and 2. The multi core is patches 1 to 4.
 - The results in this section are for patches 1 to 4. They were not repeated for patches 5 to 52 when these files were added.
