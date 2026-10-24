@@ -5,7 +5,7 @@
  */
 
 /* ---------- library rows ---------- */
-:global(.ms) .lede { margin: 0; max-width: 62ch; color: var(--ink-3); font-size: 14.5px; line-height: 1.5; }
+:global(.ms) .lede { margin: 0; max-width: 62ch; color: var(--ink-3); font-size: 15.5px; line-height: 1.5; }
 :global(.ms) .row:hover { border-bottom-color: rgb(var(--beam) / 0.3); }
 :global(.ms) .row :global(.sv-row-in) {
   display: grid;
@@ -22,17 +22,17 @@
 .openLink::after { content: ""; position: absolute; inset: 0; }
 .openLink:focus-visible { outline: none; }
 .openLink:focus-visible::after { outline: 2px solid var(--pen-ink); outline-offset: -2px; border-radius: 4px; }
-.facts { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; color: var(--ink-3); font-size: 13.5px; }
+.facts { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; color: var(--ink-3); font-size: 15px; }
 .facts b { color: var(--ink-2); font-weight: 500; }
-.counts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; margin: 0; color: var(--ink-3); font-size: 13.5px; }
-.counts b { margin: 0 2px 0 4px; color: var(--ink); font: 600 17px/1 var(--f-num); font-variant-numeric: tabular-nums lining-nums; }
+.counts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; margin: 0; color: var(--ink-3); font-size: 15px; }
+.counts b { margin: 0 2px 0 4px; color: var(--ink); font: 600 18px/1 var(--f-num); font-variant-numeric: tabular-nums lining-nums; }
 .acts { grid-area: acts; position: relative; z-index: 2; display: flex; align-items: center; gap: 8px; }
 .openBtn { position: relative; z-index: 2; }
 .trash { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink-3); cursor: pointer; }
 .trash:hover { color: var(--loss-ink); background: rgb(228 90 77 / 0.1); }
 .trash:disabled { opacity: 0.4; cursor: not-allowed; }
 .trash:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
-.confirm { grid-area: confirm; position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 0 2px; color: var(--ink); font-size: 14.5px; }
+.confirm { grid-area: confirm; position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 0 2px; color: var(--ink); font-size: 15.5px; }
 .confirmActs { display: inline-flex; gap: 8px; }
 
 /* On phones the whole row opens the cube; Open drops away and the trash stays. */

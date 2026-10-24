@@ -9,13 +9,13 @@ import { POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK } from "../../constants";
  * 1v1 board: events and board edits arrive together, as one engine batch does. The preview harness feeds them into a
  * fixture state, so the real table layers (MoveFx, ChainFx, BattleFx, the crumble) play them on a grid seat.
  */
-export type SceneId = "smf" | "ko" | "mirror" | PlaySceneId | MasterSceneId | DeckSceneId | EmzSceneId | HandChainSceneId | FxSceneId;
+export type SceneId = "smf" | "ko" | "mirror" | PlaySceneId | MasterSceneId | DeckSceneId | EmzSceneId | HandChainSceneId | `handspell-${0 | 1 | 2 | 3}` | FxSceneId;
 
 /**
  * `handchain-<seat>` or `handchain-<seat>-<slot>`: that seat activates a monster from its hand and sends it to the
  * Graveyard as the cost (`?scene=handchain-0`). The card is at hand `slot`, 4 (the last of the viewer's hand) by default.
  */
-export type HandChainSceneId = `handchain-${0 | 1 | 2 | 3}` | `handchain-${0 | 1 | 2 | 3}-${0 | 1 | 2 | 3 | 4 | 5}`;
+export type HandChainSceneId = `handchain-${0 | 1 | 2 | 3}` | `handchain-${0 | 1 | 2 | 3}-${0 | 1 | 2 | 3 | 4 | 5}` | `handchain-${0 | 1 | 2 | 3}-${0 | 1 | 2 | 3 | 4 | 5}-stay`;
 
 /** `master-<seat>`: that seat's Deck Master is summoned out of its zone, falls to the Graveyard, and returns to the zone (`?scene=master-1`). */
 export type MasterSceneId = `master-${0 | 1 | 2 | 3}`;
@@ -190,7 +190,8 @@ function playMonster(play: "normal" | "special" | "fusion" | "set" | "flip", sea
 }
 
 const DECK_SCENE = /^deck(set|up)-([0-3])$/;
-const HAND_CHAIN_SCENE = /^handchain-([0-3])(?:-([0-5]))?$/;
+const HAND_SPELL_SCENE = /^handspell-([0-3])$/;
+const HAND_CHAIN_SCENE = /^handchain-([0-3])(?:-([0-5]))?(-stay)?$/;
 
 const DEEP_EYES: DuelCardInfo = {
   code: 3366982,
@@ -209,9 +210,18 @@ const DEEP_EYES: DuelCardInfo = {
  * Graveyard): the chain mark must follow that one card, never fill the whole hand strip or sit on the neighbour that
  * closes the gap. `slot` is the hand position of the card (4 is the last card of the viewer's hand in the 3 and 4-way fixtures).
  */
-function handChain(seat: number, slot: number): LabStep[] {
+function handChain(seat: number, slot: number, stay = false): LabStep[] {
   const info = DEEP_EYES;
   const at = slot;
+  // `stay`: a hand trap the way the engine plays it: the card shows its activation in the hand and goes to the Graveyard only when the link resolves.
+  if (stay) {
+    return [
+      { at: 0, edits: [(board) => { board.seats[seat].hand[at] = cardAt(info, HAND(seat, at)); }] },
+      { at: 600, events: [ev.activate(seat, info, HAND(seat, at), 1)], chain: [link(1, seat, info)] },
+      { at: 3600, events: [ev.chain("chain-resolving", seat, info, 1), ev.move(seat, info, HAND(seat, at), GY(seat, 0), "discard")], edits: [edit.removeHand(seat, at), edit.grave(seat, info)] },
+      { at: 5600, events: [ev.chain("chain-resolved", seat, info, 1), ev.chainEnd()], chain: [] },
+    ];
+  }
   return [
     { at: 0, edits: [(board) => {
       const hand = board.seats[seat].hand;
@@ -221,6 +231,22 @@ function handChain(seat: number, slot: number): LabStep[] {
       at: 600,
       events: [ev.activate(seat, info, HAND(seat, at), 1), ev.move(seat, info, HAND(seat, at), GY(seat, 0), "discard")],
       edits: [edit.removeHand(seat, at), edit.grave(seat, info)],
+      chain: [link(1, seat, info)],
+    },
+    { at: 3600, events: [ev.chain("chain-resolving", seat, info, 1)] },
+    { at: 5600, events: [ev.chain("chain-resolved", seat, info, 1), ev.chainEnd()], chain: [] },
+  ];
+}
+/** `handspell-<seat>`: that seat activates a Spell from its hand into Spell/Trap zone 2 (a card flies out of the hand and shows its activation on the zone). */
+function handSpell(seat: number): LabStep[] {
+  const info = C.raigeki;
+  const zone = SZ(seat, 2);
+  return [
+    { at: 0, edits: [(board) => { board.seats[seat].hand[0] = cardAt(info, HAND(seat, 0)); }] },
+    {
+      at: 600,
+      events: [ev.move(seat, info, HAND(seat, 0), zone, "activate"), ev.activate(seat, info, zone, 1)],
+      edits: [edit.removeHand(seat, 0), edit.spell(seat, 2, info)],
       chain: [link(1, seat, info)],
     },
     { at: 3600, events: [ev.chain("chain-resolving", seat, info, 1)] },
@@ -255,7 +281,7 @@ function deckToSpellZone(kind: "set" | "up", seat: number): LabStep[] {
 }
 
 export function isSceneId(value: string | null | undefined): value is SceneId {
-  return value === "smf" || value === "ko" || value === "mirror" || (value != null && (HAND_CHAIN_SCENE.test(value) || PLAY_SCENE.test(value) || MASTER_SCENE.test(value) || DECK_SCENE.test(value) || EMZ_SCENE.test(value) || FX_SCENE.test(value)));
+  return value === "smf" || value === "ko" || value === "mirror" || (value != null && (HAND_CHAIN_SCENE.test(value) || HAND_SPELL_SCENE.test(value) || PLAY_SCENE.test(value) || MASTER_SCENE.test(value) || DECK_SCENE.test(value) || EMZ_SCENE.test(value) || FX_SCENE.test(value)));
 }
 
 export function sceneSteps(id: SceneId, seatCount = 4): LabStep[] {
@@ -263,7 +289,9 @@ export function sceneSteps(id: SceneId, seatCount = 4): LabStep[] {
   const master = MASTER_SCENE.exec(id);
   if (master) return masterCycle(Number(master[1]));
   const handChainId = HAND_CHAIN_SCENE.exec(id);
-  if (handChainId) return handChain(Number(handChainId[1]), handChainId[2] != null ? Number(handChainId[2]) : 4);
+  if (handChainId) return handChain(Number(handChainId[1]), handChainId[2] != null ? Number(handChainId[2]) : 4, handChainId[3] != null);
+  const handSpellId = HAND_SPELL_SCENE.exec(id);
+  if (handSpellId) return handSpell(Number(handSpellId[1]));
   const emz = EMZ_SCENE.exec(id);
   if (emz) return extraToEmz(Number(emz[1]));
   const deck = DECK_SCENE.exec(id);

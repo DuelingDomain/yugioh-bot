@@ -28,6 +28,28 @@ const cards: CardDatabase = {
   counter: () => undefined, readScript: () => null, close() {},
 };
 
+describe("exported sortCardResponse", () => {
+  for (const version of [0, 1] as const) {
+    it(`rejects malformed permutations for version ${version}`, () => {
+      for (const order of [[1], [-1, 0], [0, 0], [0, 2], [0, 0.5], [0, NaN], [0, Infinity], Array<number>(2)]) {
+        expect(() => pinned.sortCardResponse(order, version)).toThrow(pinned.EngineAnswerError);
+      }
+    });
+
+    it(`keeps valid trivial orders for version ${version}`, () => {
+      for (const order of [null, [], [0]]) {
+        expect([...encode(pinned.sortCardResponse(order, version))]).toEqual([255]);
+      }
+    });
+
+    it(`encodes a valid permutation without changing the input for version ${version}`, () => {
+      const order = [2, 0, 1];
+      expect([...encode(pinned.sortCardResponse(order, version))]).toEqual(version === 1 ? [1, 2, 0] : [2, 0, 1]);
+      expect(order).toEqual([2, 0, 1]);
+    });
+  }
+});
+
 for (const [engine, prompts] of Object.entries({ pinned, legacy })) {
   for (const type of [OcgMessageType.SORT_CARD, OcgMessageType.SORT_CHAIN] as const) {
     const pending = (count: number) => prompts.mapPrompt({
@@ -36,14 +58,26 @@ for (const [engine, prompts] of Object.entries({ pinned, legacy })) {
     }, cards, "sort");
 
     describe(`${engine} ${OcgMessageType[type]} wire response`, () => {
-      for (const count of [2, 3, 4, 5]) {
-        it(`sends ${count} chosen indices starting at byte zero`, () => {
-          const order = Array.from({ length: count }, (_, index) => count - index - 1);
+      for (const [order, ranks] of [
+        [[1, 0], [1, 0]],
+        [[2, 0, 1], [1, 2, 0]],
+        [[3, 1, 0, 2], [2, 1, 3, 0]],
+        [[4, 2, 0, 3, 1], [2, 4, 1, 3, 0]],
+      ] as const) {
+        const count = order.length;
+        it(`sends ${count} destination ranks starting at byte zero`, () => {
           const response = prompts.resolveAnswer(pending(count), 0, "sort", { selected: order.map(index => `card:${index}`) }, cards);
           // The core consumes exactly count bytes; any trailing padding is ignored.
-          expect([...encode(response)].slice(0, count)).toEqual(order);
+          expect([...encode(response)].slice(0, count)).toEqual(ranks);
         });
       }
+
+      it("preserves historical bytes when replaying an unversioned command", () => {
+        const selected = ["card:3", "card:1", "card:0", "card:2"];
+        const response = prompts.resolveAnswer(pending(4), 0, "sort", { selected }, cards, 0);
+        expect([...encode(response)].slice(0, 4)).toEqual([3, 1, 0, 2]);
+        expect(selected).toEqual(["card:3", "card:1", "card:0", "card:2"]);
+      });
 
       for (const count of [0, 1]) {
         it(`automatically keeps the order of ${count} cards using the -1 sentinel`, () => {

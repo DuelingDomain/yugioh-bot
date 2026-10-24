@@ -134,6 +134,8 @@ export interface DuelSetup {
   scriptErrorMode?: DuelScriptErrorMode;
   /** The resolved FIRST_TURN_DRAW flag at start. Recovery and replay must keep this rule. */
   firstTurnDraw?: boolean;
+  /** Server-owned fork creation rule, preserved when its resource identity is upgraded. */
+  keepDamageStepWindows?: boolean;
   startupScripts?: string[];
   scenarioId?: string;
   /** Seats that gave up (or ran out of time) in a table with more than two seats; the host plays them on autopilot. */
@@ -457,8 +459,10 @@ function parseSetup(raw: string | null | undefined, kind: DuelKind, format: Duel
     const input = parsed as Record<string, unknown>;
     if (Object.hasOwn(input, "engineIdentity") && !isEngineIdentity(input.engineIdentity)) throw new Error("Invalid engine identity");
     if (kind === "replay-fork") {
+      if (Object.hasOwn(input, "keepDamageStepWindows") && typeof input.keepDamageStepWindows !== "boolean") throw new Error("Invalid fork Damage Step rule");
       return validateSetup(input, {
         replayFork: input.replayFork as ReplayForkSetup,
+        ...(typeof input.keepDamageStepWindows === "boolean" ? { keepDamageStepWindows: input.keepDamageStepWindows } : {}),
         ...(isEngineIdentity(input.engineIdentity) ? { engineIdentity: input.engineIdentity } : {}),
       });
     }
@@ -494,7 +498,8 @@ export function validateSetup(setup: unknown, recorded?: DuelSetup): DuelSetup {
   }
   const input = setup as Record<string, unknown>;
   const extra = Object.keys(input).find((key) => key !== "scriptErrorMode" && key !== "firstTurnDraw" && key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "eliminatedSeats" && key !== "presetId" && key !== "testDuel" && key !== "botPolicies" && key !== "engine"
-    && !(key === "replayFork" && recorded?.replayFork) && !(key === "engineIdentity" && recorded?.engineIdentity));
+    && !(key === "replayFork" && recorded?.replayFork) && !(key === "engineIdentity" && recorded?.engineIdentity)
+    && !(key === "keepDamageStepWindows" && recorded?.replayFork && typeof recorded.keepDamageStepWindows === "boolean"));
   if (extra) throw new DuelServiceError(`Unknown duel setup field: ${extra}`, 400);
   const out: DuelSetup = {};
   if (recorded?.replayFork) {
@@ -505,6 +510,12 @@ export function validateSetup(setup: unknown, recorded?: DuelSetup): DuelSetup {
       throw new DuelServiceError("Replay fork seats must stay Manual", 409);
     }
     out.replayFork = recorded.replayFork;
+    if (typeof recorded.keepDamageStepWindows === "boolean") {
+      if (Object.hasOwn(input, "keepDamageStepWindows") && input.keepDamageStepWindows !== recorded.keepDamageStepWindows) {
+        throw new DuelServiceError("Replay fork Damage Step rule is immutable", 409);
+      }
+      out.keepDamageStepWindows = recorded.keepDamageStepWindows;
+    }
   }
   if (recorded?.engineIdentity) {
     if (Object.hasOwn(input, "engineIdentity") && (!isEngineIdentity(input.engineIdentity) || !sameEngineIdentity(input.engineIdentity, recorded.engineIdentity))) {

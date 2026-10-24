@@ -26,6 +26,7 @@ import { useFlyGestures } from "./use-fly-gestures";
 import { useFlyWorld } from "./use-fly-world";
 import { GLIDE_MS, useSeatExits } from "./use-seat-exits";
 import { occluderRects, useViewZoom } from "./use-view-zoom";
+import { useHoldOnLayoutChange } from "../board-input-guard";
 import { ROOF_ZOOM_MS } from "../tag/roof-camera";
 import { zoneKey } from "../constants";
 import { sameRects, type Rect } from "./rect-util";
@@ -220,6 +221,9 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   const stageHeight = Math.max(0, box.height - stageTop - (portrait ? 40 + phonePromptHeight : 0));
   const fitBox = useMemo(() => ({ ...box, height: stageHeight * STAGE.height / canvasHeight }), [box, stageHeight, canvasHeight]);
   const k = portrait ? Math.min(box.width / portrait.width, stageHeight / portrait.height) : stageFit(fitBox);
+  // A seat that leaves, a camera view that changes or a refit of the stage (a chain band, a resize, a drawer) re-lays the table out: the canvas
+  // refit has no transition, and with reduced motion nothing glides, so hold clicks for a moment.
+  useHoldOnLayoutChange(`${play.slots.map((slot) => slot.seat).join(",")}|${viewCamera.mode}|${viewCamera.focusSeat ?? ""}|${viewCamera.lookSeat ?? ""}|${Math.round(k * 100)}|${Math.round(stageTop)}`);
   // Only a table that regroups glides; a table that keeps its places has nothing to move.
   const regroup = play !== layout;
   const threeWay = slotPlan(play, { mode: "home" }) != null;
@@ -526,7 +530,12 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
   const picks = controller.seatPick;
   const pickOrder = picks ? play.slots.map((slot) => slot.seat).filter((seat) => picks.options.has(seat)) : [];
   const promptSeat = controller.prompt?.seat ?? null;
-  const flyYaw = fly ? world.yawDeg : 0;
+  // The fields turn by the yaw of the fly camera. The yaw is kept continuous (the world's own is folded into -180..180): a fold from 170 to -170 would
+  // spin the ATK / DEF plates, which turn back by it, once round.
+  const flyYawRef = useRef(0);
+  if (fly) flyYawRef.current += normalizeAngle(world.yawDeg - flyYawRef.current);
+  else flyYawRef.current = 0;
+  const flyYaw = flyYawRef.current;
 
   const plaza3 = layout.format === "ffa3" && layout.slots.length === 3;
   const facingPair = plaza3 && masterRule >= 4 ? plazaFacingPair(engine) : null;
@@ -728,6 +737,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       data-camera-want={wantMode ?? viewCamera.mode}
       data-camera-lock={locked ? "true" : undefined}
       data-fly={fly ? "true" : "false"}
+      data-fly-free={fly && camera.fly.free === true ? "true" : undefined}
       data-stage-scale={k.toFixed(3)}
       data-stage-spread={spread}
       data-wide-fields={spread >= FULL_DEF_SPREAD ? "true" : undefined}
@@ -743,7 +753,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
       data-strip-pending={stripPending ? "true" : undefined}
       style={stripRoom || (rooms?.panel && !nearBox) ? ({ ...(stripRoom ? { "--sr-x": `${stripRoom.x}px`, "--sr-y": `${stripRoom.y}px`, "--sr-w": `${stripRoom.width}px`, "--sr-h": `${stripRoom.height}px`, "--sr-card": `${stripRoom.card}px` } : {}), ...(rooms?.panel && !nearBox ? { "--room-x": `${rooms.panel.x}px`, "--room-y": `${rooms.panel.y}px`, "--room-w": `${rooms.panel.width}px`, "--room-h": `${rooms.panel.height}px` } : {}) } as CSSProperties) : undefined}
     >
-      <div ref={canvasRef} className={styles.canvas} style={canvas} data-fly-capable={threeWay ? "true" : undefined}>
+      <div ref={canvasRef} className={styles.canvas} style={canvas} data-board-motion="" data-fly-capable={threeWay ? "true" : undefined}>
         {threeWay ? (
           <>
             <div className={styles.sky} aria-hidden="true" />
@@ -891,6 +901,7 @@ export function TableStage({ controller, layout, camera: viewCamera, dispatchCam
               <div
                 className={styles.hub}
                 data-hub-slot="true"
+                data-board-motion=""
                 {...{ [FOLLOW_ATTR]: "" }}
                 data-hub-size={hubAt.size}
                 style={{

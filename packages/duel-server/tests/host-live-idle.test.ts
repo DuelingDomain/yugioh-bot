@@ -40,12 +40,13 @@ function table(format: DuelFormat = "1v1", idleMs = 0, clock: DuelClockState | n
   if (start) session = activate(clock);
   db.prepare("update duels set last_activity_at = ? where id = ?").run(new Date(Date.now() - idleMs).toISOString(), session.id);
   let running = true, revision = 1, turn = 1;
+  let promptSeat: number | null = 0;
   const worker: DuelGameWorker = {
     get running() { return running; },
     async create() {},
     async view(viewerSeat) {
       return { revision, turn, turnSeat: 0, phase: "main1", prioritySeat: 0, chain: [], events: [], log: [], result: null,
-        prompt: viewerSeat === 0 ? { id: `p${revision}`, seat: 0, kind: "choice", title: "Main", options: [{ id: "pass", label: "Pass" }] } : null,
+        prompt: promptSeat !== null && viewerSeat === promptSeat ? { id: `p${revision}`, seat: promptSeat, kind: "choice", title: "Main", options: [{ id: "pass", label: "Pass" }] } : null,
         seats: players.map((_, seat) => ({ seat, lp: 8000, hand: [], deckCount: 40, extraCount: 0, extra: [],
           monsters: [], spells: [], graveyard: [], banished: [] })) } as DuelEngineView;
     },
@@ -65,7 +66,7 @@ function table(format: DuelFormat = "1v1", idleMs = 0, clock: DuelClockState | n
     return host.handle(new Request("http://localhost/internal/duel", { method: "POST", body,
       headers: { "content-type": "application/json", ...await signedHeaders(body, SECRET, "http://localhost/internal/duel", "duel-host") } }));
   };
-  return { db, service, session, changes, worker, post, players, activate, nextTurn: () => { turn++; },
+  return { db, service, session, changes, worker, post, players, activate, setPromptSeat: (seat: number | null) => { promptSeat = seat; }, nextTurn: () => { turn++; },
     restart: async (downtime: number) => { await host.close(); vi.setSystemTime(Date.now() + downtime); host = startHost(); } };
 }
 
@@ -397,5 +398,178 @@ it("keeps the existing loss path for an ordinary clock shorter than ten minutes"
   const t = table("1v1", 0, { turn: 1, activeSeat: 0, startedAt: Date.now(), remainingMs: [5 * MINUTE, 5 * MINUTE] });
   t.db.prepare("update duels set settings_json = json_set(settings_json, '$.timeout', 'loss') where id = ?").run(t.session.id);
   await vi.advanceTimersByTimeAsync(5 * MINUTE + SWEEP);
+  expect(t.service.get(t.session.slug, "g")).toMatchObject({ status: "completed", winnerSeat: 1, resultReason: "Time limit" });
+});
+
+// Exercise the signed host request, SQLite clock and engine boundary together.
+it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("charges sequential %s prompt owners, excluding server work", async format => {
+  const start = Date.now();
+  const count = seatCountFor(format);
+  const t = table(format, 0, { turn: 1, remainingMs: Array(count).fill(MINUTE), activeSeat: 0, startedAt: start });
+  for (let seat = 0; seat < count; seat++) {
+    t.setPromptSeat(seat);
+    vi.setSystemTime(Date.now() + 10_000);
+    const nextSeat = (seat + 1) % count;
+    const answer = t.worker.answer.bind(t.worker);
+    t.worker.answer = async (...args) => {
+      expect(t.service.privateState(t.session.slug, "g").clock?.startedAt).toBeNull();
+      vi.setSystemTime(Date.now() + 4_000); // Core/auto-pass work within the prompt credit cap.
+      await answer(...args);
+      t.setPromptSeat(nextSeat);
+    };
+    const result = await t.post("respond", { playerId: t.players[seat],
+      command: { promptId: `p${seat + 1}`, revision: seat + 1, answer: { choice: "pass" } } });
+    expect(result.status).toBe(200);
+    const clock = t.service.privateState(t.session.slug, "g").clock!;
+    expect(clock.activeSeat).toBe(nextSeat); // The turn stays at seat 0 throughout.
+    expect(clock.startedAt).toBe(Date.now());
+    expect(clock.remainingMs).toEqual(Array.from({ length: count }, (_, i) => i <= seat ? 53_000 : MINUTE));
+    t.worker.answer = answer;
+  }
+});
+
+it("pauses decision time while recovering the engine and resumes the saved owner", async () => {
+  const start = Date.now();
+  const t = table("ffa4", 0, { turn: 1, remainingMs: Array(4).fill(MINUTE), activeSeat: 3, startedAt: start });
+  t.setPromptSeat(3);
+  t.worker.create = async () => { vi.setSystemTime(Date.now() + 4_000); };
+  vi.setSystemTime(start + 10_000);
+  const response = await t.post("view");
+  expect(response.status).toBe(200);
+  expect(t.service.privateState(t.session.slug, "g").clock).toEqual({
+    turn: 1, remainingMs: Array(4).fill(MINUTE), activeSeat: 3, startedAt: start + 4_000,
+  });
+  expect((await response.json()).clock.serverNow).toBe(Date.now());
+});
+
+it("keeps all banks still when the core has no pending decision", async () => {
+  const start = Date.now();
+  const t = table("ffa3", 0, { turn: 1, remainingMs: Array(3).fill(MINUTE), activeSeat: 0, startedAt: start });
+  t.worker.answer = async () => { t.setPromptSeat(null); };
+  vi.setSystemTime(start + 10_000);
+  expect((await t.post("respond", { command: { promptId: "p1", revision: 1, answer: { choice: "pass" } } })).status).toBe(200);
+  const saved = t.service.privateState(t.session.slug, "g").clock!;
+  expect(saved).toMatchObject({ activeSeat: null, startedAt: null, remainingMs: [53_000, MINUTE, MINUTE] });
+  vi.setSystemTime(Date.now() + 2 * MINUTE);
+  expect((await t.post("view")).status).toBe(200);
+  expect(t.service.privateState(t.session.slug, "g").clock).toEqual(saved);
+});
+
+
+it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("concurrent %s room reads cannot freeze a prompt owner's bank", async format => {
+  const count = seatCountFor(format);
+  const t = table(format, 0, { turn: 1, remainingMs: Array(count).fill(5_000), activeSeat: 0, startedAt: Date.now() });
+  t.db.prepare("update duels set settings_json = json_set(settings_json, '$.timeout', 'loss') where id = ?").run(t.session.id);
+  expect((await t.post("view")).status).toBe(200); // Recover before measuring passive reads.
+  const view = t.worker.view.bind(t.worker);
+  const eliminated = new Set<number>();
+  t.worker.eliminate = async seat => { eliminated.add(seat); t.setPromptSeat(1); };
+  t.worker.view = async (...args) => {
+    vi.setSystemTime(Date.now() + 250);
+    const result = await view(...args);
+    for (const seat of result.seats) if (eliminated.has(seat.seat)) seat.eliminated = true;
+    return result;
+  };
+  for (let batch = 0; batch < 12; batch++) {
+    await Promise.all(Array.from({ length: 5 }, () => t.post("view")));
+  }
+  if (format === "1v1" || format === "tag") {
+    expect(t.service.get(t.session.slug, "g")).toMatchObject({ status: "completed", resultReason: "Time limit" });
+  } else {
+    expect(t.service.privateState(t.session.slug, "g").setup?.eliminatedSeats).toContain(0);
+    expect(t.service.privateState(t.session.slug, "g").clock?.activeSeat).not.toBe(0);
+  }
+});
+
+it("resident reads perform no SQLite writes", async () => {
+  const t = table("1v1", 0, { turn: 1, remainingMs: [MINUTE, MINUTE], activeSeat: 0, startedAt: Date.now() });
+  await t.post("view");
+  const before = (t.db.prepare("select total_changes() as n").get() as { n: number }).n;
+  const view = t.worker.view.bind(t.worker);
+  t.worker.view = async (...args) => { vi.setSystemTime(Date.now() + 10); return view(...args); };
+  for (const op of ["view", "capabilities", "cards"]) await t.post(op, { codes: [] });
+  expect((t.db.prepare("select total_changes() as n").get() as { n: number }).n).toBe(before);
+});
+
+it("caps accumulated server credit across chain-mode changes on the same prompt", async () => {
+  const start = Date.now();
+  const t = table("1v1", 0, { turn: 1, remainingMs: [MINUTE, MINUTE], activeSeat: 0, startedAt: start });
+  await t.post("view");
+  t.worker.setChainMode = async () => { vi.setSystemTime(Date.now() + 4_000); return false; };
+  for (const mode of ["always", "off", "always", "off", "always"]) expect((await t.post("chain-mode", { mode })).status).toBe(200);
+  const clock = t.service.privateState(t.session.slug, "g").clock!;
+  expect(clock.startedAt).toBe(start + 10_000);
+});
+
+it("rejected engine answers receive no server-work credit", async () => {
+  const t = table("1v1", 0, { turn: 1, remainingMs: [MINUTE, MINUTE], activeSeat: 0, startedAt: Date.now() });
+  await t.post("view");
+  const saved = t.service.privateState(t.session.slug, "g").clock;
+  const { EngineAnswerError } = await import("../src/prompts.js");
+  t.worker.answer = async () => { vi.setSystemTime(Date.now() + 1_000); throw new EngineAnswerError("Illegal answer"); };
+  for (let i = 0; i < 5; i++) expect((await t.post("respond", { command: { promptId: "p1", revision: 1, answer: { choice: "pass" } } })).status).toBe(400);
+  expect(t.service.privateState(t.session.slug, "g").clock).toEqual(saved);
+});
+
+
+it.each([false, true])("caps changed-clock server credit on the previous owner (handoff=%s)", async handoff => {
+  const t = table("1v1", 0, { turn: 1, remainingMs: [MINUTE, MINUTE], activeSeat: 0, startedAt: Date.now() });
+  await t.post("view");
+  const answer = t.worker.answer.bind(t.worker);
+  t.worker.answer = async (...args) => { vi.setSystemTime(Date.now() + 30_000); await answer(...args); if (handoff) t.setPromptSeat(1); };
+  expect((await t.post("respond", { command: { promptId: "p1", revision: 1, answer: { choice: "pass" } } })).status).toBe(200);
+  expect(t.service.privateState(t.session.slug, "g").clock).toMatchObject({ remainingMs: [43_000, MINUTE], startedAt: Date.now() });
+});
+
+it.each([false, true])("preserves the operation result and resumes after a final snapshot failure (rejected=%s)", async rejected => {
+  const t = table("1v1", 0, { turn: 1, remainingMs: [MINUTE, MINUTE], activeSeat: 0, startedAt: Date.now() });
+  await t.post("view");
+  let failSnapshot = false;
+  const statementPrototype = Object.getPrototypeOf(t.db.prepare("select 1"));
+  const get = statementPrototype.get;
+  const stackLimit = Error.stackTraceLimit;
+  Error.stackTraceLimit = 50;
+  const spy = vi.spyOn(statementPrototype, "get").mockImplementation(function(this: unknown, ...args: unknown[]) {
+    if (failSnapshot && new Error().stack?.includes("privateSnapshot")) {
+      failSnapshot = false;
+      throw new Error("fixture final snapshot failure");
+    }
+    return get.apply(this, args);
+  });
+  const answer = t.worker.answer.bind(t.worker);
+  const { EngineAnswerError } = await import("../src/prompts.js");
+  t.worker.answer = async (...args) => {
+    failSnapshot = true;
+    if (rejected) throw new EngineAnswerError("Original answer error");
+    await answer(...args);
+  };
+  try {
+    const response = await t.post("respond", { command: { promptId: "p1", revision: 1, answer: { choice: "pass" } } });
+    expect(response.status).toBe(rejected ? 400 : 200);
+    if (rejected) expect(await response.json()).toMatchObject({ error: "Original answer error" });
+    expect(failSnapshot).toBe(false);
+    expect(t.service.privateState(t.session.slug, "g").clock?.startedAt).not.toBeNull();
+  } finally { spy.mockRestore(); Error.stackTraceLimit = stackLimit; }
+});
+
+
+it("enforces a timeout after recovery exceeds the per-prompt server credit", async () => {
+  const t = table("1v1", 0, { turn: 1, remainingMs: [5_000, 5_000], activeSeat: 0, startedAt: Date.now() });
+  t.db.prepare("update duels set settings_json = json_set(settings_json, '$.timeout', 'loss') where id = ?").run(t.session.id);
+  t.worker.create = async () => { vi.setSystemTime(Date.now() + 20_000); };
+  expect((await t.post("view")).status).toBe(200);
+  expect(t.service.get(t.session.slug, "g")).toMatchObject({ status: "completed", resultReason: "Time limit" });
+});
+
+
+it("settles the prior owner's exhausted credit bank before a handoff can regain it", async () => {
+  const t = table("1v1", 0, { turn: 1, remainingMs: [5_000, MINUTE], activeSeat: 0, startedAt: Date.now() });
+  t.db.prepare("update duels set settings_json = json_set(settings_json, '$.timeout', 'loss') where id = ?").run(t.session.id);
+  await t.post("view");
+  const answer = t.worker.answer.bind(t.worker);
+  t.worker.answer = async (...args) => { vi.setSystemTime(Date.now() + 30_000); await answer(...args); t.setPromptSeat(1); };
+  expect((await t.post("respond", { command: { promptId: "p1", revision: 1, answer: { choice: "pass" } } })).status).toBe(200);
+  expect(t.service.privateState(t.session.slug, "g").clock).toMatchObject({ activeSeat: 0, remainingMs: [0, MINUTE], startedAt: Date.now() });
+  expect((await t.post("view")).status).toBe(200);
   expect(t.service.get(t.session.slug, "g")).toMatchObject({ status: "completed", winnerSeat: 1, resultReason: "Time limit" });
 });

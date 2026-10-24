@@ -20,6 +20,7 @@ export interface SourceCommand {
   promptId: string;
   revision: number;
   answer: DuelAnswer;
+  sortOrderVersion?: 1;
 }
 
 export interface DuelSource {

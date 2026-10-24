@@ -49,6 +49,13 @@ omits those two properties from the bulk snapshot. It keeps supported properties
 direct getters, and the core binary unchanged. Domain does not use this adapter.
 Kuriboh battle scenarios test the original failure and damage prevention on both seats.
 
+The owner-requested Damage Step flow correction also applies to the legacy host:
+Auto preserves eligible response windows even when the core's timing hint count is
+zero, and the public view distinguishes all five Damage Step timings. The battle
+metadata assertions in `tests/legacy-main` follow that display contract; gameplay
+results and the approved WASM/Lua pins are unchanged. `tests/damage-step-flow.test.ts`
+checks the real legacy and current engines with Auto, Always and Off.
+
 The owner decision of 2026-10-07 also applies the shared runtime script-error policy
 in `src/script-errors.ts`: report and continue by default, with a saved strict
 override. `src/script-load-scope.ts` distinguishes loading errors from runtime

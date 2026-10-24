@@ -62,6 +62,8 @@ export {
   DUEL_CLOCK_REGAIN_FRACTION,
   DUEL_CLOCK_REGAIN_MIN_MS,
   DUEL_OPENING_GRACE_MS,
+  DUEL_PROMPT_GRACE_MS,
+  DUEL_PHASE_GRACE_MS,
   defaultDuelSettings,
   DOMAIN_FFA_FIRST_TURN_DRAW_DEFAULT,
   DOMAIN_FFA_FIRST_TURN_DRAW_SETTING,
@@ -417,10 +419,12 @@ export type DuelSummonKind =
 
 /**
  * Where the Battle Phase is. "start" = Start Step, "battle" = Battle Step (attacks are declared
- * here), "damage" = Damage Step (before or after damage calculation), "damage-calculation" =
- * damage calculation inside the Damage Step, "end" = End Step. null outside the Battle Phase.
+ * here), "damage" = start of the Damage Step, then before/during/after damage calculation
+ * and "damage-end" = end of the Damage Step. "end" = end of the Battle Phase.
+ * null outside the Battle Phase. Older views may use "damage" for the whole Damage Step.
  */
-export type DuelBattleStep = "start" | "battle" | "damage" | "damage-calculation" | "end";
+export type DuelBattleStep = "start" | "battle" | "damage" | "before-damage-calculation"
+  | "damage-calculation" | "after-damage-calculation" | "damage-end" | "end";
 
 /** The core's actual stats at damage calculation, before temporary effects expire. */
 export interface DuelBattleStats {
@@ -739,11 +743,13 @@ export interface DuelCommand {
   promptId: string;
   revision: number;
   answer: DuelAnswer;
+  /** Server-owned journal metadata. Absent: historical sort bytes; 1: invert client click order at encoding. */
+  sortOrderVersion?: 1;
 }
 
 /**
  * How a seat wants to be asked at response windows (chain links), changeable at any time during the duel.
- * - `auto`: ask only when a listed card fits the window (today's behaviour at a 1v1 table).
+ * - `auto`: ask when a listed card fits the timing, and for every nonempty Draw, Standby or Damage Step window.
  * - `always`: ask at every window that lists a card, even when none fits (a bluff; the default at a table of three or four).
  * - `off`: pass every optional response window at once. Forced prompts and mandatory effects still ask.
  * The mode is private to its seat and is applied by the duel host, never by a client.

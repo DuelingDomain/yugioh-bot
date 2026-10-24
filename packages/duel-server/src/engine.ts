@@ -137,6 +137,8 @@ function readMultiWasm(dataDirectory: string, mode: DuelMode): LoadedWasm {
 }
 
 export interface EngineGameOptions {
+  /** Keep eligible Auto Damage Step windows (v8+). Omission enables the live rule. */
+  keepDamageStepWindows?: boolean;
   /** Test-only observer of Lua Debug.Message output; never exposed in player views. */
   onDebugMessage?: (text: string) => void;
   /** Test-only observer of parsed core messages, including shuffles absent from view events. */
@@ -235,7 +237,8 @@ export interface EngineViewHistory {
 
 export interface EngineGame {
   view(seat: number | null, history?: EngineViewHistory): DuelEngineView;
-  answer(seat: number, promptId: string, answer: DuelAnswer): void;
+  /** Live answers default to version 1; journal replay supplies the saved sort encoding version. */
+  answer(seat: number, promptId: string, answer: DuelAnswer, sortOrderVersion?: 0 | 1): void;
   searchCards(query: string, seat?: number): DuelCardInfo[];
   /**
    * Surrender removes a duelist immediately through Debug.SurrenderDuelist, or flags the loss while the
@@ -1184,7 +1187,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         diagnose("chain-options", next.seat, `recordPrompt: ${String(error)}`);
       }
       const automated = emptyAttackTargetResponse(next) ?? (next.attackTargetPick || completingAttackPick && (waiting.type === OcgMessageType.SELECT_CARD || waiting.type === OcgMessageType.SELECT_OPTION)
-        ? null : autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase }));
+        ? null : autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase, battleStep, keepDamageStepWindows: options.keepDamageStepWindows }));
       if (automated) {
         // The player had no choice: the core offered exactly one card to target. Say so once the target message arrives.
         autoPickSeat = next.message.type === OcgMessageType.SELECT_CARD && next.message.min === 1 && next.message.max === 1 && next.prompt.options.length === 1 ? next.seat : null;
@@ -1292,12 +1295,12 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       }
       return projected;
     },
-    answer(seat, promptId, answer) {
+    answer(seat, promptId, answer, sortOrderVersion) {
       scriptErrorEventSent = false;
       if (closed) throw new Error("Engine is closed");
       if (result) throw new EngineAnswerError("Duel is over");
       if (!pending) throw new EngineAnswerError("No prompt is waiting");
-      const response = resolveAnswer(pending, seat, promptId, answer, cards);
+      const response = resolveAnswer(pending, seat, promptId, answer, cards, sortOrderVersion);
       const previous = pending;
       const targetPick = previous.attackTargetPick
         ? previous.prompt.options.find(option => option.id === (answer.selected ? answer.selected[0] : answer.choice)) : undefined;
@@ -1372,7 +1375,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       const open = pending;
       if (!open || open.seat !== seat) return false;
       if (open.message.type !== OcgMessageType.SELECT_CHAIN && open.message.type !== OcgMessageType.SELECT_EFFECTYN) return false;
-      const automated = autoResponse(open, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: mode, phase });
+      const automated = autoResponse(open, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: mode, phase, battleStep, keepDamageStepWindows: options.keepDamageStepWindows });
       if (!automated) return false;
       sawRetry = false;
       respond(open, automated);
@@ -1447,7 +1450,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           // the core refresh the offer or cancel an unpaid cost without selecting a removed card.
           const response = pending.message.type === OcgMessageType.SELECT_COUNTER
             ? { type: OcgResponseType.SELECT_COUNTER as const, counters: pending.message.cards.map(() => 0) }
-            : emptyAttackTargetResponse(pending) ?? autoResponse(pending, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[pending.seat], phase });
+            : emptyAttackTargetResponse(pending) ?? autoResponse(pending, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[pending.seat], phase, battleStep, keepDamageStepWindows: options.keepDamageStepWindows });
           if (response) {
             const current = pending;
             sawRetry = false;

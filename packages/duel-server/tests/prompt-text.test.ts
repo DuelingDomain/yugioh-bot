@@ -313,12 +313,12 @@ describe("battle step", () => {
       [hint(24), "battle"],
       [{ type: OcgMessageType.DAMAGE_STEP_START }, "damage"],
       [hint(40), "damage"],
-      [hint(41), "damage"],
+      [hint(41), "before-damage-calculation"],
       [hint(42), "damage-calculation"],
       [{ type: OcgMessageType.BATTLE, card: { ...loc, attack: 2000, defense: 0, destroyed: false }, target: null }, "damage-calculation"],
       [{ type: OcgMessageType.DAMAGE, player: 0, amount: 600 }, "damage-calculation"],
-      [hint(43), "damage"],
-      [hint(44), "damage"],
+      [hint(43), "after-damage-calculation"],
+      [hint(44), "damage-end"],
       [{ type: OcgMessageType.DAMAGE_STEP_END }, "battle"],
       [{ type: OcgMessageType.SELECT_BATTLECMD, player: 1, chains: [], attacks: [], to_m2: true, to_ep: true }, "battle"],
       [hint(29), "end"],
@@ -519,6 +519,6 @@ describe("sort response encoding", () => {
     expect(sortCardResponse([0])).toEqual({ type: OcgResponseType.SORT_CARD, order: null });
     const response = sortCardResponse([2, 0, 1]) as unknown as { type: number; places: Array<{ player: number; location: number; sequence: number }> };
     expect(response.type).toBe(OcgResponseType.SELECT_PLACE);
-    expect(response.places).toEqual([{ player: 2, location: 0, sequence: 1 }]);
+    expect(response.places).toEqual([{ player: 1, location: 2, sequence: 0 }]);
   });
 });

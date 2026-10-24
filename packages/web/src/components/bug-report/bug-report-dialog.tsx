@@ -4,9 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { useRefreshSessionToken, useSessionUserId, type RefreshSessionToken } from "@/components/auth/session-token";
 import { BUG_TEXT_MAX, validateBugText, type BugFieldErrors } from "@/lib/bug-report";
+import { requestBugReport } from "@/lib/bug-reports/client-request";
 import { DURATION, usePresence } from "@/lib/motion";
 import { getRecentBugDuel } from "./room-store";
+import { clearAuthDraft, readAuthDraft, saveAuthDraft } from "./auth-draft";
 import type { CollectedContext } from "./context";
 
 type Result = { id: number; issue: { number: number; url: string } | null; duplicate: boolean };
@@ -25,7 +28,9 @@ async function failureText(response: Response): Promise<string> {
     const minutes = Number.isFinite(wait) && wait > 0 ? Math.max(1, Math.ceil(wait / 60)) : null;
     return `You sent several reports a moment ago. ${minutes ? `Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.` : "Try again later."}`;
   }
-  if (response.status === 401 || response.status === 403) return "Sign in again to send a report.";
+  if (response.status === 401) return "Your session could not be restored. Sign in again to send your report.";
+  if (response.status === 403) return "You do not have permission to send this report.";
+  if (response.status >= 500) return "The server could not send your report. Try again shortly.";
   try {
     const body = (await response.json()) as { error?: unknown };
     if (typeof body.error === "string" && (response.status === 400 || response.status === 409)) return body.error;
@@ -38,19 +43,14 @@ async function failureText(response: Response): Promise<string> {
  * report: a timeout (5 seconds), a network error or any server answer except a good one gives `null`, and the report is
  * then sent without the check. A 400 comes back as its field errors. `cancel` stops the request when the dialog closes.
  */
-async function precheck(payload: unknown, cancel: AbortSignal): Promise<{ knownLimits: KnownLimit[]; duplicates: Duplicate[] } | { fieldErrors: BugFieldErrors } | null> {
+async function precheck(payload: unknown, cancel: AbortSignal, refresh: RefreshSessionToken): Promise<{ knownLimits: KnownLimit[]; duplicates: Duplicate[] } | { fieldErrors: BugFieldErrors } | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PRECHECK_TIMEOUT_MS);
   const onCancel = () => controller.abort();
   if (cancel.aborted) onCancel();
   else cancel.addEventListener("abort", onCancel, { once: true });
   try {
-    const response = await fetch("/api/bug-reports/precheck", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+    const response = await requestBugReport("/api/bug-reports/precheck", payload, controller.signal, refresh);
     if (response.status === 400) {
       const body = (await response.json()) as { fieldErrors?: BugFieldErrors };
       return body.fieldErrors ? { fieldErrors: body.fieldErrors } : null;
@@ -69,16 +69,19 @@ async function precheck(payload: unknown, cancel: AbortSignal): Promise<{ knownL
   }
 }
 
-function ReportForm({ collect, onClose, open }: { collect: () => CollectedContext; onClose: () => void; open: boolean }) {
+function ReportForm({ collect, onClose, open, userId }: { collect: () => CollectedContext; onClose: () => void; open: boolean; userId: string | null }) {
+  const refreshSession = useRefreshSessionToken();
   const [recent] = useState(() => collect().duelSlug ? null : getRecentBugDuel());
   const [attachRecent, setAttachRecent] = useState(true);
-  const [description, setDescription] = useState("");
-  const [expected, setExpected] = useState("");
+  const [draft] = useState(() => readAuthDraft(userId));
+  const [description, setDescription] = useState(draft?.description ?? "");
+  const [expected, setExpected] = useState(draft?.expected ?? "");
   const [step, setStep] = useState<Step>("write");
   const [tried, setTried] = useState(false);
   const [serverErrors, setServerErrors] = useState<BugFieldErrors>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signInRequired, setSignInRequired] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [found, setFound] = useState<{ knownLimits: KnownLimit[]; duplicates: Duplicate[] }>({ knownLimits: [], duplicates: [] });
   const sending = useRef(false);
@@ -87,6 +90,7 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
   // Closing the dialog stops a running check and keeps the report from being sent afterwards.
   const closed = useRef(false);
   const cancelCheck = useRef<AbortController | null>(null);
+  const cancelSend = useRef<AbortController | null>(null);
   const reviewHeading = useRef<HTMLHeadingElement>(null);
   // The context is read once, when the player presses Send, and the same snapshot is checked and sent.
   const snapshot = useRef<CollectedContext | null>(null);
@@ -94,12 +98,21 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
   const quality = validateBugText({ description, expected });
   const fieldErrors: BugFieldErrors = tried ? { ...serverErrors, ...quality } : {};
 
+  const refreshReportSession = () => {
+    // Clerk may deactivate a rejected session and refresh the page before getToken returns.
+    saveAuthDraft({ description, expected }, userId);
+    return refreshSession();
+  };
+  useEffect(() => {
+    if (signInRequired) saveAuthDraft({ description, expected }, userId);
+  }, [signInRequired, description, expected, userId]);
+
   // The dialog stays mounted while it fades out, so closing is `open` going false, not the unmount.
   useEffect(() => {
     closed.current = !open;
-    if (!open) cancelCheck.current?.abort();
+    if (!open) { cancelCheck.current?.abort(); cancelSend.current?.abort(); }
   }, [open]);
-  useEffect(() => () => { closed.current = true; cancelCheck.current?.abort(); }, []);
+  useEffect(() => () => { closed.current = true; cancelCheck.current?.abort(); cancelSend.current?.abort(); }, []);
 
   // Screen readers should land on the new step, not on the removed form.
   useEffect(() => {
@@ -111,28 +124,28 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
     sending.current = true;
     setBusy(true);
     setError(null);
+    setSignInRequired(false);
     const controller = new AbortController();
+    cancelSend.current = controller;
     const timer = setTimeout(() => controller.abort(), SUBMIT_TIMEOUT_MS);
     try {
-      const response = await fetch("/api/bug-reports", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ description, expected, ...snapshot.current, ...(duplicateOf ? { duplicateOf } : {}) }),
-        signal: controller.signal,
-      });
+      const response = await requestBugReport("/api/bug-reports",
+        { description, expected, ...snapshot.current, ...(duplicateOf ? { duplicateOf } : {}) }, controller.signal, refreshReportSession);
       if (!response.ok) {
         const text = await failureText(response);
         setError(text);
+        setSignInRequired(response.status === 401);
         if (duplicateOf && response.status === 409) setFound((f) => ({ ...f, duplicates: f.duplicates.filter((d) => d.number !== duplicateOf) }));
         // A refusal in the write step (the server rules) sends the player back to the text.
         if (step !== "review") setStep("write");
         return;
       }
       const body = (await response.json()) as Partial<Result>;
+      clearAuthDraft();
       setResult({ id: Number(body.id), issue: body.issue ?? null, duplicate: body.duplicate === true });
       setStep("done");
     } catch {
-      setError("Could not send the report. Check your connection and try again.");
+      setError("Network error: could not send your report or refresh your session. Check your connection and try again.");
       if (step !== "review") setStep("write");
     } finally {
       clearTimeout(timer);
@@ -153,7 +166,7 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
       if (!snapshot.current.duelSlug && attachRecent && recent && Date.now() - recent.at <= 10 * 60_000) snapshot.current.duelSlug = recent.slug;
       setStep("checking");
       cancelCheck.current = new AbortController();
-      const checked = await precheck({ description, expected, ...snapshot.current }, cancelCheck.current.signal);
+      const checked = await precheck({ description, expected, ...snapshot.current }, cancelCheck.current.signal, refreshReportSession);
       if (closed.current) return;
       if (checked && "fieldErrors" in checked) {
         setServerErrors(checked.fieldErrors);
@@ -170,6 +183,14 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
       submitting.current = false;
     }
   }
+
+  const signInAction = signInRequired ? (
+    <div className="grid gap-1 text-sm">
+      <a href={`/sign-in?redirect_url=${encodeURIComponent(window.location.pathname + window.location.search)}`}
+        target="_blank" rel="noopener noreferrer" className="font-semibold text-accent-primary underline underline-offset-2">Sign in again</a>
+      <p className="text-text-secondary">Sign in in the new tab, then return here and send your report. Your text stays in this tab.</p>
+    </div>
+  ) : null;
 
   if (step === "done" && result) {
     const link = result.issue ? (
@@ -233,6 +254,7 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
           </section>
         ) : null}
         {error ? <p role="alert" className="text-sm text-red-400">{error}</p> : null}
+        {signInAction}
         <div className="flex gap-2">
           <Button type="button" loading={busy} onClick={() => void post()}>{known ? "My bug is different" : "No, it is different"}</Button>
           <Button type="button" variant="ghost" disabled={busy} onClick={() => { setError(null); setStep("write"); }}>Back</Button>
@@ -265,6 +287,7 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
         Describe the problem. We save the board and the duel log with your report. A screenshot is optional.
       </p>
       {error ? <p role="alert" className="text-sm text-red-400">{error}</p> : null}
+      {signInAction}
       <div className="flex gap-2">
         <Button type="submit" loading={busy}>Send report</Button>
         <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
@@ -275,12 +298,14 @@ function ReportForm({ collect, onClose, open }: { collect: () => CollectedContex
 
 /** Mounted from open until the exit ends: Modal takes focus and sets its trap on the first render, and lets go when `open` goes false. */
 function OpenDialog({ collect, onClose, open }: { collect: () => CollectedContext; onClose: () => void; open: boolean }) {
+  const userId = useSessionUserId();
   // Read while rendering, before Modal moves focus into the dialog, so closing can give focus back.
   const [opener] = useState(() => (typeof document === "undefined" ? null : document.activeElement as HTMLElement | null));
   const body = useRef<HTMLDivElement>(null);
   // This effect runs after Modal's, which put focus on its close button; the first field is the better start.
-  useEffect(() => { body.current?.querySelector<HTMLTextAreaElement>("[data-autofocus]")?.focus(); }, []);
+  useEffect(() => { body.current?.querySelector<HTMLTextAreaElement>("[data-autofocus]")?.focus(); }, [userId]);
   const close = () => {
+    clearAuthDraft();
     onClose();
     queueMicrotask(() => { if (opener?.isConnected) opener.focus(); });
   };
@@ -303,7 +328,7 @@ function OpenDialog({ collect, onClose, open }: { collect: () => CollectedContex
   return (
     <div onTouchStart={keepTouch} onTouchEnd={keepTouch}>
       <Modal open={open} onClose={close} title="Report a bug">
-        <div ref={body}><ReportForm collect={collect} onClose={close} open={open} /></div>
+        <div ref={body}>{userId !== undefined ? <ReportForm key={userId} userId={userId} collect={collect} onClose={close} open={open} /> : null}</div>
       </Modal>
     </div>
   );

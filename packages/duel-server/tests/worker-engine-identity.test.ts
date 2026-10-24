@@ -40,6 +40,25 @@ function options() {
 }
 
 describe("worker resource identity gate", () => {
+  it.each([0, 1] as const)("keeps script error occurrence keys stable when replay supplies sort version %s", async (sortOrderVersion) => {
+    create.mockImplementation(async ({ onScriptError }) => ({
+      answer() {
+        onScriptError({ code: 3743515, scriptFile: "c3743515.lua", line: 1, message: "fixture error",
+          mode: "normal", format: "1v1", engine: "pinned", scriptErrorMode: "tolerant" });
+      },
+      close: vi.fn(),
+    }));
+    const input = { mode: "normal" as const, dataDirectory: "unused", decks: [], seed: ["saved-seed"] };
+    const answer = { op: "answer" as const, seat: 0, promptId: "p1", answer: { choice: "attack:0" } };
+    expect(await handleWorkerRequest({ id: 1, op: "create", options: input })).toMatchObject({ ok: true });
+    const live = await handleWorkerRequest({ id: 2, ...answer });
+    expect(live).toMatchObject({ ok: true, scriptErrors: [{ commandHash: expect.stringMatching(/^[a-f0-9]{64}$/), index: 1, journalPosition: 0 }] });
+    await handleWorkerRequest({ id: 3, op: "close" });
+    expect(await handleWorkerRequest({ id: 4, op: "create", options: input })).toMatchObject({ ok: true });
+    const replay = await handleWorkerRequest({ id: 5, ...answer, sortOrderVersion });
+    expect(replay.scriptErrors).toEqual(live.scriptErrors);
+  });
+
   it("refuses a changed core before calling either engine factory", async () => {
     const input = options();
     writeFileSync(join(input.dataDirectory, "ocgcore.standard.wasm"), "changed");

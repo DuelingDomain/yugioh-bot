@@ -9,6 +9,8 @@ import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoic
 export const ENGINE_PROTOCOL_VERSION = "duel-worker-2";
 
 export interface DuelWorkerCreateOptions {
+  /** Keep eligible Auto Damage Step windows (v8+). Omission enables the live rule. */
+  keepDamageStepWindows?: boolean;
   /** Server-owned fork prefix count; never taken from an ordinary create request. */
   manualLossAnswersAfter?: number;
   engineIdentity?: EngineIdentity;
@@ -45,7 +47,7 @@ export type DuelWorkerRequest =
   | { id: number; op: "replay"; options: ReplayWorkerOptions }
   | { id: number; op: "create"; options: DuelWorkerCreateOptions }
   | { id: number; op: "view"; seat: number | null; history?: EngineViewHistory }
-  | { id: number; op: "answer"; seat: number; promptId: string; answer: DuelAnswer }
+  | { id: number; op: "answer"; seat: number; promptId: string; answer: DuelAnswer; sortOrderVersion?: 0 | 1 }
   | { id: number; op: "search"; query: string; seat?: number }
   | { id: number; op: "eliminate"; seat: number; reason: number; atTurnEnd?: boolean }
   | { id: number; op: "chain-mode"; seat: number; mode: DuelChainMode }

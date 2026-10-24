@@ -1,3 +1,4 @@
+// Damage Step display assertions follow the owner-requested five-sub-step contract (legacy-1v1/README.md).
 // MAIN'S TEST, run against the legacy 1v1 engine (src/legacy). A copy of packages/duel-server/tests/prompt-text.test.ts from origin/main (09b4196a)
 // with only the import paths changed: engine, views and prompts come from ../../src/legacy, the other sources from ../../src, and
 // the data dir helper from ../engine-data-dir.js. Do not edit it to make the legacy engine pass: the legacy engine must match the approved legacy pin. See legacy-1v1/README.md.
@@ -284,12 +285,12 @@ describe("battle step", () => {
       [hint(24), "battle"],
       [{ type: OcgMessageType.DAMAGE_STEP_START }, "damage"],
       [hint(40), "damage"],
-      [hint(41), "damage"],
+      [hint(41), "before-damage-calculation"],
       [hint(42), "damage-calculation"],
       [{ type: OcgMessageType.BATTLE, card: { ...loc, attack: 2000, defense: 0, destroyed: false }, target: null }, "damage-calculation"],
       [{ type: OcgMessageType.DAMAGE, player: 0, amount: 600 }, "damage-calculation"],
-      [hint(43), "damage"],
-      [hint(44), "damage"],
+      [hint(43), "after-damage-calculation"],
+      [hint(44), "damage-end"],
       [{ type: OcgMessageType.DAMAGE_STEP_END }, "battle"],
       [{ type: OcgMessageType.SELECT_BATTLECMD, player: 1, chains: [], attacks: [], to_m2: true, to_ep: true }, "battle"],
       [hint(29), "end"],
