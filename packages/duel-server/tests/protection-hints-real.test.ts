@@ -29,6 +29,11 @@ beforeAll(() => {
   // The manifest names the remap artifact in its integrity block, so the preflight and the engine need the file too.
   if (existsSync(join(engineDataDirectory, "card-remaps.json"))) symlinkSync(join(engineDataDirectory, "card-remaps.json"), join(directory, "card-remaps.json"));
   for (const name of readdirSync(engineDataDirectory).filter(name => name.endsWith(".wasm") || name.endsWith(".sha256"))) symlinkSync(join(engineDataDirectory, name), join(directory, name));
+  // A CI bundle carries the multi cores without checksum sidecars; the preflight refuses a multi core that has none.
+  for (const core of ["ocgcore.multi", "ocgcore.multi-domain"]) {
+    const wasm = join(directory, `${core}.wasm`), sidecar = join(directory, `${core}.sha256`);
+    if (existsSync(wasm) && !existsSync(sidecar)) writeFileSync(sidecar, `${createHash("sha256").update(readFileSync(wasm)).digest("hex")}  ${core}.wasm\n`);
+  }
   const scripts = join(directory, "card-scripts");
   const patched = new Set(["host-protection-hints.lua", "utility.lua", "card_counter_constants.lua", "c3743515.lua", ...PROTECTION_CARDS.map(code => `c${code}.lua`)]);
   for (const name of readdirSync(join(engineDataDirectory, "card-scripts"), { recursive: true }).map(String).filter(name => name.endsWith(".lua"))) {
