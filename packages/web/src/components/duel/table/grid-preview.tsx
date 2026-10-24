@@ -69,13 +69,138 @@ function uiBoxes(selector: string): Box[] {
   return out;
 }
 
+/** The seat of the viewer (the hand row that is theirs), or null for a spectator. */
+function ownSeat(): string | null {
+  return document.querySelector<HTMLElement>('[data-hand-seat][data-side="you"]')?.getAttribute("data-hand-seat") ?? null;
+}
+
+/** The fields of the other seats: the drawer covers as little of them as it can (the owner rule: field state stays visible). */
+function rivalFieldBoxes(): Box[] {
+  const mine = ownSeat();
+  const out: Box[] = [];
+  for (const el of document.querySelectorAll<HTMLElement>("[data-seat-field]")) {
+    if (el.getAttribute("data-seat-field") === mine) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) out.push(box(rect));
+  }
+  return out;
+}
+
+/**
+ * The life-point plates and name plates of every seat (`data-lp-seat` is the tally with the name in each format, `data-team-plate` the Tag team plate).
+ * The owner rule: the drawer never covers one. A seat that left has no box and counts for nothing.
+ */
+const PLATE_UI = "[data-lp-seat], [data-team-plate]";
+/** The air the drawer keeps between its edge and a plate. */
+const PLATE_GAP = 8;
+/** The smallest drawer that still reads well when it gives way to a plate: narrower than this, or shorter, the side counts as taken. */
+const MIN_FIT_W = 280;
+const MIN_FIT_H = 440;
+/** A drawer that gives way to a plate counts this much of its size loss as a cost, next to the share of the fields it covers. */
+const FIT_LOSS_WEIGHT = 0.5;
+/**
+ * A side where no fit clears the plates costs this much more: more than a clear gain on the fields, less than hiding the open panel (cost 1) the
+ * viewer is reading or the rail that closes it. On a small window (1366x768) the plates cannot all be kept clear, and the panel wins.
+ */
+const NO_FIT_COST = 0.8;
+
+/** The width the drawer has by itself (its inline fit override off). The override is put back by the caller. */
+function naturalWidth(aside: HTMLElement): number {
+  const kept = aside.style.getPropertyValue("--pv-w");
+  if (kept) aside.style.removeProperty("--pv-w");
+  const width = aside.offsetWidth;
+  if (kept) aside.style.setProperty("--pv-w", kept);
+  return width;
+}
+
+/** How far the phase buttons (End Turn, To Battle) that stand over the strip [from, to] reach up from the bottom of the parent; 0 with none. */
+function dockClearance(parent: DOMRect, from: number, to: number): number {
+  let dockTop = Infinity;
+  for (const button of Array.from(document.querySelectorAll<HTMLElement>("[data-dock-action]"))) {
+    const rect = button.getBoundingClientRect();
+    if (rect.width > 0 && rect.right > from && rect.left < to && rect.bottom > parent.top) dockTop = Math.min(dockTop, rect.top);
+  }
+  return dockTop < parent.bottom ? Math.max(0, Math.round(parent.bottom - dockTop + 8)) : 0;
+}
+
+/** The part of the drawer that is left to place: the whole drawer, or a narrower or a shorter one that clears the plates. */
+type Fit = { side: "left" | "right"; width: number; bottom: number; cost: number; fits: boolean };
+
+/**
+ * The best drawer for one side: the full drawer when it covers no plate, else the narrower or the shorter one that does not (at least MIN_FIT_W wide
+ * and MIN_FIT_H tall), whichever covers less of the fields. With none, the full drawer comes back with `fits` off and NO_FIT_COST added. `top` and
+ * `naturalBottom` are the vertical extent the drawer can have (viewport pixels). The cost is the share of the viewer's own field and hand the drawer
+ * covers, plus half the share of the rivals' fields, an open panel (the viewer is reading it) or the rail, and its size loss.
+ */
+function fitSide(side: "left" | "right", parent: DOMRect, natural: number, top: number, naturalBottom: number): Fit {
+  const strip = (width: number, bottom: number): Box => (side === "left"
+    ? { left: parent.left, right: parent.left + width, top, bottom }
+    : { left: parent.right - width, right: parent.right, top, bottom });
+  const plates = uiBoxes(PLATE_UI).map((b) => ({ left: b.left - PLATE_GAP, right: b.right + PLATE_GAP, top: b.top - PLATE_GAP, bottom: b.bottom + PLATE_GAP }));
+  const hits = (r: Box) => plates.filter((b) => area(b, r) > 0);
+  const own = ownBoxes();
+  const rivals = rivalFieldBoxes();
+  const ownTotal = own.reduce((sum, b) => sum + (b.right - b.left) * (b.bottom - b.top), 0);
+  const rivalTotal = rivals.reduce((sum, b) => sum + (b.right - b.left) * (b.bottom - b.top), 0);
+  const chrome = uiBoxes(CHROME_UI);
+  const panels = uiBoxes(OPEN_PANEL_UI);
+  const cost = (r: Box, kept: number) =>
+    (ownTotal > 0 ? own.reduce((sum, b) => sum + area(b, r), 0) / ownTotal : 0)
+    + 0.5 * (rivalTotal > 0 ? rivals.reduce((sum, b) => sum + area(b, r), 0) / rivalTotal : 0)
+    + (panels.some((b) => area(b, r) > 0) ? 1 : 0)
+    + (chrome.some((b) => area(b, r) > 0) ? OWN_MARGIN * 2 : 0)
+    + (1 - kept) * FIT_LOSS_WEIGHT;
+  const full = strip(natural, naturalBottom);
+  const blocked = hits(full);
+  if (blocked.length === 0) return { side, width: natural, bottom: naturalBottom, cost: cost(full, 1), fits: true };
+  const options: Fit[] = [];
+  // Narrower: the edge of the drawer stops before the nearest plate on its way.
+  let width = natural;
+  for (let i = 0; i < 4; i += 1) {
+    const inside = hits(strip(width, naturalBottom));
+    if (inside.length === 0) break;
+    width = Math.min(width, ...inside.map((b) => (side === "left" ? b.left - parent.left : parent.right - b.right)));
+  }
+  if (width >= MIN_FIT_W && hits(strip(width, naturalBottom)).length === 0) {
+    options.push({ side, width, bottom: naturalBottom, cost: cost(strip(width, naturalBottom), width / natural), fits: true });
+  }
+  // Shorter: the foot of the drawer stops above the nearest plate under it.
+  let bottom = naturalBottom;
+  for (let i = 0; i < 4; i += 1) {
+    const inside = hits(strip(natural, bottom));
+    if (inside.length === 0) break;
+    bottom = Math.min(bottom, ...inside.map((b) => b.top));
+  }
+  if (bottom - top >= MIN_FIT_H && hits(strip(natural, bottom)).length === 0) {
+    options.push({ side, width: natural, bottom, cost: cost(strip(natural, bottom), (bottom - top) / (naturalBottom - top)), fits: true });
+  }
+  if (options.length === 0) return { side, width: natural, bottom: naturalBottom, cost: cost(full, 1) + NO_FIT_COST, fits: false };
+  return options.reduce((best, o) => (o.cost < best.cost ? o : best));
+}
+
+/** The vertical extent a drawer on `side` can have, in viewport pixels: from the header pills down to the phase buttons. */
+function drawerExtent(aside: HTMLElement, parent: DOMRect, side: "left" | "right", width: number): { top: number; bottom: number } {
+  const topPx = Number.parseFloat(getComputedStyle(aside).getPropertyValue("--pv-top")) || 54;
+  const from = side === "left" ? parent.left : parent.right - width;
+  return { top: parent.top + topPx, bottom: parent.bottom - dockClearance(parent, from, from + width) };
+}
+
+/** The fit of one side for a drawer element, from the layout as it is. */
+function fitFor(aside: HTMLElement, side: "left" | "right"): Fit {
+  const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
+  const natural = naturalWidth(aside);
+  const { top, bottom } = drawerExtent(aside, parent, side, natural);
+  return fitSide(side, parent, natural, top, bottom);
+}
+
 /**
  * The side the drawer opens on. It never covers the card it shows (the hovered or focused one); then it covers as little as it can of the viewer's own
- * field and hand (in 4-way and Tag your field is at the left, so the drawer opens at the right). An open drawer keeps its side unless it must flip.
+ * field and hand and of the rivals' fields, and none of the life-point plates (see `fitSide`: it gives way in width or height). In 4-way and Tag your
+ * field is at the left, so the drawer tends to open at the right. An open drawer keeps its side unless it must flip.
  */
-function chooseSide(aside: HTMLElement, current: "left" | "right", open: boolean): "left" | "right" {
+function chooseSide(aside: HTMLElement, current: "left" | "right", open: boolean, narrow: boolean): "left" | "right" {
   const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
-  const width = aside.offsetWidth;
+  const width = naturalWidth(aside);
   const strips = {
     left: { left: parent.left, right: parent.left + width, top: parent.top, bottom: parent.bottom },
     right: { left: parent.right - width, right: parent.right, top: parent.top, bottom: parent.bottom },
@@ -87,19 +212,13 @@ function chooseSide(aside: HTMLElement, current: "left" | "right", open: boolean
     if (card.left === card.right) return current;
     return card.left < card.right ? "left" : "right";
   }
-  const own = ownBoxes();
-  if (own.length === 0) return current;
-  const total = own.reduce((sum, b) => sum + (b.right - b.left) * (b.bottom - b.top), 0);
-  const covered = (strip: Box) => own.reduce((sum, b) => sum + area(b, strip), 0);
-  // The rail and the edge tabs are a small cost, so a tie goes to the side that leaves them reachable and a clear gain on your own field still wins.
-  // An open panel is a large cost: the card never covers what the viewer is reading, even when that hides a column of its own field.
-  const chrome = uiBoxes(CHROME_UI);
-  const panels = uiBoxes(OPEN_PANEL_UI);
-  const chromeCost = (strip: Box) => (panels.some((b) => area(b, strip) > 0) ? total : 0) + (chrome.some((b) => area(b, strip) > 0) ? total * OWN_MARGIN * 2 : 0);
-  const left = covered(strips.left) + chromeCost(strips.left);
-  const right = covered(strips.right) + chromeCost(strips.right);
-  if (right + total * OWN_MARGIN < left) return "right";
-  if (left + total * OWN_MARGIN < right) return "left";
+  // A phone drawer is most of the board: the plates cannot be kept clear there, and a prompt tucks it (see below).
+  if (narrow) return current;
+  const left = fitFor(aside, "left");
+  const right = fitFor(aside, "right");
+  // The rail and the edge tabs are a small cost, so a tie goes to the side that leaves them reachable and a clear gain still wins.
+  if (right.cost + OWN_MARGIN < left.cost) return "right";
+  if (left.cost + OWN_MARGIN < right.cost) return "left";
   return open ? current : "left";
 }
 
@@ -141,7 +260,7 @@ function obstacleBoxes(picking: boolean): Box[] {
  */
 function pickPlacement(aside: HTMLElement, current: "left" | "right", picking: boolean): { side: "left" | "right"; tuck: boolean } {
   const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
-  const width = aside.offsetWidth;
+  const width = naturalWidth(aside);
   const strips = {
     left: { left: parent.left, right: parent.left + width, top: parent.top, bottom: parent.bottom },
     right: { left: parent.right - width, right: parent.right, top: parent.top, bottom: parent.bottom },
@@ -227,7 +346,7 @@ const HANDLE_GAP = 8;
  */
 function handleSpot(width: number, height: number, side: "left" | "right", picking: boolean): { left: number; top: number } {
   const view = { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
-  const taken = [...obstacleBoxes(picking), ...ownBoxes()];
+  const taken = [...obstacleBoxes(picking), ...ownBoxes(), ...uiBoxes(PLATE_UI)];
   const spots: { left: number; top: number }[] = [];
   const header = document.querySelector<HTMLElement>("[data-testid='hud-top']");
   let under = 8;
@@ -378,7 +497,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
   useLayoutEffect(() => {
     const aside = asideRef.current;
     if (!aside || !showable || placing) return;
-    const next = chooseSide(aside, side, openRef.current);
+    const next = chooseSide(aside, side, openRef.current, narrow);
     if (next === side) return;
     if (!openRef.current) {
       // Style the closed drawer at its new edge now, with the transition off: the open that follows (in the same render) slides in from the screen edge.
@@ -459,12 +578,13 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handleOn, side, settled, pickId, pinName, peek]);
   // The drawer starts under the header pills that stand over its edge (the turn pill, the clocks): the header sits at a different height in each shell.
+  // It ends above the phase buttons (End Turn, To Battle) on a short window, and it gives way to the life-point plates in width or height (fitSide).
   useLayoutEffect(() => {
     const aside = asideRef.current;
     if (!aside || !open) return;
     const set = () => {
       const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
-      const width = aside.offsetWidth;
+      const width = naturalWidth(aside);
       const from = side === "left" ? parent.left : parent.right - width;
       const to = from + width;
       let bottom = 0;
@@ -474,24 +594,28 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
       }
       if (bottom > 0) aside.style.setProperty("--pv-top", `${Math.max(0, Math.round(bottom - parent.top + 8))}px`);
       else aside.style.removeProperty("--pv-top");
-      // And it ends above the phase buttons (End Turn, To Battle) that stand over its edge on a short window.
-      let dockTop = Infinity;
-      for (const button of Array.from(document.querySelectorAll<HTMLElement>("[data-dock-action]"))) {
-        const box = button.getBoundingClientRect();
-        if (box.width > 0 && box.right > from && box.left < to && box.bottom > parent.top) dockTop = Math.min(dockTop, box.top);
+      const extent = drawerExtent(aside, parent, side, width);
+      const fit = narrow ? null : fitSide(side, parent, width, extent.top, extent.bottom);
+      const footPx = Math.max(0, Math.round(parent.bottom - (fit ? fit.bottom : extent.bottom)));
+      if (fit && fit.width < width) aside.style.setProperty("--pv-w", `${Math.floor(fit.width)}px`);
+      else aside.style.removeProperty("--pv-w");
+      if (footPx > 0) {
+        aside.style.setProperty("--pv-bottom", `${footPx}px`);
+        aside.style.setProperty("--pv-room", `${Math.max(0, Math.round(parent.height - (extent.top - parent.top) - footPx))}px`);
+      } else {
+        aside.style.removeProperty("--pv-bottom");
+        aside.style.removeProperty("--pv-room");
       }
-      if (dockTop < parent.bottom) aside.style.setProperty("--pv-bottom", `${Math.max(0, Math.round(parent.bottom - dockTop + 8))}px`);
-      else aside.style.removeProperty("--pv-bottom");
     };
     set();
     window.addEventListener("resize", set);
-    // The dock buttons come and go with the prompt (End Turn shows after a pick), and no event says so: a slow check keeps the clearance right.
+    // The dock buttons come and go with the prompt (End Turn shows after a pick) and the plates move with the camera, and no event says so: a slow check keeps the fit right.
     const timer = window.setInterval(set, 300);
     return () => {
       window.removeEventListener("resize", set);
       window.clearInterval(timer);
     };
-  }, [open, current, side]);
+  }, [open, current, side, narrow]);
 
   if (!current) return null;
 

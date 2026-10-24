@@ -711,7 +711,7 @@
   display: block;
   flex: none;
   /* The drawer width, and no taller than the window leaves room for: the header (--pv-top) and ~300px for the name, the lines and some text. */
-  width: min(100%, calc((100dvh - var(--pv-top) - 300px) * 421 / 614));
+  width: min(100%, calc((var(--pv-room, calc(100dvh - var(--pv-top))) - 300px) * 421 / 614));
   aspect-ratio: 421 / 614;
   height: auto;
   margin: 0 auto;

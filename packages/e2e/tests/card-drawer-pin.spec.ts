@@ -43,6 +43,29 @@ async function coveredControls(page: Page, selector: string): Promise<{ checked:
   }, selector);
 }
 
+/**
+ * The life-point plates and name plates (`[data-lp-seat]` is the tally with the name in every format, `[data-team-plate]` the Tag team plate) that the open
+ * drawer or its handle covers. A plate counts as covered when any part of its box lies under the drawer: the owner rule is that LP stays visible.
+ */
+async function coveredPlates(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const out: string[] = [];
+    const shells = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="hover-preview"][data-open="true"], [data-testid="hover-preview-handle"]'));
+    for (const plate of document.querySelectorAll<HTMLElement>("[data-lp-seat], [data-team-plate]")) {
+      const r = plate.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4) continue;
+      for (const shell of shells) {
+        const d = shell.getBoundingClientRect();
+        if (d.width === 0 || d.height === 0) continue;
+        const w = Math.min(r.right, d.right) - Math.max(r.left, d.left);
+        const h = Math.min(r.bottom, d.bottom) - Math.max(r.top, d.top);
+        if (w > 1 && h > 1) out.push(`${plate.getAttribute("data-lp-seat") ?? "team"}:${shell.getAttribute("data-side") ?? "handle"} plate ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)} drawer ${Math.round(d.left)},${Math.round(d.top)} ${Math.round(d.width)}x${Math.round(d.height)}`);
+      }
+    }
+    return out;
+  });
+}
+
 const LEGAL_ZONES = '[data-legal="true"][data-occupied="false"]';
 const PANEL_BUTTONS = "[data-prompt-panel] button, [data-prompt-surface] button";
 
@@ -363,6 +386,8 @@ for (const format of ["ffa4", "tag"] as const) {
       await expectReadyToAct(page);
       await handCard(page, FILLER).click();
       await expect(pinnedOpen(page)).toHaveCount(1);
+      await settle(page);
+      expect(await coveredPlates(page), "LP or name plates under the pinned drawer").toEqual([]);
       await page.getByRole("menu").getByRole("menuitem", { name: /^Normal Summon/ }).click();
       await expect(page.getByRole("group", { name: /^Select a zone/ })).toBeVisible();
       await settle(page);
@@ -370,6 +395,7 @@ for (const format of ["ffa4", "tag"] as const) {
       const zones = await coveredControls(page, LEGAL_ZONES);
       expect(zones.checked, "legal zones found").toBeGreaterThan(0);
       expect(zones.covered, "zones under the drawer or the handle").toEqual([]);
+      expect(await coveredPlates(page), "LP or name plates under the drawer or the handle").toEqual([]);
       await expect(pinnedAny(page)).toHaveCount(1);
       if (format === "tag") await pickTagZone(page, slug, "mz");
       else await pickLegalZone(page, "mz");
