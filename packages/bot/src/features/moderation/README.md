@@ -37,6 +37,11 @@ Timeout durations use integer `s`, `m`, `h`, `d`, `w` units, such as `30m` or `1
 Slowmode supports text, voice, stage, forum and media channels. Lock/unlock support
 text, announcement, forum and media channels. Threads are excluded.
 
+Kick, ban, lock, unlock, warning removal and purge over 10 need confirmation.
+The confirmation keeps the action exactly as shown: target, reason and options
+(for purge, the frozen message IDs). Open confirmations are kept in memory, so a
+bot restart drops them; run the command again.
+
 Confirm/Cancel buttons expire after 60 seconds, are single use, and belong to the
 actor who requested them. Both buttons recheck current access. Confirm rechecks
 target hierarchy and actor/bot permissions. Confirm and Cancel edit the original
@@ -44,7 +49,9 @@ prompt, remove its buttons and show the outcome. Mutations use the runtime's gui
 three-second actor cooldown. Actor replies are ephemeral and disable mentions.
 
 Audit records use shared `recordModAction` and one mod-log outbox message with
-actor, target, reason and duration. Warning writes and removal commit with their
+actor, target, reason and duration. The audit row and its outbox message are written
+in one SQLite transaction. The outbox message is queued only when
+`DISCORD_BOT_ENABLED=1` and `DISCORD_MOD_LOG_CHANNEL_ID` is set. Warning writes and removal commit with their
 audit/outbox records. Read actions stay in the audit but do not displace the five
 moderation actions shown in User info. Error replies and stored failure codes do
 not include raw Discord errors.
