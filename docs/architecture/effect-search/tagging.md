@@ -4,7 +4,7 @@
 the approved engine catalog. Card tagging in the application only imports the reviewed pinned
 artifact. The optional runtime phrase reader uses the same budget ledger;
 see the runtime reader section below. Card text is
-normalized and hashed using the [artifact contract](effect-search-artifact.md).
+normalized and hashed using the [artifact contract](artifact.md).
 Known artwork/remaps fold before comparison; named functional aliases retain
 their own identity. Tokens, empty effects and ordinary Normal Monsters are
 excluded. Normal Pendulum Monsters with effects remain eligible.
@@ -350,7 +350,7 @@ the paid fallback off. Do not add `GITHUB_TOKEN`.
 
 The Actions API secret does not configure the VM runtime. `deploy.yml` needs no
 change: it runs Compose from `/opt/yugioh-bot`, where the VM `.env` supplies
-interpolation values. Use the [normal deploy procedure](deployment/vm-runbook.md#deployment-pipeline)
+interpolation values. Use the [normal deploy procedure](../../deployment/vm-runbook.md#deployment-pipeline)
 after the edit. The `duel` and `web` containers must be recreated; `restart` does
 not load new environment values.
 

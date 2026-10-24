@@ -78,7 +78,7 @@ STAPLES_BASE_SHA=$(git rev-parse HEAD) prlimit --core=0 node scripts/staples/pub
 ```
 
 Run the targeted search integration suite and the sourced-deck evaluation in
-[the quality guide](deck-suggestions-quality.md). Live proof is recorded below
+[the quality guide](../../testing/deck-suggestions-quality.md). Live proof is recorded below
 after publication to the local verification service.
 
 ## Source verification (2026-10-20)
