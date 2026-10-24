@@ -433,6 +433,8 @@ export function DeckMasterBadge({
     "data-local": local ? "true" : "false",
     "data-ready": ready ? "true" : undefined,
     "data-legal": legal && canAct ? "true" : "false",
+    // The wrap holds the info popover too; only the badge button acts (data-action-click).
+    "data-no-guard": "",
     "data-open": open ? "true" : undefined,
     "data-in-use": inUse ? "true" : undefined,
     "data-emblem": emblem ? (box?.docked ? "docked" : "plate") : undefined,
@@ -455,6 +457,7 @@ export function DeckMasterBadge({
         ref={buttonRef}
         type="button"
         className={styles.badge}
+        data-action-click={pickable ? "true" : undefined}
         data-testid="dm-badge"
         data-badge-seat={view.seat}
         data-selected={selected ? "true" : undefined}

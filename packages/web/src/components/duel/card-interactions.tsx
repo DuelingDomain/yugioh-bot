@@ -264,6 +264,7 @@ export function CardActionMenu({
       data-side={side}
       style={style}
       role="menu"
+      data-card-menu=""
       aria-label={`${title} actions`}
       onKeyDown={(event) => {
         event.stopPropagation();
