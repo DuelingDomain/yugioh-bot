@@ -1,6 +1,9 @@
 "use client";
 
+import { duelFxClock } from "./fx-clock";
+
 import { ownClockSeat } from "./clock-beep";
+import { useServerWaitClock } from "./use-live-clock";
 import { useLowClockBeep } from "./use-low-clock-beep";
 import { tableTextStyle, useCardTextSize, useTableTextScale } from "./card-text-size";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -143,8 +146,9 @@ import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
 import { centerKind, PromptCenter } from "./prompt-center";
 import { skipsAnswerableWait, usePickContinuation } from "./pick-continuation";
-import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
+import { pendingBoardAnimations, promptRevealHoldMs, usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
 import { boardQuietNow, useResultGate } from "./result-reveal";
+import { useBoardInputGuard, useOnBoardMotionStart } from "./board-input-guard";
 import { useBoardView, type BoardMode } from "./board-view";
 import { useQuietViewChange } from "./quiet-view-change";
 import type { SolidRoomProps } from "./solid/solid-room";
@@ -331,9 +335,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const cameraSeat = forkControl ? forkControl.identitySeat : null;
   // What a remounted shell starts from, so a new fork view keeps the camera and the open panel.
   const forkCarry = useRef<ReplayCarry>({});
+  const [busy, setBusy] = useState(false);
+  const [forkChainBusy, setForkChainBusy] = useState(false);
+  const [chainClockWaiting, setChainClockWaiting] = useState(false);
+  const decisionClock = useServerWaitClock(visibleRoom?.clock, busy || forkChainBusy || chainClockWaiting);
   const data = useMemo(
-    () => (visibleRoom && forkControl ? { ...visibleRoom, mySeat: forkControl.actingSeat } : visibleRoom),
-    [visibleRoom, forkControl],
+    () => visibleRoom ? { ...visibleRoom, clock: decisionClock ?? null,
+      ...(forkControl ? { mySeat: forkControl.actingSeat } : {}) } : visibleRoom,
+    [visibleRoom, forkControl, decisionClock],
   );
   const forkSettled = roomState.kind !== "unusable" && (forkControl == null
     || forkViewSettled(forkControl, forkView.view, { receivedAt: rawData?.receivedAt, changedAt: forkView.changedAt() }));
@@ -371,8 +380,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   useDuelLeaveGuard({ slug, active: duelLive && !testDuel && !readOnly, role: data?.mySeat == null ? "spectator" : "player" });
   const exitRef = useRef<() => void>(() => router.replace("/duels"));
   const testQuit = useTestDuelQuit({ slug, active: duelLive && testDuel && data?.mySeat != null && !readOnly, onQuit: () => exitRef.current() });
-  const [busy, setBusy] = useState(false);
-  const [forkChainBusy, setForkChainBusy] = useState(false);
   const inFlight = useRef(false);
   // Counts every request that changes the room (an action or a chain response switch change). A reply is put on the board
   // only if no later request was sent after it: a slow reply must not bring back an older room over a newer one.
@@ -457,7 +464,19 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const preferences = useDuelPreferences();
   // A coin toss is playing: no answer, surrender or other action goes out (also blocked at window level).
   const tossLocked = useCoinTossLocked();
-  useDuelAnimationSpeed(preferences.reducedMotion);
+  const animationSpeed = useDuelAnimationSpeed(preferences.reducedMotion);
+  const reportedSpeed = useRef<number | null>(null);
+  useEffect(() => {
+    const update = () => {
+      const speed = duelFxClock.factor();
+      if (reportedSpeed.current === speed) return;
+      reportedSpeed.current = speed;
+      void refreshRoom().catch(() => undefined);
+    };
+    const unsubscribe = duelFxClock.subscribeRate(update);
+    update();
+    return unsubscribe;
+  }, [animationSpeed, preferences.reducedMotion, refreshRoom]);
   const view = useBoardView(viewOverride);
   // The chunk of the 3D look starts loading before the room data arrives, so the table appears at once.
   useEffect(() => {
@@ -473,7 +492,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // The turn-start phases (and the opening deal) play one beat at a time; nothing can be answered meanwhile.
   const startBeats = useStartBeats({
     engine: data?.engine ?? null,
-    clock: data?.clock,
+    clock: visibleRoom?.clock,
     duelKey: slug,
     reducedMotion: preferences.reducedMotion,
     ready: Boolean(data?.engine) && data?.session.status !== "lobby" && !ownWindowGate && !error,
@@ -504,6 +523,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const legalKeys = useMemo(() => promptLegalKeys(prompt), [prompt]);
   const selectedKeys = useMemo(() => promptSelectedKeys(prompt, draft.selected), [draft.selected, prompt]);
   const closeMenu = useCallback(() => setMenu(null), []);
+  // No click lands on a board that moves (the 3D plane tilts, the table glides), and the menu is anchored to a card that is about to slide.
+  useBoardInputGuard();
+  useOnBoardMotionStart(closeMenu);
   const pickHintShown = pickHint != null && pickHint.promptId === prompt?.id && !menu && pickHint.anchor.isConnected;
   const boardRef = useRef<HTMLDivElement>(null);
   // 3D mode and Tilt|Flat change the look only when the board is quiet (see quiet-view-change.ts).
@@ -560,8 +582,22 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // A follow-up of the player's own material pick skips both waits and shows at once (its buttons stay off while busy).
   // Between the click and that prompt the last bar stays up (pick.waiting), buttons off.
   const pick = usePickContinuation(prompt, data?.engine?.revision);
-  const revealBeat = usePromptReveal({ promptId: centered ? prompt.id : null, board: boardRef, reducedMotion: preferences.reducedMotion, skip: pick.continuing });
-  const answerable = usePromptAnswerable(centered ? prompt.id : null, !busy && !error && !catchingUp, skipsAnswerableWait(pick.continuing, catchingUp));
+  // A running authoritative clock means the server presentation hold has ended. Event-free
+  // handoffs and reconnects must expose that decision immediately, without a fresh local beat.
+  const promptClockReady = data?.clock?.activeSeat === prompt?.seat && data?.clock?.startedAt != null
+    && data.clock.startedAt <= data.clock.serverNow;
+  const revealEventId = useRef<number | null>(null);
+  const previousEventId = revealEventId.current;
+  const freshPresentation = previousEventId !== null && (data?.engine?.events.some(event => event.id > previousEventId && event.kind !== "script-error") ?? false);
+  if (data?.engine) revealEventId.current = data.engine.events.reduce((id, event) => Math.max(id, event.id), previousEventId ?? 0);
+  const clockReveal = useRef<{ id: string | undefined; skip: boolean }>({ id: undefined, skip: false });
+  if (clockReveal.current.id !== prompt?.id) {
+    clockReveal.current = { id: prompt?.id, skip: promptClockReady && !catchingUp && !freshPresentation
+      && pendingBoardAnimations(boardRef.current).length === 0 && promptRevealHoldMs() === 0 };
+  }
+  const skipReveal = pick.continuing || clockReveal.current.skip;
+  const revealBeat = usePromptReveal({ promptId: centered ? prompt.id : null, board: boardRef, reducedMotion: preferences.reducedMotion, skip: skipReveal });
+  const answerable = usePromptAnswerable(centered ? prompt.id : null, !busy && !error && !catchingUp, skipsAnswerableWait(skipReveal, catchingUp));
   const revealed = revealBeat && answerable;
   const fieldHeld = fieldWaitsForReveal(prompt, revealed);
   const fieldLegalKeys = useMemo(() => fieldHeld ? new Set<string>() : legalKeys, [fieldHeld, legalKeys]);
@@ -1033,6 +1069,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       const fork = now && forkRoomState(now).kind === "fork" ? now.fork : undefined;
       if (fork && (busy || catchingUp || error || !forkViewSettled(fork, forkView.view, { receivedAt: (now as { receivedAt?: number }).receivedAt, changedAt: forkView.changedAt() }))) return;
       const seq = ++mutationSeq.current;
+      setChainClockWaiting(true);
       if (fork) setForkChainBusy(true);
       try {
         const binding = fork && now?.engine
@@ -1045,6 +1082,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         void mutate().catch(() => {});
         throw err;
       } finally {
+        setChainClockWaiting(false);
         if (fork) setForkChainBusy(false);
       }
     },

@@ -6,9 +6,9 @@ import type { DuelRoom } from "@yugidraft/shared/duels";
 import { makeSeriesRoom } from "../helpers/duel-series";
 import { newBoard } from "@/components/duel/fx-lab/board";
 
-const { state, mutate, sendDuelAction, startBeats } = vi.hoisted(() => ({
-  state: { room: null as DuelRoom | null, error: null as Error | null, recovering: false, syncing: false, beats: false, revealed: true },
-  mutate: vi.fn(async () => {}), sendDuelAction: vi.fn(), startBeats: vi.fn(),
+const { state, mutate, sendDuelAction, setChainResponseMode, startBeats } = vi.hoisted(() => ({
+  state: { room: null as DuelRoom | null, error: null as Error | null, recovering: false, syncing: false, beats: false, revealed: true, realReveal: false },
+  mutate: vi.fn(async () => {}), sendDuelAction: vi.fn(), setChainResponseMode: vi.fn(), startBeats: vi.fn(),
 }));
 vi.mock("swr", () => ({ useSWRConfig: () => ({ mutate: () => Promise.resolve() }), default: () => ({ data: state.room, error: state.error, isLoading: false, mutate }) }));
 vi.mock("next/font/google", () => {
@@ -22,9 +22,11 @@ vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() 
 vi.mock("@/components/duel/use-start-beats", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/components/duel/use-start-beats")>(), useStartBeats: startBeats,
 }));
-vi.mock("@/components/duel/prompt-reveal", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/components/duel/prompt-reveal")>(), usePromptReveal: () => state.revealed,
-}));
+vi.mock("@/components/duel/prompt-reveal", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/duel/prompt-reveal")>();
+  return { ...actual, usePromptReveal: (options: Parameters<typeof actual.usePromptReveal>[0]) =>
+    state.realReveal ? actual.usePromptReveal(options) : state.revealed };
+});
 vi.mock("@/components/duel/field", () => ({
   DuelField: ({ priorityLive }: { priorityLive?: boolean }) => <div data-testid="priority" data-live={String(priorityLive)} />,
   DeckMasterRail: () => null,
@@ -45,7 +47,7 @@ vi.mock("@/components/duel/battle-fx", () => ({ BattleFx: () => null }));
 vi.mock("@/components/duel/destroy-fx", () => ({ DestroyFx: () => null }));
 vi.mock("@/components/decks/api", () => ({ listSavedDecks: vi.fn(async () => []) }));
 vi.mock("@/components/duel/api", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/components/duel/api")>(), sendDuelAction,
+  ...await importOriginal<typeof import("@/components/duel/api")>(), sendDuelAction, setChainResponseMode,
 }));
 import { DuelRoomView } from "@/components/duel/room";
 
@@ -53,7 +55,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-  Object.assign(state, { error: null, recovering: false, syncing: false, beats: false, revealed: true });
+  Object.assign(state, { error: null, recovering: false, syncing: false, beats: false, revealed: true, realReveal: false });
   startBeats.mockImplementation(() => ({ active: state.beats, phase: undefined, replayFrom: null, waiting: false }));
   state.room = makeSeriesRoom({ series: null, status: "active", mySeat: 0 });
   state.room.engine = { revision: 1, turn: 2, turnSeat: 1, phase: "main1", seats: newBoard().seats,
@@ -201,6 +203,78 @@ describe("room priority gate", () => {
     expect(live()).toBe("false");
     await act(async () => { finish(); });
     expect(live()).toBe("true");
+  });
+
+  it("freezes the rendered decision clock while a submitted move waits for the server", async () => {
+    vi.useFakeTimers();
+    state.room!.clock = { turn: 2, remainingMs: [90_000, 90_000], activeSeat: 0, startedAt: 100_000, serverNow: 100_000 };
+    let finish!: () => void;
+    sendDuelAction.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const { rerender } = render(<DuelRoomView slug="game-clock" windowed />);
+    act(() => { vi.advanceTimersByTime(5_000); });
+    expect(screen.getByRole("timer").textContent).toContain("1:25");
+    fireEvent.click(screen.getByRole("button", { name: "Respond" }));
+    const timer = screen.getByRole("timer");
+    expect(timer.querySelector('[data-active="true"]')).toBeNull();
+    act(() => { vi.advanceTimersByTime(20_000); });
+    expect(timer.textContent).toContain("1:25");
+    // The authoritative reply starts the next owner's decision after server work.
+    state.room = { ...state.room!, clock: { turn: 2, remainingMs: [88_000, 90_000], activeSeat: 1, startedAt: 125_000, serverNow: 125_000 } };
+    await act(async () => { finish(); });
+    rerender(<DuelRoomView slug="game-clock" windowed />);
+    expect(screen.getByRole("timer").textContent).toContain("1:28");
+    expect(screen.getByRole("timer").querySelector('[data-active="true"]')?.textContent).toContain("Imran");
+  });
+
+  it("reveals a clocked response immediately when the server has no presentation hold", () => {
+    state.realReveal = true;
+    state.room!.clock = { turn: 2, remainingMs: [90_000, 90_000], activeSeat: 0, startedAt: 100_000, serverNow: 100_000 };
+    render(<DuelRoomView slug="event-free-handoff" windowed />);
+    expect(screen.getByTestId("panel").getAttribute("data-revealed")).toBe("true");
+    expect(live()).toBe("true");
+  });
+
+  it("waits for fresh FX when a delayed response arrives with an already running clock", async () => {
+    vi.useFakeTimers();
+    state.realReveal = true;
+    state.room!.clock = { turn: 2, remainingMs: [90_000, 90_000], activeSeat: 0, startedAt: 100_000, serverNow: 102_000 };
+    const { rerender } = render(<DuelRoomView slug="delayed-response" windowed />);
+    expect(screen.getByTestId("panel").getAttribute("data-revealed")).toBe("true");
+    state.room = { ...state.room!, engine: { ...state.room!.engine!, revision: 2,
+      prompt: { ...state.room!.engine!.prompt!, id: "p2" }, events: [{ id: 1, kind: "summon", text: "Summon" }] } };
+    rerender(<DuelRoomView slug="delayed-response" windowed />);
+    expect(screen.getByTestId("panel").getAttribute("data-revealed")).toBe("false");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_101); });
+    expect(screen.getByTestId("panel").getAttribute("data-revealed")).toBe("true");
+  });
+
+  it("keeps the reveal beat while the client catches up despite a running server clock", async () => {
+    vi.useFakeTimers();
+    state.realReveal = true;
+    state.beats = true;
+    state.room!.clock = { turn: 2, remainingMs: [90_000, 90_000], activeSeat: 0, startedAt: 100_000, serverNow: 100_000 };
+    const { rerender } = render(<DuelRoomView slug="catching-up-clock" windowed />);
+    expect(screen.getByTestId("panel").getAttribute("data-revealed")).toBe("false");
+    state.beats = false;
+    rerender(<DuelRoomView slug="catching-up-clock" windowed />);
+    expect(screen.getByTestId("panel").getAttribute("data-revealed")).toBe("false");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_101); });
+    expect(screen.getByTestId("panel").getAttribute("data-revealed")).toBe("true");
+  });
+
+  it("freezes the displayed clock while a live chain-mode change waits for the core", async () => {
+    vi.useFakeTimers();
+    state.room!.engine!.chainMode = "auto";
+    state.room!.clock = { turn: 2, remainingMs: [90_000, 90_000], activeSeat: 0, startedAt: 100_000, serverNow: 100_000 };
+    let finish!: () => void;
+    setChainResponseMode.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    render(<DuelRoomView slug="chain-clock" windowed />);
+    fireEvent.click(screen.getByRole("radio", { name: /Off/i }));
+    expect(setChainResponseMode).toHaveBeenCalled();
+    act(() => { vi.advanceTimersByTime(20_000); });
+    expect(screen.getByRole("timer").textContent).toContain("1:30");
+    expect(screen.getByRole("timer").querySelector('[data-active="true"]')).toBeNull();
+    await act(async () => { finish(); });
   });
 
   it("does not use the local reveal for a private opponent prompt", () => {

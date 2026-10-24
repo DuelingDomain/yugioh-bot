@@ -1,10 +1,12 @@
 import { PageViews } from "@/lib/analytics/page-views";
 import { ClerkProvider } from "@clerk/nextjs";
 import { MarketingSessionHint } from "@/components/auth/marketing-session-hint";
+import { SessionTokenProvider } from "@/components/auth/session-token";
 import { waitlistHref } from "@/components/auth/marketing-links";
 import { marketingUrlFromEnv } from "@/lib/auth-page-params";
 import { connection } from "next/server";
-import { isE2EAuthEnabled } from "@/lib/e2e-auth";
+import { E2E_SESSION_COOKIE, isE2EAuthEnabled, verifyE2ESession } from "@/lib/e2e-auth";
+import { cookies } from "next/headers";
 import type { Metadata } from "next";
 import { Russo_One, Chakra_Petch } from "next/font/google";
 import { DuelNavigationGuard } from "@/lib/hooks/use-duel-leave-guard";
@@ -35,7 +37,9 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   await connection();
-  const content = <><PageViews /><DuelNavigationGuard />{children}</>;
+  const e2e = isE2EAuthEnabled();
+  const e2eUserId = e2e ? verifyE2ESession((await cookies()).get(E2E_SESSION_COOKIE)?.value, process.env.E2E_AUTH_SECRET ?? "") : null;
+  const content = <SessionTokenProvider e2e={e2e} e2eUserId={e2eUserId === null ? null : String(e2eUserId)}><PageViews /><DuelNavigationGuard />{children}</SessionTokenProvider>;
   return (
     <html lang="en" className={`${russoOne.variable} ${chakraPetch.variable} dark`}>
       <body className="min-h-screen bg-bg-deep text-text-primary antialiased">

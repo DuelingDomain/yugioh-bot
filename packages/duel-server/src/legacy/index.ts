@@ -52,6 +52,7 @@ export async function createLegacyEngineGame(options: EngineGameOptions): Promis
     seed: options.seed,
     dataDirectory: options.dataDirectory,
     firstTurnDraw: options.firstTurnDraw,
+    keepDamageStepWindows: options.keepDamageStepWindows,
     ...(options.masterRule ? { masterRule: options.masterRule } : {}),
     ...(options.settings ? { settings: options.settings } : {}),
   });

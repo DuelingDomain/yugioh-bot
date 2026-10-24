@@ -1,4 +1,4 @@
-import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelBattleStep, DuelCardInfo, DuelChainMode, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
   OcgLocation,
   OcgMessageType,
@@ -712,9 +712,12 @@ function uniqueIndices(ids: string[], prefix: string): number[] {
 }
 
 export interface AutoResponseOptions {
+  /** False only for journals recorded before host rules v8. */
+  keepDamageStepWindows?: boolean;
   /**
-   * Ask about every response window that lists a card, even when none fits the window's timing. Off, a
-   * window with spe_count 0 is passed silently. Undefined counts as on: engines without duel settings
+   * Ask about every response window that lists a card, even when none fits the window's timing.
+   * When false, Auto skips off-timing windows outside Draw, Standby and the Damage Step.
+   * Undefined counts as on: engines without duel settings
    * (and duels saved before the setting existed) must keep producing the prompts they were played with.
    */
   stopAtEveryWindow?: boolean;
@@ -730,6 +733,8 @@ export interface AutoResponseOptions {
    * window still passes by itself.
    */
   phase?: string;
+  /** Public sub-step, since the core does not announce Damage Step changes with NEW_PHASE. */
+  battleStep?: DuelBattleStep | null;
 }
 
 export function autoResponse(pending: PendingPrompt, options: AutoResponseOptions = {}): OcgResponse | null {
@@ -738,14 +743,10 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
     case OcgMessageType.SELECT_CHAIN:
       if (message.selects.length === 0) return { type: OcgResponseType.SELECT_CHAIN, index: null };
       if (message.forced && message.selects.length === 1) return { type: OcgResponseType.SELECT_CHAIN, index: 0 };
-      // spe_count is the core's count of listed effects that belong to this window: optional triggers, and
-      // free-chain or quick effects whose declared hint timing matches it (every listed card during an
-      // attack declaration or a chain). The EDOPro client passes a non-forced window at 0; a Battle Step or
-      // Damage Step with only off-timing cards is the case that stalled a direct attack. A card that can
-      // really act there (an ATK boost in the Damage Step) declares the timing, so its window stays.
-      // LEGACY-1V1: the seat's chain mode decides the rest (chain-mode.ts): Auto passes a window where nothing fits, Always never
-      // passes one that lists a card, Off passes every optional window, optional triggers too (OFF_SKIPS_OPTIONAL_TRIGGERS).
-      if (chainWindowPasses(message, effectiveChainMode(options), options.phase)) {
+      // spe_count counts timing hints, not legal effects. In the Damage Step the core's
+      // list is already restricted to eligible cards, even when none declares this timing.
+      // Auto keeps those windows; Off still passes optional windows and Always asks.
+      if (chainWindowPasses(message, effectiveChainMode(options), options.phase, options.battleStep, options.keepDamageStepWindows)) {
         return { type: OcgResponseType.SELECT_CHAIN, index: null };
       }
       return null;

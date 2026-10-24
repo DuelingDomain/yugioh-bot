@@ -1077,11 +1077,54 @@ it("uses the real resolver for the reported simulator artwork ID and rejects unp
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
+it.each(["YDK", "YDKE"])("imports generated Dueling Book mappings through %s preview and save", async format => {
+  advanceFetchClock();
+  const directory = mkdtempSync(join(tmpdir(), "deck-import-duelingbook-"));
+  try {
+    const engine = new Database(join(directory, "cards.cdb"));
+    engine.exec(`
+      create table datas (id integer primary key, ot integer, alias integer, type integer);
+      create table texts (id integer primary key, name text);
+      insert into datas values (81480460, 3, 0, 33), (1784686, 3, 0, 2), (41356846, 3, 0, 4),
+        (27204311, 3, 0, 33), (27204312, 3, 0, 16401), (53855409, 3, 0, 33), (53855410, 3, 0, 16401);
+      insert into texts values (81480460, 'Barrel Dragon'), (1784686, 'The Eye of Timaeus'), (41356846, 'Engine artwork'),
+        (27204311, 'Nibiru, the Primal Being'), (27204312, 'Primal Being Token'),
+        (53855409, 'Doppelwarrior'), (53855410, 'Doppel Token');
+    `);
+    engine.close();
+    for (const [code, name, type] of [[81480460, "Barrel Dragon", 33], [1784686, "The Eye of Timaeus", 2], [41356846, "Engine artwork", 4],
+      [27204311, "Nibiru, the Primal Being", 33], [27204312, "Primal Being Token", 0x4011],
+      [53855409, "Doppelwarrior", 33], [53855410, "Doppel Token", 0x4011]] as const) {
+      mocks.engine.set(code, { name, type });
+    }
+    const { normalizeCardCodes } = await import("../../duel-server/src/deck-import.js");
+    const upstream = vi.fn(async () => Response.json({ error: "No card matching your query was found" }, { status: 400 }));
+    mocks.callDuelHost.mockImplementation(async (input: { codes: number[]; preserveArtwork: boolean }) => ({ ok: true, data: {
+      codes: Object.fromEntries(await normalizeCardCodes(input.codes, directory, db, { preserveArtwork: input.preserveArtwork, fetch: upstream })),
+    } }));
+    const imported = { main: [81480461, 81480461, 41356846, 27204312, 53855410], extra: [], side: [10000050] };
+    const text = format === "YDKE" ? encodeYdke(imported) : "#main\n81480461\n81480461\n41356846\n27204312\n53855410\n#extra\n!side\n10000050";
+    const [shown] = await previewRows([source(text)]);
+    expect(shown.errors).toEqual([]);
+    expect(shown.deck).toMatchObject({ main: [81480460, 81480460, 41356846, 27204311, 53855409], side: [1784686] });
+    expect(shown.notes).toContainEqual(expect.objectContaining({ from: 81480461, to: 81480460, message: expect.stringContaining("81480461 read as Barrel Dragon") }));
+    expect(shown.notes).toContainEqual(expect.objectContaining({ from: 10000050, to: 1784686, message: expect.stringContaining("10000050 read as The Eye of Timaeus") }));
+    expect(shown.notes).toContainEqual(expect.objectContaining({ from: 27204312, to: 27204311, message: expect.stringContaining("27204312 read as Nibiru, the Primal Being") }));
+    expect(shown.notes).toContainEqual(expect.objectContaining({ from: 53855410, to: 53855409, message: expect.stringContaining("53855410 read as Doppelwarrior") }));
+    expect(shown.notes.some((note: { from: number }) => note.from === 41356846)).toBe(false);
+    const result = await (await bulk(request({ rows: [shown] }))).json();
+    expect(result.failed).toEqual([]);
+    expect(decks.get(result.created[0].id, "g", 1).deck).toMatchObject({ main: [81480460, 81480460, 41356846, 27204311, 53855409], side: [1784686] });
+    expect(upstream).not.toHaveBeenCalled();
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 it.each([
   { name: "Another card", alias: 0, ot: 3, sourceKnown: false },
   { name: "Premature Burial", alias: 123, ot: 3, sourceKnown: false },
   { name: "Premature Burial", alias: 0, ot: 32, sourceKnown: false },
   { name: "Premature Burial", alias: 0, ot: 3, sourceKnown: true },
+  { name: "Premature Burial", alias: 0, ot: 3, sourceKnown: "without-text" },
 ])("validates simulator artwork evidence and gives an existing source row priority: %j", async fixture => {
   const directory = mkdtempSync(join(tmpdir(), "deck-import-artwork-evidence-"));
   try {
@@ -1089,7 +1132,8 @@ it.each([
     engine.exec("create table datas (id integer primary key, ot integer, alias integer, type integer); create table texts (id integer primary key, name text)");
     engine.prepare("insert into datas values (70828912, ?, ?, 2)").run(fixture.ot, fixture.alias);
     engine.prepare("insert into texts values (70828912, ?)").run(fixture.name);
-    if (fixture.sourceKnown) engine.exec("insert into datas values (70828913, 3, 0, 17); insert into texts values (70828913, 'Different engine card')");
+    if (fixture.sourceKnown) engine.exec("insert into datas values (70828913, 3, 0, 17)");
+    if (fixture.sourceKnown === true) engine.exec("insert into texts values (70828913, 'Different engine card')");
     engine.close();
     const { normalizeCardCodes } = await import("../../duel-server/src/deck-import.js");
     mocks.callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({ ok: true, data: {

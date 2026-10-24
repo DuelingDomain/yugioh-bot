@@ -1,6 +1,8 @@
 import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 import Database from "better-sqlite3";
+import { rmSync } from "node:fs";
+import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
@@ -18,9 +20,11 @@ import { describeWithCores, needs } from "./support/cores.js";
 const SECRET = "coin-clock-test";
 const hosts: DuelHost[] = [];
 const databases: Database.Database[] = [];
+const directories: string[] = [];
 afterEach(async () => {
   while (hosts.length) await hosts.pop()!.close();
   for (const db of databases.splice(0)) db.close();
+  for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true });
   vi.useRealTimers();
 });
 
@@ -89,7 +93,7 @@ class CoreWorker implements DuelGameWorker {
 
 async function table(options: {
   format?: DuelFormat; mode?: DuelMode; timeout?: "loss" | "continue";
-  worker?: DuelGameWorker; bot?: boolean; paced?: boolean;
+  worker?: DuelGameWorker; bot?: boolean; paced?: boolean; time?: { now: number }; keepStartingBank?: boolean;
 } = {}) {
   const format = options.format ?? "1v1";
   const mode = options.mode ?? "normal";
@@ -105,10 +109,12 @@ async function table(options: {
     duels.setDeck(session.slug, "g", player, deck);
   }
   const worker = options.worker ?? new TossWorker();
-  let time = 100_000;
+  const dataDirectory = worker instanceof CoreWorker ? DATA : createHostDataFixture([{ code: 15025844, name: "Mystical Elf" }]);
+  if (dataDirectory !== DATA) directories.push(dataDirectory);
+  const time = options.time ?? { now: 100_000 };
   const makeHost = () => {
-    const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [],
-      createWorker: () => worker, now: () => time, pollIntervalMs: 1_000, stallMs: 0,
+    const host = createDuelHost({ db, dataDirectory, secret: SECRET, searchCards: () => [],
+      createWorker: () => worker, now: () => time.now, pollIntervalMs: 1_000, stallMs: 0,
       ...(options.paced ? { botStepDelayMs: 1 } : {}),
     });
     hosts.push(host);
@@ -127,11 +133,11 @@ async function table(options: {
   };
   await post({ op: "start" });
   const clock = () => duels.privateState(session.slug, "g").clock!;
-  const lowBank = () => duels.setClock(session.slug, "g", { ...clock(), remainingMs: players.map(() => 100), startedAt: time });
-  lowBank();
+  const lowBank = () => duels.setClock(session.slug, "g", { ...clock(), remainingMs: players.map(() => 100), startedAt: time.now });
+  if (!options.keepStartingBank) lowBank();
   return {
-    post, clock, duels, slug: session.slug, worker,
-    setTime: (at: number) => { time = at; },
+    post, clock, duels, db, slug: session.slug, worker,
+    setTime: (at: number) => { time.now = at; },
     respond: async (seat = 0, answer?: DuelAnswer) => {
       const view = await worker.view(seat);
       return post({ op: "respond", command: { revision: view.revision, promptId: view.prompt!.id, answer: answer ?? { choice: "to_ep" } } }, seat);
@@ -147,19 +153,19 @@ describe("live coin toss clock grace", () => {
         const t = await table({ format, mode, timeout });
         await t.respond();
         const clock = t.clock();
-        expect(clock.startedAt).toBe(130_520);
-        t.setTime(130_519);
+        expect(clock.startedAt).toBe(111_510);
+        t.setTime(111_509);
         const room = await t.post({ op: "view" });
         expect(room.session.status).toBe("active");
         expect(t.clock()).toEqual(clock);
-        expect(liveRemainingMs(clock, 130_519)).toEqual(clock.remainingMs);
-        expect(isClockDue(clock, 130_519)).toBe(false);
-        expect(liveRemainingMs(clock, 130_521)[clock.activeSeat!]).toBe(clock.remainingMs[clock.activeSeat!]! - 1);
+        expect(liveRemainingMs(clock, 111_509)).toEqual(clock.remainingMs);
+        expect(isClockDue(clock, 111_509)).toBe(false);
+        expect(liveRemainingMs(clock, 111_511)[clock.activeSeat!]).toBe(clock.remainingMs[clock.activeSeat!]! - 1);
       });
     }
   }
 
-  it.each([[[1, 3, 2], 154_640], [[200], 160_000]] as const)("covers all events in one batch and caps long grace (%s)", async (counts, start) => {
+  it.each([[[1, 3, 2], 115_000], [[200], 115_000]] as const)("covers all events in one batch and caps long grace (%s)", async (counts, start) => {
     const t = await table({ worker: new TossWorker([[...counts]]) });
     await t.respond();
     expect(t.clock().startedAt).toBe(start);
@@ -174,6 +180,92 @@ describe("live coin toss clock grace", () => {
     expect(t.clock().startedAt).toBe(100_000);
   });
 
+  it("does not charge engine work that crosses a future presentation start", async () => {
+    const worker = new TossWorker([]);
+    const t = await table({ worker });
+    t.duels.setClock(t.slug, "g", { ...t.clock(), startedAt: 100_050 });
+    worker.onAnswer = () => { t.setTime(100_500); };
+    await t.respond();
+    expect(t.clock()).toMatchObject({ remainingMs: [3_100, 100], startedAt: 100_500 });
+  });
+
+  it("uses the actual phase sequence instead of the emergency unlock cap", async () => {
+    const worker = new TossWorker([]);
+    worker.chainBatches = [[{ id: 2, kind: "phase", text: "Draw Phase" }, { id: 3, kind: "phase", text: "Main Phase 1" }]];
+    const t = await table({ worker });
+    await t.respond();
+    expect(t.clock().startedAt).toBe(101_800); // Two 900ms phase ribbons at the default 1x.
+  });
+
+  it.each([[0.5, 3_600], [1, 1_800], [2, 900]])("credits actual phase duration at the viewer's %sx speed", async (animationSpeed, duration) => {
+    const worker = new TossWorker([]);
+    worker.chainBatches = [[{ id: 2, kind: "phase", text: "Draw" }, { id: 3, kind: "phase", text: "Main" }]];
+    const t = await table({ worker });
+    await t.post({ op: "view", animationSpeed });
+    await t.respond();
+    expect(t.clock().startedAt).toBe(100_000 + duration);
+  });
+
+  it("uses the next prompt owner's speed and adds a reveal beat only on a seat handoff", async () => {
+    const worker = new TossWorker([]);
+    worker.chainBatches = [[{ id: 2, kind: "phase", text: "Main" }]];
+    const t = await table({ worker });
+    await t.post({ op: "view", animationSpeed: 2 }, 1);
+    worker.onAnswer = () => { worker.holder = 1; };
+    await t.respond();
+    expect(t.clock()).toMatchObject({ activeSeat: 1, startedAt: 101_250 });
+  });
+
+  it("does not time out a human while the server finishes an inline bot handoff", async () => {
+    const worker = new TossWorker([]);
+    const t = await table({ worker, bot: true });
+    worker.holder = 1;
+    t.duels.setClock(t.slug, "g", { ...t.clock(), activeSeat: 1 });
+    const answer = worker.answer.bind(worker);
+    worker.answer = async (...args) => { await answer(...args); worker.holder = 0; };
+    const view = worker.view.bind(worker);
+    worker.view = async seat => {
+      if (worker.revision > 1 && seat === 1) t.setTime(101_000);
+      return view(seat);
+    };
+    const room = await t.post({ op: "view" });
+    expect(room.session.status).toBe("active");
+    expect(room.clock).toMatchObject({ activeSeat: 0, remainingMs: [100, 3_100], startedAt: 101_000 });
+  });
+
+  it.each([false, true])("resident reads of a human prompt on a bot table write nothing (paced=%s)", async paced => {
+    const t = await table({ worker: new TossWorker([]), bot: true, paced });
+    t.duels.setClock(t.slug, "g", { ...t.clock(), remainingMs: [30_000, 30_000] });
+    const worker = t.worker as TossWorker;
+    const view = worker.view.bind(worker);
+    let time = 100_000;
+    worker.view = async seat => { t.setTime(++time); return view(seat); };
+    const before = (t.db.prepare("select total_changes() as n").get() as { n: number }).n;
+    await Promise.all(Array.from({ length: 5 }, () => t.post({ op: "view" })));
+    expect((t.db.prepare("select total_changes() as n").get() as { n: number }).n).toBe(before);
+  });
+
+  it("keeps new presentation grace when the decision increment leaves a full bank unchanged", async () => {
+    const t = await table();
+    t.duels.setClock(t.slug, "g", { ...t.clock(), remainingMs: [30_000, 30_000] });
+    await t.respond();
+    expect(t.clock()).toMatchObject({ remainingMs: [30_000, 30_000], startedAt: 111_510 });
+  });
+
+  it("keeps the initial bank intact when startup delivery work outlasts opening grace", async () => {
+    const time = { now: 100_000 };
+    const worker = new TossWorker([]);
+    worker.revision = 0;
+    const view = worker.view.bind(worker);
+    worker.view = async seat => {
+      if (seat === null) time.now = 120_000; // Report capture after activation, before first delivery.
+      return view(seat);
+    };
+    const t = await table({ worker, time, keepStartingBank: true });
+    expect(t.clock()).toMatchObject({ remainingMs: [30_000, 30_000], activeSeat: 0, startedAt: 120_000 });
+    expect((await t.post({ op: "view" })).clock).toMatchObject({ remainingMs: [30_000, 30_000], startedAt: 120_000 });
+  });
+
   it("keeps a zero-bank continue clock stopped after an ordinary answer takes time", async () => {
     const worker = new TossWorker([]);
     const t = await table({ worker, timeout: "continue" });
@@ -184,7 +276,7 @@ describe("live coin toss clock grace", () => {
     expect(isClockDue(t.clock(), 100_050)).toBe(false);
   });
 
-  it("covers card placement, a summon and delivery before a toss at 0.5x", async () => {
+  it("caps credit for a long placement, summon and toss sequence", async () => {
     const worker = new TossWorker();
     worker.chainPrefix = [
       { id: 2, kind: "move", reason: "summon", text: "Place monster" },
@@ -194,9 +286,7 @@ describe("live coin toss clock grace", () => {
     ];
     const t = await table({ worker });
     await t.respond();
-    // Unscaled client bounds: placement 860ms, ordinary summon 1,625ms.
-    // Include both at 0.5x and 1,000ms for delivery, beyond the coin/chain grace.
-    expect(t.clock().startedAt).toBeGreaterThanOrEqual(100_000 + 24_520 + 2 * 2_340 + (860 + 1_625) / 0.5 + 1_000);
+    expect(t.clock().startedAt).toBe(115_000); // 16,315ms of fresh FX reaches the 15s coin cap.
   });
 
   it("counts fast-command chain beats once before a toss", async () => {
@@ -209,8 +299,7 @@ describe("live coin toss clock grace", () => {
     await t.respond();
     t.setTime(100_100);
     await t.respond();
-    // The activation backlog (2,340ms) starts at 100,000; only resolution is new.
-    expect(t.clock().startedAt).toBe(100_000 + 2 * 2_340 + 24_520 + 6_000);
+    expect(t.clock().startedAt).toBe(100_000 + 1_170 + 1_150 + 11_510);
   });
 
   it("keeps the grace end on an early answer and a resync", async () => {
@@ -218,12 +307,12 @@ describe("live coin toss clock grace", () => {
     await t.respond();
     t.setTime(100_100);
     await t.respond();
-    expect(t.clock().startedAt).toBe(130_520);
+    expect(t.clock().startedAt).toBe(111_510);
     await t.post({ op: "view" });
-    expect(t.clock().startedAt).toBe(130_520);
+    expect(t.clock().startedAt).toBe(111_510);
   });
 
-  it.each([[1, 129_520], [3, 160_100]])("queues another live toss and caps the total (coins=%s)", async (count, start) => {
+  it.each([[1, 107_260], [3, 115_100]])("queues another live toss and caps the total (coins=%s)", async (count, start) => {
     const t = await table({ worker: new TossWorker([[count], [count]]) });
     await t.respond();
     t.setTime(100_100);
@@ -240,9 +329,8 @@ describe("live coin toss clock grace", () => {
     ];
     const t = await table({ worker });
     await t.respond();
-    // Actual web planner: 26,760ms at 0.5x, with fallback unlock at 28,260ms.
-    expect(t.clock().startedAt).toBeGreaterThanOrEqual(128_260);
-    t.setTime(126_759);
+    expect(t.clock().startedAt).toBe(100_000 + 1_150 + 720 + 1_150 + 11_510);
+    t.setTime(114_529);
     expect((await t.post({ op: "view" })).session.status).toBe("active");
   });
 
@@ -262,16 +350,15 @@ describe("live coin toss clock grace", () => {
     ];
     const t = await table({ worker });
     await t.respond();
-    expect(t.clock().startedAt).toBe(100_000); // Ordinary chains do not grant clock grace.
+    expect(t.clock().startedAt).toBe(103_680); // Actual activate/resolve/resolved/end beats.
     t.setTime(100_100);
     await t.respond();
-    // The web queue ends 32,620ms after the second command; its fallback needs 1,500ms more.
-    expect(t.clock().startedAt).toBeGreaterThanOrEqual(134_220);
+    expect(t.clock().startedAt).toBe(115_100); // The backlog and new toss share the 15s cap.
     const clock = t.clock();
     t.duels.setClock(t.slug, "g", { ...clock, remainingMs: [1, 1] });
-    t.setTime(132_719);
+    t.setTime(115_099);
     expect((await t.post({ op: "view" })).session.status).toBe("active");
-    expect(liveRemainingMs(t.clock(), 132_719)).toEqual([1, 1]);
+    expect(liveRemainingMs(t.clock(), 115_099)).toEqual([1, 1]);
   });
 
   it("keeps grace when a zero-bank continue seat hands the prompt to a funded seat", async () => {
@@ -282,10 +369,10 @@ describe("live coin toss clock grace", () => {
     t.setTime(100_100);
     await t.respond();
     expect(t.clock().activeSeat).toBe(1);
-    expect(t.clock().startedAt).toBe(130_520);
-    t.setTime(130_519);
+    expect(t.clock().startedAt).toBe(111_510);
+    t.setTime(111_509);
     expect((await t.post({ op: "view" }, 1)).session.status).toBe("active");
-    expect(liveRemainingMs(t.clock(), 130_519)).toEqual([0, 100]);
+    expect(liveRemainingMs(t.clock(), 111_509)).toEqual([0, 100]);
   });
 
   it("does not add grace when recovery replays the toss", async () => {
@@ -304,7 +391,7 @@ describe("live coin toss clock grace", () => {
   it("gives automatic chain passes the same grace", async () => {
     const t = await table();
     await t.post({ op: "chain-mode", mode: "off" });
-    expect(t.clock().startedAt).toBe(130_520);
+    expect(t.clock().startedAt).toBe(111_510);
   });
 
   it.each([false, true])("keeps grace from practice bot answers (paced=%s)", async (paced) => {
@@ -314,7 +401,7 @@ describe("live coin toss clock grace", () => {
     if (paced) await vi.advanceTimersByTimeAsync(20);
     expect((t.worker as TossWorker).revision).toBe(3);
     expect(t.clock().activeSeat).toBe(0);
-    expect(t.clock().startedAt).toBe(130_520);
+    expect(t.clock().startedAt).toBe(112_860);
   });
 
   it("the timeout sweep waits for grace, then enforces the low-bank loss", async () => {
@@ -322,7 +409,7 @@ describe("live coin toss clock grace", () => {
     const t = await table();
     await t.respond();
     const clock = t.clock();
-    t.setTime(130_519);
+    t.setTime(111_509);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(t.duels.get(t.slug, "g").status).toBe("active");
     t.setTime(clock.startedAt! + clock.remainingMs[0]!);
@@ -357,8 +444,8 @@ describeWithCores("real-core Barrel Dragon clock", [needs.cards(), needs.scripts
     const toss = (await worker.view(null)).events.find((event) => event.kind === "toss");
     expect(toss?.toss?.results).toHaveLength(3);
     const clock = t.clock();
-    expect(clock.startedAt).toBeGreaterThanOrEqual(130_520);
-    expect(clock.startedAt).toBeLessThanOrEqual(160_000);
+    expect(clock.startedAt).toBeGreaterThanOrEqual(100_000);
+    expect(clock.startedAt).toBeLessThanOrEqual(115_000);
     const graceEnd = clock.startedAt!;
     t.duels.setClock(t.slug, "g", { ...clock, remainingMs: clock.remainingMs.map(() => 1) });
     t.setTime(graceEnd - 1);

@@ -9,6 +9,8 @@ import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoic
 export const ENGINE_PROTOCOL_VERSION = "duel-worker-2";
 
 export interface DuelWorkerCreateOptions {
+  /** Keep eligible Auto Damage Step windows (v8+). Omission enables the live rule. */
+  keepDamageStepWindows?: boolean;
   /** Server-owned fork prefix count; never taken from an ordinary create request. */
   manualLossAnswersAfter?: number;
   engineIdentity?: EngineIdentity;

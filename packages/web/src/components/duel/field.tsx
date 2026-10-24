@@ -6,6 +6,7 @@ import { Check, LayoutGrid, Link2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardFace, cardFieldStats, materialsTarget } from "./card-face";
 import { CardActionMenu } from "./card-interactions";
+import { useOnBoardMotionStart } from "./board-input-guard";
 import { DECK_SURRENDER_ID, DECK_USE_ID, deckMenuOptions, deckOffersSurrender, useDeckSurrender } from "./deck-surrender";
 import { EquipChip, EquipLinksContext, useEquipRole } from "./equip-chip";
 import { EquipFx } from "./equip-fx";
@@ -73,6 +74,18 @@ export type { DuelActivateHandler, DuelHoverHandler, ExtraMonsterMode, FieldCall
 export { EquipLinksContext };
 
 type CssVars = CSSProperties & Record<`--${string}`, string | number>;
+
+/** About how wide the ATK / DEF text is, in the plate's own em (a digit is about 0.47em, the "/" with its gaps 1.1em). A seat field that turns
+ *  a rival's plate back upright needs the length of the strip to place it (`.seatField .plate`); a small error only moves the strip a little.
+ *  `--plate-em` is both numbers, the others are the ATK alone and the DEF alone (the small grid and the big-text hand show one of them). */
+function plateTextVars(atk: string, def: string | null): CssVars {
+  const em = (n: number) => Math.round(n * 0.47 * 100) / 100;
+  return {
+    "--plate-em": Math.round((em(atk.length) + (def != null ? em(def.length) + 1.1 : 0)) * 100) / 100,
+    "--plate-em-atk": em(atk.length),
+    "--plate-em-def": em((def ?? atk).length),
+  };
+}
 
 // DuelField, SeatField and the row components keep the base styles; the skinned primitives below read the skin.
 const styles = baseStyles;
@@ -251,6 +264,7 @@ export function ZoneSlot({
       data-equip={equipRole?.role}
       data-negated={negated ? "true" : undefined}
       data-materials-open={materials.length > 0 ? "true" : undefined}
+      data-materials={materialCount > 0 ? "true" : undefined}
       data-defense={defense ? "true" : "false"}
       data-side={flip ? "opp" : "you"}
       data-disabled={offId ? "true" : undefined}
@@ -284,7 +298,7 @@ export function ZoneSlot({
           {pendulum ? <span className={styles.pendulumMark} data-zone-label>P</span> : null}
           {card ? <CardFace card={card} sleeve={sleeve} /> : sleeve ? <CardFace card={null} sleeve={sleeve} /> : null}
           {atk ? (
-            <span className={styles.plate} data-card-plate>
+            <span className={styles.plate} data-card-plate style={plateTextVars(atk, def)}>
               <b>{atk}</b>
               {def != null ? (
                 <>
@@ -397,6 +411,7 @@ export function PileSlot({
   const deckActs = legal || selected;
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const closeMenu = useCallback(() => setMenuAnchor(null), []);
+  useOnBoardMotionStart(closeMenu);
   const hold = useRef<{ timer: number; x: number; y: number } | null>(null);
   const clearHold = () => {
     if (hold.current != null) window.clearTimeout(hold.current.timer);
@@ -1304,6 +1319,7 @@ export function MasterDock({
   return (
     <section
       className={styles.masterDock}
+      data-no-guard=""
       data-local={local ? "true" : "false"}
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
@@ -1315,6 +1331,7 @@ export function MasterDock({
           <button
             type="button"
             className={styles.masterHit}
+            data-action-click={card ? "true" : undefined}
             aria-label={`${title}: ${master.card.name}${inUse ? `, in use (${status})` : ""}`}
             aria-pressed={selected}
             onClick={(event) => {

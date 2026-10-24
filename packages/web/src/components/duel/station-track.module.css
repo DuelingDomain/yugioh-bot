@@ -311,7 +311,9 @@ button.plate[data-next="true"]:hover {
 
 .caption {
   margin: 0;
+  width: 100%;
   max-width: 100%;
+  container-type: inline-size;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -340,11 +342,13 @@ button.plate[data-next="true"]:hover {
   gap: 10px;
   min-width: 0;
   max-width: 100%;
+  width: 100%;
   vertical-align: middle;
 }
 .stepList {
   flex: none;
   display: inline-flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 2px;
   margin: 0;
@@ -412,6 +416,7 @@ button.plate[data-next="true"]:hover {
   box-shadow: 0 0 6px var(--pen);
 }
 .stepHint {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -428,6 +433,21 @@ button.plate[data-next="true"]:hover {
 }
 .root[data-reduced="true"] .step {
   transition: none;
+}
+
+/* Keep all eight timings on one rail when the caption shares space with the controls.
+   Full step names remain in titles and the live caption names the current timing. */
+@container (max-width: 600px) {
+  .stepName {
+    display: none;
+  }
+  .step {
+    padding: 0 3px;
+  }
+  .stepText,
+  .stepSep {
+    display: none;
+  }
 }
 
 /* ---------- actions ---------- */

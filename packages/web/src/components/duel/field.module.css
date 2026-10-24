@@ -1382,15 +1382,15 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-width: calc(var(--n4, 11px) * 2.1);
-  height: calc(var(--n4, 11px) * 1.5);
+  min-width: calc(var(--n4, 11px) * 2.1 * var(--bs, 1));
+  height: calc(var(--n4, 11px) * 1.5 * var(--bs, 1));
   padding: 0 4px 0 3px;
   border: 1.5px solid var(--chain);
   border-radius: 999px;
   background: #140f04;
   color: var(--chain-ink);
   font-family: var(--f-num);
-  font-size: var(--n4, 11px);
+  font-size: calc(var(--n4, 11px) * var(--bs, 1));
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1;
@@ -1441,8 +1441,8 @@
 
 .overlayIcon {
   flex: none;
-  width: calc(var(--n4, 11px) * 1.05);
-  height: calc(var(--n4, 11px) * 1.05);
+  width: calc(var(--n4, 11px) * 1.05 * var(--bs, 1));
+  height: calc(var(--n4, 11px) * 1.05 * var(--bs, 1));
   fill: none;
   stroke: currentColor;
   stroke-width: 1.5;
@@ -2724,8 +2724,117 @@
   font-size: max(calc(var(--z) * 0.116 * var(--ts)), var(--fl));
 }
 
+/* The whole field turns by the seat angle, so a rival's plate would lie upside down or on its side. The plate stays on the card's
+   bottom edge (the controller's side) but turns back by the turn of the seat (`--seat-turn`, set by the seat field, the fly yaw
+   included) plus the turn of the camera (`--roof-turn`, set by the Tag stage), so the viewer reads ATK / DEF upright. It turns about
+   its centre, so it also slides along the card's depth: a horizontal strip of --pw on a sideways card would otherwise stick out of
+   the edge. --pw is the card's width, or the text's width if that is more (the text is --plate-text em long: ATK / DEF, or what the
+   small and big-text rules show). The slide is (plate height - the turned strip's depth) / 2 along the edge-to-centre axis: 0 at 0 and
+   180 degrees, -(--pw - --ph) / 2 at a quarter turn. --pdir is -1 for a card that hangs from the top (a card of another seat in a
+   shared Extra Monster Zone, whose plate sits at the top edge).
+   --plate-turn is a registered angle: it is the one thing that glides (the turn and the slide read it), so a change of the text
+   length moves the strip at once and only a change of the turn is animated. The size and the room follow the target turn (--pt).
+   hypot(x) is |x| (abs() is newer). */
+@property --plate-turn {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.seatField .plate {
+  --ph: calc(1.2em + 2px);
+  --plate-text: var(--plate-em, 4.86);
+  --pw: max(calc(var(--cw) - 8px), calc(var(--plate-text) * 1em));
+  --pdir: 1;
+  --pt: calc(var(--seat-turn, 0deg) + var(--roof-turn, 0deg));
+  --plate-turn: var(--pt);
+  right: auto;
+  left: 50%;
+  width: var(--pw);
+  rotate: calc(var(--plate-turn) * -1);
+  transition: --plate-turn var(--plate-glide, var(--glide, 0.76s)) var(--glide-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
+}
+
+@supports (width: hypot(1px)) {
+  .seatField .plate {
+    --ps: hypot(sin(var(--pt)));
+    --pc: hypot(cos(var(--pt)));
+    /* The strip turns by --pt on its card, so its box (pw x ph) grows by |sin| / |cos| of the turn. Along the card (0 / 180 degrees) the
+       text size is solved to the width of a card and a gap (the strip stays between its neighbours). Across it (a quarter turn) the strip
+       runs along the card's height: the equip chip (--ke, nearly a card wide) sits in the far corner, so the strip slides away from it
+       by half of that and keeps the room that is left, and may reach into the gap at the other end (--gx). The Xyz count (--kb)
+       claims the same end, except at a quarter turn on a card without a chip: the strip then slides to the side away from the count and
+       keeps the whole length (--kfree). It never covers a neighbour, the chip, the count or the Extra Monster row. */
+    --gx: calc(var(--g) * 0.5);
+    --kw: min(1, calc(var(--pc) * 8));
+    --kfree: calc(var(--kbx, 0) * (1 - var(--kw)));
+    --kend: calc(max(var(--ke, 0px), var(--kb, 0px) * (1 - var(--kfree))) + 2px * var(--ps));
+    --fit-along: calc(var(--plate-text) * var(--pc) + 1.2 * var(--ps));
+    --fit-across: calc(var(--plate-text) * var(--ps) + 1.2 * var(--pc));
+    --fit-a: calc((var(--z) * var(--dfit) + var(--g) - 4px - 2px * var(--ps)) / var(--fit-along));
+    --fit-b: calc((var(--z) - 6px + var(--gx) - var(--kend, 0px) - 2px * var(--pc)) / var(--fit-across));
+    translate: calc(-50% - var(--kfree) * max(0px, (var(--cw) - var(--pw) * var(--pc) - var(--ph) * var(--ps)) / 2 - 4px)) calc(var(--pdir) * ((var(--ph) - hypot(var(--pw) * sin(var(--plate-turn))) - hypot(var(--ph) * cos(var(--plate-turn)))) / 2 + (var(--kend, 0px) + var(--gx)) * var(--ps) / 2));
+    font-size: min(max(calc(var(--z) * 0.116 * var(--ts)), var(--fl)), var(--fit-a), var(--fit-b));
+  }
+}
+
+@supports not (width: hypot(1px)) {
+  .seatField .plate {
+    translate: -50% 0;
+  }
+}
+
+/* What the strip must keep clear of at the far end of its card (see .plate): the equip chip's height (--ke) and the Xyz count's (--kb;
+   an equipped Xyz carries its count one chip lower: see .overlayBadge). */
+.seatField .zone[data-equip] {
+  --ke: calc(max(11px, var(--z) * 0.12) + 6px);
+}
+
+.seatField .zone[data-materials] {
+  --kb: calc(var(--n4) * 1.5 * var(--bs, 1) + 6px);
+}
+
+.seatField .zone[data-materials]:not([data-equip]) {
+  --kbx: 1;
+}
+
+.seatField .zone[data-materials][data-equip] {
+  --kb: calc(max(11px, var(--z) * 0.12) + 13px + var(--n4) * 1.5 * var(--bs, 1));
+}
+
+/* The Xyz count is secondary to ATK / DEF: on a table seat it is drawn smaller, so the strip keeps most of the room (see --kb). */
+.seatField .zone {
+  --bs: 0.7;
+}
+
+.seatField .zone[data-side="opp"]:not([data-kind="hand"]) .plate {
+  --pdir: -1;
+}
+
+:global([data-glide="true"]) .seatField .plate {
+  transition-duration: 1.4s;
+  transition-delay: 2.2s;
+  transition-timing-function: cubic-bezier(0.5, 0, 0.2, 1);
+}
+
+/* No glide where the turn follows a hand or a camera frame by frame (a free fly, a free roof orbit), where the board turns by a
+   face-off (the 4-way grid), and with reduced motion (the setting of the app, not only the system one). */
+:global([data-plate-still="true"]) .seatField .plate,
+:global([data-fly-free="true"]) .seatField .plate,
+:global([data-grid-stage]) .seatField .plate,
+.seatField[data-reduced-motion="true"] .plate {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seatField .plate {
+    transition: none;
+  }
+}
+
 /* A hand card is narrower than a zone: the text floor may lift the stats, but never past what "1400 / 1200" needs to fit in the card. */
 .seatField .handCard .plate {
+  --pw: calc(var(--cardw) - 4px);
   font-size: min(max(calc(var(--z) * 0.116 * var(--ts)), var(--fl)), calc(var(--cardw) * 0.2));
 }
 
@@ -2786,6 +2895,15 @@
 [data-small="true"] .seatField .zoneName,
 [data-small="true"] .seatField .pileLabel {
   display: none;
+}
+
+/* The plate text is shorter then: ATK only (DEF for a monster in Defense), so the strip is sized for that. */
+[data-small="true"] .seatField .plate {
+  --plate-text: var(--plate-em-atk, 2.35);
+}
+
+[data-small="true"] .seatField .zone[data-defense="true"] .plate {
+  --plate-text: var(--plate-em-def, 2.35);
 }
 
 [data-small="true"] .seatField .plate .plateSep,
