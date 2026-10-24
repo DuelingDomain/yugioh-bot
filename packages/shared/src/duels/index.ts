@@ -261,6 +261,8 @@ export interface DuelCard {
    * a negating effect or a continuous one such as Skill Drain). Absent otherwise. A face-down card never carries it.
    */
   negated?: boolean;
+  /** Public real seat selected for this card's multiplayer LP effects. Hidden cards omit it. */
+  lpOpponent?: number;
   materials?: DuelCard[];
   /**
    * Set on a card that is equipped to a monster (an Equip Spell, a Union monster, or any card the
