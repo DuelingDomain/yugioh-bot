@@ -55,6 +55,20 @@ function ownBoxes(): Box[] {
   return out;
 }
 
+/** The chrome the viewer opens panels with: the wide rail and the edge tabs. A drawer that stands over them hides the way to the Log and Settings. */
+const CHROME_UI = '[data-testid="table-rail"], [data-edge-tab]';
+/** A panel the viewer opened (the rail drawer, an edge drawer). A pinned card must not stand on the panel the viewer is reading. */
+const OPEN_PANEL_UI = '[data-testid="table-drawer"][data-open="true"], [data-edge-drawer][data-state="open"]';
+
+function uiBoxes(selector: string): Box[] {
+  const out: Box[] = [];
+  for (const el of document.querySelectorAll<HTMLElement>(selector)) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) out.push(box(rect));
+  }
+  return out;
+}
+
 /**
  * The side the drawer opens on. It never covers the card it shows (the hovered or focused one); then it covers as little as it can of the viewer's own
  * field and hand (in 4-way and Tag your field is at the left, so the drawer opens at the right). An open drawer keeps its side unless it must flip.
@@ -77,8 +91,13 @@ function chooseSide(aside: HTMLElement, current: "left" | "right", open: boolean
   if (own.length === 0) return current;
   const total = own.reduce((sum, b) => sum + (b.right - b.left) * (b.bottom - b.top), 0);
   const covered = (strip: Box) => own.reduce((sum, b) => sum + area(b, strip), 0);
-  const left = covered(strips.left);
-  const right = covered(strips.right);
+  // The rail and the edge tabs are a small cost, so a tie goes to the side that leaves them reachable and a clear gain on your own field still wins.
+  // An open panel is a large cost: the card never covers what the viewer is reading, even when that hides a column of its own field.
+  const chrome = uiBoxes(CHROME_UI);
+  const panels = uiBoxes(OPEN_PANEL_UI);
+  const chromeCost = (strip: Box) => (panels.some((b) => area(b, strip) > 0) ? total : 0) + (chrome.some((b) => area(b, strip) > 0) ? total * OWN_MARGIN * 2 : 0);
+  const left = covered(strips.left) + chromeCost(strips.left);
+  const right = covered(strips.right) + chromeCost(strips.right);
   if (right + total * OWN_MARGIN < left) return "right";
   if (left + total * OWN_MARGIN < right) return "left";
   return open ? current : "left";
@@ -455,10 +474,23 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
       }
       if (bottom > 0) aside.style.setProperty("--pv-top", `${Math.max(0, Math.round(bottom - parent.top + 8))}px`);
       else aside.style.removeProperty("--pv-top");
+      // And it ends above the phase buttons (End Turn, To Battle) that stand over its edge on a short window.
+      let dockTop = Infinity;
+      for (const button of Array.from(document.querySelectorAll<HTMLElement>("[data-dock-action]"))) {
+        const box = button.getBoundingClientRect();
+        if (box.width > 0 && box.right > from && box.left < to && box.bottom > parent.top) dockTop = Math.min(dockTop, box.top);
+      }
+      if (dockTop < parent.bottom) aside.style.setProperty("--pv-bottom", `${Math.max(0, Math.round(parent.bottom - dockTop + 8))}px`);
+      else aside.style.removeProperty("--pv-bottom");
     };
     set();
     window.addEventListener("resize", set);
-    return () => window.removeEventListener("resize", set);
+    // The dock buttons come and go with the prompt (End Turn shows after a pick), and no event says so: a slow check keeps the clearance right.
+    const timer = window.setInterval(set, 300);
+    return () => {
+      window.removeEventListener("resize", set);
+      window.clearInterval(timer);
+    };
   }, [open, current, side]);
 
   if (!current) return null;

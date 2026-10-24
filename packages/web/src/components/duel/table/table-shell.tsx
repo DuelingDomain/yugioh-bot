@@ -386,7 +386,8 @@ function TableShellBody({
   const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
   // The drawer pin of the shells without the HUD: Esc, a press on the bare background and the board sync (see useDrawerPin).
-  useDrawerPin(hud ? null : pinnedCard, setPinnedCard, { seats: engine.seats, suspended: ui.suspended });
+  // An open panel drawer takes the Esc first (it closes alone, the pin stays under it), as a HUD flyout does.
+  useDrawerPin(hud ? null : pinnedCard, setPinnedCard, { seats: engine.seats, suspended: ui.suspended || drawer.open });
   const actionPrompt = prompt?.kind === "choice" && prompt.context?.type === "action";
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
   const dockMode = !promptMine || prompt == null || centered ? "idle" : actionPrompt ? (prompt.cancelable || prompt.finishable ? "float" : "idle") : "flow";

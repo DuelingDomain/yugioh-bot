@@ -1,7 +1,8 @@
 import type { Page } from "@playwright/test";
 import { test, expect, type Seat } from "../helpers/fixtures";
-import { chainList, endTurn, expectReadyToAct, handCard, pickLegalZone, startDuel, startTable, turnLabel, useCard } from "../helpers/board";
+import { attackWithFirstMonster, chainList, endTurn, expectReadyToAct, handCard, pickLegalZone, startDuel, startTable, turnLabel, useCard } from "../helpers/board";
 import { FILLER, withFiller } from "../helpers/decks";
+import { pickLegalZone as pickTagZone } from "../helpers/tag";
 
 // The card drawer pins a clicked card and keeps it through effects, chains and prompts. A prompt of the viewer must never find the drawer (or its
 // "Pinned" handle) on top of its buttons or targets: the drawer steps aside or tucks away, and the pin comes back when the prompt ends.
@@ -204,12 +205,7 @@ test("FFA4 at 1366x768: the attack aim keeps its rival buttons clear of the pinn
   await expect(turnLabel(page)).toHaveText("Turn 5");
   // The attacker is pinned by the click that opens its menu; the aim then offers every living rival.
   const rivals = page.locator("[data-opponent-bar='direct'] [data-rival-seat]");
-  await page.getByRole("button", { name: /^To Battle/ }).click();
-  await expectReadyToAct(page);
-  await page.locator('[data-seat-field][data-side="you"] [data-kind="mz"][data-occupied="true"] button').first().click();
-  const attack = page.getByRole("menu").getByRole("menuitem", { name: /Attack/ }).first();
-  await expect(attack.or(rivals.first())).toBeVisible();
-  if (await attack.isVisible()) await attack.click();
+  await attackWithFirstMonster(page);
   await expect(pinnedAny(page)).toHaveCount(1);
   await expect(rivals).toHaveCount(3);
   await settle(page);
@@ -270,3 +266,114 @@ test("1v1 at 1366x768: the pin closes only by the user, and a Normal Summon pick
   await expect(pinnedOpen(a)).toHaveCount(0);
   await expect(handle(a)).toHaveCount(0);
 });
+
+test("FFA4 at 1366x768: opening and closing the Log flyout keeps the pin", async ({ player }) => {
+  test.setTimeout(300_000);
+  const seats: Seat[] = await Promise.all(KEYS.map((key) => player(key)));
+  await startTable(seats, "pin ffa4 flyout", Array.from({ length: 4 }, () => ({ main: withFiller([FILLER], 14) })));
+  const page = seats[0]!.page;
+  await page.setViewportSize(LAPTOP);
+  await page.waitForTimeout(800);
+  await handCard(page, FILLER).click();
+  await expect(pinnedOpen(page)).toHaveCount(1);
+  const log = page.locator('[data-rail="log"]');
+  const flyout = page.locator('[data-rail="log"][aria-expanded="true"]');
+  // The tab opens the flyout, the tab closes it: the pin is untouched.
+  await log.click();
+  await expect(flyout).toBeVisible();
+  await settle(page);
+  await log.click();
+  await expect(flyout).toHaveCount(0);
+  await settle(page);
+  await expect(pinnedOpen(page)).toHaveCount(1);
+  // Escape closes the open flyout first, and only the flyout.
+  await log.click();
+  await expect(flyout).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(flyout).toHaveCount(0);
+  await settle(page);
+  await expect(pinnedOpen(page)).toHaveCount(1);
+});
+
+test("1v1 at 1366x768: a deck search keeps its card grid clear of the pinned card", async ({ player }) => {
+  test.setTimeout(300_000);
+  const alice = await player("p1");
+  const bob = await player("p2");
+  await startDuel(alice, bob, "pin deck search",
+    { main: withFiller(["Reinforcement of the Army", FILLER, FILLER, FILLER, FILLER, "Celtic Guardian", "Axe Raider"], 14) },
+    { main: withFiller(["Celtic Guardian"]) });
+  const a = alice.page;
+  await a.setViewportSize(LAPTOP);
+  await expectReadyToAct(a);
+  await handCard(a, "Reinforcement of the Army").click();
+  await expect(pinnedOpen(a)).toContainText("Reinforcement of the Army");
+  await a.getByRole("menu").getByRole("menuitem", { name: /^Activate/ }).click();
+  await pickLegalZone(a, "st");
+  // The search shows the cards of the Deck that can be added (an off-board grid).
+  await expect(a.getByRole("group", { name: /^Select the card/ })).toBeVisible();
+  await expect(a.locator("[data-card-strip] li")).toHaveCount(2);
+  await settle(a);
+  const report = await coveredControls(a, "[data-prompt-panel] button, [data-prompt-surface] button, [data-card-strip] button, [data-card-strip] li");
+  expect(report.checked, "grid cards and panel buttons found").toBeGreaterThan(1);
+  expect(report.covered, "grid cards or buttons under the drawer or the handle").toEqual([]);
+  // The pin is kept, tucked or aside, and shows again once the search is answered.
+  await expect(pinnedAny(a)).toHaveCount(1);
+});
+
+test("1v1 at 1366x768: a Tribute Summon keeps its dock and buttons clear of the pinned card", async ({ player }) => {
+  test.setTimeout(300_000);
+  const alice = await player("p1");
+  const bob = await player("p2");
+  await startDuel(alice, bob, "pin tribute",
+    { main: withFiller(["Summoned Skull", FILLER, FILLER, FILLER, FILLER, "Celtic Guardian"], 14) },
+    { main: withFiller(["Celtic Guardian"]) });
+  const a = alice.page;
+  await a.setViewportSize(LAPTOP);
+  await expectReadyToAct(a);
+  await useCard(a, handCard(a, FILLER), "Normal Summon");
+  await pickLegalZone(a, "mz");
+  await endTurn(a, 2);
+  await endTurn(bob.page, 3);
+  await expect(turnLabel(a)).toHaveText("Turn 3");
+  await expectReadyToAct(a);
+  await handCard(a, "Summoned Skull").click();
+  await expect(pinnedOpen(a)).toContainText("Summoned Skull");
+  await a.getByRole("menu").getByRole("menuitem", { name: /^Normal Summon/ }).click();
+  await settle(a);
+  await expect(a.getByText("Tribute 1 monster")).toBeVisible();
+  const report = await coveredControls(a, "[data-prompt-panel] button, [data-prompt-surface] button, [data-legal='true']");
+  expect(report.checked, "dock buttons and legal tributes found").toBeGreaterThan(1);
+  expect(report.covered, "dock buttons or tributes under the drawer or the handle").toEqual([]);
+  await expect(pinnedAny(a)).toHaveCount(1);
+});
+
+// A pinned card and a Normal Summon pick on the big screens: the zones stay hit-testable. With PIN_SHOTS=<dir> the test also saves a screenshot.
+for (const format of ["ffa4", "tag"] as const) {
+  for (const view of [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 }]) {
+    test(`${format} at ${view.width}x${view.height}: a pinned card and a Normal Summon pick leave every legal zone reachable`, async ({ player }) => {
+      test.setTimeout(300_000);
+      const seats: Seat[] = await Promise.all(KEYS.map((key) => player(key)));
+      const decks = Array.from({ length: 4 }, () => ({ main: withFiller([FILLER], 40) }));
+      const { slug } = format === "tag"
+        ? await startTable(seats, "pin tag big", decks, { ordered: true, looseDecks: true, noBanlist: true, format: "tag" })
+        : await startTable(seats, "pin ffa4 big", decks);
+      const page = seats[0]!.page;
+      await page.setViewportSize(view);
+      await page.waitForTimeout(800);
+      await expectReadyToAct(page);
+      await handCard(page, FILLER).click();
+      await expect(pinnedOpen(page)).toHaveCount(1);
+      await page.getByRole("menu").getByRole("menuitem", { name: /^Normal Summon/ }).click();
+      await expect(page.getByRole("group", { name: /^Select a zone/ })).toBeVisible();
+      await settle(page);
+      if (process.env.PIN_SHOTS) await page.screenshot({ path: `${process.env.PIN_SHOTS}/${format}-${view.width}.png` });
+      const zones = await coveredControls(page, LEGAL_ZONES);
+      expect(zones.checked, "legal zones found").toBeGreaterThan(0);
+      expect(zones.covered, "zones under the drawer or the handle").toEqual([]);
+      await expect(pinnedAny(page)).toHaveCount(1);
+      if (format === "tag") await pickTagZone(page, slug, "mz");
+      else await pickLegalZone(page, "mz");
+      await expect(pinnedOpen(page)).toHaveCount(1);
+    });
+  }
+}
