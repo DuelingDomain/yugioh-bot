@@ -75,6 +75,18 @@ export { EquipLinksContext };
 
 type CssVars = CSSProperties & Record<`--${string}`, string | number>;
 
+/** About how wide the ATK / DEF text is, in the plate's own em (a digit is about 0.47em, the "/" with its gaps 1.1em). A seat field that turns
+ *  a rival's plate back upright needs the length of the strip to place it (`.seatField .plate`); a small error only moves the strip a little.
+ *  `--plate-em` is both numbers, the others are the ATK alone and the DEF alone (the small grid and the big-text hand show one of them). */
+function plateTextVars(atk: string, def: string | null): CssVars {
+  const em = (n: number) => Math.round(n * 0.47 * 100) / 100;
+  return {
+    "--plate-em": Math.round((em(atk.length) + (def != null ? em(def.length) + 1.1 : 0)) * 100) / 100,
+    "--plate-em-atk": em(atk.length),
+    "--plate-em-def": em((def ?? atk).length),
+  };
+}
+
 // DuelField, SeatField and the row components keep the base styles; the skinned primitives below read the skin.
 const styles = baseStyles;
 
@@ -252,6 +264,7 @@ export function ZoneSlot({
       data-equip={equipRole?.role}
       data-negated={negated ? "true" : undefined}
       data-materials-open={materials.length > 0 ? "true" : undefined}
+      data-materials={materialCount > 0 ? "true" : undefined}
       data-defense={defense ? "true" : "false"}
       data-side={flip ? "opp" : "you"}
       data-disabled={offId ? "true" : undefined}
@@ -285,7 +298,7 @@ export function ZoneSlot({
           {pendulum ? <span className={styles.pendulumMark} data-zone-label>P</span> : null}
           {card ? <CardFace card={card} sleeve={sleeve} /> : sleeve ? <CardFace card={null} sleeve={sleeve} /> : null}
           {atk ? (
-            <span className={styles.plate} data-card-plate>
+            <span className={styles.plate} data-card-plate style={plateTextVars(atk, def)}>
               <b>{atk}</b>
               {def != null ? (
                 <>
