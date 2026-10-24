@@ -123,7 +123,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      changed: ${{ steps.update.outputs.changed }}
+      changed: ${{ steps.candidate.outputs.changed }}
       base_sha: ${{ steps.paths.outputs.base_sha }}
     env:
       UPDATE_ARTIFACT_DIR: .status/engine-data-update
@@ -179,15 +179,22 @@ jobs:
           prlimit --core=1:1 -- node --import tsx packages/duel-server/scripts/update-engine-data.ts "${args[@]}"
 
       # Preparation discovers cards.cdb + release-*.cdb at the new database pin.
-      # No generated file list or additional writable publication path is needed.
+      # Also prepare unchanged pins so Dueling Book-only updates can be verified.
       - name: Download and validate candidate engine bundle
-        if: steps.update.outputs.changed == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: prlimit --core=1:1 -- npm run duel:prepare
 
+      - name: Refresh Dueling Book alternate passcodes
+        continue-on-error: true
+        run: prlimit --core=1:1 -- node --import tsx packages/duel-server/scripts/update-duelingbook-passcodes.ts --update-artifact "$UPDATE_ARTIFACT_DIR"
+
+      - name: Record combined candidate changes
+        id: candidate
+        run: echo "changed=$(jq -r '.changed' "$UPDATE_ARTIFACT_DIR/update.json")" >> "$GITHUB_OUTPUT"
+
       - name: Check multiplayer overlay and record result
-        if: steps.update.outputs.changed == 'true'
+        if: steps.candidate.outputs.changed == 'true'
         run: |
           result=0
           prlimit --core=1:1 -- node --import tsx packages/duel-server/scripts/generate-multi-scripts.ts --check > "$UPDATE_ARTIFACT_DIR/overlay-check.log" 2>&1 || result=$?
@@ -199,8 +206,8 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
         run: prlimit --core=1:1 -- node --import tsx packages/duel-server/scripts/validate-engine-data.ts
 
-      - name: Export only the reported pin patch
-        if: steps.update.outputs.changed == 'true'
+      - name: Export only the reported data patch
+        if: steps.candidate.outputs.changed == 'true'
         run: |
           mapfile -t files < <(jq -r '.files[]' "$UPDATE_ARTIFACT_DIR/update.json")
           test "${#files[@]}" -gt 0
