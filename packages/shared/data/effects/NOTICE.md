@@ -34,7 +34,7 @@ retained; readers calculate the Upcoming state at use time. Rebuild with Node
 Later fills use the free YGOPRODeck card and set bulk endpoints directly.
 Valid months may move earlier for first-print corrections, never later. Each
 correction is listed with its source months in the generated PR review report
-and checked during publication. Names, aliases, and quality stay unchanged. See `docs/effect-tagging.md`
+and checked during publication. Names, aliases, and quality stay unchanged. See `docs/architecture/effect-search/tagging.md`
 for the cached daily step and `npm run effects:fill-releases -- --apply`.
 Credit stays here, not in the UI: the base dates come from YGOPRODeck via
 searchygo; new date fills and corrections come from YGOPRODeck misc and TCG set data.
