@@ -8,9 +8,12 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { BugReportDialog } from "../src/components/bug-report/bug-report-dialog";
+import { SessionTokenProvider } from "../src/components/auth/session-token";
+import { ClerkAPIResponseError } from "@clerk/nextjs/errors";
 import { collectBugContext } from "../src/components/bug-report/context";
 
-const { host, identity } = vi.hoisted(() => ({ host: vi.fn(), identity: vi.fn() }));
+const { host, identity, getToken } = vi.hoisted(() => ({ host: vi.fn(), identity: vi.fn(), getToken: vi.fn() }));
+vi.mock("@clerk/nextjs", () => ({ useAuth: () => ({ getToken, userId: "user_reporter" }) }));
 vi.mock("@/lib/duel-host", () => ({ callDuelHost: host }));
 vi.mock("@/lib/session-identity", () => ({ resolveSessionIdentity: identity }));
 vi.mock("@/lib/notify", () => ({ announcer: {}, broadcaster: {} }));
@@ -24,12 +27,14 @@ afterEach(() => {
   database?.close();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  sessionStorage.clear();
   if (directory) rmSync(directory, { recursive: true, force: true });
 });
 
 async function setup() {
   vi.resetModules();
   host.mockReset();
+  getToken.mockReset().mockResolvedValue("refreshed-test-token");
   directory = mkdtempSync(join(tmpdir(), "report-dialog-integration-"));
   vi.stubEnv("DATABASE_PATH", join(directory, "test.sqlite"));
   vi.stubEnv("DISCORD_GUILD_ID", "integration-guild");
@@ -60,10 +65,19 @@ async function setup() {
   return { POST, publicIssues, board };
 }
 
+function renderReport() {
+  return render(<SessionTokenProvider e2e={false}><BugReportDialog open onClose={() => {}} collect={() => collectBugContext(null)} /></SessionTokenProvider>);
+}
+
+function fillReport() {
+  fireEvent.change(screen.getByRole("textbox", { name: /What went wrong/ }), { target: { value: "The card selection stays open after I make a choice" } });
+  fireEvent.change(screen.getByRole("textbox", { name: /What did you expect/ }), { target: { value: "The selection should close after my choice" } });
+}
+
 it("sends the dialog through the real report routes and keeps board and identity behind owner access", async () => {
   const { publicIssues } = await setup();
   window.history.replaceState({}, "", "/duels/flow-duel");
-  render(<BugReportDialog open onClose={() => {}} collect={() => collectBugContext(null)} />);
+  renderReport();
   expect(screen.getByText("Describe the problem. We save the board and the duel log with your report. A screenshot is optional.")).toBeTruthy();
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox", { name: /What went wrong/ }), "The card selection stays open after I make a choice");
@@ -100,6 +114,158 @@ it("masks the player id in the public issue and keeps the original path in the s
   expect(database!.prepare("select path from bug_reports").get()).toEqual({ path: "/player/42" });
 });
 
+it.each([401, 307])("recovers a report HTTP %s and saves the same report once", async (status) => {
+  const { publicIssues } = await setup();
+  const apiFetch = globalThis.fetch;
+  const bodies: string[] = [];
+  vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+    if (url === "/api/bug-reports") {
+      bodies.push(String(init?.body));
+      expect(init?.redirect).toBe("manual");
+      if (bodies.length === 1) return Promise.resolve(new Response(null, { status }));
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer refreshed-test-token");
+    }
+    return apiFetch(url, init);
+  });
+  renderReport();
+  fillReport();
+  fireEvent.click(screen.getByRole("button", { name: "Send report" }));
+  await waitFor(() => expect(screen.getByTestId("bug-report-done")).toBeTruthy());
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toBe(bodies[0]);
+  expect(getToken).toHaveBeenCalledExactlyOnceWith({ skipCache: true });
+  expect(publicIssues).toHaveLength(1);
+  expect(database!.prepare("select count(*) as n from bug_reports").get()).toEqual({ n: 1 });
+});
+
+it("recovers the precheck before showing the duplicate review", async () => {
+  await setup();
+  const apiFetch = globalThis.fetch;
+  let checks = 0;
+  vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+    if (url === "/api/bug-reports/precheck") {
+      checks++;
+      if (checks === 1) return Promise.resolve(new Response(null, { status: 401 }));
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer refreshed-test-token");
+      return Promise.resolve(Response.json({ knownLimits: [{ id: "test", title: "Known selection bug", explanation: "Test" }], duplicates: [] }));
+    }
+    return apiFetch(url, init);
+  });
+  renderReport();
+  fillReport();
+  fireEvent.click(screen.getByRole("button", { name: "Send report" }));
+  await screen.findByTestId("bug-report-review");
+  expect(checks).toBe(2);
+  expect(getToken).toHaveBeenCalledExactlyOnceWith({ skipCache: true });
+  fireEvent.click(screen.getByRole("button", { name: "My bug is different" }));
+  await screen.findByTestId("bug-report-done");
+});
+
+it.each([null, "refreshed-test-token"])("keeps the report and offers sign-in when refresh returns %s but access is still refused", async (token) => {
+  await setup();
+  getToken.mockResolvedValue(token);
+  const apiFetch = globalThis.fetch;
+  let posts = 0;
+  vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+    if (url === "/api/bug-reports") { posts++; return Promise.resolve(new Response(null, { status: 401 })); }
+    return apiFetch(url, init);
+  });
+  window.history.replaceState({}, "", "/duels/flow-duel");
+  renderReport();
+  fillReport();
+  fireEvent.click(screen.getByRole("button", { name: "Send report" }));
+  const link = await screen.findByRole("link", { name: "Sign in again" });
+  expect(link).toHaveAttribute("target", "_blank");
+  expect(link).toHaveAttribute("href", "/sign-in?redirect_url=%2Fduels%2Fflow-duel");
+  expect(screen.getByRole("textbox", { name: /What went wrong/ })).toHaveValue("The card selection stays open after I make a choice");
+  expect(screen.getByRole("textbox", { name: /What did you expect/ })).toHaveValue("The selection should close after my choice");
+  expect(posts).toBe(token ? 2 : 1);
+  expect(getToken).toHaveBeenCalledTimes(1);
+  expect(database!.prepare("select count(*) as n from bug_reports").get()).toEqual({ n: 0 });
+});
+
+it.each([
+  [403, "permission"],
+  [503, "server"],
+  [0, "Network error"],
+] as const)("distinguishes report failure %s from sign-out", async (status, message) => {
+  await setup();
+  const apiFetch = globalThis.fetch;
+  let posts = 0;
+  vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+    if (url === "/api/bug-reports") {
+      posts++;
+      return status ? Promise.resolve(new Response(null, { status })) : Promise.reject(new TypeError("Failed to fetch"));
+    }
+    return apiFetch(url, init);
+  });
+  renderReport();
+  fillReport();
+  fireEvent.click(screen.getByRole("button", { name: "Send report" }));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(message));
+  expect(screen.queryByRole("link", { name: "Sign in again" })).toBeNull();
+  expect(getToken).not.toHaveBeenCalled();
+  expect(posts).toBe(1);
+});
+
+it("reports a failed session refresh as a connection failure and retains the text", async () => {
+  await setup();
+  getToken.mockRejectedValue(new TypeError("Failed to fetch"));
+  const apiFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", (url: string, init?: RequestInit) => url === "/api/bug-reports"
+    ? Promise.resolve(new Response(null, { status: 401 })) : apiFetch(url, init));
+  renderReport();
+  fillReport();
+  fireEvent.click(screen.getByRole("button", { name: "Send report" }));
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Network error"));
+  expect(screen.queryByRole("link", { name: "Sign in again" })).toBeNull();
+  expect(screen.getByRole("textbox", { name: /What went wrong/ })).toHaveValue("The card selection stays open after I make a choice");
+});
+
+it.each([401, 404, 503])("handles Clerk refresh HTTP %s and preserves text through a remount", async status => {
+  await setup();
+  getToken.mockRejectedValue(new ClerkAPIResponseError("Session refresh failed", { status, data: [] }));
+  const apiFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", (url: string, init?: RequestInit) => url === "/api/bug-reports"
+    ? Promise.resolve(new Response(null, { status: 401 })) : apiFetch(url, init));
+  renderReport();
+  fillReport();
+  fireEvent.click(screen.getByRole("button", { name: "Send report" }));
+  if (status === 503) {
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("server"));
+    expect(screen.queryByRole("link", { name: "Sign in again" })).toBeNull();
+  } else {
+    await screen.findByRole("link", { name: "Sign in again" });
+  }
+  expect(screen.getByRole("alert")).not.toHaveTextContent("Network error");
+  cleanup(); // The same state loss as Clerk/Next refreshing the page after deactivation.
+  renderReport();
+  expect(screen.getByRole("textbox", { name: /What went wrong/ })).toHaveValue("The card selection stays open after I make a choice");
+  expect(screen.getByRole("textbox", { name: /What did you expect/ })).toHaveValue("The selection should close after my choice");
+});
+
+it("bounds a stalled session refresh and never sends a late retry", async () => {
+  await setup();
+  let finishRefresh!: (token: string) => void;
+  getToken.mockImplementation(() => new Promise<string>(resolve => { finishRefresh = resolve; }));
+  const apiFetch = globalThis.fetch;
+  let posts = 0;
+  vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+    if (url === "/api/bug-reports") { posts++; return Promise.resolve(new Response(null, { status: 401 })); }
+    return apiFetch(url, init);
+  });
+  renderReport();
+  fillReport();
+  vi.useFakeTimers();
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send report" })); });
+  expect(getToken).toHaveBeenCalledTimes(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(35_000); });
+  expect(screen.getByRole("alert")).toHaveTextContent("Network error");
+  await act(async () => { finishRefresh("too-late-token"); });
+  expect(posts).toBe(1);
+  expect(screen.getByRole("textbox", { name: /What went wrong/ })).toHaveValue("The card selection stays open after I make a choice");
+});
+
 
 it("times out the submit and safely retries the same report through the real route", async () => {
   const { POST, publicIssues, board } = await setup();
@@ -122,7 +288,7 @@ it("times out the submit and safely retries the same report through the real rou
     });
   });
   window.history.replaceState({}, "", "/duels/flow-duel");
-  render(<BugReportDialog open onClose={() => {}} collect={() => collectBugContext(null)} />);
+  renderReport();
   fireEvent.change(screen.getByRole("textbox", { name: /What went wrong/ }), { target: { value: "The card selection stays open after I make a choice" } });
   fireEvent.change(screen.getByRole("textbox", { name: /What did you expect/ }), { target: { value: "The selection should close after my choice" } });
   vi.useFakeTimers();
