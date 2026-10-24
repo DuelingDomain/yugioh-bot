@@ -1,0 +1,421 @@
+/* The status layer of a board card: a rail of protection glyphs on the left edge (top on your side, bottom on theirs: clear of
+   the equip chip, the Xyz count, the pendulum mark and the ATK / DEF plate), and a stack of counter coins beside the plate on the
+   right edge. Glyphs, colours and sizes are the owner-approved demo (2026-10-23).
+   The layer never takes a click. Both groups live in the two side columns of the card, because a turned seat field
+   keeps its ATK / DEF plate upright in the middle of the card (field.module.css, .seatField .plate). Every chip
+   turns back by the seat's turn about its own centre (`--seat-turn`), so a rival's glyphs read upright for the viewer.
+   A card under 70px wide shows glyph-only protections and one merged counter coin with the total. */
+
+/* The glyph size is a length computed on the inner box (against the layer), so the rail and the stack room, which are containers of
+   their own, read it as a plain length and not as a share of their own height. */
+@property --st {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 16px;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  /* Below the ATK / DEF plate, the Xyz count (z 3) and the equip chip (z 4): the numbers and the material count always win a clash. */
+  z-index: 2;
+  container: status / size;
+  pointer-events: none;
+  --imM: #e0a35a;
+  --imS: #4fd1b0;
+  --imT: #d765c8;
+  --imAll: #f4d690;
+  --prot: #8fb8ff;
+  --neg: #ff6b6b;
+  --info: #aab3cc;
+  --ink: #efe7d5;
+  --back: #0a0e1c;
+}
+
+.inner {
+  position: absolute;
+  inset: 0;
+  /* The glyph size: a share of the card height with a floor and a ceiling (the demo's --chip). */
+  --st: clamp(11px, 15cqh, 22px);
+  /* The font size of the ATK / DEF plate, from the card height (field.module.css sets the factors). Board sizes such as --z hold container
+     units that would read this layer's own box here, so the plate size is rebuilt from the layer's height instead of inherited. */
+  --plate-fs: max(clamp(var(--plate-lo, 0px), calc(100cqh * var(--plate-k, 0.13)), var(--plate-hi, 9999px)), min(var(--plate-floor, 0px), 20cqh));
+  /* The turn the viewer sees this card at: the seat's own turn plus the camera's (the Tag stage sets --roof-turn), as the plate does. */
+  --turn: calc(var(--seat-turn, 0deg) + var(--roof-turn, 0deg));
+  --upright: calc(var(--turn) * -1);
+  /* How far the ATK / DEF plate reaches in from the controller's edge, with a gap: an upright strip (the fallback), or on a turned seat
+     field the depth of the strip turned back by --turn (field.module.css, .seatField .plate: 3px + |w sin| + |h cos|). The width is
+     the card's or the text's if that is more, so the estimate is never smaller than the plate. */
+  --plate-h: calc(var(--plate-fs) * 1.2 + 2px);
+  --plate-w: max(calc(100cqw - 8px), calc(var(--plate-fs) * 4.86));
+  --plate-depth: calc(var(--plate-h) + 7px);
+}
+
+@supports (width: hypot(1px)) {
+  .inner {
+    --plate-depth: calc(7px + hypot(var(--plate-w) * sin(var(--turn))) + hypot(var(--plate-h) * cos(var(--turn))));
+  }
+}
+
+.rail {
+  position: absolute;
+  top: 25%;
+  left: 3%;
+  /* The rail is a container of its own: its height is the room between the top of the rail and the ATK / DEF plate (the same depth the
+     counter stack keeps), and its font size is the glyph size (--st, read against the layer here), so the slot tiers below ask the real
+     room, in glyph sizes, and a turned rival seat with a deep plate folds more glyphs into "+N". Inside it every size is in em. */
+  container: rail / size;
+  font-size: var(--st);
+  width: 1em;
+  height: max(0px, calc(75cqh - var(--plate-depth) - 2px));
+  display: flex;
+  flex-direction: column;
+  gap: 0.14em;
+}
+
+/* Their card is flipped from top to bottom only: the equip chip and the Xyz count keep their sides, so the rail stays in the left column. */
+.layer[data-side="opp"] .rail {
+  top: auto;
+  bottom: 25%;
+  flex-direction: column-reverse;
+}
+
+.chip,
+.more,
+.coin,
+.total {
+  rotate: var(--upright);
+  transition: rotate var(--glide, 0.76s) var(--glide-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
+}
+
+:global([data-glide="true"]) :is(.chip, .more, .coin, .total) {
+  transition-duration: 1.4s;
+  transition-delay: 2.2s;
+  transition-timing-function: cubic-bezier(0.5, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip,
+  .more,
+  .coin,
+  .total {
+    transition: none;
+  }
+}
+
+.chip {
+  display: block;
+  width: 1em;
+  height: 1em;
+  flex: none;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.7));
+}
+
+.chip[data-status-kind="imM"] { color: var(--imM); }
+.chip[data-status-kind="imS"] { color: var(--imS); }
+.chip[data-status-kind="imT"] { color: var(--imT); }
+.chip[data-status-kind="imAll"] { color: var(--imAll); }
+.chip[data-status-kind="noBD"],
+.chip[data-status-kind="noED"],
+.chip[data-status-kind="noTgt"],
+.chip[data-status-kind="noAtk"] { color: var(--prot); }
+.chip[data-status-kind="neg"] { color: var(--neg); }
+.chip[data-status-kind="info"] { color: var(--info); }
+
+.glyph {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.shield {
+  fill: var(--back);
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+}
+
+.mark {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.markFill,
+.letter {
+  fill: currentColor;
+}
+
+.negDisc {
+  fill: var(--back);
+  stroke: currentColor;
+  stroke-width: 2.2;
+}
+
+.negSlash {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+/* No glide where the turn follows a hand or a camera frame by frame, or with reduced motion (as the plate). */
+:global([data-plate-still="true"]) :is(.chip, .more, .coin, .total),
+:global([data-fly-free="true"]) :is(.chip, .more, .coin, .total),
+:global([data-grid-stage]) :is(.chip, .more, .coin, .total) {
+  transition: none;
+}
+
+.more {
+  display: none;
+  box-sizing: border-box;
+  /* 0.6 of the glyph size for the text, so a box of 1 glyph is 1 / 0.6 of its own em. */
+  min-width: calc(1em / 0.6);
+  height: calc(1em / 0.6);
+  padding: 0 0.4em;
+  border: 1px solid rgb(214 196 150 / 0.4);
+  border-radius: 99px;
+  background: rgb(8 12 26 / 0.9);
+  color: var(--ink);
+  font: 700 0.6em / calc(1em / 0.6 - 2px) var(--f-num, "Arial Narrow"), sans-serif;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Slots by the room of the rail (in glyph sizes: n glyphs need 1.14 n - 0.14): none under 1, then 1 to 4. A rail that is longer folds its
+   tail into "+N" (the chip of the tier shows the count of the glyphs it hides), so the rail never reaches the ATK / DEF plate. */
+@container rail (max-height: 0.999em) {
+  .chip,
+  .more { display: none; }
+}
+
+@container rail (min-height: 1em) and (max-height: 2.139em) {
+  .chip[data-h1] { display: none; }
+  .more[data-m1] { display: block; }
+}
+
+@container rail (min-height: 2.14em) and (max-height: 3.279em) {
+  .chip[data-h2] { display: none; }
+  .more[data-m2] { display: block; }
+}
+
+@container rail (min-height: 3.28em) and (max-height: 4.419em) {
+  .chip[data-h3] { display: none; }
+  .more[data-m3] { display: block; }
+}
+
+@container rail (min-height: 4.42em) {
+  .chip[data-h4] { display: none; }
+  .more[data-m4] { display: block; }
+}
+
+/* ---- counters: a vertical stack of coins and the total, above the plate ---- */
+
+/* The room for the stack: from the ATK / DEF plate up to the Xyz count (or the top of the card). It is a container, so the stack folds
+   to the coins and the total that fit, in glyph sizes, and never reaches the plate or the material count. */
+.stackBox {
+  position: absolute;
+  right: 4%;
+  bottom: var(--plate-depth);
+  top: var(--stack-top, 3px);
+  width: calc(var(--st) * 1.14);
+  container: stackroom / size;
+  font-size: var(--st);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.layer[data-side="opp"] .stackBox {
+  top: var(--plate-depth);
+  bottom: var(--stack-top, 3px);
+  justify-content: flex-start;
+}
+
+/* The count of the materials of an Xyz sits in the same column (top on your side, bottom on theirs, one chip lower with an equip chip). */
+.layer[data-materials] {
+  --stack-top: calc(var(--n4, 11px) * 1.5 + 8px);
+}
+
+.layer[data-materials][data-equipped] {
+  --stack-top: calc(max(11px, 17.5cqw) + 18px + var(--n4, 11px) * 1.5);
+}
+
+/* A card lying in Defense is a sideways band in the middle of its slot: the stack stays inside the band. */
+.layer[data-defense="true"] .stackBox {
+  bottom: max(var(--plate-depth), calc((100cqh - 100cqw * var(--dfit, 1)) / 2 + 6px));
+}
+
+.layer[data-defense="true"][data-side="opp"] .stackBox {
+  top: max(var(--plate-depth), calc((100cqh - 100cqw * var(--dfit, 1)) / 2 + 6px));
+  bottom: var(--stack-top, 3px);
+}
+
+.stack {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  padding: calc(var(--st) * 0.07) 0;
+  border: 1px solid rgb(214 196 150 / 0.32);
+  border-radius: 99px;
+  background: rgb(8 12 26 / 0.88);
+}
+
+.layer[data-side="opp"] .stack {
+  flex-direction: column-reverse;
+}
+
+/* What fits (a stack is 1.14 glyphs and 2px of frame, a coin adds 0.62 and the total is 1): the total and 3, 2, 1 coins, or nothing. */
+@container stackroom (max-height: calc(1.14em + 1.999px)) {
+  .stack { display: none; }
+}
+
+@container stackroom (max-height: calc(2.14em + 1.999px)) {
+  .stack > .coin { display: none; }
+}
+
+@container stackroom (min-height: calc(2.14em + 2px)) and (max-height: calc(2.76em + 1.999px)) {
+  .stack > .coin:nth-child(n + 2) { display: none; }
+}
+
+@container stackroom (min-height: calc(2.76em + 2px)) and (max-height: calc(3.38em + 1.999px)) {
+  .stack > .coin:nth-child(n + 3) { display: none; }
+}
+
+.coin {
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: var(--st);
+  height: var(--st);
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--c) 75%, #000);
+  border-radius: 50%;
+  background: rgb(8 12 26 / 0.95);
+  box-shadow: 0 0 calc(var(--st) * 0.35) color-mix(in srgb, var(--c) 38%, transparent);
+  color: var(--c);
+}
+
+.coin svg {
+  width: 66%;
+  height: 66%;
+}
+
+.initials {
+  font: 800 calc(var(--st) * 0.42) / 1 Arial, sans-serif;
+}
+
+.stack > .coin + .coin {
+  margin-top: calc(var(--st) * -0.38);
+}
+
+.layer[data-side="opp"] .stack > .coin + .coin {
+  margin-top: 0;
+  margin-bottom: calc(var(--st) * -0.38);
+}
+
+.total {
+  min-width: var(--st);
+  color: var(--ink);
+  font: 700 calc(var(--st) * 0.7) / var(--st) var(--f-num, "Arial Narrow"), sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.8);
+}
+
+/* ---- a card under 70px wide: glyph only, one merged counter coin ---- */
+
+.altShape { display: none; }
+
+@container status (max-width: 69.99px) {
+  .letter { display: none; }
+  .shield { fill: currentColor; }
+  .glyph[data-kind="imS"] .shield,
+  .glyph[data-kind="imT"] .shield { display: none; }
+  .altShape { display: block; fill: currentColor; }
+  .mark { stroke: var(--back); }
+  .markFill { fill: var(--back); }
+  .stack > .coin:nth-child(n + 2) { display: none; }
+  .total { font-size: calc(var(--st) * 0.62); }
+}
+
+/* ---- the card inspector list (inspector.tsx): the same glyphs at a fixed size, never inside a card ---- */
+
+.listGlyph {
+  --st: 20px;
+  --upright: 0deg;
+  display: inline-block;
+  width: var(--st);
+  height: var(--st);
+  flex: none;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5));
+  --imM: #e0a35a;
+  --imS: #4fd1b0;
+  --imT: #d765c8;
+  --imAll: #f4d690;
+  --prot: #8fb8ff;
+  --neg: #ff6b6b;
+  --info: #aab3cc;
+  --back: #0a0e1c;
+}
+
+.listGlyph[data-status-kind="imM"] { color: var(--imM); }
+.listGlyph[data-status-kind="imS"] { color: var(--imS); }
+.listGlyph[data-status-kind="imT"] { color: var(--imT); }
+.listGlyph[data-status-kind="imAll"] { color: var(--imAll); }
+.listGlyph[data-status-kind="noBD"],
+.listGlyph[data-status-kind="noED"],
+.listGlyph[data-status-kind="noTgt"],
+.listGlyph[data-status-kind="noAtk"] { color: var(--prot); }
+.listGlyph[data-status-kind="neg"] { color: var(--neg); }
+.listGlyph[data-status-kind="info"] { color: var(--info); }
+
+.listCoin {
+  --st: 20px;
+  --upright: 0deg;
+  transition: none;
+}
+
+/* The status list of the inspector and the drawer: one row per protection (glyph + engine text) or counter (coin + name + count). */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--duel-ink-2, #c3bba8);
+  font-size: calc(var(--pv-ct, var(--ct, 13px)) * var(--pv-list, 0.92));
+  line-height: 1.25;
+}
+
+.listRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.listGlyphs {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+}
+
+.listText {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.listCount {
+  flex: none;
+  color: var(--duel-ink, #efe7d5);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 600;
+}

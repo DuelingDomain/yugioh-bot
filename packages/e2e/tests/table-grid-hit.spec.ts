@@ -164,6 +164,120 @@ test("ffa4: a click on the phase hub does not move the focus to the field under 
   await expect(stage).toHaveAttribute("data-grid-focus", "3");
 });
 
+// Card status and counters (`?status=1` fixture board): the badges sit in their own band, never on the ATK / DEF plate, the Xyz material count or
+// the equip chip, and the hover drawer shows the whole status list and effect text without a scroll bar. Fixture preview only.
+const STATUS_SIZES = [[1920, 1080], [2560, 1440], [1366, 768]] as const;
+
+for (const mode of ["classic", "ffa3", "ffa4", "tag"]) {
+  for (const [width, height] of STATUS_SIZES) {
+    test(`${mode} ${width}x${height}: status rails and counter stacks stay off the plate, material count and equip chip`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      const response = await page.goto(`/dev/table-preview/${mode}?status=1&reduced=1`);
+      expect(response?.ok()).toBe(true);
+      await expect(page.locator("[data-card-status]").first()).toBeAttached({ timeout: 30_000 });
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForTimeout(800);
+      const result = await page.evaluate(() => {
+        const hit = (a: DOMRect, b: DOMRect) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+        const overlaps: string[] = [];
+        let layers = 0;
+        for (const zone of document.querySelectorAll<HTMLElement>("[data-zones]")) {
+          const layer = zone.querySelector("[data-card-status]");
+          if (!layer) continue;
+          layers += 1;
+          const leaves = [...layer.querySelectorAll<HTMLElement>("[data-status-kind], [data-counter-type], [data-status-total], [data-status-more], [data-status-counters]")]
+            .filter((element) => getComputedStyle(element).display !== "none" && element.getBoundingClientRect().width > 0);
+          const guards = [...zone.querySelectorAll<HTMLElement>("[data-card-plate], [data-materials-badge], [data-equip-chip]")];
+          for (const leaf of leaves) for (const guard of guards) {
+            if (hit(leaf.getBoundingClientRect(), guard.getBoundingClientRect())) overlaps.push(`${zone.dataset.zones} ${Object.keys(leaf.dataset).join(",")} x ${Object.keys(guard.dataset).join(",")}`);
+          }
+        }
+        return { layers, overlaps };
+      });
+      expect(result.layers).toBeGreaterThan(5);
+      expect(result.overlaps).toEqual([]);
+    });
+  }
+}
+
+for (const mode of ["ffa3", "ffa4", "tag"]) {
+  test(`${mode}: pinning a status hover restores plate avoidance`, async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await page.goto(`/dev/table-preview/${mode}?status=1&reduced=1`);
+    const cards = page.locator('[data-kind="mz"]:has([data-card-status])');
+    await expect(cards.first()).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForTimeout(2_500);
+    let card = cards.first();
+    let found = false;
+    for (let index = 0; index < await cards.count(); index += 1) {
+      const box = await cards.nth(index).boundingBox();
+      if (box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 1366 && box.y + box.height <= 768) {
+        card = cards.nth(index);
+        found = true;
+        break;
+      }
+    }
+    expect(found, "a status card is on screen").toBe(true);
+    await card.hover({ force: true });
+    const preview = page.getByTestId("hover-preview");
+    await expect(preview).toHaveAttribute("data-open", "true");
+    await expect(preview.getByTestId("card-status-list")).toBeVisible();
+    await card.click({ force: true });
+    await page.mouse.move(2, 2);
+    await expect(preview).toHaveAttribute("data-pinned", "true");
+    await expect(preview).toHaveAttribute("data-open", "true");
+    await expect.poll(() => page.evaluate(() => {
+      const drawer = document.querySelector('[data-testid="hover-preview"]')!.getBoundingClientRect();
+      return [...document.querySelectorAll("[data-lp-seat], [data-team-plate]")].filter(plate => {
+        const rect = plate.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0
+          && Math.min(drawer.right, rect.right) - Math.max(drawer.left, rect.left) > 1
+          && Math.min(drawer.bottom, rect.bottom) - Math.max(drawer.top, rect.top) > 1;
+      }).length;
+    })).toBe(0);
+  });
+
+  for (const [width, height] of STATUS_SIZES) {
+    test(`${mode} ${width}x${height}: the hover drawer lists the whole status and effect text without a scroll bar`, async ({ page }) => {
+      test.setTimeout(120_000);
+      await page.setViewportSize({ width, height });
+      await page.goto(`/dev/table-preview/${mode}?status=1&reduced=1`);
+      await expect(page.locator("[data-card-status]").first()).toBeAttached({ timeout: 30_000 });
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForTimeout(2_500);
+      const cards = page.locator("[data-card-status]");
+      const count = Math.min(await cards.count(), 12);
+      let checked = 0;
+      for (let index = 0; index < count; index += 1) {
+        // A card the camera has moved off the screen cannot be hovered.
+        const box = await cards.nth(index).boundingBox();
+        if (!box || box.x < 0 || box.y < 0 || box.x + box.width > width || box.y + box.height > height) continue;
+        const read = () => page.evaluate(() => {
+          const aside = document.querySelector<HTMLElement>("[data-testid='hover-preview'][data-open='true']");
+          if (!aside) return null;
+          const text = aside.querySelector<HTMLElement>("p[class*='previewText']");
+          return { aside: aside.scrollHeight - aside.clientHeight, text: text ? text.scrollHeight - text.clientHeight : 0 };
+        });
+        await page.mouse.move(2, 2);
+        await cards.nth(index).hover({ force: true });
+        const measure = async () => {
+          const state = await read();
+          if (state) return state;
+          // The first hover can land while the table camera still settles: hover again.
+          await page.mouse.move(2, 2);
+          await cards.nth(index).hover({ force: true });
+          return read();
+        };
+        // The drawer settles over a short transition: wait for it to open, then for the metrics to read zero.
+        await expect.poll(measure, { message: `${mode} card ${index}`, timeout: 10_000 }).toEqual({ aside: 0, text: 0 });
+        checked += 1;
+      }
+      expect(checked).toBeGreaterThan(5);
+    });
+  }
+}
+
 test("ffa4: a pin during a target pick clears every LP plate", async ({ page }) => {
   await page.setViewportSize({ width: 1366, height: 768 });
   await open(page, "state=target-pick");

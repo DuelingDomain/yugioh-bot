@@ -26,8 +26,9 @@ const stockDirectory = process.env.DUEL_SCRIPTS_DIR ?? join(currentEngineDataDir
 const stock = needs.file("official script corpus", stockDirectory, "Set DUEL_SCRIPTS_DIR, or set DUEL_DATA_DIR to an engine data directory with card-scripts/official.");
 const triageNeed = needs.localFile("multiplayer triage", TRIAGE_FILE, "Run scripts/scan-multiplayer-scripts.ts to write .status/multiplayer-triage.json.");
 // Manifest stockPath values are relative to the card-scripts root, with official/ as the only default.
+// An installed bundle appends host card-script patches after this marker (scripts/card-script-patches.ts); the stock text ends before it.
 const stockText = (card: Pick<ManifestCard, "file" | "stockPath">, root = join(stockDirectory, "..")) =>
-  readFileSync(join(root, card.stockPath ?? "official/" + card.file), "utf8");
+  readFileSync(join(root, card.stockPath ?? "official/" + card.file), "utf8").split("\n-- BEGIN HOST CARD SCRIPT PATCH\n")[0]!;
 
 describe("manifest stock paths", () => {
   it("defaults to official and only reads pre-errata when explicitly recorded", () => {

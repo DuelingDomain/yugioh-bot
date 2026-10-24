@@ -21,5 +21,5 @@ const one = (value: string | string[] | undefined) => (Array.isArray(value) ? va
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   if (!fxLabEnabled()) notFound();
   const query = await searchParams;
-  return <ClassicPreview stateId={one(query.state)} chain={one(query.chain)} reduced={one(query.reduced) === "1"} attack={one(query.attack)} lp={one(query.lp)} lpAfter={one(query.lpafter)} />;
+  return <ClassicPreview stateId={one(query.state)} chain={one(query.chain)} reduced={one(query.reduced) === "1"} attack={one(query.attack)} lp={one(query.lp)} lpAfter={one(query.lpafter)} status={one(query.status) === "1"} />;
 }

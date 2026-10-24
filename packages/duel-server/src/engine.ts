@@ -1,3 +1,4 @@
+import { CardHints } from "./card-hints.js";
 import { LpOpponentHints } from "./lp-opponent-hints.js";
 import { ChainOptions } from "./chain-options.js";
 import { ChainActivator } from "./chain-activator.js";
@@ -406,6 +407,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   let scriptErrorEventSent = false;
   const scopedCreateCore = scriptErrorCoreFactory(createCore, scriptErrors);
   const eventContext = createEventContext(format);
+  const cardHints = new CardHints();
   const cardReader = (code: number) => {
     if (!code) return null;
     return cards.cardData(code);
@@ -767,6 +769,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const applyMessage = (message: OcgMessage, activator?: number) => {
     if (format === "ffa3" || format === "ffa4") lpOpponentHints.observe(message);
     eliminationGroup = null;
+    cardHints.observe(message);
     battleStep = nextBattleStep(battleStep, message);
     switch (message.type) {
       case OcgMessageType.RETRY:
@@ -1094,6 +1097,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       finally { scriptErrors.leaveProcess(); }
       // The wrapper warns once per message id 200, 201, 202 and 203 (it does not know them). The tap reads them below.
       const messages = tap ? withoutDuelistParseWarnings(() => lib.duelGetMessage(handle)) : lib.duelGetMessage(handle);
+      cardHints.beginBatch(messages);
       callsSinceLastPrompt += 1;
       messagesSinceLastPrompt += messages.length;
       if (tap) {
@@ -1281,6 +1285,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         result,
         reveals,
         handIdentities: eventContext.handIdentities,
+        cardHints,
         mode: options.mode,
         genesys: options.settings?.genesys != null,
         domainState: readDomainState(),
@@ -1432,6 +1437,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // Each call is a new loss window, also when an empty seat produces only message 200.
       eliminationGroup = null;
       let nextExtra = 0;
+      cardHints.beginBatch(fresh);
       fresh.forEach((message, index) => {
         while (nextExtra < extras.length && extras[nextExtra]!.after <= index) applyRaw(extras[nextExtra++]!);
         const activator = chainActivator.observe(message);

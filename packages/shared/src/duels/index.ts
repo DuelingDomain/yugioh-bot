@@ -1,3 +1,7 @@
+import type { DuelCardHint } from "./card-status.js";
+import type { DuelCounter } from "./counters.js";
+export * from "./card-status.js";
+export * from "./counters.js";
 import type { DuelClock, DuelFormat, DuelSettings, GenesysSettings } from "./settings.js";
 import type { DuelFirstChoice, DuelOpeningView } from "./opening.js";
 import type { DuelKind } from "./duel-kind.js";
@@ -248,6 +252,9 @@ export interface DuelCard {
   description?: string;
   attack?: number;
   defense?: number;
+  /** Live engine base stats, before additive modifiers; can differ from printed stats. */
+  baseAttack?: number;
+  baseDefense?: number;
   level?: number;
   type?: number;
   attribute?: number;
@@ -255,7 +262,9 @@ export interface DuelCard {
   rank?: number;
   linkRating?: number;
   linkMarker?: number;
-  counters?: Array<{ type: number; count: number }>;
+  counters?: DuelCounter[];
+  /** Public registered client hints on face-up field cards; absent when empty. */
+  hints?: DuelCardHint[];
   /**
    * True on a face-up monster or Spell/Trap on the field whose effects are negated (the core's STATUS_DISABLED:
    * a negating effect or a continuous one such as Skill Drain). Absent otherwise. A face-down card never carries it.

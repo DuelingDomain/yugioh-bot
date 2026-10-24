@@ -5,10 +5,11 @@ import { Pin, X } from "lucide-react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { useCardHoverInfo } from "../card-hover-info";
 import { cardTextStyle, useCardTextSize } from "../card-text-size";
+import { CardStatusList } from "../card-status";
+import { baseStatsText, cardStatusModel, statusReservePx } from "../card-status-model";
 import { aimPressClaimed, BOARD_SETTLED_EVENT, claimDrawerPress, promptOwnsPress, useAnyPromptId, usePickPromptId } from "../hover-drawer";
 import { useIsNarrow } from "../side-panel";
 import { isStaleCopy, staleLine } from "../stale-pin";
-import { NEGATED_LINE } from "../inspector";
 import { cardArtUrl, cardInspectLines, isDefenseAt, isHiddenCard } from "../constants";
 import styles from "./grid-hud.module.css";
 
@@ -96,6 +97,8 @@ const PLATE_GAP = 8;
 /** The smallest drawer that still reads well when it gives way to a plate: narrower than this, or shorter, the side counts as taken. */
 const MIN_FIT_W = 280;
 const MIN_FIT_H = 440;
+// Status panels can scroll once pinned, so they can use a shorter gap above a plate.
+const minimumFitHeight = (aside: HTMLElement) => aside.dataset.pinned === "true" && aside.hasAttribute("data-status") ? 220 : MIN_FIT_H;
 /** A drawer that gives way to a plate counts this much of its size loss as a cost, next to the share of the fields it covers. */
 const FIT_LOSS_WEIGHT = 0.5;
 /**
@@ -128,11 +131,11 @@ type Fit = { side: "left" | "right"; width: number; bottom: number; cost: number
 
 /**
  * The best drawer for one side: the full drawer when it covers no plate, else the narrower or the shorter one that does not (at least MIN_FIT_W wide
- * and MIN_FIT_H tall), whichever covers less of the fields. With none, the full drawer comes back with `fits` off and NO_FIT_COST added. `top` and
+ * and `minHeight` tall), whichever covers less of the fields. With none, the full drawer comes back with `fits` off and NO_FIT_COST added. `top` and
  * `naturalBottom` are the vertical extent the drawer can have (viewport pixels). The cost is the share of the viewer's own field and hand the drawer
  * covers, plus half the share of the rivals' fields, an open panel (the viewer is reading it) or the rail, and its size loss.
  */
-function fitSide(side: "left" | "right", parent: DOMRect, natural: number, top: number, naturalBottom: number): Fit {
+function fitSide(side: "left" | "right", parent: DOMRect, natural: number, top: number, naturalBottom: number, minHeight = MIN_FIT_H): Fit {
   const strip = (width: number, bottom: number): Box => (side === "left"
     ? { left: parent.left, right: parent.left + width, top, bottom }
     : { left: parent.right - width, right: parent.right, top, bottom });
@@ -171,7 +174,7 @@ function fitSide(side: "left" | "right", parent: DOMRect, natural: number, top: 
     if (inside.length === 0) break;
     bottom = Math.min(bottom, ...inside.map((b) => b.top));
   }
-  if (bottom - top >= MIN_FIT_H && hits(strip(natural, bottom)).length === 0) {
+  if (bottom - top >= minHeight && hits(strip(natural, bottom)).length === 0) {
     options.push({ side, width: natural, bottom, cost: cost(strip(natural, bottom), (bottom - top) / (naturalBottom - top)), fits: true });
   }
   if (options.length === 0) return { side, width: natural, bottom: naturalBottom, cost: cost(full, 1) + NO_FIT_COST, fits: false };
@@ -190,7 +193,7 @@ function fitFor(aside: HTMLElement, side: "left" | "right"): Fit {
   const parent = (aside.offsetParent ?? document.body).getBoundingClientRect();
   const natural = naturalWidth(aside);
   const { top, bottom } = drawerExtent(aside, parent, side, natural);
-  return fitSide(side, parent, natural, top, bottom);
+  return fitSide(side, parent, natural, top, bottom, minimumFitHeight(aside));
 }
 
 /**
@@ -384,7 +387,8 @@ export const PREVIEW_HIDE_MS = 150;
  * read the card text on it; the name, the type line, ATK / DEF, the owner and the effect text stand under it.
  * Hover: the drawer takes no pointer events, so the board under it keeps working and a hover on another card shows that card.
  * Pinned (`pinned`): the drawer stays when the pointer leaves, until `onClose` (the X button, Esc, a press outside, or a click on another card, which pins
- * that one). It then takes the pointer, adds the extra lines of the card (equip link, counters, materials) and the X button.
+ * that one). It then takes the pointer, adds the extra lines of the card (equip link, materials) and the X button. Every card with a status (negated, protections, counters)
+ * shows its status list under the type line, hovered or pinned.
  * It starts below the header pills that stand over its edge (`--pv-top`, measured), and it stays above the closed drawer tabs. Face-down cards of a rival show nothing.
  */
 export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, held = false, pin = null, extras = [], onClose }: {
@@ -398,7 +402,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
   held?: boolean;
   /** The pinned card while a hover or a prompt row shows another card over it: the "Pinned" handle stays for it. With `pinned`, `card` is the pin. */
   pin?: DuelCard | DuelCardInfo | null;
-  /** The extra lines of a pinned board card (equip link, counters, materials): the same ones as the Card drawer. */
+  /** The extra lines of a pinned board card (equip link, materials): the same ones as the Card drawer. */
   extras?: readonly string[];
   /** The X button was pressed. `byKeyboard`: Enter or Space, so focus should go back to the card (a mouse click would show the card's hover peek again). */
   onClose?: (byKeyboard: boolean) => void;
@@ -597,8 +601,10 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
       if (bottom > 0) aside.style.setProperty("--pv-top", `${Math.max(0, Math.round(bottom - parent.top + 8))}px`);
       else aside.style.removeProperty("--pv-top");
       const extent = drawerExtent(aside, parent, side, width);
-      const fit = narrow ? null : fitSide(side, parent, width, extent.top, extent.bottom);
-      const footPx = Math.max(0, Math.round(parent.bottom - (fit ? fit.bottom : extent.bottom)));
+      // Status hovers keep the full-height list and effect text. Once pinned, the interactive drawer gives way to plates and controls.
+      const statusHover = !frozen && aside.hasAttribute("data-status");
+      const fit = narrow || statusHover ? null : fitSide(side, parent, width, extent.top, extent.bottom, minimumFitHeight(aside));
+      const footPx = statusHover ? 0 : Math.max(0, Math.round(parent.bottom - (fit ? fit.bottom : extent.bottom)));
       if (fit && fit.width < width) aside.style.setProperty("--pv-w", `${Math.floor(fit.width)}px`);
       else aside.style.removeProperty("--pv-w");
       if (footPx > 0) {
@@ -617,18 +623,20 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
       window.removeEventListener("resize", set);
       window.clearInterval(timer);
     };
-  }, [open, current, side, narrow]);
+  }, [open, current, side, narrow, frozen]);
 
   if (!current) return null;
 
   const lines = cardInspectLines(current);
-  // A stale pin (the card left the board) shows the printed card only: its old ATK / DEF and position no longer hold, and it says why.
-  // The line is here, not in the callers' extras, so the 3D, phone, 4-way and Tag shells (they pass none) show it too.
+  // A stale pin shows only the printed card and why its live values no longer apply.
   const stale = isStaleCopy(current);
   const staleNote = stale ? staleLine(current as DuelCard) : null;
   const notes = staleNote && !extras.includes(staleNote) ? [staleNote, ...extras] : extras;
   const { facts } = lines;
   const combat = stale ? null : lines.combat;
+  const status = cardStatusModel(current as DuelCard);
+  const baseStats = combat ? baseStatsText(current as DuelCard) : null;
+  const reserve = statusReservePx(status, baseStats != null);
   const position = combat && "location" in current && current.position != null ? (isDefenseAt(current.location, current.position) ? "Defense Position" : "Attack Position") : null;
   return (
     <>
@@ -645,7 +653,8 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
       data-hud-keep={frozen ? "" : undefined}
       aria-label={frozen ? "Pinned card" : undefined}
       data-card-text={textSize}
-      style={{ ...cardTextStyle(textSize), ...(owner ? { "--seat-main": owner.main, "--seat-ink": owner.ink } : null) } as CSSProperties}
+      data-status={reserve > 0 ? "" : undefined}
+      style={{ ...cardTextStyle(textSize), ...(owner ? { "--seat-main": owner.main, "--seat-ink": owner.ink } : null), ...(reserve > 0 ? { "--status-px": `${reserve}px`, "--text-chars": current.description?.length ?? 0 } : null) } as CSSProperties}
     >
       <div className={styles.previewHead}>
         {current.code != null ? <img className={styles.previewArt} src={cardArtUrl(current.code, "full")} alt="" draggable={false} /> : null}
@@ -653,6 +662,7 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
           <h3>{current.name ?? `Card ${current.code}`}</h3>
           {facts ? <p className={styles.previewType}>{facts}</p> : null}
           {combat ? <p className={styles.previewStats}>{combat}</p> : null}
+          {baseStats ? <p className={styles.previewBase} data-testid="hover-preview-base-stats">{baseStats}</p> : null}
           {owner ? (
             <p className={styles.previewOwner}>
               <i aria-hidden="true" />Owner <b>{owner.name}</b>{position ? ` · ${position}` : ""}
@@ -660,19 +670,14 @@ export function GridHoverPreview({ card, owner, reducedMotion, pinned = false, h
           ) : position ? <p className={styles.previewOwner}>{position}</p> : null}
         </div>
       </div>
+      {/* Full width under the art and the name, also on a short window where the art stands beside the name: the rows do not wrap in a narrow column. */}
+      <CardStatusList model={status} />
       {current.description ? (
         <p key={`${current.code}-${current.name}`} className={styles.previewText}>{current.description}</p>
       ) : null}
       {notes.length > 0 ? (
         <ul className={styles.previewExtras} data-testid="hover-preview-extras">
-          {notes.map((line) =>
-            line === NEGATED_LINE ? (
-              <li key={line} className={styles.previewNegated} data-negated="true" data-testid="inspector-negated">
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.6" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                {line}
-              </li>
-            ) : <li key={line}>{line}</li>,
-          )}
+          {notes.map((line) => <li key={line}>{line}</li>)}
         </ul>
       ) : null}
       {frozen ? (

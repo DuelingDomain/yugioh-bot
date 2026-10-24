@@ -37,7 +37,8 @@ function writeBundle(dir: string, options: { tag: string; multi?: string; legacy
   const stockPath = "official/c3743515.lua";
   mkdirSync(join(dir, "card-scripts/official"), { recursive: true });
   writeFileSync(join(dir, "card-scripts", stockPath), patched);
-  writeFileSync(join(dir, "card-scripts/.host-card-script-patches.json"), JSON.stringify([{ stockPath }]));
+  writeFileSync(join(dir, "card-scripts/utility.lua"), patched);
+  writeFileSync(join(dir, "card-scripts/.host-card-script-patches.json"), JSON.stringify([{ stockPath }, { stockPath: "utility.lua" }]));
   if (options.legacy !== false) {
     writeFileSync(join(dir, "ocgcore.domain.legacy.wasm"), "legacy domain");
     writeFileSync(join(dir, "card-scripts", "domain.legacy.lua"), "-- legacy domain");
@@ -47,7 +48,7 @@ function writeBundle(dir: string, options: { tag: string; multi?: string; legacy
     tag: options.tag,
     integrity: {
       multiScripts: multiScriptsHash(overlay),
-      cardScriptPatches: sha(`${stockPath}\0${sha(patched)}\n`),
+      cardScriptPatches: sha(`${stockPath}\0${sha(patched)}\nutility.lua\0${sha(patched)}\n`),
       domainLegacyWasm: sha(options.legacy === "bad-hash" ? "other" : "legacy domain"),
       domainLegacyLua: sha("-- legacy domain"),
     },

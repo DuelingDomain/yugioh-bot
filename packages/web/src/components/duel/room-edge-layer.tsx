@@ -3,7 +3,7 @@
 import { useCallback, useMemo, type ReactNode } from "react";
 import { Info, ScrollText, SlidersHorizontal, X } from "lucide-react";
 import { EdgeDrawer } from "./edge-drawer";
-import { pinnedExtraLines, cardScrollerProps, NEGATED_LINE } from "./inspector";
+import { pinnedExtraLines, cardScrollerProps } from "./inspector";
 import { ChainTower, HUD_PANE_LABEL, type HudPane } from "./table/grid-hud";
 import { GridHoverPreview } from "./table/grid-preview";
 import { HUD_KEEP, type HudLayerProps } from "./table/hud-layer";
@@ -46,12 +46,11 @@ export function RoomEdgeLayer({
     onOpenChange: (open: boolean) => { if (open) setPane(id); else if (pane === id) close(); },
   }), [pane, setPane, close]);
 
-  // A hovered board card says only what the art already shows (negated); a pinned one adds its equip, counter and material lines.
+  // A pinned board card adds its equip and material lines to the drawer (protections, counters and negation come from its status list).
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
-  const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
   const extras = useMemo(
-    () => (pinnedBoard ? pinnedExtraLines(pinnedBoard, equipLinks) : hoveredBoard?.negated === true ? [NEGATED_LINE] : []),
-    [pinnedBoard, hoveredBoard, equipLinks],
+    () => (pinnedBoard ? pinnedExtraLines(pinnedBoard, equipLinks) : []),
+    [pinnedBoard, equipLinks],
   );
   const { pinAnchor } = hud;
   const closePin = useCallback((byKeyboard: boolean) => {

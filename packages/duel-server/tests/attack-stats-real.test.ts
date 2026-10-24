@@ -17,7 +17,7 @@ const monsters = [
 ];
 const flags = (OcgQueryFlags.CODE | OcgQueryFlags.ATTACK | OcgQueryFlags.DEFENSE
   | OcgQueryFlags.BASE_ATTACK | OcgQueryFlags.BASE_DEFENSE | OcgQueryFlags.LEVEL
-  | OcgQueryFlags.RANK | OcgQueryFlags.LINK) as OcgQueryFlags;
+  | OcgQueryFlags.RANK | OcgQueryFlags.LINK | OcgQueryFlags.COUNTERS) as OcgQueryFlags;
 
 for (const variant of ["legacy", "legacy-domain", "standard", "domain", "multi", "multi-domain"] as const) {
   const wasmName = variant === "legacy" ? undefined
@@ -50,6 +50,8 @@ for (const variant of ["legacy", "legacy-domain", "standard", "domain", "multi",
               location, sequence, position: OcgPosition.FACEUP_ATTACK });
           }
         }
+        assert(core.loadScript(handle, "query-counter-layout.lua",
+          "assert(Duel.GetFieldCard(0,LOCATION_MZONE,0):AddCounter(0x100e,2))"));
         for (const location of [OcgLocation.HAND, OcgLocation.MZONE]) {
           const queries = core.duelQueryLocation(handle, { controller: 0, location, flags });
           for (const [sequence, monster] of monsters.entries()) {
@@ -60,6 +62,7 @@ for (const variant of ["legacy", "legacy-domain", "standard", "domain", "multi",
               baseDefense: location === OcgLocation.HAND ? monster.printed : Math.max(0, monster.printed),
             });
             expect(queries[sequence], monster.name).toEqual(single);
+            if (location === OcgLocation.MZONE && sequence === 0) expect(single?.counters).toEqual({ [0x100e]: 2 });
           }
         }
         // The real effect tracks LP, and the core clamps ATK reductions below zero.
@@ -90,7 +93,8 @@ for (const [format, legacy] of [["1v1", false], ["1v1", true], ["ffa3", false], 
           const prompt = game.view(1).prompt;
           expect(prompt?.options.some(option => option.card?.name === "Solemn Judgment")).toBe(true);
           for (const viewer of [0, 1, null]) {
-            expect(game.view(viewer).seats[0].monsters[0]).toMatchObject({ code: 16306932, attack: -2, defense: -2 });
+            expect(game.view(viewer).seats[0].monsters[0]).toMatchObject({ code: 16306932, attack: -2, defense: -2,
+              baseAttack: -2, baseDefense: -2 });
           }
           assert(prompt);
           game.answer(1, prompt.id, { cancel: true });

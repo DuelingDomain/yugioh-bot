@@ -73,6 +73,7 @@ export function CardFace({
   sleeve,
   reveal,
   className,
+  statusRail,
 }: {
   card: DuelCard | null;
   location?: number;
@@ -80,6 +81,8 @@ export function CardFace({
   /** Show the art whenever the server sent an identity, even if the card is face-down (own Extra Deck, Graveyard). */
   reveal?: boolean;
   className?: string;
+  /** The board status rail (card-status.tsx) shows the negated chip, so the art keeps its dimming but loses the centre disc. */
+  statusRail?: boolean;
 }) {
   const loc = location ?? card?.location;
   const known = card?.code != null;
@@ -100,7 +103,7 @@ export function CardFace({
       ) : (
         <CardBack kind={sleeve ?? (loc === LOCATION_EXTRA ? "extra" : "deck")} />
       )}
-      {negated ? <NegationMark /> : null}
+      {negated && !statusRail ? <NegationMark /> : null}
       {overlays > 0 ? (
         <span className={styles.overlayBadge} data-materials-badge={overlays} title={materialsTitle(overlays)}>
           <MaterialsIcon />

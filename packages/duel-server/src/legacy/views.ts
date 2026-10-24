@@ -1,3 +1,4 @@
+import type { CardHints } from "../card-hints.js";
 import type { DuelChainLink, DuelBattleStep, DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelMoveReason, DuelPrompt, DuelPromptOption, DuelSeatView, DuelSummonKind, DuelZoneRef } from "@yugidraft/shared/duels"; // LEGACY-1V1: public chosen chain options
 import {
   OcgHintType,
@@ -196,6 +197,7 @@ function queryToCard(
     description: info?.description,
     attack: query.attack,
     defense: query.defense,
+    ...(location === OcgLocation.MZONE ? { baseAttack: query.baseAttack, baseDefense: query.baseDefense } : {}),
     level,
     type: info?.type,
     attribute: query.attribute ?? info?.attribute,
@@ -223,7 +225,9 @@ function queryLocation(
   controller: 0 | 1,
   location: OcgLocationValue,
 ) {
-  return lib.duelQueryLocation(handle, { flags: QUERY_FLAGS, controller, location });
+  const flags = (location === OcgLocation.MZONE
+    ? QUERY_FLAGS | OcgQueryFlags.BASE_ATTACK | OcgQueryFlags.BASE_DEFENSE : QUERY_FLAGS) as OcgQueryFlagsValue;
+  return lib.duelQueryLocation(handle, { flags, controller, location });
 }
 
 function overlayMaterials(controller: 0 | 1, cards: CardDatabase, overlayCards?: number[]): DuelCard[] {
@@ -1529,6 +1533,7 @@ export function projectView(args: {
   genesys?: boolean;
   domainState?: DomainSeatState[];
   handIdentities?: HandIdentities;
+  cardHints?: CardHints;
 }): DuelEngineView {
   const field = args.lib.duelQueryField(args.handle);
   const seats: DuelSeatView[] = [0, 1].map((seat) => {
@@ -1592,6 +1597,13 @@ export function projectView(args: {
     }
     return view;
   });
+
+  if (args.cardHints) {
+    for (const seat of seats) {
+      seat.monsters = seat.monsters.map(card => card ? args.cardHints!.project(card, args.cards) : null);
+      seat.spells = seat.spells.map(card => card ? args.cardHints!.project(card, args.cards) : null);
+    }
+  }
 
   const chain = field.chain.map((link, index) => {
     const info = args.cards.get(link.code);

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { FFA3_FIXTURES, ffa3Variant } from "@/components/duel/table/fixtures/ffa3";
+import { withCardStatus } from "@/components/duel/table/fixtures/card-status";
 import { reviewFixtures } from "@/components/duel/table/fixtures/review";
 import { PreviewHarness } from "@/components/duel/table/fixtures/preview-harness";
 import { TableShell } from "@/components/duel/table/table-shell";
@@ -15,7 +16,7 @@ import { useTableTextScale } from "@/components/duel/card-text-size";
  * every field; `?pick=def` asks for one of them on any field; `?pick=cards` asks for one of 14 Deck cards (the card strip); `?pick=attack`, `attack-direct` or `attack-listed` (the engine's target list: the first rival may be hit directly and holds monsters; the second rival's monsters are no targets) shows the battle prompt (the aim-first flow); `?hover=rival|mine|hand` puts the pointer on a card once the
  * table is drawn (the preview at the left).
  */
-export function Ffa3Preview({ stateId, cam, lock, review = false, out = null, after = null, def = null, pick = null, hover = null, pair = null }: { stateId: string | null; cam: string | null; lock: string | null; review?: boolean; out?: string | null; after?: string | null; def?: string | null; pick?: string | null; hover?: string | null; pair?: string | null }) {
+export function Ffa3Preview({ stateId, cam, lock, review = false, out = null, after = null, def = null, pick = null, hover = null, pair = null, status = false }: { stateId: string | null; cam: string | null; lock: string | null; review?: boolean; out?: string | null; after?: string | null; def?: string | null; pick?: string | null; hover?: string | null; pair?: string | null; status?: boolean }) {
   useTableTextScale();
   const [damage, setDamage] = useState(0);
   const outSeats = useMemo(() => (out ?? "").split(",").filter((part) => /^[0-2]$/.test(part)).map(Number), [out]);
@@ -48,9 +49,10 @@ export function Ffa3Preview({ stateId, cam, lock, review = false, out = null, af
     () => ffa3Variant(base, { out: delay != null && !late ? [] : outSeats, pair: pair !== "0", defense: def === "1", pick: pickLive && (pick === "def" || pick === "cards" || pick === "cards2" || pick === "attack" || pick === "attack-direct" || pick === "attack-listed") ? pick : null }),
     [base, outSeats, delay, late, def, pick, pickLive, pair],
   );
+  const shown = useMemo(() => (status ? withCardStatus(set) : set), [set, status]);
   return (
     <PreviewHarness
-      set={set}
+      set={shown}
       tools={review && stateId === "main" ? <button onClick={() => setDamage((value) => value ? 0 : 2000)}>Fixture damage</button> : undefined}
       stateId={stateId}
       cam={cam}

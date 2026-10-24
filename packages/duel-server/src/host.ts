@@ -2091,7 +2091,9 @@ export function createDuelHost(options: {
             };
             if (rebuilt.result && (rebuilt.result.winnerSeat !== expected.winnerSeat
               || (source.session.format === "tag" && rebuilt.result.winnerTeam !== expected.winnerTeam))) return false;
-            return sameReplayBoard(savedView, freezeView(rebuilt, expected));
+            return sameReplayBoard(savedView, freezeView(rebuilt, expected), {
+              allowLegacyCounters: resources!.identity.coreFamily === "legacy",
+            });
           };
           const matches = matchesView(readSaved(null)!, views.public)
             && source.session.seats.every(seat => matchesView(readSaved(seat.seat)!, views.seats[seat.seat]!));

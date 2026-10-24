@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { FFA4_FIXTURES, FFA4_PREVIEW_PICKS, ffa4Variant, type Ffa4PreviewPick } from "@/components/duel/table/fixtures/ffa4";
+import { withCardStatus } from "@/components/duel/table/fixtures/card-status";
 import { reviewFixtures } from "@/components/duel/table/fixtures/review";
 import { PreviewHarness } from "@/components/duel/table/fixtures/preview-harness";
 import { TableShell } from "@/components/duel/table/table-shell";
 import { useTableTextScale } from "@/components/duel/card-text-size";
 
 /** The 4-way preview: the real table stage on the hand-made fixtures. */
-export function Ffa4Preview({ stateId, cam, lock, review = false, out = null, pick = null, after = null, hub = null, def = null, viewer = null }: { stateId: string | null; cam: string | null; lock: string | null; review?: boolean; out?: string | null; pick?: string | null; after?: string | null; hub?: string | null; def?: string | null; viewer?: string | null }) {
+export function Ffa4Preview({ stateId, cam, lock, review = false, out = null, pick = null, after = null, hub = null, def = null, viewer = null, status = false }: { stateId: string | null; cam: string | null; lock: string | null; review?: boolean; out?: string | null; pick?: string | null; after?: string | null; hub?: string | null; def?: string | null; viewer?: string | null; status?: boolean }) {
   useTableTextScale();
   // `?out=2,3` sweeps those seats; `?after=1500` starts with them alive and sweeps them after that many ms (to watch the
   // crumble); `?pick=field|hand|emz` swaps the prompt for a pick among your own cards;
@@ -51,6 +52,7 @@ export function Ffa4Preview({ stateId, cam, lock, review = false, out = null, pi
   const kind = FFA4_PREVIEW_PICKS.includes(pick as Ffa4PreviewPick) ? (pick as Ffa4PreviewPick) : null;
   const defense = def === "1";
   const set = useMemo(() => ffa4Variant(base, { out: scripted ?? (delay != null && !late ? [] : outSeats), pick: pickLive ? kind : null, defense }), [base, outSeats, delay, late, kind, pickLive, defense, scripted?.join(",")]);
+  const shown = useMemo(() => (status ? withCardStatus(set) : set), [set, status]);
   const startRun = (name: keyof typeof ELIMINATION_RUNS) => {
     setMenuOpen(false);
     setScript({ name, step: 0 });
@@ -58,7 +60,7 @@ export function Ffa4Preview({ stateId, cam, lock, review = false, out = null, pi
   return (
     <>
     <PreviewHarness
-      set={set}
+      set={shown}
       stateId={stateId}
       cam={cam}
       lock={lock}
