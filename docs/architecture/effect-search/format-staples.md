@@ -81,6 +81,33 @@ Run the targeted search integration suite and the sourced-deck evaluation in
 [the quality guide](../../testing/deck-suggestions-quality.md). Live proof is recorded below
 after publication to the local verification service.
 
+## Archetype roles
+
+One list shows native role cards first, with `<archetype> card` as the reason.
+Generic cards follow. Their rank uses labeled archetype deck shares
+when at least three decks are available, then format play share. Equal archetype
+shares use format play share as the next rank. No deck-conflict or era score
+changes this order. The reason is
+`Run in N% of <archetype> decks` or `Format staple`. The chip reads
+`For <archetype> decks`, and the How it plays panel remains available.
+
+The owner correction removes all own-deck conflict checks. Droll remains eligible
+for Blue-Eyes, Branded, Snake-Eye and Tenpai. Search-heavy and GY-based plans
+neither drop nor demote cards. Real play share sets the generic rank.
+
+Schema version 3 keeps exact archetype denominators, up to 40 generic card
+counts per archetype, and all generic format counts. The format counts are
+independent of the global staple threshold, so a played role card below that
+threshold still has a real format share. There are 109 TCG, 792 Domain and 405
+Genesys generic card counts. The artifact is 342,322 bytes, below 500 KB and uses the existing bounded,
+additive daily refresh. Public global card shares and average copies are unchanged.
+Private saved-deck aggregates need 20 distinct complete lists and 10 owners within the requesting guild. Each owner votes once per format from their latest complete list. Cards and their reported archetype counts require at least three owners. They publish
+no owner IDs. A private cohort uses its own format share fallback; public archetype
+percentages are not mixed into it.
+
+Normal uses TCG unless its ban list selects OCG. OCG and Genesys Domain have no
+independent sample and keep the old role and popularity fallback.
+
 ## Source verification (2026-10-20)
 
 - 176 targeted integration checks pass across the shared real-catalog evaluator,

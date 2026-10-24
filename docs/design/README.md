@@ -9,10 +9,6 @@ Approved by the owner on 2026-10-02. The app builds it as the draft room (`packa
 - `workshop.html`: every feature explained, with screenshots.
 - `cube-night.html`: the interactive mock. Use the grey "Mock controls" tab to change state.
 
-## Multiplayer table space (`table-space-v2/`)
-
-Live reference for the 3-way Plaza, the Tag Rooftop, and the open 4-way grid work. Review it again when the 4-way grid ships.
-
 ## 3D mode baseline (`duel-3d-mode/concept/solid-vision/` and `duel-3d-mode/concept/assets/`)
 
 The Solid Vision concept page, used as the e2e baseline by `packages/web/e2e/duel-3d-mode.playwright.ts` (it loads `index.html` and `shots/*.png`). The page loads `../assets/`, so keep both folders. Local card art, no network needed.
