@@ -2,6 +2,8 @@
 
 **Status:** accepted
 
+> **Note (2026-10-24):** Parts of this record are history. [ADR 0006](0006-admin-discord-bot.md) removed the bot's port 4001 announce server. Web and worker run with `DISCORD_BOT_ENABLED=0`, so no Announcement is sent. The `createAnnouncer` facade code still exists in `packages/shared/src/notify/`. Signing moved to the v2 scheme in `packages/shared/src/internal-auth` (`x-internal-signature`). The draft timer moved from the bot to `packages/worker`. `createBroadcaster` is still the path to the WebSocket server.
+
 Bot and web make HMAC-signed HTTP POSTs to two internal endpoints: the WebSocket server (real-time **Broadcasts** — `/internal/draft/*`, `/internal/tournament/*`) and the bot's announce server (**Announcements** — `/internal/announce/*`). This was copy-pasted across four helper files (`notify-ws.ts` ×2, `notify-ws-tournament.ts`, `announce-bot.ts`) and 36 call sites that each re-supplied `{ url, secret }`. We consolidated it into one internal `signedPost` primitive (HMAC + fetch + error policy) plus two typed factory facades — `createBroadcaster(cfg)` (void, fire-and-forget; covers both ws endpoint families) and `createAnnouncer(cfg)` (returns `AnnounceResult`; bot announce only) — living in `@yugidraft/shared`, with config injected at construction so tests bind an in-memory fake.
 
 ## Considered options

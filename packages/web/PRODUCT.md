@@ -7,19 +7,19 @@
 web
 
 ## Users
-Yu-Gi-Oh players in organized Discord communities. They draft cards together (booster, cube, or theme drafts), then duel each other in the browser with the decks they drafted or imported. Secondary audience: organizers who run tournaments, and spectators who watch duels. Players use the duel field on desktop and on phones, and both must be equally good.
+Yu-Gi-Oh players in an organized community (often with a Discord server). They draft cards together (booster, cube, or theme drafts), then duel each other in the browser with the decks they drafted or imported. Secondary audience: organizers who run tournaments, and spectators who watch duels. Players use the duel field on desktop and on phones, and both must be equally good.
 
 ## Product Purpose
-Dueling Domain is the play surface for a Discord community: drafts, tournaments, and duels start and notify through Discord, and the web app is where people actually play. The duel field runs a full automatic rules engine (ygopro core, Master Rule 5) so players only make legal choices; the engine owns rules, the UI owns clarity. Success is a duel that is fast to play, easy to read at a glance, and memorable at its big moments.
+Dueling Domain is the lobby and the play surface for its community: drafts, tournaments and duels start on the web app, and live updates arrive in the app. Discord is optional; an admin bot helps run the community server. The duel field runs a full automatic rules engine (ygopro core, Master Rule 5) so players only make legal choices; the engine owns rules, the UI owns clarity. Success is a duel that is fast to play, easy to read at a glance, and memorable at its big moments.
 
 ## Positioning
 - Draft then duel: the same community and the same app take a player from drafting a pool to dueling with it.
 - Domain format: a custom format where each duelist has a Deck Master in a dedicated zone, in 1v1, Tag and free-for-all, with returns and an LP surcharge. No other simulator has it.
-- Browser, no install: a full automatic engine in the browser, with Discord sign-in only.
+- Browser, no install: a full automatic engine in the browser. Sign-in is Clerk email/password or Discord, by invitation from the waitlist.
 - The best-looking, most readable board of any simulator.
 
 ## Operating Context
-- Duels are created from the web dashboard or Discord, with lobby settings (format, engine and Master Rule, banlist, card pool, starting LP, hand size, draw count, turn timer, timeout rule, deck validation, opening order, visibility).
+- Duels are created from the web dashboard, with lobby settings (format, engine and Master Rule, banlist, card pool, starting LP, hand size, draw count, turn timer, timeout rule, deck validation, opening order, visibility).
 - Players import decks as YDK files or pasted YDK, then mark Ready; the host validates decks.
 - Live state arrives through the duel host and WebSocket; the practice bot can fill a seat.
 - Spectators can watch; the duel log and card inspector are part of play.

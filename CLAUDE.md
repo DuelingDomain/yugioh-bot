@@ -15,7 +15,7 @@ npm run duel:prepare
 npx tsx packages/duel-server/scripts/build-domain-core.ts
 
 # Development (run each in separate terminals)
-# Optional shelved bot: npm run dev:bot (isolated credentials, DISCORD_BOT_ENABLED=1)
+npm run dev:bot      # Admin Discord bot (idles unless DISCORD_BOT_ENABLED=1; use a test guild)
 npm run dev:worker   # Gameplay timers, set sync and image eviction
 npm run dev:ws       # WebSocket server with hot reload
 npm run dev:duel     # Private EDOPro engine host with hot reload
@@ -43,7 +43,7 @@ npm test --workspace=packages/worker
 npm test --workspace=packages/duel-server
 
 # Run a single test file (bot/shared — no config needed)
-npx vitest run packages/bot/tests/services/drafts.test.ts
+npx vitest run packages/shared/tests/services/drafts.test.ts
 
 # Run a single web test file (must specify the web vitest config)
 npx vitest run packages/web/tests/cards-resolve-route.test.ts -c packages/web/vitest.config.ts
@@ -59,59 +59,37 @@ docker compose -f docker-compose.yml up -d --no-build
 # Seed test data and restart services
 npm run reset:test-data
 
-# Deploy Discord slash commands
+# Deploy the bot's guild commands (exits 0 unless DISCORD_BOT_ENABLED=1)
 npm run commands:deploy --workspace=packages/bot  # dev (tsx)
 ```
 
+## Docs
+
+`docs/README.md` is the index of all docs: architecture, user flows, API contracts, specs, runbooks and audits.
+
+## Runbooks
+
+Every scheduled or recurring job (workflows, worker timers, backups) has a page in `docs/runbooks/README.md` with manual run commands, dependencies and secrets.
+
 ## Architecture
 
-This is an npm workspaces + Turborepo monorepo with seven packages (see `docs/architecture.md` for the full map):
+This is an npm workspaces + Turborepo monorepo with seven packages (see `docs/architecture/README.md` for the full map):
 
 - **`packages/shared`** (`@yugidraft/shared`) — The foundation. Contains the SQLite schema (`src/db/schema.ts`), shared business-logic services (drafts, cubes, matches, tournaments, players, guild settings, card catalog, duels), and WebSocket event types (`src/ws/`). All other packages depend on its built `dist`; rebuild after shared source changes before checking consumers.
-- **`packages/bot`** — Shelved Discord bot (discord.js), outside Compose and deploy service lists. Its Docker target, tests and typecheck remain. Only literal `DISCORD_BOT_ENABLED=1` enables startup or command deployment; disabled startup idles without DB, Discord or HTTP initialization, and command deployment exits 0. It owns none of the four migrated schedulers.
-- **`packages/ws`** — Socket.IO server for draft/tournament updates and duel invalidations/presence. Public browser port 3001 (`WS_PORT`); internal HTTP port 4002 (`WS_INTERNAL_PORT`) receives signed broadcasts from `bot`, `web`, `duel-server`, and `worker`.
+- **`packages/bot`** — Admin Discord bot (discord.js Gateway) per ADR 0006: moderation, server setup, waitlist decisions and community commands. Code is `src/runtime/` (dispatcher, registry, outbox poller) and `src/features/{moderation,server,waitlist,community}/`. It is the Compose service `bot` and ships in deploys, but only literal `DISCORD_BOT_ENABLED=1` starts Discord or opens SQLite; other values keep a healthy idle process. It has no inbound HTTP port and no player commands. It owns no gameplay timers; the worker owns them.
+- **`packages/ws`** — Socket.IO server for draft/tournament updates and duel invalidations/presence. Public browser port 3001 (`WS_PORT`); internal HTTP port 4002 (`WS_INTERNAL_PORT`) receives signed broadcasts from `web`, `duel-server`, and `worker`.
 - **`packages/web`** — Next.js 16 App Router dashboard. Custom Clerk v7 email/password and Discord sign-in, invitation sign-up and password reset. Real-time draft UI uses Zustand (`src/lib/stores/draft-store.ts`) fed by the WebSocket connection.
 - **`packages/duel-server`** (`@yugidraft/duel-server`) — EDOPro engine host using `ocgcore-wasm` and engine workers. `build` compiles TypeScript; `dev` runs `tsx watch src/server.ts`; `start` runs `dist/server.js`. Only exposes private HTTP on `127.0.0.1:4003` by default (`DUEL_INTERNAL_HOST` / `DUEL_INTERNAL_PORT`). Web routes call it through `src/lib/duel-host.ts`.
-- **`packages/worker`** (`@yugidraft/worker`) — Draft expiry (1s), report approval and tournament deadline closure (60s), set metadata sync, image eviction and product-event delivery (10s). Exactly one worker per SQLite file; startup sweeps catch durable deadlines and SIGTERM drains in-flight work. No public port; `WORKER_HEALTH_PATH` holds its local heartbeat.
+- **`packages/worker`** (`@yugidraft/worker`) — Draft expiry (1s), report approval and tournament deadline closure (60s), set metadata sync, Genesys points sync, image eviction, product-event delivery (10s), disk-usage and VPS health snapshots for `/admin`. Exactly one worker per SQLite file; startup sweeps catch durable deadlines and SIGTERM drains in-flight work. No public port; `WORKER_HEALTH_PATH` holds its local heartbeat.
 - **`packages/e2e`** (`@yugidraft/e2e`) — Playwright duel tests on an isolated stack (web/ws/duel plus worker, 3300 port family, own SQLite file/cache/heartbeat, offline HMAC-signed E2E cookie). `E2E_SLOT=0-9` gives concurrent stacks. See `packages/e2e/README.md`.
 
 ### Deployment flow
 
-Every push to `main` runs the **Test** unit suites and selects engine suites by changed paths (an unknown diff runs all suites); a successful push run triggers **Deploy** for that
-run's exact `head_sha`. PR, scheduled and manual Test runs never trigger production. The whole Deploy workflow queues
-with `cancel-in-progress: false` and `queue: max`; an older run cannot cancel a newer pending deploy. The `production`
-environment retains its main-only branch policy and environment secrets, with no required reviewers.
-Automatic deploys wait only for live duels (including RPS/dice openings) and active drafts every 120 seconds,
-sharing one 60-minute budget across the checks before VM changes and immediately before service stops.
-Open tournament rounds and active/between-game series are logged without blocking. Busy timeout or unreadable activity fails closed.
-Manual Deploy from `main` retains `ref`, `force` and `rollback`; the selected SHA must have passed a main push Test.
-Its read-only SQLite guard covers duels, drafts, tournament rounds, active/between-game series and RPS/dice
-openings. Manual `force` skips only this activity guard; engine preflight, build lock and backups still apply.
-Staging is removed; it returns later on a separate server.
-The runner checks the prod target's main ancestry before running its code. Production prepares the
-verified engine bundle in Test alongside independent unit groups and selected engine suites. After the
-unit gate succeeds, Test builds five ARM64 images on `ubuntu-24.04-arm` (at most three together) and
-pushes full-SHA tags to public GHCR packages. Automatic Deploy consumes immutable bundle/digest
-artifact IDs from the exact successful Test run and attempt, without rebuilding. PRs dry-run the bundle
-and an amd64 bot image without publishing. Manual non-rollback Deploy still verifies Test and builds fresh images.
-The VM only pulls and retags them as local `:latest`, preserving `:prev`; its
-runtime Compose file has no build definitions and startup uses `--no-build`. Per-service registry
-`:buildcache` tags use `mode=max` except web (`mode=min`, excluding source-map stages). Web reuses a
-digest-pinned, sanitized `:nextcache` with no Turbopack folder. Only the CI unit web build enables
-`NEXT_BUILD_FS_CACHE=1`; Next/Turbo Actions caches save only on main pushes. Deploy uploads the exact
-source maps and records Sentry releases only after health checks; Test has no upload token or production
-environment. Healthy images get `release-<sha>` tags. Cleanup keeps ten healthy releases, including bot.
-SHA-only versions created before `2026-10-21T00:00:00Z` retain the old newest-ten-SHA rule.
-Unused SHA versions created at or after that cutover and all untagged versions expire after seven days.
-Manual rollback resolves the healthy
-release tag without rebuilding (legacy SHA fallback only for older refs). Each build records its output
-digest; production pulls
-that digest. The VM refuses an older or diverged SHA before the activity wait unless `rollback=true`.
-The lock still protects deploys and owner maintenance. Disk checks require 6 GiB free before pull.
-Retries keep the good `:prev`; only obsolete GHCR SHA tags are removed. Owner tags stay.
-See `docs/deployment/vm-runbook.md` for package visibility, weekly cleanup and recovery.
-Release artifacts, including source maps, are downloadable from this public repository and expire after
-one day; dispatch a new run after expiry.
+- Every push to `main` runs **Test**. A green push run starts **Deploy** for that exact SHA. PR, scheduled and manual Test runs never deploy.
+- Test builds ARM64 images in Actions and pushes them to GHCR. The VM only pulls them; it never builds. Its Compose start uses `--no-build`.
+- Automatic deploys wait for live duels (with RPS/dice openings) and active drafts, up to 60 minutes. Manual Deploy from `main` has `ref`, `force` and `rollback`.
+- Staging is removed. It comes back later on a separate server.
+- Details: `docs/architecture/infrastructure.md` (what runs where), `docs/runbooks/deploy.md` (how to run and check a deploy) and `docs/deployment/vm-runbook.md` (full pipeline, rollback, GHCR retention, recovery).
 
 ### Duel resources and Docker
 
@@ -124,21 +102,21 @@ one day; dispatch a new run after expiry.
 - `Dockerfile` has `bot`, `ws`, `duel`, `web`, `worker`, and `web-dev` runtime targets. Compose mounts `./data` into web/duel/worker/ws; duel startup runs `packages/duel-server/scripts/install-engine-bundle.sh` to validate the prepared bundle. The deploy workflow prepares/caches that bundle separately (`.github/workflows/deploy.yml`) and supplies
   it to the `duel-bundled` image build in Actions and to the VM installer as the same artifact.
 - Production bot/ws/duel/web/worker images run as `node` (uid 1000); application files stay root-owned except web's writable `.next/cache`. Compose drops all capabilities and sets `no-new-privileges`; Caddy retains `NET_BIND_SERVICE`. After writers stop and the engine bundle installs, deploy runs the workflow revision's `prepare-runtime-data.sh` helper (carried through the release artifact and SSH transfer for older refs) before the migration container and immediately before service startup. It prepares SQLite files, card images, duel runtime/reports and private `ops-reports` for uid/gid 1000 without changing existing modes. Worker heartbeat stays in container-local `/tmp`. Host UID/GID overrides remain in the dev Compose override.
-- Compose binds duel to `0.0.0.0:4003` inside the Docker network and sets web's `DUEL_INTERNAL_URL=http://duel:4003`. On `SITE_DOMAIN` (the app), Caddy caps request bodies at 1 MB and routes `/socket.io/*` to `ws:3001` and other app HTTP to `web:3000`. Both app and marketing import `(posthog_ingest)` to proxy anonymous `/ingest` and `/ingest/*` directly to PostHog EU before app/static fallbacks, stripping Cookie, Authorization and Referer upstream. Optional `MARKETING_DOMAIN` serves `site/public` read-only, proxies only `POST /api/waitlist`, and redirects `/login` to the app; `LEGACY_DOMAIN` redirects old paths to the app with 308. Empty extra domains use reserved `.localhost` defaults. Deploy recreates Caddy, refreshing its Caddyfile bind mount. See `docs/deployment/domains.md` for routing. Internal ports 4001/4002/4003 are not published. The dev override adds a shared TypeScript watcher and exposes web/ws on 3000/3001.
+- Compose binds duel to `0.0.0.0:4003` inside the Docker network and sets web's `DUEL_INTERNAL_URL=http://duel:4003`. On `SITE_DOMAIN` (the app), Caddy caps request bodies at 1 MB and routes `/socket.io/*` to `ws:3001` and other app HTTP to `web:3000`. Both app and marketing import `(posthog_ingest)` to proxy anonymous `/ingest` and `/ingest/*` directly to PostHog EU before app/static fallbacks, stripping Cookie, Authorization and Referer upstream. Optional `MARKETING_DOMAIN` serves `site/public` read-only, proxies only `POST /api/waitlist`, and redirects `/login` to the app; `LEGACY_DOMAIN` redirects old paths to the app with 308. Empty extra domains use reserved `.localhost` defaults. Deploy recreates Caddy, refreshing its Caddyfile bind mount. See `docs/deployment/domains.md` for routing. Internal ports 4002/4003 are not published (the old bot port 4001 is gone). The dev override adds a shared TypeScript watcher and exposes web/ws on 3000/3001.
 
 ### Database
 
-Single SQLite file (root `data/bot.sqlite`) shared between web, WS, duel-server and worker (and an explicitly run shelved bot). Every process must use the same absolute `DATABASE_PATH`; Compose sets `/app/data/bot.sqlite` explicitly. For native development, set an absolute path in your checkout before starting services. The worker also requires an absolute `CARD_IMAGE_CACHE_DIR`, shared with web. `openDatabase` enables WAL, a 5000-ms busy timeout and foreign keys, then calls the idempotent `migrate(db)` in `packages/shared/src/db/schema.ts`. Identity releases migrate once offline before starting all updated consumers together; see the VM runbook for matched DB/code/env rollback.
+Single SQLite file (root `data/bot.sqlite`) shared between web, WS, duel-server, worker and the bot (when enabled). Every process must use the same absolute `DATABASE_PATH`; Compose sets `/app/data/bot.sqlite` explicitly. For native development, set an absolute path in your checkout before starting services. The worker also requires an absolute `CARD_IMAGE_CACHE_DIR`, shared with web. `openDatabase` enables WAL, a 5000-ms busy timeout and foreign keys, then calls the idempotent `migrate(db)` in `packages/shared/src/db/schema.ts`. Identity releases migrate once offline before starting all updated consumers together; see the VM runbook for matched DB/code/env rollback.
 
 `users.id` is application identity. `players.user_id` links it to an unchanged gameplay player ID in the configured community. Owners/creators store integer user IDs; `session.user.id` is their canonical decimal string. Clerk sessions resolve through `session-identity.ts` to `users`, fetching the Backend API only for missing/stale (>5 minutes) or forced sync. Verified Discord linking runs transactionally and preserves gameplay history; email-only members work without Discord membership checks. `session.user.discordUserId` is nullable. Draft room tokens use application IDs; duel tokens still use player IDs.
 
 ### Service pattern
 
-Shared business logic lives in factory functions: `createDraftService(db)`, `createMatchService(db)`, etc. These are defined in `packages/shared/src/services/` and consumed by bot/web/duel-server/worker. Worker services own draft/tournament timers, set sync and shared filesystem eviction. Bot services under `packages/bot/src/services/` retain command-facing draft cleanup, Discord notification cleanup and reminders; draft images re-export the shared implementation. Bot template commands use the shared `createCubeService`.
+Shared business logic lives in factory functions: `createDraftService(db)`, `createMatchService(db)`, etc. These are defined in `packages/shared/src/services/` and consumed by bot/web/duel-server/worker. Worker services own draft/tournament timers, set and Genesys sync and shared filesystem eviction. The bot uses `@yugidraft/shared/discord-admin` (access, audit, Discord outbox) and `@yugidraft/shared/services/waitlist-decisions`.
 
 ### Discord interaction wrappers
 
-The bot wraps all discord.js interactions into framework-agnostic `*Like` types (e.g., `CommandInteractionLike`, `ButtonInteractionLike`) before passing them to handlers in `src/interactions/` and `src/commands/handlers.ts`. This keeps handler logic testable without Discord mocks.
+The bot dispatcher (`packages/bot/src/runtime/`) wraps discord.js interactions into framework-agnostic `*Like` types (`CommandInteractionLike`, `ButtonInteractionLike`, `ModalInteractionLike`, `AutocompleteInteractionLike`) before it calls the feature handlers in `src/features/*/`. The module contract is in `src/runtime/types.ts` and ADR 0006.
 
 ### Error reporting
 
@@ -149,9 +127,9 @@ Node services preload an instrument module; existing worker and duel shutdown dr
 ### Inter-service communication
 
 - Internal HTTP uses `signedTransport` and `readSignedRequest` in `packages/shared/src/internal-auth`: purpose-derived HMAC-SHA256 over the version, method, path with query, timestamp and exact JSON body. The header is `x-internal-signature: t=<unix seconds>,v2=<hex>`; receivers enforce a 60-second timestamp window and a 64 KB body limit before parsing JSON. Purposes are `ws-broadcast`, `duel-host` and `bot-announce`; existing secrets stay unchanged.
-- **Bot/web/duel-server/worker → ws**: `createBroadcaster` posts draft/tournament events to `/internal/draft/*` and `/internal/tournament/*`; duel invalidations use `/internal/duel/changed`. Uses `WS_INTERNAL_URL` / `WS_INTERNAL_SECRET` on port 4002 (`packages/ws/src/internal-http.ts`).
+- **Web/duel-server/worker → ws**: `createBroadcaster` posts draft/tournament events to `/internal/draft/*` and `/internal/tournament/*`; duel invalidations use `/internal/duel/changed`. Uses `WS_INTERNAL_URL` / `WS_INTERNAL_SECRET` on port 4002 (`packages/ws/src/internal-http.ts`).
 - **Discord effects**: Compose fixes `DISCORD_BOT_ENABLED=0` on web and worker. Mutations commit and publish WS updates without bot HTTP or Discord REST. `/api/discord/channels` and `/api/tournaments/[slug]/announce` return 404 `{ "error": "discord_disabled" }`. Discord capability reaches UI through server-rendered props.
-
+- **Web → bot**: no HTTP. With `DISCORD_ADMIN_OUTBOX_ENABLED=1`, web writes waitlist alerts and decision edits to the shared `discord_outbox` table; the bot's poller claims and posts them every three seconds.
 - **Web → duel-server**: `packages/web/src/lib/duel-host.ts` posts operations to `/internal/duel` with `DUEL_INTERNAL_URL` / `DUEL_INTERNAL_SECRET` on port 4003. URL defaults to `http://127.0.0.1:4003`; Compose uses `http://duel:4003`. Browsers use authenticated web API routes.
 - **Browser → ws**: Socket.IO connects to `NEXT_PUBLIC_WS_URL` (falls back to the page origin). Draft/tournament joins use slugs. Duel joins require a 5-minute token from `/api/duels/[slug]/connection`, signed with a `duel-room` key derived from `WS_INTERNAL_SECRET` over JSON claims (`slug`, `guildId`, `playerId`, `seat`, `expiresAt`); ws verifies it in `src/duel-events.ts`. See `packages/shared/src/ws/duel-token.ts`. Duel hooks fetch fresh credentials and retry once on token rejection. Draft/tournament token labels remain unchanged.
 
@@ -182,24 +160,24 @@ Owner tools ship in the worker image: `node packages/worker/dist/ops/cli.js seas
 
 ### Draft flow
 
-Drafts are started from the web dashboard; the shelved bot retains its command implementation. The worker's draft timer (`packages/worker/src/draft-timer.ts`) polls active drafts every second and expires pick steps past their deadline, then notifies the ws server. The ws server broadcasts to all browser clients in the draft's Socket.IO room.
+Drafts are started from the web dashboard; the bot has no draft commands. The worker's draft timer (`packages/worker/src/draft-timer.ts`) polls active drafts every second and expires pick steps past their deadline, then notifies the ws server. The ws server broadcasts to all browser clients in the draft's Socket.IO room.
 
 ### Cubes and theme draft mode
 
 - New theme drafts require web runtime `THEME_DRAFTS=1|true|on` (default off in every build); production Compose defaults to `0`, and existing theme lobbies/games, summaries and deck exports remain available when off. `GET /api/drafts` and `GET /api/cubes` return `themeDraftsEnabled` for the browser.
 - Reusable pools/configs live in `cubes` / `cube_cards` (`main`/`extra` pools, per-card `max_copies`, draft config in `config_json`). `createCubeService` supports archetype seeding, passcode imports, and saved configs; `applyCubeToConfig` supplies shared booster-style drafts. The library/editor uses `/cubes`, `/cubes/[id]`, and `/api/cubes`; `/themes` and `/themes/[id]` redirect to the corresponding cube pages. Legacy theme and draft-template tables are dropped by migration.
-- Cubes are private to their application owner. Library lists, template commands and autocomplete use `users.id` (Discord resolves through `users.discord_user_id`). Foreign cube pages and APIs return 404. New draft references and attachments require ownership; existing attached foreign cubes remain usable by the host and seated players. Draft previews use `/api/drafts/[slug]/cubes/[id]` for attached theme cubes only. Booster pools and preflight follow draft read access; non-member responses hide `poolSource`. Theme cube details stay limited to the host and seated players. Unknown or missing owners receive no library access. Cube names use `unique (guild_id, created_by_user_id, name)`; saving a template cannot transfer ownership. The migration preserves existing cubes and attachments.
+- Cubes are private to their application owner. Library lists use `users.id`. Foreign cube pages and APIs return 404. New draft references and attachments require ownership; existing attached foreign cubes remain usable by the host and seated players. Draft previews use `/api/drafts/[slug]/cubes/[id]` for attached theme cubes only. Booster pools and preflight follow draft read access; non-member responses hide `poolSource`. Theme cube details stay limited to the host and seated players. Unknown or missing owners receive no library access. Cube names use `unique (guild_id, created_by_user_id, name)`; saving a template cannot transfer ownership. The migration preserves existing cubes and attachments.
 - `DraftConfig.mode === "theme"` deals each player privately from an assigned cube. `allowedCubeIds` controls available cubes; `draft_player_cube` stores assignments. `themeSelection` still supports `host_assigned`, `random`, and `player_pick`; `uniqueThemes` controls distinct assignments.
 - In `packages/shared/src/services/drafts.ts`, `startThemeDraft` assigns seats/cubes and checks main-pool sufficiency; `openThemeRound` deals up to `themePackSize` choices; `pickThemeCard` advances `current_wave_number` once everyone dealt a pack has picked. Main-deck rounds precede optional extra-deck rounds; `burnUnpicked` controls whether unpicked choices return to the pool.
 - Web flow: `/drafts/new` → `/drafts/new/theme` → lobby cube creation/attachment, claim/preview, and start preflight. Draft cube management uses `/api/drafts/[slug]/cubes`; player claims use `/api/drafts/[slug]/claim-cube` with `cubeId`; analysis uses `/api/drafts/[slug]/preflight`. Card catalog supports `syncByArchetype`, `listArchetypes`, and `card_catalog.archetype`.
 
 ### Card catalog
 
-Card data is fetched from ygoprodeck.com and cached in `card_catalog`. Web catalog and image requests share a per-member budget of 20 unfinished fetches (`CARD_FETCH_MEMBER_QUEUE_LIMIT` overrides the service default); a full budget returns 429. Manual `POST /api/sets` sync is limited to one attempt per member every ten minutes. The worker syncs set metadata at `SETS_SYNC_CRON` (default `0 6 * * *`, `SETS_SYNC_TIMEZONE=UTC`). Bot images, the web card-image route and the worker share the same absolute `CARD_IMAGE_CACHE_DIR` (Compose: `/app/data/card-images`). Worker startup and cron cleanup evict oldest files over `CARD_IMAGE_CACHE_MAX_BYTES` (default `16106127360`, 15 GiB) on `IMAGE_CLEANUP_CRON` (default `0 4 * * *`, `IMAGE_CLEANUP_TIMEZONE=UTC`). Next image optimization is off (`packages/web/next.config.ts`).
+Card data is fetched from ygoprodeck.com and cached in `card_catalog`. Web catalog and image requests share a per-member budget of 20 unfinished fetches (`CARD_FETCH_MEMBER_QUEUE_LIMIT` overrides the service default); a full budget returns 429. Manual `POST /api/sets` sync is limited to one attempt per member every ten minutes. The worker syncs set metadata at `SETS_SYNC_CRON` (default `0 6 * * *`, `SETS_SYNC_TIMEZONE=UTC`). The web card-image route and the worker share the same absolute `CARD_IMAGE_CACHE_DIR` (Compose: `/app/data/card-images`). Worker startup and cron cleanup evict oldest files over `CARD_IMAGE_CACHE_MAX_BYTES` (default `16106127360`, 15 GiB) on `IMAGE_CLEANUP_CRON` (default `0 4 * * *`, `IMAGE_CLEANUP_TIMEZONE=UTC`). Next image optimization is off (`packages/web/next.config.ts`).
 
 ## Design context (`.impeccable.md`)
 
-Dark-mode-first competitive UI. High-contrast card displays, crisp typography, minimal chrome. Accent colors from Yu-Gi-Oh brand (purple/gold) used sparingly for active states. Design principles: speed over ceremony, live state is truth, draft-room immersion, Discord is the lobby.
+Dark-mode-first competitive UI. High-contrast card displays, crisp typography, minimal chrome. Accent colors from Yu-Gi-Oh brand (purple/gold) used sparingly for active states. Design principles: speed over ceremony, live state is truth, draft-room immersion, the web app is the lobby (Clerk sign-in; Discord is optional).
 
 ## Agent skills
 

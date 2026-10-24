@@ -1,12 +1,6 @@
 # Community commands
 
-Implementation plan (owner-approved scope in `bot-phase1-common.md` and `discord-bot-plan.md`):
-
-1. Add integration coverage with real migrated SQLite, the real dispatcher/adapters and a local Discord HTTP/Gateway stub. No unit tests.
-2. Add `/announce`: an optional slash-command role selector (Discord's server-role list), then a title/body/HTTPS-image modal; an actor-bound, one-use Post/Cancel preview that expires in 60 seconds. Check admin access at every step and role hierarchy at selection and posting. Post to the configured same-guild text/announcement channel, crosspost announcement messages, and record the result through the shared audit/outbox API.
-3. Add `/card`: bounded catalog queries plus a read-only, cached engine CDB reader; include previews based on the engine's `ot & 0x100` flag or `card_catalog.is_prerelease`. Public reply, five requests per user per 30 seconds. Load only the duel-server banlist module when available; otherwise state that TCG status is unavailable.
-4. Add `/online` and `/stats`: direct SQLite readers with the exact definitions in `origin/feat/admin-console-live-stats` (`5a2bfb54f`) and `origin/feat/admin-console` (`e49ee6339`). Guard missing presence columns. Keep the 500-user/100-live-row limits and UTC/weekly distinct-user semantics.
-5. Run the feature integration tests, Phase 0 bot tests, bot typecheck and build; review the diff, commit with the required trailer, and push `feat/discord-bot-community`. No PR.
+This page covers the admin commands `/announce`, `/online` and `/stats`, and the public `/card` command. The folder also holds the welcome card (`welcome.ts`, `/welcome preview`) and the status post (`status.ts`). Tests are integration tests only, with real migrated SQLite, the real dispatcher and adapters, and a local Discord HTTP/Gateway stub.
 
 ## Configuration and access
 

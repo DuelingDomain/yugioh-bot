@@ -21,7 +21,6 @@ SITE_DOMAIN=app.duelingdomain.com
 MARKETING_DOMAIN=duelingdomain.com
 LEGACY_DOMAIN=duelistskingdom.com
 MARKETING_URL=https://duelingdomain.com
-NEXTAUTH_URL=https://${SITE_DOMAIN}
 WEB_URL=https://${SITE_DOMAIN}
 ```
 After `.env` edits, run `docker compose -f docker-compose.yml up -d --no-build`. After Caddyfile edits, run `docker compose -f docker-compose.yml up -d --no-build --no-deps --force-recreate caddy`; `restart` does not refresh the bind mount.
@@ -160,7 +159,7 @@ The app's Caddy-served `/robots.txt` allows crawling (`User-agent: *`, `Allow: /
 The reported Safe Browsing "Deceptive pages" issue is separate from indexing and trust copy. After the sign-in remediation is deployed and checked, the owner should review the affected URLs in Search Console's Security issues report and request a review. Publishing contact details or changing robots rules does not by itself resolve that classification.
 
 **Clerk:** The app signs in through Clerk (application "Dueling Domain"); there is no NextAuth origin or web Discord credential left.
-- **Instances:** development (`ins_3KLXWtn1cgAToznzTpN0azZeq2k`, dev keys only in an ignored `packages/web/.env.local`), production on `app.duelingdomain.com`, and a separate staging instance with its own keys and HTTPS origin. Never copy keys or Clerk user IDs between instances; staging scrubs `clerk_user_id` from copied databases.
+- **Instances:** development (`ins_3KLXWtn1cgAToznzTpN0azZeq2k`, dev keys only in an ignored `packages/web/.env.local`), and production on `app.duelingdomain.com`. Staging is removed. A future staging server needs its own Clerk instance, keys and HTTPS origin. Never copy keys or Clerk user IDs between instances. Scrub `clerk_user_id` from a database before you copy it to another instance.
 - **DNS:** creating the production instance lists the exact CNAME records (Frontend API, accounts, and the email DKIM/return-path records). Add each in Namecheap, wait for Clerk to show them verified, and record the readback here before deploying.
 - **Keys:** `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is the repository variable `vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (must be `pk_live_*`) and a web build arg only. `CLERK_SECRET_KEY` is web runtime only; owner commands get it explicitly with `docker compose run --rm --no-deps -e CLERK_SECRET_KEY worker ...`.
 - **Env:** `WEB_URL=https://app.duelingdomain.com` (web links and WS CORS), `MARKETING_URL=https://duelingdomain.com`, `OWNER_USER_IDS` (owner-only pages), `DISCORD_BOT_ENABLED=0`.

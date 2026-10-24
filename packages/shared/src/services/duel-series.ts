@@ -66,7 +66,7 @@ export type SeriesResultRetry =
 
 /**
  * Matches of 1 or 3 games. CONTRACT (see
- * docs/superpowers/specs/2026-09-30-duel-results-tournaments-draft-decks-design.md):
+ * docs/specs/2026-09-30-duel-results-tournaments-draft-decks-design.md):
  * the duel service calls the series hooks inside its own transactions (game 1
  * activation and game finish), so callers never call them directly.
  */

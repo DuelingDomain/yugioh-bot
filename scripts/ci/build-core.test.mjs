@@ -91,7 +91,7 @@ test("unpinned targets still require a nonempty core and report the missing bina
 
 test("CI binary pins preserve main's documented hashes", () => {
   const pins = readFileSync(new URL("../../packages/duel-server/domain-core/expected-sha256.txt", import.meta.url), "utf8");
-  const docs = readFileSync(new URL("../../docs/deployment/staging.md", import.meta.url), "utf8");
+  const docs = readFileSync(new URL("../../docs/engine/core-pins.md", import.meta.url), "utf8");
   const labels = { domain: "Domain 1v1", multi: "Standard multiplayer", "multi-domain": "Domain multiplayer" };
   for (const [target, label] of Object.entries(labels)) {
     const line = docs.split("\n").find((line) => line.startsWith(`| ${label} |`));

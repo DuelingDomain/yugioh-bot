@@ -19,5 +19,6 @@ The Solid Vision concept page, used as the e2e baseline by `packages/web/e2e/due
 
 ## Contracts
 
+- `bigger-field-contract.md`: the owner's bigger-field rules and the shared drawer and fit pieces in `packages/web/src/components/duel/edge-drawer/`.
 - `coin-toss/backend.md`: the coin toss timing contract (`MIN_DUEL_FX_SPEED`, `COIN_CHAIN_BEAT_MAX_MS`, `MAX_COIN_TOSS_GRACE_MS`).
 - `fx/destroy-sequence.md`: the destroy sequence rule that the move plan follows.
