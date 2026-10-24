@@ -89,6 +89,7 @@ import styles from "./room.module.css";
 import hudStyles from "./table/grid-hud.module.css";
 import { hudPreview } from "./table/hud-preview";
 import { GridHoverPreview } from "./table/grid-preview";
+import { lastPressWasTouch, useYieldToHover } from "./hover-drawer";
 import { RowPreviewBoundary, useHudEscape, useHudPane, useDrawerPin, usePinSync, refreshHover, useRowPreview } from "./table/hud-layer";
 import { clockStrip, hudClockBank, hudMasterProps, stationTrackProps } from "./table/hud-shared";
 import { SEAT_TONE_HEX } from "./table/types";
@@ -571,19 +572,21 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // look, and the 3 and 4 seat tables and the Tag table have their own shells.
   const hud = !narrow && data?.engine != null && !isMultiSeat(data.engine) && !liveTable && view.mode !== "3d";
   const hudState = useHudPane();
+  // The viewer picks on the board: a hover on a target shows that card over a pinned one (hud-preview.ts).
+  const picking = useYieldToHover();
   const closeHud = hudState.close;
   const closePrivateHud = hudState.closePrivate;
   // The panes are edge drawers that close themselves (Esc, a press outside, the tab). Only the pinned peek goes through the HUD's own dismiss.
   useHudEscape({ ...hudState, pane: null }, hud, Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen);
   usePinSync(hudState, data?.engine?.seats);
   // The drawer pin of the shells without the HUD: Esc, a press on the bare background and the board sync (see useDrawerPin).
-  const drawerPinned = !hud && pinnedCard != null;
   useDrawerPin(hud ? null : pinnedCard, setPinnedCard, {
     seats: data?.engine?.seats, suspended: Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen,
   });
     const promptMenuOpen = Boolean(activeMenu) || deckMenuOpen;
-  // An open flyout or a pinned card holds only Esc (it closes it); the other prompt keys keep answering.
-  const hudFlyoutOpen = hud && (hudState.pane != null || hudState.pinned != null);
+  // An open flyout holds only Esc (it closes it); the other prompt keys keep answering. A pinned card does not hold it: the prompt checks that itself
+  // (prompt-center.tsx), because a prompt that Esc answers (Pass, No, Cancel) takes the key and the pin stays.
+  const hudFlyoutOpen = hud && hudState.pane != null;
   const rowPreview = useRowPreview(prompt?.id ?? null);
 
   // Human attack flow: pick the attacker in the menu (preview arrow), aim at a target, confirm.
@@ -947,7 +950,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     const opensPile = pileOpening.current;
     // The pin stays through a prompt, a pick and a chain: a click on a card pins it (also when it opens a card menu), a click on an empty zone
     // that no prompt took lets the pin go. A pick that a prompt takes leaves the pin as it is.
-    if (card && !preserveInspector && !hud && !opensPile) showInspector({ type: "card", card });
+    // A finger tap that starts a move (the card menu opens) does not pin: the menu and the answer panels need the board. A mouse press pins it.
+    const startsMove = !busy && prompt != null && data?.mySeat != null && prompt.seat === data.mySeat
+      && (prompt.kind === "choice" || prompt.kind === "toggle") && optionsForCard(prompt, card, keys).length > 0;
+    if (card && !preserveInspector && !hud && !opensPile && !(startsMove && lastPressWasTouch())) showInspector({ type: "card", card });
     if (busy || error || catchingUp || fieldHeld) {
       if (card && !preserveInspector && hud && !opensPile) pinClicked(card, anchor);
       else if (!card && hud && !preserveInspector) hudState.pinCard(null);
@@ -1300,9 +1306,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   };
   exitRef.current = exitDuel;
   // The Surrender confirm is a modal: the HUD flyout that held the button closes, so the modal owns Esc.
-  const askSurrender = () => { hudState.close(); setConfirmSurrender(true); };
+  const askSurrender = () => { hudState.closePane(); setConfirmSurrender(true); };
   // The Cancel duel confirm is a modal too: the flyout closes the same way.
-  const askCancel = () => { hudState.close(); setConfirmCancel(true); };
+  const askCancel = () => { hudState.closePane(); setConfirmCancel(true); };
   const surrenderOpen = confirmSurrender && canSurrender;
   const surrenderModal = <SurrenderModal open={surrenderOpen} busy={busy || tossLocked} multiplayer={multi && (format === "ffa3" || format === "ffa4")} tag={multi && format === "tag"}
     onClose={() => setConfirmSurrender(false)} onConfirm={() => {
@@ -1665,7 +1671,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // The drawer of the shells without the HUD: the same hover / pin / row logic, with the pin held here.
   const drawerPreview = hud || mobileInspect ? null : hudPreview(
     hover?.card ?? null, activeMenu?.card, rowPreview.card,
-    (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), pinnedCard);
+    (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), pinnedCard, picking);
   const hudMaster = (seatView: NonNullable<typeof engine>["seats"][number] | undefined, local: boolean, title: string) =>
     hudMasterProps({ legalKeys: fieldLegalKeys, selectedKeys, canAct, prompt, onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onHoverCard }, seatView, local, title, true);
   // The Deck Master badges (name plates of the 1v1 board and the 3D room) read the master of their seat from here.
@@ -1767,7 +1773,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       data-prompt-surface={dockMode === "idle" ? undefined : ""}
     >
       <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
-        draft={draft} onSubmit={onSubmitAnswer} menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen || drawerPinned}
+        draft={draft} onSubmit={onSubmitAnswer} menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen}
         active={data.session.status === "active" && !viewerOut} aim={promptAim} headless={centered} suspended={centered && !revealed}
         waitingName={(multi || forkMode) && prompt ? playerName(prompt.seat) : null}
         disabledIds={engine ? outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats)) : undefined} />
@@ -1831,7 +1837,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <RowPreviewBoundary row={rowPreview} enabled>
         <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}
         busy={busy || Boolean(error) || catchingUp || (prompt == null && pick.waiting != null)} offline={Boolean(error)} draft={draft} onSubmit={onSubmitAnswer}
-        menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen || drawerPinned} chain={engine.chain} aim={promptAim}
+        menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen} chain={engine.chain} aim={promptAim}
         aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
         reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
         outSeats={outOrLeavingSeats(engine.seats)} leavingSeats={leavingOnlySeats(engine.seats)}
@@ -1899,7 +1905,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       {pickHintShown && pickHint ? <PickRefusalHint anchor={pickHint.anchor} text={pickHint.text} onDone={clearPickHint} /> : null}
       {!hud ? (
         <GridHoverPreview card={drawerPreview?.card ?? null} owner={drawerPreview?.owner ?? null} reducedMotion={preferences.reducedMotion}
-          pinned={drawerPreview?.pinned === true} held={drawerPreview?.held === true} onClose={() => setPinnedCard(null)} />
+          pinned={drawerPreview?.pinned === true} held={drawerPreview?.held === true} pin={drawerPreview?.pin ?? null} onClose={() => setPinnedCard(null)} />
       ) : null}
       <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)}
         className={solid ? SOLID_SHEET_CLASS : undefined}
@@ -2043,7 +2049,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           nameOf={playerName}
           seatTones={hudSeatTones}
           logUnread={logUnread}
-          preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hudState.pinned)}
+          preview={hudPreview(hover?.card ?? null, activeMenu?.card, rowPreview.card, (card) => ({ name: playerName(card.controller), ...(hudSeatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hudState.pinned, picking)}
           equipLinks={resolveEquipLinks(engine.seats)}
           previewHidden={pickHintShown}
           reducedMotion={preferences.reducedMotion}

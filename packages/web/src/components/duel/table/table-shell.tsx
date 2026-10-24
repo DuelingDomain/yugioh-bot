@@ -22,6 +22,7 @@ import { resolveEquipLinks } from "../equip-links";
 import { DuelFeedback } from "../feedback";
 import { DeckMasterRail, SeatField } from "../field";
 import { FxBoundary, MoveSourceBoundary } from "../fx-boundary";
+import { useYieldToHover } from "../hover-drawer";
 import { duelFontClasses } from "../fonts";
 import { DuelHistoryRail } from "../history-rail";
 import { CardInspector, type InspectTarget } from "../inspector";
@@ -255,6 +256,8 @@ function TableShellBody({
   const hud = !narrow && (grid || plazaHud);
   // No Card drawer in the 3-way plaza or the 4-way grid: a click on a card (and Inspect) opens the pinned card pop-out.
   const hudState = useHudPane({ camera: plazaHud, cardPane: false, initialPane: replayCarry?.current.hudPane });
+  // The viewer picks on the board: a hover on a target shows that card over a pinned one (hud-preview.ts).
+  const picking = useYieldToHover();
   // The shells without the HUD (phone, wide table with the rail) pin a clicked card in the same left drawer as the HUD shells.
   const [pinnedCard, setPinnedCard] = useState<DuelCard | DuelCardInfo | null>(null);
   const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (grid && hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard, onTapCard: hud ? undefined : setPinnedCard });
@@ -263,6 +266,8 @@ function TableShellBody({
   // An open flyout, a pinned card or the pinned drawer of the shells without the HUD holds only Esc (it closes it).
   const drawerPinned = !hud && pinnedCard != null;
   const hudOpen = (hud && (hudState.pane != null || hudState.pinned != null)) || drawerPinned;
+  // Only a flyout holds the prompt's Esc; a pinned card does not (the prompt checks it: a prompt that Esc answers takes the key and the pin stays).
+  const paneOpen = hud && hudState.pane != null;
   // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
   const closeHud = hudState.close;
   // A replay suspends input while another card view loads: the open flyout stays (the table is hidden and inert meanwhile).
@@ -381,7 +386,8 @@ function TableShellBody({
   const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
   // The drawer pin of the shells without the HUD: Esc, a press on the bare background and the board sync (see useDrawerPin).
-  useDrawerPin(hud ? null : pinnedCard, setPinnedCard, { seats: engine.seats, suspended: ui.suspended });
+  // An open panel drawer takes the Esc first (it closes alone, the pin stays under it), as a HUD flyout does.
+  useDrawerPin(hud ? null : pinnedCard, setPinnedCard, { seats: engine.seats, suspended: ui.suspended || drawer.open });
   const actionPrompt = prompt?.kind === "choice" && prompt.context?.type === "action";
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
   const dockMode = !promptMine || prompt == null || centered ? "idle" : actionPrompt ? (prompt.cancelable || prompt.finishable ? "float" : "idle") : "flow";
@@ -469,7 +475,7 @@ function TableShellBody({
   const playersText = session.seats.map((seat) => seat.displayName).join(" v ");
   const logVisible = hud ? hudState.pane === "log" : ui.pane === "log" && (narrow ? sheetOpen : drawer.open);
   const drawerPreview = hud || sheetOpen ? null : hudPreview(
-    ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), pinnedCard);
+    ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), pinnedCard, picking);
   const inspectCard = (target: InspectTarget) => {
     if (target.type !== "pile") {
       if (!hud) setPinnedCard(target.card);
@@ -624,7 +630,7 @@ function TableShellBody({
       busy={controller.busy}
       draft={controller.draft}
       onSubmit={controller.onAnswer}
-      menuOpen={suspended} escapeHeld={hudOpen}
+      menuOpen={suspended} escapeHeld={paneOpen}
       active={!terminal && !viewerOut}
       aim={flow.promptAim ?? undefined}
       headless={centered}
@@ -850,7 +856,7 @@ function TableShellBody({
                     offline={controller.offline}
                     draft={controller.draft}
                     onSubmit={controller.onAnswer}
-                    menuOpen={suspended} escapeHeld={hudOpen}
+                    menuOpen={suspended} escapeHeld={paneOpen}
                     chain={namedChain}
                     aim={flow.promptAim ?? undefined}
                     aimLocked={flow.locked}
@@ -972,7 +978,7 @@ function TableShellBody({
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned)}
+          preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned, picking)}
           equipLinks={resolveEquipLinks(engine.seats)}
           reducedMotion={controller.reducedMotion}
           edge={grid}
@@ -1012,7 +1018,7 @@ function TableShellBody({
       ) : null}
       {!hud ? (
         <GridHoverPreview card={drawerPreview?.card ?? null} owner={drawerPreview?.owner ?? null} reducedMotion={controller.reducedMotion}
-          pinned={drawerPreview?.pinned === true} held={drawerPreview?.held === true} onClose={() => setPinnedCard(null)} />
+          pinned={drawerPreview?.pinned === true} held={drawerPreview?.held === true} pin={drawerPreview?.pin ?? null} onClose={() => setPinnedCard(null)} />
       ) : null}
       {showResult ? (
         <DuelResultScreen

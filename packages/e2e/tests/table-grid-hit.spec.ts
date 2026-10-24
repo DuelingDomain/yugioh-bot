@@ -201,6 +201,43 @@ for (const mode of ["classic", "ffa3", "ffa4", "tag"]) {
 }
 
 for (const mode of ["ffa3", "ffa4", "tag"]) {
+  test(`${mode}: pinning a status hover restores plate avoidance`, async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await page.goto(`/dev/table-preview/${mode}?status=1&reduced=1`);
+    const cards = page.locator('[data-kind="mz"]:has([data-card-status])');
+    await expect(cards.first()).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForTimeout(2_500);
+    let card = cards.first();
+    let found = false;
+    for (let index = 0; index < await cards.count(); index += 1) {
+      const box = await cards.nth(index).boundingBox();
+      if (box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 1366 && box.y + box.height <= 768) {
+        card = cards.nth(index);
+        found = true;
+        break;
+      }
+    }
+    expect(found, "a status card is on screen").toBe(true);
+    await card.hover({ force: true });
+    const preview = page.getByTestId("hover-preview");
+    await expect(preview).toHaveAttribute("data-open", "true");
+    await expect(preview.getByTestId("card-status-list")).toBeVisible();
+    await card.click({ force: true });
+    await page.mouse.move(2, 2);
+    await expect(preview).toHaveAttribute("data-pinned", "true");
+    await expect(preview).toHaveAttribute("data-open", "true");
+    await expect.poll(() => page.evaluate(() => {
+      const drawer = document.querySelector('[data-testid="hover-preview"]')!.getBoundingClientRect();
+      return [...document.querySelectorAll("[data-lp-seat], [data-team-plate]")].filter(plate => {
+        const rect = plate.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0
+          && Math.min(drawer.right, rect.right) - Math.max(drawer.left, rect.left) > 1
+          && Math.min(drawer.bottom, rect.bottom) - Math.max(drawer.top, rect.top) > 1;
+      }).length;
+    })).toBe(0);
+  });
+
   for (const [width, height] of STATUS_SIZES) {
     test(`${mode} ${width}x${height}: the hover drawer lists the whole status and effect text without a scroll bar`, async ({ page }) => {
       test.setTimeout(120_000);

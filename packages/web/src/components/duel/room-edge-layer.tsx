@@ -3,7 +3,7 @@
 import { useCallback, useMemo, type ReactNode } from "react";
 import { Info, ScrollText, SlidersHorizontal, X } from "lucide-react";
 import { EdgeDrawer } from "./edge-drawer";
-import { cardExtraLines, cardScrollerProps } from "./inspector";
+import { pinnedExtraLines, cardScrollerProps } from "./inspector";
 import { ChainTower, HUD_PANE_LABEL, type HudPane } from "./table/grid-hud";
 import { GridHoverPreview } from "./table/grid-preview";
 import { HUD_KEEP, type HudLayerProps } from "./table/hud-layer";
@@ -49,7 +49,7 @@ export function RoomEdgeLayer({
   // A pinned board card adds its equip and material lines to the drawer (protections, counters and negation come from its status list).
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   const extras = useMemo(
-    () => (pinnedBoard ? cardExtraLines(pinnedBoard, equipLinks) : []),
+    () => (pinnedBoard ? pinnedExtraLines(pinnedBoard, equipLinks) : []),
     [pinnedBoard, equipLinks],
   );
   const { pinAnchor } = hud;
@@ -84,6 +84,7 @@ export function RoomEdgeLayer({
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
         held={preview?.held === true}
+        pin={preview?.pin ?? null}
         extras={extras}
         onClose={closePin}
       />
