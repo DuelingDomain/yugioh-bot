@@ -1,6 +1,6 @@
 # Multiplayer core design: one ygopro-core for 1v1, 2v2 Tag, 3FFA and 4FFA
 
-Status: implemented. This is the design rationale. The core is built as 91 patches in `packages/duel-server/domain-core/patches` (numbered 0001 to 0100, with gaps). The Standard and Domain multi cores (`ocgcore.multi.wasm`, `ocgcore.multi-domain.wasm`; `src/engine.ts`) are deployed and run behind `MULTIPLAYER_TABLES` (Compose default on). Architecture overview: `docs/architecture.md`.
+Status: implemented. This is the design rationale. The core is built as 91 patches in `packages/duel-server/domain-core/patches` (numbered 0001 to 0100, with gaps). The Standard and Domain multi cores (`ocgcore.multi.wasm`, `ocgcore.multi-domain.wasm`; `src/engine.ts`) are deployed and run behind `MULTIPLAYER_TABLES` (Compose default on). Architecture overview: `docs/architecture/README.md`.
 Date: 2026-09-30.
 Rules source: `docs/adr/0002-multiplayer-duel-rules.md` (this document follows it exactly).
 Test source: `docs/adr/0003-duel-test-layers.md`.

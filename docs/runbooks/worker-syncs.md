@@ -7,7 +7,7 @@ Three cron jobs inside the `worker` service. The timers are on [Worker timers](w
 | Job | Purpose |
 |---|---|
 | Card set sync | Copies set and card data from ygoprodeck.com into `card_sets` and `card_catalog` |
-| Genesys points sync | Updates Genesys card points. See [genesys-sync.md](../genesys-sync.md) |
+| Genesys points sync | Updates Genesys card points. See [genesys-points.md](../architecture/card-data/genesys-points.md) |
 | Image cache cleanup | Deletes the oldest cached card images when the cache is too big |
 
 ## Schedule & triggers
@@ -40,7 +40,7 @@ docker compose -f docker-compose.yml logs --tail=100 worker | grep -iE "sync|gen
 
 To run a set sync now, change `SETS_SYNC_CRON` in `.env` to the next minute, recreate the worker, then change it back. (No dedicated command exists. Ask the owner if one is wanted.)
 
-Check a Genesys list update locally: see [genesys-sync.md](../genesys-sync.md#checking-a-list-update).
+Check a Genesys list update locally: see [genesys-points.md](../architecture/card-data/genesys-points.md#checking-a-list-update).
 
 ## Check it worked
 

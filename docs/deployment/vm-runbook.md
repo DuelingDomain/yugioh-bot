@@ -108,7 +108,7 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    Each build record stores the builder commit. Packaging prints `builtBy=` and `deployedBy=` separately,
    so cache hits retain the original builder while recording the current deploy checkout.
    The cores and individual checksum/provenance sidecars are added to the deploy tarball, keeping the
-   cached base bundle independent. See [the engine build details](staging.md#engine-files-and-image-build).
+   cached base bundle independent. See [the engine build details](../engine/core-pins.md#engine-files-and-image-build).
    Test uploads the verified tarball and each image digest as one-day artifacts with producer-attempt names.
    Automatic Deploy selects immutable artifact IDs from the exact successful main push Test run,
    commit and verified attempt; it does not rebuild. Missing, expired or wrong-commit artifacts fail closed.
@@ -261,7 +261,7 @@ After stopped-stack maintenance that installs engine data or opens SQLite as roo
 `sh scripts/deployment/prepare-runtime-data.sh data` before a migration container or service start.
 Do not run `docker build` or `docker compose build` on production. Local development can still build
 with Compose; the duel target needs the prepared named engine context described in
-[the local engine checks](staging.md#local-verification-without-starting-services).
+[the local engine checks](../engine/core-pins.md#local-verification-without-starting-services).
 
 ### GHCR owner setup and retention
 
@@ -704,7 +704,7 @@ The `duel` service calls the runtime phrase reader from its `card-query` operati
 The `web` service calls it from `/api/cards/insights` and `/api/cards/resolve`.
 Only these two services receive the three AI helper variables.
 
-Complete the [runtime ledger token setup](../effect-tagging.md#owner-setup-runtime-ledger-token)
+Complete the [runtime ledger token setup](../architecture/effect-search/tagging.md#owner-setup-runtime-ledger-token)
 first. Then add these exact lines to `/opt/yugioh-bot/.env`. Replace
 `YOUR_ANTHROPIC_API_KEY` and `YOUR_LEDGER_TOKEN` with the runtime credentials:
 
@@ -1017,4 +1017,4 @@ sqlite3 -readonly "$DUEL_DB_FILE" "select count(*) as turns_pending from duels w
 
 Pause the timer with `systemctl stop dueling-backup.timer`. Check `systemctl is-active dueling-backup.service` and wait until it is inactive before stopping the application services. If the subshell fails, keep services and the timer stopped and investigate with the preserved backup. On success, inspect numeric owners with `ls -ln` in the data directory, including any `-wal`/`-shm` files, compare file sizes, then restart the application services and `systemctl start dueling-backup.timer`. Check a finished room, history count, and public/own-seat replay. Keep the backup under the operator's backup policy. Do not add VACUUM to startup or periodic jobs.
 
-This release defaults `DUEL_SNAPSHOT_RETENTION_ENABLED=0`. Keep it off until all board readers use the codec and one stable codec release is available for rollback. Then enable it and recreate the duel container. Turn-only backfill still runs while compression and fork cleanup are off. When enabled, the policy compresses final boards after 30 days and deletes only cancelled replay forks after 7 days. See [stored duel boards](../architecture.md#stored-duel-boards) for limits and settings.
+This release defaults `DUEL_SNAPSHOT_RETENTION_ENABLED=0`. Keep it off until all board readers use the codec and one stable codec release is available for rollback. Then enable it and recreate the duel container. Turn-only backfill still runs while compression and fork cleanup are off. When enabled, the policy compresses final boards after 30 days and deletes only cancelled replay forks after 7 days. See [stored duel boards](../architecture/README.md#stored-duel-boards) for limits and settings.

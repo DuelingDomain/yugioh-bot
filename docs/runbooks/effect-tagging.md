@@ -1,6 +1,6 @@
 # Effect tagging
 
-Workflow: `.github/workflows/effect-tagging.yml`. Full design, budget rules and recovery: [effect-tagging.md](../effect-tagging.md).
+Workflow: `.github/workflows/effect-tagging.yml`. Full design, budget rules and recovery: [tagging.md](../architecture/effect-search/tagging.md).
 
 ## Purpose
 

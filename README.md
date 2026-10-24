@@ -1,12 +1,16 @@
 # Dueling Domain
 
-A web app for YuGiOh drafts, tournaments, automated duels and community stats, with a standalone scheduling worker.
+A web app for YuGiOh drafts, tournaments, automated duels and community stats, with a standalone scheduling worker and an admin Discord bot.
+
+## Documentation
+
+Start at [docs/README.md](docs/README.md). It lists every doc folder: architecture, user flows, API contracts, specs, runbooks, audits and design references.
 
 ## Features
 
-### Shelved Discord bot
+### Admin Discord bot
 
-The bot package and Docker target remain buildable, typechecked and tested. PR 2 removes its Compose service and deployment steps; web and worker run with `DISCORD_BOT_ENABLED=0`. Existing bot commands remain in source for an explicitly configured isolated run.
+The bot came back as an admin tool ([ADR 0006](docs/adr/0006-admin-discord-bot.md)). It runs as the Compose service `bot` and registers 22 guild commands for moderation, server setup, waitlist decisions and community features. It has no player commands and no inbound HTTP port. Only literal `DISCORD_BOT_ENABLED=1` starts it; other values keep a healthy idle process. Web and worker always run with `DISCORD_BOT_ENABLED=0`. Setup: [docs/deployment/discord-bot.md](docs/deployment/discord-bot.md).
 
 ### Web Dashboard
 - Custom Clerk email/password and Discord sign-in; invitation sign-up and password reset
@@ -164,7 +168,7 @@ Source attribution: [ocgcore-wasm](https://github.com/n1xx1/ocgcore-wasm), [EDOP
 |---|---|---|
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes (web build/dev) | Web build arg; production repository variable. Dev keys belong in ignored `packages/web/.env.local` only |
 | `CLERK_SECRET_KEY` | Yes (web runtime) | Backend API key; explicitly passed to one-off owner CLI runs, never image builds |
-| `DISCORD_BOT_ENABLED` | Yes | Compose fixes web/worker to `0`; only literal `1` enables an explicitly run shelved bot |
+| `DISCORD_BOT_ENABLED` | Yes | Compose fixes web/worker to `0`; on the `bot` service only literal `1` starts the admin bot |
 | `DISCORD_GUILD_ID` | Yes | Community scope for gameplay and owner season operations |
 | `SITE_DOMAIN` | Yes (Compose) | Caddy app hostname; see [production environment setup](docs/deployment/vm-runbook.md#create-env) |
 | `WEB_URL` | Yes | Canonical app origin and WS CORS origin; Compose fails if missing |
@@ -218,11 +222,12 @@ docker compose -f docker-compose.yml up -d
 
 Production should always use the base file explicitly so local dev overrides are not loaded.
 
-The stack runs 5 services:
+The stack runs 6 services:
 - **worker** — Draft expiry, report approval, tournament deadlines, set sync and image eviction
 - **ws** — Socket.IO WebSocket server for real-time draft updates
 - **duel** — Private automated engine (`packages/duel-server/dist/server.js`, loopback 4003)
 - **web** — Next.js 16 dashboard (standalone `packages/web/server.js`)
+- **bot** — Admin Discord bot; idle unless `DISCORD_BOT_ENABLED=1`, no published port
 - **caddy** — Reverse proxy ([HTTPS and redirects](docs/deployment/vm-runbook.md#deployment-pipeline))
 
 ## Deployment
@@ -288,7 +293,7 @@ See the [runbook's Backups section](docs/deployment/vm-runbook.md#backups) for a
 
 ```
 packages/
-  bot/          Shelved Discord bot (build/tests retained)
+  bot/          Admin Discord bot (moderation, server, waitlist, community)
   web/          Next.js web dashboard (App Router, TailwindCSS v4)
   ws/           Socket.IO WebSocket server (draft real-time updates)
   shared/       Shared library (database schema, services, types)
