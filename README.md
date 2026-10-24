@@ -276,6 +276,10 @@ npm run build
 
 For focused duel checks, run `npx vitest run tests/host.test.ts` from `packages/duel-server`, or `npx vitest run tests/services/duels.test.ts` from `packages/shared`. Keep these runs package-scoped: root-level Vitest path filters can also collect copied tests inside local previews under `data/` and `.next/standalone/`.
 
+## Runbooks
+
+Every automated or recurring job (workflows, timers, backups) has a page in [docs/runbooks](docs/runbooks/README.md): schedule, manual run commands, dependencies and fixes.
+
 ## Backups
 
 See the [runbook's Backups section](docs/deployment/vm-runbook.md#backups) for automatic backups and restore instructions.

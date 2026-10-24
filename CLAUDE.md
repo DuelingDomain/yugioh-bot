@@ -63,6 +63,10 @@ npm run reset:test-data
 npm run commands:deploy --workspace=packages/bot  # dev (tsx)
 ```
 
+## Runbooks
+
+Every scheduled or recurring job (workflows, worker timers, backups) has a page in `docs/runbooks/README.md` with manual run commands, dependencies and secrets.
+
 ## Architecture
 
 This is an npm workspaces + Turborepo monorepo with seven packages (see `docs/architecture.md` for the full map):
