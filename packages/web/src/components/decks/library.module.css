@@ -2,8 +2,8 @@
  * Deck library in Solid Vision. The page bar and rows come from the sheet kit (PageFrame, FloorRow);
  * these rules lay the row out and style the import panel. Every selector is scoped under .ms.
  */
-:global(.ms) .lede { margin: 0; max-width: 62ch; color: var(--ink-3); font-size: 14.5px; line-height: 1.5; }
-:global(.ms) .foot { margin: 0; color: var(--ink-3); font-size: 13.5px; line-height: 1.5; }
+:global(.ms) .lede { margin: 0; max-width: 62ch; color: var(--ink-3); font-size: 15.5px; line-height: 1.5; }
+:global(.ms) .foot { margin: 0; color: var(--ink-3); font-size: 14.5px; line-height: 1.5; }
 
 /* ---------- rows ---------- */
 :global(.ms) .row:hover { border-bottom-color: rgb(var(--beam) / 0.3); }
@@ -29,16 +29,16 @@
 .openLink::after { content: ""; position: absolute; inset: 0; }
 .openLink:focus-visible { outline: none; }
 .openLink:focus-visible::after { outline: 2px solid var(--pen-ink); outline-offset: -2px; border-radius: 4px; }
-.mode { padding: 1px 9px; border: 1px solid var(--rule-lo); border-radius: 999px; color: var(--ink-2); font-size: 13px; line-height: 1.5; }
-.counts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; margin: 0; color: var(--ink-3); font-size: 13.5px; }
-.counts b { margin-left: 4px; color: var(--ink); font: 600 17px/1 var(--f-num); font-variant-numeric: tabular-nums lining-nums; }
+.mode { padding: 1px 10px; border: 1px solid var(--rule-lo); border-radius: 999px; color: var(--ink-2); font-size: 14px; line-height: 1.5; }
+.counts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; margin: 0; color: var(--ink-3); font-size: 15px; }
+.counts b { margin-left: 4px; color: var(--ink); font: 600 18px/1 var(--f-num); font-variant-numeric: tabular-nums lining-nums; }
 .when { white-space: nowrap; }
-.repairTag { margin: 0; color: var(--warn-ink); font-size: 13px; }
-.draftTag { margin: 0; color: var(--ink-3); font-size: 13px; }
+.repairTag { margin: 0; color: var(--warn-ink); font-size: 14px; }
+.draftTag { margin: 0; color: var(--ink-3); font-size: 14px; }
 .mark { margin-top: 2px; }
 .row :global(.sv-deckmark) a { position: relative; z-index: 2; }
 
-.status { grid-area: status; min-width: 0; color: var(--ink-3); font-size: 13.5px; line-height: 1.4; }
+.status { grid-area: status; min-width: 0; color: var(--ink-3); font-size: 14.5px; line-height: 1.4; }
 .statusHead { display: flex; align-items: flex-start; gap: 7px; margin: 0; }
 .statusHead svg { flex: none; margin-top: 2px; }
 .status[data-tone="short"] .statusHead { color: var(--warn-ink); }
@@ -53,9 +53,9 @@
 .trash:disabled { opacity: 0.4; cursor: not-allowed; }
 .iconAct:focus-visible, .trash:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 
-.confirm { grid-area: confirm; position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 0 2px; color: var(--ink); font-size: 14.5px; }
+.confirm { grid-area: confirm; position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 0 2px; color: var(--ink); font-size: 15.5px; }
 .confirmActs { display: inline-flex; gap: 8px; }
-.why { flex-basis: 100%; color: var(--loss-ink); font-size: 13px; }
+.why { flex-basis: 100%; color: var(--loss-ink); font-size: 14.5px; }
 
 @container (max-width: 860px) {
   :global(.ms) .row :global(.sv-row-in) { grid-template-columns: 100px minmax(0, 1fr) minmax(150px, 220px) auto; gap: 0 14px; }
@@ -84,55 +84,71 @@
 
 /* ---------- import panel ---------- */
 .import { display: grid; gap: 16px; }
-.importSource { display: grid; gap: 14px; max-width: 640px; }
+.importSource { display: grid; gap: 14px; max-width: 760px; container: imp / inline-size; }
+:global(.ms) .importSource :global(.seg) button { min-height: 38px; font-size: 15px; }
+:global(.ms) .import :global(.sv-status) { font-size: 15.5px; }
+/* Four equal tabs need about 540px. Below that the tabs size to their text so "Genesys Domain" is never cut.
+   The sliding fill assumes equal tabs, so it is replaced by a fill on the pressed tab. Tabs keep a 44px tap target. */
+@container imp (max-width: 560px) {
+  :global(.ms) .importSource :global(.seg) { grid-auto-columns: auto; }
+  :global(.ms) .importSource :global(.seg) button { min-width: 44px; min-height: 44px; padding: 0 8px; font-size: 14.5px; }
+  :global(.ms) .importSource :global(.seg[data-slide])::before { display: none; }
+  :global(.ms) .importSource :global(.seg[data-slide]) button[aria-pressed="true"] { background: var(--pen-soft); }
+}
+@container imp (max-width: 340px) {
+  :global(.ms) .importSource :global(.seg) button { padding: 0 4px; font-size: 14px; }
+}
 .importSource :global(.seg) { justify-self: start; }
-.hintText { margin: 0; color: var(--ink-3); font-size: 13.5px; line-height: 1.5; }
-.hintText code, .pasteBox code { padding: 1px 5px; border-radius: 4px; background: var(--panel-2); color: var(--ink-2); font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.hintText { margin: 0; color: var(--ink-3); font-size: 15px; line-height: 1.55; }
+.hintText code, .pasteBox code { padding: 1px 5px; border-radius: 4px; background: var(--panel-2); color: var(--ink-2); font: 14.5px/1.4 ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
 .pasteBox { display: grid; gap: 10px; }
-.pasteBox :global(.label) { margin-bottom: 6px; }
-.pvLoading { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--ink-2); font-size: 14.5px; }
+:global(.ms) .pasteBox :global(.label) { margin-bottom: 8px; color: var(--ink-2); font-size: 15px; font-weight: 500; }
+/* Beats the shared .ms textarea.input (13px). The pasted codes and card names must read at a glance. */
+:global(.ms) .pasteBox textarea:global(.input) { min-height: 190px; padding: 12px 14px; font-size: 15px; line-height: 1.6; }
+.pvLoading { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--ink-2); font-size: 15.5px; }
 .pvNotes { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .pvError { max-width: 720px; }
 .pvHeld { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; max-width: 720px; }
-.drop { display: grid; justify-items: center; gap: 4px; padding: 22px 14px; border: 1px dashed rgb(var(--beam) / 0.4); border-radius: 8px; color: var(--ink-2); text-align: center; cursor: pointer; }
-.drop small { color: var(--ink-3); font-size: 13px; }
+.drop { display: grid; justify-items: center; gap: 4px; padding: 22px 14px; border: 1px dashed rgb(var(--beam) / 0.4); border-radius: 8px; color: var(--ink-2); font-size: 15.5px; text-align: center; cursor: pointer; }
+.drop small { color: var(--ink-3); font-size: 14.5px; }
 .drop:hover, .drop[data-dragging] { border-color: rgb(var(--beam) / 0.9); }
 .drop:focus-within { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 .results { display: block; margin: 0; padding: 0; list-style: none; }
-.results li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 10px 4px; border-bottom: 1px solid var(--rule-lo); color: var(--ink-2); font-size: 14.5px; }
+.results li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 10px 4px; border-bottom: 1px solid var(--rule-lo); color: var(--ink-2); font-size: 15.5px; }
 .results li > :global(.sv-status) { flex: 1 1 260px; border-top: 0; padding-top: 0; }
 .results li > .resNote { flex: 1 1 100%; }
 .resFile { color: var(--ink); overflow-wrap: anywhere; }
-.resFacts { display: inline-flex; flex-wrap: wrap; gap: 2px 14px; color: var(--ink-3); font-size: 13.5px; }
-.resFacts b { margin-left: 4px; color: var(--ink); font: 600 16px/1 var(--f-num); }
+.resFacts { display: inline-flex; flex-wrap: wrap; gap: 2px 14px; color: var(--ink-3); font-size: 15px; }
+.resFacts b { margin-left: 4px; color: var(--ink); font: 600 17px/1 var(--f-num); }
 .resLink { margin-left: auto; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .resFoot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 
 /* ---------- import preview ---------- */
 .pv { display: grid; gap: 4px; }
 .pvBar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 4px; border-bottom: 1px solid var(--rule-lo); }
-.pvAll { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 14.5px; cursor: pointer; }
-.pvAll input, .pvCheck { width: 18px; height: 18px; margin: 0; accent-color: var(--pen); cursor: pointer; }
+.pvAll { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 15.5px; cursor: pointer; }
+.pvAll input, .pvCheck { width: 20px; height: 20px; margin: 0; accent-color: var(--pen); cursor: pointer; }
 .pvAll input:disabled, .pvCheck:disabled { cursor: not-allowed; }
-.pvSummary { flex: 1 1 220px; margin: 0; color: var(--ink-3); font-size: 13.5px; line-height: 1.4; }
+.pvSummary { flex: 1 1 220px; margin: 0; color: var(--ink-3); font-size: 15px; line-height: 1.45; }
 .pvActs { display: inline-flex; gap: 8px; margin-left: auto; }
 .pvList { display: block; margin: 0; padding: 0; list-style: none; }
-.pvRow { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 0 14px; align-items: start; padding: 12px 4px; border-bottom: 1px solid var(--rule-lo); }
+.pvRow { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 14px; align-items: start; padding: 12px 4px; border-bottom: 1px solid var(--rule-lo); }
 .pvRow .pvCheck { margin-top: 12px; }
 .pvRow[data-blocked] .pvName { border-color: rgb(228 90 77 / 0.45); }
 .pvRow:not([data-selected]) .counts { opacity: 0.8; }
 .pvMain { display: grid; gap: 7px; min-width: 0; }
-.pvName { max-width: 420px; }
+.pvName { max-width: 460px; }
+:global(.ms) .pvHead .pvName:global(.input) { font-size: 16px; }
 .pvTop { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 .pvHead { display: grid; flex: 1 1 0; gap: 7px; min-width: 0; }
-.pvLead { flex: 1 1 200px; min-width: 0; font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.pvLead { flex: 1 1 200px; min-width: 0; font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
 .pvLead[data-tone="error"] { color: var(--loss-ink); }
 .pvLead[data-tone="warn"] { color: var(--warn-ink); }
 .pvLead[data-tone="info"] { color: var(--ink-2); }
 .pvChips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; }
-.pvDup { padding: 2px 10px; border: 1px solid rgb(228 182 79 / 0.4); border-radius: 999px; background: var(--chain-soft); color: var(--chain-ink); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-.pvFail { margin: 0; color: var(--loss-ink); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-.pvChip { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 2px 8px 2px 9px; border: 1px solid var(--rule-lo); border-radius: 999px; background: none; font: inherit; font-size: 13px; cursor: pointer; }
+.pvDup { padding: 2px 10px; border: 1px solid rgb(228 182 79 / 0.4); border-radius: 999px; background: var(--chain-soft); color: var(--chain-ink); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.pvFail { margin: 0; color: var(--loss-ink); font-size: 14.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.pvChip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 2px 10px 2px 11px; border: 1px solid var(--rule-lo); border-radius: 999px; background: none; font: inherit; font-size: 14.5px; cursor: pointer; }
 .pvChip[data-tone="error"] { border-color: rgb(228 90 77 / 0.5); color: var(--loss-ink); }
 .pvChip[data-tone="warn"] { border-color: rgb(228 182 79 / 0.4); color: var(--warn-ink); }
 .pvChip[data-tone="info"] { color: var(--ink-2); }
@@ -140,13 +156,13 @@
 .pvChip:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 .pvCaret { transition: rotate 0.15s; }
 .pvChip[aria-expanded="true"] .pvCaret { rotate: 180deg; }
-.pvDetails { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 13.5px; line-height: 1.45; }
+.pvDetails { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 15px; line-height: 1.5; }
 .pvDetails li { display: flex; flex-wrap: wrap; gap: 2px 10px; color: var(--ink-2); }
 .pvDetails li[data-tone="error"] { color: var(--loss-ink); }
 .pvDetails li[data-tone="warn"] { color: var(--warn-ink); }
 .pvText { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
-.pvCode { color: var(--ink-3); font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; }
-.pvLine { color: var(--ink-2); font: 600 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
+.pvCode { color: var(--ink-3); font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+.pvLine { color: var(--ink-2); font: 600 14px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: nowrap; }
 .pvEmpty { display: grid; justify-items: start; gap: 8px; }
 .pvEmpty p { margin: 0; }
 .pvDone { display: grid; gap: 10px; max-width: 720px; }
