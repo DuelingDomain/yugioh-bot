@@ -270,9 +270,11 @@ function pickPlacement(aside: HTMLElement, current: "left" | "right", picking: b
   };
   const targets = obstacleBoxes(picking);
   const covered = (strip: Box) => targets.some((target) => area(target, strip) > 0);
-  if (!covered(strips[current])) return { side: current, tuck: false };
+  // A side clear of targets still needs enough room to avoid the LP/name plates.
+  const available = (side: "left" | "right") => !covered(strips[side]) && fitFor(aside, side).fits;
+  if (available(current)) return { side: current, tuck: false };
   const other = current === "left" ? "right" : "left";
-  if (!covered(strips[other])) return { side: other, tuck: false };
+  if (available(other)) return { side: other, tuck: false };
   return { side: current, tuck: true };
 }
 

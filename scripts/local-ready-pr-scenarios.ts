@@ -28,6 +28,9 @@ const C = {
   cyberDragon: 70095154, myriad: 81758313, coordius: 70219023,
   stardust: 44508094, utopia: 84013237, spider: 98978921, poly: 24094653,
   pig: 46497537, slash: 25334372,
+  typhoon: 5318639, raigekiBreak: 4178474, supply: 17626381, haunted: 97077563,
+  metaltron: 57761191, citadel: 39910367, shard: 33904024,
+  veiler: 97268402, axeEquip: 40619825, toySoldier: 65504487, dragoon: 37818794,
 } as const;
 
 // Forty real, script-free Normal Monsters; no compiler filler or empty Decks.
@@ -157,6 +160,25 @@ export const LOCAL_READY_PR_SCENARIOS: LocalReadyScenario[] = [
     p2: { hand: [C.elf], monsters: [C.blueEyes] },
     p3: { monsters: [C.beaver] },
   }),
+  scenario("Card drawer pin chain and targets FFA4 #459", {
+    format: "ffa4",
+    p0: { hand: [C.greed, C.typhoon, C.ox], monsters: [C.axe] },
+    p1: { hand: [C.elf], monsters: [C.celtic], spells: [{ card: C.raigekiBreak, pos: "set" }] },
+    p2: { monsters: [C.blueEyes], spells: [{ card: C.supply, pos: "set" }] },
+    p3: { monsters: [C.beaver], spells: [{ card: C.slash, pos: "set" }] },
+  }),
+  ...(["ffa3", "1v1"] as const).map(format => scenario(`Card status protections counters equip ${format.toUpperCase()} #465`, {
+    format,
+    // Saved boards cannot inject counters, negation or equip links. The opening
+    // draw puts a Greed Counter on Shard; the remaining statuses use real actions.
+    p0: {
+      lp: 5000, hand: [C.metaltron, C.axeEquip, C.greed],
+      monsters: [C.elf, C.myriad, { card: C.utopia, materials: [C.ox, C.celtic] }, C.toySoldier],
+      spells: [C.supply, C.haunted, C.shard], field: C.citadel,
+    },
+    p1: { lp: 8000, hand: [C.veiler], monsters: [C.dragoon] },
+    ...(format === "ffa3" ? { p2: { lp: 10000, monsters: [C.blueEyes] } } : {}),
+  })),
 ];
 
 function explicitPath(variable: "DATABASE_PATH" | "DUEL_DATA_DIR"): string {
