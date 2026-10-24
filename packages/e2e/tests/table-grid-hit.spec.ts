@@ -163,3 +163,80 @@ test("ffa4: a click on the phase hub does not move the focus to the field under 
   await page.waitForTimeout(400);
   await expect(stage).toHaveAttribute("data-grid-focus", "3");
 });
+
+// Card status and counters (`?status=1` fixture board): the badges sit in their own band, never on the ATK / DEF plate, the Xyz material count or
+// the equip chip, and the hover drawer shows the whole status list and effect text without a scroll bar. Fixture preview only.
+const STATUS_SIZES = [[1920, 1080], [2560, 1440], [1366, 768]] as const;
+
+for (const mode of ["classic", "ffa3", "ffa4", "tag"]) {
+  for (const [width, height] of STATUS_SIZES) {
+    test(`${mode} ${width}x${height}: status rails and counter stacks stay off the plate, material count and equip chip`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      const response = await page.goto(`/dev/table-preview/${mode}?status=1&reduced=1`);
+      expect(response?.ok()).toBe(true);
+      await expect(page.locator("[data-card-status]").first()).toBeAttached({ timeout: 30_000 });
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForTimeout(800);
+      const result = await page.evaluate(() => {
+        const hit = (a: DOMRect, b: DOMRect) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+        const overlaps: string[] = [];
+        let layers = 0;
+        for (const zone of document.querySelectorAll<HTMLElement>("[data-zones]")) {
+          const layer = zone.querySelector("[data-card-status]");
+          if (!layer) continue;
+          layers += 1;
+          const leaves = [...layer.querySelectorAll<HTMLElement>("[data-status-kind], [data-counter-type], [data-status-total], [data-status-more], [data-status-counters]")]
+            .filter((element) => getComputedStyle(element).display !== "none" && element.getBoundingClientRect().width > 0);
+          const guards = [...zone.querySelectorAll<HTMLElement>("[data-card-plate], [data-materials-badge], [data-equip-chip]")];
+          for (const leaf of leaves) for (const guard of guards) {
+            if (hit(leaf.getBoundingClientRect(), guard.getBoundingClientRect())) overlaps.push(`${zone.dataset.zones} ${Object.keys(leaf.dataset).join(",")} x ${Object.keys(guard.dataset).join(",")}`);
+          }
+        }
+        return { layers, overlaps };
+      });
+      expect(result.layers).toBeGreaterThan(5);
+      expect(result.overlaps).toEqual([]);
+    });
+  }
+}
+
+for (const mode of ["ffa3", "ffa4", "tag"]) {
+  for (const [width, height] of STATUS_SIZES) {
+    test(`${mode} ${width}x${height}: the hover drawer lists the whole status and effect text without a scroll bar`, async ({ page }) => {
+      test.setTimeout(120_000);
+      await page.setViewportSize({ width, height });
+      await page.goto(`/dev/table-preview/${mode}?status=1&reduced=1`);
+      await expect(page.locator("[data-card-status]").first()).toBeAttached({ timeout: 30_000 });
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForTimeout(2_500);
+      const cards = page.locator("[data-card-status]");
+      const count = Math.min(await cards.count(), 12);
+      let checked = 0;
+      for (let index = 0; index < count; index += 1) {
+        // A card the camera has moved off the screen cannot be hovered.
+        const box = await cards.nth(index).boundingBox();
+        if (!box || box.x < 0 || box.y < 0 || box.x + box.width > width || box.y + box.height > height) continue;
+        const read = () => page.evaluate(() => {
+          const aside = document.querySelector<HTMLElement>("[data-testid='hover-preview'][data-open='true']");
+          if (!aside) return null;
+          const text = aside.querySelector<HTMLElement>("p[class*='previewText']");
+          return { aside: aside.scrollHeight - aside.clientHeight, text: text ? text.scrollHeight - text.clientHeight : 0 };
+        });
+        await page.mouse.move(2, 2);
+        await cards.nth(index).hover({ force: true });
+        const measure = async () => {
+          const state = await read();
+          if (state) return state;
+          // The first hover can land while the table camera still settles: hover again.
+          await page.mouse.move(2, 2);
+          await cards.nth(index).hover({ force: true });
+          return read();
+        };
+        // The drawer settles over a short transition: wait for it to open, then for the metrics to read zero.
+        await expect.poll(measure, { message: `${mode} card ${index}`, timeout: 10_000 }).toEqual({ aside: 0, text: 0 });
+        checked += 1;
+      }
+      expect(checked).toBeGreaterThan(5);
+    });
+  }
+}
