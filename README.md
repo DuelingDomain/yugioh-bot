@@ -257,7 +257,7 @@ passwd
 4. Configure [DNS, firewall](docs/deployment/vm-runbook.md#create-the-server), and the [production environment](docs/deployment/vm-runbook.md#create-env)
 5. Configure production Clerk for the final app origin, Discord callback, invitation/email templates and legal links (see [runbook](docs/deployment/vm-runbook.md#clerk-configuration))
 6. Add GitHub Actions secrets (`VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`, `VM_PORT`) and the public `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` repository variable
-7. Follow the runbook's [first production start](docs/deployment/vm-runbook.md#build--run): run the
+7. Follow the runbook's [first production start](docs/deployment/vm-runbook.md#deployment-pipeline): run the
    `Deploy` workflow on `main` to build images and install the engine bundle. Later starts of
    already built images use `docker compose -f docker-compose.yml up -d` (without `--build`).
 

@@ -86,7 +86,7 @@ Only `scripts/native/golden.tsv` conflicted. Main changed card preparation and
 added the shared Steamed Sabersaurus patch, but did not change the core patch
 series, multiplayer scripts (including `mp-utility.lua`), Domain transforms or
 core pins. The reviewed fixed-seed and deployment hashes in
-[staging.md](../deployment/staging.md) remain unchanged; no WASM rebuild or env
+[core-pins.md](../engine/core-pins.md) remain unchanged; no WASM rebuild or env
 path changes were needed.
 
 Fresh preparation under `~/.cache/dk-duel-engine-tagrules` produced 14,984 card

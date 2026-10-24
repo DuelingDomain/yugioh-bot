@@ -101,7 +101,7 @@ The prepared bundle version without optional built-core metadata changes from
 `661ab25721cdf1dfd2ad78e9e127899837ad769519c9ae5e3dd3d15ca815472d`.
 Versions with built-core metadata change too. The owner must approve merging/deployment;
 active-duel and replay version checks still apply. Selection, merge ordering and script
-coverage are documented in [engine data updates](../deployment/engine-data-updates.md#released-card-data).
+coverage are documented in [engine data updates](../deployment/engine-data-updates.md#released-and-prerelease-card-data).
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
 build/packaging scripts, pins, patches and Domain sources. Each cache stores both WASMs and their
