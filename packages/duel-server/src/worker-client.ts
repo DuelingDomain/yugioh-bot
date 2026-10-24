@@ -13,6 +13,8 @@ import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoic
 const PROMPT_LOG_LIMIT = 5_000;
 
 export interface GameOptions {
+  /** Keep eligible Auto Damage Step windows (v8+). Omission enables the live rule. */
+  keepDamageStepWindows?: boolean;
   /** Internal fork control boundary in accepted journal commands. Original prefix rules stay unchanged. */
   manualLossAnswersAfter?: number;
   engineIdentity?: EngineIdentity;

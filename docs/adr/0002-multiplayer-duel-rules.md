@@ -189,7 +189,7 @@ The Rivalry overlay now checks the real Special Summon receiving seat. A core ac
 
 The Ring FFA4 case checks `expectPickSeats(["p2", "p3"])`. The excluded p1 has 1000 LP and a Battle Ox with 1700 ATK. The FFA3 case has one eligible opponent, so the engine selects that opponent without a choice prompt. Card Destruction and Hand Destruction follow R-COMMON-HAND-DESTRUCTION. Exodia the Forbidden One follows R-COMMON-EXODIA. The other alternative-win cards stay forbidden.
 
-The merged changes retain `ENGINE_HOST_RULE_VERSION = "duel-rules-7"`. Version 7 covers the Exodia result and replay projection changes. The core `wasmHash` and `multiOverlayHash` identify the C++ and Lua changes, including both branches' 0117 and 0118 patches. No further host-rule version change is required.
+The current host rules use `ENGINE_HOST_RULE_VERSION = "duel-rules-8"`. Version 7 covers the Exodia result and replay projection changes. Version 8 preserves eligible Damage Step response windows under Auto and distinguishes all five Damage Step timings. Journal playback selects the Auto behavior from the recorded `engineIdentity.hostRuleVersion`: v8 and later keep those windows; older or unversioned sources retain the historical automatic passes. Forks preserve the resolved Auto rule for recovery and restart when they pin current resources. New live duels use v8 behavior. The core `wasmHash` and `multiOverlayHash` identify the C++ and Lua changes, including both branches' 0117 and 0118 patches.
 
 ## Domain deck rules (2026-10-02)
 
