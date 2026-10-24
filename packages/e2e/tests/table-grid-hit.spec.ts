@@ -277,3 +277,24 @@ for (const mode of ["ffa3", "ffa4", "tag"]) {
     });
   }
 }
+
+test("ffa4: a pin during a target pick clears every LP plate", async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await open(page, "state=target-pick");
+  await page.waitForTimeout(1200);
+  await page.locator('[data-seat-field="0"] [data-kind="mz"][data-occupied="true"] button').first().click();
+  await page.mouse.move(2, 2);
+  await expect(page.locator('[data-testid="hover-preview"][data-pinned="true"]')).toHaveCount(1);
+  await expect(page.locator('[data-testid="hover-preview"][data-open="true"], [data-testid="hover-preview-handle"]:visible').first()).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const shells = [...document.querySelectorAll('[data-testid="hover-preview"][data-open="true"], [data-testid="hover-preview-handle"]')]
+      .filter(element => getComputedStyle(element).visibility !== "hidden")
+      .map(element => element.getBoundingClientRect());
+    return [...document.querySelectorAll("[data-lp-seat], [data-team-plate]")].filter(plate => {
+      const rect = plate.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && shells.some(shell =>
+        Math.min(shell.right, rect.right) - Math.max(shell.left, rect.left) > 1
+        && Math.min(shell.bottom, rect.bottom) - Math.max(shell.top, rect.top) > 1);
+    }).map(plate => plate.getAttribute("data-lp-seat"));
+  })).toEqual([]);
+});
