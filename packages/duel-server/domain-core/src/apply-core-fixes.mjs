@@ -54,4 +54,18 @@ patch("duel.cpp", [
   ],
 ]);
 
+// Return of a temporarily banished card after the banisher effect is gone.
+// MoveToField with ret = 1 (Duel.ReturnToField) compares the owner of the effect that banished the card
+// with the owner of the returning effect. The banisher can be a Duel.RegisterEffect effect with a short
+// reset (Time Chain's EVENT_BATTLED effect), deleted before the return. The delete_effect fix above then
+// clears current.reason_effect, and the compare read a null effect. A missing effect cannot name another
+// source, so the owner check only applies while both effects exist. The multi core has the same edit as
+// patch 0120.
+patch("operations.cpp", [
+  [
+    `if((ret == 1) && (!(target->current.reason & REASON_TEMPORARY) || (target->current.reason_effect->owner != core.reason_effect->owner)))`,
+    `if((ret == 1) && (!(target->current.reason & REASON_TEMPORARY) || (target->current.reason_effect && core.reason_effect && target->current.reason_effect->owner != core.reason_effect->owner)))`,
+  ],
+]);
+
 console.log(`core fixes: patched ${replacements.join(", ")}`);
