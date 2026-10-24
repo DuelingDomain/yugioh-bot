@@ -36,7 +36,7 @@ function arg(name: string): string | undefined {
 
 interface DifferentialFile {
   scenario: Scenario;
-  journal: Array<{ seat: number; promptId: string; revision: number; answer: never }>;
+  journal: Array<{ seat: number; promptId: string; revision: number; answer: never; sortOrderVersion?: 1 }>;
   engine?: Parameters<typeof createEngineGame>[0] extends infer O ? Omit<O & object, "dataDirectory" | "standardWasmBinary"> : never;
   differential?: { firstDifference?: string; referenceWasm?: string; multiWasm?: string; found?: string };
 }

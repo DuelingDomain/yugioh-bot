@@ -237,7 +237,8 @@ export interface EngineViewHistory {
 
 export interface EngineGame {
   view(seat: number | null, history?: EngineViewHistory): DuelEngineView;
-  answer(seat: number, promptId: string, answer: DuelAnswer): void;
+  /** Live answers default to version 1; journal replay supplies the saved sort encoding version. */
+  answer(seat: number, promptId: string, answer: DuelAnswer, sortOrderVersion?: 0 | 1): void;
   searchCards(query: string, seat?: number): DuelCardInfo[];
   /**
    * Surrender removes a duelist immediately through Debug.SurrenderDuelist, or flags the loss while the
@@ -1294,12 +1295,12 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       }
       return projected;
     },
-    answer(seat, promptId, answer) {
+    answer(seat, promptId, answer, sortOrderVersion) {
       scriptErrorEventSent = false;
       if (closed) throw new Error("Engine is closed");
       if (result) throw new EngineAnswerError("Duel is over");
       if (!pending) throw new EngineAnswerError("No prompt is waiting");
-      const response = resolveAnswer(pending, seat, promptId, answer, cards);
+      const response = resolveAnswer(pending, seat, promptId, answer, cards, sortOrderVersion);
       const previous = pending;
       const targetPick = previous.attackTargetPick
         ? previous.prompt.options.find(option => option.id === (answer.selected ? answer.selected[0] : answer.choice)) : undefined;
