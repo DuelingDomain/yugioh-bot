@@ -1,6 +1,6 @@
 # Effect search: release dates and cube era contract
 
-Date: 2026-10-17. Branch: `feat/effect-search-dates`. Base: `b096596c70693aa9aed66c4c78fe9905c066cac9`.
+Date: 2026-10-17.
 
 The backend stores 14,383 release records in `releases.json.gz`, in the existing pinned effect artifact. The import writes `card_release` with canonical passcodes, TCG and OCG months, quality, and source version. It removes TCG dates before 2002 and OCG dates before 1999. The clean data has 13,983 TCG dates, 14,018 OCG dates, two records with placeholders, and eight records with no usable date. Artwork families and pre-release remaps keep the same date.
 

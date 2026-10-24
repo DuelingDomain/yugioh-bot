@@ -1,10 +1,10 @@
-# Duelists Kingdom: alternate artwork picker backend contract
+# Dueling Domain: alternate artwork picker backend contract
 
-This is the backend handoff for the separate picker UI. Visible brand text is **Duelists Kingdom**.
+This is the backend handoff for the separate picker UI. Visible brand text is **Dueling Domain**.
 
 ## Artwork list
 
-`GET /api/cards/{passcode}/artworks` requires the same signed-in Discord guild member as the deck card search (`requireDuelActor`). Any **engine-known** member of the artwork family is accepted.
+`GET /api/cards/{passcode}/artworks` requires a signed-in user, the same guard as the deck card search (`requireDuelActor`: Clerk session through `requireWebAccess`, then the player row in the configured community). Any **engine-known** member of the artwork family is accepted.
 
 ```ts
 // Exported from @yugidraft/shared/duels (src/duels/artworks.ts)
@@ -37,7 +37,7 @@ The main is first; remaining members are sorted by numeric passcode. There is al
 
 Image availability is evidence, not a guarantee of a future successful upstream download. The endpoint performs no image probes or metadata sync. An API image may later 404, and an old cache entry may contain the image route's alias fallback rather than distinct artwork. A cropped URL may be null while the full image exists. The existing image route still caches downloaded bytes, tries alias fallback, and handles upstream failures. An engine main synthesized during catalog sync is marked `source = 'engine'`, not counted as API image evidence.
 
-Errors are `{ error: string }`: 400 invalid unsigned positive 32-bit passcode; 401 signed out; 403 not a guild member; 404 unknown engine passcode (even if YGOPRODeck has it); 502 malformed host response; 503 host/membership unavailable. Existing configuration failures retain their usual status. Successful lists use `Cache-Control: private, no-store`.
+Errors are `{ error: string }`: 400 invalid unsigned positive 32-bit passcode; 401 signed out; 404 unknown engine passcode (even if YGOPRODeck has it); 502 malformed host response; 503 host or session check unavailable. Existing configuration failures retain their usual status. Successful lists use `Cache-Control: private, no-store`.
 
 ## Search and details
 
@@ -64,7 +64,7 @@ prlimit --core=1:1 npm exec --workspace=packages/duel-server -- \
 
 ## Swap an occurrence in a working deck
 
-`POST /api/decks/artwork` has the same guild/member guard as the artwork list. It validates the source and destination against the running engine's artwork family and returns a new working deck. It does **not** persist or register a deck.
+`POST /api/decks/artwork` has the same `requireDuelActor` guard as the artwork list. It validates the source and destination against the running engine's artwork family and returns a new working deck. It does **not** persist or register a deck.
 
 ```ts
 // Exported from @yugidraft/shared/duels

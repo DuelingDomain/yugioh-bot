@@ -130,7 +130,7 @@ four deck cases passed after the restart. Screenshots at each size were checked.
 Evidence is under `.status/effect-search/review-browser/`.
 
 The earlier matched duel-server measurements remain in
-[the memory report](effect-search-memory-verification.md): 16.2–24.6 MiB steady
+[the memory report](effect-search-memory.md): 16.2–24.6 MiB steady
 RSS growth after the change, against 57.1–61.7 MiB in the date-aware baseline.
 That result does not include web memory.
 
