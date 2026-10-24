@@ -144,7 +144,12 @@ export async function attackWithFirstMonster(page: Page): Promise<void> {
   const monsters = await ownField.count() ? ownField.locator('[data-kind="mz"][data-occupied="true"] button')
     : page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"] button');
   await monsters.first().click();
-  await page.getByRole("menu").getByRole("menuitem", { name: /Attack/ }).first().click();
+  // The 1v1 table opens a card menu. The 3-way, 4-way and Tag tables start the aim at once when attack is the monster's only move (use-table-ui.ts):
+  // there the rival bar of the aim shows instead of a menu.
+  const attack = page.getByRole("menu").getByRole("menuitem", { name: /Attack/ }).first();
+  const aim = page.locator("[data-opponent-bar='direct'], [data-testid='aim-confirm']").first();
+  await expect(attack.or(aim)).toBeVisible();
+  if (await attack.isVisible()) await attack.click();
 }
 
 export type Table = { seats: Seat[]; slug: string; table: string };

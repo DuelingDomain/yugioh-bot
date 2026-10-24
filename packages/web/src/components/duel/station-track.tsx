@@ -407,6 +407,7 @@ export function StationTrack({
           <button
             type="button"
             className={styles.secondary}
+            data-dock-action=""
             aria-label="End Turn"
             {...tip.on(endTurn.label)}
             data-glow={glowId === "to_ep" ? "true" : "false"}
@@ -420,6 +421,7 @@ export function StationTrack({
           <button
             type="button"
             className={styles.primary}
+            data-dock-action=""
             {...tip.on(primary.label)}
             data-glow={glowId === primaryId ? "true" : "false"}
             onClick={() => onChoose(primary.id)}

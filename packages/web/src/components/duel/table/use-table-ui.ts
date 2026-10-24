@@ -11,6 +11,8 @@ import { promptLegalKeys } from "../prompts";
 import { DEFAULT_SIDE_PANE, type SidePane } from "../side-panel";
 import { aimPromptFor, attackAimOf, isAttackStepPrompt, queuedAnswer, type AttackAim, type AttackAimTarget, type AttackTargets } from "./attack-aim";
 import type { BattleAim, DuelActivateHandler, InspectTarget, TableController } from "./types";
+import { refreshHover } from "./hud-layer";
+import { lastPressWasTouch, setPickPrompt } from "../hover-drawer";
 
 /**
  * The interaction state of a table that the room keeps in its own component: the card action menu, the hover
@@ -82,23 +84,30 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
   const activeMenu = canAct && !busy && menu?.promptId === promptId && menu?.revision === revision ? menu : null;
   const aimingFirst = canAct && !busy && aimFirst?.promptId === promptId && aimFirst.revision === revision ? aimFirst : null;
 
-  // A new prompt or revision drops the menu and the hover card.
+  // A new prompt or revision drops the menu.
   useEffect(() => {
     setMenu(null);
-    setHover(null);
     setAimFirst(null);
   }, [promptId, revision]);
-  // A new prompt for this seat lets the pinned peek go: it must not cover the cards the prompt asks for.
-  const promptSeat = prompt?.seat ?? null;
+  // The card under the pointer stays through a chain link or an answer (with its fresh copy): the drawer must not close at every effect, so the
+  // player has to hover the card again. Only a moved or gone card, or an element that left the page, ends it. A pinned card is not touched here:
+  // it ends only when the player closes it.
   useEffect(() => {
-    if (hud && promptId != null && viewerSeat != null && promptSeat === viewerSeat) onPinCard?.(null);
-    // Only a new prompt decides this.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [promptId]);
+    setHover((current) => refreshHover(current, engine.seats));
+  }, [promptId, revision, engine.seats]);
   // The declared attacker belongs to the attack steps only: the duelist pick (a direct attack) and the target pick.
   useEffect(() => {
     if (!prompt || !(isAttackTargetPrompt(prompt, true) || isAttackDuelistPrompt(prompt) || isDirectAttackPrompt(prompt))) setPendingAttack(null);
   }, [prompt]);
+  // The attack target pick of the viewer is a pick on the board as well: a pinned card drawer must not lie over the targets (grid-preview.tsx).
+  // So is the aim of an attack that was declared before its target (FFA and Tag): the arrow runs from the attacker and the next click is the target.
+  const attackPickId = aimingFirst != null ? aimingFirst.promptId
+    : prompt != null && viewerSeat != null && prompt.seat === viewerSeat
+      && (isAttackTargetPrompt(prompt, true) || isAttackDuelistPrompt(prompt) || isDirectAttackPrompt(prompt)) ? prompt.id : null;
+  useEffect(() => {
+    setPickPrompt("attack", attackPickId);
+    return () => setPickPrompt("attack", null);
+  }, [attackPickId]);
 
   // The target the player clicked answers the core's own attack steps (duelist pick, "Attack directly?", target pick) when they
   // offer it. A step that does not offer it, or any other prompt, drops it: the player then aims on the real prompt.
@@ -275,19 +284,21 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
   const onActivate = useCallback<DuelActivateHandler>(
     (keys, card, anchor, preserveInspector = false) => {
       setHover(null);
-      // The pin goes with any click on a zone; the end of this handler pins the card again when no prompt took the click.
-      // A click from the Card flyout or the pile viewer (`preserveInspector`) leaves the flyout and the pin as they are.
-      if (hud && !preserveInspector) onPinCard?.(null);
+      // The pin stays through a prompt, a pick and a chain: a click on a card pins it (also when it opens a card menu), a click on an empty zone that
+      // no prompt took lets the pin go. A click from the Card flyout or the pile viewer (`preserveInspector`) leaves the flyout and the pin as they are.
       // The HUD keeps the Card flyout shut while a click is a prompt pick or opens a card menu: see the end.
-      // A click on a card that offers a move is the start of that move: the drawer stays as it is. Any other click inspects.
+      // Without the HUD, every click on a card pins it in the left drawer (also a click that starts a move, so the card stays through the
+      // prompt and the chain). A click that offers a move does not open the rail's Card pane: the pin shows the card.
       if (card && !hud && !pileOpening.current) {
         const startsMove = canAct && mine && keys.some((key) => base.legalKeys.has(key));
         showInspector({ type: "card", card }, false, !startsMove);
-        if (!startsMove) onTapCard?.(card);
+        // A finger tap that starts a move does not pin: the card menu and the answer panels need the board. A mouse press pins it.
+        if (!startsMove || !lastPressWasTouch()) onTapCard?.(card);
       }
       base.onActivate(keys, card, anchor);
       if (busy || !canAct || !prompt) {
         if (card && hud && !pileOpening.current) { if (preserveInspector) showInspector({ type: "card", card }, true); else pinClicked(card, anchor); }
+        else if (!card && hud && !preserveInspector) onPinCard?.(null);
         return;
       }
       if (mine && (prompt.kind === "choice" || prompt.kind === "toggle")) {
@@ -304,6 +315,7 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
           return;
         }
         if (options.length) {
+          if (card && hud && !preserveInspector && !pileOpening.current) pinClicked(card, anchor);
           setMenu({
             anchor,
             title: card?.name ?? "Card",
@@ -319,6 +331,7 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
       setMenu(null);
       const handled = activatePromptFromField(prompt, mine, keys, card, draft, submit);
       if (card && hud && !handled && !pileOpening.current) { if (preserveInspector) showInspector({ type: "card", card }, true); else pinClicked(card, anchor); }
+      else if (!card && hud && !handled && !preserveInspector) onPinCard?.(null);
     },
     [base, busy, canAct, draft, hud, mine, onPinCard, pinClicked, prompt, revision, showInspector, submit],
   );

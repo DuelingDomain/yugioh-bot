@@ -17,6 +17,7 @@ import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNar
 import { MatchSheetLog } from "../text-log";
 import { HistoryStrip } from "../table/history-strip";
 import type { HudPaneState } from "../table/hud-layer";
+import { useYieldToHover } from "../hover-drawer";
 import { hudPreview } from "../table/hud-preview";
 import { controllerLayout } from "../table/geometry";
 import { TablePhonePanes } from "../table/table-phone-panes";
@@ -110,6 +111,8 @@ export function TagSide({
   replay = false,
 }: TagSideProps) {
   const { engine, room, viewerSeat, nameOf, prompt } = controller;
+  // The viewer picks on the board: a hover on a target shows that card over a pinned one (hud-preview.ts).
+  const picking = useYieldToHover();
   const forkLabels = useForkLabels();
   const session = room.session;
   const domain = session.mode === "domain";
@@ -213,7 +216,7 @@ export function TagSide({
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          preview={hudPreview(hud.hover?.card ?? null, hud.menuCard, hud.rowCard, (card) => ({ name: nameOf(card.controller), ...(seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hud.state.pinned)}
+          preview={hudPreview(hud.hover?.card ?? null, hud.menuCard, hud.rowCard, (card) => ({ name: nameOf(card.controller), ...(seatTones.get(card.controller) ?? SEAT_TONE_HEX.ice) }), hud.state.pinned, picking)}
           equipLinks={resolveEquipLinks(engine.seats)}
           reducedMotion={controller.reducedMotion}
         />
