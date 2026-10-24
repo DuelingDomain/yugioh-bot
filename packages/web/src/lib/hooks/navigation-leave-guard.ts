@@ -164,9 +164,11 @@ export function useNavigationLeaveGuard(active: boolean, message: string, scope 
 
       const now = new URL(window.location.href);
       const pinned = new URL(pinnedHref);
-      if (isSamePath(pinned, now) && now.hash !== pinned.hash) return;
-
       const destIndex = readIndex(event.state);
+      if (isSameRoute(pinned, now)) {
+        if (destIndex != null) pinnedIndex = destIndex;
+        return;
+      }
       const delta = destIndex == null ? -1 : destIndex - pinnedIndex;
       if (delta === 0) return;
       const custom = interceptRef.current;
@@ -222,10 +224,6 @@ export function useNavigationLeaveGuard(active: boolean, message: string, scope 
  */
 function isSameRoute(left: URL, right: URL): boolean {
   return left.origin === right.origin && left.pathname === right.pathname;
-}
-
-function isSamePath(left: URL, right: URL): boolean {
-  return left.origin === right.origin && left.pathname === right.pathname && left.search === right.search;
 }
 
 function parseHref(href: string): URL | null {
