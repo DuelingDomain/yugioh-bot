@@ -46,6 +46,7 @@ import {
   isPositionEvent,
   maxEventId,
   positionChangeOf,
+  SCALED_FIELD,
   slamCrackCount,
   slamStrengthOf,
   summonCoveredByFlip,
@@ -320,6 +321,7 @@ function placeOnCard(anchor: HTMLElement | null, overlay: HTMLElement, zone: HTM
   if (!anchor) return geo;
   anchor.style.transform = "";
   anchor.style.transformOrigin = "";
+  delete anchor.dataset.quadTurn;
   const corners = box ? screenCorners(box) : null;
   const o = overlay.getBoundingClientRect();
   const quad = corners?.map((p) => ({ x: p.x - o.left, y: p.y - o.top })) as Quad | undefined;
@@ -333,6 +335,8 @@ function placeOnCard(anchor: HTMLElement | null, overlay: HTMLElement, zone: HTM
   placeAnchor(anchor, { ...geo, left: 0, top: 0, w, h, radius: Math.max(2, w * 0.05) });
   anchor.style.transformOrigin = "0 0";
   anchor.style.transform = matrix;
+  // The screen angle of the card's top edge: what the table (a seat field, a turned hand rail) adds to the copy's own turn.
+  anchor.dataset.quadTurn = String(Math.round(Math.atan2(quad![1].y - quad![0].y, quad![1].x - quad![0].x) * 180 / Math.PI));
   return geo;
 }
 
@@ -743,6 +747,18 @@ export function activationTurns(item: Pick<FxItem, "wasSet" | "plan" | "reduced"
   return item.wasSet === true && flat && !item.plan && !item.reduced;
 }
 
+/**
+ * The turn the activation copy shows on screen on a multi-seat table (a seat field or a rival hand rail is turned as a
+ * whole, and its copy lies on the card the way the card does), or 0 where the card is read upright already: on a 1v1
+ * table (`multiSeat` false) the copy keeps the turn of the card's side. The beat is an announcement the viewer reads, so
+ * the copy turns to upright by this much (see ActivateFx). `quadTurn` is the angle placeOnCard read from the card's box.
+ */
+export function activationCopyTurn(side: Geo["side"], quadTurn: number, multiSeat: boolean): number {
+  if (!multiSeat) return 0;
+  const turn = (((quadTurn + (side === "opp" ? 180 : 0)) % 360) + 540) % 360 - 180;
+  return Math.abs(turn) < 25 ? 0 : turn;
+}
+
 /** Activate: the card flips face-up and brightens; a chain link gets a gold edge, others a violet one. */
 function ActivateFx({ item, overlay, done }: EffectProps) {
   const anchor = useAnchor();
@@ -789,6 +805,10 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
         // A card still flying in from the hand must not also show its copy in the zone: the copy starts when it lands.
         ...(arrived ? { fill: "forwards" as const } : {}),
       });
+      // On a multi-seat table the copy of a turned seat is upright for the viewer from its first frame: it is an
+      // announcement drawn over the card, and the card sleeve has no direction to give away. No turn is animated.
+      const upright = activationCopyTurn(geo.side, Number(anchor.current?.dataset.quadTurn ?? 0), document.querySelector(SCALED_FIELD) != null);
+      if (upright !== 0) ghost.current.style.rotate = `${-upright}deg`;
       if (sleeved) track.play(sleeve.current, [{ opacity: 1 }, { opacity: 1, offset: turnAt }, { opacity: 0, offset: turnAt }, { opacity: 0 }], { duration: total, delay: d, easing: "linear" });
       // The real card is already face-up: hide it under the copy, which covers the zone from its first frame. A copy that
       // fades out gives the card back as its fade starts, so it fades over the same face, not over an empty zone; a copy

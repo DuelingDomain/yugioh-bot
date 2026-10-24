@@ -27,6 +27,7 @@ import {
   LOCATION_REMOVED,
   LOCATION_SZONE,
   isFacedown,
+  TYPE_PENDULUM,
   zoneKey,
 } from "./constants";
 import { battleBreakIs3d, battleDestroyAt, battleTakeover, BREAK_SETTLE_MS, HELD_CRACK_MS } from "./battle-hold";
@@ -173,6 +174,32 @@ export function resetMoveSchedule(key = ""): void {
 
 export function getMovePlan(id: number): MovePlan | null {
   return plans.get(id) ?? null;
+}
+
+/**
+ * A flight that shows a card's face out of a rival's hand (an activation, a summon, a discard): the viewer reads it, so on a
+ * table that turns the rival hand rail the flight turns upright for it (MoveFx). Reduced motion and pieces never turn.
+ */
+export function showsRivalFace(plan: MovePlan): boolean {
+  const card = plan.event.card;
+  const source = plan.source;
+  if (!card || card.code <= 0 || !source || source.side !== "opp" || source.faceUp) return false;
+  if (plan.event.from?.location !== LOCATION_HAND || plan.event.faceDown === true || plan.pieces || plan.reduced) return false;
+  const to = plan.event.zone?.location;
+  const toDeckPile = to === LOCATION_DECK || (to === LOCATION_EXTRA && (card.type & TYPE_PENDULUM) === 0);
+  return !toDeckPile && (plan.style === "place" || plan.style === "toss");
+}
+
+/**
+ * A card activated out of the hand lands under its activation copy, which a multi-seat table shows upright for the viewer
+ * (ActivateFx): the card then arrives upright, not turned the way its seat turns it. True for a flight that shows a rival's
+ * face (`showsRivalFace`) and for a card that only fades in at its zone (no hand rail to fly from, like a Tag rival).
+ */
+export function landsUpright(plan: MovePlan, multiSeat: boolean): boolean {
+  const card = plan.event.card;
+  if (!multiSeat || plan.event.reason !== "activate" || plan.event.from?.location !== LOCATION_HAND) return false;
+  if (!card || card.code <= 0 || plan.event.faceDown === true || plan.reduced || plan.pieces) return false;
+  return plan.style === "fade" || !plan.source || showsRivalFace(plan);
 }
 
 /** The flight that stands in for this summon/set/activate/destroy event, if it was planned. */
