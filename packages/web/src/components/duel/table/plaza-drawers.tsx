@@ -60,12 +60,12 @@ function Pane({ title, onClose, scrolls = true, children }: { title: string; onC
 
 /** The plaza's drawers, in place of the floating HUD layer. Same props as `HudLayer`. */
 export function PlazaDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion }: HudLayerProps) {
-  const { pane, setPane, close, pinned, pinAnchor } = hud;
+  const { pane, setPane, close, closePane, pinned, pinAnchor } = hud;
   const bind = (id: HudPane) => ({
     open: pane === id,
     onOpenChange: (next: boolean) => {
       if (next) setPane(id);
-      else if (pane === id) close();
+      else if (pane === id) closePane();
     },
   });
 
@@ -95,15 +95,15 @@ export function PlazaDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones,
   const tabs: Array<{ id: HudPane; label: string; icon: ReactNode; count?: number; attention?: boolean; tone?: "violet" | "gold"; shortcut?: string; size: string; node: ReactNode }> = [
     { id: "log", label: "Log", icon: <ScrollText />, count: logUnread, attention: logUnread > 0, shortcut: "l", size: "min(460px, 88vw)",
       // The log stays mounted while it is closed: it keeps its rows and counts the new ones.
-      node: <Pane title={HUD_PANE_LABEL.log} onClose={close} scrolls={false}>{panels.log}</Pane> },
+      node: <Pane title={HUD_PANE_LABEL.log} onClose={closePane} scrolls={false}>{panels.log}</Pane> },
     { id: "settings", label: "Settings", icon: <SlidersHorizontal />, size: "min(360px, 88vw)",
-      node: settingsMounted ? <Pane title={HUD_PANE_LABEL.settings} onClose={close}>{panels.settings}</Pane> : null },
+      node: settingsMounted ? <Pane title={HUD_PANE_LABEL.settings} onClose={closePane}>{panels.settings}</Pane> : null },
   ];
   // The camera panel stays mounted: its lock state and seat buttons stay live.
-  if (panels.camera) tabs.push({ id: "camera", label: "Camera", icon: <Video />, shortcut: "c", size: "min(340px, 88vw)", node: <Pane title={HUD_PANE_LABEL.camera} onClose={close}>{panels.camera}</Pane> });
+  if (panels.camera) tabs.push({ id: "camera", label: "Camera", icon: <Video />, shortcut: "c", size: "min(340px, 88vw)", node: <Pane title={HUD_PANE_LABEL.camera} onClose={closePane}>{panels.camera}</Pane> });
   if (chainOpen) {
     tabs.push({ id: "chain", label: "Chain", icon: <Link2 />, count: chain.length, attention: true, tone: "gold", size: "min(300px, 88vw)",
-      node: <Pane title={HUD_PANE_LABEL.chain} onClose={close}><div className={styles.chainSlot}><ChainTower chain={chain} nameOf={nameOf} tones={seatTones} /></div></Pane> });
+      node: <Pane title={HUD_PANE_LABEL.chain} onClose={closePane}><div className={styles.chainSlot}><ChainTower chain={chain} nameOf={nameOf} tones={seatTones} /></div></Pane> });
   }
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -133,6 +133,7 @@ export function PlazaDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones,
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
         held={preview?.held === true}
+        pin={preview?.pin ?? null}
         extras={extras}
         onClose={closePin}
       />

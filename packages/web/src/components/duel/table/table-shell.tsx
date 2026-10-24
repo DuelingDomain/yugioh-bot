@@ -22,6 +22,7 @@ import { resolveEquipLinks } from "../equip-links";
 import { DuelFeedback } from "../feedback";
 import { DeckMasterRail, SeatField } from "../field";
 import { FxBoundary, MoveSourceBoundary } from "../fx-boundary";
+import { useYieldToHover } from "../hover-drawer";
 import { duelFontClasses } from "../fonts";
 import { DuelHistoryRail } from "../history-rail";
 import { CardInspector, type InspectTarget } from "../inspector";
@@ -255,6 +256,8 @@ function TableShellBody({
   const hud = !narrow && (grid || plazaHud);
   // No Card drawer in the 3-way plaza or the 4-way grid: a click on a card (and Inspect) opens the pinned card pop-out.
   const hudState = useHudPane({ camera: plazaHud, cardPane: false, initialPane: replayCarry?.current.hudPane });
+  // The viewer picks on the board: a hover on a target shows that card over a pinned one (hud-preview.ts).
+  const picking = useYieldToHover();
   // The shells without the HUD (phone, wide table with the rail) pin a clicked card in the same left drawer as the HUD shells.
   const [pinnedCard, setPinnedCard] = useState<DuelCard | DuelCardInfo | null>(null);
   const ui = useTableUi(tracked, { initialPane: replayCarry?.current.sidePane ?? (grid && hud ? "log" : undefined), hud, onOpenCard: hudState.openCard, onPinCard: hudState.pinCard, onTapCard: hud ? undefined : setPinnedCard });
@@ -471,7 +474,7 @@ function TableShellBody({
   const playersText = session.seats.map((seat) => seat.displayName).join(" v ");
   const logVisible = hud ? hudState.pane === "log" : ui.pane === "log" && (narrow ? sheetOpen : drawer.open);
   const drawerPreview = hud || sheetOpen ? null : hudPreview(
-    ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), pinnedCard);
+    ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), pinnedCard, picking);
   const inspectCard = (target: InspectTarget) => {
     if (target.type !== "pile") {
       if (!hud) setPinnedCard(target.card);
@@ -974,7 +977,7 @@ function TableShellBody({
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned)}
+          preview={hudPreview(ui.hover?.card ?? null, ui.menu?.card, rowPreview.card, (card) => ({ name: nameOf(card.controller), ...toneOf(card.controller) }), hudState.pinned, picking)}
           equipLinks={resolveEquipLinks(engine.seats)}
           reducedMotion={controller.reducedMotion}
           edge={grid}
@@ -1014,7 +1017,7 @@ function TableShellBody({
       ) : null}
       {!hud ? (
         <GridHoverPreview card={drawerPreview?.card ?? null} owner={drawerPreview?.owner ?? null} reducedMotion={controller.reducedMotion}
-          pinned={drawerPreview?.pinned === true} held={drawerPreview?.held === true} onClose={() => setPinnedCard(null)} />
+          pinned={drawerPreview?.pinned === true} held={drawerPreview?.held === true} pin={drawerPreview?.pin ?? null} onClose={() => setPinnedCard(null)} />
       ) : null}
       {showResult ? (
         <DuelResultScreen

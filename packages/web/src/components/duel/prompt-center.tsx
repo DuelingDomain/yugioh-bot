@@ -51,7 +51,7 @@ import { placeTributeDock, sameDock, type DockPlace } from "./tribute-dock-place
 import base from "./prompts.module.css";
 import baseStyles from "./prompt-center.module.css";
 import { anyEdgeDrawerOpen } from "./edge-drawer";
-import { drawerClaimed, hoverDrawerOpen, pinnedDrawerOpen, promptDeclines, setPickPrompt, setPromptDeclines } from "./hover-drawer";
+import { drawerClaimed, hoverDrawerOpen, pinnedDrawerOpen, promptOwnsPress, setPickPrompt, setPromptDeclines, setViewerPrompt } from "./hover-drawer";
 import { useSkinExtra, useSkinStyles } from "./skin";
 import { useForkLabels } from "./table/fork-labels";
 import { useMedia } from "@/components/draft/room/use-media";
@@ -1627,6 +1627,12 @@ export function PromptCenter(props: PromptCenterProps) {
     setPickPrompt("panel", pickId);
     return () => setPickPrompt("panel", null);
   }, [pickId]);
+  // Any prompt the panel shows to the viewer: the pinned drawer keeps clear of its panel, and a narrow screen tucks it away (grid-preview.tsx).
+  const shownId = revealed && kind != null && prompt != null ? prompt.id : null;
+  useEffect(() => {
+    setViewerPrompt(shownId);
+    return () => setViewerPrompt(null);
+  }, [shownId]);
   const precheckRef = useRef<{ checking: boolean; backable: boolean; listFollows: boolean; yes: () => void; no: () => void; back: () => void } | null>(null);
   const answerYes = () => {
     if (!prompt || busy) return;
@@ -1865,7 +1871,7 @@ export function PromptCenter(props: PromptCenterProps) {
       if (document.querySelector("[data-master-popover]")) return;
       // An open edge drawer owns Escape too (it closes on it).
       // A pinned card drawer owns the Esc too, unless this prompt answers it (Pass, No, Cancel): then the pin stays and the prompt is answered.
-      if (event.key === "Escape" && (escapeHeldRef.current || anyEdgeDrawerOpen() || hoverDrawerOpen() || (pinnedDrawerOpen() && !promptDeclines()) || drawerClaimed(event))) return;
+      if (event.key === "Escape" && (escapeHeldRef.current || anyEdgeDrawerOpen() || hoverDrawerOpen() || (pinnedDrawerOpen() && !promptOwnsPress()) || drawerClaimed(event))) return;
       // A menu owns its keys: Escape closes it, and n / y in it must not answer the prompt behind.
       if (event.target instanceof Element && event.target.closest("[data-duel-menu],[role='menu']")) return;
       if (kindRef.current == null || barRef.current) return;

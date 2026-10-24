@@ -782,6 +782,32 @@
 }
 .previewClose:hover, .previewClose:focus-visible { background: rgb(255 255 255 / 0.1); color: var(--duel-ink); }
 
+/* A tucked pin (a prompt of the viewer needs the room): the drawer is out of sight and takes no pointer; its handle below shows it again. */
+.preview[data-tucked="true"] { pointer-events: none; }
+/* The "Pinned: <name>" handle of a tucked pin: a small pill in a free gap of the header (grid-preview.tsx places it clear of the prompt's boxes). */
+.pinHandle {
+  position: absolute;
+  z-index: calc(var(--duel-z-drawer, 46) + 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  max-width: min(240px, 60vw);
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid rgb(155 126 255 / 0.45);
+  border-radius: 999px;
+  background: rgb(9 15 29 / 0.94);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.5);
+  color: var(--duel-ink, #efe7d5);
+  font: 600 12px/1.2 var(--duel-f-ui, system-ui, sans-serif);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.pinHandle svg { flex: none; color: var(--duel-gold, #e8c46a); }
+.pinHandle span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pinHandle:hover, .pinHandle:focus-visible, .pinHandle[aria-pressed="true"] { background: rgb(40 32 78 / 0.96); }
+
 @media (prefers-reduced-motion: reduce) {
   .preview { transition: none; }
 }

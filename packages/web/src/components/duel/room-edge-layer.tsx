@@ -85,6 +85,7 @@ export function RoomEdgeLayer({
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
         held={preview?.held === true}
+        pin={preview?.pin ?? null}
         extras={extras}
         onClose={closePin}
       />

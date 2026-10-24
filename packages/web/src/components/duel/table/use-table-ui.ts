@@ -11,12 +11,7 @@ import { DEFAULT_SIDE_PANE, type SidePane } from "../side-panel";
 import { aimPromptFor, attackAimOf, isAttackStepPrompt, queuedAnswer, type AttackAim, type AttackAimTarget, type AttackTargets } from "./attack-aim";
 import type { BattleAim, DuelActivateHandler, InspectTarget, TableController } from "./types";
 import { refreshHover } from "./hud-layer";
-import { setPickPrompt } from "../hover-drawer";
-
-/** A touch screen or a narrow window: there a pinned card drawer would lie over the board while the player makes a move. */
-function touchLike(): boolean {
-  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse), (max-width: 900px)").matches;
-}
+import { lastPressWasTouch, setPickPrompt } from "../hover-drawer";
 
 /**
  * The interaction state of a table that the room keeps in its own component: the card action menu, the hover
@@ -104,8 +99,10 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
     if (!prompt || !(isAttackTargetPrompt(prompt, true) || isAttackDuelistPrompt(prompt) || isDirectAttackPrompt(prompt))) setPendingAttack(null);
   }, [prompt]);
   // The attack target pick of the viewer is a pick on the board as well: a pinned card drawer must not lie over the targets (grid-preview.tsx).
-  const attackPickId = prompt != null && viewerSeat != null && prompt.seat === viewerSeat
-    && (isAttackTargetPrompt(prompt, true) || isAttackDuelistPrompt(prompt) || isDirectAttackPrompt(prompt)) ? prompt.id : null;
+  // So is the aim of an attack that was declared before its target (FFA and Tag): the arrow runs from the attacker and the next click is the target.
+  const attackPickId = aimingFirst != null ? aimingFirst.promptId
+    : prompt != null && viewerSeat != null && prompt.seat === viewerSeat
+      && (isAttackTargetPrompt(prompt, true) || isAttackDuelistPrompt(prompt) || isDirectAttackPrompt(prompt)) ? prompt.id : null;
   useEffect(() => {
     setPickPrompt("attack", attackPickId);
     return () => setPickPrompt("attack", null);
@@ -291,8 +288,8 @@ export function useTableUi(base: TableController, options: TableUiOptions = {}):
       if (card && !hud && !pileOpening.current) {
         const startsMove = canAct && mine && keys.some((key) => base.legalKeys.has(key));
         showInspector({ type: "card", card }, false, !startsMove);
-        // On a touch screen (or a narrow one) the drawer is most of the board: a tap that starts a move does not pin, as before. A mouse pins it.
-        if (!startsMove || !touchLike()) onTapCard?.(card);
+        // A finger tap that starts a move does not pin: the card menu and the answer panels need the board. A mouse press pins it.
+        if (!startsMove || !lastPressWasTouch()) onTapCard?.(card);
       }
       base.onActivate(keys, card, anchor);
       if (busy || !canAct || !prompt) {

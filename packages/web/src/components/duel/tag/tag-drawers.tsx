@@ -108,7 +108,7 @@ export interface TagDrawersProps {
   nameOf: (seat: number) => string;
   seatTones: ReadonlyMap<number, { main: string; ink: string }>;
   logUnread: number;
-  preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean; held?: boolean } | null;
+  preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean; held?: boolean; pin?: DuelCard | DuelCardInfo } | null;
   equipLinks?: EquipLinks;
   /** Hold the preview back (a pick refusal hint stands over its card). */
   previewHidden?: boolean;
@@ -116,7 +116,7 @@ export interface TagDrawersProps {
 }
 
 export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion }: TagDrawersProps) {
-  const { pane, setPane, close, pinAnchor } = hud;
+  const { pane, setPane, close, closePane, pinAnchor } = hud;
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
   const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
   const extras = useMemo(
@@ -166,7 +166,7 @@ export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, l
             size={LEFT_SIZE.chain}
             tabOffset={leftTabOffset(leftPanes.length, heights)}
           >
-            <PaneHead title="Chain" onClose={close} />
+            <PaneHead title="Chain" onClose={closePane} />
             <div className={styles.chainHost}>
               <ChainTower chain={chain} nameOf={nameOf} tones={seatTones} />
             </div>
@@ -179,6 +179,7 @@ export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, l
         reducedMotion={reducedMotion}
         pinned={preview?.pinned === true}
         held={preview?.held === true}
+        pin={preview?.pin ?? null}
         extras={extras}
         onClose={closePin}
       />
