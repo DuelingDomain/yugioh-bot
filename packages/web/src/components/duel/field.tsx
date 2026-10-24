@@ -64,6 +64,8 @@ import {
   type DuelHoverHandler,
   type FieldCallbacks,
 } from "./field-keys";
+import { CardStatusLayer } from "./card-status";
+import { cardStatusModel, statusSentence } from "./card-status-model";
 import { isCoinTossActive } from "./coin-toss-lock";
 import { useSkinStyles } from "./skin";
 import { PIN_TOP_ATTR, PIN_TOP_EVENT } from "./pile-focus";
@@ -251,7 +253,10 @@ export function ZoneSlot({
   // card, unless the card is a legal target right now: then the tap picks it (the card menu and the inspector still list the materials).
   const materials = onInspect && card && card.code != null && !isFacedown(card.position) && !legal ? card.materials ?? [] : [];
   const materialCount = card && card.code != null && !isFacedown(card.position) ? card.materials?.length ?? 0 : 0;
-  const name = [label, equipText, negated ? "Effects negated" : null, materialCount > 0 ? `${materialCount} ${materialCount === 1 ? "material" : "materials"}` : null].filter(Boolean).join(". ");
+  // Protections, counters and the negated chip of a face-up card: a rail and a coin stack on the card; the same words in the name below.
+  const faceUp = card != null && card.code != null && !isFacedown(card.position);
+  const status = useMemo(() => (faceUp ? cardStatusModel(card) : cardStatusModel(null)), [card, faceUp]);
+  const name = [label, equipText, negated ? "Effects negated" : null, statusSentence(status), materialCount > 0 ? `${materialCount} ${materialCount === 1 ? "material" : "materials"}` : null].filter(Boolean).join(". ");
 
   return (
     <div
@@ -278,6 +283,8 @@ export function ZoneSlot({
         type="button"
         className={styles.zoneHit}
         aria-label={name}
+        // The tooltip and the accessible description say what the glyphs and coins on the card mean (the layer itself takes no pointer).
+        title={statusSentence(status) ?? undefined}
         aria-pressed={selected}
         // A ghost is the facing seat's card: a click on it acts on nothing (hover still previews it).
         onClick={(event) => {
@@ -296,7 +303,7 @@ export function ZoneSlot({
         {!card && kind === "emz" ? <span className={styles.zoneName}>Extra Monster</span> : null}
         <div className={styles.frame} data-card-frame>
           {pendulum ? <span className={styles.pendulumMark} data-zone-label>P</span> : null}
-          {card ? <CardFace card={card} sleeve={sleeve} /> : sleeve ? <CardFace card={null} sleeve={sleeve} /> : null}
+          {card ? <CardFace card={card} sleeve={sleeve} statusRail={status.rail.includes("neg")} /> : sleeve ? <CardFace card={null} sleeve={sleeve} /> : null}
           {atk ? (
             <span className={styles.plate} data-card-plate style={plateTextVars(atk, def)}>
               <b>{atk}</b>
@@ -309,6 +316,7 @@ export function ZoneSlot({
             </span>
           ) : null}
           <EquipChip role={equipRole} flip={flip} />
+          <CardStatusLayer model={status} flip={flip} defense={defense} materials={materialCount > 0} equipped={equipRole != null} />
           <ZoneMarks legal={legal} selected={selected} />
         </div>
         {pileCount != null ? <PileLabel kind={kind} count={pileCount} /> : null}

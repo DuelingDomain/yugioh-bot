@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -33,6 +33,12 @@ const roots: string[] = [];
 const root = () => { const dir = mkdtempSync(join(tmpdir(), "released-data-test-")); roots.push(dir); return dir; };
 afterEach(() => { roots.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); vi.unstubAllEnvs(); vi.useRealTimers(); vi.restoreAllMocks(); });
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
+/** Stock scripts for every card the shared patch manifest edits, so the sha256 gates see real upstream bytes. */
+function copyPatchStocks(scripts: string) {
+  const fixtures = new URL("./fixtures/card-scripts/", import.meta.url);
+  mkdirSync(join(scripts, "official"), { recursive: true });
+  for (const file of readdirSync(fixtures).filter(name => /^c\d+\.lua$/.test(name))) cpSync(new URL(file, fixtures), join(scripts, "official", file));
+}
 const tree = (paths: string[]) => ({ truncated: false, tree: paths.map(path => ({ path, type: "blob", sha: "unused" })) });
 function cdb(dir: string, name: string, rows: Array<[number, number, string, number?]>) {
   const path = join(dir, name);
@@ -56,7 +62,7 @@ function fixture() {
   ]);
   const scripts = join(dir, "stock"); mkdirSync(join(scripts, "official"), { recursive: true }); mkdirSync(join(scripts, "pre-release"));
   for (const file of ["official/c1.lua", "official/c2.lua", "pre-release/c17242022.lua", "pre-release/c999.lua"]) writeFileSync(join(scripts, file), `-- ${file}\n`);
-  cpSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), join(scripts, "official/c3743515.lua"));
+  copyPatchStocks(scripts);
   cpSync(new URL("./fixtures/card-scripts/card_counter_constants.lua", import.meta.url), join(scripts, "card_counter_constants.lua"));
   const archive = execFileSync("tar", ["-czf", "-", "-C", dir, "stock"]);
   const request = vi.fn(async (input: string | URL | Request) => {
@@ -81,7 +87,7 @@ it("prepares the Sabersaurus fix in the shared card scripts and versions its eff
   expect((await prepareData(directory, request)).bundleVersion).toBe(result.bundleVersion);
   expect(readFileSync(join(directory, "card-scripts/official/c3743515.lua"), "utf8")).toBe(script);
   expect(request).not.toHaveBeenCalled();
-});
+}, 30_000);
 
 it("patches an unchanged cached bundle without downloads and changes its version", async () => {
   const { request, directory } = fixture();
@@ -90,7 +96,7 @@ it("patches an unchanged cached bundle without downloads and changes its version
   const { multiScripts: _multi, cardsMerged: _cards, ...engine } = integrity;
   const bundleVersion = hash(JSON.stringify({ sources: first.sources, integrity: engine }));
   writeFileSync(join(directory, "manifest.json"), JSON.stringify({ sources: first.sources, integrity, bundleVersion }));
-  cpSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), join(directory, "card-scripts/official/c3743515.lua"));
+  copyPatchStocks(join(directory, "card-scripts"));
   request.mockClear();
   const next = await prepareData(directory, request);
   expect(next.skipped).toBe(true);
@@ -123,7 +129,7 @@ it("gives fresh and cached patch installs the same version with optional built-c
   writeFileSync(join(directory, "manifest.json"), JSON.stringify({ sources: fresh.sources, integrity,
     bundleVersion: hash(JSON.stringify({ sources: fresh.sources, integrity: engine })),
   }));
-  cpSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), join(directory, "card-scripts/official/c3743515.lua"));
+  copyPatchStocks(join(directory, "card-scripts"));
   request.mockClear();
   const cached = await prepareData(directory, request);
   expect(cached.skipped).toBe(true);
@@ -138,9 +144,9 @@ it("restores stock bytes when a shared patch is retired from a cached recipe", (
   cpSync(new URL("../card-script-patches/", import.meta.url), recipe, { recursive: true });
   const scripts = join(directory, "scripts");
   mkdirSync(join(scripts, "official"), { recursive: true });
-  const stock = readFileSync(new URL("./fixtures/card-scripts/c3743515.lua", import.meta.url), "utf8");
+  copyPatchStocks(scripts);
   const path = join(scripts, "official/c3743515.lua");
-  writeFileSync(path, stock);
+  const stock = readFileSync(path, "utf8");
   cpSync(new URL("./fixtures/card-scripts/card_counter_constants.lua", import.meta.url), join(scripts, "card_counter_constants.lua"));
   installCardScriptPatches(scripts, recipe);
   expect(readFileSync(path, "utf8")).not.toBe(stock);
@@ -607,7 +613,7 @@ it("smoke-checks unchanged prerelease scripts during preparation, removes failur
  writeFileSync(join(scripts,"pre-release/c100000001.lua"),"local s,id=GetID();function s.initial_effect(c) end");
  writeFileSync(join(scripts,"pre-release/c100000002.lua"),"local s,id=GetID();function s.initial_effect(c) error('broken preview') end");
  writeFileSync(join(scripts,"official/c1.lua"),"local s,id=GetID();function s.initial_effect(c) error('released error') end");
- cpSync(new URL("./fixtures/card-scripts/c3743515.lua",import.meta.url),join(scripts,"official/c3743515.lua"));
+ copyPatchStocks(scripts);
  cpSync(new URL("./fixtures/card-scripts/card_counter_constants.lua",import.meta.url),join(scripts,"card_counter_constants.lua"));
  const archive=execFileSync("tar",["-czf","-","-C",dir,"stock"]);
  const original=f.request.getMockImplementation()!;

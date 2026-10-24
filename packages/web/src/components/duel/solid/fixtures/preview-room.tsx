@@ -30,6 +30,7 @@ import { MatchSheetLog } from "../../text-log";
 import type { DuelPreferences } from "../../preferences";
 import { buildAttackPreview } from "../attack-preview";
 import { TABLE_CARDS } from "../../table/fixtures/common";
+import { withCardStatusEngine } from "../../table/fixtures/card-status";
 import { SolidRoom } from "../solid-room";
 import { FieldCracksScope } from "../../field-cracks/context";
 import { PositionFx } from "../../position-fx";
@@ -54,8 +55,13 @@ type ConfirmState = { anchor: HTMLElement; name: string; prefer: "above" | "belo
  * The 3D mode board on fixture data (spec section 4, W8). It builds the same slot nodes `DuelRoomView` builds, with the
  * real components and none of the room's network, and hands them to the real `SolidRoom`. Nothing is sent anywhere.
  */
-export function SolidPreviewRoom({ stateId, flat, reduced, card, activate, lp, lpAfter }: { stateId: SolidStateId; flat: boolean; reduced: boolean; card?: string | null; activate?: boolean; lp?: string | null; lpAfter?: string | null }) {
-  const fixture = useMemo(() => solidFixture(stateId), [stateId]);
+export function SolidPreviewRoom({ stateId, flat, reduced, card, activate, lp, lpAfter, status = false }: { stateId: SolidStateId; flat: boolean; reduced: boolean; card?: string | null; activate?: boolean; lp?: string | null; lpAfter?: string | null; status?: boolean }) {
+  // `?status=1`: protections, counters, a negated mark and base stats on the face-up monsters (table/fixtures/card-status.ts).
+  const fixture = useMemo(() => {
+    const base = solidFixture(stateId);
+    const engine = base.room.engine;
+    return status && engine ? { ...base, room: { ...base.room, engine: withCardStatusEngine(engine) } } : base;
+  }, [stateId, status]);
   const { room, history, ui } = fixture;
   // `?act=1`: a moment after the board is up, the Set card in your Spell/Trap zone 2 turns face-up and activates (the activation copy on the plane).
   const [acting, setActing] = useState(false);

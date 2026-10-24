@@ -8,5 +8,129 @@
     "stockPath": "official/c3743515.lua",
     "stockSha256": "0efda8bf0727ede4a05fc10dd06479b227664670d45d50b36de382d465af80d3",
     "suffix": "c3743515.lua"
+  },
+  {
+    "stockPath": "host-protection-hints.lua",
+    "suffix": "host-protection-hints.lua"
+  },
+  {
+    "stockPath": "official/c44001993.lua",
+    "stockSha256": "3f34dfc9f54b41858f818c9a1bc31b105676770604d93309ff1fd775983b06e8",
+    "suffix": "c44001993.lua",
+    "name": "Magician of Dark Chaos - Black Chaos"
+  },
+  {
+    "stockPath": "official/c37818794.lua",
+    "stockSha256": "8725402eb2e9ad911f6944da49cbaf547b8d3623664955aa8f399bb4e3a94fb2",
+    "suffix": "c37818794.lua",
+    "name": "Red-Eyes Dark Dragoon"
+  },
+  {
+    "stockPath": "official/c98684220.lua",
+    "stockSha256": "4b312fb9c60046c7c703df54278e22cb675beff875ec20733896756ca7c29c9d",
+    "suffix": "c98684220.lua",
+    "name": "Black Chaos"
+  },
+  {
+    "stockPath": "official/c70488851.lua",
+    "stockSha256": "6231e5e851bba02414897314d0514469572b3343427642d7db583425a17c163e",
+    "suffix": "c70488851.lua",
+    "name": "Vidolium the Unstable Power Patron of Unity"
+  },
+  {
+    "stockPath": "official/c4063756.lua",
+    "stockSha256": "b01c37e52b0cd33d6a4e862d2b593ca0ff319c82fea6900b19b401ece19ea4e3",
+    "suffix": "c4063756.lua",
+    "name": "Medicurius the Power Patron of Illusions"
+  },
+  {
+    "stockPath": "official/c28904860.lua",
+    "stockSha256": "3f955a1ba6ae29d7e81f6ab12e7798394eddd8fbfd6c5c8ad6303cac0e113db8",
+    "suffix": "c28904860.lua",
+    "name": "Angelechy Bastion"
+  },
+  {
+    "stockPath": "official/c10000080.lua",
+    "stockSha256": "b985bbdc54ff247c13f2f519d2ae9dcef75c0c6a1442f753f11db6b4c8dcd02f",
+    "suffix": "c10000080.lua",
+    "name": "The Winged Dragon of Ra - Sphere Mode"
+  },
+  {
+    "stockPath": "official/c70405001.lua",
+    "stockSha256": "0317a1403c158c117356fd070d01484a90de4d5ade47211d215ca8cbc5c2541f",
+    "suffix": "c70405001.lua",
+    "name": "Black Luster Soldier - Soldier of Light and Darkness"
+  },
+  {
+    "stockPath": "official/c60465049.lua",
+    "stockSha256": "ab10e06bc5a3b9f899f7c7e2274fe7553c1438a9a8c2bfa1a711cc644c20515a",
+    "suffix": "c60465049.lua",
+    "name": "Psychic End Punisher"
+  },
+  {
+    "stockPath": "official/c15982593.lua",
+    "stockSha256": "54ef267b458f4dc204eb934432807755b913b0cc86e6cb981de1a0fb33a559b5",
+    "suffix": "c15982593.lua",
+    "name": "Centur-Ion Legatia"
+  },
+  {
+    "stockPath": "official/c8165596.lua",
+    "stockSha256": "f487c9f1078a3a0d9ddce8ece3a222982ccda255c8dbeafb6c2c6dc831b0879e",
+    "suffix": "c8165596.lua",
+    "name": "Number 90: Galaxy-Eyes Photon Lord"
+  },
+  {
+    "stockPath": "official/c98127546.lua",
+    "stockSha256": "61965a845c3c5172654a150208c00ef59e014ee3e75c250f3156335d5c6a8d1a",
+    "suffix": "c98127546.lua",
+    "name": "Underworld Goddess of the Closed World"
+  },
+  {
+    "stockPath": "official/c60303688.lua",
+    "stockSha256": "9b8098204a1d78edc5849f43dbd6955479d7a325c5516750fa45feaea47e4c0f",
+    "suffix": "c60303688.lua",
+    "name": "Dogmatika Ecclesia, the Virtuous"
+  },
+  {
+    "stockPath": "official/c76666602.lua",
+    "stockSha256": "237810177c0e1b09e41be0a0f50dcce1d8c96641c19c46abb8fcce56f8a35e04",
+    "suffix": "c76666602.lua",
+    "name": "The Dragon that Devours the Dogma"
+  },
+  {
+    "stockPath": "official/c86682165.lua",
+    "stockSha256": "70a54f48abb7881dd35c7b4d3c0d22752b33d473f0a2106bf1a79c9b1cc80067",
+    "suffix": "c86682165.lua",
+    "name": "Icejade Gymir Aegirine"
+  },
+  {
+    "stockPath": "official/c77313225.lua",
+    "stockSha256": "5823e8bfee2a5ff3cc11292cd69db5aaa7a7403d0023ecff467f4b949e59f8c4",
+    "suffix": "c77313225.lua",
+    "name": "Rciela, Sinister Soul of the White Forest"
+  },
+  {
+    "stockPath": "official/c54757758.lua",
+    "stockSha256": "d59b9f2390575fd8b9b6cbb3640c2a81bb9083fdfd42311983a31e78ca5c0b95",
+    "suffix": "c54757758.lua",
+    "name": "Mudragon of the Swamp"
+  },
+  {
+    "stockPath": "official/c89812483.lua",
+    "stockSha256": "a3463820875b7c9f3b9708b8c0faac4e9a849a144312d0ea05a462b7ec457eae",
+    "suffix": "c89812483.lua",
+    "name": "Max Metalmorph"
+  },
+  {
+    "stockPath": "official/c56733747.lua",
+    "stockSha256": "ddf86fee4ecca43accbddbec093f7135caffa5c6a1f3facac3c0252b7b2c18a1",
+    "suffix": "c56733747.lua",
+    "name": "Elemental HERO Shining Neos Wingman"
+  },
+  {
+    "stockPath": "official/c94977269.lua",
+    "stockSha256": "b0d4e574eff8adf932b6c73488c2bc8b2f348064caed1dbe9f8e42762c3deab6",
+    "suffix": "c94977269.lua",
+    "name": "El Shaddoll Winda"
   }
 ]

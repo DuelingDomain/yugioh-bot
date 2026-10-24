@@ -7,7 +7,7 @@ import { ChainTower, DOCK_PANES, DOCK_PANES_CAMERA, GridDock, GridFlyout, useHud
 import { EdgeHud } from "./grid-edge";
 import { LOCATION_EXTRA, LOCATION_FZONE, LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_PZONE, LOCATION_REMOVED, LOCATION_SZONE } from "../constants";
 import type { EquipLinks } from "../equip-links";
-import { pinnedExtraLines, NEGATED_LINE } from "../inspector";
+import { pinnedExtraLines } from "../inspector";
 import { promptOwnsPress } from "../hover-drawer";
 import { isStaleCopy, staleCopy, type StaleReason } from "../stale-pin";
 import { GridHoverPreview } from "./grid-preview";
@@ -379,7 +379,7 @@ export interface HudLayerProps {
   logUnread: number;
   /** The card for the left peek and its owner, or `null` when there is none. A prompt row card has no owner. `pinned`: it stays until closed. */
   preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null; pinned?: boolean; held?: boolean; pin?: DuelCard | DuelCardInfo } | null;
-  /** The equip links of the live board: the pinned peek adds the same lines as the Card flyout (equip, counters, materials). */
+  /** The equip links of the live board: the pinned peek adds the same lines as the Card flyout (equip, materials). */
   equipLinks?: EquipLinks;
   /** The pile viewer is open, or a pick hint is shown: the preview hides. An open card menu does not hide it. */
   /** Hold the preview back (a pick refusal hint stands over its card). */
@@ -391,11 +391,10 @@ export interface HudLayerProps {
 
 export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion, edge = false }: HudLayerProps) {
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
-  // A hovered board card says only what the art already shows (negated); a pinned one adds its equip, counter and material lines.
-  const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
+  // A pinned board card adds its equip and material lines to the drawer (protections, counters and negation come from its status list).
   const extras = useMemo(
-    () => (pinnedBoard ? pinnedExtraLines(pinnedBoard, equipLinks) : hoveredBoard?.negated === true ? [NEGATED_LINE] : []),
-    [pinnedBoard, hoveredBoard, equipLinks],
+    () => (pinnedBoard ? pinnedExtraLines(pinnedBoard, equipLinks) : []),
+    [pinnedBoard, equipLinks],
   );
   // The X button: the pin goes. With the keyboard, focus returns to the card that was clicked (a mouse click would only bring the hover peek back).
   const { close, pinAnchor } = hud;

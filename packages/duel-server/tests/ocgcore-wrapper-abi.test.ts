@@ -177,9 +177,8 @@ describe("ocgcore-wasm queries with the TYPE flag", () => {
   });
 });
 
-// Counters. The merged parser reads each counter as type then count. The old wrapper (main's, the legacy 1v1 engine) read them the
-// other way round and production shows that: legacy keeps it, for duelQuery AND for duelQueryLocation (a review found that the location
-// query always used the merged parser, so the card inspector showed "Counter 4098: 3" in legacy mode where main shows "Counter 3: 4098").
+// Both query readers expose counter type -> count. The historical legacy reader swapped them;
+// typed counter metadata needs the actual type ID, including its WITHOUT_PERMIT flag.
 describe("ocgcore-wasm counters query, both modes", () => {
   const counterCard = 46986414; // any monster; the counter is added by a script
 
@@ -219,7 +218,7 @@ describe("ocgcore-wasm counters query, both modes", () => {
     expect(await queryCounters(false)).toEqual({ single: { 0x1002: 3 }, location: { 0x1002: 3 } });
   });
 
-  it("legacy parser: duelQuery and duelQueryLocation agree and keep main's layout (count is the key)", async () => {
-    expect(await queryCounters(true)).toEqual({ single: { 3: 0x1002 }, location: { 3: 0x1002 } });
+  it("legacy parser: duelQuery and duelQueryLocation both use counter type as the key", async () => {
+    expect(await queryCounters(true)).toEqual({ single: { 0x1002: 3 }, location: { 0x1002: 3 } });
   });
 });

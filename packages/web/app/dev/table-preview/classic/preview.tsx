@@ -6,9 +6,11 @@ import { isDuelChainMode, type DuelChainMode } from "@yugidraft/shared/duels";
 import { BattleFx } from "@/components/duel/battle-fx";
 import { withDestroyCards } from "@/components/duel/destroy-cards";
 import { DeckSurrenderContext } from "@/components/duel/deck-surrender";
+import { withCardStatusEngine } from "@/components/duel/table/fixtures/card-status";
 import { isBattlePhase } from "@/components/duel/constants";
 import { ChainFx } from "@/components/duel/chain-fx";
 import { DuelField } from "@/components/duel/field";
+import { CardInspector, type InspectTarget } from "@/components/duel/inspector";
 import { FieldCracksScope } from "@/components/duel/field-cracks/context";
 import { duelFontClasses } from "@/components/duel/fonts";
 import { seatNamer } from "@/components/duel/multi-seat";
@@ -43,7 +45,7 @@ export function classicStateId(raw: string | null | undefined): SolidStateId {
  * The classic 1v1 room on fixture data: the room's own layout (header, board column, station track) with the real
  * DuelField, PhaseHub and StationTrack, and none of the room's network. Phase moves are logged, not sent.
  */
-export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp, lpAfter }: { stateId: string | null; chain: string | null; reduced: boolean; attack?: string | null; lp?: string | null; lpAfter?: string | null }) {
+export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp, lpAfter, status = false }: { stateId: string | null; chain: string | null; reduced: boolean; attack?: string | null; lp?: string | null; lpAfter?: string | null; status?: boolean }) {
   const id = classicStateId(stateId);
   const { room: base } = useMemo(() => solidFixture(id), [id]);
   // `?attack=<seat>:<seq>><target>[:<seq>]` declares a late attack, as the multiplayer previews do.
@@ -63,19 +65,21 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp
   }, [lpDelay]);
   const room = useMemo(() => {
     const event = parseAttackParam(attack ?? null);
-    let next = base;
-    const values = (lp ?? "").split(",").map(Number).filter((value) => Number.isFinite(value));
-    if (values.length > 0 && lpLate && base.engine) {
-      const seats = base.engine.seats.map((seat) => ({ ...seat, lp: values[seat.seat % values.length] }));
-      next = { ...base, engine: { ...base.engine, seats } };
+    let next = status && base.engine ? { ...base, engine: withCardStatusEngine(base.engine) } : base;
+    const values = (lp ?? "").split(",").filter((part) => part.trim() !== "").map(Number).filter((value) => Number.isFinite(value));
+    if (values.length > 0 && lpLate && next.engine) {
+      const seats = next.engine.seats.map((seat) => ({ ...seat, lp: values[seat.seat % values.length] }));
+      next = { ...next, engine: { ...next.engine, seats } };
     }
     if (!event || !late || !next.engine) return next;
     const events = next.engine.events;
     const eventId = Math.max(0, ...events.map((entry) => entry.id)) + 1;
     return { ...next, engine: { ...next.engine, battleStep: "battle" as const, events: [...events, { ...event, id: eventId }] } };
-  }, [base, attack, late, lp, lpLate]);
+  }, [base, attack, late, lp, lpLate, status]);
   const engine = room.engine!;
   useDuelAnimationSpeed(reduced);
+  // `?status=1` also mounts the real desktop inspector, so the Card tab's status rows can be checked on hover.
+  const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [chain, setChain] = useState<DuelChainMode>(isDuelChainMode(chainParam) ? chainParam : "auto");
   const playerName = useMemo(() => seatNamer(room.session.seats), [room.session.seats]);
   const prompt = engine.prompt;
@@ -112,12 +116,13 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack, lp
           <span />
         </header>
         <div className={roomStyles.layout}>
-          <aside className={roomStyles.inspector} />
+          <aside className={roomStyles.inspector}>{status ? <CardInspector target={inspect} onInspectCard={(card) => setInspect({ type: "card", card })} /> : null}</aside>
           <section className={roomStyles.boardColumn} aria-label="Duel field">
             <div className={roomStyles.board}>
               <DuelField
                 engine={engine} mySeat={mySeat} masterRule={sessionBoardRule(room.session, engine)} reducedMotion={reduced} priorityLive
                 legalKeys={legalKeys} selectedKeys={NO_KEYS} onActivate={noop} onInspect={noop}
+                onHoverCard={status ? (card) => { if (card && card.code != null) setInspect({ type: "card", card }); } : undefined}
                 bottomName={playerName(mySeat ?? 0)} topName={playerName(1 - (mySeat ?? 0))}
                 hub={
                   <PhaseHub

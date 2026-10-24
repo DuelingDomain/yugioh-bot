@@ -4,6 +4,8 @@ import { useLayoutEffect, useRef, type CSSProperties, type RefObject } from "rea
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { CardBack, materialsTarget } from "./card-face";
 import { hasCardName, useDuelCardInfo } from "./card-info";
+import { CardStatusList } from "./card-status";
+import { baseStatsText, cardStatusModel, statusReservePx } from "./card-status-model";
 import { cardTextStyle, useCardTextSize } from "./card-text-size";
 import { cardArtUrl, cardInspectLines, isHiddenCard } from "./constants";
 import { equipSentence, roleOfCard, type EquipLinks } from "./equip-links";
@@ -110,10 +112,14 @@ function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
 
   const { facts, combat } = cardInspectLines(card);
   const description = card.description?.trim() ?? "";
+  // Status of a board card: protections with their text, counters with names and counts, and the printed stats when they changed.
+  const status = cardStatusModel(card as DuelCard);
+  const baseStats = combat ? baseStatsText(card as DuelCard) : null;
+  const reserve = statusReservePx(status, baseStats != null);
 
   // The art is large and full width; the name, one compact facts line and ATK / DEF stand under it, then the effect text.
   return (
-    <div ref={rootRef} className={styles.root} data-header="stack" data-card-text={textSize} style={textStyle}>
+    <div ref={rootRef} className={styles.root} data-header="stack" data-status={reserve > 0 ? "" : undefined} data-card-text={textSize} style={reserve > 0 ? { ...textStyle, "--status-px": `${reserve}px`, "--text-chars": description.length } as CSSProperties : textStyle}>
       <div className={`${styles.art} card-frame`}>
         <img src={cardArtUrl(code, "full")} alt="" />
       </div>
@@ -123,29 +129,22 @@ function InfoBody({ card: liveCard }: { card: DuelCard | DuelCardInfo }) {
           <div className={styles.facts}>
             {facts ? <p className={styles.details}>{facts}</p> : null}
             {combat ? <p className={styles.combat}>{combat}</p> : null}
+            {baseStats ? <p className={styles.baseStats} data-testid="inspector-base-stats">{baseStats}</p> : null}
           </div>
         ) : null}
+        <CardStatusList model={status} />
         {description ? <p className={styles.text}>{description}</p> : null}
       </div>
     </div>
   );
 }
 
-/** The extra line of a face-up board card whose effects are negated (the server sets `negated`). */
-export const NEGATED_LINE = "Effects negated";
-
-/** The extra lines of a board card: negation, its equip link, counters and Xyz materials. The Card flyout and the pinned peek both show them. */
+/** The extra lines of a board card: its equip link and Xyz materials (negation, protections and counters have their own list, card-status.tsx). The Card flyout and the pinned peek both show them. */
 export function cardExtraLines(card: DuelCard, equipLinks?: EquipLinks): string[] {
   const extras: string[] = [];
-  if (card.negated === true) extras.push(NEGATED_LINE);
   if (card.lpOpponent != null) extras.push(`LP opponent: Player ${card.lpOpponent + 1}`);
   const equipText = equipLinks ? equipSentence(roleOfCard(equipLinks, card)) : null;
   if (equipText) extras.push(equipText);
-  if (card.counters?.length) {
-    for (const counter of card.counters) {
-      extras.push(`Counter ${counter.type}: ${counter.count}`);
-    }
-  }
   if (card.materials?.length) {
     extras.push(
       `Materials (${card.materials.length}): ${card.materials
@@ -156,7 +155,7 @@ export function cardExtraLines(card: DuelCard, equipLinks?: EquipLinks): string[
   return extras;
 }
 
-/** The extra lines of a pinned board card: a stale copy (the card left the board) says so and shows nothing live: no equip link, counters or materials. */
+/** The extra lines of a pinned board card: a stale copy says why it is old instead of showing live equip links or materials. */
 export function pinnedExtraLines(card: DuelCard, equipLinks?: EquipLinks): string[] {
   return isStaleCopy(card) ? [staleLine(card)] : cardExtraLines(card, equipLinks);
 }
@@ -249,19 +248,9 @@ export function CardInspector({
       ) : null}
       {extras.length > 0 ? (
         <ul className={styles.metaList} style={textStyle}>
-          {extras.map((line) =>
-            line === NEGATED_LINE ? (
-              <li key={line} className={styles.negatedLine} data-negated="true" data-testid="inspector-negated">
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <circle cx="12" cy="12" r="8.6" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-                {line}
-              </li>
-            ) : (
-              <li key={line}>{line}</li>
-            ),
-          )}
+          {extras.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
         </ul>
       ) : null}
       {materials.length > 0 && onViewMaterials ? (

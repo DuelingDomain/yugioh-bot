@@ -15,7 +15,7 @@ const stale = new WeakMap<object, StaleReason>();
 
 export function staleCopy(card: DuelCard, why: StaleReason = "gone"): DuelCard {
   if (stale.get(card) === why) return card;
-  const copy: DuelCard = { ...card, attack: undefined, defense: undefined, counters: undefined, materials: undefined, equippedTo: undefined, negated: undefined };
+  const copy: DuelCard = { ...card, attack: undefined, defense: undefined, hints: undefined, counters: undefined, materials: undefined, equippedTo: undefined, negated: undefined };
   stale.set(copy, why);
   return copy;
 }

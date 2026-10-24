@@ -5,7 +5,7 @@ import { Link2, ScrollText, SlidersHorizontal, Video, X } from "lucide-react";
 import type { DuelCard, DuelCardInfo, DuelChainLink } from "@yugidraft/shared/duels";
 import { EdgeDrawer } from "../edge-drawer";
 import type { EquipLinks } from "../equip-links";
-import { pinnedExtraLines, NEGATED_LINE } from "../inspector";
+import { pinnedExtraLines } from "../inspector";
 import { ChainTower, HUD_PANE_LABEL, type HudPane } from "../table/grid-hud";
 import { GridHoverPreview } from "../table/grid-preview";
 import type { HudPaneState } from "../table/hud-layer";
@@ -118,10 +118,9 @@ export interface TagDrawersProps {
 export function TagDrawers({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, preview, equipLinks, previewHidden, reducedMotion }: TagDrawersProps) {
   const { pane, setPane, close, closePane, pinAnchor } = hud;
   const pinnedBoard = preview?.pinned === true && "location" in preview.card ? preview.card : null;
-  const hoveredBoard = preview != null && !preview.pinned && "location" in preview.card ? preview.card : null;
   const extras = useMemo(
-    () => (pinnedBoard ? pinnedExtraLines(pinnedBoard, equipLinks) : hoveredBoard?.negated === true ? [NEGATED_LINE] : []),
-    [pinnedBoard, hoveredBoard, equipLinks],
+    () => (pinnedBoard ? pinnedExtraLines(pinnedBoard, equipLinks) : []),
+    [pinnedBoard, equipLinks],
   );
   const closePin = useCallback((byKeyboard: boolean) => {
     close();
