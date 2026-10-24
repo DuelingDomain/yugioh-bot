@@ -114,7 +114,8 @@ export function loadNSource(file: string): NSource {
     const commands = (raw.answers as Array<Record<string, any>>).map((item) =>
       item.kind === "eliminate"
         ? { seat: item.seat as number, promptId: `eliminate:${item.reason}`, revision: item.revision as number, answer: {} as never }
-        : { seat: item.seat as number, promptId: item.promptId as string, revision: item.revision as number, answer: item.answer },
+        : { seat: item.seat as number, promptId: item.promptId as string, revision: item.revision as number, answer: item.answer,
+          ...(item.sortOrderVersion === 1 ? { sortOrderVersion: 1 as const } : {}) },
     );
     return {
       kind: "fuzz",

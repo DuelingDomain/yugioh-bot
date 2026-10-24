@@ -28,7 +28,8 @@ export const ENGINE_HOST_RULE_FILES = [
 // Genesys adds opt-in rules through saved settings; absent/null settings preserve the existing flags and views.
 // Version 7 preserves Exodia's whole-table result in saved views and replays and removes elimination places (owner 2026-10-18).
 // Version 8 preserves eligible Damage Step response windows in Auto and distinguishes all five damage sub-steps.
-export const ENGINE_HOST_RULE_VERSION = "duel-rules-8";
+// Version 9 inverts client sort permutations; per-command metadata preserves historical sort bytes.
+export const ENGINE_HOST_RULE_VERSION = "duel-rules-9";
 
 export class EngineResourceUnavailableError extends Error {
   readonly code = "ENGINE_UNAVAILABLE_FOR_SOURCE";

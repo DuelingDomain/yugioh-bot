@@ -50,7 +50,7 @@ interface JournalFile {
   setup?: { startupScripts?: string[]; firstTurnDraw?: boolean; scriptErrorMode?: "tolerant" | "strict"; engine?: "legacy" | "pinned" } | null;
   wasmSha?: string | null;
   wasmFile?: string | null;
-  commands: Array<{ seq?: number; seat: number; command: { promptId: string; revision: number; answer: DuelAnswer } }>;
+  commands: Array<{ seq?: number; seat: number; command: { promptId: string; revision: number; answer: DuelAnswer; sortOrderVersion?: 1 } }>;
 }
 
 function arg(name: string): string | undefined {
