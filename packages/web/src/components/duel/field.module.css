@@ -1386,15 +1386,15 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-width: calc(var(--n4, 11px) * 2.1);
-  height: calc(var(--n4, 11px) * 1.5);
+  min-width: calc(var(--n4, 11px) * 2.1 * var(--bs, 1));
+  height: calc(var(--n4, 11px) * 1.5 * var(--bs, 1));
   padding: 0 4px 0 3px;
   border: 1.5px solid var(--chain);
   border-radius: 999px;
   background: #140f04;
   color: var(--chain-ink);
   font-family: var(--f-num);
-  font-size: var(--n4, 11px);
+  font-size: calc(var(--n4, 11px) * var(--bs, 1));
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1;
@@ -1445,8 +1445,8 @@
 
 .overlayIcon {
   flex: none;
-  width: calc(var(--n4, 11px) * 1.05);
-  height: calc(var(--n4, 11px) * 1.05);
+  width: calc(var(--n4, 11px) * 1.05 * var(--bs, 1));
+  height: calc(var(--n4, 11px) * 1.05 * var(--bs, 1));
   fill: none;
   stroke: currentColor;
   stroke-width: 1.5;
@@ -2768,12 +2768,24 @@
 
 @supports (width: hypot(1px)) {
   .seatField .plate {
-    translate: -50% calc(var(--pdir) * (var(--ph) - hypot(var(--pw) * sin(var(--plate-turn))) - hypot(var(--ph) * cos(var(--plate-turn)))) / 2);
-    /* The room along the text, in field px: a card width and a gap at 0 / 180 degrees (the plate stays between its neighbours), a card's
-       height at a quarter turn less what the equip chip or the Xyz count at the far end of the card takes. The text shrinks to fit it,
-       so a strip never covers a neighbour, the equip chip, the count or the Extra Monster row. */
-    --avail: calc((var(--z) * var(--dfit) + var(--g) - 4px) * hypot(cos(var(--pt))) + (var(--z) - 6px - 2 * var(--keep, 0px)) * hypot(sin(var(--pt))));
-    font-size: min(max(calc(var(--z) * 0.116 * var(--ts)), var(--fl)), calc(var(--avail) / var(--plate-text)));
+    --ps: hypot(sin(var(--pt)));
+    --pc: hypot(cos(var(--pt)));
+    /* The strip turns by --pt on its card, so its box (pw x ph) grows by |sin| / |cos| of the turn. Along the card (0 / 180 degrees) the
+       text size is solved to the width of a card and a gap (the strip stays between its neighbours). Across it (a quarter turn) the strip
+       runs along the card's height: the equip chip (--ke, nearly a card wide) sits in the far corner, so the strip slides away from it
+       by half of that and keeps the room that is left, and may reach into the gap at the other end (--gx). The Xyz count (--kb)
+       claims the same end, except at a quarter turn on a card without a chip: the strip then slides to the side away from the count and
+       keeps the whole length (--kfree). It never covers a neighbour, the chip, the count or the Extra Monster row. */
+    --gx: calc(var(--g) * 0.5);
+    --kw: min(1, calc(var(--pc) * 8));
+    --kfree: calc(var(--kbx, 0) * (1 - var(--kw)));
+    --kend: calc(max(var(--ke, 0px), var(--kb, 0px) * (1 - var(--kfree))) + 2px * var(--ps));
+    --fit-along: calc(var(--plate-text) * var(--pc) + 1.2 * var(--ps));
+    --fit-across: calc(var(--plate-text) * var(--ps) + 1.2 * var(--pc));
+    --fit-a: calc((var(--z) * var(--dfit) + var(--g) - 4px - 2px * var(--ps)) / var(--fit-along));
+    --fit-b: calc((var(--z) - 6px + var(--gx) - var(--kend, 0px) - 2px * var(--pc)) / var(--fit-across));
+    translate: calc(-50% - var(--kfree) * max(0px, (var(--cw) - var(--pw) * var(--pc) - var(--ph) * var(--ps)) / 2 - 4px)) calc(var(--pdir) * ((var(--ph) - hypot(var(--pw) * sin(var(--plate-turn))) - hypot(var(--ph) * cos(var(--plate-turn)))) / 2 + (var(--kend, 0px) + var(--gx)) * var(--ps) / 2));
+    font-size: min(max(calc(var(--z) * 0.116 * var(--ts)), var(--fl)), var(--fit-a), var(--fit-b));
   }
 }
 
@@ -2783,17 +2795,27 @@
   }
 }
 
+/* What the strip must keep clear of at the far end of its card (see .plate): the equip chip's height (--ke) and the Xyz count's (--kb;
+   an equipped Xyz carries its count one chip lower: see .overlayBadge). */
 .seatField .zone[data-equip] {
-  --keep-equip: calc(max(11px, var(--z) * 0.12) + 6px);
+  --ke: calc(max(11px, var(--z) * 0.12) + 6px);
 }
 
 .seatField .zone[data-materials] {
-  --keep-materials: calc(var(--n4) * 1.5 + 6px);
+  --kb: calc(var(--n4) * 1.5 * var(--bs, 1) + 6px);
 }
 
-.seatField .zone[data-equip],
-.seatField .zone[data-materials] {
-  --keep: max(var(--keep-equip, 0px), var(--keep-materials, 0px));
+.seatField .zone[data-materials]:not([data-equip]) {
+  --kbx: 1;
+}
+
+.seatField .zone[data-materials][data-equip] {
+  --kb: calc(max(11px, var(--z) * 0.12) + 13px + var(--n4) * 1.5 * var(--bs, 1));
+}
+
+/* The Xyz count is secondary to ATK / DEF: on a table seat it is drawn smaller, so the strip keeps most of the room (see --kb). */
+.seatField .zone {
+  --bs: 0.7;
 }
 
 .seatField .zone[data-side="opp"]:not([data-kind="hand"]) .plate {
