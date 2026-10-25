@@ -593,7 +593,7 @@ function ArchiveBlock({ creatorId, name, actions, onArchived }: { creatorId: num
   }
   return (
     <div className={styles.crDanger}>
-      <p>Archive closes every link of this creator at once. People who joined keep their accounts.</p>
+      <p>Archive closes every link and stops unused invites.</p>
       <div className={styles.crActs}>
         {phase === "idle" ? (
           <button type="button" className={`${styles.btn} ${styles.btnDanger}`} onClick={() => setPhase("confirm")}>Archive creator</button>

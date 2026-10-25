@@ -659,7 +659,7 @@ textarea.crNotes { font-family: inherit; font-size: 14.5px; min-height: 84px; }
   .crRow3 { grid-template-columns: 1fr 1fr; }
   .crRow3 > :last-child { grid-column: 1 / -1; }
   .crInput { height: 44px; font-size: 16px; }
-  textarea.crInput { font-size: 14px; }
+  textarea.crInput { font-size: 16px; }
   .crActs .btn { flex: 1; justify-content: center; height: 44px; }
   .crActs .aside { margin-left: 0; flex-basis: 100%; }
   .crMeta .crEnd { margin-left: 0; flex-basis: 100%; justify-content: stretch; }

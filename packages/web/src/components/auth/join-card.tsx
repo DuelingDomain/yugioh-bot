@@ -219,7 +219,7 @@ function ClosedForm({ state, creatorName, source, announce }: { state: Exclude<L
   const pending = phase === "pending";
   const copy = CLOSED_COPY[state];
   return (
-    <SignInStep eyebrow={creatorName ? `Invite from ${creatorName}` : "Creator invite"} title={copy.title} lede={copy.lede} screen={`join-${state}`} foot={<SignInFootLinks lead={<SignInLead />} />}>
+    <SignInStep eyebrow={creatorName && state !== "revoked" ? `Invite from ${creatorName}` : "Creator invite"} title={copy.title} lede={copy.lede} screen={`join-${state}`} foot={<SignInFootLinks lead={<SignInLead />} />}>
       <form ref={anchor} className={shell.form} noValidate aria-busy={pending} onSubmit={submit} data-clerk="creator-join-waitlist" data-state={state}>
         {banner && <SignInBanner tone="bad" code="waitlist">{banner}</SignInBanner>}
         <TextField id="f-join-wl-email" name="email" label="Email address" type="email" autoComplete="email" inputMode="email" placeholder="you@email.com" defaultValue={email} error={fieldError} />
