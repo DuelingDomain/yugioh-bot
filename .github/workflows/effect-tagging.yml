@@ -196,6 +196,7 @@ jobs:
       - name: Publish verified artifact PR while preserving reviewed branch edits
         env:
           GH_TOKEN: ${{ secrets.ENGINE_DATA_PR_TOKEN || github.token }}
+          HAS_PR_TOKEN: ${{ secrets.ENGINE_DATA_PR_TOKEN != '' }}
         run: |
           gh auth setup-git
           prlimit --core=0 -- node scripts/ci/publish-effect-tags.mjs
@@ -234,6 +235,7 @@ jobs:
         if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ secrets.ENGINE_DATA_PR_TOKEN || github.token }}
+          HAS_PR_TOKEN: ${{ secrets.ENGINE_DATA_PR_TOKEN != '' }}
         run: |
           gh auth setup-git
           prlimit --core=0 -- node scripts/staples/publish.mjs

@@ -35,4 +35,5 @@ git('push','origin',`HEAD:refs/heads/${branch}`);
 const body=join(directory,'pr-body.md');
 writeFileSync(body,`Refresh measured usage from bounded YGOPRODeck format samples. Existing formats survive source failures. No code or effect tags change.\n\nArtifact: ${candidate.version}\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\nhttps://claude.ai/code/session_01GLTNwBcU5bVhsdGwaZoeik\n`);
 gh('pr','create','--repo',repo,'--base','main','--head',branch,'--title','chore(cards): refresh measured format staples','--body-file',body);
-gh('workflow','run','test.yml','--repo',repo,'--ref',branch,'-f','nightly=false');
+// A push with the PR token starts the PR checks; GITHUB_TOKEN pushes do not.
+if(process.env.HAS_PR_TOKEN!=='true') gh('workflow','run','test.yml','--repo',repo,'--ref',branch,'-f','nightly=false');

@@ -42,7 +42,8 @@ it("collects host OOM deltas without cross-container files, survives reporter re
     rmSync(join(proc, "vmstat")); at += 60_000; await restarted.tick();
     expect(readVpsHealth(db, "guild", at).current).toMatchObject({ host: { oomKills: null }, oomKillDelta: null });
   } finally { await job.stop(); await restarted?.stop(); db.close(); rmSync(root, { recursive: true, force: true }); }
-});
+// About 1 s alone; parallel CI suites have pushed it past the 5 s default.
+}, 20_000);
 
 it.each(["locked", "missing-table", "missing-db"])("ws serves polling when its health database is %s, without migrating", async (mode) => {
   const root = mkdtempSync(join(tmpdir(), "ws-health-"));
