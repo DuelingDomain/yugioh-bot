@@ -37,12 +37,14 @@ function publish(e: Entry, snapshot: SectionSnapshot<SectionId>) {
 /**
  * Request URL per section. "today" sends local midnight as epoch ms (`start`), which is right on a daylight-saving day,
  * and the current UTC offset (`tz`, minutes east of UTC) for the "Since 00:00 UTC±h" label.
+ * "creators" sends the same `start` for its "sign-ups today" count.
  */
 function urlOf(id: SectionId): string {
-  if (id !== "today") return `/api/admin/console/${id}`;
+  if (id !== "today" && id !== "creators") return `/api/admin/console/${id}`;
   const now = new Date();
-  const tz = -now.getTimezoneOffset();
   const start = new Date(now).setHours(0, 0, 0, 0);
+  if (id === "creators") return `/api/admin/console/creators?start=${Number.isFinite(start) ? start : ""}`;
+  const tz = -now.getTimezoneOffset();
   return `/api/admin/console/today?tz=${Number.isFinite(tz) ? Math.round(tz) : 0}&start=${Number.isFinite(start) ? start : ""}`;
 }
 

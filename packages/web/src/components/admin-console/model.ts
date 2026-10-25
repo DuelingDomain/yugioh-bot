@@ -5,11 +5,11 @@ import type {
 import type { SectionSnapshot } from "./use-admin-section";
 import type { IconName, Tone } from "./parts";
 
-export const VIEWS = ["overview", "people", "duels", "waitlist", "health", "insights"] as const;
+export const VIEWS = ["overview", "people", "duels", "waitlist", "creators", "health", "insights"] as const;
 export type View = (typeof VIEWS)[number];
 export const VIEW_META: Record<View, { label: string; icon: IconName }> = {
   overview: { label: "Overview", icon: "overview" }, people: { label: "People", icon: "people" }, duels: { label: "Duels", icon: "duels" },
-  waitlist: { label: "Waitlist", icon: "waitlist" }, health: { label: "Health", icon: "health" }, insights: { label: "Insights", icon: "insights" },
+  waitlist: { label: "Waitlist", icon: "waitlist" }, creators: { label: "Creators", icon: "creators" }, health: { label: "Health", icon: "health" }, insights: { label: "Insights", icon: "insights" },
 };
 export const isView = (value: string): value is View => (VIEWS as readonly string[]).includes(value);
 /** Link target of the Today list in the Duels view (/admin#duels-today). */
@@ -176,6 +176,16 @@ export function headerFor(view: View, s: Snapshots, now: number): HeaderText {
       return {
         eyebrow: "Waitlist", title: n ? `${plural(n, "person", "people")} waiting` : "Nobody is waiting",
         sub: "Approve sends the invite email and opens sign-up for that person.",
+      };
+    }
+    case "creators": {
+      const data = okData(s.creators);
+      const creators = data?.creators ?? [];
+      const signedUp = creators.reduce((sum, c) => sum + c.signedUp, 0);
+      return {
+        eyebrow: "Creators",
+        title: data ? `${plural(creators.length, "creator", "creators")}, ${plural(signedUp, "sign-up", "sign-ups")}` : "Creators",
+        sub: "A creator link or email lets people skip the waitlist. Clerk sends each invite by email.",
       };
     }
     case "health": {

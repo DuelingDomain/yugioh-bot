@@ -22,6 +22,8 @@ export function OverviewView({ s, actions }: { s: Snapshots; actions: ConsoleAct
   const stats = okData(s.stats);
   // The day of the owner's browser, the same list the link opens; the trend line stays on UTC days.
   const today = okData(s.today);
+  const creators = okData(s.creators);
+  const openLinks = creators?.creators.reduce((sum, c) => sum + c.openLinks, 0) ?? 0;
   const alerts = alertsFor(s, now);
   const inDuel = online?.users.filter((u) => u.current?.kind === "duel").length ?? 0;
   const drafting = online?.users.filter((u) => u.current?.kind === "draft").length ?? 0;
@@ -30,7 +32,7 @@ export function OverviewView({ s, actions }: { s: Snapshots; actions: ConsoleAct
 
   return (
     <>
-      <div className={styles.hero}>
+      <div className={`${styles.hero} ${styles.hero5}`}>
         <div className={styles.stat}>
           <div className={styles.statLabel}><span className={styles.pulse} />Online now</div>
           <div className={styles.statNum}>{online ? online.count : dash}</div>
@@ -60,6 +62,15 @@ export function OverviewView({ s, actions }: { s: Snapshots; actions: ConsoleAct
           <div className={styles.statFoot}>
             {stats?.previous7Days ? <Delta value={delta(stats.last7Days.signups, stats.previous7Days.signups)} suffix="vs last week" /> : <span />}
             {stats ? <LineChart className={styles.spark} labels={days} series={[{ name: "Sign-ups", color: "var(--t2)", values: stats.series.signups }]} label="Sign-ups per day, last 7 days" /> : null}
+          </div>
+        </div>
+        <div className={styles.stat}>
+          <button type="button" className={`${styles.statLink} ${styles.crTile}`} onClick={() => actions.go("creators")} title="Open Creators">
+            <span className={styles.statLabel}>Creator sign-ups today<Icon name="chev" className={styles.statChev} /></span>
+            <span className={styles.statNum}>{creators ? creators.signUpsToday : dash}</span>
+          </button>
+          <div className={styles.statFoot}>
+            <span className={styles.delta}>{creators ? `${plural(creators.creators.length, "creator", "creators")} · ${plural(openLinks, "open link", "open links")}` : "Loading"}</span>
           </div>
         </div>
       </div>
