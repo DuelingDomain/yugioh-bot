@@ -70,15 +70,18 @@ await assertStackStopped(supervisorPidFile, ports, livePorts);
 
 // `E2E_STANDALONE_DIR` points at a copy of the web build (for example one with another baked ws port), so a second
 // stack can run while the repo build is being rebuilt. Default: the repo build.
+// E2E_NO_DUEL=1 (opt-in, local only): no duel host and no engine data check, for specs that never open a duel
+// (admin console, creator fast-track). Default and CI: the duel host runs.
+const noDuel = process.env.E2E_NO_DUEL === "1";
 const standaloneDir = process.env.E2E_STANDALONE_DIR
   ? resolve(process.env.E2E_STANDALONE_DIR)
   : standaloneBuildDir;
 for (const [label, file] of [
   ["web standalone build", resolve(standaloneDir, "server.js")],
   ["ws build", resolve(repoRoot, "packages/ws/dist/server.js")],
-  ["duel host build", resolve(repoRoot, "packages/duel-server/dist/server.js")],
+  ...(noDuel ? [] : [["duel host build", resolve(repoRoot, "packages/duel-server/dist/server.js")]]),
   ["worker build", resolve(repoRoot, "packages/worker/dist/index.js")],
-  ["duel engine data", resolve(duelDataDir, "cards.cdb")],
+  ...(noDuel ? [] : [["duel engine data", resolve(duelDataDir, "cards.cdb")]]),
 ]) {
   if (!existsSync(file)) throw new Error(`Missing ${label}: ${file}. Run "npm run stack:build --workspace=packages/e2e" first.`);
 }
@@ -159,7 +162,7 @@ run("ws", process.execPath, [resolve(repoRoot, "packages/ws/dist/server.js")], {
   env: { ...base, DISCORD_GUILD_ID: guildId, WEB_URL: webUrl, WS_PORT: String(ports.ws), WS_INTERNAL_PORT: String(ports.wsInternal), WS_INTERNAL_SECRET: secrets.ws },
 });
 
-run("duel", process.execPath, [resolve(repoRoot, "packages/duel-server/dist/server.js")], {
+if (!noDuel) run("duel", process.execPath, [resolve(repoRoot, "packages/duel-server/dist/server.js")], {
   cwd: serviceDirectory("duel"),
   env: {
     ...base,
