@@ -439,6 +439,49 @@ describe("POST /api/waitlist", () => {
     expect(state.createBackend).not.toHaveBeenCalled();
   });
 
+  it("sends an allowlisted email its invitation again and makes no Clerk waitlist entry", async () => {
+    vi.stubEnv("WEB_URL", "https://app.example.test");
+    delete (globalThis as Record<symbol, unknown>)[Symbol.for("yugidraft.creatorSendLimit")];
+    const { createCreatorAccessService, RESEND_COOLDOWN_MS } = await import("@yugidraft/shared/services/creator-access");
+    state.db!.exec("insert into users(id, username, display_name) values (1, 'op', 'Operator')");
+    // The owner added the email before the cooldown, so a waitlist join is due for a re-send.
+    const sentAt = Date.now() - RESEND_COOLDOWN_MS - 60_000;
+    const seed = createCreatorAccessService(state.db!, {
+      webUrl: "https://app.example.test", now: () => sentAt,
+      clerk: { createInvitation: async () => ({ id: "inv_seed", email_address: "vip@example.test", status: "pending" }), revokeInvitation: async () => {} } as never,
+    });
+    const creator = seed.createCreator({ name: "Kaiba Plays", actorUserId: 1 });
+    expect(await seed.addAllowlistEmails(creator.id, ["vip@example.test"], 1)).toEqual([expect.objectContaining({ outcome: "sent" })]);
+
+    const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+      expect(String(url)).toMatch(/^https:\/\/api\.clerk\.com\/v1\/invitations(\/[^/]+\/revoke)?$/);
+      if (String(url).endsWith("/revoke")) return Response.json({ id: "inv_seed", status: "revoked" });
+      return Response.json({ id: "inv_again", email_address: JSON.parse(String(init!.body)).email_address, status: "pending", url: "https://clerk.example.test/v1/tickets/accept?__clerk_ticket=t" });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const response = await post(json({ email: " VIP@example.test ", source: "hero" }));
+    expect(response.status).toBe(201);
+    const text = await response.text();
+    expect(JSON.parse(text)).toEqual({ status: "joined" });
+    expect(text).not.toMatch(/ticket|inv_/);
+    const invites = fetcher.mock.calls.filter(([url]) => String(url).endsWith("/v1/invitations"));
+    expect(invites).toHaveLength(1);
+    expect(JSON.parse(String(invites[0]![1]!.body))).toMatchObject({ email_address: "vip@example.test", notify: true });
+    expect(state.createWaitlistEntry).not.toHaveBeenCalled();
+    expect(state.join).not.toHaveBeenCalled();
+    expect(rows()).toEqual([]);
+    delete (globalThis as Record<symbol, unknown>)[Symbol.for("yugidraft.creatorSendLimit")];
+  });
+
+  it("stores a valid heard-from answer and drops an unknown one", async () => {
+    expect((await post(json({ email: "yt@example.test", heardFrom: "YouTube", heardFromDetail: "  Kaiba\u0000 video  " }))).status).toBe(201);
+    expect((await post(json({ email: "odd@example.test", heardFrom: "billboard", heardFromDetail: "x" }, "192.0.2.7"))).status).toBe(201);
+    expect(state.db!.prepare("select email, heard_from, heard_from_detail from waitlist_signups order by id").all()).toEqual([
+      { email: "yt@example.test", heard_from: "youtube", heard_from_detail: "Kaiba video" },
+      { email: "odd@example.test", heard_from: null, heard_from_detail: null },
+    ]);
+  });
+
   it("reads the backend secret per request, allowing a retry after configuration is restored", async () => {
     vi.stubEnv("CLERK_SECRET_KEY", undefined);
     expect((await post(json())).status).toBe(503);
