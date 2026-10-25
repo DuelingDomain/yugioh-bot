@@ -24,6 +24,7 @@ Sections and their routes. Setup, keys and status rules: [deployment/admin-conso
 | Overview strip | Online now, live duels, pending waitlist, errors, sign-ups today, system | several below |
 | Online now | Signed-in people seen in the last 2 minutes and their page | `GET /api/admin/console/online`, person: `GET .../people/[id]` |
 | Waitlist | Pending sign-up requests, Approve or Reject | `GET /api/admin/console/waitlist`, `POST .../waitlist/[id]` |
+| Creators | Creators, their invite links and allowlist emails, invites sent, sign-ups, active in 7 days | `GET/POST /api/admin/console/creators`, `GET/PATCH .../creators/[id]`, `POST .../[id]/links`, `.../links/[linkId]/revoke`, `.../[id]/emails`, `.../creators/grants/[id]/resend` |
 | Live duels and drafts | Open and running tables and drafts, with Watch links | `GET /api/admin/console/live` |
 | Duels today | Every duel since local midnight, with Replay or Watch | `GET /api/admin/console/today` |
 | Stats | Sign-ups, active users, duels and drafts | `GET /api/admin/console/stats` |
@@ -31,6 +32,8 @@ Sections and their routes. Setup, keys and status rules: [deployment/admin-conso
 | Usage | PostHog visitors and pages | `GET /api/admin/console/usage` |
 | System | Version, card-data state, service health, disk | `GET /api/admin/console/system` |
 | VPS health | CPU, RAM, load, engine workers, history | `GET /api/admin/console/vps-health` |
+
+Creators: Add creator (name, channel, notes, optional email), then in the creator sheet make a Personal or Community link (Copy the URL), add up to 20 emails, Revoke a link (stops new uses at once and revokes its unused Clerk invitations), Resend a failed or expired invite, and see who joined through which link. The Overview shows "Creator sign-ups today". Flow: [sign-in-and-access.md](sign-in-and-access.md#2a-creator-invite).
 
 Approving a waitlist entry makes Clerk send the invite email. The person then follows [sign-in-and-access.md](sign-in-and-access.md#2-accept-the-invite).
 

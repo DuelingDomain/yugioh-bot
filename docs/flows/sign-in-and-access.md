@@ -13,6 +13,7 @@ Dueling Domain is a closed alpha. Clerk runs sign-in in Waitlist mode: only appr
 | `/sso-callback` | Discord returns here; Clerk resumes the attempt | `app/(auth)/sso-callback/` |
 | `/welcome-back` | Existing player recovery, last step | `app/(auth)/welcome-back/` |
 | `/access` | "Invite-only for now" page with a waitlist link | `app/(auth)/access/` |
+| `/join/<code>` | Creator invite link: "Invited by <creator>" and one email field | `app/(auth)/join/[code]/` |
 | `/settings/account` | Account page (Clerk profile, sign out, delete) | `app/(app)/settings/account/` |
 
 All paths in this table are relative to `packages/web/`.
@@ -26,6 +27,8 @@ All paths in this table are relative to `packages/web/`.
 
 Limits: 5 posts per IP in 10 minutes, a 2 KB body, and a hidden `company` field that drops bots silently. Source: `app/api/waitlist/route.ts`.
 
+The forms also ask an optional "How did you hear about us?" (`heardFrom`, plus a short `heardFromDetail` for "Other"). It is stored in `waitlist_signups.heard_from`. An email that the owner allowlisted for a creator gets its Clerk invitation again instead of a waitlist entry; the answer to the browser is the same.
+
 The Clerk webhook `POST /api/webhooks/clerk` receives `waitlistEntry.created` and `user.created` and turns them into join-request notices. The owner approves people in the `/admin` console (see [owner-admin.md](owner-admin.md)).
 
 ## 2. Accept the invite
@@ -34,6 +37,21 @@ The Clerk webhook `POST /api/webhooks/clerk` receives `waitlistEntry.created` an
 2. The card shows the email from Clerk, never from the URL. The person picks a username and password and accepts the terms.
 3. Clerk may ask for an email code. Then the session starts.
 4. A pack-opening animation plays (about 1.7 s), then the page goes to the return path or `/dashboard`.
+
+The create-account card asks the optional "How did you hear about us?" and sends it to Clerk as `unsafeMetadata`. Clerk sync copies a valid answer to `users.heard_from` (or the waitlist answer for that email). The card hides the question for a creator invite (`?via=creator`).
+
+## 2a. Creator invite
+
+Normal people stay on the waitlist. Content creators and their communities get in at once. The decision is [ADR 0007](../adr/0007-creator-fast-track.md).
+
+1. The owner makes a creator in `/admin` > Creators, then adds the creator's email (allowlist) or makes a link: Personal (1 use, 14 days) or Community (50 uses, 30 days, or custom 1 to 500 uses).
+2. A visitor opens `/join/<code>`. The card shows "Invited by <creator>", the spots left, and one email field.
+3. `POST /api/join/<code>` checks the link, claims one use in one SQLite transaction (`creator_grants`), and asks Clerk to send an invitation (`notify: true`, redirect `/sign-up?via=creator`, `public_metadata.ddGrant`).
+4. The card always says "If this email can join, your invite is on its way. Check your inbox." The same answer covers an inbox that already has a grant and an email that already has an account.
+5. The person follows the email to the normal invite card (section 2) and uses a password or Discord.
+6. Clerk sync after sign-up binds the grant to the user: `creator_grants.status = signed_up`, `users.creator_id`, `users.heard_from = creator`.
+
+A full, expired or revoked link shows the normal waitlist form with source `creator:<code>`, so those leads still count for the creator. An invitation that is not used in 7 days frees its use. Limits: 5 posts per IP in 10 minutes, 20 sends per link per hour, 80 creator sends per hour in all (Clerk allows 100). Source: `app/api/join/[code]/route.ts`, `packages/shared/src/services/creator-access.ts`.
 
 ## 3. Sign in
 
@@ -69,7 +87,7 @@ The proof cookies are encrypted, bound to `WEB_URL`, and live 10 minutes (the ti
 `/settings/account` shows the Clerk `<UserProfile/>` (email, password, connected accounts), the duel view setting, sign out and delete.
 
 - Link Discord in the Clerk profile. The page calls `POST /api/account/refresh` so the link reaches `users`. If the Discord account belongs to another user, or both accounts have history, nothing changes and the page says so (`src/components/account/account-messages.ts`).
-- Delete: `POST /api/account/delete` deletes the Clerk user and waitlist entries, then anonymises the rows (`deleteUserAccount`). If the database step fails, the owner finishes it with `npm run ops -- delete-user`.
+- Delete: `POST /api/account/delete` deletes the Clerk user and waitlist entries, then anonymises the rows (`deleteUserAccount`), including creator grants. If the database step fails, the owner finishes it with `npm run ops -- delete-user`.
 - `/settings` redirects here.
 
 ## Access errors
@@ -87,4 +105,4 @@ API routes answer 401 `unauthorized` with no session and 503 `session_unavailabl
 
 ## Public routes
 
-`proxy.ts` lets these through without a session: `/sign-in`, `/sign-up`, `/sso-callback`, `/welcome-back`, `/access`, `/login`, `/monitoring`, icons, `POST /api/waitlist`, `GET /api/auth/session`, the existing-player routes, `POST /api/webhooks/clerk`, and the FX lab when it is on.
+`proxy.ts` lets these through without a session: `/sign-in`, `/sign-up`, `/sso-callback`, `/welcome-back`, `/access`, `/join/<code>`, `/login`, `/monitoring`, icons, `POST /api/waitlist`, `POST /api/join/<code>`, `GET /api/auth/session`, the existing-player routes, `POST /api/webhooks/clerk`, and the FX lab when it is on.
