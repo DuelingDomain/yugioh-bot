@@ -11,6 +11,7 @@ Unofficial fan project. Not affiliated with or endorsed by Konami. Contact: supp
 ## Product and access
 
 - [Home](https://duelingdomain.com/): Product overview and closed alpha waitlist.
+- [FAQ](https://duelingdomain.com/#faq): Price, browser play, 3- and 4-player and Tag duels, rules engine, Domain Format, Genesys, cube drafts and the unofficial status.
 - [App sign-in](https://app.duelingdomain.com): Sign in to the invitation-only app. Private app content is not a public source.
 
 ## Community

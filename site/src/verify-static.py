@@ -161,7 +161,7 @@ def main():
         for script in page.find('script'):
             if script['attrs'].get('type') == 'application/ld+json':
                 graph = json.loads(script['text'])['@graph']
-                assert {node['@type'] for node in graph} == {'WebSite', 'Organization', 'WebApplication'}
+                assert {node['@type'] for node in graph} == {'WebSite', 'Organization', 'WebApplication', 'FAQPage'}
                 for node in graph:
                     assert 'review' not in node and 'aggregateRating' not in node
                     if 'logo' in node: resolve(urlsplit(node['logo']).path)
@@ -203,6 +203,15 @@ def main():
         assert node['url'].startswith('https://'), node
         if 'publisher' in node:
             assert node['publisher']['@id'] == organization['@id'], node
+    # FAQ rich-result rules: the JSON-LD must repeat the visible questions and answers exactly.
+    faq = next(node for node in graph if node['@type'] == 'FAQPage')
+    items = index.find('div', **{'class': 'faq-item rv'})
+    visible_faq = [([e for e in index.elements if e['tag'] == 'h3' and item in e['ancestors']][0]['text'].strip(),
+                    [e for e in index.elements if e['tag'] == 'p' and item in e['ancestors']][0]['text'].strip())
+                   for item in items]
+    schema_faq = [(q['name'], q['acceptedAnswer']['text']) for q in faq['mainEntity']]
+    assert visible_faq and visible_faq == schema_faq, 'FAQ JSON-LD must match the visible FAQ'
+    assert faq['url'] == 'https://duelingdomain.com/#faq' and 'faq' in index.ids
     trailer_id = index.find(id='case')[0]['attrs']['data-youtube-id']
     fallback = [e['attrs']['href'] for e in index.find('a') if e['attrs'].get('href', '').startswith('https://www.youtube.com/watch?v=')]
     assert fallback == ['https://www.youtube.com/watch?v=' + trailer_id], ('no-JS trailer link must use the same ID', fallback, trailer_id)
