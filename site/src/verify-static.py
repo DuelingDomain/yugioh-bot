@@ -261,11 +261,22 @@ def main():
         if parsed.fragment:
             assert parsed.fragment in target.ids, link
     forbidden = re.compile(r'yu[\W_]*gi[\W_]*oh|king' + r'dom|duel\s+monsters', re.I)
+    # Descriptive (nominative) use only: served copy may name the game in its exact official
+    # spelling, next to the non-affiliation line every page carries. File names, styles, scripts,
+    # sources, images, the brand and the social image text never name it.
+    game = 'Yu-Gi-O' + 'h!'
+    descriptive = {*PUBLIC.glob('*.html'), PUBLIC / 'llms.txt', PUBLIC / 'site.webmanifest'}
     for file in Path(__file__).resolve().parents[1].rglob('*'):
         if not file.is_file(): continue
         assert not forbidden.search(file.name), file.name
         if file.suffix in ('.html', '.css', '.js', '.mjs', '.py', '.md', '.svg', '.txt', '.xml', '.webmanifest'):
-            assert not forbidden.search(file.read_text()), file
+            text = file.read_text()
+            if file in descriptive:
+                text = text.replace(game, '')
+            assert not forbidden.search(text), file
+    for attr in ('og:site_name', 'og:image:alt'):
+        assert game not in index.find('meta', property=attr)[0]['attrs']['content'], attr
+    assert all(game not in node.get('name', '') for node in graph), 'brand names stay free of the game name'
     # The app's sign-in providers stay off these pages. The homepage may name Discord only in
     # its four community links (href + visible label), the shared glyph symbol, and the JSON-LD
     # sameAs. Strip exactly those, then fail on any other "discord" text.
