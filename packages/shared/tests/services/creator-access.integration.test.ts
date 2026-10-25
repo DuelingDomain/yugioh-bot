@@ -124,6 +124,18 @@ describe("creator links", () => {
     expect(service.grantedEmailKeys()).toEqual(new Set(["ab@gmail.com"]));
   });
 
+  it("hides an email from the admin waitlist only while its grant is live; an account on the same inbox answers already", async () => {
+    const creator = setup();
+    const community = link(creator.id, 10);
+    await claimAndSend(community.code, "late@example.test");
+    expect(service.grantedEmailKeys()).toEqual(new Set(["late@example.test"]));
+    clock = T0 + LINK_INVITE_DAYS * DAY;
+    expect(service.grantedEmailKeys()).toEqual(new Set());
+    db.exec("insert into users(id, username, display_name, email) values (20, 'old', 'Old', 'olduser@gmail.com')");
+    expect(service.claimLinkGrant(community.code, "old.user@gmail.com")).toEqual({ kind: "already" });
+    expect(clerk.createInvitation).toHaveBeenCalledOnce();
+  });
+
   it("answers already for an email that has an account, with no grant and no Clerk call", () => {
     const creator = setup();
     const community = link(creator.id, 3);
@@ -303,14 +315,50 @@ describe("allowlist emails", () => {
       .rejects.toBeInstanceOf(CreatorAccessError);
   });
 
-  it("re-sends for a waitlist join only when due", async () => {
+  it("re-sends for a waitlist join only when the invitation failed or expired", async () => {
     const creator = setup();
     expect(await service.resendAllowlistForWaitlist("nobody@example.test")).toBe("none");
     await service.addAllowlistEmails(creator.id, ["vip@example.test"], 1);
     expect(await service.resendAllowlistForWaitlist("vip@example.test")).toBe("not_due");
     clock += RESEND_COOLDOWN_MS + 1;
+    // A valid invitation is still in the inbox.
+    expect(await service.resendAllowlistForWaitlist("vip@example.test")).toBe("not_due");
+    expect(clerk.createInvitation).toHaveBeenCalledTimes(1);
+    clock = T0 + ALLOWLIST_INVITE_DAYS * DAY + 1;
     expect(await service.resendAllowlistForWaitlist("vip@example.test")).toBe("resent");
     expect(clerk.createInvitation).toHaveBeenCalledTimes(2);
+  });
+
+  it("answers existing_account for an account on the same inbox, not only the exact address", async () => {
+    const creator = setup();
+    db.exec("insert into users(id, username, display_name, email) values (20, 'old', 'Old', 'olduser@gmail.com')");
+    const results = await service.addAllowlistEmails(creator.id, ["Old.User+yt@googlemail.com"], 1);
+    expect(results).toEqual([{ email: "old.user+yt@googlemail.com", outcome: "existing_account" }]);
+    expect(clerk.createInvitation).not.toHaveBeenCalled();
+    expect(grants()).toEqual([]);
+  });
+});
+
+describe("archive", () => {
+  it("revokes the creator's open grants and their invitations, keeps sign-ups, and stops waitlist re-sends", async () => {
+    const creator = setup();
+    const open = await claimAndSend(link(creator.id, 5).code, "open@example.test");
+    await service.addAllowlistEmails(creator.id, ["vip@example.test"], 1);
+    const joined = await claimAndSend(link(creator.id, 5).code, "joined@example.test");
+    db.exec("insert into users(id, username, display_name, email) values (30, 'joined', 'Joined', 'joined@example.test')");
+    service.attributeSignUp({ userId: 30, email: "joined@example.test", grantId: (joined.claim as { grantId: number }).grantId });
+
+    const result = await service.archiveCreator(creator.id);
+    expect(result).toMatchObject({ creator: { id: creator.id, archivedAt: T0 }, invitationsRevoked: 2 });
+    expect(clerk.revokeInvitation.mock.calls.map(([id]) => id).sort()).toEqual(["inv_1", "inv_2"]);
+    expect(grant((open.claim as { grantId: number }).grantId)).toMatchObject({ status: "revoked" });
+    expect(grant((joined.claim as { grantId: number }).grantId)).toMatchObject({ status: "signed_up" });
+    expect(service.grantedEmailKeys()).toEqual(new Set(["joined@example.test"]));
+    // A failed allowlist grant of an archived creator is not re-sent, and the person is not put on the waitlist.
+    db.exec("update creator_grants set status = 'failed', expires_at = null where email = 'vip@example.test'");
+    expect(await service.resendAllowlistForWaitlist("vip@example.test")).toBe("not_due");
+    expect(clerk.createInvitation).toHaveBeenCalledTimes(3);
+    expect(await service.archiveCreator(9999)).toBeNull();
   });
 });
 
@@ -346,6 +394,22 @@ describe("sign-up attribution and account deletion", () => {
     service.attributeSignUp({ userId: 11, email: "thief@example.test", grantId });
     expect(grant(grantId)).toMatchObject({ user_id: 10 });
     expect(user(11)).toEqual({ creator_id: null, heard_from: null });
+  });
+
+  it("never credits an account that signed in before the grant by email key; ddGrant still binds a new user", async () => {
+    const creator = setup();
+    db.exec(`insert into users(id, username, display_name, email, first_sign_in_at) values (40, 'old', 'Old', 'old@example.test', ${T0 - DAY})`);
+    // The grant exists for this inbox (made before the account row knew the email, for example).
+    db.prepare(`insert into creator_grants (creator_id, kind, email, email_key, status, created_at, sent_at, expires_at)
+      values (?, 'allowlist', 'old@example.test', 'old@example.test', 'sent', ?, ?, ?)`).run(creator.id, T0, T0, T0 + DAY);
+    expect(service.attributeSignUp({ userId: 40, email: "old@example.test" })).toBeNull();
+    expect(user(40)).toEqual({ creator_id: null, heard_from: null });
+
+    const { claim } = await claimAndSend(link(creator.id, 5).code, "fresh@example.test");
+    const grantId = (claim as { grantId: number }).grantId;
+    db.exec(`insert into users(id, username, display_name, email, first_sign_in_at) values (41, 'fresh', 'Fresh', 'fresh@example.test', ${T0 + 60_000})`);
+    expect(service.attributeSignUp({ userId: 41, email: "fresh@example.test", grantId })).toEqual({ creatorId: creator.id });
+    expect(user(41)).toEqual({ creator_id: creator.id, heard_from: "creator" });
   });
 
   it("deleteUserAccount removes the person's grant, bound or matched by email key, and leaves others", async () => {

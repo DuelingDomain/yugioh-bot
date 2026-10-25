@@ -168,6 +168,11 @@ export interface CreatorAccessService {
   createCreator(input: { name: string; channelUrl?: string | null; notes?: string | null; userId?: number | null; actorUserId: number }): Creator;
   /** null when the creator does not exist. `archived: true` sets archived_at; archived creators' links read as revoked. */
   updateCreator(id: number, patch: { name?: string; channelUrl?: string | null; notes?: string | null; archived?: boolean }): Creator | null;
+  /**
+   * Archive: sets archived_at (kept when already set), marks the creator's grants in sending/sent `revoked`
+   * (signed_up stays), then best-effort revokes their Clerk invitations. null when the creator does not exist.
+   */
+  archiveCreator(id: number): Promise<{ creator: Creator; invitationsRevoked: number } | null>;
   /** Newest first. Archived ones only with includeArchived. `since` (epoch ms) drives signUpsSince; default now - 24 h. */
   listCreators(opts?: { includeArchived?: boolean; since?: number }): CreatorSummary[];
   creatorDetail(id: number): CreatorDetail | null;
@@ -205,16 +210,19 @@ export interface CreatorAccessService {
   /** Owner Resend: only when resendable. Revokes the old Clerk invitation first. A link grant needs a free use. */
   resendGrant(grantId: number): Promise<ResendResult>;
   /**
-   * Waitlist route: the email has an allowlist grant that is not signed_up or revoked. Re-sends when failed, expired,
-   * or last sent more than RESEND_COOLDOWN_MS ago. "none" -> no such grant: continue with the normal waitlist.
+   * Waitlist route: the email has an allowlist grant that is not signed_up or revoked. Re-sends only when failed or
+   * expired; a valid invitation, or an archived creator -> "not_due" (no waitlist entry either).
+   * "none" -> no such grant: continue with the normal waitlist.
    */
   resendAllowlistForWaitlist(email: string): Promise<"resent" | "not_due" | "failed" | "none">;
-  /** Email keys with a grant in sending, sent or signed_up. The admin waitlist hides these emails. */
+  /** Email keys with a live grant: signed_up, or sending/sent not expired. The admin waitlist hides these emails. */
   grantedEmailKeys(): Set<string>;
 
   /**
    * After Clerk sync (clerk-sync.ts), in one transaction. Finds the grant by `grantId` (Clerk public_metadata
-   * ddGrant) when its email key matches the user's email or the user has no email, else by the email key. Sets
+   * ddGrant) when its email key matches the user's email or the user has no email, else by the email key; the
+   * email-key match binds only when users.first_sign_in_at is null or not before the grant (an old account is
+   * never credited). Sets
    * status signed_up, user_id, signed_up_at; users.creator_id = coalesce(creator_id, grant.creator_id);
    * users.heard_from = coalesce(heard_from, 'creator'). Idempotent; a grant already bound to another user is left.
    */
@@ -371,7 +379,27 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
     "select id, name, channel_url, notes, user_id, created_at, archived_at from creators where id = ?").get(id);
   const grantById = (id: number) => db.prepare<[number], GrantRow>("select * from creator_grants where id = ?").get(id);
   const grantByKey = (key: string) => db.prepare<[string], GrantRow>("select * from creator_grants where email_key = ?").get(key);
-  const hasAccount = (email: string) => db.prepare<[string], { one: number }>("select 1 as one from users where email = ?").get(email) !== undefined;
+  /** An account for the same inbox (email key), not only the exact address. Scans users of the same domain. */
+  function hasAccount(email: string, key: string): boolean {
+    if (db.prepare<[string], { one: number }>("select 1 as one from users where email = ?").get(email)) return true;
+    const domain = key.slice(key.lastIndexOf("@") + 1);
+    const sameDomain = db.prepare<[string], { email: string }>("select email from users where email like ? escape '\\'");
+    for (const candidate of domain === "gmail.com" ? ["gmail.com", "googlemail.com"] : [domain]) {
+      for (const row of sameDomain.all(`%@${candidate.replace(/[\\%_]/g, "\\$&")}`)) if (emailKey(row.email) === key) return true;
+    }
+    return false;
+  }
+  /** Best effort: the grants are already revoked, so a Clerk failure only leaves a ticket to expire. */
+  async function revokeInvitations(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    let backend: ClerkBackend;
+    try { backend = getClerk(); } catch { return 0; }
+    let revoked = 0;
+    for (const id of ids) {
+      try { await backend.revokeInvitation(id); revoked++; } catch { /* best effort */ }
+    }
+    return revoked;
+  }
   const linkUses = (linkId: number, now: number) => (db.prepare(
     `select count(*) as used from creator_grants g where g.link_id = @linkId and ${LIVE("g")}`).get({ linkId, now }) as { used: number }).used;
   const linkById = (id: number, now: number) => db.prepare(`${LINK_SELECT} where l.id = @id`).get({ id, now }) as LinkRow | undefined;
@@ -477,6 +505,20 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
       return toCreator(creatorRow(id)!);
     },
 
+    async archiveCreator(id) {
+      const invitations = db.transaction((): string[] | null => {
+        if (!creatorRow(id)) return null;
+        db.prepare("update creators set archived_at = coalesce(archived_at, ?) where id = ?").run(clock(), id);
+        const open = db.prepare<[number], { clerk_invitation_id: string | null }>(
+          "select clerk_invitation_id from creator_grants where creator_id = ? and status in ('sending', 'sent')").all(id);
+        db.prepare("update creator_grants set status = 'revoked' where creator_id = ? and status in ('sending', 'sent')").run(id);
+        return open.flatMap(row => row.clerk_invitation_id ? [row.clerk_invitation_id] : []);
+      }).immediate();
+      if (invitations === null) return null;
+      const invitationsRevoked = await revokeInvitations(invitations);
+      return { creator: toCreator(creatorRow(id)!), invitationsRevoked };
+    },
+
     listCreators(listOpts = {}) {
       return summaries(listOpts.includeArchived ? "" : "where c.archived_at is null", {}, listOpts.since);
     },
@@ -552,15 +594,7 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
         return open.flatMap(row => row.clerk_invitation_id ? [row.clerk_invitation_id] : []);
       }).immediate();
       if (invitations === null) return null;
-      if (invitations.length === 0) return { invitationsRevoked: 0 };
-      // Best effort: the grants are already revoked here, so a Clerk failure only leaves a ticket to expire.
-      let backend: ClerkBackend;
-      try { backend = getClerk(); } catch { return { invitationsRevoked: 0 }; }
-      let invitationsRevoked = 0;
-      for (const id of invitations) {
-        try { await backend.revokeInvitation(id); invitationsRevoked++; } catch { /* best effort */ }
-      }
-      return { invitationsRevoked };
+      return { invitationsRevoked: await revokeInvitations(invitations) };
     },
 
     publicLink(code) {
@@ -586,7 +620,7 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
         const address = email.trim().toLowerCase();
         const key = emailKey(address);
         if (!key) throw bad("invalid_email");
-        if (hasAccount(address)) return { kind: "already" };
+        if (hasAccount(address, key)) return { kind: "already" };
         const existing = grantByKey(key);
         if (existing && isLive(existing, now)) return { kind: "already" };
         if (linkUses(link.id, now) >= link.max_uses) return { kind: "full" };
@@ -617,7 +651,7 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
         }
         const claim = db.transaction((): AddEmailOutcome | number => {
           const now = clock();
-          if (hasAccount(email)) return "existing_account";
+          if (hasAccount(email, key)) return "existing_account";
           const existing = grantByKey(key);
           if (existing && isLive(existing, now)) return "already";
           return openGrant(existing, { creatorId, linkId: null, kind: "allowlist", email, key, ipKey: null, now });
@@ -662,13 +696,14 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
         if (error instanceof CreatorAccessError) return "failed";
         throw error;
       }
+      if (creatorRow(grant.creator_id)?.archived_at !== null) return "not_due";
       const claim = db.transaction((): "none" | "not_due" | number => {
         const now = clock();
         const current = grantByKey(key);
         if (!current || current.kind !== "allowlist" || current.status === "signed_up" || current.status === "revoked") return "none";
-        const due = current.status === "failed" || isExpired(current, now)
-          || (current.status === "sent" && (current.sent_at === null || current.sent_at <= now - RESEND_COOLDOWN_MS));
-        if (!due) return "not_due";
+        if (creatorRow(current.creator_id)?.archived_at !== null) return "not_due";
+        // A valid invitation is still in the inbox: re-send only a failed or expired one.
+        if (!(current.status === "failed" || isExpired(current, now))) return "not_due";
         db.prepare("update creator_grants set status = 'sending', expires_at = ? where id = ? and status = ?")
           .run(now + SENDING_LEASE_MS, current.id, current.status);
         return current.id;
@@ -684,8 +719,8 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
     },
 
     grantedEmailKeys() {
-      return new Set(db.prepare<[], { email_key: string }>(
-        "select email_key from creator_grants where status in ('sending', 'sent', 'signed_up')").all().map(row => row.email_key));
+      return new Set((db.prepare(`select g.email_key from creator_grants g where ${LIVE("g")}`)
+        .all({ now: clock() }) as { email_key: string }[]).map(row => row.email_key));
     },
 
     attributeSignUp(input) {
@@ -697,7 +732,13 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
           const byId = grantById(input.grantId);
           if (byId && (key === null || byId.email_key === key)) grant = byId;
         }
-        if (!grant && key) grant = grantByKey(key);
+        if (!grant && key) {
+          const byKey = grantByKey(key);
+          // An account that signed in before the grant existed did not join through it.
+          const firstSignIn = db.prepare<[number], { first_sign_in_at: number | null }>(
+            "select first_sign_in_at from users where id = ?").get(input.userId)!.first_sign_in_at;
+          if (byKey && (byKey.user_id === input.userId || firstSignIn === null || firstSignIn >= byKey.created_at)) grant = byKey;
+        }
         if (!grant || (grant.user_id !== null && grant.user_id !== input.userId)) return null;
         // signed_up even when revoked or expired: the person did sign up with this grant.
         db.prepare(`update creator_grants set status = 'signed_up', user_id = @userId,

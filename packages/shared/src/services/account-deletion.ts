@@ -169,9 +169,11 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     note("users", db.prepare(`
       update users set clerk_user_id = null, email = null, email_verified = 0, discord_user_id = null,
         last_seen_at = null, last_route = null, online_since = null, image_url = null,
+        heard_from = null, heard_from_detail = null, creator_id = null,
         username = ?, display_name = ?, synced_at = null, updated_at = current_timestamp
       where id = ? and (clerk_user_id is not null or email is not null or email_verified <> 0 or discord_user_id is not null
-        or username <> ? or display_name <> ? or synced_at is not null or last_seen_at is not null or last_route is not null or online_since is not null or image_url is not null)
+        or username <> ? or display_name <> ? or synced_at is not null or last_seen_at is not null or last_route is not null or online_since is not null or image_url is not null
+        or heard_from is not null or heard_from_detail is not null or creator_id is not null)
     `).run(deletedUsername(userId), DELETED_PLAYER_NAME, userId, deletedUsername(userId), DELETED_PLAYER_NAME).changes);
     if (counts.users) {
       db.prepare("delete from product_events where user_id=?").run(userId);
