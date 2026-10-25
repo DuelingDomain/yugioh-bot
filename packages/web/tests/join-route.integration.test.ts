@@ -43,6 +43,8 @@ beforeEach(() => {
   vi.resetModules(); getDb.mockReset();
   delete (globalThis as Record<symbol, unknown>)[SEND_LIMIT_KEY];
   vi.stubEnv("WEB_URL", ORIGIN); vi.stubEnv("CLERK_SECRET_KEY", "sk_test_fake_value");
+  // No answer floor in tests (one case below proves it with a small floor).
+  vi.stubEnv("CREATOR_ANSWER_FLOOR_MS", "0");
   db = new Database(":memory:"); migrate(db); getDb.mockReturnValue(db);
   db.exec("insert into users(id, username, display_name, email, email_verified) values (1, 'op', 'Operator', 'member@example.test', 1)");
   clerkMode = "ok"; invitations = 0; bodies = [];
@@ -183,5 +185,16 @@ describe("POST /api/join/[code]", () => {
     expect(createCreatorAccessService(db).publicLink(link.code)).toMatchObject({ state: "open", spotsLeft: 1 });
     clerkMode = "ok";
     expect(await join(link.code, { email: "lucky@example.test" })).toMatchObject({ status: 200, json: { status: "sent" } });
+  });
+
+  it("holds a fast 200 (existing account, honeypot) to the answer floor, so it reads like a Clerk send", async () => {
+    vi.stubEnv("CREATOR_ANSWER_FLOOR_MS", "50");
+    const link = seedLink(5, "JoinCode0013");
+    for (const body of [{ email: "member@example.test" }, { email: "bot@example.test", company: "Acme" }]) {
+      const started = Date.now();
+      expect(await join(link.code, body)).toMatchObject({ status: 200, json: { status: "sent" } });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(45);
+    }
+    expect(invitationPosts()).toHaveLength(0);
   });
 });

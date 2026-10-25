@@ -18,7 +18,7 @@ let invitations: number;
 beforeEach(() => {
   vi.resetModules(); auth.mockReset(); getDb.mockReset();
   auth.mockResolvedValue({ user: { id: "1", name: "Operator" } });
-  vi.stubEnv("OWNER_USER_IDS", "1"); vi.stubEnv("WEB_URL", ORIGIN); vi.stubEnv("CLERK_SECRET_KEY", "sk_test_fake_value");
+  vi.stubEnv("OWNER_USER_IDS", "1"); vi.stubEnv("WEB_URL", ORIGIN); vi.stubEnv("CLERK_SECRET_KEY", "sk_test_fake_value"); vi.stubEnv("CREATOR_ANSWER_FLOOR_MS", "0");
   delete (globalThis as Record<symbol, unknown>)[Symbol.for("yugidraft.creatorSendLimit")];
   delete (globalThis as Record<symbol, unknown>)[Symbol.for("yugidraft.adminConsole.waitlist")];
   db = new Database(":memory:"); migrate(db); getDb.mockReturnValue(db);

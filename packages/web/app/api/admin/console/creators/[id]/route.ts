@@ -38,10 +38,16 @@ export async function PATCH(request: Request, { params }: Params): Promise<Respo
     ...(name !== undefined ? { name } : {}),
     ...(channelUrl !== undefined ? { channelUrl } : {}),
     ...(notes !== undefined ? { notes } : {}),
-    ...(archived !== undefined ? { archived } : {}),
+    // archived: true goes through archiveCreator below (it also revokes live invitations); false un-archives here.
+    ...(archived === false ? { archived } : {}),
   };
   try {
-    const creator = creatorAccess().updateCreator(id, patch);
+    const service = creatorAccess();
+    let creator = Object.keys(patch).length > 0 || archived !== true ? service.updateCreator(id, patch) : null;
+    if (archived === true) {
+      if (Object.keys(patch).length > 0 && !creator) return ownerJson({ error: "not_found" }, 404);
+      creator = (await service.archiveCreator(id))?.creator ?? null;
+    }
     return creator ? ownerJson({ creator }) : ownerJson({ error: "not_found" }, 404);
   } catch (error) {
     return creatorErrorResponse(error, "update");

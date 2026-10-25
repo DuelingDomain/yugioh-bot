@@ -55,6 +55,7 @@ beforeEach(async () => {
   vi.resetModules();
   vi.resetAllMocks();
   vi.stubEnv("CLERK_SECRET_KEY", "test-secret");
+  vi.stubEnv("CREATOR_ANSWER_FLOOR_MS", "0");
   vi.stubEnv("DISCORD_ADMIN_WEBHOOK_URL", undefined);
   vi.stubEnv("DISCORD_JOIN_REQUEST_ALERTS_ENABLED", "1");
   state.events = [];
@@ -439,20 +440,38 @@ describe("POST /api/waitlist", () => {
     expect(state.createBackend).not.toHaveBeenCalled();
   });
 
-  it("sends an allowlisted email its invitation again and makes no Clerk waitlist entry", async () => {
+  /** An allowlist grant for vip@example.test whose invitation expired, so a waitlist join is due for a re-send. */
+  async function seedDueAllowlist() {
     vi.stubEnv("WEB_URL", "https://app.example.test");
     delete (globalThis as Record<symbol, unknown>)[Symbol.for("yugidraft.creatorSendLimit")];
-    const { createCreatorAccessService, RESEND_COOLDOWN_MS } = await import("@yugidraft/shared/services/creator-access");
+    const { createCreatorAccessService, ALLOWLIST_INVITE_DAYS } = await import("@yugidraft/shared/services/creator-access");
     state.db!.exec("insert into users(id, username, display_name) values (1, 'op', 'Operator')");
-    // The owner added the email before the cooldown, so a waitlist join is due for a re-send.
-    const sentAt = Date.now() - RESEND_COOLDOWN_MS - 60_000;
+    const sentAt = Date.now() - ALLOWLIST_INVITE_DAYS * 24 * 3600_000 - 60_000;
     const seed = createCreatorAccessService(state.db!, {
       webUrl: "https://app.example.test", now: () => sentAt,
       clerk: { createInvitation: async () => ({ id: "inv_seed", email_address: "vip@example.test", status: "pending" }), revokeInvitation: async () => {} } as never,
     });
     const creator = seed.createCreator({ name: "Kaiba Plays", actorUserId: 1 });
     expect(await seed.addAllowlistEmails(creator.id, ["vip@example.test"], 1)).toEqual([expect.objectContaining({ outcome: "sent" })]);
+  }
 
+  it("asks for a retry when the allowlist re-send fails, with no Clerk waitlist entry", async () => {
+    await seedDueAllowlist();
+    const fetcher = vi.fn<typeof fetch>(async () => Response.json({ errors: [{ code: "internal", message: "down" }] }, { status: 502 }));
+    vi.stubGlobal("fetch", fetcher);
+    const response = await post(json({ email: "vip@example.test" }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "retry_later" });
+    expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith("/v1/invitations"))).toHaveLength(1);
+    redirect(await post(form("email=vip%40example.test")), "retry");
+    expect(state.createWaitlistEntry).not.toHaveBeenCalled();
+    expect(state.join).not.toHaveBeenCalled();
+    expect(rows()).toEqual([]);
+    delete (globalThis as Record<symbol, unknown>)[Symbol.for("yugidraft.creatorSendLimit")];
+  });
+
+  it("sends an allowlisted email its invitation again and makes no Clerk waitlist entry", async () => {
+    await seedDueAllowlist();
     const fetcher = vi.fn<typeof fetch>(async (url, init) => {
       expect(String(url)).toMatch(/^https:\/\/api\.clerk\.com\/v1\/invitations(\/[^/]+\/revoke)?$/);
       if (String(url).endsWith("/revoke")) return Response.json({ id: "inv_seed", status: "revoked" });

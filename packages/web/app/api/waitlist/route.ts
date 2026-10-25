@@ -5,6 +5,7 @@ import { createClerkBackend } from "@yugidraft/shared/clerk";
 import { log } from "@yugidraft/shared/observability";
 import { emailKey } from "@yugidraft/shared/util/email-key";
 import { normalizeJoinEmail } from "@yugidraft/shared/util/join-email";
+import { waitForAnswerFloor } from "@/lib/answer-floor";
 import { releaseOwnerSends, reserveOwnerSends } from "@/lib/creator-send-limit";
 import { getDb } from "@/lib/db";
 import { readSmallBody } from "@/lib/read-small-body";
@@ -18,9 +19,9 @@ function retryAfter(request: Request): number | null {
 
 /**
  * An email with a live allowlist grant (creator fast-track) gets its Clerk invitation again in place of a waitlist
- * entry. Returns true when the normal waitlist join must be skipped. The browser answer does not change either way.
+ * entry, and the waitlist join is skipped. Returns "joined"/"retry" (the same answers as a normal join) when the grant
+ * handled the email, or null to continue with the normal waitlist.
  */
-/** "joined"/"retry" when an allowlist grant handled the email; null to continue with the normal waitlist. */
 async function handledByAllowlist(email: string): Promise<"joined" | "retry" | null> {
   try {
     const creators = createCreatorAccessService(getDb());
@@ -44,10 +45,14 @@ async function handledByAllowlist(email: string): Promise<"joined" | "retry" | n
 type Outcome = "joined" | "invalid" | "limited" | "retry" | "error";
 
 export async function POST(request: Request): Promise<Response> {
+  const startedAt = Date.now();
   const type = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   const isForm = type === "application/x-www-form-urlencoded";
   const headers = new Headers({ "Cache-Control": "no-store" });
-  function respond(outcome: Outcome): Response {
+  async function respond(outcome: Outcome): Promise<Response> {
+    // "joined" and "retry" wait for the answer floor on every path (allowlist re-send, normal join, honeypot), so
+    // the time of the answer does not tell whether the email has a creator grant.
+    if (outcome === "joined" || outcome === "retry") await waitForAnswerFloor(startedAt);
     if (isForm) {
       // A relative redirect stays on the marketing host behind Caddy.
       headers.set("Location", `/?waitlist=${outcome}#join`);
