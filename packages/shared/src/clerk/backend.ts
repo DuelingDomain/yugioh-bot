@@ -8,12 +8,18 @@ export interface ClerkUserJson {
   has_image?: boolean;
   external_id: string | null;
   private_metadata?: Record<string, unknown>;
+  /** Copied from a Clerk invitation. `ddGrant` (creator_grants.id) marks a creator fast-track sign-up. */
+  public_metadata?: Record<string, unknown>;
+  /** Written by the browser at sign-up (`heardFrom`, `heardFromDetail`). Untrusted survey data: validate before use. */
+  unsafe_metadata?: Record<string, unknown>;
   primary_email_address_id: string | null;
   email_addresses: { id: string; email_address: string; verification: { status: string } | null }[];
   external_accounts: { provider: string; provider_user_id: string; verification: { status: string } | null }[];
 }
 
 export interface ClerkWaitlistEntryJson { id: string; email_address: string; status: string; /** Epoch ms. */ created_at?: number; /** Epoch ms. */ updated_at?: number }
+
+export interface ClerkInvitationJson { id: string; email_address: string; status: string; /** Epoch ms. */ expires_at?: number | null }
 
 export class ClerkBackendError extends Error {
   constructor(
@@ -43,6 +49,17 @@ export interface ClerkBackend {
   /** DELETE /users/{id}. A 404 means the user is already gone and resolves like a success. */
   deleteUser(clerkUserId: string): Promise<void>;
   deleteWaitlistEntriesByEmail(email: string): Promise<void>;
+  /**
+   * POST /invitations. Clerk sends the email itself when `notify` is true; the response `url` holds a ticket that
+   * verifies the email, so it is never returned. Errors: 400 `duplicate_record` (a pending invitation exists; retry
+   * with `ignoreExisting`), 422 `form_identifier_exists` (the email already has an account), 429 rate limit.
+   */
+  createInvitation(input: {
+    emailAddress: string; redirectUrl: string; publicMetadata?: Record<string, unknown>;
+    expiresInDays: number; notify: true; ignoreExisting?: boolean;
+  }): Promise<ClerkInvitationJson>;
+  /** POST /invitations/{id}/revoke. Already revoked, already accepted or missing resolves like a success. */
+  revokeInvitation(id: string): Promise<void>;
 }
 
 export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; fetch?: typeof fetch; timeoutMs?: number }): ClerkBackend {
@@ -144,6 +161,23 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
     updateUserMetadata(clerkUserId, input) { return request(`/users/${encodeURIComponent(clerkUserId)}/metadata`, "PATCH", { private_metadata: input.privateMetadata }); },
     inviteWaitlistEntry(id) { return waitlistAction(id, "invite", "waitlist_entry_already_invited"); },
     rejectWaitlistEntry(id) { return waitlistAction(id, "reject", "waitlist_entry_already_rejected"); },
+    async createInvitation(input) {
+      const json = await request<ClerkInvitationJson & { url?: unknown }>("/invitations", "POST", {
+        email_address: input.emailAddress, redirect_url: input.redirectUrl, notify: input.notify,
+        expires_in_days: input.expiresInDays, ignore_existing: input.ignoreExisting ?? false,
+        ...(input.publicMetadata ? { public_metadata: input.publicMetadata } : {}),
+      });
+      // Drop the ticket URL here so no caller can pass it on by mistake.
+      return { id: json.id, email_address: json.email_address, status: json.status, expires_at: json.expires_at ?? null };
+    },
+    async revokeInvitation(id) {
+      try { await request(`/invitations/${encodeURIComponent(id)}/revoke`, "POST"); }
+      catch (error) {
+        if (!(error instanceof ClerkBackendError)) throw error;
+        if (error.status === 404 || (error.status === 400 && ["invitation_already_revoked", "invitation_already_accepted"].includes(error.code ?? ""))) return;
+        throw error;
+      }
+    },
     createWaitlistEntry(input) { return request("/waitlist_entries", "POST", { email_address: input.emailAddress, notify: input.notify }); },
     async listWaitlistEntries(query) {
       const params = new URLSearchParams();

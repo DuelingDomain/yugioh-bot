@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { DoneRow, NoteBox } from "../fields";
+import { DoneRow, HeardFromSelect, NoteBox, type HeardFromValue } from "../fields";
 import { SignInBanner } from "../sign-in-error";
 import { SignInFootLinks, SignInStep } from "../sign-in-step";
 import shell from "../sign-in-shell.module.css";
@@ -35,6 +35,7 @@ export function NotInvitedStep({ identifier, waitlistUrl, onRetry, onJoined, pre
   // A failed try may still have saved the email (Clerk failed after the local row); a later "exists" is then this person's own join.
   const failedOnce = useRef(false);
   const confirmation = useRef<HTMLDivElement>(null);
+  const heard = useRef<HeardFromValue>({});
 
   const joined = phase === "joined" || phase === "exists";
   const notify = useRef(onJoined);
@@ -56,7 +57,7 @@ export function NotInvitedStep({ identifier, waitlistUrl, onRetry, onJoined, pre
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ email, source: "app-not-invited" }),
+        body: JSON.stringify({ email, source: "app-not-invited", ...heard.current }),
       });
       if (response.status === 429) return setPhase("limited");
       if (!response.ok) { failedOnce.current = true; return setPhase("failed"); }
@@ -101,6 +102,7 @@ export function NotInvitedStep({ identifier, waitlistUrl, onRetry, onJoined, pre
       <div className={shell.form} data-clerk="identifier-not-found" aria-busy={pending}>
         <NoteBox label="Email"><span data-email="">{identifier}</span></NoteBox>
         {(phase === "limited" || phase === "failed") && <SignInBanner tone="bad" code={phase}>{ERROR_COPY[phase]}</SignInBanner>}
+        {isEmail(email) && <HeardFromSelect id="f-heard-wl" onChange={(value) => { heard.current = value; }} />}
         {isEmail(email) ? (
           <button type="button" className={`${shell.btn} ${shell["btn-primary"]}`} disabled={pending} onClick={join}>
             {pending && <span className={shell.spinner} aria-hidden="true" />}

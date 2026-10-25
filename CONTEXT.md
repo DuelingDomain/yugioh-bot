@@ -24,6 +24,19 @@ _Avoid_: admin (for site roles)
 **Waitlist**:
 The Clerk waitlist for alpha access. Anyone can join it through `POST /api/waitlist`. An **Owner** approves or rejects an entry in `/admin` or with the bot; approval sends a Clerk invitation.
 
+**Creator**:
+A content creator we give instant alpha access to, stored in `creators`. Only an **Owner** makes one, in `/admin` > Creators. Not to be confused with the person who made a draft, tournament or **Cube**.
+_Avoid_: influencer, partner
+
+**Creator link**:
+A `/join/<code>` URL of a **Creator** (`creator_links`) with a fixed number of uses and an expiry. Personal = 1 use; Community = many uses. The owner can revoke it. Distinct from a tournament **Invite link**.
+
+**Grant**:
+One email that may join now because of a **Creator** (`creator_grants`), made by a **Creator link** or by an owner allowlist email. It sends one Clerk invitation and, after sign-up, records which **Creator** brought the **User** (`users.creator_id`).
+
+**Heard from**:
+The optional "How did you hear about us?" answer (`waitlist_signups.heard_from`, `users.heard_from`). Survey data only; it never grants access.
+
 **Bug report**:
 A report a signed-in **User** sends with the Report bug button. It is stored in `bug_reports` with diagnostics and opens a public GitHub issue when `BUG_REPORT_GITHUB_TOKEN` is set. Humans triage it with the labels in `docs/agents/triage-labels.md`.
 

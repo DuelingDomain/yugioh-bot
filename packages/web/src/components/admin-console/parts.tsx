@@ -22,6 +22,10 @@ const PATHS = {
   ext: <><path d="M14 4.5h5.5V10" /><path d="M19.5 4.5 11 13" /><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10" /></>,
   play: <path d="M7 5.5v13l11-6.5z" />,
   back: <path d="m15 6-6 6 6 6" />,
+  creators: <><rect x="3" y="4.5" width="18" height="13" rx="2.2" /><path d="m10.3 8.4 4.6 2.6-4.6 2.6z" /><path d="M8.5 20.5h7" /></>,
+  link: <><path d="M10.2 13.8a4 4 0 0 0 5.6 0l3-3a4 4 0 0 0-5.6-5.6l-1.1 1.1" /><path d="M13.8 10.2a4 4 0 0 0-5.6 0l-3 3a4 4 0 0 0 5.6 5.6l1.1-1.1" /></>,
+  copy: <><rect x="8.5" y="8.5" width="11" height="11" rx="2" /><path d="M15.5 8.5V6A1.5 1.5 0 0 0 14 4.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5" /></>,
+  plus: <path d="M12 5v14M5 12h14" />,
 } as const;
 export type IconName = keyof typeof PATHS;
 

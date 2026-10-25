@@ -4,9 +4,9 @@ import { AccountView } from "@/components/auth/auth-views";
 import { useRedirectIfSignedIn } from "@/hooks/use-redirect-if-signed-in";
 import { useSignUpFlow } from "@/hooks/use-sign-up-flow";
 
-export function SignUpCard({ ticket, returnTo, marketingUrl }: { ticket: string | null; returnTo: string; marketingUrl: string | null }) {
+export function SignUpCard({ ticket, returnTo, marketingUrl, creatorInvite = false }: { ticket: string | null; returnTo: string; marketingUrl: string | null; creatorInvite?: boolean }) {
   const redirecting = useRedirectIfSignedIn(returnTo);
   const flow = useSignUpFlow({ ticket, returnTo });
   // Already signed in: show the "Signing you in" card while the redirect runs, never the form.
-  return <AccountView flow={redirecting ? { ...flow, state: { ...flow.state, step: "signing", banner: null, fieldErrors: {} } } : flow} marketingUrl={marketingUrl} />;
+  return <AccountView flow={redirecting ? { ...flow, state: { ...flow.state, step: "signing", banner: null, fieldErrors: {} } } : flow} marketingUrl={marketingUrl} creatorInvite={creatorInvite} />;
 }

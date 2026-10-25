@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, type FormEvent } from "react";
-import { CaptchaPlaceholder, ConsentCheckbox, DiscordButton, LockedInput, OrDivider, PasswordField, TextField } from "../fields";
+import { CaptchaPlaceholder, ConsentCheckbox, DiscordButton, HeardFromSelect, LockedInput, OrDivider, PasswordField, TextField, readHeardFrom, type HeardFromValue } from "../fields";
 import { SignInBanner } from "../sign-in-error";
 import { SignInFootLinks, SignInStep } from "../sign-in-step";
 import shell from "../sign-in-shell.module.css";
@@ -12,8 +12,9 @@ export interface CreateAccountStepProps {
   errors: { username?: string; password?: string; legal?: string };
   banner?: AuthBanner | null;
   pending: boolean;
-  onSubmit(v: { username: string; password: string; legalAccepted: boolean }): void;
-  onDiscord(v: { username: string; legalAccepted: boolean }): void;
+  /** `heardFrom` / `heardFromDetail` are present only when the person picked an answer. */
+  onSubmit(v: { username: string; password: string; legalAccepted: boolean } & HeardFromValue): void;
+  onDiscord(v: { username: string; legalAccepted: boolean } & HeardFromValue): void;
   /**
    * True on the SSO-callback missing-requirements card: the person already chose Discord, so only username and consent
    * are asked. The password field and the Discord button are left out and `onSubmit` gets an empty password.
@@ -26,6 +27,11 @@ export interface CreateAccountStepProps {
    * the page owns the single `#clerk-captcha` node (`AuthFlowShell`), so the step never renders one.
    */
   captchaPlaceholder?: boolean;
+  /**
+   * Hides "How did you hear about us?": a creator invite (`/sign-up?via=creator`) already tells us, and the SSO callback
+   * card already sent the answer before the Discord trip.
+   */
+  hideHeardFrom?: boolean;
 }
 
 function readForm(form: HTMLFormElement) {
@@ -34,10 +40,11 @@ function readForm(form: HTMLFormElement) {
     username: String(data.get("username") ?? "").trim(),
     password: String(data.get("password") ?? ""),
     legalAccepted: data.get("legal") !== null,
+    ...readHeardFrom(data),
   };
 }
 
-export function CreateAccountStep({ lockedEmail, errors, banner, pending, onSubmit, onDiscord, passwordOptional = false, defaultUsername, captchaPlaceholder = false }: CreateAccountStepProps) {
+export function CreateAccountStep({ lockedEmail, errors, banner, pending, onSubmit, onDiscord, passwordOptional = false, defaultUsername, captchaPlaceholder = false, hideHeardFrom = false }: CreateAccountStepProps) {
   const formRef = useRef<HTMLFormElement>(null);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -49,7 +56,7 @@ export function CreateAccountStep({ lockedEmail, errors, banner, pending, onSubm
   function handleDiscord() {
     if (pending || !formRef.current) return;
     const { username, legalAccepted } = readForm(formRef.current);
-    onDiscord({ username, legalAccepted });
+    onDiscord({ username, legalAccepted, ...readHeardFrom(new FormData(formRef.current)) });
   }
 
   return (
@@ -76,6 +83,7 @@ export function CreateAccountStep({ lockedEmail, errors, banner, pending, onSubm
         {!passwordOptional && (
           <PasswordField id="f-cp" name="password" label="Create password" autoComplete="new-password" error={errors.password} hint="At least 8 characters." />
         )}
+        {!hideHeardFrom && <HeardFromSelect />}
         <ConsentCheckbox name="legal" error={errors.legal} />
         {captchaPlaceholder && <CaptchaPlaceholder />}
         <button className={`${shell.btn} ${shell["btn-primary"]}`} type="submit" disabled={pending}>Create account</button>

@@ -71,10 +71,12 @@ interface AccountViewProps extends ViewProps<{ state: AuthFlowState; actions: Si
    * Discord button), and the page opens on "Signing you in".
    */
   callback?: boolean;
+  /** The invite came from a creator (`/sign-up?via=creator`): we know how they heard about us, so the card does not ask. */
+  creatorInvite?: boolean;
 }
 
 /** Every sign-up step, shared by `/sign-up` and `/sso-callback`. Both own the single `#clerk-captcha` from first paint. */
-export function AccountView({ flow: { state, actions }, marketingUrl, callback = false }: AccountViewProps) {
+export function AccountView({ flow: { state, actions }, marketingUrl, callback = false, creatorInvite = false }: AccountViewProps) {
   const { pending, banner, fieldErrors } = state;
   const restart = () => hardNavigate(signInHref(state.returnTo));
   const reload = () => hardNavigate(window.location.href);
@@ -85,7 +87,7 @@ export function AccountView({ flow: { state, actions }, marketingUrl, callback =
           case "invite":
             // Retrying reloads this URL, so the invitation ticket is consumed again from a clean Clerk attempt.
             if (!state.lockedEmail) return <CheckingInviteStep banner={banner} onRetry={reload} />;
-            return <CreateAccountStep lockedEmail={state.lockedEmail} errors={{ username: fieldErrors.username, password: fieldErrors.password, legal: fieldErrors.legal }} banner={banner} pending={pending} onSubmit={actions.submitAccount} onDiscord={actions.continueWithDiscord} passwordOptional={callback} />;
+            return <CreateAccountStep lockedEmail={state.lockedEmail} errors={{ username: fieldErrors.username, password: fieldErrors.password, legal: fieldErrors.legal }} banner={banner} pending={pending} onSubmit={actions.submitAccount} onDiscord={actions.continueWithDiscord} passwordOptional={callback} hideHeardFrom={callback || creatorInvite} />;
           case "code":
             // The invitation email is locked, so there is no way back to a different one.
             return <CodeStep purpose={state.codePurpose ?? "signup"} identifier={state.lockedEmail ?? state.identifier} error={fieldErrors.code} banner={banner} pending={pending} resendAvailableAt={state.resendAvailableAt} onSubmit={actions.submitCode} onResend={actions.resendCode} />;

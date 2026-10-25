@@ -11,9 +11,10 @@ import { FLOOR, seedAdminFloor, touchAdminFloor } from "../helpers/admin-floor";
 test.skip(process.env.E2E_ADMIN_CONSOLE !== "1" || process.env.E2E_OWNER_USER_IDS !== "101", "set E2E_ADMIN_CONSOLE=1 and E2E_OWNER_USER_IDS=101");
 test.describe.configure({ mode: "serial" });
 
-const VIEWS = ["Overview", "People", "Duels", "Waitlist", "Health", "Insights"] as const;
+const VIEWS = ["Overview", "People", "Duels", "Waitlist", "Creators", "Health", "Insights"] as const;
 const menu = (page: Page) => page.getByRole("complementary", { name: "Admin navigation" });
-const view = (page: Page, name: string) => page.getByRole("region", { name });
+// Exact: the Health view also holds a "VPS health" region.
+const view = (page: Page, name: string) => page.getByRole("region", { name, exact: true });
 
 test.beforeAll(() => { seedAdminFloor(); });
 test.beforeEach(() => { touchAdminFloor(); });
@@ -51,7 +52,7 @@ test("Overview: four large numbers, what needs attention, and who is online and 
   } finally { await context.close(); }
 });
 
-test("keys 1 to 6 switch views, / filters people, and each view has its own link", async ({ browser }) => {
+test("keys 1 to 7 switch views, / filters people, and each view has its own link", async ({ browser }) => {
   const context = await browser.newContext({ storageState: authFile("p1") });
   try {
     const page = await context.newPage();
@@ -61,6 +62,9 @@ test("keys 1 to 6 switch views, / filters people, and each view has its own link
     await expect(page).toHaveURL(/#people$/);
     await expect(view(page, "People")).toBeVisible();
     await page.keyboard.press("5");
+    await expect(page).toHaveURL(/#creators$/);
+    await expect(view(page, "Creators")).toBeVisible();
+    await page.keyboard.press("6");
     await expect(page).toHaveURL(/#health$/);
     await page.keyboard.press("/");
     await expect(page).toHaveURL(/#people$/);
