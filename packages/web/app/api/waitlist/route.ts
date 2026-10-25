@@ -20,22 +20,24 @@ function retryAfter(request: Request): number | null {
  * An email with a live allowlist grant (creator fast-track) gets its Clerk invitation again in place of a waitlist
  * entry. Returns true when the normal waitlist join must be skipped. The browser answer does not change either way.
  */
-async function handledByAllowlist(email: string): Promise<boolean> {
+/** "joined"/"retry" when an allowlist grant handled the email; null to continue with the normal waitlist. */
+async function handledByAllowlist(email: string): Promise<"joined" | "retry" | null> {
   try {
     const creators = createCreatorAccessService(getDb());
     // A re-send uses the shared Clerk budget. Over budget: skip the re-send, but still keep a granted email off the
     // waitlist (Clerk entry and Discord alert would ask the owner to approve a person who is already in).
     if (reserveOwnerSends(1) !== null) {
       const key = emailKey(email);
-      return key !== null && creators.grantedEmailKeys().has(key);
+      return key !== null && creators.grantedEmailKeys().has(key) ? "joined" : null;
     }
     const result = await creators.resendAllowlistForWaitlist(email);
     if (result === "none" || result === "not_due") releaseOwnerSends(1);
-    return result !== "none";
+    // A failed re-send sent nothing: ask for a retry, as a failed Clerk waitlist call does on the normal path.
+    return result === "none" ? null : result === "failed" ? "retry" : "joined";
   } catch {
     // Fall back to the normal waitlist. Never log the email.
     log("warn", "[waitlist] allowlist check failed");
-    return false;
+    return null;
   }
 }
 
@@ -81,7 +83,8 @@ export async function POST(request: Request): Promise<Response> {
   if (typeof data.company === "string" && data.company.length > 0) return respond("joined");
   const email = normalizeJoinEmail(data.email);
   if (!email) return respond("invalid");
-  if (await handledByAllowlist(email)) return respond("joined");
+  const allowlisted = await handledByAllowlist(email);
+  if (allowlisted) return respond(allowlisted);
 
   try {
     createWaitlistService(getDb()).join(email, {
