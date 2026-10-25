@@ -1,3 +1,4 @@
+import type { CreatorsData } from "./creators-types";
 /**
  * The /admin data contract. One response type per section, plus one person (people/<id>).
  * New fields are optional so an older client or test fixture still reads a newer answer.
@@ -11,7 +12,7 @@ export type SectionResult<T> =
   /** A configured service did not answer. `message` is safe to show: never a key, URL secret or stack. */
   | { state: "error"; message: string; updatedAt: number };
 
-export const SECTION_IDS = ["online", "waitlist", "live", "today", "stats", "errors", "usage", "system"] as const;
+export const SECTION_IDS = ["online", "waitlist", "live", "today", "stats", "errors", "usage", "system", "creators"] as const;
 export type SectionId = (typeof SECTION_IDS)[number];
 
 /** How the app keys a person: users.id here. (The Discord-only local build keys people by Discord ID.) */
@@ -355,4 +356,5 @@ export interface SectionDataMap {
   errors: ErrorsData;
   usage: UsageData;
   system: SystemData;
+  creators: CreatorsData;
 }

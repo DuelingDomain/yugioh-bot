@@ -1353,6 +1353,7 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "users", "online_since", "integer");
   // Profile picture URL from Clerk, written at sign-in sync. The admin console shows it; null means initials.
   addColumnIfMissing(db, "users", "image_url", "text");
+  migrateCreatorAccess(db);
   db.exec(`
     create index if not exists users_last_seen_idx on users(last_seen_at) where last_seen_at is not null;
     create table if not exists worker_heartbeat (
@@ -1627,4 +1628,59 @@ function migrateAccessIndexes(db: Database.Database) {
     `);
     // players already has a UNIQUE (guild_id, user_id) autoindex from the identity schema.
   }).immediate();
+}
+
+/**
+ * Creator fast-track (docs/adr/0007-creator-fast-track.md). Additive only: new tables and nullable columns, so an
+ * older build can still open a migrated database. A grant is "this email may join now, because of creator X".
+ */
+function migrateCreatorAccess(db: Database.Database) {
+  db.exec(`
+    create table if not exists creators (
+      id integer primary key autoincrement,
+      name text not null,
+      channel_url text,
+      notes text,
+      user_id integer references users(id) on delete set null,
+      created_by_user_id integer references users(id) on delete set null,
+      created_at integer not null,
+      archived_at integer
+    );
+    create table if not exists creator_links (
+      id integer primary key autoincrement,
+      creator_id integer not null references creators(id) on delete cascade,
+      code text not null unique,
+      label text,
+      max_uses integer not null check (max_uses between 1 and 500),
+      expires_at integer not null,
+      revoked_at integer,
+      created_by_user_id integer references users(id) on delete set null,
+      created_at integer not null
+    );
+    create index if not exists creator_links_creator_idx on creator_links(creator_id);
+    create table if not exists creator_grants (
+      id integer primary key autoincrement,
+      creator_id integer not null references creators(id) on delete cascade,
+      link_id integer references creator_links(id) on delete set null,
+      kind text not null check (kind in ('allowlist', 'link')),
+      email text not null check (email = lower(trim(email))),
+      email_key text not null unique,
+      status text not null check (status in ('sending', 'sent', 'failed', 'signed_up', 'revoked')),
+      clerk_invitation_id text,
+      ip_key text,
+      created_at integer not null,
+      sent_at integer,
+      expires_at integer,
+      user_id integer references users(id) on delete set null,
+      signed_up_at integer
+    );
+    create index if not exists creator_grants_link_idx on creator_grants(link_id, status);
+    create index if not exists creator_grants_creator_idx on creator_grants(creator_id, status);
+    create index if not exists creator_grants_user_idx on creator_grants(user_id) where user_id is not null;
+  `);
+  addColumnIfMissing(db, "users", "heard_from", "text");
+  addColumnIfMissing(db, "users", "heard_from_detail", "text");
+  addColumnIfMissing(db, "users", "creator_id", "integer references creators(id) on delete set null");
+  addColumnIfMissing(db, "waitlist_signups", "heard_from", "text");
+  addColumnIfMissing(db, "waitlist_signups", "heard_from_detail", "text");
 }
