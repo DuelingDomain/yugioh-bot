@@ -161,7 +161,7 @@ def main():
         for script in page.find('script'):
             if script['attrs'].get('type') == 'application/ld+json':
                 graph = json.loads(script['text'])['@graph']
-                assert {node['@type'] for node in graph} == {'WebSite', 'Organization', 'WebApplication'}
+                assert {node['@type'] for node in graph} == {'WebSite', 'Organization', 'WebApplication', 'FAQPage'}
                 for node in graph:
                     assert 'review' not in node and 'aggregateRating' not in node
                     if 'logo' in node: resolve(urlsplit(node['logo']).path)
@@ -203,6 +203,15 @@ def main():
         assert node['url'].startswith('https://'), node
         if 'publisher' in node:
             assert node['publisher']['@id'] == organization['@id'], node
+    # FAQ rich-result rules: the JSON-LD must repeat the visible questions and answers exactly.
+    faq = next(node for node in graph if node['@type'] == 'FAQPage')
+    items = index.find('div', **{'class': 'faq-item rv'})
+    visible_faq = [([e for e in index.elements if e['tag'] == 'h3' and item in e['ancestors']][0]['text'].strip(),
+                    [e for e in index.elements if e['tag'] == 'p' and item in e['ancestors']][0]['text'].strip())
+                   for item in items]
+    schema_faq = [(q['name'], q['acceptedAnswer']['text']) for q in faq['mainEntity']]
+    assert visible_faq and visible_faq == schema_faq, 'FAQ JSON-LD must match the visible FAQ'
+    assert faq['url'] == 'https://duelingdomain.com/#faq' and 'faq' in index.ids
     trailer_id = index.find(id='case')[0]['attrs']['data-youtube-id']
     fallback = [e['attrs']['href'] for e in index.find('a') if e['attrs'].get('href', '').startswith('https://www.youtube.com/watch?v=')]
     assert fallback == ['https://www.youtube.com/watch?v=' + trailer_id], ('no-JS trailer link must use the same ID', fallback, trailer_id)
@@ -252,11 +261,22 @@ def main():
         if parsed.fragment:
             assert parsed.fragment in target.ids, link
     forbidden = re.compile(r'yu[\W_]*gi[\W_]*oh|king' + r'dom|duel\s+monsters', re.I)
+    # Descriptive (nominative) use only: served copy may name the game in its exact official
+    # spelling, next to the non-affiliation line every page carries. File names, styles, scripts,
+    # sources, images, the brand and the social image text never name it.
+    game = 'Yu-Gi-O' + 'h!'
+    descriptive = {*PUBLIC.glob('*.html'), PUBLIC / 'llms.txt', PUBLIC / 'site.webmanifest'}
     for file in Path(__file__).resolve().parents[1].rglob('*'):
         if not file.is_file(): continue
         assert not forbidden.search(file.name), file.name
         if file.suffix in ('.html', '.css', '.js', '.mjs', '.py', '.md', '.svg', '.txt', '.xml', '.webmanifest'):
-            assert not forbidden.search(file.read_text()), file
+            text = file.read_text()
+            if file in descriptive:
+                text = text.replace(game, '')
+            assert not forbidden.search(text), file
+    for attr in ('og:site_name', 'og:image:alt'):
+        assert game not in index.find('meta', property=attr)[0]['attrs']['content'], attr
+    assert all(game not in node.get('name', '') for node in graph), 'brand names stay free of the game name'
     # The app's sign-in providers stay off these pages. The homepage may name Discord only in
     # its four community links (href + visible label), the shared glyph symbol, and the JSON-LD
     # sameAs. Strip exactly those, then fail on any other "discord" text.
