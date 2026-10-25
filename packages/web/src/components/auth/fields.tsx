@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { HEARD_FROM, HEARD_FROM_DETAIL_MAX, HEARD_FROM_LABELS, type HeardFrom } from "@yugidraft/shared/util/heard-from";
 import { DiscordGlyph } from "./discord-glyph";
 import { PRIVACY_URL, TERMS_URL } from "./legal-links";
@@ -340,16 +340,6 @@ export function readHeardFrom(data: FormData): HeardFromValue {
   return detail ? { heardFrom, heardFromDetail: detail } : { heardFrom };
 }
 
-// steps.module.css styles text inputs only, so the select carries the same look inline.
-const SELECT_STYLE: CSSProperties = {
-  width: "100%", height: 52, padding: "0 44px 0 14px", borderRadius: 10, border: "1px solid var(--border)",
-  background: "var(--field)", color: "var(--text)", fontSize: 17, outline: 0, appearance: "none", WebkitAppearance: "none",
-  colorScheme: "dark", cursor: "pointer", boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, .02)",
-  transition: "border-color .2s var(--ease), box-shadow .25s var(--ease)",
-};
-const SELECT_FOCUS: CSSProperties = { borderColor: "rgba(167, 139, 250, .75)", boxShadow: "0 0 0 4px rgba(124, 58, 237, .2)" };
-const CHEVRON: CSSProperties = { position: "absolute", right: 14, top: 0, height: 52, width: 18, display: "grid", placeItems: "center", color: "var(--text-3)", pointerEvents: "none" };
-
 /**
  * Optional "How did you hear about us?" select, plus a short text box when the answer is "Other". Never required.
  * Names `heardFrom` and `heardFromDetail`, so `readHeardFrom(new FormData(form))` reads it; `onChange` serves cards with no form.
@@ -357,37 +347,33 @@ const CHEVRON: CSSProperties = { position: "absolute", right: 14, top: 0, height
 export function HeardFromSelect({ id = "f-heard", onChange }: { id?: string; onChange?(value: HeardFromValue): void }) {
   const [value, setValue] = useState("");
   const [detail, setDetail] = useState("");
-  const [focused, setFocused] = useState(false);
   const emit = (next: string, nextDetail: string) => {
     const text = next === "other" ? nextDetail.trim() : "";
     onChange?.(!next ? {} : text ? { heardFrom: next, heardFromDetail: text } : { heardFrom: next });
   };
   return (
     <>
-      <Field id={id} label={<>How did you hear about us? <span style={{ fontWeight: 400, color: "var(--text-3)", letterSpacing: 0 }}>(optional)</span></>}>
+      <Field id={id} label={<>How did you hear about us? <span className={styles.opt}>(optional)</span></>}>
         {(aria) => (
           <div className={styles["input-wrap"]}>
             <select
               id={id}
               name="heardFrom"
               value={value}
-              style={focused ? { ...SELECT_STYLE, ...SELECT_FOCUS } : SELECT_STYLE}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
               onChange={(e) => { setValue(e.target.value); emit(e.target.value, detail); }}
               {...aria}
             >
               <option value="">Choose one</option>
               {HEARD_FROM_CHOICES.map((choice) => <option key={choice} value={choice}>{HEARD_FROM_LABELS[choice]}</option>)}
             </select>
-            <span style={CHEVRON} aria-hidden="true">
+            <span className={styles["select-chev"]} aria-hidden="true">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" focusable="false"><path d="m6 9 6 6 6-6" /></svg>
             </span>
           </div>
         )}
       </Field>
       {value === "other" && (
-        <Field id={`${id}-detail`} label={<>Where? <span style={{ fontWeight: 400, color: "var(--text-3)", letterSpacing: 0 }}>(optional)</span></>}>
+        <Field id={`${id}-detail`} label={<>Where? <span className={styles.opt}>(optional)</span></>}>
           {(aria) => (
             <div className={styles["input-wrap"]}>
               <input
