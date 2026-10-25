@@ -1,8 +1,14 @@
 import { clientIpKey, createRateLimiter } from "@/lib/rate-limit";
 import { createWaitlistService } from "@yugidraft/shared/services";
+import { createCreatorAccessService } from "@yugidraft/shared/services/creator-access";
 import { createClerkBackend } from "@yugidraft/shared/clerk";
-import { normalizeEmailDomain } from "@yugidraft/shared/util/email-domain";
+import { log } from "@yugidraft/shared/observability";
+import { emailKey } from "@yugidraft/shared/util/email-key";
+import { normalizeJoinEmail } from "@yugidraft/shared/util/join-email";
+import { waitForAnswerFloor } from "@/lib/answer-floor";
+import { releaseOwnerSends, reserveOwnerSends } from "@/lib/creator-send-limit";
 import { getDb } from "@/lib/db";
+import { readSmallBody } from "@/lib/read-small-body";
 
 const MAX_BODY_BYTES = 2048;
 const take = createRateLimiter(10 * 60 * 1000);
@@ -11,36 +17,42 @@ function retryAfter(request: Request): number | null {
   return take([[clientIpKey(request), 5]]);
 }
 
-async function readBody(request: Request): Promise<string> {
-  if (Number(request.headers.get("content-length")) > MAX_BODY_BYTES) throw new Error("body_too_large");
-  const reader = request.body?.getReader();
-  if (!reader) return "";
-  const decoder = new TextDecoder();
-  let size = 0;
-  let body = "";
+/**
+ * An email with a live allowlist grant (creator fast-track) gets its Clerk invitation again in place of a waitlist
+ * entry, and the waitlist join is skipped. Returns "joined"/"retry" (the same answers as a normal join) when the grant
+ * handled the email, or null to continue with the normal waitlist.
+ */
+async function handledByAllowlist(email: string): Promise<"joined" | "retry" | null> {
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) return body + decoder.decode();
-      size += value.byteLength;
-      if (size > MAX_BODY_BYTES) {
-        await reader.cancel();
-        throw new Error("body_too_large");
-      }
-      body += decoder.decode(value, { stream: true });
+    const creators = createCreatorAccessService(getDb());
+    // A re-send uses the shared Clerk budget. Over budget: skip the re-send, but still keep a granted email off the
+    // waitlist (Clerk entry and Discord alert would ask the owner to approve a person who is already in).
+    if (reserveOwnerSends(1) !== null) {
+      const key = emailKey(email);
+      return key !== null && creators.grantedEmailKeys().has(key) ? "joined" : null;
     }
-  } finally {
-    reader.releaseLock();
+    const result = await creators.resendAllowlistForWaitlist(email);
+    if (result === "none" || result === "not_due") releaseOwnerSends(1);
+    // A failed re-send sent nothing: ask for a retry, as a failed Clerk waitlist call does on the normal path.
+    return result === "none" ? null : result === "failed" ? "retry" : "joined";
+  } catch {
+    // Fall back to the normal waitlist. Never log the email.
+    log("warn", "[waitlist] allowlist check failed");
+    return null;
   }
 }
 
 type Outcome = "joined" | "invalid" | "limited" | "retry" | "error";
 
 export async function POST(request: Request): Promise<Response> {
+  const startedAt = Date.now();
   const type = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   const isForm = type === "application/x-www-form-urlencoded";
   const headers = new Headers({ "Cache-Control": "no-store" });
-  function respond(outcome: Outcome): Response {
+  async function respond(outcome: Outcome): Promise<Response> {
+    // "joined" and "retry" wait for the answer floor on every path (allowlist re-send, normal join, honeypot), so
+    // the time of the answer does not tell whether the email has a creator grant.
+    if (outcome === "joined" || outcome === "retry") await waitForAnswerFloor(startedAt);
     if (isForm) {
       // A relative redirect stays on the marketing host behind Caddy.
       headers.set("Location", `/?waitlist=${outcome}#join`);
@@ -64,7 +76,7 @@ export async function POST(request: Request): Promise<Response> {
 
   let data: Record<string, unknown>;
   try {
-    const body = await readBody(request);
+    const body = await readSmallBody(request, MAX_BODY_BYTES);
     const parsed: unknown = isForm ? Object.fromEntries(new URLSearchParams(body)) : JSON.parse(body);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return respond("invalid");
     data = parsed as Record<string, unknown>;
@@ -74,22 +86,18 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (typeof data.company === "string" && data.company.length > 0) return respond("joined");
-  const rawEmail = typeof data.email === "string" ? data.email : "";
-  // Check before trimming, which would remove a leading U+FEFF format character.
-  if (/\p{Cf}/u.test(rawEmail.slice(0, rawEmail.lastIndexOf("@")))) return respond("invalid");
-  const submittedEmail = rawEmail.trim().toLowerCase();
-  if (submittedEmail.length > 254) return respond("invalid");
-  // Storage, notification claims and Clerk all use the same ASCII domain.
-  const email = normalizeEmailDomain(submittedEmail);
-  if (!email || email.length > 254) return respond("invalid");
-  const domain = email.slice(email.lastIndexOf("@") + 1);
-  const hostLabel = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
-  if (!new RegExp(`^${hostLabel}(?:\\.${hostLabel})+$`).test(domain)) return respond("invalid");
+  const email = normalizeJoinEmail(data.email);
+  if (!email) return respond("invalid");
+  const allowlisted = await handledByAllowlist(email);
+  if (allowlisted) return respond(allowlisted);
 
   try {
     createWaitlistService(getDb()).join(email, {
       source: typeof data.source === "string" ? data.source : "form",
       userAgent: request.headers.get("user-agent"),
+      // Untrusted survey answer: the service checks it against the list and drops unknown values.
+      heardFrom: data.heardFrom,
+      heardFromDetail: data.heardFromDetail,
     });
   } catch {
     // Never return/log request data or database errors containing an email address.

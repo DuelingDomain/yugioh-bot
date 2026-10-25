@@ -1,4 +1,7 @@
 import { ClerkBackendError, createClerkBackend } from "@yugidraft/shared/clerk";
+import { createCreatorAccessService } from "@yugidraft/shared/services/creator-access";
+import { emailKey } from "@yugidraft/shared/util/email-key";
+import { getDb } from "@/lib/db";
 import { cachedLoader, failed, notConfigured, ok, type SectionLoader } from "./section";
 import type { SectionResult, WaitlistData, WaitlistDecision } from "./types";
 
@@ -43,7 +46,24 @@ export function bustWaitlistCache(): void {
   holder[CACHE_KEY] = undefined;
 }
 
+/** Email keys with a creator grant (sending, sent, signed_up). Read fresh at each load; empty when unavailable. */
+function grantedKeys(): Set<string> {
+  try { return createCreatorAccessService(getDb()).grantedEmailKeys(); } catch { return new Set(); }
+}
+
+/**
+ * The cached Clerk list, minus pending entries whose email already has a creator grant (that person is in already;
+ * approving would send a second invitation). The pending count drops by the number hidden.
+ */
 export const loadWaitlist: SectionLoader<"waitlist"> = async ({ now }) => {
   const result = await cache()();
-  return { ...result, updatedAt: now };
+  if (result.state !== "ok") return { ...result, updatedAt: now };
+  const granted = grantedKeys();
+  if (granted.size === 0) return { ...result, updatedAt: now };
+  const entries = result.data.entries.filter((entry) => {
+    const key = emailKey(entry.email);
+    return key === null || !granted.has(key);
+  });
+  const hidden = result.data.entries.length - entries.length;
+  return { ...result, data: { ...result.data, entries, pending: Math.max(entries.length, result.data.pending - hidden) }, updatedAt: now };
 };

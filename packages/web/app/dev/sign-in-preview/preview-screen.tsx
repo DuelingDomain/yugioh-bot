@@ -44,7 +44,7 @@ export function PreviewScreen({ step, resendAvailableAt }: { step: PreviewStep; 
     case "invite":
       return <CreateAccountStep lockedEmail={EMAIL} errors={{}} pending={false} onSubmit={noop} onDiscord={noop} captchaPlaceholder />;
     case "invite-sso":
-      return <CreateAccountStep lockedEmail={EMAIL} errors={{}} pending={false} onSubmit={noop} onDiscord={noop} passwordOptional captchaPlaceholder />;
+      return <CreateAccountStep lockedEmail={EMAIL} errors={{}} pending={false} onSubmit={noop} onDiscord={noop} passwordOptional hideHeardFrom captchaPlaceholder />;
     case "err-username":
       return (
         <CreateAccountStep

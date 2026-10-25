@@ -10,6 +10,15 @@
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .02); transition: border-color .2s var(--ease), box-shadow .25s var(--ease);
 }
 .field input::placeholder { color: #7F8AAB; opacity: 1; }
+.field select {
+  width: 100%; height: 52px; padding: 0 44px 0 14px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--field); color: var(--text); font-size: 17px; outline: 0; appearance: none; -webkit-appearance: none;
+  color-scheme: dark; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .02);
+  transition: border-color .2s var(--ease), box-shadow .25s var(--ease);
+}
+.field select:focus { border-color: rgba(167, 139, 250, .75); box-shadow: 0 0 0 4px rgba(124, 58, 237, .2); }
+.select-chev { position: absolute; right: 14px; top: 0; height: 52px; width: 18px; display: grid; place-items: center; color: var(--text-3); pointer-events: none; }
+.opt { font-weight: 400; color: var(--text-3); letter-spacing: 0; }
 .field input:focus { border-color: rgba(167, 139, 250, .75); box-shadow: 0 0 0 4px rgba(124, 58, 237, .2); }
 .input-wrap.has-btn input { padding-right: 76px; }
 .reveal { position: absolute; right: 5px; top: 5px; height: 42px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; cursor: pointer; font-size: 13px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--gold-hi); }

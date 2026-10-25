@@ -72,6 +72,7 @@ Playwright `webServer` runs `stack/start.mjs`. It starts four processes on non-l
 - The web build is `next build` with the E2E ws URL, `E2E_AUTH=1`, a throwaway auth secret and the format-valid dummy Clerk publishable key `pk_test_Y2xlcmsuZXhhbXBsZS5jb20k`, so `packages/web/.next` is overwritten. `stack/prepare.mjs` rebuilds stale sources and outputs whose stamp does not match `{ wsUrl, e2eAuth: true, clerkPublishableKey }`. A production build or a build with another key is rebuilt.
 - Discord is not called: web and worker run with `DISCORD_BOT_ENABLED=0`. `stack/fetch-stub.mjs` is preloaded into both services and retains only the card-set and card-image stubs. Web gets `WEB_URL`, the E2E gate/secret and the dummy publishable key; no Discord login credentials are needed.
 - The stack refuses to start on a live port (3000, 3001, 3002, 3100, 3110, 4001, 4002, 4003, 4010) or on a busy port.
+- `E2E_NO_DUEL=1` (local, opt-in) starts no duel host and skips the engine data check, for specs that open no duel (admin console, creator fast-track). The default and CI run the duel host.
 - Concurrent runs: set `E2E_SLOT=N` (one digit, 0 to 9). Ports become web `3301+10N`, ws `3303+10N`, ws internal `4304+10N`, duel `4305+10N`, and the state folder `.stack-N` replaces `.stack`. Each slot needs its own build. See `stack/MANUAL.md`.
 
 ## RPS startup timing

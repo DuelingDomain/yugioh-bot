@@ -1,7 +1,44 @@
 import { log } from "@yugidraft/shared/observability";
 import { createClerkBackend, ClerkBackendError, profileFromClerkUser } from "@yugidraft/shared/clerk";
 import { createUserService, type LinkOutcome } from "@yugidraft/shared/services";
+import { createCreatorAccessService } from "@yugidraft/shared/services/creator-access";
+import { normalizeEmailDomain } from "@yugidraft/shared/util/email-domain";
+import { parseHeardFrom } from "@yugidraft/shared/util/heard-from";
+import type { ClerkUserJson } from "@yugidraft/shared/clerk";
 import { getDb } from "./db";
+
+/**
+ * Sign-up source, after the profile is saved. Local SQLite writes only; a failure is logged with a fixed line (no
+ * email) and never fails the sign-in.
+ * 1. Heard-from: the sign-up answer (unsafe_metadata, untrusted survey data, checked against the list), else the
+ *    waitlist answer for the same email. Written only while users.heard_from is empty.
+ * 2. Creator attribution: binds the creator grant (public_metadata.ddGrant, else the email key) to this user.
+ *    It runs here, not in the first-sign-in transaction, because only this code has the Clerk user JSON.
+ */
+function recordSignUpSource(json: ClerkUserJson, userId: number, email: string | null): void {
+  const db = getDb();
+  try {
+    const answer = parseHeardFrom(json.unsafe_metadata?.heardFrom, json.unsafe_metadata?.heardFromDetail);
+    if (answer) {
+      db.prepare("update users set heard_from=?, heard_from_detail=? where id=? and heard_from is null").run(answer.heardFrom, answer.detail, userId);
+    } else if (email) {
+      const lower = email.trim().toLowerCase();
+      const row = db.prepare("select heard_from, heard_from_detail from waitlist_signups where email in (?, ?) and heard_from is not null limit 1")
+        .get(lower, normalizeEmailDomain(lower) ?? lower) as { heard_from: string; heard_from_detail: string | null } | undefined;
+      const copied = row ? parseHeardFrom(row.heard_from, row.heard_from_detail) : null;
+      if (copied) db.prepare("update users set heard_from=?, heard_from_detail=? where id=? and heard_from is null").run(copied.heardFrom, copied.detail, userId);
+    }
+  } catch {
+    log("warn", "[clerk-sync] Heard-from update failed");
+  }
+  try {
+    const raw = json.public_metadata?.ddGrant;
+    const grantId = typeof raw === "number" && Number.isSafeInteger(raw) && raw > 0 ? raw : null;
+    createCreatorAccessService(db).attributeSignUp({ userId, email, grantId });
+  } catch {
+    log("warn", "[clerk-sync] Creator attribution failed");
+  }
+}
 const inFlight = new Map<string, Promise<LinkOutcome>>();
 export async function settleClerkSync(clerkUserId: string): Promise<void> {
   try { await inFlight.get(clerkUserId); } catch {}
@@ -23,6 +60,7 @@ export function syncClerkUser(clerkUserId: string): Promise<LinkOutcome> {
     // Bootstrap metadata preserves a current link; it cannot restore a removed one.
     if (!hasDiscord && current && current.discordUserId !== profile.discordUserId) profile.discordUserId = null;
     const outcome = users.resolveClerkProfile(profile);
+    recordSignUpSource(json, outcome.user.id, outcome.user.email);
     // Recovery metadata bootstraps the link until Clerk owns it; then unlinking
     // the external account must also revoke application recovery.
     const recoveredDiscord = json.private_metadata?.existingPlayerDiscordId;

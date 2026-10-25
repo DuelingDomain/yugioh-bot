@@ -70,7 +70,9 @@ async function prepare() {
   if (!isBuildFresh(sharedDist, serviceInputs("shared"))) throw new Error('packages/shared/dist is missing or stale. Run "npm run build --workspace=packages/shared" once before starting parallel slots.');
   console.log("[e2e:prepare] shared build is up to date");
 
-  for (const [name, entry] of [["ws", "server.js"], ["duel-server", "server.js"], ["worker", "index.js"]]) {
+  // E2E_NO_DUEL=1: the stack starts no duel host (see start.mjs), so its build is not checked.
+  const services = [["ws", "server.js"], ["duel-server", "server.js"], ["worker", "index.js"]].filter(([name]) => name !== "duel-server" || process.env.E2E_NO_DUEL !== "1");
+  for (const [name, entry] of services) {
     const fresh = isBuildFresh(at(`packages/${name}/dist/${entry}`), [...serviceInputs(name), at("packages/shared/dist")]);
     if (e2eSlot !== undefined && !fresh) {
       throw new Error(`packages/${name}/dist is stale. Build it once before starting parallel slots.`);

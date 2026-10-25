@@ -10,6 +10,7 @@ import { OverviewView } from "./views/overview";
 import { PeopleView } from "./views/people";
 import { DuelsView } from "./views/duels";
 import { WaitlistView } from "./views/waitlist";
+import { CreatorsView } from "./views/creators";
 import { HealthView } from "./views/health";
 import { InsightsView } from "./views/insights";
 import styles from "./admin-console.module.css";
@@ -29,7 +30,8 @@ function useSnapshots(): Snapshots {
   const errors = useAdminSection("errors");
   const stats = useAdminSection("stats");
   const usage = useAdminSection("usage");
-  return { online, live, today, waitlist, system, errors, stats, usage };
+  const creators = useAdminSection("creators");
+  return { online, live, today, waitlist, system, errors, stats, usage, creators };
 }
 
 /** Badge text per view for the left menu and the phone tab bar. */
@@ -38,12 +40,14 @@ function useBadges(s: Snapshots) {
   const live = liveCounts(okData(s.live));
   const waitlist = okData(s.waitlist);
   const errors = okData(s.errors);
+  const creators = okData(s.creators);
   const health = serviceSummary(okData(s.system));
   const healthTone: Tone = health.failing ? "crit" : health.problems > 0 ? "warn" : "good";
   const rail: Partial<Record<View, ReactNode>> = {
     people: online ? <span className={styles.count}><span className={styles.dot} data-tone="good" />{online.count}</span> : null,
     duels: s.live.result?.state === "ok" ? <span className={styles.count}>{live.drafts.length ? `${live.duels.length} + ${live.drafts.length}` : live.duels.length}</span> : null,
     waitlist: waitlist && waitlist.pending > 0 ? <span className={`${styles.count} ${styles.pill}`}>{waitlist.pending}</span> : null,
+    creators: creators && creators.signUpsToday > 0 ? <span className={styles.count} title="Creator sign-ups today">+{creators.signUpsToday}</span> : null,
     health: s.system.result?.state === "ok" ? <span className={styles.count}><span className={styles.dot} data-tone={healthTone} />{health.problems > 0 ? health.problems : null}</span> : null,
     insights: errors && errors.last24h > 0 ? <span className={`${styles.count} ${styles.countCrit}`}>{errors.last24h.toLocaleString("en-US")} err</span> : null,
   };
@@ -74,7 +78,7 @@ function LiveChip({ s, label }: { s: Snapshots; label?: boolean }) {
   );
 }
 
-/** The /admin console: a left menu with six views, one large view at a time. */
+/** The /admin console: a left menu with seven views, one large view at a time. */
 export function AdminConsole() {
   const s = useSnapshots();
   const [view, setView] = useState<View>("overview");
@@ -133,14 +137,14 @@ export function AdminConsole() {
   }, []);
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
-  // Keys: 1-6 switch views, "/" filters people, Escape closes the phone sheet.
+  // Keys: 1-7 switch views, "/" filters people, Escape closes the phone sheet.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const typing = target?.closest("input, textarea, select, [contenteditable='true']");
       if (typing) { if (e.key === "Escape") (target as HTMLElement).blur(); return; }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key >= "1" && e.key <= "6") { go(VIEWS[Number(e.key) - 1]); return; }
+      if (e.key >= "1" && e.key <= String(VIEWS.length)) { go(VIEWS[Number(e.key) - 1]); return; }
       if (e.key === "/") {
         e.preventDefault();
         if (view === "people") filterRef.current?.focus();
@@ -178,7 +182,7 @@ export function AdminConsole() {
             </button>
           ))}
         </nav>
-        <p className={styles.railHint}>Press <kbd className={styles.kbd}>1</kbd>–<kbd className={styles.kbd}>6</kbd> to switch views</p>
+        <p className={styles.railHint}>Press <kbd className={styles.kbd}>1</kbd>–<kbd className={styles.kbd}>{VIEWS.length}</kbd> to switch views</p>
         <div className={styles.railFoot}>
           <button type="button" className={styles.sys} onClick={() => go("health")} title="Open Health">
             <StatusIcon tone={s.system.result?.state === "ok" ? badges.healthTone : "quiet"} />
@@ -215,13 +219,14 @@ export function AdminConsole() {
               : view === "people" ? <PeopleView s={s} actions={actions} selected={person} sheetOpen={sheetOpen} onCloseSheet={() => setSheetOpen(false)} filterRef={filterRef} />
               : view === "duels" ? <DuelsView s={s} actions={actions} />
               : view === "waitlist" ? <WaitlistView s={s} actions={actions} />
+              : view === "creators" ? <CreatorsView s={s} actions={actions} />
               : view === "health" ? <HealthView s={s} />
               : <InsightsView s={s} />}
           </section>
         </div>
       </main>
 
-      <nav className={styles.tabbar} aria-label="Admin views">
+      <nav className={`${styles.tabbar} ${styles.tabbar7}`} aria-label="Admin views">
         {VIEWS.map((v) => (
           <button key={v} type="button" className={styles.tab} aria-current={view === v ? "page" : undefined} onClick={() => go(v)}>
             <Icon name={VIEW_META[v].icon} />{VIEW_META[v].label}{badges.tabs[v] ?? null}

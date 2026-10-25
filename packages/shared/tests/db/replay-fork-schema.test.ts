@@ -88,13 +88,14 @@ describe("replay fork schema", () => {
     migrate(copied);
     expect(copied.serialize()).toEqual(once);
     const after = snapshot(copied);
-    after.users = (after.users as Array<Record<string, unknown>>).map(({ last_seen_at, last_route, online_since, image_url, ...row }) => {
+    after.users = (after.users as Array<Record<string, unknown>>).map(({ last_seen_at, last_route, online_since, image_url, heard_from, heard_from_detail, creator_id, ...row }) => {
       // Presence is new and unset for every pre-change account. Keep comparing
       // all original identity values below, just as for new duel columns.
       expect(last_seen_at).toBeNull();
       expect(last_route).toBeNull();
       expect(online_since).toBeNull();
       expect(image_url).toBeNull();
+      expect([heard_from, heard_from_detail, creator_id]).toEqual([null, null, null]);
       return row;
     });
     after.duels = (after.duels as Array<Record<string, unknown>>).map(({ kind, started_at, turn_count, snapshot_compacted_at, ...row }) => {

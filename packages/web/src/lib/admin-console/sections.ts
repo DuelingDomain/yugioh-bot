@@ -10,4 +10,5 @@ export const POLL_MS: Record<SectionId, number> = {
   stats: 60_000,
   errors: 60_000,
   usage: 60_000,
+  creators: 30_000,
 };

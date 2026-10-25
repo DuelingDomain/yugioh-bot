@@ -10,7 +10,7 @@ import { WaitlistView } from "../src/components/admin-console/views/waitlist";
 
 const empty = { result: null, fetchedAt: null, failure: null };
 const snapshots: Snapshots = {
-  online: empty, live: empty, today: empty, system: empty, stats: empty, errors: empty, usage: empty,
+  online: empty, live: empty, today: empty, system: empty, stats: empty, errors: empty, usage: empty, creators: empty,
   waitlist: { ...empty, result: { state: "ok", updatedAt: 1, data: { pending: 1, entries: [{ id: "wle_1", email: "new@example.test", status: "pending", createdAt: null }] } } },
 };
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });

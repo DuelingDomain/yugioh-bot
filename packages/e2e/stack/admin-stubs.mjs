@@ -26,8 +26,30 @@ function clerk(url, init) {
     entry.updated_at = Date.now();
     return json(wire(entry));
   }
+  // Creator fast-track: Clerk invitations. Calls are kept in memory only (this web process); the spec reads the DB.
+  if (pathname === "/v1/invitations" && method === "POST") {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    const invitation = { id: `inv_e2e_${invitations.length + 1}`, email_address: body.email_address, status: "pending", body };
+    invitations.push(invitation);
+    return json({ object: "invitation", id: invitation.id, email_address: invitation.email_address, status: "pending", url: "https://clerk.example.test/v1/tickets/accept?ticket=e2e" });
+  }
+  const revoke = /^\/v1\/invitations\/([^/]+)\/revoke$/.exec(pathname);
+  if (revoke && method === "POST") {
+    const invitation = invitations.find((candidate) => candidate.id === decodeURIComponent(revoke[1]));
+    if (!invitation) return json({ errors: [{ code: "resource_not_found", message: "Not found" }] }, 404);
+    invitation.status = "revoked";
+    return json({ object: "invitation", id: invitation.id, email_address: invitation.email_address, status: "revoked" });
+  }
+  // A waitlist join (for example from a closed /join page) never reaches the real Clerk. It is not added to the
+  // pending list, so the admin console counts stay the same for the other specs.
+  if (pathname === "/v1/waitlist_entries" && method === "POST") {
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    return json(wire({ id: `wle_e2e_join_${Date.now()}`, email_address: body.email_address, status: "pending", created_at: Date.now() }));
+  }
   return null;
 }
+/** Clerk invitations made by this web process, oldest first. */
+const invitations = [];
 const wire = (entry) => ({ object: "waitlist_entry", id: entry.id, email_address: entry.email_address, status: entry.status, created_at: entry.created_at, updated_at: entry.updated_at ?? entry.created_at });
 
 const now = Date.now();

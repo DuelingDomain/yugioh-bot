@@ -3,17 +3,22 @@ import type Database from "better-sqlite3";
 import { notifyJoinRequest } from "../notify/join-request.js";
 import { clearDiscordSubject } from "../discord-admin/privacy.js";
 import { normalizedNoticeEmail } from "../discord-admin/subject.js";
+import { parseHeardFrom } from "../util/heard-from.js";
 
 export interface WaitlistMeta {
   source?: string;
   userAgent?: string | null;
+  /** Untrusted "How did you hear about us?" answer; checked with parseHeardFrom. Unknown values are dropped. */
+  heardFrom?: unknown;
+  /** Optional free text; kept only with a valid heardFrom. */
+  heardFromDetail?: unknown;
 }
 
 export function createWaitlistService(db: Database.Database) {
   // One atomic insert handles concurrent writers without replacing the first signup.
   const insert = db.prepare(`
-    insert into waitlist_signups (email, created_at, source, user_agent)
-    values (?, ?, ?, ?)
+    insert into waitlist_signups (email, created_at, source, user_agent, heard_from, heard_from_detail)
+    values (?, ?, ?, ?, ?, ?)
     on conflict(email) do nothing
   `);
 
@@ -30,12 +35,15 @@ export function createWaitlistService(db: Database.Database) {
     join(email: string, meta: WaitlistMeta = {}): { status: "joined" | "exists" } {
       const normalizedEmail = normalizedNoticeEmail(email);
       const createdAt = new Date().toISOString();
+      const heard = parseHeardFrom(meta.heardFrom, meta.heardFromDetail);
       const result = db.transaction(() => {
         const result = insert.run(
           normalizedEmail,
           createdAt,
           meta.source?.trim().slice(0, 80) || "form",
           meta.userAgent?.slice(0, 300) ?? null,
+          heard?.heardFrom ?? null,
+          heard?.detail ?? null,
         );
         if (result.changes !== 0) recordProductEvent(db, "waitlist_joined", null);
         return result;
