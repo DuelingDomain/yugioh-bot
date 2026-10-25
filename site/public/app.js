@@ -52,7 +52,7 @@
   $$('[data-claim]').forEach(function (el) {
     claims.push({
       key: el.getAttribute('data-claim'), el: el, form: $('form', el), input: $('input[name="email"]', el),
-      source: $('input[name="source"]', el), hp: $('input[name="company"]', el), msg: $('[data-msg]', el),
+      source: $('input[name="source"]', el), hp: $('input[name="company"]', el), heard: $('select[name="heardFrom"]', el), msg: $('[data-msg]', el),
       btn: $('.btn', el), btnLabel: $('.btn-label', el), live: $('[data-live]', el),
       doneT: $('[data-done-t]', el), doneS: $('[data-done-s]', el)
     });
@@ -83,6 +83,13 @@
   }
   function setStatus(s, message) { state.status = s; if (s !== 'invalid') state.error = message || ''; render(); }
 
+  // "How did you hear about us?" is optional: send it only when an answer was picked.
+  function payload(c, email) {
+    var body = { email: email, source: c.source.value === 'footer' ? 'footer' : 'hero', company: c.hp.value || '' };
+    if (c.heard && c.heard.value) body.heardFrom = c.heard.value;
+    return body;
+  }
+
   function post(c, email) {
     var ticket = ++inflight;
     var ctl = ('AbortController' in window) ? new AbortController() : null;
@@ -91,7 +98,7 @@
     fetch(API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ email: email, source: c.source.value === 'footer' ? 'footer' : 'hero', company: c.hp.value || '' }),
+      body: JSON.stringify(payload(c, email)),
       signal: ctl ? ctl.signal : undefined
     }).then(function (res) {
       return res.json().catch(function () { return null; }).then(function (body) { return { status: res.status, body: body }; });
@@ -116,6 +123,9 @@
       claims.forEach(function (o) { if (o !== c) o.input.value = state.value; });
       if (state.status === 'limited' || state.status === 'error' || (state.status === 'invalid' && validEmail(state.value.trim()))) { state.status = 'idle'; state.error = ''; }
       render();
+    });
+    if (c.heard) c.heard.addEventListener('change', function () {
+      claims.forEach(function (o) { if (o !== c && o.heard) o.heard.value = c.heard.value; });
     });
     c.form.addEventListener('submit', function (e) {
       e.preventDefault();

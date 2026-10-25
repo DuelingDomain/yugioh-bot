@@ -3,16 +3,19 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { useSignIn, useSignUp } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
+import { parseHeardFrom } from "@yugidraft/shared/util/heard-from";
 import { afterPaint, initialAuthState, reduceAuth, signUpRequirementsEvent, successHoldMs, type AuthFlowState } from "../lib/auth-flow";
 import { isWaitlistRefusal, mapClerkError } from "../lib/auth-errors";
 import { hardNavigate } from "../components/auth/navigate";
 import { DEFAULT_RETURN, safeReturnPath } from "../lib/auth-return";
 import { useRecoveryReload } from "./use-recovery-reload";
 
-type AccountInput = { username: string; password: string; legalAccepted: boolean };
+/** Optional survey answer from the create-account card ("How did you hear about us?"). */
+type HeardFromInput = { heardFrom?: string; heardFromDetail?: string };
+type AccountInput = { username: string; password: string; legalAccepted: boolean } & HeardFromInput;
 type Actions = {
   submitAccount(input: AccountInput): Promise<void>;
-  continueWithDiscord(input: { username: string; legalAccepted: boolean }): Promise<void>;
+  continueWithDiscord(input: { username: string; legalAccepted: boolean } & HeardFromInput): Promise<void>;
   submitCode(code: string): Promise<void>; resendCode(): Promise<void>;
 };
 type ResumeKind = "sign-in" | "sign-up" | null;
@@ -165,10 +168,13 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
     if (!input.username.trim()) { dispatch({ type: "error", view: { kind: "field", field: "username", message: "Enter a username." } }); return false; }
     return true;
   };
-  const updateAccount = async (input: { username: string; legalAccepted: boolean }) => {
+  const updateAccount = async (input: { username: string; legalAccepted: boolean } & HeardFromInput) => {
     const signUp = latest.current.signUpSignal.signUp!;
     if (!lockedEmail.current || signUp.emailAddress !== lockedEmail.current) { dispatch({ type: "error", view: { kind: "step", step: "err-signup" } }); return false; }
-    return validAccount(input) && await call(() => signUp.update({ username: input.username, legalAccepted: input.legalAccepted }), "signup");
+    // Survey data only: sent as unsafe metadata, and only when the person picked an answer (the server checks it again).
+    const heard = parseHeardFrom(input.heardFrom, input.heardFromDetail);
+    const survey = heard ? { unsafeMetadata: { heardFrom: heard.heardFrom, ...(heard.detail ? { heardFromDetail: heard.detail } : {}) } } : {};
+    return validAccount(input) && await call(() => signUp.update({ username: input.username, legalAccepted: input.legalAccepted, ...survey }), "signup");
   };
 
   return {
