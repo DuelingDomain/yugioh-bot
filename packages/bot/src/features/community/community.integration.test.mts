@@ -870,7 +870,9 @@ it("registers in the bot guild and keeps site reports and duel labels in the dat
   const { stub, db, bot } = await fixture(true);
   await deployCommands(bot.context.config, [community]);
   expect(stub.requests.find(r => r.method === "PUT")!.path).toBe(`/applications/${app}/guilds/${guild}/commands`);
-  const now = Date.now(), today = new Date(now).toISOString().slice(0,10), yesterday = new Date(now-86400000).toISOString().slice(0,10);
+  // The fixture dates a duel 10 minutes back; keep it on the same UTC day just after midnight.
+  const real = Date.now(), now = real % 86_400_000 < 900_000 ? real - 1_200_000 : real;
+  const today = new Date(now).toISOString().slice(0,10), yesterday = new Date(now-86400000).toISOString().slice(0,10);
   db.prepare("update users set created_at=? where id in (1,2)").run(`${today} 00:00:00`);
   db.prepare("update users set created_at=? where id=3").run(`${yesterday}T00:00:00.000Z`);
   db.prepare("update users set last_seen_at=?,last_route='/decks/new' where id=1").run(now-120000);
