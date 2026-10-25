@@ -56,10 +56,10 @@ it("creates the target on a fresh DB and migrates twice", () => {
 it("preserves IDs, all five owners, other guilds, decks and snapshots", () => {
   const db = legacy(); mixed(db);
   const before = names.map(name => count(db, name));
-  const waitlist = db.prepare("select * from waitlist_signups").all();
+  const waitlist = db.prepare("select id,email,created_at,source,user_agent from waitlist_signups").all();
   migrate(db);
   expect(names.map(name => count(db, name))).toEqual(before);
-  expect(db.prepare("select * from waitlist_signups").all()).toEqual(waitlist);
+  expect(db.prepare("select id,email,created_at,source,user_agent from waitlist_signups").all()).toEqual(waitlist);
   const human = db.prepare("select * from users where discord_user_id='900000000000000101'").get() as { id: number; display_name: string; email: null };
   expect(human).toMatchObject({ display_name: "First", email: null });
   expect(db.prepare("select id,user_id from players where id in (41,42) order by id").all()).toEqual([{ id: 41, user_id: human.id }, { id: 42, user_id: human.id }]);
