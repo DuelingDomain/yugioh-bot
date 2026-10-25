@@ -2,9 +2,10 @@
 
 import { useState, type ReactNode } from "react";
 import { duration, plural } from "@/lib/admin-console/format";
+import { ADMIN_TIME_ZONE_LABEL, formatClock } from "@/lib/admin-console/time";
 import type { LiveDuel, LiveSeat, SeatOutcome, TodayData, TodayDuel, TodayResult, UserKey } from "@/lib/admin-console/types";
 import type { ConsoleActions } from "../admin-console";
-import { TODAY_ANCHOR, liveCounts, okData, tzLabel, type Snapshots } from "../model";
+import { TODAY_ANCHOR, liveCounts, okData, type Snapshots } from "../model";
 import { Avatar, Notice, SectionHead, Since, Tag, WatchLink, useNow } from "../parts";
 import styles from "../admin-console.module.css";
 
@@ -34,9 +35,6 @@ function turnText(duel: LiveDuel): { big: string; small: string } {
   return { big: duel.turn != null ? `T${duel.turn}` : "T–", small: duel.turn != null ? "Turn" : "Starting" };
 }
 
-/** "14:05" in the browser's time zone. */
-const clock = (at: number) => new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
-
 function resultText(duel: TodayDuel): string {
   if (duel.result !== "won") return RESULT_WORD[duel.result];
   const winners = duel.seats.filter((seat) => seat.outcome === "won").map((seat) => seat.name);
@@ -59,7 +57,7 @@ function TodayRow({ duel, onOpen, now }: { duel: TodayDuel; onOpen: (userId: Use
         <b title={resultText(duel)}>{duel.result === "live" ? <span className={styles.dot} data-tone="good" /> : null}{resultText(duel)}</b>
         <small>{facts}</small>
       </div>
-      <div className={`${styles.cAt} ${styles.num}`} role="cell"><time dateTime={new Date(duel.startedAt).toISOString()}>{clock(duel.startedAt)}</time></div>
+      <div className={`${styles.cAt} ${styles.num}`} role="cell"><time dateTime={new Date(duel.startedAt).toISOString()}>{formatClock(duel.startedAt)}</time></div>
       <div className={styles.cAct} role="cell">
         {running ? <WatchLink href={duel.href} label="Watch" /> : <WatchLink href={duel.href} label="Replay" icon="play" />}
       </div>
@@ -67,18 +65,17 @@ function TodayRow({ duel, onOpen, now }: { duel: TodayDuel; onOpen: (userId: Use
   );
 }
 
-/** Every duel that started today (owner's local day), newest first, with the result per player and a replay. */
+/** Every duel that started today (Eastern time, ET), newest first, with the result per player and a replay. */
 function TodaySection({ today, failed, actions, flush }: { today: TodayData | null; failed: string | null; actions: ConsoleActions; flush?: boolean }) {
   const [filter, setFilter] = useState<TodayFilter>("all");
   const now = useNow();
   const duels = (today?.duels ?? []).filter((d) => filter === "all" ? true
     : filter === "oneVsOne" ? d.format === "1v1" : filter === "multi" ? d.format !== "1v1" : d.ranked);
   const total = today ? today.counts[filter] : 0;
-  const zone = today ? tzLabel(today.tzOffsetMinutes) : null;
   return (
     <div id={TODAY_ANCHOR} className={styles.anchor}>
       <SectionHead title="Today" n={today ? plural(today.counts.all, "duel", "duels") : undefined} flush={flush}
-        aside={<span className={styles.aside}>{zone ? `Since 00:00 ${zone}` : null}</span>} />
+        aside={<span className={styles.aside}>{today ? `Since 00:00 ${ADMIN_TIME_ZONE_LABEL}` : null}</span>} />
       {failed ? <Notice tone="warn" title="The duels of today are not available">{failed}</Notice> : (
         <>
           <div className={`${styles.toolbar} ${styles.toolbarTight}`}>

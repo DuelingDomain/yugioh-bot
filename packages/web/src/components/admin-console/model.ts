@@ -1,4 +1,5 @@
 import { maskEmail, plural } from "@/lib/admin-console/format";
+import { formatWeekdayDate } from "@/lib/admin-console/time";
 import type {
   ErrorIssue, LiveData, OnlineData, OnlinePerson, SectionDataMap, SectionId, SectionResult, ServiceHealth, StatsData, SystemData, WaitlistData,
 } from "@/lib/admin-console/types";
@@ -14,15 +15,6 @@ export const VIEW_META: Record<View, { label: string; icon: IconName }> = {
 export const isView = (value: string): value is View => (VIEWS as readonly string[]).includes(value);
 /** Link target of the Today list in the Duels view (/admin#duels-today). */
 export const TODAY_ANCHOR = "duels-today";
-
-/** "UTC", "UTC−4", "UTC+5:30" from minutes east of UTC. */
-export function tzLabel(minutes: number): string {
-  if (!minutes) return "UTC";
-  const abs = Math.abs(minutes);
-  const h = Math.floor(abs / 60);
-  const m = abs % 60;
-  return `UTC${minutes < 0 ? "\u2212" : "+"}${h}${m ? `:${String(m).padStart(2, "0")}` : ""}`;
-}
 
 export type Snapshots = { [K in SectionId]: SectionSnapshot<K> };
 
@@ -140,7 +132,7 @@ export function weekAverage(stats: StatsData, key: keyof StatsData["series"]): n
   return before.length ? before.reduce((a, b) => a + b, 0) / before.length : 0;
 }
 
-/** "13 Oct" from "2026-10-13". */
+/** "13 Oct" from the Eastern day key "2026-10-13". The key is a plain calendar date, so it is read as UTC midnight to keep the day from shifting. */
 export function shortDay(day: string): string {
   const date = new Date(`${day}T00:00:00Z`);
   return Number.isFinite(date.getTime()) ? date.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : day;
@@ -154,7 +146,7 @@ export function headerFor(view: View, s: Snapshots, now: number): HeaderText {
   const waitlist = okData(s.waitlist) as WaitlistData | null;
   const system = okData(s.system);
   const health = serviceSummary(system);
-  const day = new Date(now).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  const day = formatWeekdayDate(now);
   const count = online?.count ?? 0;
   switch (view) {
     case "overview": {

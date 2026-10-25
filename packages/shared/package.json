@@ -59,6 +59,11 @@
       "source": "./src/util/email-key.ts",
       "default": "./dist/util/email-key.js"
     },
+    "./util/eastern-time": {
+      "types": "./dist/util/eastern-time.d.ts",
+      "source": "./src/util/eastern-time.ts",
+      "default": "./dist/util/eastern-time.js"
+    },
     "./util/heard-from": {
       "types": "./dist/util/heard-from.d.ts",
       "source": "./src/util/heard-from.ts",

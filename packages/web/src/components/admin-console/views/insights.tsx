@@ -62,7 +62,7 @@ export function InsightsView({ s }: { s: Snapshots }) {
     <>
       <div className={styles.rangeRow}>
         <span className={styles.rangeLbl}>Range · 7 days</span>
-        <p>Days are UTC. Errors use the last 24 hours.</p>
+        <p>Days are Eastern time (ET). Errors use the last 24 hours.</p>
       </div>
       {stats ? <Trends stats={stats} /> : <Unavailable result={s.stats.result} what="Stats" />}
 

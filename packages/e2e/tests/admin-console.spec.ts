@@ -113,14 +113,12 @@ test("People lists a signed-in player with the page they are on", async ({ brows
   } finally { await carol.close(); await alice.close(); }
 });
 
+const EASTERN = "America/New_York";
 /**
- * A browser time zone where it is about noon now, so every floor duel (started in the last few hours) is "today"
- * whatever the clock of the machine says. Etc/GMT-5 is UTC+5.
+ * "Today" is the Eastern day (ET) and the server picks it, so the browser zone does not matter. The floor duels start up
+ * to about 160 minutes before now; in the first 3 hours of an Eastern day some of them still belong to yesterday.
  */
-function noonZone(): string {
-  const offset = 12 - new Date().getUTCHours();
-  return offset === 0 ? "Etc/UTC" : `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
-}
+const easternHour = () => Number(new Intl.DateTimeFormat("en-US", { timeZone: EASTERN, hour: "numeric", hourCycle: "h23" }).format(new Date()));
 
 test("Duels: live tables with seats and turns, the draft with progress, and a seat opens the person", async ({ browser }) => {
   const context = await browser.newContext({ storageState: authFile("p1") });
@@ -144,8 +142,10 @@ test("Duels: live tables with seats and turns, the draft with progress, and a se
   } finally { await context.close(); }
 });
 
-test("Duels today: every duel of the local day with result per player, replay or watch, filters, and the Overview link", async ({ browser }) => {
-  const context = await browser.newContext({ storageState: authFile("p1"), timezoneId: noonZone() });
+test("Duels today: every duel of the Eastern day with result per player, replay or watch, filters, and the Overview link", async ({ browser }) => {
+  test.skip(easternHour() < 3, "the floor duels started up to 160 minutes ago: before 03:00 ET some are on yesterday's Eastern day");
+  // A browser far from New York: the page must still show Eastern time.
+  const context = await browser.newContext({ storageState: authFile("p1"), timezoneId: "Pacific/Auckland" });
   try {
     const page = await context.newPage();
     await page.goto("/admin");
@@ -154,7 +154,7 @@ test("Duels today: every duel of the local day with result per player, replay or
     await expect(page).toHaveURL(/#duels-today$/);
     const list = view(page, "Duels").getByRole("table", { name: "Duels today" });
     await expect(list).toBeInViewport({ ratio: 0.05 });
-    await expect(view(page, "Duels")).toContainText(/Since 00:00 UTC[+\u2212]?\d*/);
+    await expect(view(page, "Duels")).toContainText("Since 00:00 ET");
     const row = (slug: string) => list.getByRole("row").filter({ has: page.locator(`a[href^="/duels/${slug}"], a[href="/admin/watch/duel/${slug}"]`) });
 
     // Tag: partners win together.
@@ -164,6 +164,11 @@ test("Duels today: every duel of the local day with result per player, replay or
     await expect(tag.getByRole("button", { name: /ruby\.lynx/ })).toContainText("Won");
     await expect(tag.getByRole("button", { name: /kaibaCorp/ })).toContainText("Lost");
     await expect(tag).toContainText("17 turns");
+    // The start time is the Eastern clock, not the browser clock (Auckland here).
+    const { data } = await (await context.request.get("/api/admin/console/today")).json();
+    const startedAt = data.duels.find((d: { slug: string }) => d.slug === FLOOR.tag).startedAt as number;
+    expect(data.timezone).toBe(EASTERN);
+    await expect(tag).toContainText(new Intl.DateTimeFormat("en-GB", { timeZone: EASTERN, hour: "2-digit", minute: "2-digit", hour12: false }).format(startedAt));
     await expect(tag.getByRole("link", { name: "Replay" })).toHaveAttribute("href", `/duels/${FLOOR.tag}/replay`);
     await expect(row("e2e-adm-end-1")).toContainText("mai_v won");
     await expect(row(FLOOR.cut)).toContainText("Interrupted");
@@ -223,7 +228,7 @@ test("every view fits 1920, 2560, 1366 and 390 wide: menu, icon rail or phone ta
   if (shots) mkdirSync(shots, { recursive: true });
   for (const size of SIZES) {
     const phone = size.width <= 760;
-    const context = await browser.newContext({ storageState: authFile("p1"), viewport: { width: size.width, height: size.height }, isMobile: phone, hasTouch: phone, deviceScaleFactor: phone ? 2 : 1, timezoneId: noonZone() });
+    const context = await browser.newContext({ storageState: authFile("p1"), viewport: { width: size.width, height: size.height }, isMobile: phone, hasTouch: phone, deviceScaleFactor: phone ? 2 : 1 });
     try {
       const page = await context.newPage();
       touchAdminFloor();

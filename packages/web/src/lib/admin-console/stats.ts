@@ -3,16 +3,15 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { dbTimeMs } from "./live";
 import { failed, notConfigured, ok, type SectionLoader } from "./section";
+import { ADMIN_TIME_ZONE, easternDayKey, easternDayKeys, easternMidnight } from "./time";
 import { STAT_KEYS, type StatKey, type StatsData } from "./types";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const DAYS = 7;
 
-const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-const dayOf = (text: string | null) => { const ms = dbTimeMs(text); return ms === null ? null : utcDay(ms); };
+const dayOf = (text: string | null) => { const ms = dbTimeMs(text); return ms === null ? null : easternDayKey(ms); };
 
 /**
- * Seven UTC days ending today (and the seven before, for the week-on-week change), counted from the shared SQLite file. Every query is bounded by the oldest day:
+ * Seven Eastern (America/New_York) days ending today (and the seven before, for the week-on-week change), counted from the shared SQLite file. Every query is bounded by the oldest day:
  *  - sign-ups: users.first_sign_in_at, the epoch ms of a person's first web sign-in. users.created_at is not used: it also
  *    covers Discord-only rows and test players that never signed in. A small, narrow table, scanned once per poll; no index added.
  *  - duels: the existing partial index duels_play_history_idx, (guild_id, julianday(coalesce(ended_at, created_at))) where kind = 'play'.
@@ -22,7 +21,7 @@ const dayOf = (text: string | null) => { const ms = dbTimeMs(text); return ms ==
  *    60-second poll, so none was added.
  *  - presence: users_last_seen_idx.
  *
- * Active users = distinct users who, on that UTC day, were seated in a duel that started, took part in a draft
+ * Active users = distinct users who, on that Eastern day, were seated in a duel that started, took part in a draft
  * that started, or whose latest visit (users.last_seen_at) fell on that day. The database keeps only the LATEST
  * visit per user, so a past day counts a returning visitor only through their duel or draft play. Today is exact.
  */
@@ -36,13 +35,14 @@ export const loadStats: SectionLoader<"stats"> = async ({ now }) => {
   }
 };
 
-/** Counts over the last 14 UTC days: the 7 shown, and the 7 before them for "vs last week". */
+/** Counts over the last 14 Eastern days: the 7 shown, and the 7 before them for "vs last week". */
 const SPAN = DAYS * 2;
 
 export function computeStats(db: Database.Database, guild: string, now: number): StatsData {
-  const days = Array.from({ length: SPAN }, (_, i) => utcDay(now - (SPAN - 1 - i) * DAY_MS));
-  const from = days[0];
-  const fromMs = Date.parse(`${from}T00:00:00.000Z`);
+  const days = easternDayKeys(now, SPAN);
+  const fromMs = easternMidnight(days[0]);
+  // The UTC date of that midnight: never later than a row inside the window, and valid for text timestamps of both shapes.
+  const from = new Date(fromMs).toISOString().slice(0, 10);
   const index = new Map(days.map((day, i) => [day, i]));
   const series = Object.fromEntries(STAT_KEYS.map((key) => [key, days.map(() => 0)])) as Record<StatKey, number[]>;
   const bump = (key: StatKey, day: string | null) => {
@@ -56,7 +56,7 @@ export function computeStats(db: Database.Database, guild: string, now: number):
   };
 
   for (const row of db.prepare("select first_sign_in_at from users where first_sign_in_at >= ?").all(fromMs) as { first_sign_in_at: number }[]) {
-    bump("signups", utcDay(row.first_sign_in_at));
+    bump("signups", easternDayKey(row.first_sign_in_at));
   }
 
   const duels = db.prepare(`
@@ -98,7 +98,7 @@ export function computeStats(db: Database.Database, guild: string, now: number):
   }
 
   for (const row of db.prepare("select id, last_seen_at from users where last_seen_at >= ?").all(fromMs) as { id: number; last_seen_at: number }[]) {
-    mark(utcDay(row.last_seen_at), row.id);
+    mark(easternDayKey(row.last_seen_at), row.id);
   }
   series.activeUsers = active.map((set) => set.size);
 
@@ -117,5 +117,5 @@ export function computeStats(db: Database.Database, guild: string, now: number):
   const distinct = <T,>(sets: Set<T>[]) => new Set(sets.flatMap((set) => [...set])).size;
   last7Days.activeUsers = distinct(active.slice(DAYS));
   previous7Days.activeUsers = distinct(active.slice(0, DAYS));
-  return { timezone: "UTC", days: days.slice(DAYS), series: shown, today, last7Days, previous7Days };
+  return { timezone: ADMIN_TIME_ZONE, days: days.slice(DAYS), series: shown, today, last7Days, previous7Days };
 }
