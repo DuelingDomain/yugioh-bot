@@ -26,7 +26,7 @@ describe("waitlist", () => {
       .toEqual({ status: "joined" });
     expect(db.prepare("select * from waitlist_signups").get()).toEqual({
       id: 1, email: "player@example.com", created_at: "2026-10-05T12:00:00.000Z",
-      source: "hero", user_agent: "x".repeat(300),
+      source: "hero", user_agent: "x".repeat(300), heard_from: null, heard_from_detail: null,
     });
   });
 

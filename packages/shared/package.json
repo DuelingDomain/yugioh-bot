@@ -64,6 +64,11 @@
       "source": "./src/util/heard-from.ts",
       "default": "./dist/util/heard-from.js"
     },
+    "./util/join-email": {
+      "types": "./dist/util/join-email.d.ts",
+      "source": "./src/util/join-email.ts",
+      "default": "./dist/util/join-email.js"
+    },
     "./services/creator-access": {
       "types": "./dist/services/creator-access.d.ts",
       "source": "./src/services/creator-access.ts",

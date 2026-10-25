@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import { isReplayForkSetup } from "../duels/replay-fork.js";
 import { userHistory } from "./user-history.js";
 import { clearDiscordSubject } from "../discord-admin/privacy.js";
+import { deleteCreatorGrantsForUser } from "./creator-access.js";
 
 /** What every kept row of a deleted account says in place of the person's name. */
 export const DELETED_PLAYER_NAME = "Deleted player";
@@ -114,6 +115,10 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     note("mod_actions", discord.modActions);
     note("waitlist_signups", discord.signups + (user.email
       ? db.prepare("delete from waitlist_signups where email = ?").run(user.email).changes : 0));
+
+    // Grants hold the email and the creator credit; the anonymised path keeps the users row, so clear the creator link too.
+    note("creator_grants", deleteCreatorGrantsForUser(db, userId, user.email));
+    note("creators", db.prepare("update creators set user_id = null where user_id = ?").run(userId).changes);
 
     const owned = "(select id from players where user_id = ?)";
     if (Object.keys(userHistory(db, userId)).length === 0) {
