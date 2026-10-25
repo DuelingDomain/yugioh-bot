@@ -406,6 +406,15 @@ html:not(.js) .step .flip { transform: rotateY(180deg); }
 .step:not(:last-child)::before { content: ""; position: absolute; left: calc(100% + var(--link) / 2 - 4px); top: calc(50% - 4px); width: 8px; height: 8px; border: 1px solid var(--gold); background: var(--bg); rotate: 45deg; }
 
 /* ---------- final ---------- */
+/* ---------- faq ---------- */
+.faq { padding: 100px 0 110px; }
+.faq-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; max-width: 1080px; margin-inline: auto; }
+.faq-item { padding: 24px 26px; background: linear-gradient(160deg, rgba(30, 36, 64, .55), rgba(20, 25, 41, .55)); border: 1px solid var(--border); border-radius: 10px; }
+.faq-item h3 { font-family: var(--display); font-weight: 400; font-size: 20px; line-height: 1.2; color: var(--gold-hi); text-wrap: balance; }
+.faq-item p { margin-top: 10px; font-size: 16px; line-height: 1.6; color: #BCC4DA; text-wrap: pretty; }
+.faq-item a { color: var(--text); text-decoration-color: var(--gold-soft); text-underline-offset: 3px; overflow-wrap: anywhere; }
+.faq-item a:hover { color: var(--gold-hi); }
+
 .final { padding: 110px 0 130px; overflow: hidden; isolation: isolate; }
 .final::before { content: ""; position: absolute; inset: 0; z-index: -1; background: radial-gradient(50% 60% at 28% 50%, rgba(124, 58, 237, .22), transparent 70%), radial-gradient(40% 50% at 80% 70%, rgba(245, 158, 11, .06), transparent 70%); }
 .final-grid { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); align-items: center; gap: 56px; }
@@ -544,6 +553,10 @@ html.rm .rare-spin { transform: rotate(40deg); }
   .step:not(:last-child)::after { left: 50%; top: calc(100% + 8px); width: 1px; height: 40px; background: repeating-linear-gradient(180deg, rgba(201, 164, 92, .65) 0 5px, transparent 5px 10px); }
   .step:not(:last-child)::before { left: calc(50% - 4px); top: calc(100% + 48px); }
 
+  .faq { padding: 60px 0 70px; }
+  .faq-list { grid-template-columns: 1fr; gap: 14px; }
+  .faq-item { padding: 20px; }
+  .faq-item h3 { font-size: 18px; }
   .final { padding: 70px 0 90px; }
   .final-grid { grid-template-columns: 1fr; gap: 28px; }
   .final-stage { order: 2; min-height: 380px; }

@@ -1,8 +1,8 @@
 # Dueling Domain
 
-> Dueling Domain is a community platform for trading card game drafts, tournaments and automated online duels with friends.
+> Dueling Domain is a free, fan-made Yu-Gi-Oh! simulator in the browser for drafts, tournaments and automated online duels with friends.
 
-Run cube and booster drafts with virtual packs, a pick clock and deck building. Online card duels use the EDOPro rules engine, including Domain format with a Deck Master in its own zone.
+Run cube and booster drafts with virtual packs, a pick clock and deck building. Online duels use the EDOPro rules engine: 1v1, 2v2 Tag and 3-4 player free-for-all, Domain Format with a Deck Master in its own zone, and Genesys points decks.
 
 The closed alpha is free and invitation-only. Joining the waitlist does not guarantee access; invitations are sent in waves. The app requires sign-in and is excluded from search indexing.
 
@@ -11,6 +11,7 @@ Unofficial fan project. Not affiliated with or endorsed by Konami. Contact: supp
 ## Product and access
 
 - [Home](https://duelingdomain.com/): Product overview and closed alpha waitlist.
+- [FAQ](https://duelingdomain.com/#faq): Price, browser play, 3- and 4-player and Tag duels, rules engine, Domain Format, Genesys, cube drafts and the unofficial status.
 - [App sign-in](https://app.duelingdomain.com): Sign in to the invitation-only app. Private app content is not a public source.
 
 ## Community

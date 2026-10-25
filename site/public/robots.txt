@@ -1,4 +1,6 @@
 User-agent: *
 Allow: /
+# Waitlist form endpoint; not a page.
+Disallow: /api/
 
 Sitemap: https://duelingdomain.com/sitemap.xml

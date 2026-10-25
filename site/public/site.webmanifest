@@ -1,7 +1,7 @@
 {
   "name": "Dueling Domain",
   "short_name": "Dueling Domain",
-  "description": "Cube and booster drafts, tournaments and online card duels with friends. Closed alpha waitlist.",
+  "description": "Free fan-made Yu-Gi-Oh! simulator: cube and booster drafts, tournaments and online duels with friends. Closed alpha waitlist.",
   "lang": "en",
   "start_url": "/",
   "display": "browser",

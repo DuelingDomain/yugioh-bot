@@ -61,6 +61,8 @@ export function fakeClerk() {
       if (!entry) throw new Error("Missing waitlist entry");
       entry.status = "invited";
     },
+    async createInvitation(input) { calls.push({ method: "createInvitation", input }); return { id: `inv_${calls.length}`, email_address: input.emailAddress, status: "pending", expires_at: null }; },
+    async revokeInvitation(id) { calls.push({ method: "revokeInvitation", input: id }); },
     async rejectWaitlistEntry(id) {
       calls.push({ method: "rejectWaitlistEntry", input: id });
       const entry = entries.find(e => e.id === id);
