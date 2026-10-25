@@ -171,7 +171,8 @@ export async function publishEffectTags({ root = process.cwd(), outputDirectory 
     else gh("pr", "create", "--repo", repository, "--base", base, "--head", branch, "--title", title, "--body-file", body);
     // GITHUB_TOKEN-created PRs do not trigger push checks. Explicit dispatch is
     // replayable even when a previous PR creation or dispatch response failed.
-    gh("workflow", "run", "test.yml", "--repo", repository, "--ref", branch, "-f", "nightly=false");
+    // A push with the PR token starts the checks itself and needs no dispatch.
+    if (env.HAS_PR_TOKEN !== "true") gh("workflow", "run", "test.yml", "--repo", repository, "--ref", branch, "-f", "nightly=false");
   };
   if (exists) {
     git("fetch", "--no-tags", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`);

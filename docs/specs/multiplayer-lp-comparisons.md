@@ -2,7 +2,7 @@
 
 The source is the owner's supplied ruling for [issue #435](https://github.com/DuelingDomain/yugioh-bot/issues/435): **"Lower than ALL"**, and the **2026-10-22 follow-up**: two-branch lower/higher cards use their higher branch whenever the controller is not lower than every living opponent, except that all equal stays neutral. [ADR 0002](../adr/0002-multiplayer-duel-rules.md) records both decisions. A one-branch lower or higher condition still requires the corresponding strict relation against every living opponent.
 
-Reviewed the original 100 local LP-query candidates at the pinned card-script revision: 69 comparison candidates and 31 other queries. A broader scan of all 255 official LP-query scripts found four additional comparison cards. The #449 follow-up also reviews all three shipped prerelease LP-query scripts. The complete reviewed comparison set is **74 cards: 63 covered by the shared helper, 11 exceptions** (including Bergamot's existing battle-specific overlay). The ignored discovery JSON is not a shipped input.
+Reviewed the original 100 local LP-query candidates at the pinned card-script revision: 69 comparison candidates and 31 other queries. A broader scan of all 255 official LP-query scripts found four additional comparison cards. The #449 follow-up also reviews all three shipped prerelease LP-query scripts. The complete reviewed comparison set is **74 cards: 69 covered by multiplayer helpers, 5 exceptions** (63 comparison-helper cards plus six numerical/equality overlays; the exceptions include Bergamot's existing battle-specific overlay). The ignored discovery JSON is not a shipped input.
 
 `aux.MPCompareLP` reads every living opponent through the read-only real-seat query added by core patch 0119. It never changes an existing opponent binding or seat rebind, and never asks for an opponent. FFA-only suffixes leave stock 1v1 and Tag scripts unchanged. Existing all-duelist overlays keep their operations and decision picks.
 
@@ -120,20 +120,14 @@ The prerelease review adds one condition-only fix:
 
 Searched all pinned card scripts for `Duel.GetLP`, compared the results with `multi-scripts/MANIFEST.json`, and inspected direct comparisons, local LP variables, damage-prevention scripts, and numerical differences. All **255 official** and **3 shipped prerelease** LP-query scripts were included. No additional official damage-prevention card has an uncovered relative lower-LP condition. Chicken Game and prerelease Helpoemer are the two clear fixes; the latter previously offered a discard against a rich selected opponent even when another living opponent was poorer or less than 2000 ahead.
 
-The #458 audit originally left these ten relative-LP scripts unchanged. The LP difference/equality audit below resolves six of them; its later rulings supersede the corresponding reasons in this historical table:
+These **four official relative-LP scripts have no multiplayer overlay** and retain existing card-specific rulings. The six newly resolved cards are documented in the LP difference/equality audit below:
 
 | Code | Card | Reason unchanged |
 | --- | --- | --- |
 | 17178486 | Life Equalizer | Prior pair-only ruling; absolute 8000-LP gap and pair LP replacement. |
 | 63875853 | Trading Places | Prior pair-only ruling; compare and exchange one chosen pair. |
-| 46497537 | Pig Iron vs. Pen Peg | Equality condition; a strict lower/higher ruling does not define equality behavior. |
-| 25334372 | Tsukumo Slash | Battle-specific inequality and absolute ATK-difference amount. |
-| 70219023 | Coordius the Triphasic Dealmon | Nonzero difference enables an ATK effect; amount/inequality policy needed. |
-| 81758313 | Myriaday Dragon | Absolute LP difference sets counters. |
-| 81916745 | Lycoris Lilyreaper | Absolute LP difference sets a selection amount. |
 | 85787173 | Generation Next | owner ruling 2026-10-23: unchanged — compares with the selected opponent |
 | 81332143 | Yu-Jo Friendship | Average/share a chosen pair; no lower-LP protection condition. |
-| 90162951 | Number 35: Ravenous Tarantula | Absolute LP difference sets ATK. |
 
 Other reviewed lookalikes are outside this bug class: Reflect Bounder (2851070) and prerelease Zombyra (100459012) compare a recipient's LP before/after damage; they do not compare two players. Prerelease Armor Wizard Pazoo (100200297) checks a fixed 4000-LP threshold. Dinomorphia damage-prevention effects check their controller against **2000 LP**, not another player. Fixed opponent thresholds (for example Meteor of Destruction and Meteor Flare), LP exchanges/halving, and LP-derived ATK amounts (for example Life Hack, Endless Decay and Odd-Eyes Revolution Dragon) need their existing recipient/amount policies, not this unanimous comparison change. Existing overlays already cover Psychic End Punisher, Pin Baller, Aromaseraphy Sweet Marjoram and all other reviewed lower/higher protection conditions; Bergamot retains its attacked-opponent ruling.
 
@@ -187,7 +181,7 @@ The scenario kit covers mixed totals, all opponents lower, all opponents higher,
 
 ## LP difference/equality audit — owner ruling 2026-10-23
 
-This resolves the six numerical/equality exceptions below, including the corresponding unresolved rows in PR #458's #449 audit. It applies to FFA3/FFA4 on both multi cores. Tag retains the stock team LP behavior and legacy 1v1 never loads these suffixes. Other comparison and amount rulings remain as recorded above.
+This resolves six numerical/equality exceptions from PR #458's #449 audit. It applies to FFA3/FFA4 on both multi cores. Tag retains the stock team LP behavior and legacy 1v1 never loads these suffixes. Other comparison and amount rulings remain as recorded above.
 
 | Code | Card | owner ruling 2026-10-23 / stock text and script review |
 | --- | --- | --- |

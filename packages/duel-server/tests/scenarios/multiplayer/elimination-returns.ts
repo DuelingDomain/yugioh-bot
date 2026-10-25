@@ -95,7 +95,7 @@ Duel.RegisterEffect(e,2)`,
     ...defineScenario({
       id: `elimination-returns-${format}-removed-chain-card-stays-out`,
       title: format === "tag" ? "Tag surrender ends the duel before the chain resolves" : "A surrendered duelist's unresolved link is removed and living links still resolve",
-      source: "ADR-0002; remove-eliminated-chain-cards",
+      source: "ADR-0002; patch 0073",
       rules: format === "tag" ? ["R-TAG-LOSS", "R-COMMON-SURRENDER-EOT"] : ["R-FFA-ELIMINATION", "R-FFA-CHAIN", "R-COMMON-SURRENDER-EOT"],
       tags: ["multiplayer", "elimination", "chain", format],
       setup: { format, p0: { hand: ["Pot of Greed"], spells: ["Swords of Revealing Light"] }, p1: { spells: [{ card: "Dust Tornado", pos: "set" }] }, p2: { spells: [{ card: "Dust Tornado", pos: "set" }] } },

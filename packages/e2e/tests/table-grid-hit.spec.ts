@@ -164,127 +164,9 @@ test("ffa4: a click on the phase hub does not move the focus to the field under 
   await expect(stage).toHaveAttribute("data-grid-focus", "3");
 });
 
-// A click must never be read against a board that is moving (a seat leaves, the camera glides): it would land on whatever slid
-// under the pointer. The board input guard holds action clicks while the board moves and for a moment after. Full motion on.
-test.describe("ffa4: no click lands on a board that moves", () => {
-  test.use({ reducedMotion: "no-preference" });
-
-  const handCard = (page: Page) => page.evaluate(() => {
-    const node = [...document.querySelectorAll<HTMLElement>("[data-legal]")].find((n) => n.closest("[data-hand-seat]") && n.getBoundingClientRect().width > 8);
-    if (!node) return null;
-    const rect = node.getBoundingClientRect();
-    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-  });
-  const seatsMoving = (page: Page) => page.evaluate(() => document.getAnimations().some((a) => {
-    const target = (a.effect as KeyframeEffect | null)?.target as Element | null;
-    return a.playState === "running" && !!target?.matches?.("[data-seat-slot], [data-board-motion]");
-  }));
-
-  test("two seats leave: a click while the seats glide does nothing, a click after they settle acts", async ({ page }) => {
-    await open(page, "state=main&viewer=0&out=2,3&after=1500", false);
-    await page.waitForFunction(() => document.getAnimations().some((a) => {
-      const target = (a.effect as KeyframeEffect | null)?.target as Element | null;
-      return a.playState === "running" && !!target?.matches?.("[data-seat-slot], [data-board-motion]");
-    }), undefined, { timeout: 15_000 });
-    const during = (await handCard(page))!;
-    expect(await seatsMoving(page)).toBe(true);
-    await page.mouse.click(during.x, during.y);
-    await expect(page.locator("[role=menu]")).toHaveCount(0);
-
-    await expect.poll(() => seatsMoving(page), { timeout: 15_000 }).toBe(false);
-    await page.waitForTimeout(450);
-    const after = (await handCard(page))!;
-    await page.mouse.click(after.x, after.y);
-    await expect(page.locator("[role=menu]")).toHaveCount(1);
-  });
-
-  test("a wheel zoom over a legal hand card does not hold the next click", async ({ page }) => {
-    await open(page, "state=main&viewer=0", false);
-    await page.waitForTimeout(1200);
-    const card = (await handCard(page))!;
-    await page.mouse.move(card.x, card.y);
-    await page.mouse.wheel(0, -240);
-    await page.waitForTimeout(100);
-    const again = (await handCard(page))!;
-    await page.mouse.click(again.x, again.y);
-    await expect(page.locator("[role=menu]")).toHaveCount(1);
-  });
-
-  test("a press that starts on one card and ends on another acts on neither", async ({ page }) => {
-    await open(page, "state=main&viewer=0", false);
-    await page.waitForTimeout(1200);
-    const points = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-legal]")]
-      .filter((n) => n.closest("[data-hand-seat]") && n.getBoundingClientRect().width > 8)
-      .map((n) => { const r = n.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }));
-    expect(points.length).toBeGreaterThan(1);
-    const [from, to] = [points[0], points[points.length - 1]];
-    await page.mouse.move(from.x, from.y);
-    await page.mouse.down();
-    await page.mouse.move(to.x, to.y, { steps: 4 });
-    await page.mouse.up();
-    await expect(page.locator("[role=menu]")).toHaveCount(0);
-  });
-});
-
-// The 3-way plaza: a seat leaving runs on CSS transitions (the watcher path), not on animations the view code starts.
-test.describe("ffa3: no click lands on a board that moves", () => {
-  test.use({ reducedMotion: "no-preference" });
-
-  const handCard = (page: Page) => page.evaluate(() => {
-    const node = [...document.querySelectorAll<HTMLElement>("[data-legal]")].find((n) => n.closest("[data-hand-seat]") && n.getBoundingClientRect().width > 8);
-    if (!node) return null;
-    const rect = node.getBoundingClientRect();
-    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-  });
-  const moving = (page: Page) => page.evaluate(() => document.getAnimations().some((a) => {
-    const target = (a.effect as KeyframeEffect | null)?.target as Element | null;
-    return a.playState === "running" && !!target?.matches?.("[data-seat-slot], [data-board-motion]");
-  }));
-
-  test("a seat leaves: a click during the glide does nothing, a click after it settles acts", async ({ page }) => {
-    const response = await page.goto("/dev/table-preview/ffa3?fixture=review&state=main&out=2&after=1500");
-    expect(response?.ok()).toBe(true);
-    await expect(page.locator("[data-table-stage]")).toHaveAttribute("data-ready", "true", { timeout: 20_000 });
-    await page.waitForFunction(() => document.getAnimations().some((a) => {
-      const target = (a.effect as KeyframeEffect | null)?.target as Element | null;
-      return a.playState === "running" && !!target?.matches?.("[data-seat-slot], [data-board-motion]");
-    }), undefined, { timeout: 15_000 });
-    const during = (await handCard(page))!;
-    await page.mouse.click(during.x, during.y);
-    await expect(page.locator("[role=menu]")).toHaveCount(0);
-
-    await expect.poll(() => moving(page), { timeout: 15_000 }).toBe(false);
-    await page.waitForTimeout(450);
-    const after = (await handCard(page))!;
-    await page.mouse.click(after.x, after.y);
-    await expect(page.locator("[role=menu]")).toHaveCount(1);
-  });
-});
-
 // Card status and counters (`?status=1` fixture board): the badges sit in their own band, never on the ATK / DEF plate, the Xyz material count or
 // the equip chip, and the hover drawer shows the whole status list and effect text without a scroll bar. Fixture preview only.
 const STATUS_SIZES = [[1920, 1080], [2560, 1440], [1366, 768]] as const;
-
-test("ffa4: a pin during a target pick clears every LP plate", async ({ page }) => {
-  await page.setViewportSize({ width: 1366, height: 768 });
-  await open(page, "state=target-pick");
-  await page.waitForTimeout(1200);
-  await page.locator('[data-seat-field="0"] [data-kind="mz"][data-occupied="true"] button').first().click();
-  await page.mouse.move(2, 2);
-  await expect(page.locator('[data-testid="hover-preview"][data-pinned="true"]')).toHaveCount(1);
-  await expect(page.locator('[data-testid="hover-preview"][data-open="true"], [data-testid="hover-preview-handle"]:visible').first()).toBeVisible();
-  await expect.poll(() => page.evaluate(() => {
-    const shells = [...document.querySelectorAll('[data-testid="hover-preview"][data-open="true"], [data-testid="hover-preview-handle"]')]
-      .filter(element => getComputedStyle(element).visibility !== "hidden")
-      .map(element => element.getBoundingClientRect());
-    return [...document.querySelectorAll("[data-lp-seat], [data-team-plate]")].filter(plate => {
-      const rect = plate.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0 && shells.some(shell =>
-        Math.min(shell.right, rect.right) - Math.max(shell.left, rect.left) > 1
-        && Math.min(shell.bottom, rect.bottom) - Math.max(shell.top, rect.top) > 1);
-    }).map(plate => plate.getAttribute("data-lp-seat"));
-  })).toEqual([]);
-});
 
 for (const mode of ["classic", "ffa3", "ffa4", "tag"]) {
   for (const [width, height] of STATUS_SIZES) {
@@ -395,3 +277,121 @@ for (const mode of ["ffa3", "ffa4", "tag"]) {
     });
   }
 }
+
+test("ffa4: a pin during a target pick clears every LP plate", async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await open(page, "state=target-pick");
+  await page.waitForTimeout(1200);
+  await page.locator('[data-seat-field="0"] [data-kind="mz"][data-occupied="true"] button').first().click();
+  await page.mouse.move(2, 2);
+  await expect(page.locator('[data-testid="hover-preview"][data-pinned="true"]')).toHaveCount(1);
+  await expect(page.locator('[data-testid="hover-preview"][data-open="true"], [data-testid="hover-preview-handle"]:visible').first()).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const shells = [...document.querySelectorAll('[data-testid="hover-preview"][data-open="true"], [data-testid="hover-preview-handle"]')]
+      .filter(element => getComputedStyle(element).visibility !== "hidden")
+      .map(element => element.getBoundingClientRect());
+    return [...document.querySelectorAll("[data-lp-seat], [data-team-plate]")].filter(plate => {
+      const rect = plate.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && shells.some(shell =>
+        Math.min(shell.right, rect.right) - Math.max(shell.left, rect.left) > 1
+        && Math.min(shell.bottom, rect.bottom) - Math.max(shell.top, rect.top) > 1);
+    }).map(plate => plate.getAttribute("data-lp-seat"));
+  })).toEqual([]);
+});
+
+// A click must never be read against a board that is moving (a seat leaves, the camera glides): it would land on whatever slid
+// under the pointer. The board input guard holds action clicks while the board moves and for a moment after. Full motion on.
+test.describe("ffa4: no click lands on a board that moves", () => {
+  test.use({ reducedMotion: "no-preference" });
+
+  const handCard = (page: Page) => page.evaluate(() => {
+    const node = [...document.querySelectorAll<HTMLElement>("[data-legal]")].find((n) => n.closest("[data-hand-seat]") && n.getBoundingClientRect().width > 8);
+    if (!node) return null;
+    const rect = node.getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  });
+  const seatsMoving = (page: Page) => page.evaluate(() => document.getAnimations().some((a) => {
+    const target = (a.effect as KeyframeEffect | null)?.target as Element | null;
+    return a.playState === "running" && !!target?.matches?.("[data-seat-slot], [data-board-motion]");
+  }));
+
+  test("two seats leave: a click while the seats glide does nothing, a click after they settle acts", async ({ page }) => {
+    await open(page, "state=main&viewer=0&out=2,3&after=1500", false);
+    await page.waitForFunction(() => document.getAnimations().some((a) => {
+      const target = (a.effect as KeyframeEffect | null)?.target as Element | null;
+      return a.playState === "running" && !!target?.matches?.("[data-seat-slot], [data-board-motion]");
+    }), undefined, { timeout: 15_000 });
+    const during = (await handCard(page))!;
+    expect(await seatsMoving(page)).toBe(true);
+    await page.mouse.click(during.x, during.y);
+    await expect(page.locator("[role=menu]")).toHaveCount(0);
+
+    await expect.poll(() => seatsMoving(page), { timeout: 15_000 }).toBe(false);
+    await page.waitForTimeout(450);
+    const after = (await handCard(page))!;
+    await page.mouse.click(after.x, after.y);
+    await expect(page.locator("[role=menu]")).toHaveCount(1);
+  });
+
+  test("a wheel zoom over a legal hand card does not hold the next click", async ({ page }) => {
+    await open(page, "state=main&viewer=0", false);
+    await page.waitForTimeout(1200);
+    const card = (await handCard(page))!;
+    await page.mouse.move(card.x, card.y);
+    await page.mouse.wheel(0, -240);
+    await page.waitForTimeout(100);
+    const again = (await handCard(page))!;
+    await page.mouse.click(again.x, again.y);
+    await expect(page.locator("[role=menu]")).toHaveCount(1);
+  });
+
+  test("a press that starts on one card and ends on another acts on neither", async ({ page }) => {
+    await open(page, "state=main&viewer=0", false);
+    await page.waitForTimeout(1200);
+    const points = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-legal]")]
+      .filter((n) => n.closest("[data-hand-seat]") && n.getBoundingClientRect().width > 8)
+      .map((n) => { const r = n.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }));
+    expect(points.length).toBeGreaterThan(1);
+    const [from, to] = [points[0], points[points.length - 1]];
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 4 });
+    await page.mouse.up();
+    await expect(page.locator("[role=menu]")).toHaveCount(0);
+  });
+});
+
+// The 3-way plaza: a seat leaving runs on CSS transitions (the watcher path), not on animations the view code starts.
+test.describe("ffa3: no click lands on a board that moves", () => {
+  test.use({ reducedMotion: "no-preference" });
+
+  const handCard = (page: Page) => page.evaluate(() => {
+    const node = [...document.querySelectorAll<HTMLElement>("[data-legal]")].find((n) => n.closest("[data-hand-seat]") && n.getBoundingClientRect().width > 8);
+    if (!node) return null;
+    const rect = node.getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  });
+  const moving = (page: Page) => page.evaluate(() => document.getAnimations().some((a) => {
+    const target = (a.effect as KeyframeEffect | null)?.target as Element | null;
+    return a.playState === "running" && !!target?.matches?.("[data-seat-slot], [data-board-motion]");
+  }));
+
+  test("a seat leaves: a click during the glide does nothing, a click after it settles acts", async ({ page }) => {
+    const response = await page.goto("/dev/table-preview/ffa3?fixture=review&state=main&out=2&after=1500");
+    expect(response?.ok()).toBe(true);
+    await expect(page.locator("[data-table-stage]")).toHaveAttribute("data-ready", "true", { timeout: 20_000 });
+    await page.waitForFunction(() => document.getAnimations().some((a) => {
+      const target = (a.effect as KeyframeEffect | null)?.target as Element | null;
+      return a.playState === "running" && !!target?.matches?.("[data-seat-slot], [data-board-motion]");
+    }), undefined, { timeout: 15_000 });
+    const during = (await handCard(page))!;
+    await page.mouse.click(during.x, during.y);
+    await expect(page.locator("[role=menu]")).toHaveCount(0);
+
+    await expect.poll(() => moving(page), { timeout: 15_000 }).toBe(false);
+    await page.waitForTimeout(450);
+    const after = (await handCard(page))!;
+    await page.mouse.click(after.x, after.y);
+    await expect(page.locator("[role=menu]")).toHaveCount(1);
+  });
+});

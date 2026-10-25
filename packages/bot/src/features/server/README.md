@@ -30,7 +30,8 @@ the actor hierarchy check, but cannot bypass the bot hierarchy. Managed roles,
 are refused. Only the server owner may manage privileged roles with Administrator,
 Manage Server, or Manage Roles. In addition, `/role give` refuses roles with Ban Members, Kick Members, Moderate Members, Manage Channels, Manage Webhooks or Mention Everyone, and the configured Moderator role, unless the actor is the server owner. Role creation grants no server permissions.
 
-Confirm and Cancel buttons expire after 60 seconds. They are bound to the same
+Confirm and Cancel buttons expire after 60 seconds. They keep the action exactly as shown.
+Open confirmations are kept in memory (at most 1000), so a bot restart drops them. They are bound to the same
 admin and guild, can be consumed once, and check current access and target state.
 Confirm and Cancel edit the original prompt, remove its buttons and show the result.
 Destructive actions use the runtime's per-guild lock and three-second actor cooldown.
@@ -59,6 +60,7 @@ All completed, failed, refused, and cancelled actions record `mod_actions` and q
 the shared mod-log outbox post. Setup can queue its own audit to the new mod-log
 before the environment value is set. Raw Discord errors are not stored or shown.
 
+Tests are integration tests only (owner rule); there are no unit tests for this module.
 Integration checks use real SQLite and a local HTTP Discord REST stub, including
 the original baseline permissions without Administrator. Use the combined
 permission integer in the [deployment guide](../../../../../docs/deployment/discord-bot.md)

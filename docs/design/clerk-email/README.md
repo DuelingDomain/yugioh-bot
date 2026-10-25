@@ -1,6 +1,6 @@
 # Dueling Domain Clerk emails
 
-Branded set for the nine Clerk emails a player can receive. Workshop page: `/tmp/alpha-access-pr2-evidence/clerk-email-brand/review.html` (before and after, 600 and 390, light and dark client).
+Branded set for the nine Clerk emails a player can receive.
 
 ## Templates
 

@@ -8,6 +8,7 @@ This is a **single-context** repo: one `CONTEXT.md` + `docs/adr/` at the root.
 
 - **`CONTEXT.md`** at the repo root — the domain glossary.
 - **`docs/adr/`** — read ADRs that touch the area you're about to work in.
+- **`docs/README.md`** — the index of all other docs (architecture, flows, API contracts, specs, runbooks).
 
 If `docs/adr/` doesn't exist yet, **proceed silently**. Don't flag its absence; don't suggest creating it upfront. The producer skill (`/grill-with-docs`) creates ADRs lazily when decisions actually get resolved.
 
@@ -23,7 +24,10 @@ If `docs/adr/` doesn't exist yet, **proceed silently**. Don't flag its absence; 
     ├── shared/
     ├── bot/
     ├── ws/
-    └── web/
+    ├── web/
+    ├── duel-server/
+    ├── worker/
+    └── e2e/
 ```
 
 ## Use the glossary's vocabulary
