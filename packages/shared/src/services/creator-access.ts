@@ -53,7 +53,7 @@ export interface CreatorSummary extends Creator {
   /** Links that are open now (not full, expired or revoked). */
   openLinks: number;
   links: number;
-  /** Grants whose invitation went out: status sent or signed_up (expired ones included). */
+  /** Grants whose invitation went out: sent or signed_up, plus revoked ones that were sent (expired included). */
   sent: number;
   signedUp: number;
   /** Signed-up people seen in the last 7 days (users.last_seen_at). */
@@ -336,7 +336,7 @@ const SUMMARY_SELECT = `
     (select count(*) from creator_links l where l.creator_id = c.id and c.archived_at is null and l.revoked_at is null
       and l.expires_at > @now
       and (select count(*) from creator_grants g where g.link_id = l.id and ${LIVE("g")}) < l.max_uses) as open_links,
-    (select count(*) from creator_grants g where g.creator_id = c.id and g.status in ('sent', 'signed_up')) as sent,
+    (select count(*) from creator_grants g where g.creator_id = c.id and (g.status in ('sent', 'signed_up') or (g.status = 'revoked' and g.sent_at is not null))) as sent,
     (select count(*) from creator_grants g where g.creator_id = c.id and g.status = 'signed_up') as signed_up,
     (select count(*) from creator_grants g join users u on u.id = g.user_id
       where g.creator_id = c.id and g.status = 'signed_up' and u.last_seen_at >= @activeSince) as active7d,
