@@ -13,6 +13,8 @@ Live since 2026-10-06. Contact: `support@duelingdomain.com`. Server: Nuremberg, 
 | `duelistskingdom.com` | 308 to `https://app.duelingdomain.com`, preserving path and query |
 | `www.duelistskingdom.com` | 308 to `https://app.duelingdomain.com`, preserving path and query |
 
+A plan to put the Cloudflare Free plan in front of these hosts is in [cloudflare.md](cloudflare.md). Until the owner changes DNS, nothing here changes.
+
 ## Env
 
 Compose reads production `.env` and passes the host variables to Caddy. See [vm-runbook.md](vm-runbook.md#create-env) for editing it:
@@ -65,6 +67,11 @@ health tracking remembers a failed connection for one second, so concurrent
 requests wait briefly before dialing again. No active probe depends on app
 authentication. Socket.IO still goes directly to `ws:3001`; a web-only recreate
 does not close its existing connections. Marketing and legacy routing are unchanged.
+
+When the 30 seconds end and web or ws is still down, Caddy shows the maintenance
+page (`site/maintenance/index.html`, status 503) to browser page loads and a JSON
+error to API and Socket.IO callers. The page checks `/healthz` and reloads when web
+is back. See [cloudflare.md](cloudflare.md#maintenance-pages).
 
 POST safety follows Caddy's default `lb_retry_match` (GET only). A POST can be
 retried after a **dial failure**, when the upstream received no request; a failed
