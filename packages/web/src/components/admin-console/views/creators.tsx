@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { plural } from "@/lib/admin-console/format";
+import { formatDayMonth } from "@/lib/admin-console/time";
 import type { CreatorSummary } from "@/lib/admin-console/creators-types";
 import type { ConsoleActions } from "../admin-console";
 import { AddCreatorSheet, CreatorSheet } from "../creators-sheet";
@@ -11,7 +12,7 @@ import styles from "../admin-console.module.css";
 
 type Sheet = { kind: "add" } | { kind: "creator"; id: number };
 
-const day = (ms: number | null) => (ms === null ? "-" : new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" }));
+const day = (ms: number | null) => (ms === null ? "-" : formatDayMonth(ms));
 
 function host(url: string | null): string | null {
   if (!url) return null;

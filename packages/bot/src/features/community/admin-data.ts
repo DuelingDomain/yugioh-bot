@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { DUEL_WAITING_IDLE_TIMEOUT_MS } from "@yugidraft/shared/duels";
+import { EASTERN_TIME_ZONE, easternDayKey, easternDayKeys, easternMidnight } from "@yugidraft/shared/util/eastern-time";
 import { FORMAT_LABEL, type Format } from "./common.js";
 import { PRESENCE_ROUTES, isPresenceRoute } from "./presence-routes.js";
 
@@ -10,9 +11,8 @@ export const DUEL_LIVE_IDLE_AFTER_MS = 10 * 60 * 1000;
 export const LIVE_EVENT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const STAT_KEYS = ["signups", "activeUsers", "duelsStarted", "duelsFinished", "draftsStarted", "draftsCompleted"] as const;
 type StatKey = typeof STAT_KEYS[number];
-export type StatsData = { timezone: "UTC"; days: string[]; series: Record<StatKey, number[]>;
+export type StatsData = { timezone: typeof EASTERN_TIME_ZONE; days: string[]; series: Record<StatKey, number[]>;
   today: Record<StatKey, number>; last7Days: Record<StatKey, number> };
-const DAY_MS = 24 * 60 * 60 * 1000;
 const DAYS = 7;
 export function dbTimeMs(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -20,11 +20,13 @@ export function dbTimeMs(value: string | null | undefined): number | null {
   const ms = Date.parse(/(?:Z|[+-]\d\d:?\d\d)$/.test(iso) ? iso : `${iso}Z`);
   return Number.isFinite(ms) ? ms : null;
 }
-const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-const dayOf = (text: string | null) => { const ms = dbTimeMs(text); return ms === null ? null : utcDay(ms); };
+const dayOf = (text: string | null) => { const ms = dbTimeMs(text); return ms === null ? null : easternDayKey(ms); };
+
+const userColumns = (db: Database.Database) => new Set((db.prepare("pragma table_info(users)").all() as { name: string }[]).map(row => row.name));
+const hasColumn = (db: Database.Database, name: string) => userColumns(db).has(name);
 
 export function hasPresence(db: Database.Database, route = false): boolean {
-  const columns = new Set((db.prepare("pragma table_info(users)").all() as { name: string }[]).map(row => row.name));
+  const columns = userColumns(db);
   return columns.has("last_seen_at") && (!route || columns.has("last_route"));
 }
 
@@ -90,11 +92,12 @@ export function liveCounts(db: Database.Database, guild: string, now: number) {
     waiting: liveDrafts.filter(row => row.status === "pending").length } };
 }
 
-/** Seven UTC days. Daily users are sets; weekly users are their union. Latest presence cannot reconstruct past visits. */
+/** Seven Eastern (America/New_York) days, the same days the web admin console counts. Daily users are sets; weekly users are their union. Latest presence cannot reconstruct past visits. */
 export function computeStats(db: Database.Database, guild: string, now: number): StatsData {
-  const days = Array.from({ length: DAYS }, (_, i) => utcDay(now - (DAYS - 1 - i) * DAY_MS));
-  const from = days[0];
-  const fromMs = Date.parse(`${from}T00:00:00.000Z`);
+  const days = easternDayKeys(now, DAYS);
+  const fromMs = easternMidnight(days[0]);
+  // The UTC date of that midnight: never later than a row inside the window, and valid for text timestamps of both shapes.
+  const from = new Date(fromMs).toISOString().slice(0, 10);
   const index = new Map(days.map((day, i) => [day, i]));
   const series = Object.fromEntries(STAT_KEYS.map((key) => [key, days.map(() => 0)])) as Record<StatKey, number[]>;
   const bump = (key: StatKey, day: string | null) => {
@@ -107,8 +110,12 @@ export function computeStats(db: Database.Database, guild: string, now: number):
     if (i !== undefined && userId !== null) active[i].add(userId);
   };
 
-  for (const row of db.prepare("select created_at from users where created_at >= ?").all(from) as { created_at: string }[]) {
-    bump("signups", dayOf(row.created_at));
+  // Sign-ups are first web sign-ins (users.first_sign_in_at, epoch ms), the same as the web console. users.created_at also
+  // covers Discord-only rows and test players that never signed in.
+  if (hasColumn(db, "first_sign_in_at")) {
+    for (const row of db.prepare("select first_sign_in_at from users where first_sign_in_at >= ?").all(fromMs) as { first_sign_in_at: number }[]) {
+      bump("signups", easternDayKey(row.first_sign_in_at));
+    }
   }
 
   const duels = db.prepare(`
@@ -150,7 +157,7 @@ export function computeStats(db: Database.Database, guild: string, now: number):
   }
 
   if (hasPresence(db)) for (const row of db.prepare("select id, last_seen_at from users where last_seen_at >= ?").all(fromMs) as { id: number; last_seen_at: number }[]) {
-    mark(utcDay(row.last_seen_at), row.id);
+    mark(easternDayKey(row.last_seen_at), row.id);
   }
   series.activeUsers = active.map((set) => set.size);
 
@@ -161,5 +168,5 @@ export function computeStats(db: Database.Database, guild: string, now: number):
   for (const key of STAT_KEYS) { today[key] = series[key][last]; last7Days[key] = sum(series[key]); }
   // A person active on several days is one active user for the week.
   last7Days.activeUsers = new Set(active.flatMap((set) => [...set])).size;
-  return { timezone: "UTC", days, series, today, last7Days };
+  return { timezone: EASTERN_TIME_ZONE, days, series, today, last7Days };
 }

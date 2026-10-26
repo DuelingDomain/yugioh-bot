@@ -3,6 +3,7 @@
 import useSWR from "swr";
 import type { HealthPoint, VpsHealth } from "@yugidraft/shared/health";
 import { ago, duration, gb } from "@/lib/admin-console/format";
+import { ADMIN_TIME_ZONE_LABEL, formatDayMonthClock } from "@/lib/admin-console/time";
 import styles from "./vps-health.module.css";
 
 const pct = (n: number | null | undefined) => n == null ? "n/a" : `${Math.round(n)}%`;
@@ -63,7 +64,7 @@ export function VpsHealthPanel({ data }: { data: VpsHealth }) {
         const report = sample?.services[id], c = report?.cgroup;
         const restartedAt = data.restarts?.[id];
         const percent = c?.memoryBytes != null && c.memoryLimitBytes ? 100 * c.memoryBytes / c.memoryLimitBytes : null;
-        return <tr key={id}><th scope="row">{id}</th><td>{c ? `${bytes(c.memoryBytes)} / ${c.memoryLimitBytes == null ? "n/a (no readable limit)" : bytes(c.memoryLimitBytes)}` : "n/a"}</td><td>{pct(percent)}</td><td>{pct(c?.cpuPercent)}</td><td data-warning={(c?.oomKills ?? 0) > 0}>{count(c?.oomKills)}</td><td>{report ? ago(report.at) : "n/a"}</td><td>{restartedAt != null ? <time dateTime={new Date(restartedAt).toISOString()} title={new Date(restartedAt).toISOString()}>Restarted {ago(restartedAt)}</time> : "—"}</td></tr>;
+        return <tr key={id}><th scope="row">{id}</th><td>{c ? `${bytes(c.memoryBytes)} / ${c.memoryLimitBytes == null ? "n/a (no readable limit)" : bytes(c.memoryLimitBytes)}` : "n/a"}</td><td>{pct(percent)}</td><td>{pct(c?.cpuPercent)}</td><td data-warning={(c?.oomKills ?? 0) > 0}>{count(c?.oomKills)}</td><td>{report ? ago(report.at) : "n/a"}</td><td>{restartedAt != null ? <time dateTime={new Date(restartedAt).toISOString()} title={`${formatDayMonthClock(restartedAt)} ${ADMIN_TIME_ZONE_LABEL}`}>Restarted {ago(restartedAt)}</time> : "—"}</td></tr>;
       })}</tbody>
     </table></div>
     <div className={styles.historyHead}><h3>Last 24 hours</h3><span>{data.history.length} / 1440 minute samples · gaps are n/a</span></div>

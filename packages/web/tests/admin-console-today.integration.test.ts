@@ -9,7 +9,7 @@ vi.mock("@/lib/session-identity", async () => {
 });
 vi.mock("@/lib/db", () => ({ getDb }));
 
-// 03:30 UTC on Oct 20 is 23:30 on Oct 19 in UTC-4: the two "todays" differ.
+// 03:30 UTC on Oct 20 is 23:30 EDT on Oct 19: "today" is the Eastern day, Oct 19 from 04:00 UTC.
 const NOW = Date.parse("2026-10-20T03:30:00.000Z");
 let db: Database.Database;
 beforeEach(() => {
@@ -57,17 +57,17 @@ function seed() {
   duel(12, "x-old", { status: "completed", started: "2026-10-19 03:00:00", ended: "2026-10-20 00:30:00", winner: 0 });
 }
 
-it("lists every duel that started today (UTC without tz), newest first, with seats, results, turns and links", async () => {
+it("lists every duel that started today (Eastern day), newest first, with seats, results, turns and links", async () => {
   seed();
   const response = await today();
   expect(response.status).toBe(200);
   expect(response.headers.get("cache-control")).toBe("private, no-store");
   const { state, data } = await response.json();
   expect(state).toBe("ok");
-  expect(data).toMatchObject({ tzOffsetMinutes: 0, dayStart: Date.parse("2026-10-20T00:00:00Z"), limit: 200,
-    counts: { all: 6, oneVsOne: 4, multi: 2, ranked: 1 } });
+  expect(data).toMatchObject({ timezone: "America/New_York", dayStart: Date.parse("2026-10-19T04:00:00Z"), limit: 200,
+    counts: { all: 8, oneVsOne: 4, multi: 4, ranked: 1 } });
   expect(data.duels.map((d: { slug: string; result: string }) => [d.slug, d.result])).toEqual([
-    ["t4", "live"], ["t5", "idle"], ["t8", "cancelled"], ["t1", "won"], ["t6", "draw"], ["t7", "live"]]);
+    ["t4", "live"], ["t5", "idle"], ["t8", "cancelled"], ["t1", "won"], ["t6", "draw"], ["t7", "live"], ["t2", "won"], ["t3", "interrupted"]]);
   const bySlug = Object.fromEntries(data.duels.map((d: { slug: string }) => [d.slug, d]));
   expect(bySlug.t1).toEqual({
     slug: "t1", name: "Table t1", format: "1v1", formatLabel: "1v1 duel", ranked: true, genesys: false, result: "won", turns: 14,
@@ -83,41 +83,33 @@ it("lists every duel that started today (UTC without tz), newest first, with sea
   expect(bySlug.t5).toMatchObject({ result: "idle", href: "/admin/watch/duel/t5", turns: 7 });
   expect(bySlug.t6.seats.map((s: { outcome: unknown }) => s.outcome)).toEqual(["draw", "draw"]);
   expect(bySlug.t8).toMatchObject({ href: "/duels/t8/replay", endedAt: Date.parse("2026-10-20T02:05:00Z") });
+  // Tag partners win together; an interrupted duel has no winner.
+  expect(bySlug.t2.seats.map((s: { name: string; outcome: string }) => [s.name, s.outcome])).toEqual([["Ann", "lost"], ["Bo", "won"], ["Cy", "lost"], ["Practice Bot", "won"]]);
+  expect(bySlug.t3).toMatchObject({ result: "interrupted", href: "/duels/t3/replay", turns: null });
+  expect(bySlug.t3.seats.every((s: { outcome: unknown }) => s.outcome === null)).toBe(true);
   // Only internal paths.
   for (const d of data.duels) expect(d.href).toMatch(/^(\/duels\/[a-z0-9-]+\/replay|\/admin\/watch\/duel\/[a-z0-9-]+)$/);
 });
 
-it("uses the browser day from ?start= (local midnight): Tag partners win together, an interrupted duel has no winner", async () => {
+it("ignores ?tz= and ?start= from old clients: the day is always the Eastern day", async () => {
   seed();
-  const { data } = await (await today(`?tz=-240&start=${Date.parse("2026-10-19T04:00:00Z")}`)).json();
-  expect(data).toMatchObject({ tzOffsetMinutes: -240, dayStart: Date.parse("2026-10-19T04:00:00Z"), counts: { all: 8, oneVsOne: 4, multi: 4, ranked: 1 } });
-  expect(data.duels.map((d: { slug: string }) => d.slug)).toEqual(["t4", "t5", "t8", "t1", "t6", "t7", "t2", "t3"]);
-  const tag = data.duels.find((d: { slug: string }) => d.slug === "t2");
-  expect(tag.seats.map((s: { name: string; outcome: string }) => [s.name, s.outcome])).toEqual([["Ann", "lost"], ["Bo", "won"], ["Cy", "lost"], ["Practice Bot", "won"]]);
-  const cut = data.duels.find((d: { slug: string }) => d.slug === "t3");
-  expect(cut).toMatchObject({ result: "interrupted", href: "/duels/t3/replay", turns: null });
-  expect(cut.seats.every((s: { outcome: unknown }) => s.outcome === null)).toBe(true);
-});
-
-it("prefers ?start= over ?tz= on a daylight-saving day, and falls back to ?tz= for a start outside now - 26 h to now", async () => {
-  seed();
-  // The night clocks go back: midnight was at UTC+2, now the offset is UTC+1. tz alone would start the day an hour late.
-  const dst = Date.parse("2026-10-19T22:00:00Z");
-  const { data } = await (await today(`?tz=60&start=${dst}`)).json();
-  expect(data).toMatchObject({ tzOffsetMinutes: 60, dayStart: dst });
-  // t2 started at 22:00 UTC: in the day by start, not by tz (23:00 UTC).
-  expect(data.duels.map((d: { slug: string }) => d.slug)).toContain("t2");
-  for (const bad of [String(NOW + 60_000), String(NOW - 27 * 3_600_000), "-5", "1e12", "abc"]) {
-    const body = await (await today(`?tz=60&start=${bad}`)).json();
-    expect(body.data.dayStart, bad).toBe(Date.parse("2026-10-19T23:00:00Z"));
+  const base = (await (await today()).json()).data;
+  for (const query of [`?tz=-240&start=${Date.parse("2026-10-19T04:00:00Z")}`, `?tz=330&start=${Date.parse("2026-10-19T22:00:00Z")}`, "?tz=abc&start=abc", "?tz=1000&start=-5", "?tz=&start="]) {
+    const { data } = await (await today(query)).json();
+    expect(data.dayStart, query).toBe(Date.parse("2026-10-19T04:00:00Z"));
+    expect(data.duels.map((d: { slug: string }) => d.slug), query).toEqual(base.duels.map((d: { slug: string }) => d.slug));
   }
 });
 
-it.each([["?tz=abc", 0], ["?tz=1.5", 0], ["?tz=-9999", -840], ["?tz=1000", 840], ["?tz=330", 330], ["?tz=", 0]])("reads tz %s as %i minutes", async (query, minutes) => {
-  const { data } = await (await today(query)).json();
-  expect(data.tzOffsetMinutes).toBe(minutes);
-  expect(data.counts.all).toBe(0);
-  expect(data.duels).toEqual([]);
+it.each([
+  ["a 25-hour day, clocks go back (EDT to EST)", "2026-11-01T15:00:00Z", "2026-11-01T04:00:00Z"],
+  ["a 23-hour day, clocks go forward (EST to EDT)", "2026-03-08T15:00:00Z", "2026-03-08T05:00:00Z"],
+  ["just after Eastern midnight in winter", "2026-12-15T05:10:00Z", "2026-12-15T05:00:00Z"],
+  ["just before Eastern midnight in summer", "2026-07-15T03:50:00Z", "2026-07-14T04:00:00Z"],
+])("starts the day at Eastern midnight on %s", async (_name, at, start) => {
+  vi.setSystemTime(Date.parse(at));
+  const { data } = await (await today()).json();
+  expect(data.dayStart).toBe(Date.parse(start));
 });
 
 it("sends at most 200 rows but counts the whole day", async () => {

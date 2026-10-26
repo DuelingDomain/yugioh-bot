@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { formatDate } from "@/lib/admin-console/time";
 import type { LiveData, OnlinePerson, PersonPlace, UserKey } from "@/lib/admin-console/types";
 import type { ConsoleActions } from "../admin-console";
 import { kindOf, okData, type PersonKind, type Snapshots } from "../model";
@@ -24,7 +25,7 @@ function placeDetail(place: PersonPlace, live: LiveData | null): string {
 }
 
 const KIND_ICON = { duel: "duels", draft: "draft", other: "deck" } as const;
-const date = (ms: number | null) => (ms === null ? "-" : new Date(ms).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }));
+const date = (ms: number | null) => (ms === null ? "-" : formatDate(ms));
 
 const PHONE = "(max-width: 760px)";
 

@@ -41,7 +41,7 @@ export const stats: CommandModule = {
       const data = computeStats(context.db,context.config.dataGuildId,now), live = liveCounts(context.db,context.config.dataGuildId,now);
       const presence = hasPresence(context.db);
       const embed = new EmbedBuilder().setColor(GOLD).setTitle("Dueling Domain • Stats")
-        .setDescription(`UTC • ${data.days[0]} to ${data.days.at(-1)}${presence ? "" : "\npresence not available; active users include duel and draft play only."}`)
+        .setDescription(`ET • ${data.days[0]} to ${data.days.at(-1)}${presence ? "" : "\npresence not available; active users include duel and draft play only."}`)
         .addFields(Object.entries(labels).map(([key,label]) => ({ name: label, inline: true,
           value: `Today: ${data.today[key as keyof typeof labels]}\n7 days: ${data.last7Days[key as keyof typeof labels]}` })))
         .addFields({ name: "Live duels", value: Object.entries(live.duels).map(([format,count]) => `${FORMAT_LABEL[format as keyof typeof FORMAT_LABEL]}: ${count}`).join("\n"), inline: true },

@@ -26,7 +26,7 @@ Sections and their routes. Setup, keys and status rules: [deployment/admin-conso
 | Waitlist | Pending sign-up requests, Approve or Reject | `GET /api/admin/console/waitlist`, `POST .../waitlist/[id]` |
 | Creators | Creators, their invite links and allowlist emails, invites sent, sign-ups, active in 7 days | `GET/POST /api/admin/console/creators`, `GET/PATCH .../creators/[id]`, `POST .../[id]/links`, `.../links/[linkId]/revoke`, `.../[id]/emails`, `.../creators/grants/[id]/resend` |
 | Live duels and drafts | Open and running tables and drafts, with Watch links | `GET /api/admin/console/live` |
-| Duels today | Every duel since local midnight, with Replay or Watch | `GET /api/admin/console/today` |
+| Duels today | Every duel since 00:00 ET, with Replay or Watch | `GET /api/admin/console/today` |
 | Stats | Sign-ups, active users, duels and drafts | `GET /api/admin/console/stats` |
 | Errors | Sentry errors for 24 hours | `GET /api/admin/console/errors` |
 | Usage | PostHog visitors and pages | `GET /api/admin/console/usage` |

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { maskEmail, plural } from "@/lib/admin-console/format";
+import { formatDayMonthUnlessThisYear } from "@/lib/admin-console/time";
 import type {
   AddEmailResult, AddEmailsResponse, BusyResponse, CreateCreatorResponse, CreateLinkResponse, Creator, CreatorDetailResponse,
   CreatorGrant, CreatorLink, CreatorSummary, LinkState, ResendResponse, RevokeLinkResponse,
@@ -55,9 +56,7 @@ const base = (id: number) => `/api/admin/console/creators/${id}`;
 /* ---------- small helpers ---------- */
 function day(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "-";
-  const d = new Date(ms);
-  const sameYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }) });
+  return formatDayMonthUnlessThisYear(ms);
 }
 
 /** Paste box text to unique emails, split on commas, semicolons, spaces and new lines. */

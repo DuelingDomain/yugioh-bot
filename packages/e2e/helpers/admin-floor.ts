@@ -1,5 +1,6 @@
 import { openDatabase } from "@yugidraft/shared/db";
 import { createPlayerService } from "@yugidraft/shared/services";
+import { easternDayStart } from "@yugidraft/shared/util/eastern-time";
 import { dbPath, guildId } from "../stack/env.mjs";
 
 /**
@@ -21,6 +22,10 @@ export function seedAdminFloor(): void {
   try {
     if (db.prepare("select 1 from duels where web_slug = ?").get(FLOOR.fours)) return;
     const now = Date.now();
+    // The "today" duels start up to 160 minutes ago. "Today" is the Eastern day (ET), so right after Eastern midnight they
+    // are squeezed into the time since midnight (order and relative ages stay the same).
+    const sinceMidnightMin = Math.floor((now - easternDayStart(now)) / MIN);
+    const squeeze = Math.min(1, Math.max(1, sinceMidnightMin - 2) / 160);
     const playerService = createPlayerService(db);
     const insertUser = db.prepare(`insert into users(id,username,display_name,first_sign_in_at,created_at) values (?,?,?,?,?)`);
     const player = new Map<string, number>();
@@ -42,8 +47,12 @@ export function seedAdminFloor(): void {
         last_activity_at,winner_seat,turn_count,clock_json,settings_json,kind) values (?,?,?,?,'domain',?,?,?,?,?,?,?,?,?,?,?,'play')`);
       const seat = db.prepare("insert into duel_seats(duel_id,seat,player_id,is_bot) values (?,?,?,?)");
       const addDuel = (p: { slug: string; name: string; status: string; format: string; ranked?: boolean; seats: (string | "bot")[]; startedMin: number;
-        endedMin?: number; winner?: number; turns?: number; clock?: { turn: number; activeSeat: number }; genesys?: boolean }) => {
+        endedMin?: number; history?: boolean; winner?: number; turns?: number; clock?: { turn: number; activeSeat: number }; genesys?: boolean }) => {
         const first = p.seats.find((s) => s !== "bot")!;
+        if (!p.history && squeeze < 1) {
+          // Ceil the start and floor the end, so an ended duel still ends after it started and every start is inside the Eastern day.
+          p = { ...p, startedMin: Math.max(1, Math.ceil(p.startedMin * squeeze)), endedMin: p.endedMin === undefined ? undefined : Math.floor(p.endedMin * squeeze) };
+        }
         const id = Number(duel.run(guildId, p.slug, p.name, player.get(first), p.status, p.format, p.ranked ? 1 : 0,
           sqlTime(now - (p.startedMin + 2) * MIN), sqlTime(now - p.startedMin * MIN), p.endedMin === undefined ? null : sqlTime(now - p.endedMin * MIN),
           sqlTime(now - (p.endedMin ?? 0) * MIN), p.winner ?? null, p.turns ?? null,
@@ -57,7 +66,7 @@ export function seedAdminFloor(): void {
         for (let k = 0; k < count; k++) {
           const startedMin = (6 - dayIndex) * 24 * 60 + 90 + k * 37;
           const pair = [FLOOR.people[(k + dayIndex) % 11], FLOOR.people[(k + dayIndex + 3) % 11]];
-          addDuel({ slug: `e2e-adm-hist-${dayIndex}-${k}`, name: "Casual", status: "completed", format: "1v1", seats: pair, startedMin, endedMin: startedMin - 25, winner: k % 2, turns: 8 + (k % 9) });
+          addDuel({ slug: `e2e-adm-hist-${dayIndex}-${k}`, name: "Casual", status: "completed", format: "1v1", seats: pair, startedMin, endedMin: startedMin - 25, winner: k % 2, turns: 8 + (k % 9), history: true });
         }
       });
 

@@ -1,8 +1,15 @@
 import { PermissionFlagsBits as P, Routes, type RESTGetAPIGuildMemberResult, type APIRole } from "discord.js";
 import { adminAccess, type ModWarning } from "@yugidraft/shared/discord-admin";
+import { easternDayKey } from "@yugidraft/shared/util/eastern-time";
 import type { FeatureContext } from "../../runtime/types.js";
 import { audit, type Action, type ActionResult } from "./audit.js";
 import { Refusal, type Actor } from "./security.js";
+
+/** Eastern day of the Discord join time ("2025-01-01 ET"), or "Unknown". */
+function joinedDay(value: string | null | undefined): string {
+  const ms = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(ms) ? `${easternDayKey(ms)} ET` : "Unknown";
+}
 
 export function warningCount(context: FeatureContext, targetId: string): number {
   return context.db.prepare<[string, string], { count: number }>("select count(*) count from mod_warnings where guild_id=? and target_discord_id=?")
@@ -62,7 +69,7 @@ export async function executeMemberAction(context: FeatureContext, actor: Actor,
       const rows = context.db.prepare<[string, string, number], ModWarning>(`select * from mod_warnings where guild_id=? and target_discord_id=?
         order by created_at desc,id desc limit 10 offset ?`).all(guildId, target, (page - 1) * 10);
       return { content: `User ${target}: ${count} warnings. Page ${page}/${pages}. Site admins can use the clear option to remove one warning.`,
-        embeds: rows.length ? [{ title: "Warnings", fields: rows.map(row => ({ name: `#${row.id} · ${new Date(row.created_at).toISOString().slice(0, 10)} · actor ${row.actor_discord_id ?? "unknown"}`, value: row.reason.slice(0, 500) })) }] : undefined };
+        embeds: rows.length ? [{ title: "Warnings", fields: rows.map(row => ({ name: `#${row.id} · ${easternDayKey(row.created_at)} · actor ${row.actor_discord_id ?? "unknown"}`, value: row.reason.slice(0, 500) })) }] : undefined };
     }
     case "warning_clear": {
       const row = requireWarning(context, action, actor);
@@ -83,10 +90,10 @@ export async function executeMemberAction(context: FeatureContext, actor: Actor,
       const roleList = roles.filter(role => member.roles.includes(role.id)).sort((a, b) => b.position - a.position)
         .map(role => `${role.name ?? "Role"} (${role.id})`).join("\n");
       return { embeds: [{ title: `User info · ${target}`, fields: [
-        { name: "Joined", value: member.joined_at ?? "Unknown" },
+        { name: "Joined", value: joinedDay(member.joined_at) },
         { name: "Roles", value: roleList.slice(0, 1000) || "No roles" },
         { name: "Warnings", value: String(warningCount(context, target)) },
-        { name: "Recent mod actions", value: recent.map(row => `${new Date(row.created_at).toISOString().slice(0, 10)} · ${row.action} · ${row.result}\n${(row.reason ?? "No reason").slice(0, 130)}`).join("\n").slice(0, 1000) || "None" },
+        { name: "Recent mod actions", value: recent.map(row => `${easternDayKey(row.created_at)} · ${row.action} · ${row.result}\n${(row.reason ?? "No reason").slice(0, 130)}`).join("\n").slice(0, 1000) || "None" },
       ] }] };
     }
     default: throw new Refusal("This moderation action is not available.");

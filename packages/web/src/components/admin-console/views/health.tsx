@@ -3,6 +3,7 @@
 import { VpsHealthSection } from "./vps-health";
 import type { ReactNode } from "react";
 import { duration, gb, plural } from "@/lib/admin-console/format";
+import { ADMIN_TIME_ZONE_LABEL, formatDayMonthClock } from "@/lib/admin-console/time";
 import type { DiskStatus, ServiceHealth, SystemData } from "@/lib/admin-console/types";
 import { SERVICE_TONE, SERVICE_WORD, okData, type Snapshots } from "../model";
 import { Notice, SectionHead, Since, StatusIcon, useNow } from "../parts";
@@ -92,7 +93,7 @@ export function HealthView({ s }: { s: Snapshots }) {
               <dt>App</dt>
               <dd>
                 {data.commit ? <a href={data.commit.url} target="_blank" rel="noreferrer" className={styles.mono}>{data.commit.short}</a> : data.version ?? "Unknown"}
-                <small>Web running since {new Date(data.startedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small>
+                <small>Web running since {formatDayMonthClock(data.startedAt)} {ADMIN_TIME_ZONE_LABEL}</small>
               </dd>
             </div>
             <div>
