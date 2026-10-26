@@ -134,7 +134,7 @@ var CONFIG={state:'restart',etaIso:null,message:'We are doing planned maintenanc
 /* ---- Shared logic (same in all three concepts) ---- */
 var Maint=(function(){
   var STATES=['restart','planned','outage'];
-  var M={phase:'wait',attempt:0,interval:10,startAt:0,nextAt:0,last:null,log:[]};
+  var M={phase:'wait',attempt:0,interval:10,startAt:0,nextAt:0,last:null,log:[],stuck:false,manual:false};
   var H={},lineEl,lastLine='',api={};
   if(STATES.indexOf(CONFIG.state)<0) CONFIG.state='restart';
   function pad(n){return n<10?'0'+n:''+n}
@@ -157,17 +157,32 @@ var Maint=(function(){
     var t=Date.now(),w=M.phase==='wait';
     return {state:CONFIG.state,phase:M.phase,left:w?Math.max(0,Math.ceil((M.nextAt-t)/1000)):0,
       frac:w?Math.min(1,(t-M.startAt)/(M.nextAt-M.startAt)):1,interval:M.interval,attempt:M.attempt,
-      last:M.last,log:M.log,eta:api.eta(),message:CONFIG.message||''};
+      last:M.last,log:M.log,eta:api.eta(),message:CONFIG.message||'',stuck:M.stuck};
   }
   function line(s){
-    var t=s.phase==='checking'?'Checking if we are back.':s.phase==='back'?'We are back. Reloading now.':s.last?'Not back yet. We keep checking.':'Waiting for the servers.';
+    var t=s.stuck?'The servers answer, but the page did not load. Press Try now.':s.phase==='checking'?'Checking if we are back.':s.phase==='back'?'We are back. Reloading now.':s.last?'Not back yet. We keep checking.':'Waiting for the servers.';
     if(t!==lastLine&&lineEl){lastLine=t;lineEl.textContent=t}
   }
   function emit(){var s=snap(),r=document.documentElement;r.dataset.phase=s.phase;line(s);if(H.render)H.render(s)}
   function reset(){M.attempt=0;M.last=null;M.log=[];schedule();emit()}
-  function done(){location.reload()}
-  function check(){
+  /* Loop guard. /healthz can answer 200 while the page itself still gets a 502. Count the
+     automatic reloads in sessionStorage; after RMAX in RWIN ms, stop reloading by itself. The
+     count clears by time: old entries drop out of the window, so a later outage starts fresh.
+     If sessionStorage is blocked there is no count, and the guard is off. */
+  var RK='dd-maint-reloads',RMAX=3,RWIN=300000;
+  function reloads(){try{var n=Date.now(),a=JSON.parse(sessionStorage.getItem(RK)||'[]');return a.filter(function(t){return typeof t==='number'&&t<=n&&n-t<RWIN})}catch(e){return []}}
+  function noteReload(){try{var a=reloads();a.push(Date.now());sessionStorage.setItem(RK,JSON.stringify(a))}catch(e){}}
+  function done(){
+    var manual=M.manual;M.manual=false;
+    if(!manual){
+      if(reloads().length>=RMAX){M.stuck=true;M.phase='wait';M.startAt=Date.now();M.nextAt=Infinity;emit();return}
+      noteReload();
+    }
+    location.reload();
+  }
+  function check(manual){
     if(M.phase!=='wait')return;
+    M.manual=manual===true;M.stuck=false;
     M.phase='checking';emit();
     probe().then(function(r){
       M.attempt++;M.last={ok:r.ok,label:r.label,at:new Date(),n:M.attempt};
@@ -175,16 +190,16 @@ var Maint=(function(){
       if(r.ok){M.phase='back';emit();setTimeout(done,2400)}else{schedule();emit()}
     });
   }
-  api.tryNow=check;
+  api.tryNow=function(){check(true)};
   api.setState=function(s){
     CONFIG.state=s;document.documentElement.dataset.state=s;
     if(H.onState)H.onState(s);reset();
   };
   api.init=function(h){
     H=h||{};lineEl=document.getElementById('state-line');
-    var tb=document.querySelectorAll('[data-try]');for(var i=0;i<tb.length;i++)tb[i].addEventListener('click',check);
+    var tb=document.querySelectorAll('[data-try]');for(var i=0;i<tb.length;i++)tb[i].addEventListener('click',function(){check(true)});
     api.setState(CONFIG.state);
-    setInterval(function(){if(M.phase==='wait'&&Date.now()>=M.nextAt)check();else emit()},200);
+    setInterval(function(){if(M.phase==='wait'&&!M.stuck&&Date.now()>=M.nextAt)check();else emit()},200);
   };
   return api;
 })();
@@ -212,7 +227,7 @@ Maint.init({
     $('lede').hidden=!$('lede').textContent;
     $('eta').hidden=!s.eta||back;Maint.set($('eta-t'),s.eta);
     $('fill').style.width=(s.frac*100)+'%';
-    Maint.set($('count'),back?'Reloading...':s.phase==='checking'?'Checking...':'Next check in '+s.left+' s');
+    Maint.set($('count'),back?'Reloading...':s.phase==='checking'?'Checking...':s.stuck?'Automatic reload paused':'Next check in '+s.left+' s');
   }
 });
 </script>

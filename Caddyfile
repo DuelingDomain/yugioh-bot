@@ -83,7 +83,11 @@ Allow: /
             fail_duration 1s
             max_fails 1
             # One trusted value for rate limits, never a client-supplied list.
+            # Host and scheme come from this request: a client behind a trusted
+            # Cloudflare peer cannot set them (Clerk and Next read them).
             header_up X-Forwarded-For {client_ip}
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto {scheme}
         }
     }
 
@@ -158,6 +162,8 @@ www.{$SITE_DOMAIN}, http:// {
     handle @waitlist {
         reverse_proxy web:3000 {
             header_up X-Forwarded-For {client_ip}
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto {scheme}
         }
     }
     import posthog_ingest

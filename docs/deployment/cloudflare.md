@@ -4,6 +4,8 @@ Status: **plan, not live** (written 2026-10-25). The owner does every Cloudflare
 
 Decision (2026-10-24): use the Cloudflare **Free** plan as a proxy only. Do not move the app to Workers or Durable Objects.
 
+Decision (2026-10-25): when the VM or Caddy is down, Cloudflare's default error page is the VM-down page. It costs $0. No Worker and no Pro plan.
+
 ## Why
 
 | Goal | How Cloudflare helps |
@@ -11,7 +13,7 @@ Decision (2026-10-24): use the Cloudflare **Free** plan as a proxy only. Do not 
 | Stop DDoS traffic | Cloudflare absorbs it at the edge. The HTTP DDoS rules are always on, on all plans. |
 | Hide the VM IP | Visitors see Cloudflare IPs. Lock the VM firewall to Cloudflare to make this real. |
 | Cache static files and card images | The edge serves `/_next/static/*` and card images. The VM sends fewer bytes. |
-| Show a page when the site is down | See [Maintenance pages](#maintenance-pages). The Free plan cannot do this alone. |
+| Show a page when the site is down | Caddy shows the maintenance page when `web` restarts. When the whole VM is down, Cloudflare shows its own default error page (owner decision). See [Maintenance pages](#maintenance-pages). |
 
 ## What the PR changes in the repo
 
@@ -23,6 +25,7 @@ All changes work with and without Cloudflare in front.
 | `Caddyfile` | `header_up X-Forwarded-For {client_ip}` on every proxy to `web`, and on the PostHog proxy. The app reads the first `X-Forwarded-For` value for rate limits ([`rate-limit.ts`](../../packages/web/src/lib/rate-limit.ts)). Without this change, all players share one Cloudflare edge IP and one rate-limit bucket. |
 | `Caddyfile` | `handle_errors 502 503 504` on the app host. See [Maintenance pages](#maintenance-pages). |
 | `docker-compose.yml` | Caddy mounts `./site/maintenance` at `/srv/maintenance`, read-only. |
+| `Caddyfile` | `header_up X-Forwarded-Host {host}` and `header_up X-Forwarded-Proto {scheme}` on the same two proxies. Without them, a client behind a trusted Cloudflare peer could send its own values, and Clerk and the Next.js server-action origin check read them. |
 | `Caddyfile` | `/healthz` on the app host. It asks `web` for `/icon.svg` and answers `200 ok` only when `web` answered 2xx. Otherwise 502 JSON. It is never cached (`Cache-Control: no-store`). The maintenance page calls it. |
 | `site/maintenance/index.html` | The maintenance page, design "Between turns". One self-contained file. Three states: restart, planned, outage. |
 
@@ -33,7 +36,8 @@ Tests that ran on this branch (Docker, image `caddy:2.11.2-alpine`):
 - `python3 -I scripts/deployment/verify-web-restart.py`: pass.
 - Manual: a trusted peer with `CF-Connecting-IP` gives `X-Forwarded-For` = that IP. A client-set `X-Forwarded-For` is dropped. `/healthz` gives 200 with `web` up and 502 JSON with `web` down. An untrusted peer that sends `CF-Connecting-IP` is ignored.
 - Manual: with `web` stopped, a browser page load gets 503 and the HTML page. API, Socket.IO and `fetch` calls get JSON with the real status (502).
-- Manual (Playwright, headless Chromium, 1366x768 and 390x780): the three states show, no demo bar, no script errors. After two failed checks and one good check, the page reloads.
+- Manual: a client-set `X-Forwarded-Host` or `X-Forwarded-Proto` is replaced with the real host and `https` on the app and waitlist proxies.
+- Manual (Playwright, headless Chromium, 1366x768 and 390x780): the three states show, no demo bar, no script errors. After two failed checks and one good check, the page reloads. With `/healthz` always 200 and the page always 503, it reloads 3 times and then pauses with the message; "Try now" still reloads.
 
 ### Keep the IP list current
 
@@ -56,8 +60,8 @@ Compare the output with the `trusted_proxies static` line. Update the Caddyfile 
 | Always Use HTTPS | **Off** at first | Caddy already redirects all HTTP. Cloudflare says Always Use HTTPS [does not stop HTTP DCV](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/), but it does not mention ACME HTTP-01 for the origin. Leave it off to keep the ACME path simple. |
 | HSTS at Cloudflare | **Off** | Caddy sends `max-age=31536000` already. A Cloudflare HSTS with `includeSubDomains` or preload would also hit `clerk.app`, mail records and other subdomains. |
 | Clerk records | **DNS only** (grey cloud) | Clerk checks its CNAME records by DNS. A proxy breaks this check ([Clerk](https://clerk.com/docs/guides/development/deployment/production), troubleshooting section). |
-| `www.app.duelingdomain.com` | **Delete the record** | Free Universal SSL covers only the apex and one level (`*.duelingdomain.com`). A deeper name [has no valid certificate](https://developers.cloudflare.com/ssl/edge-certificates/universal-ssl/limitations/). A grey record would show the VM IP. The Caddy block stays; it is harmless. |
-| `duelistskingdom.com` (legacy) | Add it to Cloudflare as a second Free site, proxied | If it stays grey, its DNS shows the VM IP and the firewall lock cannot work. |
+| `www.app.duelingdomain.com` | **Delete the record** | Free Universal SSL covers only the apex and one level (`*.duelingdomain.com`). A deeper name [has no valid certificate](https://developers.cloudflare.com/ssl/edge-certificates/universal-ssl/limitations/). A grey record would show the VM IP. The Caddy block stays for now; a later PR removes it (see [ACME check](#acme-check)). |
+| `duelistskingdom.com` (legacy) | Add it to Cloudflare as a second Free site. Proxy it in step 18, with the other web records | If it stays grey, its DNS shows the VM IP and the firewall lock cannot work. |
 | Bot Fight Mode | **Off** | It cannot be skipped by WAF rules and it [may challenge API traffic](https://developers.cloudflare.com/bots/get-started/bot-fight-mode/). Clerk and Discord call our web server from servers (for example `/api/webhooks/clerk`). |
 | Other speed options | Rocket Loader **off**, Email Address Obfuscation **off**, Web Analytics auto-install **off** | They rewrite HTML or inject scripts. Next.js hydration and the CSP can break. |
 | Security Level | Low | Players on VPNs would see challenges at Medium. Use "Under Attack Mode" only in an attack. It shows a JavaScript challenge, which API and Socket.IO clients cannot pass. |
@@ -82,7 +86,7 @@ Do the steps in this order. Stop at any step that does not match the check.
 
 1. Merge this PR. Run the normal Deploy. Check that `https://app.duelingdomain.com/` still loads and that you can sign in.
 2. Optional, at a quiet time: on the VM, run `docker compose -f docker-compose.yml stop web`. Open the app in a browser. You must see the maintenance page. Run `docker compose -f docker-compose.yml start web`. Do not do this while duels run.
-3. In Namecheap, open Advanced DNS for `duelingdomain.com` and `duelistskingdom.com`. Save a screenshot or export of **every** record. Note the VM IPv4 and IPv6 addresses.
+3. In Namecheap, open Advanced DNS for `duelingdomain.com` and `duelistskingdom.com`. Save a screenshot or export of **every** record. Note the VM IPv4 and IPv6 addresses. If the contact mailbox uses **Namecheap Email Forwarding**, it stops when the name servers move. Set up [Cloudflare Email Routing](https://developers.cloudflare.com/email-routing/) for the same addresses before step 16, and check it with the Email check below.
 4. In Namecheap, check that DNSSEC is off for both domains. If it is on, turn it off before you change the name servers.
 
 ### B. Add the site (no traffic change yet)
@@ -90,13 +94,13 @@ Do the steps in this order. Stop at any step that does not match the check.
 5. Create a Cloudflare account. Use a strong password and two-factor sign-in.
 6. Choose **Add a site**, enter `duelingdomain.com`, choose the **Free** plan.
 7. Cloudflare scans the DNS. Compare its list with your Namecheap export. Add every missing record. Pay attention to MX, SPF, DKIM, DMARC and Search Console or Bing TXT records.
-8. Set the proxy state for each record:
+8. Set the proxy state for each record. **Keep every web record DNS only (grey) for now.** Cloudflare gives the Universal SSL certificate only after the name server switch, and it can take 15 minutes to 24 hours ([docs](https://developers.cloudflare.com/ssl/edge-certificates/universal-ssl/enable-universal-ssl/): "Keep DNS records unproxied until your certificate is active"). Caddy sends HSTS for one year, so a visitor cannot click through a certificate error. Step 18 turns the web records orange.
 
 | Record | Proxy |
 |---|---|
-| `duelingdomain.com` A and AAAA (VM) | Proxied (orange) |
-| `www` | Proxied (orange) |
-| `app` A and AAAA (VM) | Proxied (orange) |
+| `duelingdomain.com` A and AAAA (VM) | DNS only (grey) now. **Proxied (orange) in step 18.** |
+| `www` | DNS only (grey) now. **Proxied (orange) in step 18.** |
+| `app` A and AAAA (VM) | DNS only (grey) now. **Proxied (orange) in step 18.** |
 | `www.app` | Delete |
 | `clerk.app` CNAME (Clerk Frontend API) | **DNS only (grey)** |
 | `accounts.app` CNAME (Clerk) | **DNS only (grey)** |
@@ -125,13 +129,15 @@ Known effect: the card image route needs a signed-in session. After a rule cache
 
 ### D. Switch traffic
 
-15. For `duelistskingdom.com`, repeat steps 6 to 13. Proxy only the apex and `www`.
-16. In Namecheap, set the name servers of each domain to the two that Cloudflare shows. Wait until Cloudflare shows the site as **Active**. This can take some hours.
-17. Do the [checks](#checks) now.
+15. For `duelistskingdom.com`, repeat steps 6 to 13. Keep the apex and `www` DNS only (grey) for now.
+16. In Namecheap, set the name servers of each domain to the two that Cloudflare shows. Records stay grey, so visitors still reach the VM directly, as they do today.
+17. Wait until Cloudflare shows each site as **Active** and **SSL/TLS > Edge Certificates** shows the Universal certificate as **Active**. This can take 15 minutes to 24 hours. Do **not** go on before both are Active.
+18. Now set the web records to **Proxied (orange)**: `duelingdomain.com`, `www` and `app` on `duelingdomain.com`, and the apex and `www` on `duelistskingdom.com`. All Clerk records stay grey.
+19. Do the [checks](#checks) now.
 
 ### E. Lock the origin (after two days without problems)
 
-18. In Hetzner Cloud, create a Firewall with these inbound rules:
+20. In Hetzner Cloud, create a Firewall with these inbound rules:
 
 | Protocol | Port | Source |
 |---|---|---|
@@ -150,8 +156,8 @@ Notes on these rules:
 - After this step, a direct request to the VM IP fails. Old `http://<IP>` links in Discord stop working.
 - Every host name that Caddy serves must be proxied now. A grey host cannot renew its certificate.
 
-19. Attach the firewall to the VM. Run the [checks](#checks) again.
-20. Optional: the VM IP was public before. To make it secret, ask for a new IP (Hetzner Primary IP) and update the two A records and the AAAA records.
+21. Attach the firewall to the VM. Run the [checks](#checks) again.
+22. Optional: the VM IP was public before. To make it secret, ask for a new IP (Hetzner Primary IP) and update the two A records and the AAAA records.
 
 ## Checks
 
@@ -176,11 +182,11 @@ Notes on these rules:
 
 Caddy renews 30 days before a certificate ends. Test the path now so a failure shows in time.
 
-1. From any computer: `curl -sI http://app.duelingdomain.com/.well-known/acme-challenge/test`. The answer must **not** be a Cloudflare challenge or block page (no `cf-mitigated` header). A plain 404 is correct.
-2. On the VM: `docker compose -f docker-compose.yml logs caddy | grep -i -E 'certificate|acme|renew' | tail`. Look for errors.
+1. From any computer: `curl -sI http://app.duelingdomain.com/.well-known/acme-challenge/test`. The answer must **not** be a Cloudflare challenge or block page (no `cf-mitigated` header). A `308` redirect to https or a `404` is correct (Caddy answers 308 when no challenge is active).
+2. On the VM: `docker compose -f docker-compose.yml logs caddy | grep -i -E 'certificate|acme|renew' | tail`. Look for errors. Errors about `www.app.duelingdomain.com` are expected after step 8: that record is gone, so Caddy cannot renew that certificate. They are harmless, because Caddy still redirects every name it can reach. To remove the noise, open a PR that deletes `www.{$SITE_DOMAIN}` from the redirect block in the `Caddyfile` (the block that starts `www.{$SITE_DOMAIN}, http:// {`). Do this only after the switch is stable.
 3. On the VM: `echo | openssl s_client -connect 127.0.0.1:443 -servername app.duelingdomain.com 2>/dev/null | openssl x509 -noout -enddate`. Write the date in your calendar. Do this for `duelingdomain.com` too.
 
-If a renewal fails: set the failing record to DNS only for one day. Open the firewall to all on 80 and 443 for that day if you did step 18. Caddy retries by itself. Then restore both.
+If a renewal fails: set the failing record to DNS only for one day. Open the firewall to all on 80 and 443 for that day if you did step 20. Caddy retries by itself. Then restore both.
 
 ## Maintenance pages
 
@@ -205,20 +211,21 @@ The page shows a tilted playmat and a deck that shuffles. It has three states:
 |---|---|---|
 | `restart` (default) | "Between turns" / "Shuffling the deck." | Caddy could not reach `web`: a deploy or a restart. Usually less than a minute. |
 | `planned` | "Planned maintenance" / "Resetting the field." | The owner sets it. It can show an expected time and a message. |
-| `outage` | "Service interruption" / "The field went dark." | The server is down and not planned. See Case 2, option B. |
+| `outage` | "Service interruption" / "The field went dark." | The server is down and not planned. Not used now (see Case 2). |
 
 How it works:
 
 - Every 10 s (then 15 s, 20 s, up to 30 s after failed checks, plus 0-1 s of random jitter) the page calls `GET /healthz` with `cache: no-store` and a 5 s time limit. A "Try now" button checks at once.
 - `/healthz` is on the same host. It is answered by Caddy from `web`. It is not answered by the maintenance handler, and Cloudflare does not cache it (no file extension, no cache rule, `no-store`). It returns 200 only when `web` is up.
 - When `/healthz` gives 200, the page shows "We are back." and reloads after 2.4 s (`location.reload()`). The reload goes to the original URL, so the player lands where they were.
+- Loop guard: `/healthz` can answer 200 while the page itself still gets a 502 (for example web is half up). The page counts its automatic reloads in `sessionStorage`. After 3 automatic reloads within 5 minutes it stops, shows "The servers answer, but the page did not load. Press Try now.", and waits for the button. A click on "Try now" always reloads. Old counts drop out of the 5 minute window by themselves, so a later outage starts fresh. If the browser blocks `sessionStorage`, there is no count and no guard (the slow loop of one reload per 15 s or more stays).
 - Under `prefers-reduced-motion`, the animation stops. No outside request: no fonts, no images, no scripts.
 - The "Status and news in our Discord" link goes to the community invite that the marketing site uses (`https://discord.gg/sUSmbRbBUm`).
 
 Which state is shown. Caddy always serves the same file. The file shows `restart` unless the owner changes `CONFIG` in it. So:
 
 - Caddy `handle_errors` (502, 503, 504): `restart`, or `planned` when the owner set it.
-- Cloudflare VM-down page (Case 2): Cloudflare cannot serve our file on the Free plan. With option B, the Worker serves a copy of this file and sets the state by a text replace of `state:'restart'` with `state:'outage'` in the HTML before it answers. The Worker must pass `/healthz` through to the origin. With option A or C there is no link to this file.
+- Cloudflare VM-down page (Case 2): Cloudflare shows its own page and never calls this file. The `outage` state is for a later Worker or Pro option, not used now.
 
 ### Turn on planned maintenance
 
@@ -245,30 +252,19 @@ Cloudflare then shows its own error page (521, 522, 523 or 524). Facts, checked 
 - A WAF "Block" custom response is also Pro and above, and only allows status 400-499 ([docs](https://developers.cloudflare.com/waf/custom-rules/create-dashboard/)).
 - Cloudflare shows an error page only when it cannot reach the origin. It never calls our Caddy page in that case.
 
-| Option | Cost | Limits | Verdict |
-|---|---|---|---|
-| **A. Accept the Cloudflare default page** | $0 | Page is Cloudflare-branded ("Web server is down"). Short for deploys. | **Recommended now.** |
-| B. Cron Worker that adds a Worker route only during an outage | $0 | See below. About 1 minute to detect. Needs one API token and about 60 lines of code. | Build later if outages hurt. |
-| C. Cloudflare Pro, Custom Error Rules or Error Pages | $20/month billed yearly, $25 monthly ([plans](https://www.cloudflare.com/plans/network-cdn.md)) | 25 rules and 25 assets. Pages up to about 1.5 MB. | Choose this if you want a branded page without code. |
-| D. A Worker route in front of every request | $0 up to 100,000 requests/day, then Paid ($5/month) | **Every request to the route counts**, including API polling. A busy duel day passes 100,000. After the limit, a route set to "fail open" skips the Worker; "fail closed" shows error 1027 ([docs](https://developers.cloudflare.com/workers/platform/limits/)). | Not recommended. |
+**Decision (owner, 2026-10-25): use the Cloudflare default error page. It costs $0. Do not build a Worker. Do not buy Pro.** The page is Cloudflare-branded ("Web server is down", error 521 to 524). Case 1 covers restarts and most of a deploy, and a real VM outage is rare.
 
-Recommendation: **A now, C if a branded VM-down page matters, B as the free alternative to C.** Reason: Case 1 already covers restarts and most of a deploy. Real VM outages are rare. A Worker in front of all traffic (D) costs requests on normal days and adds a failure point.
+Later, only if outages hurt (not planned):
 
-Design of option B, not built in this PR:
+- Cloudflare Pro ($20/month billed yearly, $25 monthly, [plans](https://www.cloudflare.com/plans/network-cdn.md)): Custom Error Rules and Error Pages with our own HTML.
+- A Worker that adds a route only during an outage (a cron check of `/robots.txt`, then a route that serves this page with `state:'outage'`). It costs $0 but needs an API token and code. A Worker route on all traffic is a bad idea: every request counts against the 100,000 per day Free limit ([Workers limits](https://developers.cloudflare.com/workers/platform/limits/)).
 
-1. A Worker with a Cron Trigger every minute (the Free plan allows [5 Cron Triggers per account](https://developers.cloudflare.com/workers/platform/limits/)).
-2. It requests `https://app.duelingdomain.com/robots.txt`. Caddy answers this path by itself, so it shows whether Caddy is up. (`/healthz` shows whether `web` is up. Use it only for the page.)
-3. On 520 to 524 (or no answer) it adds a route `app.duelingdomain.com/*` to a second Worker. That Worker returns the maintenance HTML (with `state:'outage'`) with status 503 and `Retry-After`. It passes `/healthz` to the origin so the page can detect the return.
-4. When `robots.txt` answers 200 again, it deletes the route.
-5. Its API token is limited to Workers Routes on this zone and is stored as a Worker secret.
-6. Worker requests exist only during an outage. If the 100,000 limit is reached, set the route to fail open so visitors see the default page again.
-
-Open details to verify when you build it: Free route fail-open setting, API route edit scope, and propagation time of a route change.
+Because of this decision, the `outage` state in the page file has no live use now. It stays in the file for the later options.
 
 ## Rollback
 
-1. If you did step 18: in Hetzner, open ports 80 and 443 to any source (or detach the firewall). Do this **first**.
-2. In Cloudflare DNS, click each orange record and set it to **DNS only**. Visitors reach the VM directly within about 5 minutes. Caddy certificates are valid, so there is no browser error.
+1. If you did step 20: in Hetzner, open ports 80 and 443 to any source (or detach the firewall). Do this **first**.
+2. In Cloudflare DNS, click each orange record and set it to **DNS only**. Visitors reach the VM directly within about 5 minutes. Caddy certificates are valid, so there is no browser error. Do this at once if visitors see a certificate error after step 18.
 3. To leave Cloudflare fully: in Namecheap, set the name servers back to Namecheap DNS. Check that all records exist there first.
 4. The `Caddyfile` changes need no rollback. Without Cloudflare, Caddy uses the real peer address. The maintenance page still works.
 
@@ -277,7 +273,7 @@ Open details to verify when you build it: Free route fail-open setting, API rout
 | Risk | What happens | Control |
 |---|---|---|
 | Real IP lost | All players share one rate-limit bucket (for example waitlist: 5 per 10 minutes for everyone). | The `Caddyfile` change in this PR. Run the "Real client IP" check. Update the range list every three months. |
-| Client-set `X-Forwarded-For` | Cloudflare appends to a client header, so the first value can be forged. | Caddy now writes `{client_ip}` as the only value. Test shows a forged value is dropped. |
+| Client-set `X-Forwarded-For`, `-Host` or `-Proto` | A client can send these headers, and a trusted Cloudflare peer passes them on. | Caddy now writes `{client_ip}`, `{host}` and `{scheme}` itself. A Docker test shows forged values are dropped. |
 | Clerk sign-in breaks | A proxied Clerk record fails Clerk's DNS check and the sign-in page fails. | Keep every Clerk record grey. Check the Clerk dashboard shows "Verified" after the switch. |
 | WebSocket drops | Edge idle close or a Cloudflare restart ends sockets. | Heartbeats (5 s and 25 s). Clients reconnect. Cloudflare may [restart servers and end WebSockets](https://developers.cloudflare.com/network/websockets/). |
 | ACME renewal fails | After about 60 days, the certificate expires and Cloudflare shows error 526. | [ACME check](#acme-check). Caddy tries 30 days early. Calendar reminder. |
@@ -287,7 +283,9 @@ Open details to verify when you build it: Free route fail-open setting, API rout
 | Cached card image without sign-in | A person not signed in can fetch a cached card image. | Accepted (public art), or skip the card image rule. |
 | Firewall locks you out | SSH or ACME fails. | Keep SSH open. Keep a Hetzner console login. Detach the firewall to undo. |
 | Nameserver change outage | DNS goes dark if records are missing. | Step 7: compare every record before step 16. Email records are easy to forget. |
-| New Universal SSL gap | `www.app` has no valid certificate. | The record is deleted in step 8. |
+| Proxy before the Universal certificate is active | Cloudflare shows a certificate error. With one year of HSTS, visitors cannot click through: a full outage. | Records stay grey until step 17 shows the certificate Active. Proxy them only in step 18. If it happens: set the records to DNS only again at once. |
+| `www.app` has no valid certificate | Free Universal SSL does not cover it. | The record is deleted in step 8. |
+| Caddy log errors for `www.app` | After the record is deleted, Caddy cannot renew the `www.app` certificate and logs errors. This is expected. | Remove `www.{$SITE_DOMAIN}` from the redirect block in the `Caddyfile` in a later PR, after the switch is stable (see [ACME check](#acme-check)). |
 
 ## What the browser does today when the server fails
 
