@@ -134,6 +134,7 @@ Operations reference.
 |---|---|
 | [deployment/vm-runbook.md](deployment/vm-runbook.md) | Main ops reference: VM setup, deploy pipeline, rollback, backups, env |
 | [deployment/domains.md](deployment/domains.md) | Hosts, DNS, Caddy routes, Clerk instances |
+| [deployment/cloudflare.md](deployment/cloudflare.md) | Plan: Cloudflare Free plan in front of production, maintenance page, rollback |
 | [deployment/duel-engine-switch.md](deployment/duel-engine-switch.md) | Which engine runs which table, and the multiplayer flag |
 | [deployment/engine-data-updates.md](deployment/engine-data-updates.md) | Weekly engine data updates and their review |
 | [deployment/admin-console.md](deployment/admin-console.md) | `/admin` console setup |

@@ -1,8 +1,22 @@
+# Real client IP. The web app reads the first X-Forwarded-For entry for rate
+# limits, so Caddy must write the real address there. Only Cloudflare ranges are
+# trusted to send CF-Connecting-IP; any other peer is used as the client address,
+# so this is the same with or without Cloudflare in front. Source:
+# https://www.cloudflare.com/ips-v4 and https://www.cloudflare.com/ips-v6
+# (checked 2026-10-25). See docs/deployment/cloudflare.md before you edit this list.
+{
+    servers {
+        trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+        client_ip_headers CF-Connecting-IP
+    }
+}
+
 (posthog_ingest) {
     handle /ingest/static/* {
         uri strip_prefix /ingest
         reverse_proxy https://eu-assets.i.posthog.com {
             header_up Host {upstream_hostport}
+            header_up X-Forwarded-For {client_ip}
             header_up -Cookie
             header_up -Authorization
             header_up -Referer
@@ -13,6 +27,7 @@
         uri strip_prefix /ingest
         reverse_proxy https://eu.i.posthog.com {
             header_up Host {upstream_hostport}
+            header_up X-Forwarded-For {client_ip}
             header_up -Cookie
             header_up -Authorization
             header_up -Referer
@@ -43,6 +58,21 @@ Allow: /
     handle /socket.io/* {
         reverse_proxy ws:3001
     }
+    # Health check for the maintenance page. It asks web for a public static file
+    # and answers 200 only when web itself answered 2xx. No retry hold, so a down
+    # web fails at once. A failure lands in the JSON branch of handle_errors below,
+    # never in the maintenance page (fetch sends Sec-Fetch-Dest: empty).
+    handle /healthz {
+        rewrite * /icon.svg
+        reverse_proxy web:3000 {
+            @up status 2xx
+            handle_response @up {
+                header Cache-Control "no-store"
+                header Content-Type "text/plain; charset=utf-8"
+                respond "ok" 200
+            }
+        }
+    }
     import posthog_ingest
     handle {
         reverse_proxy web:3000 {
@@ -52,6 +82,38 @@ Allow: /
             lb_try_interval 250ms
             fail_duration 1s
             max_fails 1
+            # One trusted value for rate limits, never a client-supplied list.
+            header_up X-Forwarded-For {client_ip}
+        }
+    }
+
+    # Caddy could not reach web or ws (restart, crash) and the 30 s hold is over.
+    # Upstream 5xx replies from the app pass through unchanged; only Caddy's own
+    # 502/503/504 land here. Browser page loads get the static maintenance page;
+    # API, Socket.IO and asset callers get a small JSON error with the real status.
+    # The page lives in site/maintenance (mounted at /srv/maintenance).
+    handle_errors 502 503 504 {
+        @document {
+            method GET HEAD
+            header Accept *text/html*
+            not header Sec-Fetch-Dest empty
+            not path /socket.io/* /ingest/*
+        }
+        handle @document {
+            root * /srv/maintenance
+            rewrite * /index.html
+            header Cache-Control "no-store"
+            header Retry-After "15"
+            header X-Robots-Tag "noindex, nofollow"
+            file_server {
+                status 503
+            }
+        }
+        handle {
+            header Cache-Control "no-store"
+            header Retry-After "15"
+            header Content-Type "application/json; charset=utf-8"
+            respond `{"error":"service_unavailable","retryable":true}` {err.status_code}
         }
     }
 }
@@ -94,7 +156,9 @@ www.{$SITE_DOMAIN}, http:// {
         method POST
     }
     handle @waitlist {
-        reverse_proxy web:3000
+        reverse_proxy web:3000 {
+            header_up X-Forwarded-For {client_ip}
+        }
     }
     import posthog_ingest
     handle /login {

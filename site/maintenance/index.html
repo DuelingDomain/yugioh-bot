@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en" data-state="restart" data-phase="wait">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Dueling Domain - Between turns</title>
+<style>
+:root{--bg:#070A14;--ink:#EEF0F7;--mute:#A6AFCB;--line:#2A3150;--gold:#C9A45C;--goldl:#F3DDA0;--purple:#7C3AED;--purplel:#A78BFA;--bad:#F08A8A;
+ --display:"Bahnschrift","DIN Condensed","Oswald","Arial Narrow","Roboto Condensed","Helvetica Neue",Impact,sans-serif;
+ --sans:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink)}
+body{font:clamp(16px,.9vw + 10px,19px)/1.55 var(--sans);min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;overflow-x:hidden;
+ background:radial-gradient(900px 600px at 72% 55%,rgba(124,58,237,.22),transparent 65%),radial-gradient(700px 400px at 5% 0%,rgba(201,164,92,.08),transparent 60%),var(--bg)}
+.page{flex:1;width:100%;max-width:1760px;margin:0 auto;padding:clamp(18px,2.6vw,44px) clamp(20px,4.5vw,88px);display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);grid-template-rows:auto 1fr;column-gap:clamp(20px,4vw,80px);align-content:stretch}
+.mark{grid-column:1/-1;display:flex;align-items:center;gap:.7em;font:700 .95rem/1 var(--display);letter-spacing:.3em;text-transform:uppercase;color:var(--goldl)}
+.mark svg{width:14px;height:14px;color:var(--gold)}
+.copy{align-self:center;padding:clamp(20px,4vh,48px) 0}
+.chip{display:inline-flex;align-items:center;gap:.7em;margin:0 0 clamp(14px,2.4vh,26px);padding:7px 14px 7px 12px;border:1px solid var(--gold);border-radius:3px;font:700 .8rem/1 var(--display);letter-spacing:.2em;text-transform:uppercase;color:var(--goldl);background:rgba(201,164,92,.07)}
+.chip i{width:8px;height:8px;border-radius:50%;background:var(--purplel);box-shadow:0 0 0 0 rgba(167,139,250,.7);animation:pip 1.8s infinite}
+@keyframes pip{70%,100%{box-shadow:0 0 0 9px rgba(167,139,250,0)}}
+h1{margin:0;font:700 clamp(2.8rem,6.2vw,7rem)/.94 var(--display);letter-spacing:.005em;text-transform:uppercase;text-wrap:balance;max-width:11ch}
+h1 em{font-style:normal;color:var(--goldl)}
+.eta{margin:clamp(12px,2vh,22px) 0 0;font:700 clamp(1.1rem,1.8vw,1.7rem)/1.2 var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--purplel)}
+.eta[hidden]{display:none}
+.lede{margin:clamp(14px,2.2vh,26px) 0 0;max-width:44ch;color:var(--mute);font-size:1.05em}
+.lede[hidden]{display:none}
+.timer{margin-top:clamp(22px,4vh,44px);max-width:480px}
+.timer .t{display:flex;justify-content:space-between;gap:12px;font:600 .85rem/1.2 var(--sans);color:var(--mute);letter-spacing:.04em;margin-bottom:9px}
+.timer .t b{color:var(--ink);font-variant-numeric:tabular-nums}
+.segs{height:10px;background:#1b2240;-webkit-mask:repeating-linear-gradient(90deg,#000 0 calc(5% - 3px),transparent calc(5% - 3px) 5%);mask:repeating-linear-gradient(90deg,#000 0 calc(5% - 3px),transparent calc(5% - 3px) 5%)}
+.segs i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--purple),var(--purplel));transition:width .22s linear}
+[data-phase="back"] .segs i{background:var(--goldl)}
+.line{margin:12px 0 0;font:600 1rem/1.4 var(--sans)}
+.act{display:flex;flex-wrap:wrap;align-items:center;gap:14px 24px;margin-top:clamp(18px,3vh,30px)}
+button.try{font:700 .95rem/1 var(--display);letter-spacing:.14em;text-transform:uppercase;color:#14100a;background:linear-gradient(180deg,#F3DDA0,#C9A45C);border:0;padding:0 30px;min-height:48px;border-radius:3px;cursor:pointer;box-shadow:0 0 0 0 rgba(243,221,160,.4);transition:box-shadow .2s,transform .2s}
+button.try:hover{box-shadow:0 0 0 4px rgba(243,221,160,.25)}
+a.discord{color:var(--mute);font-size:.92rem;text-underline-offset:.28em;text-decoration-color:var(--line)}
+a.discord:hover{color:var(--ink);text-decoration-color:var(--gold)}
+button:focus-visible,a:focus-visible{outline:2px solid var(--goldl);outline-offset:3px}
+.keep{list-style:none;margin:clamp(18px,3vh,32px) 0 0;padding:0;color:var(--mute);font-size:.95rem}
+.keep li{position:relative;padding-left:22px}
+.keep li+li{margin-top:.35em}
+.keep li::before{content:"";position:absolute;left:3px;top:.55em;width:7px;height:7px;background:var(--gold);transform:rotate(45deg)}
+
+/* Stage: tilted playmat plus a deck being shuffled */
+.stage{position:relative;align-self:center;width:100%;max-width:1100px;justify-self:center;aspect-ratio:10/8.4;margin:clamp(0px,1vh,16px) 0;overflow:hidden;-webkit-mask-image:radial-gradient(ellipse 62% 66% at 50% 52%,#000 60%,transparent 100%);mask-image:radial-gradient(ellipse 62% 66% at 50% 52%,#000 60%,transparent 100%)}
+.tilt{position:absolute;inset:0;transform:perspective(1400px) rotateX(54deg) rotateZ(-9deg) scale(.9);transform-origin:50% 55%}
+.mat{width:100%;height:100%;display:block;overflow:visible}
+.mat .frame{fill:rgba(255,255,255,.02);stroke:var(--gold);stroke-opacity:.45;stroke-width:1.5}
+.mat .z{fill:rgba(124,58,237,.05);stroke:var(--gold);stroke-opacity:.32;stroke-width:1.5;animation:zone 5.2s ease-in-out infinite;animation-delay:var(--d)}
+.mat .mid{stroke:var(--gold);stroke-opacity:.3;stroke-width:1.5}
+@keyframes zone{0%,45%,100%{fill:rgba(124,58,237,.05);stroke:#C9A45C;stroke-opacity:.32}15%{fill:rgba(124,58,237,.38);stroke:#F3DDA0;stroke-opacity:1}}
+[data-state="outage"] .mat .z{animation:none}
+[data-state="outage"] .mat .z:nth-child(7n+3){animation:flick 3.4s steps(1) infinite;animation-delay:var(--d)}
+@keyframes flick{0%,70%,74%,100%{stroke-opacity:.12}72%,90%{stroke-opacity:.7;stroke:#F08A8A}}
+[data-phase="back"] .mat .z{animation:none;fill:rgba(243,221,160,.22);stroke:#F3DDA0;stroke-opacity:1}
+.deck{position:absolute;left:49%;top:50%;width:24%;aspect-ratio:118/172;transform:translate(-50%,-50%) rotate(-4deg)}
+.c{position:absolute;inset:0;width:100%;height:100%;filter:drop-shadow(0 7px 8px rgba(0,0,0,.55));--side:1;transform:translate(0,calc(var(--i)*-3px));animation:riffle 4s cubic-bezier(.55,0,.3,1) infinite;animation-delay:calc(var(--i)*55ms)}
+.c:nth-child(odd){--side:-1}
+@keyframes riffle{
+ 0%,8%{transform:translate(0,calc(var(--i)*-3px)) rotate(0)}
+ 30%{transform:translate(calc(var(--side)*62%),calc(var(--i)*-2px - 6px)) rotate(calc(var(--side)*-8deg))}
+ 52%{transform:translate(calc(var(--side)*13%),calc(var(--i)*-8px - 10px)) rotate(calc(var(--side)*-2deg))}
+ 70%,100%{transform:translate(0,calc(var(--i)*-3px)) rotate(0)}}
+[data-state="outage"] .c{animation:none;transform:translate(calc(var(--side)*3%),calc(var(--i)*-3px)) rotate(calc(var(--side)*-1.5deg));opacity:.9}
+[data-state="outage"] .c:last-child{animation:glitch 3.4s steps(1) infinite}
+@keyframes glitch{0%,70%,100%{opacity:1}72%{opacity:.25}74%{opacity:1}76%{opacity:.4}78%{opacity:1}}
+[data-phase="back"] .c{animation:none;transform:translate(0,calc(var(--i)*-3px))}
+[data-phase="back"] .c:last-child{animation:flip .9s ease-out both}
+@keyframes flip{0%{transform:translate(0,-30px) rotateY(90deg)}100%{transform:translate(0,-30px) rotateY(0)}}
+
+@media (max-width:900px){
+ .page{grid-template-columns:1fr;grid-template-rows:auto auto auto}
+ .stage{order:1;max-width:560px;aspect-ratio:10/6.6;margin:6px auto 0}
+ .tilt{transform:perspective(1100px) rotateX(56deg) rotateZ(-8deg) scale(.95)}
+ .deck{width:23%}
+ .copy{order:2;padding-top:6px}
+}
+@media (max-height:800px) and (min-width:901px){.copy{padding:4px 0}h1{font-size:clamp(2.4rem,5vw,4.6rem)}.chip{margin-bottom:12px}.lede{margin-top:10px}.timer{margin-top:16px}.keep{margin-top:14px}.act{margin-top:14px}.stage{max-width:720px}}
+@media (prefers-reduced-motion:reduce){
+ .chip i,.mat .z,.c,[data-state="outage"] .c:last-child,[data-state="outage"] .mat .z{animation:none!important}
+ .c{transform:translate(calc(var(--side)*calc(var(--i) - 4)*1.2%),calc(var(--i)*-3px)) rotate(calc(var(--side)*-1deg))}
+ .segs i,button.try{transition:none}}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="mark">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.2 14.4 8 8 14.8 1.6 8z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 5 11 8 8 11 5 8z" fill="currentColor"/></svg>
+    <span>Dueling Domain</span>
+  </header>
+  <section class="copy">
+    <p class="chip"><i aria-hidden="true"></i><span id="tag">Between turns</span></p>
+    <h1 id="head">Shuffling the deck.</h1>
+    <p class="eta" id="eta" hidden>Expected back around <span id="eta-t"></span></p>
+    <p class="lede" id="lede"></p>
+    <div class="timer" aria-hidden="true">
+      <div class="t"><span id="count">Next check in 10 s</span><span>Turn timer</span></div>
+      <div class="segs"><i id="fill"></i></div>
+    </div>
+    <p class="line" id="state-line" role="status" aria-live="polite">Waiting for the servers.</p>
+    <div class="act">
+      <button class="try" type="button" data-try>Try now</button>
+      <a class="discord" href="https://discord.gg/sUSmbRbBUm" target="_blank" rel="noopener noreferrer">Status and news in our Discord<span class="sr-only"> (opens in a new tab)</span></a>
+    </div>
+    <ul class="keep">
+      <li>Live duels resume when we are back.</li>
+      <li>This page reloads by itself when we are back.</li>
+    </ul>
+  </section>
+  <div class="stage" aria-hidden="true">
+    <div class="tilt"><svg class="mat" id="mat" viewBox="0 0 800 560" focusable="false"><rect class="frame" x="8" y="8" width="784" height="544" rx="22"/><path class="mid" d="M132 280H668"/></svg></div>
+    <div class="deck" id="deck"></div>
+  </div>
+</div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+  <pattern id="lat" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0H14" stroke="#7C3AED" stroke-opacity=".28" stroke-width="1"/></pattern>
+  <symbol id="cb" viewBox="0 0 118 172">
+    <rect x="1" y="1" width="116" height="170" rx="9" fill="#150f33" stroke="#C9A45C" stroke-width="2"/>
+    <rect x="8" y="8" width="102" height="156" rx="5" fill="url(#lat)" stroke="#7C3AED" stroke-opacity=".7"/>
+    <g fill="none" stroke="#C9A45C" stroke-width="1.6"><path d="M59 38l34 48-34 48-34-48z"/><path d="M59 56l21 30-21 30-21-30z" stroke="#F3DDA0"/><circle cx="59" cy="86" r="7" fill="#150f33"/></g>
+    <path d="M14 20h18M86 152h18M14 152v-12M104 20v12" stroke="#A78BFA" stroke-width="1.4"/>
+  </symbol></defs></svg>
+<script>
+/* MAINTENANCE CONFIG. Edit only this block. See docs/deployment/cloudflare.md.
+   state:   'restart' (default, a deploy or restart), 'planned' or 'outage'.
+   etaIso:  planned only. An ISO time with offset, for example '2026-11-02T22:30:00-05:00', or null.
+            One hour after this time, a 'planned' page falls back to 'restart'.
+   message: planned only. One or two short sentences. */
+var CONFIG={state:'restart',etaIso:null,message:'We are doing planned maintenance on Dueling Domain. Thank you for your patience.'};
+/* ---- Shared logic (same in all three concepts) ---- */
+var Maint=(function(){
+  var STATES=['restart','planned','outage'];
+  var M={phase:'wait',attempt:0,interval:10,startAt:0,nextAt:0,last:null,log:[]};
+  var H={},lineEl,lastLine='',api={};
+  if(STATES.indexOf(CONFIG.state)<0) CONFIG.state='restart';
+  function pad(n){return n<10?'0'+n:''+n}
+  /* An old planned notice must not show on a later restart. */
+  if(CONFIG.state==='planned'&&CONFIG.etaIso&&Date.parse(CONFIG.etaIso)<Date.now()-3600000) CONFIG.state='restart';
+  api.clock=function(d){return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds())};
+  api.eta=function(){if(CONFIG.state!=='planned'||!CONFIG.etaIso)return '';var d=new Date(CONFIG.etaIso);return isNaN(d)?'':d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})};
+  api.set=function(el,t){if(el&&el.textContent!==t)el.textContent=t};
+  /* 10 s, 10 s, 10 s, then +5 s per failed check up to 30 s; 0-1 s jitter so many tabs do not hit the server together */
+  function calc(n){return (n<3?10:Math.min(30,10+(n-2)*5))+Math.floor(Math.random()*2)}
+  function schedule(){M.interval=calc(M.attempt);M.startAt=Date.now();M.nextAt=M.startAt+M.interval*1000;M.phase='wait'}
+  /* /healthz is answered by Caddy from the web app: 200 only when web is up. Never cached. */
+  function probe(){
+    var c=new AbortController(),t=setTimeout(function(){c.abort()},5000);
+    return fetch('/healthz',{cache:'no-store',signal:c.signal}).then(
+      function(r){clearTimeout(t);return {ok:r.ok,label:'HTTP '+r.status}},
+      function(){clearTimeout(t);return {ok:false,label:'no answer'}});
+  }
+  function snap(){
+    var t=Date.now(),w=M.phase==='wait';
+    return {state:CONFIG.state,phase:M.phase,left:w?Math.max(0,Math.ceil((M.nextAt-t)/1000)):0,
+      frac:w?Math.min(1,(t-M.startAt)/(M.nextAt-M.startAt)):1,interval:M.interval,attempt:M.attempt,
+      last:M.last,log:M.log,eta:api.eta(),message:CONFIG.message||''};
+  }
+  function line(s){
+    var t=s.phase==='checking'?'Checking if we are back.':s.phase==='back'?'We are back. Reloading now.':s.last?'Not back yet. We keep checking.':'Waiting for the servers.';
+    if(t!==lastLine&&lineEl){lastLine=t;lineEl.textContent=t}
+  }
+  function emit(){var s=snap(),r=document.documentElement;r.dataset.phase=s.phase;line(s);if(H.render)H.render(s)}
+  function reset(){M.attempt=0;M.last=null;M.log=[];schedule();emit()}
+  function done(){location.reload()}
+  function check(){
+    if(M.phase!=='wait')return;
+    M.phase='checking';emit();
+    probe().then(function(r){
+      M.attempt++;M.last={ok:r.ok,label:r.label,at:new Date(),n:M.attempt};
+      M.log.unshift(M.last);if(M.log.length>40)M.log.pop();
+      if(r.ok){M.phase='back';emit();setTimeout(done,2400)}else{schedule();emit()}
+    });
+  }
+  api.tryNow=check;
+  api.setState=function(s){
+    CONFIG.state=s;document.documentElement.dataset.state=s;
+    if(H.onState)H.onState(s);reset();
+  };
+  api.init=function(h){
+    H=h||{};lineEl=document.getElementById('state-line');
+    var tb=document.querySelectorAll('[data-try]');for(var i=0;i<tb.length;i++)tb[i].addEventListener('click',check);
+    api.setState(CONFIG.state);
+    setInterval(function(){if(M.phase==='wait'&&Date.now()>=M.nextAt)check();else emit()},200);
+  };
+  return api;
+})();
+
+(function(){ /* decorative stage: playmat zones and the deck */
+  var mat=document.getElementById('mat'),h='',cols=[132,236,340,444,548],rows=[22,146,300,424],n=0;
+  rows.forEach(function(y,r){cols.forEach(function(x,c){h+='<rect class="z" x="'+x+'" y="'+y+'" width="90" height="114" rx="8" style="--d:'+((c+r*2)*0.2).toFixed(2)+'s"/>'});});
+  [[22,300],[22,424],[688,146],[688,22]].forEach(function(p,i){h+='<rect class="z" x="'+p[0]+'" y="'+p[1]+'" width="90" height="114" rx="8" style="--d:'+(1.6+i*0.2)+'s"/>'});
+  mat.insertAdjacentHTML('beforeend',h);
+  var d='';for(var i=0;i<10;i++)d+='<svg class="c" viewBox="0 0 118 172" style="--i:'+i+'"><use href="#cb"/></svg>';
+  document.getElementById('deck').innerHTML=d;
+})();
+var COPY={
+  restart:{tag:'Between turns',head:'Shuffling the deck.',lede:'We are putting a new version of Dueling Domain live. This usually takes less than a minute.'},
+  planned:{tag:'Planned maintenance',head:'Resetting the field.',lede:''},
+  outage:{tag:'Service interruption',head:'The field went dark.',lede:'Our servers are not answering. This was not planned and we are working on it. It can take several minutes, or longer.'}
+};
+var $=function(i){return document.getElementById(i)};
+Maint.init({
+  render:function(s){
+    var c=COPY[s.state],back=s.phase==='back';
+    Maint.set($('tag'),back?'Restored':c.tag);
+    Maint.set($('head'),back?'We are back.':c.head);
+    Maint.set($('lede'),back?'Taking you back to Dueling Domain.':s.state==='planned'?s.message:c.lede);
+    $('lede').hidden=!$('lede').textContent;
+    $('eta').hidden=!s.eta||back;Maint.set($('eta-t'),s.eta);
+    $('fill').style.width=(s.frac*100)+'%';
+    Maint.set($('count'),back?'Reloading...':s.phase==='checking'?'Checking...':'Next check in '+s.left+' s');
+  }
+});
+</script>
+</body>
+</html>
