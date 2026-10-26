@@ -113,12 +113,8 @@ test("People lists a signed-in player with the page they are on", async ({ brows
   } finally { await carol.close(); await alice.close(); }
 });
 
+// "Today" is the Eastern day (ET), picked on the server, so the browser zone does not matter.
 const EASTERN = "America/New_York";
-/**
- * "Today" is the Eastern day (ET) and the server picks it, so the browser zone does not matter. The floor duels start up
- * to about 160 minutes before now; in the first 3 hours of an Eastern day some of them still belong to yesterday.
- */
-const easternHour = () => Number(new Intl.DateTimeFormat("en-US", { timeZone: EASTERN, hour: "numeric", hourCycle: "h23" }).format(new Date()));
 
 test("Duels: live tables with seats and turns, the draft with progress, and a seat opens the person", async ({ browser }) => {
   const context = await browser.newContext({ storageState: authFile("p1") });
@@ -143,7 +139,6 @@ test("Duels: live tables with seats and turns, the draft with progress, and a se
 });
 
 test("Duels today: every duel of the Eastern day with result per player, replay or watch, filters, and the Overview link", async ({ browser }) => {
-  test.skip(easternHour() < 3, "the floor duels started up to 160 minutes ago: before 03:00 ET some are on yesterday's Eastern day");
   // A browser far from New York: the page must still show Eastern time.
   const context = await browser.newContext({ storageState: authFile("p1"), timezoneId: "Pacific/Auckland" });
   try {

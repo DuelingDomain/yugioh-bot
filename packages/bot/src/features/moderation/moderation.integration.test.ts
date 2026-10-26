@@ -68,7 +68,7 @@ async function setup() {
     else if (req.method === "GET" && path.startsWith(`/guilds/${guild}/members/`)) {
       const id = path.split("/").at(-1)!;
       if (!members.has(id)) { res.statusCode = 404; res.end(JSON.stringify({ code: 10007, message: "Unknown member" })); }
-      else res.end(JSON.stringify({ user: { id, username: "Member", discriminator: "0" }, roles: members.get(id), joined_at: "2025-01-01T00:00:00.000Z" }));
+      else res.end(JSON.stringify({ user: { id, username: "Member", discriminator: "0" }, roles: members.get(id), joined_at: "2025-01-01T12:00:00.000Z" }));
     } else if (req.method === "GET" && [channel, modLogChannel, hiddenChannel].some(id => path === `/channels/${id}`)) res.end(JSON.stringify({ id: path.split("/")[2], guild_id: state.foreignChannel ? outsider : guild, type: state.channelType, permission_overwrites: state.overwrites }));
     else if (req.method === "GET" && path.startsWith(`/channels/${channel}/messages?`)) res.end(JSON.stringify(state.messages));
     else if (req.method === "PUT" && path === `/channels/${channel}/permissions/${guild}`) {

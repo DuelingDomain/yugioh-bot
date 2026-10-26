@@ -1,14 +1,20 @@
 import { cachedLoader, failed, notConfigured, ok, type SectionLoader } from "./section";
+import { ADMIN_TIME_ZONE } from "./time";
 import type { UsageData } from "./types";
 
 const TIMEOUT_MS = 8_000;
 const DAYS = 7;
 // The app only sends $pageview, with anonymous ids and route templates. Nothing here reads a person.
-const DAILY = `SELECT dateDiff('day', toDate(timestamp), today()) AS ago, count(DISTINCT person_id) AS visitors, count() AS views
-FROM events WHERE event = '$pageview' AND timestamp >= today() - INTERVAL ${DAYS - 1} DAY GROUP BY ago ORDER BY ago`;
-const WEEKLY = `SELECT count(DISTINCT person_id) FROM events WHERE event = '$pageview' AND timestamp >= today() - INTERVAL ${DAYS - 1} DAY`;
+// Days are Eastern (America/New_York), like the rest of the console, not the PostHog project zone. The window is the last
+// 7 Eastern dates; the timestamp bound only narrows the scan and is wide enough (8 days) to hold the whole first Eastern day.
+const ET_DAY = `toDate(toTimeZone(timestamp, '${ADMIN_TIME_ZONE}'))`;
+const ET_TODAY = `toDate(toTimeZone(now(), '${ADMIN_TIME_ZONE}'))`;
+const IN_WINDOW = `timestamp >= now() - INTERVAL ${DAYS + 1} DAY AND ${ET_DAY} >= ${ET_TODAY} - INTERVAL ${DAYS - 1} DAY`;
+const DAILY = `SELECT dateDiff('day', ${ET_DAY}, ${ET_TODAY}) AS ago, count(DISTINCT person_id) AS visitors, count() AS views
+FROM events WHERE event = '$pageview' AND ${IN_WINDOW} GROUP BY ago ORDER BY ago`;
+const WEEKLY = `SELECT count(DISTINCT person_id) FROM events WHERE event = '$pageview' AND ${IN_WINDOW}`;
 const TOP_PAGES = `SELECT properties.$pathname AS path, count() AS views FROM events
-WHERE event = '$pageview' AND timestamp >= today() - INTERVAL ${DAYS - 1} DAY AND properties.$pathname IS NOT NULL GROUP BY path ORDER BY views DESC LIMIT 6`;
+WHERE event = '$pageview' AND ${IN_WINDOW} AND properties.$pathname IS NOT NULL GROUP BY path ORDER BY views DESC LIMIT 6`;
 
 interface Config { key: string; projectId: string; host: string; dashboardUrl: string | null }
 

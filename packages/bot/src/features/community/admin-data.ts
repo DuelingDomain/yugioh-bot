@@ -22,8 +22,11 @@ export function dbTimeMs(value: string | null | undefined): number | null {
 }
 const dayOf = (text: string | null) => { const ms = dbTimeMs(text); return ms === null ? null : easternDayKey(ms); };
 
+const userColumns = (db: Database.Database) => new Set((db.prepare("pragma table_info(users)").all() as { name: string }[]).map(row => row.name));
+const hasColumn = (db: Database.Database, name: string) => userColumns(db).has(name);
+
 export function hasPresence(db: Database.Database, route = false): boolean {
-  const columns = new Set((db.prepare("pragma table_info(users)").all() as { name: string }[]).map(row => row.name));
+  const columns = userColumns(db);
   return columns.has("last_seen_at") && (!route || columns.has("last_route"));
 }
 
@@ -107,8 +110,12 @@ export function computeStats(db: Database.Database, guild: string, now: number):
     if (i !== undefined && userId !== null) active[i].add(userId);
   };
 
-  for (const row of db.prepare("select created_at from users where created_at >= ?").all(from) as { created_at: string }[]) {
-    bump("signups", dayOf(row.created_at));
+  // Sign-ups are first web sign-ins (users.first_sign_in_at, epoch ms), the same as the web console. users.created_at also
+  // covers Discord-only rows and test players that never signed in.
+  if (hasColumn(db, "first_sign_in_at")) {
+    for (const row of db.prepare("select first_sign_in_at from users where first_sign_in_at >= ?").all(fromMs) as { first_sign_in_at: number }[]) {
+      bump("signups", easternDayKey(row.first_sign_in_at));
+    }
   }
 
   const duels = db.prepare(`

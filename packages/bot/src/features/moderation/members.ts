@@ -5,6 +5,12 @@ import type { FeatureContext } from "../../runtime/types.js";
 import { audit, type Action, type ActionResult } from "./audit.js";
 import { Refusal, type Actor } from "./security.js";
 
+/** Eastern day of the Discord join time ("2025-01-01 ET"), or "Unknown". */
+function joinedDay(value: string | null | undefined): string {
+  const ms = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(ms) ? `${easternDayKey(ms)} ET` : "Unknown";
+}
+
 export function warningCount(context: FeatureContext, targetId: string): number {
   return context.db.prepare<[string, string], { count: number }>("select count(*) count from mod_warnings where guild_id=? and target_discord_id=?")
     .get(context.config.guildId, targetId)!.count;
@@ -84,7 +90,7 @@ export async function executeMemberAction(context: FeatureContext, actor: Actor,
       const roleList = roles.filter(role => member.roles.includes(role.id)).sort((a, b) => b.position - a.position)
         .map(role => `${role.name ?? "Role"} (${role.id})`).join("\n");
       return { embeds: [{ title: `User info · ${target}`, fields: [
-        { name: "Joined", value: member.joined_at ?? "Unknown" },
+        { name: "Joined", value: joinedDay(member.joined_at) },
         { name: "Roles", value: roleList.slice(0, 1000) || "No roles" },
         { name: "Warnings", value: String(warningCount(context, target)) },
         { name: "Recent mod actions", value: recent.map(row => `${easternDayKey(row.created_at)} · ${row.action} · ${row.result}\n${(row.reason ?? "No reason").slice(0, 130)}`).join("\n").slice(0, 1000) || "None" },

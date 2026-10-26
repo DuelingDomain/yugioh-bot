@@ -876,8 +876,10 @@ it("registers in the bot guild and keeps site reports and duel labels in the dat
   // Stats days are Eastern (America/New_York): both days start at Eastern midnight.
   const t0 = easternDayStart(now), y0 = easternMidnight(easternDayKeys(now, 2)[0]);
   const iso = (ms: number) => new Date(ms).toISOString(), sql = (ms: number) => iso(ms).slice(0, 19).replace("T", " ");
-  db.prepare("update users set created_at=? where id in (1,2)").run(sql(t0));
-  db.prepare("update users set created_at=? where id=3").run(iso(y0));
+  // Sign-ups are first web sign-ins; a Discord-only row created today (user 4 below) is not one.
+  db.prepare("update users set first_sign_in_at=? where id in (1,2)").run(t0);
+  db.prepare("update users set first_sign_in_at=? where id=3").run(y0);
+  db.prepare("insert into users(id,username,display_name,created_at) values(4,'dc','Discord Only',?)").run(sql(t0));
   db.prepare("update users set last_seen_at=?,last_route='/decks/new' where id=1").run(now-120000);
   db.prepare("update users set last_seen_at=?,last_route='/duels/[slug]' where id=2").run(now-1000);
   db.prepare("update users set last_seen_at=?,last_route='/settings' where id=3").run(now-120001);
