@@ -8,20 +8,18 @@ import { isOwnerUser } from "@/lib/owner-access";
 import { readSmallJsonObject } from "@/lib/read-small-body";
 import { requireWebAccess } from "@/lib/web-access";
 import { ok, type SectionLoader } from "./section";
+import { easternDayStart } from "./time";
 import type { BusyResponse } from "./creators-types";
 
-const DAY_MS = 24 * 60 * 60_000;
 /** Owner bodies: 20 emails or 1000-char notes fit with room to spare. */
 const MAX_OWNER_BODY_BYTES = 16 * 1024;
 const NO_STORE = { "cache-control": "private, no-store" };
 
 export const creatorAccess = (): CreatorAccessService => createCreatorAccessService(getDb());
 
-/** Section "creators". `?start=` is the viewer's local midnight (finite epoch ms within the last 48 h), else now - 24 h. */
-export const loadCreators: SectionLoader<"creators"> = async ({ now, query }) => {
-  const raw = query?.get("start");
-  const start = raw ? Number(raw) : Number.NaN;
-  const since = Number.isFinite(start) && start <= now && start >= now - 2 * DAY_MS ? start : now - DAY_MS;
+/** Section "creators". "Today" is Eastern time: it starts at 00:00 ET. An old client's `?start=` is ignored. */
+export const loadCreators: SectionLoader<"creators"> = async ({ now }) => {
+  const since = easternDayStart(now);
   const service = creatorAccess();
   return ok({ creators: service.listCreators({ since }), signUpsToday: service.creatorSignUpsSince(since), sendBudgetLeft: sendBudgetLeft(now) }, now);
 };

@@ -12,7 +12,7 @@ export interface LoaderContext {
   /** users.id of the admin who asked. */
   userId: number;
   now: number;
-  /** Query string of the request, for sections that take options (today: ?tz=). */
+  /** Query string of the request, for sections that take options (none read it now; old clients still send ?tz= and ?start=). */
   query?: URLSearchParams;
 }
 export type SectionLoader<K extends SectionId> = (ctx: LoaderContext) => Promise<SectionResult<SectionDataMap[K]>>;
@@ -42,7 +42,7 @@ export function sectionRoute<K extends SectionId>(loader: SectionLoader<K>) {
   };
 }
 
-/** Same as sectionRoute, for a section that reads options from the query string (today: ?tz=). */
+/** Same as sectionRoute, for a section that may get options in the query string. */
 export function sectionRouteWithQuery<K extends SectionId>(loader: SectionLoader<K>) {
   return async function GET(request: Request): Promise<Response> {
     let query: URLSearchParams | undefined;

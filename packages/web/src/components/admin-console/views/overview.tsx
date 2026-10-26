@@ -20,7 +20,7 @@ export function OverviewView({ s, actions }: { s: Snapshots; actions: ConsoleAct
   const liveData = okData(s.live);
   const live = liveCounts(liveData);
   const stats = okData(s.stats);
-  // The day of the owner's browser, the same list the link opens; the trend line stays on UTC days.
+  // Today and the trend line both use Eastern days (ET), the same list the link opens.
   const today = okData(s.today);
   const creators = okData(s.creators);
   const openLinks = creators?.creators.reduce((sum, c) => sum + c.openLinks, 0) ?? 0;

@@ -167,7 +167,7 @@ export interface LiveData {
   drafts: LiveDraft[];
 }
 
-/* ---- today (GET /api/admin/console/today?tz=<minutes east of UTC>&start=<local midnight, epoch ms>) ---- */
+/* ---- today (GET /api/admin/console/today; the day is Eastern time) ---- */
 /** How a seat did in a duel of today. Null while the duel runs, or when it ended without a result. */
 export type SeatOutcome = "won" | "lost" | "draw" | null;
 export interface TodaySeat extends LiveSeat {
@@ -204,9 +204,9 @@ export interface TodayCounts {
   ranked: number;
 }
 export interface TodayData {
-  /** Minutes east of UTC that set "today" (from the browser, clamped to ±840). 0 = UTC. */
-  tzOffsetMinutes: number;
-  /** Start of today (epoch ms): the browser's local midnight (`start`), else midnight at `tzOffsetMinutes`. */
+  /** The zone that sets "today". */
+  timezone: "America/New_York";
+  /** Start of today (epoch ms): 00:00 Eastern time. */
   dayStart: number;
   /** Duels that started today, by filter. `duels` holds at most `limit` of them. */
   counts: TodayCounts;
@@ -215,11 +215,11 @@ export interface TodayData {
   limit: number;
 }
 
-/* ---- stats (UTC days) ---- */
+/* ---- stats (Eastern days) ---- */
 export const STAT_KEYS = ["signups", "activeUsers", "duelsStarted", "duelsFinished", "draftsStarted", "draftsCompleted"] as const;
 export type StatKey = (typeof STAT_KEYS)[number];
 export interface StatsData {
-  timezone: "UTC";
+  timezone: "America/New_York";
   /** Seven YYYY-MM-DD days, oldest first. The last one is today. */
   days: string[];
   /** One number per day, same order as `days`. */

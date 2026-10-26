@@ -10,6 +10,7 @@ import * as observability from "@yugidraft/shared/observability";
 import { WebSocketServer, type WebSocket } from "ws";
 import { afterEach, expect, it, vi } from "vitest";
 import { openDatabase } from "@yugidraft/shared/db";
+import { easternDayKeys, easternDayStart, easternMidnight } from "@yugidraft/shared/util/eastern-time";
 import { startBot } from "../../runtime/app.js";
 import { deployCommands } from "../../runtime/deploy.js";
 import { readConfig } from "../../runtime/config.js";
@@ -870,27 +871,31 @@ it("registers in the bot guild and keeps site reports and duel labels in the dat
   const { stub, db, bot } = await fixture(true);
   await deployCommands(bot.context.config, [community]);
   expect(stub.requests.find(r => r.method === "PUT")!.path).toBe(`/applications/${app}/guilds/${guild}/commands`);
-  // The fixture dates a duel 10 minutes back; keep it on the same UTC day just after midnight.
-  const real = Date.now(), now = real % 86_400_000 < 900_000 ? real - 1_200_000 : real;
-  const today = new Date(now).toISOString().slice(0,10), yesterday = new Date(now-86400000).toISOString().slice(0,10);
-  db.prepare("update users set created_at=? where id in (1,2)").run(`${today} 00:00:00`);
-  db.prepare("update users set created_at=? where id=3").run(`${yesterday}T00:00:00.000Z`);
+  // The fixture dates a duel 10 minutes back; keep it on the same Eastern day just after Eastern midnight.
+  const real = Date.now(), now = real - easternDayStart(real) < 900_000 ? real - 1_200_000 : real;
+  // Stats days are Eastern (America/New_York): both days start at Eastern midnight.
+  const t0 = easternDayStart(now), y0 = easternMidnight(easternDayKeys(now, 2)[0]);
+  const iso = (ms: number) => new Date(ms).toISOString(), sql = (ms: number) => iso(ms).slice(0, 19).replace("T", " ");
+  // Sign-ups are first web sign-ins; a Discord-only row created today (user 4 below) is not one.
+  db.prepare("update users set first_sign_in_at=? where id in (1,2)").run(t0);
+  db.prepare("update users set first_sign_in_at=? where id=3").run(y0);
+  db.prepare("insert into users(id,username,display_name,created_at) values(4,'dc','Discord Only',?)").run(sql(t0));
   db.prepare("update users set last_seen_at=?,last_route='/decks/new' where id=1").run(now-120000);
   db.prepare("update users set last_seen_at=?,last_route='/duels/[slug]' where id=2").run(now-1000);
   db.prepare("update users set last_seen_at=?,last_route='/settings' where id=3").run(now-120001);
   db.prepare("insert into players(id,guild_id,user_id,display_name) values(1,?,1,'Owner'),(2,?,2,'User')").run(dataGuild,dataGuild);
   const duel = db.prepare(`insert into duels(id,guild_id,web_slug,name,organizer_player_id,mode,status,format,kind,created_at,started_at,ended_at,last_activity_at,archived_at)
     values(?,?,?,?,1,'match',?,?,?,?,?,?,?,?)`);
-  duel.run(1,dataGuild,'live','Live tag','active','tag','play',`${today} 00:00:00`,new Date(now-60000).toISOString(),null,new Date(now-1000).toISOString(),null);
-  duel.run(2,dataGuild,'complete','Done','completed','1v1','play',`${yesterday} 00:00:00`,`${yesterday}T01:00:00Z`,`${today}T00:00:00Z`,null,null);
-  duel.run(3,dataGuild,'fork','Replay','active','ffa4','replay-fork',`${today} 00:00:00`,`${today}T00:00:00Z`,null,new Date(now).toISOString(),null);
-  duel.run(4,dataGuild,'stale','Idle','active','ffa3','play',`${today} 00:00:00`,new Date(now-600001).toISOString(),null,new Date(now-600001).toISOString(),null);
-  duel.run(5,dataGuild,'waiting','Waiting','lobby','1v1','play',`${today} 00:00:00`,null,null,new Date(now).toISOString(),null);
-  duel.run(6,guild,'foreign','Foreign','active','ffa4','play',`${today} 00:00:00`,new Date(now).toISOString(),null,new Date(now).toISOString(),null);
+  duel.run(1,dataGuild,'live','Live tag','active','tag','play',sql(t0),new Date(now-60000).toISOString(),null,new Date(now-1000).toISOString(),null);
+  duel.run(2,dataGuild,'complete','Done','completed','1v1','play',sql(y0),iso(y0 + 3_600_000),iso(t0),null,null);
+  duel.run(3,dataGuild,'fork','Replay','active','ffa4','replay-fork',sql(t0),iso(t0),null,new Date(now).toISOString(),null);
+  duel.run(4,dataGuild,'stale','Idle','active','ffa3','play',sql(t0),new Date(now-600001).toISOString(),null,new Date(now-600001).toISOString(),null);
+  duel.run(5,dataGuild,'waiting','Waiting','lobby','1v1','play',sql(t0),null,null,new Date(now).toISOString(),null);
+  duel.run(6,guild,'foreign','Foreign','active','ffa4','play',sql(t0),new Date(now).toISOString(),null,new Date(now).toISOString(),null);
   db.exec("insert into duel_seats(duel_id,seat,player_id,is_bot) values(1,0,2,0),(2,0,1,0),(4,0,1,0),(6,0,2,0)");
   db.prepare(`insert into drafts(id,guild_id,channel_id,name,status,created_by_user_id,web_slug,created_at,started_at,ended_at)
     values(1,?,'c','Draft','completed','1','done',?,?,?),(2,?,'c','Old lobby','pending','1','old',?,null,null),(3,?,'c','Active','active','1','active',?,?,null)`)
-    .run(dataGuild,`${yesterday} 00:00:00`,`${yesterday} 00:00:00`,`${today} 00:00:00`,dataGuild,new Date(now-86400001).toISOString(),dataGuild,`${today} 00:00:00`,`${today} 00:00:00`);
+    .run(dataGuild,sql(y0),sql(y0),sql(t0),dataGuild,new Date(now-86400001).toISOString(),dataGuild,sql(t0),sql(t0));
   db.exec("insert into draft_players(draft_id,player_id) values(1,1),(3,1)");
   const clock = vi.spyOn(Date,"now").mockReturnValue(now);
   const online = await stub.response(stub.command("online"));

@@ -11,12 +11,12 @@ import type {
 export type { AddEmailResult, Creator, CreatorDetail, CreatorGrant, CreatorJoinedPerson, CreatorLink, CreatorSummary, LinkState } from "@yugidraft/shared/services/creator-access";
 
 /**
- * Admin console section "creators": GET /api/admin/console/creators?start=<local midnight epoch ms>
+ * Admin console section "creators": GET /api/admin/console/creators
  * returns SectionResult<CreatorsData> (same envelope and guard as every other section, polled every 30 s).
  */
 export interface CreatorsData {
   creators: CreatorSummary[];
-  /** Creator sign-ups since `start` (default: last 24 h). Overview tile "Creator sign-ups today". */
+  /** Creator sign-ups since 00:00 Eastern time. Overview tile "Creator sign-ups today". */
   signUpsToday: number;
   /** Sends left in the shared hourly Clerk budget (80 per hour for links, emails and resends). */
   sendBudgetLeft: number;

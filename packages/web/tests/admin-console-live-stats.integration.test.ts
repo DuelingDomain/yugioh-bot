@@ -99,19 +99,19 @@ it("adds seats with pictures and bots, the turn from the clock, and draft progre
   expect(data.ended).toBeUndefined();
 });
 
-it("counts today and seven UTC days with a series per metric", async () => {
+it("counts today and seven Eastern days with a series per metric", async () => {
   seed();
-  // Sign-ups are first web sign-ins. Ann and Operator signed in today, Bo yesterday, Cy before the window.
+  // Sign-ups are first web sign-ins. Ann and Operator signed in today, Bo at 23:30 EDT yesterday (already today in UTC), Cy before the window.
   const signedIn = db.prepare("update users set first_sign_in_at = ? where id = ?");
   signedIn.run(Date.parse("2026-10-19T08:00:00Z"), 1); signedIn.run(Date.parse("2026-10-19T09:00:00Z"), 2);
-  signedIn.run(Date.parse("2026-10-18T23:59:00Z"), 3); signedIn.run(Date.parse("2026-10-10T10:00:00Z"), 4);
+  signedIn.run(Date.parse("2026-10-19T03:30:00Z"), 3); signedIn.run(Date.parse("2026-10-10T10:00:00Z"), 4);
   // A Discord-only row created today that never signed in on the web is not a sign-up.
   db.prepare("insert into users(id,username,display_name,created_at) values (5,'dc','Discord Only','2026-10-19 10:00:00')").run();
   const response = await section("stats");
   expect(response.status).toBe(200);
   const { state, data } = await response.json();
   expect(state).toBe("ok");
-  expect(data.timezone).toBe("UTC");
+  expect(data.timezone).toBe("America/New_York");
   expect(data.days).toEqual(["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17", "2026-10-18", "2026-10-19"]);
   expect(data.series.signups).toEqual([0, 0, 0, 0, 0, 1, 2]);
   expect(data.series.duelsStarted).toEqual([0, 0, 0, 0, 0, 1, 2]);

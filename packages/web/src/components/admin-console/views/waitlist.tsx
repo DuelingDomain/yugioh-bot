@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { maskEmail } from "@/lib/admin-console/format";
+import { formatDayMonth } from "@/lib/admin-console/time";
 import type { WaitlistDecisionResponse, WaitlistEntry } from "@/lib/admin-console/types";
 import type { ConsoleActions } from "../admin-console";
 import { okData, type Snapshots } from "../model";
@@ -85,7 +86,7 @@ export function WaitlistView({ s, actions }: { s: Snapshots; actions: ConsoleAct
                   <div className={styles.wlName} title={reveal ? entry.email : undefined}>{label}</div>
                   <div className={styles.wlMail}>Asked to join {entry.createdAt ? <Since at={entry.createdAt} suffix=" ago" /> : "at an unknown time"}</div>
                 </div>
-                <div className={`${styles.cAgo} ${styles.num}`}>{entry.createdAt ? new Date(entry.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""}</div>
+                <div className={`${styles.cAgo} ${styles.num}`}>{entry.createdAt ? formatDayMonth(entry.createdAt) : ""}</div>
                 <div className={`${styles.cAct} ${styles.wlAct}`}>
                   {asking ? (
                     <>

@@ -208,7 +208,7 @@ Use disposable resources in the private test guild. Confirm owner access, Modera
 | `/welcome preview [member]` | Linked owners only. Privately attach a welcome PNG for the selected current member (default self), even with automatic welcomes disabled. Preview reuses an assigned number or displays the next number without reserving it. |
 | `/card name` | As an ordinary member, select catalog, pre-release and engine-only cards. Check public image URLs and labels, autocomplete, alternate arts and five-lookups-per-30-seconds limit. |
 | `/online` | Check private 120-second site presence list (up to 500 users), section labels and long-list attachment. Without the separate presence migration, expect `presence not available`. |
-| `/stats` | Check seven UTC days, distinct weekly users, duel/draft counts and live tables; replay forks excluded. Without presence columns, verify the play-only note. |
+| `/stats` | Check seven Eastern (ET) days, distinct weekly users, duel/draft counts and live tables; replay forks excluded. Without presence columns, verify the play-only note. |
 
 For Moderator channel actions, require the actor's effective View Channel permission plus Manage Messages for `/purge`, Manage Channels for `/slowmode`, or Manage Roles for `/lock` and `/unlock`. A linked site admin can manage configured bot destinations; a Moderator cannot purge, slow, lock or unlock #mod-log, #signups, #online-now or #announcements. Confirmation rechecks current access. Confirm and Cancel edit the original private prompt, remove its buttons and show the result.
 
