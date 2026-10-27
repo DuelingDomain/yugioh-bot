@@ -29,12 +29,13 @@ def main():
     # Same idle rule as the host and engine installer. Never mutate while services are running.
     # After services stop, the installer interrupts casual rows and preserves ranked/tournament
     # rows for the restarted host to settle their clock loss or apply the no-winner idle backstop.
-    idle = """kind = 'play' and status = 'active'
+    idle = """status = 'active'
         and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday('now', '-10 minutes')"""
     query = """
         select
-            (select count(*) from duels where (status = 'active' and not coalesce(({idle}), 0) and {not_test})
-                or (status = 'lobby' and opening_json is not null)),
+            (select count(*) from duels where {not_fork} and
+                ((status = 'active' and not coalesce(({idle}), 0) and {not_test})
+                or (status = 'lobby' and opening_json is not null))),
             (select count(*) from drafts where status = 'active')
     """
     if args.target == "production":
@@ -58,10 +59,12 @@ def main():
                 db.execute("pragma query_only=on")
                 columns = {row[1] for row in db.execute("pragma table_info(duels)")}
                 # Older schemas have no reliable idle evidence, so their active duels still block.
-                idle_sql = idle if {"kind", "last_activity_at", "started_at", "created_at", "clock_json"} <= columns else "0"
+                idle_sql = idle if {"last_activity_at", "started_at", "created_at"} <= columns else "0"
+                # Replay forks are disposable practice, including on schemas without activity fields.
+                not_fork = "coalesce(kind, 'play') != 'replay-fork'" if "kind" in columns else "1"
                 # Deck-editor test duels (a bot table) never hold a deploy. They close by idle.
                 not_test = "coalesce(json_extract(setup_json, '$.testDuel'), 0) = 0" if "setup_json" in columns else "1"
-                counts = db.execute(query.format(idle=idle_sql, not_test=not_test)).fetchone()
+                counts = db.execute(query.format(idle=idle_sql, not_test=not_test, not_fork=not_fork)).fetchone()
         except (OSError, sqlite3.Error) as error:
             print(f"{label}: cannot read gameplay activity ({error}).", file=sys.stderr)
             return 1
