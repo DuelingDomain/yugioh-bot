@@ -275,6 +275,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./site/public:/srv/site:ro
+      - ./site/maintenance:/srv/maintenance:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "generatedAt": "2026-10-25T01:40:17.659Z",
+  "generatedAt": "2026-10-26T14:31:32.169Z",
   "policy": {
     "minimumDecks": 20,
     "minimumShare": 0.1,
@@ -12,7 +12,7 @@
       "genericUsage": [
         {
           "passcode": 102380,
-          "decks": 7
+          "decks": 3
         },
         {
           "passcode": 1475311,
@@ -23,44 +23,40 @@
           "decks": 1
         },
         {
-          "passcode": 2220237,
-          "decks": 1
-        },
-        {
           "passcode": 2295440,
           "decks": 1
         },
         {
-          "passcode": 2772337,
-          "decks": 1
-        },
-        {
           "passcode": 4227096,
-          "decks": 8
+          "decks": 6
         },
         {
           "passcode": 4731783,
-          "decks": 1
-        },
-        {
-          "passcode": 5043010,
-          "decks": 5
-        },
-        {
-          "passcode": 5318639,
           "decks": 2
         },
         {
-          "passcode": 7044562,
+          "passcode": 4891376,
+          "decks": 4
+        },
+        {
+          "passcode": 5043010,
+          "decks": 2
+        },
+        {
+          "passcode": 5318639,
+          "decks": 5
+        },
+        {
+          "passcode": 6351147,
           "decks": 1
         },
         {
           "passcode": 7594154,
-          "decks": 17
+          "decks": 7
         },
         {
           "passcode": 8267140,
-          "decks": 4
+          "decks": 6
         },
         {
           "passcode": 8576764,
@@ -72,11 +68,11 @@
         },
         {
           "passcode": 9763474,
-          "decks": 2
+          "decks": 7
         },
         {
           "passcode": 10045474,
-          "decks": 19
+          "decks": 20
         },
         {
           "passcode": 11765832,
@@ -88,11 +84,15 @@
         },
         {
           "passcode": 12197223,
-          "decks": 3
+          "decks": 9
         },
         {
           "passcode": 13048472,
-          "decks": 9
+          "decks": 3
+        },
+        {
+          "passcode": 13567610,
+          "decks": 1
         },
         {
           "passcode": 13974207,
@@ -104,27 +104,35 @@
         },
         {
           "passcode": 14883228,
-          "decks": 35
+          "decks": 38
         },
         {
           "passcode": 15397015,
-          "decks": 9
+          "decks": 11
         },
         {
           "passcode": 15693423,
-          "decks": 4
+          "decks": 7
+        },
+        {
+          "passcode": 16259549,
+          "decks": 2
         },
         {
           "passcode": 17412721,
           "decks": 1
         },
         {
+          "passcode": 18789533,
+          "decks": 1
+        },
+        {
           "passcode": 24094653,
-          "decks": 2
+          "decks": 3
         },
         {
           "passcode": 24203749,
-          "decks": 24
+          "decks": 29
         },
         {
           "passcode": 24207889,
@@ -132,18 +140,18 @@
         },
         {
           "passcode": 24224830,
-          "decks": 63
+          "decks": 36
         },
         {
           "passcode": 24461358,
-          "decks": 20
+          "decks": 11
         },
         {
           "passcode": 25311006,
-          "decks": 40
+          "decks": 25
         },
         {
-          "passcode": 28985331,
+          "passcode": 27240101,
           "decks": 1
         },
         {
@@ -152,7 +160,7 @@
         },
         {
           "passcode": 29301450,
-          "decks": 48
+          "decks": 46
         },
         {
           "passcode": 31849106,
@@ -160,11 +168,11 @@
         },
         {
           "passcode": 31924889,
-          "decks": 6
+          "decks": 4
         },
         {
           "passcode": 32044675,
-          "decks": 2
+          "decks": 4
         },
         {
           "passcode": 32181268,
@@ -176,7 +184,7 @@
         },
         {
           "passcode": 32807846,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 32995276,
@@ -192,23 +200,47 @@
         },
         {
           "passcode": 35726888,
-          "decks": 14
+          "decks": 18
         },
         {
           "passcode": 39238953,
           "decks": 2
         },
         {
+          "passcode": 43363035,
+          "decks": 1
+        },
+        {
           "passcode": 43455065,
-          "decks": 2
+          "decks": 1
+        },
+        {
+          "passcode": 43471513,
+          "decks": 1
         },
         {
           "passcode": 45112597,
-          "decks": 3
+          "decks": 1
+        },
+        {
+          "passcode": 45141013,
+          "decks": 1
+        },
+        {
+          "passcode": 45935145,
+          "decks": 1
+        },
+        {
+          "passcode": 47325505,
+          "decks": 1
         },
         {
           "passcode": 48130397,
-          "decks": 5
+          "decks": 8
+        },
+        {
+          "passcode": 49105782,
+          "decks": 4
         },
         {
           "passcode": 49587034,
@@ -216,31 +248,47 @@
         },
         {
           "passcode": 50277355,
-          "decks": 17
+          "decks": 7
         },
         {
           "passcode": 50793215,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 50954680,
-          "decks": 24
+          "decks": 14
         },
         {
           "passcode": 51307986,
           "decks": 1
         },
         {
+          "passcode": 51916853,
+          "decks": 1
+        },
+        {
           "passcode": 52038441,
+          "decks": 3
+        },
+        {
+          "passcode": 52445243,
           "decks": 2
         },
         {
-          "passcode": 52417194,
+          "passcode": 52698008,
+          "decks": 3
+        },
+        {
+          "passcode": 53904087,
           "decks": 1
         },
         {
-          "passcode": 52698008,
+          "passcode": 54693926,
           "decks": 1
+        },
+        {
+          "passcode": 54757758,
+          "decks": 2
         },
         {
           "passcode": 55623480,
@@ -248,11 +296,11 @@
         },
         {
           "passcode": 59438930,
-          "decks": 70
+          "decks": 72
         },
         {
           "passcode": 60465049,
-          "decks": 12
+          "decks": 13
         },
         {
           "passcode": 61665245,
@@ -260,7 +308,19 @@
         },
         {
           "passcode": 63436931,
-          "decks": 2
+          "decks": 3
+        },
+        {
+          "passcode": 63665875,
+          "decks": 1
+        },
+        {
+          "passcode": 63767246,
+          "decks": 3
+        },
+        {
+          "passcode": 64626565,
+          "decks": 1
         },
         {
           "passcode": 65170459,
@@ -268,11 +328,11 @@
         },
         {
           "passcode": 65681983,
-          "decks": 12
+          "decks": 7
         },
         {
           "passcode": 65741786,
-          "decks": 15
+          "decks": 10
         },
         {
           "passcode": 66011101,
@@ -280,27 +340,39 @@
         },
         {
           "passcode": 66122213,
-          "decks": 13
+          "decks": 8
+        },
+        {
+          "passcode": 66236707,
+          "decks": 1
         },
         {
           "passcode": 67750322,
-          "decks": 12
+          "decks": 21
         },
         {
           "passcode": 68462976,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 70088809,
-          "decks": 11
+          "decks": 8
         },
         {
-          "passcode": 70636044,
+          "passcode": 71068247,
+          "decks": 4
+        },
+        {
+          "passcode": 71564252,
+          "decks": 1
+        },
+        {
+          "passcode": 72167543,
           "decks": 1
         },
         {
           "passcode": 72444406,
-          "decks": 6
+          "decks": 4
         },
         {
           "passcode": 72578374,
@@ -308,15 +380,15 @@
         },
         {
           "passcode": 73104892,
-          "decks": 3
+          "decks": 9
         },
         {
           "passcode": 73628505,
-          "decks": 14
+          "decks": 21
         },
         {
           "passcode": 73642296,
-          "decks": 11
+          "decks": 5
         },
         {
           "passcode": 74952447,
@@ -324,7 +396,15 @@
         },
         {
           "passcode": 75500286,
-          "decks": 5
+          "decks": 7
+        },
+        {
+          "passcode": 76352503,
+          "decks": 1
+        },
+        {
+          "passcode": 77856460,
+          "decks": 1
         },
         {
           "passcode": 78010363,
@@ -332,18 +412,14 @@
         },
         {
           "passcode": 78868119,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 80843006,
-          "decks": 7
+          "decks": 6
         },
         {
           "passcode": 81439173,
-          "decks": 3
-        },
-        {
-          "passcode": 85106525,
           "decks": 1
         },
         {
@@ -360,7 +436,7 @@
         },
         {
           "passcode": 87188910,
-          "decks": 13
+          "decks": 15
         },
         {
           "passcode": 87837090,
@@ -371,12 +447,20 @@
           "decks": 1
         },
         {
+          "passcode": 89693655,
+          "decks": 1
+        },
+        {
           "passcode": 89851827,
-          "decks": 4
+          "decks": 3
         },
         {
           "passcode": 90448279,
-          "decks": 1
+          "decks": 5
+        },
+        {
+          "passcode": 90512490,
+          "decks": 4
         },
         {
           "passcode": 90590303,
@@ -387,24 +471,36 @@
           "decks": 1
         },
         {
-          "passcode": 93039339,
+          "passcode": 92826944,
           "decks": 1
         },
         {
+          "passcode": 93039339,
+          "decks": 5
+        },
+        {
           "passcode": 93125329,
-          "decks": 11
+          "decks": 8
         },
         {
           "passcode": 94145021,
-          "decks": 77
+          "decks": 73
+        },
+        {
+          "passcode": 94395649,
+          "decks": 1
+        },
+        {
+          "passcode": 95113856,
+          "decks": 4
         },
         {
           "passcode": 97268402,
-          "decks": 36
+          "decks": 30
         },
         {
           "passcode": 98127546,
-          "decks": 6
+          "decks": 2
         },
         {
           "passcode": 98978921,
@@ -412,558 +508,398 @@
         }
       ],
       "deckCount": 78,
-      "archetypeCount": 18,
+      "archetypeCount": 21,
       "cards": [
         {
           "passcode": 14558127,
           "name": "Ash Blossom & Joyous Spring",
           "decks": 77,
-          "copies": 228,
+          "copies": 230,
           "archetypes": {
-            "Light and Darkness Ritual": 19,
-            "Invoked": 1,
-            "Angelechy": 14,
-            "Elfnote": 24,
-            "Endymion": 1,
+            "Angelechy": 17,
+            "Artmage": 1,
+            "Blitzclique": 1,
+            "Maliss": 3,
+            "Invoked": 3,
             "Branded": 3,
+            "Elfnote": 20,
+            "Atlantean": 2,
+            "Crystron": 1,
+            "Radiant Typhoon": 4,
+            "Call of the Haunted": 1,
+            "Destiny HERO": 2,
+            "Fur Hire": 1,
+            "Light and Darkness Ritual": 11,
+            "Endymion": 1,
             "Lunalight": 1,
-            "Maliss": 1,
-            "Mitsurugi": 2,
-            "Destiny HERO": 1,
-            "Atlantean": 1,
+            "Mitsurugi": 1,
             "Sky Striker": 1,
             "Dark Time Wizard": 1,
-            "D/D": 2,
-            "Yummy": 2,
-            "Phantasm": 1,
-            "Dracotail": 1,
-            "Shaddoll": 1
+            "D/D": 1,
+            "Yummy": 1
           },
           "playShare": 0.9871794871794872,
-          "averageCopies": 2.961038961038961
+          "averageCopies": 2.987012987012987
         },
         {
           "passcode": 94145021,
           "name": "Droll & Lock Bird",
-          "decks": 77,
-          "copies": 154,
+          "decks": 73,
+          "copies": 121,
           "archetypes": {
-            "Light and Darkness Ritual": 19,
-            "Invoked": 1,
-            "Angelechy": 14,
-            "Elfnote": 23,
-            "Endymion": 1,
+            "Angelechy": 16,
+            "Artmage": 1,
+            "Blitzclique": 1,
+            "Maliss": 3,
+            "Invoked": 3,
             "Branded": 4,
+            "Elfnote": 17,
+            "Atlantean": 2,
+            "Crystron": 1,
+            "Radiant Typhoon": 3,
+            "Call of the Haunted": 1,
+            "Destiny HERO": 2,
+            "Fur Hire": 1,
+            "Light and Darkness Ritual": 11,
+            "Endymion": 1,
             "Lunalight": 1,
-            "Maliss": 1,
-            "Mitsurugi": 2,
-            "Destiny HERO": 1,
-            "Atlantean": 1,
+            "Mitsurugi": 1,
             "Sky Striker": 1,
             "Dark Time Wizard": 1,
-            "D/D": 2,
-            "Yummy": 2,
-            "Phantasm": 1,
-            "Dracotail": 1,
-            "Shaddoll": 1
+            "D/D": 1,
+            "Yummy": 1
           },
-          "playShare": 0.9871794871794872,
-          "averageCopies": 2
+          "playShare": 0.9358974358974359,
+          "averageCopies": 1.6575342465753424
         },
         {
           "passcode": 59438930,
           "name": "Ghost Ogre & Snow Rabbit",
-          "decks": 70,
-          "copies": 195,
+          "decks": 72,
+          "copies": 202,
           "archetypes": {
-            "Light and Darkness Ritual": 18,
-            "Invoked": 1,
-            "Angelechy": 14,
-            "Elfnote": 24,
-            "Endymion": 1,
-            "Branded": 2,
-            "Maliss": 1,
-            "Mitsurugi": 1,
-            "Destiny HERO": 1,
-            "Sky Striker": 1,
-            "Dark Time Wizard": 1,
-            "Yummy": 2,
-            "Phantasm": 1,
-            "Dracotail": 1,
-            "Shaddoll": 1
-          },
-          "playShare": 0.8974358974358975,
-          "averageCopies": 2.7857142857142856
-        },
-        {
-          "passcode": 24224830,
-          "name": "Called by the Grave",
-          "decks": 63,
-          "copies": 63,
-          "archetypes": {
-            "Light and Darkness Ritual": 16,
-            "Invoked": 1,
-            "Angelechy": 6,
-            "Elfnote": 21,
-            "Endymion": 1,
+            "Angelechy": 17,
+            "Artmage": 1,
+            "Blitzclique": 1,
+            "Maliss": 3,
+            "Invoked": 3,
             "Branded": 3,
-            "Lunalight": 1,
-            "Maliss": 1,
-            "Mitsurugi": 2,
-            "Destiny HERO": 1,
+            "Elfnote": 20,
             "Atlantean": 1,
+            "Crystron": 1,
+            "Radiant Typhoon": 2,
+            "Call of the Haunted": 1,
+            "Destiny HERO": 2,
+            "Fur Hire": 1,
+            "Light and Darkness Ritual": 11,
+            "Endymion": 1,
+            "Mitsurugi": 1,
             "Sky Striker": 1,
             "Dark Time Wizard": 1,
-            "D/D": 2,
-            "Yummy": 2,
-            "Phantasm": 1,
-            "Dracotail": 1,
-            "Shaddoll": 1
+            "Yummy": 1
           },
-          "playShare": 0.8076923076923077,
-          "averageCopies": 1
+          "playShare": 0.9230769230769231,
+          "averageCopies": 2.8055555555555554
         },
         {
           "passcode": 29301450,
           "name": "S:P Little Knight",
-          "decks": 48,
+          "decks": 46,
           "copies": 49,
           "archetypes": {
-            "Light and Darkness Ritual": 14,
-            "Invoked": 1,
-            "Elfnote": 23,
+            "Artmage": 1,
+            "Blitzclique": 1,
+            "Maliss": 3,
+            "Invoked": 3,
+            "Elfnote": 20,
+            "Radiant Typhoon": 3,
+            "Call of the Haunted": 1,
+            "Fur Hire": 1,
+            "Light and Darkness Ritual": 7,
             "Endymion": 1,
             "Lunalight": 1,
-            "Maliss": 1,
-            "Mitsurugi": 2,
+            "Mitsurugi": 1,
             "Sky Striker": 1,
             "Dark Time Wizard": 1,
-            "Yummy": 2,
-            "Phantasm": 1
+            "Yummy": 1
           },
-          "playShare": 0.6153846153846154,
-          "averageCopies": 1.0208333333333333
+          "playShare": 0.5897435897435898,
+          "averageCopies": 1.065217391304348
         },
         {
-          "passcode": 25311006,
-          "name": "Triple Tactics Talent",
-          "decks": 40,
-          "copies": 40,
+          "passcode": 14883228,
+          "name": "Typhoon",
+          "decks": 38,
+          "copies": 106,
           "archetypes": {
-            "Angelechy": 7,
-            "Elfnote": 15,
-            "Lunalight": 1,
-            "Light and Darkness Ritual": 8,
+            "Angelechy": 8,
+            "Artmage": 1,
+            "Invoked": 1,
             "Branded": 2,
+            "Elfnote": 16,
+            "Destiny HERO": 1,
+            "Fur Hire": 1,
+            "Endymion": 1,
+            "Light and Darkness Ritual": 5,
             "Maliss": 1,
-            "Mitsurugi": 2,
+            "Yummy": 1
+          },
+          "playShare": 0.48717948717948717,
+          "averageCopies": 2.789473684210526
+        },
+        {
+          "passcode": 24224830,
+          "name": "Called by the Grave",
+          "decks": 36,
+          "copies": 36,
+          "archetypes": {
+            "Light and Darkness Ritual": 8,
+            "Invoked": 1,
+            "Angelechy": 4,
+            "Elfnote": 11,
+            "Endymion": 1,
+            "Branded": 2,
+            "Lunalight": 1,
+            "Maliss": 1,
+            "Mitsurugi": 1,
+            "Destiny HERO": 1,
+            "Atlantean": 1,
             "Sky Striker": 1,
             "Dark Time Wizard": 1,
-            "Dracotail": 1,
-            "D/D": 1
+            "D/D": 1,
+            "Yummy": 1
           },
-          "playShare": 0.5128205128205128,
+          "playShare": 0.46153846153846156,
           "averageCopies": 1
         },
         {
           "passcode": 97268402,
           "name": "Effect Veiler",
-          "decks": 36,
-          "copies": 94,
+          "decks": 30,
+          "copies": 80,
           "archetypes": {
-            "Elfnote": 20,
+            "Elfnote": 17,
+            "Angelechy": 6,
+            "Invoked": 1,
             "Endymion": 1,
             "Maliss": 1,
-            "Angelechy": 5,
             "Dark Time Wizard": 1,
-            "Yummy": 2,
-            "Light and Darkness Ritual": 2,
-            "Branded": 1,
-            "Phantasm": 1,
-            "Dracotail": 1,
-            "Shaddoll": 1
+            "Yummy": 1,
+            "Light and Darkness Ritual": 1,
+            "Branded": 1
           },
-          "playShare": 0.46153846153846156,
-          "averageCopies": 2.611111111111111
-        },
-        {
-          "passcode": 14883228,
-          "name": "Typhoon",
-          "decks": 35,
-          "copies": 94,
-          "archetypes": {
-            "Angelechy": 8,
-            "Endymion": 1,
-            "Elfnote": 14,
-            "Light and Darkness Ritual": 7,
-            "Maliss": 1,
-            "Yummy": 2,
-            "Branded": 1,
-            "Phantasm": 1
-          },
-          "playShare": 0.44871794871794873,
-          "averageCopies": 2.6857142857142855
+          "playShare": 0.38461538461538464,
+          "averageCopies": 2.6666666666666665
         },
         {
           "passcode": 24203749,
           "name": "The Great Gallant Bandit",
-          "decks": 24,
-          "copies": 55,
+          "decks": 29,
+          "copies": 64,
           "archetypes": {
-            "Angelechy": 3,
-            "Elfnote": 6,
+            "Artmage": 1,
+            "Maliss": 1,
+            "Branded": 2,
+            "Elfnote": 7,
+            "Atlantean": 1,
+            "Radiant Typhoon": 3,
+            "Destiny HERO": 2,
+            "Angelechy": 4,
+            "Light and Darkness Ritual": 5,
             "Lunalight": 1,
-            "Light and Darkness Ritual": 9,
             "Mitsurugi": 1,
-            "Destiny HERO": 1,
-            "D/D": 1,
-            "Branded": 2
+            "D/D": 1
           },
-          "playShare": 0.3076923076923077,
-          "averageCopies": 2.2916666666666665
+          "playShare": 0.3717948717948718,
+          "averageCopies": 2.206896551724138
         },
         {
-          "passcode": 10045474,
-          "name": "Infinite Impermanence",
-          "decks": 19,
-          "copies": 54,
+          "passcode": 25311006,
+          "name": "Triple Tactics Talent",
+          "decks": 25,
+          "copies": 25,
           "archetypes": {
-            "Elfnote": 9,
-            "Endymion": 1,
+            "Angelechy": 6,
+            "Elfnote": 8,
+            "Lunalight": 1,
+            "Light and Darkness Ritual": 5,
+            "Branded": 1,
             "Maliss": 1,
+            "Mitsurugi": 1,
             "Sky Striker": 1,
-            "Yummy": 2,
-            "Light and Darkness Ritual": 4,
-            "Phantasm": 1
+            "Dark Time Wizard": 1
           },
-          "playShare": 0.24358974358974358,
-          "averageCopies": 2.8421052631578947
+          "playShare": 0.32051282051282054,
+          "averageCopies": 1
         },
         {
           "passcode": 67750322,
           "name": "Skull Meister",
-          "decks": 12,
-          "copies": 31,
+          "decks": 21,
+          "copies": 56,
           "archetypes": {
-            "Angelechy": 2,
-            "Elfnote": 6,
+            "Angelechy": 3,
+            "Invoked": 2,
+            "Elfnote": 10,
+            "Call of the Haunted": 1,
+            "Maliss": 1,
             "Branded": 1,
             "Destiny HERO": 1,
             "Dark Time Wizard": 1,
             "Light and Darkness Ritual": 1
           },
-          "playShare": 0.15384615384615385,
-          "averageCopies": 2.5833333333333335
+          "playShare": 0.2692307692307692,
+          "averageCopies": 2.6666666666666665
         },
         {
-          "passcode": 65681983,
-          "name": "Crossout Designator",
-          "decks": 12,
-          "copies": 12,
+          "passcode": 10045474,
+          "name": "Infinite Impermanence",
+          "decks": 20,
+          "copies": 54,
           "archetypes": {
-            "Angelechy": 5,
-            "Dark Time Wizard": 1,
-            "Light and Darkness Ritual": 2,
-            "Elfnote": 2,
-            "Phantasm": 1,
-            "Mitsurugi": 1
+            "Artmage": 1,
+            "Maliss": 3,
+            "Invoked": 1,
+            "Elfnote": 10,
+            "Endymion": 1,
+            "Sky Striker": 1,
+            "Yummy": 1,
+            "Light and Darkness Ritual": 2
           },
-          "playShare": 0.15384615384615385,
+          "playShare": 0.2564102564102564,
+          "averageCopies": 2.7
+        },
+        {
+          "passcode": 65741786,
+          "name": "I:P Masquerena",
+          "decks": 10,
+          "copies": 10,
+          "archetypes": {
+            "Fur Hire": 1,
+            "Light and Darkness Ritual": 6,
+            "Maliss": 1,
+            "Mitsurugi": 1,
+            "Dark Time Wizard": 1
+          },
+          "playShare": 0.1282051282051282,
           "averageCopies": 1
+        },
+        {
+          "passcode": 12197223,
+          "name": "Shiina, Twin Tempests of Celestial Thunder",
+          "decks": 9,
+          "copies": 26,
+          "archetypes": {
+            "Elfnote": 1,
+            "Angelechy": 4,
+            "Radiant Typhoon": 4
+          },
+          "playShare": 0.11538461538461539,
+          "averageCopies": 2.888888888888889
+        },
+        {
+          "passcode": 73104892,
+          "name": "Maple Maiden",
+          "decks": 9,
+          "copies": 9,
+          "archetypes": {
+            "Elfnote": 1,
+            "Angelechy": 4,
+            "Radiant Typhoon": 4
+          },
+          "playShare": 0.11538461538461539,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 48130397,
+          "name": "Super Polymerization",
+          "decks": 8,
+          "copies": 24,
+          "archetypes": {
+            "Artmage": 1,
+            "Blitzclique": 1,
+            "Invoked": 2,
+            "Branded": 3,
+            "Light and Darkness Ritual": 1
+          },
+          "playShare": 0.10256410256410256,
+          "averageCopies": 3
         },
         {
           "passcode": 70088809,
           "name": "Fydraulis Harmonia",
-          "decks": 11,
-          "copies": 32,
+          "decks": 8,
+          "copies": 22,
           "archetypes": {
-            "Light and Darkness Ritual": 5,
-            "Elfnote": 5,
+            "Elfnote": 3,
+            "Light and Darkness Ritual": 4,
             "Angelechy": 1
           },
-          "playShare": 0.14102564102564102,
-          "averageCopies": 2.909090909090909
-        },
-        {
-          "passcode": 73642296,
-          "name": "Ghost Belle & Haunted Mansion",
-          "decks": 11,
-          "copies": 23,
-          "archetypes": {
-            "Invoked": 1,
-            "Endymion": 1,
-            "Elfnote": 4,
-            "Atlantean": 1,
-            "Angelechy": 1,
-            "Phantasm": 1,
-            "Dracotail": 1,
-            "Light and Darkness Ritual": 1
-          },
-          "playShare": 0.14102564102564102,
-          "averageCopies": 2.090909090909091
+          "playShare": 0.10256410256410256,
+          "averageCopies": 2.75
         },
         {
           "passcode": 93125329,
           "name": "Golden Cloud Beast - Malong",
-          "decks": 11,
-          "copies": 11,
+          "decks": 8,
+          "copies": 8,
           "archetypes": {
-            "Light and Darkness Ritual": 5,
-            "Elfnote": 5,
+            "Elfnote": 3,
+            "Light and Darkness Ritual": 4,
             "Angelechy": 1
           },
-          "playShare": 0.14102564102564102,
-          "averageCopies": 1
-        },
-        {
-          "passcode": 4227096,
-          "name": "Mistaken Arrest",
-          "decks": 8,
-          "copies": 23,
-          "archetypes": {
-            "Branded": 3,
-            "Maliss": 1,
-            "Light and Darkness Ritual": 1,
-            "Elfnote": 2,
-            "Shaddoll": 1
-          },
           "playShare": 0.10256410256410256,
-          "averageCopies": 2.875
+          "averageCopies": 1
         }
       ],
       "archetypeDeckCounts": {
-        "Light and Darkness Ritual": 19,
-        "Invoked": 1,
-        "Angelechy": 14,
-        "Elfnote": 24,
-        "Endymion": 1,
+        "Angelechy": 17,
+        "Artmage": 1,
+        "Blitzclique": 1,
+        "Maliss": 3,
+        "Invoked": 3,
         "Branded": 4,
+        "Elfnote": 20,
+        "Atlantean": 2,
+        "Crystron": 1,
+        "Radiant Typhoon": 4,
+        "Call of the Haunted": 1,
+        "Destiny HERO": 2,
+        "Fur Hire": 1,
+        "Light and Darkness Ritual": 11,
+        "Endymion": 1,
         "Lunalight": 1,
-        "Maliss": 1,
-        "Mitsurugi": 2,
-        "Destiny HERO": 1,
-        "Atlantean": 1,
+        "Mitsurugi": 1,
         "Sky Striker": 1,
         "Dark Time Wizard": 1,
-        "D/D": 2,
-        "Yummy": 2,
-        "Phantasm": 1,
-        "Dracotail": 1,
-        "Shaddoll": 1
+        "D/D": 1,
+        "Yummy": 1
       },
       "archetypeUsage": {
-        "Light and Darkness Ritual": [
-          {
-            "passcode": 14558127,
-            "decks": 19
-          },
-          {
-            "passcode": 94145021,
-            "decks": 19
-          },
-          {
-            "passcode": 59438930,
-            "decks": 18
-          },
-          {
-            "passcode": 24461358,
-            "decks": 17
-          },
-          {
-            "passcode": 24224830,
-            "decks": 16
-          },
-          {
-            "passcode": 29301450,
-            "decks": 14
-          },
-          {
-            "passcode": 7594154,
-            "decks": 13
-          },
-          {
-            "passcode": 50277355,
-            "decks": 13
-          },
-          {
-            "passcode": 65741786,
-            "decks": 11
-          },
-          {
-            "passcode": 24203749,
-            "decks": 9
-          },
-          {
-            "passcode": 13048472,
-            "decks": 8
-          },
-          {
-            "passcode": 25311006,
-            "decks": 8
-          },
-          {
-            "passcode": 14883228,
-            "decks": 7
-          },
-          {
-            "passcode": 70088809,
-            "decks": 5
-          },
-          {
-            "passcode": 93125329,
-            "decks": 5
-          },
-          {
-            "passcode": 98127546,
-            "decks": 5
-          },
-          {
-            "passcode": 10045474,
-            "decks": 4
-          },
-          {
-            "passcode": 72444406,
-            "decks": 4
-          },
-          {
-            "passcode": 5043010,
-            "decks": 3
-          },
-          {
-            "passcode": 102380,
-            "decks": 2
-          },
-          {
-            "passcode": 43455065,
-            "decks": 2
-          },
-          {
-            "passcode": 65681983,
-            "decks": 2
-          },
-          {
-            "passcode": 80843006,
-            "decks": 2
-          },
-          {
-            "passcode": 97268402,
-            "decks": 2
-          },
-          {
-            "passcode": 4227096,
-            "decks": 1
-          },
-          {
-            "passcode": 4731783,
-            "decks": 1
-          },
-          {
-            "passcode": 5318639,
-            "decks": 1
-          },
-          {
-            "passcode": 9763474,
-            "decks": 1
-          },
-          {
-            "passcode": 11765832,
-            "decks": 1
-          },
-          {
-            "passcode": 15693423,
-            "decks": 1
-          },
-          {
-            "passcode": 17412721,
-            "decks": 1
-          },
-          {
-            "passcode": 48130397,
-            "decks": 1
-          },
-          {
-            "passcode": 67750322,
-            "decks": 1
-          },
-          {
-            "passcode": 68462976,
-            "decks": 1
-          },
-          {
-            "passcode": 73642296,
-            "decks": 1
-          },
-          {
-            "passcode": 75500286,
-            "decks": 1
-          },
-          {
-            "passcode": 78010363,
-            "decks": 1
-          },
-          {
-            "passcode": 81439173,
-            "decks": 1
-          },
-          {
-            "passcode": 89851827,
-            "decks": 1
-          }
-        ],
-        "Invoked": [
-          {
-            "passcode": 14558127,
-            "decks": 1
-          },
-          {
-            "passcode": 24207889,
-            "decks": 1
-          },
-          {
-            "passcode": 24224830,
-            "decks": 1
-          },
-          {
-            "passcode": 29301450,
-            "decks": 1
-          },
-          {
-            "passcode": 59438930,
-            "decks": 1
-          },
-          {
-            "passcode": 73642296,
-            "decks": 1
-          },
-          {
-            "passcode": 94145021,
-            "decks": 1
-          }
-        ],
         "Angelechy": [
           {
             "passcode": 14558127,
-            "decks": 14
+            "decks": 17
           },
           {
             "passcode": 35726888,
-            "decks": 14
+            "decks": 17
           },
           {
             "passcode": 59438930,
-            "decks": 14
-          },
-          {
-            "passcode": 94145021,
-            "decks": 14
+            "decks": 17
           },
           {
             "passcode": 73628505,
-            "decks": 12
+            "decks": 16
+          },
+          {
+            "passcode": 94145021,
+            "decks": 16
           },
           {
             "passcode": 15397015,
-            "decks": 9
+            "decks": 11
           },
           {
             "passcode": 14883228,
@@ -971,34 +907,50 @@
           },
           {
             "passcode": 25311006,
-            "decks": 7
+            "decks": 6
           },
           {
-            "passcode": 24224830,
+            "passcode": 97268402,
             "decks": 6
           },
           {
             "passcode": 35269904,
-            "decks": 6
-          },
-          {
-            "passcode": 65681983,
-            "decks": 5
-          },
-          {
-            "passcode": 97268402,
             "decks": 5
           },
           {
             "passcode": 12197223,
-            "decks": 3
+            "decks": 4
           },
           {
             "passcode": 24203749,
-            "decks": 3
+            "decks": 4
+          },
+          {
+            "passcode": 24224830,
+            "decks": 4
+          },
+          {
+            "passcode": 32044675,
+            "decks": 4
+          },
+          {
+            "passcode": 65681983,
+            "decks": 4
           },
           {
             "passcode": 73104892,
+            "decks": 4
+          },
+          {
+            "passcode": 52038441,
+            "decks": 3
+          },
+          {
+            "passcode": 63436931,
+            "decks": 3
+          },
+          {
+            "passcode": 67750322,
             "decks": 3
           },
           {
@@ -1006,31 +958,19 @@
             "decks": 2
           },
           {
-            "passcode": 32044675,
+            "passcode": 13974207,
             "decks": 2
           },
           {
-            "passcode": 52038441,
+            "passcode": 52445243,
             "decks": 2
           },
           {
-            "passcode": 63436931,
-            "decks": 2
-          },
-          {
-            "passcode": 67750322,
-            "decks": 2
-          },
-          {
-            "passcode": 102380,
+            "passcode": 6351147,
             "decks": 1
           },
           {
             "passcode": 12172567,
-            "decks": 1
-          },
-          {
-            "passcode": 13974207,
             "decks": 1
           },
           {
@@ -1062,93 +1002,423 @@
             "decks": 1
           }
         ],
-        "Elfnote": [
+        "Artmage": [
+          {
+            "passcode": 10045474,
+            "decks": 1
+          },
           {
             "passcode": 14558127,
-            "decks": 24
-          },
-          {
-            "passcode": 50954680,
-            "decks": 24
-          },
-          {
-            "passcode": 59438930,
-            "decks": 24
-          },
-          {
-            "passcode": 29301450,
-            "decks": 23
-          },
-          {
-            "passcode": 94145021,
-            "decks": 23
-          },
-          {
-            "passcode": 24224830,
-            "decks": 21
-          },
-          {
-            "passcode": 97268402,
-            "decks": 20
-          },
-          {
-            "passcode": 25311006,
-            "decks": 15
+            "decks": 1
           },
           {
             "passcode": 14883228,
-            "decks": 14
-          },
-          {
-            "passcode": 66122213,
-            "decks": 13
-          },
-          {
-            "passcode": 87188910,
-            "decks": 13
-          },
-          {
-            "passcode": 60465049,
-            "decks": 12
-          },
-          {
-            "passcode": 10045474,
-            "decks": 9
+            "decks": 1
           },
           {
             "passcode": 24203749,
-            "decks": 6
+            "decks": 1
           },
           {
-            "passcode": 31924889,
-            "decks": 6
+            "passcode": 29301450,
+            "decks": 1
+          },
+          {
+            "passcode": 35269904,
+            "decks": 1
+          },
+          {
+            "passcode": 48130397,
+            "decks": 1
+          },
+          {
+            "passcode": 54757758,
+            "decks": 1
+          },
+          {
+            "passcode": 59438930,
+            "decks": 1
+          },
+          {
+            "passcode": 63767246,
+            "decks": 1
+          },
+          {
+            "passcode": 94145021,
+            "decks": 1
+          }
+        ],
+        "Blitzclique": [
+          {
+            "passcode": 11765832,
+            "decks": 1
+          },
+          {
+            "passcode": 14558127,
+            "decks": 1
+          },
+          {
+            "passcode": 29301450,
+            "decks": 1
+          },
+          {
+            "passcode": 35726888,
+            "decks": 1
+          },
+          {
+            "passcode": 48130397,
+            "decks": 1
+          },
+          {
+            "passcode": 54757758,
+            "decks": 1
+          },
+          {
+            "passcode": 59438930,
+            "decks": 1
+          },
+          {
+            "passcode": 71564252,
+            "decks": 1
+          },
+          {
+            "passcode": 93039339,
+            "decks": 1
+          },
+          {
+            "passcode": 94145021,
+            "decks": 1
+          }
+        ],
+        "Maliss": [
+          {
+            "passcode": 9763474,
+            "decks": 3
+          },
+          {
+            "passcode": 10045474,
+            "decks": 3
+          },
+          {
+            "passcode": 14558127,
+            "decks": 3
+          },
+          {
+            "passcode": 29301450,
+            "decks": 3
+          },
+          {
+            "passcode": 52698008,
+            "decks": 3
+          },
+          {
+            "passcode": 59438930,
+            "decks": 3
+          },
+          {
+            "passcode": 73628505,
+            "decks": 3
+          },
+          {
+            "passcode": 75500286,
+            "decks": 3
+          },
+          {
+            "passcode": 94145021,
+            "decks": 3
+          },
+          {
+            "passcode": 1475311,
+            "decks": 2
+          },
+          {
+            "passcode": 4227096,
+            "decks": 1
+          },
+          {
+            "passcode": 5043010,
+            "decks": 1
+          },
+          {
+            "passcode": 7594154,
+            "decks": 1
+          },
+          {
+            "passcode": 14883228,
+            "decks": 1
+          },
+          {
+            "passcode": 15693423,
+            "decks": 1
+          },
+          {
+            "passcode": 18789533,
+            "decks": 1
+          },
+          {
+            "passcode": 24203749,
+            "decks": 1
+          },
+          {
+            "passcode": 24224830,
+            "decks": 1
+          },
+          {
+            "passcode": 25311006,
+            "decks": 1
+          },
+          {
+            "passcode": 31849106,
+            "decks": 1
+          },
+          {
+            "passcode": 32995276,
+            "decks": 1
+          },
+          {
+            "passcode": 45112597,
+            "decks": 1
+          },
+          {
+            "passcode": 54693926,
+            "decks": 1
+          },
+          {
+            "passcode": 65741786,
+            "decks": 1
           },
           {
             "passcode": 67750322,
-            "decks": 6
+            "decks": 1
           },
           {
-            "passcode": 70088809,
-            "decks": 5
-          },
-          {
-            "passcode": 93125329,
-            "decks": 5
-          },
-          {
-            "passcode": 73642296,
-            "decks": 4
+            "passcode": 97268402,
+            "decks": 1
           },
           {
             "passcode": 98978921,
+            "decks": 1
+          }
+        ],
+        "Invoked": [
+          {
+            "passcode": 14558127,
+            "decks": 3
+          },
+          {
+            "passcode": 29301450,
+            "decks": 3
+          },
+          {
+            "passcode": 59438930,
+            "decks": 3
+          },
+          {
+            "passcode": 94145021,
+            "decks": 3
+          },
+          {
+            "passcode": 48130397,
+            "decks": 2
+          },
+          {
+            "passcode": 67750322,
+            "decks": 2
+          },
+          {
+            "passcode": 10045474,
+            "decks": 1
+          },
+          {
+            "passcode": 14883228,
+            "decks": 1
+          },
+          {
+            "passcode": 24207889,
+            "decks": 1
+          },
+          {
+            "passcode": 24224830,
+            "decks": 1
+          },
+          {
+            "passcode": 45141013,
+            "decks": 1
+          },
+          {
+            "passcode": 73642296,
+            "decks": 1
+          },
+          {
+            "passcode": 97268402,
+            "decks": 1
+          }
+        ],
+        "Branded": [
+          {
+            "passcode": 80843006,
+            "decks": 4
+          },
+          {
+            "passcode": 94145021,
             "decks": 4
           },
           {
             "passcode": 4227096,
+            "decks": 3
+          },
+          {
+            "passcode": 14558127,
+            "decks": 3
+          },
+          {
+            "passcode": 48130397,
+            "decks": 3
+          },
+          {
+            "passcode": 59438930,
+            "decks": 3
+          },
+          {
+            "passcode": 75500286,
+            "decks": 3
+          },
+          {
+            "passcode": 14883228,
             "decks": 2
           },
           {
+            "passcode": 24203749,
+            "decks": 2
+          },
+          {
+            "passcode": 24224830,
+            "decks": 2
+          },
+          {
+            "passcode": 89851827,
+            "decks": 2
+          },
+          {
+            "passcode": 15693423,
+            "decks": 1
+          },
+          {
+            "passcode": 25311006,
+            "decks": 1
+          },
+          {
+            "passcode": 35269904,
+            "decks": 1
+          },
+          {
+            "passcode": 67750322,
+            "decks": 1
+          },
+          {
+            "passcode": 72578374,
+            "decks": 1
+          },
+          {
+            "passcode": 85442146,
+            "decks": 1
+          },
+          {
+            "passcode": 94395649,
+            "decks": 1
+          },
+          {
+            "passcode": 97268402,
+            "decks": 1
+          }
+        ],
+        "Elfnote": [
+          {
+            "passcode": 14558127,
+            "decks": 20
+          },
+          {
+            "passcode": 29301450,
+            "decks": 20
+          },
+          {
+            "passcode": 59438930,
+            "decks": 20
+          },
+          {
+            "passcode": 94145021,
+            "decks": 17
+          },
+          {
+            "passcode": 97268402,
+            "decks": 17
+          },
+          {
+            "passcode": 14883228,
+            "decks": 16
+          },
+          {
+            "passcode": 50954680,
+            "decks": 14
+          },
+          {
+            "passcode": 87188910,
+            "decks": 14
+          },
+          {
+            "passcode": 60465049,
+            "decks": 13
+          },
+          {
+            "passcode": 24224830,
+            "decks": 11
+          },
+          {
+            "passcode": 10045474,
+            "decks": 10
+          },
+          {
+            "passcode": 67750322,
+            "decks": 10
+          },
+          {
+            "passcode": 25311006,
+            "decks": 8
+          },
+          {
+            "passcode": 24203749,
+            "decks": 7
+          },
+          {
+            "passcode": 66122213,
+            "decks": 7
+          },
+          {
+            "passcode": 4891376,
+            "decks": 4
+          },
+          {
+            "passcode": 31924889,
+            "decks": 4
+          },
+          {
             "passcode": 8267140,
+            "decks": 3
+          },
+          {
+            "passcode": 70088809,
+            "decks": 3
+          },
+          {
+            "passcode": 93125329,
+            "decks": 3
+          },
+          {
+            "passcode": 98978921,
+            "decks": 3
+          },
+          {
+            "passcode": 9763474,
             "decks": 2
           },
           {
@@ -1156,19 +1426,509 @@
             "decks": 2
           },
           {
-            "passcode": 65681983,
-            "decks": 2
+            "passcode": 4227096,
+            "decks": 1
           },
           {
-            "passcode": 72444406,
-            "decks": 2
+            "passcode": 12197223,
+            "decks": 1
+          },
+          {
+            "passcode": 15693423,
+            "decks": 1
           },
           {
             "passcode": 29143726,
             "decks": 1
           },
           {
+            "passcode": 35269904,
+            "decks": 1
+          },
+          {
+            "passcode": 65681983,
+            "decks": 1
+          },
+          {
+            "passcode": 72444406,
+            "decks": 1
+          },
+          {
+            "passcode": 73104892,
+            "decks": 1
+          },
+          {
+            "passcode": 73642296,
+            "decks": 1
+          },
+          {
             "passcode": 87837090,
+            "decks": 1
+          }
+        ],
+        "Atlantean": [
+          {
+            "passcode": 14558127,
+            "decks": 2
+          },
+          {
+            "passcode": 50793215,
+            "decks": 2
+          },
+          {
+            "passcode": 78868119,
+            "decks": 2
+          },
+          {
+            "passcode": 94145021,
+            "decks": 2
+          },
+          {
+            "passcode": 2295440,
+            "decks": 1
+          },
+          {
+            "passcode": 8576764,
+            "decks": 1
+          },
+          {
+            "passcode": 15693423,
+            "decks": 1
+          },
+          {
+            "passcode": 24203749,
+            "decks": 1
+          },
+          {
+            "passcode": 24224830,
+            "decks": 1
+          },
+          {
+            "passcode": 59438930,
+            "decks": 1
+          },
+          {
+            "passcode": 65170459,
+            "decks": 1
+          },
+          {
+            "passcode": 73642296,
+            "decks": 1
+          },
+          {
+            "passcode": 74952447,
+            "decks": 1
+          },
+          {
+            "passcode": 87188910,
+            "decks": 1
+          },
+          {
+            "passcode": 88307361,
+            "decks": 1
+          }
+        ],
+        "Crystron": [
+          {
+            "passcode": 13567610,
+            "decks": 1
+          },
+          {
+            "passcode": 14558127,
+            "decks": 1
+          },
+          {
+            "passcode": 43471513,
+            "decks": 1
+          },
+          {
+            "passcode": 51916853,
+            "decks": 1
+          },
+          {
+            "passcode": 59438930,
+            "decks": 1
+          },
+          {
+            "passcode": 66122213,
+            "decks": 1
+          },
+          {
+            "passcode": 77856460,
+            "decks": 1
+          },
+          {
+            "passcode": 89693655,
+            "decks": 1
+          },
+          {
+            "passcode": 94145021,
+            "decks": 1
+          }
+        ],
+        "Radiant Typhoon": [
+          {
+            "passcode": 5318639,
+            "decks": 4
+          },
+          {
+            "passcode": 12197223,
+            "decks": 4
+          },
+          {
+            "passcode": 14558127,
+            "decks": 4
+          },
+          {
+            "passcode": 49105782,
+            "decks": 4
+          },
+          {
+            "passcode": 71068247,
+            "decks": 4
+          },
+          {
+            "passcode": 73104892,
+            "decks": 4
+          },
+          {
+            "passcode": 90512490,
+            "decks": 4
+          },
+          {
+            "passcode": 95113856,
+            "decks": 4
+          },
+          {
+            "passcode": 24203749,
+            "decks": 3
+          },
+          {
+            "passcode": 29301450,
+            "decks": 3
+          },
+          {
+            "passcode": 93039339,
+            "decks": 3
+          },
+          {
+            "passcode": 94145021,
+            "decks": 3
+          },
+          {
+            "passcode": 16259549,
+            "decks": 2
+          },
+          {
+            "passcode": 59438930,
+            "decks": 2
+          },
+          {
+            "passcode": 90448279,
+            "decks": 2
+          },
+          {
+            "passcode": 102380,
+            "decks": 1
+          },
+          {
+            "passcode": 15693423,
+            "decks": 1
+          },
+          {
+            "passcode": 66236707,
+            "decks": 1
+          },
+          {
+            "passcode": 72167543,
+            "decks": 1
+          }
+        ],
+        "Call of the Haunted": [
+          {
+            "passcode": 8267140,
+            "decks": 1
+          },
+          {
+            "passcode": 14558127,
+            "decks": 1
+          },
+          {
+            "passcode": 29301450,
+            "decks": 1
+          },
+          {
+            "passcode": 43363035,
+            "decks": 1
+          },
+          {
+            "passcode": 45935145,
+            "decks": 1
+          },
+          {
+            "passcode": 53904087,
+            "decks": 1
+          },
+          {
+            "passcode": 59438930,
+            "decks": 1
+          },
+          {
+            "passcode": 63665875,
+            "decks": 1
+          },
+          {
+            "passcode": 64626565,
+            "decks": 1
+          },
+          {
+            "passcode": 67750322,
+            "decks": 1
+          },
+          {
+            "passcode": 76352503,
+            "decks": 1
+          },
+          {
+            "passcode": 90448279,
+            "decks": 1
+          },
+          {
+            "passcode": 92826944,
+            "decks": 1
+          },
+          {
+            "passcode": 94145021,
+            "decks": 1
+          }
+        ],
+        "Destiny HERO": [
+          {
+            "passcode": 14558127,
+            "decks": 2
+          },
+          {
+            "passcode": 24094653,
+            "decks": 2
+          },
+          {
+            "passcode": 24203749,
+            "decks": 2
+          },
+          {
+            "passcode": 32807846,
+            "decks": 2
+          },
+          {
+            "passcode": 59438930,
+            "decks": 2
+          },
+          {
+            "passcode": 73628505,
+            "decks": 2
+          },
+          {
+            "passcode": 94145021,
+            "decks": 2
+          },
+          {
+            "passcode": 14883228,
+            "decks": 1
+          },
+          {
+            "passcode": 24224830,
+            "decks": 1
+          },
+          {
+            "passcode": 51307986,
+            "decks": 1
+          },
+          {
+            "passcode": 67750322,
+            "decks": 1
+          }
+        ],
+        "Fur Hire": [
+          {
+            "passcode": 14558127,
+            "decks": 1
+          },
+          {
+            "passcode": 14883228,
+            "decks": 1
+          },
+          {
+            "passcode": 27240101,
+            "decks": 1
+          },
+          {
+            "passcode": 29301450,
+            "decks": 1
+          },
+          {
+            "passcode": 47325505,
+            "decks": 1
+          },
+          {
+            "passcode": 59438930,
+            "decks": 1
+          },
+          {
+            "passcode": 63767246,
+            "decks": 1
+          },
+          {
+            "passcode": 65741786,
+            "decks": 1
+          },
+          {
+            "passcode": 90448279,
+            "decks": 1
+          },
+          {
+            "passcode": 94145021,
+            "decks": 1
+          }
+        ],
+        "Light and Darkness Ritual": [
+          {
+            "passcode": 14558127,
+            "decks": 11
+          },
+          {
+            "passcode": 59438930,
+            "decks": 11
+          },
+          {
+            "passcode": 94145021,
+            "decks": 11
+          },
+          {
+            "passcode": 24461358,
+            "decks": 9
+          },
+          {
+            "passcode": 24224830,
+            "decks": 8
+          },
+          {
+            "passcode": 29301450,
+            "decks": 7
+          },
+          {
+            "passcode": 65741786,
+            "decks": 6
+          },
+          {
+            "passcode": 7594154,
+            "decks": 5
+          },
+          {
+            "passcode": 14883228,
+            "decks": 5
+          },
+          {
+            "passcode": 24203749,
+            "decks": 5
+          },
+          {
+            "passcode": 25311006,
+            "decks": 5
+          },
+          {
+            "passcode": 50277355,
+            "decks": 5
+          },
+          {
+            "passcode": 70088809,
+            "decks": 4
+          },
+          {
+            "passcode": 93125329,
+            "decks": 4
+          },
+          {
+            "passcode": 13048472,
+            "decks": 3
+          },
+          {
+            "passcode": 72444406,
+            "decks": 3
+          },
+          {
+            "passcode": 4731783,
+            "decks": 2
+          },
+          {
+            "passcode": 9763474,
+            "decks": 2
+          },
+          {
+            "passcode": 10045474,
+            "decks": 2
+          },
+          {
+            "passcode": 80843006,
+            "decks": 2
+          },
+          {
+            "passcode": 98127546,
+            "decks": 2
+          },
+          {
+            "passcode": 4227096,
+            "decks": 1
+          },
+          {
+            "passcode": 5043010,
+            "decks": 1
+          },
+          {
+            "passcode": 11765832,
+            "decks": 1
+          },
+          {
+            "passcode": 15693423,
+            "decks": 1
+          },
+          {
+            "passcode": 17412721,
+            "decks": 1
+          },
+          {
+            "passcode": 43455065,
+            "decks": 1
+          },
+          {
+            "passcode": 48130397,
+            "decks": 1
+          },
+          {
+            "passcode": 63767246,
+            "decks": 1
+          },
+          {
+            "passcode": 65681983,
+            "decks": 1
+          },
+          {
+            "passcode": 67750322,
+            "decks": 1
+          },
+          {
+            "passcode": 75500286,
+            "decks": 1
+          },
+          {
+            "passcode": 78010363,
+            "decks": 1
+          },
+          {
+            "passcode": 89851827,
+            "decks": 1
+          },
+          {
+            "passcode": 97268402,
             "decks": 1
           }
         ],
@@ -1238,80 +1998,6 @@
             "decks": 1
           }
         ],
-        "Branded": [
-          {
-            "passcode": 80843006,
-            "decks": 4
-          },
-          {
-            "passcode": 94145021,
-            "decks": 4
-          },
-          {
-            "passcode": 4227096,
-            "decks": 3
-          },
-          {
-            "passcode": 14558127,
-            "decks": 3
-          },
-          {
-            "passcode": 24224830,
-            "decks": 3
-          },
-          {
-            "passcode": 48130397,
-            "decks": 3
-          },
-          {
-            "passcode": 75500286,
-            "decks": 3
-          },
-          {
-            "passcode": 24203749,
-            "decks": 2
-          },
-          {
-            "passcode": 25311006,
-            "decks": 2
-          },
-          {
-            "passcode": 59438930,
-            "decks": 2
-          },
-          {
-            "passcode": 89851827,
-            "decks": 2
-          },
-          {
-            "passcode": 14883228,
-            "decks": 1
-          },
-          {
-            "passcode": 15693423,
-            "decks": 1
-          },
-          {
-            "passcode": 35269904,
-            "decks": 1
-          },
-          {
-            "passcode": 67750322,
-            "decks": 1
-          },
-          {
-            "passcode": 72578374,
-            "decks": 1
-          },
-          {
-            "passcode": 85442146,
-            "decks": 1
-          },
-          {
-            "passcode": 97268402,
-            "decks": 1
-          }
-        ],
         "Lunalight": [
           {
             "passcode": 8809344,
@@ -1366,165 +2052,17 @@
             "decks": 1
           }
         ],
-        "Maliss": [
-          {
-            "passcode": 1475311,
-            "decks": 1
-          },
-          {
-            "passcode": 4227096,
-            "decks": 1
-          },
-          {
-            "passcode": 5043010,
-            "decks": 1
-          },
-          {
-            "passcode": 7594154,
-            "decks": 1
-          },
-          {
-            "passcode": 9763474,
-            "decks": 1
-          },
-          {
-            "passcode": 10045474,
-            "decks": 1
-          },
-          {
-            "passcode": 14558127,
-            "decks": 1
-          },
-          {
-            "passcode": 14883228,
-            "decks": 1
-          },
-          {
-            "passcode": 24224830,
-            "decks": 1
-          },
-          {
-            "passcode": 25311006,
-            "decks": 1
-          },
-          {
-            "passcode": 29301450,
-            "decks": 1
-          },
-          {
-            "passcode": 32995276,
-            "decks": 1
-          },
-          {
-            "passcode": 45112597,
-            "decks": 1
-          },
-          {
-            "passcode": 52698008,
-            "decks": 1
-          },
-          {
-            "passcode": 59438930,
-            "decks": 1
-          },
-          {
-            "passcode": 73628505,
-            "decks": 1
-          },
-          {
-            "passcode": 75500286,
-            "decks": 1
-          },
-          {
-            "passcode": 94145021,
-            "decks": 1
-          },
-          {
-            "passcode": 97268402,
-            "decks": 1
-          }
-        ],
         "Mitsurugi": [
-          {
-            "passcode": 7594154,
-            "decks": 2
-          },
-          {
-            "passcode": 14558127,
-            "decks": 2
-          },
-          {
-            "passcode": 24224830,
-            "decks": 2
-          },
-          {
-            "passcode": 24461358,
-            "decks": 2
-          },
-          {
-            "passcode": 25311006,
-            "decks": 2
-          },
-          {
-            "passcode": 29301450,
-            "decks": 2
-          },
-          {
-            "passcode": 50277355,
-            "decks": 2
-          },
-          {
-            "passcode": 65741786,
-            "decks": 2
-          },
-          {
-            "passcode": 94145021,
-            "decks": 2
-          },
           {
             "passcode": 102380,
             "decks": 1
           },
           {
-            "passcode": 2772337,
+            "passcode": 7594154,
             "decks": 1
           },
-          {
-            "passcode": 13048472,
-            "decks": 1
-          },
-          {
-            "passcode": 24203749,
-            "decks": 1
-          },
-          {
-            "passcode": 45112597,
-            "decks": 1
-          },
-          {
-            "passcode": 59438930,
-            "decks": 1
-          },
-          {
-            "passcode": 65681983,
-            "decks": 1
-          },
-          {
-            "passcode": 85106525,
-            "decks": 1
-          },
-          {
-            "passcode": 98127546,
-            "decks": 1
-          }
-        ],
-        "Destiny HERO": [
           {
             "passcode": 14558127,
-            "decks": 1
-          },
-          {
-            "passcode": 24094653,
             "decks": 1
           },
           {
@@ -1536,11 +2074,19 @@
             "decks": 1
           },
           {
-            "passcode": 32807846,
+            "passcode": 24461358,
             "decks": 1
           },
           {
-            "passcode": 51307986,
+            "passcode": 25311006,
+            "decks": 1
+          },
+          {
+            "passcode": 29301450,
+            "decks": 1
+          },
+          {
+            "passcode": 50277355,
             "decks": 1
           },
           {
@@ -1548,61 +2094,7 @@
             "decks": 1
           },
           {
-            "passcode": 67750322,
-            "decks": 1
-          },
-          {
-            "passcode": 73628505,
-            "decks": 1
-          },
-          {
-            "passcode": 94145021,
-            "decks": 1
-          }
-        ],
-        "Atlantean": [
-          {
-            "passcode": 2295440,
-            "decks": 1
-          },
-          {
-            "passcode": 8576764,
-            "decks": 1
-          },
-          {
-            "passcode": 14558127,
-            "decks": 1
-          },
-          {
-            "passcode": 15693423,
-            "decks": 1
-          },
-          {
-            "passcode": 24224830,
-            "decks": 1
-          },
-          {
-            "passcode": 50793215,
-            "decks": 1
-          },
-          {
-            "passcode": 65170459,
-            "decks": 1
-          },
-          {
-            "passcode": 73642296,
-            "decks": 1
-          },
-          {
-            "passcode": 74952447,
-            "decks": 1
-          },
-          {
-            "passcode": 78868119,
-            "decks": 1
-          },
-          {
-            "passcode": 88307361,
+            "passcode": 65741786,
             "decks": 1
           },
           {
@@ -1709,26 +2201,6 @@
         "D/D": [
           {
             "passcode": 14558127,
-            "decks": 2
-          },
-          {
-            "passcode": 24224830,
-            "decks": 2
-          },
-          {
-            "passcode": 94145021,
-            "decks": 2
-          },
-          {
-            "passcode": 102380,
-            "decks": 1
-          },
-          {
-            "passcode": 1475311,
-            "decks": 1
-          },
-          {
-            "passcode": 13974207,
             "decks": 1
           },
           {
@@ -1736,57 +2208,37 @@
             "decks": 1
           },
           {
-            "passcode": 25311006,
+            "passcode": 24224830,
             "decks": 1
           },
           {
-            "passcode": 31849106,
-            "decks": 1
-          },
-          {
-            "passcode": 35269904,
-            "decks": 1
-          },
-          {
-            "passcode": 52417194,
+            "passcode": 94145021,
             "decks": 1
           }
         ],
         "Yummy": [
           {
             "passcode": 10045474,
-            "decks": 2
+            "decks": 1
           },
           {
             "passcode": 14558127,
-            "decks": 2
+            "decks": 1
           },
           {
             "passcode": 14883228,
-            "decks": 2
+            "decks": 1
           },
           {
             "passcode": 24224830,
-            "decks": 2
+            "decks": 1
           },
           {
             "passcode": 29301450,
-            "decks": 2
+            "decks": 1
           },
           {
             "passcode": 59438930,
-            "decks": 2
-          },
-          {
-            "passcode": 94145021,
-            "decks": 2
-          },
-          {
-            "passcode": 97268402,
-            "decks": 2
-          },
-          {
-            "passcode": 65741786,
             "decks": 1
           },
           {
@@ -1794,161 +2246,15 @@
             "decks": 1
           },
           {
+            "passcode": 94145021,
+            "decks": 1
+          },
+          {
+            "passcode": 97268402,
+            "decks": 1
+          },
+          {
             "passcode": 98978921,
-            "decks": 1
-          }
-        ],
-        "Phantasm": [
-          {
-            "passcode": 2220237,
-            "decks": 1
-          },
-          {
-            "passcode": 5043010,
-            "decks": 1
-          },
-          {
-            "passcode": 7044562,
-            "decks": 1
-          },
-          {
-            "passcode": 7594154,
-            "decks": 1
-          },
-          {
-            "passcode": 10045474,
-            "decks": 1
-          },
-          {
-            "passcode": 14558127,
-            "decks": 1
-          },
-          {
-            "passcode": 14883228,
-            "decks": 1
-          },
-          {
-            "passcode": 24224830,
-            "decks": 1
-          },
-          {
-            "passcode": 29301450,
-            "decks": 1
-          },
-          {
-            "passcode": 45112597,
-            "decks": 1
-          },
-          {
-            "passcode": 50277355,
-            "decks": 1
-          },
-          {
-            "passcode": 59438930,
-            "decks": 1
-          },
-          {
-            "passcode": 65681983,
-            "decks": 1
-          },
-          {
-            "passcode": 70636044,
-            "decks": 1
-          },
-          {
-            "passcode": 73642296,
-            "decks": 1
-          },
-          {
-            "passcode": 94145021,
-            "decks": 1
-          },
-          {
-            "passcode": 97268402,
-            "decks": 1
-          }
-        ],
-        "Dracotail": [
-          {
-            "passcode": 14558127,
-            "decks": 1
-          },
-          {
-            "passcode": 24224830,
-            "decks": 1
-          },
-          {
-            "passcode": 25311006,
-            "decks": 1
-          },
-          {
-            "passcode": 48130397,
-            "decks": 1
-          },
-          {
-            "passcode": 59438930,
-            "decks": 1
-          },
-          {
-            "passcode": 73642296,
-            "decks": 1
-          },
-          {
-            "passcode": 80843006,
-            "decks": 1
-          },
-          {
-            "passcode": 89851827,
-            "decks": 1
-          },
-          {
-            "passcode": 94145021,
-            "decks": 1
-          },
-          {
-            "passcode": 97268402,
-            "decks": 1
-          }
-        ],
-        "Shaddoll": [
-          {
-            "passcode": 102380,
-            "decks": 1
-          },
-          {
-            "passcode": 4227096,
-            "decks": 1
-          },
-          {
-            "passcode": 11765832,
-            "decks": 1
-          },
-          {
-            "passcode": 14558127,
-            "decks": 1
-          },
-          {
-            "passcode": 24224830,
-            "decks": 1
-          },
-          {
-            "passcode": 28985331,
-            "decks": 1
-          },
-          {
-            "passcode": 59438930,
-            "decks": 1
-          },
-          {
-            "passcode": 81439173,
-            "decks": 1
-          },
-          {
-            "passcode": 94145021,
-            "decks": 1
-          },
-          {
-            "passcode": 97268402,
             "decks": 1
           }
         ]
@@ -1956,19 +2262,19 @@
       "sources": [
         {
           "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=0&format=tournament%20meta%20decks&tournament",
-          "sha256": "10c6865ed9a3148e127ae0e04dc03b5899a1ddf8da87240cd6a93ed900a74f35"
+          "sha256": "2bc562b26bee1c2ab70117f6ee6ea81e15ac8ef79e292a056fbd6dfc8e2413cd"
         },
         {
           "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=20&format=tournament%20meta%20decks&tournament",
-          "sha256": "c9eaf022d3700c1c58dcd30b44a14e5d1c776a28f8a6b4fd22c710eaa55099cf"
+          "sha256": "680b2a32a5e089a93b3c795b3508dbd53c7c7e8a761508f1065931e923448d48"
         },
         {
           "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=40&format=tournament%20meta%20decks&tournament",
-          "sha256": "1a70ea1d998b3528149f30ae721c7e1223c91e92114b3daf4a3c39bba04524be"
+          "sha256": "dd2ac296f27305160e3354ae99d8f072b6fa4104ae00aa350d97fc88ef3b8eb2"
         },
         {
           "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=60&format=tournament%20meta%20decks&tournament",
-          "sha256": "cd641ce5c4d5cc1f23ff1d79d78c6da3022169667206ec4bb08c1f2b004f4ee2"
+          "sha256": "076e529df8480fd9b478be3929fe6fd7d4be446d8ccb9a95fe459dc6aecc1231"
         }
       ]
     },
@@ -2152,7 +2458,7 @@
         },
         {
           "passcode": 5318639,
-          "decks": 5
+          "decks": 4
         },
         {
           "passcode": 5376159,
@@ -2168,7 +2474,7 @@
         },
         {
           "passcode": 5650082,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 5758500,
@@ -2291,10 +2597,6 @@
           "decks": 3
         },
         {
-          "passcode": 9349094,
-          "decks": 1
-        },
-        {
           "passcode": 9523599,
           "decks": 1
         },
@@ -2312,7 +2614,7 @@
         },
         {
           "passcode": 10045474,
-          "decks": 31
+          "decks": 30
         },
         {
           "passcode": 10086952,
@@ -2355,10 +2657,6 @@
           "decks": 1
         },
         {
-          "passcode": 11747708,
-          "decks": 1
-        },
-        {
           "passcode": 11765832,
           "decks": 1
         },
@@ -2384,11 +2682,11 @@
         },
         {
           "passcode": 12197223,
-          "decks": 2
+          "decks": 3
         },
         {
           "passcode": 12580477,
-          "decks": 42
+          "decks": 41
         },
         {
           "passcode": 12607053,
@@ -2404,7 +2702,7 @@
         },
         {
           "passcode": 12954226,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 13032689,
@@ -2493,6 +2791,10 @@
         {
           "passcode": 15778492,
           "decks": 2
+        },
+        {
+          "passcode": 16037007,
+          "decks": 1
         },
         {
           "passcode": 16195942,
@@ -2619,10 +2921,6 @@
           "decks": 1
         },
         {
-          "passcode": 19113101,
-          "decks": 1
-        },
-        {
           "passcode": 19159413,
           "decks": 1
         },
@@ -2648,7 +2946,7 @@
         },
         {
           "passcode": 19613556,
-          "decks": 33
+          "decks": 32
         },
         {
           "passcode": 19665973,
@@ -2772,7 +3070,7 @@
         },
         {
           "passcode": 23924608,
-          "decks": 6
+          "decks": 5
         },
         {
           "passcode": 23969415,
@@ -2784,7 +3082,7 @@
         },
         {
           "passcode": 24094653,
-          "decks": 18
+          "decks": 19
         },
         {
           "passcode": 24207889,
@@ -2916,14 +3214,10 @@
         },
         {
           "passcode": 29301450,
-          "decks": 5
+          "decks": 6
         },
         {
           "passcode": 30163008,
-          "decks": 1
-        },
-        {
-          "passcode": 30291086,
           "decks": 1
         },
         {
@@ -3384,11 +3678,11 @@
         },
         {
           "passcode": 44088353,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 44095762,
-          "decks": 10
+          "decks": 9
         },
         {
           "passcode": 44209392,
@@ -3452,7 +3746,7 @@
         },
         {
           "passcode": 45500495,
-          "decks": 3
+          "decks": 2
         },
         {
           "passcode": 45742626,
@@ -3544,7 +3838,7 @@
         },
         {
           "passcode": 48686504,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 48739166,
@@ -3556,10 +3850,6 @@
         },
         {
           "passcode": 48800175,
-          "decks": 1
-        },
-        {
-          "passcode": 48805472,
           "decks": 1
         },
         {
@@ -3595,10 +3885,6 @@
           "decks": 2
         },
         {
-          "passcode": 49964567,
-          "decks": 1
-        },
-        {
           "passcode": 50078509,
           "decks": 3
         },
@@ -3608,7 +3894,7 @@
         },
         {
           "passcode": 50277355,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 50323155,
@@ -3649,10 +3935,6 @@
         {
           "passcode": 50954680,
           "decks": 3
-        },
-        {
-          "passcode": 51119924,
-          "decks": 1
         },
         {
           "passcode": 51371017,
@@ -3735,8 +4017,12 @@
           "decks": 1
         },
         {
+          "passcode": 53567095,
+          "decks": 1
+        },
+        {
           "passcode": 53582587,
-          "decks": 8
+          "decks": 7
         },
         {
           "passcode": 53620899,
@@ -3785,10 +4071,6 @@
         {
           "passcode": 55623480,
           "decks": 4
-        },
-        {
-          "passcode": 55705473,
-          "decks": 1
         },
         {
           "passcode": 55713623,
@@ -3947,10 +4229,6 @@
           "decks": 3
         },
         {
-          "passcode": 62411042,
-          "decks": 1
-        },
-        {
           "passcode": 62487836,
           "decks": 1
         },
@@ -3964,7 +4242,7 @@
         },
         {
           "passcode": 62967433,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 63012333,
@@ -4059,10 +4337,6 @@
           "decks": 1
         },
         {
-          "passcode": 66457407,
-          "decks": 1
-        },
-        {
           "passcode": 66472129,
           "decks": 1
         },
@@ -4088,7 +4362,7 @@
         },
         {
           "passcode": 67441435,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 67526112,
@@ -4264,7 +4538,7 @@
         },
         {
           "passcode": 72892473,
-          "decks": 4
+          "decks": 3
         },
         {
           "passcode": 72924435,
@@ -4284,7 +4558,7 @@
         },
         {
           "passcode": 73356503,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 73431236,
@@ -4304,7 +4578,7 @@
         },
         {
           "passcode": 73642296,
-          "decks": 2
+          "decks": 3
         },
         {
           "passcode": 73891874,
@@ -4472,7 +4746,7 @@
         },
         {
           "passcode": 79205581,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 79571449,
@@ -4480,7 +4754,7 @@
         },
         {
           "passcode": 79966218,
-          "decks": 3
+          "decks": 2
         },
         {
           "passcode": 80117527,
@@ -4492,7 +4766,7 @@
         },
         {
           "passcode": 80604092,
-          "decks": 4
+          "decks": 3
         },
         {
           "passcode": 80843006,
@@ -4600,7 +4874,7 @@
         },
         {
           "passcode": 83764719,
-          "decks": 30
+          "decks": 31
         },
         {
           "passcode": 83838727,
@@ -4628,10 +4902,6 @@
         },
         {
           "passcode": 84797028,
-          "decks": 1
-        },
-        {
-          "passcode": 84824601,
           "decks": 1
         },
         {
@@ -4764,7 +5034,7 @@
         },
         {
           "passcode": 89399912,
-          "decks": 3
+          "decks": 4
         },
         {
           "passcode": 89448140,
@@ -4808,7 +5078,7 @@
         },
         {
           "passcode": 90411554,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 90512490,
@@ -4816,7 +5086,7 @@
         },
         {
           "passcode": 90590303,
-          "decks": 2
+          "decks": 3
         },
         {
           "passcode": 90925163,
@@ -4904,6 +5174,10 @@
         },
         {
           "passcode": 94145021,
+          "decks": 1
+        },
+        {
+          "passcode": 94145683,
           "decks": 1
         },
         {
@@ -5112,6 +5386,7 @@
           "decks": 57,
           "copies": 57,
           "archetypes": {
+            "Harpie": 1,
             "Elfnote": 1,
             "Dark Magician": 1,
             "Archfiend": 1,
@@ -5157,8 +5432,7 @@
             "Destruction Sword": 1,
             "Zenet": 1,
             "Dragunity": 1,
-            "Naturia": 1,
-            "Aroma": 1
+            "Naturia": 1
           },
           "playShare": 0.76,
           "averageCopies": 1
@@ -5166,8 +5440,8 @@
         {
           "passcode": 12580477,
           "name": "Raigeki",
-          "decks": 42,
-          "copies": 42,
+          "decks": 41,
+          "copies": 41,
           "archetypes": {
             "Hole": 1,
             "Evolsaur": 1,
@@ -5202,17 +5476,16 @@
             "Arcana Force": 1,
             "Destruction Sword": 1,
             "Dragunity": 1,
-            "Melffy": 1,
-            "Aroma": 1
+            "Melffy": 1
           },
-          "playShare": 0.56,
+          "playShare": 0.5466666666666666,
           "averageCopies": 1
         },
         {
           "passcode": 19613556,
           "name": "Heavy Storm",
-          "decks": 33,
-          "copies": 33,
+          "decks": 32,
+          "copies": 32,
           "archetypes": {
             "Archfiend": 1,
             "Hole": 1,
@@ -5238,53 +5511,18 @@
             "Destiny HERO": 1,
             "Code Talker": 1,
             "Hecahands": 1,
-            "Naturia": 1,
-            "Aroma": 1
+            "Naturia": 1
           },
-          "playShare": 0.44,
-          "averageCopies": 1
-        },
-        {
-          "passcode": 10045474,
-          "name": "Infinite Impermanence",
-          "decks": 31,
-          "copies": 31,
-          "archetypes": {
-            "Archfiend": 1,
-            "Evolsaur": 1,
-            "Nouvelles": 1,
-            "Witchcrafter": 3,
-            "Mitsurugi": 1,
-            "Unchained": 1,
-            "Resonator": 2,
-            "Drytron": 1,
-            "Shark": 1,
-            "Rokket": 1,
-            "Sinful Spoils": 2,
-            "Fluffal": 1,
-            "Red-Eyes": 2,
-            "Dododo": 1,
-            "Numeron": 1,
-            "Elemental HERO": 1,
-            "Dracotail": 2,
-            "Ancient Gear": 1,
-            "Destiny HERO": 1,
-            "Code Talker": 1,
-            "Phantom Knights": 1,
-            "Hecahands": 1,
-            "Shaddoll": 1,
-            "Dragunity": 1,
-            "Aroma": 1
-          },
-          "playShare": 0.41333333333333333,
+          "playShare": 0.4266666666666667,
           "averageCopies": 1
         },
         {
           "passcode": 83764719,
           "name": "Monster Reborn",
-          "decks": 30,
-          "copies": 30,
+          "decks": 31,
+          "copies": 31,
           "archetypes": {
+            "Harpie": 1,
             "Elfnote": 1,
             "Dark Magician": 1,
             "Hole": 1,
@@ -5315,7 +5553,66 @@
             "Dragunity": 1,
             "Naturia": 1
           },
+          "playShare": 0.41333333333333333,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 10045474,
+          "name": "Infinite Impermanence",
+          "decks": 30,
+          "copies": 30,
+          "archetypes": {
+            "Archfiend": 1,
+            "Evolsaur": 1,
+            "Nouvelles": 1,
+            "Witchcrafter": 3,
+            "Mitsurugi": 1,
+            "Unchained": 1,
+            "Resonator": 2,
+            "Drytron": 1,
+            "Shark": 1,
+            "Rokket": 1,
+            "Sinful Spoils": 2,
+            "Fluffal": 1,
+            "Red-Eyes": 2,
+            "Dododo": 1,
+            "Numeron": 1,
+            "Elemental HERO": 1,
+            "Dracotail": 2,
+            "Ancient Gear": 1,
+            "Destiny HERO": 1,
+            "Code Talker": 1,
+            "Phantom Knights": 1,
+            "Hecahands": 1,
+            "Shaddoll": 1,
+            "Dragunity": 1
+          },
           "playShare": 0.4,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 24094653,
+          "name": "Polymerization",
+          "decks": 19,
+          "copies": 19,
+          "archetypes": {
+            "Harpie": 1,
+            "Dark Magician": 1,
+            "Hole": 1,
+            "Elemental HERO": 2,
+            "Shaddoll": 2,
+            "Spellbook": 1,
+            "Fluffal": 1,
+            "Red-Eyes": 2,
+            "Witchcrafter": 1,
+            "Dracotail": 2,
+            "Destiny HERO": 1,
+            "Hecahands": 1,
+            "Arcana Force": 1,
+            "Dragonmaid": 1,
+            "Destruction Sword": 1
+          },
+          "playShare": 0.25333333333333335,
           "averageCopies": 1
         },
         {
@@ -5344,30 +5641,6 @@
             "Hecahands": 1
           },
           "playShare": 0.25333333333333335,
-          "averageCopies": 1
-        },
-        {
-          "passcode": 24094653,
-          "name": "Polymerization",
-          "decks": 18,
-          "copies": 18,
-          "archetypes": {
-            "Dark Magician": 1,
-            "Hole": 1,
-            "Elemental HERO": 2,
-            "Shaddoll": 2,
-            "Spellbook": 1,
-            "Fluffal": 1,
-            "Red-Eyes": 2,
-            "Witchcrafter": 1,
-            "Dracotail": 2,
-            "Destiny HERO": 1,
-            "Hecahands": 1,
-            "Arcana Force": 1,
-            "Dragonmaid": 1,
-            "Destruction Sword": 1
-          },
-          "playShare": 0.24,
           "averageCopies": 1
         },
         {
@@ -5568,26 +5841,6 @@
           "averageCopies": 1
         },
         {
-          "passcode": 44095762,
-          "name": "Mirror Force",
-          "decks": 10,
-          "copies": 10,
-          "archetypes": {
-            "Dark Magician": 1,
-            "Hole": 1,
-            "Geargia": 1,
-            "Drytron": 1,
-            "Greed": 1,
-            "Toon": 1,
-            "Sinful Spoils": 1,
-            "Destruction Sword": 1,
-            "Naturia": 1,
-            "Aroma": 1
-          },
-          "playShare": 0.13333333333333333,
-          "averageCopies": 1
-        },
-        {
           "passcode": 2295440,
           "name": "One for One",
           "decks": 9,
@@ -5602,6 +5855,25 @@
             "Numeron": 1,
             "Red-Eyes": 1,
             "Code Talker": 1
+          },
+          "playShare": 0.12,
+          "averageCopies": 1
+        },
+        {
+          "passcode": 44095762,
+          "name": "Mirror Force",
+          "decks": 9,
+          "copies": 9,
+          "archetypes": {
+            "Dark Magician": 1,
+            "Hole": 1,
+            "Geargia": 1,
+            "Drytron": 1,
+            "Greed": 1,
+            "Toon": 1,
+            "Sinful Spoils": 1,
+            "Destruction Sword": 1,
+            "Naturia": 1
           },
           "playShare": 0.12,
           "averageCopies": 1
@@ -5655,24 +5927,6 @@
             "Bystial": 1,
             "Rokket": 1,
             "Mitsurugi": 1
-          },
-          "playShare": 0.10666666666666667,
-          "averageCopies": 1
-        },
-        {
-          "passcode": 53582587,
-          "name": "Torrential Tribute",
-          "decks": 8,
-          "copies": 8,
-          "archetypes": {
-            "Archfiend": 1,
-            "Drytron": 1,
-            "Greed": 1,
-            "Shark": 1,
-            "Dododo": 1,
-            "Numeron": 1,
-            "Naturia": 1,
-            "Aroma": 1
           },
           "playShare": 0.10666666666666667,
           "averageCopies": 1
@@ -5750,6 +6004,7 @@
         }
       ],
       "archetypeDeckCounts": {
+        "Harpie": 1,
         "Elfnote": 1,
         "Dark Magician": 2,
         "Archfiend": 1,
@@ -5807,10 +6062,67 @@
         "Zenet": 1,
         "Dragunity": 1,
         "Melffy": 1,
-        "Naturia": 1,
-        "Aroma": 1
+        "Naturia": 1
       },
       "archetypeUsage": {
+        "Harpie": [
+          {
+            "passcode": 12197223,
+            "decks": 1
+          },
+          {
+            "passcode": 16037007,
+            "decks": 1
+          },
+          {
+            "passcode": 24094653,
+            "decks": 1
+          },
+          {
+            "passcode": 29301450,
+            "decks": 1
+          },
+          {
+            "passcode": 50277355,
+            "decks": 1
+          },
+          {
+            "passcode": 53567095,
+            "decks": 1
+          },
+          {
+            "passcode": 73356503,
+            "decks": 1
+          },
+          {
+            "passcode": 73642296,
+            "decks": 1
+          },
+          {
+            "passcode": 79571449,
+            "decks": 1
+          },
+          {
+            "passcode": 83764719,
+            "decks": 1
+          },
+          {
+            "passcode": 89399912,
+            "decks": 1
+          },
+          {
+            "passcode": 90411554,
+            "decks": 1
+          },
+          {
+            "passcode": 90590303,
+            "decks": 1
+          },
+          {
+            "passcode": 94145683,
+            "decks": 1
+          }
+        ],
         "Elfnote": [
           {
             "passcode": 4280258,
@@ -5846,6 +6158,10 @@
           },
           {
             "passcode": 42703248,
+            "decks": 1
+          },
+          {
+            "passcode": 44088353,
             "decks": 1
           },
           {
@@ -11638,142 +11954,24 @@
             "passcode": 87294988,
             "decks": 1
           }
-        ],
-        "Aroma": [
-          {
-            "passcode": 5318639,
-            "decks": 1
-          },
-          {
-            "passcode": 5650082,
-            "decks": 1
-          },
-          {
-            "passcode": 9349094,
-            "decks": 1
-          },
-          {
-            "passcode": 10045474,
-            "decks": 1
-          },
-          {
-            "passcode": 11747708,
-            "decks": 1
-          },
-          {
-            "passcode": 12580477,
-            "decks": 1
-          },
-          {
-            "passcode": 12954226,
-            "decks": 1
-          },
-          {
-            "passcode": 19113101,
-            "decks": 1
-          },
-          {
-            "passcode": 19613556,
-            "decks": 1
-          },
-          {
-            "passcode": 23924608,
-            "decks": 1
-          },
-          {
-            "passcode": 30291086,
-            "decks": 1
-          },
-          {
-            "passcode": 44095762,
-            "decks": 1
-          },
-          {
-            "passcode": 45500495,
-            "decks": 1
-          },
-          {
-            "passcode": 48686504,
-            "decks": 1
-          },
-          {
-            "passcode": 48805472,
-            "decks": 1
-          },
-          {
-            "passcode": 49964567,
-            "decks": 1
-          },
-          {
-            "passcode": 51119924,
-            "decks": 1
-          },
-          {
-            "passcode": 53582587,
-            "decks": 1
-          },
-          {
-            "passcode": 55705473,
-            "decks": 1
-          },
-          {
-            "passcode": 62411042,
-            "decks": 1
-          },
-          {
-            "passcode": 62967433,
-            "decks": 1
-          },
-          {
-            "passcode": 66457407,
-            "decks": 1
-          },
-          {
-            "passcode": 67441435,
-            "decks": 1
-          },
-          {
-            "passcode": 72892473,
-            "decks": 1
-          },
-          {
-            "passcode": 79205581,
-            "decks": 1
-          },
-          {
-            "passcode": 79571449,
-            "decks": 1
-          },
-          {
-            "passcode": 79966218,
-            "decks": 1
-          },
-          {
-            "passcode": 80604092,
-            "decks": 1
-          },
-          {
-            "passcode": 84824601,
-            "decks": 1
-          }
         ]
       },
       "sources": [
         {
           "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=0&format=domain%20format%20decks",
-          "sha256": "0a4529ed5505c1464ab3d9f34afa1fbe1921151ae7cca8084c1830cc75c756cb"
+          "sha256": "7f712e90675313566894cc678fc58e824646521c69169f33d5832028e20aef90"
         },
         {
           "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=20&format=domain%20format%20decks",
-          "sha256": "f878c5d5a3c2d7d02c57253389ebd712996778f92f4614ec0bbc612ab891f94a"
+          "sha256": "61a6b01538dd8e5f2c7b1b9cf5394f4f43cc8822f8375cfdcdc59c0a9c47a9df"
         },
         {
           "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=40&format=domain%20format%20decks",
-          "sha256": "9d2bd255965211374d0f50d3f6380fa17896e4c3b3aa778c8ce2b30b994207d4"
+          "sha256": "047568f371b17207ba995e3da44bad93a2859c6772b4f3ca02e8c1eaa9bd2e4c"
         },
         {
           "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=60&format=domain%20format%20decks",
-          "sha256": "65daee5927348242a9dcc064edc7fcb4bd61e02273e139148d0e815ad219c118"
+          "sha256": "b275bd67dbb8eedb46305b2ae2792f6fbe96fbf4605e8e4636e067da6e98fa1d"
         }
       ]
     },
@@ -11781,7 +11979,7 @@
       "genericUsage": [
         {
           "passcode": 102380,
-          "decks": 26
+          "decks": 27
         },
         {
           "passcode": 423585,
@@ -11828,6 +12026,10 @@
           "decks": 1
         },
         {
+          "passcode": 3259760,
+          "decks": 1
+        },
+        {
           "passcode": 3322931,
           "decks": 1
         },
@@ -11845,10 +12047,6 @@
         },
         {
           "passcode": 3814632,
-          "decks": 2
-        },
-        {
-          "passcode": 3819470,
           "decks": 1
         },
         {
@@ -11876,12 +12074,8 @@
           "decks": 1
         },
         {
-          "passcode": 5052212,
-          "decks": 1
-        },
-        {
           "passcode": 5133471,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 5318639,
@@ -11893,6 +12087,10 @@
         },
         {
           "passcode": 5650082,
+          "decks": 1
+        },
+        {
+          "passcode": 5993144,
           "decks": 1
         },
         {
@@ -11921,7 +12119,7 @@
         },
         {
           "passcode": 7736719,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 7805147,
@@ -11938,6 +12136,10 @@
         {
           "passcode": 8267140,
           "decks": 20
+        },
+        {
+          "passcode": 8843569,
+          "decks": 1
         },
         {
           "passcode": 8963089,
@@ -11958,10 +12160,6 @@
         {
           "passcode": 9349094,
           "decks": 2
-        },
-        {
-          "passcode": 9365703,
-          "decks": 1
         },
         {
           "passcode": 9486959,
@@ -11997,7 +12195,7 @@
         },
         {
           "passcode": 12580477,
-          "decks": 5
+          "decks": 6
         },
         {
           "passcode": 12607053,
@@ -12016,12 +12214,8 @@
           "decks": 1
         },
         {
-          "passcode": 14315573,
-          "decks": 1
-        },
-        {
           "passcode": 14558127,
-          "decks": 4
+          "decks": 5
         },
         {
           "passcode": 14878871,
@@ -12040,20 +12234,12 @@
           "decks": 5
         },
         {
-          "passcode": 15778492,
-          "decks": 1
-        },
-        {
           "passcode": 15866454,
           "decks": 2
         },
         {
           "passcode": 16195942,
-          "decks": 5
-        },
-        {
-          "passcode": 16237004,
-          "decks": 1
+          "decks": 4
         },
         {
           "passcode": 16246535,
@@ -12133,7 +12319,7 @@
         },
         {
           "passcode": 21501961,
-          "decks": 7
+          "decks": 8
         },
         {
           "passcode": 21862633,
@@ -12154,10 +12340,6 @@
         {
           "passcode": 23171610,
           "decks": 5
-        },
-        {
-          "passcode": 23571046,
-          "decks": 1
         },
         {
           "passcode": 23611122,
@@ -12185,7 +12367,7 @@
         },
         {
           "passcode": 24094653,
-          "decks": 5
+          "decks": 6
         },
         {
           "passcode": 25096909,
@@ -12209,10 +12391,6 @@
         },
         {
           "passcode": 26556950,
-          "decks": 2
-        },
-        {
-          "passcode": 26914168,
           "decks": 1
         },
         {
@@ -12236,10 +12414,6 @@
           "decks": 1
         },
         {
-          "passcode": 28593329,
-          "decks": 1
-        },
-        {
           "passcode": 28649820,
           "decks": 1
         },
@@ -12253,7 +12427,7 @@
         },
         {
           "passcode": 29669359,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 30227494,
@@ -12301,22 +12475,14 @@
         },
         {
           "passcode": 35269904,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 35405755,
           "decks": 1
         },
         {
-          "passcode": 35498188,
-          "decks": 1
-        },
-        {
           "passcode": 35726888,
-          "decks": 1
-        },
-        {
-          "passcode": 35817848,
           "decks": 1
         },
         {
@@ -12338,10 +12504,6 @@
         {
           "passcode": 38120068,
           "decks": 2
-        },
-        {
-          "passcode": 38275183,
-          "decks": 1
         },
         {
           "passcode": 38296564,
@@ -12401,11 +12563,11 @@
         },
         {
           "passcode": 43363035,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 43422537,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 43455065,
@@ -12413,7 +12575,7 @@
         },
         {
           "passcode": 43471513,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 43528009,
@@ -12425,7 +12587,7 @@
         },
         {
           "passcode": 43898403,
-          "decks": 13
+          "decks": 12
         },
         {
           "passcode": 44095762,
@@ -12453,7 +12615,7 @@
         },
         {
           "passcode": 45935145,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 45951104,
@@ -12505,7 +12667,7 @@
         },
         {
           "passcode": 49959355,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 50078509,
@@ -12513,7 +12675,7 @@
         },
         {
           "passcode": 50357013,
-          "decks": 4
+          "decks": 3
         },
         {
           "passcode": 50954680,
@@ -12533,7 +12695,7 @@
         },
         {
           "passcode": 51706604,
-          "decks": 8
+          "decks": 7
         },
         {
           "passcode": 51960178,
@@ -12548,19 +12710,23 @@
           "decks": 3
         },
         {
+          "passcode": 52101615,
+          "decks": 1
+        },
+        {
           "passcode": 52112003,
           "decks": 1
         },
         {
           "passcode": 52467217,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 52589809,
           "decks": 1
         },
         {
-          "passcode": 52639377,
+          "passcode": 53567095,
           "decks": 1
         },
         {
@@ -12581,7 +12747,7 @@
         },
         {
           "passcode": 54693926,
-          "decks": 7
+          "decks": 8
         },
         {
           "passcode": 54757758,
@@ -12601,10 +12767,6 @@
         },
         {
           "passcode": 55623480,
-          "decks": 1
-        },
-        {
-          "passcode": 55878038,
           "decks": 1
         },
         {
@@ -12637,11 +12799,11 @@
         },
         {
           "passcode": 58655504,
-          "decks": 2
+          "decks": 3
         },
         {
           "passcode": 59438930,
-          "decks": 15
+          "decks": 16
         },
         {
           "passcode": 59718521,
@@ -12657,7 +12819,7 @@
         },
         {
           "passcode": 60465049,
-          "decks": 4
+          "decks": 3
         },
         {
           "passcode": 60743819,
@@ -12681,7 +12843,7 @@
         },
         {
           "passcode": 62541668,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 63086455,
@@ -12720,20 +12882,16 @@
           "decks": 1
         },
         {
-          "passcode": 65892310,
-          "decks": 1
-        },
-        {
           "passcode": 66156348,
           "decks": 1
         },
         {
           "passcode": 66236707,
-          "decks": 8
+          "decks": 7
         },
         {
           "passcode": 66523544,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 66698383,
@@ -12761,7 +12919,7 @@
         },
         {
           "passcode": 67750322,
-          "decks": 20
+          "decks": 22
         },
         {
           "passcode": 68378605,
@@ -12769,7 +12927,7 @@
         },
         {
           "passcode": 69162969,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 69279219,
@@ -12809,7 +12967,7 @@
         },
         {
           "passcode": 72444406,
-          "decks": 9
+          "decks": 8
         },
         {
           "passcode": 72537897,
@@ -12825,7 +12983,7 @@
         },
         {
           "passcode": 73642296,
-          "decks": 4
+          "decks": 5
         },
         {
           "passcode": 74003290,
@@ -12836,20 +12994,12 @@
           "decks": 2
         },
         {
-          "passcode": 74519184,
-          "decks": 1
-        },
-        {
-          "passcode": 74848038,
-          "decks": 1
-        },
-        {
           "passcode": 74952447,
           "decks": 1
         },
         {
           "passcode": 75364199,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 75493362,
@@ -12865,7 +13015,7 @@
         },
         {
           "passcode": 76352503,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 77840540,
@@ -12885,11 +13035,11 @@
         },
         {
           "passcode": 78693036,
-          "decks": 7
+          "decks": 6
         },
         {
           "passcode": 78868119,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 79323590,
@@ -13053,7 +13203,7 @@
         },
         {
           "passcode": 89558743,
-          "decks": 2
+          "decks": 4
         },
         {
           "passcode": 89642993,
@@ -13069,7 +13219,7 @@
         },
         {
           "passcode": 90162951,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 90411554,
@@ -13082,10 +13232,6 @@
         {
           "passcode": 90448279,
           "decks": 5
-        },
-        {
-          "passcode": 90724272,
-          "decks": 1
         },
         {
           "passcode": 91623717,
@@ -13101,11 +13247,11 @@
         },
         {
           "passcode": 92826944,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 93039339,
-          "decks": 2
+          "decks": 1
         },
         {
           "passcode": 93713837,
@@ -13124,6 +13270,10 @@
           "decks": 1
         },
         {
+          "passcode": 94380860,
+          "decks": 1
+        },
+        {
           "passcode": 94503794,
           "decks": 2
         },
@@ -13133,7 +13283,7 @@
         },
         {
           "passcode": 94749594,
-          "decks": 1
+          "decks": 2
         },
         {
           "passcode": 95091919,
@@ -13202,9 +13352,10 @@
         {
           "passcode": 102380,
           "name": "Lava Golem",
-          "decks": 26,
-          "copies": 71,
+          "decks": 27,
+          "copies": 73,
           "archetypes": {
+            "Millennium": 1,
             "Dark Time Wizard": 3,
             "Centur-Ion": 1,
             "Labrynth": 3,
@@ -13224,8 +13375,35 @@
             "Hazy": 1,
             "Valkyrie": 1
           },
-          "playShare": 0.325,
-          "averageCopies": 2.730769230769231
+          "playShare": 0.3375,
+          "averageCopies": 2.7037037037037037
+        },
+        {
+          "passcode": 67750322,
+          "name": "Skull Meister",
+          "decks": 22,
+          "copies": 57,
+          "archetypes": {
+            "Hecahands": 1,
+            "Diabell": 1,
+            "Call of the Haunted": 2,
+            "Dark Time Wizard": 4,
+            "Fairy Tail": 1,
+            "Centur-Ion": 1,
+            "Melffy": 1,
+            "Generaider": 2,
+            "Dragonmaid": 1,
+            "Shaddoll": 1,
+            "Armed Dragon": 1,
+            "Adamancipator": 1,
+            "Angelechy": 1,
+            "Rescue-ACE": 1,
+            "Metalmorph": 1,
+            "Umbral Horror": 1,
+            "Elemental HERO": 1
+          },
+          "playShare": 0.275,
+          "averageCopies": 2.590909090909091
         },
         {
           "passcode": 8267140,
@@ -13233,6 +13411,7 @@
           "decks": 20,
           "copies": 52,
           "archetypes": {
+            "Diabell": 1,
             "Phantom Knights": 1,
             "Dark Time Wizard": 3,
             "Fairy Tail": 1,
@@ -13247,37 +13426,10 @@
             "Mimighoul": 1,
             "Labrynth": 1,
             "Metalmorph": 1,
-            "Angelechy": 2,
-            "Train": 1
+            "Angelechy": 2
           },
           "playShare": 0.25,
           "averageCopies": 2.6
-        },
-        {
-          "passcode": 67750322,
-          "name": "Skull Meister",
-          "decks": 20,
-          "copies": 51,
-          "archetypes": {
-            "Dark Time Wizard": 4,
-            "Fairy Tail": 1,
-            "Centur-Ion": 1,
-            "Melffy": 1,
-            "Generaider": 2,
-            "Dragonmaid": 1,
-            "Shaddoll": 1,
-            "Armed Dragon": 1,
-            "Adamancipator": 1,
-            "Angelechy": 1,
-            "Rescue-ACE": 1,
-            "Metalmorph": 1,
-            "Umbral Horror": 1,
-            "Call of the Haunted": 1,
-            "Elemental HERO": 1,
-            "Phantom Knights": 1
-          },
-          "playShare": 0.25,
-          "averageCopies": 2.55
         },
         {
           "passcode": 10045474,
@@ -13303,10 +13455,12 @@
         {
           "passcode": 59438930,
           "name": "Ghost Ogre & Snow Rabbit",
-          "decks": 15,
-          "copies": 38,
+          "decks": 16,
+          "copies": 40,
           "archetypes": {
-            "Phantom Knights": 2,
+            "Diabell": 1,
+            "Call of the Haunted": 1,
+            "Phantom Knights": 1,
             "Dark Time Wizard": 3,
             "Angelechy": 3,
             "Melffy": 1,
@@ -13317,29 +13471,8 @@
             "Yummy": 1,
             "Mimighoul": 1
           },
-          "playShare": 0.1875,
-          "averageCopies": 2.533333333333333
-        },
-        {
-          "passcode": 43898403,
-          "name": "Twin Twisters",
-          "decks": 13,
-          "copies": 34,
-          "archetypes": {
-            "Phantom Knights": 2,
-            "P.U.N.K.": 1,
-            "Dragonmaid": 1,
-            "Armed Dragon": 1,
-            "Adamancipator": 1,
-            "Dark Time Wizard": 1,
-            "Primite": 1,
-            "Greed": 1,
-            "Inzektor": 1,
-            "Rescue-ACE": 1,
-            "Angelechy": 2
-          },
-          "playShare": 0.1625,
-          "averageCopies": 2.6153846153846154
+          "playShare": 0.2,
+          "averageCopies": 2.5
         },
         {
           "passcode": 14883228,
@@ -13359,20 +13492,41 @@
           "averageCopies": 2.75
         },
         {
+          "passcode": 43898403,
+          "name": "Twin Twisters",
+          "decks": 12,
+          "copies": 31,
+          "archetypes": {
+            "Phantom Knights": 1,
+            "P.U.N.K.": 1,
+            "Dragonmaid": 1,
+            "Armed Dragon": 1,
+            "Adamancipator": 1,
+            "Dark Time Wizard": 1,
+            "Primite": 1,
+            "Greed": 1,
+            "Inzektor": 1,
+            "Rescue-ACE": 1,
+            "Angelechy": 2
+          },
+          "playShare": 0.15,
+          "averageCopies": 2.5833333333333335
+        },
+        {
           "passcode": 5318639,
           "name": "Mystical Space Typhoon",
           "decks": 9,
           "copies": 20,
           "archetypes": {
+            "Millennium": 1,
+            "Hecahands": 1,
             "Dark Time Wizard": 1,
             "Resonator": 1,
             "Traptrix": 1,
             "Rescue-ACE": 1,
             "Blitzclique": 1,
             "Hazy": 1,
-            "Ashtra": 1,
-            "Junk": 1,
-            "Atlantis, City of the Sea Dragon": 1
+            "Ashtra": 1
           },
           "playShare": 0.1125,
           "averageCopies": 2.2222222222222223
@@ -13396,56 +13550,64 @@
           "averageCopies": 1.7777777777777777
         },
         {
+          "passcode": 21501961,
+          "name": "Pair Bear Scare!!",
+          "decks": 8,
+          "copies": 16,
+          "archetypes": {
+            "Fairy Tail": 1,
+            "Darklord": 1,
+            "Libromancer": 1,
+            "Melffy": 1,
+            "Red-Eyes": 1,
+            "Primite": 1,
+            "Crystron": 1,
+            "Mimighoul": 1
+          },
+          "playShare": 0.1,
+          "averageCopies": 2
+        },
+        {
+          "passcode": 54693926,
+          "name": "Dark Ruler No More",
+          "decks": 8,
+          "copies": 16,
+          "archetypes": {
+            "Raidraptor": 1,
+            "Fairy Tail": 1,
+            "Darklord": 1,
+            "P.U.N.K.": 1,
+            "Dragonmaid": 1,
+            "Rescue-ACE": 1,
+            "Resonator": 1,
+            "Angelechy": 1
+          },
+          "playShare": 0.1,
+          "averageCopies": 2
+        },
+        {
           "passcode": 72444406,
           "name": "Enigmaster Packbit",
-          "decks": 9,
-          "copies": 9,
+          "decks": 8,
+          "copies": 8,
           "archetypes": {
             "Fairy Tail": 1,
             "Ashtra": 3,
             "Libromancer": 1,
             "Labrynth": 2,
-            "Ice Barrier": 1,
-            "Atlantis, City of the Sea Dragon": 1
+            "Ice Barrier": 1
           },
-          "playShare": 0.1125,
+          "playShare": 0.1,
           "averageCopies": 1
-        },
-        {
-          "passcode": 66236707,
-          "name": "Gordian Slicer",
-          "decks": 8,
-          "copies": 23,
-          "archetypes": {
-            "Dark Time Wizard": 3,
-            "Exodia": 1,
-            "Crystron": 1,
-            "Blitzclique": 1,
-            "Valkyrie": 1,
-            "Phantom Knights": 1
-          },
-          "playShare": 0.1,
-          "averageCopies": 2.875
-        },
-        {
-          "passcode": 51706604,
-          "name": "Blizzard",
-          "decks": 8,
-          "copies": 22,
-          "archetypes": {
-            "Dark Time Wizard": 3,
-            "Melffy": 1,
-            "Yummy": 1,
-            "Metalmorph": 1,
-            "Blitzclique": 1,
-            "Train": 1
-          },
-          "playShare": 0.1,
-          "averageCopies": 2.75
         }
       ],
       "archetypeDeckCounts": {
-        "Phantom Knights": 2,
+        "Millennium": 1,
+        "Hecahands": 1,
+        "Raidraptor": 1,
+        "Diabell": 1,
+        "Call of the Haunted": 2,
+        "Phantom Knights": 1,
         "Dark Time Wizard": 4,
         "Cyber Dragon": 2,
         "Cyberdark": 2,
@@ -13491,44 +13653,193 @@
         "Metalmorph": 1,
         "Blitzclique": 1,
         "Umbral Horror": 1,
-        "Call of the Haunted": 1,
         "Eldlich": 1,
         "Fire King": 1,
         "Hazy": 1,
-        "Valkyrie": 1,
-        "Chaos": 1,
-        "Junk": 1,
-        "Train": 1,
-        "Atlantis, City of the Sea Dragon": 1
+        "Valkyrie": 1
       },
       "archetypeUsage": {
-        "Phantom Knights": [
+        "Millennium": [
           {
-            "passcode": 16195942,
-            "decks": 2
+            "passcode": 102380,
+            "decks": 1
           },
           {
-            "passcode": 43898403,
-            "decks": 2
+            "passcode": 5318639,
+            "decks": 1
           },
           {
-            "passcode": 59438930,
-            "decks": 2
+            "passcode": 29669359,
+            "decks": 1
+          },
+          {
+            "passcode": 35269904,
+            "decks": 1
+          },
+          {
+            "passcode": 52101615,
+            "decks": 1
+          },
+          {
+            "passcode": 89558743,
+            "decks": 1
+          }
+        ],
+        "Hecahands": [
+          {
+            "passcode": 3259760,
+            "decks": 1
+          },
+          {
+            "passcode": 5318639,
+            "decks": 1
+          },
+          {
+            "passcode": 12580477,
+            "decks": 1
+          },
+          {
+            "passcode": 24094653,
+            "decks": 1
+          },
+          {
+            "passcode": 45445571,
+            "decks": 1
+          },
+          {
+            "passcode": 58655504,
+            "decks": 1
+          },
+          {
+            "passcode": 67750322,
+            "decks": 1
+          }
+        ],
+        "Raidraptor": [
+          {
+            "passcode": 5993144,
+            "decks": 1
+          },
+          {
+            "passcode": 8843569,
+            "decks": 1
+          },
+          {
+            "passcode": 53567095,
+            "decks": 1
+          },
+          {
+            "passcode": 54693926,
+            "decks": 1
           },
           {
             "passcode": 64276752,
-            "decks": 2
-          },
+            "decks": 1
+          }
+        ],
+        "Diabell": [
           {
             "passcode": 8267140,
             "decks": 1
           },
           {
-            "passcode": 16237004,
+            "passcode": 59438930,
+            "decks": 1
+          },
+          {
+            "passcode": 67750322,
+            "decks": 1
+          },
+          {
+            "passcode": 75364199,
+            "decks": 1
+          },
+          {
+            "passcode": 89558743,
+            "decks": 1
+          }
+        ],
+        "Call of the Haunted": [
+          {
+            "passcode": 14558127,
+            "decks": 2
+          },
+          {
+            "passcode": 45935145,
+            "decks": 2
+          },
+          {
+            "passcode": 49959355,
+            "decks": 2
+          },
+          {
+            "passcode": 52467217,
+            "decks": 2
+          },
+          {
+            "passcode": 67750322,
+            "decks": 2
+          },
+          {
+            "passcode": 76352503,
+            "decks": 2
+          },
+          {
+            "passcode": 92826944,
+            "decks": 2
+          },
+          {
+            "passcode": 94749594,
+            "decks": 2
+          },
+          {
+            "passcode": 102380,
+            "decks": 1
+          },
+          {
+            "passcode": 4064256,
+            "decks": 1
+          },
+          {
+            "passcode": 10045474,
+            "decks": 1
+          },
+          {
+            "passcode": 39185163,
+            "decks": 1
+          },
+          {
+            "passcode": 43363035,
+            "decks": 1
+          },
+          {
+            "passcode": 59438930,
+            "decks": 1
+          },
+          {
+            "passcode": 73642296,
+            "decks": 1
+          },
+          {
+            "passcode": 98045062,
+            "decks": 1
+          }
+        ],
+        "Phantom Knights": [
+          {
+            "passcode": 8267140,
+            "decks": 1
+          },
+          {
+            "passcode": 16195942,
             "decks": 1
           },
           {
             "passcode": 24094653,
+            "decks": 1
+          },
+          {
+            "passcode": 43898403,
             "decks": 1
           },
           {
@@ -13540,19 +13851,11 @@
             "decks": 1
           },
           {
-            "passcode": 60465049,
+            "passcode": 59438930,
             "decks": 1
           },
           {
-            "passcode": 66236707,
-            "decks": 1
-          },
-          {
-            "passcode": 67750322,
-            "decks": 1
-          },
-          {
-            "passcode": 78693036,
+            "passcode": 64276752,
             "decks": 1
           }
         ],
@@ -13914,7 +14217,15 @@
         ],
         "Darklord": [
           {
+            "passcode": 7736719,
+            "decks": 1
+          },
+          {
             "passcode": 8267140,
+            "decks": 1
+          },
+          {
+            "passcode": 21501961,
             "decks": 1
           },
           {
@@ -13923,10 +14234,6 @@
           },
           {
             "passcode": 45409943,
-            "decks": 1
-          },
-          {
-            "passcode": 45445571,
             "decks": 1
           },
           {
@@ -13939,6 +14246,10 @@
           },
           {
             "passcode": 71593652,
+            "decks": 1
+          },
+          {
+            "passcode": 94380860,
             "decks": 1
           }
         ],
@@ -15930,60 +16241,6 @@
             "decks": 1
           }
         ],
-        "Call of the Haunted": [
-          {
-            "passcode": 102380,
-            "decks": 1
-          },
-          {
-            "passcode": 4064256,
-            "decks": 1
-          },
-          {
-            "passcode": 10045474,
-            "decks": 1
-          },
-          {
-            "passcode": 14558127,
-            "decks": 1
-          },
-          {
-            "passcode": 39185163,
-            "decks": 1
-          },
-          {
-            "passcode": 45935145,
-            "decks": 1
-          },
-          {
-            "passcode": 49959355,
-            "decks": 1
-          },
-          {
-            "passcode": 52467217,
-            "decks": 1
-          },
-          {
-            "passcode": 67750322,
-            "decks": 1
-          },
-          {
-            "passcode": 76352503,
-            "decks": 1
-          },
-          {
-            "passcode": 92826944,
-            "decks": 1
-          },
-          {
-            "passcode": 94749594,
-            "decks": 1
-          },
-          {
-            "passcode": 98045062,
-            "decks": 1
-          }
-        ],
         "Eldlich": [
           {
             "passcode": 102380,
@@ -16155,171 +16412,27 @@
             "passcode": 89642993,
             "decks": 1
           }
-        ],
-        "Chaos": [
-          {
-            "passcode": 26914168,
-            "decks": 1
-          },
-          {
-            "passcode": 28593329,
-            "decks": 1
-          },
-          {
-            "passcode": 52639377,
-            "decks": 1
-          },
-          {
-            "passcode": 55878038,
-            "decks": 1
-          },
-          {
-            "passcode": 74519184,
-            "decks": 1
-          },
-          {
-            "passcode": 74848038,
-            "decks": 1
-          },
-          {
-            "passcode": 90724272,
-            "decks": 1
-          }
-        ],
-        "Junk": [
-          {
-            "passcode": 3819470,
-            "decks": 1
-          },
-          {
-            "passcode": 5052212,
-            "decks": 1
-          },
-          {
-            "passcode": 5318639,
-            "decks": 1
-          },
-          {
-            "passcode": 9365703,
-            "decks": 1
-          },
-          {
-            "passcode": 14315573,
-            "decks": 1
-          },
-          {
-            "passcode": 23571046,
-            "decks": 1
-          },
-          {
-            "passcode": 35498188,
-            "decks": 1
-          },
-          {
-            "passcode": 35817848,
-            "decks": 1
-          },
-          {
-            "passcode": 38275183,
-            "decks": 1
-          },
-          {
-            "passcode": 43422537,
-            "decks": 1
-          },
-          {
-            "passcode": 69162969,
-            "decks": 1
-          }
-        ],
-        "Train": [
-          {
-            "passcode": 3814632,
-            "decks": 1
-          },
-          {
-            "passcode": 5133471,
-            "decks": 1
-          },
-          {
-            "passcode": 8267140,
-            "decks": 1
-          },
-          {
-            "passcode": 15778492,
-            "decks": 1
-          },
-          {
-            "passcode": 26556950,
-            "decks": 1
-          },
-          {
-            "passcode": 43471513,
-            "decks": 1
-          },
-          {
-            "passcode": 50357013,
-            "decks": 1
-          },
-          {
-            "passcode": 51706604,
-            "decks": 1
-          },
-          {
-            "passcode": 62541668,
-            "decks": 1
-          },
-          {
-            "passcode": 66523544,
-            "decks": 1
-          },
-          {
-            "passcode": 90162951,
-            "decks": 1
-          },
-          {
-            "passcode": 93039339,
-            "decks": 1
-          }
-        ],
-        "Atlantis, City of the Sea Dragon": [
-          {
-            "passcode": 5318639,
-            "decks": 1
-          },
-          {
-            "passcode": 65892310,
-            "decks": 1
-          },
-          {
-            "passcode": 72444406,
-            "decks": 1
-          },
-          {
-            "passcode": 78868119,
-            "decks": 1
-          }
         ]
       },
       "sources": [
         {
           "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=0&format=genesys%20decks",
-          "sha256": "728e836f6a3bfdd514bcadb98ede32076e48a4e9b7131928aef86032e46c65b2"
+          "sha256": "0ab715d1277491f0b976a4f7edec0486cf61aefb44ee13193d78e077057f95ef"
         },
         {
           "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=20&format=genesys%20decks",
-          "sha256": "8d5acc45e1531dcbf6ab9bcf098ff7423841e6849e5b9169df7cfde700a74e36"
+          "sha256": "ba121b4d186ed2f1947290b1bf077aed4f42c0e9dbdc1c1d321576926212837e"
         },
         {
           "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=40&format=genesys%20decks",
-          "sha256": "cd51773ff150e60755c6ee62e6120497f24031e916dbbb58518c69ad86d3803c"
+          "sha256": "6a3e58b5d8b46e830f25205a2fef39080078d72be85dcf210d6c1a76f4c1a86c"
         },
         {
           "url": "https://ygoprodeck.com/api/decks/getDecks.php?limit=20&offset=60&format=genesys%20decks",
-          "sha256": "a4050501fe237197b1a867abb20359398c995a5ef1f0cff277da1a5538369d37"
+          "sha256": "8ec94bf3b693132d89402c7315c47f5c658f0c3b572c10e1693350d4e0e7205a"
         }
       ]
     }
   },
-  "version": "de664e4c1d5646979e68483f84ef8b019c6e486c2b33cd5759331f94d6816983"
+  "version": "0fcf4b1520d3aa2cdaec33641290c75af234e0524d16ad6bc735118ead3bcb34"
 }
