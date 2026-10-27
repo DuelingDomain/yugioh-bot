@@ -68,9 +68,10 @@ function liveDuels(db: Database.Database, guild: string, now: number): LiveDuel[
       case when json_valid(d.clock_json) then json_extract(d.clock_json, '$.turn') end as turn,
       case when json_valid(d.clock_json) then json_extract(d.clock_json, '$.activeSeat') end as active_seat
     from duels d
-    where d.guild_id = ? and d.status in ('lobby', 'active') and d.kind = 'play' and d.archived_at is null
+    where d.guild_id = ? and d.status in ('lobby', 'active') and d.kind != 'replay-fork' and d.archived_at is null
+      and (d.status != 'active' or coalesce(json_extract(d.setup_json, '$.testDuel'), 0) = 0)
     order by d.id desc limit 500`).all(guild) as DuelRow[];
-  // Match the host's live/lobby idle cutoffs before loading seat details.
+  // Match deploy's active-duel exclusions and the host's live/lobby idle cutoffs before loading seats.
   const open = rows.filter((row) => {
     const activity = dbTimeMs(row.activity_at) ?? 0;
     if (row.status === "active") return now - activity <= DUEL_LIVE_IDLE_AFTER_MS;
@@ -155,8 +156,8 @@ function liveDrafts(db: Database.Database, guild: string, now: number): LiveDraf
 
 /**
  * Open duel tables and drafts from the shared SQLite file, scoped to the configured guild. "Live" means the
- * duel is persisted as `active`; lobbies are listed too with status "lobby". Replay forks
- * are not duels people play, so they are left out. Duels that started today are in the "today" section.
+ * duel is persisted as `active`; lobbies are listed too with status "lobby". Replay forks and active
+ * deck-editor tests are excluded, matching the deploy guard. Duels started today are in the "today" section.
  */
 export const loadLive: SectionLoader<"live"> = async ({ now }) => {
   const guild = env.discordGuildId;
