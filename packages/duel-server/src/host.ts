@@ -4110,14 +4110,21 @@ export function createDuelHost(options: {
         try {
           await enqueue(item.slug, async () => {
             if (stopped) return;
+            let fork: boolean;
             try {
-              if (await settleRankedDeadline(item.slug, item.guildId)) return;
+              fork = isReplayFork(service.get(item.slug, item.guildId));
+            } catch (error) {
+              if (error instanceof DuelServiceError && error.status === 404) return;
+              throw error;
+            }
+            try {
+              if (!fork && await settleRankedDeadline(item.slug, item.guildId)) return;
             } catch (error) {
               report(error, { tags: { operation: "[duel] idle deadline settlement failed" } });
             }
             let snapshots: DuelFinalSnapshots | undefined;
             const entry = games.get(item.slug);
-            if (entry?.game.running) {
+            if (!fork && entry?.game.running) {
               try {
                 snapshots = await captureSnapshots(entry.game, service.get(item.slug, item.guildId).format, null, DUEL_LIVE_IDLE_REASON);
               } catch (error) {
@@ -4265,6 +4272,7 @@ export function createDuelHost(options: {
     void tick();
   }, pollIntervalMs);
   timer.unref();
+  // Sweep persisted rows immediately, including abandoned forks with no resident worker after a restart.
   void tick();
   const stallTimer = stallMs > 0 ? setInterval(() => void checkStalls(), Math.max(10, Math.min(5000, Math.floor(stallMs / 4)))) : null;
   stallTimer?.unref();

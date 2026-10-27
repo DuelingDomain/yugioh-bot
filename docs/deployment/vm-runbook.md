@@ -544,6 +544,9 @@ drained DB that `select count(*) from duels where kind = 'replay-fork' and statu
 returns `0`. Save a WAL-safe backup before starting older images. Older code has no kind
 filter and can recover an active fork as an ordinary duel with bot seats and live timers.
 
+Active forks no longer block the deploy guard, so this cancellation is a manual
+rollback step; the guard will no longer remind you.
+
 ### PR 1 migration rollback (historical)
 
 Before PR 1, obtain a WAL-safe backup using `scripts/backup/dueling-backup`, save matching commit/image IDs/env, and rehearse migration on an owner-provided copy. Drain active games under the existing engine procedure. Build all images, stop web/bot/duel/worker and WS, capture the final drained backup, migrate once using the new worker image, and verify counts, ownership mappings, unchanged player/gameplay IDs, foreign keys and integrity before accepting traffic. Start WS/duel/web, the updated bot with literal `DISCORD_BOT_ENABLED=1`, and one worker. Check worker/WS health, unattended deadlines, Discord commands/status/completion, reconnecting draft sockets and existing NextAuth sessions. The owner then asks members to sign in for verified-email capture; retain NextAuth credentials.

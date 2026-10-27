@@ -78,6 +78,19 @@ it("lists running duels and lobbies with players, then open drafts, and filters 
     status: "active", players: ["Bo", "Ann"], progress: "Round 2, pick 3", startedAt: Date.parse("2026-10-19T11:00:00Z"), href: "/admin/watch/draft/dr1" });
 });
 
+it("matches deploy guard exclusions for active forks, deck-editor tests and idle tables", async () => {
+  const created = "2026-10-19 11:59:00";
+  duel(1, "live", { status: "active", created, ranked: 1, seats: [12, 13] });
+  duel(2, "practice-fork", { status: "active", created, kind: "replay-fork", seats: [12] });
+  duel(3, "deck-test", { status: "active", created, seats: [12, "bot"] });
+  db.prepare("update duels set setup_json = '{\"testDuel\":true}' where id = 3").run();
+  duel(4, "old-fork", { status: "active", created: "2026-10-18 00:00:00", kind: "replay-fork", seats: [12] });
+  duel(5, "idle", { status: "active", created: "2026-10-19 11:49:00", seats: [12, 13] });
+  const { data } = await (await section("live")).json();
+  expect(data.duels.map((d: { slug: string }) => d.slug)).toEqual(["live"]);
+  expect(db.prepare("select count(*) as n from duels where status = 'active'").get()).toEqual({ n: 5 });
+});
+
 it("adds seats with pictures and bots, the turn from the clock, and draft progress", async () => {
   seed();
   db.prepare("update users set image_url = ? where id = 2").run("https://img.clerk.com/ann.png");

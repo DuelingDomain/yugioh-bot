@@ -15,13 +15,14 @@ function fixture() {
 afterEach(() => dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
 
 describe("production activity guard with the application schema", () => {
-  it.each([false, true])("ignores stale duels even with a funded clock but protects recent player actions (ranked=%s)", ranked => {
+  it.each([false, true].flatMap(ranked => ["play", "replay-fork"].map(kind => ({ ranked, kind }))))(
+    "ignores stale duels and never blocks on practice forks (ranked=$ranked, kind=$kind)", ({ ranked, kind }) => {
     const path = join(fixture(), "prod.sqlite");
     const db = openDatabase(path);
     try {
       db.prepare("INSERT INTO users (id, username, display_name) VALUES (1, 'owner', 'Owner')").run();
       db.prepare("INSERT INTO players (id, guild_id, user_id, display_name) VALUES (1, 'community', 1, 'Owner')").run();
-      db.prepare("INSERT INTO duels (guild_id, web_slug, name, organizer_player_id, mode, status, last_activity_at) VALUES ('community', 'idle-duel', 'Idle', 1, 'normal', 'active', datetime('now', '-2 hours'))").run();
+      db.prepare("INSERT INTO duels (guild_id, web_slug, name, organizer_player_id, mode, kind, status, last_activity_at) VALUES ('community', 'idle-duel', 'Idle', 1, 'normal', ?, 'active', datetime('now', '-2 hours'))").run(kind);
       db.prepare("update duels set ranked = ?").run(ranked ? 1 : 0);
       const guard = () => spawnSync("python3", ["-B", join(root, "scripts/deployment/check-prod-activity.py"), path, "--live-only"], { encoding: "utf8" });
       expect(guard().status).toBe(0);
@@ -31,7 +32,10 @@ describe("production activity guard with the application schema", () => {
       expect(guard().status).toBe(0);
       expect(db.prepare("select status, clock_json from duels").get()).toEqual({ status: "active", clock_json: JSON.stringify(clock) });
       db.prepare("update duels set last_activity_at = datetime('now', '-9 minutes')").run();
-      expect(guard().status).toBe(1);
+      expect(guard().status).toBe(kind === "replay-fork" ? 0 : 1);
+      db.prepare("update duels set last_activity_at = null, started_at = null, created_at = datetime('now', '-30 hours')").run();
+      expect(guard().status).toBe(0);
+      expect(db.prepare("select status, started_at from duels").get()).toEqual({ status: "active", started_at: null });
     } finally { db.close(); }
   });
 

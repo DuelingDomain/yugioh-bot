@@ -106,7 +106,60 @@ beforeEach(() => {
   }
   source(); workers = []; onChange = vi.fn(); makeWorker = () => new ForkWorker(); startHost();
 });
-afterEach(async () => { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+afterEach(async () => { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); vi.unstubAllEnvs(); vi.restoreAllMocks(); vi.useRealTimers(); });
+
+it.each(["resident", "restarted", "revoked owner"])("cancels an idle fork with a %s session without changing its source or journal", async state => {
+  await host.close();
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+  startHost({ pollIntervalMs: 1000 });
+  const before = sourceRows();
+  const fork = (await post({ op: "replay-fork", ...request() })).body.slug;
+  const journal = createReplayForkService(db).privateState(fork, owner).commands;
+  const worker = workers[0]!;
+  db.prepare("update duels set last_activity_at = ?, started_at = null where web_slug = ?")
+    .run(new Date(Date.now() - 30 * 60 * 60_000).toISOString(), fork);
+  if (state === "restarted") { await host.close(); startHost({ pollIntervalMs: 1000 }); }
+  if (state === "revoked owner") vi.stubEnv("OWNER_USER_IDS", "");
+  onChange.mockClear();
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(db.prepare(`select status, ended_at is not null as ended, archived_at is not null as archived,
+    clock_json, winner_player_id, winner_seat, started_at, result_reason from duels where web_slug = ?`).get(fork)).toEqual({
+    status: "cancelled", ended: 1, archived: 1, clock_json: null, winner_player_id: null, winner_seat: null,
+    started_at: null, result_reason: "No player activity for 10 minutes.",
+  });
+  expect(createDuelService(db).privateState(fork, owner.guildId).commands).toEqual(journal);
+  expect(worker.running).toBe(false);
+  expect(workers).toHaveLength(1); // Startup cleanup never recreates an engine.
+  expect(onChange).toHaveBeenCalledWith(fork, owner.guildId);
+  expect(sourceRows()).toEqual(before);
+  expect(db.prepare("select count(*) as n from matches").get()).toEqual({ n: 0 });
+});
+
+it("renews fork idle time on answers while passive views and fork-list reads leave it unchanged", async () => {
+  await host.close();
+  vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+  startHost({ pollIntervalMs: 1000 });
+  const fork = (await post({ op: "replay-fork", ...request() })).body.slug;
+  const activity = () => (db.prepare("select last_activity_at from duels where web_slug = ?").get(fork) as { last_activity_at: string }).last_activity_at;
+  const initial = activity();
+  vi.setSystemTime(Date.now() + 9 * 60_000);
+  const room = (await post({ op: "view", slug: fork })).body;
+  await post({ op: "fork-list", slug: undefined });
+  expect(activity()).toBe(initial);
+  expect((await post({ op: "respond", slug: fork, command: { promptId: room.engine.prompt.id,
+    revision: room.engine.revision, answer: { choice: "next" } } })).response.status).toBe(200);
+  const renewed = activity();
+  expect(renewed).not.toBe(initial);
+  vi.setSystemTime(Date.now() + 9 * 60_000);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(createDuelService(db).get(fork, owner.guildId).status).toBe("active");
+  await post({ op: "view", slug: fork });
+  await post({ op: "fork-list", slug: undefined });
+  expect(activity()).toBe(renewed);
+  vi.setSystemTime(Date.now() + 60_000);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(createDuelService(db).get(fork, owner.guildId).status).toBe("cancelled");
+});
 
 it("lists only the caller's active forks with exact metadata and deterministic creation order", async () => {
   const input = request(), before = sourceRows();
