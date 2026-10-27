@@ -92,14 +92,14 @@ const MAX_SIDE = DECK_SECTION_LIMITS.side;
 export const PRACTICE_BOT_NAME = "Practice Bot";
 const ARCHIVE_DUE_CAP = 32;
 const CLOCK_DUE_CAP = 32;
-/** All play expires after this long without player input, regardless of the decision clock. */
+/** Every duel kind expires after this long without player input, regardless of the decision clock. */
 export const DUEL_LIVE_IDLE_AFTER_MS = 10 * 60 * 1000;
 export const DUEL_LIVE_IDLE_REASON = "No player activity for 10 minutes.";
 /** Preserve the existing discovery cutoff independently of the host's idle-close policy. */
 export const DUEL_LIVE_LIST_IDLE_AFTER_MS = 15 * 60 * 1000;
 
 // Keep the deploy installer's offline interruption and activity guard in sync with this predicate.
-const LIVE_IDLE_SQL = `kind = 'play' and status = 'active'
+const LIVE_IDLE_SQL = `status = 'active'
   and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday(@before)`;
 const COMPETITIVE_SQL = `(ranked = 1 or exists (
   select 1 from duel_series s where s.id = duels.series_id and s.tournament_match_id is not null
@@ -205,7 +205,7 @@ export interface DuelService {
   touchWaiting(slug: string, guildId: string, playerId: number): DuelWaitingActivity;
   expireWaitingTables(nowMs: number, limit: number): DuelSession[];
   dueIdleDuels(nowMs: number, limit: number): Array<{ slug: string; guildId: string }>;
-  /** Rechecks activity transactionally: a queued player response can save a sweep candidate. */
+  /** Rechecks activity transactionally; cancels practice forks and interrupts other idle tables. */
   interruptIdle(slug: string, guildId: string, nowMs: number, snapshots?: DuelFinalSnapshots): DuelSession | null;
   create(input: {
     guildId: string;
@@ -1505,6 +1505,12 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     },
   );
 
+  const cancelRow = db.prepare<[string, number | null, number]>(`
+    update duels
+    set status = 'cancelled', ended_at = datetime('now'), archived_at = case when sandbox = 1 then archived_at else coalesce(archived_at, datetime('now')) end, winner_player_id = null, winner_seat = null,
+        result_reason = ?, turn_count = coalesce(turn_count, ?), clock_json = null
+    where id = ? and status in ('lobby', 'active')
+  `);
   const cancelTx = db.transaction((slug: string, guildId: string, organizerPlayerId: number, liveTurn?: number) => {
     const row = loadDuelRow(slug, guildId);
     assertPlayerGuild(organizerPlayerId, guildId);
@@ -1540,14 +1546,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       throw new DuelServiceError("Only a lobby or an active unranked duel can be cancelled", 409);
     }
 
-    db.prepare<[number | null, number]>(
-      `
-        update duels
-        set status = 'cancelled', ended_at = datetime('now'), archived_at = case when sandbox = 1 then archived_at else coalesce(archived_at, datetime('now')) end, winner_player_id = null, winner_seat = null,
-            result_reason = 'Cancelled', turn_count = coalesce(turn_count, ?), clock_json = null
-        where id = ? and status in ('lobby', 'active')
-      `,
-    ).run(row.status === "active" && typeof liveTurn === "number" && Number.isSafeInteger(liveTurn) && liveTurn >= 0 ? liveTurn : storedTurnCount(row), row.id);
+    cancelRow.run("Cancelled", row.status === "active" && typeof liveTurn === "number" && Number.isSafeInteger(liveTurn) && liveTurn >= 0 ? liveTurn : storedTurnCount(row), row.id);
     const updated = selectDuelById.get(row.id);
     if (!updated) throw new DuelServiceError("Duel record is invalid", 500);
     if (row.status === "active" && !isReplayFork(updated)) {
@@ -2015,6 +2014,12 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     interruptIdle(slug, guildId, nowMs, snapshots) {
       return db.transaction(() => {
         if (!selectIdleSlug.get({ slug, guildId, ...idleAt(nowMs) })) return null;
+        const row = loadDuelRow(slug, guildId);
+        if (isReplayFork(row)) {
+          // Unattended cleanup must also work after the creator loses owner access.
+          cancelRow.run(DUEL_LIVE_IDLE_REASON, storedTurnCount(row), row.id);
+          return mapSession(selectDuelById.get(row.id)!);
+        }
         return finalizeTx(slug, guildId, "interrupted", null, DUEL_LIVE_IDLE_REASON, snapshots);
       }).immediate();
     },

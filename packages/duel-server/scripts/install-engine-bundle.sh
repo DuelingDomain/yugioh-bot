@@ -209,17 +209,17 @@ if multi_seat_only and "format" not in columns:
     print(0)
     sys.exit(0)
 
-# Same predicate as shared/services/duels.ts LIVE_IDLE_SQL: all play input, regardless of the clock.
+# Same predicate as shared/services/duels.ts LIVE_IDLE_SQL: all kinds, regardless of the clock.
 # Idle competitive rows do not block replacement and stay unchanged for the restarted host.
 # Old schemas without activity fields remain conservatively protected.
 idle = "0"
 params = {}
-if {"kind", "ranked", "last_activity_at", "started_at", "created_at", "clock_json"} <= columns:
+if {"last_activity_at", "started_at", "created_at"} <= columns:
     now = int(time.time() * 1000)
     params = {"before": datetime.fromtimestamp((now - 600_000) / 1000, timezone.utc).isoformat(timespec="milliseconds")}
-    idle = """kind = 'play' and status = 'active'
+    idle = """status = 'active'
         and julianday(coalesce(last_activity_at, started_at, created_at)) < julianday(:before)"""
-    if idle_close:
+    if idle_close and {"kind", "ranked", "clock_json"} <= columns:
         # The deploy stops web/duel/worker/ws before install. Recheck and close in one write transaction.
         con.execute("begin immediate")
         competitive = "ranked = 1"
@@ -227,9 +227,10 @@ if {"kind", "ranked", "last_activity_at", "started_at", "created_at", "clock_jso
             competitive += " or exists (select 1 from duel_series s where s.id = duels.series_id and s.tournament_match_id is not null)"
         ids = [row[0] for row in con.execute("select id from duels where " + idle + " and not (" + competitive + ")", params)]
         for duel_id in ids:
-            # Mirrors finalizeTx(..., 'interrupted', null): no winner, rating or match result.
+            # Cancel practice forks; interrupt other kinds with no winner, rating or match result.
             # Keep seed/setup/commands for replay; no engine is available for a fresh final board.
-            con.execute("""update duels set status = 'interrupted', ended_at = datetime('now'),
+            con.execute("""update duels set status = case when kind = 'replay-fork' then 'cancelled' else 'interrupted' end,
+                ended_at = datetime('now'),
                 archived_at = coalesce(archived_at, datetime('now')), winner_player_id = null, winner_seat = null,
                 result_reason = 'No player activity for 10 minutes.', clock_json = null,
                 turn_count = json_extract(clock_json, '$.turn'),
@@ -258,7 +259,10 @@ if {"kind", "ranked", "last_activity_at", "started_at", "created_at", "clock_jso
                         first_chooser = null, first_choice = null where id = ?""", (series_id,))
         con.commit()
         if ids:
-            print(f"Interrupted {len(ids)} idle duel(s) before engine install.", file=sys.stderr)
+            print(f"Closed {len(ids)} idle duel(s) before engine install.", file=sys.stderr)
+# Replay forks are disposable practice and never prevent an engine update, even when recent.
+if "kind" in columns:
+    scope += " and coalesce(kind, 'play') != 'replay-fork'"
 # Deck-editor test duels (a bot table) never hold a deploy. They close by idle.
 if "setup_json" in columns:
     scope += " and coalesce(json_extract(setup_json, '$.testDuel'), 0) = 0"

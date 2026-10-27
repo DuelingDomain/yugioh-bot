@@ -124,6 +124,30 @@ class ProductionActivityTests(unittest.TestCase):
         self.assertIn("duels=0 drafts=0 tournament_rounds=0 series=0", result.stdout)
         self.assertEqual(self.path.read_bytes(), before)
 
+    def test_idle_rule_covers_every_kind_and_activity_fallback_without_writes(self):
+        for column in ("kind", "last_activity_at", "started_at", "created_at"):
+            self.db.execute(f"alter table duels add column {column} text")
+        for kind in ("play", "replay-fork", "future-practice"):
+            for activity_column in ("last_activity_at", "started_at", "created_at"):
+                for minutes in (9, 11, 1800):
+                    with self.subTest(kind=kind, activity_column=activity_column, minutes=minutes):
+                        self.db.execute("delete from duels")
+                        self.db.execute(f"""insert into duels (status, kind, {activity_column})
+                            values ('active', ?, datetime('now', ?))""", (kind, f"-{minutes} minutes"))
+                        self.db.commit()
+                        before = self.path.read_bytes()
+                        result = self.run_guard(live_only=True)
+                        self.assertEqual(result.returncode, int(kind != "replay-fork" and minutes < 10), result.stderr)
+                        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_forks_never_block_even_without_legacy_activity_columns(self):
+        self.db.execute("alter table duels add column kind text")
+        self.db.execute("insert into duels (status, kind) values ('active', 'replay-fork')")
+        self.db.commit()
+        result = self.run_guard()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("duels=0", result.stdout)
+
     def test_each_active_game_type_refuses_and_force_overrides(self):
         for statement in [
             "insert into duels (status) values ('active')",
