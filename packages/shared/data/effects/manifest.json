@@ -51,35 +51,29 @@
     "releases": {
       "path": "releases.json.gz",
       "sourcePath": "https://db.ygoprodeck.com/api/v7/cardinfo.php?misc=yes",
-      "sourceSha256": "1ad619e086b95e42807ddf517d508a20360bbcb899e14460f2452470968844f3",
-      "records": 14562,
-      "bytes": 1644095,
-      "sha256": "135b3c6e8b1dc68eb287d2a0d1ec01b79da84a4da9d9d2591d0a556a9afd5d41",
-      "gzipBytes": 299221,
-      "gzipSha256": "cfa1a5d015aca6e4f6ccbeac7677aff776c3341b1ec917df7fdd334691a4abab",
+      "sourceSha256": "8c34c95e6bbfae4c477ff8ef7ef2f453e7d4b320100757d94700a983f82fde2a",
+      "records": 14565,
+      "bytes": 1644433,
+      "sha256": "64347781b80b15ce083a19acec7df5b01eded62b024902f8d97595affd56a99f",
+      "gzipBytes": 299268,
+      "gzipSha256": "b5bbc97456aeaafe8813083eeb0095bff7fd5349c9658b0f9c77fd5290d85bcd",
       "baseSourcePath": "data/cards.json",
       "baseSourceSha256": "6ea3b8b1fa9897fa9e6a1f7c3b7b9d9db06a8b55dd1274521d1f5f42fb15b7ae"
     }
   },
-  "artifactVersion": "54b32592a147d67e338f44c76fd488cfa09bc86116e7e4b1937bdf4011a4fe70",
+  "artifactVersion": "610320f23aa3b68a3dd922bef2266a09402aef67e63385a21928c6989113056d",
   "generation": {
-    "kind": "anthropic-message-batches",
-    "models": [
-      "claude-haiku-5-5"
-    ],
-    "baseArtifactVersion": "4d13e34b46163a5393cda1b2b87f033b9e5ee54cffa76c1f51ed4477adb8a995",
+    "kind": "release-month-fill",
+    "models": [],
+    "baseArtifactVersion": "54b32592a147d67e338f44c76fd488cfa09bc86116e7e4b1937bdf4011a4fe70",
     "inputSource": "prepared-engine-card-text",
     "normalization": "newline-trim-pendulum-first-v1",
     "acceptedCards": 0,
-    "acceptedProfiles": 1,
-    "generatedAt": "2026-10-24T17:24:42.478Z",
-    "reservationIds": [
-      "52327166f9f5ab367ec6d18657cd839f"
-    ],
-    "promptHashes": [
-      "4ae304fc8cf92aa42e337573187520517c12ca98d8980275f6f9ec39b1e1fdbc"
-    ],
-    "acceptedProfilesSha256": "b80807b81412c9ba823950b664c27dcae46534951d670c45551c5420e2840b0d",
+    "acceptedProfiles": 0,
+    "generatedAt": "2026-10-26T14:32:30.725Z",
+    "reservationIds": [],
+    "promptHashes": [],
+    "acceptedProfilesSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "acceptedResultsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   }
 }
