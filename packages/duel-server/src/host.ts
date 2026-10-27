@@ -4110,7 +4110,13 @@ export function createDuelHost(options: {
         try {
           await enqueue(item.slug, async () => {
             if (stopped) return;
-            const fork = isReplayFork(service.get(item.slug, item.guildId));
+            let fork: boolean;
+            try {
+              fork = isReplayFork(service.get(item.slug, item.guildId));
+            } catch (error) {
+              if (error instanceof DuelServiceError && error.status === 404) return;
+              throw error;
+            }
             try {
               if (!fork && await settleRankedDeadline(item.slug, item.guildId)) return;
             } catch (error) {

@@ -69,7 +69,7 @@ function liveDuels(db: Database.Database, guild: string, now: number): LiveDuel[
       case when json_valid(d.clock_json) then json_extract(d.clock_json, '$.activeSeat') end as active_seat
     from duels d
     where d.guild_id = ? and d.status in ('lobby', 'active') and d.kind != 'replay-fork' and d.archived_at is null
-      and (d.status != 'active' or coalesce(json_extract(d.setup_json, '$.testDuel'), 0) = 0)
+      and (d.status != 'active' or case when json_valid(d.setup_json) then coalesce(json_extract(d.setup_json, '$.testDuel'), 0) else 0 end = 0)
     order by d.id desc limit 500`).all(guild) as DuelRow[];
   // Match deploy's active-duel exclusions and the host's live/lobby idle cutoffs before loading seats.
   const open = rows.filter((row) => {
