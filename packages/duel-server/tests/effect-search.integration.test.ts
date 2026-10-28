@@ -938,7 +938,7 @@ it('does no artifact or tag writes at duel boot with EFFECT_SEARCH off', async (
     // A missing artifact/engine directory must not matter when the flag is off.
     await initializeServerCardEffects(isolated, cards, '/missing-effect-startup-directory');
     expect(isolated.prepare('SELECT total_changes() AS changes').get()).toEqual(before);
-    for (const table of ['card_tags', 'card_tag_profiles', 'card_tag_artifact_imports']) {
+    for (const table of ['card_tags', 'card_tag_profiles', 'card_tag_artifact_imports', 'card_capability', 'archetype_bridge', 'bridge_artifact_import']) {
       expect(isolated.prepare(`SELECT count(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
     }
   } finally { vi.unstubAllEnvs(); isolated.close(); }
