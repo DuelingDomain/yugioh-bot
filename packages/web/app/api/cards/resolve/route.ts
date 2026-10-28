@@ -75,6 +75,17 @@ async function handlePOST(request: Request) {
     if (!env.discordGuildId) return NextResponse.json({ error: "community_not_configured" }, { status: 503 });
     if (!effectSearchEnabled()) return NextResponse.json({ effectSearchEnabled: false, error: "effect_search_disabled" }, { status: 404 });
     const input = parseCardInsightRequest(body);
+    if (input?.op === "hookSearch") {
+      // The cards for one "How it plays" row of the Describe pane. Same display details as a description search.
+      const db = getDb();
+      const hits = createCardInsightService(db, { guildId: env.discordGuildId }).hookSearch(input.archetype, input.hook, input.pool, input);
+      const details = new Map(createCardCatalogService(db, { memberId: actor.userId }).findByIds(hits.map(card => card.passcode)).map(card => [card.ygoprodeckId, card]));
+      const cards = hits.flatMap(hit => {
+        const card = details.get(hit.passcode);
+        return card ? [{ ...toCardSummary(card), score: hit.score, reason: hit.reason, release: hit.release }] : [];
+      });
+      return NextResponse.json({ cards, total: cards.length, effectSearchEnabled: true }, { headers: { "Cache-Control": "private, no-store" } });
+    }
     if (input?.op !== "effectSearch") return NextResponse.json({ error: "Invalid effect search request" }, { status: 400 });
     const db = getDb();
     const outside = !input.exact && searchIntentTarget(input.text)?.kind === "outside";

@@ -91,6 +91,18 @@ export async function effectSearch(text: string, options: EffectSearchOptions = 
   return { cards: data.cards, total: data.total, chips: data.reading?.chips ?? null, relax: data.relax ?? [], ...(data.reading?.query?.intent ? { intent: data.reading.query.intent } : {}), ...(data.guide ? { guide: data.guide } : {}) };
 }
 
+/** The cards for one row of "How it plays": cards that are this kind ("is") or that help the deck ("support"). */
+export async function hookSearch(archetype: string, hook: number, find: "is" | "support", members: boolean, options: { limit?: number; signal?: AbortSignal } = {}): Promise<EffectCard[]> {
+  const data = await post<{ cards: EffectCard[] }>(
+    "/api/cards/resolve",
+    { op: "hookSearch", archetype, hook, find, ...(members ? { members: true } : {}), limit: options.limit ?? 30 },
+    "The cards for this row did not load.",
+    options.signal,
+  );
+  putCards(data.cards);
+  return data.cards;
+}
+
 /* ---------- card summary (hover) ---------- */
 
 export interface CardNote {
