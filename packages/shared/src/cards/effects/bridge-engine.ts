@@ -15,6 +15,7 @@ const edgeKeys = new Set<CapabilityKey>(["search", "special_summon", "normal_sum
 type Edge = { from: number; capability: Capability; targets: Set<number>; named: boolean; weight: number };
 interface Context { name: string; ids: Set<number>; members: Set<number>; cards: Card[]; monsters: Card[]; discardRate: number; discardTriggerRate: number; edges: Edge[]; searchers: Edge[]; extras: { id: number; materials: number[]; weight: number }[] }
 const round = (value: number) => Math.round(value * 100) / 100;
+const wordIn = (word: string, name: string) => new RegExp(`(?:^|[^a-z0-9])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[^a-z0-9])`, "i").test(name);
 const availableMaterial = (card: Card): boolean => !/Cannot be Normal Summoned|Must (?:first )?be (?:Special|Ritual) Summoned/i.test(printedText(card))
   && ((card.level ?? 0) <= 4 || sentences(printedText(card)).some(text => /Special Summon this card[^.]*from your hand/i.test(text)));
 const groupNames = new Map<string, (name: string) => boolean>();
@@ -168,7 +169,6 @@ export class BridgeEngine {
     const key = JSON.stringify([a, b].sort());
     const cached = this.sameDeckPairs.get(key);
     if (cached !== undefined) return cached;
-    const wordIn = (word: string, name: string) => new RegExp(`(?:^|[^a-z0-9])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[^a-z0-9])`, "i").test(name);
     const namingRate = (source: string, target: string) => {
       const onlySource = [...this.groups.get(source)!].filter(id => !this.groups.get(target)!.has(id));
       return onlySource.filter(id => quotedNames(printedText(this.rows.get(id)!.card))
@@ -269,7 +269,7 @@ export class BridgeEngine {
     const namedConnection = reasons.some(reason => reason.key === "mention") || x.edges.some(edge => edge.named && onlyY.some(card => edge.targets.has(card.id)));
     for (const edge of x.edges) {
       if (isExtraDeckCard(rows.get(edge.from)!.card)) continue;
-      const hit = onlyY.filter(card => edge.targets.has(card.id) && this.engineMember(card, y, edge.capability));
+      const hit = onlyY.filter(card => edge.targets.has(card.id) && this.engineMember(card, y, edge.capability, x));
       if (!hit.length) continue;
       const card = rows.get(edge.from)!.card, to = hit[0]!;
       const negatedEntry = ["special_summon", "normal_summon"].includes(edge.capability.key)
@@ -483,18 +483,41 @@ export class BridgeEngine {
       && !capabilities.some(capability => capability.filter!.names.length || capability.filter!.archetypes.length);
   }
 
-  private engineMember(card: Card, target: Context, via?: Capability): boolean {
+  private parentOrAliasFamily(a: string, b: string): boolean {
+    const names = (name: string) => [name, ...Object.entries(this.data.group_policies ?? {}).flatMap(([canonical, policy]) => {
+      const aliases = [canonical, ...(policy.aliases ?? [])];
+      return aliases.some(alias => sameName(alias, name)) ? aliases : [];
+    })];
+    const x = this.groups.get(a), y = this.groups.get(b);
+    // Parent/alias identity uses names and shared membership, not the
+    // two-way naming rates used to merge complete deck families.
+    return !!x && !!y && this.groupOverlap(a, b) >= 0.5 * Math.min(x.size, y.size)
+      || names(a).some(left => names(b).some(right => wordIn(left, right) || wordIn(right, left)));
+  }
+
+  private engineMember(card: Card, target: Context, via?: Capability, source?: Context): boolean {
     if (target.members.has(card.id)) return true;
-    return !!card.archetype && !!via?.filter?.archetypes.some(name => !this.data.group_policies?.[name]?.excluded
-      && sameName(name, card.archetype!)) && groupNameIn(card, target.name, this.data.group_policies?.[target.name]?.aliases);
+    const names = [target.name, ...(this.data.group_policies?.[target.name]?.aliases ?? [])];
+    if (!card.archetype || !via?.filter?.archetypes.some(name => !this.data.group_policies?.[name]?.excluded
+      && sameName(name, card.archetype!)) || !groupNameIn(card, target.name, names.slice(1))) return false;
+    // A named landing in the source's own API family does not establish a
+    // second engine merely because its name contains that engine's label.
+    return names.some(name => sameName(name, card.archetype!))
+      || !!source && !this.parentOrAliasFamily(source.name, card.archetype);
   }
 
   private substantive(reason: BridgeReason, target: Context, source: Context, format: BridgeFormat): boolean {
     if (reason.ancillary) return false;
     if (["searcher", "small_world", "type_support", "face_down"].includes(reason.key)) return false;
     if (reason.key === "rule_enabler") return reason.weight > 2 && reason.cards.length >= 3;
-    if (reason.key === "mention") return reason.cards.some(id => target.ids.has(id) && !source.ids.has(id)
-      && this.engineMember(this.rows.get(id)!.card, target));
+    if (reason.key === "mention") {
+      // API labels alone can put unrelated support in a name bucket. A
+      // mention outlet must also have a printed connection to either engine.
+      const outlet = this.outlet(reason);
+      if (!this.data.group_policies?.[source.name]?.curated && !source.members.has(outlet) && !target.members.has(outlet)) return false;
+      return reason.cards.some(id => target.ids.has(id) && !source.ids.has(id)
+        && this.engineMember(this.rows.get(id)!.card, target));
+    }
     if (reason.key === "reach" || reason.key === "gy_fuel") {
       const entry = reason.steps?.[0];
       if (reason.key === "gy_fuel" && entry?.capability === "discard") {
@@ -509,7 +532,7 @@ export class BridgeEngine {
         const card = this.rows.get(landing.to)!.card;
         const via = this.rows.get(landing.from)!.provides.find(capability => capability.key === landing.capability
           && capability.filter && matchesBridgeFilter(capability.filter, card));
-        if (!target.ids.has(card.id) || !this.engineMember(card, target, via)) return false;
+        if (!target.ids.has(card.id) || !this.engineMember(card, target, via, source)) return false;
       }
       if (reason.key === "gy_fuel") return true;
       // A narrow stat search still needs engine entry or a concrete payoff.

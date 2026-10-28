@@ -117,4 +117,22 @@ describe("round 3 bridge rules on the pinned catalog", () => {
       expect(rebuilt.reasons("Diabell", "Snake-Eye", format).some(reason => reason.key === "reach" && !reason.ancillary)).toBe(true);
     }
   }, 15_000);
+
+  it("rejects incidental name hybrids while retaining cross-engine landing cards", () => {
+    const engine = new BridgeEngine(data);
+    for (const format of ["advanced", "genesys"] as const) {
+      for (const [source, target] of [["Chaos", "Galaxy"], ["Dark Contract", "Supreme King"]]) {
+        expect(engine.between(source!, target!, format), `${source} -> ${target} (${format})`).toBeNull();
+      }
+      for (const [source, target, card] of [
+        ["Zefra", "Yang Zing", 21495657], ["Zefra", "Nekroz", 20773176],
+        ["Azamina", "Diabell", 23151193], ["Diabell", "Azamina", 65033975],
+        ["Diabell", "Snake-Eye", 24081957], ["Azamina", "Snake-Eye", 24081957],
+      ] as const) {
+        if (format === "genesys" && source === "Zefra") continue;
+        expect(engine.reasons(source, target, format).some(reason => !reason.ancillary && reason.cards.includes(card)),
+          `${source} -> ${target} retains ${card} (${format})`).toBe(true);
+      }
+    }
+  }, 15_000);
 });
