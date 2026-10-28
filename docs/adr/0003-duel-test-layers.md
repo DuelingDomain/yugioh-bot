@@ -55,13 +55,13 @@ One final **CI result** job waits for every job. It accepts intentional skips, r
 | `unit-shared`, `unit-bot`, `unit-ws`, `unit-worker`, `unit-duel` | Selected package tests and typechecks; duel runs without cores. |
 | `unit-e2e` | Selected E2E typecheck; browser flows remain local-only. |
 | `ci-scripts` | Selected CI/deployment helper checks and actionlint. |
-| `effect-protocol` | Effect-tagging integration and script typecheck. |
+| `effect-protocol` | Effect-tagging integration and script typecheck, only for scripts/effects, shared effects source/data or root configuration changes (PRs and main). Nightly/manual runs include it. |
 | `core-cache`, `core-build`, `cores` | Build/restore and verify standard, Domain, legacy and multiplayer cores. |
 | `engine-shards`, `engine-legacy-shards` | Selected pinned, surrender, differential and legacy suites, plus web engine tests and smoke scripts. A missing required core fails. |
 | `native`, `rule-coverage` | Selected ASan/UBSan checks, golden hashes when relevant, and strict ADR-0002 rule coverage. |
 | `nduel-nightly` | Nightly/manual fuzz for n2, n3, n4 and tag, with future checks and golden hashes. The schedule currently runs cores and fuzz. |
 | `production-bundle`, `production-images` | Main only: prepare verified bundle, then build five ARM64 images after app checks, at most three together. |
-| `production-dry-run` | PR only: prepare a bundle and build one amd64 bot image without publishing. |
+| `production-dry-run` | Only production-composite/Docker/bundle/deployment inputs or root configuration changes: prepare a bundle and build one amd64 bot image without publishing. Also runs nightly/manually; main uses the real bundle and image jobs instead. |
 | `ci-result` | Final required-work and failure/cancellation aggregate. |
 
 Main image artifacts remain unverified until the whole push Test succeeds. Deploy consumes immutable artifacts from that exact run/attempt and commit. Manual Deploy retains its successful-main-Test verification and rollback paths. Next/Turbo caches save only on main pushes.

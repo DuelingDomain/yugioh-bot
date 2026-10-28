@@ -77,7 +77,7 @@ test('image publication waits for unit success and limits engine overlap', () =>
 
 test('PR composite dry run has read-only permissions and no registry publication', () => {
   const job = workflow('test').jobs['production-dry-run'];
-  assert.equal(job.if, "github.event_name == 'pull_request'");
+  assert.equal(job.if, "github.event_name != 'push' && needs.changes.outputs.prod_build == 'true'");
   assert.deepEqual(job.permissions, { contents: 'read' });
   assert.ok(job.steps.some(step => step.uses === './.github/actions/prepare-production-bundle'));
   const image = job.steps.find(step => step.uses === './.github/actions/build-production-image');

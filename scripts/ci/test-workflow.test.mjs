@@ -13,7 +13,7 @@ const areaJobs = {
   ci_scripts: ['ci-scripts'], engine: ['core-cache', 'cores', 'engine-shards', 'engine-legacy-shards', 'native', 'rule-coverage'],
 };
 const gateJobs = () => Object.fromEntries(jobs['ci-result'].needs.map(name => [name, {
-  result: ['changes', 'effect-protocol'].includes(name) ? 'success' : 'skipped', outputs: {},
+  result: name === 'changes' ? 'success' : 'skipped', outputs: {},
 }]));
 const gate = (results, event = 'workflow_dispatch') => runGate('ci-result', { RESULTS: JSON.stringify(results), EVENT: event });
 
@@ -59,6 +59,30 @@ test('pure known data changes require consumer integration tests and skip web bu
     const step = jobs[name].steps.find(step => step.name.includes('staple data consumers'));
     assert.match(step.run, /integration.test/);
     assert.equal(step.if, "needs.changes.outputs.data_only == 'true'");
+  }
+});
+
+test('slow jobs are required only for their selected inputs; main uses real production builds', () => {
+  const docs = gateJobs();
+  docs.changes.outputs.docs_only = 'true';
+  assert.equal(gate(docs, 'pull_request'), 0);
+  for (const [flag, job] of [['effects', 'effect-protocol'], ['prod_build', 'production-dry-run']]) {
+    const results = gateJobs();
+    results.changes.outputs[flag] = 'true';
+    assert.notEqual(gate(results, 'pull_request'), 0, flag);
+    results[job].result = 'success';
+    assert.equal(gate(results, 'pull_request'), 0, flag);
+    assert.equal(jobs[job].needs, 'changes');
+    assert.match(jobs[job].if, new RegExp(`needs\\.changes\\.outputs\\.${flag} == 'true'`));
+  }
+  const main = gateJobs();
+  main.changes.outputs.prod_build = 'true';
+  main['production-bundle'].result = main['production-images'].result = 'success';
+  assert.equal(gate(main, 'push'), 0);
+  for (const job of ['production-bundle', 'production-images']) {
+    main[job].result = 'skipped';
+    assert.notEqual(gate(main, 'push'), 0, job);
+    main[job].result = 'success';
   }
 });
 

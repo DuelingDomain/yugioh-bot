@@ -490,7 +490,8 @@ jobs:
 
   effect-protocol:
     name: Effect tagging protocol
-    if: github.event_name != 'schedule'
+    needs: changes
+    if: needs.changes.outputs.effects == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1088,7 +1089,8 @@ jobs:
 
   production-dry-run:
     name: Production composites dry run (bundle and bot)
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name != 'push' && needs.changes.outputs.prod_build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -1141,9 +1143,9 @@ jobs:
               ws: ['unit-ws'], worker: ['unit-worker'], duel_unit: ['unit-duel'], e2e: ['unit-e2e'],
               ci_scripts: ['ci-scripts'], engine: ['core-cache', 'cores', 'engine-shards', 'engine-legacy-shards', 'native', 'rule-coverage'],
             })) if (selected[area] === 'true') names.forEach(requireSuccess);
-            requireSuccess('effect-protocol');
           }
+          if (selected.effects === 'true') requireSuccess('effect-protocol');
           if (selected.smoke_enabled === 'true') requireSuccess('new-card-smoke-report');
           if (process.env.EVENT === 'push') ['production-bundle', 'production-images'].forEach(requireSuccess);
-          if (process.env.EVENT === 'pull_request') requireSuccess('production-dry-run');
+          if (process.env.EVENT !== 'push' && selected.prod_build === 'true') requireSuccess('production-dry-run');
           JS
