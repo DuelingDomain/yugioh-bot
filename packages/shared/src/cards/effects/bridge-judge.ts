@@ -3,7 +3,7 @@ import type { MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resource
 import type Database from "better-sqlite3";
 import * as z from "zod";
 import { BridgeEngine, bridgeLegal } from "./bridge-engine.js";
-import { bridgeHash, genericLinkOneMaterial, printedText, quotedNames } from "./bridge-text.js";
+import { bridgeHash, printedText, quotedNames } from "./bridge-text.js";
 import type { ArchetypeBridge, BridgeFormat, BridgeReason, CardCapability, SummonLock } from "./bridge-types.js";
 import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, releaseBridgeJudgeSpend, settleBridgeJudgeSpend, startBridgeJudgeSpend, type BridgeJudgeSpendSummary, type BridgeJudgeUsage } from "./bridge-judge-ledger.js";
 
@@ -178,9 +178,8 @@ export function bridgeGate(db: Database.Database, bridge: ArchetypeBridge): Brid
   if (judgements.some(row => row.result.verdict !== "valid" || !row.result.format_ok)) return { state: "review", judgements, reason: "The independent reviews did not agree on a valid line." };
   const ranks = judgements.map(row => judgementGrades.indexOf(row.result.grade));
   if (Math.max(...ranks) - Math.min(...ranks) > 1) return { state: "review", judgements, reason: "The independent grades differ." };
-  const genericLink = bridge.reasons.some(reason => reason.key === "extra_deck" && evidence.cards.some(card => reason.cards.includes(card.id)
-    && genericLinkOneMaterial({ linkRating: card.link_rating, text: card.text }, reason.materials)));
-  return { state: "shown", judgements, grade: judgementGrades[Math.max(genericLink ? 2 : 0, ...ranks)]! };
+  const outlets = new Set(bridge.reasons.filter(reason => !reason.ancillary).map(reason => reason.steps?.[0]?.from ?? reason.cards[0]));
+  return { state: "shown", judgements, grade: judgementGrades[Math.max(outlets.size < 2 ? 1 : 0, ...ranks)]! };
 }
 
 export interface ShownBridge extends ArchetypeBridge { judge: "accepted"; review: Pick<BridgeJudgement, "pros" | "cons" | "lock_note" | "line" | "grade"> }

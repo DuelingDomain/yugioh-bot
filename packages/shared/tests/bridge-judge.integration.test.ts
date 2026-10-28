@@ -41,19 +41,32 @@ function approved(db: Database.Database, bridge: ArchetypeBridge, second = resul
 }
 
 describe("bridge judgement pipeline", () => {
-  it("keeps retained generic Link-1 lines Niche after stronger independent reviews", () => {
+  it("allows independent reviews to grade substantive lines without a Link-1 ceiling", () => {
     const db = new Database(":memory:"); migrate(db);
     try {
       importBridgeArtifact(db);
       const bridge = createBridgeService(db).bridgeBetween("Chaos", "Blue-Eyes")!;
-      expect(bridge.grade).toBe("Niche");
+      expect(bridge.reasons.some(reason => reason.key === "extra_deck" && reason.cards.includes(42097666))).toBe(false);
       const evidence = buildBridgeJudgeEvidence(db, bridge)!;
       for (const grade of ["good", "strong"] as const) {
         for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing,
           result({ grade, pros: ["The supplied cards interact.", "The evidence reaches the target."], line: evidence.cards.map(card => card.name) })));
-        expect(bridgeGate(db, bridge)).toMatchObject({ state: "shown", grade: "niche" });
-        expect(shownBridge(db, bridge)?.grade).toBe("Niche");
+        expect(bridgeGate(db, bridge)).toMatchObject({ state: "shown", grade });
+        expect(shownBridge(db, bridge)?.grade.toLowerCase()).toBe(grade);
       }
+    } finally { db.close(); }
+  });
+
+  it("keeps a single hybrid outlet below Strong after independent reviews", () => {
+    const db = new Database(":memory:"); migrate(db);
+    try {
+      importBridgeArtifact(db);
+      const bridge = createBridgeService(db).bridgeBetween("Blue-Eyes", "Millennium")!;
+      const evidence = buildBridgeJudgeEvidence(db, bridge)!;
+      for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing,
+        result({ grade: "strong", pros: ["The supplied cards interact.", "The evidence reaches the target."], line: evidence.cards.map(card => card.name) })));
+      expect(bridgeGate(db, bridge)).toMatchObject({ state: "shown", grade: "good" });
+      expect(shownBridge(db, bridge)?.grade).toBe("Good");
     } finally { db.close(); }
   });
 
