@@ -92,3 +92,4 @@ export * from "./cube-era.js";
 export { createPrereleaseDateLookup } from "./card-release-dates.js";
 export * from "./admin-spectate.js";
 export * from "./creator-access.js";
+export * from "./archetype-bridges.js";

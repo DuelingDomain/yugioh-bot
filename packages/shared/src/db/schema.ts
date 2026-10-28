@@ -391,6 +391,51 @@ export function migrate(db: Database.Database) {
       imported_at text not null default current_timestamp
     );
 
+    create table if not exists card_capability (
+      passcode integer primary key,
+      capabilities_json text not null check(json_valid(capabilities_json)),
+      text_hash text not null,
+      evidence_hash text not null,
+      source_version text not null
+    );
+    create table if not exists archetype_bridge (
+      source text not null collate nocase,
+      target text not null collate nocase,
+      format text not null check(format in ('advanced','genesys')),
+      score real not null check(score >= 0 and score <= 100),
+      grade text not null check(grade in ('Strong','Good','Niche','Risky')),
+      bridge_json text not null check(json_valid(bridge_json)),
+      evidence_hash text not null,
+      source_version text not null,
+      primary key(source,target,format)
+    );
+    create index if not exists archetype_bridge_lookup on archetype_bridge(source,format,score desc);
+    create table if not exists bridge_graph (
+      id integer primary key check(id=1), graph_json text not null, source_version text not null
+    );
+    create table if not exists bridge_artifact_import (
+      version text primary key, imported_at text not null default current_timestamp
+    );
+    create table if not exists bridge_search_admission (
+      actor_hash text primary key, admitted_at integer not null
+    );
+    create table if not exists bridge_judgement (
+      evidence_hash text not null,
+      judge text not null,
+      verdict text not null check(verdict in ('approved','rejected','review')),
+      judgement_json text not null check(json_valid(judgement_json)),
+      created_at text not null default current_timestamp,
+      primary key(evidence_hash,judge)
+    );
+    create table if not exists bridge_feedback (
+      id integer primary key,
+      evidence_hash text not null,
+      actor_hash text not null,
+      reason text not null,
+      created_at text not null default current_timestamp,
+      resolved_at text,
+      unique(evidence_hash,actor_hash)
+    );
     create table if not exists players (
       id integer primary key autoincrement,
       guild_id text not null,
