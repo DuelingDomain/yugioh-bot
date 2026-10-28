@@ -181,4 +181,13 @@ describe("round 3 bridge rules on the pinned catalog", () => {
       }
     }
   }, 15_000);
+
+  it("requires Toon setup evidence when another engine reaches a Toon monster", () => {
+    const engine = new BridgeEngine(data);
+    for (const format of ["advanced", "genesys"] as const) {
+      for (const source of ["Gaia The Fierce Knight", "Destruction Sword", "Archfiend", "Performapal"]) {
+        expect(engine.between(source, "Toon", format), `${source} -> Toon (${format})`).toBeNull();
+      }
+    }
+  }, 15_000);
 });

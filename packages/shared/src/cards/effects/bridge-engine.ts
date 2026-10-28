@@ -527,6 +527,20 @@ export class BridgeEngine {
   private substantive(reason: BridgeReason, target: Context, source: Context, format: BridgeFormat): boolean {
     if (reason.ancillary) return false;
     if (["searcher", "small_world", "type_support", "face_down"].includes(reason.key)) return false;
+    // Access to a Toon version of another engine's monster needs evidence
+    // supplying its named field setup, rather than just the shared name.
+    const toonNeeds = reason.cards.map(id => this.rows.get(id)!.card)
+      .filter(card => target.ids.has(card.id) && !source.ids.has(card.id) && card.subtypes.includes("toon"))
+      .flatMap(card => [...printedText(card).matchAll(/\b(?:if|while) you control ["“]([^"”]+)["”]/gi)].map(match => match[1]!));
+    if (toonNeeds.length && !reason.cards.some(id => {
+      const row = this.rows.get(id)!;
+      if (row.card.subtypes.includes("toon")) return false;
+      return toonNeeds.some(name => sameName(row.card.name, name) || sentences(printedText(row.card))
+        .some(text => /name becomes|treated as/i.test(text) && namedIn(text, name)))
+        || row.provides.some(capability => ["search", "place_on_field", "set_spell_trap"].includes(capability.key)
+          && capability.from?.includes("deck") && capability.filter && actionEvidence(row.card, capability.key, capability.filter)
+          && target.cards.some(card => toonNeeds.some(name => sameName(card.name, name)) && matchesBridgeFilter(capability.filter!, card)));
+    })) return false;
     if (reason.key === "rule_enabler") return reason.weight > 2 && reason.cards.length >= 3;
     if (reason.key === "mention") {
       // API labels alone can put unrelated support in a name bucket. A
