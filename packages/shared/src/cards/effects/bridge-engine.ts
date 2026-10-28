@@ -505,6 +505,11 @@ export class BridgeEngine {
       && (reason.key !== "type_support" || reason.cards.every(id => primary.cards.includes(id))));
     const selectedReasons = [primary, ...otherReasons.filter((reason, i, list) => list.findIndex(other => other.key === reason.key) === i)].slice(0, 4);
     const cards = [...new Set(selectedReasons.flatMap(reason => reason.cards))].sort((a, b) => a - b);
+    const sourcePolicy = this.data.group_policies?.[x];
+    if (!sourcePolicy?.curated && !cards.some(id => {
+      const archetype = this.rows.get(id)!.card.archetype;
+      return archetype && [x, ...(sourcePolicy?.aliases ?? [])].some(name => sameName(name, archetype));
+    })) return null;
     // API group labels can include thematic outsiders (for example a named
     // story card). Evidence must reach an actual member of the target engine.
     const targetCards = this.contexts.get(format)!.get(y)!.cards;

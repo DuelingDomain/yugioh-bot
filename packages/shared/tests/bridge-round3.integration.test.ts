@@ -18,6 +18,22 @@ beforeAll(() => {
 });
 
 describe("round 3 bridge rules on the pinned catalog", () => {
+  it("requires API source-archetype evidence while preserving aliases and curated groups", () => {
+    const engine = new BridgeEngine(data);
+    for (const format of ["advanced", "genesys"] as const) {
+      for (const [source, target] of [["Crystal", "Melodious"], ["Cyber", "Harpie"], ["Clear", "T.G."], ["Guardian", "T.G."],
+        ["Contact", "Darklord"], ["Parasite", "Graydle"], ["Junk", "Gimmick Puppet"], ["Cyberdark", "Cyber"]]) {
+        expect(engine.between(source!, target!, format), `${source} -> ${target}`).toBeNull();
+      }
+      expect(engine.liveCandidates("Anti", format)).toEqual([]);
+      expect(engine.liveCandidates("Toon", format).every(row => row.cards.some(id => engine.rows.get(id)!.card.archetype === "Toon"))).toBe(true);
+      for (const [source, target] of [["Branded", "Despia"], ["Blue-Eyes", "Millennium"], ["Kashtira", "Scareclaw"], ["Odion", "Argostars"]]) {
+        expect(engine.between(source!, target!, format), `${source} -> ${target}`).not.toBeNull();
+      }
+      expect([...engine.groups.get("Stellarknight")!].some(id => engine.rows.get(id)!.card.archetype === "Tellarknight")).toBe(true);
+    }
+  }, 15_000);
+
   it("requires discard profiles on both engines for a substantive discard outlet", () => {
     const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
