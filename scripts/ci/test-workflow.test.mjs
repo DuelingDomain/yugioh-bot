@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { parse } from "yaml";
 
@@ -151,4 +153,27 @@ test('manual releases load build actions from the workflow revision for older re
     assert.equal(steps[controls].with.ref, '${{ github.workflow_sha }}');
     assert.equal(steps[controls].with['persist-credentials'], false);
   }
+});
+
+test('engine bundle cache ignores unrelated dependencies but retains the actual npm wrapper pin', t => {
+  const steps = jobs['core-cache'].steps;
+  const key = steps.find(step => step.name === 'Compute bundle cache key').run;
+  for (const file of ['package-lock.json', 'packages/shared/package.json', 'packages/shared/tsconfig*.json', 'tsconfig.json']) assert.ok(!key.includes(`'${file}'`), file);
+  for (const file of ['packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/expected-sha256.txt', 'patches/ocgcore-wasm+0.1.2.patch', 'packages/duel-server/src/card-script-source.ts']) assert.ok(key.includes(`'${file}'`), file);
+  assert.match(key, /steps.wrapper.outputs.hash/);
+  const dir = mkdtempSync(join(tmpdir(), 'engine-wrapper-key-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const run = (integrity, other = 'unrelated-v1') => {
+    writeFileSync(join(dir, 'package-lock.json'), JSON.stringify({ packages: {
+      'node_modules/ocgcore-wasm': { integrity }, 'node_modules/next': { integrity: other },
+    } }));
+    writeFileSync(join(dir, 'output'), '');
+    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', steps.find(step => step.id === 'wrapper').run], {
+      cwd: dir, env: { ...process.env, GITHUB_OUTPUT: join(dir, 'output') }, encoding: 'utf8',
+    });
+    return { status: result.status, key: readFileSync(join(dir, 'output'), 'utf8') };
+  };
+  assert.deepEqual(run('sha512-wrapper-v1'), run('sha512-wrapper-v1', 'unrelated-v2'));
+  assert.notEqual(run('sha512-wrapper-v1').key, run('sha512-wrapper-v2').key);
+  assert.equal(run(undefined).status, 1);
 });

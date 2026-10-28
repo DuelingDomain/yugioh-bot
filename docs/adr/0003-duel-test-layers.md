@@ -55,7 +55,7 @@ One final **CI result** job waits for every job. It accepts intentional skips, r
 | `unit-shared`, `unit-bot`, `unit-ws`, `unit-worker`, `unit-duel` | Selected package tests and typechecks; duel runs without cores. |
 | `unit-e2e` | Selected E2E typecheck; browser flows remain local-only. |
 | `ci-scripts` | Selected CI/deployment helper checks and actionlint. |
-| `effect-protocol` | Effect-tagging integration and script typecheck, only for scripts/effects, shared effects source/data or root configuration changes (PRs and main). Nightly/manual runs include it. |
+| `effect-protocol` | Effect-tagging integration and script typecheck, only for scripts/effects, its CI publisher, shared effects source/data or root configuration changes (PRs and main). Nightly/manual runs include it. |
 | `core-cache`, `core-build`, `cores` | Build/restore and verify standard, Domain, legacy and multiplayer cores. |
 | `engine-shards`, `engine-legacy-shards` | Selected pinned, surrender, differential and legacy suites, plus web engine tests and smoke scripts. A missing required core fails. |
 | `native`, `rule-coverage` | Selected ASan/UBSan checks, golden hashes when relevant, and strict ADR-0002 rule coverage. |
@@ -68,6 +68,6 @@ Main image artifacts remain unverified until the whole push Test succeeds. Deplo
 
 All CI multi cores are built with `LUA_FIXED_SEED=1`, so one binary serves the engine tests and the differential tests. `deploy.yml` restores the pinned bundle and multi cores from separate caches and builds them only on a cache miss. Its multi cores use production Lua randomness, without `LUA_FIXED_SEED`.
 
-The cache key starts with `duel-engine-ci-v2`. Raise the number when the build steps or flags in `test.yml` change: the file hash does not see them. The emsdk image comes from `pins.json`.
+The CI bundle cache key starts with `duel-engine-ci-v6`. It hashes pinned core/toolchain sources, patches, build/data preparation code and shared duel sources, plus the locked integrity of `ocgcore-wasm` (the wrapper included in the bundle). It excludes the whole root lockfile, shared package exports and TypeScript configuration: these do not change the pinned C++/Lua/WASM inputs. The wrapper integrity and its patch still invalidate the bundle when its actual runtime bytes change. Data-preparation helpers are retained because they can change the prepared card bundle. Per-target compiled-core keys remain conservative, and the existing bundle install, legacy-pin checks, fixed SHA256 checks and bundle/dist comparisons still run on restoration. Raise the literal version for workflow build flag/metadata changes; the file hash cannot see those. The emsdk image comes from `pins.json`.
 
 A failing nightly seed goes into `tests/fuzz/regressions.test.ts` after the fix (see Decisions).
