@@ -239,10 +239,10 @@ export function presetFiles(root = packageRoot): string[] {
   return walk(join(root, "src", "presets")).filter((file) => /\.(ts|mjs)$/.test(file));
 }
 
-/** Scenario modules: plain data files under tests/scenarios (no *.test.ts, and not the catalog, which is read on its own). */
+/** Scenario modules: plain data files under tests/scenarios (no test/suite registrations, and not the catalog, which is read on its own). */
 export function scenarioModules(root = packageRoot): string[] {
   return walk(join(root, "tests", "scenarios")).filter(
-    (file) => /\.ts$/.test(file) && !/\.test\.ts$/.test(file) && !/scenarios[\\/]multiplayer[\\/]catalog\.ts$/.test(file),
+    (file) => /\.ts$/.test(file) && !/\.(test|suite)\.ts$/.test(file) && !/scenarios[\\/]multiplayer[\\/]catalog\.ts$/.test(file),
   );
 }
 
@@ -318,7 +318,13 @@ export async function collect(root = packageRoot) {
   }
   const surrenderProof = "tests/host-surrender-eot.test.ts";
   const surrenderPath = join(root, surrenderProof);
-  if (existsSync(surrenderPath) && readFileSync(surrenderPath, "utf8").includes("R-COMMON-SURRENDER-EOT: %s another-turn surrender removes the seat before any answer")) {
+  const surrenderEntry = existsSync(surrenderPath) ? readFileSync(surrenderPath, "utf8") : "";
+  const surrenderSuite = join(root, "tests/host-surrender-eot.suite.ts");
+  // The two entry points now register the proof from a shared suite; keep the
+  // documented entry-point identity while reading the actual assertion source.
+  const surrenderSource = surrenderEntry.includes('"./host-surrender-eot.suite.js"') && existsSync(surrenderSuite)
+    ? readFileSync(surrenderSuite, "utf8") : surrenderEntry;
+  if (surrenderSource.includes("R-COMMON-SURRENDER-EOT: %s another-turn surrender removes the seat before any answer")) {
     refs.push({ rule: "R-COMMON-SURRENDER-EOT", ref: { test: surrenderProof, kind: "host-outcome" } });
   }
   for (const file of presetFiles(root)) {
