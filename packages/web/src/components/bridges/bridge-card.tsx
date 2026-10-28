@@ -48,13 +48,16 @@ export function Thumbs({ bridge, cards, cardProps, limit = 4 }: { bridge: ShownB
 }
 
 /** Warnings of a bridge: format, lock and points. */
-export function Warnings({ bridge, genesys }: { bridge: ShownBridge; genesys: boolean }) {
-  const lines = [...bridge.warnings];
-  if (genesys && bridge.genesys_points != null) lines.push(`Needs about ${bridge.genesys_points} Genesys points for its cards.`);
+export function Warnings({ bridge, genesys, clamp }: { bridge: ShownBridge; genesys: boolean; clamp?: number }) {
+  const all = [...bridge.warnings];
+  // The point cost leads: it decides a Genesys deck, so a list never hides it.
+  if (genesys && bridge.genesys_points != null) all.unshift(`Needs about ${bridge.genesys_points} Genesys points for its cards.`);
+  // A list shows the first warning only; the details show them all.
+  const lines = clamp ? all.slice(0, clamp) : all;
   if (lines.length === 0) return null;
   return (
     <ul className={styles.warnings} aria-label="Warnings">
-      {lines.map((line, index) => <li key={`${index}-${line}`}><AlertTriangle size={13} strokeWidth={1.8} aria-hidden /><span>{line}</span></li>)}
+      {lines.map((line, index) => <li key={`${index}-${line}`} title={line}><AlertTriangle size={13} strokeWidth={1.8} aria-hidden /><span>{line}</span></li>)}
     </ul>
   );
 }
@@ -131,7 +134,7 @@ export function ReportBridge({ bridge }: { bridge: ShownBridge }) {
   );
 }
 
-/** One bridge in a list: the target, grade, direction, the cards, two good and two bad points, and warnings. */
+/** One bridge in a list: the target, grade, direction, the cards, two good and two bad points, and a warning. */
 export function BridgeCard({ bridge, cards, cardProps, genesys, showSource, onOpen }: {
   bridge: ShownBridge;
   cards: ReadonlyMap<number, DeckCardInfo>;
@@ -145,19 +148,17 @@ export function BridgeCard({ bridge, cards, cardProps, genesys, showSource, onOp
   return (
     <li className={styles.item} data-grade={bridge.review.grade} data-testid="bridge-item">
       <button type="button" className={styles.open} data-bridge={bridge.evidence_hash} aria-label={`${title}. ${bridge.grade}, ${directionText(bridge).toLowerCase()}. Open details`} onClick={() => onOpen(bridge)}>
-        <span className={styles.titleLine}>
-          <strong className={styles.target}>{showSource ? <>{bridge.source}<span className={styles.arrow} aria-hidden> → </span></> : null}{bridge.target}</strong>
-          <ChevronRight size={15} strokeWidth={1.8} aria-hidden className={styles.chevron} />
-        </span>
-        <span className={styles.badges}>
-          <GradeBadge bridge={bridge} />
-          <span className={styles.way} data-way={bridge.two_way ? "two" : "one"} title={bridge.two_way ? `${bridge.target} also leads back to ${bridge.source}` : `${bridge.source} leads to ${bridge.target}, not back`}>{directionText(bridge)}</span>
-        </span>
+        <strong className={styles.target}>{showSource ? <>{bridge.source}<span className={styles.arrow} aria-hidden> → </span></> : null}{bridge.target}</strong>
+        <ChevronRight size={15} strokeWidth={1.8} aria-hidden className={styles.chevron} />
       </button>
+      <div className={styles.meta}>
+        <GradeBadge bridge={bridge} />
+        <span className={styles.way} data-way={bridge.two_way ? "two" : "one"} title={bridge.two_way ? `${bridge.target} also leads back to ${bridge.source}` : `${bridge.source} leads to ${bridge.target}, not back`}>{directionText(bridge)}</span>
+        <ReportBridge bridge={bridge} />
+      </div>
       <Thumbs bridge={bridge} cards={cards} cardProps={cardProps} />
       <ProsCons bridge={bridge} clamp={2} />
-      <Warnings bridge={bridge} genesys={genesys} />
-      <ReportBridge bridge={bridge} />
+      <Warnings bridge={bridge} genesys={genesys} clamp={1} />
     </li>
   );
 }

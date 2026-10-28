@@ -99,15 +99,18 @@ export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, 
       ) : (
         <div className={styles.body}>
           <p className={styles.lead}>Your deck can bridge into{archetype && !empty ? <> from <strong>{archetype}</strong></> : null}</p>
-          {top.length > 0 ? (
-            <div aria-busy={loading || undefined}><BridgeList {...common} bridges={top} label="Your deck can bridge into" /></div>
-          ) : skeleton ? (
-            <p className={styles.hint} data-state="loading" role="status">Looking for bridges…</p>
-          ) : error && !noData ? (
-            <p className={styles.hint} role="alert">{error.status === 403 ? "Bridges need a player in this community." : "Bridges are not available right now."}{error.status === 403 ? null : <> <button type="button" className={styles.link} onClick={retry}>Try again</button></>}</p>
-          ) : (
-            <p className={styles.hint} data-testid="bridges-empty">{hint}</p>
-          )}
+          {/* One reserved height for loading, results and the empty state, so the list below does not jump. */}
+          <div className={styles.results}>
+            {top.length > 0 ? (
+              <div aria-busy={loading || undefined}><BridgeList {...common} bridges={top} label="Your deck can bridge into" /></div>
+            ) : skeleton ? (
+              <div className={styles.skeletons} role="status" aria-label="Looking for bridges">{Array.from({ length: 4 }, (_, index) => <span key={index} className={styles.skeleton} aria-hidden />)}</div>
+            ) : error && !noData ? (
+              <p className={styles.hint} role="alert">{error.status === 403 ? "Bridges need a player in this community." : "Bridges are not available right now."}{error.status === 403 ? null : <> <button type="button" className={styles.link} onClick={retry}>Try again</button></>}</p>
+            ) : (
+              <p className={styles.hint} data-testid="bridges-empty">{hint}</p>
+            )}
+          </div>
 
           <div className={styles.actions}>
             <DeepSearchButton deep={deep} cooldown={cooldown} blocked={blocked} disabled={!scope} describedBy={hintId} onStart={() => void start()} />
@@ -116,7 +119,8 @@ export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, 
               {cooldown > 0 ? "You searched a moment ago. The button comes back when the time is up." : "Deep search checks every archetype, not only the top few."}
             </span>
           </div>
-          {inReview > 0 ? <p className={styles.note} data-testid="bridges-in-review">{inReview} {inReview === 1 ? "bridge is" : "bridges are"} still in review.</p> : null}
+          {inReview > 0 ? <p className={styles.note} data-testid="bridges-in-review">{inReview} {inReview === 1 ? "bridge is" : "bridges are"} still in review.</p>
+            : skeleton ? <p className={styles.note} aria-hidden style={{ visibility: "hidden" }}>&nbsp;</p> : null}
 
           {running || deep.phase === "failed" ? <DeepProgress deep={deep} /> : null}
           {deep.phase === "failed" && deep.error ? <p className={styles.errorLine} role="alert" data-testid="deep-error">{deep.error}</p> : null}
