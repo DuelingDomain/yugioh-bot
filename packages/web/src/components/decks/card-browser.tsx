@@ -173,6 +173,8 @@ export function CardBrowser({
   drilling.current = partner?.hook != null;
   const restoredKey = useRef<string | null>(null);
   const restoreScroll = useRef<number | null>(null);
+  // The row a drill-down was opened from ("2:is"), so Back can put the keyboard focus on it again.
+  const cameButton = useRef<string | null>(null);
   const press = useTileLongPress<DeckCardInfo>((card) => onWorksWith?.(card));
   // Suggestions need the server flag; a 404 from the server turns them off for this page.
   const [suggestionsDenied, setSuggestionsDenied] = useState(false);
@@ -192,8 +194,9 @@ export function CardBrowser({
     moreController.current?.abort();
     setLoadingMore(false);
     // Back put the saved results in place for this very key; asking again would only make them flicker.
-    if (restoredKey.current === key) {
-      restoredKey.current = null;
+    const restored = restoredKey.current;
+    restoredKey.current = null;
+    if (restored === key) {
       setLoading(false);
       return;
     }
@@ -293,6 +296,8 @@ export function CardBrowser({
   useLayoutEffect(() => {
     const box = scrollRef.current;
     const top = restoreScroll.current;
+    // Back saved a view for one key. Another key means the saved view is not coming back, so it is dropped.
+    if (restoredKey.current !== null && restoredKey.current !== key) { restoredKey.current = null; restoreScroll.current = null; return; }
     if (top == null || !box) return;
     restoreScroll.current = null;
     // The list may still be growing (tiles, images), so ask again for a few frames until the position holds.
@@ -360,6 +365,7 @@ export function CardBrowser({
     if (!shownGuide) return;
     // The search text named the archetype; the cards that fit its hook would not match it. Other filters stay.
     onQueryChange({ ...query, text: "", effectOmit: [] });
+    cameButton.current = `${index}:${find}`;
     onPartnerChange?.(hookPartner(shownGuide, index, find));
   }
   /** Back from a hook drill-down: the same query, filters, results and scroll as before it. */
@@ -374,6 +380,14 @@ export function CardBrowser({
     if (from) onQueryChange(from.query);
     onPartnerChange?.(null);
   }
+
+  // The rows are shown again once the drill-down closes, so the row that opened it can take the focus back.
+  useLayoutEffect(() => {
+    if (hookOpen || !cameButton.current) return;
+    const row = scrollRef.current?.querySelector<HTMLElement>(`[data-hook="${cameButton.current}"]`);
+    cameButton.current = null;
+    row?.focus({ preventScroll: true });
+  }, [hookOpen]);
 
   const worksEnabled = onWorksWith != null && results?.effectSearchEnabled === true;
 
@@ -611,9 +625,12 @@ export function CardBrowser({
             </div>
           ) : results != null && total === 0 && effectTotal === 0 && !stale ? (
             <div className={styles.none}>
-              {results.relax?.length && !partner ? <RelaxHints relax={results.relax} onRemove={(chip) => onQueryChange({ ...query, effectOmit: [...new Set([...(query.effectOmit ?? []), chip])] })} /> : <p>{partner ? partner.hook ? "No card here fits these filters." : `No card that works with ${partner.name} fits these filters.` : "No cards match."}</p>}
+              {results.relax?.length && !partner ? <RelaxHints relax={results.relax} onRemove={(chip) => onQueryChange({ ...query, effectOmit: [...new Set([...(query.effectOmit ?? []), chip])] })} /> : <p>{partner ? partner.hook ? chips.length > 0 ? "No card here fits these filters." : partner.hook.members ? "No card fits this." : `No card outside ${partner.hook.archetype} fits this.` : `No card that works with ${partner.name} fits these filters.` : "No cards match."}</p>}
               {chips.length > 0 ? (
                 <DeckButton size="sm" kind="quiet" onClick={() => onQueryChange(clearFilters(query))}>Clear filters</DeckButton>
+              ) : null}
+              {partner?.hook && !partner.hook.members ? (
+                <DeckButton size="sm" kind="quiet" onClick={() => onPartnerChange?.({ ...partner, hook: { ...partner.hook!, members: true } })}>Show all cards</DeckButton>
               ) : null}
             </div>
           ) : (
