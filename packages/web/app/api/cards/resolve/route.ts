@@ -8,7 +8,8 @@ import { toCardCounts } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
 import { CardListError } from "@/lib/card-list-parser";
 import { prepareCubeListImport } from "@/lib/cube-list-import";
-import { parseCardInsightRequest } from "@/lib/card-insights-api";
+import { CARD_INSIGHT_BODY_MAX_BYTES, parseCardInsightRequest } from "@/lib/card-insights-api";
+import { readJsonBody } from "@/lib/bug-reports/read-body";
 import { effectSearchEnabled, deckSuggestionsEnabled } from "@/lib/effect-search";
 import { loadDeckSuggestions } from "@/lib/deck-suggestions";
 import { env } from "@/lib/env";
@@ -59,7 +60,15 @@ async function handlePOST(request: Request) {
   const actor = await requireWebAccess();
   if (!actor.ok) return actor.response;
 
-  const body = (await request.json().catch(() => ({}))) as {
+  // A description request is small, so it is read with the insight size cap. A name or list import can be larger,
+  // so a body over the cap is read the old way, and refused only when it turns out to be a description request.
+  const capped = await readJsonBody(request.clone(), CARD_INSIGHT_BODY_MAX_BYTES);
+  const tooBig = !capped.ok && capped.response.status === 413;
+  const parsed = capped.ok ? capped.value : tooBig ? await request.json().catch(() => ({})) : {};
+  if (tooBig && parsed && typeof parsed === "object" && (parsed as { op?: unknown }).op !== undefined) {
+    return NextResponse.json({ error: "Insight request is too large" }, { status: 413 });
+  }
+  const body = parsed as {
     op?: unknown;
     setNames?: string[];
     customCardIds?: number[];
