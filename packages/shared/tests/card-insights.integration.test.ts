@@ -29,6 +29,7 @@ const rows: Array<[number, string, string, string, string | null, number | null,
   [990002, "Link fixture", "Link Effect Monster", "link", "DARK", 2, null],
   [990003, "Pendulum fixture", "Pendulum Effect Monster", "effect_pendulum", "DARK", 4, null],
   [990004, "Blue-Eyes Alternative Dragon", "Dragon / Effect Monster", "effect", "LIGHT", 8, "Blue-Eyes"],
+  [990005, "Rank 8 Dragon fixture", "Dragon / Xyz Monster", "xyz", "LIGHT", 8, null],
 ];
 let service: ReturnType<typeof createCardInsightService>;
 
@@ -246,8 +247,9 @@ describe("SQL insights over the real pinned artifact", () => {
     expect(guide!.hooks.every(item => item.searchable && (item.finds.is || item.finds.support))).toBe(true);
     const kind = guide!.hooks.findIndex(item => item.finds.is && !item.finds.support);
     expect(guide!.hooks[kind]!.finds.is).toEqual({ one: "Level 8+ Dragon monster", many: "Level 8+ Dragon monsters" });
-    const dragons = [990004, 27096833, 71039903, 97268402];
+    const dragons = [990004, 990005, 27096833, 71039903, 97268402];
     const outside = service.hookSearch("Blue-Eyes", kind, dragons);
+    // A Rank 8 Xyz Dragon is not a "Level 8+" monster.
     expect(outside.map(card => card.passcode)).toEqual([27096833]);
     expect(outside.every(card => card.reason === "Level 8+ Dragon monster")).toBe(true);
     // "All cards" lets the archetype's own cards in; a hook with no support side has nothing to ask as "support".

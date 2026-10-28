@@ -126,7 +126,7 @@ function matchCardItself(card: Card, wanted: ObjectQuery): boolean {
   if (wanted.types.length && !(card.monsterType && wanted.types.includes(card.monsterType))) return false;
   if (wanted.attributes.length && !(card.attribute && wanted.attributes.includes(card.attribute))) return false;
   if (wanted.levelMin !== undefined || wanted.levelMax !== undefined) {
-    const level = card.level ?? card.rank ?? card.linkRating;
+    const level = wanted.levelOnly ? card.level : card.level ?? card.rank ?? card.linkRating;
     if (level == null || level < (wanted.levelMin ?? 0) || level > (wanted.levelMax ?? Infinity)) return false;
   }
   return true;

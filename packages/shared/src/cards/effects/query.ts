@@ -29,6 +29,8 @@ export interface ObjectQuery {
   atkMax?: number;
   levelMin?: number;
   levelMax?: number;
+  /** Compare the Level alone, so an Xyz Rank or a Link Rating is not counted as a Level. */
+  levelOnly?: boolean;
 }
 
 export interface EventQuery {

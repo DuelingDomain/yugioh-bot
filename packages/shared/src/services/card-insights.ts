@@ -309,6 +309,8 @@ export function createCardInsightService(db: Database.Database, options: {
       const kind = find === "is";
       // "is" asks about the card itself and nothing else; "support" keeps the hook as it was always searched.
       const query = hookQuery(kind ? { ...found.hook, does: null, reacts_to: null, supports: null, phrases: [] } : found.hook, found.archetype);
+      // "Level 7+ LIGHT Fiend monster" is a Level; an Xyz Rank is not one unless the hook asks for Xyz or Link.
+      if (kind && !found.hook.card?.subtypes.some(subtype => subtype === "xyz" || subtype === "link")) query.card.levelOnly = true;
       const phrases = kind ? [] : found.hook.phrases.map(phrase => phrase.toLowerCase());
       const reason = kind && found.hook.card ? describeKind(found.hook.card, false) : found.hook.label;
       const ranked: Retained[] = [], limit = limitOf(opts.limit);
