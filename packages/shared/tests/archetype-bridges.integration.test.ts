@@ -93,10 +93,11 @@ describe("pinned bridge pipeline", () => {
       const groups = bridgeGroups(capabilities, profiles, policies);
       expect(groups.Odion).toContain(29762407);
       expect(groups["Blue-Eyes"]).toContain(42097666);
-      for (const [canonical, alias] of [["Magnet", "Magnet Warrior"], ["Stellarknight", "Tellarknight"], ["Predaplant", "Predap"]]) {
+      for (const [canonical, alias] of [["Magnet", "Magnet Warrior"], ["Stellarknight", "Tellarknight"], ["Predaplant", "Predap"], ["Assault Mode", "/Assault Mode"]]) {
         expect(groups[canonical!]!).toEqual(expect.arrayContaining(groups[alias!] ?? []));
       }
-      for (const label of ["Trap Monster", "Hole", "Heart"]) expect(groups[label]).toBeUndefined();
+      expect(groups["Assault Mode"]).toEqual(expect.arrayContaining(capabilities.filter(row => row.card.archetype === "/Assault Mode").map(row => row.id)));
+      for (const label of ["Trap Monster", "Hole", "Heart", "Change"]) expect(groups[label]).toBeUndefined();
       const renamed = bridgeGroups(capabilities, profiles, { "Temple package": policies.Odion });
       expect(renamed["Temple package"]).toEqual(groups.Odion);
       const engine = new BridgeEngine({ capabilities, groups, group_policies: policies, target_means: { advanced: {}, genesys: {} } });

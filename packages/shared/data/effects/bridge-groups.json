@@ -11,6 +11,9 @@
   "Heart": {
     "excluded": true
   },
+  "Change": {
+    "excluded": true
+  },
   "Signature move": {
     "excluded": true
   },
@@ -70,6 +73,11 @@
   "Blue-Eyes": {
     "aliases": [
       "Eyes of Blue"
+    ]
+  },
+  "Assault Mode": {
+    "aliases": [
+      "/Assault Mode"
     ]
   },
   "Diabell": {
