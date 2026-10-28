@@ -375,7 +375,10 @@ export class BridgeEngine {
       seen.add(identity); return true;
     });
     const retained = unique.some(reason => this.substantive(reason, y, x, format)) ? unique : [];
-    for (const reason of retained) if (!this.substantive(reason, y, x, format)) reason.ancillary = true;
+    for (const reason of retained) if (!this.substantive(reason, y, x, format)) {
+      reason.ancillary = true;
+      if (reason.key === "gy_fuel" && reason.steps?.[0]?.capability === "discard") reason.weight = Math.min(1, reason.weight);
+    }
     // Only a source-sized cache is retained during live scans.
     if (this.pairCache.size > this.names.length * 2) this.pairCache.clear();
     this.pairCache.set(cacheKey, retained);
@@ -521,7 +524,8 @@ export class BridgeEngine {
     if (reason.key === "reach" || reason.key === "gy_fuel") {
       const entry = reason.steps?.[0];
       if (reason.key === "gy_fuel" && entry?.capability === "discard") {
-        return source.discardRate >= 0.2 && target.discardTriggerRate >= 1 / 3;
+        return source.discardRate >= 0.2 && target.discardTriggerRate >= 1 / 3
+          && source.cards.filter(card => this.discardsFromHand(this.rows.get(card.id)!)).length >= 3;
       }
       const capability = entry && this.rows.get(entry.from)!.provides.find(capability => capability.key === entry.capability
         && capability.filter && matchesBridgeFilter(capability.filter, this.rows.get(entry.to)!.card)

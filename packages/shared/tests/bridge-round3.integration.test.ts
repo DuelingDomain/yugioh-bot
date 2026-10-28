@@ -82,7 +82,7 @@ describe("round 3 bridge rules on the pinned catalog", () => {
     }
   }, 15_000);
 
-  it("requires discard profiles on both engines for a substantive discard outlet", () => {
+  it("requires discard profiles and three distinct source outlets for a substantive discard engine", () => {
     const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
       for (const [source, target] of [["Danger!", "Dark World"], ["Dark World", "Danger!"]]) {
@@ -91,9 +91,12 @@ describe("round 3 bridge rules on the pinned catalog", () => {
         expect(row!.reasons[0]!.key).toBe("gy_fuel");
         expect(row!.reasons[0]!.ancillary).not.toBe(true);
       }
-      for (const source of ["Fiendsmith", "Branded", "Battleguard", "Triamid"]) {
+      for (const source of ["Fiendsmith", "Branded", "Battleguard", "Triamid", "Firewall", "Sangen", "WAKE CUP!", "Clown Crew", "Purrely"]) {
         for (const target of ["Danger!", "Dark World"]) expect(engine.between(source, target, format), `${source} -> ${target}`).toBeNull();
       }
+      const fabled = engine.between("Fiendsmith", "Fabled", format)!;
+      expect(fabled.grade).toBe("Niche");
+      expect(fabled.reasons.find(reason => reason.key === "gy_fuel")).toMatchObject({ ancillary: true, weight: 1 });
     }
   }, 15_000);
 
