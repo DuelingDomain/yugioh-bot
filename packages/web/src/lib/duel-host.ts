@@ -20,8 +20,9 @@ import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { CardDataStatus } from "@yugidraft/shared/types";
+import type { BridgeRequest } from "./bridges-api";
 
-export type DuelHostOp = "admin-spectate" | "kick" | "invite-player" | "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "suggestion-scope" | "deck-suggestions" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode" | SandboxHostOp;
+export type DuelHostOp = "bridges" | "admin-spectate" | "kick" | "invite-player" | "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "suggestion-scope" | "deck-suggestions" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode" | SandboxHostOp;
 
 /** Read-only seat identity stays separate from creator identity. Unknown control flags fail closed. */
 export function readDuelControl(request: Request, room?: DuelRoom, allowed: "view" | "action" | "cards" | "none" = "none") {
@@ -113,7 +114,7 @@ export function redactDuelResult<T>(data: T, guildId: string, playerId: number):
 }
 
 function hostErrorBody(text: string, status: number): { expected: boolean; body: { error: string; code?: string; finalBoard?: "available" | "none";
-  canOpenUnchecked?: boolean; reason?: ReplayUnverifiedReason; limit?: number; forksUrl?: string } } | undefined {
+  canOpenUnchecked?: boolean; reason?: ReplayUnverifiedReason; limit?: number; forksUrl?: string; retryAfter?: number } } | undefined {
   try {
     const parsed: unknown = JSON.parse(text);
     if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") {
@@ -128,7 +129,9 @@ function hostErrorBody(text: string, status: number): { expected: boolean; body:
         ...("code" in parsed && typeof parsed.code === "string"
           && ((status === 409 && ["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE", "REPLAY_UNVERIFIED"].includes(parsed.code))
             || (status === 413 && parsed.code === "REPLAY_TOO_LARGE"))
-          && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery, ...unverified } };
+          && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery, ...unverified,
+        ...(status === 429 && "retryAfter" in parsed && typeof parsed.retryAfter === "number" && Number.isSafeInteger(parsed.retryAfter) && parsed.retryAfter > 0
+          ? { retryAfter: parsed.retryAfter } : {}) } };
     }
   } catch {}
   return undefined;
@@ -203,6 +206,8 @@ export async function callDuelHost(input: {
   /** deck-suggestions only: strict public query and a completed web result's context version. */
   suggestionQuery?: DeckSuggestionQuery;
   suggestionVersion?: string;
+  /** bridges only: bounded public query; the host rechecks the trusted actor. */
+  bridgeRequest?: BridgeRequest;
   banlist?: string;
   deckMaster?: number;
   /** check-deck only: the server loads this player's durable draft pool. */
@@ -220,14 +225,14 @@ export async function callDuelHost(input: {
     ...body, ...(!body.code && (replayOp ? status >= 500 : [502, 503, 504].includes(status))
       ? { code: replayOp ? "ENGINE_BUSY" : "DUEL_ENGINE_ERROR" } : {}),
   }, { status: replayOp && status >= 500 ? 503 : status,
-    headers: { "cache-control": "private, no-store" } });
+    headers: { "cache-control": "private, no-store", ...(status === 429 && body.retryAfter ? { "Retry-After": String(body.retryAfter) } : {}) } });
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
   if (configProblem) {
     log("warn", "[duel-host] configuration is incomplete");
     return { ok: false, response: failure({ error: configProblem, ...(!replayOp ? { code: "DUEL_ENGINE_CONFIG" } : {}) }, 503), retryable: false };
   }
-  const transport = signedTransport({ ...cfg, purpose: "duel-host", ...(input.op === "engine-data-status" || input.op === "bug-context" ? { timeoutMs: 5000 }
+  const transport = signedTransport({ ...cfg, purpose: "duel-host", ...(input.op === "engine-data-status" || input.op === "bug-context" || input.op === "bridges" ? { timeoutMs: 5000 }
     : input.op === "normalize-codes" || input.op === "validate-deck-master" ? { timeoutMs: 20000 }
     : replayOp ? { timeoutMs: 30_000 } : {}) });
   const payload: Record<string, unknown> = {
@@ -275,6 +280,7 @@ export async function callDuelHost(input: {
   if (input.suggestionFormat !== undefined) payload.suggestionFormat = input.suggestionFormat;
   if (input.suggestionQuery !== undefined) payload.suggestionQuery = input.suggestionQuery;
   if (input.suggestionVersion !== undefined) payload.suggestionVersion = input.suggestionVersion;
+  if (input.bridgeRequest !== undefined) payload.bridgeRequest = input.bridgeRequest;
   if (input.banlist !== undefined) payload.banlist = input.banlist;
   if (input.deckMaster !== undefined) payload.deckMaster = input.deckMaster;
   if (input.move !== undefined) payload.move = input.move;

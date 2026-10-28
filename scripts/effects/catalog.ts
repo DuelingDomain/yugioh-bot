@@ -5,6 +5,7 @@ import type { Card, TaggedCard } from "@yugidraft/shared/cards/effects";
 import { engineInsightCard } from "@yugidraft/shared/cards/effects";
 import { CARD_EFFECT_TEXT_NORMALIZATION, DEFAULT_CARD_EFFECT_ARTIFACT_DIRECTORY, hashCardEffectSourceText, verifyCardEffectArtifact } from "@yugidraft/shared/cards/effects";
 import type { DeckCardInfo } from "@yugidraft/shared/duels";
+import { inArchetype } from "@yugidraft/shared/duels";
 
 export function exampleCards(): Card[] {
   return JSON.parse(readFileSync(new URL("./tagging-example-cards.json", import.meta.url), "utf8")).cards;
@@ -53,6 +54,7 @@ export async function loadTaggingCatalog(directory: string): Promise<Card[]> {
     for (const raw of all) if (raw.canonicalPasscode && raw.canonicalPasscode !== raw.code) aliases.set(raw.canonicalPasscode, [...(aliases.get(raw.canonicalPasscode) ?? []), raw.code]);
     return all.filter((raw: DeckCardInfo) => !raw.canonicalPasscode || raw.canonicalPasscode === raw.code).map((raw: DeckCardInfo) => {
       const card = engineInsightCard(raw, database.setnames(), popularity[raw.code] ?? 0);
+      card.archetypes = [...database.setnames()].filter(([setcode]) => inArchetype(raw.setcodes, setcode)).map(([, name]) => name);
       card.aliases = aliases.get(card.id);
       card.typeLine = `${card.subtypes.map(type => type.replace(/_/g, " ")).join(" ")} ${card.kind}`;
       if (card.subtypes.includes("pendulum")) {

@@ -1,0 +1,109 @@
+{
+  "Trap Monster": {
+    "excluded": true
+  },
+  "Hole": {
+    "excluded": true
+  },
+  "Trap Hole": {
+    "excluded": true
+  },
+  "Heart": {
+    "excluded": true
+  },
+  "Change": {
+    "excluded": true
+  },
+  "Signature move": {
+    "excluded": true
+  },
+  "Fusion": {
+    "excluded": true
+  },
+  "Synchro": {
+    "excluded": true
+  },
+  "Xyz": {
+    "excluded": true
+  },
+  "Pendulum": {
+    "excluded": true
+  },
+  "Number": {
+    "excluded": true
+  },
+  "Star": {
+    "excluded": true
+  },
+  "Fairy": {
+    "excluded": true
+  },
+  "Warrior": {
+    "excluded": true
+  },
+  "Knight": {
+    "excluded": true
+  },
+  "White": {
+    "excluded": true
+  },
+  "Jester": {
+    "excluded": true
+  },
+  "Magician": {
+    "excluded": true
+  },
+  "with Eyes of Blue": {
+    "excluded": true
+  },
+  "Odion": {
+    "curated": true,
+    "include": {
+      "names": [
+        "Temple of the Kings"
+      ],
+      "mentions": [
+        "Temple of the Kings"
+      ],
+      "name_patterns": [
+        "\\bApophis\\b"
+      ]
+    }
+  },
+  "Blue-Eyes": {
+    "aliases": [
+      "Eyes of Blue"
+    ]
+  },
+  "Assault Mode": {
+    "aliases": [
+      "/Assault Mode"
+    ]
+  },
+  "Diabell": {
+    "aliases": [
+      "Diabellstar",
+      "Diabellze"
+    ]
+  },
+  "Magical Musket": {
+    "aliases": [
+      "Magical Musketeer"
+    ]
+  },
+  "Magnet": {
+    "aliases": [
+      "Magnet Warrior"
+    ]
+  },
+  "Stellarknight": {
+    "aliases": [
+      "Tellarknight"
+    ]
+  },
+  "Predaplant": {
+    "aliases": [
+      "Predap"
+    ]
+  }
+}
