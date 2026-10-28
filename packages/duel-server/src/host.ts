@@ -53,6 +53,8 @@ import { validateAnswer } from "./answer-validation.js";
 import { RequestError } from "./request-error.js";
 import { WorkerPool, type WorkerReservation } from "./worker-pool.js";
 import { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
+import { BridgeApi } from "./bridge-api.js";
+import { BridgeJobError } from "./bridge-search-jobs.js";
 import { workerLimitsFromEnv } from "./config.js";
 import { GameWorker, limitWorkerOperations, type DuelGameWorker, type LimitedGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
 import { DeckLegalityError, ExtraDeckCardError, deckSuggestionScope, inspectDeck, validateDeck, validateExtraDeckTypes, validateDeckMasterType, type InspectDeckOptions } from "./deck-legality.js";
@@ -145,7 +147,7 @@ const DUEL_OPS = new Set([
   "card-details", "card-artworks", "card-query", "card-facets", "surrender", "kick", "invite-player", "add-bot", "archive", "cancel",
   "replay", "owner-replay", "replay-fork", "fork-list", "fork-restart", "fork-cancel", "ready", "unready", "series-side", "series-ready", "series-unready", "series-first",
   "opening-pick", "opening-choose", "normalize-codes", "check-deck", "list-presets", "start-preset", "start-test-duel", "warm-test-duel",
-  "report", "debug-trace", "bug-context", "bug-replay-frame", "chain-mode", "validate-deck-master", "suggestion-scope", "deck-suggestions",
+  "report", "debug-trace", "bug-context", "bug-replay-frame", "chain-mode", "validate-deck-master", "suggestion-scope", "deck-suggestions", "bridges",
 ]);
 
 /** Cache identities treat numeric card lists as multisets; the scorer receives the original order. */
@@ -438,6 +440,7 @@ export function createDuelHost(options: {
   const limits = workerLimitsFromEnv();
   const pool = new WorkerPool(options.maxWorkers ?? limits.maxWorkers, options.maxTablesPerPlayer ?? limits.maxTablesPerPlayer);
   const suggestionWorkers = new DeckSuggestionWorkers(options.db, options.dataDirectory);
+  const bridgeApi = new BridgeApi(options.db, suggestionWorkers, options.now);
   const suggestingPlayers = new Set<number>();
   const reservations = new Map<DuelGameWorker, { release: WorkerReservation; session?: DuelSession }>();
   const reservedTableState = options.db.prepare<[number], { status: string; archived_at: string | null }>(
@@ -3326,6 +3329,10 @@ export function createDuelHost(options: {
 
   async function operateForActor(body: Record<string, unknown>, guildId: string, actor: number, ctl?: { abandoned: boolean; signal?: AbortSignal }): Promise<unknown> {
     const { op } = body;
+    if (op === "bridges") {
+      if (!deckSuggestionsEnabled()) throw new RequestError("Deck suggestions are disabled", 404);
+      return bridgeApi.handle(body, guildId, actor);
+    }
     const accessActor = { guildId, playerId: actor, ...(body.userId !== undefined ? { userId: body.userId as number } : {}) };
     if (op === "fork-list") return { forks: listActiveReplayForks(options.db, accessActor), limit: REPLAY_FORK_ACTIVE_LIMIT };
     if (op === "replay-fork") {
@@ -4340,7 +4347,7 @@ export function createDuelHost(options: {
             deadline.abort(error); reject(error);
           }, Math.min(28_000, options.replayRequestTimeoutMs ?? 28_000));
         }) : undefined;
-        const queued = (body.op === "admin-spectate" || body.op === "deck-suggestions" || body.op === "card-query" || body.op === "debug-trace" || body.op === "bug-context" || body.op === "bug-replay-frame" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body, ctl) : enqueue(key, () => operate(body, ctl)));
+        const queued = (body.op === "admin-spectate" || body.op === "deck-suggestions" || body.op === "bridges" || body.op === "card-query" || body.op === "debug-trace" || body.op === "bug-context" || body.op === "bug-replay-frame" || body.op === "engine-data-status" || body.op === "replay" || body.op === "owner-replay" || body.op === "fork-list" ? operate(body, ctl) : enqueue(key, () => operate(body, ctl)));
         const rendered = (async () => {
           const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
           if (fork) assertReplayForkAccess(options.db, body.slug as string, { guildId: body.guildId as string,
@@ -4354,6 +4361,9 @@ export function createDuelHost(options: {
         })();
         return await (expiry ? Promise.race([rendered, expiry]) : rendered);
       } catch (error) {
+        if (error instanceof BridgeJobError) return Response.json({ error: error.message,
+          ...(error.retryAfter === undefined ? {} : { retryAfter: error.retryAfter }) }, { status: error.status,
+          headers: { "cache-control": "no-store", ...(error.retryAfter === undefined ? {} : { "Retry-After": String(error.retryAfter) }) } });
         if (isCardFetchError(error)) {
           return Response.json({ error: "Card database is unavailable. Try again shortly." }, {
             status: 503, headers: { "Retry-After": String(error.retryAfter ?? 1) },
@@ -4399,6 +4409,7 @@ export function createDuelHost(options: {
       replayCache.clear();
       await replayJsonEncoder.close();
       await suggestionWorkers.close();
+      await bridgeApi.jobs.close();
       await engineResourceCache.close();
     },
   };

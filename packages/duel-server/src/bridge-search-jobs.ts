@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { ArchetypeBridge, BridgeFormat } from "@yugidraft/shared/cards/effects";
 
-export interface BridgeSearchQuery { source: string; target?: string; format: BridgeFormat; genesysRemaining?: number }
+export interface BridgeSearchQuery { source: string; target?: string; format: BridgeFormat; genesysRemaining?: number; deckCards?: number[] }
 export interface BridgeSearchActor { userId: number; guildId: string }
 export type BridgeJobState = "queued" | "running" | "done" | "failed";
 export type BridgeJobStep = "candidates" | "checking" | "rating" | "done";
@@ -36,7 +36,7 @@ export class BridgeSearchJobs {
     CREATE INDEX IF NOT EXISTS bridge_deep_query ON bridge_deep_job(query_key,created_at DESC);
     CREATE TABLE IF NOT EXISTS bridge_deep_actor (
       job_id TEXT NOT NULL REFERENCES bridge_deep_job(id) ON DELETE CASCADE,
-      actor_hash TEXT NOT NULL, guild_id TEXT NOT NULL, admitted_at INTEGER NOT NULL, ended_at INTEGER, genesys_remaining INTEGER,
+      actor_hash TEXT NOT NULL, guild_id TEXT NOT NULL, admitted_at INTEGER NOT NULL, ended_at INTEGER, genesys_remaining INTEGER, deck_cards_json TEXT,
       PRIMARY KEY(job_id,actor_hash,guild_id)
     );
     CREATE INDEX IF NOT EXISTS bridge_deep_user ON bridge_deep_actor(actor_hash,admitted_at DESC);`);
@@ -57,10 +57,10 @@ export class BridgeSearchJobs {
       const existing = this.db.prepare(`SELECT j.* FROM bridge_deep_job j JOIN bridge_deep_actor a ON a.job_id=j.id
         WHERE a.actor_hash=? AND j.state IN ('queued','running') ORDER BY j.created_at LIMIT 1`).get(hash) as JobRow | undefined;
       const subscribe = (job: JobRow, cached: boolean) => {
-        this.db.prepare("INSERT OR IGNORE INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at,ended_at,genesys_remaining) VALUES(?,?,?,?,?,?)")
-          .run(job.id, hash, actor.guildId, now, job.ended_at, query.genesysRemaining ?? null);
-        if (cached) this.db.prepare("UPDATE bridge_deep_actor SET genesys_remaining=? WHERE job_id=? AND actor_hash=? AND guild_id=?")
-          .run(query.genesysRemaining ?? null, job.id, hash, actor.guildId);
+        this.db.prepare("INSERT OR IGNORE INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at,ended_at,genesys_remaining,deck_cards_json) VALUES(?,?,?,?,?,?,?)")
+          .run(job.id, hash, actor.guildId, now, job.ended_at, query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null);
+        if (cached) this.db.prepare("UPDATE bridge_deep_actor SET genesys_remaining=?,deck_cards_json=? WHERE job_id=? AND actor_hash=? AND guild_id=?")
+          .run(query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null, job.id, hash, actor.guildId);
         return { jobId: job.id, state: job.state, cached };
       };
       if (existing) return subscribe(existing, false);
@@ -80,7 +80,8 @@ export class BridgeSearchJobs {
       const id = randomUUID();
       this.db.prepare("INSERT INTO bridge_deep_job(id,query_key,query_json,state,step,created_at) VALUES(?,?,?,'queued','candidates',?)")
         .run(id, key, JSON.stringify(query), now);
-      this.db.prepare("INSERT INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at,genesys_remaining) VALUES(?,?,?,?,?)").run(id, hash, actor.guildId, now, query.genesysRemaining ?? null);
+      this.db.prepare("INSERT INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at,genesys_remaining,deck_cards_json) VALUES(?,?,?,?,?,?)")
+        .run(id, hash, actor.guildId, now, query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null);
       return { jobId: id, state: "queued" as BridgeJobState, cached: false };
     }).immediate();
     this.drain();
@@ -88,10 +89,11 @@ export class BridgeSearchJobs {
   }
 
   status(actor: BridgeSearchActor, jobId: string) {
-    const row = this.db.prepare(`SELECT j.*,a.genesys_remaining FROM bridge_deep_job j JOIN bridge_deep_actor a ON a.job_id=j.id
-      WHERE j.id=? AND a.actor_hash=? AND a.guild_id=?`).get(jobId, this.actorHash(actor), actor.guildId) as JobRow & { genesys_remaining: number | null } | undefined;
+    const row = this.db.prepare(`SELECT j.*,a.genesys_remaining,a.deck_cards_json FROM bridge_deep_job j JOIN bridge_deep_actor a ON a.job_id=j.id
+      WHERE j.id=? AND a.actor_hash=? AND a.guild_id=?`).get(jobId, this.actorHash(actor), actor.guildId) as JobRow & { genesys_remaining: number | null; deck_cards_json: string | null } | undefined;
     if (!row) throw new BridgeJobError("Not found", 404);
-    const query = { ...JSON.parse(row.query_json) as BridgeSearchQuery, genesysRemaining: row.genesys_remaining ?? undefined };
+    const query = { ...JSON.parse(row.query_json) as BridgeSearchQuery, genesysRemaining: row.genesys_remaining ?? undefined,
+      deckCards: row.deck_cards_json ? JSON.parse(row.deck_cards_json) as number[] : undefined };
     const visible = row.state === "done" ? this.options.project(JSON.parse(row.result_json), query) : { results: [], inReview: 0 };
     return { jobId: row.id, state: row.state, step: row.step, progress: row.progress, ...visible, ...(row.error ? { error: row.error } : {}) };
   }
@@ -113,8 +115,8 @@ export class BridgeSearchJobs {
         catch { error = "Bridge search could not finish. Try again shortly."; }
         this.db.transaction(() => {
           const now = this.now();
-          this.db.prepare("UPDATE bridge_deep_job SET state=?,step=?,progress=?,result_json=?,error=?,ended_at=? WHERE id=? AND state='running'")
-            .run(error ? "failed" : "done", error ? "rating" : "done", error ? 0 : 100, JSON.stringify(result), error, now, row.id);
+          this.db.prepare("UPDATE bridge_deep_job SET state=?,step=CASE WHEN ? THEN step ELSE 'done' END,progress=CASE WHEN ? THEN progress ELSE 100 END,result_json=?,error=?,ended_at=? WHERE id=? AND state='running'")
+            .run(error ? "failed" : "done", error ? 1 : 0, error ? 1 : 0, JSON.stringify(result), error, now, row.id);
           this.db.prepare("UPDATE bridge_deep_actor SET ended_at=? WHERE job_id=? AND ended_at IS NULL").run(now, row.id);
         }).immediate();
       })().finally(() => { this.active.delete(row.id); this.running.delete(work); this.drain(); });

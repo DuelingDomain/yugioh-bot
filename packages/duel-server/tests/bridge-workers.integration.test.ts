@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import { migrate } from "../../shared/src/db/schema.js";
-import { importBridgeArtifact } from "../../shared/src/cards/effects/bridge-artifact.js";
+import { migrate } from "@yugidraft/shared/db";
+import { importBridgeArtifact } from "@yugidraft/shared/cards/effects";
 import { DeckSuggestionWorkers } from "../src/deck-suggestion-workers.js";
 
 describe("bridge scanner admission", () => {

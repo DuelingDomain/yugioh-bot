@@ -11,6 +11,7 @@ export type BridgeScan = { kind: "bridges"; source: string; format: BridgeFormat
 );
 export type BridgeScanResult = ArchetypeBridge[] | ArchetypeBridge | null;
 type ScanResult = DeckSuggestionResult | CardEffectSearchResult | BridgeScanResult;
+type JudgeScan = { kind: "bridge-judge"; bridge: ArchetypeBridge };
 export class BridgeSearchBusyError extends Error {
   readonly status = 429;
   constructor(readonly retryAfterMs = 60_000) { super("Bridge search is busy; retry later"); }
@@ -22,6 +23,8 @@ export class DeckSuggestionWorkers {
   private readonly retiring = new Set<Promise<number>>();
   private readonly bridgeActors = new Set<string>();
   private readonly bridgeCache = new Map<string, { expires: number; result: BridgeScanResult }>();
+  private readonly bridgeQueue: { scan: BridgeScan | JudgeScan; progress?: (value: BridgeProgress) => void; resolve: (value: ScanResult) => void; reject: (error: Error) => void }[] = [];
+  private closing = false;
   constructor(private readonly db: Database.Database, private readonly dataDirectory: string,
     private readonly idleMs = 120_000) {}
 
@@ -37,6 +40,28 @@ export class DeckSuggestionWorkers {
 
   run(scan: SuggestionScan): Promise<DeckSuggestionResult | CardEffectSearchResult> {
     return this.scan(scan) as Promise<DeckSuggestionResult | CardEffectSearchResult>;
+  }
+
+  bridgeCandidates(scan: BridgeScan, progress?: (value: BridgeProgress) => void): Promise<BridgeScanResult> {
+    return this.queuedBridge(scan, progress) as Promise<BridgeScanResult>;
+  }
+
+  async rateBridge(bridge: ArchetypeBridge): Promise<void> {
+    if (this.db.name === ":memory:" || this.db.name === "") throw new Error("Bridge judging requires a durable database");
+    await this.queuedBridge({ kind: "bridge-judge", bridge });
+  }
+
+  private queuedBridge(scan: BridgeScan | JudgeScan, progress?: (value: BridgeProgress) => void): Promise<ScanResult> {
+    if (this.closing) return Promise.reject(new Error("Suggestion scanner closed"));
+    return new Promise((resolve, reject) => { this.bridgeQueue.push({ scan, progress, resolve, reject }); this.drainBridges(); });
+  }
+
+  private drainBridges(): void {
+    while (!this.closing && this.bridgeQueue.length && this.jobs.filter(job => job.reject).length < 2) {
+      const next = this.bridgeQueue.shift()!;
+      try { void this.scan(next.scan, next.progress).then(next.resolve, next.reject); }
+      catch (error) { next.reject(error instanceof Error ? error : new Error("Suggestion scanner could not start")); }
+    }
   }
 
   async runBridge(scan: BridgeScan, actor: string, progress?: (value: BridgeProgress) => void): Promise<BridgeScanResult> {
@@ -76,7 +101,7 @@ export class DeckSuggestionWorkers {
     } finally { this.bridgeActors.delete(hash); }
   }
 
-  private scan(scan: SuggestionScan | BridgeScan, progress?: (value: BridgeProgress) => void): Promise<ScanResult> {
+  private scan(scan: SuggestionScan | BridgeScan | JudgeScan, progress?: (value: BridgeProgress) => void): Promise<ScanResult> {
     let job = this.jobs.find(job => !job.reject);
     if (!job) {
       if (this.jobs.length >= 2) throw new Error("Suggestion workers are busy");
@@ -121,13 +146,14 @@ export class DeckSuggestionWorkers {
           current.idle.unref();
           resolve(result!);
         }
+        this.drainBridges();
       };
       const fail = () => finish(new Error("Suggestion scanner stopped"));
       const message = (answer: { error?: boolean; result: ScanResult; progress?: BridgeProgress }) => {
         if (answer.progress) { progress?.(answer.progress); return; }
         finish(answer.error ? new Error("Suggestion scan failed") : undefined, answer.result);
       };
-      const timer = setTimeout(fail, 30_000);
+      const timer = setTimeout(fail, "kind" in scan && scan.kind === "bridge-judge" ? 125_000 : 30_000);
       current.reject = (error) => finish(error);
       current.worker.on("message", message);
       current.worker.once("error", fail);
@@ -143,6 +169,8 @@ export class DeckSuggestionWorkers {
   }
 
   async close(): Promise<void> {
+    this.closing = true;
+    for (const queued of this.bridgeQueue.splice(0)) queued.reject(new Error("Suggestion scanner closed"));
     const jobs = [...this.jobs];
     for (const job of jobs) {
       clearTimeout(job.idle);
