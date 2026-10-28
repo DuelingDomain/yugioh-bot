@@ -72,7 +72,7 @@ export function changedLayers(files, event) {
   const engine = files.some((file) => !isDoc(file) && (
     docTestInputs.get(file) === "engine" || globalInput(file) || sharedEngineInput(file) ||
     file === "packages/web/src/components/duel/table/seat-state.ts" ||
-    /^(packages\/duel-server\/(?!domain-core\/proposals\/)|packages\/shared\/(package\.json$|tsconfig[^/]*\.json$)|data\/duel-engine[^/]*\/|patches\/|scripts\/(native\/|ci\/(?:build-core|parallel-emxx|bin\/em\+\+|core-cache-key|assemble-core-bundle|run-engine-tests|select-engine-tests|engine-sequencer|changed-layers|publish-engine-data))|\.github\/actions\/(restore-engine-bundle|prepare-production-bundle|setup-ci-node)\/|\.github\/workflows\/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$)/.test(file)
+    /^(packages\/duel-server\/(?!domain-core\/proposals\/)|packages\/shared\/(package\.json$|tsconfig[^/]*\.json$)|data\/duel-engine[^/]*\/|patches\/|scripts\/(native\/|ci\/(?:build-core|parallel-emxx|bin\/em\+\+|core-cache-key|assemble-core-bundle|run-engine-tests|select-engine-tests|engine-sequencer|engine-test-plan|engine-test-times|duel-test-files|check-engine-test-coverage|changed-layers|publish-engine-data))|\.github\/actions\/(restore-engine-bundle|prepare-production-bundle|setup-ci-node)\/|\.github\/workflows\/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$)/.test(file)
   ));
   // Golden rows depend only on the core, overlay, data pins and native tooling (and the step's own wiring).
   const golden = files.some((file) => /^(\.github\/workflows\/test\.yml$|scripts\/ci\/changed-layers\.mjs$)|^packages\/duel-server\/(card-script-patches\/|domain-core\/(patches\/|multi-scripts\/|pins\.json$)|scripts\/(native\/|(?:run-nduel|build-native-core|prepare-multi-core-tree|multi-core-common)\.sh$|(?:prepare-data|released-card-data|card-script-patches)\.ts$))/.test(file));
@@ -102,6 +102,7 @@ export function changedLayers(files, event) {
     else if (file.startsWith("site/")) areas.web = true;
     else if (file === "packages/e2e/stack/start.mjs") { areas.e2e = true; areas.duel_unit = true; }
     else if (/^packages\/(web|bot|ws|worker|e2e)\//.test(file)) areas[file.split("/")[1]] = true;
+    else if (file === "scripts/ci/duel-test-files.mjs") { areas.duel_unit = true; areas.ci_scripts = true; }
     else if (/^scripts\/(ci|deployment)\/|^\.github\/actions\/|^Dockerfile$|^\.dockerignore$/.test(file)) areas.ci_scripts = true;
     else if (file.startsWith("scripts/effects/")) { /* dedicated effect protocol job */ }
     else if (/^(Caddyfile$|docker-compose[^/]*\.ya?ml$|data\/duel-engine[^/]*\/|scripts\/native\/|\.github\/|\.gitignore$|\.impeccable\.)/.test(file)) { /* compose checked in changes; engine/native/production have their own jobs */ }

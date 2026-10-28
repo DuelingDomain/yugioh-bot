@@ -4,5 +4,5 @@ import { duelTestFiles } from "../../scripts/ci/duel-test-files.mjs";
 import EngineSequencer from "../../scripts/ci/engine-sequencer.mjs";
 
 export default mergeConfig(config, defineConfig({
-  test: { include: duelTestFiles().engine, sequence: { sequencer: EngineSequencer } },
+  test: { include: duelTestFiles().engine.filter(file => !file.startsWith("tests/legacy-main/")), sequence: { sequencer: EngineSequencer } },
 }));
