@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { changedLayers } from "./changed-layers.mjs";
+import { changedLayers, engineSharedFiles } from "./changed-layers.mjs";
 
 const script = new URL("./changed-layers.mjs", import.meta.url).pathname;
 const noEngine = { engine: false, golden: false, tests_only: false };
@@ -26,38 +26,27 @@ test("every engine input still enables the full engine suites on push", () => {
     "packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm",
     "packages/shared/src/duels/banlist.ts",
     "packages/shared/src/services/duels.ts",
-    "packages/shared/src/services/duels-history.ts",
-    "packages/shared/src/services/replay-fork.ts",
+    "packages/shared/src/services/replay-forks.ts",
     "packages/shared/src/db/schema.ts",
     // The host now imports services that PRs historically exempted.
     "packages/shared/src/services/bug-reports.ts",
     "packages/shared/src/services/drafts.ts",
-    "packages/shared/src/future-engine-dependency.ts",
     "packages/shared/package.json",
-    "packages/e2e/src/duel.ts",
     "data/duel-engine/pins.json",
     "data/duel-engine-next/cards.cdb",
     "patches/ocgcore-wasm+0.1.2.patch",
     "scripts/ci/build-core.sh",
     "scripts/ci/publish-engine-data.mjs",
-    "scripts/deployment/prepare-runtime-data.sh",
     ".github/actions/restore-engine-bundle/action.yml",
     ".github/actions/prepare-production-bundle/action.yml",
-    ".github/actions/build-production-image/action.yml",
     ".github/actions/setup-ci-node/action.yml",
     ".github/workflows/test.yml",
-    ".github/workflows/engine-data-update.yml",
-    ".github/workflows/deploy.yml",
-    ".github/workflows/future.yml",
     "package.json",
     "package-lock.json",
     "turbo.json",
     "tsconfig.json",
     "tsconfig.base.json",
     ".nvmrc",
-    "Dockerfile",
-    "docs/adr/0002-multiplayer-duel-rules.md",
-    "docs/specs/multiplayer-rule-coverage.md",
   ];
   for (const file of inputs) {
     const layers = changedLayers([file], "push");
@@ -66,17 +55,24 @@ test("every engine input still enables the full engine suites on push", () => {
   }
 });
 
-test("PR path exemptions and tests-only selection stay unchanged", () => {
-  for (const file of [
-    "packages/bot/src/index.ts", "packages/web/src/app/page.tsx",
-    "packages/shared/tests/duels.test.ts", "packages/shared/scripts/README.md",
-    "packages/shared/src/maintenance/repair-ratings.ts",
-    ...["bug-reports", "card-images", "cubes", "deal", "draft-access", "draft-decks", "draft-tournament", "drafts", "guild-settings", "live-now", "players", "tournament-registrations"]
-      .map(name => `packages/shared/src/services/${name}.ts`),
-    "scripts/seed.ts", "scripts/generate-draft-catalog-snapshot.ts", "scripts/data/draft-catalog-legendary.json",
-    "Dockerfile", ".github/workflows/deploy.yml", "data/duel-engine/pins.json",
-  ]) assert.deepEqual(changedLayers([file], "pull_request"), noEngine, file);
-
+test("PRs and main use the same import-aware engine rule", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of [
+      "packages/bot/src/index.ts", "packages/web/src/app/page.tsx",
+      "packages/e2e/src/duel.ts", "packages/shared/tests/duels.test.ts",
+      "packages/shared/src/maintenance/repair-ratings.ts", "packages/shared/src/util/eastern-time.ts",
+      "packages/shared/src/future-unused-module.ts", "packages/shared/data/staples/usage.json",
+      "packages/shared/data/effects/tags.json", "packages/duel-server/domain-core/proposals/future.md",
+      "scripts/effects/tag.ts", "scripts/staples/update.ts", "scripts/deployment/prepare-runtime-data.sh",
+      "scripts/ci/publish-images.mjs", "Dockerfile", ".github/workflows/deploy.yml",
+      "docs/adr/0002-multiplayer-duel-rules.md", "packages/duel-server/README.md",
+    ]) assert.deepEqual(changedLayers([file], event), noEngine, `${event}: ${file}`);
+    for (const file of ["packages/shared/src/services/duels.ts", "packages/shared/src/services/drafts.ts",
+      "packages/shared/src/db/schema.ts", "packages/shared/src/cards/effects/artifact.ts",
+      "packages/shared/src/duels/settings.ts", "packages/duel-server/scripts/install-engine-bundle.sh",
+      "scripts/ci/build-core.sh", "scripts/ci/publish-engine-data.mjs", "scripts/native/checks/run.sh",
+    ]) assert.equal(changedLayers([file], event).engine, true, `${event}: ${file}`);
+  }
   assert.deepEqual(changedLayers(["packages/duel-server/tests/engine.test.ts"], "pull_request"), {
     engine: true, golden: false, tests_only: true,
   });
@@ -91,6 +87,19 @@ test("missing diffs and manual/scheduled events still run every layer", () => {
     assert.deepEqual(changedLayers(null, event), allLayers);
   }
   for (const event of ["workflow_dispatch", "schedule"]) assert.deepEqual(changedLayers([], event), allLayers);
+});
+
+test("shared graph follows export aliases, barrels, relative and dynamic imports, including deleted files", () => {
+  const files = engineSharedFiles({
+    "packages/duel-server/src/host.ts": 'import { service } from "@yugidraft/shared/services"; import("@yugidraft/shared/lazy");',
+    "packages/shared/src/services/index.ts": 'export * from "./duels.js";',
+    "packages/shared/src/services/duels.ts": 'import type { Schema } from "../db/schema.js";',
+    "packages/shared/src/unused.ts": 'export const unused = true;',
+  }, { "./services": { default: "./dist/services/index.js" }, "./lazy": { source: "./src/lazy.ts" } });
+  for (const file of ["services/index.ts", "services/duels.ts", "db/schema.ts", "lazy.ts"]) {
+    assert.ok(files.has("packages/shared/src/" + file), file);
+  }
+  assert.equal(files.has("packages/shared/src/unused.ts"), false);
 });
 
 function fixture(t) {

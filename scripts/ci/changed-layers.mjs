@@ -1,21 +1,69 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync, readdirSync } from "node:fs";
+import { posix } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const ZERO_SHA = /^0+$/;
 
-// PRs and main pushes select engine layers by changed paths. Scheduled/manual runs
-// and missing diffs enable every engine layer. Keep the existing PR exemptions.
+const isDoc = (file) => /\.md$/i.test(file) || /^(docs|site)\//.test(file);
+
+/** Follow literal module references, including re-exports, type and dynamic imports.
+ * Scanning all path literals is deliberately conservative (also catches file readers).
+ * Keep unresolved candidate paths so deletion/renaming still selects their callers.
+ * Barrels include all exports: changes to their side effects can affect the host.
+ */
+export function engineSharedFiles(sources, exports) {
+  const seen = new Set();
+  const visit = (file) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    for (const [, reference] of (sources[file] ?? "").matchAll(/["'`]((?:\.\.?\/|@yugidraft\/shared\/)[^"'`\s]+)["'`]/g)) {
+      let path;
+      if (reference.startsWith("@yugidraft/shared/")) {
+        const subpath = "./" + reference.slice("@yugidraft/shared/".length);
+        const entry = exports[subpath];
+        const target = typeof entry === "string" ? entry : entry?.source ?? entry?.default;
+        path = target ? "packages/shared/" + target.replace(/^\.\//, "").replace(/^dist\//, "src/")
+          : "packages/shared/src/" + subpath.slice(2);
+      } else path = posix.normalize(posix.join(posix.dirname(file), reference));
+      if (!/^(packages\/shared\/src|packages\/duel-server\/src)\//.test(path)) continue;
+      const stem = path.replace(/\.[cm]?jsx?$/, "");
+      for (const candidate of [path, stem + ".ts", stem + ".tsx", stem + "/index.ts"]) visit(candidate);
+    }
+  };
+  for (const file of Object.keys(sources)) if (file.startsWith("packages/duel-server/src/")) visit(file);
+  return seen;
+}
+
+let sharedDependencies;
+function sharedEngineInput(file) {
+  if (file.startsWith("packages/shared/src/duels/")) return true;
+  if (!file.startsWith("packages/shared/src/")) return false;
+  if (!sharedDependencies) {
+    const root = new URL("../../", import.meta.url);
+    const sources = {};
+    const collect = (dir) => {
+      for (const entry of readdirSync(new URL(dir, root), { withFileTypes: true })) {
+        const path = dir + entry.name;
+        if (entry.isDirectory()) collect(path + "/");
+        else if (/\.[cm]?[jt]sx?$/.test(path)) sources[path] = readFileSync(new URL(path, root), "utf8");
+      }
+    };
+    collect("packages/duel-server/src/");
+    collect("packages/shared/src/");
+    sharedDependencies = engineSharedFiles(sources, JSON.parse(readFileSync(new URL("packages/shared/package.json", root), "utf8")).exports);
+  }
+  return sharedDependencies.has(file);
+}
+
+// PRs and main pushes use the same engine rule. Scheduled/manual runs and
+// missing diffs enable every layer; docs never select tests on their own.
 export function changedLayers(files, event) {
   if (!["pull_request", "push"].includes(event) || files === null) return { engine: true, golden: true, tests_only: false };
-  // Retain main's reviewed exemptions. Unknown shared paths still require the engine.
-  const nonEngine = /^(packages\/shared\/(tests\/|scripts\/README\.md$|src\/maintenance\/repair-ratings\.ts$|src\/services\/(bug-reports|card-images|cubes|deal|draft-access|draft-decks|draft-tournament|drafts|guild-settings|live-now|players|tournament-registrations)\.ts$)|scripts\/(seed\.ts$|generate-draft-catalog-snapshot\.ts$|data\/draft-catalog-legendary\.json$))/;
-  // The ADR-0002 rules and the coverage table are inputs of rule-coverage.
-  // Main also covers every workflow, the shared Dockerfile and engine data bundles.
-  // Conservatively include all shared changes: the host imports service barrels and
-  // services (including drafts and bug-reports) that the historical PR rule exempts.
-  const releaseInput = event === "push" && files.some((file) => /^(packages\/shared\/|data\/duel-engine[^/]*\/|\.github\/workflows\/|Dockerfile$)/.test(file));
-  const engine = releaseInput || files.some((file) => !nonEngine.test(file) && /^(packages\/(duel-server|shared|e2e)\/|patches\/|scripts\/|\.github\/actions\/(restore-engine-bundle|prepare-production-bundle|build-production-image|setup-ci-node)\/|\.github\/workflows\/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$|docs\/adr\/0002-multiplayer-duel-rules\.md$|docs\/specs\/multiplayer-rule-coverage\.md$)/.test(file));
+  const engine = files.some((file) => !isDoc(file) && (
+    sharedEngineInput(file) ||
+    /^(packages\/duel-server\/(?!domain-core\/proposals\/)|packages\/shared\/(package\.json$|tsconfig[^/]*\.json$)|data\/duel-engine[^/]*\/|patches\/|scripts\/(native\/|ci\/(?:build-core|parallel-emxx|bin\/em\+\+|core-cache-key|assemble-core-bundle|run-engine-tests|select-engine-tests|engine-sequencer|changed-layers|publish-engine-data))|\.github\/actions\/(restore-engine-bundle|prepare-production-bundle|setup-ci-node)\/|\.github\/workflows\/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$)/.test(file)
+  ));
   // Golden rows depend only on the core, overlay, data pins and native tooling (and the step's own wiring).
   const golden = files.some((file) => /^(\.github\/workflows\/test\.yml$|scripts\/ci\/changed-layers\.mjs$)|^packages\/duel-server\/(card-script-patches\/|domain-core\/(patches\/|multi-scripts\/|pins\.json$)|scripts\/(native\/|(?:run-nduel|build-native-core|prepare-multi-core-tree|multi-core-common)\.sh$|(?:prepare-data|released-card-data|card-script-patches)\.ts$))/.test(file));
   // Main pushes always run the full engine suites when engine=true; only pull requests get a narrow test selection.
