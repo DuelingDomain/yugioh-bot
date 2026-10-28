@@ -6,7 +6,7 @@ import { BridgeSearchJobs } from "../src/bridge-search-jobs.js";
 const query = (source = "Odion") => ({ source, format: "advanced" as const });
 const actor = (userId = 1, guildId = "g") => ({ userId, guildId });
 const databases: Database.Database[] = [];
-function setup() {
+function setup(inReview = 2) {
   const db = new Database(":memory:"); databases.push(db); migrate(db);
   let now = 1_000_000, version = "v1";
   const releases: (() => void)[] = [];
@@ -16,7 +16,7 @@ function setup() {
     progress("rating", 90);
     return [];
   });
-  const jobs = new BridgeSearchJobs(db, { execute, project: () => ({ results: [], inReview: 2 }), version: () => version, now: () => now });
+  const jobs = new BridgeSearchJobs(db, { execute, project: () => ({ results: [], inReview }), version: () => version, now: () => now });
   const finish = async () => { releases.shift()!(); await new Promise(resolve => setImmediate(resolve)); };
   return { db, jobs, execute, finish, updateVersion: (value: string) => { version = value; }, advance: (ms: number) => { now += ms; } };
 }
@@ -42,7 +42,7 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
   });
 
   it("admits another search immediately after completion and reuses identical results for 24 hours", async () => {
-    const { jobs, finish, advance, execute } = setup();
+    const { jobs, finish, advance, execute } = setup(0);
     const first = jobs.start(actor(), query());
     advance(120_000); await finish();
     expect(jobs.start(actor(), query())).toMatchObject({ jobId: first.jobId, cached: true });
@@ -52,6 +52,19 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     advance(86_400_001);
     expect(jobs.start(actor(2), query()).cached).toBe(false);
     await finish(); expect(execute).toHaveBeenCalledTimes(3);
+  });
+
+  it("expires incomplete reviews after ten minutes so another search can retry", async () => {
+    const { jobs, finish, advance, execute } = setup();
+    const first = jobs.start(actor(), query());
+    await finish();
+    expect(jobs.start(actor(2), query())).toMatchObject({ jobId: first.jobId, cached: true });
+    advance(600_001);
+    const retry = jobs.start(actor(2), query());
+    expect(retry.cached).toBe(false);
+    expect(retry.jobId).not.toBe(first.jobId);
+    await finish();
+    expect(execute).toHaveBeenCalledTimes(2);
   });
 
   it("invalidates resumed job IDs when artifact or prompt versions change", async () => {

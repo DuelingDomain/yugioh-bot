@@ -76,7 +76,10 @@ export class BridgeSearchJobs {
         return subscribe(existing, false);
       }
       const cached = this.db.prepare("SELECT * FROM bridge_deep_job WHERE query_key=? AND state='done' AND ended_at>? ORDER BY ended_at DESC LIMIT 1").get(key, now - 86_400_000) as JobRow | undefined;
-      if (cached) return subscribe(cached, true);
+      if (cached) {
+        const incomplete = this.options.project(JSON.parse(cached.result_json), query).inReview > 0;
+        if (!incomplete || cached.ended_at! > now - 600_000) return subscribe(cached, true);
+      }
       const hour = this.db.prepare(`SELECT count(DISTINCT a.job_id) AS n,min(a.admitted_at) AS oldest FROM bridge_deep_actor a
         JOIN bridge_deep_job j ON j.id=a.job_id WHERE a.actor_hash=? AND a.admitted_at>? AND a.admitted_at<=coalesce(j.ended_at,a.admitted_at)`)
         .get(hash, now - 3_600_000) as { n: number; oldest: number | null };

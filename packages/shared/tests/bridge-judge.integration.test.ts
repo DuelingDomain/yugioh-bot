@@ -1,4 +1,4 @@
-import { APIConnectionError, APIConnectionTimeoutError, APIUserAbortError, InternalServerError, RateLimitError } from "@anthropic-ai/sdk";
+import { APIError, APIConnectionError, APIConnectionTimeoutError, APIUserAbortError, InternalServerError, RateLimitError } from "@anthropic-ai/sdk";
 import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,7 +12,7 @@ import {
   buildBridgeJudgeEvidence, judgeBridgePair, makeBridgeJudgementRecord, parseBridgeJudgement, saveBridgeJudgement,
   shownBridge, type BridgeJudgement, type BridgeJudgeClient,
 } from "../src/cards/effects/bridge-judge.js";
-import { bridgeJudgeBilledMicros, bridgeJudgeSpendSummary } from "../src/cards/effects/bridge-judge-ledger.js";
+import { bridgeJudgeBilledMicros, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, startBridgeJudgeSpend } from "../src/cards/effects/bridge-judge-ledger.js";
 import { exportBridgeJudgements, importBridgeJudgements } from "../src/cards/effects/bridge-judge-artifact.js";
 import { importBridgeArtifact } from "../src/cards/effects/bridge-artifact.js";
 import { createBridgeService } from "../src/services/archetype-bridges.js";
@@ -156,6 +156,7 @@ describe("bridge judgement pipeline", () => {
     new APIConnectionError({ message: "Network unavailable" }),
     new APIConnectionTimeoutError(),
     new APIUserAbortError(),
+    ...[400, 401, 403, 404, 413].map(status => new APIError(status, {}, "Request rejected", new Headers())),
     new RateLimitError(429, {}, "Rate limited", new Headers()),
     new InternalServerError(500, {}, "Internal error", new Headers()),
     new InternalServerError(529, {}, "Overloaded", new Headers()),
@@ -172,6 +173,28 @@ describe("bridge judgement pipeline", () => {
       expect((await judgeBridgePair(db, bridge, { client, env: {}, log: () => {} })).state).toBe("shown");
       expect(calls).toBe(4);
       expect(bridgeJudgeSpendSummary(db).actualMicros).toBe(300);
+    } finally { db.close(); }
+  });
+
+  it("bills returned usage before rejecting a response identity", async () => {
+    const { db, bridge } = fixture();
+    const client: BridgeJudgeClient = { messages: { async create() {
+      return { id: "invalid", model: "unexpected-model", stop_reason: "end_turn", content: [], usage: { input_tokens: 100, output_tokens: 10 } };
+    } } };
+    try {
+      expect((await judgeBridgePair(db, bridge, { client, env: {}, log: () => {} })).state).toBe("pending");
+      expect(bridgeJudgeSpendSummary(db)).toEqual({ requests: 2, actualMicros: 30, reservedMicros: 0 });
+    } finally { db.close(); }
+  });
+
+  it("does not charge old unsettled reservations against a later month's cap", () => {
+    const { db } = fixture();
+    try {
+      const january = new Date("2026-01-31T23:59:00Z"), february = new Date("2026-02-01T00:01:00Z");
+      const first = reserveBridgeJudgeSpend(db, { count: 1, now: january, monthlyUsd: 1.1 })!;
+      startBridgeJudgeSpend(db, first);
+      expect(reserveBridgeJudgeSpend(db, { count: 1, now: january, monthlyUsd: 1.1 })).toBeNull();
+      expect(reserveBridgeJudgeSpend(db, { count: 1, now: february, monthlyUsd: 1.1 })).not.toBeNull();
     } finally { db.close(); }
   });
 

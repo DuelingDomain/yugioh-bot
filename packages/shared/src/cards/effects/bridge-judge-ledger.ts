@@ -32,7 +32,7 @@ export function reserveBridgeJudgeSpend(db: Database.Database, options: { id?: s
   const reserved = Math.ceil(BRIDGE_JUDGE_RESERVATION_MICROS * options.count / (options.batch ? 2 : 1));
   return db.transaction(() => {
     if (options.requestKey && db.prepare("SELECT 1 FROM bridge_judge_spend WHERE request_key=?").get(options.requestKey)) return null;
-    const used = db.prepare<[string], { micros: number }>(`SELECT coalesce(sum(CASE WHEN state='settled' THEN CASE WHEN month=? THEN actual_micros ELSE 0 END ELSE reserved_micros END),0) AS micros FROM bridge_judge_spend`).get(month)!.micros;
+    const used = db.prepare<[string], { micros: number }>(`SELECT coalesce(sum(CASE WHEN state='settled' THEN actual_micros ELSE reserved_micros END),0) AS micros FROM bridge_judge_spend WHERE month=?`).get(month)!.micros;
     if (cap !== undefined && used + reserved > cap * 1_000_000) return null;
     const id = options.id ?? randomBytes(16).toString("hex");
     db.prepare("INSERT INTO bridge_judge_spend(id,request_key,month,state,reserved_micros,requests,batch,created_at) VALUES(?,?,?,'reserved',?,?,?,?)").run(id, options.requestKey ?? null, month, reserved, options.count, options.batch ? 1 : 0, now.toISOString());
