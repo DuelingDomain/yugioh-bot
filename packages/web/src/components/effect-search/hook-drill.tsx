@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { ArrowLeft } from "lucide-react";
 import { DeckSegmented } from "@/components/decks/controls";
 import styles from "./hook-drill.module.css";
@@ -28,10 +29,13 @@ export function HookDrill({
   onMembers: (members: boolean) => void;
   onBack: () => void;
 }) {
+  // A drill-down opens with Back focused, so a keyboard user can leave it as quickly as they came in.
+  const backRef = React.useRef<HTMLButtonElement>(null);
+  React.useEffect(() => backRef.current?.focus(), []);
   return (
     <div className={styles.drill} data-testid="hook-drill">
       <div className={styles.trail}>
-        <button type="button" className={styles.back} aria-label={`Back to ${archetype}`} onClick={onBack}>
+        <button ref={backRef} type="button" className={styles.back} aria-label={`Back to ${archetype}`} onClick={onBack}>
           <ArrowLeft size={14} strokeWidth={1.8} aria-hidden />Back
         </button>
         <nav aria-label="Where you are" className={styles.crumbs}>

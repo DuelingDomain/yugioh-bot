@@ -183,16 +183,20 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844
 
     // A hook with data runs a search for the cards that fit it. Back returns to the guide, with the search text kept.
     const search = browser.getByRole("searchbox", { name: "Search cards" });
-    await hook.click();
+    await hook.focus();
+    await page.keyboard.press("Enter");
     const drill = browser.getByTestId("hook-drill");
+    // A keyboard user lands on Back, and Back lands on the row they came from.
+    await expect(drill.getByRole("button", { name: /^Back/ })).toBeFocused();
     await expect(drill).toContainText("Blue-Eyes");
     await expect(drill).toContainText("Dragon search");
     await expect(panel).toBeHidden();
     await expect.poll(() => hookRequests.at(-1)).toMatchObject({ archetype: "Blue-Eyes", hook: 0, find: "support" });
     expect(hookRequests.at(-1)?.members).toBeUndefined();
-    await drill.getByRole("button", { name: /^Back/ }).click();
+    await page.keyboard.press("Enter");
     await expect(drill).toHaveCount(0);
     await expect(panel).toBeVisible();
+    await expect(panel.locator('[data-hook="0:support"]')).toBeFocused();
     await expect(search).toHaveValue("Blue-Eyes synergies");
 
     // A row that finds a kind of card has two actions. "All cards" adds the archetype's own cards.

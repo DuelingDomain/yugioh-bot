@@ -16,11 +16,14 @@ interface HookAsk {
   name: string;
 }
 
+/** "a" or "an" for the word that follows: "an EARTH Warrior monster", "an Xyz monster", "a LIGHT Fiend monster". */
+const article = (what: string) => (/^(?:[aeio]|u(?!ni)|xyz)/i.test(what) ? "an" : "a");
+
 /** What a click on this hook can find, "is a" first. Empty only for a guide from before hooks said what they find. */
 function hookAsks(hook: ArchetypeGuideHook, archetype: string): HookAsk[] {
   const finds = hook.finds ?? { is: null, support: hook.searchable };
   const asks: HookAsk[] = [];
-  if (finds.is) asks.push({ find: "is", lead: "Is a", what: finds.is.one, name: `Find ${finds.is.many}` });
+  if (finds.is) asks.push({ find: "is", lead: `Is ${article(finds.is.one)}`, what: finds.is.one, name: `Find ${finds.is.many}` });
   if (finds.support) asks.push({ find: "support", lead: "Support for", what: archetype, name: `Find cards for ${hook.label}` });
   return asks;
 }
@@ -105,7 +108,7 @@ export function HowItPlays({
                     {!onHook || asks.length === 0 ? (
                       <div className={styles.hookRow} data-plain="" data-testid="how-it-plays-hook-text">{text}</div>
                     ) : asks.length === 1 ? (
-                      <button type="button" className={styles.hookBtn} aria-label={asks[0]!.name} title={hook.why} data-testid="how-it-plays-hook" onClick={() => onHook(index, asks[0]!.find)}>
+                      <button type="button" className={styles.hookBtn} aria-label={asks[0]!.name} title={hook.why} data-hook={`${index}:${asks[0]!.find}`} data-testid="how-it-plays-hook" onClick={() => onHook(index, asks[0]!.find)}>
                         {text}
                         <Ask ask={asks[0]!} />
                       </button>
@@ -114,7 +117,7 @@ export function HowItPlays({
                         {text}
                         <span className={styles.asks}>
                           {asks.map((ask) => (
-                            <button key={ask.find} type="button" className={styles.askBtn} aria-label={ask.name} data-testid="how-it-plays-hook" onClick={() => onHook(index, ask.find)}>
+                            <button key={ask.find} type="button" className={styles.askBtn} aria-label={ask.name} data-hook={`${index}:${ask.find}`} data-testid="how-it-plays-hook" onClick={() => onHook(index, ask.find)}>
                               <Ask ask={ask} />
                             </button>
                           ))}
