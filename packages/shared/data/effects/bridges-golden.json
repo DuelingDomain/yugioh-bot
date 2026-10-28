@@ -1,0 +1,553 @@
+{
+  "version": 1,
+  "pairs": [
+    {
+      "source": "Odion",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "strong",
+      "cards": [
+        "Temple of the Kings",
+        "The Man with the Mark",
+        "Treasures of the Kings",
+        "Ashtra's Domain",
+        "Ashtra's Howl",
+        "Ashtra's Web"
+      ],
+      "why": "Temple of the Kings lets a Trap activate the turn it is Set, so Ashtra Traps can Special Summon themselves as Level 1 Tuners and Synchro Summon at once.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+    },
+    {
+      "source": "Odion",
+      "target": "Argostars",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "good",
+      "cards": [
+        "Temple of the Kings",
+        "The Man with the Mark",
+        "Argostars - Lightning Tydeu",
+        "Argostars - Slayer Eteo",
+        "Argostars - Swift Capane"
+      ],
+      "why": "Temple of the Kings lets a freshly Set Argostars Continuous Trap activate and become a monster in the same turn; Argostars gives nothing back to the Temple cards, so the link is one-way.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+    },
+    {
+      "source": "Odion",
+      "target": "Blue-Eyes",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "The Man with the Mark",
+        "Spirit with Eyes of Blue"
+      ],
+      "why": "The Man with the Mark is a Level 4 Spellcaster, so it is legal material for Spirit with Eyes of Blue, which then Special Summons a Blue-Eyes monster.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Spirit%20with%20Eyes%20of%20Blue"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Fire King",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "strong",
+      "cards": [
+        "Snake-Eye Ash",
+        "Original Sinful Spoils - Snake-Eye",
+        "Legendary Fire King Ponix"
+      ],
+      "why": "Legendary Fire King Ponix is a Level 1 FIRE monster, so Snake-Eye Ash and Original Sinful Spoils - Snake-Eye find it, and it then adds a Fire King Spell/Trap.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Legendary%20Fire%20King%20Ponix"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Fire King",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "good",
+      "cards": [
+        "Snake-Eye Ash",
+        "Original Sinful Spoils - Snake-Eye",
+        "Legendary Fire King Ponix"
+      ],
+      "why": "The Ponix link uses only Main Deck cards, so it stays intact without Link Monsters.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Legendary%20Fire%20King%20Ponix"
+    },
+    {
+      "source": "Diabellstar",
+      "target": "Snake-Eye",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "strong",
+      "cards": [
+        "Diabellstar the Black Witch",
+        "Original Sinful Spoils - Snake-Eye",
+        "Dramatic Snake-Eye Chase"
+      ],
+      "why": "Diabellstar the Black Witch Sets a Sinful Spoils card such as Original Sinful Spoils - Snake-Eye straight from the Deck, which then Special Summons a Snake-Eye.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Diabellstar%20the%20Black%20Witch"
+    },
+    {
+      "source": "Despia",
+      "target": "Branded",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "strong",
+      "cards": [
+        "Aluber the Jester of Despia",
+        "Despian Tragedy",
+        "Branded in Red"
+      ],
+      "why": "Aluber the Jester of Despia searches any Branded Spell/Trap and Despian Tragedy Sets a Branded Spell/Trap from the GY.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Aluber%20the%20Jester%20of%20Despia"
+    },
+    {
+      "source": "Despia",
+      "target": "Branded",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "strong",
+      "cards": [
+        "Aluber the Jester of Despia",
+        "Despian Tragedy",
+        "Branded in Red"
+      ],
+      "why": "The Aluber and Tragedy links and the Fusion payoffs need no Link or Pendulum cards.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Aluber%20the%20Jester%20of%20Despia"
+    },
+    {
+      "source": "Bystial",
+      "target": "Branded",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "good",
+      "cards": [
+        "Bystial Saronir",
+        "The Bystial Lubellion",
+        "The Bystial Aluber"
+      ],
+      "why": "Bystial Saronir sends a Branded Spell/Trap to the GY, The Bystial Lubellion places a Branded Continuous Spell/Trap from the Deck, and The Bystial Aluber counts as Fallen of Albaz.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=The%20Bystial%20Lubellion"
+    },
+    {
+      "source": "Bystial",
+      "target": "Branded",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "good",
+      "cards": [
+        "Bystial Saronir",
+        "The Bystial Lubellion",
+        "The Bystial Aluber"
+      ],
+      "why": "All the Bystial-to-Branded links are Main Deck cards, so they still work without Link Monsters.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=The%20Bystial%20Lubellion"
+    },
+    {
+      "source": "Kashtira",
+      "target": "Tearlaments",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "good",
+      "cards": [
+        "Tearlaments Kashtira",
+        "Kashtira Fenrir"
+      ],
+      "why": "Tearlaments Kashtira is both a Kashtira (Fenrir can search it) and a Tearlaments enabler that mills 3 and banishes a Tearlaments card on Summon.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Tearlaments%20Kashtira"
+    },
+    {
+      "source": "Kashtira",
+      "target": "Scareclaw",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "good",
+      "cards": [
+        "Scareclaw Kashtira",
+        "Kashtira Fenrir"
+      ],
+      "why": "Scareclaw Kashtira is searchable by Kashtira Fenrir and negates opponents' monsters that battle a Scareclaw or Kashtira monster.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Scareclaw%20Kashtira"
+    },
+    {
+      "source": "Tenyi",
+      "target": "Swordsoul",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "strong",
+      "cards": [
+        "Tenyi Spirit - Ashuna",
+        "Tenyi Spirit - Vishuda",
+        "Tenyi Spirit - Adhara"
+      ],
+      "why": "Tenyi Spirits are Wyrms that Special Summon themselves while you control no Effect Monsters or a non-Effect Swordsoul Token, and Swordsoul cards reveal, banish and search Wyrms.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Tenyi%20Spirit%20-%20Ashuna"
+    },
+    {
+      "source": "Tenyi",
+      "target": "Swordsoul",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "strong",
+      "cards": [
+        "Tenyi Spirit - Ashuna",
+        "Tenyi Spirit - Vishuda",
+        "Tenyi Spirit - Adhara"
+      ],
+      "why": "The Wyrm and Synchro link needs no Link Monster, so it stays intact in Genesys.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Tenyi%20Spirit%20-%20Ashuna"
+    },
+    {
+      "source": "Sangen",
+      "target": "Tenpai Dragon",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "strong",
+      "cards": [
+        "Sangen Summoning",
+        "Sangen Kaimen",
+        "Tenpai Dragon Paidra"
+      ],
+      "why": "Sangen Summoning searches Tenpai Dragon monsters, Sangen Kaimen finds FIRE Dragons, and Tenpai Dragon Paidra searches Sangen Spells/Traps.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Sangen%20Summoning"
+    },
+    {
+      "source": "Sangen",
+      "target": "Tenpai Dragon",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "strong",
+      "cards": [
+        "Sangen Summoning",
+        "Sangen Kaimen",
+        "Tenpai Dragon Paidra"
+      ],
+      "why": "The FIRE Dragon Synchro loop uses no Link or Pendulum cards.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Sangen%20Summoning"
+    },
+    {
+      "source": "Invoked",
+      "target": "Shaddoll",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "good",
+      "cards": [
+        "Aleister the Invoker",
+        "Invocation",
+        "Invoked Mechaba"
+      ],
+      "why": "Invocation Fusion Summons any Fusion Monster from the hand, so Shaddoll monsters used as material are sent to the GY by a card effect and trigger, and Invoked Fusions can banish Shaddoll Fusions from the field or GY as material.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Invocation"
+    },
+    {
+      "source": "Invoked",
+      "target": "Shaddoll",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "good",
+      "cards": [
+        "Aleister the Invoker",
+        "Invocation",
+        "Invoked Mechaba"
+      ],
+      "why": "The link is Fusion-only and needs no Link or Pendulum cards.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Invocation"
+    },
+    {
+      "source": "Live☆Twin",
+      "target": "Evil★Twin",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "strong",
+      "cards": [
+        "Live☆Twin Ki-sikil",
+        "Live☆Twin Lil-la",
+        "Evil★Twin Challenge"
+      ],
+      "why": "Live☆Twin Ki-sikil and Lil-la Special Summon each other from the Deck and are the named materials for the Evil★Twin Link Monsters.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Live%E2%98%86Twin%20Ki-sikil"
+    },
+    {
+      "source": "Danger!",
+      "target": "Dark World",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "good",
+      "cards": [
+        "Danger! Nessie!",
+        "Danger!? Jackalope?",
+        "Danger! Bigfoot!"
+      ],
+      "why": "Danger! monsters discard a random card from your hand by a card effect, which triggers Dark World monsters such as Grapha, Dragon Lord of Dark World.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Danger%21%20Nessie%21"
+    },
+    {
+      "source": "Danger!",
+      "target": "Dark World",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "good",
+      "cards": [
+        "Danger! Nessie!",
+        "Danger!? Jackalope?",
+        "Danger! Bigfoot!"
+      ],
+      "why": "The discard link is all Main Deck cards and needs no Link or Pendulum cards.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Danger%21%20Nessie%21"
+    },
+    {
+      "source": "Atlantean",
+      "target": "Mermail",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "strong",
+      "cards": [
+        "Atlantean Dragoons",
+        "Atlantean Marksman",
+        "Atlantean Heavy Infantry"
+      ],
+      "why": "Mermail monsters such as Mermail Abyssteus discard a WATER monster as a cost, which triggers the Atlantean effects that need to be sent to the GY to activate a WATER monster's effect.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Atlantean%20Dragoons"
+    },
+    {
+      "source": "Atlantean",
+      "target": "Mermail",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "strong",
+      "cards": [
+        "Atlantean Dragoons",
+        "Atlantean Marksman",
+        "Atlantean Heavy Infantry"
+      ],
+      "why": "The discard-cost link is all Main Deck cards.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Atlantean%20Dragoons"
+    },
+    {
+      "source": "Phantom Knights",
+      "target": "Raidraptor",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "good",
+      "cards": [
+        "Phantom Knights' Rank-Up-Magic Force",
+        "Raider's Knight",
+        "Raider's Unbreakable Mind"
+      ],
+      "why": "Phantom Knights' Rank-Up-Magic Force and Raider's Knight can Summon Raidraptor Xyz Monsters, and Raider's Knight and Raider's Unbreakable Mind count as both archetypes.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Phantom%20Knights%27%20Rank-Up-Magic%20Force"
+    },
+    {
+      "source": "Phantom Knights",
+      "target": "Raidraptor",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "good",
+      "cards": [
+        "Phantom Knights' Rank-Up-Magic Force",
+        "Raider's Knight",
+        "Raider's Unbreakable Mind"
+      ],
+      "why": "The link runs through Xyz Monsters and Rank-Up-Magic, not Link Monsters.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Phantom%20Knights%27%20Rank-Up-Magic%20Force"
+    },
+    {
+      "source": "Argostars",
+      "target": "Odion",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Argostars - Giantslaying",
+        "Argostars - Home Stadium"
+      ],
+      "why": "No Argostars card searches, Sets or Summons a Temple of the Kings card, so the link only works from Odion into Argostars.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Argostars%20-%20Giantslaying"
+    },
+    {
+      "source": "Blue-Eyes",
+      "target": "Odion",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Blue-Eyes White Dragon",
+        "Sage with Eyes of Blue"
+      ],
+      "why": "Blue-Eyes cards only find or Summon Blue-Eyes and LIGHT Tuners and never reach Temple of the Kings cards.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Sage%20with%20Eyes%20of%20Blue"
+    },
+    {
+      "source": "Odion",
+      "target": "Blue-Eyes",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "The Man with the Mark",
+        "Spirit with Eyes of Blue"
+      ],
+      "why": "The only link is Spirit with Eyes of Blue, which is a Link Monster and so cannot be used in Genesys.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Spirit%20with%20Eyes%20of%20Blue"
+    },
+    {
+      "source": "Live☆Twin",
+      "target": "Evil★Twin",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Live☆Twin Ki-sikil",
+        "Evil★Twin Ki-sikil",
+        "Evil★Twin Lil-la"
+      ],
+      "why": "All Evil★Twin payoff monsters are Link Monsters, so the Live☆Twin engine has nothing to link into in Genesys.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Evil%E2%98%85Twin%20Ki-sikil"
+    },
+    {
+      "source": "Branded",
+      "target": "Spright",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Branded Fusion",
+        "Spright Starter"
+      ],
+      "why": "Branded Fusion blocks Special Summons from the Extra Deck except Fusion Monsters for the whole turn, and Spright needs Xyz and Link Monsters.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Branded%20Fusion"
+    },
+    {
+      "source": "Kashtira",
+      "target": "Swordsoul",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Kashtiratheosis",
+        "Kashtira Riseheart"
+      ],
+      "why": "Kashtiratheosis and Kashtira Riseheart block Extra Deck Summons except Xyz Monsters for the rest of the turn, but Swordsoul needs Synchro Monsters.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Kashtiratheosis"
+    },
+    {
+      "source": "Kashtira",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Kashtiratheosis",
+        "Kashtira Riseheart"
+      ],
+      "why": "The Kashtira Xyz-only lock for the rest of the turn stops the Synchro Summons that Ashtra Traps exist to make.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Kashtiratheosis"
+    },
+    {
+      "source": "Tenpai Dragon",
+      "target": "Swordsoul",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Tenpai Dragon Genroku",
+        "Sangenpai Bident Dragion"
+      ],
+      "why": "Both are Synchro decks, but Tenpai cards lock you to Dragon Special Summons for the turn and Swordsoul monsters are Wyrms.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Tenpai%20Dragon%20Genroku"
+    },
+    {
+      "source": "Tenyi",
+      "target": "Tenpai Dragon",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Tenyi Spirit - Ashuna",
+        "Tenpai Dragon Genroku"
+      ],
+      "why": "Tenyi Spirit - Ashuna locks you to Wyrms and Tenpai Dragon Genroku locks you to Dragons for the rest of the turn, so the engines block each other.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Tenyi%20Spirit%20-%20Ashuna"
+    },
+    {
+      "source": "Spright",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Spright Starter",
+        "Spright Blue"
+      ],
+      "why": "Spright Starter limits Special Summons to Level/Rank/Link 2 monsters for the rest of the turn, which stops the Level 8+ Ashtra Synchro Monsters.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Spright%20Starter"
+    },
+    {
+      "source": "Ashtra",
+      "target": "Argostars",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Ashtrata Tamayori",
+        "Ashtra's Domain"
+      ],
+      "why": "Both decks turn Traps into monsters, but Ashtra Traps are Normal Traps that become Normal Monsters while Argostars only rewards Continuous Traps, and Ashtrata Tamayori locks the Extra Deck to Level 1 Tuner Synchros.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Ashtrata%20Tamayori"
+    },
+    {
+      "source": "Red-Eyes",
+      "target": "Blue-Eyes",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Red-Eyes Fusion",
+        "Red-Eyes Black Dragon"
+      ],
+      "why": "Both are big Dragon decks, but Red-Eyes cards only search and Summon Red-Eyes monsters and have no card that reaches Blue-Eyes.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Red-Eyes%20Fusion"
+    },
+    {
+      "source": "Unchained",
+      "target": "Dark World",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Unchained Twins - Aruha",
+        "Unchained Ogre Shara"
+      ],
+      "why": "Both are DARK-heavy Fiend decks, but Unchained destroys its own cards instead of discarding them, and Dark World monsters trigger only on discard.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Unchained%20Twins%20-%20Aruha"
+    },
+    {
+      "source": "Atlantean",
+      "target": "Tearlaments",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Atlantean Dragoons",
+        "Tearlaments Scheiren"
+      ],
+      "why": "Both are WATER decks that fill the GY, but Tearlaments send cards as an effect, not as a cost for a WATER monster's effect, so Atlantean effects never trigger.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Atlantean%20Dragoons"
+    },
+    {
+      "source": "Raidraptor",
+      "target": "Fire King",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "min_grade": null,
+      "cards": [
+        "Raidraptor - Force Strix",
+        "Fire King Island"
+      ],
+      "why": "Both use Winged Beasts, but Raidraptor - Force Strix only finds DARK Winged Beasts and Fire King Island only Summons FIRE Winged Beasts.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Raidraptor%20-%20Force%20Strix"
+    }
+  ]
+}
