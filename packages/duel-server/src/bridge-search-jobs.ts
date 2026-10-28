@@ -50,6 +50,10 @@ export class BridgeSearchJobs {
   }
 
   private actorHash(actor: BridgeSearchActor): string { return createHash("sha256").update(`bridge-user:${actor.userId}`).digest("hex"); }
+  private queryKey(query: BridgeSearchQuery): string {
+    return createHash("sha256").update(JSON.stringify([this.options.version(), query.source.toLowerCase(), query.target?.toLowerCase() ?? null, query.format])).digest("hex");
+  }
+
   start(actor: BridgeSearchActor, query: BridgeSearchQuery) {
     if (this.stopped) throw new BridgeJobError("Bridge search is restarting", 503);
     const admitted = this.db.transaction(() => {
@@ -63,7 +67,7 @@ export class BridgeSearchJobs {
           .run(query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null, job.id, hash, actor.guildId);
         return { jobId: job.id, state: job.state, cached };
       };
-      const key = createHash("sha256").update(JSON.stringify([this.options.version(), query.source.toLowerCase(), query.target?.toLowerCase() ?? null, query.format])).digest("hex");
+      const key = this.queryKey(query);
       if (existing) {
         if (existing.query_key !== key) {
           const running = JSON.parse(existing.query_json) as BridgeSearchQuery;
@@ -98,6 +102,7 @@ export class BridgeSearchJobs {
     if (!row) throw new BridgeJobError("Not found", 404);
     const query = { ...JSON.parse(row.query_json) as BridgeSearchQuery, genesysRemaining: row.genesys_remaining ?? undefined,
       deckCards: row.deck_cards_json ? JSON.parse(row.deck_cards_json) as number[] : undefined };
+    if (row.query_key !== this.queryKey(query)) throw new BridgeJobError("Not found", 404);
     const visible = row.state === "done" ? this.options.project(JSON.parse(row.result_json), query) : { results: [], inReview: 0 };
     return { jobId: row.id, state: row.state, step: row.step, progress: row.progress, ...visible, ...(row.error ? { error: row.error } : {}) };
   }

@@ -8,7 +8,7 @@ const actor = (userId = 1, guildId = "g") => ({ userId, guildId });
 const databases: Database.Database[] = [];
 function setup() {
   const db = new Database(":memory:"); databases.push(db); migrate(db);
-  let now = 1_000_000;
+  let now = 1_000_000, version = "v1";
   const releases: (() => void)[] = [];
   const execute = vi.fn(async (_query, progress) => {
     progress("checking", 50);
@@ -16,9 +16,9 @@ function setup() {
     progress("rating", 90);
     return [];
   });
-  const jobs = new BridgeSearchJobs(db, { execute, project: () => ({ results: [], inReview: 2 }), version: () => "v1", now: () => now });
+  const jobs = new BridgeSearchJobs(db, { execute, project: () => ({ results: [], inReview: 2 }), version: () => version, now: () => now });
   const finish = async () => { releases.shift()!(); await new Promise(resolve => setImmediate(resolve)); };
-  return { db, jobs, execute, finish, advance: (ms: number) => { now += ms; } };
+  return { db, jobs, execute, finish, updateVersion: (value: string) => { version = value; }, advance: (ms: number) => { now += ms; } };
 }
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 
@@ -52,6 +52,20 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     advance(86_400_001);
     expect(jobs.start(actor(2), query()).cached).toBe(false);
     await finish(); expect(execute).toHaveBeenCalledTimes(3);
+  });
+
+  it("invalidates resumed job IDs when artifact or prompt versions change", async () => {
+    const { jobs, finish, updateVersion } = setup();
+    const first = jobs.start(actor(), query());
+    await finish();
+    expect(jobs.status(actor(), first.jobId).state).toBe("done");
+    updateVersion("v2");
+    expect(() => jobs.status(actor(), first.jobId)).toThrowError(expect.objectContaining({ status: 404 }));
+    const next = jobs.start(actor(), query());
+    expect(next).toMatchObject({ cached: false });
+    expect(next.jobId).not.toBe(first.jobId);
+    await finish();
+    await jobs.close();
   });
 
   it("runs two jobs and queues the rest, sharing an identical in-flight query", async () => {
