@@ -167,6 +167,9 @@ describe("round 3 bridge rules on the pinned catalog", () => {
       for (const [source, target] of [["Chaos", "Galaxy"], ["Dark Contract", "Supreme King"]]) {
         expect(engine.between(source!, target!, format), `${source} -> ${target} (${format})`).toBeNull();
       }
+      for (const source of Object.keys(data.groups).filter(name => name.includes("HERO"))) {
+        for (const target of ["Rose", "Kuriboh"]) expect(engine.between(source, target, format), `${source} -> ${target} (${format})`).toBeNull();
+      }
       for (const [source, target, card] of [
         ["Zefra", "Yang Zing", 21495657], ["Zefra", "Nekroz", 20773176],
         ["Azamina", "Diabell", 23151193], ["Diabell", "Azamina", 65033975],
