@@ -19,14 +19,8 @@
       "source": "Odion",
       "target": "Blue-Eyes",
       "format": "advanced",
-      "expected": "bridge",
-      "min_grade": "niche",
-      "cards": [
-        "Blue-Eyes White Dragon, the White Phantom Beast",
-        "Spirit with Eyes of Blue",
-        "The Man with the Mark"
-      ],
-      "why": "The Man with the Mark is a Level 4 Spellcaster and can be the single material for Spirit with Eyes of Blue. Spirit can tribute itself to end its face-up Dragon restriction; its hand/GY summon still needs an available Blue-Eyes monster.",
+      "expected": "not_bridge",
+      "why": "The only proposed line uses the generic single-material Link-1 Spirit with Eyes of Blue; that access cannot establish an engine bridge on its own.",
       "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Blue-Eyes%20White%20Dragon%2C%20the%20White%20Phantom%20Beast"
     },
     {
