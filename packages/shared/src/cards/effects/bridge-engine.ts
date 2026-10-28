@@ -13,7 +13,7 @@ export function bridgeLegal(card: Card, format: BridgeFormat): boolean {
 
 const edgeKeys = new Set<CapabilityKey>(["search", "special_summon", "normal_summon", "set_spell_trap", "place_on_field", "send_to_gy", "discard"]);
 type Edge = { from: number; capability: Capability; targets: Set<number>; named: boolean; weight: number };
-interface Context { name: string; ids: Set<number>; members: Set<number>; cards: Card[]; monsters: Card[]; edges: Edge[]; searchers: Edge[]; extras: { id: number; materials: number[]; weight: number }[] }
+interface Context { name: string; ids: Set<number>; members: Set<number>; cards: Card[]; monsters: Card[]; discardRate: number; discardTriggerRate: number; edges: Edge[]; searchers: Edge[]; extras: { id: number; materials: number[]; weight: number }[] }
 const round = (value: number) => Math.round(value * 100) / 100;
 const availableMaterial = (card: Card): boolean => !/Cannot be Normal Summoned|Must (?:first )?be (?:Special|Ritual) Summoned/i.test(printedText(card))
   && ((card.level ?? 0) <= 4 || sentences(printedText(card)).some(text => /Special Summon this card[^.]*from your hand/i.test(text)));
@@ -115,6 +115,10 @@ export class BridgeEngine {
       const ids = new Set([...this.groups.get(name)!].filter(id => legal.has(id)));
       const cards = [...ids].map(id => legal.get(id)!.card);
       const monsters = cards.filter(card => card.kind === "monster" && !isExtraDeckCard(card));
+      const main = cards.filter(card => !isExtraDeckCard(card));
+      const discardRate = main.filter(card => this.discardsFromHand(legal.get(card.id)!)).length / Math.max(1, main.length);
+      const allMonsters = cards.filter(card => card.kind === "monster");
+      const discardTriggerRate = allMonsters.filter(card => legal.get(card.id)!.needs.some(need => need.key === "trigger" && need.value === "discard")).length / Math.max(1, allMonsters.length);
       const names = [name, ...(this.data.group_policies?.[name]?.aliases ?? [])];
       const byName = new Map(cards.map(card => [card.name.toLowerCase(), card.id]));
       const members = new Set<number>();
@@ -124,7 +128,7 @@ export class BridgeEngine {
         if (other !== undefined || names.some(name => sameName(name, mentioned))) members.add(card.id);
         if (other !== undefined) members.add(other);
       }
-      contexts.set(name, { name, ids, members, cards, monsters, edges: cards.flatMap(card => edgesFrom.get(card.id) ?? []),
+      contexts.set(name, { name, ids, members, cards, monsters, discardRate, discardTriggerRate, edges: cards.flatMap(card => edgesFrom.get(card.id) ?? []),
         searchers: [...new Set(monsters.flatMap(card => searchersByTarget.get(card.id) ?? []))].filter(edge => !ids.has(edge.from)), extras: [] });
     }
     const active = [...contexts.values()].filter(context => context.ids.size >= 3);
@@ -277,14 +281,22 @@ export class BridgeEngine {
     const needs = onlyY.filter(card => faceDownNeedEvidence(card));
     const supplies = x.cards.filter(card => rows.get(card.id)!.provides.some(capability => capability.key === "set_spell_trap" && !capability.filter?.this_card && capability.from?.some(zone => zone === "deck" || zone === "gy")));
     if (needs.length && supplies.length) add("face_down", Math.min(1.5, 12 * needs.length / onlyY.length) * Math.min(1, supplies.length / 3), [supplies[0]!.id, needs[0]!.id], `${supplies[0]!.name} supplies a Set card used by ${needs[0]!.name}`);
-    const discard = x.cards.find(card => rows.get(card.id)!.provides.some(capability => capability.key === "discard" && !capability.filter?.this_card && capability.from?.includes("hand")));
+    const discards = x.cards.filter(card => this.discardsFromHand(rows.get(card.id)!));
     const discardTriggers = onlyY.filter(card => rows.get(card.id)!.needs.some(capability => capability.key === "trigger" && capability.value === "discard")
       && sentences(printedText(card)).some(text => /If this card is discarded[^.:]*(?:effect)?\s*:/i.test(text)
         && !/discarded[^.:]*opponent|your opponent|opponent['’]s field|target[^.]*in your (?:GY|Graveyard)/i.test(text))
-      && !!discard && this.discardSetup(rows.get(discard.id)!, card, format) !== undefined)
+      && discards.some(discard => this.discardSetup(rows.get(discard.id)!, card, format) !== undefined
+        && rows.get(discard.id)!.provides.some(capability => capability.key === "discard" && capability.from?.includes("hand")
+          && capability.filter && matchesBridgeFilter(capability.filter, card))))
       .sort((a, b) => Number(/:\s*(?:You can )?(?:Draw\b|Special Summon this card)/i.test(printedText(b))) - Number(/:\s*(?:You can )?(?:Draw\b|Special Summon this card)/i.test(printedText(a))));
+    const discard = discards.find(discard => discardTriggers.some(card => this.discardSetup(rows.get(discard.id)!, card, format) !== undefined
+      && rows.get(discard.id)!.provides.some(capability => capability.key === "discard" && capability.from?.includes("hand")
+        && capability.filter && matchesBridgeFilter(capability.filter, card))));
     if (discard && discardTriggers.length) {
-      const trigger = discardTriggers[0]!, setup = this.discardSetup(rows.get(discard.id)!, trigger, format)!;
+      const trigger = discardTriggers.find(card => this.discardSetup(rows.get(discard.id)!, card, format) !== undefined
+        && rows.get(discard.id)!.provides.some(capability => capability.key === "discard" && capability.from?.includes("hand")
+          && capability.filter && matchesBridgeFilter(capability.filter, card)))!;
+      const setup = this.discardSetup(rows.get(discard.id)!, trigger, format)!;
       add("gy_fuel", Math.min(6, discardTriggers.length * 2), [discard.id, trigger.id, ...setup], `${discard.name} can trigger ${trigger.name} by discarding it as an effect${setup.length ? `; send ${rows.get(setup[0]!)!.card.name} to meet its matching-Type Fusion requirement` : ""}`, [{ from: discard.id, to: trigger.id, capability: "discard" }]);
     }
     for (const extra of x.extras) {
@@ -383,6 +395,10 @@ export class BridgeEngine {
     return /If you control a (?:face-up )?non-Effect Monster/i.test(printedText(card));
   }
 
+  private discardsFromHand(row: CardCapability): boolean {
+    return row.provides.some(capability => capability.key === "discard" && !capability.filter?.this_card && capability.from?.includes("hand"));
+  }
+
   private frequencyScale(target: string, key: BridgeReasonKey, format: BridgeFormat): number {
     const frequency = this.data.reason_frequencies?.[format]?.[target]?.[key] ?? 0;
     return frequency > 0.05 ? 0.05 / frequency : 1;
@@ -441,6 +457,9 @@ export class BridgeEngine {
     if (reason.key === "rule_enabler") return reason.weight > 2 && reason.cards.length >= 3;
     if (reason.key === "reach" || reason.key === "gy_fuel") {
       const entry = reason.steps?.[0];
+      if (reason.key === "gy_fuel" && entry?.capability === "discard") {
+        return source.discardRate >= 0.2 && target.discardTriggerRate >= 1 / 3;
+      }
       const capability = entry && this.rows.get(entry.from)!.provides.find(capability => capability.key === entry.capability
         && capability.filter && matchesBridgeFilter(capability.filter, this.rows.get(entry.to)!.card)
         && this.specificCapability(capability, format));
@@ -488,10 +507,10 @@ export class BridgeEngine {
     const cards = [...new Set(selectedReasons.flatMap(reason => reason.cards))].sort((a, b) => a - b);
     // API group labels can include thematic outsiders (for example a named
     // story card). Evidence must reach an actual member of the target engine.
-    const targetContext = this.contexts.get(format)!.get(y)!;
-    if (!primary.cards.some(id => targetContext.ids.has(id) && this.engineMember(this.rows.get(id)!.card, targetContext,
-      primary.steps?.filter(step => step.to === id).flatMap(step => this.rows.get(step.from)!.provides.filter(capability => capability.key === step.capability
-        && capability.filter && matchesBridgeFilter(capability.filter, this.rows.get(id)!.card)))[0]))) return null;
+    const targetCards = this.contexts.get(format)!.get(y)!.cards;
+    const namedMembers = targetCards.filter(card => groupNameIn(card, y, this.data.group_policies?.[y]?.aliases));
+    const members = new Set((namedMembers.length ? namedMembers : targetCards).map(card => card.id));
+    if (!cards.some(id => members.has(id))) return null;
     const warnings = new Set<string>();
     let penalty = 0;
     const reviewedLocks = new Set<string>();

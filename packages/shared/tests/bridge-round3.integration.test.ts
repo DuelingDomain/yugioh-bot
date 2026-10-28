@@ -18,6 +18,21 @@ beforeAll(() => {
 });
 
 describe("round 3 bridge rules on the pinned catalog", () => {
+  it("requires discard profiles on both engines for a substantive discard outlet", () => {
+    const engine = new BridgeEngine(data);
+    for (const format of ["advanced", "genesys"] as const) {
+      for (const [source, target] of [["Danger!", "Dark World"], ["Dark World", "Danger!"]]) {
+        const row = engine.between(source!, target!, format);
+        expect(row, `${source} -> ${target} (${format})`).not.toBeNull();
+        expect(row!.reasons[0]!.key).toBe("gy_fuel");
+        expect(row!.reasons[0]!.ancillary).not.toBe(true);
+      }
+      for (const source of ["Fiendsmith", "Branded", "Battleguard", "Triamid"]) {
+        for (const target of ["Danger!", "Dark World"]) expect(engine.between(source, target, format), `${source} -> ${target}`).toBeNull();
+      }
+    }
+  }, 15_000);
+
   it("preserves named fan-out into real engine members and rejects label filler", () => {
     const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
