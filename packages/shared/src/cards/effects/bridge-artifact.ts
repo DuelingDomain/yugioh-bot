@@ -17,6 +17,7 @@ export interface BridgeManifest {
   groups: BridgeGraphData["groups"];
   group_policies?: BridgeGraphData["group_policies"];
   target_means: BridgeGraphData["target_means"];
+  reason_frequencies?: BridgeGraphData["reason_frequencies"];
   materials?: BridgeGraphData["materials"];
   version: string;
 }
@@ -62,7 +63,7 @@ export function importBridgeArtifact(db: Database.Database, directory = DEFAULT_
           || row.cards.some(id => !cards.has(id) || !bridgeLegal(cards.get(id)!, format))) throw new Error("Invalid archetype bridge");
         insertBridge.run(row.source, row.target, row.format, row.score, row.grade, JSON.stringify(row), row.evidence_hash, manifest.version);
       });
-      db.prepare("INSERT INTO bridge_graph(id,graph_json,source_version) VALUES(1,?,?)").run(JSON.stringify({ groups: manifest.groups, group_policies: manifest.group_policies, target_means: manifest.target_means, materials: manifest.materials }), manifest.version);
+      db.prepare("INSERT INTO bridge_graph(id,graph_json,source_version) VALUES(1,?,?)").run(JSON.stringify({ groups: manifest.groups, group_policies: manifest.group_policies, target_means: manifest.target_means, reason_frequencies: manifest.reason_frequencies, materials: manifest.materials }), manifest.version);
       db.exec("DELETE FROM bridge_artifact_import");
       db.prepare("INSERT INTO bridge_artifact_import(version) VALUES(?)").run(manifest.version);
     }).immediate();

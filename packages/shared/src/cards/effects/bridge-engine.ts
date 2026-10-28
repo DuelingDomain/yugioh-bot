@@ -169,7 +169,7 @@ export class BridgeEngine {
     const legal = this.legal.get(format)!, rows = this.rows, reasons: BridgeReason[] = [];
     const add = (key: BridgeReasonKey, weight: number, ids: number[], description: string, steps?: BridgeReason["steps"], materials?: number[]) => {
       const cards = [...new Set(ids)];
-      const reason: BridgeReason = { key, weight: round(weight), cards,
+      const reason: BridgeReason = { key, weight: round(weight * this.frequencyScale(target, key, format)), cards,
         evidence: cards.map(id => printedText(rows.get(id)!.card) || rows.get(id)!.card.name), description, ...(steps ? { steps } : {}), ...(materials ? { materials } : {}) };
       if (this.validateReason(reason, format)) reasons.push(reason);
     };
@@ -223,7 +223,7 @@ export class BridgeEngine {
     }
     const needs = onlyY.filter(card => faceDownNeedEvidence(card));
     const supplies = x.cards.filter(card => rows.get(card.id)!.provides.some(capability => capability.key === "set_spell_trap" && !capability.filter?.this_card && capability.from?.some(zone => zone === "deck" || zone === "gy")));
-    if (needs.length && supplies.length) add("face_down", Math.min(8, 12 * needs.length / onlyY.length) * Math.min(1, supplies.length / 3), [supplies[0]!.id, needs[0]!.id], `${supplies[0]!.name} supplies a Set card used by ${needs[0]!.name}`);
+    if (needs.length && supplies.length) add("face_down", Math.min(1.5, 12 * needs.length / onlyY.length) * Math.min(1, supplies.length / 3), [supplies[0]!.id, needs[0]!.id], `${supplies[0]!.name} supplies a Set card used by ${needs[0]!.name}`);
     const discard = x.cards.find(card => rows.get(card.id)!.provides.some(capability => capability.key === "discard" && !capability.filter?.this_card && capability.from?.includes("hand")));
     const discardTriggers = onlyY.filter(card => rows.get(card.id)!.needs.some(capability => capability.key === "trigger" && capability.value === "discard")
       && sentences(printedText(card)).some(text => /If this card is discarded[^.:]*(?:effect)?\s*:/i.test(text)
@@ -329,17 +329,29 @@ export class BridgeEngine {
     return /If you control a (?:face-up )?non-Effect Monster/i.test(printedText(card));
   }
 
+  private frequencyScale(target: string, key: BridgeReasonKey, format: BridgeFormat): number {
+    const frequency = this.data.reason_frequencies?.[format]?.[target]?.[key] ?? 0;
+    return frequency > 0.05 ? 0.05 / frequency : 1;
+  }
+
+  private genericLinkOne(reason: BridgeReason): boolean {
+    if (reason.key !== "extra_deck" || reason.materials?.length !== 1) return false;
+    const extra = reason.cards.map(id => this.rows.get(id)!.card).find(isExtraDeckCard);
+    return extra?.linkRating === 1 && quotedNames(extra.text.split(/[\r\n]/)[0]!).length === 0;
+  }
+
   private raw(reasons: BridgeReason[]): number {
     return Object.entries(REASON_CAPS).reduce((score, [key, cap]) => score + Math.min(cap, reasons.filter(reason => reason.key === key).reduce((sum, reason) => sum + reason.weight, 0)), 0);
   }
 
   private substantive(reason: BridgeReason, target: Context, source: Context): boolean {
-    if (["searcher", "small_world", "type_support"].includes(reason.key)) return false;
+    if (["searcher", "small_world", "type_support", "face_down"].includes(reason.key)) return false;
     if (reason.key === "rule_enabler") return reason.weight > 2 && reason.cards.length >= 3;
     if (reason.key === "reach") return !!reason.steps?.some(step => this.rows.get(step.from)!.provides.some(capability => capability.key === step.capability
       && capability.filter && matchesBridgeFilter(capability.filter, this.rows.get(step.to)!.card)
       && (capability.filter.names.length || capability.filter.archetypes.length)));
     if (reason.key === "extra_deck") {
+      if (this.genericLinkOne(reason)) return false;
       const extra = reason.cards.map(id => this.rows.get(id)!.card).find(isExtraDeckCard);
       const materialText = extra?.text.split(/[\r\n]/)[0] ?? "";
       if (/\bor\b/i.test(materialText)) {
@@ -401,7 +413,7 @@ export class BridgeEngine {
     const points = format === "genesys" ? cards.reduce((sum, id) => sum + this.rows.get(id)!.card.genesysPoints! * copies.get(id)!, 0) : null;
     warnings.add("Card text conditions and costs apply; the line has not been engine-verified");
     return { source: x, target: y, format, score, raw_score: round(raw), target_mean: round(mean), two_way: false,
-      grade: penalty >= 8 ? "Risky" : score >= 20 ? "Strong" : score >= 8 ? "Good" : "Niche",
+      grade: penalty >= 8 ? "Risky" : selectedReasons.some(reason => this.genericLinkOne(reason)) ? "Niche" : score >= 20 ? "Strong" : score >= 8 ? "Good" : "Niche",
       reasons: selectedReasons, cards, warnings: [...warnings], genesys_points: points,
       validation: "deterministic", judge: "pending", engine_status: "unverified",
       evidence_hash: bridgeHash({ cards: [...new Set(reasons.flatMap(reason => reason.cards))].sort((a, b) => a - b).map(id => [id, this.rows.get(id)!.text_hash, this.rows.get(id)!.evidence_hash]), reasons: reasons.map(reason => [reason.key, reason.cards, reason.steps, reason.materials]), format }) };
@@ -424,17 +436,36 @@ export class BridgeEngine {
     const rows: ArchetypeBridge[] = [];
     for (const format of ["advanced", "genesys"] as const) {
       this.prepare(format);
-      const totals = new Map<string, number>();
-      const scores = new Map<string, Map<string, number>>();
+      this.data.reason_frequencies ??= { advanced: {}, genesys: {} };
+      this.data.reason_frequencies[format] = {};
+      this.pairCache.clear();
+      const counts: Record<string, Partial<Record<BridgeReasonKey, number>>> = {};
+      const contributions = new Map<string, Map<string, Partial<Record<BridgeReasonKey, number[]>>>>();
       for (const [i, source] of this.names.entries()) {
-        const values = new Map<string, number>();
+        const values = new Map<string, Partial<Record<BridgeReasonKey, number[]>>>();
         for (const target of this.names) {
-          const score = this.raw(this.reasons(source, target, format));
-          totals.set(target, (totals.get(target) ?? 0) + score); values.set(target, score);
+          const reasons = this.reasons(source, target, format);
+          if (!reasons.length) continue;
+          const weights: Partial<Record<BridgeReasonKey, number[]>> = {};
+          for (const reason of reasons) (weights[reason.key] ??= []).push(reason.weight);
+          for (const key of Object.keys(weights) as BridgeReasonKey[]) {
+            const frequency = counts[target] ??= {};
+            frequency[key] = (frequency[key] ?? 0) + 1;
+          }
+          values.set(target, weights);
         }
-        scores.set(source, values);
+        contributions.set(source, values);
         progress?.({ phase: "score", completed: i + 1, total: this.names.length });
       }
+      this.data.reason_frequencies[format] = Object.fromEntries(Object.entries(counts).map(([target, keys]) => [target,
+        Object.fromEntries(Object.entries(keys).map(([key, count]) => [key, count / Math.max(1, this.names.length - 1)]))]));
+      this.pairCache.clear();
+      const totals = new Map<string, number>();
+      const scores = new Map([...contributions].map(([source, targets]) => [source, new Map([...targets].map(([target, weights]) => {
+        const score = (Object.keys(weights) as BridgeReasonKey[]).reduce((sum, key) => sum + Math.min(REASON_CAPS[key], weights[key]!.reduce((sum, weight) => sum + round(weight * this.frequencyScale(target, key, format)), 0)), 0);
+        totals.set(target, (totals.get(target) ?? 0) + score);
+        return [target, score] as const;
+      }))]));
       this.data.target_means[format] = Object.fromEntries(this.names.map(name => [name, (totals.get(name) ?? 0) / Math.max(1, this.names.length - 1)]));
       for (const [i, source] of this.names.entries()) {
         const upperBounds = [...scores.get(source)!].filter(([, raw]) => raw > 0)

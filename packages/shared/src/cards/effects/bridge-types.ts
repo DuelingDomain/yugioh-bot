@@ -85,5 +85,6 @@ export interface BridgeGraphData {
   groups: Record<string, number[]>;
   group_policies?: Record<string, BridgeGroupPolicy>;
   target_means: Record<BridgeFormat, Record<string, number>>;
+  reason_frequencies?: Record<BridgeFormat, Record<string, Partial<Record<BridgeReasonKey, number>>>>;
   materials?: Record<BridgeFormat, Record<string, { id: number; materials: number[]; weight: number }[]>>;
 }

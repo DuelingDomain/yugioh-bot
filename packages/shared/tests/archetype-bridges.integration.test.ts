@@ -24,6 +24,9 @@ describe("pinned bridge pipeline", () => {
       const renamed = bridgeGroups(capabilities, profiles, { "Temple package": policies.Odion });
       expect(renamed["Temple package"]).toEqual(groups.Odion);
       const engine = new BridgeEngine({ capabilities, groups, group_policies: policies, target_means: { advanced: {}, genesys: {} } });
+      const before = engine.between("Branded", "Danger!")!.reasons.find(reason => reason.key === "gy_fuel")!.weight;
+      const frequent = new BridgeEngine({ ...engine.data, reason_frequencies: { advanced: { "Danger!": { gy_fuel: 0.25 } }, genesys: {} } });
+      expect(frequent.between("Branded", "Danger!")!.reasons.find(reason => reason.key === "gy_fuel")!.weight).toBeLessThan(before / 2);
       for (const format of ["advanced", "genesys"] as const) {
         const line = engine.between("Swordsoul", "Tenyi", format);
         expect(line?.reasons.some(reason => reason.key === "profile")).toBe(true);
@@ -47,6 +50,13 @@ describe("pinned bridge pipeline", () => {
       expect(JSON.parse(ritualTarget.subtypes)).toContain("ritual");
       for (const format of ["advanced", "genesys"] as const) {
         expect(validator.between("Swordsoul", "Dogmatika", format)).toBeNull();
+        for (const [source, target] of [["Yubel", "Ashtra"], ["Ryzeal", "Ashtra"], ["Blue-Eyes", "Ashtra"], ["Swordsoul", "Blue-Eyes"]]) {
+          expect(validator.between(source!, target!, format), `${source} -> ${target}`).toBeNull();
+        }
+        const ranked = validator.liveCandidates("Odion", format);
+        expect(ranked.slice(0, 2).map(row => row.target)).toContain("Ashtra");
+        expect(ranked.slice(0, 4).map(row => row.target)).toContain("Argostars");
+        expect(validator.liveCandidates("Snake-Eye", format)[0]?.target).toBe("Fire King");
         for (const target of ["Ashtra", "Argostars"]) {
           const row = validator.between("Odion", target, format)!;
           expect(row.cards.some(id => manifest.groups[target]!.includes(id))).toBe(true);
@@ -104,18 +114,11 @@ describe("pinned bridge pipeline", () => {
         AND json_extract(c.capabilities_json,'$.card.text') LIKE '%Cannot be Normal Summoned/Set%' LIMIT 1`).get();
       expect(illegalNormalSummon).toBeUndefined();
       expect(service.bridgesFrom("Odion", "advanced").length).toBeLessThanOrEqual(4);
-      const blueEyes = service.explain("Odion", "Blue-Eyes");
-      expect(blueEyes?.cards).toContain(42097666);
-      const summoned = blueEyes?.reasons.flatMap(reason => reason.steps ?? []).find(step => step.from === 42097666)?.to;
-      expect(summoned).toBeDefined();
-      const summonedRow = db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode=?").get(summoned) as { capabilities_json: string };
-      expect(JSON.parse(summonedRow.capabilities_json).card.name).not.toBe("Sage with Eyes of Blue");
-      expect(JSON.parse(summonedRow.capabilities_json).card.name).not.toBe("The White Stone of Ancients");
+      // Generic Link-1 access cannot establish a bridge on its own.
+      expect(candidates.some(row => row.target === "Blue-Eyes")).toBe(false);
       const sage = db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode=8240199").get() as { capabilities_json: string };
       expect(JSON.parse(sage.capabilities_json).provides.filter((capability: { key: string }) => capability.key === "archetype")).toEqual([]);
-      expect(blueEyes?.warnings.some(warning => warning.includes("while face-up"))).toBe(true);
       expect(service.explain("Odion", "Blue-Eyes", "genesys")).toBeNull();
-      expect(candidates.some(row => row.target === "Blue-Eyes")).toBe(true);
       expect(candidates.every(row => row.validation === "deterministic")).toBe(true);
       const beastLocks = service.capabilities("summon_lock", "needs").filter(row => row.card.name === "Simorgh, Bird of Bringing");
       expect(beastLocks[0]?.locks.flatMap(lock => lock.allow.types)).not.toContain("Beast");
