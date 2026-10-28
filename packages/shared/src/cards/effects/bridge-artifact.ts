@@ -7,7 +7,7 @@ import { bridgeHash, printedText } from "./bridge-text.js";
 import { bridgeLegal } from "./bridge-engine.js";
 import { CAPABILITY_KEYS, REASON_CAPS, type ArchetypeBridge, type BridgeGraphData, type CardCapability } from "./bridge-types.js";
 
-export const BRIDGE_ARTIFACT_MANIFEST_SHA256 = "9fa0d780bce13da79fb4b26e5dc7b1a01884ac866365c4ceb3b30cc24421622f";
+export const BRIDGE_ARTIFACT_MANIFEST_SHA256 = "31e67869a7a814c2e02c3632ffd5374b6b580d66b9e596bb1a6d80c8ede5c115";
 export interface BridgeArtifactFile { path: string; records: number; bytes: number; sha256: string; gzipBytes: number; gzipSha256: string }
 export interface BridgeManifest {
   schema_version: 1;
