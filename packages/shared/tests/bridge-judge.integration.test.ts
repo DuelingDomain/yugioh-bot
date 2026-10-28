@@ -10,10 +10,11 @@ import type { ArchetypeBridge, CardCapability } from "../src/cards/effects/bridg
 import {
   BRIDGE_JUDGE_FRAMINGS, bridgeGate, bridgeJudgeIdentity, bridgeJudgeRequest,
   buildBridgeJudgeEvidence, judgeBridgePair, makeBridgeJudgementRecord, parseBridgeJudgement, saveBridgeJudgement,
-  type BridgeJudgement, type BridgeJudgeClient,
+  shownBridge, type BridgeJudgement, type BridgeJudgeClient,
 } from "../src/cards/effects/bridge-judge.js";
 import { bridgeJudgeBilledMicros, bridgeJudgeSpendSummary } from "../src/cards/effects/bridge-judge-ledger.js";
 import { exportBridgeJudgements, importBridgeJudgements } from "../src/cards/effects/bridge-judge-artifact.js";
+import { importBridgeArtifact } from "../src/cards/effects/bridge-artifact.js";
 import { createBridgeService } from "../src/services/archetype-bridges.js";
 
 function fixture() {
@@ -40,6 +41,22 @@ function approved(db: Database.Database, bridge: ArchetypeBridge, second = resul
 }
 
 describe("bridge judgement pipeline", () => {
+  it("keeps retained generic Link-1 lines Niche after stronger independent reviews", () => {
+    const db = new Database(":memory:"); migrate(db);
+    try {
+      importBridgeArtifact(db);
+      const bridge = createBridgeService(db).bridgeBetween("Chaos", "Blue-Eyes")!;
+      expect(bridge.grade).toBe("Niche");
+      const evidence = buildBridgeJudgeEvidence(db, bridge)!;
+      for (const grade of ["good", "strong"] as const) {
+        for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing,
+          result({ grade, pros: ["The supplied cards interact.", "The evidence reaches the target."], line: evidence.cards.map(card => card.name) })));
+        expect(bridgeGate(db, bridge)).toMatchObject({ state: "shown", grade: "niche" });
+        expect(shownBridge(db, bridge)?.grade).toBe("Niche");
+      }
+    } finally { db.close(); }
+  });
+
   it("requires both current judges before publishing and hides two distinct unresolved reports", () => {
     const { db, bridge } = fixture();
     try {

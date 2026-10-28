@@ -2,7 +2,7 @@ import { ATTRIBUTES, MONSTER_TYPES, isBarredFromGenesys, isExtraDeckCard, type C
 import type { ArchetypeProfile } from "./synergy.js";
 import type { Capability, CapabilityKey, CardCapability, BridgeFormat, BridgeGraphData, BridgeProgress, ArchetypeBridge, BridgeReason, BridgeReasonKey } from "./bridge-types.js";
 import { REASON_CAPS } from "./bridge-types.js";
-import { actionEvidence, allowedByLock, bridgeHash, canReceiveSummon, faceDownNeedEvidence, matchesBridgeFilter, mentionReachesCard, namedIn, particularFilter, positiveMention, printedText, quotedNames, sameName, sentences, sharedSmallWorldStats, trapMonsterEvidence, trapTurnSetEvidence } from "./bridge-text.js";
+import { actionEvidence, allowedByLock, bridgeHash, canReceiveSummon, genericLinkOneMaterial, faceDownNeedEvidence, matchesBridgeFilter, mentionReachesCard, namedIn, particularFilter, positiveMention, printedText, quotedNames, sameName, sentences, sharedSmallWorldStats, trapMonsterEvidence, trapTurnSetEvidence } from "./bridge-text.js";
 import { bridgeMaterials } from "./bridge-materials.js";
 
 export function bridgeLegal(card: Card, format: BridgeFormat): boolean {
@@ -341,7 +341,7 @@ export class BridgeEngine {
   private genericLinkOne(reason: BridgeReason): boolean {
     if (reason.key !== "extra_deck" || reason.materials?.length !== 1) return false;
     const extra = reason.cards.map(id => this.rows.get(id)!.card).find(isExtraDeckCard);
-    return extra?.linkRating === 1 && quotedNames(extra.text.split(/[\r\n]/)[0]!).length === 0;
+    return !!extra && genericLinkOneMaterial(extra, reason.materials);
   }
 
   private raw(reasons: BridgeReason[]): number {

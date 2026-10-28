@@ -3,7 +3,7 @@ import type { MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resource
 import type Database from "better-sqlite3";
 import * as z from "zod";
 import { BridgeEngine, bridgeLegal } from "./bridge-engine.js";
-import { bridgeHash, printedText, quotedNames } from "./bridge-text.js";
+import { bridgeHash, genericLinkOneMaterial, printedText, quotedNames } from "./bridge-text.js";
 import type { ArchetypeBridge, BridgeFormat, BridgeReason, CardCapability, SummonLock } from "./bridge-types.js";
 import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, releaseBridgeJudgeSpend, settleBridgeJudgeSpend, startBridgeJudgeSpend, type BridgeJudgeSpendSummary, type BridgeJudgeUsage } from "./bridge-judge-ledger.js";
 
@@ -16,6 +16,7 @@ export const BridgeJudgementSchema = z.object({
   lock_note: z.string().max(1500), line: z.array(z.string().trim().min(1).max(200)).min(1).max(32), format_ok: z.boolean(),
 }).strict();
 export type BridgeJudgement = z.infer<typeof BridgeJudgementSchema>;
+const judgementGrades: BridgeJudgement["grade"][] = ["strong", "good", "niche", "risky"];
 export const BridgeJudgementRecordSchema = z.object({
   evidence_hash: z.string().regex(/^[a-f0-9]{64}$/), input_hash: z.string().regex(/^[a-f0-9]{64}$/),
   judge: z.string().min(1).max(200), framing: z.enum(BRIDGE_JUDGE_FRAMINGS), model: z.literal(BRIDGE_JUDGE_MODEL),
@@ -175,16 +176,18 @@ export function bridgeGate(db: Database.Database, bridge: ArchetypeBridge): Brid
   if (!BRIDGE_JUDGE_FRAMINGS.every(framing => judgements.some(row => row.framing === framing))) return { state: "pending", judgements };
   if (judgements.every(row => row.result.verdict === "invalid")) return { state: "invalid", judgements };
   if (judgements.some(row => row.result.verdict !== "valid" || !row.result.format_ok)) return { state: "review", judgements, reason: "The independent reviews did not agree on a valid line." };
-  const grades: BridgeJudgement["grade"][] = ["strong", "good", "niche", "risky"], ranks = judgements.map(row => grades.indexOf(row.result.grade));
+  const ranks = judgements.map(row => judgementGrades.indexOf(row.result.grade));
   if (Math.max(...ranks) - Math.min(...ranks) > 1) return { state: "review", judgements, reason: "The independent grades differ." };
-  return { state: "shown", judgements, grade: grades[Math.max(...ranks)]! };
+  const genericLink = bridge.reasons.some(reason => reason.key === "extra_deck" && evidence.cards.some(card => reason.cards.includes(card.id)
+    && genericLinkOneMaterial({ linkRating: card.link_rating, text: card.text }, reason.materials)));
+  return { state: "shown", judgements, grade: judgementGrades[Math.max(genericLink ? 2 : 0, ...ranks)]! };
 }
 
 export interface ShownBridge extends ArchetypeBridge { judge: "accepted"; review: Pick<BridgeJudgement, "pros" | "cons" | "lock_note" | "line" | "grade"> }
 export function shownBridge(db: Database.Database, bridge: ArchetypeBridge): ShownBridge | null {
   const gate = bridgeGate(db, bridge);
   if (gate.state !== "shown") return null;
-  const result = gate.judgements.find(row => row.result.grade === gate.grade)!.result;
+  const result = [...gate.judgements].sort((a, b) => judgementGrades.indexOf(b.result.grade) - judgementGrades.indexOf(a.result.grade))[0]!.result;
   const grades = { strong: "Strong", good: "Good", niche: "Niche", risky: "Risky" } as const;
   return { ...bridge, grade: grades[gate.grade!], judge: "accepted", review: { grade: gate.grade!, pros: result.pros, cons: result.cons, lock_note: result.lock_note, line: result.line } };
 }

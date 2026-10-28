@@ -168,3 +168,8 @@ export function sharedSmallWorldStats(a: Card, b: Card): number {
     return a[field] != null && a[field] === b[field];
   }).length;
 }
+
+/** Unnamed, one-body Link-1 access is ancillary evidence, even with typed material. */
+export function genericLinkOneMaterial(card: Pick<Card, "linkRating" | "text">, materials?: readonly number[]): boolean {
+  return materials?.length === 1 && card.linkRating === 1 && quotedNames(card.text.split(/[\r\n]/)[0]!).length === 0;
+}
