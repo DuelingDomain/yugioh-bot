@@ -69,7 +69,7 @@ export interface ArchetypeBridge {
   warnings: string[];
   genesys_points: number | null;
   validation: "deterministic";
-  judge: "pending";
+  judge: "pending" | "accepted";
   engine_status: "unverified";
   evidence_hash: string;
 }

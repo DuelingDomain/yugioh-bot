@@ -410,6 +410,7 @@ export function migrate(db: Database.Database) {
       primary key(source,target,format)
     );
     create index if not exists archetype_bridge_lookup on archetype_bridge(source,format,score desc);
+    create index if not exists archetype_bridge_evidence on archetype_bridge(evidence_hash);
     create table if not exists bridge_graph (
       id integer primary key check(id=1), graph_json text not null, source_version text not null
     );
@@ -426,6 +427,18 @@ export function migrate(db: Database.Database) {
       judgement_json text not null check(json_valid(judgement_json)),
       created_at text not null default current_timestamp,
       primary key(evidence_hash,judge)
+    );
+    create table if not exists bridge_judge_spend (
+      id text primary key,
+      request_key text unique,
+      month text not null,
+      state text not null check(state in ('reserved','submission_started','settled')),
+      reserved_micros integer not null check(reserved_micros >= 0),
+      actual_micros integer check(actual_micros >= 0),
+      requests integer not null check(requests > 0),
+      batch integer not null check(batch in (0,1)),
+      usage_json text check(usage_json is null or json_valid(usage_json)),
+      created_at text not null
     );
     create table if not exists bridge_feedback (
       id integer primary key,

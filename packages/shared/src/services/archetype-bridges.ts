@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { BridgeEngine } from "../cards/effects/bridge-engine.js";
 import type { ArchetypeBridge, BridgeFormat, BridgeGraphData, BridgeProgress, CapabilityKey, CardCapability } from "../cards/effects/bridge-types.js";
+import { shownBridge, type ShownBridge } from "../cards/effects/bridge-judge.js";
 
 /** Construct in the duel-host scanner or an administrative process, never in the web process. */
 export function createBridgeService(db: Database.Database) {
@@ -18,8 +19,6 @@ export function createBridgeService(db: Database.Database) {
     }
     return engine;
   };
-  const visible = (row: ArchetypeBridge): boolean => !(db.prepare(`SELECT 1 FROM bridge_judgement WHERE evidence_hash=? AND verdict IN ('rejected','review')
-    UNION ALL SELECT 1 FROM bridge_feedback WHERE evidence_hash=? AND resolved_at IS NULL GROUP BY evidence_hash HAVING count(DISTINCT actor_hash)>=2 LIMIT 1`).get(row.evidence_hash, row.evidence_hash));
   const stored = (source: string, target: string, format: BridgeFormat): ArchetypeBridge | null => {
     const row = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND target=? COLLATE NOCASE AND format=?").get(source.trim(), target.trim(), format) as { bridge_json: string } | undefined;
     return row ? JSON.parse(row.bridge_json) as ArchetypeBridge : null;
@@ -28,18 +27,33 @@ export function createBridgeService(db: Database.Database) {
     bridgesFrom(archetype: string, format: BridgeFormat = "advanced", limit = 4): ArchetypeBridge[] {
       const count = Number.isFinite(limit) ? Math.max(0, Math.min(25, Math.floor(limit))) : 4;
       const rows = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND format=? ORDER BY score DESC,target LIMIT 25").all(archetype.trim(), format) as { bridge_json: string }[];
-      return rows.map(row => JSON.parse(row.bridge_json) as ArchetypeBridge).filter(visible).slice(0, count);
+      return rows.map(row => JSON.parse(row.bridge_json) as ArchetypeBridge).slice(0, count);
     },
     bridgeBetween(x: string, y: string, format: BridgeFormat = "advanced"): ArchetypeBridge | null {
       const row = stored(x, y, format);
-      return row && visible(row) ? row : null;
+      return row;
     },
     explain(x: string, y: string, format: BridgeFormat = "advanced"): ArchetypeBridge | null {
       const row = stored(x, y, format) ?? live().between(x, y, format);
-      return row && visible(row) ? row : null;
+      return row;
     },
     liveCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
-      return live().liveCandidates(source, format, progress).filter(visible);
+      return live().liveCandidates(source, format, progress);
+    },
+    shownFrom(archetype: string, format: BridgeFormat = "advanced", limit = 4): ShownBridge[] {
+      const count = Number.isFinite(limit) ? Math.max(0, Math.min(4, Math.floor(limit))) : 4;
+      const rows = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND format=? ORDER BY score DESC,target LIMIT 25").all(archetype.trim(), format) as { bridge_json: string }[];
+      const results: ShownBridge[] = [];
+      for (const row of rows) {
+        const projected = shownBridge(db, JSON.parse(row.bridge_json) as ArchetypeBridge);
+        if (projected) results.push(projected);
+        if (results.length >= count) break;
+      }
+      return count ? results : [];
+    },
+    shownBetween(x: string, y: string, format: BridgeFormat = "advanced"): ShownBridge | null {
+      const row = stored(x, y, format);
+      return row ? shownBridge(db, row) : null;
     },
     capabilities(key: CapabilityKey, direction: "needs" | "provides"): CardCapability[] {
       return (db.prepare(`SELECT capabilities_json FROM card_capability WHERE EXISTS
