@@ -55,7 +55,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     await api.jobs.close();
   });
 
-  it("allows a later deep search to retry reviews unavailable before a response", async () => {
+  it("completes with pending pairs hidden in review and rechecks after the cache expires", async () => {
     const user = seedIdentity(db, { name: "Retry reviewer" });
     const row = createBridgeService(db).bridgeBetween("Branded", "Despia")!;
     db.prepare("DELETE FROM bridge_judgement WHERE evidence_hash=?").run(row.evidence_hash);
@@ -66,9 +66,9 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     try {
       const first = await start() as { jobId: string };
       await new Promise(resolve => setImmediate(resolve));
-      expect(api.jobs.status({ userId: user.userId, guildId: "g" }, first.jobId).state).toBe("failed");
-      await expect(start()).rejects.toMatchObject({ status: 429, retryAfter: 60 });
-      now += 60_000;
+      expect(api.jobs.status({ userId: user.userId, guildId: "g" }, first.jobId)).toMatchObject({ state: "done", results: [], inReview: 1 });
+      expect(await start()).toMatchObject({ jobId: first.jobId, cached: true });
+      now += 86_400_001;
       const retry = await start() as { jobId: string; cached: boolean };
       expect(retry.jobId).not.toBe(first.jobId);
       expect(retry.cached).toBe(false);

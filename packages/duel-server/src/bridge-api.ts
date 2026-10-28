@@ -44,7 +44,6 @@ export class BridgeApi {
             progress("rating", 35 + Math.floor(64 * ++completed / candidates.length));
           }
         }));
-        if (candidates.some(row => bridgeGate(this.db, row).state === "pending")) throw new Error("Bridge reviews are temporarily unavailable");
         return rows;
       },
     });

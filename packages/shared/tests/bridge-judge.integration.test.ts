@@ -1,3 +1,4 @@
+import { APIConnectionError, APIConnectionTimeoutError, APIUserAbortError, InternalServerError, RateLimitError } from "@anthropic-ai/sdk";
 import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -134,11 +135,18 @@ describe("bridge judgement pipeline", () => {
     } finally { db.close(); }
   });
 
-  it("accepts dated model identities and releases failed network calls for a later search", async () => {
+  it.each([
+    new APIConnectionError({ message: "Network unavailable" }),
+    new APIConnectionTimeoutError(),
+    new APIUserAbortError(),
+    new RateLimitError(429, {}, "Rate limited", new Headers()),
+    new InternalServerError(500, {}, "Internal error", new Headers()),
+    new InternalServerError(529, {}, "Overloaded", new Headers()),
+  ])("releases real SDK failures for a later search (%s)", async (error) => {
     const { db, bridge } = fixture(); let calls = 0;
     const client: BridgeJudgeClient = { messages: { async create() {
       calls++;
-      if (calls <= 2) throw Object.assign(new Error("Network unavailable"), { name: "APIConnectionError" });
+      if (calls <= 2) throw error;
       return { id: `msg_dated_${calls}`, model: "claude-haiku-5-5-20261001", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(result()) }], usage: { input_tokens: 1000, output_tokens: 100 } };
     } } };
     try {

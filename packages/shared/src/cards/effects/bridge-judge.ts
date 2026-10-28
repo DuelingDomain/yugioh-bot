@@ -1,3 +1,4 @@
+import { APIConnectionError, APIError, APIUserAbortError } from "@anthropic-ai/sdk";
 import type { MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 import type Database from "better-sqlite3";
 import * as z from "zod";
@@ -227,7 +228,9 @@ export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBr
       result ??= { verdict: "unsure", grade: "risky", pros: ["The candidate passed the deterministic evidence checks.", "The supplied card texts are available for review."], cons: ["The independent review returned no usable verdict.", "The line needs review before it can be shown."], lock_note: "No reliable lock assessment was returned.", line: [evidence.cards[0]!.name], format_ok: false };
       saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, result, options.now?.(), db));
     } catch (error) {
-      const networkFailure = error instanceof Error && /Abort|Timeout|APIConnection|Fetch|TypeError/.test(error.name);
+      const networkFailure = error instanceof APIConnectionError || error instanceof APIUserAbortError
+        || error instanceof APIError && (error.status === undefined || error.status === 429 || error.status >= 500)
+        || error instanceof Error && /Abort|Timeout|Fetch|TypeError/.test(error.name);
       if (!receivedResponse && (networkFailure || options.signal?.aborted)) releaseBridgeJudgeSpend(db, id, true);
     }
     finally { log(bridgeJudgeSpendSummary(db, id)); }
