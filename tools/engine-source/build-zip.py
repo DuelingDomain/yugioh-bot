@@ -8,7 +8,9 @@ so it holds no commit ID, no history and no author names, and its comment is emp
 The file list is in tools/engine-source/paths.txt.
 
 The repo files stay as they are. The zip is cleaned while it is packed:
-  - patch headers (above the first "---" line) lose tool credit trailers;
+  - patch headers (above the first "---" line) lose tool credit trailers, get
+    "Review fixes:" without the reviewer name, and a neutral author line
+    (git am needs one);
   - a home directory path in a script comment becomes /path/to/repo.
 The build stops if any text in the zip still matches a blocked word.
 """
@@ -23,6 +25,7 @@ import zipfile
 BLOCKED = re.compile(r"claude|anthropic|co-authored|codex|openai|gpt-|sonnet|opus|sulman|/home/", re.I)
 TRAILER = re.compile(r"^(Co-Authored-By: (Claude|Codex)|Claude-Session:)", re.I)
 HOME_PATH = re.compile(r"/home/sulman633/repos/yugioh-bot/\.worktrees/[\w.-]+")
+AUTHOR = re.compile(r"^From: .*<[^>]*@[^>]*>$", re.M)
 FIXED_TIME = (2000, 1, 1, 0, 0, 0)
 
 
@@ -40,6 +43,7 @@ def clean(name: str, data: bytes) -> bytes:
             while kept and kept[-1] == "":
                 kept.pop()
         head = "\n".join(kept).replace("Review fixes (Opus review of this patch):", "Review fixes:")
+        head = AUTHOR.sub("From: Dueling Domain <support@duelingdomain.com>", head, count=1)
         text = head + sep + rest
     text = HOME_PATH.sub("/path/to/repo", text)
     hit = BLOCKED.search(text)
@@ -92,6 +96,7 @@ def main() -> None:
     if not files:
         raise SystemExit("no files selected")
 
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     tmp = f"{out}.tmp"
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for name in sorted(files, key=lambda n: (n.count("/") > 0, n)):
