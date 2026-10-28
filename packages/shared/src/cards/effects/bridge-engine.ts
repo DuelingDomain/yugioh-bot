@@ -350,6 +350,12 @@ export class BridgeEngine {
       && (reason.key !== "type_support" || reason.cards.every(id => primary.cards.includes(id))));
     const selectedReasons = [primary, ...otherReasons.filter((reason, i, list) => list.findIndex(other => other.key === reason.key) === i)].slice(0, 4);
     const cards = [...new Set(selectedReasons.flatMap(reason => reason.cards))].sort((a, b) => a - b);
+    // API group labels can include thematic outsiders (for example a named
+    // story card). Evidence must reach an actual member of the target engine.
+    const targetCards = this.contexts.get(format)!.get(y)!.cards;
+    const namedMembers = targetCards.filter(card => groupNameIn(card, y));
+    const members = new Set((namedMembers.length ? namedMembers : targetCards).map(card => card.id));
+    if (!cards.some(id => members.has(id))) return null;
     const warnings = new Set<string>();
     let penalty = 0;
     const reviewedLocks = new Set<string>();

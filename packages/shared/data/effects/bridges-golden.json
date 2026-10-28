@@ -923,13 +923,8 @@
       "source": "Swordsoul",
       "target": "Dogmatika",
       "format": "advanced",
-      "expected": "bridge",
-      "min_grade": "niche",
-      "cards": [
-        "Fallen of Albaz",
-        "The Golden Swordsoul"
-      ],
-      "why": "The Golden Swordsoul explicitly supports a Fusion Monster that mentions Fallen of Albaz as material. This connects to the Albaz package profiled as Dogmatika; Fallen of Albaz itself is not that Fusion Monster.",
+      "expected": "not_bridge",
+      "why": "The Golden Swordsoul only mentions Fallen of Albaz as a conditional bonus; no Dogmatika engine card participates in the evidence.",
       "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Fallen%20of%20Albaz"
     },
     {
@@ -1362,13 +1357,8 @@
       "source": "Swordsoul",
       "target": "Dogmatika",
       "format": "genesys",
-      "expected": "bridge",
-      "min_grade": "niche",
-      "cards": [
-        "Fallen of Albaz",
-        "The Golden Swordsoul"
-      ],
-      "why": "The Golden Swordsoul explicitly supports a Fusion Monster that mentions Fallen of Albaz as material. This connects to the Albaz package profiled as Dogmatika; Fallen of Albaz itself is not that Fusion Monster.",
+      "expected": "not_bridge",
+      "why": "The Golden Swordsoul only mentions Fallen of Albaz as a conditional bonus; no Dogmatika engine card participates in the evidence.",
       "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Fallen%20of%20Albaz"
     },
     {

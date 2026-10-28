@@ -21,6 +21,11 @@ describe("pinned bridge pipeline", () => {
       const ritualTarget = db.prepare("SELECT json_extract(capabilities_json,'$.card.subtypes') AS subtypes FROM card_capability WHERE passcode=?").get(ritual!.cards[1]) as { subtypes: string };
       expect(JSON.parse(ritualTarget.subtypes)).toContain("ritual");
       for (const format of ["advanced", "genesys"] as const) {
+        expect(validator.between("Swordsoul", "Dogmatika", format)).toBeNull();
+        for (const target of ["Ashtra", "Argostars"]) {
+          const row = validator.between("Odion", target, format)!;
+          expect(row.cards.some(id => manifest.groups[target]!.includes(id))).toBe(true);
+        }
         const odion = service.liveCandidates("Odion", format);
         const argostars = odion.find(row => row.target === "Argostars");
         expect(argostars).toBeDefined();
