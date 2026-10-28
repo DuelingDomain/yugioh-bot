@@ -116,7 +116,7 @@ export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, 
             <DeepSearchButton deep={deep} cooldown={cooldown} blocked={blocked} disabled={!scope} describedBy={hintId} onStart={() => void start()} />
             <button type="button" className={styles.link} aria-expanded={searching} data-testid="bridge-search-toggle" onClick={() => setSearching((now) => !now)}>{searching ? "Hide two-archetype search" : "Search two archetypes"}</button>
             <span id={hintId} className={styles.actionHint}>
-              {cooldown > 0 ? "You searched a moment ago. The button comes back when the time is up." : "Deep search checks every archetype, not only the top few."}
+              {cooldown > 0 ? "You can run 15 deep searches per hour. The button comes back when the time is up." : "Deep search checks every archetype, not only the top few."}
             </span>
           </div>
           {inReview > 0 ? <p className={styles.note} data-testid="bridges-in-review">{inReview} {inReview === 1 ? "bridge is" : "bridges are"} still in review.</p>

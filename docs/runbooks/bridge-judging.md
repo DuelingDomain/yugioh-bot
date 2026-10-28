@@ -2,6 +2,10 @@
 
 The effect-tagging workflow judges the highest-scoring ten directed candidates per source and format with two independent Haiku 5.5 framings. A candidate remains hidden until both reviews and the deterministic checks pass. Advanced and Genesys evidence are separate. The committed `packages/shared/data/effects/bridge-judgements.jsonl.gz` cache must be populated with real completed reviews before enabling Bridges in Suggestions.
 
+Runtime deep searches admit one job per user at a time and run at most two jobs globally. A user can start 15 searches per rolling hour, with no wait after a completed or failed job. Identical queries reuse the 24-hour cache. Hitting the hourly limit returns 429 with `retryAfter`; only that response starts the UI countdown. A full queue returns 503. Pending reviews stay hidden and are counted as in review without failing the job.
+
+SDK connection, timeout, abort, 429 and 5xx failures before a usable response release their runtime reservations for a later invocation. Ambiguous submission failures retain reservations, and paid malformed replies remain billed and hidden for review.
+
 The local preview needs no credential and makes no network requests:
 
 ```sh

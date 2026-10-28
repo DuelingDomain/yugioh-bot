@@ -184,7 +184,7 @@ async function api(method: string, url: URL, body: any) {
   if (path === "/api/cards/bridges/deep-search" && method === "POST") {
     bridgeCalls.starts.push(body);
     await new Promise((done) => setTimeout(done, 250));
-    if (bridgeControl.startRetryAfter > 0) return json(429, { error: "You searched a moment ago.", retryAfter: bridgeControl.startRetryAfter });
+    if (bridgeControl.startRetryAfter > 0) return json(429, { error: "Deep search hourly limit reached", retryAfter: bridgeControl.startRetryAfter });
     bridgeControl.started += 1;
     return json(202, { jobId: `job-${bridgeControl.started}`, state: "queued", cached: false });
   }
@@ -222,7 +222,7 @@ async function api(method: string, url: URL, body: any) {
 // ---- Bundle the real editor for the browser -----------------------------------------------------------
 const bundle = resolve(out, "bundle");
 await build({
-  configFile: false, root: e2e, logLevel: "warn", cacheDir: resolve(out, ".vite"), base: "./",
+  configFile: false, envDir: false, root: e2e, logLevel: "warn", cacheDir: resolve(out, ".vite"), base: "./",
   define: { "process.env.NODE_ENV": JSON.stringify("production") },
   css: { postcss: { plugins: [tailwindcss({ base: web })] } },
   resolve: {
@@ -316,6 +316,7 @@ try {
   const tileBoxes = () => panel.evaluate((root: HTMLElement) => { const base = root.getBoundingClientRect(); return [...root.querySelectorAll("button")].map((node) => { const box = node.getBoundingClientRect(); return [Math.round(box.x - base.x), Math.round(box.y - base.y), Math.round(box.width), Math.round(box.height)]; }); });
   const rowTitles = () => panel.locator("h3").allTextContents();
 
+  if (process.env.SUGGESTIONS_BRIDGES_ONLY !== "1") {
   await page.goto(`${ORIGIN}/index.html?scenario=pool`);
   await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
   check("pool", "initial pool asks once", insightRequests.length === 1);
@@ -516,6 +517,8 @@ try {
   check("g", "an empty deck gets a short Bridges hint", (await page.getByTestId("bridges-empty").innerText()).includes("Add a few Main Deck cards"));
   await shot("g-empty-deck");
 
+  }
+
   // h. Bridges: the row, its details, the two-archetype search, the deep search and the report action.
   const bridges = page.getByTestId("bridges-row");
   const items = bridges.getByTestId("bridge-item");
@@ -682,7 +685,7 @@ try {
   await shot("bridges-genesys-1920x1080");
   control.genesys = false;
 
-  // i. Deep search: one request per click, a progress bar with named steps, a cooldown, resume, errors.
+  // i. Deep search: one request per click, a progress bar with named steps, resume, errors.
   await reset();
   const deepButton = bridges.getByTestId("deep-search-button");
   check("i", "Deep search starts enabled", await deepButton.isEnabled() && (await deepButton.innerText()).trim() === "Deep search");
@@ -700,11 +703,8 @@ try {
   await bridges.getByTestId("deep-results").waitFor({ timeout: 15_000 });
   check("i", "the results show after the last step", (await bridges.getByTestId("deep-results").getByTestId("bridge-item").count()) === 1 && (await bridges.getByTestId("deep-results").innerText()).includes("Melodious"));
   check("i", "the count of bridges still in review shows", (await bridges.getByTestId("bridges-in-review").innerText()).includes("2 bridges are still in review"), await bridges.getByTestId("bridges-in-review").innerText());
-  check("i", "the button stays off during the cooldown, with a countdown", await deepButton.isDisabled() && /Deep search in (59|60|\d+) s|1 min/.test(await deepButton.innerText()), await deepButton.innerText());
-  const first = await deepButton.innerText();
-  await page.waitForTimeout(2200);
-  check("i", "the countdown goes down", (await deepButton.innerText()) !== first, { first, now: await deepButton.innerText() });
-  await shot("bridges-cooldown-1920x1080");
+  check("i", "a completed search immediately enables Search again", await deepButton.isEnabled() && (await deepButton.innerText()).trim() === "Search again", await deepButton.innerText());
+  await shot("bridges-completed-1920x1080");
 
   // i2. Leaving and coming back resumes the running search, and starts no second one.
   await reset();
@@ -719,15 +719,24 @@ try {
 
   // i3. The host says wait: a countdown from retryAfter and no job.
   await reset();
+  // Freeze Date while timers continue, then advance it explicitly: no wall-time tolerance.
+  const limitedAt = new Date("2026-10-28T12:00:00Z");
+  await page.clock.setFixedTime(limitedAt);
   bridgeControl.startRetryAfter = 45;
   await deepButton.click();
   await page.waitForFunction(() => /Deep search in/.test(document.querySelector('[data-testid="deep-search-button"]')?.textContent ?? ""), null, { timeout: 5000 });
   const wait = await deepButton.innerText();
-  check("i3", "a 429 turns the button into a countdown from retryAfter", await deepButton.isDisabled() && /Deep search in (4[0-5]) s/.test(wait), wait);
+  check("i3", "a 429 turns the button into a countdown from retryAfter", await deepButton.isDisabled() && wait.trim() === "Deep search in 45 s", wait);
+  await page.clock.setFixedTime(new Date(limitedAt.getTime() + 5000));
+  await page.waitForFunction(() => document.querySelector('[data-testid="deep-search-button"]')?.textContent?.trim() === "Deep search in 40 s");
+  check("i3", "the countdown decreases by exactly five seconds", (await deepButton.innerText()).trim() === "Deep search in 40 s");
   check("i3", "a 429 shows no progress bar", (await bridges.getByTestId("deep-progress").count()) === 0);
-  check("i3", "the hint explains the wait", (await bridges.innerText()).includes("You searched a moment ago"));
-  check("i3", "the countdown survives a reload in this tab", await (async () => { await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`); await items.first().waitFor(); return (await deepButton.isDisabled()) && /Deep search in/.test(await deepButton.innerText()); })());
+  check("i3", "the hint explains the wait", (await bridges.innerText()).includes("15 deep searches per hour"));
+  check("i3", "the countdown survives a reload in this tab", await (async () => { await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`); await items.first().waitFor(); return (await deepButton.isDisabled()) && (await deepButton.innerText()).trim() === "Deep search in 40 s"; })());
   await shot("bridges-retry-after-1920x1080");
+  await page.clock.setFixedTime(new Date(limitedAt.getTime() + 45_000));
+  await page.waitForFunction(() => !(document.querySelector('[data-testid="deep-search-button"]') as HTMLButtonElement)?.disabled);
+  check("i3", "the button enables exactly when retryAfter expires", await deepButton.isEnabled());
 
   // i4. The search fails: a clear error, no results.
   await reset();
@@ -735,6 +744,7 @@ try {
   await deepButton.click();
   await bridges.getByTestId("deep-error").waitFor({ timeout: 15_000 });
   check("i4", "a failed search shows a clear error", (await bridges.getByTestId("deep-error").innerText()).includes("stopped before it finished"));
+  check("i4", "a failed search immediately enables Try again", await deepButton.isEnabled() && (await deepButton.innerText()).trim() === "Try again");
   check("i4", "a failed search shows no results", (await bridges.getByTestId("deep-results").count()) === 0);
   await shot("bridges-deep-failed-1920x1080");
 

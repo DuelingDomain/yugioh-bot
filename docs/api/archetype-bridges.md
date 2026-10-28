@@ -42,7 +42,7 @@ For a saved Genesys deck, the host derives remaining points from its cap and exi
 
 Jobs progress `queued → running → done|failed`. Queued jobs start at `candidates/0`; running steps are candidates, deterministic checking, then rating. Success ends at `done/100`; failures retain their last progress and a safe error. Interrupted jobs become failed on host restart. `inReview` includes pending and disputed candidates, never invalid ones.
 
-Admission permits one queued/running search per application user across guilds. Another POST returns that job ID. After completion or failure, a new uncached query waits 60 seconds; at most ten new jobs are admitted per user per rolling hour. Two jobs run globally in the host, with a queue bounded to 100 waiting jobs. Identical source/target/format queries share pending work and completed results for 24 hours, without new review calls; artifact/prompt versions invalidate that reuse. Each subscriber retains its own points and saved-deck context. Cached completed queries bypass new-work admission. Rejections return HTTP 429, `Retry-After: <seconds>`, and JSON `{error:string,retryAfter:number}`. Invalid requests return 400, missing subscriptions/decks 404, missing guild membership 403, and unavailable bridge data 503.
+Admission permits one queued/running search per application user across guilds. Another POST returns that job ID. There is no completion or failure cooldown; at most 15 new jobs are admitted per user per rolling hour. Two jobs run globally in the host, with a queue bounded to 100 waiting jobs. Identical source/target/format queries share pending work and completed results for 24 hours, without new review calls; artifact/prompt versions invalidate that reuse. Each subscriber retains its own points and saved-deck context. Cached completed queries bypass new-work admission. The hourly limit returns HTTP 429, `Retry-After: <seconds>`, and JSON `{error:string,retryAfter:number}`. Invalid requests return 400, missing subscriptions/decks 404, missing guild membership 403, and unavailable bridge data or a full queue 503. The UI shows a countdown only for the hourly-limit 429 with `retryAfter`; completion and failure enable the button immediately.
 
 `POST /api/cards/bridges/feedback` accepts `{evidenceHash:string,reason?:string}` (64 lowercase hex characters, optional reason up to 512 characters) and returns `{accepted:true,hidden:boolean}`. Reports are idempotent per application user and evidence hash. Two distinct unresolved reports hide that evidence immediately, including cached results.
 
@@ -118,17 +118,14 @@ type BridgeScan = { kind: "bridges"; source: string; format: BridgeFormat } & (
 );
 type BridgeScanResult = ArchetypeBridge[] | ArchetypeBridge | null;
 
-DeckSuggestionWorkers.runBridge(
-  scan: BridgeScan, actor: string, progress?: (value: BridgeProgress) => void
-): Promise<BridgeScanResult>;
 // Managed jobs acquire persistent admission before calling these queued workers:
 DeckSuggestionWorkers.bridgeCandidates(scan: BridgeScan, progress?: (value: BridgeProgress) => void): Promise<BridgeScanResult>;
 DeckSuggestionWorkers.rateBridge(bridge: ArchetypeBridge): Promise<void>;
 ```
 
-`runBridge` retains the earlier administrative scanner admission (one request per actor, 60 seconds between uncached scans, no worker backlog, 15-minute candidate reuse). It returns candidates and must not be used as a player publication gate. The HTTP implementation uses `BridgeSearchJobs` admission and the queued worker methods instead, following the stronger persistent job contract above.
+`BridgeSearchJobs` provides persistent admission before invoking the queued worker methods. Scanner candidates still require the review gate before publication.
 
-Scanner progress is `{phase: "index" | "score" | "validate" | "done", completed: number, total: number}`. Managed jobs map it to the HTTP steps, then judge up to ten currently unjudged candidates from the top 25, with two candidate tasks at a time. Candidate extraction uses read-only worker connections. Review workers use writable connections to the durable SQLite file; in-memory databases are rejected for runtime review writes. Both share the existing two-thread suggestion pool, so deep review traffic can temporarily reduce normal suggestion capacity.
+Scanner progress is `{phase: "index" | "score" | "validate" | "done", completed: number, total: number}`. Managed jobs map it to the HTTP steps, then judge up to ten currently unjudged candidates from the top 25, with two candidate tasks at a time. Candidate extraction uses read-only worker connections. Reviews run on the host with at most two requests in flight. Candidate scans use at most one scanner, leaving the second scanner available for Suggestions.
 
 ## Files and schemas
 
@@ -138,7 +135,8 @@ All files live in `packages/shared/data/effects/`. The independent `bridges-mani
 | --- | --- |
 | `card-capabilities.jsonl.gz` | `{id,card: Card,provides: Capability[],needs: Capability[],locks: SummonLock[],text_hash,evidence_hash}` |
 | `bridges-advanced.jsonl.gz`, `bridges-genesys.jsonl.gz` | `ArchetypeBridge`, up to 25 per source |
-| `bridges-manifest.json` | `{schema_version:1,algorithm_version,inputs:{tags,profiles,engine,metadata,genesys_revision},files:{capabilities,advanced,genesys},groups,target_means,materials,version}` |
+| `bridges-manifest.json` | `{schema_version:1,algorithm_version,inputs:{tags,profiles,engine,metadata,genesys_revision,groups},files:{capabilities,advanced,genesys},groups,target_means,reason_frequencies,group_policies,materials,version}` |
+| `bridge-groups.json` | Group curation, aliases, exclusions and membership selectors (hashed in the manifest inputs) |
 | `bridges-golden.json` | `{pairs:[{source,target,format,expected:"bridge"|"not_bridge",min_grade?,cards?,why,source_url}]}` |
 | `bridge-judgements.jsonl.gz` | `{evidence_hash,input_hash,judge,framing,model,result,created_at}`; current reviews plus inert historical identities |
 
@@ -167,7 +165,7 @@ Graph imports validate pinned compressed and decompressed bytes before one trans
 
 ## Rebuild, CLI and evaluation
 
-Use Node 22. All engine reads use the same `loadCardDatabase` / `engineInsightCard` path as effect indexing. No application catalog race field is used. The public metadata snapshot supplies primary archetype labels, TCG availability and verified Genesys points; card identity, exact engine setcode memberships and printed text come from the read-only engine bundle. Thematic group labels never establish an effect's rules membership: Sage with Eyes of Blue is grouped with Blue-Eyes support but cannot be summoned by an effect requiring a Blue-Eyes monster.
+Use Node 22. All engine reads use the same `loadCardDatabase` / `engineInsightCard` path as effect indexing. No application catalog race field is used. The public metadata snapshot supplies primary archetype labels, TCG availability and verified Genesys points; card identity, exact engine setcode memberships and printed text come from the read-only engine bundle. A candidate must include a named target-engine member (or a member of a curated unnamed engine). Generic face-down access and single-material generic Link-1 lines cannot establish a bridge alone; retained generic Link-1 evidence caps the grade at Niche. Each target/reason weight scales down above 5% source frequency, using the same persisted frequencies for live and offline searches. Thematic group labels never establish an effect's rules membership: Sage with Eyes of Blue is grouped with Blue-Eyes support but cannot be summoned by an effect requiring a Blue-Eyes monster.
 
 ```sh
 prlimit --core=0 -- npm run build --workspace=packages/shared

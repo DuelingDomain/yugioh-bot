@@ -2,8 +2,6 @@ import type { BridgeScope, DeepStep, ShownBridge } from "./bridges-api";
 
 /** A list shows this many bridges. */
 export const BRIDGES_SHOWN = 4;
-/** The host waits this long before it starts another new search for the same user. */
-export const DEEP_SEARCH_COOLDOWN_SECONDS = 60;
 /** How often a running search is asked for its progress. */
 export const DEEP_POLL_MS = 1000;
 /** Poll answers that fail in a row before the search shows an error. The job itself keeps running on the host. */

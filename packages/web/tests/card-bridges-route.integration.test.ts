@@ -114,8 +114,8 @@ it("starts, resumes and polls a host job without exposing actor overrides", asyn
   expect((await poll("x".repeat(129))).status).toBe(400);
 });
 
-it("preserves the cooldown response and countdown header", async () => {
-  reply = { error: "Wait before searching again", code: "BRIDGE_COOLDOWN", retryAfter: 48 }; replyStatus = 429;
+it("preserves the hourly-limit response and countdown header", async () => {
+  reply = { error: "Deep search hourly limit reached", retryAfter: 48 }; replyStatus = 429;
   const response = await start({ source: "Odion" });
   expect(response.status).toBe(429); expect(response.headers.get("retry-after")).toBe("48");
   expect(await response.json()).toEqual(reply);

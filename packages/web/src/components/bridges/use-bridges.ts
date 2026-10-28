@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
 import { getDeckCards } from "@/components/decks/api";
 import { BridgeRequestError, fetchBridges, pollDeepSearch, startDeepSearch, type BridgeList, type BridgeScope, type DeepStep, type ShownBridge } from "./bridges-api";
-import { DEEP_POLL_FAILURES, DEEP_POLL_MS, DEEP_SEARCH_COOLDOWN_SECONDS, readStore, scopeKey, secondsLeft, writeStore } from "./bridges-model";
+import { DEEP_POLL_FAILURES, DEEP_POLL_MS, readStore, scopeKey, secondsLeft, writeStore } from "./bridges-model";
 
 /** Wait this long after the last deck change before asking again, like the other Suggestions rows. */
 const LIST_DEBOUNCE_MS = 600;
@@ -57,12 +57,12 @@ export type DeepPhase = "idle" | "starting" | "running" | "done" | "failed";
 export type Deep = { phase: DeepPhase; step: DeepStep; progress: number; results: ShownBridge[]; inReview: number | null; error: string | null };
 const IDLE: Deep = { phase: "idle", step: "candidates", progress: 0, results: [], inReview: null, error: null };
 
-const COOLDOWN_STORE = "bridges:cooldown";
+const COOLDOWN_STORE = "bridges:hourly-limit";
 const jobStore = (key: string) => `bridges:job:${key}`;
 
 /**
  * The deep search of one scope. At most one request is in flight (a double click sends one), the button waits out
- * the host's cooldown, and the job id is kept for this tab, so leaving and coming back picks the running job up again.
+ * the host's hourly limit, and the job id is kept for this tab, so leaving and coming back picks the running job up again.
  */
 export function useDeepSearch(scope: BridgeScope | null) {
   const key = scope ? scopeKey(scope) : null;
@@ -76,10 +76,10 @@ export function useDeepSearch(scope: BridgeScope | null) {
   const sending = useRef(false);
   const latest = useRef({ scope, key });
   latest.current = { scope, key };
-  // The job this tab started and whether it was answered from the host's cache. Only a new job starts the host's cooldown.
-  const own = useRef<{ jobId: string; cached: boolean } | null>(null);
 
-  const cool = useCallback((until: number) => {
+  const cool = useCallback((seconds: number) => {
+    const time = Date.now(), until = time + seconds * 1000;
+    setNow(time);
     setCooldownUntil(until);
     writeStore("session", COOLDOWN_STORE, String(until));
   }, []);
@@ -92,7 +92,6 @@ export function useDeepSearch(scope: BridgeScope | null) {
   // A new scope forgets the old search and picks up the job this tab kept for it.
   useEffect(() => {
     sending.current = false;
-    own.current = null;
     setDeep(IDLE);
     setJob({ key, id: key ? readStore("session", jobStore(key)) : null });
     setRuns((value) => value + 1);
@@ -114,9 +113,6 @@ export function useDeepSearch(scope: BridgeScope | null) {
     const controller = new AbortController();
     let timer: number | undefined;
     let failures = 0;
-    const settle = () => {
-      if (own.current?.jobId === jobId && !own.current.cached) cool(Date.now() + DEEP_SEARCH_COOLDOWN_SECONDS * 1000);
-    };
     const tick = async () => {
       try {
         const status = await pollDeepSearch(jobId, controller.signal);
@@ -124,12 +120,10 @@ export function useDeepSearch(scope: BridgeScope | null) {
         failures = 0;
         if (status.state === "done") {
           setDeep({ phase: "done", step: "done", progress: 100, results: status.results, inReview: status.inReview, error: null });
-          settle();
           return;
         }
         if (status.state === "failed") {
           setDeep((before) => ({ phase: "failed", step: status.step, progress: status.progress || before.progress, results: [], inReview: status.inReview, error: status.error || "The deep search could not finish." }));
-          settle();
           return;
         }
         setDeep({ phase: "running", step: status.step, progress: status.progress, results: [], inReview: status.inReview, error: null });
@@ -153,7 +147,7 @@ export function useDeepSearch(scope: BridgeScope | null) {
     };
     void tick();
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [jobId, key, runs, cool]);
+  }, [jobId, key, runs]);
 
   const left = secondsLeft(cooldownUntil, now);
   const busy = deep.phase === "starting" || deep.phase === "running";
@@ -167,14 +161,13 @@ export function useDeepSearch(scope: BridgeScope | null) {
       const started = await startDeepSearch(wanted);
       if (latest.current.key !== startedFor) return;
       writeStore("session", jobStore(startedFor), started.jobId);
-      own.current = { jobId: started.jobId, cached: started.cached };
       setJob({ key: startedFor, id: started.jobId });
       setRuns((value) => value + 1);
       setDeep({ ...IDLE, phase: "running" });
     } catch (reason) {
       if (latest.current.key !== startedFor) return;
-      if (reason instanceof BridgeRequestError && reason.status === 429) {
-        cool(Date.now() + Math.max(1, reason.retryAfter ?? DEEP_SEARCH_COOLDOWN_SECONDS) * 1000);
+      if (reason instanceof BridgeRequestError && reason.status === 429 && Number.isFinite(reason.retryAfter) && reason.retryAfter! > 0) {
+        cool(Math.ceil(reason.retryAfter!));
         setDeep(IDLE);
         return;
       }

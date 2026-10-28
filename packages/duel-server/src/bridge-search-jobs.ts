@@ -73,16 +73,14 @@ export class BridgeSearchJobs {
       }
       const cached = this.db.prepare("SELECT * FROM bridge_deep_job WHERE query_key=? AND state='done' AND ended_at>? ORDER BY ended_at DESC LIMIT 1").get(key, now - 86_400_000) as JobRow | undefined;
       if (cached) return subscribe(cached, true);
-      const last = this.db.prepare("SELECT max(ended_at) AS ended FROM bridge_deep_actor WHERE actor_hash=?").get(hash) as { ended: number | null };
-      if (last.ended !== null && now - last.ended < 60_000) throw new BridgeJobError("Please wait before starting another deep search", 429, Math.ceil((60_000 - (now - last.ended)) / 1000));
       const hour = this.db.prepare(`SELECT count(DISTINCT a.job_id) AS n,min(a.admitted_at) AS oldest FROM bridge_deep_actor a
         JOIN bridge_deep_job j ON j.id=a.job_id WHERE a.actor_hash=? AND a.admitted_at>? AND a.admitted_at<=coalesce(j.ended_at,a.admitted_at)`)
         .get(hash, now - 3_600_000) as { n: number; oldest: number | null };
-      if (hour.n >= 10) throw new BridgeJobError("Deep search hourly limit reached", 429, Math.max(1, Math.ceil((hour.oldest! + 3_600_000 - now) / 1000)));
+      if (hour.n >= 15) throw new BridgeJobError("Deep search hourly limit reached", 429, Math.max(1, Math.ceil((hour.oldest! + 3_600_000 - now) / 1000)));
       const pending = this.db.prepare("SELECT * FROM bridge_deep_job WHERE query_key=? AND state IN ('queued','running') ORDER BY created_at LIMIT 1").get(key) as JobRow | undefined;
       if (pending) return subscribe(pending, false);
       const queued = this.db.prepare("SELECT count(*) AS n FROM bridge_deep_job WHERE state='queued'").get() as { n: number };
-      if (queued.n >= 100) throw new BridgeJobError("Bridge search queue is busy", 429, 10);
+      if (queued.n >= 100) throw new BridgeJobError("Bridge search queue is busy", 503, 10);
       const id = randomUUID();
       this.db.prepare("INSERT INTO bridge_deep_job(id,query_key,query_json,state,step,created_at) VALUES(?,?,?,'queued','candidates',?)")
         .run(id, key, JSON.stringify(query), now);

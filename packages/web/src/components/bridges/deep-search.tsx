@@ -26,7 +26,7 @@ export function DeepProgress({ deep }: { deep: Deep }) {
 }
 
 /**
- * The Deep search button. It stays off while a search runs and during the cooldown, which shows its countdown.
+ * The Deep search button. It stays off while a search runs and when the server returns an hourly limit, which shows its countdown.
  * The hook sends one request per click, so a double click is safe even before this button is disabled.
  */
 export function DeepSearchButton({ deep, cooldown, blocked, disabled, describedBy, onStart }: {
