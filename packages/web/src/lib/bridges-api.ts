@@ -146,3 +146,9 @@ export function bridgeErrorResponse(error: unknown) {
   response.headers.set("cache-control", "private, no-store");
   return response;
 }
+
+/** The archetypes that have bridge data, for the two-archetype search box. A name list only; no bridge is exposed here. */
+export function listBridgeArchetypes(): string[] {
+  const rows = getDb().prepare("SELECT source AS name FROM archetype_bridge UNION SELECT target FROM archetype_bridge ORDER BY name COLLATE NOCASE").all() as { name: string }[];
+  return rows.map(row => row.name);
+}

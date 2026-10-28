@@ -170,3 +170,16 @@ it("caps streamed bodies before forwarding deep searches", async () => {
   expect((await POST(new Request("http://web.test/api/cards/bridges/deep-search", { method: "POST", body: "{bad" }))).status).toBe(400);
   expect(calls).toHaveLength(0);
 });
+
+it("lists the archetype names that have bridge data, for signed-in players only", async () => {
+  const { GET } = await import("../app/api/cards/bridges/archetypes/route");
+  state.db!.exec(`INSERT INTO archetype_bridge(source,target,format,score,grade,bridge_json,evidence_hash,source_version)
+    VALUES('Odion','Argostars','advanced',70,'Good','{}','${hash}','v1'),('Argostars','Odion','genesys',60,'Good','{}','${"b".repeat(64)}','v1')`);
+  const response = await GET();
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(await response.json()).toEqual({ archetypes: ["Argostars", "Odion"] });
+  expect(calls).toHaveLength(0);
+  state.auth.mockResolvedValue({ user: { id: "2", name: "Kaiba" } });
+  expect((await GET()).status).toBe(403);
+});
