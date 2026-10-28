@@ -31,7 +31,12 @@ describe("pinned bridge pipeline", () => {
         expect(engine.between("Blue-Eyes", "Tenyi", format)).toBeNull();
         expect(engine.between("Fiendsmith", "Tenyi", format)).toBeNull();
         const line = engine.between("Swordsoul", "Tenyi", format);
-        expect(line?.reasons.some(reason => reason.key === "profile")).toBe(true);
+        const resource = line?.reasons.find(reason => reason.key === "profile");
+        expect(resource).toBeDefined();
+        expect(resource!.cards[0]).toBe(20001443); // Mo Ye can reveal the supplied Wyrm and make its Token.
+        expect(resource!.cards).not.toContain(14821890); // Blackout needs a separate banish setup.
+        const blackout = engine.rows.get(14821890)!;
+        expect(engine.validateReason({ ...resource!, cards: [blackout.id, ...resource!.cards.slice(1)], evidence: [blackout.card.text, ...resource!.evidence.slice(1)] }, format)).toBe(false);
         expect(line?.reasons.every(reason => engine.validateReason(reason, format))).toBe(true);
       }
     } finally { db.close(); }

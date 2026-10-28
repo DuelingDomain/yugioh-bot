@@ -206,7 +206,7 @@ export class BridgeEngine {
     const resourceReach = x.edges.flatMap(edge => onlyY.filter(card => edge.targets.has(card.id) && this.requiresNonEffect(card)).map(card => ({ edge, card })))[0];
     if (nonEffect && resourceReach) {
       const { edge, card: consumer } = resourceReach;
-      add("profile", 4, [nonEffect.id, consumer.id, edge.from], `${rows.get(edge.from)!.card.name} reaches ${consumer.name}; ${nonEffect.name} supplies its non-Effect monster requirement`,
+      add("profile", 4, [nonEffect.id, consumer.id, edge.from], `${nonEffect.name} supplies the non-Effect monster required by ${consumer.name}; ${rows.get(edge.from)!.card.name} can also reach it when its printed conditions are met`,
         [{ from: edge.from, to: consumer.id, capability: edge.capability.key }]);
     }
     const enabler = x.cards.find(card => trapTurnSetEvidence(card));
@@ -325,8 +325,8 @@ export class BridgeEngine {
   }
 
   private providesNonEffect(card: Card): boolean {
-    return card.kind === "monster" && card.subtypes.includes("normal")
-      || /Special Summon[^.]*\bToken\b/i.test(printedText(card));
+    return card.kind === "monster" && !isExtraDeckCard(card) && availableMaterial(card) && (card.subtypes.includes("normal")
+      || sentences(printedText(card)).some(text => /^If this card is (?:Normal|Normal or Special) Summoned\s*:/i.test(text) && /Special Summon[^.]*\bToken\b/i.test(text)));
   }
 
   private requiresNonEffect(card: Card): boolean {
