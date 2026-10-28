@@ -54,6 +54,9 @@ export class BridgeEngine {
   private readonly mainMonsters = new Map<BridgeFormat, Card[]>();
   private readonly smallWorld = new Map<BridgeFormat, number>();
   private readonly pairCache = new Map<string, BridgeReason[]>();
+  private readonly sameDeckPairs = new Map<string, boolean>();
+  private readonly deckFamilies = new Map<string, Set<string>>();
+  private readonly groupReferences = new Map<string, Set<string>>();
   private readonly discardSetups = new Map<string, number[] | undefined>();
   private readonly specificFilters = new Map<BridgeFormat, WeakMap<Capability, boolean>>();
   private collectingOutlets?: Map<number, Map<BridgeReasonKey, Set<string>>>;
@@ -63,6 +66,8 @@ export class BridgeEngine {
     this.rows = new Map(data.capabilities.map(row => [row.id, row]));
     this.groups = new Map(Object.entries(data.groups).map(([name, ids]) => [name, new Set(ids)]));
     this.names = [...this.groups.keys()].sort();
+    for (const [name, ids] of this.groups) this.groupReferences.set(name, new Set([name, ...(data.group_policies?.[name]?.aliases ?? []),
+      ...[...ids].map(id => this.rows.get(id)!.card.name)].map(value => value.normalize("NFKC").toLowerCase())));
   }
 
   private prepare(format: BridgeFormat): void {
@@ -159,9 +164,34 @@ export class BridgeEngine {
     return [...x].filter(id => y.has(id)).length;
   }
 
-  private sameDeck(a: string, b: string): boolean {
+  private sameDeckRelation(a: string, b: string): boolean {
+    const key = JSON.stringify([a, b].sort());
+    const cached = this.sameDeckPairs.get(key);
+    if (cached !== undefined) return cached;
     const wordIn = (word: string, name: string) => new RegExp(`(?:^|[^a-z0-9])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[^a-z0-9])`, "i").test(name);
-    return wordIn(a, b) || wordIn(b, a) || this.groupOverlap(a, b) >= 0.3 * Math.min(this.groups.get(a)!.size, this.groups.get(b)!.size);
+    const namingRate = (source: string, target: string) => {
+      const onlySource = [...this.groups.get(source)!].filter(id => !this.groups.get(target)!.has(id));
+      return onlySource.filter(id => quotedNames(printedText(this.rows.get(id)!.card))
+        .some(name => this.groupReferences.get(target)!.has(name.normalize("NFKC").toLowerCase()))).length / Math.max(1, onlySource.length);
+    };
+    const rates = [namingRate(a, b), namingRate(b, a)];
+    const same = wordIn(a, b) || wordIn(b, a) || this.groupOverlap(a, b) >= 0.3 * Math.min(this.groups.get(a)!.size, this.groups.get(b)!.size)
+      || Math.max(...rates) >= 0.9 || Math.max(...rates) >= 0.33 && Math.min(...rates) >= 0.2;
+    this.sameDeckPairs.set(key, same);
+    return same;
+  }
+
+  private sameDeck(a: string, b: string): boolean {
+    let family = this.deckFamilies.get(a);
+    if (!family) {
+      family = new Set([a]);
+      // A shared subgroup (for example a named character) joins the same family.
+      for (const member of family) for (const other of this.names) {
+        if (!family.has(other) && this.sameDeckRelation(member, other)) family.add(other);
+      }
+      for (const member of family) this.deckFamilies.set(member, family);
+    }
+    return family.has(b);
   }
 
   distinctTargets<T extends ArchetypeBridge>(rows: T[], limit = 25): T[] {
@@ -455,6 +485,8 @@ export class BridgeEngine {
     if (reason.ancillary) return false;
     if (["searcher", "small_world", "type_support", "face_down"].includes(reason.key)) return false;
     if (reason.key === "rule_enabler") return reason.weight > 2 && reason.cards.length >= 3;
+    if (reason.key === "mention") return reason.cards.some(id => target.ids.has(id) && !source.ids.has(id)
+      && this.engineMember(this.rows.get(id)!.card, target));
     if (reason.key === "reach" || reason.key === "gy_fuel") {
       const entry = reason.steps?.[0];
       if (reason.key === "gy_fuel" && entry?.capability === "discard") {

@@ -18,6 +18,22 @@ beforeAll(() => {
 });
 
 describe("round 3 bridge rules on the pinned catalog", () => {
+  it("merges two-way naming families without merging distinct bridge engines", () => {
+    const engine = new BridgeEngine(data);
+    for (const [source, target] of [["Fluffal", "Frightfur"], ["Fluffal", "Edge Imp"], ["Fluffal", "Toy"], ["Nouvelles", "Recipe"],
+      ["Apoqliphort", "Qli"], ["Evil★Twin", "Live☆Twin"], ["Evil★Twin", "Lil-la"], ["Live☆Twin", "Lil-la"],
+      ["D/D", "Dark Contract"], ["Diabell", "Sinful Spoils"]]) {
+      for (const format of ["advanced", "genesys"] as const) {
+        expect(engine.between(source!, target!, format), `${source} -> ${target}`).toBeNull();
+        expect(engine.between(target!, source!, format), `${target} -> ${source}`).toBeNull();
+      }
+    }
+    for (const [source, target] of [["Branded", "Despia"], ["Branded", "Bystial"], ["Snake-Eye", "Fire King"],
+      ["Kashtira", "Tearlaments"], ["Swordsoul", "Tenyi"], ["Zefra", "Yang Zing"]]) {
+      expect(engine.between(source!, target!), `${source} -> ${target}`).not.toBeNull();
+    }
+  }, 15_000);
+
   it("requires API source-archetype evidence while preserving aliases and curated groups", () => {
     const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
