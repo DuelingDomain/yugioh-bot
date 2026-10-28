@@ -146,6 +146,8 @@ def main():
                 if parsed.path in ('/login', '/api/waitlist'):
                     assert attr == ('action' if parsed.path == '/api/waitlist' else 'href'), (name, value)
                     continue  # Explicit Caddy endpoints, checked by the routing script.
+                if parsed.path == '/source/dueling-domain-engine.zip':
+                    continue  # Built at deploy (tools/engine-source), not committed.
                 file = resolve(parsed.path) if parsed.path else page.file
                 if parsed.fragment:
                     target = pages.get(file.name)

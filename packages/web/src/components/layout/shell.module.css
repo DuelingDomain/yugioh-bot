@@ -708,9 +708,15 @@
 .legal {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   color: var(--ink-3);
   font: 400 12.5px/1.2 var(--f-ui);
+}
+
+/* AGPL source link: its own row under Terms and Privacy. */
+.legalSource {
+  flex-basis: 100%;
 }
 
 .legal a {

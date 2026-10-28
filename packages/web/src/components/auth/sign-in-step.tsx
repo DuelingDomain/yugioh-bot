@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { PRIVACY_URL, TERMS_URL } from "./legal-links";
+import { PRIVACY_URL, SOURCE_URL, TERMS_URL } from "./legal-links";
 import { waitlistHref } from "./marketing-links";
 import styles from "./sign-in-shell.module.css";
 
@@ -39,6 +39,7 @@ export function SignInFootLinks({ marketingUrl, waitlist = true, lead }: SignInF
       <p className={styles.legal}>
         <a href={TERMS_URL}>Terms</a>
         <a href={PRIVACY_URL}>Privacy</a>
+        <a href={SOURCE_URL}>Source code (AGPL)</a>
         <a href="mailto:support@duelingdomain.com">Contact</a>
       </p>
     </>

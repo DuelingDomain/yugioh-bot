@@ -252,6 +252,12 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
 6. Caddy serves `https://<SITE_DOMAIN>` and 308-redirects `www.<SITE_DOMAIN>`
    and every plain-HTTP host (including old IP links), preserving path and query.
    Keep `caddy_data` and `caddy_config` volumes so certificates survive deploys.
+   The marketing domain also serves the engine source zip at `/source/dueling-domain-engine.zip` (AGPL-3.0 section 13
+   source offer, linked from every site footer and the app footer). The deploy builds it from the deployed commit with
+   `tools/engine-source/build-zip.py` right after `git reset --hard`, into the gitignored `site/public/source/`; Caddy already
+   mounts `site/public`. The file list is `tools/engine-source/paths.txt`. If the build fails, the deploy prints a warning and the
+   previous zip stays online: build it by hand (`python3 tools/engine-source/build-zip.py site/public/source/dueling-domain-engine.zip HEAD`
+   in `/opt/yugioh-bot`) and fix the cause. Check with `curl -I https://<MARKETING_DOMAIN>/source/dueling-domain-engine.zip`.
    Port 4003 stays on the Docker network only — do not publish it.
 
 Image updates must use the workflow. It builds and verifies the images in Actions, transfers the

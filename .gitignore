@@ -37,3 +37,6 @@ packages/duel-server/tests/fuzz-n/failures/
 data-staging/
 .deploy-duel-engine/
 __pycache__/
+
+# Engine source zip, built on the VM at deploy (tools/engine-source)
+site/public/source/

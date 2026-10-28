@@ -582,6 +582,10 @@ jobs:
              done
              DUELING_BACKUP_DIR="$release_dir/online" python3 scripts/backup/dueling-backup
              git reset --hard "$DEPLOY_COMMIT"
+             # AGPL source offer: pack the engine source of this commit. Caddy serves site/public/source/ on the
+             # marketing domain. A failure keeps the previous zip online and must not stop the release.
+             python3 tools/engine-source/build-zip.py site/public/source/dueling-domain-engine.zip "$DEPLOY_COMMIT" \
+               || echo "WARNING: engine source zip not updated; see docs/deployment/vm-runbook.md" >&2
              export SENTRY_RELEASE="$DEPLOY_COMMIT"
              sh scripts/ensure-env-secrets.sh .env DUEL_INTERNAL_SECRET
              sh "$DEPLOY_IMAGES" promote "$DEPLOY_COMMIT" "$DEPLOY_IMAGE_REFS"
