@@ -57,7 +57,7 @@ import { useCardPress } from "./card-press";
 import { DeckArtMenu, type ArtMenuTarget } from "./art-menu";
 import { CardActions, CardCopyCount } from "./card-actions";
 import { CardArt } from "./card-art";
-import { CardBrowser, type BrowserCard, type BrowserPartner } from "./card-browser";
+import { CardBrowser, hookPartner, type BrowserCard, type BrowserPartner } from "./card-browser";
 import type { BrowserSuggest } from "./suggestions-panel";
 import { CardBottomSheet } from "./card-bottom-sheet";
 import { CardPreview } from "./card-preview";
@@ -86,7 +86,7 @@ import {
 } from "./filter-model";
 import { deckNameFromFile, MAX_IMPORT_FILE_BYTES } from "./import";
 import { DeckImportPopover, Popover } from "./import-popover";
-import { HowItPlays } from "@/components/effect-search/how-it-plays";
+import { HowItPlays, type HookFind } from "@/components/effect-search/how-it-plays";
 import { fetchGuide } from "./insights-api";
 import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
 import { TestDuelPopover } from "./test-duel-popover";
@@ -869,9 +869,9 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   }
 
   /** A hook of the deck's "How it plays" panel: the card list shows the cards that fit it. */
-  function findHookCards(guide: ArchetypeGuide, index: number) {
+  function findHookCards(guide: ArchetypeGuide, index: number, find: HookFind) {
     setGuideOpen(false);
-    setPartner({ code: -(index + 1), name: guide.hooks[index]?.label ?? guide.archetype, hook: { archetype: guide.archetype, index } });
+    setPartner(hookPartner(guide, index, find));
     setQuery((current) => ({ ...current, text: "", effectOmit: [] }));
     setPhoneTab("cards");
     setCardSheetOpen(false);
@@ -1605,7 +1605,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
                 />
               ) : null}
               {genesysSummary && !isPhone && shownCode != null ? <button className={styles["de-flag"]} title={flag} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span className={styles["de-flagt"]}>{flag}</span></button> : genesysSummary && !isPhone ? <span className={styles["de-flag"]} aria-hidden="true" /> : null}
-              <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton>{deckGuide ? <Popover label="How it plays" dialogLabel={`How ${deckGuide.archetype} plays`} icon={<BookOpen className="ic sm" aria-hidden />} open={guideOpen} onOpenChange={setGuideOpen}><HowItPlays guide={deckGuide} testId="deck-how-it-plays" onHook={(index) => findHookCards(deckGuide, index)} /></Popover> : null}{!pool && viewerId != null ? <TestDuelPopover open={testDuelOpen} onOpenChange={(open) => { setTestDuelOpen(open); if (open) { setTestDuelError(null); warmTestDuel(); } }} disabled={busy || artBusy || loading || deck.main.length < HAND_SIZE} busy={testDuelBusy} error={testDuelError} prefs={testDuelPrefs} onPrefsChange={chooseTestDuelPrefs} onStart={() => void runTestDuel()} /> : null}</span>
+              <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton>{deckGuide ? <Popover label="How it plays" dialogLabel={`How ${deckGuide.archetype} plays`} icon={<BookOpen className="ic sm" aria-hidden />} open={guideOpen} onOpenChange={setGuideOpen}><HowItPlays guide={deckGuide} testId="deck-how-it-plays" onHook={(index, find) => findHookCards(deckGuide, index, find)} /></Popover> : null}{!pool && viewerId != null ? <TestDuelPopover open={testDuelOpen} onOpenChange={(open) => { setTestDuelOpen(open); if (open) { setTestDuelError(null); warmTestDuel(); } }} disabled={busy || artBusy || loading || deck.main.length < HAND_SIZE} busy={testDuelBusy} error={testDuelError} prefs={testDuelPrefs} onPrefsChange={chooseTestDuelPrefs} onStart={() => void runTestDuel()} /> : null}</span>
               {isPhone ? historyControls : null}
             </div>
             {isPhone ? <ControlsLegend phone /> : null}

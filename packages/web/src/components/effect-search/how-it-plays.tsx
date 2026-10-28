@@ -2,25 +2,49 @@
 
 import * as React from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
+import type { ArchetypeGuide, ArchetypeGuideHook } from "@yugidraft/shared/cards/effects";
 import styles from "./how-it-plays.module.css";
 
 const SHOWN_HOOKS = 3;
 
+interface HookAsk {
+  find: HookFind;
+  /** The small lead-in ("Is a") and what follows it ("LIGHT Fiend monster"). */
+  lead: string;
+  what: string;
+  /** The button's name for a screen reader. */
+  name: string;
+}
+
+/** What a click on this hook can find, "is a" first. Empty only for a guide from before hooks said what they find. */
+function hookAsks(hook: ArchetypeGuideHook, archetype: string): HookAsk[] {
+  const finds = hook.finds ?? { is: null, support: hook.searchable };
+  const asks: HookAsk[] = [];
+  if (finds.is) asks.push({ find: "is", lead: "Is a", what: finds.is.one, name: `Find ${finds.is.many}` });
+  if (finds.support) asks.push({ find: "support", lead: "Support for", what: archetype, name: `Find cards for ${hook.label}` });
+  return asks;
+}
+
+function Ask({ ask }: { ask: HookAsk }) {
+  return <span className={styles.ask}><span className={styles.askLead}>{ask.lead}</span> <span className={styles.askWhat}>{ask.what}</span></span>;
+}
+
+/** Which of a hook's two questions a click asks: cards that ARE this kind of card, or cards that help the deck. */
+export type HookFind = "is" | "support";
+
 /**
  * An archetype's game plan (three lines, "More" opens the rest) and what works with it ("label — why", the
- * top three, "Show all" for the rest). A hook that can be searched is a button; the rest are plain text.
+ * top three, "Show all" for the rest). Every row says what a click finds. A row with one answer is a button;
+ * a row with two ("is a" and "support for") has two small buttons. Without `onHook` the rows are plain text.
  */
 export function HowItPlays({
   guide,
   onHook,
-  activeHook = null,
   testId = "how-it-plays",
 }: {
   guide: ArchetypeGuide;
-  /** Searches for the cards that fit one hook. Not given: every row is plain text. */
-  onHook?: (index: number) => void;
-  activeHook?: number | null;
+  /** Searches for the cards that fit one hook, in the way asked. Not given: every row is plain text. */
+  onHook?: (index: number, find: HookFind) => void;
   testId?: string;
 }) {
   const [open, setOpen] = React.useState(true);
@@ -75,12 +99,27 @@ export function HowItPlays({
                     {hook.why}
                   </span>
                 );
+                const asks = hookAsks(hook, guide.archetype);
                 return (
                   <li key={`${index}-${hook.label}`}>
-                    {onHook && hook.searchable ? (
-                      <button type="button" className={styles.hookBtn} aria-pressed={activeHook === index} aria-label={`Find cards for ${hook.label}`} title={hook.why} data-testid="how-it-plays-hook" onClick={() => onHook(index)}>{text}</button>
+                    {!onHook || asks.length === 0 ? (
+                      <div className={styles.hookRow} data-plain="" data-testid="how-it-plays-hook-text">{text}</div>
+                    ) : asks.length === 1 ? (
+                      <button type="button" className={styles.hookBtn} aria-label={asks[0]!.name} title={hook.why} data-testid="how-it-plays-hook" onClick={() => onHook(index, asks[0]!.find)}>
+                        {text}
+                        <Ask ask={asks[0]!} />
+                      </button>
                     ) : (
-                      <div className={styles.hookRow} data-testid="how-it-plays-hook-text">{text}</div>
+                      <div className={styles.hookRow} data-testid="how-it-plays-hook-multi">
+                        {text}
+                        <span className={styles.asks}>
+                          {asks.map((ask) => (
+                            <button key={ask.find} type="button" className={styles.askBtn} aria-label={ask.name} data-testid="how-it-plays-hook" onClick={() => onHook(index, ask.find)}>
+                              <Ask ask={ask} />
+                            </button>
+                          ))}
+                        </span>
+                      </div>
                     )}
                   </li>
                 );

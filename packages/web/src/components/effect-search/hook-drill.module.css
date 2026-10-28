@@ -1,0 +1,30 @@
+/*
+ * Drill-down header of a "How it plays" row: Back, a breadcrumb, and the scope switch.
+ * Colors come from the .ms tokens. The switch keeps the size of the other segmented controls.
+ */
+.drill { display: grid; gap: 8px; min-width: 0; padding: 8px 10px; border: 1px solid var(--rule-lo); border-radius: 10px; background: var(--panel-2); }
+.trail { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.back {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--rule-lo);
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.back:hover { color: var(--ink); border-color: var(--pen); }
+.back:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.crumbs { min-width: 0; flex: 1; }
+.crumbs ol { display: flex; align-items: baseline; gap: 6px; min-width: 0; margin: 0; padding: 0; list-style: none; font-size: 13px; line-height: 1.4; }
+.crumbs li { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); }
+.crumbs li:first-child { flex: none; max-width: 40%; }
+.crumbs li + li { color: var(--gold-ink); font-weight: 500; }
+.crumbs li + li::before { content: "\203A"; margin-right: 6px; color: var(--ink-4); font-weight: 400; }
+:global(.ms) .drill :global(.seg) button { min-height: 28px; padding: 0 10px; font-size: 13px; }
