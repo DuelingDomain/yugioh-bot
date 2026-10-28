@@ -44,8 +44,8 @@ export function startBridgeJudgeSpend(db: Database.Database, id: string): void {
   if (db.prepare("UPDATE bridge_judge_spend SET state='submission_started' WHERE id=? AND state='reserved'").run(id).changes !== 1) throw new Error("Bridge judge reservation unavailable");
 }
 
-export function releaseBridgeJudgeSpend(db: Database.Database, id: string): void {
-  db.prepare("DELETE FROM bridge_judge_spend WHERE id=? AND state='reserved'").run(id);
+export function releaseBridgeJudgeSpend(db: Database.Database, id: string, failedLiveRequest = false): void {
+  db.prepare("DELETE FROM bridge_judge_spend WHERE id=? AND (state='reserved' OR ? AND state='submission_started' AND batch=0)").run(id, failedLiveRequest ? 1 : 0);
 }
 
 export function settleBridgeJudgeSpend(db: Database.Database, id: string, usage: BridgeJudgeUsage, batch?: boolean): void {

@@ -8,7 +8,7 @@ import { bridgeHash, printedText } from "../src/cards/effects/bridge-text.js";
 import type { ArchetypeBridge, CardCapability } from "../src/cards/effects/bridge-types.js";
 import {
   BRIDGE_JUDGE_FRAMINGS, bridgeGate, bridgeJudgeIdentity, bridgeJudgeRequest,
-  buildBridgeJudgeEvidence, judgeBridgePair, makeBridgeJudgementRecord, saveBridgeJudgement,
+  buildBridgeJudgeEvidence, judgeBridgePair, makeBridgeJudgementRecord, parseBridgeJudgement, saveBridgeJudgement,
   type BridgeJudgement, type BridgeJudgeClient,
 } from "../src/cards/effects/bridge-judge.js";
 import { bridgeJudgeBilledMicros, bridgeJudgeSpendSummary } from "../src/cards/effects/bridge-judge-ledger.js";
@@ -75,6 +75,81 @@ describe("bridge judgement pipeline", () => {
     } finally { db.close(); }
   });
 
+  it("holds reviews naming outside cards in pros, cons or lock notes", () => {
+    const { db, bridge } = fixture();
+    try {
+      const outside = { ...JSON.parse((db.prepare("SELECT capabilities_json FROM card_capability LIMIT 1").get() as { capabilities_json: string }).capabilities_json), id: 89631139 };
+      outside.card = { ...outside.card, id: outside.id, name: "Blue-Eyes White Dragon" };
+      db.prepare("INSERT INTO card_capability VALUES(?,?,?,?,?)").run(outside.id, JSON.stringify(outside), outside.text_hash, outside.evidence_hash, "fixture");
+      for (const change of [
+        { pros: ["Search Blue-Eyes White Dragon.", "Enables early activation."] },
+        { cons: ["Needs Blue-Eyes White Dragon.", "Requires setting first."] },
+        { lock_note: "Blue-Eyes White Dragon avoids this restriction." },
+        { pros: ['Search "Imaginary Temple Dragon".', "Enables early activation."] },
+        { cons: ['Requires “Imaginary Temple Dragon”.', "Needs both cards."] },
+        { lock_note: "Summon 'Imaginary Temple Dragon' to avoid the restriction." },
+        { lock_note: "Summon ‘Imaginary Temple Dragon’ to avoid the restriction." },
+        { lock_note: "Use ['Imaginary Temple Dragon']." },
+        { lock_note: "Use 'Imaginary Dragon's Temple'." },
+        { lock_note: "Summon:‘Imaginary Temple Dragon’." },
+      ]) {
+        approved(db, bridge, result(change));
+        expect(bridgeGate(db, bridge).state).toBe("review");
+        expect(bridgeGate(db, bridge).judgements.find(row => row.framing === "skeptic")?.result.verdict).toBe("unsure");
+      }
+      approved(db, bridge, result({ lock_note: "Temple of the Kings permits early Trap activation." }));
+      expect(bridgeGate(db, bridge).state).toBe("shown");
+      for (const lock_note of ['Use "Temple of the Kings".', "Use 'Temple of the Kings'.", 'Use “Temple of the Kings”.', 'Use ‘Temple of the Kings’.']) {
+        approved(db, bridge, result({ lock_note }));
+        expect(bridgeGate(db, bridge).state).toBe("shown");
+      }
+      const evidence = buildBridgeJudgeEvidence(db, bridge)!;
+      const quotedCard = { ...evidence.cards[0]!, name: '"A" Cell Recombination Device' };
+      expect(parseBridgeJudgement(result({ line: [quotedCard.name], lock_note: `Use ${quotedCard.name}.` }), { ...evidence, cards: [quotedCard] })?.verdict).toBe("valid");
+    } finally { db.close(); }
+  });
+
+  it("distinguishes ambiguous card titles from ordinary rule explanations", () => {
+    const { db, bridge } = fixture();
+    try {
+      const base = JSON.parse((db.prepare("SELECT capabilities_json FROM card_capability LIMIT 1").get() as { capabilities_json: string }).capabilities_json);
+      for (const [index, name] of ["7", "Return", "NEXT", "Fine", "Jinzo", "Raigeki"].entries()) {
+        const outside = { ...base, id: 20000000 + index, card: { ...base.card, id: 20000000 + index, name } };
+        db.prepare("INSERT INTO card_capability VALUES(?,?,?,?,?)").run(outside.id, JSON.stringify(outside), outside.text_hash, outside.evidence_hash, "fixture");
+      }
+      for (const lock_note of ["Activate Return.", "Search NEXT.", "Search Fine.", 'Use "7".', "The Return card is outside the supplied line.", "Jinzo negates Trap effects.", "Raigeki destroys opposing monsters."]) {
+        approved(db, bridge, result({ lock_note }));
+        expect(bridgeGate(db, bridge).state, lock_note).toBe("review");
+      }
+      for (const lock_note of [
+        "The supplied monster is Level 7.",
+        "Return the supplied material to the hand.",
+        "Use the next effect after setting the Trap.",
+        "The order is fine once the Trap is Set.",
+        "Requires 7 cards.",
+      ]) {
+        approved(db, bridge, result({ lock_note }));
+        expect(bridgeGate(db, bridge).state, lock_note).toBe("shown");
+      }
+    } finally { db.close(); }
+  });
+
+  it("accepts dated model identities and releases failed network calls for a later search", async () => {
+    const { db, bridge } = fixture(); let calls = 0;
+    const client: BridgeJudgeClient = { messages: { async create() {
+      calls++;
+      if (calls <= 2) throw Object.assign(new Error("Network unavailable"), { name: "APIConnectionError" });
+      return { id: `msg_dated_${calls}`, model: "claude-haiku-5-5-20261001", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(result()) }], usage: { input_tokens: 1000, output_tokens: 100 } };
+    } } };
+    try {
+      expect((await judgeBridgePair(db, bridge, { client, env: {}, log: () => {} })).state).toBe("pending");
+      expect(bridgeJudgeSpendSummary(db).reservedMicros).toBe(0);
+      expect((await judgeBridgePair(db, bridge, { client, env: {}, log: () => {} })).state).toBe("shown");
+      expect(calls).toBe(4);
+      expect(bridgeJudgeSpendSummary(db).actualMicros).toBe(300);
+    } finally { db.close(); }
+  });
+
   it("runs independent framed requests through a mocked SDK, bills cached tokens and reuses durable judgements", async () => {
     const { db, bridge } = fixture(); const requests: unknown[] = [];
     const client: BridgeJudgeClient = { messages: { async create(request) {
@@ -97,6 +172,25 @@ describe("bridge judgement pipeline", () => {
       expect(bridgeGate(db, bridge).state).toBe("pending");
       expect((await judgeBridgePair(db, bridge, { client, log: () => {} })).state).toBe("shown");
       expect(requests).toHaveLength(4);
+    } finally { db.close(); }
+  });
+
+  it("releases an aborted live request and retries only on a later invocation", async () => {
+    const { db, bridge } = fixture(); const controller = new AbortController(); let calls = 0;
+    const client: BridgeJudgeClient = { messages: { async create(_request, options) {
+      calls++;
+      if (calls === 1) await new Promise<void>((_resolve, reject) => options!.signal!.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true }));
+      return { id: `msg_abort_${calls}`, model: "claude-haiku-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(result()) }], usage: { input_tokens: 100, output_tokens: 10 } };
+    } } };
+    try {
+      const pending = judgeBridgePair(db, bridge, { client, signal: controller.signal, log: () => {} });
+      controller.abort();
+      expect((await pending).state).toBe("pending");
+      expect(calls).toBe(1);
+      expect(bridgeJudgeSpendSummary(db).reservedMicros).toBe(0);
+      expect((await judgeBridgePair(db, bridge, { client, log: () => {} })).state).toBe("shown");
+      expect(calls).toBe(3);
+      expect(bridgeJudgeSpendSummary(db).actualMicros).toBe(30);
     } finally { db.close(); }
   });
 

@@ -2,9 +2,9 @@ import type { MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resource
 import type Database from "better-sqlite3";
 import * as z from "zod";
 import { BridgeEngine, bridgeLegal } from "./bridge-engine.js";
-import { bridgeHash, printedText } from "./bridge-text.js";
+import { bridgeHash, printedText, quotedNames } from "./bridge-text.js";
 import type { ArchetypeBridge, BridgeFormat, BridgeReason, CardCapability, SummonLock } from "./bridge-types.js";
-import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, settleBridgeJudgeSpend, startBridgeJudgeSpend, type BridgeJudgeSpendSummary, type BridgeJudgeUsage } from "./bridge-judge-ledger.js";
+import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, releaseBridgeJudgeSpend, settleBridgeJudgeSpend, startBridgeJudgeSpend, type BridgeJudgeSpendSummary, type BridgeJudgeUsage } from "./bridge-judge-ledger.js";
 
 export const BRIDGE_JUDGE_MODEL = "claude-haiku-5-5";
 export const BRIDGE_JUDGE_FRAMINGS = ["mechanic", "skeptic"] as const;
@@ -44,7 +44,7 @@ const framings: Record<BridgeJudgeFraming, string> = {
 };
 export const BRIDGE_JUDGE_SYSTEM_PROMPTS = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${instructions}\n${framings[framing]}`])) as Record<BridgeJudgeFraming, string>;
 const outputSchema = z.toJSONSchema(BridgeJudgementSchema);
-export const BRIDGE_JUDGE_IDENTITIES = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${BRIDGE_JUDGE_MODEL}:${framing}:${bridgeHash({ system: BRIDGE_JUDGE_SYSTEM_PROMPTS[framing], schema: outputSchema, parser: 1 })}`])) as Record<BridgeJudgeFraming, string>;
+export const BRIDGE_JUDGE_IDENTITIES = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${BRIDGE_JUDGE_MODEL}:${framing}:${bridgeHash({ system: BRIDGE_JUDGE_SYSTEM_PROMPTS[framing], schema: outputSchema, parser: 2 })}`])) as Record<BridgeJudgeFraming, string>;
 export const BRIDGE_JUDGE_VERSION = bridgeHash(BRIDGE_JUDGE_IDENTITIES);
 // Engine evidence hashes can be shared by different directed pairs. Keep each
 // checked summary/context separate without invalidating an unchanged review.
@@ -98,16 +98,54 @@ export function bridgeJudgeRequest(evidence: BridgeJudgeEvidence, framing: Bridg
   };
 }
 
-export function parseBridgeJudgement(value: unknown, evidence: BridgeJudgeEvidence): BridgeJudgement | null {
+type CardNameIndex = { version: string; pattern: RegExp; titles: Map<string, string> };
+const cardNameIndexes = new WeakMap<Database.Database, CardNameIndex>();
+const ambiguousTitles = new Set(["appropriate", "contact", "exchange", "fine", "honest", "mistake", "multiply", "next", "question", "recall", "recycle", "reload", "return", "shift", "shrink", "supply", "surface", "tuning"]);
+const normalizedName = (name: string) => name.normalize("NFKC").replaceAll("’", "'").toLowerCase();
+const escapeName = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function cardNameIndex(db: Database.Database): CardNameIndex {
+  const version = (db.prepare("SELECT source_version FROM bridge_graph WHERE id=1").get() as { source_version: string } | undefined)?.source_version ?? "";
+  let index = cardNameIndexes.get(db);
+  if (!index || index.version !== version) {
+    const names = (db.prepare("SELECT json_extract(capabilities_json,'$.card.name') AS name FROM card_capability").all() as { name: string }[])
+      .map(row => row.name.normalize("NFKC").replaceAll("’", "'")).sort((a, b) => b.length - a.length);
+    const pattern = new RegExp(`(?<![a-z0-9])(?:${names.map(name => escapeName(normalizedName(name))).join("|") || "(?!)"})(?![a-z0-9])`, "gi");
+    index = { version, pattern, titles: new Map(names.map(name => [normalizedName(name), name])) }; cardNameIndexes.set(db, index);
+  }
+  return index;
+}
+
+export function parseBridgeJudgement(value: unknown, evidence: BridgeJudgeEvidence, db?: Database.Database): BridgeJudgement | null {
   const parsed = BridgeJudgementSchema.safeParse(value);
   if (!parsed.success) return null;
   const result = parsed.data;
   if (result.line.some(name => !evidence.cards.some(card => card.name === name))) return { ...result, verdict: "invalid" };
+  const allowed = new Set(evidence.cards.map(card => normalizedName(card.name)));
+  const text = [...result.pros, ...result.cons, result.lock_note].join("\n");
+  const original = text.normalize("NFKC").replaceAll("’", "'");
+  const normalized = original.toLowerCase();
+  const index = db ? cardNameIndex(db) : undefined;
+  const mentioned = index ? [...original.matchAll(index.pattern)] : [];
+  if (mentioned.some(match => {
+    const name = normalizedName(match[0]);
+    if (allowed.has(name)) return false;
+    if (/\s/.test(name)) return true;
+    // Short titles can also be ordinary rule prose. Quoted names are checked below.
+    if (/^\d+$/.test(name) || match[0] !== index!.titles.get(name)) return false;
+    if (!ambiguousTitles.has(name)) return true;
+    const before = original.slice(0, match.index), after = original.slice(match.index! + match[0].length);
+    return /\b(?:activate|search|add|summon|set|send|banish|discard|tribute|use|requires?|needs?)(?: (?:an?|the|your|another|card named))*\s+$/i.test(before)
+      || /^\s*(?:card|effect|allows?|lets?|provides?|adds?|searches?|summons?|avoids?|enables?)\b/i.test(after);
+  })) return { ...result, verdict: "unsure" };
+  const supplied = [...allowed].sort((a, b) => b.length - a.length).map(escapeName).join("|");
+  const remaining = supplied ? normalized.replace(new RegExp(`(?<![a-z0-9])(?:${supplied})(?![a-z0-9])`, "g"), " ") : normalized;
+  const quoted = [...quotedNames(remaining), ...[...remaining.matchAll(/(?<![a-z0-9])['‘]([^\n]+?)['’](?![a-z0-9])/g)].map(match => match[1]!)];
+  if (quoted.some(name => name.trim().length > 0 && !allowed.has(normalizedName(name)))) return { ...result, verdict: "unsure" };
   return result;
 }
 
-export function makeBridgeJudgementRecord(evidence: BridgeJudgeEvidence, framing: BridgeJudgeFraming, value: unknown, at = new Date()): BridgeJudgementRecord {
-  const result = parseBridgeJudgement(value, evidence);
+export function makeBridgeJudgementRecord(evidence: BridgeJudgeEvidence, framing: BridgeJudgeFraming, value: unknown, at = new Date(), db?: Database.Database): BridgeJudgementRecord {
+  const result = parseBridgeJudgement(value, evidence, db);
   if (!result) throw new Error("Invalid bridge judgement");
   return { evidence_hash: evidence.evidence_hash, input_hash: evidence.input_hash, judge: bridgeJudgeIdentity(evidence, framing), framing, model: BRIDGE_JUDGE_MODEL, result, created_at: at.toISOString() };
 }
@@ -131,7 +169,7 @@ export interface BridgeGate { state: "shown" | "review" | "invalid" | "pending";
 export function bridgeGate(db: Database.Database, bridge: ArchetypeBridge): BridgeGate {
   const evidence = buildBridgeJudgeEvidence(db, bridge);
   if (!evidence) return { state: "invalid", judgements: [], reason: "Deterministic evidence no longer passes." };
-  const judgements = readBridgeJudgements(db, bridge.evidence_hash).filter(row => row.input_hash === evidence.input_hash).map(row => ({ ...row, result: parseBridgeJudgement(row.result, evidence)! }));
+  const judgements = readBridgeJudgements(db, bridge.evidence_hash).filter(row => row.input_hash === evidence.input_hash).map(row => ({ ...row, result: parseBridgeJudgement(row.result, evidence, db)! }));
   if (db.prepare("SELECT 1 FROM bridge_feedback WHERE evidence_hash=? AND resolved_at IS NULL GROUP BY evidence_hash HAVING count(DISTINCT actor_hash)>=2").get(bridge.evidence_hash)) return { state: "review", judgements, reason: "Multiple players reported this bridge." };
   if (!BRIDGE_JUDGE_FRAMINGS.every(framing => judgements.some(row => row.framing === framing))) return { state: "pending", judgements };
   if (judgements.every(row => row.result.verdict === "invalid")) return { state: "invalid", judgements };
@@ -175,18 +213,23 @@ export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBr
     const id = reserveBridgeJudgeSpend(db, { requestKey: bridgeHash([evidence.input_hash, BRIDGE_JUDGE_IDENTITIES[framing]]), count: 1, monthlyUsd: env.BRIDGE_JUDGE_MONTHLY_USD, now: options.now?.() });
     if (!id) continue;
     startBridgeJudgeSpend(db, id);
+    let receivedResponse = false;
     try {
       const reply = await client.messages.create(bridgeJudgeRequest(evidence, framing), { signal: options.signal });
-      if (reply.model !== BRIDGE_JUDGE_MODEL || !/^msg_[a-zA-Z0-9_]+$/.test(reply.id)) throw new Error("Invalid bridge judge response identity");
+      receivedResponse = true;
+      if (!reply.model.startsWith(BRIDGE_JUDGE_MODEL) || !/^msg_[a-zA-Z0-9_]+$/.test(reply.id)) throw new Error("Invalid bridge judge response identity");
       // Billing is independent of accepting a response. Truncated/invalid JSON still costs tokens.
       settleBridgeJudgeSpend(db, id, reply.usage, false);
       let result: BridgeJudgement | null = null;
       if (reply.stop_reason === "end_turn") {
-        try { result = parseBridgeJudgement(JSON.parse(reply.content.filter(part => part.type === "text").map(part => part.text ?? "").join("")), evidence); } catch { /* Malformed output stays in review. */ }
+        try { result = parseBridgeJudgement(JSON.parse(reply.content.filter(part => part.type === "text").map(part => part.text ?? "").join("")), evidence, db); } catch { /* Malformed output stays in review. */ }
       }
       result ??= { verdict: "unsure", grade: "risky", pros: ["The candidate passed the deterministic evidence checks.", "The supplied card texts are available for review."], cons: ["The independent review returned no usable verdict.", "The line needs review before it can be shown."], lock_note: "No reliable lock assessment was returned.", line: [evidence.cards[0]!.name], format_ok: false };
-      saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, result, options.now?.()));
-    } catch { /* Uncertain paid submissions retain their reservation and cannot be retried. */ }
+      saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, result, options.now?.(), db));
+    } catch (error) {
+      const networkFailure = error instanceof Error && /Abort|Timeout|APIConnection|Fetch|TypeError/.test(error.name);
+      if (!receivedResponse && (networkFailure || options.signal?.aborted)) releaseBridgeJudgeSpend(db, id, true);
+    }
     finally { log(bridgeJudgeSpendSummary(db, id)); }
   }
   return bridgeGate(db, bridge);

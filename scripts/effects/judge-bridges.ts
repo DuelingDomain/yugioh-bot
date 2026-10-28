@@ -163,7 +163,7 @@ export function exportBridgeBatchJudgements(db: Database.Database, directory: st
   mkdirSync(directory, { recursive: true }); writeFileSync(`${path}.next`, compressed); renameSync(`${path}.next`, path); return rows.length;
 }
 
-function resultsFor(entry: Reservation, rows: unknown[]) {
+function resultsFor(entry: Reservation, rows: unknown[], db?: Database.Database) {
   const expected = new Map(entry.requests.map(request => [request.customId, request])), seen = new Set<string>(), accepted: BridgeJudgementRecord[] = [];
   let actualMicros = 0;
   for (const raw of rows) {
@@ -172,17 +172,17 @@ function resultsFor(entry: Reservation, rows: unknown[]) {
     seen.add(row.custom_id);
     if (["errored", "canceled", "expired"].includes(row.result.type)) continue;
     const message = row.result.message, usage = message?.usage;
-    if (row.result.type !== "succeeded" || message?.model !== BRIDGE_JUDGE_MODEL || !usage || !Number.isSafeInteger(usage.input_tokens) || usage.input_tokens < 0 || !Number.isSafeInteger(usage.output_tokens) || usage.output_tokens < 0 || usage.output_tokens > MAX_OUTPUT_TOKENS
+    if (row.result.type !== "succeeded" || !message?.model?.startsWith(BRIDGE_JUDGE_MODEL) || !usage || !Number.isSafeInteger(usage.input_tokens) || usage.input_tokens < 0 || !Number.isSafeInteger(usage.output_tokens) || usage.output_tokens < 0 || usage.output_tokens > MAX_OUTPUT_TOKENS
       || [usage.cache_creation_input_tokens ?? 0, usage.cache_read_input_tokens ?? 0].some(value => !Number.isSafeInteger(value) || value < 0)
       || usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) > MAX_INPUT_TOKENS) throw new Error("Invalid billed bridge Batch usage");
     actualMicros += bridgeJudgeBilledMicros(usage, true);
     const evidence = entry.evidence[request.inputHash]!;
     let parsed = null;
     try {
-      if (message.stop_reason === "end_turn" && Array.isArray(message.content)) parsed = parseBridgeJudgement(JSON.parse(message.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join("")), evidence);
+      if (message.stop_reason === "end_turn" && Array.isArray(message.content)) parsed = parseBridgeJudgement(JSON.parse(message.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join("")), evidence, db);
     } catch { /* Malformed output stays in review. */ }
     parsed ??= { verdict: "unsure" as const, grade: "risky" as const, pros: ["The deterministic evidence checks passed.", "The supplied card texts remain available."], cons: ["This review returned no usable verdict.", "The line needs review before it can be shown."], lock_note: "The review did not settle the lock order.", line: [evidence.cards[0]!.name], format_ok: false };
-    accepted.push({ ...makeBridgeJudgementRecord(evidence, request.framing, parsed, new Date(entry.createdAt)), judge: request.judge });
+    accepted.push({ ...makeBridgeJudgementRecord(evidence, request.framing, parsed, new Date(entry.createdAt), db), judge: request.judge });
   }
   if (seen.size !== expected.size) throw new Error("Incomplete Batch results; reservation remains held");
   if (actualMicros > entry.reservedMicros) throw new Error("Bridge Batch usage exceeds reservation");
@@ -213,7 +213,7 @@ export async function runBridgeBatchJudging(options: {
     if (!options.client) throw new Error("Live bridge judging requires a Batch client");
     for (const entry of ledger.reservations) {
       if (entry.state !== "submitted" || (await options.client.retrieve(entry.batchId!)).processing_status !== "ended") continue;
-      const outcome = resultsFor(entry, await options.client.results(entry.batchId!));
+      const outcome = resultsFor(entry, await options.client.results(entry.batchId!), options.db);
       Object.assign(entry, outcome, { state: "settled", evidence: {} });
       ledger.months[entry.month] = (ledger.months[entry.month] ?? 0) + outcome.actualMicros;
       await persist(); report.collected += entry.requests.length; report.runSpendUsd += outcome.actualMicros / 1_000_000;
