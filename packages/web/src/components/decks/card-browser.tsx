@@ -1,12 +1,13 @@
 "use client";
 
 import { PrereleaseLabel } from "@/components/prerelease-label";
-import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
 import { AlertTriangle, ArrowDownWideNarrow, ArrowUpNarrowWide, Minus, LayoutGrid, Link2, List, Plus, RotateCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { cardLimit, type CardArchetype, type CardQuery, type CardQueryResult, type DeckCardInfo, type DuelMode } from "@yugidraft/shared/duels";
 import { mayReadEffect } from "@yugidraft/shared/cards/effects/capability";
 import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
-import { HowItPlays } from "@/components/effect-search/how-it-plays";
+import { HowItPlays, type HookFind } from "@/components/effect-search/how-it-plays";
+import { HookDrill } from "@/components/effect-search/hook-drill";
 import { useDeckSuggestionsEnabled } from "@/components/effect-search/capability-context";
 import { IntentHeading, RelaxHints } from "@/components/effect-search/search-intent";
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
@@ -15,7 +16,7 @@ import { artCountLabel } from "@/components/artwork/artwork-picker";
 import { ArtChip } from "./art-chip";
 import { DeckButton, DeckSelect, DeckSegmented } from "./controls";
 import { queryDeckCards } from "./api";
-import { InsightsDisabledError, fetchGuide, fetchHookCards, fetchWorksWith, resolveInsightCards, type InsightCard } from "./insights-api";
+import { InsightsDisabledError, fetchHookCards, fetchWorksWith, resolveInsightCards, type InsightCard } from "./insights-api";
 import { useTileLongPress } from "./tile-long-press";
 import { CardArt } from "./card-art";
 import { CardFilters } from "./card-filters";
@@ -45,6 +46,8 @@ export type BrowserCard = DeckCardInfo & { altArtCount?: number; reason?: string
 
 type Results = Pick<CardQueryResult, "effectSearchEnabled" | "reading" | "effectHits" | "effectTotal" | "profile" | "relax"> & {
   key: string;
+  /** A hook's list is cut at the best few; more cards fit than are shown. */
+  capped?: boolean;
   cards: BrowserCard[];
   total: number;
   error: string | null;
@@ -54,9 +57,20 @@ type Results = Pick<CardQueryResult, "effectSearchEnabled" | "reading" | "effect
 export type BrowserPartner = {
   code: number;
   name: string;
-  /** The list shows the cards that fit one hook of an archetype's "How it plays" panel, not the partners of a card. */
-  hook?: { archetype: string; index: number };
+  /**
+   * The list shows the cards that fit one hook of an archetype's "How it plays" panel, not the partners of a card.
+   * `name` is then what the hook finds, for the breadcrumb: the kind of card, or the hook's label.
+   */
+  hook?: { archetype: string; index: number; find: HookFind; /** The archetype's own cards are in the list. */ members: boolean };
 };
+
+/** The drill-down for one hook of a guide, asked one way. */
+export function hookPartner(guide: ArchetypeGuide, index: number, find: HookFind): BrowserPartner {
+  const hook = guide.hooks[index];
+  return { code: -(index + 1), name: (find === "is" ? hook?.finds?.is?.many : undefined) ?? hook?.label ?? guide.archetype, hook: { archetype: guide.archetype, index, find, members: false } };
+}
+
+const partnerKey = (partner: BrowserPartner | null) => partner ? `w${partner.code}${partner.hook ? `:${partner.hook.archetype}:${partner.hook.find}:${partner.hook.members ? "all" : "out"}` : ""}:` : "";
 
 /** Draft deck mode: the list holds only the player's pool, searched in the browser. */
 export type BrowserPool = {
@@ -126,7 +140,7 @@ export function CardBrowser({
   /** The deck, for the Suggestions rows that show while the search box is empty. Not given: no rows. */
   suggest?: BrowserSuggest;
 }) {
-  const key = `${mode}:${genesys}:${suggest?.deckMaster??""}:${partner ? `w${partner.code}:` : ""}${queryKey(query)}`;
+  const key = `${mode}:${genesys}:${suggest?.deckMaster??""}:${partnerKey(partner)}${queryKey(query)}`;
   const [results, setResults] = useState<Results | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -152,6 +166,15 @@ export function CardBrowser({
   partnerRef.current = onPartnerChange;
   // The ranked partners of the last card, so a filter or a typed letter narrows the same list without asking again.
   const partnersCache = useRef<{ code: number; scope: string; cards: InsightCard[] } | null>(null);
+  // The view a hook drill-down came from: query, filters, results and scroll, so Back returns to exactly that.
+  const cameFrom = useRef<{ query: CardQuery; results: Results | null; key: string } | null>(null);
+  const cameScroll = useRef(0);
+  const drilling = useRef(false);
+  drilling.current = partner?.hook != null;
+  const restoredKey = useRef<string | null>(null);
+  const restoreScroll = useRef<number | null>(null);
+  // The row a drill-down was opened from ("2:is"), so Back can put the keyboard focus on it again.
+  const cameButton = useRef<string | null>(null);
   const press = useTileLongPress<DeckCardInfo>((card) => onWorksWith?.(card));
   // Suggestions need the server flag; a 404 from the server turns them off for this page.
   const [suggestionsDenied, setSuggestionsDenied] = useState(false);
@@ -170,18 +193,25 @@ export function CardBrowser({
     const controller = new AbortController();
     moreController.current?.abort();
     setLoadingMore(false);
+    // Back put the saved results in place for this very key; asking again would only make them flicker.
+    const restored = restoredKey.current;
+    restoredKey.current = null;
+    if (restored === key) {
+      setLoading(false);
+      return;
+    }
     if (partner) {
       setLoading(true);
       const timer = window.setTimeout(() => {
         void (async () => {
           try {
-            const scope = `${mode}|${genesys}|${poolCards ? poolCards.length : ""}${partner.hook ? `|${partner.hook.archetype}#${partner.hook.index}` : ""}`;
+            const scope = `${mode}|${genesys}|${poolCards ? poolCards.length : ""}${partner.hook ? `|${partner.hook.archetype}#${partner.hook.index}:${partner.hook.find}:${partner.hook.members}` : ""}`;
             let ranked: InsightCard[];
             const cached = partnersCache.current;
             if (cached && cached.code === partner.code && cached.scope === scope) ranked = cached.cards;
             else {
               const scopeOptions = { mode, genesys, ...(poolCards ? { pool: poolCards.map((card) => card.canonicalPasscode ?? card.code) } : {}), limit: WORKS_WITH_LIMIT };
-              const hits = partner.hook ? await fetchHookCards(partner.hook.archetype, partner.hook.index, scopeOptions, controller.signal) : await fetchWorksWith(partner.code, scopeOptions, controller.signal);
+              const hits = partner.hook ? await fetchHookCards(partner.hook.archetype, partner.hook.index, partner.hook.find, partner.hook.members, scopeOptions, controller.signal) : await fetchWorksWith(partner.code, scopeOptions, controller.signal);
               ranked = (await resolveInsightCards(hits, { mode }, controller.signal)).filter((card) => card.code !== partner.code);
               if (controller.signal.aborted) return;
               partnersCache.current = { code: partner.code, scope, cards: ranked };
@@ -190,7 +220,7 @@ export function CardBrowser({
             const kept = new Set(queryPoolCards(ranked, latest.current, (code) => archetypesRef.current.find((item) => item.codes.includes(code))?.name).map((card) => card.code));
             const found = ranked.filter((card) => kept.has(card.code));
             capabilityRef.current?.(true);
-            setResults({ key, cards: found, total: found.length, error: null, effectSearchEnabled: true });
+            setResults({ key, cards: found, total: found.length, error: null, effectSearchEnabled: true, capped: partner.hook != null && ranked.length >= WORKS_WITH_LIMIT });
             setLoading(false);
             dropHover();
             onCatalogRef.current(ranked);
@@ -202,7 +232,7 @@ export function CardBrowser({
               partnerRef.current?.(null);
               return;
             }
-            setResults({ key, cards: [], total: 0, error: `Could not find cards that ${partner.hook ? "fit" : "work with"} ${partner.name}.` });
+            setResults({ key, cards: [], total: 0, error: partner.hook ? "Could not find these cards." : `Could not find cards that work with ${partner.name}.` });
             setLoading(false);
             dropHover();
           }
@@ -259,6 +289,26 @@ export function CardBrowser({
     };
   }, [key, retry, poolCards]);
 
+  // Until a hook drill-down opens, remember the view it would come back to. It reads the last render without a partner.
+  useEffect(() => {
+    if (!partner) cameFrom.current = { query, results, key };
+  }, [partner, query, results, key]);
+  useLayoutEffect(() => {
+    const box = scrollRef.current;
+    const top = restoreScroll.current;
+    // Back saved a view for one key. Another key means the saved view is not coming back, so it is dropped.
+    if (restoredKey.current !== null && restoredKey.current !== key) { restoredKey.current = null; restoreScroll.current = null; return; }
+    if (top == null || !box) return;
+    restoreScroll.current = null;
+    // The list may still be growing (tiles, images), so ask again for a few frames until the position holds.
+    let frames = 0;
+    const put = () => {
+      box.scrollTop = top;
+      if (Math.abs(box.scrollTop - top) > 1 && frames++ < 6) requestAnimationFrame(put);
+    };
+    put();
+  }, [key]);
+
   const cards = results?.key === key ? results.cards : [];
   const total = results?.key === key ? results.total : 0;
   const effectCards = results?.key === key ? results.effectHits ?? [] : [];
@@ -303,28 +353,41 @@ export function CardBrowser({
   const chips = useMemo(() => filterChips(genesys ? { ...query, excludeGenesysForbidden: false } : query, archetypes), [query, archetypes, genesys]);
   const stale = loading || (results != null && results.key !== key);
 
-  // "How it plays": from the first page of an archetype search, or loaded by name while a hook is shown.
-  const hookArchetype = partner?.hook?.archetype;
-  const [hookGuide, setHookGuide] = useState<ArchetypeGuide | null>(null);
-  useEffect(() => {
-    if (!hookArchetype) return;
-    const controller = new AbortController();
-    void fetchGuide([hookArchetype], controller.signal).then((found) => { if (!controller.signal.aborted) setHookGuide(found); }, () => undefined);
-    return () => controller.abort();
-  }, [hookArchetype]);
+  // "How it plays": from the first page of an archetype search. It stays mounted, hidden, while a hook drill-down is open,
+  // so Back finds its plan and its rows as they were left.
   const intent = !partner && results?.key === key ? results.reading?.query?.intent : undefined;
   const searchGuide = !partner && results?.key === key ? results.profile ?? null : null;
-  const shownGuide = hookArchetype ? (hookGuide && hookGuide.archetype.toLowerCase() === hookArchetype.toLowerCase() ? hookGuide : null) : searchGuide;
-  function openHook(index: number) {
+  const [heldGuide, setHeldGuide] = useState<ArchetypeGuide | null>(null);
+  useEffect(() => { if (searchGuide) setHeldGuide(searchGuide); }, [searchGuide]);
+  const hookOpen = partner?.hook != null;
+  const shownGuide = hookOpen ? heldGuide : searchGuide;
+  function openHook(index: number, find: HookFind) {
     if (!shownGuide) return;
-    // The active row is a switch: pressing it again drops the hook.
-    if (partner?.hook?.index === index) onPartnerChange?.(null);
-    else {
-      // The search text named the archetype; the cards that fit its hook would not match it. Other filters stay.
-      onQueryChange({ ...query, text: "", effectOmit: [] });
-      onPartnerChange?.({ code: -(index + 1), name: shownGuide.hooks[index]?.label ?? shownGuide.archetype, hook: { archetype: shownGuide.archetype, index } });
-    }
+    // The search text named the archetype; the cards that fit its hook would not match it. Other filters stay.
+    onQueryChange({ ...query, text: "", effectOmit: [] });
+    cameButton.current = `${index}:${find}`;
+    onPartnerChange?.(hookPartner(shownGuide, index, find));
   }
+  /** Back from a hook drill-down: the same query, filters, results and scroll as before it. */
+  function closeHook() {
+    const from = cameFrom.current;
+    if (from?.results && from.results.key === from.key) {
+      restoredKey.current = from.key;
+      restoreScroll.current = cameScroll.current;
+      setResults(from.results);
+      setLoading(false);
+    }
+    if (from) onQueryChange(from.query);
+    onPartnerChange?.(null);
+  }
+
+  // The rows are shown again once the drill-down closes, so the row that opened it can take the focus back.
+  useLayoutEffect(() => {
+    if (hookOpen || !cameButton.current) return;
+    const row = scrollRef.current?.querySelector<HTMLElement>(`[data-hook="${cameButton.current}"]`);
+    cameButton.current = null;
+    row?.focus({ preventScroll: true });
+  }, [hookOpen]);
 
   const worksEnabled = onWorksWith != null && results?.effectSearchEnabled === true;
 
@@ -345,7 +408,8 @@ export function CardBrowser({
 
   /** The title above the first card of a group: partners of a card, or the effect hits under the name results. */
   function heading(position: number) {
-    if (partner) return position === 0 ? <li className={styles.effectHeading}><h3>{partner.hook ? "Fits" : "Works with"} {partner.name}</h3><span>{total.toLocaleString("en-US")} {total === 1 ? "card" : "cards"}</span></li> : null;
+    if (partner?.hook) return null;
+    if (partner) return position === 0 ? <li className={styles.effectHeading}><h3>Works with {partner.name}</h3><span>{total.toLocaleString("en-US")} {total === 1 ? "card" : "cards"}</span></li> : null;
     if (position !== cards.length || effectCards.length === 0) return null;
     // "Cards like X" heads its own group; "How to beat X" already heads the page, so its cards are "Answers".
     if (intent?.kind === "similar") return <li className={styles.effectHeading}><IntentHeading intent={intent} testId="intent-group-heading" /><span>{effectTotal.toLocaleString("en-US")} matches</span></li>;
@@ -394,8 +458,9 @@ export function CardBrowser({
   const countText = results?.error
     ? "Search failed"
     : results == null
-      ? partner ? `Finding cards that ${partner.hook ? "fit" : "work with"} ${partner.name}…` : pool ? "Loading your pool…" : "Searching…"
-      : partner ? `${total.toLocaleString("en-US")} ${partner.hook ? (total === 1 ? "card fits" : "cards fit") : (total === 1 ? "card works" : "cards work")}${partner.hook ? "" : " with"} ${partner.name}`
+      ? partner ? partner.hook ? "Finding cards…" : `Finding cards that work with ${partner.name}…` : pool ? "Loading your pool…" : "Searching…"
+      : partner?.hook ? `${total.toLocaleString("en-US")} ${total === 1 ? "card" : "cards"}${results.capped ? ", best matches first" : ""}`
+      : partner ? `${total.toLocaleString("en-US")} ${total === 1 ? "card works" : "cards work"} with ${partner.name}`
       : `${displayedTotal.toLocaleString("en-US")} ${displayedTotal === 1 ? "card" : "cards"}${pool ? " in your pool" : ""}`;
 
   return (
@@ -488,11 +553,14 @@ export function CardBrowser({
           </div>
         </div>
 
-        {partner ? (
+        {partner?.hook ? (
+          <HookDrill archetype={partner.hook.archetype} title={partner.name} members={partner.hook.members} onBack={closeHook}
+            onMembers={(members) => onPartnerChange?.({ ...partner, hook: { ...partner.hook!, members } })} />
+        ) : partner ? (
           <ul className={styles["de-chips"]} aria-label="Works with">
             <li>
-              <button type="button" className={cn("chip", "chip-gold", styles.chipButton)} aria-label={`Remove ${partner.hook ? "Fits" : "Works with"} ${partner.name}`} onClick={() => onPartnerChange?.(null)}>
-                <Link2 size={12} aria-hidden />{partner.hook ? "Fits" : "Works with"}: {partner.name}<X size={12} aria-hidden />
+              <button type="button" className={cn("chip", "chip-gold", styles.chipButton)} aria-label={`Remove Works with ${partner.name}`} onClick={() => onPartnerChange?.(null)}>
+                <Link2 size={12} aria-hidden />Works with: {partner.name}<X size={12} aria-hidden />
               </button>
             </li>
           </ul>
@@ -523,7 +591,7 @@ export function CardBrowser({
       </div>
 
       <div className={styles.body}>
-        <div ref={scrollRef} className={styles.results} aria-busy={stale || undefined}>
+        <div ref={scrollRef} className={styles.results} aria-busy={stale || undefined} onScroll={(event) => { if (!drilling.current) cameScroll.current = event.currentTarget.scrollTop; }}>
           {suggest && suggestionsOn ? (
             <SuggestionsPanel
               active={!partner && query.text.trim() === "" && (!pool || poolCards != null)}
@@ -545,7 +613,7 @@ export function CardBrowser({
 
           {!partner && results?.key === key && !stale && !results.error && total > 0 && effectTotal === 0 && results.relax?.length ? <div className={styles.guide}><RelaxHints relax={results.relax} onRemove={(chip) => onQueryChange({ ...query, effectOmit: [...new Set([...(query.effectOmit ?? []), chip])] })} /></div> : null}
           {intent?.kind === "counters" && !results?.error && !stale ? <div className={styles.guide}><IntentHeading intent={intent} count={effectTotal} /></div> : null}
-          {shownGuide && !results?.error ? <div className={styles.guide}><HowItPlays guide={shownGuide} activeHook={partner?.hook?.index ?? null} onHook={onPartnerChange ? openHook : undefined} /></div> : null}
+          {shownGuide && !results?.error ? <div className={styles.guide} hidden={hookOpen}><HowItPlays guide={shownGuide} onHook={onPartnerChange ? openHook : undefined} /></div> : null}
 
           {results?.error ? (
             <div className="banner banner-bad" role="alert">
@@ -557,9 +625,12 @@ export function CardBrowser({
             </div>
           ) : results != null && total === 0 && effectTotal === 0 && !stale ? (
             <div className={styles.none}>
-              {results.relax?.length && !partner ? <RelaxHints relax={results.relax} onRemove={(chip) => onQueryChange({ ...query, effectOmit: [...new Set([...(query.effectOmit ?? []), chip])] })} /> : <p>{partner ? `No card that ${partner.hook ? "fits" : "works with"} ${partner.name} fits these filters.` : "No cards match."}</p>}
+              {results.relax?.length && !partner ? <RelaxHints relax={results.relax} onRemove={(chip) => onQueryChange({ ...query, effectOmit: [...new Set([...(query.effectOmit ?? []), chip])] })} /> : <p>{partner ? partner.hook ? chips.length > 0 ? "No card here fits these filters." : partner.hook.members ? "No card fits this." : `No card outside ${partner.hook.archetype} fits this.` : `No card that works with ${partner.name} fits these filters.` : "No cards match."}</p>}
               {chips.length > 0 ? (
                 <DeckButton size="sm" kind="quiet" onClick={() => onQueryChange(clearFilters(query))}>Clear filters</DeckButton>
+              ) : null}
+              {partner?.hook && !partner.hook.members ? (
+                <DeckButton size="sm" kind="quiet" onClick={() => onPartnerChange?.({ ...partner, hook: { ...partner.hook!, members: true } })}>Show all cards</DeckButton>
               ) : null}
             </div>
           ) : (

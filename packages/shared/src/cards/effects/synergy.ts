@@ -28,7 +28,7 @@ const Things = z.object({
   level_min: z.int(),
   level_max: z.int(),
 });
-type Things = z.infer<typeof Things>;
+export type Things = z.infer<typeof Things>;
 
 const Happening = z.object({
   verbs: z.array(z.enum(keys(VERBS))).describe("Any one of these counts"),
@@ -153,6 +153,47 @@ export function readHook(value: unknown, archetype: string, checkedElsewhere = f
   const particular = described && (described.subtypes.length || described.types.length || described.attributes.length || described.level_min || described.level_max);
   if (!does && !reactsTo && !supports && !phrases.length && !particular && !checkedElsewhere) return `"${label}" says nothing a card can be checked against`;
   return { label, why: text(given.why), does, reacts_to: reactsTo, card: described, supports, phrases };
+}
+
+/** The words a player uses for a card subtype; the rest read as they are written. */
+const SUBTYPE_WORD: Partial<Record<(typeof SUBTYPES)[number], string>> = { quick_play: "Quick-Play" };
+const CLASS_GROUPS: readonly (readonly (typeof SUBTYPES)[number][])[] = [
+  ["normal", "effect"], ["ritual", "fusion", "synchro", "xyz", "link"], ["field", "equip", "continuous", "quick_play", "counter"],
+];
+const subtypeWord = (subtype: (typeof SUBTYPES)[number]) => SUBTYPE_WORD[subtype] ?? subtype[0]!.toUpperCase() + subtype.slice(1);
+
+/** What a card must be, in a few plain words: "Level 7+ LIGHT Fiend monsters". `plural` false says "monster" for "monsters". */
+export function describeKind(things: Things, plural = true): string {
+  const level = things.level_min && things.level_max
+    ? things.level_min === things.level_max ? `Level ${things.level_min}` : `Level ${things.level_min}-${things.level_max}`
+    : things.level_min ? `Level ${things.level_min}+` : things.level_max ? `Level ${things.level_max} or lower` : "";
+  // Alternatives of one class read "Synchro/Xyz"; properties that combine read one after the other.
+  const grouped = new Set<string>();
+  const words = CLASS_GROUPS.flatMap((group) => {
+    const chosen = group.filter((subtype) => things.subtypes.includes(subtype));
+    chosen.forEach((subtype) => grouped.add(subtype));
+    return chosen.length ? [chosen.map(subtypeWord).join("/")] : [];
+  });
+  const rest = things.subtypes.filter((subtype) => !grouped.has(subtype)).map(subtypeWord);
+  const kinds = new Set<string>(things.kinds);
+  const monster = kinds.size === 1 && kinds.has("monster") || (!kinds.size && Boolean(level || things.types.length || things.attributes.length));
+  const spellTrap = [...kinds].filter((kind) => kind === "spell" || kind === "trap");
+  const noun = monster ? "monster" : spellTrap.length && spellTrap.length === kinds.size ? `${spellTrap.map((kind) => kind[0]!.toUpperCase() + kind.slice(1)).join("/")} card` : "card";
+  const suffix = plural ? `${noun}s` : noun;
+  return [level, things.attributes.join("/"), things.types.join("/"), ...(monster ? [...rest, ...words] : [...words, ...rest]), suffix].filter(Boolean).join(" ");
+}
+
+/**
+ * What a click on a hook can look for. "is": cards that are this kind of card, from the hook's `card`.
+ * "support": cards that help, from what they do, react to, support or print. A hook may have both.
+ * A kind of card that is only "monster" or "Spell" says too little to search for unless it is all the hook has.
+ */
+export function hookFinds(hook: Hook): { is: boolean; support: boolean } {
+  const card = hook.card;
+  const support = Boolean(hook.does || hook.reacts_to || hook.supports || hook.phrases.length);
+  const described = card != null && !isAnything(card);
+  const particular = described && Boolean(card.subtypes.length || card.types.length || card.attributes.length || card.level_min || card.level_max);
+  return { is: described && (particular || !support), support };
 }
 
 /**

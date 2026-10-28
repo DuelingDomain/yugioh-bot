@@ -78,9 +78,12 @@ export async function fetchWorksWith(passcode: number, scope: InsightScope, sign
   return (await postInsights({ op: "worksWith", passcode, ...scopeBody(scope) }, signal)).cards;
 }
 
-/** Cards outside an archetype that fit one hook of its "How it plays" panel. */
-export async function fetchHookCards(archetype: string, hook: number, scope: InsightScope, signal?: AbortSignal): Promise<RankedInsightCard[]> {
-  return (await postInsights({ op: "hookSearch", archetype, hook, ...scopeBody(scope) }, signal)).cards;
+/**
+ * Cards that fit one hook of an archetype's "How it plays" panel: cards that are this kind of card ("is") or that
+ * help the deck ("support"). The archetype's own cards are left out unless `members` is true.
+ */
+export async function fetchHookCards(archetype: string, hook: number, find: "is" | "support", members: boolean, scope: InsightScope, signal?: AbortSignal): Promise<RankedInsightCard[]> {
+  return (await postInsights({ op: "hookSearch", archetype, hook, find, ...(members ? { members: true } : {}), ...scopeBody(scope) }, signal)).cards;
 }
 
 const guides = new Map<string, Promise<ArchetypeGuide | null>>();

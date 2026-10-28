@@ -1,4 +1,4 @@
-import type { CardInsightFormat, CardInsightOptions } from "@yugidraft/shared/services";
+import type { CardInsightFormat, CardInsightOptions, HookSearchOptions } from "@yugidraft/shared/services";
 import { MAX_HOOKS, isCardEra, isReleasedRange, type CardEra } from "@yugidraft/shared/cards/effects";
 import type { DuelDeck } from "@yugidraft/shared/duels";
 import { DUEL_BANLIST_OPTIONS } from "@yugidraft/shared/duels";
@@ -16,7 +16,7 @@ export type CardInsightRequest =
   | { op: "read"; text: string }
   | ({ op: "effectSearch"; text: string; deck?: DuelDeck } & Options)
   | ({ op: "worksWith"; passcode: number } & Options)
-  | ({ op: "hookSearch"; archetype: string; hook: number } & Options)
+  | ({ op: "hookSearch"; archetype: string; hook: number } & Options & HookSearchOptions)
   | { op: "guide"; archetypes: string[] }
   | ({ op: "suggest"; deck: DuelDeck | number[] } & Options)
   | ({ op: "suggestRows"; deck: DuelDeck } & Options)
@@ -44,7 +44,7 @@ export function parseCardInsightRequest(value: unknown): CardInsightRequest | nu
   const fields: Record<string, string[]> = {
     summary: ["passcode"], read: ["text"],
     effectSearch: ["text", ...optionKeys, "exact", "omittedChips", "deck", "banlist", "exclude"],
-    worksWith: ["passcode", ...optionKeys], hookSearch: ["archetype", "hook", ...optionKeys], guide: ["archetypes"], suggest: ["deck", ...optionKeys],
+    worksWith: ["passcode", ...optionKeys], hookSearch: ["archetype", "hook", "find", "members", ...optionKeys], guide: ["archetypes"], suggest: ["deck", ...optionKeys],
     suggestRows: ["deck", ...optionKeys, "banlist", "exclude"],
     poolHealth: ["cards", "era"], pickScore: ["candidate", "pickedPool"],
   };
@@ -54,6 +54,7 @@ export function parseCardInsightRequest(value: unknown): CardInsightRequest | nu
   if ((value.op === "summary" || value.op === "worksWith") && !passcode(value.passcode)) return null;
   if ((value.op === "read" || value.op === "effectSearch") && !text(value.text)) return null;
   if (value.op === "hookSearch" && (!name(value.archetype) || !integer(value.hook, 0, MAX_HOOKS - 1))) return null;
+  if (value.op === "hookSearch" && ((value.find !== undefined && value.find !== "is" && value.find !== "support") || (value.members !== undefined && typeof value.members !== "boolean"))) return null;
   if (value.op === "guide" && (!Array.isArray(value.archetypes) || value.archetypes.length < 1 || value.archetypes.length > 5 || !value.archetypes.every(name))) return null;
   if (value.op === "suggest" && !deck(value.deck)) return null;
   if (value.op === "suggestRows" && (!deck(value.deck) || Array.isArray(value.deck))) return null;
