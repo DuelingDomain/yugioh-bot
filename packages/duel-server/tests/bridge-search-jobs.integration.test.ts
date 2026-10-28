@@ -78,6 +78,21 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     expect(jobs.status(actor(2), first.jobId).results).toEqual([5]);
   });
 
+  it("refreshes a subscriber's points and deck when reusing an identical active query", async () => {
+    const { db } = setup(); let finish!: () => void;
+    const ready = new Promise<void>(resolve => { finish = resolve; });
+    const jobs = new BridgeSearchJobs(db, { execute: async () => { await ready; return []; },
+      project: (_rows, query) => ({ results: [query.genesysRemaining, query.deckCards], inReview: 0 }), version: () => "v1" });
+    const first = jobs.start(actor(), { ...query(), format: "genesys", genesysRemaining: 100, deckCards: [1] });
+    try {
+      expect(jobs.start(actor(), { ...query(), format: "genesys", genesysRemaining: 5, deckCards: [1, 2] }).jobId).toBe(first.jobId);
+      expect(jobs.start(actor(2), { ...query(), format: "genesys", genesysRemaining: 20, deckCards: [3] }).jobId).toBe(first.jobId);
+      finish(); await jobs.close();
+      expect(jobs.status(actor(), first.jobId).results).toEqual([5, [1, 2]]);
+      expect(jobs.status(actor(2), first.jobId).results).toEqual([20, [3]]);
+    } finally { finish(); await jobs.close(); }
+  });
+
   it("enforces ten new jobs per hour across guilds and persists the limit across restart", async () => {
     const { jobs, db, finish, advance } = setup();
     for (let i = 0; i < 10; i++) { jobs.start(actor(), query(`Engine ${i}`)); await finish(); advance(60_000); }
