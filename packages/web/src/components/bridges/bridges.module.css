@@ -4,7 +4,7 @@
 .body { display: grid; gap: 10px; min-width: 0; }
 .lead { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.4; }
 .lead strong { color: var(--gold-ink); font-weight: 500; }
-.results { display: grid; min-height: 120px; }
+.results { display: grid; min-height: 120px; container-type: inline-size; }
 .results > div { min-width: 0; }
 .hint { box-sizing: border-box; margin: 0; padding: 12px 14px; border: 1px dashed var(--rule-lo); border-radius: 8px; color: var(--ink-3); font-size: 12.5px; line-height: 1.4; }
 .hint[data-state="loading"] { border-style: solid; background: rgb(239 231 213 / 0.03); }
@@ -14,11 +14,9 @@
 .link:hover { color: var(--ink); }
 .link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
-/* Whole items only: columns share the width, so nothing is cut at an edge. Every item has one fixed height (the skeleton too), so the list below does not jump when the answer lands. */
+/* Whole items only: columns share the width, so nothing is cut at an edge. An item grows with its text (cards in one row match in height); the skeleton is sized to a typical card (a narrow column wraps text more), so the list below moves little when the answer lands. */
 .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 268px), 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
-.item { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; gap: 7px; box-sizing: border-box; height: 280px; min-width: 0; padding: 10px; border-radius: 10px; background: rgb(239 231 213 / 0.035); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.09); }
-/* A report form needs room, so the item grows while the form is open. */
-.item:has([data-testid="bridge-report-form"]) { height: auto; }
+.item { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; gap: 7px; box-sizing: border-box; min-height: 200px; min-width: 0; padding: 10px; border-radius: 10px; background: rgb(239 231 213 / 0.035); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.09); }
 .item:hover, .item:focus-within { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.24); }
 .open { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .open:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 6px; }
@@ -29,7 +27,8 @@
 .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
 .meta > :last-child { margin-left: auto; }
 .skeletons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 268px), 1fr)); gap: 8px; }
-.skeleton { display: block; height: 280px; border-radius: 10px; background: rgb(239 231 213 / 0.04); }
+.skeleton { display: block; height: 300px; border-radius: 10px; background: rgb(239 231 213 / 0.04); }
+@container (min-width: 320px) { .skeleton { height: 250px; } }
 
 .grade { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border-radius: 999px; background: var(--pen-soft); color: var(--pen-ink); font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; }
 .grade[data-grade="strong"] { background: var(--ok-soft); color: var(--ok); }
@@ -46,7 +45,6 @@
 .thumbMore { display: grid; place-items: center; width: 40px; aspect-ratio: 59 / 86; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--rule-lo); color: var(--ink-3); font-size: 12px; }
 
 .points { display: grid; align-content: start; gap: 6px; min-width: 0; min-height: 0; }
-.item .points { overflow: hidden; }
 .pros, .cons { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
 .pros li, .cons li { display: flex; align-items: flex-start; gap: 6px; min-width: 0; color: var(--ink-2); font-size: 12px; line-height: 1.35; }
 .pros li svg { flex: none; margin-top: 2px; color: var(--ok); }
@@ -56,9 +54,9 @@
 .warnings { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
 .warnings li { display: flex; align-items: flex-start; gap: 6px; color: var(--warn-ink); font-size: 11.5px; line-height: 1.35; }
 .warnings li svg { flex: none; margin-top: 2px; }
-.item .warnings li span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 1; line-clamp: 1; }
+.item .warnings li span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 
-.report { display: inline-flex; flex: none; align-items: center; gap: 5px; min-height: 22px; padding: 0; border: 0; background: none; color: var(--ink-4); font: inherit; font-size: 11.5px; cursor: pointer; }
+.report { display: inline-flex; flex: none; align-items: center; gap: 5px; min-height: 24px; padding: 0 2px; border: 0; background: none; color: var(--ink-3); font: inherit; font-size: 12px; cursor: pointer; }
 .report:hover { color: var(--ink-2); text-decoration: underline; }
 .report:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .reportForm { display: grid; flex: 1 1 100%; gap: 6px; }
