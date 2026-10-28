@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
+import { importBridgeArtifact, type ArchetypeBridge } from "@yugidraft/shared/cards/effects";
 import { BridgeSearchJobs } from "../src/bridge-search-jobs.js";
 
 const query = (source = "Odion") => ({ source, format: "advanced" as const });
@@ -10,15 +11,16 @@ function setup(inReview = 2) {
   const db = new Database(":memory:"); databases.push(db); migrate(db);
   let now = 1_000_000, version = "v1";
   const releases: (() => void)[] = [];
+  const results: ArchetypeBridge[] = [];
   const execute = vi.fn(async (_query, progress) => {
     progress("checking", 50);
     await new Promise<void>(resolve => releases.push(resolve));
     progress("rating", 90);
-    return [];
+    return results;
   });
   const jobs = new BridgeSearchJobs(db, { execute, project: () => ({ results: [], inReview }), version: () => version, now: () => now });
   const finish = async () => { releases.shift()!(); await new Promise(resolve => setImmediate(resolve)); };
-  return { db, jobs, execute, finish, updateVersion: (value: string) => { version = value; }, advance: (ms: number) => { now += ms; } };
+  return { db, jobs, execute, finish, results, updateVersion: (value: string) => { version = value; }, advance: (ms: number) => { now += ms; } };
 }
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 
@@ -55,7 +57,9 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
   });
 
   it("expires incomplete reviews after ten minutes so another search can retry", async () => {
-    const { jobs, finish, advance, execute } = setup();
+    const { db, jobs, finish, advance, execute, results } = setup();
+    importBridgeArtifact(db);
+    results.push(JSON.parse((db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source='Odion' AND target='Argostars' AND format='advanced'").get() as { bridge_json: string }).bridge_json));
     const first = jobs.start(actor(), query());
     await finish();
     expect(jobs.start(actor(2), query())).toMatchObject({ jobId: first.jobId, cached: true });
@@ -102,7 +106,10 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
 
   it("keeps each subscriber's Genesys allowance when sharing a completed query", async () => {
     const { db, advance } = setup();
-    const project = vi.fn((_rows, query) => ({ results: [query.genesysRemaining], inReview: 0 }));
+    const project = vi.fn((_rows, query) => {
+      expect(db.inTransaction).toBe(false);
+      return { results: [query.genesysRemaining], inReview: 0 };
+    });
     const jobs = new BridgeSearchJobs(db, { execute: async () => [], project, version: () => "v1" });
     const first = jobs.start(actor(), { ...query(), format: "genesys", genesysRemaining: 100 });
     await new Promise(resolve => setImmediate(resolve)); advance(1);

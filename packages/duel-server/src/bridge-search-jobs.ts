@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { ArchetypeBridge, BridgeFormat } from "@yugidraft/shared/cards/effects";
+import { bridgeGate, type ArchetypeBridge, type BridgeFormat } from "@yugidraft/shared/cards/effects";
 
 export interface BridgeSearchQuery { source: string; target?: string; format: BridgeFormat; genesysRemaining?: number; deckCards?: number[] }
 export interface BridgeSearchActor { userId: number; guildId: string }
@@ -56,8 +56,13 @@ export class BridgeSearchJobs {
 
   start(actor: BridgeSearchActor, query: BridgeSearchQuery) {
     if (this.stopped) throw new BridgeJobError("Bridge search is restarting", 503);
+    const key = this.queryKey(query), now = this.now();
+    const cached = this.db.prepare("SELECT * FROM bridge_deep_job WHERE query_key=? AND state='done' AND ended_at>? ORDER BY ended_at DESC LIMIT 1").get(key, now - 86_400_000) as JobRow | undefined;
+    // Evidence validation can be expensive; keep it outside the admission write lock.
+    // Permanent reviews are complete, even though the UI still hides those rows.
+    const incomplete = cached && (JSON.parse(cached.result_json) as ArchetypeBridge[]).some(row => bridgeGate(this.db, row).state === "pending");
     const admitted = this.db.transaction(() => {
-      const hash = this.actorHash(actor), now = this.now();
+      const hash = this.actorHash(actor);
       const existing = this.db.prepare(`SELECT j.* FROM bridge_deep_job j JOIN bridge_deep_actor a ON a.job_id=j.id
         WHERE a.actor_hash=? AND j.state IN ('queued','running') ORDER BY j.created_at LIMIT 1`).get(hash) as JobRow | undefined;
       const subscribe = (job: JobRow, cached: boolean) => {
@@ -67,7 +72,6 @@ export class BridgeSearchJobs {
           .run(query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null, job.id, hash, actor.guildId);
         return { jobId: job.id, state: job.state, cached };
       };
-      const key = this.queryKey(query);
       if (existing) {
         if (existing.query_key !== key) {
           const running = JSON.parse(existing.query_json) as BridgeSearchQuery;
@@ -75,9 +79,7 @@ export class BridgeSearchJobs {
         }
         return subscribe(existing, false);
       }
-      const cached = this.db.prepare("SELECT * FROM bridge_deep_job WHERE query_key=? AND state='done' AND ended_at>? ORDER BY ended_at DESC LIMIT 1").get(key, now - 86_400_000) as JobRow | undefined;
       if (cached) {
-        const incomplete = this.options.project(JSON.parse(cached.result_json), query).inReview > 0;
         if (!incomplete || cached.ended_at! > now - 600_000) return subscribe(cached, true);
       }
       const hour = this.db.prepare(`SELECT count(DISTINCT a.job_id) AS n,min(a.admitted_at) AS oldest FROM bridge_deep_actor a

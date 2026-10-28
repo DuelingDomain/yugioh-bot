@@ -28,7 +28,8 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
       bridgeCandidates: vi.fn(async () => { await gate; return [bridge]; }),
       rateBridge: vi.fn(async (row: ArchetypeBridge) => { await judgeBridgePair(db, row, { client, env: {}, log: () => {} }); }),
     };
-    const api = new BridgeApi(db, workers);
+    let now = Date.now();
+    const api = new BridgeApi(db, workers, () => now);
     const call = (bridgeRequest: unknown, identity = user, guildId = "g") => api.handle({ userId: identity.userId, bridgeRequest }, guildId, identity.playerId);
     expect(await call({ op: "from", source: "Odion" })).toMatchObject({ results: [] });
     const job = await call({ op: "start", source: "Odion", target: "Argostars" }) as { jobId: string };
@@ -45,6 +46,9 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     expect(await call({ op: "feedback", evidenceHash: bridge.evidence_hash }, other)).toEqual({ accepted: true, hidden: true });
     expect(await call({ op: "status", jobId: job.jobId })).toMatchObject({ results: [], inReview: 1 });
     expect(await call({ op: "between", source: "Odion", target: "Argostars" })).toMatchObject({ results: [] });
+    now += 600_001;
+    expect(await call({ op: "start", source: "Odion", target: "Argostars" })).toMatchObject({ jobId: job.jobId, cached: true });
+    expect(workers.bridgeCandidates).toHaveBeenCalledTimes(1);
     expect(client.messages.create).toHaveBeenCalledTimes(2);
     await expect(call({ op: "status", jobId: job.jobId }, user, "wrong-guild")).rejects.toMatchObject({ status: 403 });
     await expect(api.handle({ userId: other.userId, bridgeRequest: { op: "from", source: "Odion" } }, "g", user.playerId)).rejects.toMatchObject({ status: 403 });
