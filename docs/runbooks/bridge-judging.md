@@ -9,7 +9,7 @@ prlimit --core=0 -- npm run build --workspace=packages/shared
 prlimit --core=0 -- npx tsx scripts/effects/judge-bridges.ts --dry-run
 ```
 
-The report counts eligible pairs and judge requests, estimates tokens from serialized request bytes, and prices them at $0.10/M input and $0.50/M output with the Batch API's 50% discount. Output assumes 700 tokens per review. This is an estimate; cache writes, reads, actual output and unusually large context can change billed spend. The current initial preview finds 4,898 pairs, 9,796 requests, about 41.8M input and 6.86M output estimated tokens, costing about $3.81. The command defaults to dry run. `--max-requests N` optionally reduces submission size; otherwise the complete initial candidate set is split into batches of at most 1,000 requests.
+The report counts eligible pairs and judge requests, estimates tokens from serialized request bytes, and prices them at $0.10/M input and $0.50/M output with the Batch API's 50% discount. Output assumes 700 tokens per review. This is an estimate; cache writes, reads, actual output and unusually large context can change billed spend. The final initial preview finds 4,898 pairs, 9,796 requests, about 45.3M input and 6.86M output estimated tokens, costing about $3.98. The command defaults to dry run. `--max-requests N` optionally reduces submission size; otherwise the complete initial candidate set is split into batches of at most 1,000 requests.
 
 Live runs require the Actions secret `ANTHROPIC_API_KEY` and the durable `state/bridge-judging` branch. Initialize that branch once through a dispatch on `main`:
 

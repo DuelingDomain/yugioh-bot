@@ -27,7 +27,7 @@ The three gzip files total 12,074,200 bytes (11.51 MiB). Capability records incl
 
 The benchmark process RSS after both formats was 434,872,320 bytes. This includes the in-memory database and both service graphs; it is not a per-worker heap measurement. The worker integration exercises the existing 256 MiB worker heap limit. These timings are local measurements, not a latency guarantee for every source or deployment.
 
-Normal suggestions read indexed retained rows and default to four results. Full searches run in the existing two-worker duel-host suggestion pool. Admission allows one in-flight search per authenticated actor, shares an atomic persistent 60-second cooldown across uncached live/explain requests, and rejects work when the pool is occupied. There is no queue or daily spend cap. A bounded 15-minute result cache avoids repeating identical work and rechecks feedback before returning cached rows.
+Player bridge suggestions read indexed SQLite rows and default to four accepted results, with a bounded host candidate cache and current evidence/review/feedback checks. Deep searches run in the existing two-worker duel-host suggestion pool. Persistent jobs allow one queued/running search per user, a 60-second completion cooldown, ten new jobs per hour, two running jobs and a bounded waiting queue. Identical queries reuse results for 24 hours. These controls replace the earlier administrative scanner admission for player requests. No monthly spending cap is configured by default.
 
 ## Quality and known gaps
 
@@ -44,7 +44,7 @@ The golden evaluator passed `--check`, with no labelled negative pair returned b
 
 Full precision@5 is unknown, reported as null rather than treating unlabelled results as correct. `--strict-precision` requires complete top-five labels and is not satisfied by the current golden set. Missing identities, unsupported Fusion/material procedures, and low rankings contribute to recall misses. Minimum grades and annotated evidence matches are reported for further review; some expected grades remain unmet.
 
-Rows are deterministically validated candidates. Paid judging, engine execution, player presentation, the deep-search route and progress bar remain subsequent stages. Their stored statuses are explicitly `judge: "pending"` and `engine_status: "unverified"`. Combined path resource and lock compatibility is also unverified.
+Stored graph rows are deterministic candidates with `judge: "pending"`. Player publication now requires two accepted independent reviews and emits `judge: "accepted"`; deep-search HTTP jobs and progress polling are implemented. The initial committed review cache is empty because this implementation made no paid calls. The Suggestions row, progress-bar component and engine execution remain subsequent stages. `engine_status` stays `"unverified"`; combined path resource and lock compatibility also remains unverified.
 
 ## Verification
 

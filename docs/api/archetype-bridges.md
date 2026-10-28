@@ -1,6 +1,68 @@
 # Directed archetype bridges
 
-This stage builds deterministic candidates and exposes administrative and worker APIs. The player UI, paid judges, deep-search HTTP route and progress bar are subsequent stages. No paid requests are made here. Every returned row says `validation: "deterministic"`, `judge: "pending"`, and `engine_status: "unverified"`.
+Deterministic candidates feed two independent, cached reviews. Player routes return a bridge only when both reviewers accept its checked evidence, agree within one grade, and pass format and feedback checks. Player results say `validation: "deterministic"`, `judge: "accepted"`, and `engine_status: "unverified"`. Candidate CLI methods retain `judge: "pending"`. The player Suggestions row and progress-bar component remain for the UI stage; their server contract is implemented below.
+
+## HTTP interfaces
+
+All player routes require an authenticated application user with a player in the configured guild. The web server derives identity from the session and proxies to the HMAC-signed `POST /internal/duel` operation `bridges`. The host rechecks the user/player/guild mapping on every request, including cache hits and polling. Responses use `Cache-Control: private, no-store`. Client guild/user/player fields are rejected.
+
+`GET /api/cards/bridges?source=Odion&format=advanced` returns at most four shown bridges. Optional query parameters are `target`, `genesysRemaining` (integer 0–1000), and `format=advanced|genesys` (default Advanced). Supply a positive integer `deckId` instead of `source` to infer the archetype from the authenticated owner's saved deck. Exactly one source selector is required. A target requests both directed lookups; `reverse` is present for that lookup.
+
+```ts
+// GET response, HTTP 200
+{ results: ShownBridge[], reverse?: ShownBridge[], inReview: number }
+// Every ShownBridge includes all ArchetypeBridge fields and:
+{ judge: "accepted", review: {
+  grade: "strong" | "good" | "niche" | "risky",
+  pros: string[], cons: string[], // two or three of each
+  lock_note: string, line: string[] // exact supplied card names in order
+} }
+```
+
+For a saved Genesys deck, the host derives remaining points from its cap and existing copies. Only additional required copies consume that allowance. Source-only queries compare the complete evidence package against `genesysRemaining`, defaulting to 100. Card legality and the two review gates apply in either case.
+
+`POST /api/cards/bridges/deep-search` accepts JSON below (exactly one of `source`/`deckId`). Unknown fields are rejected, bodies are bounded to 4096 bytes, and archetype names to 120 characters.
+
+```ts
+// Request
+{ source?: string, deckId?: number, target?: string,
+  format?: "advanced" | "genesys", genesysRemaining?: number }
+// Response: HTTP 202 for queued/running; HTTP 200 for cached completed jobs
+{ jobId: string, state: "queued" | "running" | "done" | "failed", cached: boolean }
+```
+
+`GET /api/cards/bridges/deep-search/[jobId]` accepts no query parameters or body. Only a subscribed user in the same guild can poll it. Results remain empty until completion, and every completed read rechecks current evidence, reviews, feedback, and that subscriber's points context.
+
+```ts
+{ jobId: string, state: "queued" | "running" | "done" | "failed",
+  step: "candidates" | "checking" | "rating" | "done",
+  progress: number, // integer 0–100
+  results: ShownBridge[], inReview: number, error?: string }
+```
+
+Jobs progress `queued → running → done|failed`. Queued jobs start at `candidates/0`; running steps are candidates, deterministic checking, then rating. Success ends at `done/100`; failures retain their last progress and a safe error. Interrupted jobs become failed on host restart. `inReview` includes pending and disputed candidates, never invalid ones.
+
+Admission permits one queued/running search per application user across guilds. Another POST returns that job ID. After completion or failure, a new uncached query waits 60 seconds; at most ten new jobs are admitted per user per rolling hour. Two jobs run globally in the host, with a queue bounded to 100 waiting jobs. Identical source/target/format queries share pending work and completed results for 24 hours, without new review calls; artifact/prompt versions invalidate that reuse. Each subscriber retains its own points and saved-deck context. Cached completed queries bypass new-work admission. Rejections return HTTP 429, `Retry-After: <seconds>`, and JSON `{error:string,retryAfter:number}`. Invalid requests return 400, missing subscriptions/decks 404, missing guild membership 403, and unavailable bridge data 503.
+
+`POST /api/cards/bridges/feedback` accepts `{evidenceHash:string,reason?:string}` (64 lowercase hex characters, optional reason up to 512 characters) and returns `{accepted:true,hidden:boolean}`. Reports are idempotent per application user and evidence hash. Two distinct unresolved reports hide that evidence immediately, including cached results.
+
+`GET /api/admin/console/bridges` requires current owner access and returns the existing console section envelope:
+
+```ts
+{ state: "ok", updatedAt: number, data: {
+  feedback: [{ evidenceHash: string, source: string, target: string,
+    format: "advanced" | "genesys", users: number, reasons: string[],
+    createdAt: string, hidden: boolean }], inReview: number
+} }
+```
+
+The read-only list appears under `/admin#insights`, with up to 200 evidence groups and 200 recent reason samples per group. A shared evidence hash uses a representative directed pair. No review-resolution write endpoint is exposed.
+
+## Reviews and spend
+
+Reviews use the official SDK, `claude-haiku-5-5`, adaptive defaults, cached fixed system prompts, and `output_config.format` JSON schema. The mechanic and skeptic receive only checked summaries, supplied card texts/stat fields, reasons and locks. Invented line cards invalidate a verdict in code. Disagreements, uncertainty, or a grade gap over one step remain hidden for review.
+
+SQLite caches by evidence hash and a versioned judge identity containing the checked input hash; this separates directed pairs sharing engine evidence. Runtime threads write directly to the durable host database. Ambiguous submissions retain a spend reservation and cannot be retried automatically. Startup imports the committed `bridge-judgements.jsonl.gz` independently of graph import and keeps newer runtime records. The initial committed cache is empty: no paid run was authorized locally. See [the batch runbook](../runbooks/bridge-judging.md) for dry runs, weekly collection, spend and recovery.
 
 ## TypeScript API
 
@@ -26,10 +88,12 @@ bridgesFrom(archetype: string, format?: BridgeFormat, limit?: number): Archetype
 bridgeBetween(x: string, y: string, format?: BridgeFormat): ArchetypeBridge | null;
 explain(x: string, y: string, format?: BridgeFormat): ArchetypeBridge | null;
 liveCandidates(source: string, format?: BridgeFormat, progress?: (value: BridgeProgress) => void): ArchetypeBridge[];
+shownFrom(archetype: string, format?: BridgeFormat, limit?: number): ShownBridge[];
+shownBetween(x: string, y: string, format?: BridgeFormat): ShownBridge | null;
 capabilities(key: CapabilityKey, direction: "needs" | "provides"): CardCapability[];
 ```
 
-`bridgesFrom` defaults to Advanced and four results, with a maximum of 25. `bridgeBetween` reads the retained artifact. `explain` also computes niche pairs outside the retained 25. `liveCandidates` searches all groups, reusing offline reach and material indexes. Unknown sources return no candidates. The service hides rejected judgements and evidence with two unresolved independent feedback flags.
+`bridgesFrom` defaults to Advanced and four candidates, with a maximum of 25. `bridgeBetween` reads retained rows. `explain` also computes niche pairs outside the retained 25. `liveCandidates` searches all groups, reusing offline reach and material indexes. These administrative methods expose deterministic candidates. Player consumers use `shownFrom`/`shownBetween` or the HTTP routes, which enforce the review/feedback gates.
 
 Shared searchers, Small World and generic hand-only support can strengthen a proved connection but cannot establish a bridge by themselves. Extra Deck effects require a complete supported material procedure and a named effect into the target engine. An ordinary shared Type through a broad alternative-Type material slot does not establish a new connection. The first reason is the primary proved line; optional searcher paths do not impose locks on it. Continuous locks are checked before material use, and self-removal only clears a continuous effect lock when it belongs to the same activation.
 
@@ -57,11 +121,14 @@ type BridgeScanResult = ArchetypeBridge[] | ArchetypeBridge | null;
 DeckSuggestionWorkers.runBridge(
   scan: BridgeScan, actor: string, progress?: (value: BridgeProgress) => void
 ): Promise<BridgeScanResult>;
+// Managed jobs acquire persistent admission before calling these queued workers:
+DeckSuggestionWorkers.bridgeCandidates(scan: BridgeScan, progress?: (value: BridgeProgress) => void): Promise<BridgeScanResult>;
+DeckSuggestionWorkers.rateBridge(bridge: ArchetypeBridge): Promise<void>;
 ```
 
-`actor` must be the authenticated player identity supplied by the host. One request per actor may be in flight. The suggestion pool bounds total concurrency to two workers; there is no backlog. Uncached `live` and `explain` requests share a persistent, atomic 60-second actor cooldown. Identical results are cached across callers for 15 minutes, bounded to 64 entries and invalidated by artifact version. Cached responses recheck judgements and feedback. `BridgeSearchBusyError` has `status: 429` and `retryAfterMs`; the future HTTP route should preserve those values.
+`runBridge` retains the earlier administrative scanner admission (one request per actor, 60 seconds between uncached scans, no worker backlog, 15-minute candidate reuse). It returns candidates and must not be used as a player publication gate. The HTTP implementation uses `BridgeSearchJobs` admission and the queued worker methods instead, following the stronger persistent job contract above.
 
-Progress is `{phase: "index" | "score" | "validate" | "done", completed: number, total: number}`. Forward these events to the future progress bar. Cached results immediately emit `done`. This admission contract has no spend cap; a future paid search must acquire admission before submitting any paid request.
+Scanner progress is `{phase: "index" | "score" | "validate" | "done", completed: number, total: number}`. Managed jobs map it to the HTTP steps, then judge up to ten currently unjudged candidates from the top 25, with two candidate tasks at a time. Candidate extraction uses read-only worker connections. Review workers use writable connections to the durable SQLite file; in-memory databases are rejected for runtime review writes. Both share the existing two-thread suggestion pool, so deep review traffic can temporarily reduce normal suggestion capacity.
 
 ## Files and schemas
 
@@ -73,6 +140,7 @@ All files live in `packages/shared/data/effects/`. The independent `bridges-mani
 | `bridges-advanced.jsonl.gz`, `bridges-genesys.jsonl.gz` | `ArchetypeBridge`, up to 25 per source |
 | `bridges-manifest.json` | `{schema_version:1,algorithm_version,inputs:{tags,profiles,engine,metadata,genesys_revision},files:{capabilities,advanced,genesys},groups,target_means,materials,version}` |
 | `bridges-golden.json` | `{pairs:[{source,target,format,expected:"bridge"|"not_bridge",min_grade?,cards?,why,source_url}]}` |
+| `bridge-judgements.jsonl.gz` | `{evidence_hash,input_hash,judge,framing,model,result,created_at}`; current reviews plus inert historical identities |
 
 Each file descriptor is `{path,records,bytes,sha256,gzipBytes,gzipSha256}`. `version` hashes the manifest identity without itself. `groups` maps exact primary archetypes with profiles to IDs, folding duplicate case variants; Odion additionally groups exact Temple references and Apophis names. `materials` stores complete supported material lines by format and source. Unsupported material procedures fail closed.
 
@@ -91,8 +159,11 @@ Genesys excludes Link/Pendulum cards and lines with mandatory Link/Pendulum depe
 | `bridge_judgement` | PK `(evidence_hash,judge)`, `verdict` (`approved/rejected/review`), `judgement_json`, `created_at` |
 | `bridge_feedback` | `id` PK, `evidence_hash`, `actor_hash`, `reason`, `created_at`, `resolved_at`; unique `(evidence_hash,actor_hash)` |
 | `bridge_search_admission` | `actor_hash` PK, `admitted_at` epoch milliseconds |
+| `bridge_judge_spend` | Durable request keys, submission state, reserved/actual microdollars, usage and UTC billing month |
+| `bridge_deep_job` | Job/query identity, state, step, progress, candidate JSON, safe error and completion time |
+| `bridge_deep_actor` | Job/user/guild subscription, admission/completion times and private points/deck context |
 
-Judgement and feedback tables start empty. Imports validate pinned compressed and decompressed bytes before one transaction; changed artifacts replace graph rows while preserving judgement/feedback history. Duel-host effect startup imports bridges behind the existing effect-search flag.
+Graph imports validate pinned compressed and decompressed bytes before one transaction; changed artifacts replace graph rows while preserving judgement/feedback history. Review imports revalidate current checked input and skip stale identities. Duel-host effect startup imports graph and reviews behind the existing effect-search flag.
 
 ## Rebuild, CLI and evaluation
 
