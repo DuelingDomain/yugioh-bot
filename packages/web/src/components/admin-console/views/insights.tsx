@@ -7,6 +7,7 @@ import { HourBars, LineChart, type Series } from "../charts";
 import { delta, isNewIssue, okData, shortDay, type Snapshots } from "../model";
 import { Icon, Notice, SectionHead, Tag, useNow } from "../parts";
 import styles from "../admin-console.module.css";
+import { BridgeFeedback } from "./bridge-feedback";
 
 const nf = (n: number | null | undefined) => (n == null ? "-" : n.toLocaleString("en-US"));
 
@@ -119,6 +120,7 @@ export function InsightsView({ s }: { s: Snapshots }) {
           ) : <Unavailable result={s.usage.result} what="PostHog" />}
         </div>
       </div>
+      <BridgeFeedback />
     </>
   );
 }

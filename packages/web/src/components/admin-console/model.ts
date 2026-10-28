@@ -16,7 +16,7 @@ export const isView = (value: string): value is View => (VIEWS as readonly strin
 /** Link target of the Today list in the Duels view (/admin#duels-today). */
 export const TODAY_ANCHOR = "duels-today";
 
-export type Snapshots = { [K in SectionId]: SectionSnapshot<K> };
+export type Snapshots = { [K in Exclude<SectionId, "bridges">]: SectionSnapshot<K> };
 
 /** The data of a section when it answered "ok", else null. */
 export function okData<K extends SectionId>(snapshot: SectionSnapshot<K>): SectionDataMap[K] | null {
