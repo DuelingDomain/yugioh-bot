@@ -45,8 +45,8 @@ describe("bridge judgement pipeline", () => {
     const db = new Database(":memory:"); migrate(db);
     try {
       importBridgeArtifact(db);
-      const bridge = createBridgeService(db).bridgeBetween("Chaos", "Blue-Eyes")!;
-      expect(bridge.reasons.some(reason => reason.key === "extra_deck" && reason.cards.includes(42097666))).toBe(false);
+      const bridge = createBridgeService(db).bridgeBetween("Endymion", "Magistus")!;
+      expect(bridge.reasons.some(reason => reason.key === "extra_deck" && reason.cards.includes(34755994))).toBe(false);
       const evidence = buildBridgeJudgeEvidence(db, bridge)!;
       for (const grade of ["good", "strong"] as const) {
         for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing,
