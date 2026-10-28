@@ -88,9 +88,9 @@ export function changedLayers(files, event) {
       }
     }
     else if (/^packages\/(web|bot|ws|worker|e2e)\//.test(file)) areas[file.split("/")[1]] = true;
-    else if (/^scripts\/(ci|deployment)\/|^\.github\/actions\//.test(file)) areas.ci_scripts = true;
+    else if (/^scripts\/(ci|deployment)\/|^\.github\/actions\/|^Dockerfile$|^\.dockerignore$/.test(file)) areas.ci_scripts = true;
     else if (file.startsWith("scripts/effects/")) { /* dedicated effect protocol job */ }
-    else if (/^(Caddyfile$|docker-compose[^/]*\.ya?ml$|Dockerfile$|\.dockerignore$|data\/duel-engine[^/]*\/|scripts\/native\/|\.github\/|\.gitignore$|\.impeccable\.)/.test(file)) { /* compose checked in changes; engine/native/production have their own jobs */ }
+    else if (/^(Caddyfile$|docker-compose[^/]*\.ya?ml$|data\/duel-engine[^/]*\/|scripts\/native\/|\.github\/|\.gitignore$|\.impeccable\.)/.test(file)) { /* compose checked in changes; engine/native/production have their own jobs */ }
     else { consumers(); areas.ci_scripts = true; } // Unknown app/tooling paths fail open, without broadening engine inputs.
   }
   // Worker health integration starts the WS server from source.

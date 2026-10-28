@@ -95,6 +95,17 @@ test("missing diffs and manual/scheduled events still run every layer", () => {
   for (const event of ["workflow_dispatch", "schedule"]) assert.deepEqual(changedLayers([], event), allLayers);
 });
 
+test("Docker inputs select release safety script checks", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of ["Dockerfile", ".dockerignore"]) {
+      const result = classify([file], event);
+      assert.equal(result.ci_scripts, true, `${event}: ${file}`);
+      assert.equal(result.prod_build, true, `${event}: ${file}`);
+      assert.equal(result.engine, false, `${event}: ${file}`);
+    }
+  }
+});
+
 test("shared graph follows export aliases, barrels, relative and dynamic imports, including deleted files", () => {
   const files = engineSharedFiles({
     "packages/duel-server/src/host.ts": 'import { service } from "@yugidraft/shared/services"; import("@yugidraft/shared/lazy");',
