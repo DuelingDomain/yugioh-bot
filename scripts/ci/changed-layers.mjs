@@ -13,7 +13,7 @@ const docTestInputs = new Map([
   ["docs/specs/multiplayer-rule-coverage.md", "engine"],
   ["docs/engine/core-pins.md", "ci_scripts"],
 ]);
-const isDoc = (file) => !docTestInputs.has(file) && (/\.md$/i.test(file) || /^(docs|site)\//.test(file));
+const isDoc = (file) => !docTestInputs.has(file) && (/\.md$/i.test(file) || file.startsWith("docs/"));
 
 /** Follow literal module references, including re-exports, type and dynamic imports.
  * Scanning all path literals is deliberately conservative (also catches file readers).
@@ -95,6 +95,7 @@ export function changedLayers(files, event) {
         for (const area of ["web", "shared", "bot", "e2e"]) areas[area] = true;
       }
     }
+    else if (file.startsWith("site/")) areas.web = true;
     else if (/^packages\/(web|bot|ws|worker|e2e)\//.test(file)) areas[file.split("/")[1]] = true;
     else if (/^scripts\/(ci|deployment)\/|^\.github\/actions\/|^Dockerfile$|^\.dockerignore$/.test(file)) areas.ci_scripts = true;
     else if (file.startsWith("scripts/effects/")) { /* dedicated effect protocol job */ }

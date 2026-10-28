@@ -125,6 +125,25 @@ test("documentation used as test inputs selects its checks", () => {
   }
 });
 
+test("marketing site code selects web while ordinary documentation skips checks", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of ["site/public/app.js", "site/public/analytics.js", "site/public/index.html"]) {
+      const result = classify([file], event);
+      assert.equal(result.web, true, `${event}: ${file}`);
+      assert.equal(result.docs_only, false, `${event}: ${file}`);
+      for (const group of ["engine", "ci_scripts", "effects", "duel_unit", "e2e"]) {
+        assert.equal(result[group], false, `${event}: ${file}: ${group}`);
+      }
+    }
+    for (const file of ["site/README.md", "docs/architecture/diagram.svg", "README.md"]) {
+      const result = classify([file], event);
+      assert.equal(result.docs_only, true, `${event}: ${file}`);
+      assert.equal(result.web, false, `${event}: ${file}`);
+      assert.equal(result.engine, false, `${event}: ${file}`);
+    }
+  }
+});
+
 test("shared graph follows export aliases, barrels, relative and dynamic imports, including deleted files", () => {
   const files = engineSharedFiles({
     "packages/duel-server/src/host.ts": 'import { service } from "@yugidraft/shared/services"; import("@yugidraft/shared/lazy");',
