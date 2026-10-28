@@ -94,9 +94,15 @@ describe("pinned bridge pipeline", () => {
       expect(groups.Odion).toContain(29762407);
       expect(groups["Blue-Eyes"]).toContain(42097666);
       for (const [canonical, alias] of [["Magnet", "Magnet Warrior"], ["Stellarknight", "Tellarknight"], ["Predaplant", "Predap"], ["Assault Mode", "/Assault Mode"]]) {
-        expect(groups[canonical!]!).toEqual(expect.arrayContaining(groups[alias!] ?? []));
+        expect(groups[canonical!]!).toEqual(expect.arrayContaining(capabilities.filter(row => row.card.archetype === alias).map(row => row.id)));
+        expect(groups[alias!]).toBeUndefined();
       }
       expect(groups["Assault Mode"]).toEqual(expect.arrayContaining(capabilities.filter(row => row.card.archetype === "/Assault Mode").map(row => row.id)));
+      for (const format of ["advanced", "genesys"] as const) {
+        const aliases = new BridgeEngine({ capabilities, groups, group_policies: policies, target_means: { advanced: {}, genesys: {} } });
+        expect(aliases.liveCandidates("/Assault Mode", format)).toEqual([]);
+        for (const target of ["Junk", "Stardust"]) expect(aliases.between("Assault Mode", target, format)).not.toBeNull();
+      }
       for (const label of ["Trap Monster", "Hole", "Heart", "Change"]) expect(groups[label]).toBeUndefined();
       const renamed = bridgeGroups(capabilities, profiles, { "Temple package": policies.Odion });
       expect(renamed["Temple package"]).toEqual(groups.Odion);

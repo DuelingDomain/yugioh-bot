@@ -765,7 +765,10 @@ export function bridgeGroups(capabilities: readonly CardCapability[], profiles: 
     merged[key] = [...new Set([...(merged[key] ?? []), ...ids])];
   }
   for (const [name, policy] of Object.entries(policies)) for (const alias of policy.aliases ?? []) {
-    if (merged[alias]) merged[name] = [...new Set([...(merged[name] ?? []), ...merged[alias]!])];
+    if (merged[alias]) {
+      merged[name] = [...new Set([...(merged[name] ?? []), ...merged[alias]!])];
+      delete merged[alias];
+    }
   }
   return engineGroups(merged, capabilities, policies);
 }
