@@ -40,7 +40,7 @@ All core checks in the duel-server tests go through one helper: `packages/duel-s
 
 ## CI
 
-`.github/workflows/test.yml` selects the same test groups on PRs and main pushes. PRs use the paginated changed-file API (including the previous name of renamed files), so detection needs only a shallow checkout. Pushes diff from the latest fully successful tested main ancestor, including changes from cancelled/failed runs. An unavailable base/diff or truncated PR file list runs everything. Manual runs also select every group.
+`.github/workflows/test.yml` selects the same test groups on PRs and main pushes. PRs use the paginated changed-file API (including the previous name of renamed files), so detection needs only a shallow checkout. Pushes diff from the latest fully successful tested main ancestor, including changes from cancelled/failed runs. An unavailable base/diff or truncated PR file list runs everything. Manual and nightly runs also select every group. Nightly runs execute all pinned, legacy, surrender, differential, native, rule, app, effect and production smoke checks, plus nduel fuzz; a failure opens one deduplicated issue.
 
 `changed-layers.mjs` selects web, bot, WS, worker, shared, duel without cores, E2E typecheck, and CI/deployment scripts independently. Each app group owns its typecheck; web also builds and runs three test shards. Shared source/configuration changes select all consumers. Shared tests select only shared. Pure effects/staples data changes run shared, duel and web consumer integration tests, skipping typechecks and the web production build; mixed or unknown data changes retain full relevant groups. WS changes also select the worker health integration group; duel source/test changes select direct web/shared/bot/E2E consumers, and web source changes select E2E typecheck. Root package/lockfile, Turbo, TypeScript, Node, patches and workflow configuration select every group. Unknown app/tooling paths select all app groups and CI helpers. Markdown, `docs/` and `site/` select no tests; Compose configuration is checked during detection.
 
@@ -59,8 +59,8 @@ One final **CI result** job waits for every job. It accepts intentional skips, r
 | `core-cache`, `core-build`, `cores` | Build/restore and verify standard, Domain, legacy and multiplayer cores. |
 | `engine-shards`, `engine-legacy-shards` | Selected pinned, surrender, differential and legacy suites, plus web engine tests and smoke scripts. A missing required core fails. |
 | `native`, `rule-coverage` | Selected ASan/UBSan checks, golden hashes when relevant, and strict ADR-0002 rule coverage. |
-| `nduel-nightly` | Nightly/manual fuzz for n2, n3, n4 and tag, with future checks and golden hashes. The schedule currently runs cores and fuzz. |
-| `production-bundle`, `production-images` | Main only: prepare verified bundle, then build five ARM64 images after app checks, at most three together. |
+| `nduel-nightly` | Nightly/manual fuzz for n2, n3, n4 and tag, with future checks and golden hashes. The schedule runs every group plus fuzz. |
+| `production-bundle`, `production-images` | Main only: prepare verified bundle, then build five ARM64 images concurrently with app/engine checks, without a matrix parallelism limit. |
 | `production-dry-run` | Only production-composite/Docker/bundle/deployment inputs or root configuration changes: prepare a bundle and build one amd64 bot image without publishing. Also runs nightly/manually; main uses the real bundle and image jobs instead. |
 | `ci-result` | Final required-work and failure/cancellation aggregate. |
 

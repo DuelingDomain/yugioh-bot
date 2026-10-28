@@ -15,7 +15,7 @@ const areaJobs = {
 const gateJobs = () => Object.fromEntries(jobs['ci-result'].needs.map(name => [name, {
   result: name === 'changes' ? 'success' : 'skipped', outputs: {},
 }]));
-const gate = (results, event = 'workflow_dispatch') => runGate('ci-result', { RESULTS: JSON.stringify(results), EVENT: event });
+const gate = (results, event = 'workflow_dispatch', nightly = event === 'schedule') => runGate('ci-result', { RESULTS: JSON.stringify(results), EVENT: event, NIGHTLY: String(nightly) });
 
 test('CI result accepts intentional skips and rejects failed or cancelled jobs and detection', () => {
   assert.deepEqual([...jobs['ci-result'].needs].sort(), Object.keys(jobs).filter(name => name !== 'ci-result').sort());
@@ -95,6 +95,19 @@ test('app groups run only when their area is selected', () => {
   }
   const protocol = jobs['effect-protocol'].steps;
   assert.equal(protocol.some(step => step.run?.includes('npm run typecheck -- --force')), false);
+});
+
+test('nightly runs every selected suite and requires fuzz; scheduled/manual Test cannot deploy', () => {
+  for (const names of Object.values(areaJobs)) for (const name of names) assert.doesNotMatch(jobs[name].if, /!= 'schedule'/);
+  const results = gateJobs();
+  assert.notEqual(gate(results, 'schedule'), 0);
+  results['nduel-nightly'].result = 'success';
+  assert.equal(gate(results, 'schedule'), 0);
+  assert.notEqual(gate(gateJobs(), 'workflow_dispatch', true), 0);
+  const report = jobs['ci-result'].steps.find(step => step.name === 'Report nightly failure');
+  assert.equal(report.if, "failure() && github.event_name == 'schedule'");
+  assert.equal(jobs['production-images'].needs, 'production-bundle');
+  assert.equal(jobs['production-images'].strategy['max-parallel'], undefined);
 });
 
 test('production builds only run on main pushes and cannot deploy', () => {

@@ -67,10 +67,14 @@ test('unused SHA builds cannot evict the ten healthy release rollback targets', 
   assert.ok(result.packages.includes('yugioh-bot-bot'));
 });
 
-test('image publication waits for unit success and limits engine overlap', () => {
+test('image publication runs parallel to tests; the complete Test still gates deploy', () => {
   const job = workflow('test').jobs['production-images'];
-  assert.ok(job.needs.includes('unit-web'));
-  assert.equal(job.strategy['max-parallel'], 3);
+  assert.equal(job.needs, 'production-bundle');
+  assert.equal(job.strategy['max-parallel'], undefined);
+  const prepare = workflow('deploy').jobs.prepare;
+  assert.match(prepare.if, /workflow_run.conclusion == 'success'/);
+  assert.match(prepare.if, /workflow_run.event == 'push'/);
+  assert.match(prepare.if, /workflow_run.head_branch == 'main'/);
   assert.equal(job.environment, undefined);
   assert.doesNotMatch(JSON.stringify(job), /SENTRY_AUTH_TOKEN/);
 });
