@@ -71,12 +71,13 @@ test("PRs and main use the same import-aware engine rule", () => {
       "packages/shared/data/effects/tags.json", "packages/duel-server/domain-core/proposals/future.md",
       "scripts/effects/tag.ts", "scripts/staples/update.ts", "scripts/deployment/prepare-runtime-data.sh",
       "scripts/ci/publish-images.mjs", "Dockerfile",
-      "docs/adr/0002-multiplayer-duel-rules.md", "packages/duel-server/README.md",
+      "packages/duel-server/README.md",
     ]) assert.deepEqual(changedLayers([file], event), noEngine, `${event}: ${file}`);
     for (const file of ["packages/shared/src/services/duels.ts", "packages/shared/src/services/drafts.ts",
       "packages/shared/src/db/schema.ts", "packages/shared/src/cards/effects/artifact.ts",
       "packages/shared/src/duels/settings.ts", "packages/duel-server/scripts/install-engine-bundle.sh",
       "scripts/ci/build-core.sh", "scripts/ci/publish-engine-data.mjs", "scripts/native/checks/run.sh",
+      "docs/adr/0002-multiplayer-duel-rules.md", "docs/specs/multiplayer-rule-coverage.md",
     ]) assert.equal(changedLayers([file], event).engine, true, `${event}: ${file}`);
   }
   assert.deepEqual(changedLayers(["packages/duel-server/tests/engine.test.ts"], "pull_request"), {
@@ -103,6 +104,24 @@ test("Docker inputs select release safety script checks", () => {
       assert.equal(result.prod_build, true, `${event}: ${file}`);
       assert.equal(result.engine, false, `${event}: ${file}`);
     }
+  }
+});
+
+test("documentation used as test inputs selects its checks", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of ["docs/adr/0002-multiplayer-duel-rules.md", "docs/specs/multiplayer-rule-coverage.md"]) {
+      const result = classify([file, "README.md"], event);
+      assert.equal(result.engine, true, `${event}: ${file}`);
+      assert.equal(result.docs_only, false, `${event}: ${file}`);
+      assert.equal(result.tests_only, false, `${event}: ${file}`);
+      assert.equal(result.ci_scripts, false, `${event}: ${file}`);
+      assert.equal(result.web, false, `${event}: ${file}`);
+    }
+    const result = classify(["docs/engine/core-pins.md", "README.md"], event);
+    assert.equal(result.ci_scripts, true, event);
+    assert.equal(result.docs_only, false, event);
+    assert.equal(result.engine, false, event);
+    assert.equal(result.web, false, event);
   }
 });
 

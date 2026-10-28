@@ -8,7 +8,12 @@ const AREAS = ["web", "bot", "ws", "worker", "shared", "duel_unit", "e2e", "ci_s
 const globalInput = (file) => /^(package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|vitest[^/]*\.[cm]?[jt]s$|\.nvmrc$|\.github\/workflows\/|\.github\/actions\/setup-ci-node\/|patches\/)/.test(file);
 const allLayers = () => ({ ...Object.fromEntries(AREAS.map(area => [area, true])), docs_only: false, data_only: false, effects: true, prod_build: true, engine: true, golden: true, tests_only: false });
 
-const isDoc = (file) => /\.md$/i.test(file) || /^(docs|site)\//.test(file);
+const docTestInputs = new Map([
+  ["docs/adr/0002-multiplayer-duel-rules.md", "engine"],
+  ["docs/specs/multiplayer-rule-coverage.md", "engine"],
+  ["docs/engine/core-pins.md", "ci_scripts"],
+]);
+const isDoc = (file) => !docTestInputs.has(file) && (/\.md$/i.test(file) || /^(docs|site)\//.test(file));
 
 /** Follow literal module references, including re-exports, type and dynamic imports.
  * Scanning all path literals is deliberately conservative (also catches file readers).
@@ -60,11 +65,11 @@ function sharedEngineInput(file) {
 }
 
 // PRs and main pushes use the same engine rule. Scheduled/manual runs and
-// missing diffs enable every layer; docs never select tests on their own.
+// missing diffs enable every layer; docs select tests only when used as inputs.
 export function changedLayers(files, event) {
   if (!["pull_request", "push"].includes(event) || files === null) return allLayers();
   const engine = files.some((file) => !isDoc(file) && (
-    globalInput(file) || sharedEngineInput(file) ||
+    docTestInputs.get(file) === "engine" || globalInput(file) || sharedEngineInput(file) ||
     /^(packages\/duel-server\/(?!domain-core\/proposals\/)|packages\/shared\/(package\.json$|tsconfig[^/]*\.json$)|data\/duel-engine[^/]*\/|patches\/|scripts\/(native\/|ci\/(?:build-core|parallel-emxx|bin\/em\+\+|core-cache-key|assemble-core-bundle|run-engine-tests|select-engine-tests|engine-sequencer|changed-layers|publish-engine-data))|\.github\/actions\/(restore-engine-bundle|prepare-production-bundle|setup-ci-node)\/|\.github\/workflows\/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$)/.test(file)
   ));
   // Golden rows depend only on the core, overlay, data pins and native tooling (and the step's own wiring).
@@ -74,7 +79,10 @@ export function changedLayers(files, event) {
   const areas = Object.fromEntries(AREAS.map(area => [area, false]));
   const consumers = () => { for (const area of AREAS.filter(area => area !== "ci_scripts")) areas[area] = true; };
   for (const file of files.filter(file => !isDoc(file))) {
-    if (globalInput(file)) { for (const area of AREAS) areas[area] = true; }
+    if (docTestInputs.has(file)) {
+      if (docTestInputs.get(file) === "ci_scripts") areas.ci_scripts = true;
+    }
+    else if (globalInput(file)) { for (const area of AREAS) areas[area] = true; }
     else if (/^packages\/shared\/(src\/|package\.json$|tsconfig)/.test(file)) consumers();
     else if (/^packages\/shared\/data\/(effects|staples)\//.test(file)) { areas.web = true; areas.shared = true; areas.duel_unit = true; }
     else if (file.startsWith("packages/shared/data/")) consumers();
