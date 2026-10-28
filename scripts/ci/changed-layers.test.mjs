@@ -180,6 +180,7 @@ for (const [file, groups, engine] of [
   ["packages/web/src/components/duel/table/seat-state.ts", ["web", "e2e"], true],
   ["packages/e2e/stack/start.mjs", ["e2e", "duel_unit"], false],
   ["packages/duel-server/card-block-list.json", ["duel_unit", "web"], true],
+  ["scripts/ci/publish-engine-data.mjs", ["duel_unit", "ci_scripts"], true],
 ]) {
   test(`test-only cross-package dependency selects its callers: ${file}`, () => {
     for (const event of ["pull_request", "push"]) {

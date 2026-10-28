@@ -755,13 +755,17 @@ jobs:
       fail-fast: false
       matrix:
         suite: [pinned]
-        shard: [1, 2, 3, 4, 5, 6]
-        count: [6]
-        # Keep the slow host/differential files off the regular+Table shards.
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        count: [8]
+        # Eight measured-time pinned shards + four surrender parts + two differential legs.
+        # With two legacy jobs and native this is 17 engine jobs; app jobs may briefly queue.
+        # Keep surrender/differential files off the regular+Table shards.
         # Both surrender modes and all differential seeds still run across these groups.
         include:
-          - { suite: surrender, shard: 1, count: 2 }
-          - { suite: surrender, shard: 2, count: 2 }
+          - { suite: surrender, shard: 1, count: 4 }
+          - { suite: surrender, shard: 2, count: 4 }
+          - { suite: surrender, shard: 3, count: 4 }
+          - { suite: surrender, shard: 4, count: 4 }
           - { suite: differential, shard: 1, count: 2 }
           - { suite: differential, shard: 2, count: 2 }
     env:
@@ -793,6 +797,10 @@ jobs:
           BASE: ${{ needs.changes.outputs.base }}
           HEAD: ${{ needs.changes.outputs.head }}
         run: node scripts/ci/select-engine-tests.mjs
+
+      - name: Verify engine test file coverage
+        if: matrix.suite == 'pinned' && matrix.shard == 1
+        run: node scripts/ci/check-engine-test-coverage.mjs
 
       - name: Engine tests
         if: needs.changes.outputs.engine == 'true'
