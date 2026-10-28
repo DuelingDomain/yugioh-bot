@@ -17,30 +17,31 @@ interface Context { ids: Set<number>; cards: Card[]; monsters: Card[]; edges: Ed
 const round = (value: number) => Math.round(value * 100) / 100;
 const availableMaterial = (card: Card): boolean => !/Cannot be Normal Summoned|Must (?:first )?be (?:Special|Ritual) Summoned/i.test(printedText(card))
   && ((card.level ?? 0) <= 4 || sentences(printedText(card)).some(text => /Special Summon this card[^.]*from your hand/i.test(text)));
-const labelGroups = new Set(["trap monster", "hole", "trap hole", "heart", "signature move", "fusion", "synchro", "xyz", "pendulum", "number", "star", "fairy", "warrior", "knight", "white", "jester", "magician", "with eyes of blue"]);
-const groupAliases: Record<string, string[]> = { "Blue-Eyes": ["Eyes of Blue"], Diabell: ["Diabellstar", "Diabellze"], "Magical Musket": ["Magical Musketeer"] };
 const groupNames = new Map<string, (name: string) => boolean>();
-function groupNameIn(card: Card, name: string): boolean {
-  let matches = groupNames.get(name);
+function groupNameIn(card: Card, name: string, aliases: string[] = []): boolean {
+  const key = JSON.stringify([name, aliases]);
+  let matches = groupNames.get(key);
   if (!matches) {
     const normalized = name.normalize("NFKC").toLowerCase();
-    const patterns = [normalized, ...(groupAliases[name] ?? []).map(alias => alias.toLowerCase())]
+    const patterns = [normalized, ...aliases.map(alias => alias.toLowerCase())]
       .map(value => new RegExp(`(?:^|[^a-z0-9])${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:s|es)?(?:$|[^a-z0-9])`, "i"));
     matches = value => patterns.some(pattern => pattern.test(value));
-    groupNames.set(name, matches);
+    groupNames.set(key, matches);
   }
   return matches(card.name) || !!card.archetype && sameName(card.archetype, name) && card.name.toLowerCase().includes(name.toLowerCase());
 }
-function engineGroups(groups: Record<string, number[]>, rows: readonly CardCapability[]): Record<string, number[]> {
+function engineGroups(groups: Record<string, number[]>, rows: readonly CardCapability[], policies: BridgeGraphData["group_policies"] = {}): Record<string, number[]> {
   const cards = new Map(rows.map(row => [row.id, row.card]));
   return Object.fromEntries(Object.entries(groups).filter(([name, ids]) => {
+    const policy = policies[name];
+    const matches = (id: number) => cards.has(id) && groupNameIn(cards.get(id)!, name, policy?.aliases);
     const monsters = ids.filter(id => cards.get(id)?.kind === "monster" && !isExtraDeckCard(cards.get(id)!));
-    const namedMonsters = monsters.filter(id => groupNameIn(cards.get(id)!, name)).length;
-    return !labelGroups.has(name.toLowerCase()) && ids.length >= 3 && (name === "Odion"
-      || ids.filter(id => cards.has(id) && groupNameIn(cards.get(id)!, name)).length >= ids.length / 2
+    const namedMonsters = monsters.filter(matches).length;
+    return !policy?.excluded && ids.length >= 3 && (policy?.curated
+      || ids.filter(matches).length >= ids.length / 2
       || namedMonsters >= 3 && namedMonsters >= monsters.length / 2);
   })
-    .map(([name, ids]) => [name, [...new Set([...ids, ...rows.filter(row => groupNameIn(row.card, name)).map(row => row.id)])].sort((a, b) => a - b)]));
+    .map(([name, ids]) => [name, [...new Set([...ids, ...rows.filter(row => groupNameIn(row.card, name, policies[name]?.aliases)).map(row => row.id)])].sort((a, b) => a - b)]));
 }
 
 export class BridgeEngine {
@@ -58,7 +59,7 @@ export class BridgeEngine {
 
   constructor(readonly data: BridgeGraphData) {
     this.rows = new Map(data.capabilities.map(row => [row.id, row]));
-    this.groups = new Map(Object.entries(engineGroups(data.groups, data.capabilities)).map(([name, ids]) => [name, new Set(ids)]));
+    this.groups = new Map(Object.entries(data.groups).map(([name, ids]) => [name, new Set(ids)]));
     this.names = [...this.groups.keys()].sort();
   }
 
@@ -199,6 +200,11 @@ export class BridgeEngine {
       if (["send_to_gy", "discard"].includes(edge.capability.key) && rows.get(to.id)!.provides.some(capability => capability.key === "gy_effect")) add("gy_fuel", 3, [card.id, to.id], `${card.name} supplies the GY effect of ${to.name}`, [{ from: card.id, to: to.id, capability: edge.capability.key }]);
       if (!edge.named && (edge.capability.filter!.types.length || edge.capability.filter!.attributes.length || edge.capability.filter!.level_min || edge.capability.filter!.level_max)) add("type_support", Math.min(1.5, 1.5 * hit.length / Math.max(1, onlyY.filter(card => card.kind === "monster").length)), [card.id, to.id], `${card.name} supports the printed Type, Attribute or Level of ${to.name}`, [{ from: card.id, to: to.id, capability: edge.capability.key }]);
     }
+    // A resource interaction must name both its provider and its consumer.
+    // Tokens and Normal Monsters can enable effects requiring a non-Effect body.
+    const nonEffect = x.cards.find(card => this.providesNonEffect(card));
+    const consumer = onlyY.find(card => this.requiresNonEffect(card));
+    if (nonEffect && consumer) add("profile", 4, [nonEffect.id, consumer.id], `${nonEffect.name} provides a non-Effect monster for ${consumer.name}`);
     const enabler = x.cards.find(card => trapTurnSetEvidence(card));
     const traps = onlyY.filter(card => trapMonsterEvidence(card) && !/in (?:your|the) (?:GY|Graveyard)/i.test(trapMonsterEvidence(card)!)
       && !/cannot (?:be )?activated? (?:the|this) turn/i.test(printedText(card)));
@@ -296,6 +302,7 @@ export class BridgeEngine {
       const setup = this.discardSetup(this.rows.get(step.from)!, this.rows.get(step.to)!.card, format);
       return !setup || setup.some(id => !reason.cards.includes(id));
     })) return false;
+    if (reason.key === "profile") return cards.length === 2 && this.providesNonEffect(cards[0]!) && this.requiresNonEffect(cards[1]!);
     if (reason.key === "mention") return cards.some((card, i) => cards.some((other, j) => i !== j && (positiveMention(card, other.name) || !!other.archetype && mentionReachesCard(card, other.archetype, other))));
     if (reason.key === "rule_enabler") return !!trapTurnSetEvidence(cards[0]!) && !!trapMonsterEvidence(cards[1]!);
     if (reason.key === "face_down") return (cards[0]!.kind === "trap" || !!actionEvidence(cards[0]!, "set_spell_trap")) && !!faceDownNeedEvidence(cards[1]!);
@@ -313,6 +320,15 @@ export class BridgeEngine {
     return !!reason.steps?.length;
   }
 
+  private providesNonEffect(card: Card): boolean {
+    return card.kind === "monster" && card.subtypes.includes("normal")
+      || /Special Summon[^.]*\bToken\b/i.test(printedText(card));
+  }
+
+  private requiresNonEffect(card: Card): boolean {
+    return /If you control a (?:face-up )?non-Effect Monster/i.test(printedText(card));
+  }
+
   private raw(reasons: BridgeReason[]): number {
     return Object.entries(REASON_CAPS).reduce((score, [key, cap]) => score + Math.min(cap, reasons.filter(reason => reason.key === key).reduce((sum, reason) => sum + reason.weight, 0)), 0);
   }
@@ -322,10 +338,7 @@ export class BridgeEngine {
     if (reason.key === "rule_enabler") return reason.weight > 2 && reason.cards.length >= 3;
     if (reason.key === "reach") return !!reason.steps?.some(step => this.rows.get(step.from)!.provides.some(capability => capability.key === step.capability
       && capability.filter && matchesBridgeFilter(capability.filter, this.rows.get(step.to)!.card)
-      && (capability.filter.names.length || capability.filter.archetypes.length || target.monsters.length > 0
-        && target.monsters.filter(card => capability.targets?.includes(card.id) ?? matchesBridgeFilter(capability.filter!, card)).length >= target.monsters.length / 3
-        && target.monsters.some(card => matchesBridgeFilter(capability.filter!, card) && /If you control no Effect Monsters[^.]*Special Summon this card/i.test(printedText(card)))
-        && source.cards.some(card => /Special Summon[^.]*Token/i.test(printedText(card))))));
+      && (capability.filter.names.length || capability.filter.archetypes.length)));
     if (reason.key === "extra_deck") {
       const extra = reason.cards.map(id => this.rows.get(id)!.card).find(isExtraDeckCard);
       const materialText = extra?.text.split(/[\r\n]/)[0] ?? "";
@@ -353,7 +366,7 @@ export class BridgeEngine {
     // API group labels can include thematic outsiders (for example a named
     // story card). Evidence must reach an actual member of the target engine.
     const targetCards = this.contexts.get(format)!.get(y)!.cards;
-    const namedMembers = targetCards.filter(card => groupNameIn(card, y));
+    const namedMembers = targetCards.filter(card => groupNameIn(card, y, this.data.group_policies?.[y]?.aliases));
     const members = new Set((namedMembers.length ? namedMembers : targetCards).map(card => card.id));
     if (!cards.some(id => members.has(id))) return null;
     const warnings = new Set<string>();
@@ -470,11 +483,15 @@ export function indexBridgeCapabilities(rows: CardCapability[]): void {
   }
 }
 
-export function bridgeGroups(capabilities: readonly CardCapability[], profiles: ReadonlyMap<string, ArchetypeProfile>): Record<string, number[]> {
+export function bridgeGroups(capabilities: readonly CardCapability[], profiles: ReadonlyMap<string, ArchetypeProfile>, policies: BridgeGraphData["group_policies"] = {}): Record<string, number[]> {
   const groups: Record<string, number[]> = {};
   for (const { card } of capabilities) {
     if (card.archetype && profiles.has(card.archetype)) (groups[card.archetype] ??= []).push(card.id);
-    if (sameName(card.name, "Temple of the Kings") || namedIn(printedText(card), "Temple of the Kings") || /\bApophis\b/i.test(card.name)) (groups.Odion ??= []).push(card.id);
+    for (const [name, policy] of Object.entries(policies)) {
+      const include = policy.include;
+      if (include?.names?.some(value => sameName(card.name, value)) || include?.mentions?.some(value => namedIn(printedText(card), value))
+        || include?.name_patterns?.some(pattern => new RegExp(pattern, "i").test(card.name))) (groups[name] ??= []).push(card.id);
+    }
   }
   const canonical = new Map<string, string>(), merged: Record<string, number[]> = {};
   for (const [name, ids] of Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))) {
@@ -482,5 +499,5 @@ export function bridgeGroups(capabilities: readonly CardCapability[], profiles: 
     canonical.set(name.toLowerCase(), key);
     merged[key] = [...new Set([...(merged[key] ?? []), ...ids])];
   }
-  return engineGroups(merged, capabilities);
+  return engineGroups(merged, capabilities, policies);
 }

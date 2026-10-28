@@ -74,9 +74,16 @@ export interface ArchetypeBridge {
   evidence_hash: string;
 }
 export interface BridgeProgress { phase: "index" | "score" | "validate" | "done"; completed: number; total: number }
+export interface BridgeGroupPolicy {
+  curated?: boolean;
+  excluded?: boolean;
+  aliases?: string[];
+  include?: { names?: string[]; mentions?: string[]; name_patterns?: string[] };
+}
 export interface BridgeGraphData {
   capabilities: CardCapability[];
   groups: Record<string, number[]>;
+  group_policies?: Record<string, BridgeGroupPolicy>;
   target_means: Record<BridgeFormat, Record<string, number>>;
   materials?: Record<BridgeFormat, Record<string, { id: number; materials: number[]; weight: number }[]>>;
 }

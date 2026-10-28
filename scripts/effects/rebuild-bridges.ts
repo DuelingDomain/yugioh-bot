@@ -47,9 +47,11 @@ export async function rebuildBridges(options: { engineDirectory: string; directo
   }
   const capabilities = cards.filter(card => card.formats.includes("TCG") && !card.prerelease && !card.subtypes.includes("token"))
     .sort((a, b) => a.id - b.id).map(card => extractCardCapabilities(card, tagById.get(card.id) ?? tagByName.get(card.name.toLowerCase()), profileByName.get(card.archetype ?? "")));
-  const groups = bridgeGroups(capabilities, profileByName);
+  const policyBytes = readFileSync(join(directory, "bridge-groups.json"));
+  const group_policies: BridgeGraphData["group_policies"] = JSON.parse(policyBytes.toString("utf8"));
+  const groups = bridgeGroups(capabilities, profileByName, group_policies);
   indexBridgeCapabilities(capabilities);
-  const graph: BridgeGraphData = { capabilities, groups, target_means: { advanced: {}, genesys: {} } };
+  const graph: BridgeGraphData = { capabilities, groups, group_policies, target_means: { advanced: {}, genesys: {} } };
   const engine = new BridgeEngine(graph);
   console.error(`Bridge index: ${capabilities.length} cards, ${Object.keys(groups).length} groups`);
   let lastProgress = 0;
@@ -65,9 +67,9 @@ export async function rebuildBridges(options: { engineDirectory: string; directo
   const identity: Omit<BridgeManifest, "version"> = {
     schema_version: 1, algorithm_version: "capability-bridges-v2",
     inputs: { tags: sha(readFileSync(join(directory, "tags.jsonl.gz"))), profiles: sha(readFileSync(join(directory, "profiles.jsonl.gz"))),
-      engine: sha(readFileSync(join(options.engineDirectory, "cards.cdb"))), metadata: sha(metadataBytes), genesys_revision: points.revision },
+      engine: sha(readFileSync(join(options.engineDirectory, "cards.cdb"))), metadata: sha(metadataBytes), genesys_revision: points.revision, groups: sha(policyBytes) },
     files: { capabilities: emit("card-capabilities.jsonl.gz", capabilities), advanced: emit("bridges-advanced.jsonl.gz", bridges.filter(row => row.format === "advanced")), genesys: emit("bridges-genesys.jsonl.gz", bridges.filter(row => row.format === "genesys")) },
-    groups, target_means: graph.target_means, materials: graph.materials,
+    groups, group_policies, target_means: graph.target_means, materials: graph.materials,
   };
   const manifest: BridgeManifest = { ...identity, version: bridgeHash(identity) };
   const manifestBytes = JSON.stringify(manifest) + "\n";

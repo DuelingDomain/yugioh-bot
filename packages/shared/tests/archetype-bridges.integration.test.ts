@@ -4,9 +4,34 @@ import { migrate } from "../src/db/schema.js";
 import { importBridgeArtifact } from "../src/cards/effects/bridge-artifact.js";
 import { createBridgeService } from "../src/services/archetype-bridges.js";
 import { readBridgeManifest } from "../src/cards/effects/bridge-artifact.js";
-import { BridgeEngine } from "../src/cards/effects/bridge-engine.js";
+import { readFileSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
+import type { ArchetypeProfile } from "../src/cards/effects/synergy.js";
+import { BridgeEngine, bridgeGroups } from "../src/cards/effects/bridge-engine.js";
 
 describe("pinned bridge pipeline", () => {
+  it("builds curated memberships, aliases and exclusions from group data", () => {
+    const db = new Database(":memory:");
+    try {
+      migrate(db); importBridgeArtifact(db);
+      const capabilities = (db.prepare("SELECT capabilities_json FROM card_capability").all() as { capabilities_json: string }[]).map(row => JSON.parse(row.capabilities_json));
+      const profiles = new Map<string, ArchetypeProfile>(gunzipSync(readFileSync(new URL("../data/effects/profiles.jsonl.gz", import.meta.url))).toString().trim().split("\n").map(line => { const row = JSON.parse(line); return [row.archetype, row.profile]; }));
+      const policies = JSON.parse(readFileSync(new URL("../data/effects/bridge-groups.json", import.meta.url), "utf8"));
+      const groups = bridgeGroups(capabilities, profiles, policies);
+      expect(groups.Odion).toContain(29762407);
+      expect(groups["Blue-Eyes"]).toContain(42097666);
+      for (const label of ["Trap Monster", "Hole", "Heart"]) expect(groups[label]).toBeUndefined();
+      const renamed = bridgeGroups(capabilities, profiles, { "Temple package": policies.Odion });
+      expect(renamed["Temple package"]).toEqual(groups.Odion);
+      const engine = new BridgeEngine({ capabilities, groups, group_policies: policies, target_means: { advanced: {}, genesys: {} } });
+      for (const format of ["advanced", "genesys"] as const) {
+        const line = engine.between("Swordsoul", "Tenyi", format);
+        expect(line?.reasons.some(reason => reason.key === "profile")).toBe(true);
+        expect(line?.reasons.every(reason => engine.validateReason(reason, format))).toBe(true);
+      }
+    } finally { db.close(); }
+  }, 15_000);
+
   it("keeps labels, self references and isolated stat searches out of engine bridges", () => {
     const db = new Database(":memory:");
     try {
