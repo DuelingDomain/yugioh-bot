@@ -24,15 +24,17 @@ describe("bridge scanner isolation", () => {
         if (value.phase === "index") throw new Error("Progress consumer disconnected");
       });
       const second = workers.bridgeCandidates({ ...scan, source: "Blue-Eyes" });
+      const genesys = workers.bridgeCandidates({ ...scan, format: "genesys" });
       expect(jobs()).toHaveLength(1);
       const suggestions = workers.run({
         query: parseDeckSuggestionQuery({ op: "suggestRows", deck: { main: [89631139], extra: [], side: [] } })!,
         legality: deckSuggestionScope("normal", directory, defaultDuelSettings("normal"), { cardBlocks: [] }),
       });
       expect(jobs()).toHaveLength(2);
-      const [result, queued, normal] = await Promise.all([first, second, suggestions]);
+      const [result, queued, filtered, normal] = await Promise.all([first, second, genesys, suggestions]);
       expect(Array.isArray(result)).toBe(true);
       expect(Array.isArray(queued)).toBe(true);
+      expect(Array.isArray(filtered) && filtered.length > 0 && filtered.every(row => row.format === "genesys")).toBe(true);
       expect(normal).toHaveProperty("rows");
       expect(progress).toContain("score");
       expect(progress.at(-1)).toBe("done");
