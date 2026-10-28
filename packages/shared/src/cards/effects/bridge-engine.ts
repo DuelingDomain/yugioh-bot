@@ -55,6 +55,8 @@ export class BridgeEngine {
   private readonly smallWorld = new Map<BridgeFormat, number>();
   private readonly pairCache = new Map<string, BridgeReason[]>();
   private readonly discardSetups = new Map<string, number[] | undefined>();
+  private readonly specificFilters = new Map<BridgeFormat, WeakMap<Capability, boolean>>();
+  private collectingOutlets?: Map<number, Map<BridgeReasonKey, Set<string>>>;
   private readonly names: string[];
 
   constructor(readonly data: BridgeGraphData) {
@@ -191,7 +193,20 @@ export class BridgeEngine {
       const cards = [...new Set(ids)];
       const reason: BridgeReason = { key, weight: round(weight * this.frequencyScale(target, key, format)), cards,
         evidence: cards.map(id => printedText(rows.get(id)!.card) || rows.get(id)!.card.name), description, ...(steps ? { steps } : {}), ...(materials ? { materials } : {}) };
-      if (this.validateReason(reason, format)) reasons.push(reason);
+      if (this.data.ancillary_outlets?.[format]?.[this.outlet(reason)]?.includes(key)) {
+        reason.ancillary = true;
+        reason.weight = Math.min(1, reason.weight);
+      }
+      if (this.validateReason(reason, format)) {
+        reasons.push(reason);
+        if (this.collectingOutlets && (key === "gy_fuel" || key === "reach" && this.substantive(reason, y, x, format))) {
+          const id = this.outlet(reason);
+          if (!this.collectingOutlets.has(id)) this.collectingOutlets.set(id, new Map());
+          const keys = this.collectingOutlets.get(id)!;
+          if (!keys.has(key)) keys.set(key, new Set());
+          keys.get(key)!.add(target);
+        }
+      }
     };
     for (const card of x.cards) {
       for (const other of onlyY) {
@@ -206,7 +221,12 @@ export class BridgeEngine {
       const hit = onlyY.filter(card => edge.targets.has(card.id));
       if (!hit.length) continue;
       const card = rows.get(edge.from)!.card, to = hit[0]!;
-      const entry = hit.flatMap(card => y.edges.filter(next => next.from === card.id && next.named && next.capability.from?.includes("deck")
+      const negatedEntry = ["special_summon", "normal_summon"].includes(edge.capability.key)
+        && /negat(?:e|ing) (?:its|their) effects|(?:its|their) effects(?:\s+\(if any\))?\s+(?:(?:are|is)\s+)?negated/i.test(edge.capability.evidence);
+      // GY/banished extenders need setup before they can enter another engine.
+      const freshEntry = ["search", "special_summon", "normal_summon"].includes(edge.capability.key)
+        && edge.capability.from?.some(zone => zone === "deck" || zone === "hand");
+      const entry = (negatedEntry || !freshEntry ? [] : hit).flatMap(card => y.edges.filter(next => next.from === card.id && next.named && next.capability.from?.includes("deck")
         && /If this card is (?:Normal|Special|Normal or Special) Summoned\s*:/i.test(next.capability.evidence))
         .flatMap(next => onlyY.filter(other => next.targets.has(other.id)).sort((a, b) =>
           Number(y.edges.some(edge => edge.from === b.id && edge.named && edge.capability.from?.includes("deck")))
@@ -295,7 +315,8 @@ export class BridgeEngine {
       if (seen.has(identity)) return false;
       seen.add(identity); return true;
     });
-    const retained = unique.some(reason => this.substantive(reason, y, x)) ? unique : [];
+    const retained = unique.some(reason => this.substantive(reason, y, x, format)) ? unique : [];
+    for (const reason of retained) if (!this.substantive(reason, y, x, format)) reason.ancillary = true;
     // Only a source-sized cache is retained during live scans.
     if (this.pairCache.size > this.names.length * 2) this.pairCache.clear();
     this.pairCache.set(cacheKey, retained);
@@ -364,16 +385,51 @@ export class BridgeEngine {
     return !!extra && genericLinkOneMaterial(extra, reason.materials);
   }
 
+  private specificCapability(capability: Capability, format: BridgeFormat): boolean {
+    const filter = capability.filter;
+    if (!filter || filter.this_card) return false;
+    if (filter.names.length || filter.archetypes.length) return true;
+    if (!particularFilter(filter)) return false;
+    if (!filter.level_min && !filter.level_max && !filter.subtypes.length && !filter.other
+      && filter.types.length + filter.attributes.length <= 1) return false;
+    let cache = this.specificFilters.get(format);
+    if (!cache) this.specificFilters.set(format, cache = new WeakMap());
+    if (!cache.has(capability)) {
+      const legal = this.legal.get(format)!;
+      const matches = capability.targets ? capability.targets.filter(id => legal.has(id)).length
+        : [...legal.values()].filter(row => matchesBridgeFilter(filter, row.card)).length;
+      cache.set(capability, matches <= legal.size * 0.015);
+    }
+    return cache.get(capability)!;
+  }
+
   private raw(reasons: BridgeReason[]): number {
     return Object.entries(REASON_CAPS).reduce((score, [key, cap]) => score + Math.min(cap, reasons.filter(reason => reason.key === key).reduce((sum, reason) => sum + reason.weight, 0)), 0);
   }
 
-  private substantive(reason: BridgeReason, target: Context, source: Context): boolean {
+  private outlet(reason: BridgeReason): number {
+    return reason.steps?.[0]?.from ?? reason.cards[0]!;
+  }
+
+  private substantive(reason: BridgeReason, target: Context, source: Context, format: BridgeFormat): boolean {
+    if (reason.ancillary) return false;
     if (["searcher", "small_world", "type_support", "face_down"].includes(reason.key)) return false;
     if (reason.key === "rule_enabler") return reason.weight > 2 && reason.cards.length >= 3;
-    if (reason.key === "reach") return !!reason.steps?.some(step => this.rows.get(step.from)!.provides.some(capability => capability.key === step.capability
-      && capability.filter && matchesBridgeFilter(capability.filter, this.rows.get(step.to)!.card)
-      && (capability.filter.names.length || capability.filter.archetypes.length)));
+    if (reason.key === "reach" || reason.key === "gy_fuel") {
+      const entry = reason.steps?.[0];
+      const capability = entry && this.rows.get(entry.from)!.provides.find(capability => capability.key === entry.capability
+        && capability.filter && matchesBridgeFilter(capability.filter, this.rows.get(entry.to)!.card)
+        && this.specificCapability(capability, format));
+      if (!capability) return false;
+      if (reason.key === "gy_fuel") return true;
+      // A narrow stat search still needs engine entry or a concrete payoff.
+      const namedEntry = reason.steps!.some(step => this.rows.get(step.from)!.provides.some(capability => capability.key === step.capability
+        && capability.filter && matchesBridgeFilter(capability.filter, this.rows.get(step.to)!.card)
+        && (capability.filter.names.length || capability.filter.archetypes.length)));
+      const discardPayoff = this.rows.get(entry!.from)!.provides.some(other => other.key === "discard" && other.effect === capability.effect && other.from?.includes("hand"))
+        && target.cards.some(card => this.rows.get(card.id)!.needs.some(need => need.key === "trigger" && need.value === "discard"));
+      return namedEntry || discardPayoff;
+    }
     if (reason.key === "extra_deck") {
       if (this.genericLinkOne(reason)) return false;
       const extra = reason.cards.map(id => this.rows.get(id)!.card).find(isExtraDeckCard);
@@ -393,9 +449,9 @@ export class BridgeEngine {
     if (!x || !y) return null;
     const reasons = this.reasons(x, y, format);
     if (!reasons.length) return null;
-    const primary = reasons.find(reason => this.substantive(reason, this.contexts.get(format)!.get(y)!, this.contexts.get(format)!.get(x)!));
+    const primary = reasons.find(reason => this.substantive(reason, this.contexts.get(format)!.get(y)!, this.contexts.get(format)!.get(x)!, format));
     if (!primary) return null;
-    const otherReasons = reasons.filter(reason => reason.key !== primary.key && !["searcher", "small_world"].includes(reason.key)
+    const otherReasons = reasons.filter(reason => reason.key !== primary.key && !["searcher", "small_world"].includes(reason.key) && !this.genericLinkOne(reason)
       && (reason.key !== "type_support" || reason.cards.every(id => primary.cards.includes(id))));
     const selectedReasons = [primary, ...otherReasons.filter((reason, i, list) => list.findIndex(other => other.key === reason.key) === i)].slice(0, 4);
     const cards = [...new Set(selectedReasons.flatMap(reason => reason.cards))].sort((a, b) => a - b);
@@ -432,12 +488,14 @@ export class BridgeEngine {
     const reverseReach = this.raw(this.reasons(y, x, format)) >= 4;
     const raw = this.raw(reasons), mean = this.data.target_means[format][y] ?? 0;
     const score = round(Math.min(100, Math.max(0, raw - 0.6 * mean + (reverseReach ? 2 : 0) - Math.min(20, penalty))));
-    if (score <= 0) return null;
+    if (score < 4) return null;
+    // Multiple mentions and actions from one hybrid card are still one outlet.
+    const outlets = new Set(selectedReasons.filter(reason => !reason.ancillary).map(reason => this.outlet(reason)));
     const copies = new Map(cards.map(id => [id, Math.max(1, ...selectedReasons.map(reason => reason.materials?.filter(code => code === id).length ?? 0))]));
     const points = format === "genesys" ? cards.reduce((sum, id) => sum + this.rows.get(id)!.card.genesysPoints! * copies.get(id)!, 0) : null;
     warnings.add("Card text conditions and costs apply; the line has not been engine-verified");
     return { source: x, target: y, format, score, raw_score: round(raw), target_mean: round(mean), two_way: false,
-      grade: penalty >= 8 ? "Risky" : selectedReasons.some(reason => this.genericLinkOne(reason)) ? "Niche" : score >= 20 ? "Strong" : score >= 8 ? "Good" : "Niche",
+      grade: penalty >= 8 ? "Risky" : score >= 20 && outlets.size >= 2 ? "Strong" : score >= 8 ? "Good" : "Niche",
       reasons: selectedReasons, cards, warnings: [...warnings], genesys_points: points,
       validation: "deterministic", judge: "pending", engine_status: "unverified",
       evidence_hash: bridgeHash({ cards: [...new Set(reasons.flatMap(reason => reason.cards))].sort((a, b) => a - b).map(id => [id, this.rows.get(id)!.text_hash, this.rows.get(id)!.evidence_hash]), reasons: reasons.map(reason => [reason.key, reason.cards, reason.steps, reason.materials]), format }) };
@@ -462,31 +520,45 @@ export class BridgeEngine {
       this.prepare(format);
       this.data.reason_frequencies ??= { advanced: {}, genesys: {} };
       this.data.reason_frequencies[format] = {};
+      this.data.ancillary_outlets ??= { advanced: {}, genesys: {} };
+      this.data.ancillary_outlets[format] = {};
       this.pairCache.clear();
       const counts: Record<string, Partial<Record<BridgeReasonKey, number>>> = {};
-      const contributions = new Map<string, Map<string, Partial<Record<BridgeReasonKey, number[]>>>>();
+      const outletTargets = this.collectingOutlets = new Map<number, Map<BridgeReasonKey, Set<string>>>();
+      const contributions = new Map<string, Map<string, BridgeReason[]>>();
       for (const [i, source] of this.names.entries()) {
-        const values = new Map<string, Partial<Record<BridgeReasonKey, number[]>>>();
+        const values = new Map<string, BridgeReason[]>();
         for (const target of this.names) {
           const reasons = this.reasons(source, target, format);
           if (!reasons.length) continue;
-          const weights: Partial<Record<BridgeReasonKey, number[]>> = {};
-          for (const reason of reasons) (weights[reason.key] ??= []).push(reason.weight);
-          for (const key of Object.keys(weights) as BridgeReasonKey[]) {
-            const frequency = counts[target] ??= {};
-            frequency[key] = (frequency[key] ?? 0) + 1;
-          }
-          values.set(target, weights);
+          values.set(target, reasons);
         }
         contributions.set(source, values);
         progress?.({ phase: "score", completed: i + 1, total: this.names.length });
+      }
+      this.collectingOutlets = undefined;
+      this.data.ancillary_outlets[format] = Object.fromEntries([...outletTargets].map(([id, keys]) =>
+        [id, [...keys].filter(([, targets]) => targets.size >= 3).map(([key]) => key)]).filter(([, keys]) => (keys as BridgeReasonKey[]).length));
+      for (const [source, targets] of contributions) for (const [target, reasons] of targets) {
+        for (const reason of reasons) if (this.data.ancillary_outlets[format][this.outlet(reason)]?.includes(reason.key)) {
+          reason.ancillary = true;
+        }
+        const contexts = this.contexts.get(format)!;
+        if (!reasons.some(reason => this.substantive(reason, contexts.get(target)!, contexts.get(source)!, format))) { targets.delete(target); continue; }
+        for (const key of new Set(reasons.map(reason => reason.key))) {
+          const frequency = counts[target] ??= {};
+          frequency[key] = (frequency[key] ?? 0) + 1;
+        }
       }
       this.data.reason_frequencies[format] = Object.fromEntries(Object.entries(counts).map(([target, keys]) => [target,
         Object.fromEntries(Object.entries(keys).map(([key, count]) => [key, count / Math.max(1, this.names.length - 1)]))]));
       this.pairCache.clear();
       const totals = new Map<string, number>();
-      const scores = new Map([...contributions].map(([source, targets]) => [source, new Map([...targets].map(([target, weights]) => {
-        const score = (Object.keys(weights) as BridgeReasonKey[]).reduce((sum, key) => sum + Math.min(REASON_CAPS[key], weights[key]!.reduce((sum, weight) => sum + round(weight * this.frequencyScale(target, key, format)), 0)), 0);
+      const scores = new Map([...contributions].map(([source, targets]) => [source, new Map([...targets].map(([target, reasons]) => {
+        const score = this.raw(reasons.map(reason => {
+          const weight = round(reason.weight * this.frequencyScale(target, reason.key, format));
+          return { ...reason, weight: this.data.ancillary_outlets![format][this.outlet(reason)]?.includes(reason.key) ? Math.min(1, weight) : weight };
+        }));
         totals.set(target, (totals.get(target) ?? 0) + score);
         return [target, score] as const;
       }))]));

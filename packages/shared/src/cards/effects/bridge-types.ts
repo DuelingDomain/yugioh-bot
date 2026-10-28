@@ -46,6 +46,7 @@ export type BridgeReasonKey = keyof typeof REASON_CAPS;
 export interface BridgeReason {
   key: BridgeReasonKey;
   weight: number;
+  ancillary?: boolean;
   cards: number[];
   /** Printed evidence in the same order as cards. */
   evidence: string[];
@@ -86,5 +87,6 @@ export interface BridgeGraphData {
   group_policies?: Record<string, BridgeGroupPolicy>;
   target_means: Record<BridgeFormat, Record<string, number>>;
   reason_frequencies?: Record<BridgeFormat, Record<string, Partial<Record<BridgeReasonKey, number>>>>;
+  ancillary_outlets?: Record<BridgeFormat, Record<number, BridgeReasonKey[]>>;
   materials?: Record<BridgeFormat, Record<string, { id: number; materials: number[]; weight: number }[]>>;
 }

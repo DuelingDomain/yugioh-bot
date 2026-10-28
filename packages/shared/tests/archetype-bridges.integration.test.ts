@@ -10,6 +10,46 @@ import type { ArchetypeProfile } from "../src/cards/effects/synergy.js";
 import { BridgeEngine, bridgeGroups } from "../src/cards/effects/bridge-engine.js";
 
 describe("pinned bridge pipeline", () => {
+  it("requires specific primary filters and rejects negated entry effects", () => {
+    const db = new Database(":memory:");
+    try {
+      migrate(db); importBridgeArtifact(db);
+      const graph = JSON.parse((db.prepare("SELECT graph_json FROM bridge_graph WHERE id=1").get() as { graph_json: string }).graph_json);
+      const capabilities = (db.prepare("SELECT capabilities_json FROM card_capability").all() as { capabilities_json: string }[]).map(row => JSON.parse(row.capabilities_json));
+      const engine = new BridgeEngine({ ...graph, capabilities });
+      for (const format of ["advanced", "genesys"] as const) {
+        for (const [source, target] of [["Ghoti", "Shark"], ["Ghoti", "Heraldic"], ["Guardragon", "Blue-Eyes"], ["Triamid", "Adamancipator"], ["Battleguard", "Danger!"], ["Branded", "Fabled"], ["Dragunity", "Dragonmaid"]]) {
+          expect(engine.between(source!, target!, format), `${source} -> ${target}`).toBeNull();
+        }
+        const fabled = engine.between("Fiendsmith", "Fabled", format)!;
+        expect(fabled.score).toBeGreaterThanOrEqual(4);
+        expect(fabled.reasons[0]!.key).toBe("reach");
+        expect(fabled.reasons.find(reason => reason.key === "gy_fuel")).toMatchObject({ ancillary: true });
+        expect(engine.between("Snake-Eye", "Fire King", format)).not.toBeNull();
+        expect(engine.between("Battleguard", "K9", format)).not.toBeNull();
+        const maliss = engine.between("Code Talker", "Maliss", format);
+        for (const reason of maliss?.reasons ?? []) if (reason.key === "reach" && (reason.steps?.length ?? 0) > 1) {
+          expect(reason.steps![0]!.capability).not.toBe("send_to_gy");
+        }
+      }
+      // Exercise both negation wordings with deck access, independently of
+      // the separate rule requiring setup for already-banished targets.
+      for (const wording of ["negate its effects", "its effects are negated"]) {
+        const changed = structuredClone(capabilities);
+        const eanoc = changed.find(row => row.id === 9416697)!;
+        eanoc.card.text = eanoc.card.text.replace("negate its effects", wording);
+        for (const capability of eanoc.provides) if (capability.key === "special_summon") {
+          capability.from = ["deck"];
+          capability.evidence = capability.evidence.replace("negate its effects", wording);
+        }
+        const negated = new BridgeEngine({ ...graph, capabilities: changed, ancillary_outlets: undefined });
+        expect(negated.between("Ghoti", "Shark")).toBeNull();
+        expect(negated.between("Ghoti", "Heraldic")).toBeNull();
+      }
+      expect(engine.liveCandidates("Kashtira").every(row => row.score >= 4)).toBe(true);
+    } finally { db.close(); }
+  }, 15_000);
+
   it("suppresses overlapping source groups, name families and duplicate ranked targets", () => {
     const db = new Database(":memory:");
     try {
@@ -26,6 +66,20 @@ describe("pinned bridge pipeline", () => {
           expect(overlap / groups[row.target]!.length, `${source}: ${higher.target}, ${row.target}`).toBeLessThan(0.5);
         }
       }
+    } finally { db.close(); }
+  }, 15_000);
+
+  it("keeps a one-outlet hybrid below Strong and omits generic Link-1 secondary reasons", () => {
+    const db = new Database(":memory:");
+    try {
+      migrate(db); importBridgeArtifact(db);
+      const graph = JSON.parse((db.prepare("SELECT graph_json FROM bridge_graph WHERE id=1").get() as { graph_json: string }).graph_json);
+      const capabilities = (db.prepare("SELECT capabilities_json FROM card_capability").all() as { capabilities_json: string }[]).map(row => JSON.parse(row.capabilities_json));
+      const engine = new BridgeEngine({ ...graph, capabilities });
+      expect(engine.between("Blue-Eyes", "Millennium")?.grade).toBe("Good");
+      const magistus = engine.between("Endymion", "Magistus")!;
+      expect(magistus.grade).toBe("Strong");
+      expect(magistus.reasons.some(reason => reason.key === "extra_deck" && reason.cards.includes(34755994))).toBe(false);
     } finally { db.close(); }
   }, 15_000);
 
@@ -46,9 +100,9 @@ describe("pinned bridge pipeline", () => {
       const renamed = bridgeGroups(capabilities, profiles, { "Temple package": policies.Odion });
       expect(renamed["Temple package"]).toEqual(groups.Odion);
       const engine = new BridgeEngine({ capabilities, groups, group_policies: policies, target_means: { advanced: {}, genesys: {} } });
-      const before = engine.between("Branded", "Danger!")!.reasons.find(reason => reason.key === "gy_fuel")!.weight;
-      const frequent = new BridgeEngine({ ...engine.data, reason_frequencies: { advanced: { "Danger!": { gy_fuel: 0.25 } }, genesys: {} } });
-      expect(frequent.between("Branded", "Danger!")!.reasons.find(reason => reason.key === "gy_fuel")!.weight).toBeLessThan(before / 2);
+      const before = engine.reasons("Fiendsmith", "Fabled", "advanced").find(reason => reason.key === "reach")!.weight;
+      const frequent = new BridgeEngine({ ...engine.data, reason_frequencies: { advanced: { "Fabled": { reach: 0.25 } }, genesys: {} } });
+      expect(frequent.reasons("Fiendsmith", "Fabled", "advanced").find(reason => reason.key === "reach")!.weight).toBeLessThan(before / 2);
       for (const format of ["advanced", "genesys"] as const) {
         expect(engine.between("Blue-Eyes", "Tenyi", format)).toBeNull();
         expect(engine.between("Fiendsmith", "Tenyi", format)).toBeNull();
@@ -97,22 +151,10 @@ describe("pinned bridge pipeline", () => {
         expect(argostars!.score).toBeGreaterThan(odion.find(row => row.target === "Golden Land")?.score ?? 0);
         for (const [source, target] of [["Kashtira", "Heart"], ["Ryzeal", "Hole"], ["Yubel", "Signature move"], ["Snake-Eye", "Volcanic"], ["Snake-Eye", "Flamvell"], ["Snake-Eye", "Laval"], ["Swordsoul", "True Draco"], ["Swordsoul", "Metaphys"], ["Fiendsmith", "Duston"]]) expect(service.explain(source!, target!, format)).toBeNull();
         const darkWorld = service.explain("Fiendsmith", "Dark World", format);
-        expect(darkWorld?.cards).not.toContain(7623640);
-        expect(service.explain("Branded", "Dark World", format)?.cards).not.toContain(7623640);
+        expect(darkWorld?.cards ?? []).not.toContain(7623640);
+        expect(service.explain("Branded", "Dark World", format)?.cards ?? []).not.toContain(7623640);
         for (const target of ["Danger!", "Fabled", "Dark World"]) {
-          const bridge = service.explain("Branded", target, format);
-          const reason = bridge?.reasons.find(reason => reason.key === "gy_fuel" && reason.cards.includes(29948294));
-          expect(reason).toBeDefined();
-          const cards = reason!.cards.map(id => JSON.parse((db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode=?").get(id) as { capabilities_json: string }).capabilities_json).card);
-          const discarded = cards.find(card => card.kind === "monster" && !card.subtypes.includes("fusion"));
-          const fusion = cards.find(card => card.subtypes.includes("fusion"));
-          expect(discarded.name).not.toBe("Danger!? Tsuchinoko?");
-          expect(fusion.monsterType).toBe(discarded.monsterType);
-          expect(fusion.level).toBe(8);
-          expect(fusion.atk === 2500 || fusion.def === 2500).toBe(true);
-          expect(reason!.description).toContain(fusion.name);
-          expect(validator.validateReason(reason!, format)).toBe(true);
-          expect(validator.validateReason({ ...reason!, cards: reason!.cards.filter(id => id !== fusion.id), evidence: reason!.evidence.filter((_, i) => reason!.cards[i] !== fusion.id) }, format)).toBe(false);
+          expect(service.explain("Branded", target, format)).toBeNull();
         }
         expect(odion.every(row => !row.two_way)).toBe(true);
       }

@@ -65,11 +65,11 @@ export async function rebuildBridges(options: { engineDirectory: string; directo
     return { path, records: rows.length, bytes: bytes.length, sha256: sha(bytes), gzipBytes: compressed.length, gzipSha256: sha(compressed) };
   };
   const identity: Omit<BridgeManifest, "version"> = {
-    schema_version: 1, algorithm_version: "capability-bridges-v3",
+    schema_version: 1, algorithm_version: "capability-bridges-v4",
     inputs: { tags: sha(readFileSync(join(directory, "tags.jsonl.gz"))), profiles: sha(readFileSync(join(directory, "profiles.jsonl.gz"))),
       engine: sha(readFileSync(join(options.engineDirectory, "cards.cdb"))), metadata: sha(metadataBytes), genesys_revision: points.revision, groups: sha(policyBytes) },
     files: { capabilities: emit("card-capabilities.jsonl.gz", capabilities), advanced: emit("bridges-advanced.jsonl.gz", bridges.filter(row => row.format === "advanced")), genesys: emit("bridges-genesys.jsonl.gz", bridges.filter(row => row.format === "genesys")) },
-    groups, group_policies, target_means: graph.target_means, reason_frequencies: graph.reason_frequencies, materials: graph.materials,
+    groups, group_policies, target_means: graph.target_means, reason_frequencies: graph.reason_frequencies, ancillary_outlets: graph.ancillary_outlets, materials: graph.materials,
   };
   const manifest: BridgeManifest = { ...identity, version: bridgeHash(identity) };
   const manifestBytes = JSON.stringify(manifest) + "\n";
