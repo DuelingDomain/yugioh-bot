@@ -44,6 +44,7 @@ export class BridgeApi {
             progress("rating", 35 + Math.floor(64 * ++completed / candidates.length));
           }
         }));
+        if (candidates.some(row => bridgeGate(this.db, row).state === "pending")) throw new Error("Bridge reviews are temporarily unavailable");
         return rows;
       },
     });
@@ -129,7 +130,11 @@ export class BridgeApi {
     const results = rows.filter(row => row.source === query.source && row.format === query.format
       && (!query.target || row.target === query.target)
       && (row.format !== "genesys" || this.incrementalPoints(row, query) <= (query.genesysRemaining ?? 100)))
-      .flatMap(row => { const shown = shownBridge(this.db, row); return shown ? [shown] : []; }).slice(0, 4);
+      .flatMap(row => { const shown = shownBridge(this.db, row); if (!shown) return [];
+        const reverse = this.service.bridgeBetween(row.target, row.source, row.format);
+        const twoWay = !!reverse && !!shownBridge(this.db, reverse)
+          && (reverse.format !== "genesys" || this.incrementalPoints(reverse, query) <= (query.genesysRemaining ?? 100));
+        return [{ ...shown, two_way: twoWay }]; }).slice(0, 4);
     return { results, inReview: rows.filter(row => ["pending", "review"].includes(bridgeGate(this.db, row).state)).length };
   }
 

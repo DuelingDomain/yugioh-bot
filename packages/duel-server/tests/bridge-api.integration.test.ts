@@ -32,7 +32,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     const call = (bridgeRequest: unknown, identity = user, guildId = "g") => api.handle({ userId: identity.userId, bridgeRequest }, guildId, identity.playerId);
     expect(await call({ op: "from", source: "Odion" })).toMatchObject({ results: [] });
     const job = await call({ op: "start", source: "Odion", target: "Argostars" }) as { jobId: string };
-    expect(await call({ op: "start", source: "Blue-Eyes" })).toMatchObject({ jobId: job.jobId });
+    await expect(call({ op: "start", source: "Blue-Eyes" })).rejects.toMatchObject({ status: 409, message: "A deep search for Odion is still running", retryAfter: 10 });
     expect(await call({ op: "status", jobId: job.jobId })).toMatchObject({ state: "running", results: [] });
     complete();
     for (let i = 0; i < 30 && (await call({ op: "status", jobId: job.jobId }) as { state: string }).state !== "done"; i++) await new Promise(resolve => setImmediate(resolve));
@@ -55,6 +55,54 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     await api.jobs.close();
   });
 
+  it("allows a later deep search to retry reviews unavailable before a response", async () => {
+    const user = seedIdentity(db, { name: "Retry reviewer" });
+    const row = createBridgeService(db).bridgeBetween("Branded", "Despia")!;
+    db.prepare("DELETE FROM bridge_judgement WHERE evidence_hash=?").run(row.evidence_hash);
+    let now = 1_000_000;
+    const workers = { bridgeCandidates: vi.fn(async () => [row]), rateBridge: vi.fn(async () => {}) };
+    const api = new BridgeApi(db, workers, () => now);
+    const start = () => api.handle({ userId: user.userId, bridgeRequest: { op: "start", source: row.source, target: row.target } }, "g", user.playerId);
+    try {
+      const first = await start() as { jobId: string };
+      await new Promise(resolve => setImmediate(resolve));
+      expect(api.jobs.status({ userId: user.userId, guildId: "g" }, first.jobId).state).toBe("failed");
+      await expect(start()).rejects.toMatchObject({ status: 429, retryAfter: 60 });
+      now += 60_000;
+      const retry = await start() as { jobId: string; cached: boolean };
+      expect(retry.jobId).not.toBe(first.jobId);
+      expect(retry.cached).toBe(false);
+      await api.jobs.close();
+      expect(workers.rateBridge).toHaveBeenCalledTimes(2);
+    } finally { await api.jobs.close(); }
+  });
+
+  it("shows two-way only while the reverse bridge also passes both reviews", async () => {
+    const user = seedIdentity(db, { name: "Two-way reviewer" });
+    const pair = db.prepare(`SELECT a.bridge_json AS forward,b.bridge_json AS reverse FROM archetype_bridge a
+      JOIN archetype_bridge b ON b.source=a.target AND b.target=a.source AND b.format=a.format
+      WHERE a.format='advanced' AND a.source<>'Odion' AND a.target<>'Odion' ORDER BY a.score DESC,a.source,a.target LIMIT 1`).get() as { forward: string; reverse: string };
+    const forward = JSON.parse(pair.forward) as ArchetypeBridge, reverse = JSON.parse(pair.reverse) as ArchetypeBridge;
+    const approve = (row: ArchetypeBridge) => {
+      const evidence = buildBridgeJudgeEvidence(db, row)!;
+      for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, {
+        verdict: "valid", grade: "good", pros: ["The supplied cards interact.", "Enables the proposed line."],
+        cons: ["Needs the supplied cards.", "Requires the printed conditions."], lock_note: "Apply the supplied restrictions.",
+        line: evidence.cards.map(card => card.name), format_ok: true,
+      }));
+    };
+    approve(forward);
+    const api = new BridgeApi(db, { bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const call = () => api.handle({ userId: user.userId, bridgeRequest: { op: "between", source: forward.source, target: forward.target } }, "g", user.playerId);
+    try {
+      expect(await call()).toMatchObject({ results: [{ two_way: false }] });
+      approve(reverse);
+      expect(await call()).toMatchObject({ results: [{ two_way: true }], reverse: [{ two_way: true }] });
+      for (const actor of ["two-way-one", "two-way-two"]) db.prepare("INSERT INTO bridge_feedback(evidence_hash,actor_hash,reason) VALUES(?,?,'')").run(reverse.evidence_hash, actor);
+      expect(await call()).toMatchObject({ results: [{ two_way: false }], reverse: [] });
+    } finally { await api.jobs.close(); }
+  });
+
   it("resolves saved decks only for their owner and rejects unknown query authority", async () => {
     const user = seedIdentity(db, { name: "Deck owner" }), other = seedIdentity(db, { name: "Not owner" });
     const api = new BridgeApi(db, { bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
@@ -72,30 +120,31 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
 
   it("charges only additional required copies against a saved deck's remaining Genesys points", async () => {
     const user = seedIdentity(db, { name: "Genesys deck owner" });
-    const row = createBridgeService(db).bridgeBetween('"C"', "Naturia", "genesys")!;
-    expect(row.genesys_points).toBe(5);
+    const row = createBridgeService(db).bridgeBetween("Odion", "Ashtra", "genesys")!;
+    expect(row.genesys_points).toBe(3);
     const evidence = buildBridgeJudgeEvidence(db, row)!;
     for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, {
       verdict: "valid", grade: "good", pros: ["Supplied cards interact.", "The interaction is directed."],
       cons: ["Needs the supplied cards.", "Requires the printed conditions."], lock_note: "Apply the supplied restrictions.",
       line: evidence.cards.map(card => card.name), format_ok: true,
     }));
-    const deck = createSavedDeckService(db).create("g", user.userId, { name: "At the points cap", mode: "normal", genesys: { pointCap: 5 },
-      deck: { main: [46502744], extra: [], side: [] } });
+    const deck = createSavedDeckService(db).create("g", user.userId, { name: "At the points cap", mode: "normal", genesys: { pointCap: 3 },
+      deck: { main: [29762407, 97522863, 1710647], extra: [], side: [] } });
     const api = new BridgeApi(db, { bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     const call = (bridgeRequest: unknown) => api.handle({ userId: user.userId, bridgeRequest }, "g", user.playerId);
-    expect(await call({ op: "between", source: '"C"', target: "Naturia", format: "genesys", genesysRemaining: 0 })).toMatchObject({ results: [] });
-    expect(await call({ op: "between", deckId: deck.id, target: "Naturia", format: "genesys" })).toMatchObject({ results: [{ target: "Naturia" }] });
+    expect(await call({ op: "between", source: "Odion", target: "Ashtra", format: "genesys", genesysRemaining: 0 })).toMatchObject({ results: [] });
+    expect(await call({ op: "between", deckId: deck.id, target: "Ashtra", format: "genesys" })).toMatchObject({ results: [{ target: "Ashtra" }] });
     createSavedDeckService(db).update(deck.id, "g", user.userId, { name: "Over the points cap", mode: "normal", genesys: { pointCap: 0 },
-      deck: { main: [46502744], extra: [], side: [] } });
-    expect(await call({ op: "between", deckId: deck.id, target: "Naturia", format: "genesys" })).toMatchObject({ results: [] });
+      deck: { main: [29762407, 97522863, 1710647], extra: [], side: [] } });
+    expect(await call({ op: "between", deckId: deck.id, target: "Ashtra", format: "genesys" })).toMatchObject({ results: [] });
+    vi.stubEnv("OWNER_USER_IDS", String(user.userId));
+    const beforeReview = (await call({ op: "review" }) as { inReview: number }).inReview;
     saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, "skeptic", {
       verdict: "invalid", grade: "risky", pros: ["The evidence is available.", "The card identities are checked."],
       cons: ["The proposed line needs review.", "The independent verdicts disagree."], lock_note: "Review the supplied restrictions.",
       line: evidence.cards.map(card => card.name), format_ok: true,
     }));
-    vi.stubEnv("OWNER_USER_IDS", String(user.userId));
-    try { expect(await call({ op: "review" })).toMatchObject({ inReview: 2 }); }
+    try { expect(await call({ op: "review" })).toMatchObject({ inReview: beforeReview + 1 }); }
     finally { vi.unstubAllEnvs(); }
     await api.jobs.close();
   });

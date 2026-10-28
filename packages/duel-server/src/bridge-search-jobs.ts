@@ -63,8 +63,14 @@ export class BridgeSearchJobs {
           .run(query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null, job.id, hash, actor.guildId);
         return { jobId: job.id, state: job.state, cached };
       };
-      if (existing) return subscribe(existing, false);
       const key = createHash("sha256").update(JSON.stringify([this.options.version(), query.source.toLowerCase(), query.target?.toLowerCase() ?? null, query.format])).digest("hex");
+      if (existing) {
+        if (existing.query_key !== key) {
+          const running = JSON.parse(existing.query_json) as BridgeSearchQuery;
+          throw new BridgeJobError(`A deep search for ${running.source} is still running`, 409, 10);
+        }
+        return subscribe(existing, false);
+      }
       const cached = this.db.prepare("SELECT * FROM bridge_deep_job WHERE query_key=? AND state='done' AND ended_at>? ORDER BY ended_at DESC LIMIT 1").get(key, now - 86_400_000) as JobRow | undefined;
       if (cached) return subscribe(cached, true);
       const last = this.db.prepare("SELECT max(ended_at) AS ended FROM bridge_deep_actor WHERE actor_hash=?").get(hash) as { ended: number | null };

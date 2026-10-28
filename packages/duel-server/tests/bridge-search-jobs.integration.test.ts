@@ -26,7 +26,12 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
   it("coalesces repeat clicks, polls progress, and scopes job access to user and guild", async () => {
     const { jobs, execute, finish } = setup();
     const first = jobs.start(actor(), query());
-    expect(jobs.start(actor(), query("Blue-Eyes")).jobId).toBe(first.jobId);
+    expect(jobs.start(actor(), query()).jobId).toBe(first.jobId);
+    for (const changed of [query("Blue-Eyes"), { ...query(), target: "Argostars" }, { ...query(), format: "genesys" as const }]) {
+      expect(() => jobs.start(actor(), changed)).toThrowError(expect.objectContaining({
+        status: 409, message: "A deep search for Odion is still running", retryAfter: 10,
+      }));
+    }
     await new Promise(resolve => setImmediate(resolve));
     expect(execute).toHaveBeenCalledTimes(1);
     expect(jobs.status(actor(), first.jobId)).toMatchObject({ state: "running", step: "checking", progress: 50 });
