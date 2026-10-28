@@ -13,6 +13,7 @@
  * Exits 1 when any check fails; screenshots and evidence.json are written either way.
  */
 import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { extname, join, resolve } from "node:path";
@@ -43,18 +44,20 @@ function id(name: string): number {
   return row.id;
 }
 const cardRow = cardDb.prepare<[number], Record<string, number | string>>(
-  "select d.id as code, d.alias, d.setcode, d.type, d.atk as attack, d.def as defense, d.level, d.race, d.attribute, d.ot, t.name, t.desc as description from datas d join texts t on t.id = d.id where d.id = ?");
+  "select d.id as code, d.alias, cast(d.setcode as text) as setcode, d.type, d.atk as attack, d.def as defense, d.level, d.race, d.attribute, d.ot, t.name, t.desc as description from datas d join texts t on t.id = d.id where d.id = ?");
 function details(code: number) {
   const row = cardRow.get(code);
   if (!row) return null;
   const level = Number(row.level);
   const scales = level >> 16;
-  return { code, canonicalPasscode: code, name: row.name, description: row.description, type: row.type, attack: row.attack, defense: row.defense, level: level & 0xffff, attribute: row.attribute, race: "Dragon", alias: 0, setcodes: [], lscale: scales >> 8, rscale: scales & 0xff, arrows: 0, ot: row.ot, altArtCount: 0 };
+  // The four 16-bit groups of the setcode column, as the card API sends them.
+  const setcodes = [0n, 16n, 32n, 48n].map((shift) => Number((BigInt(row.setcode) >> shift) & 0xffffn)).filter((value) => value > 0);
+  return { code, canonicalPasscode: code, name: row.name, description: row.description, type: row.type, attack: row.attack, defense: row.defense, level: level & 0xffff, attribute: row.attribute, race: "Dragon", alias: 0, setcodes, lscale: scales >> 8, rscale: scales & 0xff, arrows: 0, ot: row.ot, altArtCount: 0 };
 }
 
 const MAIN_NAMES = ["Blue-Eyes White Dragon", "Sage with Eyes of Blue", "Dragon Spirit of White", "Maxx \"C\"", "Ash Blossom & Joyous Spring", "Effect Veiler",
-  "Ghost Ogre & Snow Rabbit", "Terraforming", "The Melody of Awakening Dragon", "Dragon Shrine", "Silver's Cry", "Trade-In", "Monster Reborn",
-  "Pot of Desires", "Foolish Burial", "Called by the Grave", "Infinite Impermanence", "Solemn Strike", "Mirror Force", "Lord of D."];
+  "Ghost Ogre & Snow Rabbit", "Terraforming", "The Melody of Awakening Dragon", "Dragon Shrine", "Silver's Cry", "Monster Reborn",
+  "Foolish Burial", "Called by the Grave", "Infinite Impermanence", "Solemn Strike", "Blue-Eyes Spirit Dragon", "Blue-Eyes Chaos Dragon", "Blue-Eyes Solid Dragon", "Blue-Eyes Abyss Dragon"];
 const small = MAIN_NAMES.map(id);
 /** 20 cards, then the same 20 plus 20 more copies: over the 40-card line for the Extra Deck row. */
 const SMALL_DECK = { main: small, extra: [], side: [] };
@@ -88,11 +91,54 @@ const ROW_FIXTURE = (mainCards: number) => [
 
 /** Limited, Semi-Limited and Forbidden marks, on every list id. */
 const LIMITS: Record<number, 0 | 1 | 2> = { [id("Pot of Extravagance")]: 0, [id("Dark Hole")]: 1, [id("Infinite Impermanence")]: 2, [id("Maxx \"C\"")]: 2 };
-const FACETS = { archetypes: [], banlists: Object.fromEntries(DUEL_BANLIST_OPTIONS.map((option) => [option.id, LIMITS])) };
+/** Blue-Eyes (setcode 0xdd) is the deck archetype, so the Bridges row has a source. */
+const FACETS = { archetypes: [{ name: "Blue-Eyes", codes: [0xdd], count: 38 }], banlists: Object.fromEntries(DUEL_BANLIST_OPTIONS.map((option) => [option.id, LIMITS])) };
+
+
+// ---- Bridges: judged bridges as the web API returns them -------------------------------------------------
+const hashOf = (text: string) => createHash("sha256").update(text).digest("hex");
+type FixtureBridge = ReturnType<typeof bridge>;
+function bridge(source: string, target: string, grade: "Strong" | "Good" | "Niche" | "Risky", score: number, twoWay: boolean, cardNames: string[], line: string[], pros: string[], cons: string[], lock: string, warnings: string[] = [], genesysPoints: number | null = null) {
+  return { source, target, format: "advanced", score, raw_score: score + 2, target_mean: 2, two_way: twoWay, grade,
+    reasons: cardNames.map((name) => ({ key: "link", weight: 1, cards: [id(name)], evidence: [`${name} connects ${source} and ${target}.`], description: `${name} connects ${source} and ${target}.` })),
+    cards: cardNames.map(id), warnings, genesys_points: genesysPoints, validation: "deterministic", judge: "accepted", engine_status: "unverified", evidence_hash: hashOf(`${source}>${target}`),
+    review: { grade: grade.toLowerCase() as "strong" | "good" | "niche" | "risky", pros, cons, lock_note: lock, line } };
+}
+const BRIDGES: FixtureBridge[] = [
+  bridge("Blue-Eyes", "Dragunity", "Strong", 86, true, ["Sage with Eyes of Blue", "Dragon Shrine", "Dragunity Phalanx", "Dragunity Dux"],
+    ["Sage with Eyes of Blue", "Dragon Shrine", "Dragunity Phalanx"],
+    ["Your Dragon Shrine already sends the Dragons Dragunity wants.", "Both sides reuse the same Level 4 starters."], ["Needs three more Winged Beast Normal-like slots.", "Dragunity monsters are weak on their own."],
+    "No summon lock: you can summon from the Extra Deck after the line."),
+  bridge("Blue-Eyes", "Dragon Ruler", "Good", 72, false, ["Redox, Dragon Ruler of Boulders", "Tidal, Dragon Ruler of Waterfalls", "Dragon Shrine", "Foolish Burial"],
+    ["Foolish Burial", "Tidal, Dragon Ruler of Waterfalls", "Dragon Shrine"],
+    ["Foolish Burial sets up both archetypes with one card.", "Tidal gives a graveyard Dragon to Dragon Shrine."], ["The Rulers need many cards in the Graveyard first.", "It does not lead back into Blue-Eyes."],
+    "Once per turn Special Summon from the Ruler line is allowed with no lock."),
+  bridge("Blue-Eyes", "Chaos", "Niche", 51, false, ["Chaos Sorcerer", "Chaos Emperor Dragon - Envoy of the End", "Black Luster Soldier - Envoy of the Beginning", "Monster Reborn"],
+    ["Monster Reborn", "Chaos Sorcerer", "Black Luster Soldier - Envoy of the Beginning"],
+    ["Monster Reborn revives the Chaos monster you banish for.", "Fits a Dragon deck that plays Light and Dark monsters."], ["Banishing your own Dragons costs card advantage.", "Hard to start with only a few Chaos monsters."],
+    "A banished Chaos line limits you from using the Graveyard afterwards.", ["Chaos Emperor Dragon - Envoy of the End is Forbidden in the TCG list."]),
+  bridge("Blue-Eyes", "Red-Eyes", "Risky", 38, true, ["Red-Eyes Black Dragon", "Red-Eyes Fusion", "Polymerization", "Red-Eyes Dark Dragoon"],
+    ["Polymerization", "Red-Eyes Fusion", "Red-Eyes Dark Dragoon"],
+    ["Both archetypes share Polymerization effects.", "Red-Eyes Black Dragon is a Dragon and works with Dragon Shrine."], ["Needs a Red-Eyes Normal Monster you do not play now.", "Slow without both Fusion spells."],
+    "You can not Special Summon from the Extra Deck except Fusion Monsters.", ["Red-Eyes Fusion locks your Special Summons for the turn."], 6),
+  bridge("Blue-Eyes", "Dark Magician", "Niche", 33, false, ["Dark Magician", "Magician of Black Chaos", "Polymerization"],
+    ["Polymerization", "Dark Magician", "Magician of Black Chaos"],
+    ["Polymerization reaches both Fusion lines.", "Dark Magician is a flexible Normal Summon."], ["Few shared cards beyond Polymerization.", "Its extra monsters have no use in a Dragon deck."],
+    "No summon lock."),
+  bridge("Dragunity", "Blue-Eyes", "Good", 70, true, ["Dragon Spirit of White", "Dragon Shrine", "Dragunity Phalanx"], ["Dragunity Phalanx", "Dragon Shrine", "Dragon Spirit of White"],
+    ["Dragon Shrine sends Dragons both ways.", "Dragon Spirit of White is a Level 1 Dragon Tuner."], ["Needs Blue-Eyes monsters in the Main Deck.", "Few cards in common."], "No summon lock."),
+  bridge("Dragunity", "Chaos", "Good", 61, false, ["Chaos Sorcerer", "Dragunity Dux"], ["Dragunity Dux", "Chaos Sorcerer"], ["Both play Dragons and Light monsters.", "Dux can be a Chaos banish cost."], ["It does not lead back.", "Few cards in common."], "No summon lock."),
+];
+const ARCHETYPE_NAMES = ["Blue-Eyes", "Chaos", "Dark Magician", "Dragon Ruler", "Dragunity", "Red-Eyes"];
+const known = (name: string) => ARCHETYPE_NAMES.find((entry) => entry.toLowerCase() === name.trim().toLowerCase());
+const asFormat = (list: FixtureBridge[], format: string) => list.map((entry) => ({ ...entry, format, ...(format === "genesys" ? { genesys_points: entry.genesys_points ?? 4 } : {}) }));
 
 // ---- Request log and answer control ---------------------------------------------------------------
 const insightRequests: { deck: { main: number[] }; pool?: number[]; at: number }[] = [];
-const control = { delayMs: 0, emptyRows: false, deck: "small" as "small" | "full" | "empty" };
+const control = { delayMs: 0, emptyRows: false, deck: "small" as "small" | "full" | "empty", genesys: false };
+/** Bridges: every call the row made, and how the stand-in host should answer. */
+const bridgeCalls = { lists: [] as string[], starts: [] as Record<string, unknown>[], polls: 0, feedback: [] as Record<string, unknown>[], archetypes: 0 };
+const bridgeControl = { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok" as "ok" | "fail", reviewCount: 3, feedbackFails: false, started: 0 };
 const json = (status: number, data: unknown) => ({ status, contentType: "application/json", body: JSON.stringify(data) });
 
 function cardImage(code: string) {
@@ -106,7 +152,7 @@ async function api(method: string, url: URL, body: any) {
   const path = url.pathname;
   if (path === "/api/decks/1" && method === "GET") {
     const deck = control.deck === "full" ? FULL_DECK : control.deck === "empty" ? { main: [], extra: [], side: [] } : SMALL_DECK;
-    return json(200, { deck: { id: 1, name: "Blue-Eyes", mode: "normal", genesys: null, deck, createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z" } });
+    return json(200, { deck: { id: 1, name: "Blue-Eyes", mode: "normal", genesys: control.genesys ? { pointCap: 100 } : null, deck, createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z" } });
   }
   if (path === "/api/decks/cards/facets") return json(200, FACETS);
   if (path === "/api/decks/cards" && method === "POST") {
@@ -118,6 +164,48 @@ async function api(method: string, url: URL, body: any) {
     const codes: number[] = body.codes ?? [];
     const cards = codes.map(details).filter(Boolean);
     return json(200, { cards, missing: codes.filter((code) => !details(code)) });
+  }
+  if (path === "/api/cards/bridges" && method === "GET") {
+    bridgeCalls.lists.push(url.search);
+    if (bridgeControl.listStatus !== 200) return json(bridgeControl.listStatus, { error: bridgeControl.listStatus === 404 ? "Not found" : "Bridges are busy" });
+    const source = known(url.searchParams.get("source") ?? "");
+    const format = url.searchParams.get("format") ?? "advanced";
+    if (!source) return json(400, { error: "Unknown archetype" });
+    const target = url.searchParams.get("target");
+    if (target) {
+      const other = known(target);
+      if (!other) return json(400, { error: "Unknown archetype" });
+      const pair = (from: string, to: string) => asFormat(bridgeControl.none ? [] : BRIDGES.filter((entry) => entry.source === from && entry.target === to), format);
+      return json(200, { results: pair(source, other), reverse: pair(other, source), inReview: bridgeControl.reviewCount });
+    }
+    return json(200, { results: asFormat(bridgeControl.none ? [] : BRIDGES.filter((entry) => entry.source === source).sort((a, b) => b.score - a.score), format), inReview: bridgeControl.reviewCount });
+  }
+  if (path === "/api/cards/bridges/archetypes" && method === "GET") { bridgeCalls.archetypes += 1; return json(200, { archetypes: ARCHETYPE_NAMES }); }
+  if (path === "/api/cards/bridges/deep-search" && method === "POST") {
+    bridgeCalls.starts.push(body);
+    await new Promise((done) => setTimeout(done, 250));
+    if (bridgeControl.startRetryAfter > 0) return json(429, { error: "You searched a moment ago.", retryAfter: bridgeControl.startRetryAfter });
+    bridgeControl.started += 1;
+    return json(202, { jobId: `job-${bridgeControl.started}`, state: "queued", cached: false });
+  }
+  if (path.startsWith("/api/cards/bridges/deep-search/") && method === "GET") {
+    bridgeCalls.polls += 1;
+    if (bridgeControl.pollDelayMs) await new Promise((done) => setTimeout(done, bridgeControl.pollDelayMs));
+    const jobId = decodeURIComponent(path.split("/").pop()!);
+    const polls = bridgeCalls.polls;
+    // Four answers: finding, checking, rating, then done (or failed).
+    const phases = [["candidates", 20], ["checking", 55], ["rating", 85]] as const;
+    const index = Math.min(polls - 1, 3);
+    if (index < 3) return json(200, { jobId, state: index === 0 ? "queued" : "running", step: phases[index]![0], progress: phases[index]![1], results: [], inReview: bridgeControl.reviewCount });
+    if (bridgeControl.jobMode === "fail") return json(200, { jobId, state: "failed", step: "rating", progress: 85, results: [], inReview: bridgeControl.reviewCount, error: "The search stopped before it finished. Try again in a minute." });
+    const extra = bridge("Blue-Eyes", "Melodious", "Good", 64, false, ["Dragon Spirit of White", "Foolish Burial", "Terraforming"], ["Terraforming", "Dragon Spirit of White"],
+      ["Terraforming finds the field spell both lines want.", "Dragon Spirit of White works as a Tuner in both."], ["No two-way route found.", "Needs a field spell slot."], "No summon lock.");
+    return json(200, { jobId, state: "done", step: "done", progress: 100, results: [extra], inReview: bridgeControl.reviewCount - 1 });
+  }
+  if (path === "/api/cards/bridges/feedback" && method === "POST") {
+    bridgeCalls.feedback.push(body);
+    if (bridgeControl.feedbackFails) return json(503, { error: "Reports are not available right now." });
+    return json(200, { accepted: true, hidden: false });
   }
   if (path === "/api/cards/insights" && method === "POST") {
     if (body.op === "suggestRows") {
@@ -153,7 +241,7 @@ await build({
       if (source === "next/image") return "\0image";
     },
     load(source: string) {
-      if (source === "\0fonts") return `const font = () => ({ className: "", variable: "", style: {} }); export { font as Oxanium, font as Newsreader, font as Sofia_Sans_Semi_Condensed, font as Sofia_Sans_Extra_Condensed }; export default font;`;
+      if (source === "\0fonts") return `const font = () => ({ className: "", variable: "", style: {} }); export { font as Oxanium, font as Newsreader, font as Sofia_Sans_Semi_Condensed, font as Sofia_Sans_Extra_Condensed, font as Barlow_Condensed, font as Barlow_Semi_Condensed }; export default font;`;
       if (source === "\0link") return `import { createElement } from "react"; export default function Link({ href, prefetch, ...rest }) { return createElement("a", { href: String(href), ...rest }); }`;
       if (source === "\0image") return `import { createElement } from "react"; export default function Image({ src, alt, fill, priority, unoptimized, ...rest }) { return createElement("img", { src: String(src), alt, ...rest }); }`;
     },
@@ -195,7 +283,7 @@ try {
     if (url.pathname.startsWith("/api/")) {
       const raw = request.postData();
       const response = await api(request.method(), url, raw ? JSON.parse(raw) : null);
-      if (response.status === 404) unrouted.push(`${request.method()} ${url.pathname}`);
+      if (response.status === 404 && !(url.pathname === "/api/cards/bridges" && bridgeControl.listStatus === 404)) unrouted.push(`${request.method()} ${url.pathname}`);
       return route.fulfill(response);
     }
     const publicDir = resolve(web, "public");
@@ -216,14 +304,20 @@ try {
   const open = async (deck: "small" | "full" | "empty", flag = "on") => {
     control.deck = deck;
     insightRequests.length = 0;
+    bridgeCalls.lists.length = 0;
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=${flag}`);
+    // The phone layout keeps the card list on its own tab.
+    const cardsTab = page.getByRole("tab", { name: "Cards" });
+    // Some scenarios show no panel at all, so a missing tab and panel is not an error.
+    await cardsTab.or(panel).first().waitFor({ state: "visible", timeout: 4000 }).catch(() => undefined);
+    if (await cardsTab.isVisible().catch(() => false)) await cardsTab.click();
   };
   // Positions are relative to the panel, so a scroll of the list (hover scrolls a tile into view) is not a move.
   const tileBoxes = () => panel.evaluate((root: HTMLElement) => { const base = root.getBoundingClientRect(); return [...root.querySelectorAll("button")].map((node) => { const box = node.getBoundingClientRect(); return [Math.round(box.x - base.x), Math.round(box.y - base.y), Math.round(box.width), Math.round(box.height)]; }); });
   const rowTitles = () => panel.locator("h3").allTextContents();
 
   await page.goto(`${ORIGIN}/index.html?scenario=pool`);
-  await panel.locator("button").first().waitFor({ state: "visible", timeout: 15_000 });
+  await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
   check("pool", "initial pool asks once", insightRequests.length === 1);
   await page.getByRole("button", { name: "Reorder pool", exact: true }).click();
   await page.waitForTimeout(900);
@@ -244,16 +338,16 @@ try {
     await open("small");
     await panel.locator('section[aria-labelledby="suggest-archetype"]').waitFor();
     const before = await listTop();
-    await panel.locator("button").first().waitFor({ state: "visible", timeout: 15_000 });
+    await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
     const after = await listTop();
     check("layout", `${viewport.name}: list top is stable on first answer`, Math.abs(after - before) <= 1, { before, after });
-    check("layout", `${viewport.name}: all four slots are present`, await panel.locator("section").count() === 4);
+    check("layout", `${viewport.name}: all four slots are present`, await panel.locator('section[aria-labelledby^="suggest-"]').count() === 4);
     control.emptyRows = true; control.delayMs = 0;
     await panel.locator('section[aria-labelledby="suggest-archetype"] button').first().dblclick();
     await panel.getByText("No archetype support fits your deck yet.").waitFor({ timeout: 10_000 });
     const emptyTop = await listTop();
     check("layout", `${viewport.name}: list top is stable when all rows empty`, Math.abs(emptyTop - after) <= 1, { after, emptyTop });
-    check("layout", `${viewport.name}: empty rows retain four slots`, await panel.locator("section").count() === 4);
+    check("layout", `${viewport.name}: empty rows retain four slots`, await panel.locator('section[aria-labelledby^="suggest-"]').count() === 4);
     await shot(`stable-empty-${viewport.name}`);
     control.emptyRows = false;
   }
@@ -262,15 +356,17 @@ try {
 
   // a. A small deck: three ready rows, the Extra row as a hint.
   await open("small");
-  await panel.locator("button").first().waitFor({ state: "visible", timeout: 15_000 });
+  await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
   await page.waitForTimeout(500);
   check("a", "Suggestions show while the search box is empty", await panel.isVisible());
-  check("a", "rows are in the owner's order", JSON.stringify(await rowTitles()) === JSON.stringify(["Archetype support", "Outside the archetype", "Extra Deck you can make", "Staples for this format"]), await rowTitles());
+  check("a", "rows are in the owner's order", JSON.stringify(await rowTitles()) === JSON.stringify(["Archetype support", "Outside the archetype", "Extra Deck you can make", "Staples for this format", "Bridges"]), await rowTitles());
   check("a", "the Extra row shows its hint under 40 Main cards", (await panel.getByText("Add 40 Main Deck cards to see what your deck can make").count()) === 1);
   check("a", "Staples show at most 6 cards", (await panel.locator('section[aria-labelledby="suggest-staples"] button').count()) <= 6);
   const text = (await page.locator("body").innerText()).toLowerCase();
   check("a", "no AI or searchygo text on the page", !/\bai\b|searchygo/.test(text));
   check("a", "the first answer took one request", insightRequests.length === 1, insightRequests.length);
+  await page.getByTestId("bridges-row").getByTestId("bridge-item").first().waitFor({ timeout: 15_000 });
+  check("a", "Bridges ask for the deck archetype in the deck's format", bridgeCalls.lists.length === 1 && bridgeCalls.lists[0] === "?source=Blue-Eyes&format=advanced", bridgeCalls.lists);
   const whyHeights = await panel.locator("button span[class*=why]").evaluateAll((nodes: HTMLElement[]) => [...new Set(nodes.map((node) => Math.round(node.getBoundingClientRect().height)))]);
   check("a", "every reason has the same fixed height", whyHeights.length === 1, whyHeights);
   // A very long reason is clamped to the same box and does not grow the tile.
@@ -368,7 +464,8 @@ try {
   await page.waitForTimeout(1300);
   check("c3", "the status says Updating while the answer is slow", (await panel.getByText("Updating…").count()) === 1);
   check("c3", "the old rows stay on screen while loading", (await tileBoxes()).length === shown.length && (await panel.locator("button").count()) > 0);
-  check("c3", "no tile moved while loading", JSON.stringify(shown) === JSON.stringify(await tileBoxes()));
+  // Boxes are rounded, so a half-pixel of layout can show as one pixel; two or more is a real move.
+  { const moved = await tileBoxes(); const off = shown.map((box: number[], i: number) => moved[i] && box.every((value, axis) => Math.abs(value - moved[i][axis]) <= 1) ? null : [i, box, moved[i]]).filter(Boolean); check("c3", "no tile moved while loading", off.length === 0, off.slice(0, 3)); }
   await shot("c3-updating");
   await page.waitForTimeout(2500);
   check("c3", "the status clears when the answer lands", (await panel.getByText("Updating…").count()) === 0);
@@ -390,10 +487,11 @@ try {
   await open("small", "off");
   await page.waitForTimeout(1500);
   check("e", "Suggestions are off when the server flag is off", (await panel.count()) === 0 && insightRequests.length === 0, insightRequests.length);
+  check("e", "no bridge request while Suggestions are off", bridgeCalls.lists.length === 0, bridgeCalls.lists);
 
   // f. A deck with 40 Main cards gets the Extra row as cards.
   await open("full");
-  await panel.locator("button").first().waitFor({ state: "visible", timeout: 15_000 });
+  await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
   check("f", "the Extra row shows cards at 40 Main cards", (await panel.locator('section[aria-labelledby="suggest-extra"] button').count()) === 4 && (await panel.getByText("Add 40 Main Deck cards").count()) === 0);
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -403,7 +501,7 @@ try {
   // The phone layout keeps the card list on its own tab.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("tab", { name: "Cards" }).click();
-  await panel.locator("button").first().waitFor({ state: "visible", timeout: 5000 });
+  await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 5000 });
   await page.waitForTimeout(400);
   await shot("full-390x844-cards-tab");
   check("f", "the phone Cards tab shows Suggestions without sideways page scroll", await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
@@ -414,8 +512,248 @@ try {
   await panel.waitFor({ state: "visible", timeout: 10_000 });
   await page.waitForTimeout(1200);
   check("g", "an empty deck shows the empty state", (await panel.innerText()).includes("Add a few Main Deck cards"));
-  check("g", "an empty deck makes no request", insightRequests.length === 0, insightRequests.length);
+  check("g", "an empty deck makes no request", insightRequests.length === 0 && bridgeCalls.lists.length === 0, { insight: insightRequests.length, bridges: bridgeCalls.lists });
+  check("g", "an empty deck gets a short Bridges hint", (await page.getByTestId("bridges-empty").innerText()).includes("Add a few Main Deck cards"));
   await shot("g-empty-deck");
+
+  // h. Bridges: the row, its details, the two-archetype search, the deep search and the report action.
+  const bridges = page.getByTestId("bridges-row");
+  const items = bridges.getByTestId("bridge-item");
+  const reset = async (deck: "small" | "full" | "empty" = "small") => {
+    await page.evaluate(() => { try { sessionStorage.clear(); localStorage.clear(); } catch { /* Storage is not available. */ } });
+    bridgeCalls.starts.length = 0; bridgeCalls.feedback.length = 0; bridgeCalls.polls = 0; bridgeCalls.archetypes = 0;
+    Object.assign(bridgeControl, { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok", feedbackFails: false });
+    await open(deck);
+    await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  };
+  /** Whole items, no sideways scroll, nothing cut at the panel edge. */
+  const whole = (name: string) => panel.evaluate((root: HTMLElement, label: string) => {
+    const box = root.getBoundingClientRect();
+    const nodes = [...root.querySelectorAll('[data-testid="bridges-row"] li')] as HTMLElement[];
+    const outside = nodes.filter((node) => { const r = node.getBoundingClientRect(); return r.left < box.left - 0.5 || r.right > box.right + 0.5; }).length;
+    const clipped = [...root.querySelectorAll('[data-testid="bridge-item"]')].filter((node) => node.scrollWidth > node.clientWidth + 1).length;
+    return { label, outside, clipped, page: document.documentElement.scrollWidth <= window.innerWidth + 1, items: nodes.length };
+  }, name);
+  const settle = async () => { await bridges.scrollIntoViewIfNeeded(); await page.waitForTimeout(250); };
+
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await reset();
+    await settle();
+    const layout = await whole(viewport.name);
+    check("h", `${viewport.name}: bridge items are whole and the page does not scroll sideways`, layout.outside === 0 && layout.clipped === 0 && layout.page && layout.items > 0, layout);
+    await shot(`bridges-list-${viewport.name}`);
+
+    // Details: open the first bridge, then go back.
+    await items.first().locator("button[data-bridge]").click();
+    await bridges.getByTestId("bridge-details").waitFor();
+    await settle();
+    await shot(`bridges-details-${viewport.name}`);
+    const detailsLayout = await whole(`${viewport.name} details`);
+    check("h", `${viewport.name}: bridge details fit the panel`, detailsLayout.outside === 0 && detailsLayout.page, detailsLayout);
+    await bridges.getByRole("button", { name: /^Back/ }).click();
+    await items.first().waitFor();
+
+    // The two-archetype search.
+    await bridges.getByTestId("bridge-search-toggle").click();
+    const search = bridges.getByTestId("bridge-search");
+    await search.getByRole("combobox").nth(1).fill("Dragu");
+    await search.getByRole("option", { name: "Dragunity" }).click();
+    await search.getByTestId("bridge-search-results").waitFor();
+    await settle();
+    await shot(`bridges-search-${viewport.name}`);
+    const searchLayout = await whole(`${viewport.name} search`);
+    check("h", `${viewport.name}: the two-archetype search fits the panel`, searchLayout.outside === 0 && searchLayout.page, searchLayout);
+
+    // A deep search that is running, and its result.
+    await reset();
+    await bridges.getByTestId("deep-search-button").click();
+    await bridges.getByTestId("deep-progress").waitFor();
+    await bridges.getByTestId("deep-progress").locator('li[data-state="current"]', { hasText: "Checking cards" }).waitFor({ timeout: 10_000 });
+    await settle();
+    await shot(`bridges-deep-running-${viewport.name}`);
+    await bridges.getByTestId("deep-results").waitFor({ timeout: 15_000 });
+    await settle();
+    await shot(`bridges-deep-done-${viewport.name}`);
+    const deepLayout = await whole(`${viewport.name} deep`);
+    check("h", `${viewport.name}: deep search results fit the panel`, deepLayout.outside === 0 && deepLayout.page, deepLayout);
+
+    // A report: the form and the thank-you.
+    await reset();
+    await items.nth(1).getByTestId("bridge-report").click();
+    await items.nth(1).getByRole("textbox").fill("The line needs a card the deck does not play.");
+    await settle();
+    await shot(`bridges-report-${viewport.name}`);
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
+
+  // h1. The row: the top four bridges, best first, with everything the owner asked for on each.
+  await reset();
+  const titles = await bridges.locator("h3").allTextContents();
+  check("h1", "the row is called Bridges and leads with the owner's words", titles[0] === "Bridges" && (await bridges.innerText()).includes("Your deck can bridge into"), titles);
+  check("h1", "five bridges come back and four show", (await items.count()) === 4, await items.count());
+  check("h1", "bridges show best first", JSON.stringify(await items.locator("strong").allInnerTexts()) === JSON.stringify(["Dragunity", "Dragon Ruler", "Chaos", "Red-Eyes"]), await items.locator("strong").allInnerTexts());
+  check("h1", "each bridge has a grade badge", JSON.stringify(await items.getByTestId("bridge-grade").allInnerTexts()) === JSON.stringify(["Strong", "Good", "Niche", "Risky"]));
+  check("h1", "each bridge says one-way or two-way in words", JSON.stringify(await items.locator("span[data-way]").allInnerTexts()) === JSON.stringify(["Two-way", "One-way", "One-way", "Two-way"]), await items.locator("span[data-way]").allInnerTexts());
+  const thumbCounts = await items.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.querySelectorAll('ul[aria-label="Bridge cards"] button').length));
+  check("h1", "each bridge shows 2 to 4 card images", thumbCounts.every((count: number) => count >= 2 && count <= 4), thumbCounts);
+  const points = await items.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => [node.querySelectorAll('ul[aria-label="Good"] li').length, node.querySelectorAll('ul[aria-label="Bad"] li').length]));
+  check("h1", "each bridge shows 2 good and 2 bad points", points.every(([good, bad]: number[]) => good === 2 && bad === 2), points);
+  check("h1", "a lock or format warning shows on the bridges that have one", (await items.nth(2).getByRole("list", { name: "Warnings" }).innerText()).includes("Forbidden") && (await items.nth(0).getByRole("list", { name: "Warnings" }).count()) === 0);
+  check("h1", "the list text says nothing about AI", !/\bai\b|\bllm\b|judge/i.test(await bridges.innerText()));
+  // A card image opens the card inspector, like a tile elsewhere in Suggestions.
+  const thumb = items.first().locator('ul[aria-label="Bridge cards"] button').first();
+  const thumbName = (await thumb.getAttribute("aria-label")) ?? "";
+  await thumb.hover();
+  await page.waitForTimeout(300);
+  check("h1", "hovering a bridge card opens the card inspector", (await page.locator('aside[aria-label="Card details"]').innerText()).includes(thumbName), thumbName);
+  await thumb.click();
+  await page.waitForTimeout(300);
+  check("h1", "clicking a bridge card pins it in the inspector", (await thumb.getAttribute("aria-pressed")) === "true" && (await page.locator('aside[aria-label="Card details"]').innerText()).includes(thumbName));
+  // The bridge cards load in one batch, not one call each.
+  check("h1", "the row asked once for bridges", bridgeCalls.lists.length === 1, bridgeCalls.lists);
+
+  // h2. Details: the line, the cards, a breadcrumb and Back.
+  await items.first().locator("button[data-bridge]").click();
+  const details = bridges.getByTestId("bridge-details");
+  await details.waitFor();
+  check("h2", "the breadcrumb names the source and the target", (await details.getByRole("navigation", { name: "Where you are" }).innerText()).replace(/\s+/g, " ").includes("Blue-Eyes") && (await details.getByRole("navigation", { name: "Where you are" }).innerText()).includes("Dragunity"));
+  check("h2", "Back has the focus when the details open", await page.evaluate(() => /^Back/.test(document.activeElement?.textContent ?? "")));
+  check("h2", "the line lists the card names in order", JSON.stringify(await details.getByTestId("bridge-line").locator("li").allInnerTexts()) === JSON.stringify(["Sage with Eyes of Blue", "Dragon Shrine", "Dragunity Phalanx"]), await details.getByTestId("bridge-line").locator("li").allInnerTexts());
+  check("h2", "every bridge card is a drill-down tile", (await details.getByTestId("bridge-cards").locator("li > button").count()) === 4);
+  check("h2", "the details show the lock note", (await details.innerText()).includes("No summon lock"));
+  const tileButton = details.getByTestId("bridge-cards").locator("li > button").first();
+  await tileButton.click();
+  await page.waitForTimeout(300);
+  check("h2", "a bridge card tile opens the inspector", (await tileButton.getAttribute("aria-pressed")) === "true");
+  await bridges.getByRole("button", { name: /^Back/ }).click();
+  await items.first().waitFor();
+  check("h2", "Back returns to the list", (await details.count()) === 0 && (await items.count()) === 4);
+  check("h2", "Back gives the focus to the bridge it came from", await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.hasAttribute("data-bridge")));
+
+  // h3. The report action: optional reason, thank-you, once per bridge, a clear error.
+  const report = items.nth(1);
+  await report.getByTestId("bridge-report").click();
+  await report.getByRole("textbox").fill("The line needs a card the deck does not play.");
+  bridgeControl.feedbackFails = true;
+  await report.getByRole("button", { name: "Send" }).click();
+  await report.getByRole("alert").waitFor();
+  check("h3", "a failed report shows a clear error and keeps the form", (await report.getByRole("alert").innerText()).includes("not available") && (await report.getByTestId("bridge-report-form").count()) === 1);
+  bridgeControl.feedbackFails = false;
+  await report.getByRole("button", { name: "Send" }).dblclick();
+  await report.getByTestId("bridge-thanks").waitFor();
+  check("h3", "a double click on Send sends one report", bridgeCalls.feedback.filter((entry) => entry.reason).length === 2 && bridgeCalls.feedback.length === 2, bridgeCalls.feedback);
+  check("h3", "the report carries the bridge hash and the reason", bridgeCalls.feedback.at(-1)?.evidenceHash === hashOf("Blue-Eyes>Dragon Ruler") && bridgeCalls.feedback.at(-1)?.reason === "The line needs a card the deck does not play.", bridgeCalls.feedback.at(-1));
+  check("h3", "a thank-you replaces the form and the action", (await report.getByTestId("bridge-report").count()) === 0 && (await report.getByTestId("bridge-thanks").innerText()).includes("Thank you"));
+  await open("small");
+  await items.first().waitFor();
+  check("h3", "the same bridge cannot be reported twice in this browser", (await items.nth(1).getByTestId("bridge-thanks").count()) === 1 && (await items.nth(1).getByTestId("bridge-report").count()) === 0);
+  await items.nth(0).getByTestId("bridge-report").click();
+  await items.nth(0).getByRole("button", { name: "Send" }).click();
+  await items.nth(0).getByTestId("bridge-thanks").waitFor();
+  check("h3", "the reason is optional", bridgeCalls.feedback.at(-1)?.reason === undefined, bridgeCalls.feedback.at(-1));
+
+  // h4. The free "X to Y" search: names by autocomplete, the bridge each way.
+  await reset();
+  await bridges.getByTestId("bridge-search-toggle").click();
+  const pair = bridges.getByTestId("bridge-search");
+  const [from, to] = [pair.getByRole("combobox").nth(0), pair.getByRole("combobox").nth(1)];
+  check("h4", "the first box starts with the deck archetype", (await from.inputValue()) === "Blue-Eyes", await from.inputValue());
+  await to.fill("dragu");
+  check("h4", "typing offers the matching archetype names", JSON.stringify(await pair.getByRole("option").allInnerTexts()) === JSON.stringify(["Dragunity"]), await pair.getByRole("option").allInnerTexts());
+  await to.press("ArrowDown");
+  await to.press("Enter");
+  await pair.getByTestId("bridge-search-results").waitFor();
+  check("h4", "the search shows the bridge each way", (await pair.getByTestId("bridge-item").count()) === 2 && (await pair.getByRole("heading", { level: 4 }).allInnerTexts()).join("|") === "Blue-Eyes → Dragunity|Dragunity → Blue-Eyes", await pair.getByRole("heading", { level: 4 }).allInnerTexts());
+  check("h4", "the search asks for both names in the deck's format", bridgeCalls.lists.at(-1) === "?source=Blue-Eyes&format=advanced&target=Dragunity", bridgeCalls.lists.at(-1));
+  check("h4", "the archetype list loads once", bridgeCalls.archetypes === 1, bridgeCalls.archetypes);
+  await from.fill("Chaos");
+  await to.fill("Red-Eyes");
+  await page.waitForTimeout(400);
+  check("h4", "a pair with no bridge says so, both ways", (await pair.getByTestId("bridge-search-none").count()) === 2, await pair.getByTestId("bridge-search-none").count());
+  await to.fill("Chaos");
+  check("h4", "the same archetype twice is refused kindly", (await pair.innerText()).includes("Choose two different archetypes"));
+
+  // h5. Genesys follows the deck's format.
+  control.genesys = true;
+  await reset();
+  check("h5", "a Genesys deck asks for Genesys bridges with its points left", /format=genesys/.test(bridgeCalls.lists[0] ?? "") && /genesysRemaining=\d+/.test(bridgeCalls.lists[0] ?? ""), bridgeCalls.lists);
+  check("h5", "the Genesys points of a bridge show as a warning", (await items.nth(3).getByRole("list", { name: "Warnings" }).innerText()).includes("Genesys points"));
+  await shot("bridges-genesys-1920x1080");
+  control.genesys = false;
+
+  // i. Deep search: one request per click, a progress bar with named steps, a cooldown, resume, errors.
+  await reset();
+  const deepButton = bridges.getByTestId("deep-search-button");
+  check("i", "Deep search starts enabled", await deepButton.isEnabled() && (await deepButton.innerText()).trim() === "Deep search");
+  await deepButton.dblclick();
+  await bridges.getByTestId("deep-progress").waitFor();
+  check("i", "a double click starts one search", bridgeCalls.starts.length === 1, bridgeCalls.starts);
+  check("i", "the search asks for the deck archetype in its format", bridgeCalls.starts[0]?.source === "Blue-Eyes" && bridgeCalls.starts[0]?.format === "advanced", bridgeCalls.starts[0]);
+  check("i", "the button is off while the search runs", await deepButton.isDisabled() && (await deepButton.innerText()).includes("Searching"));
+  const progress = bridges.getByTestId("deep-progress");
+  check("i", "the progress bar says what it does", (await progress.innerText()).includes("Searching all possible bridges..."));
+  check("i", "the progress shows the three step names", (await progress.locator("li").allInnerTexts()).join("|").replace(/\u2713\s?/g, "").replace(/\u00a0/g, "") === "Finding candidates|Checking cards|Rating", await progress.locator("li").allInnerTexts());
+  await progress.locator('li[data-state="current"]', { hasText: "Rating" }).waitFor({ timeout: 10_000 });
+  const value = Number(await progress.getByRole("progressbar").getAttribute("aria-valuenow"));
+  check("i", "the bar fills as the steps advance", value >= 55 && value < 100, value);
+  await bridges.getByTestId("deep-results").waitFor({ timeout: 15_000 });
+  check("i", "the results show after the last step", (await bridges.getByTestId("deep-results").getByTestId("bridge-item").count()) === 1 && (await bridges.getByTestId("deep-results").innerText()).includes("Melodious"));
+  check("i", "the count of bridges still in review shows", (await bridges.getByTestId("bridges-in-review").innerText()).includes("2 bridges are still in review"), await bridges.getByTestId("bridges-in-review").innerText());
+  check("i", "the button stays off during the cooldown, with a countdown", await deepButton.isDisabled() && /Deep search in (59|60|\d+) s|1 min/.test(await deepButton.innerText()), await deepButton.innerText());
+  const first = await deepButton.innerText();
+  await page.waitForTimeout(2200);
+  check("i", "the countdown goes down", (await deepButton.innerText()) !== first, { first, now: await deepButton.innerText() });
+  await shot("bridges-cooldown-1920x1080");
+
+  // i2. Leaving and coming back resumes the running search, and starts no second one.
+  await reset();
+  await deepButton.click();
+  await bridges.getByTestId("deep-progress").locator('li[data-state="current"]', { hasText: "Checking cards" }).waitFor({ timeout: 10_000 });
+  const startsBefore = bridgeCalls.starts.length;
+  await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
+  await bridges.getByTestId("deep-progress").waitFor({ timeout: 15_000 });
+  check("i2", "the running search shows again after a reload", await bridges.getByTestId("deep-progress").isVisible());
+  await bridges.getByTestId("deep-results").waitFor({ timeout: 15_000 });
+  check("i2", "it finishes with its results and sends no second start", bridgeCalls.starts.length === startsBefore, bridgeCalls.starts.length);
+
+  // i3. The host says wait: a countdown from retryAfter and no job.
+  await reset();
+  bridgeControl.startRetryAfter = 45;
+  await deepButton.click();
+  await page.waitForFunction(() => /Deep search in/.test(document.querySelector('[data-testid="deep-search-button"]')?.textContent ?? ""), null, { timeout: 5000 });
+  const wait = await deepButton.innerText();
+  check("i3", "a 429 turns the button into a countdown from retryAfter", await deepButton.isDisabled() && /Deep search in (4[0-5]) s/.test(wait), wait);
+  check("i3", "a 429 shows no progress bar", (await bridges.getByTestId("deep-progress").count()) === 0);
+  check("i3", "the hint explains the wait", (await bridges.innerText()).includes("You searched a moment ago"));
+  check("i3", "the countdown survives a reload in this tab", await (async () => { await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`); await items.first().waitFor(); return (await deepButton.isDisabled()) && /Deep search in/.test(await deepButton.innerText()); })());
+  await shot("bridges-retry-after-1920x1080");
+
+  // i4. The search fails: a clear error, no results.
+  await reset();
+  bridgeControl.jobMode = "fail";
+  await deepButton.click();
+  await bridges.getByTestId("deep-error").waitFor({ timeout: 15_000 });
+  check("i4", "a failed search shows a clear error", (await bridges.getByTestId("deep-error").innerText()).includes("stopped before it finished"));
+  check("i4", "a failed search shows no results", (await bridges.getByTestId("deep-results").count()) === 0);
+  await shot("bridges-deep-failed-1920x1080");
+
+  // j. The list itself fails or is off.
+  await reset();
+  bridgeControl.none = true;
+  await open("small");
+  await bridges.getByTestId("bridges-empty").waitFor({ timeout: 15_000 });
+  check("j", "no bridge that passed the checks gives a plain empty state", (await bridges.getByTestId("bridges-empty").innerText()).includes("No bridge that passed our checks yet"), await bridges.getByTestId("bridges-empty").innerText());
+  bridgeControl.none = false;
+  bridgeControl.listStatus = 503;
+  await open("small");
+  await bridges.getByRole("alert").first().waitFor({ timeout: 15_000 });
+  check("j", "a failed list says so and offers Try again", (await bridges.getByRole("alert").first().innerText()).includes("not available") && (await bridges.getByRole("button", { name: "Try again" }).count()) === 1);
+  bridgeControl.listStatus = 404;
+  await open("small");
+  await page.waitForTimeout(1500);
+  check("j", "a server with no bridges hides the row", (await bridges.count()) === 0 && (await panel.locator('section[aria-labelledby^="suggest-"]').count()) === 4);
+  bridgeControl.listStatus = 200;
 
   check("all", "no browser errors", pageErrors.length === 0, pageErrors);
   check("all", "every API call the editor made is mirrored", unrouted.length === 0, [...new Set(unrouted)]);
