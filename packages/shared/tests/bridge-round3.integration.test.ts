@@ -18,17 +18,35 @@ beforeAll(() => {
 });
 
 describe("round 3 bridge rules on the pinned catalog", () => {
-  it("keeps only the higher ranked row when the primary source card is shared", () => {
+  it("deduplicates a shared primary source only when the Y-side line also overlaps", () => {
     const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
-      const chaos = engine.between("Blue-Eyes", "Chaos", format)!;
-      const soldier = engine.between("Blue-Eyes", "Black Luster Soldier", format)!;
-      expect(chaos.reasons[0]!.cards[0]).toBe(21082832);
-      expect(soldier.reasons[0]!.cards[0]).toBe(21082832);
-      const kept = engine.distinctTargets([chaos, soldier], 4);
+      const eyes = engine.between("Black Luster Soldier", "Blue-Eyes", format)!;
+      const chaos = engine.between("Black Luster Soldier", "Chaos", format)!;
+      expect(eyes.reasons[0]!.cards).toEqual(chaos.reasons[0]!.cards); // Gateway to Chaos -> Chaos Form.
+      const kept = engine.distinctTargets([eyes, chaos], 4);
       expect(kept).toHaveLength(1);
-      expect(kept[0]!.score).toBe(Math.max(chaos.score, soldier.score));
-      expect(engine.distinctTargets([chaos, soldier], 25)).toHaveLength(2); // Preserve direct lookup candidates.
+      expect(kept[0]!.score).toBe(Math.max(eyes.score, chaos.score));
+      expect(engine.distinctTargets([eyes, chaos], 25)).toHaveLength(2); // Preserve direct lookup candidates.
+
+      // Chaos Form reaches different Ritual Monsters in these two targets.
+      const rituals = [engine.between("Blue-Eyes", "Chaos", format)!, engine.between("Blue-Eyes", "Black Luster Soldier", format)!];
+      expect(rituals.every(row => row.reasons[0]!.cards[0] === 21082832)).toBe(true);
+      expect(engine.distinctTargets(rituals, 4)).toHaveLength(2);
+    }
+  }, 15_000);
+
+  it("keeps distinct Temple and Sinful Spoils target engines in the top four", () => {
+    const engine = new BridgeEngine(data);
+    for (const format of ["advanced", "genesys"] as const) {
+      const odion = engine.distinctTargets(engine.liveCandidates("Odion", format), 4).map(row => row.target);
+      expect(odion).toEqual(expect.arrayContaining(["Ashtra", "Argostars"]));
+      const altergeist = engine.between("Odion", "Altergeist", format);
+      if (altergeist && altergeist.score >= 4) expect(odion).toContain("Altergeist");
+      const azamina = engine.distinctTargets(engine.liveCandidates("Azamina", format), 4).map(row => row.target);
+      expect(azamina).toEqual(["White Forest", "Sinful Spoils", "Diabell", "Snake-Eye"]);
+      const diabell = engine.distinctTargets(engine.liveCandidates("Diabell", format), 4).map(row => row.target);
+      expect(diabell).toEqual(["White Forest", "Snake-Eye", "Azamina"]);
     }
   }, 15_000);
 

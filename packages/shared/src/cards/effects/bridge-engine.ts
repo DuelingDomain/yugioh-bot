@@ -196,13 +196,16 @@ export class BridgeEngine {
 
   distinctTargets<T extends ArchetypeBridge>(rows: T[], limit = 25, distinctPrimary = limit <= 4): T[] {
     const results: T[] = [];
-    const primaryCards = new Set<string>();
+    const primaryTargets = new Map<string, Set<number>>();
     for (const row of [...rows].sort((a, b) => b.score - a.score || a.target.localeCompare(b.target))) {
       if (row.score < 4 || results.some(higher => this.groupOverlap(row.target, higher.target) >= 0.5 * this.groups.get(row.target)!.size)) continue;
       const card = row.reasons[0]?.cards.find(id => this.groups.get(row.source)?.has(id) && !isExtraDeckCard(this.rows.get(id)!.card));
       const primary = card === undefined ? undefined : JSON.stringify([row.source, card]);
-      if (distinctPrimary && primary && primaryCards.has(primary)) continue;
-      if (primary) primaryCards.add(primary);
+      const targets = row.reasons[0]?.cards.filter(id => this.groups.get(row.target)?.has(id) && !this.groups.get(row.source)?.has(id)) ?? [];
+      // A shared enabler can serve different engines. Only a shared Y-side
+      // card in the primary line makes two rows describe the same bridge.
+      if (distinctPrimary && primary && targets.some(id => primaryTargets.get(primary)?.has(id))) continue;
+      if (primary) primaryTargets.set(primary, new Set([...(primaryTargets.get(primary) ?? []), ...targets]));
       results.push(row);
       if (results.length >= limit) break;
     }
