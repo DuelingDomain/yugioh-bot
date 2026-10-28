@@ -1,23 +1,6 @@
 {
-  "version": 1,
+  "version": 2,
   "pairs": [
-    {
-      "source": "Odion",
-      "target": "Ashtra",
-      "format": "advanced",
-      "expected": "bridge",
-      "min_grade": "strong",
-      "cards": [
-        "Temple of the Kings",
-        "The Man with the Mark",
-        "Treasures of the Kings",
-        "Ashtra's Domain",
-        "Ashtra's Howl",
-        "Ashtra's Web"
-      ],
-      "why": "Temple of the Kings lets a Trap activate the turn it is Set, so Ashtra Traps can Special Summon themselves as Level 1 Tuners and Synchro Summon at once.",
-      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
-    },
     {
       "source": "Odion",
       "target": "Argostars",
@@ -25,14 +8,12 @@
       "expected": "bridge",
       "min_grade": "good",
       "cards": [
+        "Argostars - Fierce Parthe",
         "Temple of the Kings",
-        "The Man with the Mark",
-        "Argostars - Lightning Tydeu",
-        "Argostars - Slayer Eteo",
-        "Argostars - Swift Capane"
+        "Argostars - Slayer Eteo"
       ],
-      "why": "Temple of the Kings lets a freshly Set Argostars Continuous Trap activate and become a monster in the same turn; Argostars gives nothing back to the Temple cards, so the link is one-way.",
-      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+      "why": "Temple of the Kings makes normally Set Argostars Continuous Traps live immediately. Argostars monsters support that Continuous Trap engine; Fierce Parthe already grants its own Set Trap permission, so that particular effect does not need Temple.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Argostars%20-%20Fierce%20Parthe"
     },
     {
       "source": "Odion",
@@ -41,11 +22,12 @@
       "expected": "bridge",
       "min_grade": "niche",
       "cards": [
-        "The Man with the Mark",
-        "Spirit with Eyes of Blue"
+        "Blue-Eyes White Dragon, the White Phantom Beast",
+        "Spirit with Eyes of Blue",
+        "The Man with the Mark"
       ],
-      "why": "The Man with the Mark is a Level 4 Spellcaster, so it is legal material for Spirit with Eyes of Blue, which then Special Summons a Blue-Eyes monster.",
-      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Spirit%20with%20Eyes%20of%20Blue"
+      "why": "The Man with the Mark is a Level 4 Spellcaster and can be the single material for Spirit with Eyes of Blue. Spirit can tribute itself to end its face-up Dragon restriction; its hand/GY summon still needs an available Blue-Eyes monster.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Blue-Eyes%20White%20Dragon%2C%20the%20White%20Phantom%20Beast"
     },
     {
       "source": "Snake-Eye",
@@ -55,11 +37,11 @@
       "min_grade": "strong",
       "cards": [
         "Snake-Eye Ash",
-        "Original Sinful Spoils - Snake-Eye",
+        "Fire King Island",
         "Legendary Fire King Ponix"
       ],
-      "why": "Legendary Fire King Ponix is a Level 1 FIRE monster, so Snake-Eye Ash and Original Sinful Spoils - Snake-Eye find it, and it then adds a Fire King Spell/Trap.",
-      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Legendary%20Fire%20King%20Ponix"
+      "why": "Snake-Eye Ash searches Legendary Fire King Ponix. When Ponix is summoned it searches a Fire King Spell/Trap that accesses the Fire King engine. In Genesys Original Sinful Spoils can also summon Ponix directly; Ash being Normal Summoned does not grant an additional Normal Summon for Ponix.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Snake-Eye%20Ash"
     },
     {
       "source": "Snake-Eye",
@@ -68,15 +50,15 @@
       "expected": "bridge",
       "min_grade": "good",
       "cards": [
-        "Snake-Eye Ash",
+        "Fire King Island",
         "Original Sinful Spoils - Snake-Eye",
         "Legendary Fire King Ponix"
       ],
-      "why": "The Ponix link uses only Main Deck cards, so it stays intact without Link Monsters.",
-      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Legendary%20Fire%20King%20Ponix"
+      "why": "Snake-Eye Ash searches Legendary Fire King Ponix. When Ponix is summoned it searches a Fire King Spell/Trap that accesses the Fire King engine. In Genesys Original Sinful Spoils can also summon Ponix directly; Ash being Normal Summoned does not grant an additional Normal Summon for Ponix.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Fire%20King%20Island"
     },
     {
-      "source": "Diabellstar",
+      "source": "Diabell",
       "target": "Snake-Eye",
       "format": "advanced",
       "expected": "bridge",
@@ -152,11 +134,11 @@
       "expected": "bridge",
       "min_grade": "good",
       "cards": [
-        "Tearlaments Kashtira",
-        "Kashtira Fenrir"
+        "Tearlaments Scheiren",
+        "Tearlaments Kashtira"
       ],
-      "why": "Tearlaments Kashtira is both a Kashtira (Fenrir can search it) and a Tearlaments enabler that mills 3 and banishes a Tearlaments card on Summon.",
-      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Tearlaments%20Kashtira"
+      "why": "Tearlaments Kashtira explicitly works with Tearlaments cards and mills cards by effect, enabling the Tearlaments GY engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Tearlaments%20Scheiren"
     },
     {
       "source": "Kashtira",
@@ -165,11 +147,11 @@
       "expected": "bridge",
       "min_grade": "good",
       "cards": [
-        "Scareclaw Kashtira",
-        "Kashtira Fenrir"
+        "Scareclaw Alternative",
+        "Scareclaw Kashtira"
       ],
-      "why": "Scareclaw Kashtira is searchable by Kashtira Fenrir and negates opponents' monsters that battle a Scareclaw or Kashtira monster.",
-      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Scareclaw%20Kashtira"
+      "why": "Scareclaw Kashtira explicitly belongs to both named packages and supports Scareclaw monsters, providing a shared directed engine card rather than a self-bridge to a label.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Scareclaw%20Alternative"
     },
     {
       "source": "Tenyi",
@@ -256,17 +238,17 @@
       "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Invocation"
     },
     {
-      "source": "Live☆Twin",
-      "target": "Evil★Twin",
+      "source": "Live\u2606Twin",
+      "target": "Evil\u2605Twin",
       "format": "advanced",
       "expected": "bridge",
       "min_grade": "strong",
       "cards": [
-        "Live☆Twin Ki-sikil",
-        "Live☆Twin Lil-la",
-        "Evil★Twin Challenge"
+        "Live\u2606Twin Ki-sikil",
+        "Live\u2606Twin Lil-la",
+        "Evil\u2605Twin Challenge"
       ],
-      "why": "Live☆Twin Ki-sikil and Lil-la Special Summon each other from the Deck and are the named materials for the Evil★Twin Link Monsters.",
+      "why": "Live\u2606Twin Ki-sikil and Lil-la Special Summon each other from the Deck and are the named materials for the Evil\u2605Twin Link Monsters.",
       "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Live%E2%98%86Twin%20Ki-sikil"
     },
     {
@@ -393,17 +375,17 @@
       "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Spirit%20with%20Eyes%20of%20Blue"
     },
     {
-      "source": "Live☆Twin",
-      "target": "Evil★Twin",
+      "source": "Live\u2606Twin",
+      "target": "Evil\u2605Twin",
       "format": "genesys",
       "expected": "not_bridge",
       "min_grade": null,
       "cards": [
-        "Live☆Twin Ki-sikil",
-        "Evil★Twin Ki-sikil",
-        "Evil★Twin Lil-la"
+        "Live\u2606Twin Ki-sikil",
+        "Evil\u2605Twin Ki-sikil",
+        "Evil\u2605Twin Lil-la"
       ],
-      "why": "All Evil★Twin payoff monsters are Link Monsters, so the Live☆Twin engine has nothing to link into in Genesys.",
+      "why": "All Evil\u2605Twin payoff monsters are Link Monsters, so the Live\u2606Twin engine has nothing to link into in Genesys.",
       "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Evil%E2%98%85Twin%20Ki-sikil"
     },
     {
@@ -433,19 +415,6 @@
       "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Kashtiratheosis"
     },
     {
-      "source": "Kashtira",
-      "target": "Ashtra",
-      "format": "advanced",
-      "expected": "not_bridge",
-      "min_grade": null,
-      "cards": [
-        "Kashtiratheosis",
-        "Kashtira Riseheart"
-      ],
-      "why": "The Kashtira Xyz-only lock for the rest of the turn stops the Synchro Summons that Ashtra Traps exist to make.",
-      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Kashtiratheosis"
-    },
-    {
       "source": "Tenpai Dragon",
       "target": "Swordsoul",
       "format": "advanced",
@@ -470,32 +439,6 @@
       ],
       "why": "Tenyi Spirit - Ashuna locks you to Wyrms and Tenpai Dragon Genroku locks you to Dragons for the rest of the turn, so the engines block each other.",
       "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Tenyi%20Spirit%20-%20Ashuna"
-    },
-    {
-      "source": "Spright",
-      "target": "Ashtra",
-      "format": "advanced",
-      "expected": "not_bridge",
-      "min_grade": null,
-      "cards": [
-        "Spright Starter",
-        "Spright Blue"
-      ],
-      "why": "Spright Starter limits Special Summons to Level/Rank/Link 2 monsters for the rest of the turn, which stops the Level 8+ Ashtra Synchro Monsters.",
-      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Spright%20Starter"
-    },
-    {
-      "source": "Ashtra",
-      "target": "Argostars",
-      "format": "advanced",
-      "expected": "not_bridge",
-      "min_grade": null,
-      "cards": [
-        "Ashtrata Tamayori",
-        "Ashtra's Domain"
-      ],
-      "why": "Both decks turn Traps into monsters, but Ashtra Traps are Normal Traps that become Normal Monsters while Argostars only rewards Continuous Traps, and Ashtrata Tamayori locks the Extra Deck to Level 1 Tuner Synchros.",
-      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Ashtrata%20Tamayori"
     },
     {
       "source": "Red-Eyes",
@@ -548,6 +491,1154 @@
       ],
       "why": "Both use Winged Beasts, but Raidraptor - Force Strix only finds DARK Winged Beasts and Fire King Island only Summons FIRE Winged Beasts.",
       "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Raidraptor%20-%20Force%20Strix"
+    },
+    {
+      "source": "Odion",
+      "target": "Trap Monster",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "excluded_group": true,
+      "cards": [
+        "Temple of the Kings"
+      ],
+      "why": "Trap Monster is a card-mechanic label that combines unrelated engines.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+    },
+    {
+      "source": "Odion",
+      "target": "Hole",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "excluded_group": true,
+      "cards": [
+        "Temple of the Kings"
+      ],
+      "why": "Hole combines unrelated Normal Trap cards instead of a coherent engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+    },
+    {
+      "source": "Odion",
+      "target": "Trap Hole",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "excluded_group": true,
+      "cards": [
+        "Temple of the Kings"
+      ],
+      "why": "Trap Hole is a Trap subset, not the Traptrix engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+    },
+    {
+      "source": "Yubel",
+      "target": "Signature move",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "excluded_group": true,
+      "cards": [
+        "Yubel"
+      ],
+      "why": "Signature move is a descriptive label, not a separate engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Yubel"
+    },
+    {
+      "source": "Kashtira",
+      "target": "Heart",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "excluded_group": true,
+      "cards": [
+        "Kashtira Big Bang",
+        "Kashtira Arise-Heart"
+      ],
+      "why": "Searching Kashtira Arise-Heart stays inside the source engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Kashtira%20Big%20Bang"
+    },
+    {
+      "source": "Ryzeal",
+      "target": "Hole",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "excluded_group": true,
+      "cards": [
+        "Star Ryzeal",
+        "Ryzeal Plasma Hole"
+      ],
+      "why": "Setting Ryzeal Plasma Hole stays inside the source engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Star%20Ryzeal"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Dark World",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "rejected_evidence_cards": [
+        "Ceruli, Guru of Dark World"
+      ],
+      "cards": [
+        "Ceruli, Guru of Dark World"
+      ],
+      "why": "Ceruli summons itself to the opponent's field after the discard trigger, so it cannot establish this bridge. Other Dark World discard payoffs must be evaluated separately.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Ceruli%2C%20Guru%20of%20Dark%20World"
+    },
+    {
+      "source": "Branded",
+      "target": "Dark World",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "rejected_evidence_cards": [
+        "Ceruli, Guru of Dark World"
+      ],
+      "cards": [
+        "Ceruli, Guru of Dark World"
+      ],
+      "why": "Ceruli summons itself to the opponent's field after the discard trigger, so it cannot establish this bridge. Other Dark World discard payoffs must be evaluated separately.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Ceruli%2C%20Guru%20of%20Dark%20World"
+    },
+    {
+      "source": "Odion",
+      "target": "Trap Monster",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "excluded_group": true,
+      "cards": [
+        "Temple of the Kings"
+      ],
+      "why": "Trap Monster is a card-mechanic label that combines unrelated engines.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+    },
+    {
+      "source": "Odion",
+      "target": "Hole",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "excluded_group": true,
+      "cards": [
+        "Temple of the Kings"
+      ],
+      "why": "Hole combines unrelated Normal Trap cards instead of a coherent engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+    },
+    {
+      "source": "Odion",
+      "target": "Trap Hole",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "excluded_group": true,
+      "cards": [
+        "Temple of the Kings"
+      ],
+      "why": "Trap Hole is a Trap subset, not the Traptrix engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+    },
+    {
+      "source": "Yubel",
+      "target": "Signature move",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "excluded_group": true,
+      "cards": [
+        "Yubel"
+      ],
+      "why": "Signature move is a descriptive label, not a separate engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Yubel"
+    },
+    {
+      "source": "Kashtira",
+      "target": "Heart",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "excluded_group": true,
+      "cards": [
+        "Kashtira Big Bang",
+        "Kashtira Arise-Heart"
+      ],
+      "why": "Searching Kashtira Arise-Heart stays inside the source engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Kashtira%20Big%20Bang"
+    },
+    {
+      "source": "Ryzeal",
+      "target": "Hole",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "excluded_group": true,
+      "cards": [
+        "Star Ryzeal",
+        "Ryzeal Plasma Hole"
+      ],
+      "why": "Setting Ryzeal Plasma Hole stays inside the source engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Star%20Ryzeal"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Dark World",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "rejected_evidence_cards": [
+        "Ceruli, Guru of Dark World"
+      ],
+      "cards": [
+        "Ceruli, Guru of Dark World"
+      ],
+      "why": "Ceruli summons itself to the opponent's field after the discard trigger, so it cannot establish this bridge. Other Dark World discard payoffs must be evaluated separately.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Ceruli%2C%20Guru%20of%20Dark%20World"
+    },
+    {
+      "source": "Branded",
+      "target": "Dark World",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "rejected_evidence_cards": [
+        "Ceruli, Guru of Dark World"
+      ],
+      "cards": [
+        "Ceruli, Guru of Dark World"
+      ],
+      "why": "Ceruli summons itself to the opponent's field after the discard trigger, so it cannot establish this bridge. Other Dark World discard payoffs must be evaluated separately.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Ceruli%2C%20Guru%20of%20Dark%20World"
+    },
+    {
+      "source": "Odion",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Yoa the Plague Deity Ashtra",
+        "Temple of the Kings",
+        "Ashtra Divine Domain",
+        "Treasures of the Kings"
+      ],
+      "why": "Temple of the Kings activates a freshly Set Ashtra Trap immediately. Yoa the Plague Deity Ashtra Sets Ashtra cards from the Deck and can return a face-down card supplied by Treasures of the Kings to summon itself.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Yoa%20the%20Plague%20Deity%20Ashtra"
+    },
+    {
+      "source": "Odion",
+      "target": "Altergeist",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Temple of the Kings",
+        "Altergeist Marionetter",
+        "Altergeist Emulatelf"
+      ],
+      "why": "Altergeist Marionetter Sets an Altergeist Trap from the Deck. Temple of the Kings can activate that Set Trap immediately, including Emulatelf as a protective monster.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+    },
+    {
+      "source": "Blue-Eyes",
+      "target": "Millennium",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Shield of the Millennium Dynasty",
+        "Millennium Ankh",
+        "Heart of the Blue-Eyes"
+      ],
+      "why": "Heart of the Blue-Eyes explicitly searches Millennium Ankh, directly accessing the Millennium engine rather than an unrelated Dragon stat match.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Shield%20of%20the%20Millennium%20Dynasty"
+    },
+    {
+      "source": "Blue-Eyes",
+      "target": "Black Luster Soldier",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Black Luster Soldier",
+        "Super Soldier Ritual",
+        "Chaos Form",
+        "Blue-Eyes Abyss Dragon"
+      ],
+      "why": "Chaos Form Ritual Summons Black Luster Soldier Ritual Monsters. The Blue-Eyes package supplies the shared Ritual Spell and Level 8 material; non-Ritual Black Luster Soldier monsters are not Ritual targets.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Black%20Luster%20Soldier"
+    },
+    {
+      "source": "Blue-Eyes",
+      "target": "Chaos",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Chaos Emperor, the Dragon of Armageddon",
+        "Illusion of Chaos",
+        "Chaos Form",
+        "Blue-Eyes Abyss Dragon"
+      ],
+      "why": "Chaos Form Ritual Summons Chaos Ritual Monsters, including Level 8 Magician of Black Chaos. Only Ritual targets satisfy this clause; Chaos Necromancer does not.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Chaos%20Emperor%2C%20the%20Dragon%20of%20Armageddon"
+    },
+    {
+      "source": "Blue-Eyes",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Yoa the Plague Deity Ashtra",
+        "Blue-Eyes Tyrant Dragon"
+      ],
+      "why": "After Blue-Eyes Tyrant Dragon battles it can Set a Trap from the GY. Yoa can return that Set card to summon itself and Set an Ashtra Spell/Trap from the Deck; Tyrant must first be established and a Trap must be in the GY.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Yoa%20the%20Plague%20Deity%20Ashtra"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Fabled",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Fabled Miztoji",
+        "The Fabled Ganashia",
+        "Fiendsmith's Tract"
+      ],
+      "why": "Fiendsmith's Tract searches a LIGHT Fiend such as Fabled Miztoji and discards a card as an effect. It can discard an already-held The Fabled Ganashia to summon a Fabled body. Ganashia is a LIGHT Beast and is not a Tract search target.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Fabled%20Miztoji"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Danger!",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Fiendsmith's Tract",
+        "Danger!? Tsuchinoko?"
+      ],
+      "why": "Fiendsmith's Tract discards as an effect, triggering a Danger discard payoff such as Tsuchinoko summoning itself. A Danger card must already be available in hand; Tract does not search the DARK Danger monsters.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Fiendsmith%27s%20Tract"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Dark World",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Beiige, Vanguard of Dark World",
+        "Fiendsmith's Tract"
+      ],
+      "why": "Tract can discard an available Beiige as an effect, and Beiige summons itself to the owner's field. This is a conditional discard-outlet bridge, not the invalid Ceruli opponent-field line.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Beiige%2C%20Vanguard%20of%20Dark%20World"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Diabell",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Diabellstar Vengeance",
+        "Dramatic Snake-Eye Chase"
+      ],
+      "why": "Dramatic Snake-Eye Chase explicitly interacts with Diabellstar monsters, including placing a Diabellstar from the Deck as a Continuous Spell. This is a printed named connection rather than generic Level 1 FIRE support.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Diabellstar%20Vengeance"
+    },
+    {
+      "source": "Branded",
+      "target": "Despia",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Branded Banishment",
+        "Masquerade the Blazing Dragon",
+        "Despian Tragedy",
+        "Branded Opening"
+      ],
+      "why": "Branded Opening finds Despia monsters and Branded Banishment revives a Despia monster or Level 8+ Fusion, joining the named engines.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Branded%20Banishment"
+    },
+    {
+      "source": "Branded",
+      "target": "Dogmatika",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Branded Bond",
+        "Fallen of Albaz"
+      ],
+      "why": "Branded Bond explicitly summons Fallen of Albaz, which is in the profiled Dogmatika group. The connection is specifically the Albaz package, not arbitrary Dogmatika Extra Deck use under Branded Fusion's lock.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Branded%20Bond"
+    },
+    {
+      "source": "Branded",
+      "target": "Bystial",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Bystial Druiswurm",
+        "Branded Beast",
+        "Branded Regained"
+      ],
+      "why": "Branded Beast explicitly uses Bystial monsters and Branded Regained can revive one from the GY. Both cards directly support the named Bystial package.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Bystial%20Druiswurm"
+    },
+    {
+      "source": "Branded",
+      "target": "Danger!",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Branded in High Spirits",
+        "Brigrand the Glory Dragon",
+        "Danger!? Jackalope?"
+      ],
+      "why": "Branded in High Spirits discards an already-held Danger!? Jackalope? as an effect after sending Brigrand the Glory Dragon from the Extra Deck to the GY. That is a legal Level 8 Beast Fusion with 2500 ATK or DEF, matching the discarded monster's Type. The discard then triggers the target's own payoff; both the discarded card and required Fusion are in the checked evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Branded%20in%20High%20Spirits"
+    },
+    {
+      "source": "Branded",
+      "target": "Fabled",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "The Fabled Ganashia",
+        "Branded in High Spirits",
+        "Brigrand the Glory Dragon"
+      ],
+      "why": "Branded in High Spirits discards an already-held The Fabled Ganashia as an effect after sending Brigrand the Glory Dragon from the Extra Deck to the GY. That is a legal Level 8 Beast Fusion with 2500 ATK or DEF, matching the discarded monster's Type. The discard then triggers the target's own payoff; both the discarded card and required Fusion are in the checked evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=The%20Fabled%20Ganashia"
+    },
+    {
+      "source": "Branded",
+      "target": "Dark World",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Branded in High Spirits",
+        "Beiige, Vanguard of Dark World",
+        "Despian Quaeritis"
+      ],
+      "why": "Branded in High Spirits discards an already-held Beiige, Vanguard of Dark World as an effect after sending Despian Quaeritis from the Extra Deck to the GY. That is a legal Level 8 Fiend Fusion with 2500 ATK or DEF, matching the discarded monster's Type. The discard then triggers the target's own payoff; both the discarded card and required Fusion are in the checked evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Branded%20in%20High%20Spirits"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "Dogmatika",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Fallen of Albaz",
+        "The Golden Swordsoul"
+      ],
+      "why": "The Golden Swordsoul explicitly supports a Fusion Monster that mentions Fallen of Albaz as material. This connects to the Albaz package profiled as Dogmatika; Fallen of Albaz itself is not that Fusion Monster.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Fallen%20of%20Albaz"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "Tenyi",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Tenyi Spirit - Vishuda",
+        "Swordsoul Emergence"
+      ],
+      "why": "Swordsoul Emergence accesses Tenyi Wyrms. Tenyi bodies can be played before Swordsoul effects, and the Swordsoul non-Effect Tokens enable Tenyi's non-Effect-monster support.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Tenyi%20Spirit%20-%20Vishuda"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "Blue-Eyes",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Blue-Eyes White Dragon, the White Phantom Beast",
+        "Spirit with Eyes of Blue",
+        "The Golden Swordsoul"
+      ],
+      "why": "The Golden Swordsoul is a Level 4 Spellcaster and can make the single-material Spirit with Eyes of Blue. Spirit's hand/GY summon still requires an available Blue-Eyes monster and its face-up Dragon restriction must be respected.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Blue-Eyes%20White%20Dragon%2C%20the%20White%20Phantom%20Beast"
+    },
+    {
+      "source": "Ryzeal",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Yoa the Plague Deity Ashtra",
+        "Star Ryzeal"
+      ],
+      "why": "Star Ryzeal Sets a Ryzeal Spell/Trap from the Deck. Yoa can return that face-down card to summon itself and Set an Ashtra card from the Deck. Ashtra Synchro use must wait until Ryzeal's remaining-turn Rank 4 restriction ends.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Yoa%20the%20Plague%20Deity%20Ashtra"
+    },
+    {
+      "source": "Yubel",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Yoa the Plague Deity Ashtra",
+        "Spirit of Yubel"
+      ],
+      "why": "Spirit of Yubel can Set a Spell/Trap from the Deck that mentions Yubel. Yoa can return a Set card to summon itself and access Ashtra cards; Spirit must first be summoned, and any Fiend-only restrictions from the chosen Yubel line still apply.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Yoa%20the%20Plague%20Deity%20Ashtra"
+    },
+    {
+      "source": "Odion",
+      "target": "Archfiend",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Odion"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Magical Musket",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Fiendsmith"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Duston",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Fiendsmith"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Mermail",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Fiendsmith"
+    },
+    {
+      "source": "Branded",
+      "target": "Mermail",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Branded"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Volcanic",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Snake-Eye"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Flamvell",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Snake-Eye"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Infernoble Knight",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Snake-Eye"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Horus",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Snake-Eye"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Laval",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Snake-Eye"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "True Draco",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Swordsoul"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "Metaphys",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Swordsoul"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "Centur-Ion",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Swordsoul"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "Mathmech",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Swordsoul"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "Deskbot",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Swordsoul"
+    },
+    {
+      "source": "Ryzeal",
+      "target": "Bujin",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Ryzeal"
+    },
+    {
+      "source": "Blue-Eyes",
+      "target": "Toon",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Blue-Eyes"
+    },
+    {
+      "source": "Odion",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Yoa the Plague Deity Ashtra",
+        "Temple of the Kings",
+        "Ashtra Divine Domain",
+        "Treasures of the Kings"
+      ],
+      "why": "Temple of the Kings activates a freshly Set Ashtra Trap immediately. Yoa the Plague Deity Ashtra Sets Ashtra cards from the Deck and can return a face-down card supplied by Treasures of the Kings to summon itself.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Yoa%20the%20Plague%20Deity%20Ashtra"
+    },
+    {
+      "source": "Odion",
+      "target": "Argostars",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Argostars - Fierce Parthe",
+        "Temple of the Kings",
+        "Argostars - Slayer Eteo"
+      ],
+      "why": "Temple of the Kings makes normally Set Argostars Continuous Traps live immediately. Argostars monsters support that Continuous Trap engine; Fierce Parthe already grants its own Set Trap permission, so that particular effect does not need Temple.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Argostars%20-%20Fierce%20Parthe"
+    },
+    {
+      "source": "Odion",
+      "target": "Altergeist",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Temple of the Kings",
+        "Altergeist Marionetter",
+        "Altergeist Emulatelf"
+      ],
+      "why": "Altergeist Marionetter Sets an Altergeist Trap from the Deck. Temple of the Kings can activate that Set Trap immediately, including Emulatelf as a protective monster.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+    },
+    {
+      "source": "Blue-Eyes",
+      "target": "Millennium",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Shield of the Millennium Dynasty",
+        "Millennium Ankh",
+        "Heart of the Blue-Eyes"
+      ],
+      "why": "Heart of the Blue-Eyes explicitly searches Millennium Ankh, directly accessing the Millennium engine rather than an unrelated Dragon stat match.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Shield%20of%20the%20Millennium%20Dynasty"
+    },
+    {
+      "source": "Blue-Eyes",
+      "target": "Black Luster Soldier",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Black Luster Soldier",
+        "Super Soldier Ritual",
+        "Chaos Form",
+        "Blue-Eyes Abyss Dragon"
+      ],
+      "why": "Chaos Form Ritual Summons Black Luster Soldier Ritual Monsters. The Blue-Eyes package supplies the shared Ritual Spell and Level 8 material; non-Ritual Black Luster Soldier monsters are not Ritual targets.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Black%20Luster%20Soldier"
+    },
+    {
+      "source": "Blue-Eyes",
+      "target": "Chaos",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Illusion of Chaos",
+        "Chaos Form",
+        "Chaos Dragon Levianeer",
+        "Blue-Eyes Abyss Dragon"
+      ],
+      "why": "Chaos Form Ritual Summons Chaos Ritual Monsters, including Level 8 Magician of Black Chaos. Only Ritual targets satisfy this clause; Chaos Necromancer does not.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Illusion%20of%20Chaos"
+    },
+    {
+      "source": "Blue-Eyes",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Yoa the Plague Deity Ashtra",
+        "Blue-Eyes Tyrant Dragon"
+      ],
+      "why": "After Blue-Eyes Tyrant Dragon battles it can Set a Trap from the GY. Yoa can return that Set card to summon itself and Set an Ashtra Spell/Trap from the Deck; Tyrant must first be established and a Trap must be in the GY.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Yoa%20the%20Plague%20Deity%20Ashtra"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Fabled",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Fabled Miztoji",
+        "The Fabled Ganashia",
+        "Fiendsmith's Tract"
+      ],
+      "why": "Fiendsmith's Tract searches a LIGHT Fiend such as Fabled Miztoji and discards a card as an effect. It can discard an already-held The Fabled Ganashia to summon a Fabled body. Ganashia is a LIGHT Beast and is not a Tract search target.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Fabled%20Miztoji"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Danger!",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Fiendsmith's Tract",
+        "Danger!? Tsuchinoko?"
+      ],
+      "why": "Fiendsmith's Tract discards as an effect, triggering a Danger discard payoff such as Tsuchinoko summoning itself. A Danger card must already be available in hand; Tract does not search the DARK Danger monsters.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Fiendsmith%27s%20Tract"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Dark World",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Beiige, Vanguard of Dark World",
+        "Fiendsmith's Tract"
+      ],
+      "why": "Tract can discard an available Beiige as an effect, and Beiige summons itself to the owner's field. This is a conditional discard-outlet bridge, not the invalid Ceruli opponent-field line.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Beiige%2C%20Vanguard%20of%20Dark%20World"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Diabell",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Diabellstar Vengeance",
+        "Dramatic Snake-Eye Chase"
+      ],
+      "why": "Dramatic Snake-Eye Chase explicitly interacts with Diabellstar monsters, including placing a Diabellstar from the Deck as a Continuous Spell. This is a printed named connection rather than generic Level 1 FIRE support.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Diabellstar%20Vengeance"
+    },
+    {
+      "source": "Branded",
+      "target": "Despia",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Branded Banishment",
+        "Masquerade the Blazing Dragon",
+        "Despian Tragedy",
+        "Branded Opening"
+      ],
+      "why": "Branded Opening finds Despia monsters and Branded Banishment revives a Despia monster or Level 8+ Fusion, joining the named engines.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Branded%20Banishment"
+    },
+    {
+      "source": "Branded",
+      "target": "Dogmatika",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Branded Bond",
+        "Fallen of Albaz"
+      ],
+      "why": "Branded Bond explicitly summons Fallen of Albaz, which is in the profiled Dogmatika group. The connection is specifically the Albaz package, not arbitrary Dogmatika Extra Deck use under Branded Fusion's lock.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Branded%20Bond"
+    },
+    {
+      "source": "Branded",
+      "target": "Bystial",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Bystial Druiswurm",
+        "Branded Beast",
+        "Branded Regained"
+      ],
+      "why": "Branded Beast explicitly uses Bystial monsters and Branded Regained can revive one from the GY. Both cards directly support the named Bystial package.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Bystial%20Druiswurm"
+    },
+    {
+      "source": "Branded",
+      "target": "Danger!",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Branded in High Spirits",
+        "Brigrand the Glory Dragon",
+        "Danger!? Jackalope?"
+      ],
+      "why": "Branded in High Spirits discards an already-held Danger!? Jackalope? as an effect after sending Brigrand the Glory Dragon from the Extra Deck to the GY. That is a legal Level 8 Beast Fusion with 2500 ATK or DEF, matching the discarded monster's Type. The discard then triggers the target's own payoff; both the discarded card and required Fusion are in the checked evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Branded%20in%20High%20Spirits"
+    },
+    {
+      "source": "Branded",
+      "target": "Fabled",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "The Fabled Ganashia",
+        "Branded in High Spirits",
+        "Brigrand the Glory Dragon"
+      ],
+      "why": "Branded in High Spirits discards an already-held The Fabled Ganashia as an effect after sending Brigrand the Glory Dragon from the Extra Deck to the GY. That is a legal Level 8 Beast Fusion with 2500 ATK or DEF, matching the discarded monster's Type. The discard then triggers the target's own payoff; both the discarded card and required Fusion are in the checked evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=The%20Fabled%20Ganashia"
+    },
+    {
+      "source": "Branded",
+      "target": "Dark World",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Branded in High Spirits",
+        "Beiige, Vanguard of Dark World",
+        "Despian Quaeritis"
+      ],
+      "why": "Branded in High Spirits discards an already-held Beiige, Vanguard of Dark World as an effect after sending Despian Quaeritis from the Extra Deck to the GY. That is a legal Level 8 Fiend Fusion with 2500 ATK or DEF, matching the discarded monster's Type. The discard then triggers the target's own payoff; both the discarded card and required Fusion are in the checked evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Branded%20in%20High%20Spirits"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "Dogmatika",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Fallen of Albaz",
+        "The Golden Swordsoul"
+      ],
+      "why": "The Golden Swordsoul explicitly supports a Fusion Monster that mentions Fallen of Albaz as material. This connects to the Albaz package profiled as Dogmatika; Fallen of Albaz itself is not that Fusion Monster.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Fallen%20of%20Albaz"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "Tenyi",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Tenyi Spirit - Vishuda",
+        "Swordsoul Emergence"
+      ],
+      "why": "Swordsoul Emergence accesses Tenyi Wyrms. Tenyi bodies can be played before Swordsoul effects, and the Swordsoul non-Effect Tokens enable Tenyi's non-Effect-monster support.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Tenyi%20Spirit%20-%20Vishuda"
+    },
+    {
+      "source": "Kashtira",
+      "target": "Scareclaw",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Scareclaw Alternative",
+        "Scareclaw Kashtira"
+      ],
+      "why": "Scareclaw Kashtira explicitly belongs to both named packages and supports Scareclaw monsters, providing a shared directed engine card rather than a self-bridge to a label.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Scareclaw%20Alternative"
+    },
+    {
+      "source": "Kashtira",
+      "target": "Tearlaments",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Tearlaments Scheiren",
+        "Tearlaments Kashtira"
+      ],
+      "why": "Tearlaments Kashtira explicitly works with Tearlaments cards and mills cards by effect, enabling the Tearlaments GY engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Tearlaments%20Scheiren"
+    },
+    {
+      "source": "Ryzeal",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Yoa the Plague Deity Ashtra",
+        "Star Ryzeal"
+      ],
+      "why": "Star Ryzeal Sets a Ryzeal Spell/Trap from the Deck. Yoa can return that face-down card to summon itself and Set an Ashtra card from the Deck. Ashtra Synchro use must wait until Ryzeal's remaining-turn Rank 4 restriction ends.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Yoa%20the%20Plague%20Deity%20Ashtra"
+    },
+    {
+      "source": "Yubel",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "bridge",
+      "min_grade": "niche",
+      "cards": [
+        "Yoa the Plague Deity Ashtra",
+        "Spirit of Yubel"
+      ],
+      "why": "Spirit of Yubel can Set a Spell/Trap from the Deck that mentions Yubel. Yoa can return a Set card to summon itself and access Ashtra cards; Spirit must first be summoned, and any Fiend-only restrictions from the chosen Yubel line still apply.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Yoa%20the%20Plague%20Deity%20Ashtra"
+    },
+    {
+      "source": "Odion",
+      "target": "Archfiend",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Odion"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Magical Musket",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Fiendsmith"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Duston",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Fiendsmith"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Mermail",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Fiendsmith"
+    },
+    {
+      "source": "Branded",
+      "target": "Mermail",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Branded"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Volcanic",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Snake-Eye"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Flamvell",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Snake-Eye"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Infernoble Knight",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Snake-Eye"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Horus",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Snake-Eye"
+    },
+    {
+      "source": "Snake-Eye",
+      "target": "Laval",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Snake-Eye"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "True Draco",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Swordsoul"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "Metaphys",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Swordsoul"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "Centur-Ion",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Swordsoul"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "Mathmech",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Swordsoul"
+    },
+    {
+      "source": "Swordsoul",
+      "target": "Deskbot",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Swordsoul"
+    },
+    {
+      "source": "Ryzeal",
+      "target": "Bujin",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Ryzeal"
+    },
+    {
+      "source": "Blue-Eyes",
+      "target": "Toon",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "why": "The observed line is only generic stat access or needs unsupported GY, battle or summon setup; it does not establish this target engine from the supplied evidence.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?archetype=Blue-Eyes"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "D/D",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "cards": [
+        "Fiendsmith Engraver",
+        "D/D/D Wave High King Caesar",
+        "Dark Contract with the Eternal Darkness"
+      ],
+      "why": "The candidate assumed two established Level 6 bodies, then Caesar being sent from the field to the GY without a supplied send effect. Eternal Darkness also requires Pendulum Zone cards that Genesys does not allow.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=D%2FD%2FD%20Wave%20High%20King%20Caesar"
+    },
+    {
+      "source": "Fiendsmith",
+      "target": "Dark Contract",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "cards": [
+        "Fiendsmith Engraver",
+        "D/D/D Wave High King Caesar",
+        "Dark Contract with the Eternal Darkness"
+      ],
+      "why": "The candidate assumed two established Level 6 bodies, then Caesar being sent from the field to the GY without a supplied send effect. Eternal Darkness also requires Pendulum Zone cards that Genesys does not allow.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=D%2FD%2FD%20Wave%20High%20King%20Caesar"
+    },
+    {
+      "source": "Branded",
+      "target": "Danger!",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "rejected_evidence_cards": [
+        "Danger!? Tsuchinoko?"
+      ],
+      "cards": [
+        "Branded in High Spirits",
+        "Danger!? Tsuchinoko?"
+      ],
+      "why": "High Spirits needs a same-Type Level 8 Fusion with 2500 ATK or DEF. The legal card pool has no such Reptile Fusion, so Tsuchinoko cannot be the revealed and discarded monster in this line.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Branded%20in%20High%20Spirits"
+    },
+    {
+      "source": "Branded",
+      "target": "Danger!",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "rejected_evidence_cards": [
+        "Danger!? Tsuchinoko?"
+      ],
+      "cards": [
+        "Branded in High Spirits",
+        "Danger!? Tsuchinoko?"
+      ],
+      "why": "High Spirits needs a same-Type Level 8 Fusion with 2500 ATK or DEF. The legal card pool has no such Reptile Fusion, so Tsuchinoko cannot be the revealed and discarded monster in this line.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Branded%20in%20High%20Spirits"
     }
+  ],
+  "core_sources": [
+    "Odion",
+    "Blue-Eyes",
+    "Fiendsmith",
+    "Snake-Eye",
+    "Branded",
+    "Swordsoul",
+    "Kashtira",
+    "Ryzeal",
+    "Yubel",
+    "Argostars"
   ]
 }

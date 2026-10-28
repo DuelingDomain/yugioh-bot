@@ -1,60 +1,53 @@
 # Archetype bridge engine measurements
 
-Measured locally on 2026-10-28 with Node 22.23.3. The graph version is `dd86fadf825df3f2c0d659d3fb9dad14a2f37f3f1d8b125d5becf2fc9ee16950`. See [the API contract](../api/archetype-bridges.md) for signatures, schemas, CLI commands and admission rules.
+Measured locally on 2026-10-28 with Node 22.23.3 and algorithm `capability-bridges-v2`. Graph version: `7efa8b380a090f77e20090b5e0210b13b3505f4e1be5ac1aebdfa85f47387082`. See [the API contract](../api/archetype-bridges.md) for signatures, schemas, CLI commands and admission rules.
 
 ## Precomputation and storage
 
-The complete rebuild processed 13,874 engine identities and 513 groups in 70,831 ms. Peak process RSS was 760,644 KiB. It produced 8,198 retained directed bridges, with at most 25 per source and format.
+The complete rebuild processed 13,954 engine identities and 458 engine groups in 69,191 ms. Peak process RSS was 670,520 KiB. It produced 2,829 retained directed candidates, with at most 25 per source and format.
 
 | File | Records | Bytes on disk |
 | --- | ---: | ---: |
-| `card-capabilities.jsonl.gz` | 13,874 | 8,490,245 |
-| `bridges-advanced.jsonl.gz` | 4,233 | 1,902,886 |
-| `bridges-genesys.jsonl.gz` | 3,965 | 1,681,069 |
-| `bridges-manifest.json` | 1 | 266,275 |
-| Total | | 12,340,475 |
+| `card-capabilities.jsonl.gz` | 13,954 | 8,592,195 |
+| `bridges-advanced.jsonl.gz` | 1,484 | 395,902 |
+| `bridges-genesys.jsonl.gz` | 1,345 | 346,834 |
+| `bridges-manifest.json` | 1 | 147,537 |
+| Total | | 9,482,468 |
 
-The three gzip files total 12,074,200 bytes (11.51 MiB). Capability records include engine identity and printed evidence, so live searches do not need a network request or another engine read. Import and integrity verification occur at duel-host startup, outside the search request.
+Capability records include engine identity and printed evidence, so candidate scans require no network request or further engine read. Import and integrity verification occur at duel-host startup, outside the search request.
 
 ## Live search
 
-`scripts/effects/benchmark-bridges.ts` imports the pinned artifacts into SQLite, creates a fresh service for each format, and searches all targets for Odion. Cold times include decoding capability rows and building the in-memory graph; they exclude startup import. Five subsequent calls use that service's indexes.
+`scripts/effects/benchmark-bridges.ts` imports the pinned artifacts into SQLite and creates a fresh service per format. Cold times include decoding capability rows and building the graph, excluding startup import. Five subsequent calls reuse that service's indexes.
 
-| Format | Candidates | Cold search | Repeated searches |
+| Format | Odion candidates | Cold search | Repeated searches |
 | --- | ---: | ---: | --- |
-| Advanced | 22 | 377 ms | 28, 26, 25, 25, 25 ms |
-| Genesys | 21 | 348 ms | 31, 25, 26, 26, 26 ms |
+| Advanced | 4 | 1209 ms | 20, 20, 19, 19, 20 ms |
+| Genesys | 3 | 1050 ms | 22, 20, 20, 20, 19 ms |
 
-The benchmark process RSS after both formats was 434,872,320 bytes. This includes the in-memory database and both service graphs; it is not a per-worker heap measurement. The worker integration exercises the existing 256 MiB worker heap limit. These timings are local measurements, not a latency guarantee for every source or deployment.
+The benchmark process RSS after both formats was 413,499,392 bytes, including the in-memory database and both graphs. These are local measurements, not latency guarantees for every deployment.
 
-Player bridge suggestions read indexed SQLite rows and default to four accepted results, with a bounded host candidate cache and current evidence/review/feedback checks. Deep searches run in the existing two-worker duel-host suggestion pool. Persistent jobs allow one queued/running search per user, a 60-second completion cooldown, ten new jobs per hour, two running jobs and a bounded waiting queue. Identical queries reuse results for 24 hours. These controls replace the earlier administrative scanner admission for player requests. No monthly spending cap is configured by default.
+Suggestions read indexed SQLite rows and return at most four accepted bridges. Deep-search candidate scans use at most one of the two scanner workers. HTTP judging runs on the host with separate concurrency of two, keeping the second scanner available for normal Suggestions.
+
+Persistent jobs allow one queued/running search per user, a completion cooldown, bounded hourly starts and a bounded queue. Identical queries reuse cached results; a different query while one is active returns a conflict naming the running source. No monthly spending cap is configured by default.
 
 ## Quality and known gaps
 
-Odion's top four in both formats are Paleozoic, Trap Monster, Argostars and Golden Land. Argostars is third. Odion → Blue-Eyes is retained as a Niche Advanced bridge through The Man with the Mark and Spirit with Eyes of Blue; it is absent in Genesys. Spirit's self-tribute clears its continuous Dragon lock before its summon resolves. The summon target must actually belong to Blue-Eyes; thematic support labels do not qualify Sage with Eyes of Blue or The White Stone of Ancients.
+Odion's leading candidates are Ashtra and Argostars, followed by Altergeist. Advanced also retains the Niche Spirit with Eyes of Blue line; Genesys excludes it. The current prepared bundle includes the printed Ashtra identities, including Yoa the Plague Deity Ashtra and Ashtra Divine Domain. The Diabell golden source now matches the actual group name.
 
-All ten tagged Ashtra identities are absent from the supplied read-only engine bundle. They are excluded, leaving the requested Odion → Ashtra sanity check blocked by that input. Rebuild against a current prepared engine bundle when those identities are available. The group builder also requires an exact profiled archetype, which excludes a golden Diabellstar source that lacks such a group in this snapshot.
+Generic labels, source self-references, isolated stat lookups and opponent-field discard payoffs are rejected before judging. Generic Trap activation support cannot establish a bridge alone. Unproven multi-material Extra Deck paths are omitted until their summon setup can be included in the evidence; supported single-material Spirit paths remain.
 
-The golden evaluator passed `--check`, with no labelled negative pair returned by retained lookup or live explanation:
+The golden evaluator passed both `--check` and `--strict-precision`. Every returned top-five candidate across ten core sources has an inspected label:
 
-| Format | Judged precision@5 | Top-five label coverage | Recall@10 |
+| Format | Precision@5 | Top-five label coverage | Recall@10 |
 | --- | ---: | ---: | ---: |
-| Advanced | 100% (11/11) | 14.10% (11/78) | 68.75% (11/16) |
-| Genesys | 100% (7/7) | 14.89% (7/47) | 77.78% (7/9) |
+| Advanced | 100% (25/25) | 100% | 94.44% (34/36) |
+| Genesys | 100% (23/23) | 100% | 93.75% (30/32) |
 
-Full precision@5 is unknown, reported as null rather than treating unlabelled results as correct. `--strict-precision` requires complete top-five labels and is not satisfied by the current golden set. Missing identities, unsupported Fusion/material procedures, and low rankings contribute to recall misses. Minimum grades and annotated evidence matches are reported for further review; some expected grades remain unmet.
+`precision_at_5` uses all retrieved core-source rows as the denominator, so missing labels reduce precision. `--check` also requires at least 80% judgement coverage; `--strict-precision` requires 100%. Ordinary missing group names fail evaluation. Explicit excluded-label regressions assert absence, while evidence-specific negatives reject the named bad line without rejecting other valid lines for that pair. No known negative pair or rejected evidence remains. Tenyi → Swordsoul and Invoked → Shaddoll remain recall misses; expected grades and evidence-card matches are reported separately.
 
-Stored graph rows are deterministic candidates with `judge: "pending"`. Player publication now requires two accepted independent reviews and emits `judge: "accepted"`; deep-search HTTP jobs and progress polling are implemented. The initial committed review cache is empty because this implementation made no paid calls. The Suggestions row, progress-bar component and engine execution remain subsequent stages. `engine_status` stays `"unverified"`; combined path resource and lock compatibility also remains unverified.
+Stored rows remain deterministic candidates. Publication requires two accepted independent judgements matching current evidence, plus feedback and format checks. Niche positive labels include stated setup requirements and do not imply that a player-facing bridge has passed those judges. Engine execution remains unverified. Before enabling the feature, populate the judgement artifact using the release steps in [the judging runbook](../runbooks/bridge-judging.md).
 
 ## Verification
 
-All commands ran with `prlimit --core=0` and Node 22. No new unit tests or full package suites were run.
-
-- Shared build and TypeScript checks for `scripts/effects/tsconfig.json` and `packages/duel-server/tsconfig.build.json` passed.
-- The final targeted batch passed 11 integration checks across the shared bridge pipeline, worker admission/progress, publication integrity and existing host suggestion concurrency (20.34 s).
-- The existing effect-search boot-flag regression passed separately (one selected check; other cases skipped).
-- The effect-tagging publication/protocol integration file passed 34 checks alongside the three new bridge integrations earlier in the run.
-- Six CLI command smoke checks returned valid JSON and verified the Odion top four, Advanced niche link, Genesys exclusion, capability queries and path lookup.
-- Golden evaluation and the benchmark ran against the final committed artifact version. Compressed and decompressed hashes, row legality, material/target proof and source pin boundaries were checked.
-
-The targeted runs cover 46 distinct integration checks. No paid requests, remote publication or engine-data mutations were performed.
+Rebuild, golden evaluation, benchmarks and targeted shared bridge/evaluator integrations ran with `prlimit --core=0`. The shared pipeline covers label rejection, source self-bridges, generic stat lookups, discard evidence, matching-Type Fusion prerequisites and missing-proof rejection, directed lookups, Genesys exclusion and the Ritual requirement shared across quoted alternatives. Evaluator integration covers missing group names, excluded groups that still exist and a CLI failure for missing top-five labels. No new unit tests or full package suites were run.
