@@ -10,7 +10,7 @@ import { isBarredFromGenesys, isExtraDeckCard } from "../cards/effects/card.js";
 import { buildArchetypeMatcher, describe, interpret, omitReadingChips, type Interpretation } from "../cards/effects/query.js";
 import { matchCard } from "../cards/effects/effect-match.js";
 import { compactEffectName, resolveEffectName } from "../cards/effects/name-match.js";
-import { belongsTo, cardSynergy, filterReachesCard, hookQuery, scoreForDeck, type Candidate, type RankedInsightCard } from "../cards/effects/synergy.js";
+import { belongsTo, cardSynergy, describeKind, filterReachesCard, hookFinds, hookQuery, scoreForDeck, type Candidate, type RankedInsightCard } from "../cards/effects/synergy.js";
 import { readingArchetypes, type ArchetypeGuide } from "../cards/effects/guide.js";
 import { normalizeImportedCardName } from "./card-name-match.js";
 import { cachedEffectReading, effectArchetypes } from "../cards/effects/reading-cache.js";
@@ -22,6 +22,12 @@ import { readArchetypeGuide, readArchetypeHook, readInsightProfiles } from "./ca
 import { suggestDeckRows, type DeckSuggestionOptions, type DeckSuggestionLegality } from "./deck-suggestions.js";
 
 export type CardInsightFormat = "normal" | "domain" | "genesys" | "genesys-domain";
+/** Which question a hook search asks, and whether the archetype's own cards may answer it. */
+export interface HookSearchOptions {
+  find?: "is" | "support";
+  members?: boolean;
+}
+
 export interface CardInsightOptions {
   /** Internal format predicate supplied by an authoritative host; never accepted from HTTP. */
   formatAdmission?: (candidate: Card) => boolean;
@@ -288,23 +294,36 @@ export function createCardInsightService(db: Database.Database, options: {
       const guide = result.reading ? readArchetypeGuide(db, readingArchetypes(result.reading)) : null;
       return guide ? { ...result, guide } : result;
     },
-    /** Cards outside an archetype that fit one hook of its "How it plays" panel. */
-    hookSearch(archetype: string, hookIndex: number, pool?: readonly number[], opts: CardInsightOptions = {}): RankedInsightCard[] {
+    /**
+     * Cards that fit one hook of an archetype's "How it plays" panel. `find` says which of the hook's two
+     * questions to ask: cards that ARE this kind of card, or cards that SUPPORT the deck (the default when the
+     * hook has data for it). Archetype members are left out unless `members` is true.
+     */
+    hookSearch(archetype: string, hookIndex: number, pool?: readonly number[], opts: CardInsightOptions & HookSearchOptions = {}): RankedInsightCard[] {
       const currentMonth = new Date().toISOString().slice(0, 7);
       const found = readArchetypeHook(db, archetype, hookIndex);
       if (!found || pool?.length === 0) return [];
-      const query = hookQuery(found.hook, found.archetype), phrases = found.hook.phrases.map(phrase => phrase.toLowerCase());
+      const finds = hookFinds(found.hook);
+      const find = opts.find === "is" ? finds.is && "is" : opts.find === "support" ? finds.support && "support" : finds.support ? "support" : finds.is && "is";
+      if (!find) return [];
+      const kind = find === "is";
+      // "is" asks about the card itself and nothing else; "support" keeps the hook as it was always searched.
+      const query = hookQuery(kind ? { ...found.hook, does: null, reacts_to: null, supports: null, phrases: [] } : found.hook, found.archetype);
+      const phrases = kind ? [] : found.hook.phrases.map(phrase => phrase.toLowerCase());
+      const reason = kind && found.hook.card ? describeKind(found.hook.card, false) : found.hook.label;
       const ranked: Retained[] = [], limit = limitOf(opts.limit);
       return withCatalog(catalog => {
         const master = domain(opts.format) && opts.deckMaster !== undefined ? catalog.candidate(opts.deckMaster) : undefined;
         for (const candidate of catalog.candidates(pool)) {
           const { card } = candidate;
-          if (!allowed(candidate, opts) || belongsTo(card, found.archetype)) continue;
-          const printed = `${card.pendulumText ?? ""}\n${card.text}`.toLowerCase();
-          if (!phrases.every(phrase => printed.includes(phrase))) continue;
+          if (!allowed(candidate, opts) || (!opts.members && belongsTo(card, found.archetype))) continue;
+          if (phrases.length) {
+            const printed = `${card.pendulumText ?? ""}\n${card.text}`.toLowerCase();
+            if (!phrases.every(phrase => printed.includes(phrase))) continue;
+          }
           const score = matchCard(card, candidate.tags, query);
           if (score === null) continue;
-          retain(ranked, { passcode: card.id, name: card.name, score: score + cardEraBoost(card, opts.era), linkedCards: 0, reason: found.hook.label,
+          retain(ranked, { passcode: card.id, name: card.name, score: score + cardEraBoost(card, opts.era), linkedCards: 0, reason,
             ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limit, currentMonth, opts);
         }
         return withoutPopularity(ranked);

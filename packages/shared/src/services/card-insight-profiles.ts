@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { ArchetypeProfile, type Candidate, type Hook } from "../cards/effects/synergy.js";
+import { ArchetypeProfile, describeKind, hookFinds, type Candidate, type Hook } from "../cards/effects/synergy.js";
 import type { ArchetypeGuide } from "../cards/effects/guide.js";
 import { log } from "../observability/index.js";
 
@@ -26,8 +26,8 @@ export function readInsightProfiles(
 const GUIDE_PLAN_MAX = 900;
 const GUIDE_WHY_MAX = 500;
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
-/** A hook can be searched when it says what the outside card does, reacts to, supports or prints. */
-const searchable = (hook: Hook) => Boolean(hook.supports || hook.does || hook.reacts_to || hook.phrases.length);
+/** A hook can be searched when it says what the outside card is, does, reacts to, supports or prints. */
+const searchable = (hook: Hook) => { const finds = hookFinds(hook); return finds.is || finds.support; };
 
 function readStoredProfile(db: Database.Database, archetype: string): { archetype: string; profile: ArchetypeProfile } | null {
   const row = db.prepare<[string], { archetype: string; plan: string; hooks_json: string }>("SELECT archetype,plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE").get(archetype);
@@ -47,7 +47,13 @@ export function readArchetypeGuide(db: Database.Database, archetypes: readonly s
     return {
       archetype: stored.archetype,
       plan: clip(stored.profile.plan.trim(), GUIDE_PLAN_MAX),
-      hooks: stored.profile.hooks.map(hook => ({ label: hook.label.trim(), why: clip(hook.why.trim(), GUIDE_WHY_MAX), searchable: searchable(hook) })),
+      hooks: stored.profile.hooks.map(hook => {
+        const finds = hookFinds(hook);
+        return {
+          label: hook.label.trim(), why: clip(hook.why.trim(), GUIDE_WHY_MAX), searchable: searchable(hook),
+          finds: { is: finds.is && hook.card ? { one: describeKind(hook.card, false), many: describeKind(hook.card) } : null, support: finds.support },
+        };
+      }),
     };
   }
   return null;
