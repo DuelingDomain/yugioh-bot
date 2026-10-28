@@ -41,7 +41,7 @@ export function HookDrill({
           </ol>
         </nav>
       </div>
-      <DeckSegmented label="Which cards" value={members ? "all" : "outside"} choices={SCOPES} onChange={(next) => onMembers(next === "all")} />
+      <DeckSegmented hideLabel label="Which cards" value={members ? "all" : "outside"} choices={SCOPES} onChange={(next) => onMembers(next === "all")} />
     </div>
   );
 }

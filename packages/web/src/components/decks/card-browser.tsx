@@ -291,9 +291,17 @@ export function CardBrowser({
     if (!partner) cameFrom.current = { query, results, key };
   }, [partner, query, results, key]);
   useLayoutEffect(() => {
-    if (restoreScroll.current == null || !scrollRef.current) return;
-    scrollRef.current.scrollTop = restoreScroll.current;
+    const box = scrollRef.current;
+    const top = restoreScroll.current;
+    if (top == null || !box) return;
     restoreScroll.current = null;
+    // The list may still be growing (tiles, images), so ask again for a few frames until the position holds.
+    let frames = 0;
+    const put = () => {
+      box.scrollTop = top;
+      if (Math.abs(box.scrollTop - top) > 1 && frames++ < 6) requestAnimationFrame(put);
+    };
+    put();
   }, [key]);
 
   const cards = results?.key === key ? results.cards : [];
@@ -386,7 +394,8 @@ export function CardBrowser({
 
   /** The title above the first card of a group: partners of a card, or the effect hits under the name results. */
   function heading(position: number) {
-    if (partner) return position === 0 ? <li className={styles.effectHeading}><h3>{partner.hook ? "" : "Works with "}{partner.name}</h3><span>{total.toLocaleString("en-US")} {total === 1 ? "card" : "cards"}</span></li> : null;
+    if (partner?.hook) return null;
+    if (partner) return position === 0 ? <li className={styles.effectHeading}><h3>Works with {partner.name}</h3><span>{total.toLocaleString("en-US")} {total === 1 ? "card" : "cards"}</span></li> : null;
     if (position !== cards.length || effectCards.length === 0) return null;
     // "Cards like X" heads its own group; "How to beat X" already heads the page, so its cards are "Answers".
     if (intent?.kind === "similar") return <li className={styles.effectHeading}><IntentHeading intent={intent} testId="intent-group-heading" /><span>{effectTotal.toLocaleString("en-US")} matches</span></li>;
