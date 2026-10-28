@@ -1,53 +1,80 @@
 # Archetype bridge engine measurements
 
-Measured locally on 2026-10-28 with Node 22.23.3 and algorithm `capability-bridges-v2`. Graph version: `7efa8b380a090f77e20090b5e0210b13b3505f4e1be5ac1aebdfa85f47387082`. See [the API contract](../api/archetype-bridges.md) for signatures, schemas, CLI commands and admission rules.
+Measured locally on 2026-10-28 with Node 22.23.3 and algorithm `capability-bridges-v5`. Graph version: `a22a0a568e4dcc7e2397260d85c68693fe5dad5f4ff695293af4a815b3f8f07a`. See [the API contract](../api/archetype-bridges.md) and [the judging runbook](../runbooks/bridge-judging.md).
 
-## Precomputation and storage
+## Round 3 verification
 
-The complete rebuild processed 13,954 engine identities and 458 engine groups in 69,191 ms. Peak process RSS was 670,520 KiB. It produced 2,829 retained directed candidates, with at most 25 per source and format.
+Six general rules now govern named reach membership, discard-engine density, source API evidence, same-deck naming families, primary-card twins in top-four results, and completed-search cache reuse. Named/archetype outlets are exempt from stat fan-out suppression. Discard outlets require at least 0.2 of source Main Deck cards and discard triggers on at least one-third of target monsters. Curated groups are exempt from source API evidence.
 
-| File | Records | Bytes on disk |
-| --- | ---: | ---: |
-| `card-capabilities.jsonl.gz` | 13,954 | 8,592,195 |
-| `bridges-advanced.jsonl.gz` | 1,484 | 395,902 |
-| `bridges-genesys.jsonl.gz` | 1,345 | 346,834 |
-| `bridges-manifest.json` | 1 | 147,537 |
-| Total | | 9,482,468 |
+Top-four results retain one row per primary source Main Deck evidence card. Broader candidate scans retain alternatives for direct pair lookups and judging. Pending judgements retry after ten minutes; permanent reviews retain the 24-hour cache. Evidence validation happens before the admission write transaction.
 
-Capability records include engine identity and printed evidence, so candidate scans require no network request or further engine read. Import and integrity verification occur at duel-host startup, outside the search request.
+Rebuild inputs match the preceding artifact: the prepared engine database and cached API metadata were read without modification. The rebuild indexed 13,954 cards across 458 groups in 73676 ms, with peak RSS 725928 KiB.
 
-## Live search
+| Format | Rows before | Rows after | Top-four rows after | Golden precision@5 | Golden recall@10 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Advanced | 457 | 303 | 226 | 100% | 19/30 (63.33%) |
+| Genesys | 428 | 273 | 198 | 100% | 18/28 (64.29%) |
 
-`scripts/effects/benchmark-bridges.ts` imports the pinned artifacts into SQLite and creates a fresh service per format. Cold times include decoding capability rows and building the graph, excluding startup import. Five subsequent calls reuse that service's indexes.
 
-| Format | Odion candidates | Cold search | Repeated searches |
-| --- | ---: | ---: | --- |
-| Advanced | 4 | 1209 ms | 20, 20, 19, 19, 20 ms |
-| Genesys | 3 | 1050 ms | 22, 20, 20, 20, 19 ms |
+The strict evaluator passed `--check --strict-precision`, with 100% judgement coverage and no known false bridges in the golden set. Golden rows were not relabelled. Recall totals are unchanged from round 2: restored positives are offset by same-deck merges. The report measures the existing labelled core sources; it is not an independent precision estimate for all 576 rows.
 
-The benchmark process RSS after both formats was 413,499,392 bytes, including the in-memory database and both graphs. These are local measurements, not latency guarantees for every deployment.
+Restored golden positives: Danger! → Dark World in both formats and Diabell → Snake-Eye in Advanced. New recall losses: Sangen → Tenpai Dragon in both formats and Live☆Twin → Evil★Twin in Advanced, following same-deck merging.
 
-Suggestions read indexed SQLite rows and return at most four accepted bridges. Deep-search candidate scans use at most one of the two scanner workers. HTTP judging runs on the host with separate concurrency of two, keeping the second scanner available for normal Suggestions.
+The remaining golden positives outside the top ten in both formats are Tenyi → Swordsoul, Sangen → Tenpai Dragon, Invoked → Shaddoll, Odion → Altergeist, Fiendsmith → Danger!/Dark World, and Branded → Dogmatika/Danger!/Fabled/Dark World. Advanced additionally misses Live☆Twin → Evil★Twin.
 
-Persistent jobs allow one queued/running search per user, a completion cooldown, bounded hourly starts and a bounded queue. Identical queries reuse cached results; a different query while one is active returns a conflict naming the running source. No monthly spending cap is configured by default.
+## Hubs in top-four results
 
-## Quality and known gaps
+The count is the number of source groups whose top four contain that target. Ties use target name.
 
-Odion's leading candidates are Ashtra and Argostars, followed by Altergeist. Advanced also retains the Niche Spirit with Eyes of Blue line; Genesys excludes it. The current prepared bundle includes the printed Ashtra identities, including Yoa the Plague Deity Ashtra and Ashtra Divine Domain. The Diabell golden source now matches the actual group name.
+| Format | Target | Sources | Count |
+| --- | --- | --- | ---: |
+| Advanced | Dark World | Danger!, Firewall, Purrely, Sangen | 4 |
+| Advanced | Dogmatika | Bystial, Despia, Possessed, Springans | 4 |
+| Advanced | Nouvelles | Black Luster Soldier, Impcantation, Prediction Princess, Vendread | 4 |
+| Advanced | Synchron | Junk, Noble Knight, Scrap, Stardust | 4 |
+| Advanced | Archfiend | Assault Mode, Earthbound, Resonator | 3 |
+| Genesys | Danger! | Clown Crew, Dark World, Predap, Purrely, Sangen, WAKE CUP! | 6 |
+| Genesys | Dogmatika | Bystial, Despia, Possessed, Springans | 4 |
+| Genesys | Nouvelles | Black Luster Soldier, Impcantation, Prediction Princess, Vendread | 4 |
+| Genesys | Synchron | Junk, Noble Knight, Scrap, Stardust | 4 |
+| Genesys | Archfiend | Assault Mode, Earthbound, Resonator | 3 |
 
-Generic labels, source self-references, isolated stat lookups and opponent-field discard payoffs are rejected before judging. Generic Trap activation support cannot establish a bridge alone. Unproven multi-material Extra Deck paths are omitted until their summon setup can be included in the evidence; supported single-material Spirit paths remain.
 
-The golden evaluator passed both `--check` and `--strict-precision`. Every returned top-five candidate across ten core sources has an inspected label:
+The preceding top hub was Toon, with eight source groups in each format. It no longer appears in the five leading targets. All 422 non-curated top-four rows have at least one evidence card whose API archetype matches the source or an alias. Two Odion rows, one per format, use the curated exemption.
 
-| Format | Precision@5 | Top-five label coverage | Recall@10 |
-| --- | ---: | ---: | ---: |
-| Advanced | 100% (25/25) | 100% | 94.44% (34/36) |
-| Genesys | 100% (23/23) | 100% | 93.75% (30/32) |
+## Requested CLI top fours
 
-`precision_at_5` uses all retrieved core-source rows as the denominator, so missing labels reduce precision. `--check` also requires at least 80% judgement coverage; `--strict-precision` requires 100%. Ordinary missing group names fail evaluation. Explicit excluded-label regressions assert absence, while evidence-specific negatives reject the named bad line without rejecting other valid lines for that pair. No known negative pair or rejected evidence remains. Tenyi → Swordsoul and Invoked → Shaddoll remain recall misses; expected grades and evidence-card matches are reported separately.
+Results come from `scripts/effects/bridges.ts` with `--limit 4`, using a disposable database imported from the rebuilt artifacts. Entries are ranked left to right; fewer than four means no further retained row qualifies.
 
-Stored rows remain deterministic candidates. Publication requires two accepted independent judgements matching current evidence, plus feedback and format checks. Niche positive labels include stated setup requirements and do not imply that a player-facing bridge has passed those judges. Engine execution remains unverified. Before enabling the feature, populate the judgement artifact using the release steps in [the judging runbook](../runbooks/bridge-judging.md).
+| Source | Advanced | Genesys |
+| --- | --- | --- |
+| Odion | Ashtra | Ashtra |
+| Blue-Eyes | Millennium; Black Luster Soldier | Millennium; Black Luster Soldier |
+| Fiendsmith | Fabled | Fabled |
+| Snake-Eye | Fire King; Diabell | Fire King; Diabell |
+| Branded | Despia; Bystial | Despia; Bystial |
+| Swordsoul | Tenyi | Tenyi |
+| Kashtira | Tearlaments; Scareclaw | Tearlaments; Scareclaw |
+| Diabell | White Forest; Snake-Eye | White Forest; Snake-Eye |
+| Azamina | White Forest; Sinful Spoils | White Forest; Sinful Spoils |
+| Zefra | Yang Zing | — |
+| Danger! | Dark World | Dark World |
+| Fluffal | — | — |
+| Anti | — | — |
+| Cyber Dragon | Cyberdark; Photon | Cyberdark; Photon |
+| Junk | Synchron; Scrap; Morphtronic | Synchron; Scrap; Morphtronic |
 
-## Verification
 
-Rebuild, golden evaluation, benchmarks and targeted shared bridge/evaluator integrations ran with `prlimit --core=0`. The shared pipeline covers label rejection, source self-bridges, generic stat lookups, discard evidence, matching-Type Fusion prerequisites and missing-proof rejection, directed lookups, Genesys exclusion and the Ritual requirement shared across quoted alternatives. Evaluator integration covers missing group names, excluded groups that still exist and a CLI failure for missing top-five labels. No new unit tests or full package suites were run.
+Named Diabell/Azamina/Snake-Eye connections and Advanced Zefra → Yang Zing/Nekroz/Ritual Beast also remain available as direct pair lookups. Repeated primary source cards can keep some of those pairs out of the top four. Genesys bars Zefra’s Pendulum entry cards.
+
+## Tests and remaining limits
+
+All 55 tests passed across the targeted shared bridge pipeline, round 3 catalog regressions, bridge judge, search-job lifecycle, authenticated API, worker isolation, evaluator, and artifact-integrity integration files. Shared and duel-server TypeScript builds passed. No unit tests were added and no full package suite ran.
+
+Selecting a different reason solely to recover source API evidence can revive the explicitly rejected Cyberdark → Cyber row. The guard therefore validates the selected evidence, preserving the requested rejection; some otherwise usable alternative lines are conservatively pruned.
+
+Toy does not meet the numerical same-deck naming thresholds against Fluffal, Frightfur, or Edge Imp. Its false Fluffal lookup is suppressed by engine membership checks rather than an actual family merge.
+
+The literal membership and source API rules do not ban every appearance of a named card: Chaos → Galaxy still uses Tachyon Chaos Hole, and Dark Contract → Supreme King can use D/D/D Supreme King Kaiser through its printed D/D identity. The wrong-label target reaches covered by the new membership checks are rejected. Eliminating those additional directions requires a further general rule.
+
+Stored rows remain deterministic candidates. Player-facing publication requires both independent judgements and feedback/format checks; no engine execution or external judging was performed for this round.
