@@ -1,7 +1,4 @@
 // @vitest-environment jsdom
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -12,13 +9,13 @@ import { SessionTokenProvider } from "../src/components/auth/session-token";
 import { ClerkAPIResponseError } from "@clerk/nextjs/errors";
 import { collectBugContext } from "../src/components/bug-report/context";
 
-const { host, identity, getToken } = vi.hoisted(() => ({ host: vi.fn(), identity: vi.fn(), getToken: vi.fn() }));
+const { host, identity, getToken, getDb } = vi.hoisted(() => ({ host: vi.fn(), identity: vi.fn(), getToken: vi.fn(), getDb: vi.fn() }));
 vi.mock("@clerk/nextjs", () => ({ useAuth: () => ({ getToken, userId: "user_reporter" }) }));
+vi.mock("@/lib/db", () => ({ getDb }));
 vi.mock("@/lib/duel-host", () => ({ callDuelHost: host }));
 vi.mock("@/lib/session-identity", () => ({ resolveSessionIdentity: identity }));
 vi.mock("@/lib/notify", () => ({ announcer: {}, broadcaster: {} }));
 
-let directory: string;
 let database: Database.Database | undefined;
 afterEach(() => {
   cleanup();
@@ -28,21 +25,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   sessionStorage.clear();
-  if (directory) rmSync(directory, { recursive: true, force: true });
 });
 
 async function setup() {
   vi.resetModules();
   host.mockReset();
   getToken.mockReset().mockResolvedValue("refreshed-test-token");
-  directory = mkdtempSync(join(tmpdir(), "report-dialog-integration-"));
-  vi.stubEnv("DATABASE_PATH", join(directory, "test.sqlite"));
   vi.stubEnv("DISCORD_GUILD_ID", "integration-guild");
   vi.stubEnv("OWNER_USER_IDS", "37");
   vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", "integration-token");
   vi.stubEnv("WEB_URL", "https://duel.example.test");
-  database = new Database(join(directory, "test.sqlite"));
+  // Exercise real routes and SQL without repeated disk migrations or a second, unclosed connection.
+  database = new Database(":memory:");
+  database.pragma("foreign_keys = ON");
   migrate(database);
+  getDb.mockReset().mockReturnValue(database);
   database.prepare("insert into users(id,username,display_name,email) values(37,'private-author','Private Author','private@example.test')").run();
   database.prepare("insert into players(id,guild_id,user_id,display_name) values(1,'integration-guild',37,'Private Author')").run();
   database.prepare("insert into duels(guild_id,web_slug,name,organizer_player_id,mode,status,format) values('integration-guild','flow-duel','Test',1,'normal','active','1v1')").run();
