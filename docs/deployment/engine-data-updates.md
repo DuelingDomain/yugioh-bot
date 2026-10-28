@@ -859,8 +859,8 @@ The same context is used by the aggregate job and the commit status. It fails
 for a real FAIL or input/download/infrastructure error; it passes for
 incomplete-only results with a warning. Normal PRs outside the card-data bot
 branch pass this requirement because the report job is skipped, and GitHub
-treats its skipped check as passing. On bot PR runs, the existing
-**Engine tests (cores required)** aggregate also requires the smoke report to
+treats its skipped check as passing. On bot PR runs, **New card smoke merge gate
+(final)** and **CI result** also require **New card engine smoke report** to
 succeed. A failed job alone does not prevent merging on an unprotected branch.
 Keep the existing golden-hash review/check before merging.
 
