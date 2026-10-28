@@ -20,7 +20,7 @@ export const quotedNames = (text: string): string[] => {
 const words = new Map<string, RegExp>();
 const word = (text: string, value: string) => {
   let regex = words.get(value);
-  if (!regex) { regex = new RegExp(`(?:^|[^a-z0-9])${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replaceAll("_", "[- ]")}(?:s|es)?(?:$|[^a-z0-9])`, "i"); words.set(value, regex); }
+  if (!regex) { regex = new RegExp(`(?:^|[^a-zA-Z0-9])${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replaceAll("_", "[- ]")}(?:s|es)?(?:$|[^a-zA-Z0-9])`, /[a-z]/.test(value) ? "i" : ""); words.set(value, regex); }
   return regex.test(text);
 };
 const typePattern = new RegExp(`(?<![a-z-])(${[...MONSTER_TYPES].sort((a, b) => b.length - a.length).map(type => type.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?:s)?(?![a-z-])`, "gi");

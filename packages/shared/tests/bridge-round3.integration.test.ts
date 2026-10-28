@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { beforeAll, describe, expect, it } from "vitest";
 import { migrate } from "../src/db/schema.js";
 import { importBridgeArtifact } from "../src/cards/effects/bridge-artifact.js";
-import { BridgeEngine } from "../src/cards/effects/bridge-engine.js";
+import { BridgeEngine, indexBridgeCapabilities } from "../src/cards/effects/bridge-engine.js";
 import type { BridgeGraphData } from "../src/cards/effects/bridge-types.js";
 
 let data: BridgeGraphData;
@@ -18,6 +18,29 @@ beforeAll(() => {
 });
 
 describe("round 3 bridge rules on the pinned catalog", () => {
+  it("keeps uppercase archetype searches out of similarly spelled card names", () => {
+    const capabilities = structuredClone(data.capabilities);
+    indexBridgeCapabilities(capabilities);
+    const stratos = capabilities.find(row => row.card.name === "Elemental HERO Stratos")!;
+    const searches = stratos.provides.filter(capability => capability.key === "search" && capability.filter?.archetypes.includes("HERO"));
+    expect(searches.length).toBeGreaterThan(0);
+    const targets = new Set(searches.flatMap(capability => capability.targets ?? []));
+    const falseNames = ["Dyna, Hero Fur Hire", "Hero of the Ashened City", "Hero Kid", "Oscillo Hero", "Hero of the East"];
+    for (const name of falseNames) {
+      const card = capabilities.find(row => row.card.name === name)!;
+      expect(card, name).toBeDefined();
+      expect(targets.has(card.id), name).toBe(false);
+    }
+    expect(targets.has(58932615)).toBe(true); // Elemental HERO Burstinatrix.
+    expect(targets.has(48486809)).toBe(true); // Winged Kuriboh LV6 is treated as Elemental HERO.
+    const engine = new BridgeEngine({ ...data, capabilities });
+    for (const format of ["advanced", "genesys"] as const) {
+      for (const source of Object.keys(data.groups).filter(name => name.includes("HERO"))) {
+        for (const target of ["Fur Hire", "Ashened"]) expect(engine.between(source, target, format), `${source} -> ${target} (${format})`).toBeNull();
+      }
+    }
+  }, 15_000);
+
   it("deduplicates shared Y-side lines and same-sentence mention twins", () => {
     const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
