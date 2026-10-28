@@ -67,17 +67,21 @@ test('unused SHA builds cannot evict the ten healthy release rollback targets', 
   assert.ok(result.packages.includes('yugioh-bot-bot'));
 });
 
-test('image publication waits for unit success and limits engine overlap', () => {
+test('image publication runs parallel to tests; the complete Test still gates deploy', () => {
   const job = workflow('test').jobs['production-images'];
-  assert.ok(job.needs.includes('unit'));
-  assert.equal(job.strategy['max-parallel'], 3);
+  assert.equal(job.needs, 'production-bundle');
+  assert.equal(job.strategy['max-parallel'], undefined);
+  const prepare = workflow('deploy').jobs.prepare;
+  assert.match(prepare.if, /workflow_run.conclusion == 'success'/);
+  assert.match(prepare.if, /workflow_run.event == 'push'/);
+  assert.match(prepare.if, /workflow_run.head_branch == 'main'/);
   assert.equal(job.environment, undefined);
   assert.doesNotMatch(JSON.stringify(job), /SENTRY_AUTH_TOKEN/);
 });
 
 test('PR composite dry run has read-only permissions and no registry publication', () => {
   const job = workflow('test').jobs['production-dry-run'];
-  assert.equal(job.if, "github.event_name == 'pull_request'");
+  assert.equal(job.if, "github.event_name != 'push' && needs.changes.outputs.prod_build == 'true'");
   assert.deepEqual(job.permissions, { contents: 'read' });
   assert.ok(job.steps.some(step => step.uses === './.github/actions/prepare-production-bundle'));
   const image = job.steps.find(step => step.uses === './.github/actions/build-production-image');
