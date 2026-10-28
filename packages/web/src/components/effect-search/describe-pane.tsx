@@ -93,6 +93,8 @@ export function DescribePane({
   const paneRef = React.useRef<HTMLDivElement>(null);
   const cameFrom = React.useRef(0);
   const restore = React.useRef<number | null>(null);
+  // The row a drill-down was opened from ("2:is"), so Back can put the keyboard focus on it again.
+  const cameButton = React.useRef<string | null>(null);
 
   // Capture once when Describe opens. Cube edits cannot change the ranking under the pointer.
   const [session, setSession] = React.useState({ era, warning: eraWarning });
@@ -147,7 +149,7 @@ export function DescribePane({
     if (drillArchetype === undefined || drillIndex === undefined || drillFind === undefined || drillMembers === undefined) return;
     const controller = new AbortController();
     const same = (now: Drill | null) => now != null && now.archetype === drillArchetype && now.index === drillIndex && now.find === drillFind && now.members === drillMembers;
-    hookSearch(drillArchetype, drillIndex, drillFind, drillMembers, { limit, signal: controller.signal }).then(
+    hookSearch(drillArchetype, drillIndex, drillFind, drillMembers, { limit, sort, era: sort === "newest" ? undefined : sessionEra, signal: controller.signal }).then(
       (found) => setDrill((now) => (same(now) ? { ...now!, cards: found, error: false } : now)),
       (error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -155,12 +157,18 @@ export function DescribePane({
       },
     );
     return () => controller.abort();
-  }, [drillArchetype, drillIndex, drillFind, drillMembers, limit]);
+    // The era is read through its key, as in the description search above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drillArchetype, drillIndex, drillFind, drillMembers, limit, sort, eraKey]);
   React.useLayoutEffect(() => {
     if (drill || restore.current == null) return;
     const box = scroller(paneRef.current);
     if (box) box.scrollTop = restore.current;
     restore.current = null;
+    // The rows are shown again in this commit, so the row that opened the drill-down can take the focus back.
+    const row = cameButton.current ? paneRef.current?.querySelector<HTMLElement>(`[data-hook="${cameButton.current}"]`) : null;
+    cameButton.current = null;
+    row?.focus({ preventScroll: true });
   }, [drill]);
 
   const searchCards: readonly RowCard[] = answer?.result?.cards ?? NO_CARDS;
@@ -191,6 +199,7 @@ export function DescribePane({
     const hook = guide?.hooks[index];
     if (!guide || !hook) return;
     cameFrom.current = scroller(paneRef.current)?.scrollTop ?? 0;
+    cameButton.current = `${index}:${find}`;
     setDrill({ archetype: guide.archetype, index, find, members: false, name: (find === "is" ? hook.finds?.is?.many : undefined) ?? hook.label, cards: null, error: false });
   }
   function closeHook() {
@@ -203,7 +212,7 @@ export function DescribePane({
   if (drill) {
     if (drill.error) empty = "Could not find these cards.";
     else if (!drill.cards) empty = "Finding cards...";
-    else if (drill.cards.length === 0) empty = "No card here.";
+    else if (drill.cards.length === 0) empty = drill.members ? "No card fits this." : `No card outside ${drill.archetype} fits this.`;
   } else if (!ready) empty = "Say what the card does. For example: hand traps that negate, or special summon from the graveyard.";
   else if (searching && cards.length === 0) empty = "Searching...";
   else if (result && cards.length === 0) {
@@ -263,7 +272,7 @@ export function DescribePane({
       </div>
       {drill ? (
         <HookDrill archetype={drill.archetype} title={drill.name} members={drill.members} onBack={closeHook}
-          onMembers={(members) => setDrill({ ...drill, members, cards: null, error: false })} />
+          onMembers={(members) => { if (members !== drill.members) setDrill({ ...drill, members, cards: null, error: false }); }} />
       ) : null}
       {!drill && !exact && ready && fullChips.length > 0 && (
         <ul className={styles.chips} aria-label="How the text was read" data-testid="reading-chips">
@@ -300,9 +309,16 @@ export function DescribePane({
           )}
         </div>
       ) : empty ? (
-        <p className={styles.empty} role="status">
-          {empty}
-        </p>
+        <>
+          <p className={styles.empty} role="status">
+            {empty}
+          </p>
+          {drill && !drill.members && drill.cards?.length === 0 && !drill.error ? (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDrill({ ...drill, members: true, cards: null, error: false })}>
+              Show all cards
+            </button>
+          ) : null}
+        </>
       ) : null}
       {relaxHints?.length ? <RelaxHints relax={relaxHints} onRemove={(chip) => setOmitted((now) => (now.includes(chip) ? now : [...now, chip]))} /> : null}
       {cards.length > 0 && !error && (
