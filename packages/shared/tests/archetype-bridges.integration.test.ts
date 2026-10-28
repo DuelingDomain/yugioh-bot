@@ -10,6 +10,25 @@ import type { ArchetypeProfile } from "../src/cards/effects/synergy.js";
 import { BridgeEngine, bridgeGroups } from "../src/cards/effects/bridge-engine.js";
 
 describe("pinned bridge pipeline", () => {
+  it("suppresses overlapping source groups, name families and duplicate ranked targets", () => {
+    const db = new Database(":memory:");
+    try {
+      migrate(db); importBridgeArtifact(db);
+      const service = createBridgeService(db);
+      for (const [source, target] of [["Elemental HERO", "HERO"], ["Cyber", "Cyber Dragon"], ["Evol", "Evolsaur"], ["D/D", "Dark Contract"]]) {
+        expect(service.liveCandidates(source!).some(row => row.target === target), `${source} -> ${target}`).toBe(false);
+      }
+      const groups = readBridgeManifest().groups;
+      for (const source of ["Blue-Eyes", "Adamancipator", "Stellarknight"]) {
+        const top = service.bridgesFrom(source);
+        for (const [i, row] of top.entries()) for (const higher of top.slice(0, i)) {
+          const overlap = groups[row.target]!.filter(id => groups[higher.target]!.includes(id)).length;
+          expect(overlap / groups[row.target]!.length, `${source}: ${higher.target}, ${row.target}`).toBeLessThan(0.5);
+        }
+      }
+    } finally { db.close(); }
+  }, 15_000);
+
   it("builds curated memberships, aliases and exclusions from group data", () => {
     const db = new Database(":memory:");
     try {
@@ -20,6 +39,9 @@ describe("pinned bridge pipeline", () => {
       const groups = bridgeGroups(capabilities, profiles, policies);
       expect(groups.Odion).toContain(29762407);
       expect(groups["Blue-Eyes"]).toContain(42097666);
+      for (const [canonical, alias] of [["Magnet", "Magnet Warrior"], ["Stellarknight", "Tellarknight"], ["Predaplant", "Predap"]]) {
+        expect(groups[canonical!]!).toEqual(expect.arrayContaining(groups[alias!] ?? []));
+      }
       for (const label of ["Trap Monster", "Hole", "Heart"]) expect(groups[label]).toBeUndefined();
       const renamed = bridgeGroups(capabilities, profiles, { "Temple package": policies.Odion });
       expect(renamed["Temple package"]).toEqual(groups.Odion);

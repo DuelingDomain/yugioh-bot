@@ -27,7 +27,7 @@ export function createBridgeService(db: Database.Database) {
     bridgesFrom(archetype: string, format: BridgeFormat = "advanced", limit = 4): ArchetypeBridge[] {
       const count = Number.isFinite(limit) ? Math.max(0, Math.min(25, Math.floor(limit))) : 4;
       const rows = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND format=? ORDER BY score DESC,target LIMIT 25").all(archetype.trim(), format) as { bridge_json: string }[];
-      return rows.map(row => JSON.parse(row.bridge_json) as ArchetypeBridge).slice(0, count);
+      return live().distinctTargets(rows.map(row => JSON.parse(row.bridge_json) as ArchetypeBridge), count);
     },
     bridgeBetween(x: string, y: string, format: BridgeFormat = "advanced"): ArchetypeBridge | null {
       const row = stored(x, y, format);
@@ -36,6 +36,9 @@ export function createBridgeService(db: Database.Database) {
     explain(x: string, y: string, format: BridgeFormat = "advanced"): ArchetypeBridge | null {
       const row = stored(x, y, format) ?? live().between(x, y, format);
       return row;
+    },
+    distinctTargets<T extends ArchetypeBridge>(rows: T[], limit = 4): T[] {
+      return live().distinctTargets(rows, limit);
     },
     liveCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
       return live().liveCandidates(source, format, progress);
@@ -47,9 +50,9 @@ export function createBridgeService(db: Database.Database) {
       for (const row of rows) {
         const projected = shownBridge(db, JSON.parse(row.bridge_json) as ArchetypeBridge);
         if (projected) results.push(projected);
-        if (results.length >= count) break;
+
       }
-      return count ? results : [];
+      return live().distinctTargets(results, count);
     },
     shownBetween(x: string, y: string, format: BridgeFormat = "advanced"): ShownBridge | null {
       const row = stored(x, y, format);

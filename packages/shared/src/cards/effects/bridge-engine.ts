@@ -28,7 +28,7 @@ function groupNameIn(card: Card, name: string, aliases: string[] = []): boolean 
     matches = value => patterns.some(pattern => pattern.test(value));
     groupNames.set(key, matches);
   }
-  return matches(card.name) || !!card.archetype && sameName(card.archetype, name) && card.name.toLowerCase().includes(name.toLowerCase());
+  return matches(card.name) || [name, ...aliases].some(value => !!card.archetype && sameName(card.archetype, value) && card.name.toLowerCase().includes(value.toLowerCase()));
 }
 function engineGroups(groups: Record<string, number[]>, rows: readonly CardCapability[], policies: BridgeGraphData["group_policies"] = {}): Record<string, number[]> {
   const cards = new Map(rows.map(row => [row.id, row.card]));
@@ -139,6 +139,26 @@ export class BridgeEngine {
 
   private resolve(name: string): string | undefined { return this.names.find(value => sameName(value, name.trim())); }
 
+  private groupOverlap(a: string, b: string): number {
+    const x = this.groups.get(a)!, y = this.groups.get(b)!;
+    return [...x].filter(id => y.has(id)).length;
+  }
+
+  private sameDeck(a: string, b: string): boolean {
+    const wordIn = (word: string, name: string) => new RegExp(`(?:^|[^a-z0-9])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[^a-z0-9])`, "i").test(name);
+    return wordIn(a, b) || wordIn(b, a) || this.groupOverlap(a, b) >= 0.3 * Math.min(this.groups.get(a)!.size, this.groups.get(b)!.size);
+  }
+
+  distinctTargets<T extends ArchetypeBridge>(rows: T[], limit = 25): T[] {
+    const results: T[] = [];
+    for (const row of [...rows].sort((a, b) => b.score - a.score || a.target.localeCompare(b.target))) {
+      if (row.score < 4 || results.some(higher => this.groupOverlap(row.target, higher.target) >= 0.5 * this.groups.get(row.target)!.size)) continue;
+      results.push(row);
+      if (results.length >= limit) break;
+    }
+    return limit > 0 ? results : [];
+  }
+
   private discardSetup(source: CardCapability, target: Card, format: BridgeFormat): number[] | undefined {
     const requirement = source.provides.find(capability => capability.key === "send_to_gy" && capability.from?.includes("extra_deck") && /same Type as the revealed monster/i.test(capability.filter?.other ?? ""));
     if (!requirement) return [];
@@ -163,7 +183,7 @@ export class BridgeEngine {
     const cacheKey = `${format}:${source}:${target}`, cached = this.pairCache.get(cacheKey);
     if (cached) return cached;
     const contexts = this.contexts.get(format)!, x = contexts.get(source), y = contexts.get(target);
-    if (!x || !y || x.ids.size < 3 || y.ids.size < 3 || source === target) return [];
+    if (!x || !y || x.ids.size < 3 || y.ids.size < 3 || source === target || this.sameDeck(source, target)) return [];
     const onlyY = y.cards.filter(card => !x.ids.has(card.id));
     if (!onlyY.length) return [];
     const legal = this.legal.get(format)!, rows = this.rows, reasons: BridgeReason[] = [];
@@ -433,7 +453,7 @@ export class BridgeEngine {
       if (i % 20 === 0) progress?.({ phase: "score", completed: i, total: this.names.length });
     }
     progress?.({ phase: "done", completed: this.names.length, total: this.names.length });
-    return results.sort((a, b) => b.score - a.score || a.target.localeCompare(b.target));
+    return this.distinctTargets(results, results.length);
   }
 
   rebuild(progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
@@ -475,13 +495,14 @@ export class BridgeEngine {
         const upperBounds = [...scores.get(source)!].filter(([, raw]) => raw > 0)
           .map(([target, raw]) => ({ target, bound: raw - 0.6 * this.data.target_means[format][target]! + 2 }))
           .sort((a, b) => b.bound - a.bound || a.target.localeCompare(b.target));
-        const top: ArchetypeBridge[] = [];
+        const candidates: ArchetypeBridge[] = [];
+        let top: ArchetypeBridge[] = [];
         for (const { target, bound } of upperBounds) {
           if (top.length === 25 && round(bound) < top[24]!.score) break;
           const row = this.between(source, target, format);
           if (row && row.score > 0) {
-            top.push(row); top.sort((a, b) => b.score - a.score || a.target.localeCompare(b.target));
-            if (top.length > 25) top.pop();
+            candidates.push(row);
+            top = this.distinctTargets(candidates);
           }
         }
         rows.push(...top);
@@ -533,6 +554,9 @@ export function bridgeGroups(capabilities: readonly CardCapability[], profiles: 
     const key = canonical.get(name.toLowerCase()) ?? name;
     canonical.set(name.toLowerCase(), key);
     merged[key] = [...new Set([...(merged[key] ?? []), ...ids])];
+  }
+  for (const [name, policy] of Object.entries(policies)) for (const alias of policy.aliases ?? []) {
+    if (merged[alias]) merged[name] = [...new Set([...(merged[name] ?? []), ...merged[alias]!])];
   }
   return engineGroups(merged, capabilities, policies);
 }
