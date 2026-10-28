@@ -1,6 +1,6 @@
 # Bridge judging
 
-The effect-tagging workflow judges the highest-scoring ten directed candidates per source and format with two independent Haiku 5.5 framings. A candidate remains hidden until both reviews and the deterministic checks pass. Advanced and Genesys evidence are separate. The committed `packages/shared/data/effects/bridge-judgements.jsonl.gz` cache starts empty; it contains no fabricated reviews.
+The effect-tagging workflow judges the highest-scoring ten directed candidates per source and format with two independent Haiku 5.5 framings. A candidate remains hidden until both reviews and the deterministic checks pass. Advanced and Genesys evidence are separate. The committed `packages/shared/data/effects/bridge-judgements.jsonl.gz` cache must be populated with real completed reviews before enabling Bridges in Suggestions.
 
 The local preview needs no credential and makes no network requests:
 
@@ -9,7 +9,7 @@ prlimit --core=0 -- npm run build --workspace=packages/shared
 prlimit --core=0 -- npx tsx scripts/effects/judge-bridges.ts --dry-run
 ```
 
-The report counts eligible pairs and judge requests, estimates tokens from serialized request bytes, and prices them at $0.10/M input and $0.50/M output with the Batch API's 50% discount. Output assumes 700 tokens per review. This is an estimate; cache writes, reads, actual output and unusually large context can change billed spend. The final initial preview finds 4,898 pairs, 9,796 requests, about 45.3M input and 6.86M output estimated tokens, costing about $3.98. The command defaults to dry run. `--max-requests N` optionally reduces submission size; otherwise the complete initial candidate set is split into batches of at most 1,000 requests.
+The report counts eligible pairs and judge requests, estimates tokens from serialized request bytes, and prices them at $0.10/M input and $0.50/M output with the Batch API's 50% discount. Output assumes 700 tokens per review. This is an estimate; cache writes, reads, actual output and unusually large context can change billed spend. Re-run the preview against the release artifacts for the current pair count and cost estimate. The command defaults to dry run. `--max-requests N` optionally reduces submission size; otherwise the complete initial candidate set is split into batches of at most 1,000 requests.
 
 Live runs require the Actions secret `ANTHROPIC_API_KEY` and the durable `state/bridge-judging` branch. Initialize that branch once through a dispatch on `main`:
 
@@ -18,6 +18,18 @@ gh workflow run effect-tagging.yml --ref main -f dry_run=false -f initialize_bri
 ```
 
 Initialization creates `ledger.json.gz` through GitHub's Git Data API and submits no paid request. Never reinitialize a missing ledger after any paid run; recover its history. Normal scheduled and live dispatched runs collect completed batches even when effect tags have not changed, then submit only uncached evidence. A changed prompt or checked evidence requires new reviews. The workflow continues to run its existing effect-tagging job and its separate tagging budget.
+
+## Release prerequisite: populate Suggestions
+
+Do this after the bridge workflow, its corrected candidate artifacts and current judge parser are available on `main`, before enabling the feature. A dispatch against an older `main` without `initialize_bridge_ledger` cannot initialize or judge bridges. Do not substitute hand-written approvals for provider results.
+
+1. Check whether `state/bridge-judging` already exists. If it exists, preserve its ledger and skip initialization. If it is missing after any prior paid run, recover its history. For a first installation only, run the initialization dispatch above and wait for it to succeed; it submits no paid judge requests.
+2. Submit the initial live batch with `gh workflow run effect-tagging.yml --ref main -f dry_run=false`. Wait for the Actions run in the foreground. An Actions run finishing does not mean its provider batches have finished: read its report for pending requests.
+3. Once the submitted batches finish, dispatch the same live workflow again to collect their results. Continue until the report reconciles the initial batch and the artifact contains completed reviews for the release candidates. Preserve the immutable batch IDs and report. The normal workflow can publish artifact PRs; perform these release dispatches only when that publication is authorized.
+4. Download `effect-tagging-report` from the collection run, validate its judgement candidate with the existing publication validator, and commit the collected `packages/shared/data/effects/bridge-judgements.jsonl.gz` with its provenance. Rebuild shared and rerun the targeted judgement integration tests against that cache. Import it into a disposable database with the matching capability and bridge artifacts and verify that Suggestions for the core sources return up to four judge-approved bridges in each supported format. Inspect sources with fewer accepted results; never fill an empty row with pending candidates.
+5. Enable the feature only after those checks. Record the collection run and accepted-pair counts in the release notes. A changed evidence hash or parser identity may require fresh reviews; an older nonempty cache alone does not establish release readiness.
+
+As of this backend repair, remote `main` lacks the bridge-specific dispatch inputs and collection steps. The cache remains empty until this prerequisite can run after integration. Local backend verification does not satisfy this release prerequisite.
 
 Every Batch submission is preceded by a durable reservation and submission intent. Submitted batches retain their immutable IDs until all result custom IDs have been reconciled. Lost submission responses remain `submission_started` and block further submissions; there is no automatic paid POST retry. The workflow report shows submitted, collected and pending requests, spend settled during the run, monthly settled spend and outstanding reservations. Reservations use conservative full-context pricing rather than the much smaller preview estimate.
 
