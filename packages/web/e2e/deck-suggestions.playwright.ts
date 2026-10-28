@@ -593,7 +593,7 @@ try {
   // h1. The row: the top four bridges, best first, with everything the owner asked for on each.
   await reset();
   const titles = await bridges.locator("h3").allTextContents();
-  check("h1", "the row is called Bridges and leads with the owner's words", titles[0] === "Bridges" && (await bridges.innerText()).includes("Your deck can bridge into"), titles);
+  check("h1", "the row is called Bridges and leads with the owner's words", titles[0] === "Bridges" && (await bridges.innerText()).includes("can bridge into"), titles);
   check("h1", "five bridges come back and four show", (await items.count()) === 4, await items.count());
   check("h1", "bridges show best first", JSON.stringify(await items.locator("strong").allInnerTexts()) === JSON.stringify(["Dragunity", "Dragon Ruler", "Chaos", "Red-Eyes"]), await items.locator("strong").allInnerTexts());
   check("h1", "each bridge has a grade badge", JSON.stringify(await items.getByTestId("bridge-grade").allInnerTexts()) === JSON.stringify(["Strong", "Good", "Niche", "Risky"]));

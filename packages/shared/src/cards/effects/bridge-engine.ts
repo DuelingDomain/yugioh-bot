@@ -56,6 +56,7 @@ export class BridgeEngine {
   private readonly smallWorld = new Map<BridgeFormat, number>();
   private readonly pairCache = new Map<string, BridgeReason[]>();
   private readonly sameDeckPairs = new Map<string, boolean>();
+  private readonly parentOrAliasPairs = new Map<string, boolean>();
   private readonly deckFamilies = new Map<string, Set<string>>();
   private readonly groupReferences = new Map<string, Set<string>>();
   private readonly discardSetups = new Map<string, number[] | undefined>();
@@ -493,31 +494,53 @@ export class BridgeEngine {
   }
 
   private parentOrAliasFamily(a: string, b: string): boolean {
+    const key = JSON.stringify([a, b].sort()), cached = this.parentOrAliasPairs.get(key);
+    if (cached !== undefined) return cached;
     const names = (name: string) => [name, ...Object.entries(this.data.group_policies ?? {}).flatMap(([canonical, policy]) => {
       const aliases = [canonical, ...(policy.aliases ?? [])];
       return aliases.some(alias => sameName(alias, name)) ? aliases : [];
     })];
     const x = this.groups.get(a), y = this.groups.get(b);
-    // Parent/alias identity uses names and shared membership, not the
+    const left = names(a), right = names(b);
+    // Parent/alias identity uses names and shared membership, including a
+    // shared named parent (HERO for its subgroups), not the
     // two-way naming rates used to merge complete deck families.
-    return !!x && !!y && this.groupOverlap(a, b) >= 0.5 * Math.min(x.size, y.size)
-      || names(a).some(left => names(b).some(right => wordIn(left, right) || wordIn(right, left)));
+    const same = !!x && !!y && this.groupOverlap(a, b) >= 0.5 * Math.min(x.size, y.size)
+      || left.some(a => right.some(b => wordIn(a, b) || wordIn(b, a)))
+      || this.names.some(parent => left.some(name => wordIn(parent, name)) && right.some(name => wordIn(parent, name)));
+    this.parentOrAliasPairs.set(key, same);
+    return same;
   }
 
   private engineMember(card: Card, target: Context, via?: Capability, source?: Context): boolean {
+    // A source-family card cannot establish a second engine through its name
+    // or printed references, even when it is in the target's member index.
+    if (source && card.archetype && this.parentOrAliasFamily(source.name, card.archetype)) return false;
     if (target.members.has(card.id)) return true;
     const names = [target.name, ...(this.data.group_policies?.[target.name]?.aliases ?? [])];
     if (!card.archetype || !via?.filter?.archetypes.some(name => !this.data.group_policies?.[name]?.excluded
       && sameName(name, card.archetype!)) || !groupNameIn(card, target.name, names.slice(1))) return false;
-    // A named landing in the source's own API family does not establish a
-    // second engine merely because its name contains that engine's label.
     return names.some(name => sameName(name, card.archetype!))
-      || !!source && !this.parentOrAliasFamily(source.name, card.archetype);
+      || !!source;
   }
 
   private substantive(reason: BridgeReason, target: Context, source: Context, format: BridgeFormat): boolean {
     if (reason.ancillary) return false;
     if (["searcher", "small_world", "type_support", "face_down"].includes(reason.key)) return false;
+    // Access to a Toon version of another engine's monster needs evidence
+    // supplying its named field setup, rather than just the shared name.
+    const toonNeeds = reason.cards.map(id => this.rows.get(id)!.card)
+      .filter(card => target.ids.has(card.id) && !source.ids.has(card.id) && card.subtypes.includes("toon"))
+      .flatMap(card => [...printedText(card).matchAll(/\b(?:if|while) you control ["“]([^"”]+)["”]/gi)].map(match => match[1]!));
+    if (toonNeeds.length && !reason.cards.some(id => {
+      const row = this.rows.get(id)!;
+      if (row.card.subtypes.includes("toon")) return false;
+      return toonNeeds.some(name => sameName(row.card.name, name) || sentences(printedText(row.card))
+        .some(text => /name becomes|treated as/i.test(text) && namedIn(text, name)))
+        || row.provides.some(capability => ["search", "place_on_field", "set_spell_trap"].includes(capability.key)
+          && capability.from?.includes("deck") && capability.filter && actionEvidence(row.card, capability.key, capability.filter)
+          && target.cards.some(card => toonNeeds.some(name => sameName(card.name, name)) && matchesBridgeFilter(capability.filter!, card)));
+    })) return false;
     if (reason.key === "rule_enabler") return reason.weight > 2 && reason.cards.length >= 3;
     if (reason.key === "mention") {
       // API labels alone can put unrelated support in a name bucket. A
@@ -525,7 +548,7 @@ export class BridgeEngine {
       const outlet = this.outlet(reason);
       if (!this.data.group_policies?.[source.name]?.curated && !source.members.has(outlet) && !target.members.has(outlet)) return false;
       return reason.cards.some(id => target.ids.has(id) && !source.ids.has(id)
-        && this.engineMember(this.rows.get(id)!.card, target));
+        && this.engineMember(this.rows.get(id)!.card, target, undefined, source));
     }
     if (reason.key === "reach" || reason.key === "gy_fuel") {
       const entry = reason.steps?.[0];
@@ -756,7 +779,10 @@ export function bridgeGroups(capabilities: readonly CardCapability[], profiles: 
     merged[key] = [...new Set([...(merged[key] ?? []), ...ids])];
   }
   for (const [name, policy] of Object.entries(policies)) for (const alias of policy.aliases ?? []) {
-    if (merged[alias]) merged[name] = [...new Set([...(merged[name] ?? []), ...merged[alias]!])];
+    if (merged[alias]) {
+      merged[name] = [...new Set([...(merged[name] ?? []), ...merged[alias]!])];
+      delete merged[alias];
+    }
   }
   return engineGroups(merged, capabilities, policies);
 }
