@@ -417,9 +417,6 @@ export function migrate(db: Database.Database) {
     create table if not exists bridge_artifact_import (
       version text primary key, imported_at text not null default current_timestamp
     );
-    create table if not exists bridge_search_admission (
-      actor_hash text primary key, admitted_at integer not null
-    );
     create table if not exists bridge_judgement (
       evidence_hash text not null,
       judge text not null,

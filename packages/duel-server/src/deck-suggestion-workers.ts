@@ -1,7 +1,6 @@
 import { Worker } from "node:worker_threads";
-import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { ArchetypeBridge, BridgeFormat, BridgeProgress } from "@yugidraft/shared/cards/effects";
+import { judgeBridgePair, type ArchetypeBridge, type BridgeFormat, type BridgeProgress, type BridgeJudgeOptions } from "@yugidraft/shared/cards/effects";
 import type { DeckSuggestionLegality, DeckSuggestionQuery, DeckSuggestionResult, CardEffectSearchResult } from "@yugidraft/shared/services";
 
 type Job = { worker: Worker; reject?: (error: Error) => void; idle?: ReturnType<typeof setTimeout> };
@@ -11,22 +10,17 @@ export type BridgeScan = { kind: "bridges"; source: string; format: BridgeFormat
 );
 export type BridgeScanResult = ArchetypeBridge[] | ArchetypeBridge | null;
 type ScanResult = DeckSuggestionResult | CardEffectSearchResult | BridgeScanResult;
-type JudgeScan = { kind: "bridge-judge"; bridge: ArchetypeBridge };
-export class BridgeSearchBusyError extends Error {
-  readonly status = 429;
-  constructor(readonly retryAfterMs = 60_000) { super("Bridge search is busy; retry later"); }
-}
-
 /** Two reusable read-only scanners, isolated from live duel operations. The host owns admission. */
 export class DeckSuggestionWorkers {
   private readonly jobs: Job[] = [];
   private readonly retiring = new Set<Promise<number>>();
-  private readonly bridgeActors = new Set<string>();
-  private readonly bridgeCache = new Map<string, { expires: number; result: BridgeScanResult }>();
-  private readonly bridgeQueue: { scan: BridgeScan | JudgeScan; progress?: (value: BridgeProgress) => void; resolve: (value: ScanResult) => void; reject: (error: Error) => void }[] = [];
+  private readonly judging = new Set<Promise<void>>();
+  private readonly judgeAbort = new AbortController();
+  private readonly judgeQueue: { bridge: ArchetypeBridge; resolve: () => void; reject: (error: unknown) => void }[] = [];
+  private readonly bridgeQueue: { scan: BridgeScan; progress?: (value: BridgeProgress) => void; resolve: (value: ScanResult) => void; reject: (error: Error) => void }[] = [];
   private closing = false;
   constructor(private readonly db: Database.Database, private readonly dataDirectory: string,
-    private readonly idleMs = 120_000) {}
+    private readonly idleMs = 120_000, private readonly judgeOptions: BridgeJudgeOptions = {}) {}
 
   private retire(job: Job): void {
     clearTimeout(job.idle);
@@ -46,62 +40,43 @@ export class DeckSuggestionWorkers {
     return this.queuedBridge(scan, progress) as Promise<BridgeScanResult>;
   }
 
-  async rateBridge(bridge: ArchetypeBridge): Promise<void> {
-    if (this.db.name === ":memory:" || this.db.name === "") throw new Error("Bridge judging requires a durable database");
-    await this.queuedBridge({ kind: "bridge-judge", bridge });
+  rateBridge(bridge: ArchetypeBridge): Promise<void> {
+    if (this.closing) return Promise.reject(new Error("Bridge judging closed"));
+    return new Promise((resolve, reject) => {
+      this.judgeQueue.push({ bridge, resolve, reject });
+      this.drainJudges();
+    });
   }
 
-  private queuedBridge(scan: BridgeScan | JudgeScan, progress?: (value: BridgeProgress) => void): Promise<ScanResult> {
+  private drainJudges(): void {
+    while (!this.closing && this.judgeQueue.length && this.judging.size < 2) {
+      const next = this.judgeQueue.shift()!;
+      const work = (async () => {
+        try {
+          await judgeBridgePair(this.db, next.bridge, { ...this.judgeOptions,
+            signal: AbortSignal.any([this.judgeAbort.signal, AbortSignal.timeout(110_000), ...(this.judgeOptions.signal ? [this.judgeOptions.signal] : [])]),
+            log: this.judgeOptions.log ?? (entry => console.info(JSON.stringify({ event: "bridge-judge-spend", ...entry }))) });
+          next.resolve();
+        } catch (error) { next.reject(error); }
+      })().finally(() => { this.judging.delete(work); this.drainJudges(); });
+      this.judging.add(work);
+    }
+  }
+
+  private queuedBridge(scan: BridgeScan, progress?: (value: BridgeProgress) => void): Promise<ScanResult> {
     if (this.closing) return Promise.reject(new Error("Suggestion scanner closed"));
     return new Promise((resolve, reject) => { this.bridgeQueue.push({ scan, progress, resolve, reject }); this.drainBridges(); });
   }
 
   private drainBridges(): void {
-    while (!this.closing && this.bridgeQueue.length && this.jobs.filter(job => job.reject).length < 2) {
+    while (!this.closing && this.bridgeQueue.length && this.jobs.filter(job => job.reject).length < 1) {
       const next = this.bridgeQueue.shift()!;
       try { void this.scan(next.scan, next.progress).then(next.resolve, next.reject); }
       catch (error) { next.reject(error instanceof Error ? error : new Error("Suggestion scanner could not start")); }
     }
   }
 
-  async runBridge(scan: BridgeScan, actor: string, progress?: (value: BridgeProgress) => void): Promise<BridgeScanResult> {
-    const notify = (value: BridgeProgress) => { try { progress?.(value); } catch { /* A disconnected progress consumer must not interrupt the scan. */ } };
-    if (!actor.trim() || !scan.source.trim() || scan.source.length > 160 || !["from", "live", "between", "explain"].includes(scan.op)
-      || (scan.format !== "advanced" && scan.format !== "genesys") || (scan.op === "between" || scan.op === "explain") && (!scan.target.trim() || scan.target.length > 160)) throw new Error("Invalid bridge search");
-    scan = { ...scan, source: scan.source.trim(), ...("target" in scan ? { target: scan.target.trim() } : {}) };
-    const hash = createHash("sha256").update(actor).digest("hex");
-    const version = (this.db.prepare("SELECT source_version FROM bridge_graph WHERE id=1").get() as { source_version: string } | undefined)?.source_version;
-    const key = JSON.stringify([version, scan.op, scan.source.trim().toLowerCase(), scan.format, "target" in scan ? scan.target.trim().toLowerCase() : null]);
-    const cached = this.bridgeCache.get(key);
-    if (cached && cached.expires > Date.now()) {
-      const rejected = this.db.prepare(`SELECT 1 FROM bridge_judgement WHERE evidence_hash=? AND verdict IN ('rejected','review')
-        UNION ALL SELECT 1 FROM bridge_feedback WHERE evidence_hash=? AND resolved_at IS NULL GROUP BY evidence_hash HAVING count(DISTINCT actor_hash)>=2 LIMIT 1`);
-      const visible = (row: ArchetypeBridge) => !rejected.get(row.evidence_hash, row.evidence_hash);
-      const result = Array.isArray(cached.result) ? cached.result.filter(visible) : cached.result && visible(cached.result) ? cached.result : null;
-      notify({ phase: "done", completed: 1, total: 1 });
-      return structuredClone(result);
-    }
-    if (this.bridgeActors.has(hash) || this.jobs.filter(job => job.reject).length >= 2) throw new BridgeSearchBusyError();
-    const searches = scan.op === "live" || scan.op === "explain";
-    if (searches) this.db.transaction(() => {
-      const now = Date.now();
-      const prior = this.db.prepare("SELECT admitted_at FROM bridge_search_admission WHERE actor_hash=?").get(hash) as { admitted_at: number } | undefined;
-      if (prior && now - prior.admitted_at < 60_000) throw new BridgeSearchBusyError(60_000 - (now - prior.admitted_at));
-      this.db.prepare("DELETE FROM bridge_search_admission WHERE admitted_at<?").run(now - 86_400_000);
-      this.db.prepare("INSERT INTO bridge_search_admission(actor_hash,admitted_at) VALUES(?,?) ON CONFLICT(actor_hash) DO UPDATE SET admitted_at=excluded.admitted_at").run(hash, now);
-    }).immediate();
-    this.bridgeActors.add(hash);
-    try {
-      const result = await this.scan(scan, notify) as BridgeScanResult;
-      if (searches) {
-        this.bridgeCache.set(key, { expires: Date.now() + 15 * 60_000, result: structuredClone(result) });
-        if (this.bridgeCache.size > 64) this.bridgeCache.delete(this.bridgeCache.keys().next().value!);
-      }
-      return result;
-    } finally { this.bridgeActors.delete(hash); }
-  }
-
-  private scan(scan: SuggestionScan | BridgeScan | JudgeScan, progress?: (value: BridgeProgress) => void): Promise<ScanResult> {
+  private scan(scan: SuggestionScan | BridgeScan, progress?: (value: BridgeProgress) => void): Promise<ScanResult> {
     let job = this.jobs.find(job => !job.reject);
     if (!job) {
       if (this.jobs.length >= 2) throw new Error("Suggestion workers are busy");
@@ -150,10 +125,13 @@ export class DeckSuggestionWorkers {
       };
       const fail = () => finish(new Error("Suggestion scanner stopped"));
       const message = (answer: { error?: boolean; result: ScanResult; progress?: BridgeProgress }) => {
-        if (answer.progress) { progress?.(answer.progress); return; }
+        if (answer.progress) {
+          try { progress?.(answer.progress); } catch { /* A disconnected progress consumer must not interrupt the scan. */ }
+          return;
+        }
         finish(answer.error ? new Error("Suggestion scan failed") : undefined, answer.result);
       };
-      const timer = setTimeout(fail, "kind" in scan && scan.kind === "bridge-judge" ? 125_000 : 30_000);
+      const timer = setTimeout(fail, 30_000);
       current.reject = (error) => finish(error);
       current.worker.on("message", message);
       current.worker.once("error", fail);
@@ -170,6 +148,8 @@ export class DeckSuggestionWorkers {
 
   async close(): Promise<void> {
     this.closing = true;
+    this.judgeAbort.abort();
+    for (const queued of this.judgeQueue.splice(0)) queued.reject(new Error("Bridge judging closed"));
     for (const queued of this.bridgeQueue.splice(0)) queued.reject(new Error("Suggestion scanner closed"));
     const jobs = [...this.jobs];
     for (const job of jobs) {
@@ -177,6 +157,7 @@ export class DeckSuggestionWorkers {
       job.reject?.(new Error("Suggestion scanner closed"));
     }
     await Promise.all([...this.retiring, ...jobs.map(job => job.worker.terminate())]);
+    await Promise.allSettled(this.judging);
     this.jobs.length = 0;
   }
 }
