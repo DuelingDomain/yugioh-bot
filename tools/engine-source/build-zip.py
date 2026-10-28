@@ -9,7 +9,7 @@ The file list is in tools/engine-source/paths.txt.
 
 The repo files stay as they are. The zip is cleaned while it is packed:
   - patch headers (above the first "---" line) lose tool credit trailers, get
-    "Review fixes:" without the reviewer name, and a neutral author line
+    "Review fixes:" without the reviewer name, and a neutral author line (no contact email)
     (git am needs one);
   - a home directory path in a script comment becomes /path/to/repo.
 The build stops if any text in the zip still matches a blocked word.
@@ -43,7 +43,7 @@ def clean(name: str, data: bytes) -> bytes:
             while kept and kept[-1] == "":
                 kept.pop()
         head = "\n".join(kept).replace("Review fixes (Opus review of this patch):", "Review fixes:")
-        head = AUTHOR.sub("From: Dueling Domain <support@duelingdomain.com>", head, count=1)
+        head = AUTHOR.sub("From: Patch <noreply@localhost>", head, count=1)
         text = head + sep + rest
     text = HOME_PATH.sub("/path/to/repo", text)
     hit = BLOCKED.search(text)
