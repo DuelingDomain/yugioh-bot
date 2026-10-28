@@ -135,7 +135,7 @@ test("marketing site code selects web while ordinary documentation skips checks"
         assert.equal(result[group], false, `${event}: ${file}: ${group}`);
       }
     }
-    for (const file of ["site/README.md", "docs/architecture/diagram.svg", "README.md"]) {
+    for (const file of ["site/README.md", "docs/architecture/diagram.svg", "docs/deployment/engine-data-updates.md", "README.md"]) {
       const result = classify([file], event);
       assert.equal(result.docs_only, true, `${event}: ${file}`);
       assert.equal(result.web, false, `${event}: ${file}`);
