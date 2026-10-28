@@ -40,32 +40,31 @@ All core checks in the duel-server tests go through one helper: `packages/duel-s
 
 ## CI
 
-`.github/workflows/test.yml` selects the layers on every pull request and every push to main. Both always run `unit` and select `cores`, `engine`, `engine-legacy`, `native` and `rule-coverage` when changed paths set `engine=true`. Pull requests use the base-to-head merge-base diff; pushes diff the full range `github.event.before..github.sha` (`scripts/ci/changed-layers.mjs`). For a merged PR, `before` is the previous main tip (the merge commit's first parent), so previously tested main changes do not enter the diff again. The checkout has full history. A missing or all-zeros base, an unreadable diff, or a push base that is not an ancestor of the head sets `engine=true` and `golden=true`. Manual runs set `engine=true` and run all jobs. The schedule runs only `cores` and `nduel-nightly`.
+`.github/workflows/test.yml` selects the same test groups on PRs and main pushes. PRs use the paginated changed-file API (including the previous name of renamed files), so detection needs only a shallow checkout. Pushes diff from the latest fully successful tested main ancestor, including changes from cancelled/failed runs. An unavailable base/diff or truncated PR file list runs everything. Manual runs also select every group.
 
-The `changes` job sets `engine=true` for changes to `packages/duel-server`, `packages/e2e`, engine-related shared files, engine/deploy scripts, root `package.json`, `package-lock.json`, `patches/`, `turbo.json`, root TypeScript/Node configuration, the ADR-0002 rules and their coverage table, or the test workflow itself. The root package file stays in the rule because it defines the CI engine/native/prepare commands, workspaces and the install hook.
+`changed-layers.mjs` selects web, bot, WS, worker, shared, duel without cores, E2E typecheck, and CI/deployment scripts independently. Each app group owns its typecheck; web also builds and runs three test shards. Shared source/configuration changes select all consumers. Shared tests select only shared. Pure effects/staples data changes run shared, duel and web consumer integration tests, skipping typechecks and the web production build; mixed or unknown data changes retain full relevant groups. WS changes also select the worker health integration group; duel source/test changes select direct web/shared/bot/E2E consumers, and web source changes select E2E typecheck. Root package/lockfile, Turbo, TypeScript, Node, patches and workflow configuration select every group. Unknown app/tooling paths select all app groups and CI helpers. Markdown, `docs/` and `site/` select no tests; Compose configuration is checked during detection.
 
-Shared paths stay in the engine rule unless their independence has been checked against the host, engine tests and e2e helper imports. The retained paths include `src/duels/`, `src/db/` (the host uses the schema), `src/ws/`, the notification transport/broadcaster, scoring, tournament formats, types, slug generation, service entry points, duel/series services and their dependencies. These dependencies include card catalog imports, matches, tournament services, saved decks and seasons. Only the listed draft/cube and other independent services, the standalone ratings repair command, shared unit tests and the scripts README are excluded. Unknown shared files remain in the rule; check this list when engine imports change. Root draft seed and catalog snapshot scripts and `scripts/data/draft-catalog-legendary.json` are excluded; other scripts remain in the rule.
+Engine selection follows literal module references from `packages/duel-server/src` through shared package exports and relative imports, including barrels, type imports and dynamic imports. The graph retains missing dependency paths so deletions still select their callers. Shared `src/duels/` always selects the engine. Engine source/tests, core inputs, engine data, engine-specific CI/native tooling, install scripts and root configuration retain engine coverage. Shared data/tests, E2E, general scripts and proposal docs do not select engine suites. Shared package exports/configuration conservatively select the engine. Shared source outside the graph (for example `util/eastern-time.ts`) runs consumers without cores. PRs changing only duel test files retain the existing import-graph test selection; main always runs the full selected engine suites.
 
-The PR path rules and tests-only selection stay unchanged. Main pushes additionally treat all `packages/shared/**` changes, `data/duel-engine*/**`, `Dockerfile` and `.github/workflows/**` as engine inputs. This conservative shared rule includes service barrels and services now consumed by the host even when the historical PR filter exempts them. Every selected main engine run executes the full suites; main never uses tests-only selection.
-
-Bot-only and web-only changes select only the unit test layers on PRs and main. Five independent package groups (typecheck/protocol, web build, shared tests, service tests, duel/CI safety) and two web shards start immediately, without waiting for change detection or engine caches. `unit-packages` strictly aggregates all five package groups, and `unit` requires that aggregate and both web shards to succeed. Duel/CI safety computes the same PR diff locally to retain its tests-only optimization. The required `engine` and `engine-legacy` aggregates accept intentional non-engine skips and reject failed detection or missing required shards.
-
-Main push Test prepares the production bundle in parallel, then builds five ARM64 images after the unit gate, with at most three image jobs together while engine shards continue. Main change detection starts from the latest fully successful tested ancestor, so cancelled runs cannot hide engine changes. Next/Turbo Actions caches save only on main pushes; the unit web build alone enables the Next filesystem build cache. PRs exercise both production composites by preparing a bundle and building one amd64 bot image without registry publication. A successful main push **Test** triggers **Deploy** for its exact SHA; Deploy consumes immutable artifact IDs from the verified Test run/attempt rather than rebuilding. Manual Deploy verifies a successful main push Test and retains its fresh-build/retained-release rollback paths. PR, scheduled and manual Test runs do not deploy. Browser Playwright flows remain local-only; their helper unit tests run in CI.
-
-It has these jobs:
+One final **CI result** job waits for every job. It accepts intentional skips, rejects any failed/cancelled job and requires every selected group to succeed, so a blocked required job cannot silently pass. The Test workflow's overall success still gates Deploy; no production deployment happens from a PR, schedule or manual Test run.
 
 | Job | What it runs |
 |---|---|
-| `cores` | Builds the standard, domain and multi cores, or restores them from the Actions cache. The key hashes the pins, the core patches, the build scripts and `package-lock.json`. The other core jobs use this bundle (`data/duel-engine-next`). |
-| `unit` | Strict aggregate of `unit-packages` (five independent package groups) and the two web unit shards. |
-| `production-bundle`, `production-images` | Main only: prepare the verified production bundle, then build/push five images after the unit gate, at most three together. |
-| `production-dry-run` | PR only: prepare the production bundle and build a bot image without publishing. |
-| `changes` | Computes the `engine` flag from changed paths, with the fallbacks above. |
-| `engine` | When `engine=true`: `DUEL_REQUIRE_CORES=1 npm run test:engine`, the web tests with real duels and the engine smoke scripts. A missing core fails any selected test. |
-| `engine-legacy` | When `engine=true`: the engine suite with `DUEL_1V1_ENGINE=legacy`, including the legacy main tests. |
-| `native` | When `engine=true`: `npm run test:native` (ASan/UBSan build and the committed native checks). |
-| `rule-coverage` | When `engine=true`: `rule-coverage.ts --check --strict`: every rule of ADR-0002 needs a covering test. |
-| `nduel-nightly` | Scheduled at 03:17 UTC (and by hand). Runs the nduel fuzz for n2, n3, n4 and tag with `--check-future`, and the golden hash check (`--check`). |
+| `changes` | Path/dependency classification and Compose safety validation. |
+| `unit-web`, `unit-web-build` | Selected web tests (three shards), typecheck and production build. |
+| `unit-shared`, `unit-bot`, `unit-ws`, `unit-worker`, `unit-duel` | Selected package tests and typechecks; duel runs without cores. |
+| `unit-e2e` | Selected E2E typecheck; browser flows remain local-only. |
+| `ci-scripts` | Selected CI/deployment helper checks and actionlint. |
+| `effect-protocol` | Effect-tagging integration and script typecheck. |
+| `core-cache`, `core-build`, `cores` | Build/restore and verify standard, Domain, legacy and multiplayer cores. |
+| `engine-shards`, `engine-legacy-shards` | Selected pinned, surrender, differential and legacy suites, plus web engine tests and smoke scripts. A missing required core fails. |
+| `native`, `rule-coverage` | Selected ASan/UBSan checks, golden hashes when relevant, and strict ADR-0002 rule coverage. |
+| `nduel-nightly` | Nightly/manual fuzz for n2, n3, n4 and tag, with future checks and golden hashes. The schedule currently runs cores and fuzz. |
+| `production-bundle`, `production-images` | Main only: prepare verified bundle, then build five ARM64 images after app checks, at most three together. |
+| `production-dry-run` | PR only: prepare a bundle and build one amd64 bot image without publishing. |
+| `ci-result` | Final required-work and failure/cancellation aggregate. |
+
+Main image artifacts remain unverified until the whole push Test succeeds. Deploy consumes immutable artifacts from that exact run/attempt and commit. Manual Deploy retains its successful-main-Test verification and rollback paths. Next/Turbo caches save only on main pushes.
 
 All CI multi cores are built with `LUA_FIXED_SEED=1`, so one binary serves the engine tests and the differential tests. `deploy.yml` restores the pinned bundle and multi cores from separate caches and builds them only on a cache miss. Its multi cores use production Lua randomness, without `LUA_FIXED_SEED`.
 

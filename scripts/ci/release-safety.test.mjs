@@ -69,7 +69,7 @@ test('unused SHA builds cannot evict the ten healthy release rollback targets', 
 
 test('image publication waits for unit success and limits engine overlap', () => {
   const job = workflow('test').jobs['production-images'];
-  assert.ok(job.needs.includes('unit'));
+  assert.ok(job.needs.includes('unit-web'));
   assert.equal(job.strategy['max-parallel'], 3);
   assert.equal(job.environment, undefined);
   assert.doesNotMatch(JSON.stringify(job), /SENTRY_AUTH_TOKEN/);

@@ -4,7 +4,13 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { changedLayers, engineSharedFiles } from "./changed-layers.mjs";
+import { changedLayers as classify, engineSharedFiles } from "./changed-layers.mjs";
+
+// Existing engine assertions remain focused on the engine contract.
+const changedLayers = (files, event) => {
+  const { engine, golden, tests_only } = classify(files, event);
+  return { engine, golden, tests_only };
+};
 
 const script = new URL("./changed-layers.mjs", import.meta.url).pathname;
 const noEngine = { engine: false, golden: false, tests_only: false };
@@ -64,7 +70,7 @@ test("PRs and main use the same import-aware engine rule", () => {
       "packages/shared/src/future-unused-module.ts", "packages/shared/data/staples/usage.json",
       "packages/shared/data/effects/tags.json", "packages/duel-server/domain-core/proposals/future.md",
       "scripts/effects/tag.ts", "scripts/staples/update.ts", "scripts/deployment/prepare-runtime-data.sh",
-      "scripts/ci/publish-images.mjs", "Dockerfile", ".github/workflows/deploy.yml",
+      "scripts/ci/publish-images.mjs", "Dockerfile",
       "docs/adr/0002-multiplayer-duel-rules.md", "packages/duel-server/README.md",
     ]) assert.deepEqual(changedLayers([file], event), noEngine, `${event}: ${file}`);
     for (const file of ["packages/shared/src/services/duels.ts", "packages/shared/src/services/drafts.ts",
@@ -100,6 +106,64 @@ test("shared graph follows export aliases, barrels, relative and dynamic imports
     assert.ok(files.has("packages/shared/src/" + file), file);
   }
   assert.equal(files.has("packages/shared/src/unused.ts"), false);
+});
+
+test("per-area groups skip docs and unrelated packages, and shared source selects consumers", () => {
+  const areas = ["web", "bot", "ws", "worker", "shared", "duel_unit", "e2e", "ci_scripts"];
+  for (const event of ["pull_request", "push"]) {
+    for (const [files, expected] of [
+      [["README.md", "docs/adr/rules.md", "packages/duel-server/domain-core/proposals/README.md"], []],
+      [["packages/web/src/app/page.tsx"], ["web", "e2e"]],
+      [["packages/bot/src/index.ts"], ["bot"]],
+      [["packages/ws/src/server.ts"], ["ws", "worker"]],
+      [["packages/worker/src/index.ts"], ["worker"]],
+      [["packages/e2e/helpers/duel.ts"], ["e2e"]],
+      [["packages/shared/tests/duels.test.ts"], ["shared"]],
+      [["packages/shared/data/staples/usage.json"], ["web", "shared", "duel_unit"]],
+      [["packages/shared/data/effects/tags.jsonl.gz"], ["web", "shared", "duel_unit"]],
+      [["packages/shared/src/util/eastern-time.ts"], areas.filter(area => area !== "ci_scripts")],
+      [["scripts/ci/test-workflow.test.mjs"], ["ci_scripts"]],
+      [["scripts/deployment/deploy.ts"], ["ci_scripts"]],
+      [["docker-compose.yml"], []],
+      [["unknown-tool.config"], areas],
+      [["package-lock.json"], areas],
+      [["turbo.json"], areas],
+      [["tsconfig.json"], areas],
+      [[".github/workflows/deploy.yml"], areas],
+    ]) {
+      const result = classify(files, event);
+      assert.deepEqual(areas.filter(area => result[area]).sort(), [...expected].sort(), `${event}: ${files}`);
+      assert.equal(result.docs_only, files.every(file => file.endsWith(".md")));
+    }
+  }
+  assert.equal(classify(["packages/shared/data/staples/usage.json", "README.md"], "pull_request").data_only, true);
+  for (const files of [["README.md"], ["packages/shared/data/unknown/input.json"], ["packages/shared/data/effects/tags.jsonl.gz", "packages/bot/src/index.ts"]]) assert.equal(classify(files, "pull_request").data_only, false);
+  for (const event of ["pull_request", "push", "schedule", "workflow_dispatch"]) {
+    const result = classify(null, event);
+    for (const area of areas) assert.equal(result[area], true, `${event}: ${area}`);
+    assert.equal(result.docs_only, false);
+  }
+});
+
+test("effect protocol and production smoke follow only their own input paths", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of ["packages/web/src/app/page.tsx", "packages/bot/src/index.ts", "packages/shared/data/staples/usage.json", "README.md", "scripts/ci/publish-images.mjs"]) {
+      const result = classify([file], event);
+      assert.equal(result.effects, false, file);
+      assert.equal(result.prod_build, false, file);
+    }
+    for (const file of ["scripts/effects/tag.ts", "scripts/ci/publish-effect-tags.mjs", "packages/shared/src/cards/effects/artifact.ts", "packages/shared/data/effects/tags.jsonl.gz"]) assert.equal(classify([file], event).effects, true, file);
+    for (const file of ["Dockerfile", ".dockerignore", ".github/actions/build-production-image/action.yml", ".github/actions/prepare-production-bundle/action.yml", "packages/duel-server/scripts/install-engine-bundle.sh", "packages/duel-server/domain-core/pins.json", "packages/duel-server/scripts/prepare-data.ts", "packages/shared/src/duels/settings.ts", "packages/duel-server/src/card-script-source.ts", "packages/duel-server/src/card-name-search.ts", "packages/duel-server/src/card-script-patches.ts"]) assert.equal(classify([file], event).prod_build, true, file);
+    for (const file of ["package-lock.json", "tsconfig.json", ".github/workflows/test.yml"]) {
+      const result = classify([file], event);
+      assert.equal(result.effects, true, file);
+      assert.equal(result.prod_build, true, file);
+    }
+  }
+  for (const event of ["schedule", "workflow_dispatch"]) {
+    assert.equal(classify([], event).effects, true);
+    assert.equal(classify([], event).prod_build, true);
+  }
 });
 
 function fixture(t) {
@@ -197,4 +261,22 @@ test("a failed git diff enables every layer", t => {
   const result = f.run(f.base, head, { PATH: `${bin}:${process.env.PATH}` });
   assert.equal(result.engine, "true");
   assert.equal(result.golden, "true");
+});
+
+test("PR API pages include both sides of renames and fail open on errors or capped lists", t => {
+  const f = fixture(t);
+  const head = f.commit("packages/web/src/app/page.tsx");
+  const bin = join(f.root, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "gh"), '#!/bin/sh\n[ "$API_FAIL" != 1 ] || exit 1\nprintf "%s" "$PR_FILES"\n', { mode: 0o755 });
+  const env = { EVENT: "pull_request", BASE: f.base, HEAD: head, PR_NUMBER: "1", GITHUB_REPOSITORY: "fixture/repo", PATH: `${bin}:${process.env.PATH}` };
+  const pages = [[{ filename: "README.md" }], [{ filename: "docs/moved.md", previous_filename: "packages/duel-server/src/engine.ts" }]];
+  const renamed = f.run(f.base, head, { ...env, PR_FILES: JSON.stringify(pages) });
+  assert.equal(renamed.engine, "true");
+  assert.equal(renamed.docs_only, "false");
+  assert.equal(f.run(f.base, head, { ...env, PR_FILES: '[[{"filename":"README.md"}]]' }).docs_only, "true");
+  for (const extra of [{ API_FAIL: "1" }, { PR_FILES: "invalid JSON" }, { PR_FILES: JSON.stringify([Array.from({ length: 3000 }, () => ({ filename: "README.md" }))]) }]) {
+    const result = f.run(f.base, head, { ...env, ...extra });
+    for (const flag of ["engine", "web", "shared", "ci_scripts", "effects", "prod_build"]) assert.equal(result[flag], "true", flag);
+  }
 });

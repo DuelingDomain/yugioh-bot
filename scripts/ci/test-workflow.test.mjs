@@ -5,62 +5,79 @@ import { test } from "node:test";
 import { parse } from "yaml";
 
 const { jobs } = parse(readFileSync(new URL("../../.github/workflows/test.yml", import.meta.url), "utf8"));
-const runGate = (job, env) => spawnSync("bash", ["-e", "-o", "pipefail", "-c", jobs[job].steps[0].run], { env }).status;
+const runGate = (job, env) => spawnSync("bash", ["-e", "-o", "pipefail", "-c", jobs[job].steps[0].run], { env: { ...process.env, ...env } }).status;
 
-for (const job of ["engine", "engine-legacy"]) {
-  test(`${job} gate accepts intentional skips and rejects missing required shards or failed detection`, () => {
-    for (const [changes, required, result, pass] of [
-      ["success", "false", "skipped", true],
-      ["success", "true", "success", true],
-      ["success", "true", "skipped", false],
-      ["success", "true", "failure", false],
-      ["success", "true", "cancelled", false],
-      ["failure", "", "skipped", false],
-      ["cancelled", "", "skipped", false],
-    ]) {
-      const env = { CHANGES: changes, REQUIRED: required, RESULT: result, SMOKE_REPORT: "skipped" };
-      assert.equal(runGate(job, env) === 0, pass, JSON.stringify(env));
+const areaJobs = {
+  web: ['unit-web', 'unit-web-build'], shared: ['unit-shared'], bot: ['unit-bot'],
+  ws: ['unit-ws'], worker: ['unit-worker'], duel_unit: ['unit-duel'], e2e: ['unit-e2e'],
+  ci_scripts: ['ci-scripts'], engine: ['core-cache', 'cores', 'engine-shards', 'engine-legacy-shards', 'native', 'rule-coverage'],
+};
+const gateJobs = () => Object.fromEntries(jobs['ci-result'].needs.map(name => [name, {
+  result: ['changes', 'effect-protocol'].includes(name) ? 'success' : 'skipped', outputs: {},
+}]));
+const gate = (results, event = 'workflow_dispatch') => runGate('ci-result', { RESULTS: JSON.stringify(results), EVENT: event });
+
+test('CI result accepts intentional skips and rejects failed or cancelled jobs and detection', () => {
+  assert.deepEqual([...jobs['ci-result'].needs].sort(), Object.keys(jobs).filter(name => name !== 'ci-result').sort());
+  assert.equal(jobs['ci-result'].if, 'always()');
+  assert.equal(gate(gateJobs()), 0);
+  for (const name of jobs['ci-result'].needs) {
+    for (const result of ['failure', 'cancelled', '']) {
+      const results = gateJobs();
+      results[name].result = result;
+      assert.notEqual(gate(results), 0, `${name}: ${result}`);
     }
-  });
-}
-
-test("the engine gate rejects a failed or cancelled card smoke report", () => {
-  for (const smoke of ["failure", "cancelled"]) {
-    assert.notEqual(runGate("engine", { CHANGES: "success", REQUIRED: "true", RESULT: "success", SMOKE_REPORT: smoke }), 0);
   }
+  const results = gateJobs();
+  results.changes.result = 'skipped';
+  assert.notEqual(gate(results), 0);
 });
 
-test("the unit gate still requires both unit suites to succeed", () => {
-  assert.equal(runGate("unit", { PACKAGES: "success", WEB: "success" }), 0);
-  for (const result of ["failure", "cancelled", "skipped"]) {
-    assert.notEqual(runGate("unit", { PACKAGES: result, WEB: "success" }), 0);
-    assert.notEqual(runGate("unit", { PACKAGES: "success", WEB: result }), 0);
-  }
-});
-
-const packageGroups = ['unit-typecheck', 'unit-web-build', 'unit-shared', 'unit-services', 'unit-duel'];
-test('package gate rejects every failed, cancelled or skipped required group', () => {
-  assert.deepEqual(jobs['unit-packages'].needs, packageGroups);
-  const statuses = Object.fromEntries(packageGroups.map((_, i) => [`GROUP_${i}`, 'success']));
-  assert.equal(runGate('unit-packages', statuses), 0);
-  for (const key of Object.keys(statuses)) {
-    for (const result of ['failure', 'cancelled', 'skipped', '']) {
-      assert.notEqual(runGate('unit-packages', { ...statuses, [key]: result }), 0, `${key}: ${result}`);
+test('CI result requires every selected group, including all engine suites', () => {
+  for (const [area, names] of Object.entries(areaJobs)) {
+    const results = gateJobs();
+    results.changes.outputs[area] = 'true';
+    for (const name of names) results[name].result = 'success';
+    assert.equal(gate(results), 0, area);
+    for (const name of names) {
+      results[name].result = 'skipped';
+      assert.notEqual(gate(results), 0, name);
+      results[name].result = 'success';
     }
   }
 });
 
-test('unit groups start without engine or change-detection dependencies', () => {
-  for (const name of [...packageGroups, 'unit-web']) {
-    assert.equal(jobs[name].needs, undefined, name);
-    assert.equal(jobs[name].if, "github.event_name != 'schedule'");
+test('pure known data changes require consumer integration tests and skip web build', () => {
+  const results = gateJobs();
+  results.changes.outputs = { data_only: 'true', web: 'true', shared: 'true', duel_unit: 'true' };
+  for (const name of ['unit-web', 'unit-shared', 'unit-duel']) results[name].result = 'success';
+  assert.equal(gate(results, 'pull_request'), 0);
+  results['unit-web'].result = 'skipped';
+  assert.notEqual(gate(results, 'pull_request'), 0);
+  assert.match(jobs['unit-web-build'].if, /data_only != 'true'/);
+  for (const name of ['unit-web', 'unit-shared']) {
+    const step = jobs[name].steps.find(step => step.name.includes('staple data consumers'));
+    assert.match(step.run, /integration.test/);
+    assert.equal(step.if, "needs.changes.outputs.data_only == 'true'");
   }
+});
+
+test('app groups run only when their area is selected', () => {
+  for (const [area, names] of Object.entries(areaJobs).filter(([area]) => area !== 'engine')) {
+    for (const name of names) {
+      assert.equal(jobs[name].needs, 'changes', name);
+      assert.match(jobs[name].if, new RegExp(`needs\\.changes\\.outputs\\.${area} == 'true'`));
+    }
+  }
+  const protocol = jobs['effect-protocol'].steps;
+  assert.equal(protocol.some(step => step.run?.includes('npm run typecheck -- --force')), false);
 });
 
 test('production builds only run on main pushes and cannot deploy', () => {
   for (const name of ['production-bundle', 'production-images']) {
     const job = jobs[name];
-    assert.equal(job.if, "github.event_name == 'push' && github.ref == 'refs/heads/main'");
+    assert.match(job.if, /github.event_name == 'push'/);
+    assert.match(job.if, /github.ref == 'refs\/heads\/main'/);
     assert.doesNotMatch(JSON.stringify(job), /VM_|ssh|deploy-production/);
   }
   assert.equal(jobs['production-bundle'].steps.find(step => step.name === 'Upload production image bundle').with.overwrite, true);
