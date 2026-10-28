@@ -1,0 +1,25 @@
+# Files in the engine source zip (AGPL-3.0 source offer). One place for the list.
+# Read by build-zip.py. The zip holds code only: no notes, no docs, no .md files.
+#
+# path  = git pathspec from the repo root; only tracked files are ever read
+# ext   = a file under a path is kept only when it ends with one of these
+# keep  = a file name kept even though its extension is not in the ext list;
+#         each one is read by a build script
+# root  = file from the repo, put at the zip root (upstream AGPL texts)
+path packages/duel-server/domain-core
+path packages/duel-server/src/banlists/multiplayer.ts
+path packages/duel-server/scripts/generate-multi-scripts.ts
+path packages/duel-server/scripts/scan-multiplayer-scripts.ts
+path packages/duel-server/scripts/build-domain-core.ts
+path :(glob)packages/duel-server/scripts/*core*.sh
+ext .lua
+ext .patch
+ext .sh
+ext .ts
+ext .mjs
+ext .cpp
+ext .h
+keep pins.json
+keep MANIFEST.json
+root tools/engine-source/LICENSE
+root tools/engine-source/COPYING
