@@ -98,7 +98,7 @@ export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, 
         <BridgeDetails bridge={open} mode={mode} onCatalog={onCatalog} cardProps={cardProps} deckCount={deckCount} limit={limit} genesys={genesys} onBack={() => setOpen(null)} />
       ) : (
         <div className={styles.body}>
-          <p className={styles.lead}>Your deck can bridge into{archetype && !empty ? <> from <strong>{archetype}</strong></> : null}</p>
+          <p className={styles.lead}>Your {archetype ? <><strong>{archetype}</strong> </> : null}deck can bridge into</p>
           {/* One reserved height for loading, results and the empty state, so the list below does not jump. */}
           <div className={styles.results}>
             {top.length > 0 ? (
