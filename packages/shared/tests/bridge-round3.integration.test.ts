@@ -18,6 +18,20 @@ beforeAll(() => {
 });
 
 describe("round 3 bridge rules on the pinned catalog", () => {
+  it("keeps only the higher ranked row when the primary source card is shared", () => {
+    const engine = new BridgeEngine(data);
+    for (const format of ["advanced", "genesys"] as const) {
+      const chaos = engine.between("Blue-Eyes", "Chaos", format)!;
+      const soldier = engine.between("Blue-Eyes", "Black Luster Soldier", format)!;
+      expect(chaos.reasons[0]!.cards[0]).toBe(21082832);
+      expect(soldier.reasons[0]!.cards[0]).toBe(21082832);
+      const kept = engine.distinctTargets([chaos, soldier], 4);
+      expect(kept).toHaveLength(1);
+      expect(kept[0]!.score).toBe(Math.max(chaos.score, soldier.score));
+      expect(engine.distinctTargets([chaos, soldier], 25)).toHaveLength(2); // Preserve direct lookup candidates.
+    }
+  }, 15_000);
+
   it("merges two-way naming families without merging distinct bridge engines", () => {
     const engine = new BridgeEngine(data);
     for (const [source, target] of [["Fluffal", "Frightfur"], ["Fluffal", "Edge Imp"], ["Fluffal", "Toy"], ["Nouvelles", "Recipe"],

@@ -194,10 +194,15 @@ export class BridgeEngine {
     return family.has(b);
   }
 
-  distinctTargets<T extends ArchetypeBridge>(rows: T[], limit = 25): T[] {
+  distinctTargets<T extends ArchetypeBridge>(rows: T[], limit = 25, distinctPrimary = limit <= 4): T[] {
     const results: T[] = [];
+    const primaryCards = new Set<string>();
     for (const row of [...rows].sort((a, b) => b.score - a.score || a.target.localeCompare(b.target))) {
       if (row.score < 4 || results.some(higher => this.groupOverlap(row.target, higher.target) >= 0.5 * this.groups.get(row.target)!.size)) continue;
+      const card = row.reasons[0]?.cards.find(id => this.groups.get(row.source)?.has(id) && !isExtraDeckCard(this.rows.get(id)!.card));
+      const primary = card === undefined ? undefined : JSON.stringify([row.source, card]);
+      if (distinctPrimary && primary && primaryCards.has(primary)) continue;
+      if (primary) primaryCards.add(primary);
       results.push(row);
       if (results.length >= limit) break;
     }
@@ -598,7 +603,7 @@ export class BridgeEngine {
       if (i % 20 === 0) progress?.({ phase: "score", completed: i, total: this.names.length });
     }
     progress?.({ phase: "done", completed: this.names.length, total: this.names.length });
-    return this.distinctTargets(results, results.length);
+    return this.distinctTargets(results, results.length, false);
   }
 
   rebuild(progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
