@@ -18,7 +18,7 @@ beforeAll(() => {
 });
 
 describe("round 3 bridge rules on the pinned catalog", () => {
-  it("deduplicates a shared primary source only when the Y-side line also overlaps", () => {
+  it("deduplicates shared Y-side lines and same-sentence mention twins", () => {
     const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
       const eyes = engine.between("Black Luster Soldier", "Blue-Eyes", format)!;
@@ -29,24 +29,41 @@ describe("round 3 bridge rules on the pinned catalog", () => {
       expect(kept[0]!.score).toBe(Math.max(eyes.score, chaos.score));
       expect(engine.distinctTargets([eyes, chaos], 25)).toHaveLength(2); // Preserve direct lookup candidates.
 
-      // Chaos Form reaches different Ritual Monsters in these two targets.
+      // Chaos Form lists both target labels in the same Ritual Summon sentence.
       const rituals = [engine.between("Blue-Eyes", "Chaos", format)!, engine.between("Blue-Eyes", "Black Luster Soldier", format)!];
       expect(rituals.every(row => row.reasons[0]!.cards[0] === 21082832)).toBe(true);
-      expect(engine.distinctTargets(rituals, 4)).toHaveLength(2);
+      expect(engine.distinctTargets(rituals, 4).map(row => row.target)).toEqual(["Black Luster Soldier"]);
+      expect(engine.distinctTargets(rituals, 25)).toHaveLength(2);
+
+      const capabilities = structuredClone(data.capabilities);
+      const chaosForm = capabilities.find(row => row.id === 21082832)!;
+      chaosForm.card.text = chaosForm.card.text.replace('any "Chaos" or "Black Luster Soldier" Ritual Monster.',
+        'any "Chaos" Ritual Monster. This card can be used to Ritual Summon any "Black Luster Soldier" Ritual Monster.')
+        .replaceAll('"Chaos" or "Black Luster Soldier" Ritual Monster you Ritual Summon', 'Ritual Monster you Ritual Summon');
+      const separate = new BridgeEngine({ ...data, capabilities });
+      const separateRituals = ["Chaos", "Black Luster Soldier"].map(target => separate.between("Blue-Eyes", target, format)!);
+      expect(separate.distinctTargets(separateRituals, 4)).toHaveLength(2);
     }
   }, 15_000);
 
   it("keeps distinct Temple and Sinful Spoils target engines in the top four", () => {
     const engine = new BridgeEngine(data);
     for (const format of ["advanced", "genesys"] as const) {
-      const odion = engine.distinctTargets(engine.liveCandidates("Odion", format), 4).map(row => row.target);
+      const odionRows = engine.distinctTargets(engine.liveCandidates("Odion", format), 4);
+      const odion = odionRows.map(row => row.target);
       expect(odion).toEqual(expect.arrayContaining(["Ashtra", "Argostars"]));
+      expect(odionRows.filter(row => ["Ashtra", "Argostars"].includes(row.target)).every(row => row.reasons[0]!.key === "rule_enabler")).toBe(true);
       const altergeist = engine.between("Odion", "Altergeist", format);
       if (altergeist && altergeist.score >= 4) expect(odion).toContain("Altergeist");
       const azamina = engine.distinctTargets(engine.liveCandidates("Azamina", format), 4).map(row => row.target);
       expect(azamina).toEqual(["White Forest", "Sinful Spoils", "Diabell", "Snake-Eye"]);
       const diabell = engine.distinctTargets(engine.liveCandidates("Diabell", format), 4).map(row => row.target);
       expect(diabell).toEqual(["White Forest", "Snake-Eye", "Azamina"]);
+      if (format === "advanced") {
+        const zefra = engine.distinctTargets(engine.liveCandidates("Zefra", format), 4);
+        expect(zefra.map(row => row.target)).toEqual(["Yang Zing", "Stellarknight", "Shaddoll", "Nekroz"]);
+        expect(zefra.every(row => row.reasons[0]!.key === "reach")).toBe(true);
+      }
     }
   }, 15_000);
 

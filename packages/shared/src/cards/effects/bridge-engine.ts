@@ -197,15 +197,21 @@ export class BridgeEngine {
   distinctTargets<T extends ArchetypeBridge>(rows: T[], limit = 25, distinctPrimary = limit <= 4): T[] {
     const results: T[] = [];
     const primaryTargets = new Map<string, Set<number>>();
+    const primaryMentions = new Map<string, Set<string>>();
     for (const row of [...rows].sort((a, b) => b.score - a.score || a.target.localeCompare(b.target))) {
       if (row.score < 4 || results.some(higher => this.groupOverlap(row.target, higher.target) >= 0.5 * this.groups.get(row.target)!.size)) continue;
       const card = row.reasons[0]?.cards.find(id => this.groups.get(row.source)?.has(id) && !isExtraDeckCard(this.rows.get(id)!.card));
       const primary = card === undefined ? undefined : JSON.stringify([row.source, card]);
       const targets = row.reasons[0]?.cards.filter(id => this.groups.get(row.target)?.has(id) && !this.groups.get(row.source)?.has(id)) ?? [];
-      // A shared enabler can serve different engines. Only a shared Y-side
-      // card in the primary line makes two rows describe the same bridge.
+      // Shared enablers can serve different engines. Mention alternatives in
+      // one sentence still describe one line, even with different Y-side cards.
       if (distinctPrimary && primary && targets.some(id => primaryTargets.get(primary)?.has(id))) continue;
+      const mention = row.reasons[0]?.key === "mention" ? row.reasons[0].cards[0] : undefined;
+      const mentionPrimary = mention === undefined ? undefined : JSON.stringify([row.source, mention]);
+      if (distinctPrimary && mentionPrimary && sentences(printedText(this.rows.get(mention!)!.card))
+        .some(text => namedIn(text, row.target) && [...(primaryMentions.get(mentionPrimary) ?? [])].some(target => namedIn(text, target)))) continue;
       if (primary) primaryTargets.set(primary, new Set([...(primaryTargets.get(primary) ?? []), ...targets]));
+      if (mentionPrimary) primaryMentions.set(mentionPrimary, new Set([...(primaryMentions.get(mentionPrimary) ?? []), row.target]));
       results.push(row);
       if (results.length >= limit) break;
     }
