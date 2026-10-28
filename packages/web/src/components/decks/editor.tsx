@@ -650,13 +650,6 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     () => (genesysOn && genesys ? summarizeGenesys(deck, mode, catalog, genesys, settled) : null),
     [genesysOn, genesys, deck, mode, catalog, settled],
   );
-  // What the card list sends to ask for Suggestions. Points left count only in a Genesys deck.
-  const suggest = useMemo<BrowserSuggest>(() => ({
-    deck,
-    banlist: banlistOff ? "none" : query.banlist,
-    deckMaster: mode === "domain" ? deck.deckMaster ?? null : null,
-    ...(genesysSummary ? { genesysRemaining: Math.max(0, genesysSummary.cap - genesysSummary.known) } : {}),
-  }), [deck, banlistOff, query.banlist, mode, genesysSummary]);
   const misplaced = useMemo(() => misplacedCards(deck, catalog), [deck, catalog]);
   const over = useMemo(() => new Set(problems.map((problem) => problem.key)), [problems]);
   const archetypes = facets?.archetypes ?? [];
@@ -673,6 +666,14 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     }
     return best?.name ?? null;
   }, [deck.main, deck.extra, catalog, archetypes]);
+  // What the card list sends to ask for Suggestions. Points left count only in a Genesys deck.
+  const suggest = useMemo<BrowserSuggest>(() => ({
+    deck,
+    banlist: banlistOff ? "none" : query.banlist,
+    deckMaster: mode === "domain" ? deck.deckMaster ?? null : null,
+    archetype: deckArchetype,
+    ...(genesysSummary ? { genesysRemaining: Math.max(0, genesysSummary.cap - genesysSummary.known) } : {}),
+  }), [deck, banlistOff, query.banlist, mode, genesysSummary, deckArchetype]);
   const [deckGuide, setDeckGuide] = useState<ArchetypeGuide | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
   useEffect(() => {

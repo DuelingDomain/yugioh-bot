@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes } from "react";
 import type { DeckCardInfo, DuelDeck, DuelMode } from "@yugidraft/shared/duels";
 import type { DeckSuggestionRow } from "@yugidraft/shared/services";
+import { BridgesRow } from "@/components/bridges/bridges-row";
 import { cn } from "@/lib/utils";
 import { CardArt } from "./card-art";
 import { InsightsDisabledError, fetchSuggestRows, resolveInsightCards, type InsightCard } from "./insights-api";
@@ -37,6 +38,8 @@ export type BrowserSuggest = {
   banlist?: string;
   deckMaster?: number | null;
   genesysRemaining?: number;
+  /** The archetype of the deck, for the Bridges row. Null: the deck has none yet. */
+  archetype?: string | null;
 };
 
 type Row = { id: DeckSuggestionRow["id"]; state: DeckSuggestionRow["state"]; hint?: string; minimumMainCards?: number; mainCards?: number; cards: InsightCard[] };
@@ -70,7 +73,7 @@ function requestKey(props: Pick<Props, "mode" | "genesys" | "pool"> & BrowserSug
  * so the list does not flicker, and every tile has a fixed size, so nothing moves.
  */
 export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardProps, deckCount, limit, onCatalog, onDisabled }: Props) {
-  const { deck, banlist, deckMaster, genesysRemaining } = suggest;
+  const { deck, banlist, deckMaster, genesysRemaining, archetype } = suggest;
   const needsMaster = mode === "domain" && deckMaster == null;
   const empty = deck.main.length === 0;
   const key = useMemo(
@@ -80,6 +83,7 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  const [bridgesOff, setBridgesOff] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const latest = useRef({ deck, banlist, deckMaster, genesysRemaining, pool, mode, genesys });
   latest.current = { deck, banlist, deckMaster, genesysRemaining, pool, mode, genesys };
@@ -194,6 +198,11 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
         <span className={styles.status} aria-live="polite">{updating ? "Updating…" : ""}</span>
       </header>
       {body}
+      {/* Bridges look at the deck's archetype only, so a draft pool (no free choice of cards) has no row. */}
+      {pool === undefined && !bridgesOff ? (
+        <BridgesRow archetype={archetype ?? null} empty={empty} mode={mode} genesys={genesys} genesysRemaining={genesysRemaining}
+          cardProps={cardProps} deckCount={deckCount} limit={limit} onCatalog={onCatalog} onDisabled={() => setBridgesOff(true)} />
+      ) : null}
     </section>
   );
 }
