@@ -28,6 +28,8 @@ describe("pinned bridge pipeline", () => {
       const frequent = new BridgeEngine({ ...engine.data, reason_frequencies: { advanced: { "Danger!": { gy_fuel: 0.25 } }, genesys: {} } });
       expect(frequent.between("Branded", "Danger!")!.reasons.find(reason => reason.key === "gy_fuel")!.weight).toBeLessThan(before / 2);
       for (const format of ["advanced", "genesys"] as const) {
+        expect(engine.between("Blue-Eyes", "Tenyi", format)).toBeNull();
+        expect(engine.between("Fiendsmith", "Tenyi", format)).toBeNull();
         const line = engine.between("Swordsoul", "Tenyi", format);
         expect(line?.reasons.some(reason => reason.key === "profile")).toBe(true);
         expect(line?.reasons.every(reason => engine.validateReason(reason, format))).toBe(true);

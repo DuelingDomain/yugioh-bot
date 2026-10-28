@@ -203,8 +203,12 @@ export class BridgeEngine {
     // A resource interaction must name both its provider and its consumer.
     // Tokens and Normal Monsters can enable effects requiring a non-Effect body.
     const nonEffect = x.cards.find(card => this.providesNonEffect(card));
-    const consumer = onlyY.find(card => this.requiresNonEffect(card));
-    if (nonEffect && consumer) add("profile", 4, [nonEffect.id, consumer.id], `${nonEffect.name} provides a non-Effect monster for ${consumer.name}`);
+    const resourceReach = x.edges.flatMap(edge => onlyY.filter(card => edge.targets.has(card.id) && this.requiresNonEffect(card)).map(card => ({ edge, card })))[0];
+    if (nonEffect && resourceReach) {
+      const { edge, card: consumer } = resourceReach;
+      add("profile", 4, [nonEffect.id, consumer.id, edge.from], `${rows.get(edge.from)!.card.name} reaches ${consumer.name}; ${nonEffect.name} supplies its non-Effect monster requirement`,
+        [{ from: edge.from, to: consumer.id, capability: edge.capability.key }]);
+    }
     const enabler = x.cards.find(card => trapTurnSetEvidence(card));
     const traps = onlyY.filter(card => trapMonsterEvidence(card) && !/in (?:your|the) (?:GY|Graveyard)/i.test(trapMonsterEvidence(card)!)
       && !/cannot (?:be )?activated? (?:the|this) turn/i.test(printedText(card)));
@@ -302,7 +306,7 @@ export class BridgeEngine {
       const setup = this.discardSetup(this.rows.get(step.from)!, this.rows.get(step.to)!.card, format);
       return !setup || setup.some(id => !reason.cards.includes(id));
     })) return false;
-    if (reason.key === "profile") return cards.length === 2 && this.providesNonEffect(cards[0]!) && this.requiresNonEffect(cards[1]!);
+    if (reason.key === "profile") return cards.length >= 2 && this.providesNonEffect(cards[0]!) && this.requiresNonEffect(cards[1]!) && !!reason.steps?.some(step => step.to === cards[1]!.id);
     if (reason.key === "mention") return cards.some((card, i) => cards.some((other, j) => i !== j && (positiveMention(card, other.name) || !!other.archetype && mentionReachesCard(card, other.archetype, other))));
     if (reason.key === "rule_enabler") return !!trapTurnSetEvidence(cards[0]!) && !!trapMonsterEvidence(cards[1]!);
     if (reason.key === "face_down") return (cards[0]!.kind === "trap" || !!actionEvidence(cards[0]!, "set_spell_trap")) && !!faceDownNeedEvidence(cards[1]!);
