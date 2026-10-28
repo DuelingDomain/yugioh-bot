@@ -102,7 +102,7 @@ export function changedLayers(files, event) {
     else if (file.startsWith("site/")) areas.web = true;
     else if (file === "packages/e2e/stack/start.mjs") { areas.e2e = true; areas.duel_unit = true; }
     else if (/^packages\/(web|bot|ws|worker|e2e)\//.test(file)) areas[file.split("/")[1]] = true;
-    else if (file === "scripts/ci/duel-test-files.mjs") { areas.duel_unit = true; areas.ci_scripts = true; }
+    else if (file === "scripts/ci/duel-test-files.mjs" || file === "scripts/ci/publish-engine-data.mjs") { areas.duel_unit = true; areas.ci_scripts = true; }
     else if (/^scripts\/(ci|deployment)\/|^\.github\/actions\/|^Dockerfile$|^\.dockerignore$/.test(file)) areas.ci_scripts = true;
     else if (file.startsWith("scripts/effects/")) { /* dedicated effect protocol job */ }
     else if (/^(Caddyfile$|docker-compose[^/]*\.ya?ml$|data\/duel-engine[^/]*\/|scripts\/native\/|\.github\/|\.gitignore$|\.impeccable\.)/.test(file)) { /* compose checked in changes; engine/native/production have their own jobs */ }
