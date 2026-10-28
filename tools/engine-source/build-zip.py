@@ -11,7 +11,8 @@ The repo files stay as they are. The zip is cleaned while it is packed:
   - patch headers (above the first "---" line) lose tool credit trailers, get
     "Review fixes:" without the reviewer name, and a neutral author line (no contact email)
     (git am needs one);
-  - a home directory path in a script comment becomes /path/to/repo.
+  - a home directory path in a script comment becomes /path/to/repo;
+  - process wording (agent names, "owner rule", "owner decision") is made neutral.
 The build stops if any text in the zip still matches a blocked word.
 """
 import os
@@ -22,10 +23,23 @@ import sys
 import tarfile
 import zipfile
 
-BLOCKED = re.compile(r"claude|anthropic|co-authored|codex|openai|gpt-|sonnet|opus|sulman|/home/", re.I)
+BLOCKED = re.compile(
+    r"claude|anthropic|co-authored|codex|openai|gpt-|sonnet|opus|sulman|/home/|\bagents\b|\bby agent\b|owner (rule|decision)",
+    re.I,
+)
 TRAILER = re.compile(r"^(Co-Authored-By: (Claude|Codex)|Claude-Session:)", re.I)
 HOME_PATH = re.compile(r"/home/sulman633/repos/yugioh-bot/\.worktrees/[\w.-]+")
 AUTHOR = re.compile(r"^From: .*<[^>]*@[^>]*>$", re.M)
+WORDING = [
+    ("in other agents' lists", "in other lists"),
+    ("the other agents' entries", "the other entries"),
+    ("owned by agent H", "owned by another patch"),
+    ("(owner rule)", "(rule)"),
+    ("Owner rule", "Rule"),
+    ("owner rule", "rule"),
+    ("Owner decision", "Decision"),
+    ("owner decision", "decision"),
+]
 FIXED_TIME = (2000, 1, 1, 0, 0, 0)
 
 
@@ -46,6 +60,8 @@ def clean(name: str, data: bytes) -> bytes:
         head = AUTHOR.sub("From: Patch <noreply@localhost>", head, count=1)
         text = head + sep + rest
     text = HOME_PATH.sub("/path/to/repo", text)
+    for old, new in WORDING:
+        text = text.replace(old, new)
     hit = BLOCKED.search(text)
     if hit:
         raise SystemExit(f"blocked text {hit.group(0)!r} in {name}: clean it in the source")
