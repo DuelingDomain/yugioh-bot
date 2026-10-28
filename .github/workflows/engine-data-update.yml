@@ -192,6 +192,13 @@ jobs:
       - name: Record combined candidate changes
         id: candidate
         run: echo "changed=$(jq -r '.changed' "$UPDATE_ARTIFACT_DIR/update.json")" >> "$GITHUB_OUTPUT"
+      - name: Rebuild bridges against every old and new card
+        if: steps.candidate.outputs.changed == 'true'
+        run: |
+          prlimit --core=0 -- npx tsx scripts/effects/rebuild-bridges.ts --engine-directory "$DUEL_DATA_DIR"
+          prlimit --core=0 -- npm run build --workspace=packages/shared
+          prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check
+          prlimit --core=0 -- npx tsx scripts/effects/stage-bridges.ts --output "$UPDATE_ARTIFACT_DIR" --kind engine
 
       - name: Check multiplayer overlay and record result
         if: steps.candidate.outputs.changed == 'true'

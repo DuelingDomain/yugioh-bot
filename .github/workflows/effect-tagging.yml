@@ -153,6 +153,13 @@ jobs:
           prlimit --core=0 -- npm run build --workspace=packages/shared
           prlimit --core=0 -- npx vitest run packages/shared/tests/effect-artifact.integration.test.ts packages/shared/tests/effect-search.integration.test.ts --maxWorkers=1
           prlimit --core=0 -- npx vitest run packages/duel-server/tests/effect-search.integration.test.ts --maxWorkers=1 --testTimeout=15000
+      - name: Rebuild and evaluate directed bridges after tagging
+        if: steps.result.outputs.changed == 'true'
+        run: |
+          prlimit --core=0 -- npx tsx scripts/effects/rebuild-bridges.ts --engine-directory "$DUEL_DATA_DIR"
+          prlimit --core=0 -- npm run build --workspace=packages/shared
+          prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check
+          prlimit --core=0 -- npx tsx scripts/effects/stage-bridges.ts --output "$EFFECT_ARTIFACT_DIR" --kind effects
       - name: Publish report
         if: always()
         run: |

@@ -517,6 +517,10 @@ jobs:
         run: |
           prlimit --core=0 -- npx tsc -p scripts/effects/tsconfig.json --noEmit
           prlimit --core=0 -- npx vitest run scripts/effects/tests/effect-tagging.integration.test.ts --maxWorkers=1
+      - name: Evaluate bridge precision and recall
+        run: |
+          prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check
+          prlimit --core=0 -- npx vitest run packages/shared/tests/archetype-bridges.integration.test.ts packages/duel-server/tests/bridge-workers.integration.test.ts scripts/effects/tests/bridge-artifacts.integration.test.ts --maxWorkers=1
 
   unit-web-build:
     name: Web production build

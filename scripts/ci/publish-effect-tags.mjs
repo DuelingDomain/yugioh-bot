@@ -5,6 +5,7 @@ import { copyFileSync, lstatSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
+import { validateBridgeCandidate } from "./bridge-artifacts.mjs";
 
 const DATA = "packages/shared/data/effects", SOURCE = "packages/shared/src/cards/effects/artifact.ts";
 export const EFFECT_FILES = [`${DATA}/releases.json.gz`, `${DATA}/manifest.json`, `${DATA}/profiles.jsonl.gz`, `${DATA}/tags.jsonl.gz`, `${DATA}/source-hashes.json.gz`, SOURCE];
@@ -66,6 +67,11 @@ export function validateEffectCandidate(root, outputDirectory) {
     return candidate;
   }
   if (!identical([...candidate.files].sort(), [...EFFECT_FILES].sort()) || new Set(candidate.files).size !== EFFECT_FILES.length) throw new Error("Effect candidate changes paths outside allowlist");
+  validateBridgeCandidate(root, outputDirectory, candidate.bridge);
+  if (candidate.bridge) {
+    const bridges = json(join(outputDirectory, DATA, "bridges-manifest.json"));
+    if (bridges.inputs.tags !== sha(readFileSync(join(outputDirectory, DATA, "tags.jsonl.gz"))) || bridges.inputs.profiles !== sha(readFileSync(join(outputDirectory, DATA, "profiles.jsonl.gz")))) throw new Error("Bridges were not rebuilt against the published tags and profiles");
+  }
   for (const file of EFFECT_FILES) if (!lstatSync(join(outputDirectory, file)).isFile() || lstatSync(join(outputDirectory, file)).isSymbolicLink()) throw new Error("Effect candidate requires regular files");
   const before = json(join(root, DATA, "manifest.json")), manifestBytes = readFileSync(join(outputDirectory, DATA, "manifest.json")), after = JSON.parse(manifestBytes);
   const originalSource = readFileSync(join(root, SOURCE), "utf8");
@@ -179,7 +185,9 @@ export async function publishEffectTags({ root = process.cwd(), outputDirectory 
     prior = git("rev-parse", `refs/remotes/origin/${branch}`).trim();
     const history = git("log", "--format=%an%x00%ae%x00%cn%x00%ce", `${candidate.baseSha}..${prior}`);
     if (effectBranchHasHumanEdits(history)) return skip("human-commits");
-    if (JSON.parse(git("show", `${prior}:${DATA}/manifest.json`)).artifactVersion === candidate.artifactVersion) {
+    const sameBridges = !candidate.bridge || Boolean(git("ls-tree", prior, "--", `${DATA}/bridges-manifest.json`).trim())
+      && JSON.parse(git("show", `${prior}:${DATA}/bridges-manifest.json`)).version === candidate.bridge.version;
+    if (sameBridges && JSON.parse(git("show", `${prior}:${DATA}/manifest.json`)).artifactVersion === candidate.artifactVersion) {
       completePublication();
       return { status: "published", pushed: false };
     }
@@ -187,10 +195,10 @@ export async function publishEffectTags({ root = process.cwd(), outputDirectory 
   if (git("status", "--porcelain", "--untracked-files=no").trim()) throw new Error("Publication requires a clean tracked checkout");
   readFileSync(body, "utf8");
   git("switch", "--detach", candidate.baseSha);
-  for (const file of EFFECT_FILES) copyFileSync(join(outputDirectory, file), join(root, file));
-  git("add", "--", ...EFFECT_FILES);
-  const attribution = "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01GLTNwBcU5bVhsdGwaZoeik";
-  run("git", ["-c", "commit.gpgsign=false", "commit", "-m", title, "-m", attribution], { env: { ...env, GIT_AUTHOR_NAME: BOT.name, GIT_AUTHOR_EMAIL: BOT.email, GIT_COMMITTER_NAME: BOT.name, GIT_COMMITTER_EMAIL: BOT.email } });
+  const files = [...EFFECT_FILES, ...(candidate.bridge?.files ?? [])];
+  for (const file of files) copyFileSync(join(outputDirectory, file), join(root, file));
+  git("add", "--", ...files);
+  run("git", ["-c", "commit.gpgsign=false", "commit", "-m", title], { env: { ...env, GIT_AUTHOR_NAME: BOT.name, GIT_AUTHOR_EMAIL: BOT.email, GIT_COMMITTER_NAME: BOT.name, GIT_COMMITTER_EMAIL: BOT.email } });
   git("push", `--force-with-lease=refs/heads/${branch}:${prior}`, "origin", `HEAD:refs/heads/${branch}`);
   completePublication();
   return { status: "published", pushed: true };
