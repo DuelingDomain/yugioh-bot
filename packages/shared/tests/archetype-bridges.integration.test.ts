@@ -3,8 +3,53 @@ import { describe, expect, it } from "vitest";
 import { migrate } from "../src/db/schema.js";
 import { importBridgeArtifact } from "../src/cards/effects/bridge-artifact.js";
 import { createBridgeService } from "../src/services/archetype-bridges.js";
+import { readBridgeManifest } from "../src/cards/effects/bridge-artifact.js";
+import { BridgeEngine } from "../src/cards/effects/bridge-engine.js";
 
 describe("pinned bridge pipeline", () => {
+  it("keeps labels, self references and isolated stat searches out of engine bridges", () => {
+    const db = new Database(":memory:");
+    try {
+      migrate(db); importBridgeArtifact(db);
+      const service = createBridgeService(db), manifest = readBridgeManifest();
+      const graph = JSON.parse((db.prepare("SELECT graph_json FROM bridge_graph WHERE id=1").get() as { graph_json: string }).graph_json);
+      const validator = new BridgeEngine({ ...graph, capabilities: (db.prepare("SELECT capabilities_json FROM card_capability ORDER BY passcode").all() as { capabilities_json: string }[]).map(row => JSON.parse(row.capabilities_json)) });
+      for (const name of ["Trap Monster", "Hole", "Trap Hole", "Heart", "Signature move"]) expect(manifest.groups[name]).toBeUndefined();
+      const chaos = service.explain("Blue-Eyes", "Chaos", "advanced");
+      const ritual = chaos?.reasons.find(reason => reason.description === "Chaos Form names Chaos");
+      expect(ritual).toBeDefined();
+      const ritualTarget = db.prepare("SELECT json_extract(capabilities_json,'$.card.subtypes') AS subtypes FROM card_capability WHERE passcode=?").get(ritual!.cards[1]) as { subtypes: string };
+      expect(JSON.parse(ritualTarget.subtypes)).toContain("ritual");
+      for (const format of ["advanced", "genesys"] as const) {
+        const odion = service.liveCandidates("Odion", format);
+        const argostars = odion.find(row => row.target === "Argostars");
+        expect(argostars).toBeDefined();
+        expect(argostars!.score).toBeGreaterThan(odion.find(row => row.target === "Paleozoic")?.score ?? 0);
+        expect(argostars!.score).toBeGreaterThan(odion.find(row => row.target === "Golden Land")?.score ?? 0);
+        for (const [source, target] of [["Kashtira", "Heart"], ["Ryzeal", "Hole"], ["Yubel", "Signature move"], ["Snake-Eye", "Volcanic"], ["Snake-Eye", "Flamvell"], ["Snake-Eye", "Laval"], ["Swordsoul", "True Draco"], ["Swordsoul", "Metaphys"], ["Fiendsmith", "Duston"]]) expect(service.explain(source!, target!, format)).toBeNull();
+        const darkWorld = service.explain("Fiendsmith", "Dark World", format);
+        expect(darkWorld?.cards).not.toContain(7623640);
+        expect(service.explain("Branded", "Dark World", format)?.cards).not.toContain(7623640);
+        for (const target of ["Danger!", "Fabled", "Dark World"]) {
+          const bridge = service.explain("Branded", target, format);
+          const reason = bridge?.reasons.find(reason => reason.key === "gy_fuel" && reason.cards.includes(29948294));
+          expect(reason).toBeDefined();
+          const cards = reason!.cards.map(id => JSON.parse((db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode=?").get(id) as { capabilities_json: string }).capabilities_json).card);
+          const discarded = cards.find(card => card.kind === "monster" && !card.subtypes.includes("fusion"));
+          const fusion = cards.find(card => card.subtypes.includes("fusion"));
+          expect(discarded.name).not.toBe("Danger!? Tsuchinoko?");
+          expect(fusion.monsterType).toBe(discarded.monsterType);
+          expect(fusion.level).toBe(8);
+          expect(fusion.atk === 2500 || fusion.def === 2500).toBe(true);
+          expect(reason!.description).toContain(fusion.name);
+          expect(validator.validateReason(reason!, format)).toBe(true);
+          expect(validator.validateReason({ ...reason!, cards: reason!.cards.filter(id => id !== fusion.id), evidence: reason!.evidence.filter((_, i) => reason!.cards[i] !== fusion.id) }, format)).toBe(false);
+        }
+        expect(odion.every(row => !row.two_way)).toBe(true);
+      }
+    } finally { db.close(); }
+  }, 15_000);
+
   it("imports validated evidence, serves directed lookups and excludes Links in Genesys", () => {
     const db = new Database(":memory:");
     try {

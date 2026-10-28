@@ -44,7 +44,7 @@ export function mentionReachesCard(card: Card, name: string, target: Card): bool
     const quoted = quotedNames(text).find(value => sameName(value, name));
     if (!quoted) return false;
     const after = text.slice(text.indexOf(quoted) + quoted.length + 1);
-    const requirement = /^\s*(?:(Normal|Effect|Ritual|Fusion|Synchro|Xyz|Link|Pendulum|Continuous|Field)\s+)?(monster|Spell|Trap)/i.exec(after);
+    const requirement = /^(?:\s+or\s+["“][^"”]+["”])*\s*(?:(Normal|Effect|Ritual|Fusion|Synchro|Xyz|Link|Pendulum|Continuous|Field)\s+)?(monster|Spell|Trap)/i.exec(after);
     return !requirement || target.kind === requirement[2]!.toLowerCase()
       && (!requirement[1] || target.subtypes.includes(requirement[1].toLowerCase() as typeof target.subtypes[number]));
   });
