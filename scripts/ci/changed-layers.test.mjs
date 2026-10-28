@@ -157,6 +157,48 @@ test("shared graph follows export aliases, barrels, relative and dynamic imports
   assert.equal(files.has("packages/shared/src/unused.ts"), false);
 });
 
+test("shared graph starts from duel tests and follows their test-only imports", () => {
+  const files = engineSharedFiles({
+    "packages/duel-server/tests/host.test.ts": 'import { fixture } from "@yugidraft/shared/test-only";',
+    "packages/shared/src/test-only/index.ts": 'export * from "../deleted.js";',
+    "packages/shared/src/unused.ts": 'export const unused = true;',
+  }, { "./test-only": { source: "./src/test-only/index.ts" } });
+  assert.ok(files.has("packages/shared/src/test-only/index.ts"));
+  assert.ok(files.has("packages/shared/src/deleted.ts"));
+  assert.equal(files.has("packages/shared/src/unused.ts"), false);
+});
+
+test("shared source imported only by duel tests selects engine checks", () => {
+  for (const event of ["pull_request", "push"]) {
+    assert.equal(classify(["packages/shared/src/ws/index.ts"], event).engine, true, event);
+  }
+});
+
+for (const [file, groups, engine] of [
+  ["packages/shared/tests/helpers/recording-observability.mjs", ["shared", "duel_unit"], false],
+  ["packages/shared/tests/helpers/future-helper.ts", ["shared", "duel_unit"], false],
+  ["packages/web/src/components/duel/table/seat-state.ts", ["web", "e2e"], true],
+  ["packages/e2e/stack/start.mjs", ["e2e", "duel_unit"], false],
+  ["packages/duel-server/card-block-list.json", ["duel_unit", "web"], true],
+]) {
+  test(`test-only cross-package dependency selects its callers: ${file}`, () => {
+    for (const event of ["pull_request", "push"]) {
+      const result = classify([file], event);
+      for (const group of groups) assert.equal(result[group], true, `${event}: ${group}`);
+      assert.equal(result.engine, engine, event);
+      assert.equal(result.tests_only, false, event);
+    }
+  });
+}
+
+test("shared duel source selects the effect protocol that imports its barrel", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of ["packages/shared/src/duels/index.ts", "packages/shared/src/duels/settings.ts", "packages/shared/src/duels/future-module.ts"]) {
+      assert.equal(classify([file], event).effects, true, `${event}: ${file}`);
+    }
+  }
+});
+
 test("per-area groups skip docs and unrelated packages, and shared source selects consumers", () => {
   const areas = ["web", "bot", "ws", "worker", "shared", "duel_unit", "e2e", "ci_scripts"];
   for (const event of ["pull_request", "push"]) {
