@@ -34,7 +34,7 @@ function fixture() {
   db.prepare("INSERT INTO archetype_bridge VALUES(?,?,?,?,?,?,?,?)").run(bridge.source, bridge.target, bridge.format, bridge.score, bridge.grade, JSON.stringify(bridge), bridge.evidence_hash, "fixture");
   return { db, bridge };
 }
-const result = (change: Partial<BridgeJudgement> = {}): BridgeJudgement => ({ verdict: "valid", grade: "good", pros: ["Temple of the Kings allows Argostars - Glorious Adra to be activated the turn it was Set, subject to its printed activation conditions."], cons: ["Needs both cards.", "Requires setting the Trap first."], lock_note: "No relevant Summon lock in the supplied cards.", line: ["Temple of the Kings", "Argostars - Glorious Adra"], format_ok: true, ...change });
+const result = (change: Partial<BridgeJudgement> = {}): BridgeJudgement => ({ verdict: "valid", grade: "good", pros: ["Temple of the Kings allows Argostars - Glorious Adra to be activated the turn it was Set, subject to its printed conditions."], cons: ["Needs both cards.", "Requires setting the Trap first."], lock_note: "No relevant Summon lock in the supplied cards.", line: ["Temple of the Kings", "Argostars - Glorious Adra"], format_ok: true, ...change });
 function approved(db: Database.Database, bridge: ArchetypeBridge, second = result()) {
   const evidence = buildBridgeJudgeEvidence(db, bridge)!;
   BRIDGE_JUDGE_FRAMINGS.forEach((framing, index) => saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, index ? second : result())));
@@ -128,9 +128,9 @@ describe("bridge judgement pipeline", () => {
     try {
       importBridgeArtifact(db);
       for (const [source, target, expected] of [
-        ["Snake-Eye", "Fire King", "Snake-Eye Ash adds Legendary Fire King Ponix (Level 1 FIRE) from the Deck to the hand, subject to its printed activation conditions."],
-        ["Drytron", "Ursarctic", "Drytron Eclipse adds Ultimate Bright Knight Ursatron Alpha (Level 7 WATER) from the GY to the hand, subject to its printed activation conditions."],
-        ["Odion", "Ashtra", "Temple of the Kings allows Ashtra Divine Domain to be activated the turn it was Set, subject to its printed activation conditions."],
+        ["Snake-Eye", "Fire King", "Snake-Eye Ash adds Legendary Fire King Ponix (Level 1 FIRE) from the Deck to the hand, subject to its printed conditions."],
+        ["Drytron", "Ursarctic", "Drytron Eclipse adds Ultimate Bright Knight Ursatron Alpha (Level 7 WATER) from the GY to the hand, subject to its printed conditions."],
+        ["Odion", "Ashtra", "Temple of the Kings allows Ashtra Divine Domain to be activated the turn it was Set, subject to its printed conditions."],
       ]) {
         const bridge = createBridgeService(db).bridgeBetween(source!, target!)!;
         const evidence = buildBridgeJudgeEvidence(db, bridge)!;
