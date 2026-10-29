@@ -41,6 +41,20 @@ function approved(db: Database.Database, bridge: ArchetypeBridge, second = resul
 }
 
 describe("bridge judgement pipeline", () => {
+  it("reports provider status and message without exposing the credential", async () => {
+    const { db, bridge } = fixture(), errors: { status: number | null; message: string }[] = [];
+    const credential = "integration-provider-credential";
+    const client: BridgeJudgeClient = { messages: { async create() {
+      throw new APIError(400, { error: { message: `Unsupported schema ${credential}` } }, "Unsupported schema", new Headers());
+    } } };
+    try {
+      expect((await judgeBridgePair(db, bridge, { client, apiKey: credential, env: {}, log: () => {}, onError: entry => errors.push(entry) })).state).toBe("pending");
+      expect(errors).toHaveLength(2);
+      expect(errors[0]).toMatchObject({ status: 400 });
+      expect(errors[0]!.message).toContain("Unsupported schema");
+      expect(JSON.stringify(errors)).not.toContain(credential);
+    } finally { db.close(); }
+  });
   it("normalizes paid replies without sending unsupported schema bounds or storing fallback text", async () => {
     const { db, bridge } = fixture(); let calls = 0;
     const client: BridgeJudgeClient = { messages: { async create(request) {

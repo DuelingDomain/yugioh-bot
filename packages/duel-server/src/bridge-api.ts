@@ -3,7 +3,7 @@ import { bridgeGate, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_VERSION, shownBridge,
 import { createBridgeService, createSavedDeckService } from "@yugidraft/shared/services";
 import { isOwnerUser } from "@yugidraft/shared/access/owner-access";
 import { createHash } from "node:crypto";
-import { BridgeJobError, BridgeSearchJobs, type BridgeSearchQuery } from "./bridge-search-jobs.js";
+import { BridgeJobError, BridgeReviewUnavailableError, BridgeSearchJobs, type BridgeSearchQuery } from "./bridge-search-jobs.js";
 import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -44,6 +44,8 @@ export class BridgeApi {
             progress("rating", 35 + Math.floor(64 * ++completed / candidates.length));
           }
         }));
+        if (candidates.length && candidates.every(row => bridgeGate(this.db, row).judgements.length === 0)
+          && !rows.some(row => bridgeGate(this.db, row).state === "shown")) throw new BridgeReviewUnavailableError();
         return rows;
       },
     });

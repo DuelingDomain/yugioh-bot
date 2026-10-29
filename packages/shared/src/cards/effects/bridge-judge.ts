@@ -211,6 +211,7 @@ export interface BridgeJudgeOptions {
   now?: () => Date;
   signal?: AbortSignal;
   log?: (entry: BridgeJudgeSpendSummary) => void;
+  onError?: (entry: { status: number | null; message: string; framing: BridgeJudgeFraming }) => void;
 }
 export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBridge, options: BridgeJudgeOptions = {}): Promise<BridgeGate> {
   const initial = bridgeGate(db, bridge), evidence = buildBridgeJudgeEvidence(db, bridge);
@@ -245,6 +246,11 @@ export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBr
         saved = true;
       }
     } catch (error) {
+      const raw = error instanceof Error ? error.message : "Unknown provider failure";
+      const message = (key ? raw.replaceAll(key, "[redacted]") : raw).replace(/sk-ant-[\w-]+/g, "[redacted]").slice(0, 2000);
+      (options.onError ?? (entry => console.error(JSON.stringify({ event: "bridge-judge-error", ...entry }))))({
+        status: error instanceof APIError ? error.status ?? null : null, message, framing,
+      });
       const networkFailure = error instanceof APIConnectionError || error instanceof APIUserAbortError
         || error instanceof APIError
         || error instanceof Error && /Abort|Timeout|Fetch|TypeError/.test(error.name);
