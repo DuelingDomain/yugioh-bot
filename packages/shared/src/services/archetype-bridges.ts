@@ -26,15 +26,16 @@ export function createBridgeService(db: Database.Database) {
   return {
     bridgesFrom(archetype: string, format: BridgeFormat = "advanced", limit = 4): ArchetypeBridge[] {
       const count = Number.isFinite(limit) ? Math.max(0, Math.min(25, Math.floor(limit))) : 4;
-      const rows = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND format=? ORDER BY score DESC,target LIMIT 25").all(archetype.trim(), format) as { bridge_json: string }[];
+      const rows = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND format=? AND coalesce(json_extract(bridge_json,'$.tier'),'strict')<>'niche' ORDER BY score DESC,target LIMIT 25").all(archetype.trim(), format) as { bridge_json: string }[];
       return live().distinctTargets(rows.map(row => JSON.parse(row.bridge_json) as ArchetypeBridge), count);
     },
     bridgeBetween(x: string, y: string, format: BridgeFormat = "advanced"): ArchetypeBridge | null {
       const row = stored(x, y, format);
-      return row;
+      return row?.tier === "niche" ? null : row;
     },
     explain(x: string, y: string, format: BridgeFormat = "advanced"): ArchetypeBridge | null {
-      const row = stored(x, y, format) ?? live().between(x, y, format);
+      const saved = stored(x, y, format);
+      const row = saved?.tier !== "niche" && saved ? saved : live().between(x, y, format);
       return row;
     },
     distinctTargets<T extends ArchetypeBridge>(rows: T[], limit = 4): T[] {
@@ -43,20 +44,33 @@ export function createBridgeService(db: Database.Database) {
     liveCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
       return live().liveCandidates(source, format, progress);
     },
+    deepCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
+      return live().deepCandidates(source, format, progress);
+    },
+    deepBetween(source: string, target: string, format: BridgeFormat = "advanced"): ArchetypeBridge | null {
+      return stored(source, target, format) ?? live().deepBetween(source, target, format);
+    },
+    deepFrom(source: string, format: BridgeFormat = "advanced", limit = 10): ArchetypeBridge[] {
+      const rows = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND format=?").all(source.trim(), format) as { bridge_json: string }[];
+      return live().deepTargets(rows.map(row => JSON.parse(row.bridge_json) as ArchetypeBridge), Math.max(0, Math.min(25, Math.floor(limit))));
+    },
+    deepTargets<T extends ArchetypeBridge>(rows: T[], limit = 10): T[] {
+      return live().deepTargets(rows, limit);
+    },
     shownFrom(archetype: string, format: BridgeFormat = "advanced", limit = 4): ShownBridge[] {
       const count = Number.isFinite(limit) ? Math.max(0, Math.min(4, Math.floor(limit))) : 4;
-      const rows = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND format=? ORDER BY score DESC,target LIMIT 25").all(archetype.trim(), format) as { bridge_json: string }[];
+      const rows = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND format=? AND coalesce(json_extract(bridge_json,'$.tier'),'strict')<>'niche' ORDER BY score DESC,target LIMIT 25").all(archetype.trim(), format) as { bridge_json: string }[];
       const results: ShownBridge[] = [];
       for (const row of rows) {
         const projected = shownBridge(db, JSON.parse(row.bridge_json) as ArchetypeBridge);
-        if (projected) results.push(projected);
+        if (projected && projected.tier !== "niche") results.push(projected);
 
       }
       return live().distinctTargets(results, count);
     },
     shownBetween(x: string, y: string, format: BridgeFormat = "advanced"): ShownBridge | null {
       const row = stored(x, y, format);
-      return row ? shownBridge(db, row) : null;
+      return row && row.tier !== "niche" ? shownBridge(db, row) : null;
     },
     capabilities(key: CapabilityKey, direction: "needs" | "provides"): CardCapability[] {
       return (db.prepare(`SELECT capabilities_json FROM card_capability WHERE EXISTS
