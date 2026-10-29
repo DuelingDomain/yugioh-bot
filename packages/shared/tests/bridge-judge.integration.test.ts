@@ -41,6 +41,23 @@ function approved(db: Database.Database, bridge: ArchetypeBridge, second = resul
 }
 
 describe("bridge judgement pipeline", () => {
+  it("shows checked actions instead of model-written pros", () => {
+    const db = new Database(":memory:"); migrate(db);
+    try {
+      importBridgeArtifact(db);
+      for (const [source, target, expected] of [
+        ["Snake-Eye", "Fire King", "Snake-Eye Ash adds Legendary Fire King Ponix (Level 1 FIRE) from the Deck to the hand, subject to its printed activation conditions."],
+        ["Odion", "Ashtra", "Temple of the Kings allows Ashtra Divine Domain to be activated the turn it was Set, subject to its printed activation conditions."],
+      ]) {
+        const bridge = createBridgeService(db).bridgeBetween(source!, target!)!;
+        const evidence = buildBridgeJudgeEvidence(db, bridge)!;
+        for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing,
+          result({ pros: ["Invented free-form benefit."], line: evidence.cards.slice(0, 2).map(card => card.name) })));
+        expect(shownBridge(db, bridge)?.review.pros[0]).toBe(expected);
+        expect(JSON.stringify(shownBridge(db, bridge)?.review)).not.toContain("Invented free-form benefit");
+      }
+    } finally { db.close(); }
+  });
   it("sends full card facts and explicit actions for the three live-check pairs", () => {
     const db = new Database(":memory:"); migrate(db);
     try {

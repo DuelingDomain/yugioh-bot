@@ -7,6 +7,7 @@ import { bridgeHash, printedText, quotedNames } from "./bridge-text.js";
 import type { ArchetypeBridge, BridgeFormat, BridgeReason, CardCapability, SummonLock } from "./bridge-types.js";
 import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, releaseBridgeJudgeSpend, settleBridgeJudgeSpend, startBridgeJudgeSpend, type BridgeJudgeSpendSummary, type BridgeJudgeUsage } from "./bridge-judge-ledger.js";
 import { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS } from "./bridge-judge-model.js";
+import { deterministicBridgePros } from "./bridge-judge-text.js";
 export { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS, bridgeJudgeRates } from "./bridge-judge-model.js";
 
 export const BRIDGE_JUDGE_FRAMINGS = ["mechanic", "skeptic"] as const;
@@ -49,7 +50,7 @@ A bridge needs at least one useful, legal source-to-target interaction, not a co
 Read each step's action and the full text. Search adds to hand; it does NOT Summon. Sending is not destroying; Setting is not activating. Do not substitute a different effect for the proposed action. Every activation condition, cost, zone and Summoning condition still applies. State starting requirements (a Summoned searcher, a card to discard, a Set Trap, a GY target) honestly in cons. A Continuous Spell can be activated from hand into a free Spell/Trap Zone; its continuous permission then applies while face-up without a separate effect activation. Standard hand/field setup may be a stated requirement; do not assume an unlisted named enabler or an extra Normal Summon. In problem-solving card text, actions before a semicolon are costs/targeting at activation, while actions after it resolve as effects. A discard written as part of the resolving effect, without a semicolon making it a cost, is a discard by effect; do not call all discards costs. If a later optional step requires another Summon, explain that separately; it does not disprove an already legal search into the target. Stop the accepted line at the useful interaction that the cards actually establish. Never claim an unestablished extension works.
 Check restrictions on that accepted line. Whole-turn restrictions apply before activation; rest-of-turn restrictions apply afterward. While-face-up restrictions end when their source leaves the field, including if it leaves as cost before resolution. A legal sequence around a lock is allowed. Do not infer a lock from a shared Type or Attribute. Advanced legality has been checked for the supplied cards. Genesys forbids Link/Pendulum requirements; account for supplied points without claiming compliance with an unspecified deck budget. Set format_ok false for a format violation.
 Use valid when at least one concrete legal and useful directed interaction works with clearly stated requirements. Use invalid when the proposed interactions are disproved. Use unsure ONLY for a specific unresolved rules question, identified in lock_note; ordinary setup requirements, absent lock metadata, missing full-deck lists and optional follow-ups are not rules doubts. Grade strong/good/niche/risky by usefulness and constraints, not candidate score. Do not invent a benefit to meet a quota.
-Give up to three concise concrete pros and up to three concise concrete cons. Do not use generic filler such as no lock data is supplied, the deterministic checks passed, card texts are available, or the format is legal. Every pro/con should describe an actual supplied-card interaction or its practical requirement. Name ONLY exact supplied evidence cards, never a card from memory, even when discussing a missing requirement; describe such a requirement generically instead. Do not quote archetype labels as if they were card titles. lock_note explains relevant restrictions on the accepted interaction. line is up to three exact supplied card names in play order, not action prose; an invalid/unsure verdict may have an empty line.`;
+The deterministic_pros field contains code-written pros from checked reasons. Only pick or confirm these exact strings in pros; never write or expand a pro. Give up to three concise concrete cons. Do not use generic filler such as no lock data is supplied, the deterministic checks passed, card texts are available, or the format is legal. Every pro/con should describe an actual supplied-card interaction or its practical requirement. Name ONLY exact supplied evidence cards, never a card from memory, even when discussing a missing requirement; describe such a requirement generically instead. Do not quote archetype labels as if they were card titles. lock_note explains relevant restrictions on the accepted interaction. line is up to three exact supplied card names in play order, not action prose; an invalid/unsure verdict may have an empty line.`;
 const framings: Record<BridgeJudgeFraming, string> = {
   mechanic: "Independently reconstruct the useful interaction in play order. Check each action against its own text, then describe the result and the requirements.",
   skeptic: "Independently audit legality and usefulness. Identify concrete rules conflicts if any; accept a supported interaction and describe its costs without demanding optional extensions.",
@@ -57,7 +58,7 @@ const framings: Record<BridgeJudgeFraming, string> = {
 const setupRules = "A trigger that says Normal or Special Summoned does not specifically require a Normal Summon. If the source was Normal Summoned, a second Normal Summon is unavailable without an additional effect; if the source was Special Summoned, the usual Normal Summon may still be available. Do not merge those alternative setups. Normal Setting takes a Trap from hand, never directly from Deck; a Deck Set requires a supplied effect.";
 export const BRIDGE_JUDGE_SYSTEM_PROMPTS = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${instructions}\n${setupRules}\n${framings[framing]}`])) as Record<BridgeJudgeFraming, string>;
 const outputSchema = z.toJSONSchema(BridgeJudgementWireSchema);
-export const BRIDGE_JUDGE_IDENTITIES = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${BRIDGE_JUDGE_MODEL}:${framing}:${bridgeHash({ system: BRIDGE_JUDGE_SYSTEM_PROMPTS[framing], schema: outputSchema, parser: 3 })}`])) as Record<BridgeJudgeFraming, string>;
+export const BRIDGE_JUDGE_IDENTITIES = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${BRIDGE_JUDGE_MODEL}:${framing}:${bridgeHash({ system: BRIDGE_JUDGE_SYSTEM_PROMPTS[framing], schema: outputSchema, parser: 4 })}`])) as Record<BridgeJudgeFraming, string>;
 export const BRIDGE_JUDGE_VERSION = bridgeHash(BRIDGE_JUDGE_IDENTITIES);
 // Engine evidence hashes can be shared by different directed pairs. Keep each
 // checked summary/context separate without invalidating an unchanged review.
@@ -122,7 +123,7 @@ export function buildBridgeJudgeEvidence(db: Database.Database, bridge: Archetyp
 export function bridgeJudgeRequest(evidence: BridgeJudgeEvidence, framing: BridgeJudgeFraming): BridgeJudgeRequest {
   return { model: BRIDGE_JUDGE_MODEL, max_tokens: BRIDGE_JUDGE_OUTPUT_TOKENS,
     system: [{ type: "text", text: BRIDGE_JUDGE_SYSTEM_PROMPTS[framing], cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: JSON.stringify(evidence) }],
+    messages: [{ role: "user", content: JSON.stringify({ ...evidence, deterministic_pros: deterministicBridgePros(evidence) }) }],
     output_config: { format: { type: "json_schema", schema: outputSchema } },
   };
 }
@@ -148,8 +149,7 @@ export function parseBridgeJudgement(value: unknown, evidence: BridgeJudgeEviden
   const wire = BridgeJudgementWireSchema.safeParse(value);
   if (!wire.success) return null;
   const trimList = (items: string[], length: number) => items.map(item => item.trim().slice(0, length)).filter(Boolean).slice(0, 3);
-  const filler = /no (?:relevant )?(?:lock|restriction)(?: data| metadata|s)? (?:is |are |was |were )?(?:supplied|listed|present|provided|shown|available)|deterministic (?:evidence )?checks|supplied card texts? (?:are|remain)|card texts? (?:are|remain) available/i;
-  const parsed = BridgeJudgementSchema.safeParse({ ...wire.data, pros: trimList(wire.data.pros.filter(pro => !filler.test(pro)), 500), cons: trimList(wire.data.cons, 500),
+  const parsed = BridgeJudgementSchema.safeParse({ ...wire.data, pros: deterministicBridgePros(evidence), cons: trimList(wire.data.cons, 500),
     line: trimList(wire.data.line, 200), lock_note: wire.data.lock_note.trim().slice(0, 1500) });
   if (!parsed.success) return null;
   const result = parsed.data;
