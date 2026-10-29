@@ -13,8 +13,12 @@ export function deterministicBridgePros(evidence: BridgeJudgeEvidence): string[]
     let text: string | undefined;
     if (reason.key === "rule_enabler") text = `${source.name} allows ${target.name} to be activated the turn it was Set${conditions}`;
     else if (first) {
+      const zones = evidence.proposed_lines.find(line => line.reason === reason.key && line.steps[0]?.card === source.name
+        && line.steps[0]?.target === target.name)?.steps[0]?.from_zones ?? [];
+      const zoneNames: Record<string, string> = { deck: "Deck", gy: "GY", banished: "banished cards", hand: "hand", field: "field", extra_deck: "Extra Deck" };
+      const origin = zones.length && zones.every(zone => zoneNames[zone]) ? ` from the ${zones.map(zone => zoneNames[zone]).join(" or ")}` : "";
       const actions: Partial<Record<typeof first.capability, string>> = {
-        search: `adds ${target.name}${stats} from the Deck to the hand`,
+        search: `adds ${target.name}${stats}${origin} to the hand`,
         special_summon: `can Special Summon ${target.name}`,
         normal_summon: `can Normal Summon ${target.name}`,
         set_spell_trap: `can Set ${target.name}`,

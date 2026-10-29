@@ -3,7 +3,7 @@ import type { MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resource
 import type Database from "better-sqlite3";
 import * as z from "zod";
 import { BridgeEngine, bridgeLegal } from "./bridge-engine.js";
-import { bridgeHash, printedText } from "./bridge-text.js";
+import { actionEvidence, bridgeHash, matchesBridgeFilter, printedText } from "./bridge-text.js";
 import type { ArchetypeBridge, BridgeFormat, BridgeReason, CardCapability, SummonLock } from "./bridge-types.js";
 import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, releaseBridgeJudgeSpend, settleBridgeJudgeSpend, startBridgeJudgeSpend, type BridgeJudgeSpendSummary, type BridgeJudgeUsage } from "./bridge-judge-ledger.js";
 import { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS } from "./bridge-judge-model.js";
@@ -45,7 +45,7 @@ export interface BridgeJudgeEvidence {
   cards: { id: number; name: string; text: string; archetype: string | null; archetypes: string[]; bridge_groups: string[]; kind: string; type_line: string; subtypes: string[]; monster_type?: string; attribute?: string;
     level?: number; rank?: number; link_rating?: number; atk?: number | null; def?: number | null; locks: SummonLock[]; genesys_points: number | null }[];
   reasons: BridgeReason[];
-  proposed_lines: { reason: string; ancillary: boolean; steps: { action: string; card: string; target?: string; detail: string }[] }[];
+  proposed_lines: { reason: string; ancillary: boolean; steps: { action: string; card: string; target?: string; from_zones?: string[]; detail: string }[] }[];
   warnings: string[];
   genesys_points: number | null;
 }
@@ -63,7 +63,7 @@ const framings: Record<BridgeJudgeFraming, string> = {
 const setupRules = "A trigger that says Normal or Special Summoned does not specifically require a Normal Summon. If the source was Normal Summoned, a second Normal Summon is unavailable without an additional effect; if the source was Special Summoned, the usual Normal Summon may still be available. Do not merge those alternative setups. Normal Setting takes a Trap from hand, never directly from Deck; a Deck Set requires a supplied effect.";
 export const BRIDGE_JUDGE_SYSTEM_PROMPTS = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${instructions}\n${setupRules}\n${framings[framing]}`])) as Record<BridgeJudgeFraming, string>;
 const outputSchema = z.toJSONSchema(BridgeJudgementWireSchema);
-export const BRIDGE_JUDGE_IDENTITIES = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${BRIDGE_JUDGE_MODEL}:${framing}:${bridgeHash({ system: BRIDGE_JUDGE_SYSTEM_PROMPTS[framing], schema: outputSchema, parser: 5, text: BRIDGE_FACT_CHECK_SYSTEM })}`])) as Record<BridgeJudgeFraming, string>;
+export const BRIDGE_JUDGE_IDENTITIES = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${BRIDGE_JUDGE_MODEL}:${framing}:${bridgeHash({ system: BRIDGE_JUDGE_SYSTEM_PROMPTS[framing], schema: outputSchema, parser: 6, text: BRIDGE_FACT_CHECK_SYSTEM })}`])) as Record<BridgeJudgeFraming, string>;
 export const BRIDGE_JUDGE_VERSION = bridgeHash(BRIDGE_JUDGE_IDENTITIES);
 // Engine evidence hashes can be shared by different directed pairs. Keep each
 // checked summary/context separate without invalidating an unchanged review.
@@ -108,9 +108,14 @@ export function buildBridgeJudgeEvidence(db: Database.Database, bridge: Archetyp
         locks, genesys_points: card.genesysPoints ?? null })),
       reasons: bridge.reasons, proposed_lines: bridge.reasons.map(reason => {
         const name = (id: number) => rows.find(row => row.id === id)!.card.name;
-        const steps: BridgeJudgeEvidence["proposed_lines"][number]["steps"] = (reason.steps ?? []).map(step => ({ action: step.capability, card: name(step.from), target: name(step.to),
-          detail: step.capability === "search" ? "Add the target from Deck to hand using the source effect, subject to its activation condition. This does not Summon the target."
-            : `Use the source's ${step.capability} action on the target, subject to its printed conditions and costs.` }));
+        const steps: BridgeJudgeEvidence["proposed_lines"][number]["steps"] = (reason.steps ?? []).map(step => {
+          const source = rows.find(row => row.id === step.from)!, target = rows.find(row => row.id === step.to)!;
+          const capability = source.provides.find(capability => capability.key === step.capability && capability.filter
+            && matchesBridgeFilter(capability.filter, target.card) && actionEvidence(source.card, step.capability, capability.filter));
+          return { action: step.capability, card: name(step.from), target: name(step.to), from_zones: capability?.from ?? [],
+            detail: step.capability === "search" ? "Add the target to hand from the checked source zone, subject to its printed conditions. This does not Summon the target."
+              : `Use the source's ${step.capability} action on the target, subject to its printed conditions and costs.` };
+        });
         if (reason.key === "rule_enabler") {
           const trap = reason.cards.find(id => rows.find(row => row.id === id)!.card.kind === "trap");
           if (trap) steps.push(
@@ -126,24 +131,29 @@ export function buildBridgeJudgeEvidence(db: Database.Database, bridge: Archetyp
 }
 
 export function bridgeJudgeRequest(evidence: BridgeJudgeEvidence, framing: BridgeJudgeFraming): BridgeJudgeRequest {
+  const pros = deterministicBridgePros(evidence);
+  const schema = { ...outputSchema, properties: { ...outputSchema.properties,
+    pros: { type: "array", items: { type: "string", enum: pros.length ? pros : [""] } } } };
   return { model: BRIDGE_JUDGE_MODEL, max_tokens: BRIDGE_JUDGE_OUTPUT_TOKENS,
     system: [{ type: "text", text: BRIDGE_JUDGE_SYSTEM_PROMPTS[framing], cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: JSON.stringify({ ...evidence, deterministic_pros: deterministicBridgePros(evidence) }) }],
-    output_config: { format: { type: "json_schema", schema: outputSchema } },
+    messages: [{ role: "user", content: JSON.stringify({ ...evidence, deterministic_pros: pros }) }],
+    output_config: { format: { type: "json_schema", schema } },
   };
 }
 
-export function parseBridgeJudgement(value: unknown, evidence: BridgeJudgeEvidence, _db?: Database.Database): BridgeJudgement | null {
+export function parseBridgeJudgement(value: unknown, evidence: BridgeJudgeEvidence, _db?: Database.Database, trustedStorage = false): BridgeJudgement | null {
   const stored = BridgeJudgementSchema.safeParse(value);
   const wire = BridgeJudgementWireSchema.safeParse(value);
-  if (!wire.success && !stored.success) return null;
+  if (!wire.success && !(trustedStorage && stored.success)) return null;
   const data = wire.success ? wire.data : stored.data!;
   const trimList = (items: string[], length: number) => items.map(item => item.trim().slice(0, length)).filter(Boolean).slice(0, 3);
   const audit = stored.success && stored.data.text_audit ? stored.data.text_audit.map(item =>
     item.status !== "dropped" && !validBridgeCitations(item, evidence) ? { ...item, status: "dropped" as const, reason: "invalid_quote" } : item)
     : groundBridgeSentences({ ...data, cons: trimList(data.cons, 500), lock_note: data.lock_note.trim().slice(0, 1500) }, evidence);
   const { grounding: _, ...display } = wire.success ? wire.data : { ...stored.data!, grounding: undefined };
-  const parsed = BridgeJudgementSchema.safeParse({ ...display, pros: deterministicBridgePros(evidence), ...bridgeTextFields(audit), text_audit: audit,
+  const candidates = deterministicBridgePros(evidence);
+  const confirmed = trustedStorage && !stored.data?.text_audit ? candidates : candidates.filter(pro => data.pros.includes(pro));
+  const parsed = BridgeJudgementSchema.safeParse({ ...display, pros: confirmed, ...bridgeTextFields(audit), text_audit: audit,
     line: trimList(data.line, 200) });
   if (!parsed.success) return null;
   const result = parsed.data;
@@ -171,7 +181,7 @@ export function filterBridgeJudgementText(result: BridgeJudgement, value: unknow
 }
 
 export function makeBridgeJudgementRecord(evidence: BridgeJudgeEvidence, framing: BridgeJudgeFraming, value: unknown, at = new Date(), db?: Database.Database): BridgeJudgementRecord {
-  const result = parseBridgeJudgement(value, evidence, db);
+  const result = parseBridgeJudgement(value, evidence, db, true);
   if (!result) throw new Error("Invalid bridge judgement");
   return { evidence_hash: evidence.evidence_hash, input_hash: evidence.input_hash, judge: bridgeJudgeIdentity(evidence, framing), framing, model: BRIDGE_JUDGE_MODEL, result, created_at: at.toISOString() };
 }
@@ -196,7 +206,7 @@ export function bridgeGate(db: Database.Database, bridge: ArchetypeBridge): Brid
   const evidence = buildBridgeJudgeEvidence(db, bridge);
   if (!evidence) return { state: "invalid", judgements: [], reason: "Deterministic evidence no longer passes." };
   const judgements = readBridgeJudgements(db, bridge.evidence_hash).filter(row => row.input_hash === evidence.input_hash).flatMap(row => {
-    const result = parseBridgeJudgement(row.result, evidence, db);
+    const result = parseBridgeJudgement(row.result, evidence, db, true);
     return result ? [{ ...row, result }] : [];
   });
   if (db.prepare("SELECT 1 FROM bridge_feedback WHERE evidence_hash=? AND resolved_at IS NULL GROUP BY evidence_hash HAVING count(DISTINCT actor_hash)>=2").get(bridge.evidence_hash)) return { state: "review", judgements, reason: "Multiple players reported this bridge." };
@@ -250,7 +260,7 @@ export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBr
       const reply = await client.messages.create(request, { signal: options.signal });
       receivedResponse = true;
       // Billing is independent of accepting a response. Truncated/invalid JSON still costs tokens.
-      settleBridgeJudgeSpend(db, id, reply.usage, false);
+      settleBridgeJudgeSpend(db, id, reply.usage, false, reply.model);
       if (!reply.model.startsWith(BRIDGE_JUDGE_MODEL) || !/^msg_[a-zA-Z0-9_]+$/.test(reply.id)) throw new Error("Invalid bridge judge response identity");
       let result: BridgeJudgement | null = null;
       if (reply.stop_reason === "end_turn") {
@@ -269,7 +279,7 @@ export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBr
             try {
               const reply = await client.messages.create(checkRequest, { signal: options.signal });
               receivedCheck = true;
-              settleBridgeJudgeSpend(db, checkId, reply.usage, false);
+              settleBridgeJudgeSpend(db, checkId, reply.usage, false, reply.model);
               if (reply.model.startsWith(BRIDGE_JUDGE_MODEL) && /^msg_[a-zA-Z0-9_]+$/.test(reply.id) && reply.stop_reason === "end_turn") {
                 try { check = JSON.parse(reply.content.filter(part => part.type === "text").map(part => part.text ?? "").join("")); } catch { /* Fail closed. */ }
               }
