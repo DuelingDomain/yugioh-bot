@@ -41,6 +41,36 @@ function approved(db: Database.Database, bridge: ArchetypeBridge, second = resul
 }
 
 describe("bridge judgement pipeline", () => {
+  it("filters each grounded sentence, bills the fact-check, and leaves verdicts independent", async () => {
+    const { db, bridge } = fixture(); let calls = 0;
+    const supported = "Temple of the Kings allows Trap Cards to be activated the turn they were Set.";
+    const falseClaim = "Temple of the Kings allows Trap Cards to be activated from the hand.";
+    const quote = "You can activate Trap Cards the turn they were Set.";
+    const client: BridgeJudgeClient = { messages: { async create(request) {
+      calls++;
+      const input = JSON.parse(request.messages[0]!.content as string);
+      const content = input.sentences ? { checks: input.sentences.map((s: { id: number; sentence: string }) => ({ id: s.id, supported: s.sentence === supported ? "yes" : "no" })) }
+        : { ...result({ cons: [supported, falseClaim, "Needs an invented card."], lock_note: "Unsupported lock." }), grounding: [
+          { field: "cons", sentence: supported, citations: [{ card: "Temple of the Kings", quote: quote.toUpperCase().replaceAll(" ", "  ") }] },
+          { field: "cons", sentence: falseClaim, citations: [{ card: "Temple of the Kings", quote }] },
+          { field: "lock_note", sentence: "Unsupported lock.", citations: [{ card: "Missing card", quote }] },
+        ] };
+      return { id: `msg_grounded_${calls}`, model: "claude-haiku-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(content) }], usage: { input_tokens: 100, output_tokens: 10 } };
+    } } };
+    try {
+      expect((await judgeBridgePair(db, bridge, { client, env: {}, log: () => {} })).state).toBe("shown");
+      expect(calls).toBe(4);
+      expect(bridgeJudgeSpendSummary(db)).toMatchObject({ requests: 4, actualMicros: 60, reservedMicros: 0 });
+      expect(shownBridge(db, bridge)?.review.cons).toEqual([supported]);
+      expect(shownBridge(db, bridge)?.review.lock_note).toBe("");
+      expect(JSON.stringify(shownBridge(db, bridge))).not.toContain("text_audit");
+      const audits = bridgeGate(db, bridge).judgements.flatMap(row => (row.result as any).text_audit);
+      expect(audits.filter((s: any) => s.status === "dropped")).toHaveLength(6);
+      expect(audits.map((s: any) => s.reason)).toEqual(expect.arrayContaining(["fact_check_no", "missing_quote", "invalid_quote"]));
+      await judgeBridgePair(db, bridge, { client, env: {}, log: () => {} });
+      expect(calls).toBe(4);
+    } finally { db.close(); }
+  });
   it("shows checked actions instead of model-written pros", () => {
     const db = new Database(":memory:"); migrate(db);
     try {
@@ -56,6 +86,26 @@ describe("bridge judgement pipeline", () => {
         expect(shownBridge(db, bridge)?.review.pros[0]).toBe(expected);
         expect(JSON.stringify(shownBridge(db, bridge)?.review)).not.toContain("Invented free-form benefit");
       }
+    } finally { db.close(); }
+  });
+  it.each(["malformed", "duplicate", "missing", "wrong-model", "truncated", "network"])("drops text when the fact-check is %s while keeping and billing the verdicts", async failure => {
+    const { db, bridge } = fixture(); let calls = 0;
+    const sentence = "Temple of the Kings permits Trap activation on the turn Set.";
+    const client: BridgeJudgeClient = { messages: { async create(request) {
+      calls++;
+      const check = "sentences" in JSON.parse(request.messages[0]!.content as string);
+      if (check && failure === "network") throw new APIConnectionError({ message: "Unavailable" });
+      const body = check ? { checks: failure === "duplicate" ? [{ id: 0, supported: "yes" }, { id: 0, supported: "yes" }] : [] }
+        : { ...result({ cons: [sentence], lock_note: "" }), grounding: [{ field: "cons", sentence, citations: [{ card: "Temple of the Kings", quote: "You can activate Trap Cards the turn they were Set." }] }] };
+      return { id: `msg_check_failure_${calls}`, model: check && failure === "wrong-model" ? "unexpected-model" : "claude-haiku-5-5",
+        stop_reason: check && failure === "truncated" ? "max_tokens" : "end_turn",
+        content: [{ type: "text", text: check && failure === "malformed" ? "invalid JSON" : JSON.stringify(body) }], usage: { input_tokens: 100, output_tokens: 10 } };
+    } } };
+    try {
+      expect((await judgeBridgePair(db, bridge, { client, env: {}, log: () => {} })).state).toBe("shown");
+      expect(shownBridge(db, bridge)?.review.cons).toEqual([]);
+      expect(calls).toBe(4);
+      expect(bridgeJudgeSpendSummary(db)).toMatchObject({ actualMicros: failure === "network" ? 30 : 60, reservedMicros: 0 });
     } finally { db.close(); }
   });
   it("sends full card facts and explicit actions for the three live-check pairs", () => {
@@ -118,8 +168,8 @@ describe("bridge judgement pipeline", () => {
       expect(gate.state).toBe("invalid");
       expect(gate.judgements).toHaveLength(2);
       for (const row of gate.judgements) {
-        expect(row.result.pros).toHaveLength(3); expect(row.result.pros[1]).toHaveLength(500);
-        expect(row.result.cons).toHaveLength(3); expect(row.result.line).toEqual([]);
+        expect(row.result.pros).toHaveLength(1);
+        expect(row.result.cons).toEqual([]); expect(row.result.line).toEqual([]);
       }
       expect(db.prepare("SELECT DISTINCT verdict FROM bridge_judgement").all()).toEqual([{ verdict: "rejected" }]);
     } finally { db.close(); }
@@ -162,7 +212,7 @@ describe("bridge judgement pipeline", () => {
       expect(bridgeGate(db, bridge).state).toBe("pending");
       approved(db, bridge);
       expect(bridgeGate(db, bridge).state).toBe("shown");
-      expect(service.shownFrom("Odion")[0]?.review.pros).toHaveLength(2);
+      expect(service.shownFrom("Odion")[0]?.review.pros).toHaveLength(1);
       db.prepare("INSERT INTO bridge_feedback(evidence_hash,actor_hash,reason) VALUES(?,?,'')").run(bridge.evidence_hash, "one");
       expect(service.shownBetween("Odion", "Argostars")).not.toBeNull();
       db.prepare("INSERT INTO bridge_feedback(evidence_hash,actor_hash,reason) VALUES(?,?,'')").run(bridge.evidence_hash, "two");
@@ -189,7 +239,7 @@ describe("bridge judgement pipeline", () => {
     } finally { db.close(); }
   });
 
-  it("holds reviews naming outside cards in pros, cons or lock notes", () => {
+  it("drops ungrounded outside-card prose without changing independent verdicts", () => {
     const { db, bridge } = fixture();
     try {
       const outside = { ...JSON.parse((db.prepare("SELECT capabilities_json FROM card_capability LIMIT 1").get() as { capabilities_json: string }).capabilities_json), id: 89631139 };
@@ -208,8 +258,9 @@ describe("bridge judgement pipeline", () => {
         { lock_note: "Summon:‘Imaginary Temple Dragon’." },
       ]) {
         approved(db, bridge, result(change));
-        expect(bridgeGate(db, bridge).state).toBe("review");
-        expect(bridgeGate(db, bridge).judgements.find(row => row.framing === "skeptic")?.result.verdict).toBe("unsure");
+        expect(bridgeGate(db, bridge).state).toBe("shown");
+        expect(shownBridge(db, bridge)?.review.cons).toEqual([]);
+        expect(shownBridge(db, bridge)?.review.lock_note).toBe("");
       }
       approved(db, bridge, result({ lock_note: "Temple of the Kings permits early Trap activation." }));
       expect(bridgeGate(db, bridge).state).toBe("shown");
@@ -246,7 +297,8 @@ describe("bridge judgement pipeline", () => {
       }
       for (const lock_note of ["Activate Return.", "Search NEXT.", "Search Fine.", 'Use "7".', "The Return card is outside the supplied line.", "Jinzo negates Trap effects.", "Raigeki destroys opposing monsters."]) {
         approved(db, bridge, result({ lock_note }));
-        expect(bridgeGate(db, bridge).state, lock_note).toBe("review");
+        expect(bridgeGate(db, bridge).state, lock_note).toBe("shown");
+        expect(shownBridge(db, bridge)?.review.lock_note).toBe("");
       }
       for (const lock_note of [
         "The supplied monster is Level 7.",
