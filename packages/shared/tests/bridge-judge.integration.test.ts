@@ -41,6 +41,37 @@ function approved(db: Database.Database, bridge: ArchetypeBridge, second = resul
 }
 
 describe("bridge judgement pipeline", () => {
+  it("sends full card facts and explicit actions for the three live-check pairs", () => {
+    const db = new Database(":memory:"); migrate(db);
+    try {
+      importBridgeArtifact(db);
+      for (const [source, target] of [["Odion", "Ashtra"], ["Snake-Eye", "Fire King"], ["Branded", "Despia"]]) {
+        const bridge = createBridgeService(db).bridgeBetween(source!, target!)!;
+        const evidence = buildBridgeJudgeEvidence(db, bridge)!;
+        const request = bridgeJudgeRequest(evidence, "mechanic");
+        const sent = JSON.parse(request.messages[0]!.content as string) as typeof evidence;
+        expect(sent.cards.every(card => "archetype" in card && Array.isArray(card.archetypes) && card.type_line && card.text)).toBe(true);
+        for (const card of sent.cards) {
+          const stored = JSON.parse((db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode=?").get(card.id) as { capabilities_json: string }).capabilities_json) as CardCapability;
+          expect(card.text).toBe(printedText(stored.card));
+          expect(card.archetype).toBe(stored.card.archetype ?? null);
+          expect(card.attribute).toBe(stored.card.attribute); expect(card.level).toBe(stored.card.level);
+        }
+        const actions = sent.proposed_lines.flatMap(line => line.steps.map(step => step.action));
+        expect(actions).toContain(source === "Odion" ? "set" : "search");
+        if (source === "Odion") expect(sent.cards.find(card => card.name === "Temple of the Kings")!.bridge_groups).toContain("Odion");
+        if (source === "Snake-Eye") {
+          expect(sent.cards.find(card => card.name === "Fire King Island")!.archetype).toBe("Fire King");
+          expect(sent.proposed_lines[0]!.steps[0]!.detail).toContain("does not Summon");
+        }
+        if (source === "Branded") {
+          for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing,
+            result({ pros: ['Branded Opening searches a "Despia" monster: Despian Tragedy.'], line: ["Branded Opening", "Despian Tragedy"] }), undefined, db));
+          expect(bridgeGate(db, bridge).state).toBe("shown");
+        }
+      }
+    } finally { db.close(); }
+  });
   it("reports provider status and message without exposing the credential", async () => {
     const { db, bridge } = fixture(), errors: { status: number | null; message: string }[] = [];
     const credential = "integration-provider-credential";
@@ -61,7 +92,7 @@ describe("bridge judgement pipeline", () => {
       const schema = JSON.stringify(request.output_config?.format);
       expect(schema).not.toMatch(/minItems|maxItems|minLength|maxLength/);
       calls++;
-      const reply = calls <= 2 ? result({ pros: [" ", "Temple of the Kings enables early activation.", "x".repeat(600), "Extra pro", "Overflow"],
+      const reply = calls <= 2 ? result({ pros: [" ", "No lock metadata is present and the format is legal.", "Temple of the Kings enables early activation.", "x".repeat(600), "Extra pro", "Overflow"],
         cons: ["Needs both cards.", "Requires setting first.", "Needs a free zone.", "Overflow"], line: [] , verdict: "invalid" }) : result();
       return { id: `msg_normalize_${calls}`, model: "claude-haiku-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(reply) }], usage: { input_tokens: 100, output_tokens: 10 } };
     } } };
@@ -169,6 +200,8 @@ describe("bridge judgement pipeline", () => {
         approved(db, bridge, result({ lock_note }));
         expect(bridgeGate(db, bridge).state).toBe("shown");
       }
+      approved(db, bridge, result({ lock_note: "Argostars - Glorious Adra's effect uses Temple of the Kings' permission." }));
+      expect(bridgeGate(db, bridge).state).toBe("shown");
       const evidence = buildBridgeJudgeEvidence(db, bridge)!;
       const quotedCard = { ...evidence.cards[0]!, name: '"A" Cell Recombination Device' };
       expect(parseBridgeJudgement(result({ line: [quotedCard.name], lock_note: `Use ${quotedCard.name}.` }), { ...evidence, cards: [quotedCard] })?.verdict).toBe("valid");

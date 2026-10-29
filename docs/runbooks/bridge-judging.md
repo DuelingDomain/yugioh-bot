@@ -1,10 +1,18 @@
 # Bridge judging
 
-The effect-tagging workflow judges the highest-scoring ten directed candidates per source and format with two independent Haiku 5.5 framings. A candidate remains hidden until both reviews and the deterministic checks pass. Advanced and Genesys evidence are separate. The committed `packages/shared/data/effects/bridge-judgements.jsonl.gz` cache must be populated with real completed reviews before enabling Bridges in Suggestions.
+The effect-tagging workflow judges the highest-scoring ten directed candidates per source and format with two independent framings. `BRIDGE_JUDGE_MODEL` defaults to `claude-haiku-5-5`; `claude-sonnet-5-5` is an opt-in alternative with separate judge identities and billing rates. A candidate remains hidden until both reviews and the deterministic checks pass. Advanced and Genesys evidence are separate. The committed `packages/shared/data/effects/bridge-judgements.jsonl.gz` cache must be populated with real completed reviews before enabling Bridges in Suggestions.
 
-Runtime deep searches admit one job per user at a time and run at most two jobs globally. A user can start 15 searches per rolling hour, with no wait after a completed or failed job. Identical queries reuse the 24-hour cache. Hitting the hourly limit returns 429 with `retryAfter`; only that response starts the UI countdown. A full queue returns 503. Pending reviews stay hidden and are counted as in review without failing the job.
+Runtime deep searches admit one job per user at a time and run at most two jobs globally. A user can start 15 searches per rolling hour, with no wait after a completed or failed job. Identical queries reuse the 24-hour cache. Hitting the hourly limit returns 429 with `retryAfter`; only that response starts the UI countdown. A full queue returns 503. Pending reviews stay hidden. If every attempted review fails and there is no accepted result, the job fails with “Review service unavailable, try later.” Failed jobs are retryable rather than cached as successful empty searches.
 
-SDK connection, timeout, abort, 429 and 5xx failures before a usable response release their runtime reservations for a later invocation. Ambiguous submission failures retain reservations, and paid malformed replies remain billed and hidden for review.
+SDK connection, timeout, abort and HTTP errors release their runtime reservations for a later invocation. Provider status and message are logged to the duel-server journal with credential redaction. Ambiguous submission failures retain reservations. Paid malformed or otherwise unusable replies remain billed but store no judgement text and leave the pair pending for a later invocation. Replies are normalized before the outside-card guard: blank entries are removed, lists are trimmed to three entries and long text is cut. Known archetype labels and supplied-card possessives are accepted by the guard.
+
+The paid diagnostic below is opt-in, outside the unit/integration test runner and not used in CI. Run with Node 22 and `ANTHROPIC_API_KEY` already loaded into the process environment. It judges Odion → Ashtra, Snake-Eye → Fire King and Branded → Despia in a disposable in-memory database, printing raw and normalized reviews, token usage and USD cost per pair. It never prints the key or writes live judgements to the application database.
+
+```sh
+npx tsx scripts/effects/check-bridge-judges-live.ts --live
+# Optional comparison; this does not change the default:
+BRIDGE_JUDGE_MODEL=claude-sonnet-5-5 npx tsx scripts/effects/check-bridge-judges-live.ts --live
+```
 
 The local preview needs no credential and makes no network requests:
 
@@ -13,7 +21,7 @@ prlimit --core=0 -- npm run build --workspace=packages/shared
 prlimit --core=0 -- npx tsx scripts/effects/judge-bridges.ts --dry-run
 ```
 
-The report counts eligible pairs and judge requests, estimates tokens from serialized request bytes, and prices them at $0.10/M input and $0.50/M output with the Batch API's 50% discount. Output assumes 700 tokens per review. This is an estimate; cache writes, reads, actual output and unusually large context can change billed spend. Re-run the preview against the release artifacts for the current pair count and cost estimate. The command defaults to dry run. `--max-requests N` optionally reduces submission size; otherwise the complete initial candidate set is split into batches of at most 1,000 requests.
+The report counts eligible pairs and judge requests, estimates tokens from serialized request bytes, and uses the selected model's [current pricing](https://platform.claude.com/docs/en/about-claude/pricing) with the Batch API's 50% discount. The preview assumes 700 output tokens per review. This is an estimate; cache writes, reads, actual output and unusually large context can change billed spend. Re-run the preview against the release artifacts for the current pair count and cost estimate. The command defaults to dry run. `--max-requests N` optionally reduces submission size; otherwise the complete initial candidate set is split into batches of at most 1,000 requests.
 
 Live runs require the Actions secret `ANTHROPIC_API_KEY` and the durable `state/bridge-judging` branch. Initialize that branch once through a dispatch on `main`:
 
@@ -35,7 +43,7 @@ Do this after the bridge workflow, its corrected candidate artifacts and current
 
 As of this backend repair, remote `main` lacks the bridge-specific dispatch inputs and collection steps. The cache remains empty until this prerequisite can run after integration. Local backend verification does not satisfy this release prerequisite.
 
-Every Batch submission is preceded by a durable reservation and submission intent. Submitted batches retain their immutable IDs until all result custom IDs have been reconciled. Lost submission responses remain `submission_started` and block further submissions; there is no automatic paid POST retry. The workflow report shows submitted, collected and pending requests, spend settled during the run, monthly settled spend and outstanding reservations. Reservations use conservative full-context pricing rather than the much smaller preview estimate.
+Every Batch submission is preceded by a durable reservation and submission intent. Submitted batches retain their immutable IDs until all result custom IDs have been reconciled. Lost submission responses remain `submission_started` and block further submissions; there is no automatic paid POST retry. The workflow report shows submitted, collected and pending requests, spend settled during the run, monthly settled spend and outstanding reservations. New runtime and Batch reservations use the serialized request size (bytes / 3, plus 50% token overhead and 512 tokens), maximum output tokens and a further 25% billing margin at cold one-hour-cache-write rates. Historical full-context reservations remain readable.
 
 There is no bridge monthly cap by default. The optional repository variable `BRIDGE_JUDGE_MONTHLY_USD` caps this offline ledger when configured; unset or blank leaves it uncapped. Runtime bridge judging maintains its own durable host ledger and reads the same optional environment setting. These are separate ledgers, so a configured value is not an account-wide combined limit. The existing effect-tagging $10/month cap does not apply to bridges.
 
@@ -46,7 +54,7 @@ gh workflow run effect-tagging.yml --ref main -f dry_run=false \
   -f recover_bridge_reservation=RESERVATION_ID -f recover_bridge_batch=msgbatch_BATCH_ID
 ```
 
-Recovery verifies the complete result identity set before settling spend. It cannot release a reservation for a still-running, incomplete or mismatched batch. Invalid or malformed reviews are billed but remain hidden for review. Cached evidence is not repeatedly submitted for a malformed verdict.
+Recovery verifies the complete result identity set before settling spend. It cannot release a reservation for a still-running, incomplete or mismatched batch. Invalid verdicts are stored as rejected; unsure verdicts remain in review. Malformed replies are billed without storing a verdict and may be submitted again on a later run, never during the same collection run.
 
 Validated results are exported to the gzip cache and staged alongside an immutable Batch report. Publication accepts only that data file, verifies its hash, row schema and result provenance, and preserves existing cache entries. Judgement-only changes can be published independently of effect-tag updates through the existing artifact PR workflow. No repository source code is accepted from a judge result. Missing credentials use the offline preview and do not create paid calls.
 
