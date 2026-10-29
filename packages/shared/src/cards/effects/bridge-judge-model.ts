@@ -1,7 +1,8 @@
+// Sonnet remains readable only for historical provenance and billing.
 export const BRIDGE_JUDGE_MODELS = ["claude-haiku-5-5", "claude-sonnet-5-5"] as const;
 export type BridgeJudgeModel = typeof BRIDGE_JUDGE_MODELS[number];
 const configured = process.env.BRIDGE_JUDGE_MODEL?.trim() || BRIDGE_JUDGE_MODELS[0];
-if (!BRIDGE_JUDGE_MODELS.includes(configured as BridgeJudgeModel)) throw new Error("Unsupported BRIDGE_JUDGE_MODEL");
+if (configured !== "claude-haiku-5-5") throw new Error("BRIDGE_JUDGE_MODEL must be claude-haiku-5-5");
 export const BRIDGE_JUDGE_MODEL = configured as BridgeJudgeModel;
 
 // USD per million tokens equals microdollars per token. Source:
