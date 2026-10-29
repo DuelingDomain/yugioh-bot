@@ -77,10 +77,17 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
       const first = await start() as { jobId: string };
       await new Promise(resolve => setImmediate(resolve));
       expect(api.jobs.status({ userId: user.userId, guildId: "g" }, first.jobId)).toMatchObject({ state: "failed", results: [], error: "Review service unavailable, try later." });
+      const evidence = buildBridgeJudgeEvidence(db, row)!;
+      saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, "mechanic", {
+        verdict: "valid", grade: "good", pros: ["Branded Opening searches Despian Tragedy."],
+        cons: ["Branded Opening needs a card to discard during resolution."], lock_note: "The search does not Summon.",
+        line: ["Branded Opening", "Despian Tragedy"], format_ok: true,
+      }));
       const retry = await start() as { jobId: string; cached: boolean };
       expect(retry.jobId).not.toBe(first.jobId);
       expect(retry.cached).toBe(false);
       await api.jobs.close();
+      expect(api.jobs.status({ userId: user.userId, guildId: "g" }, retry.jobId)).toMatchObject({ state: "failed", error: "Review service unavailable, try later." });
       expect(workers.rateBridge).toHaveBeenCalledTimes(2);
     } finally { await api.jobs.close(); }
   });
