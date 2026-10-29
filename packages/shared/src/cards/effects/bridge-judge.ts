@@ -6,8 +6,9 @@ import { BridgeEngine, bridgeLegal } from "./bridge-engine.js";
 import { bridgeHash, printedText, quotedNames } from "./bridge-text.js";
 import type { ArchetypeBridge, BridgeFormat, BridgeReason, CardCapability, SummonLock } from "./bridge-types.js";
 import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, releaseBridgeJudgeSpend, settleBridgeJudgeSpend, startBridgeJudgeSpend, type BridgeJudgeSpendSummary, type BridgeJudgeUsage } from "./bridge-judge-ledger.js";
+import { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS } from "./bridge-judge-model.js";
+export { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS, bridgeJudgeRates } from "./bridge-judge-model.js";
 
-export const BRIDGE_JUDGE_MODEL = "claude-haiku-5-5";
 export const BRIDGE_JUDGE_FRAMINGS = ["mechanic", "skeptic"] as const;
 export type BridgeJudgeFraming = typeof BRIDGE_JUDGE_FRAMINGS[number];
 // Anthropic's wire schema supports types, but not these local length bounds.
@@ -24,7 +25,7 @@ export type BridgeJudgement = z.infer<typeof BridgeJudgementSchema>;
 const judgementGrades: BridgeJudgement["grade"][] = ["strong", "good", "niche", "risky"];
 export const BridgeJudgementRecordSchema = z.object({
   evidence_hash: z.string().regex(/^[a-f0-9]{64}$/), input_hash: z.string().regex(/^[a-f0-9]{64}$/),
-  judge: z.string().min(1).max(200), framing: z.enum(BRIDGE_JUDGE_FRAMINGS), model: z.literal(BRIDGE_JUDGE_MODEL),
+  judge: z.string().min(1).max(200), framing: z.enum(BRIDGE_JUDGE_FRAMINGS), model: z.enum(BRIDGE_JUDGE_MODELS),
   result: BridgeJudgementSchema, created_at: z.string().datetime(),
 }).strict();
 export type BridgeJudgementRecord = z.infer<typeof BridgeJudgementRecordSchema>;

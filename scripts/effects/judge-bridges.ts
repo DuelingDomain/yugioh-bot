@@ -10,7 +10,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import { migrate } from "@yugidraft/shared/db";
 import {
   BRIDGE_JUDGE_FRAMINGS, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_RESERVATION_MICROS, BridgeJudgementRecordSchema,
-  bridgeJudgeBilledMicros, bridgeJudgeIdentity, bridgeJudgeRequest, buildBridgeJudgeEvidence,
+  bridgeJudgeBilledMicros, bridgeJudgeRates, bridgeJudgeIdentity, bridgeJudgeRequest, buildBridgeJudgeEvidence,
   importBridgeArtifact, importBridgeJudgements, importCardEffectArtifact, makeBridgeJudgementRecord, parseBridgeJudgement,
   readBridgeJudgements, saveBridgeJudgement,
   type ArchetypeBridge, type BridgeJudgeEvidence, type BridgeJudgeFraming, type BridgeJudgementRecord,
@@ -175,7 +175,7 @@ function resultsFor(entry: Reservation, rows: unknown[], db?: Database.Database)
     if (row.result.type !== "succeeded" || !message?.model?.startsWith(BRIDGE_JUDGE_MODEL) || !usage || !Number.isSafeInteger(usage.input_tokens) || usage.input_tokens < 0 || !Number.isSafeInteger(usage.output_tokens) || usage.output_tokens < 0 || usage.output_tokens > MAX_OUTPUT_TOKENS
       || [usage.cache_creation_input_tokens ?? 0, usage.cache_read_input_tokens ?? 0].some(value => !Number.isSafeInteger(value) || value < 0)
       || usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) > MAX_INPUT_TOKENS) throw new Error("Invalid billed bridge Batch usage");
-    actualMicros += bridgeJudgeBilledMicros(usage, true);
+    actualMicros += bridgeJudgeBilledMicros(usage, true, message.model);
     const evidence = entry.evidence[request.inputHash]!;
     let parsed = null;
     try {
@@ -235,13 +235,14 @@ export async function runBridgeBatchJudging(options: {
       missing = true; queued.add(key); eligible.push({ evidence, framing });
       const params = bridgeJudgeRequest(evidence, framing);
       // UTF-8 bytes deliberately overestimate ordinary English token counts.
-      report.estimatedInputTokens += Math.ceil(Buffer.byteLength(JSON.stringify(params)) / 3);
+      const inputTokens = Math.ceil(Buffer.byteLength(JSON.stringify(params)) / 3), rates = bridgeJudgeRates(params.model, inputTokens);
+      report.estimatedInputTokens += inputTokens;
       report.estimatedOutputTokens += 700;
+      report.estimatedCostUsd += (inputTokens * rates.input + 700 * rates.output) / 1_000_000 * 0.5;
     }
     if (missing) report.pairs++;
   }
   report.requests = eligible.length;
-  report.estimatedCostUsd = (report.estimatedInputTokens * 0.10 + report.estimatedOutputTokens * 0.50) / 1_000_000 * 0.5;
   if (ledger.reservations.some(entry => entry.state === "submission_started")) report.deferred.push("ambiguous-submission");
   const configuredCap = options.monthlyUsd?.trim(), cap = configuredCap ? Number(configuredCap) * 1_000_000 : Infinity;
   if (Number.isNaN(cap) || cap < 0 || (configuredCap && !Number.isFinite(cap))) throw new Error("BRIDGE_JUDGE_MONTHLY_USD must be a nonnegative finite number");
