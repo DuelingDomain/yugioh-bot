@@ -175,7 +175,7 @@ export function parseBridgeJudgement(value: unknown, evidence: BridgeJudgeEviden
   // Mask possessives with the supplied title: their apostrophes are not quotes.
   const remaining = supplied ? normalized.replace(new RegExp(`(?<![a-z0-9])(?:${supplied})(?![a-z0-9])(?:'s\\b|'(?![a-z0-9]))?`, "g"), " ") : normalized;
   const quoted = [...quotedNames(remaining), ...[...remaining.matchAll(/(?<![a-z0-9])['‘]([^\n]+?)['’](?![a-z0-9])/g)].map(match => match[1]!)];
-  const labels = new Set([evidence.source.name, evidence.target.name, ...evidence.cards.flatMap(card => [card.archetype ?? "", ...card.archetypes])].map(normalizedName));
+  const labels = new Set([evidence.source.name, evidence.target.name, ...evidence.cards.flatMap(card => [card.archetype ?? "", ...(card.archetypes ?? [])])].map(normalizedName));
   if (quoted.some(name => name.trim().length > 0 && !allowed.has(normalizedName(name)) && !labels.has(normalizedName(name)))) return { ...result, verdict: result.verdict === "invalid" ? "invalid" : "unsure" };
   return result;
 }

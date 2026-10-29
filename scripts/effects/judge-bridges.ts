@@ -9,7 +9,7 @@ import { parseArgs } from "node:util";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { migrate } from "@yugidraft/shared/db";
 import {
-  BRIDGE_JUDGE_FRAMINGS, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_RESERVATION_MICROS, BridgeJudgementRecordSchema,
+  BRIDGE_JUDGE_FRAMINGS, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS, BRIDGE_JUDGE_RESERVATION_MICROS, BridgeJudgementRecordSchema,
   bridgeJudgeBilledMicros, bridgeJudgeRates, bridgeJudgeReservationMicros, bridgeJudgeIdentity, bridgeJudgeRequest, buildBridgeJudgeEvidence,
   importBridgeArtifact, importBridgeJudgements, importCardEffectArtifact, makeBridgeJudgementRecord, parseBridgeJudgement,
   readBridgeJudgements, saveBridgeJudgement,
@@ -173,7 +173,8 @@ function resultsFor(entry: Reservation, rows: unknown[], db?: Database.Database)
     seen.add(row.custom_id);
     if (["errored", "canceled", "expired"].includes(row.result.type)) continue;
     const message = row.result.message, usage = message?.usage;
-    if (row.result.type !== "succeeded" || !message?.model?.startsWith(BRIDGE_JUDGE_MODEL) || !usage || !Number.isSafeInteger(usage.input_tokens) || usage.input_tokens < 0 || !Number.isSafeInteger(usage.output_tokens) || usage.output_tokens < 0 || usage.output_tokens > MAX_OUTPUT_TOKENS
+    const model = BRIDGE_JUDGE_MODELS.find(model => request.judge.startsWith(`${model}:`));
+    if (row.result.type !== "succeeded" || !model || !message?.model?.startsWith(model) || !usage || !Number.isSafeInteger(usage.input_tokens) || usage.input_tokens < 0 || !Number.isSafeInteger(usage.output_tokens) || usage.output_tokens < 0 || usage.output_tokens > MAX_OUTPUT_TOKENS
       || [usage.cache_creation_input_tokens ?? 0, usage.cache_read_input_tokens ?? 0].some(value => !Number.isSafeInteger(value) || value < 0)
       || usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) > MAX_INPUT_TOKENS) throw new Error("Invalid billed bridge Batch usage");
     actualMicros += bridgeJudgeBilledMicros(usage, true, message.model);
@@ -182,7 +183,7 @@ function resultsFor(entry: Reservation, rows: unknown[], db?: Database.Database)
     try {
       if (message.stop_reason === "end_turn" && Array.isArray(message.content)) parsed = parseBridgeJudgement(JSON.parse(message.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join("")), evidence, db);
     } catch { /* Malformed output stays pending. */ }
-    if (parsed) accepted.push({ ...makeBridgeJudgementRecord(evidence, request.framing, parsed, new Date(entry.createdAt), db), judge: request.judge });
+    if (parsed) accepted.push({ ...makeBridgeJudgementRecord(evidence, request.framing, parsed, new Date(entry.createdAt), db), judge: request.judge, model });
   }
   if (seen.size !== expected.size) throw new Error("Incomplete Batch results; reservation remains held");
   if (actualMicros > entry.reservedMicros) throw new Error("Bridge Batch usage exceeds reservation");

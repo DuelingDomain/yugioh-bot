@@ -43,6 +43,22 @@ function endpoint(options: { uncertain?: boolean; partial?: boolean; model?: str
 }
 
 describe("offline bridge judgement batches", () => {
+  it("settles a batch using its originating model and pre-metadata evidence after config changes", async () => {
+    const fixture = await setup(), mock = endpoint({ model: "claude-sonnet-5-5" });
+    await runBridgeBatchJudging({ ...fixture, client: mock.client, dryRun: false });
+    const snapshot = (await fixture.store.read())!, entry = snapshot.ledger.reservations[0]!;
+    for (const request of entry.requests) request.judge = request.judge.replace("claude-haiku-5-5:", "claude-sonnet-5-5:");
+    for (const evidence of Object.values(entry.evidence)) for (const card of evidence.cards) {
+      delete (card as Partial<typeof card>).archetypes; delete (card as Partial<typeof card>).archetype;
+    }
+    await fixture.store.compareAndSwap(snapshot.revision, snapshot.ledger);
+    const report = await runBridgeBatchJudging({ ...fixture, client: mock.client, dryRun: false, maxRequests: 0 });
+    expect(report.collected).toBe(2); expect(report.pending).toBe(0);
+    expect(report.runSpendUsd).toBe(0.0007);
+    const settled = (await fixture.store.read())!.ledger.reservations[0]!;
+    expect(settled.accepted).toHaveLength(2);
+    expect(settled.accepted!.every(row => row.model === "claude-sonnet-5-5" && row.judge.startsWith("claude-sonnet-5-5:"))).toBe(true);
+  });
   it("bills unusable replies without storing canned reviews and retries on a later run", async () => {
     const fixture = await setup(), mock = endpoint({ malformed: true });
     await runBridgeBatchJudging({ ...fixture, client: mock.client, dryRun: false });
