@@ -26,7 +26,8 @@ const judgementGrades: BridgeJudgement["grade"][] = ["strong", "good", "niche", 
 export const BridgeJudgementRecordSchema = z.object({
   evidence_hash: z.string().regex(/^[a-f0-9]{64}$/), input_hash: z.string().regex(/^[a-f0-9]{64}$/),
   judge: z.string().min(1).max(200), framing: z.enum(BRIDGE_JUDGE_FRAMINGS), model: z.enum(BRIDGE_JUDGE_MODELS),
-  result: BridgeJudgementSchema, created_at: z.string().datetime(),
+  // Read prior records verbatim for provenance; new saves normalize to three.
+  result: BridgeJudgementSchema.extend({ line: z.array(z.string().trim().min(1).max(200)).max(32) }), created_at: z.string().datetime(),
 }).strict();
 export type BridgeJudgementRecord = z.infer<typeof BridgeJudgementRecordSchema>;
 export interface BridgeJudgeEvidence {
@@ -194,7 +195,7 @@ export function readBridgeJudgements(db: Database.Database, evidenceHash: string
 }
 
 export function saveBridgeJudgement(db: Database.Database, value: BridgeJudgementRecord): void {
-  const row = BridgeJudgementRecordSchema.parse(value);
+  const row = BridgeJudgementRecordSchema.parse({ ...value, result: { ...value.result, line: value.result.line.slice(0, 3) } });
   if (row.judge !== bridgeJudgeIdentity(row, row.framing)) throw new Error("Stale bridge judge identity");
   const verdict = row.result.verdict === "valid" && row.result.format_ok ? "approved" : row.result.verdict === "invalid" ? "rejected" : "review";
   db.prepare(`INSERT INTO bridge_judgement(evidence_hash,judge,verdict,judgement_json,created_at) VALUES(?,?,?,?,?)
