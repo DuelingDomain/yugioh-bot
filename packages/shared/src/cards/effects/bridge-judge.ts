@@ -63,7 +63,7 @@ const framings: Record<BridgeJudgeFraming, string> = {
 const setupRules = "A trigger that says Normal or Special Summoned does not specifically require a Normal Summon. If the source was Normal Summoned, a second Normal Summon is unavailable without an additional effect; if the source was Special Summoned, the usual Normal Summon may still be available. Do not merge those alternative setups. Normal Setting takes a Trap from hand, never directly from Deck; a Deck Set requires a supplied effect.";
 export const BRIDGE_JUDGE_SYSTEM_PROMPTS = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${instructions}\n${setupRules}\n${framings[framing]}`])) as Record<BridgeJudgeFraming, string>;
 const outputSchema = z.toJSONSchema(BridgeJudgementWireSchema);
-export const BRIDGE_JUDGE_IDENTITIES = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${BRIDGE_JUDGE_MODEL}:${framing}:${bridgeHash({ system: BRIDGE_JUDGE_SYSTEM_PROMPTS[framing], schema: outputSchema, parser: 6, text: BRIDGE_FACT_CHECK_SYSTEM })}`])) as Record<BridgeJudgeFraming, string>;
+export const BRIDGE_JUDGE_IDENTITIES = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${BRIDGE_JUDGE_MODEL}:${framing}:${bridgeHash({ system: BRIDGE_JUDGE_SYSTEM_PROMPTS[framing], schema: outputSchema, parser: 7, text: BRIDGE_FACT_CHECK_SYSTEM })}`])) as Record<BridgeJudgeFraming, string>;
 export const BRIDGE_JUDGE_VERSION = bridgeHash(BRIDGE_JUDGE_IDENTITIES);
 // Engine evidence hashes can be shared by different directed pairs. Keep each
 // checked summary/context separate without invalidating an unchanged review.

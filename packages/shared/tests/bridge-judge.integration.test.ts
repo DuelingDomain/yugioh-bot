@@ -41,6 +41,18 @@ function approved(db: Database.Database, bridge: ArchetypeBridge, second = resul
 }
 
 describe("bridge judgement pipeline", () => {
+  it("keeps punctuation in supplied card names while splitting uncited second sentences", () => {
+    const db = new Database(":memory:"); migrate(db);
+    try {
+      importBridgeArtifact(db);
+      const bridge = createBridgeService(db).bridgeBetween("Danger!", "Dark World")!;
+      const evidence = buildBridgeJudgeEvidence(db, bridge)!;
+      const sentence = "Danger! Zone can only be activated once per turn.";
+      const parsed = parseBridgeJudgement({ ...result({ cons: [sentence + " Traps activate from hand."], lock_note: "", line: ["Danger! Zone"] }),
+        grounding: [{ field: "cons", sentence, citations: [{ card: "Danger! Zone", quote: 'You can only activate 1 "Danger! Zone" per turn.' }] }] }, evidence)!;
+      expect(parsed.text_audit).toMatchObject([{ sentence, status: "pending" }, { sentence: "Traps activate from hand.", status: "dropped", reason: "missing_quote" }]);
+    } finally { db.close(); }
+  });
   it("reserves and bills enough output for grounded reviews with long thinking", async () => {
     const { db, bridge } = fixture();
     const client: BridgeJudgeClient = { messages: { async create(request) {

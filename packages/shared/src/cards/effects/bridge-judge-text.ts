@@ -48,9 +48,24 @@ export function validBridgeCitations(item: Pick<BridgeTextSentence, "citations">
     return card && quote.length >= 8 && normalizedQuote(card.text).includes(quote);
   });
 }
+function splitBridgeSentences(text: string, evidence: BridgeJudgeEvidence): string[] {
+  const lower = text.toLowerCase(), spans: [number, number][] = [];
+  for (const card of evidence.cards) {
+    const name = card.name.toLowerCase();
+    if (!name) continue;
+    for (let start = lower.indexOf(name); start !== -1; start = lower.indexOf(name, start + name.length)) spans.push([start, start + name.length]);
+  }
+  const parts: string[] = []; let start = 0;
+  for (const match of text.matchAll(/(?<=[.!?])\s+(?=[A-Z])/g)) {
+    if (spans.some(([from, to]) => match.index! > from && match.index! < to)) continue;
+    parts.push(text.slice(start, match.index)); start = match.index! + match[0].length;
+  }
+  parts.push(text.slice(start));
+  return parts.filter(Boolean);
+}
 export function groundBridgeSentences(value: { cons: string[]; lock_note: string; grounding?: Pick<BridgeTextSentence, "field" | "sentence" | "citations">[] }, evidence: BridgeJudgeEvidence): BridgeTextSentence[] {
   return ([...value.cons.map(sentence => ({ field: "cons" as const, sentence })), { field: "lock_note" as const, sentence: value.lock_note }])
-    .flatMap(item => item.sentence.trim().split(/(?<=[.!?])\s+(?=[A-Z])/).filter(Boolean).map(sentence => {
+    .flatMap(item => splitBridgeSentences(item.sentence.trim(), evidence).map(sentence => {
       const citation = value.grounding?.find(candidate => candidate.field === item.field && candidate.sentence.trim() === sentence);
       const valid = citation && validBridgeCitations(citation, evidence);
       return { field: item.field, sentence, citations: citation?.citations ?? [], status: valid ? "pending" as const : "dropped" as const,
