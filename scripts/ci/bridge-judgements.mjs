@@ -26,7 +26,7 @@ export function validateBridgeJudgementCandidate(root, output, metadata) {
     if (seen.has(identity) || !/^[a-f0-9]{64}$/.test(row.evidence_hash) || !/^[a-f0-9]{64}$/.test(row.input_hash)
       || !["mechanic", "skeptic"].includes(row.framing) || !["claude-haiku-5-5", "claude-sonnet-5-5"].includes(row.model) || !new RegExp(`^${row.model}:${row.framing}:[a-f0-9]{64}:${row.input_hash}$`).test(row.judge)
       || !Number.isFinite(Date.parse(row.created_at)) || !result || !["valid", "invalid", "unsure"].includes(result.verdict) || !["strong", "good", "niche", "risky"].includes(result.grade)
-      || [result.pros, result.cons].some(items => !Array.isArray(items) || items.length < 1 || items.length > 3 || items.some(item => typeof item !== "string" || !item.trim() || item.length > 500))
+      || [result.pros, result.cons].some(items => !Array.isArray(items) || items.length > 3 || items.some(item => typeof item !== "string" || !item.trim() || item.length > 500))
       || typeof result.lock_note !== "string" || result.lock_note.length > 1500 || typeof result.format_ok !== "boolean" || !Array.isArray(result.line) || result.verdict === "valid" && result.line.length < 1 || result.line.length > (equal(before.get(identity), row) ? 32 : 3) || result.line.some(name => typeof name !== "string" || !name.trim() || name.length > 200)) throw new Error("Invalid bridge judgement record");
     seen.add(identity);
     if (!equal(before.get(identity), row) && !equal(accepted.get(identity), row)) throw new Error("Bridge judgement differs from collected Batch results");

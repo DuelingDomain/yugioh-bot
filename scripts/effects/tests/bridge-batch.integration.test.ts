@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { bridgeGate, exportBridgeJudgements, importBridgeArtifact, importBridgeJudgements, importCardEffectArtifact, type ArchetypeBridge } from "@yugidraft/shared/cards/effects";
-import { AnthropicBridgeBatchClient, FileBridgeBatchStore, emptyBridgeBatchLedger, exportBridgeBatchJudgements, runBridgeBatchJudging } from "../judge-bridges.js";
+import { bridgeGate, shownBridge, exportBridgeJudgements, importBridgeArtifact, importBridgeJudgements, importCardEffectArtifact, type ArchetypeBridge } from "@yugidraft/shared/cards/effects";
+import { AnthropicBridgeBatchClient, FileBridgeBatchStore, emptyBridgeBatchLedger, exportBridgeBatchJudgements, runBridgeBatchJudging, type BridgeBatchClient } from "../judge-bridges.js";
 import { BRIDGE_JUDGEMENT_FILE, validateBridgeJudgementCandidate } from "../../ci/bridge-judgements.mjs";
 
 const directories: string[] = [], databases: Database.Database[] = [];
@@ -43,6 +43,46 @@ function endpoint(options: { uncertain?: boolean; partial?: boolean; model?: str
 }
 
 describe("offline bridge judgement batches", () => {
+  it("durably reserves and settles a second text batch before publishing grounded notes", async () => {
+    const fixture = await setup();
+    const batches = new Map<string, Parameters<BridgeBatchClient["create"]>[0]>();
+    const supported = "Temple of the Kings allows Trap activation on the turn Set.";
+    const unsupported = "Temple of the Kings allows Trap activation from the hand.";
+    const client: BridgeBatchClient = {
+      async create(requests) { const id = `msgbatch_grounded_${batches.size}`; batches.set(id, requests); return { id }; },
+      async retrieve() { return { processing_status: "ended" }; },
+      async results(id) { return batches.get(id)!.map(request => {
+        const input = JSON.parse(request.params.messages[0]!.content as string);
+        const value = input.sentences ? { checks: input.sentences.map((item: { id: number; sentence: string }) => ({ id: item.id, supported: item.sentence === supported ? "yes" : "no" })) }
+          : { verdict: "valid", grade: "good", format_ok: true, pros: [], cons: [supported, unsupported], lock_note: "", line: ["Temple of the Kings"],
+            grounding: [supported, unsupported].map(sentence => ({ field: "cons", sentence, citations: [{ card: "Temple of the Kings", quote: "You can activate 1 Trap Card the turn it was Set." }] })) };
+        return { custom_id: request.custom_id, result: { type: "succeeded", message: { model: "claude-haiku-5-5", stop_reason: "end_turn",
+          usage: { input_tokens: 100, output_tokens: 10 }, content: [{ type: "text", text: JSON.stringify(value) }] } } };
+      }); },
+    };
+    await runBridgeBatchJudging({ ...fixture, client, dryRun: false });
+    const primary = await runBridgeBatchJudging({ ...fixture, client, dryRun: false });
+    expect(primary).toMatchObject({ collected: 2, submitted: 2, pending: 2 });
+    expect(shownBridge(fixture.db, fixture.bridges[0]!)?.review.cons).toEqual([]);
+    const durable = (await fixture.store.read())!.ledger.reservations[1]!;
+    expect(durable.requests.every(request => request.textReview)).toBe(true);
+    expect(durable.reservedMicros).toBeGreaterThan(0);
+    const checked = await runBridgeBatchJudging({ ...fixture, client, dryRun: false });
+    expect(checked).toMatchObject({ collected: 2, submitted: 0, pending: 0, monthlySpendUsd: 0.000032 });
+    expect(shownBridge(fixture.db, fixture.bridges[0]!)?.review.cons).toEqual([supported]);
+    expect(JSON.stringify(shownBridge(fixture.db, fixture.bridges[0]!))).not.toContain("text_audit");
+    const settled = (await fixture.store.read())!.ledger.reservations;
+    expect(settled.every(entry => entry.state === "settled")).toBe(true);
+    expect(checked.acceptedRecords).toHaveLength(2);
+    expect(checked.acceptedRecords.every(row => row.result.verdict === "valid" && row.result.cons.length === 1)).toBe(true);
+    const root = join(fixture.directory, "base"), output = join(fixture.directory, "candidate");
+    for (const path of [root, output]) mkdirSync(join(path, "packages/shared/data/effects"), { recursive: true });
+    const before = gzipSync(""); writeFileSync(join(root, BRIDGE_JUDGEMENT_FILE), before);
+    exportBridgeJudgements(fixture.db, join(output, "packages/shared/data/effects"));
+    writeFileSync(join(output, "bridge-judge-report.json"), JSON.stringify(checked));
+    const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+    expect(validateBridgeJudgementCandidate(root, output, { files: [BRIDGE_JUDGEMENT_FILE], base_sha256: sha(before), sha256: sha(readFileSync(join(output, BRIDGE_JUDGEMENT_FILE))), records: 2 })).toEqual([BRIDGE_JUDGEMENT_FILE]);
+  });
   it("settles a batch using its originating model and pre-metadata evidence after config changes", async () => {
     const fixture = await setup(), mock = endpoint({ model: "claude-sonnet-5-5" });
     await runBridgeBatchJudging({ ...fixture, client: mock.client, dryRun: false });
@@ -93,14 +133,14 @@ describe("offline bridge judgement batches", () => {
     expect(third.requests).toBe(0); expect(mock.calls.filter(call => call.startsWith("POST"))).toHaveLength(1);
   });
 
-  it("bills collected replies while holding prose that names an outside card in review", async () => {
+  it("bills collected replies while dropping ungrounded outside-card prose", async () => {
     const fixture = await setup(), mock = endpoint({ lockNote: "Summon Blue-Eyes White Dragon to avoid the restriction." });
     await runBridgeBatchJudging({ ...fixture, client: mock.client, dryRun: false });
     const report = await runBridgeBatchJudging({ ...fixture, client: mock.client, dryRun: false });
     expect(report.collected).toBe(2);
     expect(report.runSpendUsd).toBeGreaterThan(0);
-    expect(report.acceptedRecords.every(record => record.result.verdict === "unsure")).toBe(true);
-    expect(bridgeGate(fixture.db, fixture.bridges[0]!).state).toBe("review");
+    expect(report.acceptedRecords.every(record => record.result.verdict === "valid" && record.result.lock_note === "")).toBe(true);
+    expect(bridgeGate(fixture.db, fixture.bridges[0]!).state).toBe("shown");
   });
 
   it("keeps ambiguous submission intent durable and never repeats the paid POST", async () => {
