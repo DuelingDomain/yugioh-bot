@@ -40,7 +40,7 @@ export interface CardCapability {
 }
 export const REASON_CAPS = {
   mention: 12, reach: 12, profile: 10, rule_enabler: 10, extra_deck: 10,
-  searcher: 2, small_world: 2, gy_fuel: 6, type_support: 3, face_down: 8,
+  searcher: 2, small_world: 2, gy_fuel: 6, type_support: 3, face_down: 8, access: 6,
 } as const;
 export type BridgeReasonKey = keyof typeof REASON_CAPS;
 export interface BridgeReason {
@@ -54,9 +54,13 @@ export interface BridgeReason {
   /** The exact capability filters used to establish the directed edges. */
   steps?: { from: number; to: number; capability: CapabilityKey }[];
   materials?: number[];
+  /** A source card pays the same effect's specific cost before that effect reaches the target. */
+  cost?: { card: number; using: number; capability: CapabilityKey; effect: number };
 }
 export type BridgeGrade = "Strong" | "Good" | "Niche" | "Risky";
 export interface ArchetypeBridge {
+  /** Missing on historical strict rows. Niche tier rows are exclusive to deep search. */
+  tier?: "niche";
   source: string;
   target: string;
   format: BridgeFormat;
