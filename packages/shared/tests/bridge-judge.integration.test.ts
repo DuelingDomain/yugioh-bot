@@ -161,6 +161,17 @@ describe("bridge judgement pipeline", () => {
     } finally { db.close(); }
   });
 
+  it("preserves two invalid verdicts as rejected even when their explanations mention outside cards", () => {
+    const { db, bridge } = fixture();
+    try {
+      const evidence = buildBridgeJudgeEvidence(db, bridge)!;
+      for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing,
+        result({ verdict: "invalid", line: [], cons: ['Requires "Imaginary Temple Dragon".', "Needs both cards."] }), undefined, db));
+      expect(bridgeGate(db, bridge).state).toBe("invalid");
+      expect(db.prepare("SELECT DISTINCT verdict FROM bridge_judgement").all()).toEqual([{ verdict: "rejected" }]);
+    } finally { db.close(); }
+  });
+
   it("distinguishes ambiguous card titles from ordinary rule explanations", () => {
     const { db, bridge } = fixture();
     try {

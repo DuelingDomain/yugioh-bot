@@ -148,11 +148,11 @@ export function parseBridgeJudgement(value: unknown, evidence: BridgeJudgeEviden
     const before = original.slice(0, match.index), after = original.slice(match.index! + match[0].length);
     return /\b(?:activate|search|add|summon|set|send|banish|discard|tribute|use|requires?|needs?)(?: (?:an?|the|your|another|card named))*\s+$/i.test(before)
       || /^\s*(?:card|effect|allows?|lets?|provides?|adds?|searches?|summons?|avoids?|enables?)\b/i.test(after);
-  })) return { ...result, verdict: "unsure" };
+  })) return { ...result, verdict: result.verdict === "invalid" ? "invalid" : "unsure" };
   const supplied = [...allowed].sort((a, b) => b.length - a.length).map(escapeName).join("|");
   const remaining = supplied ? normalized.replace(new RegExp(`(?<![a-z0-9])(?:${supplied})(?![a-z0-9])`, "g"), " ") : normalized;
   const quoted = [...quotedNames(remaining), ...[...remaining.matchAll(/(?<![a-z0-9])['‘]([^\n]+?)['’](?![a-z0-9])/g)].map(match => match[1]!)];
-  if (quoted.some(name => name.trim().length > 0 && !allowed.has(normalizedName(name)))) return { ...result, verdict: "unsure" };
+  if (quoted.some(name => name.trim().length > 0 && !allowed.has(normalizedName(name)))) return { ...result, verdict: result.verdict === "invalid" ? "invalid" : "unsure" };
   return result;
 }
 
