@@ -23,7 +23,7 @@ async function setup() {
   return { directory, db, store, bridges: [bridge], now: () => new Date("2026-10-28T12:00:00Z") };
 }
 
-function endpoint(options: { uncertain?: boolean; partial?: boolean; model?: string; lockNote?: string } = {}) {
+function endpoint(options: { uncertain?: boolean; partial?: boolean; model?: string; lockNote?: string; malformed?: boolean } = {}) {
   const calls: string[] = [], requests: Array<{ custom_id: string; params: Record<string, any> }> = [];
   const sdk = new Anthropic({ apiKey: "integration-fixture", maxRetries: 0, fetch: async (input, init) => {
     const url = String(input); calls.push(`${init?.method ?? "GET"} ${url}`);
@@ -34,6 +34,7 @@ function endpoint(options: { uncertain?: boolean; partial?: boolean; model?: str
     }
     if (url.endsWith("/results")) {
       const results = requests.map(request => ({ custom_id: request.custom_id, result: { type: "succeeded", message: { model: options.model ?? "claude-haiku-5-5", stop_reason: "end_turn", usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, content: [{ type: "text", text: JSON.stringify({ verdict: "valid", grade: "good", pros: ["A named line is available.", "The enabler covers the target."], cons: ["The package uses deck slots.", "The starter can be interrupted."], lock_note: options.lockNote ?? "Use the checked order.", line: [JSON.parse(request.params.messages[0].content).cards[0].name], format_ok: true }) }] } } }));
+      if (options.malformed) for (const row of results) row.result.message.content[0]!.text = "not JSON";
       return new Response((options.partial ? results.slice(1) : results).map(row => JSON.stringify(row)).join("\n") + "\n", { headers: { "content-type": "application/x-jsonl" } });
     }
     return new Response(JSON.stringify({ id: "msgbatch_fixture", processing_status: "ended", results_url: "https://api.anthropic.com/v1/messages/batches/msgbatch_fixture/results" }), { headers: { "content-type": "application/json" } });
@@ -42,6 +43,16 @@ function endpoint(options: { uncertain?: boolean; partial?: boolean; model?: str
 }
 
 describe("offline bridge judgement batches", () => {
+  it("bills unusable replies without storing canned reviews and retries on a later run", async () => {
+    const fixture = await setup(), mock = endpoint({ malformed: true });
+    await runBridgeBatchJudging({ ...fixture, client: mock.client, dryRun: false });
+    const collected = await runBridgeBatchJudging({ ...fixture, client: mock.client, dryRun: false });
+    expect(collected.collected).toBe(2); expect(collected.submitted).toBe(0);
+    expect(collected.runSpendUsd).toBeGreaterThan(0); expect(collected.acceptedRecords).toEqual([]);
+    expect(bridgeGate(fixture.db, fixture.bridges[0]!).state).toBe("pending");
+    expect(fixture.db.prepare("SELECT count(*) AS n FROM bridge_judgement").get()).toEqual({ n: 0 });
+    expect((await runBridgeBatchJudging({ ...fixture, client: mock.client, dryRun: false })).submitted).toBe(2);
+  });
   it("prices a dry run without constructing a client or changing the ledger", async () => {
     const fixture = await setup(), before = readFileSync(join(fixture.directory, "ledger.json"), "utf8");
     const report = await runBridgeBatchJudging({ ...fixture, dryRun: true });

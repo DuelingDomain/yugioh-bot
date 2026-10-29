@@ -298,16 +298,19 @@ describe("bridge judgement pipeline", () => {
     } finally { db.close(); }
   });
 
-  it("keeps truncated or malformed paid replies in review and retains separate contexts sharing an evidence hash", async () => {
+  it("keeps truncated or malformed paid replies pending and retryable without canned text", async () => {
     const { db, bridge } = fixture(); let calls = 0;
     const client: BridgeJudgeClient = { messages: { async create() {
       calls++;
       return { id: `msg_invalid_${calls}`, model: "claude-haiku-5-5", stop_reason: calls === 1 ? "max_tokens" : "end_turn", content: [{ type: "text", text: "not JSON" }], usage: { input_tokens: 100, output_tokens: 10 } };
     } } };
     try {
-      expect((await judgeBridgePair(db, bridge, { client, log: () => {} })).state).toBe("review");
+      expect((await judgeBridgePair(db, bridge, { client, log: () => {} })).state).toBe("pending");
+      expect(db.prepare("SELECT count(*) AS n FROM bridge_judgement").get()).toEqual({ n: 0 });
       expect(bridgeJudgeSpendSummary(db).reservedMicros).toBe(0);
       expect(bridgeJudgeSpendSummary(db).actualMicros).toBe(30);
+      await judgeBridgePair(db, bridge, { client, log: () => {} });
+      expect(calls).toBe(4);
       approved(db, bridge);
       const other = { ...bridge, source: "Other source" };
       expect(bridgeGate(db, other).state).toBe("pending");

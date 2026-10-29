@@ -181,7 +181,10 @@ export interface BridgeGate { state: "shown" | "review" | "invalid" | "pending";
 export function bridgeGate(db: Database.Database, bridge: ArchetypeBridge): BridgeGate {
   const evidence = buildBridgeJudgeEvidence(db, bridge);
   if (!evidence) return { state: "invalid", judgements: [], reason: "Deterministic evidence no longer passes." };
-  const judgements = readBridgeJudgements(db, bridge.evidence_hash).filter(row => row.input_hash === evidence.input_hash).map(row => ({ ...row, result: parseBridgeJudgement(row.result, evidence, db)! }));
+  const judgements = readBridgeJudgements(db, bridge.evidence_hash).filter(row => row.input_hash === evidence.input_hash).flatMap(row => {
+    const result = parseBridgeJudgement(row.result, evidence, db);
+    return result ? [{ ...row, result }] : [];
+  });
   if (db.prepare("SELECT 1 FROM bridge_feedback WHERE evidence_hash=? AND resolved_at IS NULL GROUP BY evidence_hash HAVING count(DISTINCT actor_hash)>=2").get(bridge.evidence_hash)) return { state: "review", judgements, reason: "Multiple players reported this bridge." };
   if (!BRIDGE_JUDGE_FRAMINGS.every(framing => judgements.some(row => row.framing === framing))) return { state: "pending", judgements };
   if (judgements.every(row => row.result.verdict === "invalid")) return { state: "invalid", judgements };
@@ -226,7 +229,7 @@ export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBr
     const id = reserveBridgeJudgeSpend(db, { requestKey: bridgeHash([evidence.input_hash, BRIDGE_JUDGE_IDENTITIES[framing]]), count: 1, monthlyUsd: env.BRIDGE_JUDGE_MONTHLY_USD, now: options.now?.() });
     if (!id) continue;
     startBridgeJudgeSpend(db, id);
-    let receivedResponse = false;
+    let receivedResponse = false, saved = false;
     try {
       const reply = await client.messages.create(bridgeJudgeRequest(evidence, framing), { signal: options.signal });
       receivedResponse = true;
@@ -235,17 +238,23 @@ export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBr
       if (!reply.model.startsWith(BRIDGE_JUDGE_MODEL) || !/^msg_[a-zA-Z0-9_]+$/.test(reply.id)) throw new Error("Invalid bridge judge response identity");
       let result: BridgeJudgement | null = null;
       if (reply.stop_reason === "end_turn") {
-        try { result = parseBridgeJudgement(JSON.parse(reply.content.filter(part => part.type === "text").map(part => part.text ?? "").join("")), evidence, db); } catch { /* Malformed output stays in review. */ }
+        try { result = parseBridgeJudgement(JSON.parse(reply.content.filter(part => part.type === "text").map(part => part.text ?? "").join("")), evidence, db); } catch { /* Malformed output stays pending. */ }
       }
-      result ??= { verdict: "unsure", grade: "risky", pros: ["The candidate passed the deterministic evidence checks.", "The supplied card texts are available for review."], cons: ["The independent review returned no usable verdict.", "The line needs review before it can be shown."], lock_note: "No reliable lock assessment was returned.", line: [evidence.cards[0]!.name], format_ok: false };
-      saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, result, options.now?.(), db));
+      if (result) {
+        saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, result, options.now?.(), db));
+        saved = true;
+      }
     } catch (error) {
       const networkFailure = error instanceof APIConnectionError || error instanceof APIUserAbortError
         || error instanceof APIError
         || error instanceof Error && /Abort|Timeout|Fetch|TypeError/.test(error.name);
       if (!receivedResponse && (networkFailure || options.signal?.aborted)) releaseBridgeJudgeSpend(db, id, true);
     }
-    finally { log(bridgeJudgeSpendSummary(db, id)); }
+    finally {
+      // Retain the bill, but allow a later invocation to retry unusable paid output.
+      if (receivedResponse && !saved) db.prepare("UPDATE bridge_judge_spend SET request_key=NULL WHERE id=? AND state='settled'").run(id);
+      log(bridgeJudgeSpendSummary(db, id));
+    }
   }
   return bridgeGate(db, bridge);
 }

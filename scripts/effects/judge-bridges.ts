@@ -180,9 +180,8 @@ function resultsFor(entry: Reservation, rows: unknown[], db?: Database.Database)
     let parsed = null;
     try {
       if (message.stop_reason === "end_turn" && Array.isArray(message.content)) parsed = parseBridgeJudgement(JSON.parse(message.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join("")), evidence, db);
-    } catch { /* Malformed output stays in review. */ }
-    parsed ??= { verdict: "unsure" as const, grade: "risky" as const, pros: ["The deterministic evidence checks passed.", "The supplied card texts remain available."], cons: ["This review returned no usable verdict.", "The line needs review before it can be shown."], lock_note: "The review did not settle the lock order.", line: [evidence.cards[0]!.name], format_ok: false };
-    accepted.push({ ...makeBridgeJudgementRecord(evidence, request.framing, parsed, new Date(entry.createdAt), db), judge: request.judge });
+    } catch { /* Malformed output stays pending. */ }
+    if (parsed) accepted.push({ ...makeBridgeJudgementRecord(evidence, request.framing, parsed, new Date(entry.createdAt), db), judge: request.judge });
   }
   if (seen.size !== expected.size) throw new Error("Incomplete Batch results; reservation remains held");
   if (actualMicros > entry.reservedMicros) throw new Error("Bridge Batch usage exceeds reservation");
@@ -207,6 +206,7 @@ export async function runBridgeBatchJudging(options: {
   const snapshot = dryRun ? undefined : await options.store.read();
   if (!dryRun && !snapshot) throw new Error("Durable bridge ledger is missing; initialize it explicitly before live judging");
   const ledger = snapshot?.ledger ?? emptyBridgeBatchLedger(); let revision = snapshot?.revision;
+  const attempted = new Set<string>();
   const persist = async () => { revision = await options.store.compareAndSwap(revision, ledger); };
   const report: BridgeBatchReport = { mode: dryRun ? "dry-run" : "live", pairs: 0, requests: 0, cached: 0, submitted: 0, collected: 0, pending: 0, estimatedInputTokens: 0, estimatedOutputTokens: 0, estimatedCostUsd: 0, runSpendUsd: 0, monthlySpendUsd: 0, reservedUsd: 0, deferred: [], acceptedRecords: [] };
   if (!dryRun) {
@@ -214,6 +214,7 @@ export async function runBridgeBatchJudging(options: {
     for (const entry of ledger.reservations) {
       if (entry.state !== "submitted" || (await options.client.retrieve(entry.batchId!)).processing_status !== "ended") continue;
       const outcome = resultsFor(entry, await options.client.results(entry.batchId!), options.db);
+      for (const request of entry.requests) attempted.add(`${request.evidenceHash}:${request.inputHash}:${request.judge}`);
       Object.assign(entry, outcome, { state: "settled", evidence: {} });
       ledger.months[entry.month] = (ledger.months[entry.month] ?? 0) + outcome.actualMicros;
       await persist(); report.collected += entry.requests.length; report.runSpendUsd += outcome.actualMicros / 1_000_000;
@@ -222,7 +223,6 @@ export async function runBridgeBatchJudging(options: {
   }
   const bridges = options.bridges ?? (options.db.prepare("SELECT bridge_json FROM (SELECT bridge_json, ROW_NUMBER() OVER (PARTITION BY source,format ORDER BY score DESC,target) AS rank FROM archetype_bridge) WHERE rank<=10").all() as { bridge_json: string }[]).map(row => JSON.parse(row.bridge_json) as ArchetypeBridge);
   const pending = new Set(ledger.reservations.filter(entry => entry.state !== "settled").flatMap(entry => entry.requests.map(request => `${request.evidenceHash}:${request.inputHash}:${request.judge}`)));
-  const attempted = new Set(ledger.reservations.flatMap(entry => entry.requests.map(request => `${request.evidenceHash}:${request.inputHash}:${request.judge}`)));
   const eligible: { evidence: BridgeJudgeEvidence; framing: BridgeJudgeFraming }[] = [], queued = new Set<string>();
   for (const bridge of bridges) {
     const evidence = buildBridgeJudgeEvidence(options.db, bridge); if (!evidence) continue;
