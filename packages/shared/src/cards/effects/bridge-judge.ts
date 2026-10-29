@@ -10,10 +10,15 @@ import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudge
 export const BRIDGE_JUDGE_MODEL = "claude-haiku-5-5";
 export const BRIDGE_JUDGE_FRAMINGS = ["mechanic", "skeptic"] as const;
 export type BridgeJudgeFraming = typeof BRIDGE_JUDGE_FRAMINGS[number];
+// Anthropic's wire schema supports types, but not these local length bounds.
+const BridgeJudgementWireSchema = z.object({
+  verdict: z.enum(["valid", "invalid", "unsure"]), grade: z.enum(["strong", "good", "niche", "risky"]),
+  pros: z.array(z.string()), cons: z.array(z.string()), lock_note: z.string(), line: z.array(z.string()), format_ok: z.boolean(),
+}).strict();
 export const BridgeJudgementSchema = z.object({
   verdict: z.enum(["valid", "invalid", "unsure"]), grade: z.enum(["strong", "good", "niche", "risky"]),
-  pros: z.array(z.string().trim().min(1).max(500)).min(2).max(3), cons: z.array(z.string().trim().min(1).max(500)).min(2).max(3),
-  lock_note: z.string().max(1500), line: z.array(z.string().trim().min(1).max(200)).min(1).max(32), format_ok: z.boolean(),
+  pros: z.array(z.string().trim().min(1).max(500)).min(1).max(3), cons: z.array(z.string().trim().min(1).max(500)).min(1).max(3),
+  lock_note: z.string().max(1500), line: z.array(z.string().trim().min(1).max(200)).max(3), format_ok: z.boolean(),
 }).strict();
 export type BridgeJudgement = z.infer<typeof BridgeJudgementSchema>;
 const judgementGrades: BridgeJudgement["grade"][] = ["strong", "good", "niche", "risky"];
@@ -45,8 +50,8 @@ const framings: Record<BridgeJudgeFraming, string> = {
   skeptic: "Independently audit this proposal as a skeptical rules reviewer. Try to disprove each required step with the supplied card text; accept only if those objections are resolved by the given evidence.",
 };
 export const BRIDGE_JUDGE_SYSTEM_PROMPTS = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${instructions}\n${framings[framing]}`])) as Record<BridgeJudgeFraming, string>;
-const outputSchema = z.toJSONSchema(BridgeJudgementSchema);
-export const BRIDGE_JUDGE_IDENTITIES = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${BRIDGE_JUDGE_MODEL}:${framing}:${bridgeHash({ system: BRIDGE_JUDGE_SYSTEM_PROMPTS[framing], schema: outputSchema, parser: 2 })}`])) as Record<BridgeJudgeFraming, string>;
+const outputSchema = z.toJSONSchema(BridgeJudgementWireSchema);
+export const BRIDGE_JUDGE_IDENTITIES = Object.fromEntries(BRIDGE_JUDGE_FRAMINGS.map(framing => [framing, `${BRIDGE_JUDGE_MODEL}:${framing}:${bridgeHash({ system: BRIDGE_JUDGE_SYSTEM_PROMPTS[framing], schema: outputSchema, parser: 3 })}`])) as Record<BridgeJudgeFraming, string>;
 export const BRIDGE_JUDGE_VERSION = bridgeHash(BRIDGE_JUDGE_IDENTITIES);
 // Engine evidence hashes can be shared by different directed pairs. Keep each
 // checked summary/context separate without invalidating an unchanged review.
@@ -118,9 +123,14 @@ function cardNameIndex(db: Database.Database): CardNameIndex {
 }
 
 export function parseBridgeJudgement(value: unknown, evidence: BridgeJudgeEvidence, db?: Database.Database): BridgeJudgement | null {
-  const parsed = BridgeJudgementSchema.safeParse(value);
+  const wire = BridgeJudgementWireSchema.safeParse(value);
+  if (!wire.success) return null;
+  const trimList = (items: string[], length: number) => items.map(item => item.trim().slice(0, length)).filter(Boolean).slice(0, 3);
+  const parsed = BridgeJudgementSchema.safeParse({ ...wire.data, pros: trimList(wire.data.pros, 500), cons: trimList(wire.data.cons, 500),
+    line: trimList(wire.data.line, 200), lock_note: wire.data.lock_note.trim().slice(0, 1500) });
   if (!parsed.success) return null;
   const result = parsed.data;
+  if (result.verdict === "valid" && !result.line.length) return null;
   if (result.line.some(name => !evidence.cards.some(card => card.name === name))) return { ...result, verdict: "invalid" };
   const allowed = new Set(evidence.cards.map(card => normalizedName(card.name)));
   const text = [...result.pros, ...result.cons, result.lock_note].join("\n");

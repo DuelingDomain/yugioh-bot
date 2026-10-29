@@ -41,6 +41,27 @@ function approved(db: Database.Database, bridge: ArchetypeBridge, second = resul
 }
 
 describe("bridge judgement pipeline", () => {
+  it("normalizes paid replies without sending unsupported schema bounds or storing fallback text", async () => {
+    const { db, bridge } = fixture(); let calls = 0;
+    const client: BridgeJudgeClient = { messages: { async create(request) {
+      const schema = JSON.stringify(request.output_config?.format);
+      expect(schema).not.toMatch(/minItems|maxItems|minLength|maxLength/);
+      calls++;
+      const reply = calls <= 2 ? result({ pros: [" ", "Temple of the Kings enables early activation.", "x".repeat(600), "Extra pro", "Overflow"],
+        cons: ["Needs both cards.", "Requires setting first.", "Needs a free zone.", "Overflow"], line: [] , verdict: "invalid" }) : result();
+      return { id: `msg_normalize_${calls}`, model: "claude-haiku-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(reply) }], usage: { input_tokens: 100, output_tokens: 10 } };
+    } } };
+    try {
+      const gate = await judgeBridgePair(db, bridge, { client, env: {}, log: () => {} });
+      expect(gate.state).toBe("invalid");
+      expect(gate.judgements).toHaveLength(2);
+      for (const row of gate.judgements) {
+        expect(row.result.pros).toHaveLength(3); expect(row.result.pros[1]).toHaveLength(500);
+        expect(row.result.cons).toHaveLength(3); expect(row.result.line).toEqual([]);
+      }
+      expect(db.prepare("SELECT DISTINCT verdict FROM bridge_judgement").all()).toEqual([{ verdict: "rejected" }]);
+    } finally { db.close(); }
+  });
   it("allows independent reviews to grade substantive lines without a Link-1 ceiling", () => {
     const db = new Database(":memory:"); migrate(db);
     try {
