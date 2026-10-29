@@ -41,7 +41,7 @@ async function main() {
       const calls = replies.map(({ request, reply, phase, framing }) => {
         let raw: unknown = null;
         try { raw = JSON.parse(reply?.content.filter(part => part.type === "text").map(part => part.text ?? "").join("") ?? ""); } catch { /* No usable JSON. */ }
-        return { phase, framing, raw, usage: reply?.usage ?? null,
+        return { phase, framing, stopReason: reply?.stop_reason ?? null, raw, usage: reply?.usage ?? null,
           costUsd: reply ? bridgeJudgeBilledMicros(reply.usage, false, reply.model) / 1_000_000 : 0,
           reservationUsd: bridgeJudgeReservationMicros(request) / 1_000_000 };
       });

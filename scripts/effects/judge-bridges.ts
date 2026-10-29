@@ -9,7 +9,7 @@ import { parseArgs } from "node:util";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { migrate } from "@yugidraft/shared/db";
 import {
-  BRIDGE_JUDGE_FRAMINGS, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS, BRIDGE_JUDGE_RESERVATION_MICROS, BridgeJudgementRecordSchema,
+  BRIDGE_JUDGE_OUTPUT_TOKENS, BRIDGE_JUDGE_FRAMINGS, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS, BRIDGE_JUDGE_RESERVATION_MICROS, BridgeJudgementRecordSchema,
   bridgeFactCheckRequest, filterBridgeJudgementText, bridgeJudgeBilledMicros, bridgeJudgeRates, bridgeJudgeReservationMicros, bridgeJudgeIdentity, bridgeJudgeRequest, buildBridgeJudgeEvidence,
   importBridgeArtifact, importBridgeJudgements, importCardEffectArtifact, makeBridgeJudgementRecord, parseBridgeJudgement,
   readBridgeJudgements, saveBridgeJudgement,
@@ -17,7 +17,7 @@ import {
 } from "@yugidraft/shared/cards/effects";
 
 const hash = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
-const MAX_INPUT_TOKENS = 1_000_000, MAX_OUTPUT_TOKENS = 4096, BATCH_REQUEST_RESERVATION_MICROS = Math.ceil(BRIDGE_JUDGE_RESERVATION_MICROS / 2);
+const MAX_INPUT_TOKENS = 1_000_000, MAX_OUTPUT_TOKENS = BRIDGE_JUDGE_OUTPUT_TOKENS, BATCH_REQUEST_RESERVATION_MICROS = Math.ceil(BRIDGE_JUDGE_RESERVATION_MICROS / 2);
 const MAX_LEDGER_BYTES = 250_000_000, MAX_REQUESTS_PER_BATCH = 1000;
 type Request = { customId: string; evidenceHash: string; inputHash: string; framing: BridgeJudgeFraming; judge: string; reservedMicros?: number; textReview?: BridgeJudgementRecord };
 type Reservation = {

@@ -2,9 +2,9 @@ import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import { BRIDGE_JUDGE_MODEL, bridgeJudgeRates } from "./bridge-judge-model.js";
 
-export const BRIDGE_JUDGE_OUTPUT_TOKENS = 4096;
+export const BRIDGE_JUDGE_OUTPUT_TOKENS = 8192;
 // Retained only for validating historical batch reservations.
-export const BRIDGE_JUDGE_RESERVATION_MICROS = 1_000_000 + BRIDGE_JUDGE_OUTPUT_TOKENS * 2.5;
+export const BRIDGE_JUDGE_RESERVATION_MICROS = 1_000_000 + 4096 * 2.5;
 export function bridgeJudgeReservationMicros(request: { model: string; max_tokens: number }, batch = false): number {
   // Serialized UTF-8 bytes / 3 estimates English tokens; allow 50% token
   // overhead and 25% billing headroom, including a cold one-hour cache write.

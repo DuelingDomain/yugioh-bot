@@ -41,6 +41,18 @@ function approved(db: Database.Database, bridge: ArchetypeBridge, second = resul
 }
 
 describe("bridge judgement pipeline", () => {
+  it("reserves and bills enough output for grounded reviews with long thinking", async () => {
+    const { db, bridge } = fixture();
+    const client: BridgeJudgeClient = { messages: { async create(request) {
+      expect(request.max_tokens).toBeGreaterThanOrEqual(5000);
+      return { id: "msg_long_thinking", model: "claude-haiku-5-5", stop_reason: "end_turn", usage: { input_tokens: 100, output_tokens: 5000 },
+        content: [{ type: "text", text: JSON.stringify(result()) }] };
+    } } };
+    try {
+      expect((await judgeBridgePair(db, bridge, { client, env: {}, log: () => {} })).state).toBe("shown");
+      expect(bridgeJudgeSpendSummary(db)).toMatchObject({ actualMicros: 5020, reservedMicros: 0 });
+    } finally { db.close(); }
+  });
 
   it("never trusts provider-supplied kept audit entries", async () => {
     const { db, bridge } = fixture();
