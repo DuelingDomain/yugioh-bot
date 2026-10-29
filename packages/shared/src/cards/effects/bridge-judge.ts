@@ -228,12 +228,13 @@ export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBr
   for (const framing of BRIDGE_JUDGE_FRAMINGS) {
     if (initial.judgements.some(row => row.framing === framing)) continue;
     if (options.signal?.aborted) break;
-    const id = reserveBridgeJudgeSpend(db, { requestKey: bridgeHash([evidence.input_hash, BRIDGE_JUDGE_IDENTITIES[framing]]), count: 1, monthlyUsd: env.BRIDGE_JUDGE_MONTHLY_USD, now: options.now?.() });
+    const request = bridgeJudgeRequest(evidence, framing);
+    const id = reserveBridgeJudgeSpend(db, { request, requestKey: bridgeHash([evidence.input_hash, BRIDGE_JUDGE_IDENTITIES[framing]]), count: 1, monthlyUsd: env.BRIDGE_JUDGE_MONTHLY_USD, now: options.now?.() });
     if (!id) continue;
     startBridgeJudgeSpend(db, id);
     let receivedResponse = false, saved = false;
     try {
-      const reply = await client.messages.create(bridgeJudgeRequest(evidence, framing), { signal: options.signal });
+      const reply = await client.messages.create(request, { signal: options.signal });
       receivedResponse = true;
       // Billing is independent of accepting a response. Truncated/invalid JSON still costs tokens.
       settleBridgeJudgeSpend(db, id, reply.usage, false);

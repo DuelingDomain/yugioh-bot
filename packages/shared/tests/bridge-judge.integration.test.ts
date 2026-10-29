@@ -12,7 +12,7 @@ import {
   buildBridgeJudgeEvidence, judgeBridgePair, makeBridgeJudgementRecord, parseBridgeJudgement, saveBridgeJudgement,
   shownBridge, type BridgeJudgement, type BridgeJudgeClient,
 } from "../src/cards/effects/bridge-judge.js";
-import { bridgeJudgeBilledMicros, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, startBridgeJudgeSpend } from "../src/cards/effects/bridge-judge-ledger.js";
+import { bridgeJudgeBilledMicros, bridgeJudgeReservationMicros, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, startBridgeJudgeSpend } from "../src/cards/effects/bridge-judge-ledger.js";
 import { exportBridgeJudgements, importBridgeJudgements } from "../src/cards/effects/bridge-judge-artifact.js";
 import { importBridgeArtifact } from "../src/cards/effects/bridge-artifact.js";
 import { createBridgeService } from "../src/services/archetype-bridges.js";
@@ -247,13 +247,16 @@ describe("bridge judgement pipeline", () => {
   });
 
   it("does not charge old unsettled reservations against a later month's cap", () => {
-    const { db } = fixture();
+    const { db, bridge } = fixture();
     try {
       const january = new Date("2026-01-31T23:59:00Z"), february = new Date("2026-02-01T00:01:00Z");
-      const first = reserveBridgeJudgeSpend(db, { count: 1, now: january, monthlyUsd: 1.1 })!;
+      const request = bridgeJudgeRequest(buildBridgeJudgeEvidence(db, bridge)!, "mechanic");
+      const monthlyUsd = bridgeJudgeReservationMicros(request) * 1.5 / 1_000_000;
+      expect(monthlyUsd).toBeLessThan(0.02);
+      const first = reserveBridgeJudgeSpend(db, { request, count: 1, now: january, monthlyUsd })!;
       startBridgeJudgeSpend(db, first);
-      expect(reserveBridgeJudgeSpend(db, { count: 1, now: january, monthlyUsd: 1.1 })).toBeNull();
-      expect(reserveBridgeJudgeSpend(db, { count: 1, now: february, monthlyUsd: 1.1 })).not.toBeNull();
+      expect(reserveBridgeJudgeSpend(db, { request, count: 1, now: january, monthlyUsd })).toBeNull();
+      expect(reserveBridgeJudgeSpend(db, { request, count: 1, now: february, monthlyUsd })).not.toBeNull();
     } finally { db.close(); }
   });
 

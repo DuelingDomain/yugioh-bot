@@ -10,7 +10,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import { migrate } from "@yugidraft/shared/db";
 import {
   BRIDGE_JUDGE_FRAMINGS, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_RESERVATION_MICROS, BridgeJudgementRecordSchema,
-  bridgeJudgeBilledMicros, bridgeJudgeRates, bridgeJudgeIdentity, bridgeJudgeRequest, buildBridgeJudgeEvidence,
+  bridgeJudgeBilledMicros, bridgeJudgeRates, bridgeJudgeReservationMicros, bridgeJudgeIdentity, bridgeJudgeRequest, buildBridgeJudgeEvidence,
   importBridgeArtifact, importBridgeJudgements, importCardEffectArtifact, makeBridgeJudgementRecord, parseBridgeJudgement,
   readBridgeJudgements, saveBridgeJudgement,
   type ArchetypeBridge, type BridgeJudgeEvidence, type BridgeJudgeFraming, type BridgeJudgementRecord,
@@ -19,7 +19,7 @@ import {
 const hash = (value: Buffer | string) => createHash("sha256").update(value).digest("hex");
 const MAX_INPUT_TOKENS = 1_000_000, MAX_OUTPUT_TOKENS = 4096, BATCH_REQUEST_RESERVATION_MICROS = Math.ceil(BRIDGE_JUDGE_RESERVATION_MICROS / 2);
 const MAX_LEDGER_BYTES = 250_000_000, MAX_REQUESTS_PER_BATCH = 1000;
-type Request = { customId: string; evidenceHash: string; inputHash: string; framing: BridgeJudgeFraming; judge: string };
+type Request = { customId: string; evidenceHash: string; inputHash: string; framing: BridgeJudgeFraming; judge: string; reservedMicros?: number };
 type Reservation = {
   id: string; month: string; createdAt: string; state: "submission_started" | "submitted" | "settled";
   reservedMicros: number; requests: Request[]; evidence: Record<string, BridgeJudgeEvidence>; batchId?: string;
@@ -50,10 +50,11 @@ function validateLedger(value: unknown): BridgeBatchLedger {
   const ids = new Set<string>(), totals: Record<string, number> = {};
   for (const entry of ledger.reservations) {
     if (!/^[a-f0-9]{32}$/.test(entry.id) || ids.has(entry.id) || !/^\d{4}-\d{2}$/.test(entry.month) || !Number.isFinite(Date.parse(entry.createdAt)) || !["submission_started", "submitted", "settled"].includes(entry.state)
-      || !Array.isArray(entry.requests) || !entry.requests.length || entry.requests.length > MAX_REQUESTS_PER_BATCH || entry.reservedMicros !== entry.requests.length * BATCH_REQUEST_RESERVATION_MICROS || !entry.evidence) throw new Error("Invalid bridge batch reservation");
+      || !Array.isArray(entry.requests) || !entry.requests.length || entry.requests.length > MAX_REQUESTS_PER_BATCH || entry.reservedMicros !== entry.requests.reduce((sum, request) => sum + (request.reservedMicros ?? BATCH_REQUEST_RESERVATION_MICROS), 0) || !entry.evidence) throw new Error("Invalid bridge batch reservation");
     ids.add(entry.id);
     const customIds = new Set<string>();
     for (const request of entry.requests) {
+      if (request.reservedMicros !== undefined && (!Number.isSafeInteger(request.reservedMicros) || request.reservedMicros < 1)) throw new Error("Invalid bridge request reservation");
       if (customIds.has(request.customId) || !/^bj_[a-f0-9]{32}_\d+$/.test(request.customId) || !/^[a-f0-9]{64}$/.test(request.evidenceHash) || !/^[a-f0-9]{64}$/.test(request.inputHash) || !BRIDGE_JUDGE_FRAMINGS.includes(request.framing) || typeof request.judge !== "string") throw new Error("Invalid bridge batch request identity");
       customIds.add(request.customId);
       if (entry.state !== "settled" && (entry.evidence[request.inputHash]?.evidence_hash !== request.evidenceHash || entry.evidence[request.inputHash]?.input_hash !== request.inputHash)) throw new Error("Missing durable bridge evidence");
@@ -223,7 +224,7 @@ export async function runBridgeBatchJudging(options: {
   }
   const bridges = options.bridges ?? (options.db.prepare("SELECT bridge_json FROM (SELECT bridge_json, ROW_NUMBER() OVER (PARTITION BY source,format ORDER BY score DESC,target) AS rank FROM archetype_bridge) WHERE rank<=10").all() as { bridge_json: string }[]).map(row => JSON.parse(row.bridge_json) as ArchetypeBridge);
   const pending = new Set(ledger.reservations.filter(entry => entry.state !== "settled").flatMap(entry => entry.requests.map(request => `${request.evidenceHash}:${request.inputHash}:${request.judge}`)));
-  const eligible: { evidence: BridgeJudgeEvidence; framing: BridgeJudgeFraming }[] = [], queued = new Set<string>();
+  const eligible: { evidence: BridgeJudgeEvidence; framing: BridgeJudgeFraming; reservedMicros: number }[] = [], queued = new Set<string>();
   for (const bridge of bridges) {
     const evidence = buildBridgeJudgeEvidence(options.db, bridge); if (!evidence) continue;
     const cached = new Set(readBridgeJudgements(options.db, bridge.evidence_hash).filter(row => row.input_hash === evidence.input_hash).map(row => row.judge));
@@ -232,8 +233,8 @@ export async function runBridgeBatchJudging(options: {
       const identity = bridgeJudgeIdentity(evidence, framing), key = `${bridge.evidence_hash}:${evidence.input_hash}:${identity}`;
       if (cached.has(identity)) { report.cached++; continue; }
       if (pending.has(key) || attempted.has(key) || queued.has(key)) continue;
-      missing = true; queued.add(key); eligible.push({ evidence, framing });
       const params = bridgeJudgeRequest(evidence, framing);
+      missing = true; queued.add(key); eligible.push({ evidence, framing, reservedMicros: bridgeJudgeReservationMicros(params, true) });
       // UTF-8 bytes deliberately overestimate ordinary English token counts.
       const inputTokens = Math.ceil(Buffer.byteLength(JSON.stringify(params)) / 3), rates = bridgeJudgeRates(params.model, inputTokens);
       report.estimatedInputTokens += inputTokens;
@@ -249,12 +250,13 @@ export async function runBridgeBatchJudging(options: {
   const unsettled = ledger.reservations.filter(entry => entry.state !== "settled").reduce((sum, entry) => sum + entry.reservedMicros, 0);
   const maximum = options.maxRequests ?? eligible.length;
   if (!Number.isInteger(maximum) || maximum < 0 || maximum > 100_000) throw new Error("--max-requests must be between 0 and 100000");
-  const count = Math.min(maximum, eligible.length, Math.max(0, Math.floor((cap - (ledger.months[month] ?? 0) - unsettled) / BATCH_REQUEST_RESERVATION_MICROS)));
+  let count = 0, available = cap - (ledger.months[month] ?? 0) - unsettled;
+  while (count < Math.min(maximum, eligible.length) && eligible[count]!.reservedMicros <= available) available -= eligible[count++]!.reservedMicros;
   if (eligible.length && !count && maximum) report.deferred.push("monthly-budget");
   for (let start = 0; !dryRun && start < count && !report.deferred.includes("ambiguous-submission"); start += MAX_REQUESTS_PER_BATCH) {
     const id = randomBytes(16).toString("hex"), selected = eligible.slice(start, Math.min(count, start + MAX_REQUESTS_PER_BATCH));
-    const entry: Reservation = { id, month, createdAt: instant.toISOString(), state: "submission_started", reservedMicros: selected.length * BATCH_REQUEST_RESERVATION_MICROS,
-      requests: selected.map(({ evidence, framing }, index) => ({ customId: `bj_${id}_${index}`, evidenceHash: evidence.evidence_hash, inputHash: evidence.input_hash, framing, judge: bridgeJudgeIdentity(evidence, framing) })), evidence: Object.fromEntries(selected.map(row => [row.evidence.input_hash, row.evidence])) };
+    const entry: Reservation = { id, month, createdAt: instant.toISOString(), state: "submission_started", reservedMicros: selected.reduce((sum, row) => sum + row.reservedMicros, 0),
+      requests: selected.map(({ evidence, framing, reservedMicros }, index) => ({ customId: `bj_${id}_${index}`, evidenceHash: evidence.evidence_hash, inputHash: evidence.input_hash, framing, judge: bridgeJudgeIdentity(evidence, framing), reservedMicros })), evidence: Object.fromEntries(selected.map(row => [row.evidence.input_hash, row.evidence])) };
     ledger.reservations.push(entry); await persist();
     try {
       const batch = await options.client!.create(entry.requests.map(request => ({ custom_id: request.customId, params: bridgeJudgeRequest(entry.evidence[request.inputHash]!, request.framing) })));

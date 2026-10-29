@@ -3,8 +3,15 @@ import type Database from "better-sqlite3";
 import { BRIDGE_JUDGE_MODEL, bridgeJudgeRates } from "./bridge-judge-model.js";
 
 export const BRIDGE_JUDGE_OUTPUT_TOKENS = 4096;
-// Reserve the full context at the highest cache-write tier, including output.
+// Retained only for validating historical batch reservations.
 export const BRIDGE_JUDGE_RESERVATION_MICROS = 1_000_000 + BRIDGE_JUDGE_OUTPUT_TOKENS * 2.5;
+export function bridgeJudgeReservationMicros(request: { model: string; max_tokens: number }, batch = false): number {
+  // Serialized UTF-8 bytes / 3 estimates English tokens; allow 50% token
+  // overhead and 25% billing headroom, including a cold one-hour cache write.
+  const inputTokens = Math.ceil(Buffer.byteLength(JSON.stringify(request)) / 3 * 1.5) + 512;
+  const rates = bridgeJudgeRates(request.model, inputTokens);
+  return Math.ceil((inputTokens * rates.hourWrite + request.max_tokens * rates.output) * 1.25 / (batch ? 2 : 1));
+}
 export interface BridgeJudgeUsage {
   input_tokens: number;
   output_tokens: number;
@@ -25,12 +32,12 @@ export function bridgeJudgeBilledMicros(usage: BridgeJudgeUsage, batch = false, 
   return Math.ceil((input * rates.input + fiveWrites * rates.fiveWrite + hourWrites * rates.hourWrite + reads * rates.read + output * rates.output) / (batch ? 2 : 1));
 }
 
-export function reserveBridgeJudgeSpend(db: Database.Database, options: { id?: string; requestKey?: string; count: number; batch?: boolean; now?: Date; monthlyUsd?: string | number }): string | null {
+export function reserveBridgeJudgeSpend(db: Database.Database, options: { id?: string; requestKey?: string; count: number; request: { model: string; max_tokens: number }; batch?: boolean; now?: Date; monthlyUsd?: string | number }): string | null {
   if (!Number.isSafeInteger(options.count) || options.count < 1) throw new Error("Invalid bridge judge reservation count");
   const now = options.now ?? new Date(), month = now.toISOString().slice(0, 7);
   const cap = options.monthlyUsd === undefined ? undefined : Number(options.monthlyUsd);
   if (cap !== undefined && (!Number.isFinite(cap) || cap < 0 || String(options.monthlyUsd).trim() === "")) throw new Error("Invalid bridge judge monthly budget");
-  const reserved = Math.ceil(BRIDGE_JUDGE_RESERVATION_MICROS * options.count / (options.batch ? 2 : 1));
+  const reserved = bridgeJudgeReservationMicros(options.request, options.batch) * options.count;
   return db.transaction(() => {
     if (options.requestKey && db.prepare("SELECT 1 FROM bridge_judge_spend WHERE request_key=?").get(options.requestKey)) return null;
     const used = db.prepare<[string], { micros: number }>(`SELECT coalesce(sum(CASE WHEN state='settled' THEN actual_micros ELSE reserved_micros END),0) AS micros FROM bridge_judge_spend WHERE month=?`).get(month)!.micros;
