@@ -129,7 +129,7 @@ function hostErrorBody(text: string, status: number): { expected: boolean; body:
           && ((status === 409 && ["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE", "REPLAY_UNVERIFIED"].includes(parsed.code))
             || (status === 413 && parsed.code === "REPLAY_TOO_LARGE"))
           && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery, ...unverified,
-        ...(status === 429 && "retryAfter" in parsed && typeof parsed.retryAfter === "number" && Number.isSafeInteger(parsed.retryAfter) && parsed.retryAfter > 0
+        ...((status === 429 || status === 503) && "retryAfter" in parsed && typeof parsed.retryAfter === "number" && Number.isSafeInteger(parsed.retryAfter) && parsed.retryAfter > 0
           ? { retryAfter: parsed.retryAfter } : {}) } };
     }
   } catch {}
@@ -219,7 +219,7 @@ export async function callDuelHost(input: {
     ...body, ...(!body.code && (replayOp ? status >= 500 : [502, 503, 504].includes(status))
       ? { code: replayOp ? "ENGINE_BUSY" : "DUEL_ENGINE_ERROR" } : {}),
   }, { status: replayOp && status >= 500 ? 503 : status,
-    headers: { "cache-control": "private, no-store", ...(status === 429 && body.retryAfter ? { "Retry-After": String(body.retryAfter) } : {}) } });
+    headers: { "cache-control": "private, no-store", ...((status === 429 || status === 503) && body.retryAfter ? { "Retry-After": String(body.retryAfter) } : {}) } });
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
   if (configProblem) {

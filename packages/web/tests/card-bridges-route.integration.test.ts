@@ -223,6 +223,29 @@ it("preserves the hourly-limit response and countdown header", async () => {
   expect(await response.json()).toEqual(reply);
 });
 
+it("preserves valid retry hints for busy bridge status, starts and fast operations", async () => {
+  replyStatus = 503;
+  for (const [request, error, retryAfter] of [
+    [() => poll(), "Bridge status is busy", 1],
+    [() => start({ source: "Odion" }), "Bridge search queue is busy", 10],
+    [() => engines({ engines: ["Odion"], format: "advanced" }), "Bridge engines are busy", 2],
+  ] as const) {
+    reply = { error, retryAfter };
+    const response = await request();
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe(String(retryAfter));
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toMatchObject({ error, retryAfter });
+  }
+  for (const retryAfter of [undefined, null, "1", 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    reply = { error: "Bridge status is busy", retryAfter };
+    const response = await poll();
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).not.toHaveProperty("retryAfter");
+  }
+});
+
 it("validates and forwards join-only requests for every deep-search selector", async () => {
   reply = { jobId: "bridge-job-1", state: "running", cached: false };
   const deck = { main: [29762407], extra: [] };
