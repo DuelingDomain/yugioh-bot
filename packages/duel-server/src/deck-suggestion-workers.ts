@@ -7,7 +7,7 @@ import type { BridgeProjectionInput } from "./bridge-projection-input.js";
 import type { DeckSuggestionLegality, DeckSuggestionQuery, DeckSuggestionResult, CardEffectSearchResult } from "@yugidraft/shared/services";
 
 type Lane = "deep" | "interactive";
-type Job = { worker: Worker; lane: Lane; reject?: (error: Error) => void; idle?: ReturnType<typeof setTimeout> };
+type Job = { worker: Worker; lane: Lane; warm: boolean; reject?: (error: Error) => void; idle?: ReturnType<typeof setTimeout> };
 export type SuggestionScan = { guildId?: string; query: DeckSuggestionQuery; legality: DeckSuggestionLegality; deckMaster?: number };
 export type BridgeScan = { kind: "bridges"; source: string; format: BridgeFormat } & (
   { op: "from"; limit?: number } | { op: "live" | "outgoing" | "into" } | { op: "between" | "explain"; target: string }
@@ -132,7 +132,7 @@ export class DeckSuggestionWorkers {
       const worker = development
         ? new Worker(`import('tsx/esm/api').then(({ tsImport }) => tsImport(${JSON.stringify(module.href)}, ${JSON.stringify(import.meta.url)}))`, { eval: true, resourceLimits })
         : new Worker(module, { resourceLimits });
-      job = { worker, lane }; this.jobs.push(job);
+      job = { worker, lane, warm: false }; this.jobs.push(job);
       // An idle worker may exit too. Keep errors handled and never reuse a dead scanner.
       worker.on("error", () => {});
       worker.once("exit", () => {
@@ -150,6 +150,7 @@ export class DeckSuggestionWorkers {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        clearTimeout(deadlineTimer);
         current.worker.off("message", message);
         current.worker.off("error", fail);
         current.worker.off("exit", fail);
@@ -171,12 +172,18 @@ export class DeckSuggestionWorkers {
           try { progress?.(answer.progress); } catch { /* A disconnected progress consumer must not interrupt the scan. */ }
           return;
         }
+        current.warm = true;
         finish(answer.error ? answer.bridgeError
           ? new BridgeJobError(answer.bridgeError.message, answer.bridgeError.status, answer.bridgeError.retryAfter)
           : new Error("Suggestion scan failed") : undefined, answer.result);
       };
-      const timer = deadline === undefined ? setTimeout(fail, 30_000) : setTimeout(() => {
-        finish(new BridgeJobError("Bridge query timed out. Try again shortly.", 503, 1), undefined, true);
+      // Keep the caller budget bounded, but let the first cold scan finish and
+      // warm its DB/graph caches. The hard cap still contains a stuck scanner.
+      const timer = setTimeout(fail, 30_000);
+      const deadlineTimer = deadline === undefined ? undefined : setTimeout(() => {
+        const error = new BridgeJobError("Bridge query timed out. Try again shortly.", 503, 1);
+        if (!current.warm) reject(error);
+        else finish(error, undefined, true);
       }, Math.max(1, deadline - performance.now()));
       current.reject = (error) => finish(error);
       current.worker.on("message", message);

@@ -163,7 +163,13 @@ describe("bridge scanner isolation", () => {
       const cold = new DeckSuggestionWorkers(db, directory);
       try {
         await expect(cold.bridgeEngines({ engines: ["Odion"] }, "g", 1)).rejects.toMatchObject({ status: 503 });
-        expect((cold as unknown as { jobs: unknown[] }).jobs).toHaveLength(0);
+        const jobs = (cold as unknown as { jobs: { reject?: unknown; worker: unknown }[] }).jobs;
+        expect(jobs).toHaveLength(1);
+        const scanner = jobs[0]!.worker;
+        // The caller deadline stays short, but the cold scan may finish warming.
+        await vi.waitFor(() => expect(jobs[0]?.reject).toBeUndefined(), { timeout: 10_000 });
+        await expect(cold.bridgeEngines({ engines: ["Odion"] }, "g")).resolves.toMatchObject({ engines: ["Odion"] });
+        expect(jobs[0]!.worker).toBe(scanner);
       } finally { await cold.close(); }
     } finally { await workers.close(); db.close(); rmSync(directory, { recursive: true, force: true }); }
   }, 20_000);
