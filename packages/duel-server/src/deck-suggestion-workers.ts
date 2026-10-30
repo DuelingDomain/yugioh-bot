@@ -7,7 +7,7 @@ import type { BridgeProjectionInput } from "./bridge-projection-input.js";
 import type { DeckSuggestionLegality, DeckSuggestionQuery, DeckSuggestionResult, CardEffectSearchResult } from "@yugidraft/shared/services";
 
 type Lane = "deep" | "interactive";
-type Job = { worker: Worker; lane: Lane; warm: boolean; reject?: (error: Error) => void; idle?: ReturnType<typeof setTimeout> };
+type Job = { worker: Worker; lane: Lane; warm: boolean; retiring?: boolean; reject?: (error: Error) => void; idle?: ReturnType<typeof setTimeout> };
 export type SuggestionScan = { guildId?: string; query: DeckSuggestionQuery; legality: DeckSuggestionLegality; deckMaster?: number };
 export type BridgeScan = { kind: "bridges"; source: string; format: BridgeFormat } & (
   { op: "from"; limit?: number } | { op: "live" | "outgoing" | "into" } | { op: "between" | "explain"; target: string }
@@ -33,12 +33,18 @@ export class DeckSuggestionWorkers {
     private readonly idleMs = 120_000, private readonly judgeOptions: BridgeJudgeOptions = {}) {}
 
   private retire(job: Job): void {
+    if (job.retiring) return;
+    job.retiring = true;
     clearTimeout(job.idle);
-    const index = this.jobs.indexOf(job);
-    if (index >= 0) this.jobs.splice(index, 1);
+    // Keep its capacity occupied until termination releases the isolate heap.
     const terminated = job.worker.terminate();
     this.retiring.add(terminated);
-    const forget = () => { this.retiring.delete(terminated); };
+    const forget = () => {
+      this.retiring.delete(terminated);
+      const index = this.jobs.indexOf(job);
+      if (index >= 0) this.jobs.splice(index, 1);
+      this.drainBridges();
+    };
     void terminated.then(forget, forget);
   }
 
@@ -110,7 +116,9 @@ export class DeckSuggestionWorkers {
       // Suggestions share the interactive pool. Keep its second scanner free,
       // including when fast queries and completed projections arrive together.
       const queue = this.bridgeQueues[lane], limit = 1;
-      while (!this.closing && queue.length && this.jobs.filter(job => job.lane === lane && job.reject).length < limit) {
+      while (!this.closing && queue.length && this.jobs.filter(job => job.lane === lane && job.reject).length < limit
+        && (this.jobs.some(job => job.lane === lane && !job.reject && !job.retiring)
+          || this.jobs.filter(job => job.lane === lane).length < (lane === "deep" ? 1 : 2))) {
         const next = queue.shift()!;
         clearTimeout(next.timer);
         try { void this.scan(next.scan, next.progress, lane, next.deadline).then(next.resolve, next.reject); }
@@ -121,14 +129,15 @@ export class DeckSuggestionWorkers {
 
   private scan(scan: SuggestionScan | BridgeScan | BridgeEnginesScan | BridgeProjectionScan, progress?: (value: BridgeProgress) => void, lane: Lane = "interactive", deadline?: number): Promise<ScanResult> {
     if (deadline !== undefined && performance.now() >= deadline) throw new BridgeJobError("Bridge query timed out. Try again shortly.", 503, 1);
-    let job = this.jobs.find(job => job.lane === lane && !job.reject);
+    let job = this.jobs.find(job => job.lane === lane && !job.reject && !job.retiring);
     if (!job) {
       if (this.jobs.filter(job => job.lane === lane).length >= (lane === "deep" ? 1 : 2)) throw new BridgeJobError("Suggestion workers are busy", 503, 1);
       const development = import.meta.url.endsWith(".ts");
       const module = new URL(development ? "./deck-suggestion-worker.ts" : "./deck-suggestion-worker.js", import.meta.url);
-      // Bound each scanner independently; Node reports heap OOM via
-      // the same error/exit path that rejects the job and removes the worker.
-      const resourceLimits = { maxOldGenerationSizeMb: 256 };
+      // Three lazy isolates share at most 504 MiB of old + young V8 heaps,
+      // below the old two-scanner 512 MiB old-generation budget. Native/SQLite
+      // allocations are separate; idle retirement releases their page caches.
+      const resourceLimits = { maxOldGenerationSizeMb: 160, maxYoungGenerationSizeMb: 8 };
       const worker = development
         ? new Worker(`import('tsx/esm/api').then(({ tsImport }) => tsImport(${JSON.stringify(module.href)}, ${JSON.stringify(import.meta.url)}))`, { eval: true, resourceLimits })
         : new Worker(module, { resourceLimits });

@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Worker } from "node:worker_threads";
 import { describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { BRIDGE_JUDGE_FRAMINGS, buildBridgeJudgeEvidence, importBridgeArtifact, makeBridgeJudgementRecord, saveBridgeJudgement, importCardEffectArtifact, type ArchetypeBridge, type BridgeJudgeClient } from "@yugidraft/shared/cards/effects";
@@ -14,6 +15,28 @@ import { deckSuggestionScope } from "../src/deck-legality.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 
 describe("bridge scanner isolation", () => {
+  it("spawns scanners lazily within a 512 MiB heap budget and retires them while idle", async () => {
+    const db = new Database(":memory:"); migrate(db); importBridgeArtifact(db);
+    const directory = createHostDataFixture([{ code: 89631139, name: "Blue-Eyes White Dragon", type: 0x11 }]);
+    const workers = new DeckSuggestionWorkers(db, directory, 50);
+    const jobs = () => (workers as unknown as { jobs: { worker: Worker }[] }).jobs;
+    const pending: Promise<unknown>[] = [];
+    try {
+      expect(jobs()).toHaveLength(0);
+      pending.push(workers.bridgeCandidates({ kind: "bridges", op: "from", source: "Odion", format: "advanced", limit: 1 }));
+      const scan = {
+        query: parseDeckSuggestionQuery({ op: "suggestRows", deck: { main: [89631139], extra: [], side: [] } })!,
+        legality: deckSuggestionScope("normal", directory, defaultDuelSettings("normal"), { cardBlocks: [] }),
+      };
+      pending.push(workers.run(scan), workers.run(scan));
+      expect(jobs()).toHaveLength(3);
+      const heap = jobs().reduce((mb, { worker }) => mb + worker.resourceLimits.maxOldGenerationSizeMb! + worker.resourceLimits.maxYoungGenerationSizeMb!, 0);
+      expect(heap).toBeLessThanOrEqual(512);
+      await Promise.all(pending);
+      await vi.waitFor(() => expect(jobs()).toHaveLength(0));
+    } finally { const settled = Promise.allSettled(pending); await workers.close(); await settled; db.close(); rmSync(directory, { recursive: true, force: true }); }
+  }, 20_000);
+
   it("reserves a scanner for Suggestions when multiple interactive bridge queries arrive", async () => {
     const db = new Database(":memory:"); migrate(db); importBridgeArtifact(db);
     const directory = createHostDataFixture([{ code: 89631139, name: "Blue-Eyes White Dragon", type: 0x11 }]);
@@ -29,7 +52,7 @@ describe("bridge scanner isolation", () => {
       expect(results[0]).toMatchObject({ engines: ["Odion"] });
       expect(results[1]).toMatchObject({ engines: ["Blue-Eyes"] });
       expect(results[2]).toHaveProperty("rows");
-    } finally { await workers.close(); await Promise.allSettled(pending); db.close(); rmSync(directory, { recursive: true, force: true }); }
+    } finally { const settled = Promise.allSettled(pending); await workers.close(); await settled; db.close(); rmSync(directory, { recursive: true, force: true }); }
   }, 20_000);
 
   it("reports unavailable ranking data lazily for an old graph, including an external replacement", async () => {
