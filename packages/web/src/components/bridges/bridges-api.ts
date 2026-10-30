@@ -16,7 +16,10 @@ export type DeepStep = "candidates" | "checking" | "rating" | "done";
 export type DeepStatus = { jobId: string; state: DeepState; step: DeepStep; progress: number; results: ShownBridge[]; inReview: number; error?: string; engines?: string[]; next?: EngineSuggestion[] };
 export type DeepStart = { jobId: string; state: DeepState; cached: boolean };
 
-/** A failed call. `retryAfter` (seconds) comes with a 429, and with a 409 when another search of this player still runs. */
+/**
+ * A failed call. `retryAfter` (seconds) comes with a 429, with a 409 when another search of this player still runs,
+ * and with a 503 when the host is busy for a moment.
+ */
 export class BridgeRequestError extends Error {
   constructor(readonly status: number, message: string, readonly retryAfter?: number) {
     super(message);
@@ -34,7 +37,7 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
       if (typeof body.error === "string") message = body.error;
       if (typeof body.retryAfter === "number") retryAfter = body.retryAfter;
     } catch { /* The body is not JSON. The status is enough. */ }
-    if (response.status === 429 && retryAfter === undefined) {
+    if ((response.status === 429 || response.status === 503) && retryAfter === undefined) {
       const header = Number(response.headers.get("Retry-After"));
       if (Number.isFinite(header) && header > 0) retryAfter = Math.ceil(header);
     }

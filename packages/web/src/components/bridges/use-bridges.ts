@@ -80,6 +80,24 @@ type JobRecord = { id: string; context: string; doneAt?: number };
 /** The job in flight. `quiet`: only a refresh of a finished search for a new deck, so no progress bar shows. */
 type Running = { id: string; work: string; names: string; context: string; quiet?: boolean; doneAt?: number; step: DeepStep; progress: number; inReview: number | null };
 type Finished = { work: string; context: string; doneAt?: number; deep: Deep };
+/** The searches kept per set of engines, so one that ends never takes the place of another set's results. */
+type PerWork<T> = Readonly<Record<string, T>>;
+const KEEP_WORKS = 12;
+function keepFor<T>(map: PerWork<T>, work: string, value: T | null): PerWork<T> {
+  if (value == null && !(work in map)) return map;
+  const next: Record<string, T> = { ...map };
+  delete next[work];
+  if (value != null) next[work] = value;
+  const keys = Object.keys(next);
+  for (const old of keys.slice(0, Math.max(0, keys.length - KEEP_WORKS))) delete next[old];
+  return next;
+}
+/** How long to wait before asking again: the host's own wait (a busy host says one), or twice the poll time. */
+const waitAfter = (reason: unknown) => (reason instanceof BridgeRequestError && reason.retryAfter != null && reason.retryAfter > 0 ? Math.ceil(reason.retryAfter) * 1000 : DEEP_POLL_MS * 2);
+/** A wait the host asked for (it is busy for a moment). It is not a failure of the search. */
+const isBusy = (reason: unknown) => reason instanceof BridgeRequestError && (reason.status === 503 || reason.status === 429);
+/** Asks that only wait out a busy host, before the search shows an error. */
+const BUSY_TRIES = 10;
 
 function readJson(key: string): Record<string, unknown> | null {
   try {
@@ -110,8 +128,8 @@ export type DeepSearchOptions = {
   names: string;
   /** The tab is on screen. A deck edit reaches the host only then. */
   active: boolean;
-  /** A search the player started has finished, whatever the tab shows now. */
-  onFinished?: () => void;
+  /** A search the player started has finished, whatever the tab shows now. `work` names its set. */
+  onFinished?: (work: string) => void;
 };
 
 /**
@@ -127,8 +145,12 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
   const work = scope ? deepWorkKey(scope) : null;
   const context = scope ? deepContextKey(scope) : "";
   const [running, setRunning] = useState<Running | null>(null);
-  const [finished, setFinished] = useState<Finished | null>(null);
-  const [failure, setFailure] = useState<{ work: string; deep: Deep } | null>(null);
+  const [finishedAll, setFinishedAll] = useState<PerWork<Finished>>({});
+  const [failedAll, setFailedAll] = useState<PerWork<Deep>>({});
+  const finished = work ? finishedAll[work] ?? null : null;
+  const failure = work ? failedAll[work] ?? null : null;
+  const setFinished = useCallback((entry: Finished) => setFinishedAll((before) => keepFor(before, entry.work, entry)), []);
+  const setFailure = useCallback((on: string, deep: Deep | null) => setFailedAll((before) => keepFor(before, on, deep)), []);
   const [notice, setNotice] = useState<{ work: string; text: string } | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -141,8 +163,8 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
   latest.current = { scope, work, context, names };
   const runningRef = useRef(running);
   runningRef.current = running;
-  const finishedRef = useRef(finished);
-  finishedRef.current = finished;
+  const finishedRef = useRef(finishedAll);
+  finishedRef.current = finishedAll;
   const onFinishedRef = useRef(onFinished);
   onFinishedRef.current = onFinished;
 
@@ -179,12 +201,14 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
     const controller = new AbortController();
     let timer: number | undefined;
     let failures = 0;
+    let busyTries = 0;
     const settle = () => { writeActive(null); setRunning((now) => (now?.id === runningId ? null : now)); };
     const tick = async () => {
       try {
         const status = await pollDeepSearch(runningId, controller.signal);
         if (controller.signal.aborted) return;
         failures = 0;
+        busyTries = 0;
         const job = runningRef.current;
         if (!job || job.id !== runningId) return;
         if (status.state === "done") {
@@ -192,14 +216,14 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
           writeRecord(job.work, { id: job.id, context: job.context, doneAt });
           settle();
           setFinished({ work: job.work, context: job.context, doneAt, deep: doneDeep(status) });
-          setFailure((before) => (before?.work === job.work ? null : before));
-          if (!job.quiet) onFinishedRef.current?.();
+          setFailure(job.work, null);
+          if (!job.quiet) onFinishedRef.current?.(job.work);
           return;
         }
         if (status.state === "failed") {
           writeRecord(job.work, null);
           settle();
-          if (!job.quiet) setFailure({ work: job.work, deep: failedDeep(status.error || "The deep search could not finish.", status.step, status.progress || job.progress, status.inReview) });
+          if (!job.quiet) setFailure(job.work, failedDeep(status.error || "The deep search could not finish.", status.step, status.progress || job.progress, status.inReview));
           return;
         }
         setRunning((now) => (now?.id === runningId ? { ...now, step: status.step, progress: status.progress, inReview: status.inReview } : now));
@@ -211,39 +235,49 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
           // The host no longer knows this job. Forget it, so the next click starts a new search.
           if (job) writeRecord(job.work, null);
           settle();
-          if (job && !job.quiet) setFailure({ work: job.work, deep: failedDeep("This search is no longer available. Start it again.") });
+          if (job && !job.quiet) setFailure(job.work, failedDeep("This search is no longer available. Start it again."));
           return;
         }
-        failures += 1;
+        // A busy host asks for a short wait: that is no failure, up to a point.
+        if (isBusy(reason) && busyTries < BUSY_TRIES) busyTries += 1;
+        else failures += 1;
         if (failures >= DEEP_POLL_FAILURES) {
           settle();
-          if (job && !job.quiet) setFailure({ work: job.work, deep: failedDeep(errorText(reason), job.step, job.progress, job.inReview) });
+          if (job && !job.quiet) setFailure(job.work, failedDeep(errorText(reason), job.step, job.progress, job.inReview));
           return;
         }
-        timer = window.setTimeout(() => void tick(), DEEP_POLL_MS * 2);
+        timer = window.setTimeout(() => void tick(), waitAfter(reason));
       }
     };
     void tick();
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [runningId]);
+  }, [runningId, setFinished, setFailure]);
 
   // Engines shown again: the kept job of that search brings its results back (or its progress, if it still runs).
+  // A busy host (or a lost answer) is asked again a few times, after the wait it asks for.
   useEffect(() => {
-    if (!work || runningRef.current?.work === work || finishedRef.current?.work === work) return;
+    if (!work || runningRef.current?.work === work || finishedRef.current[work]) return;
     const record = readRecord(work);
     if (!record) return;
     const controller = new AbortController();
-    void pollDeepSearch(record.id, controller.signal).then((status) => {
+    let timer: number | undefined;
+    let tries = 0;
+    const ask = () => void pollDeepSearch(record.id, controller.signal).then((status) => {
       if (controller.signal.aborted) return;
       if (status.state === "done") { setFinished({ work, context: record.context, doneAt: record.doneAt, deep: doneDeep(status) }); return; }
       if (status.state === "failed") { writeRecord(work, null); return; }
       const job: Running = { id: record.id, work, names: latest.current.names, context: record.context, step: status.step, progress: status.progress, inReview: status.inReview };
       setRunning((before) => { if (before) return before; writeActive(job); return job; });
     }, (reason: unknown) => {
-      if (!controller.signal.aborted && reason instanceof BridgeRequestError && reason.status === 404) writeRecord(work, null);
+      if (controller.signal.aborted) return;
+      if (reason instanceof BridgeRequestError && reason.status === 404) { writeRecord(work, null); return; }
+      const again = !(reason instanceof BridgeRequestError) || isBusy(reason) || reason.status >= 500;
+      tries += 1;
+      if (again && tries < BUSY_TRIES) timer = window.setTimeout(ask, waitAfter(reason));
     });
-    return () => controller.abort();
-  }, [work]);
+    ask();
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [work, setFinished]);
 
   const refreshable = (job: { doneAt?: number }) => job.doneAt != null && Date.now() - job.doneAt < REFRESH_MS;
   const syncKey = work ? `${work}#${context}` : null;
@@ -251,7 +285,7 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
   // The deck changed under a search of these engines: the host hears of the new deck, so held cards and points match.
   const needsSync = !!work && active && syncTried !== syncKey && (
     mine ? running!.context !== context
-      : running == null && finished != null && finished.work === work && finished.context !== context && refreshable(finished));
+      : running == null && finished != null && finished.context !== context && refreshable(finished));
   useEffect(() => {
     if (!needsSync) return;
     const timer = window.setTimeout(() => {
@@ -269,7 +303,7 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
           return;
         }
         const done = started.state === "done";
-        const next: Running = { id: started.jobId, work: w, names: n, context: c, step: "candidates", progress: 0, inReview: null, ...(done ? { quiet: true, doneAt: finishedRef.current?.doneAt } : {}) };
+        const next: Running = { id: started.jobId, work: w, names: n, context: c, step: "candidates", progress: 0, inReview: null, ...(done ? { quiet: true, doneAt: finishedRef.current[w]?.doneAt } : {}) };
         if (!done) { writeActive(next); writeRecord(w, { id: started.jobId, context: c }); }
         setRunning(next);
       }, () => { setSyncTried(`${w}#${c}`); }).finally(() => { sending.current = false; setSyncing(false); });
@@ -287,8 +321,8 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
   let updating = false;
   if (work && starting === work) deep = { ...IDLE, phase: "starting" };
   else if (mine && !running!.quiet) deep = { ...IDLE, phase: "running", step: running!.step, progress: running!.progress, inReview: running!.inReview };
-  else if (work && failure?.work === work) deep = failure.deep;
-  else if (work && finished?.work === work) {
+  else if (failure) deep = failure;
+  else if (finished) {
     if (finished.context === context) deep = finished.deep;
     else if (mine || needsSync || syncing) { deep = finished.deep; updating = true; }
     else stale = true;
@@ -302,7 +336,7 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
     sending.current = true;
     setStarting(w);
     setNotice(null);
-    setFailure((before) => (before?.work === w ? null : before));
+    setFailure(w, null);
     try {
       const started = await startDeepSearch(wanted);
       const job: Running = { id: started.jobId, work: w, names: n, context: c, step: "candidates", progress: 0, inReview: null };
@@ -319,19 +353,20 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
         setNotice({ work: w, text: `${reason.message.replace(/\.$/, "")}. You can start this one when it ends.` });
         return;
       }
-      setFailure({ work: w, deep: failedDeep(errorText(reason)) });
+      setFailure(w, failedDeep(errorText(reason)));
     } finally {
       sending.current = false;
       setStarting(null);
     }
-  }, [cool]);
+  }, [cool, setFailure]);
 
   return {
     deep,
     start,
     cooldown: left,
     busy,
-    blocked: busy || left > 0,
+    /** A deck edit is being sent to the host: the button waits that moment out, so a click is never lost. */
+    blocked: busy || syncing || left > 0,
     /** A search for other engines that still runs. */
     elsewhere,
     /** Results of these engines exist, but for another deck (or none): they are not shown. */
