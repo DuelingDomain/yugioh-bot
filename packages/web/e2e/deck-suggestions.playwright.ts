@@ -141,6 +141,8 @@ const bridgeCalls = { lists: [] as string[], starts: [] as Record<string, unknow
 const bridgeControl = { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok" as "ok" | "fail", reviewCount: 3, feedbackFails: false, started: 0, deepNone: false,
   /** The deep search on Blue-Eyes + Dragunity finds Melodious (not in the fast list) and drops Dragon Ruler. */
   deepExtra: false,
+  /** A status the host answers a join-only request with (404 or 409), or 0. */
+  joinStatus: 0,
   /** That search has stored its rows, so the fast answer for the set holds Melodious too, as the host's does. */
   storedExtra: false,
   /** The next polls answer 503 busy, as a host does while this player has another projection in flight. */
@@ -247,6 +249,9 @@ async function api(method: string, url: URL, body: any) {
     if (body.deck && body.source !== undefined) return json(400, { error: "The deck goes with engines only." });
     const work = deepWork(body);
     const kept = deepJobs.get(work);
+    // A join-only request reuses a job the host has, and never starts one.
+    if (body.join !== undefined && body.join !== true) return json(400, { error: "join must be true" });
+    if (body.join === true && (bridgeControl.joinStatus || !kept)) return json(bridgeControl.joinStatus || 404, { error: bridgeControl.joinStatus === 409 ? "A different deep search is running" : "No deep search to join" });
     // The same search again joins its job; the new deck is this player's context from now on.
     if (kept) {
       if (body.engines || body.deck) multiJobs.set(kept.id, enginesAnswer({ format: body.format, ...(body.engines ? { engines: body.engines } : {}), ...(body.deck ? { deck: body.deck } : {}) }));
@@ -369,7 +374,7 @@ try {
     if (url.pathname.startsWith("/api/")) {
       const raw = request.postData();
       const response = await api(request.method(), url, raw ? JSON.parse(raw) : null);
-      if (response.status === 404 && !(url.pathname === "/api/cards/bridges" && bridgeControl.listStatus === 404) && !(url.pathname === "/api/cards/bridges/engines" && engineControl.status === 404)) unrouted.push(`${request.method()} ${url.pathname}`);
+      if (response.status === 404 && !(url.pathname === "/api/cards/bridges" && bridgeControl.listStatus === 404) && !(url.pathname === "/api/cards/bridges/engines" && engineControl.status === 404) && !(url.pathname === "/api/cards/bridges/deep-search" && request.method() === "POST")) unrouted.push(`${request.method()} ${url.pathname}`);
       return route.fulfill(response);
     }
     const publicDir = resolve(web, "public");
@@ -1120,7 +1125,10 @@ try {
   await chips.getByRole("button", { name: "Remove Blue-Eyes" }).click();
   await items.first().waitFor({ state: "visible", timeout: 15_000 });
   check("u4", "a removed deck engine leaves the other chip and shows the reset link", JSON.stringify(await chipNames()) === JSON.stringify(["Dragunity"]) && (await chips.getByTestId("engine-reset").innerText()) === "Reset to deck", await chipNames());
-  check("u4", "the reset link sits in the row of chips, not on a line of its own", (await chips.getByRole("list").first().getByTestId("engine-reset").count()) === 1);
+  check("u4", "the reset link is outside the chip list, so a screen reader counts the chips only", (await chips.getByRole("list").first().getByTestId("engine-reset").count()) === 0 && (await chips.getByRole("listitem").count()) === (await chips.getByTestId("engine-chip").count()) + (await chips.getByTestId("engine-add").count()));
+  check("u4", "the reset link is a short inline link in the row of the chips", await chips.evaluate((root: HTMLElement) => { const link = root.querySelector('[data-testid="engine-reset"]')!.getBoundingClientRect(); const list = root.querySelector("ul")!.getBoundingClientRect(); return link.width < 160 && link.top < list.bottom && link.left >= list.right - 1; }));
+  await chips.scrollIntoViewIfNeeded();
+  await shot("chips-reset-1920x1080");
   await shot("engines-reset-1920x1080");
   check("u4", "the focus goes on after a chip is removed", await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) === "engine-add", await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 80)));
   await chips.getByTestId("engine-reset").click();
@@ -1342,7 +1350,7 @@ try {
   bridgeCalls.starts.length = 0; bridgeCalls.polls = 0;
   await bridges.getByTestId("deep-search-button").dblclick();
   await bridges.getByTestId("deep-progress").waitFor();
-  check("w1", "two engines in the deck start one search, for the chips on screen with the deck as context", bridgeCalls.starts.length === 1 && bridgeCalls.starts[0]!.deck !== undefined && JSON.stringify(bridgeCalls.starts[0]!.engines) === JSON.stringify(["Blue-Eyes", "Dragunity"]) && bridgeCalls.starts[0]!.source === undefined && bridgeCalls.starts[0]!.format === "advanced", bridgeCalls.starts.map((call) => Object.keys(call)));
+  check("w1", "two engines in the deck start one search, for the chips on screen with the deck as context", bridgeCalls.starts.length === 1 && bridgeCalls.starts[0]!.deck !== undefined && JSON.stringify(bridgeCalls.starts[0]!.engines) === JSON.stringify(["Blue-Eyes", "Dragunity"]) && bridgeCalls.starts[0]!.source === undefined && bridgeCalls.starts[0]!.format === "advanced" && bridgeCalls.starts[0]!.join === undefined, bridgeCalls.starts.map((call) => Object.keys(call)));
   check("w1", "the Deep search button and its progress sit above the engine list", await bridges.evaluate((root: HTMLElement) => { const button = root.querySelector('[data-testid="deep-search-button"]')!.getBoundingClientRect(); const list = root.querySelector('[data-testid="engines-next"]')?.getBoundingClientRect(); return !!list && button.bottom <= list.top; }));
   check("w1", "the progress bar and its steps show", (await bridges.getByTestId("deep-progress").getByRole("progressbar").count()) === 1 && (await bridges.getByTestId("deep-progress").locator("li").count()) === 3);
   check("w1", "the button waits while the search runs", await bridges.getByTestId("deep-search-button").isDisabled());
@@ -1372,7 +1380,7 @@ try {
   await goTab("Bridges");
   await page.waitForTimeout(2500);
   const needAfter = await bridges.getByTestId("deep-results").getByTestId("engine-item").first().getByTestId("engine-need").innerText().catch(() => "");
-  check("w2", "a deck edit after the search sends the new deck to the same search, and no progress bar or dot shows", bridgeCalls.starts.length === 2 && bridgeCalls.starts[1]!.deck !== undefined && (await bridges.getByTestId("deep-progress").count()) === 0 && (await page.locator('[role="tab"][data-dot]').count()) === 0, { starts: bridgeCalls.starts.length });
+  check("w2", "a deck edit after the search sends the new deck to the same search, and no progress bar or dot shows", bridgeCalls.starts.length === 2 && bridgeCalls.starts[1]!.deck !== undefined && bridgeCalls.starts[1]!.join === true && (await bridges.getByTestId("deep-progress").count()) === 0 && (await page.locator('[role="tab"][data-dot]').count()) === 0, { starts: bridgeCalls.starts.length });
   check("w2", "the results then count the card the deck holds now", needAfter !== "" && needAfter !== needBefore, { needBefore, needAfter });
 
   // A running search is never lost: Pick archetypes shows it as still running, the button waits, and it lands on the way back.
@@ -1487,6 +1495,14 @@ try {
     await bridges.getByTestId("deep-results").scrollIntoViewIfNeeded();
     await shot(`deep-new-${viewport.name}`);
     if (viewport.width === 1920) {
+      // After a reload the list from before the search is gone: no mark shows, and no wrong one.
+      await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
+      await page.getByRole("tab", { name: "Cards", exact: true }).first().waitFor({ state: "visible", timeout: 8000 });
+      await page.waitForTimeout(400);
+      await goTab("Bridges");
+      await bridges.getByTestId("deep-results").getByTestId("engine-item").first().waitFor({ timeout: 20_000 });
+      await page.waitForTimeout(1500);
+      check("w9", "after a reload no engine is marked New, and the note does not count new ones", (await bridges.getByTestId("engine-new").count()) === 0 && !(await bridges.getByTestId("deep-from").innerText()).includes("new"), await bridges.getByTestId("deep-from").innerText());
       // Suggest lists Dragon Ruler (a fast engine) that the deep results left out: a tap says so, never nothing.
       await goTab("Suggest");
       const ruler = fit.locator('[data-testid="engine-fit-item"][data-engine="Dragon Ruler"]');
@@ -1525,13 +1541,39 @@ try {
   await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
   await page.waitForTimeout(2500);
   check("w10", "a busy host on the way back is asked again, and the kept results show", bridgeControl.pollBusy === 0 && await bridges.getByTestId("deep-results").isVisible());
-  check("w10", "a reload with a kept job for another deck sends this deck to the same job, with no progress bar and no stale line", bridgeCalls.starts.length === 2 && bridgeCalls.starts[1]!.deck !== undefined && (await bridges.getByTestId("deep-progress").count()) === 0 && (await bridges.getByTestId("deep-stale").count()) === 0, { starts: bridgeCalls.starts.length });
+  check("w10", "a reload with a kept job for another deck sends this deck to the same job, with no progress bar and no stale line", bridgeCalls.starts.length === 2 && bridgeCalls.starts[1]!.deck !== undefined && bridgeCalls.starts[1]!.join === true && (await bridges.getByTestId("deep-progress").count()) === 0 && (await bridges.getByTestId("deep-stale").count()) === 0, { starts: bridgeCalls.starts.length });
   await editKept(10 * 60_000);
   await reopen();
   await bridges.getByTestId("deep-stale").waitFor({ timeout: 20_000 });
   await page.waitForTimeout(2000);
   check("w10", "a kept job too old to refresh says the cards changed and sends nothing", bridgeCalls.starts.length === 2 && (await bridges.getByTestId("deep-results").count()) === 0 && (await bridges.getByTestId("deep-search-button").innerText()).includes("Search again"), { starts: bridgeCalls.starts.length });
   await shot("deep-stale-1920x1080");
+  engineControl.mode = "single";
+
+  // w11. The refresh for an edited deck is join-only. The host may refuse it (404: nothing to join, 409: another search
+  // runs). That is quiet: the stale line stays, no error shows, no search starts, and a click then sends no join.
+  for (const refused of [404, 409]) {
+    engineControl.mode = "multi";
+    await fresh();
+    await goTab("Bridges");
+    await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+    bridgeCalls.starts.length = 0;
+    await bridges.getByTestId("deep-search-button").click();
+    await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
+    bridgeControl.joinStatus = refused;
+    await goTab("Cards");
+    await search().fill("Chaos Sorcerer");
+    await page.locator('[data-pane="cards"] button[title="Chaos Sorcerer"]').first().dblclick({ timeout: 10_000 });
+    await search().fill("");
+    await goTab("Bridges");
+    await bridges.getByTestId("deep-stale").waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(2500);
+    check("w11", `a refused join (${refused}) is tried once, quietly: the stale line shows and nothing else`, bridgeCalls.starts.length === 2 && bridgeCalls.starts[1]!.join === true && (await bridges.getByTestId("deep-error").count()) === 0 && (await bridges.getByTestId("deep-notice").count()) === 0 && (await bridges.getByTestId("deep-progress").count()) === 0 && (await bridges.getByTestId("deep-results").count()) === 0, bridgeCalls.starts.map((call) => call.join));
+    bridgeControl.joinStatus = 0;
+    await bridges.getByTestId("deep-search-button").click();
+    await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
+    check("w11", `a click on Deep search after a refused join (${refused}) sends no join`, bridgeCalls.starts.length === 3 && bridgeCalls.starts[2]!.join === undefined, bridgeCalls.starts.map((call) => call.join));
+  }
   engineControl.mode = "single";
 
   // x. Saved chip edits, Pick archetypes, and the details of a link.

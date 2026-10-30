@@ -171,12 +171,14 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
     ? set.length > 1 ? { source: first, format, engines: set, ...(openDeck ? { deck: openDeck } : {}), ...points } : { source: first, format, ...points }
     : null;
   const workKey = scope ? deepWorkKey(scope) : null;
+  // The sets whose deep search ended while this page was open: only for those can "New" be told.
+  const [liveDone, setLiveDone] = useState<readonly string[]>([]);
   const { list, loading, error: listError, retry: retryList } = useBridgeList(listScope, true, active);
   const { deep, start, cooldown, blocked, elsewhere, stale, updating, notice: deepNotice } = useDeepSearch(scope, {
     names,
     active,
     // A search that ends tells the tab bar (a hidden tab shows a dot), and the fast answers are asked again.
-    onFinished: () => { onDeepFinishedRef.current?.(); refreshEngines(); },
+    onFinished: (work) => { onDeepFinishedRef.current?.(); refreshEngines(); setLiveDone((before) => (before.includes(work) ? before : [...before, work])); },
   });
   const error = listError ?? (single ? null : setError);
   const retry = () => { retryList(); if (pickMode) picked.retry(); else engines.retry(); };
@@ -255,11 +257,14 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
     if (!workKey || deepDone || fastNames == null) return;
     setFastBefore((before) => (before[workKey] === fastNames ? before : { ...before, [workKey]: fastNames }));
   }, [workKey, deepDone, fastNames]);
+  // Results that came back after a reload (or from the host's cache) were measured against a list this page never saw,
+  // so nothing can be called new and the list shows no marks. The fast list as it is now holds the deep rows already.
   const fresh = useMemo(() => {
-    const kept = workKey ? fastBefore[workKey] : undefined;
-    const known = new Set(kept != null ? kept.split("\n") : fastNext.map((engine) => engine.engine));
+    const kept = workKey && liveDone.includes(workKey) ? fastBefore[workKey] : undefined;
+    if (kept == null) return new Set<string>();
+    const known = new Set(kept.split("\n"));
     return new Set(deepNext.filter((engine) => !known.has(engine.engine)).map((engine) => engine.engine));
-  }, [deepNext, fastNext, fastBefore, workKey]);
+  }, [deepNext, fastBefore, liveDone, workKey]);
 
   useEffect(() => {
     if (!pending || !active) return;

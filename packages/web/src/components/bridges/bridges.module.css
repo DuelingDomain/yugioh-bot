@@ -111,6 +111,7 @@
 
 /* The engines of the open deck as chips, and the engines that fit next. */
 .chips { display: grid; gap: 8px; min-width: 0; }
+.chipRow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 10px; row-gap: 6px; min-width: 0; }
 .chipList { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-height: 28px; box-sizing: border-box; padding: 0 4px 0 10px; border: 0; border-radius: 999px; background: var(--pen-soft); color: var(--ink); font: inherit; font-size: 12.5px; }
 .chipName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -121,7 +122,7 @@
 .chipAdd { gap: 4px; padding: 0 10px; background: none; box-shadow: inset 0 0 0 1px var(--rule-lo); color: var(--ink-2); cursor: pointer; }
 .chipAdd:hover { box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink); }
 .chipAdd:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.chipReset { display: inline-flex; align-items: center; min-height: 28px; padding: 0 4px; }
+.chipReset { min-height: 28px; padding: 0 4px; }
 .addForm { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
 .also { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; color: var(--ink-3); font-size: 12.5px; }
 .alsoItem { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 0 8px; border: 0; border-radius: 999px; background: none; box-shadow: inset 0 0 0 1px var(--rule-lo); color: var(--ink-2); font: inherit; font-size: 12px; cursor: pointer; }

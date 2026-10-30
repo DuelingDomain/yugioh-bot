@@ -58,15 +58,19 @@ export function fetchBridges(scope: BridgeScope, signal?: AbortSignal): Promise<
   return call<BridgeList>(`/api/cards/bridges?${queryOf(scope)}`, { signal });
 }
 
-/** Start the deep search, or join the one that already runs. */
-export function startDeepSearch(scope: BridgeScope, signal?: AbortSignal): Promise<DeepStart> {
+/**
+ * Start the deep search, or join the one that already runs. `join` is for the automatic refresh of the deck and points
+ * of a search the host already has: it never starts or counts a search (404 when there is none, 409 on a conflict).
+ * A click of the player never sets it.
+ */
+export function startDeepSearch(scope: BridgeScope, signal?: AbortSignal, join = false): Promise<DeepStart> {
   const points = scope.format === "genesys" && scope.genesysRemaining != null ? { genesysRemaining: Math.max(0, Math.min(1000, Math.floor(scope.genesysRemaining))) } : {};
   // Several engines: the set is the work, the open deck (when there is one) only says what the player already holds.
   // The points come from the editor, which also counts the Side Deck and the player's own cap.
   const multi = scope.engines && scope.engines.length > 1 ? scope.engines : null;
   const body = multi
-    ? { format: scope.format, engines: [...multi], ...(scope.deck ? { deck: scope.deck } : {}), ...points }
-    : { source: scope.source, format: scope.format, ...(scope.target ? { target: scope.target } : {}), ...points };
+    ? { format: scope.format, engines: [...multi], ...(scope.deck ? { deck: scope.deck } : {}), ...points, ...(join ? { join: true } : {}) }
+    : { source: scope.source, format: scope.format, ...(scope.target ? { target: scope.target } : {}), ...points, ...(join ? { join: true } : {}) };
   return call<DeepStart>("/api/cards/bridges/deep-search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
 }
 

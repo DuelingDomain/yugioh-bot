@@ -293,7 +293,8 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
       if (!wanted || !w || sending.current) return;
       sending.current = true;
       setSyncing(true);
-      void startDeepSearch(wanted).then((started) => {
+      // Only the refresh joins: the host reuses its job or says there is none (404) or a clash (409), and counts nothing.
+      void startDeepSearch(wanted, undefined, true).then((started) => {
         const job = runningRef.current;
         if (job && job.work === w) {
           const next = { ...job, id: started.jobId, context: c };
@@ -306,7 +307,7 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
         const next: Running = { id: started.jobId, work: w, names: n, context: c, step: "candidates", progress: 0, inReview: null, ...(done ? { quiet: true, doneAt: finishedRef.current[w]?.doneAt } : {}) };
         if (!done) { writeActive(next); writeRecord(w, { id: started.jobId, context: c }); }
         setRunning(next);
-      }, () => { setSyncTried(`${w}#${c}`); }).finally(() => { sending.current = false; setSyncing(false); });
+      }, () => { /* 404, 409 or a busy host: the stale note stays, and this deck is not tried again. */ setSyncTried(`${w}#${c}`); }).finally(() => { sending.current = false; setSyncing(false); });
     }, CONTEXT_WAIT_MS);
     return () => window.clearTimeout(timer);
   }, [needsSync, syncKey]);

@@ -68,28 +68,28 @@ export function EngineChips({ title, set, light, edited, busy, keepOne, onRemove
   return (
     <div className={styles.chips} data-testid="engine-chips" aria-busy={busy || undefined}>
       <h4 className={styles.subTitle}>{title}</h4>
-      <ul className={styles.chipList} aria-label={title}>
-        {set.map((name, index) => (
-          <li key={name} className={styles.chip} data-testid="engine-chip">
-            <span className={styles.chipName} title={name}>{name}</span>
-            <button type="button" className={styles.chipX} aria-label={`Remove ${name}`} disabled={lastStays}
-              title={lastStays ? "Keep one engine. Add another one first." : undefined}
-              ref={(node) => { if (node) removeButtons.current.set(name, node); else removeButtons.current.delete(name); }}
-              onClick={() => remove(name, index)}><X size={13} strokeWidth={2} aria-hidden /></button>
-          </li>
-        ))}
-        {!full && !adding ? (
-          <li>
-            <button ref={addButton} type="button" className={cn(styles.chip, styles.chipAdd)} data-testid="engine-add" onClick={() => setAdding(true)}><Plus size={13} strokeWidth={2} aria-hidden />Add</button>
-          </li>
-        ) : null}
-        {/* With the chips, so it reads as part of them and does not stand alone across the panel. */}
+      <div className={styles.chipRow}>
+        <ul className={styles.chipList} aria-label={title}>
+          {set.map((name, index) => (
+            <li key={name} className={styles.chip} data-testid="engine-chip">
+              <span className={styles.chipName} title={name}>{name}</span>
+              <button type="button" className={styles.chipX} aria-label={`Remove ${name}`} disabled={lastStays}
+                title={lastStays ? "Keep one engine. Add another one first." : undefined}
+                ref={(node) => { if (node) removeButtons.current.set(name, node); else removeButtons.current.delete(name); }}
+                onClick={() => remove(name, index)}><X size={13} strokeWidth={2} aria-hidden /></button>
+            </li>
+          ))}
+          {!full && !adding ? (
+            <li>
+              <button ref={addButton} type="button" className={cn(styles.chip, styles.chipAdd)} data-testid="engine-add" onClick={() => setAdding(true)}><Plus size={13} strokeWidth={2} aria-hidden />Add</button>
+            </li>
+          ) : null}
+        </ul>
+        {/* Next to the list, not in it: a screen reader counts the chips and nothing else. */}
         {edited && onReset ? (
-          <li className={styles.chipReset}>
-            <button type="button" className={styles.link} data-testid="engine-reset" onClick={() => { onReset(); moveFocus(null); }}>{resetLabel}</button>
-          </li>
+          <button type="button" className={cn(styles.link, styles.chipReset)} data-testid="engine-reset" onClick={() => { onReset(); moveFocus(null); }}>{resetLabel}</button>
         ) : null}
-      </ul>
+      </div>
       {set.length === 0 && !adding && emptyText ? <p className={styles.note} data-testid="engine-none">{emptyText}</p> : null}
       {adding && !full ? (
         <form className={styles.addForm} data-testid="engine-add-form" onSubmit={(event) => { event.preventDefault(); if (chosen) add(chosen); }}
