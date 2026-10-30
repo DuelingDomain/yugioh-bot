@@ -2,6 +2,9 @@ import type Database from "better-sqlite3";
 import { storedBridgeEngine } from "../cards/effects/bridge-graph-store.js";
 import type { ArchetypeBridge, BridgeFormat, BridgeProgress, CapabilityKey, CardCapability } from "../cards/effects/bridge-types.js";
 import { shownBridge, type ShownBridge } from "../cards/effects/bridge-judge.js";
+import { detectDeckEngines, type BridgeDeck } from "../cards/effects/bridge-engines.js";
+import { formatStaples } from "../cards/effects/staples.js";
+import type { BridgeGraphData } from "../cards/effects/bridge-types.js";
 
 /** Construct in the duel-host scanner or an administrative process, never in the web process. */
 export function createBridgeService(db: Database.Database) {
@@ -11,6 +14,15 @@ export function createBridgeService(db: Database.Database) {
     return row ? JSON.parse(row.bridge_json) as ArchetypeBridge : null;
   };
   return {
+    detectEngines(deck: BridgeDeck, format: BridgeFormat = "advanced", guildId?: string) {
+      const row = db.prepare("SELECT graph_json FROM bridge_graph WHERE id=1").get() as { graph_json: string } | undefined;
+      if (!row) throw new Error("Bridge artifact has not been imported");
+      const skip = new Set(formatStaples(format === "advanced" ? "normal" : format, undefined, db, guildId).cards.keys());
+      const handTraps = db.prepare(`SELECT passcode FROM card_tags WHERE EXISTS
+        (SELECT 1 FROM json_each(tags_json,'$.roles') WHERE value='hand_trap')`).all() as { passcode: number }[];
+      handTraps.forEach(row => skip.add(row.passcode));
+      return detectDeckEngines(deck, (JSON.parse(row.graph_json) as BridgeGraphData).groups, skip);
+    },
     bridgesFrom(archetype: string, format: BridgeFormat = "advanced", limit = 4): ArchetypeBridge[] {
       const count = Number.isFinite(limit) ? Math.max(0, Math.min(25, Math.floor(limit))) : 4;
       const rows = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND format=? AND coalesce(json_extract(bridge_json,'$.tier'),'strict')<>'niche' ORDER BY score DESC,target LIMIT 25").all(archetype.trim(), format) as { bridge_json: string }[];
