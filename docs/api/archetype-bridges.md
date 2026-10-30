@@ -25,6 +25,38 @@ including after a deep job saves them in the shared candidate table.
 
 For a saved Genesys deck, the host derives remaining points from its cap and existing copies. Only additional required copies consume that allowance. Source-only queries compare the complete evidence package against `genesysRemaining`, defaulting to 100. Card legality and the two review gates apply in either case.
 
+`POST /api/cards/bridges/engines` is a SQLite-only fast operation (`engines` on the host). It never starts a scan or a paid review. Unknown fields are rejected, the body is bounded to 4096 bytes, and each supplied passcode is a positive uint32. At least one of `deck` and `engines` is required; supplying both detects the deck but uses the corrected engines. Names are canonicalized, deduplicated and sorted. An empty detection is a successful empty result. Chip corrections affect Bridges only.
+
+```ts
+type BridgeDeck = { main: number[]; extra: number[]; deckMaster?: number }; // at most 91 total IDs
+// Request
+{ format: "advanced" | "genesys", deck?: BridgeDeck,
+  engines?: string[], // 1–4 names, each at most 120 characters
+  genesysRemaining?: number } // integer 0–1000; used only without deck
+// Response, HTTP 200
+{ engines: string[], detected?: DetectedEngine[], between: ShownBridge[],
+  next: EngineSuggestion[], inReview: number }
+type DetectedEngine = { name: string; weight: number; copies: number; distinct: number;
+  status: "engine" | "light"; hybrids: number[]; includes?: string[] };
+type EngineSuggestion = {
+  engine: string; score: number; grade: "Strong" | "Good" | "Niche" | "Risky";
+  tier: "strict" | "niche"; covered: number; of: number; twoWay: string[];
+  links: { from: string; to: string; bridge: ShownBridge }[]; // 1–3 accepted display pairs
+  cards: number[]; missing: number[]; genesysPoints: number | null;
+  pros: string[]; cons: string[];
+};
+```
+
+The shared detector uses bridge groups, including aliases and curated Odion membership. Hand traps and `formatStaples` are excluded. Main, Extra and Deck Master copies weigh 1, 0.5 and 2 respectively; hybrid weight is divided across memberships. Groups sharing at least 80% of their in-deck weight fold into a stronger group (`includes`). Engines require weight ≥ `max(3, 0.075 × Main size)` and two distinct Main cards. At most four engines survive; the others and groups weighing at least 1.5 are light. `copies` and `distinct` include all supplied zones, while engine eligibility counts distinct Main identities separately.
+
+Fast suggestions contain at most four next engines and up to twelve directed rows between the chosen engines. Same-deck families and groups overlapping an existing engine by at least 50% are excluded. For each accepted pair, `v = score × gradeWeight × hubFactor`: grade weights are Strong 1, Good 0.8, strict Niche 0.6, Risky 0.3, and deep Niche 0.45. The primary line's hub factor is 0.25 for a hub, otherwise 1. Host startup computes hub fan-out from stored primary access cards external to both groups; fifteen distinct directed pairs make a hub.
+
+For engine Xi and candidate Z, `link_i = max(v(Xi→Z), 0.7 × v(Z→Xi)) + 0.3 × min(v(Xi→Z), v(Z→Xi))`. Sorted links receive weights 1, 0.8, 0.6, 0.5, then a multiplier `1 + 0.3 × (covered − 1)`. Only non-hub accepted links increase coverage. Target `idf = min(1, 0.05/share)`, where share is the fraction of graph sources with a stored directed row into Z. The final score must reach four. One target per `[format, accessCard, entryCard]` path survives across the complete set. Scores, coverage and two-way labels use only the accepted displayed pairs. Display selection keeps the best forward rows and best reverse row, at most three total. Pros and cons come from those accepted reviews.
+
+`cards` is the evidence package; `missing` retains required copy multiplicity after subtracting the subscriber's deck. Genesys suggestions charge only missing copies across the combined package, counting shared cards once at the largest required multiplicity. An open deck uses the existing 100-point default cap and includes its Deck Master; the request has no custom-cap field. `genesysRemaining` is ignored with an open deck. Unknown deck points reject the query.
+
+Browser callers can import `fetchBridgeEngines` and its types from `packages/web/src/lib/bridges-api.ts`. Server validation and signed-host helpers live in `bridges-server-api.ts`; web processes never construct the graph.
+
 `POST /api/cards/bridges/deep-search` accepts JSON below (exactly one of `source`/`deckId`). Unknown fields are rejected, bodies are bounded to 4096 bytes, and archetype names to 120 characters.
 
 ```ts
@@ -191,7 +223,7 @@ Genesys excludes Link/Pendulum cards and lines with mandatory Link/Pendulum depe
 | SQLite table | Columns / keys |
 | --- | --- |
 | `card_capability` | `passcode` PK, `capabilities_json`, `text_hash`, `evidence_hash`, `source_version` |
-| `archetype_bridge` | PK `(source,target,format)`, `score`, `grade`, `bridge_json`, `evidence_hash`, `source_version`; lookup index `(source,format,score DESC)` |
+| `archetype_bridge` | PK `(source,target,format)`, `score`, `grade`, `bridge_json`, `evidence_hash`, `source_version`; lookup indexes `(source,format,score DESC)` and `(target,format,score DESC)` |
 | `bridge_graph` | `id=1` PK, `graph_json`, `source_version` |
 | `bridge_artifact_import` | `version` PK, `imported_at` |
 | `bridge_judgement` | PK `(evidence_hash,judge)`, `verdict` (`approved/rejected/review`), `judgement_json`, `created_at` |

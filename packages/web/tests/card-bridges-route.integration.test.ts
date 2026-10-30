@@ -57,6 +57,29 @@ async function feedback(value: unknown) {
   return POST(new Request("http://web.test/api/cards/bridges/feedback", { method: "POST", body: JSON.stringify(value) }));
 }
 
+async function engines(value: unknown) {
+  const { POST } = await import("../app/api/cards/bridges/engines/route");
+  return POST(new Request("http://web.test/api/cards/bridges/engines", { method: "POST", body: JSON.stringify(value) }));
+}
+
+it("forwards bounded open decks and corrected engines without exposing pending rows", async () => {
+  const deck = { main: [29762407, 97522863], extra: [], deckMaster: 1710647 };
+  reply = { engines: ["Ashtra", "Odion"], detected: [], between: [], next: [], inReview: 3 };
+  expect((await engines({ deck, engines: ["Odion", "Ashtra"], format: "advanced" })).status).toBe(200);
+  expect(calls[0].bridgeRequest).toEqual({ op: "engines", deck, engines: ["Odion", "Ashtra"], format: "advanced" });
+  for (const value of [{}, { format: "advanced" }, { engines: [], format: "advanced" }, { engines: Array(5).fill("Odion"), format: "advanced" },
+    { engines: ["Odion"], format: "advanced", userId: 2 }, { deck: { ...deck, side: [] }, format: "advanced" },
+    { deck: { main: Array(92).fill(1), extra: [] }, format: "advanced" }, { deck: { main: [-1], extra: [] }, format: "advanced" }]) {
+    expect((await engines(value)).status).toBe(400);
+  }
+  const next = { engine: "Argostars", score: 8, grade: "Good", tier: "strict", covered: 1, of: 1, twoWay: [],
+    links: [{ from: "Odion", to: "Argostars", bridge: shown() }], cards: [123], missing: [123], genesysPoints: null, pros: [], cons: [] };
+  reply = { engines: ["Odion"], between: [], next: [next], inReview: 0 };
+  expect((await engines({ engines: ["Odion"], format: "advanced" })).status).toBe(200);
+  reply = { ...reply as object, next: [{ ...next, links: [{ ...next.links[0], bridge: { ...shown(), judge: "pending" } }] }] };
+  expect((await engines({ engines: ["Odion"], format: "advanced" })).status).toBe(502);
+});
+
 it("authenticates all operations and requires a player in the configured guild", async () => {
   state.auth.mockResolvedValue(null);
   for (const request of [() => lookup(), () => start({ source: "Odion" }), () => poll(), () => feedback({ evidenceHash: hash })]) {

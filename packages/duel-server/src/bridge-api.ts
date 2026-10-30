@@ -5,6 +5,7 @@ import { isOwnerUser } from "@yugidraft/shared/access/owner-access";
 import { createHash } from "node:crypto";
 import { BridgeJobError, BridgeReviewUnavailableError, BridgeSearchJobs, type BridgeSearchQuery } from "./bridge-search-jobs.js";
 import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
+import { BridgeEngineQueries } from "./bridge-engine-queries.js";
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const name = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 160;
@@ -13,10 +14,13 @@ const hash = (userId: number) => createHash("sha256").update(`bridge-user:${user
 export class BridgeApi {
   readonly jobs: BridgeSearchJobs;
   private readonly service;
+  private readonly engineQueries: BridgeEngineQueries;
   private graph?: { source_version: string; groups: BridgeGraphData["groups"] };
   private readonly storedCache = new Map<string, { revision: string; rows: ArchetypeBridge[] }>();
   constructor(private readonly db: Database.Database, workers: Pick<DeckSuggestionWorkers, "bridgeCandidates" | "rateBridge">, now?: () => number) {
     this.service = createBridgeService(db);
+    this.engineQueries = new BridgeEngineQueries(db);
+    if (db.prepare("SELECT 1 FROM bridge_graph WHERE id=1").get()) this.engineQueries.service.rankingContext();
     this.jobs = new BridgeSearchJobs(db, {
       now, version: () => `${this.groups().source_version}:${BRIDGE_JUDGE_VERSION}`,
       project: (rows, query) => this.project(rows, query, true),
@@ -183,6 +187,11 @@ export class BridgeApi {
       this.db.prepare("INSERT OR IGNORE INTO bridge_feedback(evidence_hash,actor_hash,reason) VALUES(?,?,?)").run(input.evidenceHash, hash(actor.userId), typeof input.reason === "string" ? input.reason.trim() : "");
       const users = (this.db.prepare("SELECT count(DISTINCT actor_hash) AS n FROM bridge_feedback WHERE evidence_hash=? AND resolved_at IS NULL").get(input.evidenceHash) as { n: number }).n;
       return { accepted: true, hidden: users >= 2 };
+    }
+    if (input.op === "engines") {
+      const { query, detected } = this.engineQueries.resolve(input, guildId);
+      return { ...this.engineQueries.project(this.engineQueries.service.engineRows(query.engines, query.format), query),
+        ...(detected ? { detected } : {}) };
     }
     if (!["from", "between", "start"].includes(String(input.op))) throw new BridgeJobError("Invalid bridge operation", 400);
     const query = this.query(input, guildId, actor.userId);

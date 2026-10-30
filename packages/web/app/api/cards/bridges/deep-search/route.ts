@@ -1,4 +1,4 @@
-import { answerBridgeRequest, bridgeErrorResponse, readBridgeBody, requireBridgeActor } from "@/lib/bridges-api";
+import { answerBridgeRequest, bridgeErrorResponse, readBridgeBody, requireBridgeActor } from "@/lib/bridges-server-api";
 
 export const runtime = "nodejs";
 

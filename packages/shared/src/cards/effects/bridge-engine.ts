@@ -203,6 +203,11 @@ export class BridgeEngine {
     return family.has(b);
   }
 
+  relatedEngines(a: string, b: string): boolean {
+    if (!this.groups.has(a) || !this.groups.has(b)) return true;
+    return a === b || this.groupOverlap(a, b) >= 0.5 * Math.min(this.groups.get(a)!.size, this.groups.get(b)!.size) || this.sameDeck(a, b);
+  }
+
   distinctTargets<T extends ArchetypeBridge>(rows: T[], limit = 25, distinctPrimary = limit <= 4, deep = false): T[] {
     const results: T[] = [];
     const primaryTargets = new Map<string, Set<number>>();

@@ -19,7 +19,7 @@ import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { CardDataStatus } from "@yugidraft/shared/types";
-import type { BridgeRequest } from "./bridges-api";
+import type { BridgeRequest } from "./bridges-server-api";
 
 export type DuelHostOp = "bridges" | "admin-spectate" | "kick" | "invite-player" | "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "suggestion-scope" | "deck-suggestions" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode";
 

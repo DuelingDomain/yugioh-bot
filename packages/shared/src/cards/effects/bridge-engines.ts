@@ -57,3 +57,17 @@ export function detectDeckEngines(deck: BridgeDeck, groups: BridgeGraphData["gro
 export interface BridgeEnginesRequest {
   format: BridgeFormat; deck?: BridgeDeck; engines?: string[]; genesysRemaining?: number;
 }
+
+export function isBridgeDeck(value: unknown): value is BridgeDeck {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const deck = value as Record<string, unknown>;
+  const id = (value: unknown) => Number.isSafeInteger(value) && Number(value) > 0 && Number(value) <= 0xffffffff;
+  return Object.keys(deck).every(key => ["main", "extra", "deckMaster"].includes(key))
+    && Array.isArray(deck.main) && Array.isArray(deck.extra) && deck.main.every(id) && deck.extra.every(id)
+    && (deck.deckMaster === undefined || id(deck.deckMaster))
+    && deck.main.length + deck.extra.length + (deck.deckMaster === undefined ? 0 : 1) <= 91;
+}
+export function isBridgeEngineNames(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length >= 1 && value.length <= MAX_BRIDGE_ENGINES
+    && value.every(name => typeof name === "string" && name.trim().length > 0 && name.length <= 120 && !/[\u0000-\u001f\u007f]/.test(name));
+}

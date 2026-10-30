@@ -410,6 +410,7 @@ export function migrate(db: Database.Database) {
       primary key(source,target,format)
     );
     create index if not exists archetype_bridge_lookup on archetype_bridge(source,format,score desc);
+    create index if not exists archetype_bridge_target on archetype_bridge(target,format,score desc);
     create index if not exists archetype_bridge_evidence on archetype_bridge(evidence_hash);
     create table if not exists bridge_graph (
       id integer primary key check(id=1), graph_json text not null, source_version text not null

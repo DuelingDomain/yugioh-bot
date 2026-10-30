@@ -5,15 +5,33 @@ import { shownBridge, type ShownBridge } from "../cards/effects/bridge-judge.js"
 import { detectDeckEngines, type BridgeDeck } from "../cards/effects/bridge-engines.js";
 import { formatStaples } from "../cards/effects/staples.js";
 import type { BridgeGraphData } from "../cards/effects/bridge-types.js";
+import { engineRankingStats, type EngineRankingContext } from "../cards/effects/bridge-engine-ranking.js";
 
 /** Construct in the duel-host scanner or an administrative process, never in the web process. */
 export function createBridgeService(db: Database.Database) {
   const live = () => storedBridgeEngine(db);
+  let ranking: { version: string; context: EngineRankingContext } | undefined;
   const stored = (source: string, target: string, format: BridgeFormat): ArchetypeBridge | null => {
     const row = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND target=? COLLATE NOCASE AND format=?").get(source.trim(), target.trim(), format) as { bridge_json: string } | undefined;
     return row ? JSON.parse(row.bridge_json) as ArchetypeBridge : null;
   };
   return {
+    rankingContext(): EngineRankingContext {
+      const graph = db.prepare("SELECT graph_json,source_version FROM bridge_graph WHERE id=1").get() as { graph_json: string; source_version: string };
+      if (ranking?.version === graph.source_version) return ranking.context;
+      const groups = (JSON.parse(graph.graph_json) as BridgeGraphData).groups;
+      const rows = (db.prepare("SELECT bridge_json FROM archetype_bridge").all() as { bridge_json: string }[]).map(row => JSON.parse(row.bridge_json) as ArchetypeBridge);
+      const context = { groups, ...engineRankingStats(groups, rows), related: (a: string, b: string) => live().relatedEngines(a, b) };
+      ranking = { version: graph.source_version, context }; return context;
+    },
+    engineRows(engines: readonly string[], format: BridgeFormat): ArchetypeBridge[] {
+      const rows = new Map<string, ArchetypeBridge>();
+      for (const engine of engines) for (const column of ["source", "target"]) {
+        const stored = db.prepare(`SELECT bridge_json FROM archetype_bridge WHERE ${column}=? AND format=? ORDER BY score DESC`).all(engine, format) as { bridge_json: string }[];
+        for (const value of stored) { const row = JSON.parse(value.bridge_json) as ArchetypeBridge; rows.set(JSON.stringify([row.source, row.target]), row); }
+      }
+      return [...rows.values()];
+    },
     detectEngines(deck: BridgeDeck, format: BridgeFormat = "advanced", guildId?: string) {
       const row = db.prepare("SELECT graph_json FROM bridge_graph WHERE id=1").get() as { graph_json: string } | undefined;
       if (!row) throw new Error("Bridge artifact has not been imported");

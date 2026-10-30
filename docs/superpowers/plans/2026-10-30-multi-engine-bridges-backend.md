@@ -16,10 +16,10 @@
 
 ### Task 2: Stored next-engine ranking and API (commit 2)
 
-- [ ] Add shared ranking with grade/hub weights, directional links, coverage, target idf, and global access-path deduplication.
-- [ ] Expose stored incoming rows, startup hub statistics, accepted-only projections, and the target lookup index.
-- [ ] Add host `engines`, the bounded authenticated POST route, and the web library request function.
-- [ ] Verify accepted/rejected/pending rows, open-deck detection, Genesys accounting, input/output validation, and hub control; update API documentation and commit explicit paths.
+- [x] Add shared ranking with grade/hub weights, directional links, coverage, target idf, and global access-path deduplication.
+- [x] Expose stored incoming rows, startup hub statistics, accepted-only projections, and the target lookup index.
+- [x] Add host `engines`, the bounded authenticated POST route, and the web library request function.
+- [x] Verify accepted/rejected/pending rows, open-deck detection, Genesys accounting, input/output validation, and hub control; update API documentation and commit explicit paths.
 
 ### Task 3: Multi-source deep jobs (commit 3)
 
