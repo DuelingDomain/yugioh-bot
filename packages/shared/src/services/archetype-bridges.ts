@@ -2,15 +2,56 @@ import type Database from "better-sqlite3";
 import { storedBridgeEngine } from "../cards/effects/bridge-graph-store.js";
 import type { ArchetypeBridge, BridgeFormat, BridgeProgress, CapabilityKey, CardCapability } from "../cards/effects/bridge-types.js";
 import { shownBridge, type ShownBridge } from "../cards/effects/bridge-judge.js";
+import { detectDeckEngines, type BridgeDeck } from "../cards/effects/bridge-engines.js";
+import { formatStaples } from "../cards/effects/staples.js";
+import type { BridgeGraphData } from "../cards/effects/bridge-types.js";
+import { type EngineRankingContext } from "../cards/effects/bridge-engine-ranking.js";
 
 /** Construct in the duel-host scanner or an administrative process, never in the web process. */
 export function createBridgeService(db: Database.Database) {
   const live = () => storedBridgeEngine(db);
+  let graph: { version: string; data: BridgeGraphData } | undefined;
+  const parsedGraph = () => {
+    const row = db.prepare("SELECT source_version FROM bridge_graph WHERE id=1").get() as { source_version: string } | undefined;
+    if (!row) throw new Error("Bridge artifact has not been imported");
+    if (graph?.version !== row.source_version) {
+      const { graph_json } = db.prepare("SELECT graph_json FROM bridge_graph WHERE id=1").get() as { graph_json: string };
+      graph = { version: row.source_version, data: JSON.parse(graph_json) as BridgeGraphData };
+    }
+    return graph!;
+  };
+  let ranking: { version: string; context: EngineRankingContext } | undefined;
   const stored = (source: string, target: string, format: BridgeFormat): ArchetypeBridge | null => {
     const row = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND target=? COLLATE NOCASE AND format=?").get(source.trim(), target.trim(), format) as { bridge_json: string } | undefined;
     return row ? JSON.parse(row.bridge_json) as ArchetypeBridge : null;
   };
   return {
+    rankingContext(): EngineRankingContext {
+      const { version, data: { groups, engine_ranking: stats } } = parsedGraph();
+      if (ranking?.version === version) return ranking.context;
+      if (!stats) throw new Error("Bridge ranking snapshot has not been imported");
+      const engine = live();
+      const context: EngineRankingContext = { groups, hubs: new Set(stats.hubs),
+        idf: { advanced: new Map(Object.entries(stats.idf.advanced)), genesys: new Map(Object.entries(stats.idf.genesys)) },
+        related: (a, b) => engine.relatedEngines(a, b) };
+      ranking = { version, context }; return context;
+    },
+    engineRows(engines: readonly string[], format: BridgeFormat): ArchetypeBridge[] {
+      const rows = new Map<string, ArchetypeBridge>();
+      for (const engine of engines) for (const column of ["source", "target"]) {
+        const stored = db.prepare(`SELECT bridge_json FROM archetype_bridge WHERE ${column}=? AND format=? ORDER BY score DESC`).all(engine, format) as { bridge_json: string }[];
+        for (const value of stored) { const row = JSON.parse(value.bridge_json) as ArchetypeBridge; rows.set(JSON.stringify([row.source, row.target]), row); }
+      }
+      return [...rows.values()];
+    },
+    detectEngines(deck: BridgeDeck, format: BridgeFormat = "advanced", guildId?: string) {
+      const { data: { groups } } = parsedGraph();
+      const skip = new Set(formatStaples(format === "advanced" ? "normal" : format, undefined, db, guildId).cards.keys());
+      const handTraps = db.prepare(`SELECT passcode FROM card_tags WHERE EXISTS
+        (SELECT 1 FROM json_each(tags_json,'$.roles') WHERE value='hand_trap')`).all() as { passcode: number }[];
+      handTraps.forEach(row => skip.add(row.passcode));
+      return detectDeckEngines(deck, groups, skip);
+    },
     bridgesFrom(archetype: string, format: BridgeFormat = "advanced", limit = 4): ArchetypeBridge[] {
       const count = Number.isFinite(limit) ? Math.max(0, Math.min(25, Math.floor(limit))) : 4;
       const rows = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND format=? AND coalesce(json_extract(bridge_json,'$.tier'),'strict')<>'niche' ORDER BY score DESC,target LIMIT 25").all(archetype.trim(), format) as { bridge_json: string }[];
@@ -31,8 +72,11 @@ export function createBridgeService(db: Database.Database) {
     liveCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
       return live().liveCandidates(source, format, progress);
     },
-    deepCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
-      return live().deepCandidates(source, format, progress);
+    deepCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void, distinct = true): ArchetypeBridge[] {
+      return live().deepCandidates(source, format, progress, distinct);
+    },
+    deepInto(target: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
+      return live().deepInto(target, format, progress);
     },
     deepBetween(source: string, target: string, format: BridgeFormat = "advanced"): ArchetypeBridge | null {
       return stored(source, target, format) ?? live().deepBetween(source, target, format);

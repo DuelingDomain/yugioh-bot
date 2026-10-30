@@ -19,15 +19,25 @@ export function directionText(bridge: ShownBridge): string {
 
 /** The grade as a small badge. The text carries the meaning, the color only helps. */
 export function GradeBadge({ bridge }: { bridge: ShownBridge }) {
-  return <span className={styles.grade} data-grade={bridge.tier === "niche" ? "niche" : bridge.review.grade} data-testid="bridge-grade">{bridge.tier === "niche" ? "Niche" : bridge.grade}</span>;
+  return <GradeTag grade={bridge.tier === "niche" ? "niche" : bridge.review.grade} text={bridge.tier === "niche" ? "Niche" : bridge.grade} />;
+}
+
+/** A grade word as a badge. `grade` is the lower-case grade that sets the color; `text` is the word. */
+export function GradeTag({ grade, text, testId = "bridge-grade" }: { grade: string; text: string; testId?: string }) {
+  return <span className={styles.grade} data-grade={grade} data-testid={testId}>{text}</span>;
 }
 
 /** The bridge cards as small card images. A card opens the card inspector on hover, like a tile in Suggestions. */
 export function Thumbs({ bridge, cards, cardProps, limit = 4 }: { bridge: ShownBridge; cards: ReadonlyMap<number, DeckCardInfo>; cardProps: CardPropsFor; limit?: number }) {
-  const shown = bridge.cards.slice(0, limit);
-  const more = bridge.cards.length - shown.length;
+  return <CodeThumbs codes={bridge.cards} label="Bridge cards" cards={cards} cardProps={cardProps} limit={limit} />;
+}
+
+/** Small card images for a list of passcodes. */
+export function CodeThumbs({ codes, label, cards, cardProps, limit = 4 }: { codes: readonly number[]; label: string; cards: ReadonlyMap<number, DeckCardInfo>; cardProps: CardPropsFor; limit?: number }) {
+  const shown = codes.slice(0, limit);
+  const more = codes.length - shown.length;
   return (
-    <ul className={styles.thumbs} aria-label="Bridge cards">
+    <ul className={styles.thumbs} aria-label={label}>
       {shown.map((code) => {
         const card = cards.get(code);
         return (
@@ -63,8 +73,13 @@ export function Warnings({ bridge, genesys, clamp }: { bridge: ShownBridge; gene
 }
 
 export function ProsCons({ bridge, clamp }: { bridge: ShownBridge; clamp?: number }) {
-  const pros = clamp ? bridge.review.pros.slice(0, clamp) : bridge.review.pros;
-  const cons = clamp ? bridge.review.cons.slice(0, clamp) : bridge.review.cons;
+  return <Points pros={bridge.review.pros} cons={bridge.review.cons} clamp={clamp} />;
+}
+
+/** The good and bad points, as two short lists. */
+export function Points({ pros: allPros, cons: allCons, clamp }: { pros: readonly string[]; cons: readonly string[]; clamp?: number }) {
+  const pros = clamp ? allPros.slice(0, clamp) : allPros;
+  const cons = clamp ? allCons.slice(0, clamp) : allCons;
   return (
     <div className={styles.points} data-clamped={clamp ? "" : undefined}>
       <ul className={styles.pros} aria-label="Good">

@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes } from "react";
+import { useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { DeckCardInfo, DuelDeck, DuelMode } from "@yugidraft/shared/duels";
 import type { DeckSuggestionRow } from "@yugidraft/shared/services";
-import { BridgesRow } from "@/components/bridges/bridges-row";
 import { cn } from "@/lib/utils";
 import { CardArt } from "./card-art";
 import { InsightsDisabledError, fetchSuggestRows, resolveInsightCards, type InsightCard } from "./insights-api";
@@ -38,16 +37,20 @@ export type BrowserSuggest = {
   banlist?: string;
   deckMaster?: number | null;
   genesysRemaining?: number;
-  /** The archetype of the deck, for the Bridges row. Null: the deck has none yet. */
+  /** The archetype of the deck, for the Bridges tab. Null: the deck has none yet. */
   archetype?: string | null;
+  /** The saved deck, to keep the player's engine chips for it. Null: the deck is not saved yet. */
+  deckId?: number | null;
 };
 
 type Row = { id: DeckSuggestionRow["id"]; state: DeckSuggestionRow["state"]; hint?: string; minimumMainCards?: number; mainCards?: number; cards: InsightCard[] };
 type Loaded = { key: string; rows: Row[] };
 
 type Props = {
-  /** The search box is empty and the list is not showing partners. */
+  /** The Suggest tab is on screen. A hidden panel stays mounted but asks for nothing; it asks again when it is shown. */
   active: boolean;
+  /** The "Engines that fit" row, above the four rows. Not given yet: no space is used. */
+  engines?: ReactNode;
   suggest: BrowserSuggest;
   mode: DuelMode;
   genesys: boolean;
@@ -69,11 +72,11 @@ function requestKey(props: Pick<Props, "mode" | "genesys" | "pool"> & BrowserSug
 }
 
 /**
- * Suggestion rows above the card list while the search box is empty. The rows stay while a new answer loads,
+ * The Suggest tab of the deck editor. The rows stay while a new answer loads,
  * so the list does not flicker, and every tile has a fixed size, so nothing moves.
  */
-export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardProps, deckCount, limit, onCatalog, onDisabled }: Props) {
-  const { deck, banlist, deckMaster, genesysRemaining, archetype } = suggest;
+export function SuggestionsPanel({ active, engines, suggest, mode, genesys, pool, cardProps, deckCount, limit, onCatalog, onDisabled }: Props) {
+  const { deck, banlist, deckMaster, genesysRemaining } = suggest;
   const needsMaster = mode === "domain" && deckMaster == null;
   const empty = deck.main.length === 0;
   const key = useMemo(
@@ -83,10 +86,11 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
-  const [bridgesOff, setBridgesOff] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const latest = useRef({ deck, banlist, deckMaster, genesysRemaining, pool, mode, genesys });
   latest.current = { deck, banlist, deckMaster, genesysRemaining, pool, mode, genesys };
+  const loadedRef = useRef(loaded);
+  loadedRef.current = loaded;
   const onCatalogRef = useRef(onCatalog);
   onCatalogRef.current = onCatalog;
   const onDisabledRef = useRef(onDisabled);
@@ -96,7 +100,7 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
     if (!active || empty || needsMaster) return;
     if (loaded?.key === key && retry === 0) return;
     const controller = new AbortController();
-    // A deck change waits for the last change to settle.
+    // A deck change waits for the last change to settle. The first answer has nothing to wait for.
     const timer = window.setTimeout(() => {
       void (async () => {
         const now = latest.current;
@@ -121,13 +125,11 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
           setFailed(key);
         }
       })();
-    }, SUGGESTIONS_DEBOUNCE_MS);
+    }, loadedRef.current ? SUGGESTIONS_DEBOUNCE_MS : 0);
     return () => { window.clearTimeout(timer); controller.abort(); };
     // `loaded` is read only to skip a repeat of an answer that is already shown.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, key, empty, needsMaster, retry]);
-
-  if (!active) return null;
 
   const updating = !empty && !needsMaster && loaded?.key !== key && failed !== key;
   // Keep the same responsive four-tile footprint before and after the first answer,
@@ -197,12 +199,8 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
         <h2 className={styles.title}>Suggestions</h2>
         <span className={styles.status} aria-live="polite">{updating ? "Updating…" : ""}</span>
       </header>
+      {engines}
       {body}
-      {/* Bridges look at the deck's archetype only, so a draft pool (no free choice of cards) has no row. */}
-      {pool === undefined && !bridgesOff ? (
-        <BridgesRow archetype={archetype ?? null} empty={empty} mode={mode} genesys={genesys} genesysRemaining={genesysRemaining}
-          cardProps={cardProps} deckCount={deckCount} limit={limit} onCatalog={onCatalog} onDisabled={() => setBridgesOff(true)} />
-      ) : null}
     </section>
   );
 }

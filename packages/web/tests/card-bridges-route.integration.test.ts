@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { readSignedRequest } from "@yugidraft/shared/internal-auth";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { BridgeDeepSearchRequest } from "../src/lib/bridges-api";
 
 const state = vi.hoisted(() => ({ auth: vi.fn(), db: null as Database.Database | null }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db }));
@@ -56,6 +57,76 @@ async function feedback(value: unknown) {
   const { POST } = await import("../app/api/cards/bridges/feedback/route");
   return POST(new Request("http://web.test/api/cards/bridges/feedback", { method: "POST", body: JSON.stringify(value) }));
 }
+
+async function engines(value: unknown) {
+  const { POST } = await import("../app/api/cards/bridges/engines/route");
+  return POST(new Request("http://web.test/api/cards/bridges/engines", { method: "POST", body: JSON.stringify(value) }));
+}
+
+it("forwards bounded open decks and corrected engines without exposing pending rows", async () => {
+  const deck = { main: [29762407, 97522863], extra: [], deckMaster: 1710647, pointCap: 250 };
+  reply = { engines: ["Ashtra", "Odion"], detected: [], between: [], next: [], inReview: 3 };
+  expect((await engines({ deck, engines: ["Odion", "Ashtra"], format: "advanced" })).status).toBe(200);
+  expect(calls[0].bridgeRequest).toEqual({ op: "engines", deck, engines: ["Odion", "Ashtra"], format: "advanced" });
+  for (const genesysRemaining of [0, 1000]) {
+    const request = { deck, engines: ["Odion"], format: "genesys", genesysRemaining };
+    expect((await engines(request)).status).toBe(200);
+    expect(calls.at(-1)!.bridgeRequest).toEqual({ ...request, op: "engines" });
+  }
+  const forwarded = calls.length;
+  for (const genesysRemaining of [-1, 1001, 0.5, "100", null, true, {}, Number.MAX_SAFE_INTEGER]) {
+    expect((await engines({ deck, engines: ["Odion"], format: "genesys", genesysRemaining })).status).toBe(400);
+  }
+  expect(calls).toHaveLength(forwarded);
+  for (const value of [{}, { format: "advanced" }, { engines: [], format: "advanced" }, { engines: Array(5).fill("Odion"), format: "advanced" },
+    { engines: ["Odion"], format: "advanced", userId: 2 }, { deck: { ...deck, side: [] }, format: "advanced" },
+    { deck: { main: Array(92).fill(1), extra: [] }, format: "advanced" }, { deck: { main: [-1], extra: [] }, format: "advanced" }]) {
+    expect((await engines(value)).status).toBe(400);
+  }
+  for (const pointCap of [-1, 1001, 0.5, "100"]) expect((await engines({ deck: { ...deck, pointCap }, format: "advanced" })).status).toBe(400);
+  const next = { engine: "Argostars", score: 8, grade: "Good", tier: "strict", covered: 1, of: 1, twoWay: [],
+    links: [{ from: "Odion", to: "Argostars", bridge: shown() }], cards: [123], missing: [123], genesysPoints: null, pros: [], cons: [] };
+  reply = { engines: ["Odion"], between: [], next: [next], inReview: 0 };
+  expect((await engines({ engines: ["Odion"], format: "advanced" })).status).toBe(200);
+  reply = { ...reply as object, next: [{ ...next, links: [{ ...next.links[0], bridge: { ...shown(), judge: "pending" } }] }] };
+  expect((await engines({ engines: ["Odion"], format: "advanced" })).status).toBe(502);
+});
+
+it("runs the browser engines helper through the authenticated signed-host route", async () => {
+  const { fetchBridgeEngines } = await import("../src/lib/bridges-api");
+  const { POST } = await import("../app/api/cards/bridges/engines/route");
+  const signedHostFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => url === "/api/cards/bridges/engines"
+    ? POST(new Request(`http://web.test${url}`, init)) : signedHostFetch(url, init));
+  const request = { engines: ["Odion"], deck: { main: [29762407], extra: [], pointCap: 250 }, format: "genesys" as const, genesysRemaining: 0 };
+  reply = { engines: ["Odion"], detected: [], between: [], next: [], inReview: 1 };
+  expect(await fetchBridgeEngines(request)).toEqual(reply);
+  expect(calls[0].bridgeRequest).toEqual({ ...request, op: "engines" });
+  reply = { results: [], inReview: 0 };
+  await expect(fetchBridgeEngines({ engines: ["Odion"], format: "advanced" })).rejects.toMatchObject({ status: 502 });
+});
+
+it("cancels signed-host engine work when the browser request is aborted", async () => {
+  const { POST } = await import("../app/api/cards/bridges/engines/route");
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  let hostSignal: AbortSignal | undefined;
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    expect((await readSignedRequest(new Request(url, init), { secret, purpose: "duel-host" })).ok).toBe(true);
+    hostSignal = init.signal as AbortSignal;
+    return new Promise<Response>((_, reject) => {
+      hostSignal!.addEventListener("abort", () => reject(hostSignal!.reason), { once: true });
+      started();
+    });
+  });
+  const controller = new AbortController();
+  const pending = POST(new Request("http://web.test/api/cards/bridges/engines", { method: "POST",
+    body: JSON.stringify({ engines: ["Odion"], format: "advanced" }), signal: controller.signal }));
+  await ready;
+  controller.abort();
+  expect((await pending).status).toBe(503);
+  expect(hostSignal?.aborted).toBe(true);
+});
 
 it("authenticates all operations and requires a player in the configured guild", async () => {
   state.auth.mockResolvedValue(null);
@@ -134,11 +205,84 @@ it("starts, resumes and polls a host job without exposing actor overrides", asyn
   expect((await poll("x".repeat(129))).status).toBe(400);
 });
 
+it("accepts deep-search engine sets with optional deck context and preserves legacy selectors", async () => {
+  reply = { jobId: "bridge-job-1", state: "queued", cached: false };
+  const deck = { main: [29762407, 97522863], extra: [] };
+  expect((await start({ engines: ["Odion", "Ashtra"] })).status).toBe(202);
+  expect(calls[0].bridgeRequest).toEqual({ op: "start", engines: ["Odion", "Ashtra"], format: "advanced" });
+  expect((await start({ deck, format: "genesys" })).status).toBe(202);
+  expect(calls[1].bridgeRequest).toEqual({ op: "start", deck, format: "genesys" });
+  for (const selected of [["Odion"], ["Odion", "Ashtra"]]) {
+    const request: BridgeDeepSearchRequest = { deck, engines: selected, format: "genesys", genesysRemaining: 0 };
+    expect((await start(request)).status).toBe(202);
+    expect(calls.at(-1)!.bridgeRequest).toEqual({ ...request, op: "start" });
+  }
+  expect((await start({ deck, engines: ["Odion"], genesysRemaining: 1000 })).status).toBe(202);
+  expect(calls.at(-1)!.bridgeRequest).toEqual({ op: "start", deck, engines: ["Odion"], genesysRemaining: 1000, format: "advanced" });
+  const forwarded = calls.length;
+  for (const genesysRemaining of [-1, 1001, 0.5, "100", null, true, {}, Number.MAX_SAFE_INTEGER]) {
+    for (const selector of [{ deck, engines: ["Odion"] }, { deck }, { engines: ["Odion"] }, { source: "Odion" }, { deckId: 1 }]) {
+      expect((await start({ ...selector, format: "genesys", genesysRemaining })).status).toBe(400);
+    }
+  }
+  for (const value of [{ source: "Odion", engines: ["Ashtra"] }, { deckId: 1, deck }, { source: "Odion", deck },
+    { engines: Array(5).fill("Odion") }, { engines: [] }, { engines: ["Odion"], target: "Ashtra" }, { deck: { ...deck, userId: 2 } },
+    { engines: ["Odion"], deck: null }, { engines: ["Odion"], deck: { main: "cards", extra: [] } },
+    { engines: ["Odion"], deck: { main: [0], extra: [] } }, { engines: ["Odion"], deck: { main: Array(92).fill(1), extra: [] } }]) {
+    expect((await start(value)).status).toBe(400);
+  }
+  expect(calls).toHaveLength(forwarded);
+  reply = { jobId: "bridge-job-1", state: "done", step: "done", progress: 100, engines: ["Ashtra", "Odion"], next: [], results: [], inReview: 0 };
+  expect((await poll()).status).toBe(200);
+  reply = { ...reply as object, next: [{ engine: "Argostars", links: [{ bridge: { ...shown(), judge: "pending" } }] }] };
+  expect((await poll()).status).toBe(502);
+});
+
 it("preserves the hourly-limit response and countdown header", async () => {
   reply = { error: "Deep search hourly limit reached", retryAfter: 48 }; replyStatus = 429;
   const response = await start({ source: "Odion" });
   expect(response.status).toBe(429); expect(response.headers.get("retry-after")).toBe("48");
   expect(await response.json()).toEqual(reply);
+});
+
+it("preserves valid retry hints for busy bridge status, starts and fast operations", async () => {
+  replyStatus = 503;
+  for (const [request, error, retryAfter] of [
+    [() => poll(), "Bridge status is busy", 1],
+    [() => start({ source: "Odion" }), "Bridge search queue is busy", 10],
+    [() => engines({ engines: ["Odion"], format: "advanced" }), "Bridge engines are busy", 2],
+  ] as const) {
+    reply = { error, retryAfter };
+    const response = await request();
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe(String(retryAfter));
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toMatchObject({ error, retryAfter });
+  }
+  for (const retryAfter of [undefined, null, "1", 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    reply = { error: "Bridge status is busy", retryAfter };
+    const response = await poll();
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).not.toHaveProperty("retryAfter");
+  }
+});
+
+it("validates and forwards join-only requests for every deep-search selector", async () => {
+  reply = { jobId: "bridge-job-1", state: "running", cached: false };
+  const deck = { main: [29762407], extra: [] };
+  for (const selector of [{ engines: ["Odion", "Ashtra"], deck }, { deck }, { engines: ["Odion"] }, { source: "Odion" }, { deckId: 23 }]) {
+    for (const join of [true, false]) {
+      const request: BridgeDeepSearchRequest = { ...selector, join, format: "genesys", genesysRemaining: 0 };
+      expect((await start(request)).status).toBe(202);
+      expect(calls.at(-1)!.bridgeRequest).toEqual({ ...request, op: "start" });
+    }
+    const forwarded = calls.length;
+    for (const join of [null, "true", 1, {}, []]) expect((await start({ ...selector, join })).status).toBe(400);
+    expect(calls).toHaveLength(forwarded);
+  }
+  replyStatus = 404; reply = { error: "No existing bridge search" };
+  expect((await start({ engines: ["Odion"], join: true })).status).toBe(404);
 });
 
 it("sends bounded feedback and returns the hidden decision", async () => {

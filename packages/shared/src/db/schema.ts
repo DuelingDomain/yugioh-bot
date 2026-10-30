@@ -410,6 +410,7 @@ export function migrate(db: Database.Database) {
       primary key(source,target,format)
     );
     create index if not exists archetype_bridge_lookup on archetype_bridge(source,format,score desc);
+    create index if not exists archetype_bridge_target on archetype_bridge(target,format,score desc);
     create index if not exists archetype_bridge_evidence on archetype_bridge(evidence_hash);
     create table if not exists bridge_graph (
       id integer primary key check(id=1), graph_json text not null, source_version text not null
@@ -808,6 +809,17 @@ export function migrate(db: Database.Database) {
       db.exec(`create trigger if not exists ${table}_effect_${event}
         after ${event} on ${table} begin
           update card_effect_revision set revision = revision + 1 where id = 1;
+        end;`);
+    }
+  }
+  db.exec(`create table if not exists bridge_revision (
+    id integer primary key check (id = 1), revision integer not null default 0
+  ); insert or ignore into bridge_revision(id) values(1);`);
+  for (const table of ["bridge_graph", "archetype_bridge", "card_capability", "bridge_judgement", "bridge_feedback"]) {
+    for (const event of ["insert", "update", "delete"]) {
+      db.exec(`create trigger if not exists ${table}_bridge_${event}
+        after ${event} on ${table} begin
+          update bridge_revision set revision=revision+1 where id=1;
         end;`);
     }
   }

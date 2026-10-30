@@ -1,4 +1,7 @@
 import Database from "better-sqlite3";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { importBridgeArtifact, type ArchetypeBridge } from "@yugidraft/shared/cards/effects";
@@ -25,6 +28,189 @@ function setup(inReview = 2) {
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 
 describe("persistent bridge deep-search admission and lifecycle", () => {
+  it("joins only existing work without admitting or charging jobs, including across restart", async () => {
+    const { db, jobs, execute, finish, advance } = setup(0);
+    for (let i = 0; i < 16; i++) {
+      expect(() => jobs.start(actor(2), query(`Missing ${i}`), true)).toThrowError(expect.objectContaining({ status: 404 }));
+    }
+    expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_job").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_actor").get()).toEqual({ n: 0 });
+    expect(execute).not.toHaveBeenCalled();
+    const shared = jobs.start(actor(), query());
+    expect(jobs.start(actor(2), { ...query(), deckCards: [1], genesysRemaining: 0 }, true))
+      .toMatchObject({ jobId: shared.jobId, state: "running", cached: false });
+    await finish(); advance(1);
+    expect(jobs.start(actor(2), { ...query(), deckCards: [2], genesysRemaining: 5 }, true))
+      .toMatchObject({ jobId: shared.jobId, state: "done", cached: true });
+    expect(db.prepare("SELECT deck_cards_json,genesys_remaining FROM bridge_deep_actor WHERE job_id=? AND counts_toward_limit=0").get(shared.jobId))
+      .toEqual({ deck_cards_json: "[2]", genesys_remaining: 5 });
+    expect(execute).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 15; i++) { jobs.start(actor(2), query(`Paid ${i}`)); await finish(); advance(1); }
+    expect(() => jobs.start(actor(2), query("Sixteenth"))).toThrowError(expect.objectContaining({ status: 429 }));
+    // Joining running work bypasses exhausted admission, and stays free when it completes.
+    const running = jobs.start(actor(3), query("Shared at limit"));
+    expect(jobs.start(actor(2), query("Shared at limit"), true)).toMatchObject({ jobId: running.jobId, cached: false });
+    expect(() => jobs.start(actor(2), query("Different"), true)).toThrowError(expect.objectContaining({ status: 409 }));
+    await finish(); advance(1);
+    await jobs.close();
+    let version = "v1", now = 1_000_017;
+    const restarted = new BridgeSearchJobs(db, { execute, project: () => ({ results: [], inReview: 0 }), version: () => version, now: () => now });
+    try {
+      expect(restarted.start(actor(2), query(), true)).toMatchObject({ jobId: shared.jobId, cached: true });
+      expect(() => restarted.start(actor(2), query("Missing"), true)).toThrowError(expect.objectContaining({ status: 404 }));
+      expect(() => restarted.start(actor(2), query("Sixteenth"))).toThrowError(expect.objectContaining({ status: 429 }));
+      expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_actor WHERE counts_toward_limit=1").get()).toEqual({ n: 17 });
+      version = "v2";
+      expect(() => restarted.start(actor(4), query(), true)).toThrowError(expect.objectContaining({ status: 404 }));
+      version = "v1"; now += 86_400_001;
+      expect(() => restarted.start(actor(4), query(), true)).toThrowError(expect.objectContaining({ status: 404 }));
+    } finally { await restarted.close(); }
+    expect(execute).toHaveBeenCalledTimes(17);
+  });
+
+  it("keeps a finished result through a real SQLite writer lock longer than five seconds", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bridge-completion-lock-"));
+    const db = new Database(join(directory, "app.sqlite"));
+    db.pragma("journal_mode = WAL"); migrate(db);
+    const writer = new Database(db.name);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const execute = vi.fn(async () => { await gate; return []; });
+    const jobs = new BridgeSearchJobs(db, { execute, project: () => ({ results: [], inReview: 0 }), version: () => "writer-lock" });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const job = jobs.start(actor(), query());
+      writer.exec("BEGIN IMMEDIATE");
+      release();
+      await new Promise(resolve => setTimeout(resolve, 5500));
+      expect((await jobs.status(actor(), job.jobId)).state).toBe("running");
+      writer.exec("COMMIT");
+      await vi.waitFor(async () => expect((await jobs.status(actor(), job.jobId)).state).toBe("done"));
+      expect(execute).toHaveBeenCalledTimes(1);
+    } finally {
+      release(); if (writer.inTransaction) writer.exec("ROLLBACK");
+      await jobs.close(); warning.mockRestore(); writer.close(); db.close(); rmSync(directory, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it("does not charge failed completion saves against the hourly limit, including after restart", async () => {
+    const { db } = setup();
+    const options = { execute: async () => [], project: () => ({ results: [], inReview: 0 }), version: () => "save-refund", completionTimeoutMs: 1 };
+    const jobs = new BridgeSearchJobs(db, options);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    db.exec(`CREATE TEMP TRIGGER fail_bridge_done BEFORE UPDATE ON bridge_deep_job
+      WHEN NEW.state='done' BEGIN SELECT RAISE(FAIL,'completion cannot be saved'); END`);
+    try {
+      for (let i = 0; i < 16; i++) {
+        const job = jobs.start(actor(), query(`Save failure ${i}`));
+        await vi.waitFor(async () => expect((await jobs.status(actor(), job.jobId)).state).toBe("failed"));
+      }
+      expect((jobs as unknown as { failedCompletions: Map<string, string> }).failedCompletions.size).toBe(0);
+      await jobs.close(); db.exec("DROP TRIGGER fail_bridge_done");
+      const restarted = new BridgeSearchJobs(db, options);
+      try { expect(restarted.start(actor(), query())).toMatchObject({ state: "running" }); }
+      finally { await restarted.close(); }
+    } finally { await jobs.close(); warning.mockRestore(); }
+  });
+
+  it("deduplicates and throttles progress writes while persisting final completion", async () => {
+    const { db } = setup();
+    const prepare = vi.spyOn(db, "prepare");
+    let now = 1_000_000;
+    const jobs = new BridgeSearchJobs(db, { version: () => "progress-fixture", now: () => now,
+      project: () => ({ results: [], inReview: 0 }), execute: async (_query, progress) => {
+        for (let i = 0; i < 184; i++) progress("candidates", Math.floor(28 * i / 184));
+        progress("checking", 30); progress("rating", 35);
+        now += 1001; progress("rating", 70); progress("rating", 70);
+        return [];
+      } });
+    try {
+      const job = jobs.start(actor(), query()); await jobs.close();
+      expect((await jobs.status(actor(), job.jobId))).toMatchObject({ state: "done", progress: 100 });
+      expect(prepare.mock.calls.filter(([sql]) => sql.startsWith("UPDATE bridge_deep_job SET step="))).toHaveLength(2);
+    } finally { prepare.mockRestore(); await jobs.close(); }
+  });
+
+  it("retries a failed completion transaction without an unhandled rejection", async () => {
+    const { db, jobs, finish } = setup();
+    db.exec(`CREATE TEMP TRIGGER fail_bridge_completion BEFORE UPDATE ON bridge_deep_job
+      WHEN NEW.state='done' BEGIN SELECT RAISE(FAIL,'injected completion fault'); END`);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const job = jobs.start(actor(), query()); await finish();
+      expect((await jobs.status(actor(), job.jobId)).state).toBe("running");
+      db.exec("DROP TRIGGER fail_bridge_completion");
+      await vi.waitFor(async () => expect((await jobs.status(actor(), job.jobId)).state).toBe("done"));
+      expect(warning).toHaveBeenCalled();
+    } finally { await jobs.close(); warning.mockRestore(); }
+  });
+
+  it("contains drain write failures and retries queued jobs", async () => {
+    const { db, jobs, execute, finish } = setup();
+    db.exec(`CREATE TEMP TRIGGER fail_bridge_drain BEFORE UPDATE ON bridge_deep_job
+      WHEN NEW.state='running' BEGIN SELECT RAISE(FAIL,'injected drain fault'); END`);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const job = jobs.start(actor(), query());
+      expect(job.state).toBe("queued");
+      db.exec("DROP TRIGGER fail_bridge_drain");
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+      await finish();
+      expect((await jobs.status(actor(), job.jobId)).state).toBe("done");
+    } finally { await jobs.close(); warning.mockRestore(); }
+  });
+
+  it("expires permanent completion failures in memory and frees global and actor slots", async () => {
+    const { db } = setup();
+    const execute = vi.fn(async () => []);
+    const jobs = new BridgeSearchJobs(db, { execute, project: () => ({ results: [], inReview: 0 }), version: () => "deadline",
+      completionTimeoutMs: 100 });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    db.exec(`CREATE TEMP TRIGGER fail_bridge_terminal BEFORE UPDATE ON bridge_deep_job
+      WHEN OLD.state='running' AND NEW.state IN ('done','failed') AND OLD.query_json LIKE '%Odion%'
+      BEGIN SELECT RAISE(FAIL,'permanent completion fault'); END`);
+    try {
+      const first = jobs.start(actor(), query());
+      const second = jobs.start(actor(2), { ...query(), target: "Ashtra" });
+      const third = jobs.start(actor(3), query("Blue-Eyes"));
+      expect(third.state).toBe("queued");
+      await vi.waitFor(async () => expect((await jobs.status(actor(3), third.jobId)).state).toBe("done"));
+      expect(await jobs.status(actor(), first.jobId)).toMatchObject({ state: "failed", error: expect.stringContaining("could not be saved") });
+      expect((await jobs.status(actor(2), second.jobId)).state).toBe("failed");
+      expect(db.prepare("SELECT state FROM bridge_deep_job WHERE id=?").get(first.jobId)).toEqual({ state: "running" });
+      expect(jobs.start(actor(), query("Argostars"))).toMatchObject({ state: "running" });
+      expect(execute).toHaveBeenCalledTimes(4);
+      db.exec("DROP TRIGGER fail_bridge_terminal");
+      jobs.start(actor(4), query("Recovered"));
+      expect(db.prepare("SELECT state FROM bridge_deep_job WHERE id=?").get(first.jobId)).toEqual({ state: "failed" });
+      expect((jobs as unknown as { failedCompletions: Map<string, string> }).failedCompletions.size).toBe(0);
+    } finally { db.exec("DROP TRIGGER IF EXISTS fail_bridge_terminal"); await jobs.close(); warning.mockRestore(); }
+  });
+
+  it("shares a sorted multi-engine key without deck context and charges it as one search", async () => {
+    const { db, jobs, execute, finish } = setup(0);
+    const multi = { ...query(), engines: ["Odion", "Ashtra"], deckCards: [1], genesysRemaining: 100 };
+    const first = jobs.start(actor(), multi);
+    expect(jobs.start(actor(2), { ...multi, engines: ["ashtra", "odion"], deckCards: [2], genesysRemaining: 5 }).jobId).toBe(first.jobId);
+    expect(execute).toHaveBeenCalledTimes(1);
+    const stored = JSON.parse((db.prepare("SELECT query_json FROM bridge_deep_job WHERE id=?").get(first.jobId) as { query_json: string }).query_json);
+    expect(stored).not.toHaveProperty("deckCards"); expect(stored).not.toHaveProperty("genesysRemaining");
+    expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_actor WHERE job_id=?").get(first.jobId)).toEqual({ n: 2 });
+    await finish();
+    expect(jobs.start(actor(3), { ...multi, deckCards: [3] })).toMatchObject({ jobId: first.jobId, cached: true });
+    for (let i = 1; i < 15; i++) { jobs.start(actor(), { ...query(), engines: ["Odion", `Other ${i}`] }); await finish(); }
+    expect(() => jobs.start(actor(), { ...query(), engines: ["Odion", "Sixteenth"] })).toThrowError(expect.objectContaining({ status: 429 }));
+  });
+
+  it("preserves the single-engine key and expires completed work after 24 hours or a version change", async () => {
+    const { jobs, finish, results, advance, updateVersion } = setup(0);
+    const first = jobs.start(actor(), query()); await finish();
+    expect(jobs.start(actor(2), { ...query(), engines: ["Odion"] })).toMatchObject({ jobId: first.jobId, cached: true });
+    expect(jobs.start(actor(3), query())).toMatchObject({ jobId: first.jobId, cached: true });
+    updateVersion("v2"); await expect(jobs.status(actor(), first.jobId)).rejects.toThrowError(expect.objectContaining({ status: 404 }));
+    updateVersion("v1"); advance(86_400_001);
+    expect(jobs.start(actor(4), query()).cached).toBe(false); await finish();
+  });
   it("coalesces repeat clicks, polls progress, and scopes job access to user and guild", async () => {
     const { jobs, execute, finish } = setup();
     const first = jobs.start(actor(), query());
@@ -36,11 +222,11 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     }
     await new Promise(resolve => setImmediate(resolve));
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(jobs.status(actor(), first.jobId)).toMatchObject({ state: "running", step: "checking", progress: 50 });
-    expect(() => jobs.status(actor(2), first.jobId)).toThrow("Not found");
-    expect(() => jobs.status(actor(1, "other"), first.jobId)).toThrow("Not found");
+    expect((await jobs.status(actor(), first.jobId))).toMatchObject({ state: "running", step: "checking", progress: 50 });
+    await expect(jobs.status(actor(2), first.jobId)).rejects.toThrow("Not found");
+    await expect(jobs.status(actor(1, "other"), first.jobId)).rejects.toThrow("Not found");
     await finish();
-    expect(jobs.status(actor(), first.jobId)).toMatchObject({ state: "done", step: "done", progress: 100, results: [], inReview: 2 });
+    expect((await jobs.status(actor(), first.jobId))).toMatchObject({ state: "done", step: "done", progress: 100, results: [], inReview: 2 });
   });
 
   it("admits another search immediately after completion and reuses identical results for 24 hours", async () => {
@@ -49,7 +235,7 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     advance(120_000); await finish();
     expect(jobs.start(actor(), query())).toMatchObject({ jobId: first.jobId, cached: true });
     expect(jobs.start(actor(2), query())).toMatchObject({ jobId: first.jobId, cached: true });
-    expect(jobs.status(actor(2), first.jobId).state).toBe("done");
+    expect((await jobs.status(actor(2), first.jobId)).state).toBe("done");
     jobs.start(actor(), query("Blue-Eyes")); await finish();
     advance(86_400_001);
     expect(jobs.start(actor(2), query()).cached).toBe(false);
@@ -75,9 +261,9 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     const { jobs, finish, updateVersion } = setup();
     const first = jobs.start(actor(), query());
     await finish();
-    expect(jobs.status(actor(), first.jobId).state).toBe("done");
+    expect((await jobs.status(actor(), first.jobId)).state).toBe("done");
     updateVersion("v2");
-    expect(() => jobs.status(actor(), first.jobId)).toThrowError(expect.objectContaining({ status: 404 }));
+    await expect(jobs.status(actor(), first.jobId)).rejects.toThrowError(expect.objectContaining({ status: 404 }));
     const next = jobs.start(actor(), query());
     expect(next).toMatchObject({ cached: false });
     expect(next.jobId).not.toBe(first.jobId);
@@ -114,8 +300,39 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     const first = jobs.start(actor(), { ...query(), format: "genesys", genesysRemaining: 100 });
     await new Promise(resolve => setImmediate(resolve)); advance(1);
     expect(jobs.start(actor(2), { ...query(), format: "genesys", genesysRemaining: 5 }).jobId).toBe(first.jobId);
-    expect(jobs.status(actor(), first.jobId).results).toEqual([100]);
-    expect(jobs.status(actor(2), first.jobId).results).toEqual([5]);
+    expect((await jobs.status(actor(), first.jobId)).results).toEqual([100]);
+    expect((await jobs.status(actor(2), first.jobId)).results).toEqual([5]);
+  });
+
+  it("coalesces and bounds completed projections and invalidates them on feedback", async () => {
+    const { db } = setup();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const project = vi.fn(async () => { await gate; return { results: [], inReview: 0 }; });
+    const jobs = new BridgeSearchJobs(db, { execute: async () => [], project, version: () => "status-cache" });
+    const pending: Promise<unknown>[] = [];
+    try {
+      const first = jobs.start(actor(), query());
+      await new Promise(resolve => setImmediate(resolve));
+      for (let i = 0; i < 20; i++) pending.push(jobs.status(actor(), first.jobId));
+      await new Promise(resolve => setImmediate(resolve));
+      expect(project).toHaveBeenCalledTimes(1);
+      for (let i = 2; i <= 4; i++) {
+        jobs.start(actor(i), { ...query(), genesysRemaining: i });
+        pending.push(jobs.status(actor(i), first.jobId));
+      }
+      jobs.start(actor(5), { ...query(), genesysRemaining: 5 });
+      await expect(jobs.status(actor(5), first.jobId)).rejects.toMatchObject({ status: 503 });
+      jobs.start(actor(), { ...query(), genesysRemaining: 30 });
+      await expect(jobs.status(actor(), first.jobId)).rejects.toMatchObject({ status: 503 });
+      release(); await Promise.all(pending);
+      jobs.start(actor(), query());
+      await jobs.status(actor(), first.jobId);
+      expect(project).toHaveBeenCalledTimes(4);
+      db.prepare("INSERT INTO bridge_feedback(evidence_hash,actor_hash,reason) VALUES('status-feedback','one','')").run();
+      await jobs.status(actor(), first.jobId);
+      expect(project).toHaveBeenCalledTimes(5);
+    } finally { release(); await Promise.allSettled(pending); await jobs.close(); }
   });
 
   it("refreshes a subscriber's points and deck when reusing an identical active query", async () => {
@@ -128,8 +345,8 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
       expect(jobs.start(actor(), { ...query(), format: "genesys", genesysRemaining: 5, deckCards: [1, 2] }).jobId).toBe(first.jobId);
       expect(jobs.start(actor(2), { ...query(), format: "genesys", genesysRemaining: 20, deckCards: [3] }).jobId).toBe(first.jobId);
       finish(); await jobs.close();
-      expect(jobs.status(actor(), first.jobId).results).toEqual([5, [1, 2]]);
-      expect(jobs.status(actor(2), first.jobId).results).toEqual([20, [3]]);
+      expect((await jobs.status(actor(), first.jobId)).results).toEqual([5, [1, 2]]);
+      expect((await jobs.status(actor(2), first.jobId)).results).toEqual([20, [3]]);
     } finally { finish(); await jobs.close(); }
   });
 
@@ -151,7 +368,7 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     const jobs = new BridgeSearchJobs(db, options);
     const failed = jobs.start(actor(), query());
     await new Promise(resolve => setImmediate(resolve));
-    expect(jobs.status(actor(), failed.jobId)).toMatchObject({ state: "failed", results: [], error: "Bridge search could not finish. Try again shortly." });
+    expect((await jobs.status(actor(), failed.jobId))).toMatchObject({ state: "failed", results: [], error: "Bridge search could not finish. Try again shortly." });
     jobs.start(actor(), query("Other"));
     const restarted = new BridgeSearchJobs(db, options);
     expect(restarted.start(actor(), query("Third"))).toMatchObject({ state: "running", cached: false });

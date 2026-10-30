@@ -8,6 +8,8 @@ export * from "./capability.js";
 export * from "./engine-card.js";
 export * from "./artifact.js";
 export * from "./bridge-types.js";
+export * from "./bridge-engines.js";
+export * from "./bridge-engine-ranking.js";
 export * from "./bridge-capabilities.js";
 export * from "./bridge-engine.js";
 export * from "./bridge-artifact.js";

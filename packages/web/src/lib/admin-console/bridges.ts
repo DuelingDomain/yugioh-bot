@@ -1,5 +1,5 @@
 import { createPlayerService } from "@yugidraft/shared/services";
-import { callBridgeHost } from "../bridges-api";
+import { callBridgeHost } from "../bridges-server-api";
 import { getDb } from "../db";
 import { env } from "../env";
 import { failed, notConfigured, ok, type SectionLoader } from "./section";

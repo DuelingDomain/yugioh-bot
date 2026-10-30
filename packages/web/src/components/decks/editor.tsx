@@ -44,7 +44,8 @@ import {
 } from "lucide-react";
 import { canBeDeckMaster, isSpellOrTrapType, SPELL_TRAP_MASTER_MESSAGE } from "@/components/duel/deck-card-types";
 import { selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
-import { SheetRoot, StatusLine, SvButton, Zone, segmentSlide } from "@/components/sheet";
+import { SheetRoot, StatusLine, SvButton, Zone } from "@/components/sheet";
+import { useDeckSuggestionsEnabled } from "@/components/effect-search/capability-context";
 import { useTabDirection } from "@/lib/tab-motion";
 import { cn } from "@/lib/utils";
 import { useDuelRoomActivity } from "@/lib/hooks/use-duel-room-activity";
@@ -57,7 +58,9 @@ import { useCardPress } from "./card-press";
 import { DeckArtMenu, type ArtMenuTarget } from "./art-menu";
 import { CardActions, CardCopyCount } from "./card-actions";
 import { CardArt } from "./card-art";
-import { CardBrowser, hookPartner, type BrowserCard, type BrowserPartner } from "./card-browser";
+import { CardBrowser, hookPartner, type BrowserCard, type BrowserColumns, type BrowserPartner } from "./card-browser";
+import { EditorTabList } from "./editor-tab-list";
+import { EDITOR_TAB_ORDER, readLastTab, rememberTab, shownTab, type ColumnTab, type EditorTab } from "./editor-tabs";
 import type { BrowserSuggest } from "./suggestions-panel";
 import { CardBottomSheet } from "./card-bottom-sheet";
 import { CardPreview } from "./card-preview";
@@ -150,7 +153,6 @@ import { DeckSectionGrid, type HoveredCopy, type SectionWarning } from "./sectio
 import styles from "./editor.module.css";
 
 const HISTORY_LIMIT = 100;
-const PHONE_TAB_ORDER = ["deck", "cards"] as const;
 /** Passcodes per card-details request; the route takes at most 1000. */
 const POOL_CHUNK = 500;
 const HAND_SIZE = 5;
@@ -287,10 +289,45 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   const [poolError, setPoolError] = useState<string | null>(null);
   const [poolRetry, setPoolRetry] = useState(0);
   const { editorRef, isPhone, isCompact } = useEditorViewport(!!pool);
-  const [phoneTab, setPhoneTab] = useState<"deck" | "cards">("deck");
+  // The tab of the editor. A phone has four; a desktop has the column's three, and "deck" there is the Cards tab.
+  const [tab, setTabState] = useState<EditorTab>("deck");
+  const suggestionsFlag = useDeckSuggestionsEnabled();
+  const [suggestDenied, setSuggestDenied] = useState(false);
+  const [bridgesDenied, setBridgesDenied] = useState(false);
+  // A deep search finished while the Bridges tab was hidden.
+  const [bridgesDot, setBridgesDot] = useState(false);
+  // Bridges need Suggestions, and a draft pool (no free choice of cards) has none.
+  const suggestOn = suggestionsFlag && !suggestDenied;
+  const bridgesOn = suggestOn && !pool && !bridgesDenied;
+  const columnTabs = useMemo<ColumnTab[]>(() => ["cards", ...(suggestOn ? ["suggest" as const] : []), ...(bridgesOn ? ["bridges" as const] : [])], [suggestOn, bridgesOn]);
+  const activeTab = shownTab(tab, columnTabs, isPhone);
+  // The tab as a phone shows it. The phone layout is CSS (a container query), so it is right from the first paint,
+  // before the editor has measured itself; only a phone reads it.
+  const phoneTab = shownTab(tab, columnTabs, true);
+  // Only a tab the player chose slides in: not the one a reload brings back, and not a change of layout.
+  const [chosen, setChosen] = useState(false);
+  const setTab = useCallback((next: EditorTab) => { setChosen(true); setTabState(next); rememberTab(next); }, []);
+  // The tab this viewer used last. Read after the first render, so the server and the first paint agree.
+  useEffect(() => { const last = readLastTab(); if (last) setTabState(last); }, []);
+  // Opening the Bridges tab clears its dot.
+  useEffect(() => { if (activeTab === "bridges") setBridgesDot(false); }, [activeTab]);
+  const phoneDir = useTabDirection(phoneTab, EDITOR_TAB_ORDER, chosen);
+  const columns: BrowserColumns = {
+    tabs: columnTabs,
+    tab: activeTab === "deck" ? "cards" : activeTab,
+    onTab: setTab,
+    bar: !isPhone,
+    // The panes are named by the tab list on screen: the column bar on a desktop, the editor tabs on a phone.
+    tabIdPrefix: isPhone ? "deck-editor" : "deck-editor-column",
+    panels: isPhone || columnTabs.length > 1,
+    bridgesDot,
+    // A finished deep search only marks the tab when the tab is hidden.
+    onDeepFinished: () => { if (activeTab !== "bridges") setBridgesDot(true); },
+    onSuggestDisabled: () => setSuggestDenied(true),
+    onBridgesDisabled: () => setBridgesDenied(true),
+  };
   // "Works with: <card>": the card list shows the cards that work with this card.
   const [partner, setPartner] = useState<BrowserPartner | null>(null);
-  const phoneDir = useTabDirection(phoneTab, PHONE_TAB_ORDER);
   const [cardSheetOpen, setCardSheetOpen] = useState(false);
   // The Deck Master slot was the last place a card was opened from, so a new art replaces the master.
   const [masterPick, setMasterPick] = useState(false);
@@ -672,8 +709,9 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     banlist: banlistOff ? "none" : query.banlist,
     deckMaster: mode === "domain" ? deck.deckMaster ?? null : null,
     archetype: deckArchetype,
+    deckId: savedId ?? (typeof routeId === "number" ? routeId : null),
     ...(genesysSummary ? { genesysRemaining: Math.max(0, genesysSummary.cap - genesysSummary.known) } : {}),
-  }), [deck, banlistOff, query.banlist, mode, genesysSummary, deckArchetype]);
+  }), [deck, banlistOff, query.banlist, mode, genesysSummary, deckArchetype, savedId, routeId]);
   const [deckGuide, setDeckGuide] = useState<ArchetypeGuide | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
   useEffect(() => {
@@ -865,7 +903,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     setPartner({ code: card.code, name: card.name });
     // The search text named the card itself; the partners would not match it. Other filters stay.
     setQuery((current) => ({ ...current, text: "", effectOmit: [] }));
-    setPhoneTab("cards");
+    setTab("cards");
     setCardSheetOpen(false);
   }
 
@@ -874,7 +912,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     setGuideOpen(false);
     setPartner(hookPartner(guide, index, find));
     setQuery((current) => ({ ...current, text: "", effectOmit: [] }));
-    setPhoneTab("cards");
+    setTab("cards");
     setCardSheetOpen(false);
   }
 
@@ -1020,7 +1058,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   }
 
   function focusSearch() {
-    setPhoneTab("cards");
+    setTab("cards");
     requestAnimationFrame(() => { searchRef.current?.focus(); searchRef.current?.select(); });
   }
 
@@ -1556,16 +1594,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
           </div>
           {pool ? <span className={styles["de-menu"]}><ShellMenuButton /></span> : null}
         </header>
-        <div className={cn("seg", styles["de-tabs"])} role="tablist" aria-label="Editor" {...segmentSlide(2, phoneTab === "deck" ? 0 : 1)} onKeyDown={(event) => {
-          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-          event.preventDefault();
-          const next = event.key === "Home" ? "deck" : event.key === "End" ? "cards" : phoneTab === "deck" ? "cards" : "deck";
-          setPhoneTab(next);
-          document.getElementById(next === "deck" ? "deck-editor-tab" : "deck-editor-cards-tab")?.focus();
-        }}>
-          <button type="button" role="tab" tabIndex={phoneTab === "deck" ? 0 : -1} id="deck-editor-tab" aria-controls="deck-editor-deck" aria-selected={phoneTab === "deck"} aria-pressed={phoneTab === "deck"} onClick={() => setPhoneTab("deck")}>Deck <b className="num">{deck.main.length}</b></button>
-          <button type="button" role="tab" tabIndex={phoneTab === "cards" ? 0 : -1} id="deck-editor-cards-tab" aria-controls="deck-editor-cards" aria-selected={phoneTab === "cards"} aria-pressed={phoneTab === "cards"} onClick={() => setPhoneTab("cards")}>Cards</button>
-        </div>
+        <EditorTabList variant="seg" idPrefix="deck-editor" label="Editor" className={styles["de-tabs"]} tabs={["deck", ...columnTabs]} tab={phoneTab} onChange={setTab} deckCount={deck.main.length} bridgesDot={bridgesDot} />
         <div className={styles["de-body"]}>
           <aside className={styles["de-read"]} aria-label="Card details" ref={inspectScrollRef}>
             {shownCode == null ? <DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /> : shown ? <CardPreview insightsEnabled={insightsOn} card={shown} /> : missingReader}
@@ -1634,7 +1663,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
             <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} warning={extraWarning} />
             <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, Ctrl+click a deck card, or use Side on a selected card." actions={clearButton("side", "Side")} />
           </main>
-          <CardBrowser suggest={suggest} onEffectCapability={setInsightsOn} partner={partner} onPartnerChange={setPartner} onWorksWith={findPartners} mode={mode} genesys={genesysOn} id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={browserQuery} onQueryChange={(next) => setQuery(genesysOn ? { ...next, banlist: query.banlist, limits: query.limits } : next)} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} fullReason={(card) => sectionFullReason(deck, defaultAddSection(card))} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
+          <CardBrowser suggest={suggest} columns={columns} onEffectCapability={setInsightsOn} partner={partner} onPartnerChange={setPartner} onWorksWith={findPartners} mode={mode} genesys={genesysOn} id="deck-editor-column" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={browserQuery} onQueryChange={(next) => setQuery(genesysOn ? { ...next, banlist: query.banlist, limits: query.limits } : next)} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} fullReason={(card) => sectionFullReason(deck, defaultAddSection(card))} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
         </div>
         {artMenu ? <DeckArtMenu key={`${artMenu.section}-${artMenu.index}`} target={artMenu} knownCount={altArtCount(artMenu.code, catalog) + 1} busy={artBusy} disabled={busy} onClose={() => setArtMenu(null)} onFamily={(family) => { void loadFamilyCards(family); }} onPick={(art, family) => { void pickMenuArtwork(art, family); }} /> : null}
         {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview insightsEnabled={insightsOn} card={shown} compact copySummary={inspected && !previewing ? <><CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? deckAllowance(poolMap, poolCode(inspected.code), forcedMap) : undefined} forced={forcedMap.get(poolCode(inspected.code)) ?? 0} />{genesysOn ? <GenesysCardLine card={inspected} /> : null}</> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}

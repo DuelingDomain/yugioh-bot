@@ -14,8 +14,33 @@ export const DEEP_STEPS: readonly { id: Exclude<DeepStep, "done">; label: string
   { id: "rating", label: "Rating" },
 ];
 
+/** The key of a free list: the source, the target, the format and the points (the list is filtered by the points). */
 export function scopeKey(scope: BridgeScope): string {
   return JSON.stringify([scope.source.toLowerCase(), scope.target?.toLowerCase() ?? "", scope.format, scope.format === "genesys" ? scope.genesysRemaining ?? -1 : -1]);
+}
+
+/**
+ * What a deep search does on the host: the set of engines (in any order) and the format, or one source with its target.
+ * The deck and the points are not part of it, so a deck edit never loses a running search.
+ */
+export function deepWorkKey(scope: BridgeScope): string {
+  if (scope.engines && scope.engines.length > 1) return JSON.stringify(["multi", scope.engines.map((name) => name.toLowerCase()).sort(), scope.format]);
+  return JSON.stringify([scope.source.toLowerCase(), scope.target?.toLowerCase() ?? "", scope.format]);
+}
+
+/** The order-free text of a deck's cards. */
+export function deckSignature(deck: { main: readonly number[]; extra: readonly number[]; deckMaster?: number } | undefined): string {
+  if (!deck) return "";
+  const sorted = (codes: readonly number[]) => [...codes].sort((a, b) => a - b).join(",");
+  return `${sorted(deck.main)}|${sorted(deck.extra)}|${deck.deckMaster ?? 0}`;
+}
+
+/**
+ * What the results of a deep search are measured against: the cards the deck holds and the points left. The host
+ * keeps this per player, so the same search shows other "cards to add" for another deck.
+ */
+export function deepContextKey(scope: BridgeScope): string {
+  return JSON.stringify([deckSignature(scope.deck), scope.format === "genesys" ? scope.genesysRemaining ?? -1 : -1]);
 }
 
 export function stepIndex(step: DeepStep): number {

@@ -14,10 +14,12 @@ import { retryStartupDatabase } from "../src/startup-database.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 import { seedIdentity } from "./helpers/identity.js";
 
-it("exposes private readiness only after real server startup recovers from a database lock", async () => {
+it("starts with EFFECT_SEARCH=0 and an old bridge graph after recovering from a database lock", async () => {
   const directory = createHostDataFixture([]);
   const path = join(directory, "bot.sqlite");
   const writer = openDatabase(path);
+  writer.prepare("INSERT INTO bridge_graph(id,graph_json,source_version) VALUES(1,?,?)")
+    .run(JSON.stringify({ groups: {} }), "old-without-engine-ranking");
   const reservation = createServer();
   reservation.listen(0, "127.0.0.1");
   await once(reservation, "listening");
@@ -49,6 +51,8 @@ it("exposes private readiness only after real server startup recovers from a dat
     const response = await fetch(url);
     expect(await response.text()).toBe("ok\n");
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(writer.prepare("SELECT json_type(graph_json,'$.engine_ranking') AS ranking FROM bridge_graph WHERE id=1").get())
+      .toEqual({ ranking: null });
     // Readiness does not bypass authentication on the gameplay endpoint.
     expect((await fetch(`http://127.0.0.1:${port}/internal/duel`, { method: "POST", body: "{}" })).status).toBe(401);
   } finally {

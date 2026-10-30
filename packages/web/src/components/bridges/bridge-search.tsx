@@ -1,21 +1,27 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { foldCardText } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
-import { fetchBridgeArchetypes, type BridgeScope, type ShownBridge } from "./bridges-api";
-import { errorText, useBridgeList } from "./use-bridges";
+import type { BridgeScope, ShownBridge } from "./bridges-api";
+import { useBridgeList } from "./use-bridges";
+import { useArchetypeNames } from "./use-engines";
 import styles from "./bridges.module.css";
 
 /** An archetype box with a list of the names that fit. The text is the choice once it is a whole name. */
-function ArchetypeCombo({ label, text, names, onText, placeholder }: {
+export function ArchetypeCombo({ label, text, names, onText, placeholder, autoFocus = false }: {
   label: string;
   text: string;
   names: readonly string[] | null;
   onText: (text: string) => void;
   placeholder: string;
+  /** Take the focus at once. While the names load the box is read-only, so the focus never drops to the page. */
+  autoFocus?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const ready = names != null;
+  useEffect(() => { if (autoFocus) inputRef.current?.focus(); }, [autoFocus]);
   const [active, setActive] = useState(0);
   const listId = useId();
   const matches = useMemo(() => {
@@ -44,6 +50,7 @@ function ArchetypeCombo({ label, text, names, onText, placeholder }: {
       <span className={styles.comboLabel}>{label}</span>
       <span className={styles.combo}>
         <input
+          ref={inputRef}
           className={cn("input", styles.comboInput)}
           role="combobox"
           aria-expanded={expanded}
@@ -52,7 +59,8 @@ function ArchetypeCombo({ label, text, names, onText, placeholder }: {
           aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
           placeholder={names ? placeholder : "Loading archetypes…"}
           value={text}
-          disabled={!names}
+          readOnly={!ready}
+          aria-busy={!ready || undefined}
           autoComplete="off"
           onChange={(event) => { onText(event.target.value); setOpen(true); setActive(0); }}
           onFocus={() => setOpen(true)}
@@ -81,7 +89,7 @@ function ArchetypeCombo({ label, text, names, onText, placeholder }: {
 }
 
 /** The whole name a text stands for, or null. Case does not matter. */
-function wholeName(text: string, names: readonly string[] | null): string | null {
+export function wholeName(text: string, names: readonly string[] | null): string | null {
   const folded = text.trim().toLowerCase();
   return folded && names ? names.find((name) => name.toLowerCase() === folded) ?? null : null;
 }
@@ -97,19 +105,11 @@ export function BridgeSearch({ start, genesys, genesysRemaining, renderList }: {
   genesysRemaining?: number;
   renderList: (bridges: ShownBridge[], title: string) => React.ReactNode;
 }) {
-  const [names, setNames] = useState<readonly string[] | null>(null);
-  const [namesError, setNamesError] = useState<string | null>(null);
-  const [retry, setRetry] = useState(0);
+  const { names, error: namesError, retry: reloadNames } = useArchetypeNames();
   const [from, setFrom] = useState(start ?? "");
   const [to, setTo] = useState("");
   const [touched, setTouched] = useState(false);
 
-  useEffect(() => {
-    let live = true;
-    setNamesError(null);
-    fetchBridgeArchetypes().then((found) => { if (live) setNames(found); }, (reason: unknown) => { if (live) setNamesError(errorText(reason)); });
-    return () => { live = false; };
-  }, [retry]);
   // The first box follows the deck until the player types in it.
   useEffect(() => { if (!touched && start) setFrom(start); }, [start, touched]);
 
@@ -128,7 +128,7 @@ export function BridgeSearch({ start, genesys, genesysRemaining, renderList }: {
         <span className={styles.searchTo} aria-hidden>→</span>
         <ArchetypeCombo label="To" text={to} names={names} placeholder="Argostars, Ashtra…" onText={setTo} />
       </div>
-      {namesError ? <p className={styles.note} role="alert">{namesError} <button type="button" className={styles.link} onClick={() => setRetry((value) => value + 1)}>Try again</button></p> : null}
+      {namesError ? <p className={styles.note} role="alert">{namesError} <button type="button" className={styles.link} onClick={reloadNames}>Try again</button></p> : null}
       {source && target && source === target ? <p className={styles.note}>Choose two different archetypes.</p> : null}
       {!scope && !namesError && !(source && target) ? <p className={styles.note}>Pick two archetypes to see the bridge each way.</p> : null}
       {scope && loading && !list ? <p className={styles.note} role="status">Looking…</p> : null}

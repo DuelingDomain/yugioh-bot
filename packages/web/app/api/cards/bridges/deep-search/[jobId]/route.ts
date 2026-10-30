@@ -1,4 +1,4 @@
-import { answerBridgeRequest, bridgeErrorResponse, invalidBridgeRequest, readBridgeJob, requireBridgeActor } from "@/lib/bridges-api";
+import { answerBridgeRequest, bridgeErrorResponse, invalidBridgeRequest, readBridgeJob, requireBridgeActor } from "@/lib/bridges-server-api";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

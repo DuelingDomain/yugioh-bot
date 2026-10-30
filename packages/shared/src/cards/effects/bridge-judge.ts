@@ -255,8 +255,14 @@ export function bridgeGate(db: Database.Database, bridge: ArchetypeBridge): Brid
 }
 
 export interface ShownBridge extends ArchetypeBridge { judge: "accepted"; review: Pick<BridgeJudgement, "pros" | "cons" | "lock_note" | "line" | "grade"> }
-export function shownBridge(db: Database.Database, bridge: ArchetypeBridge): ShownBridge | null {
+export function bridgeProjection(db: Database.Database, bridge: ArchetypeBridge): { gate: BridgeGate; shown: ShownBridge | null } {
   const gate = bridgeGate(db, bridge);
+  return { gate, shown: shownFromGate(db, bridge, gate) };
+}
+export function shownBridge(db: Database.Database, bridge: ArchetypeBridge): ShownBridge | null {
+  return bridgeProjection(db, bridge).shown;
+}
+function shownFromGate(db: Database.Database, bridge: ArchetypeBridge, gate: BridgeGate): ShownBridge | null {
   if (gate.state !== "shown") return null;
   const result = [...gate.judgements].sort((a, b) => judgementGrades.indexOf(b.result.grade) - judgementGrades.indexOf(a.result.grade))[0]!.result;
   const grades = { strong: "Strong", good: "Good", niche: "Niche", risky: "Risky" } as const;

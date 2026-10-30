@@ -20,7 +20,7 @@ import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { CardDataStatus } from "@yugidraft/shared/types";
-import type { BridgeRequest } from "./bridges-api";
+import type { BridgeRequest } from "./bridges-server-api";
 
 export type DuelHostOp = "bridges" | "admin-spectate" | "kick" | "invite-player" | "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "suggestion-scope" | "deck-suggestions" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode" | SandboxHostOp;
 
@@ -130,7 +130,7 @@ function hostErrorBody(text: string, status: number): { expected: boolean; body:
           && ((status === 409 && ["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE", "REPLAY_UNVERIFIED"].includes(parsed.code))
             || (status === 413 && parsed.code === "REPLAY_TOO_LARGE"))
           && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery, ...unverified,
-        ...(status === 429 && "retryAfter" in parsed && typeof parsed.retryAfter === "number" && Number.isSafeInteger(parsed.retryAfter) && parsed.retryAfter > 0
+        ...((status === 429 || status === 503) && "retryAfter" in parsed && typeof parsed.retryAfter === "number" && Number.isSafeInteger(parsed.retryAfter) && parsed.retryAfter > 0
           ? { retryAfter: parsed.retryAfter } : {}) } };
     }
   } catch {}
@@ -218,21 +218,21 @@ export async function callDuelHost(input: {
   choice?: DuelFirstChoice;
   /** chain-mode only: the response switch position for the caller's own seat. */
   chainMode?: DuelChainMode;
-} & ({ op: "admin-spectate"; userId: number; playerId?: never } | { op: Exclude<DuelHostOp, "admin-spectate">; playerId: number })): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse; retryable?: boolean }> {
+} & ({ op: "admin-spectate"; userId: number; playerId?: never } | { op: Exclude<DuelHostOp, "admin-spectate">; playerId: number }), signal?: AbortSignal): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse; retryable?: boolean }> {
   const replayOp = input.op === "bug-replay-frame" || input.op === "replay" || input.op === "owner-replay" || input.op === "replay-fork"
     || input.op === "fork-list" || input.op === "fork-restart" || input.op === "fork-cancel";
   const failure = (body: NonNullable<ReturnType<typeof hostErrorBody>>["body"], status: number): NextResponse => NextResponse.json({
     ...body, ...(!body.code && (replayOp ? status >= 500 : [502, 503, 504].includes(status))
       ? { code: replayOp ? "ENGINE_BUSY" : "DUEL_ENGINE_ERROR" } : {}),
   }, { status: replayOp && status >= 500 ? 503 : status,
-    headers: { "cache-control": "private, no-store", ...(status === 429 && body.retryAfter ? { "Retry-After": String(body.retryAfter) } : {}) } });
+    headers: { "cache-control": "private, no-store", ...((status === 429 || status === 503) && body.retryAfter ? { "Retry-After": String(body.retryAfter) } : {}) } });
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
   if (configProblem) {
     log("warn", "[duel-host] configuration is incomplete");
     return { ok: false, response: failure({ error: configProblem, ...(!replayOp ? { code: "DUEL_ENGINE_CONFIG" } : {}) }, 503), retryable: false };
   }
-  const transport = signedTransport({ ...cfg, purpose: "duel-host", ...(input.op === "engine-data-status" || input.op === "bug-context" || input.op === "bridges" ? { timeoutMs: 5000 }
+  const transport = signedTransport({ ...cfg, signal, purpose: "duel-host", ...(input.op === "engine-data-status" || input.op === "bug-context" || input.op === "bridges" ? { timeoutMs: 5000 }
     : input.op === "normalize-codes" || input.op === "validate-deck-master" ? { timeoutMs: 20000 }
     : replayOp ? { timeoutMs: 30_000 } : {}) });
   const payload: Record<string, unknown> = {

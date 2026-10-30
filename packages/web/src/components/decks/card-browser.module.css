@@ -37,7 +37,15 @@
 .de-t[data-un] .de-have { bottom: 26px; }
 
 
-.de-list { container: de-list / inline-size; position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; border-left: 1px solid var(--rule-lo); background: rgb(4 7 14 / 0.35); }
+.de-list { container: de-list / inline-size; position: relative; display: grid; grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0; border-left: 1px solid var(--rule-lo); background: rgb(4 7 14 / 0.35); }
+.de-list[data-tabs] { grid-template-rows: auto minmax(0, 1fr); }
+/* The panes of the tabs (Cards, Suggest, Bridges) share the one row under the tab bar. A hidden pane stays mounted. */
+.tabs { grid-row: 1; }
+.pane { grid-row: -2 / -1; display: grid; grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0; }
+.pane[data-pane="cards"] { grid-template-rows: auto minmax(0, 1fr); }
+.pane[hidden] { display: none; }
+.paneScroll { height: 100%; overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; scrollbar-width: thin; padding: 14px 18px 28px; }
+@container de-list (max-width: 350px) { .paneScroll { padding-inline: 12px; } }
 .de-list[data-dropping="true"] { box-shadow: inset 0 0 0 2px var(--loss); }
 .de-list[data-dropping="true"]::after { content: "Drop to remove"; position: absolute; inset: auto 16px 16px; padding: 10px 12px; border-radius: 8px; background: var(--panel-2); color: var(--loss-ink); font-size: 13.5px; text-align: center; pointer-events: none; }
 .head { display: grid; gap: 12px; padding: 16px 18px 12px; }
@@ -294,7 +302,10 @@
 
 
 /* One column: the list runs the full width, under the floating Report bug button, so its end keeps 64px of room. */
-@container de-editor (width < 960px) { .head { padding: 0 0 12px; } .results { padding: 0 0 64px; } .de-res { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; } }
+/* A phone shows the editor's own tabs. The column bar is hidden by CSS too, so the first paint (before the editor has
+   measured itself) never shows two tab rows. */
+@container de-editor (width < 960px) { .de-list[data-tabs] { grid-template-rows: minmax(0, 1fr); } .de-list > .tabs { display: none; } }
+@container de-editor (width < 960px) { .head { padding: 0 0 12px; } .results { padding: 0 0 64px; } .paneScroll { padding: 4px 0 64px; } .de-res { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; } }
 @media (prefers-reduced-motion: reduce) { .de-t, .de-res, .rows { transition: none; } .de-t:hover { transform: none; } .filters { animation: none; } }
 
 .tileMarks { position: absolute; display: flex; align-items: center; gap: 3px; left: 4px; right: 4px; bottom: 24px; flex-wrap: wrap; pointer-events: none; }

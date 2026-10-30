@@ -23,28 +23,83 @@ including after a deep job saves them in the shared candidate table.
 } }
 ```
 
-For a saved Genesys deck, the host derives remaining points from its cap and existing copies. Only additional required copies consume that allowance. Source-only queries compare the complete evidence package against `genesysRemaining`, defaulting to 100. Card legality and the two review gates apply in either case.
+For a saved Genesys deck, a supplied `genesysRemaining` takes precedence; otherwise the host derives remaining points from its cap and existing copies, including Side. Only additional required copies consume that allowance. Source-only queries compare the complete evidence package against `genesysRemaining`, defaulting to 100. Card legality and the two review gates apply in either case.
 
-`POST /api/cards/bridges/deep-search` accepts JSON below (exactly one of `source`/`deckId`). Unknown fields are rejected, bodies are bounded to 4096 bytes, and archetype names to 120 characters.
+`POST /api/cards/bridges/engines` is a SQLite-only fast operation (`engines` on the host). It reads stored candidates without a deep scan or a paid review. Unknown fields are rejected, the body is bounded to 4096 bytes, and each supplied passcode is a positive uint32. At least one of `deck` and `engines` is required; supplying both detects the deck but uses the corrected engines. Names are canonicalized, deduplicated and sorted. An empty detection is a successful empty result. Chip corrections affect Bridges only.
+
+```ts
+type BridgeDeck = { main: number[]; extra: number[]; deckMaster?: number; pointCap?: number }; // at most 91 total IDs
+// Request
+{ format: "advanced" | "genesys", deck?: BridgeDeck,
+  engines?: string[], // 1–4 names, each at most 120 characters
+  genesysRemaining?: number } // integer 0–1000; preferred over host deck accounting, including zero
+// Response, HTTP 200
+{ engines: string[], detected?: DetectedEngine[], between: ShownBridge[],
+  next: EngineSuggestion[], inReview: number }
+type DetectedEngine = { name: string; weight: number; copies: number; distinct: number;
+  status: "engine" | "light"; hybrids: number[]; includes?: string[] };
+type EngineSuggestion = {
+  engine: string; score: number; grade: "Strong" | "Good" | "Niche" | "Risky";
+  tier: "strict" | "niche"; covered: number; of: number; twoWay: string[];
+  links: { from: string; to: string; bridge: ShownBridge }[]; // 1–3 accepted display pairs
+  cards: number[]; missing: number[]; genesysPoints: number | null;
+  pros: string[]; cons: string[];
+};
+```
+
+The shared detector uses bridge groups, including aliases and curated Odion membership. Hand traps and `formatStaples` are excluded. Main, Extra and Deck Master copies weigh 1, 0.5 and 2 respectively; hybrid weight is divided across memberships. Groups sharing at least 80% of their in-deck weight fold into a stronger group (`includes`). Engines require weight ≥ `max(3, 0.075 × Main size)` and two distinct Main cards. At most four engines survive; the others and groups weighing at least 1.5 are light. `copies` and `distinct` include all supplied zones, while engine eligibility counts distinct Main identities separately.
+
+Fast suggestions contain at most four next engines and up to twelve directed rows between the chosen engines. Same-deck families and groups overlapping an existing engine by at least 50% are excluded. For each accepted pair, `v = score × gradeWeight × hubFactor`: grade weights are Strong 1, Good 0.8, strict Niche 0.6, Risky 0.3, and deep Niche 0.45. The primary line's hub factor is 0.25 for a hub, otherwise 1. Artifact import snapshots hub fan-out and target IDF from artifact rows alone; deep-search rows never alter these statistics. Primary access cards external to both groups become hubs at fifteen distinct directed pairs.
+
+For engine Xi and candidate Z, `link_i = max(v(Xi→Z), 0.7 × v(Z→Xi)) + 0.3 × min(v(Xi→Z), v(Z→Xi))`. Sorted links receive weights 1, 0.8, 0.6, 0.5, then a multiplier `1 + 0.3 × (covered − 1)`. Only non-hub accepted links increase coverage. Target `idf = min(1, 0.05/share)`, where share is the fraction of graph sources with a stored directed row into Z. The final score must reach four. One target per `[format, accessCard, entryCard]` path survives across the complete set. Scores, coverage and two-way labels use the best accepted forward and reverse pair for every selected engine, independently of the display limit. Display selection keeps the best forward rows and best reverse row, at most three total. Pros and cons come from those accepted reviews.
+
+`cards` is the evidence package; `missing` retains required copy multiplicity after subtracting the subscriber's deck. Genesys suggestions charge only missing copies across the combined package, counting shared cards once at the largest required multiplicity. Every artwork passcode is mapped to its main card before detection, points and missing-copy calculation.
+
+For both fast engine requests and deep searches, a supplied `genesysRemaining` is the subscriber's remaining Genesys allowance and takes precedence over host deck accounting, including zero. The editor computes it using the deck's real cap and Side Deck; `deck` itself contains Main, Extra and optional Deck Master, with no Side field. Without an explicit allowance, the host subtracts those supplied cards' points from `deck.pointCap` (integer 0–1000, default 100), including the Deck Master. If any deck card has unknown points, the host skips that calculation, retains the copy context and uses the normal 100-point fallback; the engine search remains available. An explicit allowance skips deck accounting. Missing bridge cards still need known points to pass affordability checks. Without either deck context or an explicit allowance, Genesys affordability defaults to 100. These fields do not change Advanced affordability.
+
+Fast engine detection and projection use two read-only scanners shared with Suggestions. Deep candidate scans and shortlists have a separate scanner, so fast requests and status polls cannot reject a running deep job through queue pressure. Equivalent fast requests share work, with at most eight distinct requests globally. Each user can retain one newest edit behind their running request; subsequent edits replace that queued input. The interactive scanner queue allows eight waiting calls. Fast calls have a 4.5-second budget including actor and scanner queue wait; completed-status scanner calls have the same budget including scanner queue wait. Overload or deadline expiry returns 503 with a one-second retry hint, and a timed-out active scanner is retired. A five-second, 64-entry fast cache includes guild, engine set, deck context, explicit `genesysRemaining` and persisted revisions of bridge evidence/reviews, catalog and saved-deck detection inputs. Duel writes do not invalidate it. Feedback and judgement writes, including through other connections, invalidate it immediately. This fast result cache is separate from the deck-independent shared deep-work cache.
+
+Host construction does not load ranking data. With `EFFECT_SEARCH=0` and an older graph lacking `engine_ranking`, the duel host still starts; engine requests return 503 until a compatible artifact is imported. Replacing the graph with an older version also degrades engine requests without affecting duels.
+
+Browser callers can import `fetchBridgeEngines`, `BridgeEnginesRequest`, and `BridgeDeepSearchRequest` from `packages/web/src/lib/bridges-api.ts`. Server validation and signed-host helpers live in `bridges-server-api.ts`; web processes never construct the graph.
+
+`POST /api/cards/bridges/deep-search` accepts one selector form: `source`, `deckId`, `engines` with optional `deck`, or `deck` alone. Unknown fields are rejected, bodies are bounded to 4096 bytes, and archetype names to 120 characters. Engine sets contain 1–4 names. When `engines` is supplied, it alone selects the shared work and cache key; an accompanying `deck` is subscriber context for existing copies, missing cards and Genesys points. Its detected engines never replace the supplied set, including in Pick mode. A deck-only request resolves to its detected engine set at admission; a deck with no detected engines returns 400 only when explicit engines are absent. The legacy single-selector forms remain supported. `target` is available only with `source`/`deckId`; those selectors cannot be combined with `engines` or `deck`.
 
 ```ts
 // Request
-{ source?: string, deckId?: number, target?: string,
-  format?: "advanced" | "genesys", genesysRemaining?: number }
+{ source?: string, deckId?: number, engines?: string[], deck?: BridgeDeck, target?: string,
+  format?: "advanced" | "genesys", genesysRemaining?: number, // integer 0–1000; preferred when supplied
+  join?: boolean } // true: reuse existing work only; never admit or charge a search
+// Editor request for Use my deck or Pick mode with a deck open:
+{ format: "genesys", engines: ["Odion", "Ashtra"],
+  deck: { main: [29762407, 97522863], extra: [], pointCap: 250 }, genesysRemaining: 37 }
 // Response: HTTP 202 for queued/running; HTTP 200 for cached completed jobs
 { jobId: string, state: "queued" | "running" | "done" | "failed", cached: boolean }
 ```
 
-`GET /api/cards/bridges/deep-search/[jobId]` accepts no query parameters or body. Only a subscribed user in the same guild can poll it. Results remain empty until completion, and every completed read rechecks current evidence, reviews, feedback, and that subscriber's points context.
+For automatic deck/points refreshes, send **`join: true` as a top-level JSON field** in that POST body, alongside the selector, `deck`, `format` and `genesysRemaining`. The host subscribes to matching queued/running work or a completed job retained in the 24-hour work cache, and updates only that subscriber's deck/points context. This also reuses retained incomplete-review results after their normal ten-minute retry window, without retrying reviews. If there is no reusable work (including expired or version-invalidated work), it returns 404; a different search already running for that user returns 409. Join-only requests bypass hourly admission and the queue limit, never create a job, never call scan/review workers and never count toward the 15/hour limit, including subscriptions to running work and after host restarts. Omitting `join` or sending `false` retains normal admission. Non-boolean values return 400.
+
+`BridgeDeepSearchRequest` in `packages/web/src/lib/bridges-api.ts` includes `join?: boolean`. The UI's actual POST builder is `startDeepSearch` in `packages/web/src/components/bridges/bridges-api.ts`: its UI worker must carry `join: true` into the top level of either payload branch for context refreshes. A normal user click should omit it or send `false`.
+
+`GET /api/cards/bridges/deep-search/[jobId]` accepts no query parameters or body. Only a subscribed user in the same guild can poll it. Results remain empty until completion. Completed projections use a five-second, 64-entry cache keyed by job, subscriber deck/points context and the bridge-input revision. Evidence, review and feedback writes invalidate it immediately. Equivalent polls share work; a user can have one distinct projection in flight and at most four distinct projections run globally. Additional distinct polls receive 503 with a one-second retry hint. Multi jobs persist the complete candidate set as compact source/target/format/evidence-hash references. Status sends the job ID to a scanner, which loads those inputs and resolves unchanged evidence rows. Older full-row results are also parsed in the scanner, with a bounded parse cache. Large candidate sets never cross the host loop on status reads.
 
 ```ts
 { jobId: string, state: "queued" | "running" | "done" | "failed",
   step: "candidates" | "checking" | "rating" | "done",
   progress: number, // integer 0–100
+  engines: string[], next: EngineSuggestion[], // at most six; empty while work is pending
   results: ShownBridge[], inReview: number, error?: string }
 ```
 
 Jobs progress `queued → running → done|failed`. Queued jobs start at `candidates/0`; running steps are candidates, deterministic checking, then rating. Success ends at `done/100`; failures retain their last progress and a safe error. Interrupted jobs become failed on host restart. `inReview` includes pending and disputed candidates, never invalid ones.
+
+For multiple engines, each source gets a complete forward scan and an incoming `deepInto` scan before cross-source ranking. Legacy single-source results are a top-25 deduplicated projection, so multi searches always rescan complete outgoing rows and reuse cached judgements. Candidate progress covers both directions for every source. Stored rows receive the current artifact version before ranking.
+
+A multi job with attempted reviews still pending after provider failures uses ten-minute retry admission, even when other pairs were accepted. Only successful bounded work retains the full 24-hour cache. Invalid, disputed and player-hidden pairs are excluded before shortlist slots or shared access paths are assigned. An engine counts toward the six-engine stop only with a shown link or a new verdict saved by this job.
+
+The deterministic shortlist contains at most eight engines. Reviews follow shortlist order and use the best forward display pairs plus the best reverse pair, at most three per engine. The job stops after six engines have reviewed pairs or twelve pairs have needed new reviews. Cached directed-pair evidence is free; a partially reviewed pair consumes one of the twelve when its missing review is requested. Two pair tasks run at a time through the existing global judge queue. Only the existing independent Haiku reviews run; no aggregate prose call is added. Internal engine-to-engine rows are published only if already accepted. Completed projection rechecks all gates and computes at most six next engines using all accepted candidate pairs; pending pairs never add coverage or two-way status. A completed multi job remains reusable for 24 hours even when its intentional review limit leaves part of the shortlist pending.
+
+Single-engine selectors use the legacy source execution and cache tuple `[version, lowerCaseSource, targetOrNull, format]`, preserving `results` regardless of which selector first creates the shared job. Multi-engine keys hash `[version, "multi-v2", sortedLowerCaseEngines, format]`. The deck and points allowance never enter the shared work query or key: `bridge_deep_actor.deck_cards_json` and `genesys_remaining` retain subscriber context. Two players with the same engines share one job but receive their own missing cards and Genesys affordability. Reposting the same work with a changed deck or allowance updates that subscriber's context on an active or completed job without a new scan or review. Multi jobs keep `results: []`; legacy single-source callers retain their existing results and also receive the new `engines` and `next` fields.
 
 Completed deep searches return at most **ten** shown rows: strict bridges first,
 then rows with `tier: "niche"`. These deep-only rows display **Niche** in both
@@ -74,7 +129,7 @@ insufficient: Paleozoic Traps merely played alongside Odion do not qualify.
 Name-label groups, same-deck families, negated entry chains and unsupported
 material/placement setups remain excluded.
 
-Admission permits one queued/running search per application user across guilds. Another POST returns that job ID. There is no completion or failure cooldown; at most 15 new jobs are admitted per user per rolling hour. Two jobs run globally in the host, with a queue bounded to 100 waiting jobs. Identical source/target/format queries share pending work and completed results for 24 hours, without new review calls; artifact/prompt versions invalidate that reuse. Each subscriber retains its own points and saved-deck context. Cached completed queries bypass new-work admission. The hourly limit returns HTTP 429, `Retry-After: <seconds>`, and JSON `{error:string,retryAfter:number}`. Invalid requests return 400, missing subscriptions/decks 404, missing guild membership 403, and unavailable bridge data or a full queue 503. The UI shows a countdown only for the hourly-limit 429 with `retryAfter`; completion and failure enable the button immediately.
+Admission permits one queued/running search per application user across guilds. Another identical POST returns that job ID; a different active query returns 409. There is no completion or failure cooldown; at most 15 new jobs are admitted per user per rolling hour, and a multi-engine job counts as one search. Two jobs run globally in the host, with a queue bounded to 100 waiting jobs. Completion writes retry without blocking on SQLite locks for at most five seconds. If persistence still fails, status reports a terminal in-memory failure and releases the global and user slots; startup recovery persists interrupted jobs after a restart. Identical query keys share pending work and completed results for 24 hours, without new review calls; artifact/prompt versions invalidate that reuse. Each subscriber retains its own points and deck context. Cached completed queries bypass new-work admission. The hourly limit returns HTTP 429, `Retry-After: <seconds>`, and JSON `{error:string,retryAfter:number}`. Invalid requests return 400, missing subscriptions/decks 404, missing guild membership 403, and unavailable bridge data or a full queue 503. The UI shows a countdown only for the hourly-limit 429 with `retryAfter`; completion and failure enable the button immediately.
 
 `POST /api/cards/bridges/feedback` accepts `{evidenceHash:string,reason?:string}` (64 lowercase hex characters, optional reason up to 512 characters) and returns `{accepted:true,hidden:boolean}`. Reports are idempotent per application user and evidence hash. Two distinct unresolved reports hide that evidence immediately, including cached results.
 
@@ -108,6 +163,8 @@ type BridgeGrade = "Strong" | "Good" | "Niche" | "Risky";
 extractCardCapabilities(card: Card, tags?: CardTags, profile?: ArchetypeProfile): CardCapability;
 indexBridgeCapabilities(rows: CardCapability[]): void;
 bridgeGroups(capabilities: readonly CardCapability[], profiles: ReadonlyMap<string, ArchetypeProfile>): Record<string, number[]>;
+detectDeckEngines(deck: BridgeDeck, groups: Record<string, number[]>, skip?: ReadonlySet<number>): DetectedEngine[];
+rankNextEngines(engines: readonly string[], rows: readonly ShownBridge[], context: EngineRankingContext, limit?: number): RankedEngine[];
 bridgeLegal(card: Card, format: BridgeFormat): boolean;
 readBridgeManifest(directory?: string): BridgeManifest;
 importBridgeArtifact(db: Database.Database, directory?: string): {
@@ -116,6 +173,10 @@ importBridgeArtifact(db: Database.Database, directory?: string): {
 
 createBridgeService(db: Database.Database): BridgeService;
 // Methods of BridgeService:
+detectEngines(deck: BridgeDeck, format?: BridgeFormat, guildId?: string): DetectedEngine[];
+engineRows(engines: readonly string[], format: BridgeFormat): ArchetypeBridge[];
+rankingContext(): EngineRankingContext;
+deepInto(target: string, format?: BridgeFormat, progress?: (value: BridgeProgress) => void): ArchetypeBridge[];
 bridgesFrom(archetype: string, format?: BridgeFormat, limit?: number): ArchetypeBridge[];
 bridgeBetween(x: string, y: string, format?: BridgeFormat): ArchetypeBridge | null;
 explain(x: string, y: string, format?: BridgeFormat): ArchetypeBridge | null;
@@ -145,7 +206,7 @@ Only administrative tools and the existing duel-host suggestion workers should c
 
 ```ts
 type BridgeScan = { kind: "bridges"; source: string; format: BridgeFormat } & (
-  { op: "from"; limit?: number } | { op: "live" } |
+  { op: "from"; limit?: number } | { op: "live" | "outgoing" | "into" } |
   { op: "between" | "explain"; target: string }
 );
 type BridgeScanResult = ArchetypeBridge[] | ArchetypeBridge | null;
@@ -157,7 +218,7 @@ DeckSuggestionWorkers.rateBridge(bridge: ArchetypeBridge): Promise<void>;
 
 `BridgeSearchJobs` provides persistent admission before invoking the queued worker methods. Scanner candidates still require the review gate before publication.
 
-Scanner progress is `{phase: "index" | "score" | "validate" | "done", completed: number, total: number}`. Managed jobs map it to the HTTP steps, then judge up to ten currently unjudged candidates from the top 25, with two candidate tasks at a time. Candidate extraction uses read-only worker connections. Reviews run on the host with at most two requests in flight. Candidate scans use at most one scanner, leaving the second scanner available for Suggestions.
+Scanner progress is `{phase: "index" | "score" | "validate" | "done", completed: number, total: number}`. Managed single-source jobs map it to the HTTP steps, then judge up to ten currently unjudged candidates from the top 25, with two candidate tasks at a time. Multi-source jobs use the twelve-pair/six-engine stop rules above. `outgoing` returns the complete candidate set before target deduplication; `into` interprets the scan's `source` field as the destination engine. Candidate extraction uses read-only worker connections. Reviews run on the host with at most two requests in flight. Candidate scans use at most one scanner, leaving the second scanner available for Suggestions.
 
 ## Files and schemas
 
@@ -191,7 +252,7 @@ Genesys excludes Link/Pendulum cards and lines with mandatory Link/Pendulum depe
 | SQLite table | Columns / keys |
 | --- | --- |
 | `card_capability` | `passcode` PK, `capabilities_json`, `text_hash`, `evidence_hash`, `source_version` |
-| `archetype_bridge` | PK `(source,target,format)`, `score`, `grade`, `bridge_json`, `evidence_hash`, `source_version`; lookup index `(source,format,score DESC)` |
+| `archetype_bridge` | PK `(source,target,format)`, `score`, `grade`, `bridge_json`, `evidence_hash`, `source_version`; lookup indexes `(source,format,score DESC)` and `(target,format,score DESC)` |
 | `bridge_graph` | `id=1` PK, `graph_json`, `source_version` |
 | `bridge_artifact_import` | `version` PK, `imported_at` |
 | `bridge_judgement` | PK `(evidence_hash,judge)`, `verdict` (`approved/rejected/review`), `judgement_json`, `created_at` |
@@ -199,7 +260,7 @@ Genesys excludes Link/Pendulum cards and lines with mandatory Link/Pendulum depe
 | `bridge_search_admission` | `actor_hash` PK, `admitted_at` epoch milliseconds |
 | `bridge_judge_spend` | Durable request keys, submission state, reserved/actual microdollars, usage and UTC billing month |
 | `bridge_deep_job` | Job/query identity, state, step, progress, candidate JSON, safe error and completion time |
-| `bridge_deep_actor` | Job/user/guild subscription, admission/completion times and private points/deck context |
+| `bridge_deep_actor` | Job/user/guild subscription, admission/completion times, private points/deck context and `counts_toward_limit` (zero for join-only subscriptions) |
 
 Graph imports validate pinned compressed and decompressed bytes before one transaction; changed artifacts replace graph rows while preserving judgement/feedback history. Review imports revalidate current checked input and skip stale identities. Duel-host effect startup imports graph and reviews behind the existing effect-search flag.
 
@@ -213,6 +274,7 @@ DUEL_DATA_DIR=/path/to/read-only/engine prlimit --core=0 -- npx tsx scripts/effe
 prlimit --core=0 -- npm run build --workspace=packages/shared
 prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check --strict-precision
 prlimit --core=0 -- npx tsx scripts/effects/benchmark-bridges.ts
+prlimit --core=0 -- npx tsx scripts/effects/benchmark-bridges.ts --multi
 
 npx tsx scripts/effects/bridges.ts from Odion
 npx tsx scripts/effects/bridges.ts from Odion --to Blue-Eyes

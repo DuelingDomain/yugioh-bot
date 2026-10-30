@@ -3447,7 +3447,7 @@ export function createDuelHost(options: {
     const { op } = body;
     if (op === "bridges") {
       if (!deckSuggestionsEnabled()) throw new RequestError("Deck suggestions are disabled", 404);
-      return bridgeApi.handle(body, guildId, actor);
+      return bridgeApi.handle(body, guildId, actor, ctl?.signal);
     }
     const accessActor = { guildId, playerId: actor, ...(body.userId !== undefined ? { userId: body.userId as number } : {}) };
     if (op === "fork-list") return { forks: listActiveReplayForks(options.db, accessActor), limit: REPLAY_FORK_ACTIVE_LIMIT };
@@ -4544,7 +4544,7 @@ export function createDuelHost(options: {
         // Remote ledger/status work must never hold other card editor requests.
         const bounded = ["bug-replay-frame", "replay", "owner-replay", "replay-fork", "fork-restart", "fork-cancel", "fork-list"].includes(String(body.op));
         const deadline = new AbortController();
-        const ctl = { abandoned: false, ...(bounded ? { signal: deadline.signal } : {}) };
+        const ctl = { abandoned: false, ...(bounded ? { signal: deadline.signal } : body.op === "bridges" ? { signal: request.signal } : {}) };
         const expiry = bounded ? new Promise<never>((_, reject) => {
           replayDeadline = setTimeout(() => {
             const error = new RequestError("Replay or fork request timed out. Try again shortly.", 503, "ENGINE_BUSY");

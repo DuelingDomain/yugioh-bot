@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DEFAULT_CARD_EFFECT_ARTIFACT_DIRECTORY } from "./artifact.js";
 import { prepareArtifactFile, streamArtifactLines, type PreparedArtifactFile } from "./artifact-stream.js";
 import { bridgeHash, printedText } from "./bridge-text.js";
+import { engineRankingStats } from "./bridge-engine-ranking.js";
 import { bridgeLegal } from "./bridge-engine.js";
 import { CAPABILITY_KEYS, REASON_CAPS, type ArchetypeBridge, type BridgeGraphData, type CardCapability } from "./bridge-types.js";
 
@@ -42,6 +43,11 @@ export function importBridgeArtifact(db: Database.Database, directory = DEFAULT_
     for (const file of Object.values(manifest.files)) spools.set(file.path, prepareArtifactFile(join(directory, file.path), file));
     const bridges = manifest.files.advanced.records + manifest.files.genesys.records;
     const skipped = !!db.prepare("SELECT 1 FROM bridge_artifact_import WHERE version=?").get(manifest.version);
+    const rankingRows: ArchetypeBridge[] = [];
+    const snapshot = () => {
+      const stats = engineRankingStats(manifest.groups, rankingRows);
+      return { hubs: [...stats.hubs], idf: { advanced: Object.fromEntries(stats.idf.advanced), genesys: Object.fromEntries(stats.idf.genesys) } };
+    };
     if (!skipped) db.transaction(() => {
       db.exec("DELETE FROM archetype_bridge; DELETE FROM card_capability; DELETE FROM bridge_graph;");
       const insertCapability = db.prepare("INSERT INTO card_capability(passcode,capabilities_json,text_hash,evidence_hash,source_version) VALUES(?,?,?,?,?)");
@@ -63,12 +69,23 @@ export function importBridgeArtifact(db: Database.Database, directory = DEFAULT_
           || row.tier !== undefined && (row.tier !== "niche" || row.grade !== "Niche")
           || !row.reasons.length || row.reasons.some(reason => !Object.hasOwn(REASON_CAPS, reason.key) || reason.cards.some(id => !row.cards.includes(id)))
           || row.cards.some(id => !cards.has(id) || !bridgeLegal(cards.get(id)!, format))) throw new Error("Invalid archetype bridge");
+        rankingRows.push(row);
         insertBridge.run(row.source, row.target, row.format, row.score, row.grade, JSON.stringify(row), row.evidence_hash, manifest.version);
       });
-      db.prepare("INSERT INTO bridge_graph(id,graph_json,source_version) VALUES(1,?,?)").run(JSON.stringify({ groups: manifest.groups, group_policies: manifest.group_policies, target_means: manifest.target_means, reason_frequencies: manifest.reason_frequencies, ancillary_outlets: manifest.ancillary_outlets, materials: manifest.materials }), manifest.version);
+      db.prepare("INSERT INTO bridge_graph(id,graph_json,source_version) VALUES(1,?,?)").run(JSON.stringify({ engine_ranking: snapshot(), groups: manifest.groups, group_policies: manifest.group_policies, target_means: manifest.target_means, reason_frequencies: manifest.reason_frequencies, ancillary_outlets: manifest.ancillary_outlets, materials: manifest.materials }), manifest.version);
       db.exec("DELETE FROM bridge_artifact_import");
       db.prepare("INSERT INTO bridge_artifact_import(version) VALUES(?)").run(manifest.version);
     }).immediate();
+    // Backfill existing installations from immutable artifact files, never from
+    // archetype_bridge, which also contains user-triggered deep-search rows.
+    if (skipped && db.prepare("SELECT 1 FROM bridge_graph WHERE source_version=? AND json_type(graph_json,'$.engine_ranking') IS NULL").get(manifest.version)) {
+      for (const format of ["advanced", "genesys"] as const) {
+        const file = manifest.files[format];
+        streamArtifactLines(join(directory, file.path), file, line => rankingRows.push(JSON.parse(line)), spools.get(file.path));
+      }
+      db.prepare("UPDATE bridge_graph SET graph_json=json_set(graph_json,'$.engine_ranking',json(?)) WHERE source_version=?")
+        .run(JSON.stringify(snapshot()), manifest.version);
+    }
     return { version: manifest.version, bridges, capabilities: manifest.files.capabilities.records, skipped };
   } finally { for (const spool of spools.values()) spool.close(); }
 }
