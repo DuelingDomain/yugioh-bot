@@ -6,7 +6,7 @@ import { env } from "./env";
 import { callDuelHost } from "./duel-host";
 import { apiErrorResponse } from "./api-errors";
 import { readJsonBody } from "./bug-reports/read-body";
-import { isBridgeDeck, isBridgeEngineNames, type BridgeEnginesRequest } from "@yugidraft/shared/cards/effects";
+import { isBridgeDeck, isBridgeEngineNames, type BridgeDeck, type BridgeEnginesRequest } from "@yugidraft/shared/cards/effects";
 
 type BridgeFormat = "advanced" | "genesys";
 type BridgeQuery = ({ source: string; deckId?: never } | { deckId: number; source?: never }) & {
@@ -15,7 +15,9 @@ type BridgeQuery = ({ source: string; deckId?: never } | { deckId: number; sourc
   genesysRemaining?: number;
 };
 export type BridgeRequest =
-  | (BridgeQuery & { op: "from" | "between" | "start" })
+  | (BridgeQuery & { op: "from" | "between" })
+  | ((BridgeQuery | (({ engines: string[]; deck?: never } | { deck: BridgeDeck; engines?: never }) & {
+      format: BridgeFormat; genesysRemaining?: number })) & { op: "start" })
   | (BridgeEnginesRequest & { op: "engines" })
   | { op: "status"; jobId: string }
   | { op: "feedback"; evidenceHash: string; reason?: string }
@@ -88,7 +90,16 @@ export async function readBridgeBody(request: Request, op: "start" | "feedback" 
     return { ok: true as const, value: { ...value, op } as BridgeRequest };
   }
   if (op === "start") {
-    const query = parseQuery(body.value);
+    const value = body.value;
+    if (object(value) && (value.engines !== undefined || value.deck !== undefined)) {
+      if (!keys(value, ["engines", "deck", "format", "genesysRemaining"]) || (value.deck === undefined) === (value.engines === undefined)
+        || value.deck !== undefined && !isBridgeDeck(value.deck)
+        || value.engines !== undefined && !isBridgeEngineNames(value.engines)
+        || value.format !== undefined && !format(value.format)
+        || value.genesysRemaining !== undefined && !integer(value.genesysRemaining, 1000)) return { ok: false as const, response: invalidBridgeRequest() };
+      return { ok: true as const, value: { ...value, format: value.format ?? "advanced", op } as BridgeRequest };
+    }
+    const query = parseQuery(value);
     return query ? { ok: true as const, value: { ...query, op } as BridgeRequest }
       : { ok: false as const, response: invalidBridgeRequest() };
   }
@@ -158,6 +169,8 @@ function validResponse(value: unknown, request: BridgeRequest): boolean {
     case "status": return value.jobId === request.jobId && state(value.state)
       && typeof value.step === "string" && ["candidates", "checking", "rating", "done"].includes(value.step)
       && integer(value.progress, 100) && results(value.results, undefined, true) && integer(value.inReview)
+      && (value.engines === undefined || Array.isArray(value.engines) && value.engines.length >= 1 && value.engines.length <= 4 && value.engines.every(value => name(value, 160)))
+      && (value.next === undefined || engineSuggestions(value.next, undefined, 6))
       && (value.error === undefined || text(value.error, 2000));
     case "feedback": return value.accepted === true && typeof value.hidden === "boolean";
     case "review": return Array.isArray(value.feedback) && value.feedback.length <= 200 && integer(value.inReview)

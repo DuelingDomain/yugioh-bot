@@ -71,7 +71,8 @@ export class BridgeEngineQueries {
     const selected = new Set(query.engines);
     const candidates = rows.filter(row => row.format === query.format && (selected.has(row.source) || selected.has(row.target))
       && (query.format !== "genesys" || this.package([row], query).points <= (query.genesysRemaining ?? 100)));
-    const accepted = candidates.flatMap(row => { const shown = shownBridge(this.db, row); return shown ? [shown] : []; });
+    const shown = candidates.flatMap(row => { const accepted = shownBridge(this.db, row); return accepted ? [accepted] : []; });
+    const accepted = shown.map(row => ({ ...row, two_way: shown.some(reverse => reverse.source === row.target && reverse.target === row.source) }));
     const between = accepted.filter(row => selected.has(row.source) && selected.has(row.target));
     const next: EngineSuggestion[] = rankNextEngines(query.engines, accepted, this.service.rankingContext(), 8).flatMap(row => {
       const pack = this.package(row.links.map(link => link.bridge), query);

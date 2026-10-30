@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { BridgeJobError, BridgeReviewUnavailableError, BridgeSearchJobs, type BridgeSearchQuery } from "./bridge-search-jobs.js";
 import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
 import { BridgeEngineQueries } from "./bridge-engine-queries.js";
+import { searchBridgeEngines } from "./bridge-multi-search.js";
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const name = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 160;
@@ -23,8 +24,12 @@ export class BridgeApi {
     if (db.prepare("SELECT 1 FROM bridge_graph WHERE id=1").get()) this.engineQueries.service.rankingContext();
     this.jobs = new BridgeSearchJobs(db, {
       now, version: () => `${this.groups().source_version}:${BRIDGE_JUDGE_VERSION}`,
-      project: (rows, query) => this.project(rows, query, true),
+      project: (rows, query) => {
+        const multi = this.engineQueries.project(rows, { ...query, engines: query.engines ?? [query.source] }, 6);
+        return query.engines ? { results: [], ...multi } : { ...this.project(rows, query, true), next: multi.next };
+      },
       execute: async (query, progress) => {
+        if (query.engines) return searchBridgeEngines(this.db, workers, this.engineQueries, this.jobs, { ...query, engines: query.engines }, progress);
         const result = await workers.bridgeCandidates({ kind: "bridges", source: query.source, format: query.format,
           ...(query.target ? { op: "explain", target: query.target } : { op: "live" }) }, value => {
           progress("candidates", Math.floor(25 * value.completed / Math.max(1, value.total)));
@@ -187,6 +192,12 @@ export class BridgeApi {
       this.db.prepare("INSERT OR IGNORE INTO bridge_feedback(evidence_hash,actor_hash,reason) VALUES(?,?,?)").run(input.evidenceHash, hash(actor.userId), typeof input.reason === "string" ? input.reason.trim() : "");
       const users = (this.db.prepare("SELECT count(DISTINCT actor_hash) AS n FROM bridge_feedback WHERE evidence_hash=? AND resolved_at IS NULL").get(input.evidenceHash) as { n: number }).n;
       return { accepted: true, hidden: users >= 2 };
+    }
+    if (input.op === "start" && (input.engines !== undefined || input.deck !== undefined)) {
+      if (["source", "deckId"].some(key => input[key] !== undefined) || (input.engines !== undefined && input.deck !== undefined)) throw new BridgeJobError("Choose one bridge source selector", 400);
+      const { query } = this.engineQueries.resolve(input, guildId);
+      if (!query.engines.length) throw new BridgeJobError("The deck needs an engine before searching bridges", 400);
+      return this.jobs.start(actor, query);
     }
     if (input.op === "engines") {
       const { query, detected } = this.engineQueries.resolve(input, guildId);

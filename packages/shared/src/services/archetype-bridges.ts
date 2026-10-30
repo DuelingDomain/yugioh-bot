@@ -61,8 +61,11 @@ export function createBridgeService(db: Database.Database) {
     liveCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
       return live().liveCandidates(source, format, progress);
     },
-    deepCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
-      return live().deepCandidates(source, format, progress);
+    deepCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void, distinct = true): ArchetypeBridge[] {
+      return live().deepCandidates(source, format, progress, distinct);
+    },
+    deepInto(target: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
+      return live().deepInto(target, format, progress);
     },
     deepBetween(source: string, target: string, format: BridgeFormat = "advanced"): ArchetypeBridge | null {
       return stored(source, target, format) ?? live().deepBetween(source, target, format);

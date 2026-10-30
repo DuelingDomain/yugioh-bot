@@ -25,6 +25,30 @@ function setup(inReview = 2) {
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 
 describe("persistent bridge deep-search admission and lifecycle", () => {
+  it("shares a sorted multi-engine key without deck context and charges it as one search", async () => {
+    const { db, jobs, execute, finish } = setup(0);
+    const multi = { ...query(), engines: ["Odion", "Ashtra"], deckCards: [1], genesysRemaining: 100 };
+    const first = jobs.start(actor(), multi);
+    expect(jobs.start(actor(2), { ...multi, engines: ["ashtra", "odion"], deckCards: [2], genesysRemaining: 5 }).jobId).toBe(first.jobId);
+    expect(execute).toHaveBeenCalledTimes(1);
+    const stored = JSON.parse((db.prepare("SELECT query_json FROM bridge_deep_job WHERE id=?").get(first.jobId) as { query_json: string }).query_json);
+    expect(stored).not.toHaveProperty("deckCards"); expect(stored).not.toHaveProperty("genesysRemaining");
+    expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_actor WHERE job_id=?").get(first.jobId)).toEqual({ n: 2 });
+    await finish();
+    expect(jobs.start(actor(3), { ...multi, deckCards: [3] })).toMatchObject({ jobId: first.jobId, cached: true });
+    for (let i = 1; i < 15; i++) { jobs.start(actor(), { ...query(), engines: ["Odion", `Other ${i}`] }); await finish(); }
+    expect(() => jobs.start(actor(), { ...query(), engines: ["Odion", "Sixteenth"] })).toThrowError(expect.objectContaining({ status: 429 }));
+  });
+
+  it("preserves the single-engine key and expires reusable source rows after 24 hours or a version change", async () => {
+    const { jobs, finish, results, advance, updateVersion } = setup(0);
+    const first = jobs.start(actor(), query()); await finish();
+    expect(jobs.start(actor(2), { ...query(), engines: ["Odion"] })).toMatchObject({ jobId: first.jobId, cached: true });
+    expect(jobs.freshSingleSourceRows("Odion", "advanced")).toEqual(results);
+    expect(jobs.freshSingleSourceRows("Odion", "genesys")).toBeUndefined();
+    updateVersion("v2"); expect(jobs.freshSingleSourceRows("Odion", "advanced")).toBeUndefined();
+    updateVersion("v1"); advance(86_400_001); expect(jobs.freshSingleSourceRows("Odion", "advanced")).toBeUndefined();
+  });
   it("coalesces repeat clicks, polls progress, and scopes job access to user and guild", async () => {
     const { jobs, execute, finish } = setup();
     const first = jobs.start(actor(), query());

@@ -6,7 +6,7 @@ import type { DeckSuggestionLegality, DeckSuggestionQuery, DeckSuggestionResult,
 type Job = { worker: Worker; reject?: (error: Error) => void; idle?: ReturnType<typeof setTimeout> };
 export type SuggestionScan = { guildId?: string; query: DeckSuggestionQuery; legality: DeckSuggestionLegality; deckMaster?: number };
 export type BridgeScan = { kind: "bridges"; source: string; format: BridgeFormat } & (
-  { op: "from"; limit?: number } | { op: "live" } | { op: "between" | "explain"; target: string }
+  { op: "from"; limit?: number } | { op: "live" | "outgoing" | "into" } | { op: "between" | "explain"; target: string }
 );
 export type BridgeScanResult = ArchetypeBridge[] | ArchetypeBridge | null;
 type ScanResult = DeckSuggestionResult | CardEffectSearchResult | BridgeScanResult;

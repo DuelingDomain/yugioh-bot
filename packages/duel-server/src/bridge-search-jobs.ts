@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
-import { bridgeGate, type ArchetypeBridge, type BridgeFormat } from "@yugidraft/shared/cards/effects";
+import { bridgeGate, type ArchetypeBridge, type BridgeFormat, type EngineSuggestion } from "@yugidraft/shared/cards/effects";
 
-export interface BridgeSearchQuery { source: string; target?: string; format: BridgeFormat; genesysRemaining?: number; deckCards?: number[] }
+export interface BridgeSearchQuery { source: string; target?: string; engines?: string[]; format: BridgeFormat; genesysRemaining?: number; deckCards?: number[] }
 export interface BridgeSearchActor { userId: number; guildId: string }
 export type BridgeJobState = "queued" | "running" | "done" | "failed";
 export type BridgeJobStep = "candidates" | "checking" | "rating" | "done";
@@ -12,7 +12,7 @@ interface JobRow {
 }
 interface JobOptions {
   execute(query: BridgeSearchQuery, progress: (step: BridgeJobStep, value: number) => void): Promise<ArchetypeBridge[]>;
-  project(rows: ArchetypeBridge[], query: BridgeSearchQuery): { results: unknown[]; inReview: number };
+  project(rows: ArchetypeBridge[], query: BridgeSearchQuery): { results: unknown[]; inReview: number; next?: EngineSuggestion[] };
   version(): string;
   now?: () => number;
 }
@@ -54,7 +54,16 @@ export class BridgeSearchJobs {
 
   private actorHash(actor: BridgeSearchActor): string { return createHash("sha256").update(`bridge-user:${actor.userId}`).digest("hex"); }
   private queryKey(query: BridgeSearchQuery): string {
-    return createHash("sha256").update(JSON.stringify([this.options.version(), query.source.toLowerCase(), query.target?.toLowerCase() ?? null, query.format])).digest("hex");
+    const engines = query.engines?.map(name => name.toLowerCase()).sort();
+    const tuple = engines && engines.length >= 2 ? [this.options.version(), "multi", engines, query.format]
+      : [this.options.version(), engines?.[0] ?? query.source.toLowerCase(), query.target?.toLowerCase() ?? null, query.format];
+    return createHash("sha256").update(JSON.stringify(tuple)).digest("hex");
+  }
+
+  freshSingleSourceRows(source: string, format: BridgeFormat): ArchetypeBridge[] | undefined {
+    const row = this.db.prepare(`SELECT result_json FROM bridge_deep_job WHERE query_key=? AND state='done' AND ended_at>?
+      ORDER BY ended_at DESC LIMIT 1`).get(this.queryKey({ source, format }), this.now() - 86_400_000) as { result_json: string } | undefined;
+    return row ? (JSON.parse(row.result_json) as ArchetypeBridge[]).filter(row => row.source === source && row.format === format) : undefined;
   }
 
   start(actor: BridgeSearchActor, query: BridgeSearchQuery) {
@@ -63,7 +72,10 @@ export class BridgeSearchJobs {
     const cached = this.db.prepare("SELECT * FROM bridge_deep_job WHERE query_key=? AND state='done' AND ended_at>? ORDER BY ended_at DESC LIMIT 1").get(key, now - 86_400_000) as JobRow | undefined;
     // Evidence validation can be expensive; keep it outside the admission write lock.
     // Permanent reviews are complete, even though the UI still hides those rows.
-    const incomplete = cached && (JSON.parse(cached.result_json) as ArchetypeBridge[]).some(row => bridgeGate(this.db, row).state === "pending");
+    // Multi searches intentionally leave shortlist rows pending after the judge
+    // stop rule. Completing that bounded work is a full 24-hour cache entry.
+    const incomplete = cached && !(JSON.parse(cached.query_json) as BridgeSearchQuery).engines
+      && (JSON.parse(cached.result_json) as ArchetypeBridge[]).some(row => bridgeGate(this.db, row).state === "pending");
     const admitted = this.db.transaction(() => {
       const hash = this.actorHash(actor);
       const existing = this.db.prepare(`SELECT j.* FROM bridge_deep_job j JOIN bridge_deep_actor a ON a.job_id=j.id
@@ -78,7 +90,7 @@ export class BridgeSearchJobs {
       if (existing) {
         if (existing.query_key !== key) {
           const running = JSON.parse(existing.query_json) as BridgeSearchQuery;
-          throw new BridgeJobError(`A deep search for ${running.source} is still running`, 409, 10);
+          throw new BridgeJobError(`A deep search for ${running.engines?.join(" + ") ?? running.source} is still running`, 409, 10);
         }
         return subscribe(existing, false);
       }
@@ -94,8 +106,10 @@ export class BridgeSearchJobs {
       const queued = this.db.prepare("SELECT count(*) AS n FROM bridge_deep_job WHERE state='queued'").get() as { n: number };
       if (queued.n >= 100) throw new BridgeJobError("Bridge search queue is busy", 503, 10);
       const id = randomUUID();
+      const workQuery = { source: query.engines?.[0] ?? query.source, format: query.format, ...(query.target ? { target: query.target } : {}),
+        ...(query.engines && query.engines.length > 1 ? { engines: query.engines } : {}) };
       this.db.prepare("INSERT INTO bridge_deep_job(id,query_key,query_json,state,step,created_at) VALUES(?,?,?,'queued','candidates',?)")
-        .run(id, key, JSON.stringify(query), now);
+        .run(id, key, JSON.stringify(workQuery), now);
       this.db.prepare("INSERT INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at,genesys_remaining,deck_cards_json) VALUES(?,?,?,?,?,?)")
         .run(id, hash, actor.guildId, now, query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null);
       return { jobId: id, state: "queued" as BridgeJobState, cached: false };
@@ -112,7 +126,8 @@ export class BridgeSearchJobs {
       deckCards: row.deck_cards_json ? JSON.parse(row.deck_cards_json) as number[] : undefined };
     if (row.query_key !== this.queryKey(query)) throw new BridgeJobError("Not found", 404);
     const visible = row.state === "done" ? this.options.project(JSON.parse(row.result_json), query) : { results: [], inReview: 0 };
-    return { jobId: row.id, state: row.state, step: row.step, progress: row.progress, ...visible, ...(row.error ? { error: row.error } : {}) };
+    return { jobId: row.id, state: row.state, step: row.step, progress: row.progress,
+      engines: query.engines ?? [query.source], next: [], ...visible, ...(row.error ? { error: row.error } : {}) };
   }
 
   private drain(): void {

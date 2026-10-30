@@ -4,12 +4,30 @@ import { migrate } from "../src/db/schema.js";
 import { importBridgeArtifact } from "../src/cards/effects/bridge-artifact.js";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
 import { createBridgeService } from "../src/services/archetype-bridges.js";
+import { bridgeAccessPath, rankEngineCandidates } from "../src/cards/effects/bridge-engine-ranking.js";
 
 let db: Database.Database;
 beforeAll(() => { db = new Database(":memory:"); migrate(db); importCardEffectArtifact(db); importBridgeArtifact(db); });
 afterAll(() => db.close());
 
 describe("open-deck bridge engine detection", () => {
+  it("deduplicates shared access paths across every source in a multi-engine shortlist", () => {
+    const service = createBridgeService(db), context = service.rankingContext();
+    for (const engines of [["Odion", "Ashtra"], ["Blue-Eyes", "Fiendsmith"]]) {
+      const rows = engines.flatMap(source => [...service.deepCandidates(source, "advanced", undefined, false), ...service.deepInto(source)]);
+      const next = rankEngineCandidates(engines, rows, context);
+      const owners = new Map<string, string>();
+      for (const candidate of next) for (const link of candidate.links) {
+        const path = bridgeAccessPath(link.bridge, context.groups);
+        if (!path) continue;
+        expect(owners.get(path) ?? candidate.engine).toBe(candidate.engine);
+        owners.set(path, candidate.engine);
+      }
+      expect(next.every(row => row.score >= 4)).toBe(true);
+      expect(next.filter(row => row.links.some(link => link.bridge.reasons[0]?.evidence.some(text => /Junk Converter/.test(text)))).length).toBeLessThanOrEqual(1);
+      if (engines.includes("Odion")) expect(next.some(row => /synchron/i.test(row.engine))).toBe(false);
+    }
+  }, 20_000);
   it("detects curated and named engines without archetypal hand traps or format staples", () => {
     const fixtures = [
       { main: [29762407, 29762407, 97522863, 97522863, 1710647, 1710647, 37839434, 37839434], expected: ["Ashtra", "Odion"] },

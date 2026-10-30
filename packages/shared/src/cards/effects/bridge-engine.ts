@@ -773,7 +773,7 @@ export class BridgeEngine {
     return this.between(source, target, format) ?? this.between(source, target, format, true);
   }
 
-  deepCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
+  deepCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void, distinct = true): ArchetypeBridge[] {
     this.prepare(format);
     const results: ArchetypeBridge[] = [];
     for (const [i, target] of this.names.entries()) {
@@ -782,7 +782,19 @@ export class BridgeEngine {
       if (i % 20 === 0) progress?.({ phase: "score", completed: i, total: this.names.length });
     }
     progress?.({ phase: "done", completed: this.names.length, total: this.names.length });
-    return this.deepTargets(results, results.length);
+    return distinct ? this.deepTargets(results, results.length) : results;
+  }
+
+  deepInto(target: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
+    this.prepare(format);
+    const results: ArchetypeBridge[] = [];
+    for (const [i, source] of this.names.entries()) {
+      const row = this.deepBetween(source, target, format);
+      if (row) results.push(row);
+      if (i % 20 === 0) progress?.({ phase: "score", completed: i, total: this.names.length });
+    }
+    progress?.({ phase: "done", completed: this.names.length, total: this.names.length });
+    return results;
   }
 
   liveCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {

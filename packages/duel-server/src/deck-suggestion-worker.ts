@@ -24,6 +24,8 @@ parentPort!.on("message", async (request: (SuggestionScan | BridgeScan) & {
       const result = request.op === "from" ? bridges.bridgesFrom(source, format, request.limit)
         : request.op === "between" ? bridges.bridgeBetween(source, request.target, format)
         : request.op === "explain" ? bridges.deepBetween(source, request.target, format)
+        : request.op === "into" ? bridges.deepInto(source, format, progress => parentPort!.postMessage({ progress }))
+        : request.op === "outgoing" ? bridges.deepCandidates(source, format, progress => parentPort!.postMessage({ progress }), false)
         : bridges.deepCandidates(source, format, progress => parentPort!.postMessage({ progress }));
       parentPort!.postMessage({ result });
       return;

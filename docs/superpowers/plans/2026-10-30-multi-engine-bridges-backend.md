@@ -23,8 +23,8 @@
 
 ### Task 3: Multi-source deep jobs (commit 3)
 
-- [ ] Add engines/deck selectors, deck-independent multi keys, subscriber context, and fresh single-source reuse.
-- [ ] Add reverse scans and deterministic top-eight shortlist; review top down until six engines or twelve new pair reviews, with cached reviews free.
-- [ ] Project at most six suggestions from currently accepted display pairs and preserve single-source results.
-- [ ] Verify cache sharing, hourly admission, review budget, stop rules, reverse scanning, and subscriber-specific points; benchmark one through four sources.
-- [ ] Update API docs, run touched-code checks, review the diff, commit explicit paths, and remove only build output created by this task.
+- [x] Add engines/deck selectors, deck-independent multi keys, subscriber context, and fresh single-source reuse.
+- [x] Add reverse scans and deterministic top-eight shortlist; review top down until six engines or twelve new pair reviews, with cached reviews free.
+- [x] Project at most six suggestions from currently accepted display pairs and preserve single-source results.
+- [x] Verify cache sharing, hourly admission, review budget, stop rules, reverse scanning, and subscriber-specific points; benchmark one through four sources.
+- [x] Update API docs, run touched-code checks, review the diff, commit explicit paths, and remove only build output created by this task.

@@ -38,6 +38,12 @@ describe("bridge scanner isolation", () => {
       expect(normal).toHaveProperty("rows");
       expect(progress).toContain("score");
       expect(progress.at(-1)).toBe("done");
+      const [outgoing, incoming] = await Promise.all([
+        workers.bridgeCandidates({ ...scan, op: "outgoing", source: "Blue-Eyes" }),
+        workers.bridgeCandidates({ ...scan, op: "into", source: "Blue-Eyes" }),
+      ]);
+      expect(Array.isArray(outgoing) && outgoing.length > 0 && outgoing.every(row => row.source === "Blue-Eyes")).toBe(true);
+      expect(Array.isArray(incoming) && incoming.length > 0 && incoming.every(row => row.target === "Blue-Eyes")).toBe(true);
     } finally { await workers.close(); db.close(); rmSync(directory, { recursive: true, force: true }); }
   }, 20_000);
 

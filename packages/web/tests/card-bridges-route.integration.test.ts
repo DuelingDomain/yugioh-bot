@@ -80,6 +80,19 @@ it("forwards bounded open decks and corrected engines without exposing pending r
   expect((await engines({ engines: ["Odion"], format: "advanced" })).status).toBe(502);
 });
 
+it("runs the browser engines helper through the authenticated signed-host route", async () => {
+  const { fetchBridgeEngines } = await import("../src/lib/bridges-api");
+  const { POST } = await import("../app/api/cards/bridges/engines/route");
+  const signedHostFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => url === "/api/cards/bridges/engines"
+    ? POST(new Request(`http://web.test${url}`, init)) : signedHostFetch(url, init));
+  reply = { engines: ["Odion"], between: [], next: [], inReview: 1 };
+  expect(await fetchBridgeEngines({ engines: ["Odion"], format: "advanced" })).toEqual(reply);
+  expect(calls[0].bridgeRequest).toEqual({ op: "engines", engines: ["Odion"], format: "advanced" });
+  reply = { results: [], inReview: 0 };
+  await expect(fetchBridgeEngines({ engines: ["Odion"], format: "advanced" })).rejects.toMatchObject({ status: 502 });
+});
+
 it("authenticates all operations and requires a player in the configured guild", async () => {
   state.auth.mockResolvedValue(null);
   for (const request of [() => lookup(), () => start({ source: "Odion" }), () => poll(), () => feedback({ evidenceHash: hash })]) {
@@ -155,6 +168,23 @@ it("starts, resumes and polls a host job without exposing actor overrides", asyn
   }
   expect((await poll("bridge-job-1", "?userId=2")).status).toBe(400);
   expect((await poll("x".repeat(129))).status).toBe(400);
+});
+
+it("accepts exactly one deep-search selector including engine sets and the open deck", async () => {
+  reply = { jobId: "bridge-job-1", state: "queued", cached: false };
+  const deck = { main: [29762407, 97522863], extra: [] };
+  expect((await start({ engines: ["Odion", "Ashtra"] })).status).toBe(202);
+  expect(calls[0].bridgeRequest).toEqual({ op: "start", engines: ["Odion", "Ashtra"], format: "advanced" });
+  expect((await start({ deck, format: "genesys" })).status).toBe(202);
+  expect(calls[1].bridgeRequest).toEqual({ op: "start", deck, format: "genesys" });
+  for (const value of [{ deck, engines: ["Odion"] }, { source: "Odion", engines: ["Ashtra"] }, { deckId: 1, deck },
+    { engines: Array(5).fill("Odion") }, { engines: [] }, { engines: ["Odion"], target: "Ashtra" }, { deck: { ...deck, userId: 2 } }]) {
+    expect((await start(value)).status).toBe(400);
+  }
+  reply = { jobId: "bridge-job-1", state: "done", step: "done", progress: 100, engines: ["Ashtra", "Odion"], next: [], results: [], inReview: 0 };
+  expect((await poll()).status).toBe(200);
+  reply = { ...reply as object, next: [{ engine: "Argostars", links: [{ bridge: { ...shown(), judge: "pending" } }] }] };
+  expect((await poll()).status).toBe(502);
 });
 
 it("preserves the hourly-limit response and countdown header", async () => {

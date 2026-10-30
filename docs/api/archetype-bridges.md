@@ -57,11 +57,11 @@ For engine Xi and candidate Z, `link_i = max(v(Xi→Z), 0.7 × v(Z→Xi)) + 0.3 
 
 Browser callers can import `fetchBridgeEngines` and its types from `packages/web/src/lib/bridges-api.ts`. Server validation and signed-host helpers live in `bridges-server-api.ts`; web processes never construct the graph.
 
-`POST /api/cards/bridges/deep-search` accepts JSON below (exactly one of `source`/`deckId`). Unknown fields are rejected, bodies are bounded to 4096 bytes, and archetype names to 120 characters.
+`POST /api/cards/bridges/deep-search` accepts JSON below (exactly one of `source`, `deckId`, `engines`, or `deck`). Unknown fields are rejected, bodies are bounded to 4096 bytes, and archetype names to 120 characters. Engine sets contain 1–4 names. An open deck resolves to its detected engine set at admission; a deck with no detected engines returns 400. `target` is available only with the legacy `source`/`deckId` selectors. Unlike the fast route, the deep route does not combine `deck` with corrected `engines`; send the corrected set as its sole selector.
 
 ```ts
 // Request
-{ source?: string, deckId?: number, target?: string,
+{ source?: string, deckId?: number, engines?: string[], deck?: BridgeDeck, target?: string,
   format?: "advanced" | "genesys", genesysRemaining?: number }
 // Response: HTTP 202 for queued/running; HTTP 200 for cached completed jobs
 { jobId: string, state: "queued" | "running" | "done" | "failed", cached: boolean }
@@ -73,10 +73,17 @@ Browser callers can import `fetchBridgeEngines` and its types from `packages/web
 { jobId: string, state: "queued" | "running" | "done" | "failed",
   step: "candidates" | "checking" | "rating" | "done",
   progress: number, // integer 0–100
+  engines: string[], next: EngineSuggestion[], // at most six; empty while work is pending
   results: ShownBridge[], inReview: number, error?: string }
 ```
 
 Jobs progress `queued → running → done|failed`. Queued jobs start at `candidates/0`; running steps are candidates, deterministic checking, then rating. Success ends at `done/100`; failures retain their last progress and a safe error. Interrupted jobs become failed on host restart. `inReview` includes pending and disputed candidates, never invalid ones.
+
+For multiple engines, each source gets a complete forward scan and an incoming `deepInto` scan before cross-source ranking. A completed single-source job from the last 24 hours supplies its forward rows without another forward scan. The incoming scan still runs because legacy single-source results contain only outgoing rows. Candidate progress covers the complete set of scans, including reused sources. Stored rows receive the current artifact version before ranking.
+
+The deterministic shortlist contains at most eight engines. Reviews follow shortlist order and use the best forward display pairs plus the best reverse pair, at most three per engine. The job stops after six engines have reviewed pairs or twelve pairs have needed new reviews. Cached directed-pair evidence is free; a partially reviewed pair consumes one of the twelve when its missing review is requested. Two pair tasks run at a time through the existing global judge queue. Only the existing independent Haiku reviews run; no aggregate prose call is added. Internal engine-to-engine rows are published only if already accepted. Completed projection rechecks all gates and computes at most six next engines using accepted display pairs alone; pending pairs never add coverage or two-way status. A completed multi job remains reusable for 24 hours even when its intentional review limit leaves part of the shortlist pending.
+
+Single-engine selectors use the legacy source execution and cache tuple `[version, lowerCaseSource, targetOrNull, format]`, preserving `results` regardless of which selector first creates the shared job. Multi-engine keys hash `[version, "multi", sortedLowerCaseEngines, format]`. The deck and points allowance never enter the shared work query or key: `bridge_deep_actor.deck_cards_json` and `genesys_remaining` retain subscriber context. Two players with the same engines share one job but receive their own missing cards and Genesys affordability. Multi jobs keep `results: []`; legacy single-source callers retain their existing results and also receive the new `engines` and `next` fields.
 
 Completed deep searches return at most **ten** shown rows: strict bridges first,
 then rows with `tier: "niche"`. These deep-only rows display **Niche** in both
@@ -106,7 +113,7 @@ insufficient: Paleozoic Traps merely played alongside Odion do not qualify.
 Name-label groups, same-deck families, negated entry chains and unsupported
 material/placement setups remain excluded.
 
-Admission permits one queued/running search per application user across guilds. Another POST returns that job ID. There is no completion or failure cooldown; at most 15 new jobs are admitted per user per rolling hour. Two jobs run globally in the host, with a queue bounded to 100 waiting jobs. Identical source/target/format queries share pending work and completed results for 24 hours, without new review calls; artifact/prompt versions invalidate that reuse. Each subscriber retains its own points and saved-deck context. Cached completed queries bypass new-work admission. The hourly limit returns HTTP 429, `Retry-After: <seconds>`, and JSON `{error:string,retryAfter:number}`. Invalid requests return 400, missing subscriptions/decks 404, missing guild membership 403, and unavailable bridge data or a full queue 503. The UI shows a countdown only for the hourly-limit 429 with `retryAfter`; completion and failure enable the button immediately.
+Admission permits one queued/running search per application user across guilds. Another identical POST returns that job ID; a different active query returns 409. There is no completion or failure cooldown; at most 15 new jobs are admitted per user per rolling hour, and a multi-engine job counts as one search. Two jobs run globally in the host, with a queue bounded to 100 waiting jobs. Identical query keys share pending work and completed results for 24 hours, without new review calls; artifact/prompt versions invalidate that reuse. Each subscriber retains its own points and deck context. Cached completed queries bypass new-work admission. The hourly limit returns HTTP 429, `Retry-After: <seconds>`, and JSON `{error:string,retryAfter:number}`. Invalid requests return 400, missing subscriptions/decks 404, missing guild membership 403, and unavailable bridge data or a full queue 503. The UI shows a countdown only for the hourly-limit 429 with `retryAfter`; completion and failure enable the button immediately.
 
 `POST /api/cards/bridges/feedback` accepts `{evidenceHash:string,reason?:string}` (64 lowercase hex characters, optional reason up to 512 characters) and returns `{accepted:true,hidden:boolean}`. Reports are idempotent per application user and evidence hash. Two distinct unresolved reports hide that evidence immediately, including cached results.
 
@@ -140,6 +147,8 @@ type BridgeGrade = "Strong" | "Good" | "Niche" | "Risky";
 extractCardCapabilities(card: Card, tags?: CardTags, profile?: ArchetypeProfile): CardCapability;
 indexBridgeCapabilities(rows: CardCapability[]): void;
 bridgeGroups(capabilities: readonly CardCapability[], profiles: ReadonlyMap<string, ArchetypeProfile>): Record<string, number[]>;
+detectDeckEngines(deck: BridgeDeck, groups: Record<string, number[]>, skip?: ReadonlySet<number>): DetectedEngine[];
+rankNextEngines(engines: readonly string[], rows: readonly ShownBridge[], context: EngineRankingContext, limit?: number): RankedEngine[];
 bridgeLegal(card: Card, format: BridgeFormat): boolean;
 readBridgeManifest(directory?: string): BridgeManifest;
 importBridgeArtifact(db: Database.Database, directory?: string): {
@@ -148,6 +157,10 @@ importBridgeArtifact(db: Database.Database, directory?: string): {
 
 createBridgeService(db: Database.Database): BridgeService;
 // Methods of BridgeService:
+detectEngines(deck: BridgeDeck, format?: BridgeFormat, guildId?: string): DetectedEngine[];
+engineRows(engines: readonly string[], format: BridgeFormat): ArchetypeBridge[];
+rankingContext(): EngineRankingContext;
+deepInto(target: string, format?: BridgeFormat, progress?: (value: BridgeProgress) => void): ArchetypeBridge[];
 bridgesFrom(archetype: string, format?: BridgeFormat, limit?: number): ArchetypeBridge[];
 bridgeBetween(x: string, y: string, format?: BridgeFormat): ArchetypeBridge | null;
 explain(x: string, y: string, format?: BridgeFormat): ArchetypeBridge | null;
@@ -177,7 +190,7 @@ Only administrative tools and the existing duel-host suggestion workers should c
 
 ```ts
 type BridgeScan = { kind: "bridges"; source: string; format: BridgeFormat } & (
-  { op: "from"; limit?: number } | { op: "live" } |
+  { op: "from"; limit?: number } | { op: "live" | "outgoing" | "into" } |
   { op: "between" | "explain"; target: string }
 );
 type BridgeScanResult = ArchetypeBridge[] | ArchetypeBridge | null;
@@ -189,7 +202,7 @@ DeckSuggestionWorkers.rateBridge(bridge: ArchetypeBridge): Promise<void>;
 
 `BridgeSearchJobs` provides persistent admission before invoking the queued worker methods. Scanner candidates still require the review gate before publication.
 
-Scanner progress is `{phase: "index" | "score" | "validate" | "done", completed: number, total: number}`. Managed jobs map it to the HTTP steps, then judge up to ten currently unjudged candidates from the top 25, with two candidate tasks at a time. Candidate extraction uses read-only worker connections. Reviews run on the host with at most two requests in flight. Candidate scans use at most one scanner, leaving the second scanner available for Suggestions.
+Scanner progress is `{phase: "index" | "score" | "validate" | "done", completed: number, total: number}`. Managed single-source jobs map it to the HTTP steps, then judge up to ten currently unjudged candidates from the top 25, with two candidate tasks at a time. Multi-source jobs use the twelve-pair/six-engine stop rules above. `outgoing` returns the complete candidate set before target deduplication; `into` interprets the scan's `source` field as the destination engine. Candidate extraction uses read-only worker connections. Reviews run on the host with at most two requests in flight. Candidate scans use at most one scanner, leaving the second scanner available for Suggestions.
 
 ## Files and schemas
 
@@ -245,6 +258,7 @@ DUEL_DATA_DIR=/path/to/read-only/engine prlimit --core=0 -- npx tsx scripts/effe
 prlimit --core=0 -- npm run build --workspace=packages/shared
 prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check --strict-precision
 prlimit --core=0 -- npx tsx scripts/effects/benchmark-bridges.ts
+prlimit --core=0 -- npx tsx scripts/effects/benchmark-bridges.ts --multi
 
 npx tsx scripts/effects/bridges.ts from Odion
 npx tsx scripts/effects/bridges.ts from Odion --to Blue-Eyes
