@@ -197,7 +197,7 @@ export class BridgeApi {
       return { accepted: true, hidden: users >= 2 };
     }
     if (input.op === "start" && (input.engines !== undefined || input.deck !== undefined)) {
-      if (["source", "deckId"].some(key => input[key] !== undefined) || (input.engines !== undefined && input.deck !== undefined)) throw new BridgeJobError("Choose one bridge source selector", 400);
+      if (["source", "deckId"].some(key => input[key] !== undefined)) throw new BridgeJobError("Choose one bridge source selector", 400);
       const { query } = this.engineQueries.resolve(input, guildId);
       if (!query.engines.length) throw new BridgeJobError("The deck needs an engine before searching bridges", 400);
       return this.jobs.start(actor, query);

@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { readSignedRequest } from "@yugidraft/shared/internal-auth";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { BridgeDeepSearchRequest } from "../src/lib/bridges-api";
 
 const state = vi.hoisted(() => ({ auth: vi.fn(), db: null as Database.Database | null }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db }));
@@ -171,17 +172,26 @@ it("starts, resumes and polls a host job without exposing actor overrides", asyn
   expect((await poll("x".repeat(129))).status).toBe(400);
 });
 
-it("accepts exactly one deep-search selector including engine sets and the open deck", async () => {
+it("accepts deep-search engine sets with optional deck context and preserves legacy selectors", async () => {
   reply = { jobId: "bridge-job-1", state: "queued", cached: false };
   const deck = { main: [29762407, 97522863], extra: [] };
   expect((await start({ engines: ["Odion", "Ashtra"] })).status).toBe(202);
   expect(calls[0].bridgeRequest).toEqual({ op: "start", engines: ["Odion", "Ashtra"], format: "advanced" });
   expect((await start({ deck, format: "genesys" })).status).toBe(202);
   expect(calls[1].bridgeRequest).toEqual({ op: "start", deck, format: "genesys" });
-  for (const value of [{ deck, engines: ["Odion"] }, { source: "Odion", engines: ["Ashtra"] }, { deckId: 1, deck },
-    { engines: Array(5).fill("Odion") }, { engines: [] }, { engines: ["Odion"], target: "Ashtra" }, { deck: { ...deck, userId: 2 } }]) {
+  for (const selected of [["Odion"], ["Odion", "Ashtra"]]) {
+    const request: BridgeDeepSearchRequest = { deck, engines: selected, format: "genesys" };
+    expect((await start(request)).status).toBe(202);
+    expect(calls.at(-1)!.bridgeRequest).toEqual({ ...request, op: "start" });
+  }
+  const forwarded = calls.length;
+  for (const value of [{ source: "Odion", engines: ["Ashtra"] }, { deckId: 1, deck }, { source: "Odion", deck },
+    { engines: Array(5).fill("Odion") }, { engines: [] }, { engines: ["Odion"], target: "Ashtra" }, { deck: { ...deck, userId: 2 } },
+    { engines: ["Odion"], deck: null }, { engines: ["Odion"], deck: { main: "cards", extra: [] } },
+    { engines: ["Odion"], deck: { main: [0], extra: [] } }, { engines: ["Odion"], deck: { main: Array(92).fill(1), extra: [] } }]) {
     expect((await start(value)).status).toBe(400);
   }
+  expect(calls).toHaveLength(forwarded);
   reply = { jobId: "bridge-job-1", state: "done", step: "done", progress: 100, engines: ["Ashtra", "Odion"], next: [], results: [], inReview: 0 };
   expect((await poll()).status).toBe(200);
   reply = { ...reply as object, next: [{ engine: "Argostars", links: [{ bridge: { ...shown(), judge: "pending" } }] }] };

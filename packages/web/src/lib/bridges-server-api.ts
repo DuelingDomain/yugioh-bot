@@ -6,7 +6,8 @@ import { env } from "./env";
 import { callDuelHost } from "./duel-host";
 import { apiErrorResponse } from "./api-errors";
 import { readJsonBody } from "./bug-reports/read-body";
-import { isBridgeDeck, isBridgeEngineNames, type BridgeDeck, type BridgeEnginesRequest } from "@yugidraft/shared/cards/effects";
+import { isBridgeDeck, isBridgeEngineNames, type BridgeEnginesRequest } from "@yugidraft/shared/cards/effects";
+import type { BridgeDeepSearchRequest } from "./bridges-api";
 
 type BridgeFormat = "advanced" | "genesys";
 type BridgeQuery = ({ source: string; deckId?: never } | { deckId: number; source?: never }) & {
@@ -16,8 +17,7 @@ type BridgeQuery = ({ source: string; deckId?: never } | { deckId: number; sourc
 };
 export type BridgeRequest =
   | (BridgeQuery & { op: "from" | "between" })
-  | ((BridgeQuery | (({ engines: string[]; deck?: never } | { deck: BridgeDeck; engines?: never }) & {
-      format: BridgeFormat; genesysRemaining?: number })) & { op: "start" })
+  | (BridgeDeepSearchRequest & { format: BridgeFormat; op: "start" })
   | (BridgeEnginesRequest & { op: "engines" })
   | { op: "status"; jobId: string }
   | { op: "feedback"; evidenceHash: string; reason?: string }
@@ -92,7 +92,7 @@ export async function readBridgeBody(request: Request, op: "start" | "feedback" 
   if (op === "start") {
     const value = body.value;
     if (object(value) && (value.engines !== undefined || value.deck !== undefined)) {
-      if (!keys(value, ["engines", "deck", "format", "genesysRemaining"]) || (value.deck === undefined) === (value.engines === undefined)
+      if (!keys(value, ["engines", "deck", "format", "genesysRemaining"])
         || value.deck !== undefined && !isBridgeDeck(value.deck)
         || value.engines !== undefined && !isBridgeEngineNames(value.engines)
         || value.format !== undefined && !format(value.format)

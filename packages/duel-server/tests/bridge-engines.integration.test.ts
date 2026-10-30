@@ -175,7 +175,7 @@ describe("multi-source deep search", () => {
     const workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async () => [row]), rateBridge: vi.fn() };
     const api = new BridgeApi(db, workers);
     try {
-      const started = await api.handle({ userId: user.userId, bridgeRequest: { op: "start", engines: ["Snake-Eye"] } }, "g", user.playerId) as { jobId: string };
+      const started = await api.handle({ userId: user.userId, bridgeRequest: { op: "start", engines: ["Snake-Eye"], deck: { main: [], extra: [] } } }, "g", user.playerId) as { jobId: string };
       expect(await finish(api, user, started.jobId)).toMatchObject({ state: "done", results: [{ target: "Fire King" }], next: [{ engine: "Fire King" }] });
       expect(await api.handle({ userId: other.userId, bridgeRequest: { op: "start", source: "Snake-Eye" } }, "g", other.playerId)).toMatchObject({ jobId: started.jobId, cached: true });
       expect((await api.jobs.status({ userId: other.userId, guildId: "g" }, started.jobId)).results).toHaveLength(1);
@@ -196,7 +196,7 @@ describe("multi-source deep search", () => {
       const first = await call({ op: "start", source: "Odion" }) as { jobId: string };
       expect((await finish(api, user, first.jobId)).state).toBe("done");
       workers.bridgeCandidates.mockClear(); workers.rateBridge.mockClear();
-      const multi = await call({ op: "start", deck }) as { jobId: string };
+      const multi = await call({ op: "start", deck, engines: ["odion", "ashtra"] }) as { jobId: string };
       const result = await finish(api, user, multi.jobId);
       expect(result).toMatchObject({ state: "done", engines: ["Ashtra", "Odion"], results: [], next: expect.any(Array) });
       expect(workers.bridgeCandidates.mock.calls.map(([scan]) => [scan.op, scan.source])).toEqual([
@@ -206,11 +206,20 @@ describe("multi-source deep search", () => {
       expect(result.next.length).toBeGreaterThan(0);
       expect(result.next.length).toBeLessThanOrEqual(6);
       const reviews = workers.rateBridge.mock.calls.length;
-      expect(await call({ op: "start", engines: ["odion", "ashtra"] }, other)).toMatchObject({ jobId: multi.jobId, cached: true });
+      expect(await call({ op: "start", deck })).toMatchObject({ jobId: multi.jobId, cached: true });
+      const differentDeck = { main: [89631139, 89631139, 8240199, 8240199], extra: [] };
+      expect(await call({ op: "start", engines: ["odion", "ashtra"], deck: differentDeck }, other)).toMatchObject({ jobId: multi.jobId, cached: true });
       expect(workers.rateBridge.mock.calls).toHaveLength(reviews);
       const subscribed = (await api.jobs.status({ userId: other.userId, guildId: "g" }, multi.jobId));
+      expect(subscribed.engines).toEqual(["Ashtra", "Odion"]);
       expect(subscribed.next.some((next, i) => next.missing.length > result.next[i]!.missing.length)).toBe(true);
-      for (const input of [{ op: "start", deck, engines: ["Odion"] }, { op: "start", deck, source: "Odion" }, { op: "start", deckId: 1, engines: ["Odion"] },
+      const owned = result.next[0]!;
+      expect(await call({ op: "start", engines: ["Ashtra", "Odion"], deck: { main: owned.cards, extra: [] } })).toMatchObject({ jobId: multi.jobId, cached: true });
+      const refreshed = await api.jobs.status({ userId: user.userId, guildId: "g" }, multi.jobId);
+      expect(refreshed.next.find(next => next.engine === owned.engine)!.missing).toEqual([]);
+      const stored = JSON.parse((db.prepare("SELECT query_json FROM bridge_deep_job WHERE id=?").get(multi.jobId) as { query_json: string }).query_json);
+      expect(stored).toEqual({ source: "Ashtra", engines: ["Ashtra", "Odion"], format: "advanced" });
+      for (const input of [{ op: "start", deck, source: "Odion" }, { op: "start", deckId: 1, engines: ["Odion"] },
         { op: "start", deck: { main: [], extra: [] } }]) await expect(call(input)).rejects.toMatchObject({ status: 400 });
     } finally { await api.jobs.close(); }
   });
