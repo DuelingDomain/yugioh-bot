@@ -47,8 +47,9 @@ export class BridgeEngineQueries {
     let remaining = input.genesysRemaining as number | undefined;
     if (remaining === undefined && deckCards && format === "genesys") {
       const spent = deckCards.reduce((sum, id) => sum + this.points(id), 0);
-      if (!Number.isFinite(spent)) throw new BridgeJobError("Genesys points are unavailable for this deck", 400);
-      remaining = (deck?.pointCap ?? 100) - spent;
+      // Missing catalog/points data must not block an explicit engine search.
+      // Keep copy context and use the normal no-allowance projection fallback.
+      if (Number.isFinite(spent)) remaining = (deck?.pointCap ?? 100) - spent;
     }
     return { query: { source: engines[0] ?? "", engines, format,
       ...(remaining === undefined ? {} : { genesysRemaining: remaining }), ...(deckCards ? { deckCards } : {}) },

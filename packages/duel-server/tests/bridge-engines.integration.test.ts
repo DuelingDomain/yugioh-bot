@@ -92,7 +92,8 @@ describe("stored multi-engine bridge API", () => {
       expect(() => resolve(100, allowance)).toThrowError(expect.objectContaining({ status: 400 }));
     }
     const unknownPoints = { op: "engines", format: "genesys", engines: ["Odion"], deck: { main: [0xffffffff], extra: [] } };
-    expect(() => queries.resolve(unknownPoints, "g")).toThrow("Genesys points are unavailable for this deck");
+    expect(queries.resolve(unknownPoints, "g").query).toMatchObject({ engines: ["Odion"], deckCards: [0xffffffff] });
+    expect(queries.resolve(unknownPoints, "g").query.genesysRemaining).toBeUndefined();
     expect(queries.resolve({ ...unknownPoints, genesysRemaining: 5 }, "g").query).toMatchObject({ genesysRemaining: 5, deckCards: [0xffffffff] });
   });
 
@@ -201,7 +202,9 @@ describe("multi-source deep search", () => {
       bridgeRequest: { ...context, ...extra } }, "g", identity.playerId) as Promise<{ jobId: string; cached: boolean }>;
     const status = (identity: typeof user, jobId: string) => api.jobs.status({ userId: identity.userId, guildId: "g" }, jobId);
     try {
+      const unknown = await start(user, { deck: { main: [0xffffffff], extra: [] } });
       const first = await start(user, { genesysRemaining: row.genesys_points });
+      expect(first.jobId).toBe(unknown.jobId);
       expect(await start(other, { genesysRemaining: 0 })).toMatchObject({ jobId: first.jobId, cached: false });
       const work = JSON.parse((db.prepare("SELECT query_json FROM bridge_deep_job WHERE id=?").get(first.jobId) as { query_json: string }).query_json);
       expect(work).not.toHaveProperty("genesysRemaining"); expect(work).not.toHaveProperty("deckCards");
