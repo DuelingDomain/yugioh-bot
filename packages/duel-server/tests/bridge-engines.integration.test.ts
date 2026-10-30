@@ -44,10 +44,12 @@ describe("stored multi-engine bridge API", () => {
       pending.push(call(0), call(0, ["odion"]), call(1));
       await new Promise(resolve => setImmediate(resolve));
       expect(bridgeEngines).toHaveBeenCalledTimes(1);
-      await expect(call(0, ["Ashtra"])).rejects.toMatchObject({ status: 429 });
+      pending.push(call(0, ["Ashtra"]), call(0, ["Genex"]));
       for (let i = 2; i < 9; i++) pending.push(call(i, [Object.keys(new BridgeEngineQueries(db).service.rankingContext().groups)[i]!]));
       await expect(call(9, ["Fiendsmith"])).rejects.toMatchObject({ status: 503 });
       release(); await Promise.all(pending);
+      expect(bridgeEngines.mock.calls.map(([input]) => input.engines)).toContainEqual(["Genex"]);
+      expect(bridgeEngines.mock.calls.map(([input]) => input.engines)).not.toContainEqual(["Ashtra"]);
       const scans = bridgeEngines.mock.calls.length;
       await call(0); expect(bridgeEngines).toHaveBeenCalledTimes(scans);
       db.prepare("INSERT OR REPLACE INTO duel_host_heartbeat(id,last_tick_at) VALUES(1,?)").run(now);
