@@ -301,18 +301,25 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   const bridgesOn = suggestOn && !pool && !bridgesDenied;
   const columnTabs = useMemo<ColumnTab[]>(() => ["cards", ...(suggestOn ? ["suggest" as const] : []), ...(bridgesOn ? ["bridges" as const] : [])], [suggestOn, bridgesOn]);
   const activeTab = shownTab(tab, columnTabs, isPhone);
-  const setTab = useCallback((next: EditorTab) => { setTabState(next); rememberTab(next); }, []);
+  // The tab as a phone shows it. The phone layout is CSS (a container query), so it is right from the first paint,
+  // before the editor has measured itself; only a phone reads it.
+  const phoneTab = shownTab(tab, columnTabs, true);
+  // Only a tab the player chose slides in: not the one a reload brings back, and not a change of layout.
+  const [chosen, setChosen] = useState(false);
+  const setTab = useCallback((next: EditorTab) => { setChosen(true); setTabState(next); rememberTab(next); }, []);
   // The tab this viewer used last. Read after the first render, so the server and the first paint agree.
   useEffect(() => { const last = readLastTab(); if (last) setTabState(last); }, []);
   // Opening the Bridges tab clears its dot.
   useEffect(() => { if (activeTab === "bridges") setBridgesDot(false); }, [activeTab]);
-  const phoneDir = useTabDirection(activeTab, EDITOR_TAB_ORDER);
+  const phoneDir = useTabDirection(phoneTab, EDITOR_TAB_ORDER, chosen);
   const columns: BrowserColumns = {
     tabs: columnTabs,
     tab: activeTab === "deck" ? "cards" : activeTab,
     onTab: setTab,
     bar: !isPhone,
-    tabIdPrefix: "deck-editor-column",
+    // The panes are named by the tab list on screen: the column bar on a desktop, the editor tabs on a phone.
+    tabIdPrefix: isPhone ? "deck-editor" : "deck-editor-column",
+    panels: isPhone || columnTabs.length > 1,
     bridgesDot,
     // A finished deep search only marks the tab when the tab is hidden.
     onDeepFinished: () => { if (activeTab !== "bridges") setBridgesDot(true); },
@@ -1478,7 +1485,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     <SheetRoot className={styles.host} data-pool={pool ? "" : undefined} aria-hidden={isPhone && cardSheetOpen ? true : undefined}>
       {pool ? <OwnsPageBar room /> : null}
       {copyToast}
-      <div ref={editorRef} className={styles.de} data-tab={activeTab} data-pane-dir={phoneDir}>
+      <div ref={editorRef} className={styles.de} data-tab={phoneTab} data-pane-dir={phoneDir}>
         <header className={styles["de-bar"]}>
           <Link href={backHref} className={cn(styles["de-back"], inRoom && styles["de-back-room"])} aria-label={backLabel}>
             <ChevronLeft size={18} strokeWidth={2} aria-hidden />

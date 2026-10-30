@@ -302,6 +302,9 @@
 
 
 /* One column: the list runs the full width, under the floating Report bug button, so its end keeps 64px of room. */
+/* A phone shows the editor's own tabs. The column bar is hidden by CSS too, so the first paint (before the editor has
+   measured itself) never shows two tab rows. */
+@container de-editor (width < 960px) { .de-list[data-tabs] { grid-template-rows: minmax(0, 1fr); } .de-list > .tabs { display: none; } }
 @container de-editor (width < 960px) { .head { padding: 0 0 12px; } .results { padding: 0 0 64px; } .paneScroll { padding: 4px 0 64px; } .de-res { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; } }
 @media (prefers-reduced-motion: reduce) { .de-t, .de-res, .rows { transition: none; } .de-t:hover { transform: none; } .filters { animation: none; } }
 

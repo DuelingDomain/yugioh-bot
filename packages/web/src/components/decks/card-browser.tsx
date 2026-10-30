@@ -8,7 +8,7 @@ import { mayReadEffect } from "@yugidraft/shared/cards/effects/capability";
 import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
 import { HowItPlays, type HookFind } from "@/components/effect-search/how-it-plays";
 import { HookDrill } from "@/components/effect-search/hook-drill";
-import { BridgesRow, type FocusEngine } from "@/components/bridges/bridges-row";
+import { BridgesRow, type BridgesAsk } from "@/components/bridges/bridges-row";
 import { EngineFit } from "@/components/bridges/engine-fit";
 import { IntentHeading, RelaxHints } from "@/components/effect-search/search-intent";
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
@@ -98,8 +98,10 @@ export type BrowserColumns = {
   onTab: (tab: ColumnTab) => void;
   /** The tab bar sits on top of the column (desktop). On a phone the editor shows the tabs instead. */
   bar: boolean;
-  /** The ids of the tabs that label the panes. */
+  /** The ids of the tabs that label the panes: the tab list that is on screen (the bar, or the phone tabs). */
   tabIdPrefix: string;
+  /** A tab list controls the panes, so each pane is a tab panel. Not given: only when the column has two tabs or more. */
+  panels?: boolean;
   /** A deep search finished while the Bridges tab was hidden. */
   bridgesDot: boolean;
   onDeepFinished: () => void;
@@ -216,15 +218,19 @@ export function CardBrowser({
   if ((columns.tab === "suggest" && !seen.suggest) || (columns.tab === "bridges" && !seen.bridges)) {
     setSeen({ suggest: seen.suggest || columns.tab === "suggest", bridges: seen.bridges || columns.tab === "bridges" });
   }
-  // A tap on an engine in Suggest opens the Bridges tab on that engine. The count makes a second tap on the same engine count.
-  const [focusEngine, setFocusEngine] = useState<FocusEngine | null>(null);
-  const openEngine = (name: string) => { setFocusEngine((now) => ({ name, count: (now?.count ?? 0) + 1 })); columns.onTab("bridges"); };
+  // A tap in Suggest opens the Bridges tab on an engine, at its Deep search, or in Pick archetypes. The count makes a second tap count.
+  const [bridgesAsk, setBridgesAsk] = useState<BridgesAsk | null>(null);
+  const askBridges = (ask: { kind: "engine"; name: string } | { kind: "deep" } | { kind: "pick" }) => {
+    setBridgesAsk((now) => ({ ...ask, count: (now?.count ?? 0) + 1 }));
+    columns.onTab("bridges");
+  };
+  const panels = columns.panels ?? columns.tabs.length > 1;
   const paneProps = (tab: ColumnTab) => ({
     id: `deck-editor-${tab}`,
     className: styles.pane,
     "data-pane": tab,
     hidden: columns.tab !== tab,
-    ...(columns.tabs.length > 1 ? { role: "tabpanel", "aria-labelledby": `${columns.tabIdPrefix}-${tab}-tab` } : {}),
+    ...(panels ? { role: "tabpanel", "aria-labelledby": `${columns.tabIdPrefix}-${tab}-tab` } : {}),
   });
 
   function pointAt(card: DeckCardInfo | null) {
@@ -821,11 +827,12 @@ export function CardBrowser({
                   deckMaster={suggest.deckMaster}
                   mode={mode}
                   genesys={genesys}
+                  genesysRemaining={suggest.genesysRemaining}
                   active={columns.tab === "suggest"}
                   cardProps={suggestionProps}
                   onCatalog={(found) => onCatalogRef.current(found)}
-                  onOpenEngine={openEngine}
-                  onOpenBridges={() => columns.onTab("bridges")}
+                  onOpenEngine={(name) => askBridges({ kind: "engine", name })}
+                  onOpenBridges={(to) => askBridges({ kind: to })}
                   onDisabled={columns.onBridgesDisabled}
                 />
               ) : undefined}
@@ -852,7 +859,7 @@ export function CardBrowser({
               onCatalog={(found) => onCatalogRef.current(found)}
               onDisabled={columns.onBridgesDisabled}
               onDeepFinished={columns.onDeepFinished}
-              focus={focusEngine}
+              ask={bridgesAsk}
             />
           </div>
         </div>
