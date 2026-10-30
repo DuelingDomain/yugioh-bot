@@ -1,6 +1,7 @@
+import { MAX_GENESYS_POINT_CAP } from "../../duels/settings.js";
 import type { BridgeFormat, BridgeGraphData } from "./bridge-types.js";
 
-export interface BridgeDeck { main: number[]; extra: number[]; deckMaster?: number }
+export interface BridgeDeck { main: number[]; extra: number[]; deckMaster?: number; pointCap?: number }
 export interface DetectedEngine {
   name: string; weight: number; copies: number; distinct: number;
   status: "engine" | "light"; hybrids: number[]; includes?: string[];
@@ -62,9 +63,10 @@ export function isBridgeDeck(value: unknown): value is BridgeDeck {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const deck = value as Record<string, unknown>;
   const id = (value: unknown) => Number.isSafeInteger(value) && Number(value) > 0 && Number(value) <= 0xffffffff;
-  return Object.keys(deck).every(key => ["main", "extra", "deckMaster"].includes(key))
+  return Object.keys(deck).every(key => ["main", "extra", "deckMaster", "pointCap"].includes(key))
     && Array.isArray(deck.main) && Array.isArray(deck.extra) && deck.main.every(id) && deck.extra.every(id)
     && (deck.deckMaster === undefined || id(deck.deckMaster))
+    && (deck.pointCap === undefined || Number.isSafeInteger(deck.pointCap) && Number(deck.pointCap) >= 0 && Number(deck.pointCap) <= MAX_GENESYS_POINT_CAP)
     && deck.main.length + deck.extra.length + (deck.deckMaster === undefined ? 0 : 1) <= 91;
 }
 export function isBridgeEngineNames(value: unknown): value is string[] {

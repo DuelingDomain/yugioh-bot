@@ -63,7 +63,7 @@ async function engines(value: unknown) {
 }
 
 it("forwards bounded open decks and corrected engines without exposing pending rows", async () => {
-  const deck = { main: [29762407, 97522863], extra: [], deckMaster: 1710647 };
+  const deck = { main: [29762407, 97522863], extra: [], deckMaster: 1710647, pointCap: 250 };
   reply = { engines: ["Ashtra", "Odion"], detected: [], between: [], next: [], inReview: 3 };
   expect((await engines({ deck, engines: ["Odion", "Ashtra"], format: "advanced" })).status).toBe(200);
   expect(calls[0].bridgeRequest).toEqual({ op: "engines", deck, engines: ["Odion", "Ashtra"], format: "advanced" });
@@ -72,6 +72,7 @@ it("forwards bounded open decks and corrected engines without exposing pending r
     { deck: { main: Array(92).fill(1), extra: [] }, format: "advanced" }, { deck: { main: [-1], extra: [] }, format: "advanced" }]) {
     expect((await engines(value)).status).toBe(400);
   }
+  for (const pointCap of [-1, 1001, 0.5, "100"]) expect((await engines({ deck: { ...deck, pointCap }, format: "advanced" })).status).toBe(400);
   const next = { engine: "Argostars", score: 8, grade: "Good", tier: "strict", covered: 1, of: 1, twoWay: [],
     links: [{ from: "Odion", to: "Argostars", bridge: shown() }], cards: [123], missing: [123], genesysPoints: null, pros: [], cons: [] };
   reply = { engines: ["Odion"], between: [], next: [next], inReview: 0 };

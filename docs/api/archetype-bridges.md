@@ -28,7 +28,7 @@ For a saved Genesys deck, the host derives remaining points from its cap and exi
 `POST /api/cards/bridges/engines` is a SQLite-only fast operation (`engines` on the host). It never starts a scan or a paid review. Unknown fields are rejected, the body is bounded to 4096 bytes, and each supplied passcode is a positive uint32. At least one of `deck` and `engines` is required; supplying both detects the deck but uses the corrected engines. Names are canonicalized, deduplicated and sorted. An empty detection is a successful empty result. Chip corrections affect Bridges only.
 
 ```ts
-type BridgeDeck = { main: number[]; extra: number[]; deckMaster?: number }; // at most 91 total IDs
+type BridgeDeck = { main: number[]; extra: number[]; deckMaster?: number; pointCap?: number }; // at most 91 total IDs
 // Request
 { format: "advanced" | "genesys", deck?: BridgeDeck,
   engines?: string[], // 1–4 names, each at most 120 characters
@@ -53,7 +53,7 @@ Fast suggestions contain at most four next engines and up to twelve directed row
 
 For engine Xi and candidate Z, `link_i = max(v(Xi→Z), 0.7 × v(Z→Xi)) + 0.3 × min(v(Xi→Z), v(Z→Xi))`. Sorted links receive weights 1, 0.8, 0.6, 0.5, then a multiplier `1 + 0.3 × (covered − 1)`. Only non-hub accepted links increase coverage. Target `idf = min(1, 0.05/share)`, where share is the fraction of graph sources with a stored directed row into Z. The final score must reach four. One target per `[format, accessCard, entryCard]` path survives across the complete set. Scores, coverage and two-way labels use only the accepted displayed pairs. Display selection keeps the best forward rows and best reverse row, at most three total. Pros and cons come from those accepted reviews.
 
-`cards` is the evidence package; `missing` retains required copy multiplicity after subtracting the subscriber's deck. Genesys suggestions charge only missing copies across the combined package, counting shared cards once at the largest required multiplicity. An open deck uses the existing 100-point default cap and includes its Deck Master; the request has no custom-cap field. `genesysRemaining` is ignored with an open deck. Unknown deck points reject the query.
+`cards` is the evidence package; `missing` retains required copy multiplicity after subtracting the subscriber's deck. Genesys suggestions charge only missing copies across the combined package, counting shared cards once at the largest required multiplicity. An open deck accepts optional `deck.pointCap` (integer 0–1000), defaults to 100, and includes its Deck Master. Every artwork passcode is mapped to its main card before detection, points and missing-copy calculation. `genesysRemaining` is ignored with an open deck. Unknown deck points reject the query.
 
 Browser callers can import `fetchBridgeEngines` and its types from `packages/web/src/lib/bridges-api.ts`. Server validation and signed-host helpers live in `bridges-server-api.ts`; web processes never construct the graph.
 

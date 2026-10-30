@@ -22,7 +22,11 @@ export class BridgeEngineQueries {
     }
     if (!this.db.prepare("SELECT 1 FROM bridge_graph WHERE id=1").get()) throw new BridgeJobError("Bridge data is unavailable", 503);
     const format: BridgeFormat = input.format === "genesys" ? "genesys" : "advanced";
-    const deck = input.deck as BridgeDeck | undefined;
+    const rawDeck = input.deck as BridgeDeck | undefined;
+    const artwork = this.db.prepare("SELECT card_id FROM card_artworks WHERE artwork_id=?");
+    const mainId = (id: number) => (artwork.get(id) as { card_id: number } | undefined)?.card_id ?? id;
+    const deck: BridgeDeck | undefined = rawDeck ? { ...rawDeck, main: rawDeck.main.map(mainId), extra: rawDeck.extra.map(mainId),
+      ...(rawDeck.deckMaster === undefined ? {} : { deckMaster: mainId(rawDeck.deckMaster) }) } : undefined;
     const detected = deck ? this.service.detectEngines(deck, format, guildId) : undefined;
     const names = input.engines as string[] | undefined ?? detected?.filter(row => row.status === "engine").map(row => row.name) ?? [];
     const groups = this.service.rankingContext().groups;
@@ -36,7 +40,7 @@ export class BridgeEngineQueries {
       if (format === "genesys") {
         const spent = deckCards.reduce((sum, id) => sum + this.points(id), 0);
         if (!Number.isFinite(spent)) throw new BridgeJobError("Genesys points are unavailable for this deck", 400);
-        remaining = 100 - spent;
+        remaining = (deck?.pointCap ?? 100) - spent;
       }
     }
     return { query: { source: engines[0] ?? "", engines, format,

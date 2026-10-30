@@ -4,6 +4,7 @@ import { migrate } from "@yugidraft/shared/db";
 import { BRIDGE_JUDGE_FRAMINGS, buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, makeBridgeJudgementRecord,
   saveBridgeJudgement, type ArchetypeBridge, type BridgeEnginesResponse } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
+import { BridgeEngineQueries } from "../src/bridge-engine-queries.js";
 import { BridgeApi } from "../src/bridge-api.js";
 import type { BridgeScan } from "../src/deck-suggestion-workers.js";
 import { seedIdentity } from "./helpers/identity.js";
@@ -22,6 +23,32 @@ function approve(row: ArchetypeBridge) {
 const deck = { main: [29762407, 29762407, 97522863, 97522863, 1710647, 1710647, 37839434, 37839434], extra: [] };
 
 describe("stored multi-engine bridge API", () => {
+  it("normalizes artwork identities before detection, points and missing-copy projection", () => {
+    const main = 89631139, artwork = 89631140;
+    for (const id of [main, artwork]) db.prepare(`INSERT OR IGNORE INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+      VALUES(?,'Artwork fixture '||?,'Normal Monster','normal','','','[]','2026-10-30')`).run(id, id);
+    db.prepare("INSERT OR REPLACE INTO card_artworks(card_id,artwork_id,image_url,image_url_small,is_main) VALUES(?,?,'','',0)").run(main, artwork);
+    const queries = new BridgeEngineQueries(db);
+    const resolved = queries.resolve({ op: "engines", format: "genesys", deck: { main: [artwork, artwork, 8240199, 8240199], extra: [artwork], deckMaster: artwork } }, "g");
+    expect(resolved.query.engines).toContain("Blue-Eyes");
+    expect(resolved.query.deckCards!.filter(id => id === main)).toHaveLength(4);
+    expect(resolved.query.deckCards).not.toContain(artwork);
+    expect(resolved.query.genesysRemaining).toBeTypeOf("number");
+    const row = createBridgeService(db).bridgeBetween("Blue-Eyes", "Black Luster Soldier", "genesys")!;
+    const pack = queries.package([row], resolved.query);
+    expect(pack.missing).not.toContain(main);
+  });
+
+  it("uses the open deck point cap, including zero, and validates its range", () => {
+    const queries = new BridgeEngineQueries(db);
+    const resolve = (pointCap: unknown) => queries.resolve({ op: "engines", format: "genesys", engines: ["Odion"],
+      deck: { main: [29762407, 97522863, 1710647], extra: [], pointCap } }, "g").query;
+    expect(resolve(3).genesysRemaining).toBe(0);
+    expect(resolve(0).genesysRemaining).toBe(-3);
+    expect(resolve(250).genesysRemaining).toBe(247);
+    for (const cap of [-1, 1001, 0.5, "100"]) expect(() => resolve(cap)).toThrowError(expect.objectContaining({ status: 400 }));
+  });
+
   it("computes coverage bonuses, idf and reverse-link bonuses from accepted display pairs", async () => {
     const user = seedIdentity(db, { name: "Engine scoring" }), service = createBridgeService(db);
     const context = service.rankingContext();
