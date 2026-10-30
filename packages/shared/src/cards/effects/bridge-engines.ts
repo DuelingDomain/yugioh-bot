@@ -56,7 +56,9 @@ export function detectDeckEngines(deck: BridgeDeck, groups: BridgeGraphData["gro
 }
 
 export interface BridgeEnginesRequest {
-  format: BridgeFormat; deck?: BridgeDeck; engines?: string[]; genesysRemaining?: number;
+  format: BridgeFormat; deck?: BridgeDeck; engines?: string[];
+  /** Integer 0–1000 from the editor, including its cap and Side; overrides host deck accounting. */
+  genesysRemaining?: number;
 }
 
 export function isBridgeDeck(value: unknown): value is BridgeDeck {

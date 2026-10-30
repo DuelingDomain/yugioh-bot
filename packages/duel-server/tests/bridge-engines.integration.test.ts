@@ -73,14 +73,23 @@ describe("stored multi-engine bridge API", () => {
     expect(pack.missing).not.toContain(main);
   });
 
-  it("uses the open deck point cap, including zero, and validates its range", () => {
+  it("prefers the editor allowance and falls back to the open deck point cap, including zero", () => {
     const queries = new BridgeEngineQueries(db);
-    const resolve = (pointCap: unknown) => queries.resolve({ op: "engines", format: "genesys", engines: ["Odion"],
-      deck: { main: [29762407, 97522863, 1710647], extra: [], pointCap } }, "g").query;
+    const resolve = (pointCap: unknown, genesysRemaining?: unknown) => queries.resolve({ op: "engines", format: "genesys", engines: ["Odion"],
+      deck: { main: [29762407, 97522863, 1710647], extra: [], pointCap }, genesysRemaining }, "g").query;
     expect(resolve(3).genesysRemaining).toBe(0);
     expect(resolve(0).genesysRemaining).toBe(-3);
     expect(resolve(250).genesysRemaining).toBe(247);
+    expect(resolve(250, 0).genesysRemaining).toBe(0);
+    expect(resolve(0, 250).genesysRemaining).toBe(250);
+    expect(resolve(100, 1000).genesysRemaining).toBe(1000);
     for (const cap of [-1, 1001, 0.5, "100"]) expect(() => resolve(cap)).toThrowError(expect.objectContaining({ status: 400 }));
+    for (const allowance of [-1, 1001, 0.5, "100", null, true, {}, NaN, Infinity]) {
+      expect(() => resolve(100, allowance)).toThrowError(expect.objectContaining({ status: 400 }));
+    }
+    const unknownPoints = { op: "engines", format: "genesys", engines: ["Odion"], deck: { main: [0xffffffff], extra: [] } };
+    expect(() => queries.resolve(unknownPoints, "g")).toThrow("Genesys points are unavailable for this deck");
+    expect(queries.resolve({ ...unknownPoints, genesysRemaining: 5 }, "g").query).toMatchObject({ genesysRemaining: 5, deckCards: [0xffffffff] });
   });
 
   it("computes coverage bonuses, idf and reverse-link bonuses from accepted display pairs", async () => {
@@ -150,6 +159,11 @@ describe("stored multi-engine bridge API", () => {
     const call = (request: Record<string, unknown>) => api.handle({ userId: user.userId, bridgeRequest: { op: "engines", format: "genesys", ...request } }, "g", user.playerId) as Promise<BridgeEnginesResponse>;
     try {
       expect((await call({ engines: ["Odion"], genesysRemaining: 0 })).next.some(next => next.engine === "Ashtra")).toBe(false);
+      const context = { engines: ["Odion"], deck: { main: [], extra: [], pointCap: 0 } };
+      expect((await call({ ...context, genesysRemaining: 3 })).next.some(next => next.engine === "Ashtra")).toBe(true);
+      expect((await call({ ...context, genesysRemaining: 0 })).next.some(next => next.engine === "Ashtra")).toBe(false);
+      expect((await call(context)).next.some(next => next.engine === "Ashtra")).toBe(false);
+      expect((await call({ ...context, genesysRemaining: 1000 })).next.some(next => next.engine === "Ashtra")).toBe(true);
       const result = await call({ engines: ["Odion"], deck: { main: row.cards, extra: [] }, genesysRemaining: 0 });
       const ashtra = result.next.find(next => next.engine === "Ashtra")!;
       expect(ashtra).toBeDefined(); expect(ashtra.genesysPoints).toBe(0); expect(ashtra.missing).toEqual([]);
@@ -168,6 +182,38 @@ describe("multi-source deep search", () => {
     }
     throw new Error("Fixture job did not finish");
   }
+
+  it("shares deep work while retaining each editor allowance and refreshing deck context", async () => {
+    const user = seedIdentity(db, { name: "Editor allowance" }), other = seedIdentity(db, { name: "Side deck allowance" });
+    const row = createBridgeService(db).bridgeBetween("Snake-Eye", "Fire King", "genesys")!; approve(row);
+    expect(row.genesys_points).toBeGreaterThan(0);
+    let release!: () => void;
+    const ready = new Promise<void>(resolve => { release = resolve; });
+    const workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines,
+      bridgeCandidates: vi.fn(async () => { await ready; return [row]; }), rateBridge: vi.fn() };
+    const api = new BridgeApi(db, workers);
+    const context = { op: "start", engines: ["Snake-Eye", "Blue-Eyes"], format: "genesys", deck: { main: [], extra: [], pointCap: 0 } };
+    const start = (identity: typeof user, extra: Record<string, unknown>) => api.handle({ userId: identity.userId,
+      bridgeRequest: { ...context, ...extra } }, "g", identity.playerId) as Promise<{ jobId: string; cached: boolean }>;
+    const status = (identity: typeof user, jobId: string) => api.jobs.status({ userId: identity.userId, guildId: "g" }, jobId);
+    try {
+      const first = await start(user, { genesysRemaining: row.genesys_points });
+      expect(await start(other, { genesysRemaining: 0 })).toMatchObject({ jobId: first.jobId, cached: false });
+      const work = JSON.parse((db.prepare("SELECT query_json FROM bridge_deep_job WHERE id=?").get(first.jobId) as { query_json: string }).query_json);
+      expect(work).not.toHaveProperty("genesysRemaining"); expect(work).not.toHaveProperty("deckCards");
+      release();
+      const completed = await finish(api, user, first.jobId);
+      expect(completed).toMatchObject({ state: "done", next: [{ engine: "Fire King", genesysPoints: row.genesys_points }] });
+      expect((await status(other, first.jobId)).next).toEqual([]);
+      const scans = workers.bridgeCandidates.mock.calls.length;
+      expect(await start(user, { genesysRemaining: 0 })).toMatchObject({ jobId: first.jobId, cached: true });
+      expect((await status(user, first.jobId)).next).toEqual([]);
+      expect(await start(other, { genesysRemaining: 0, deck: { main: row.cards, extra: [] } })).toMatchObject({ jobId: first.jobId, cached: true });
+      expect((await status(other, first.jobId)).next).toMatchObject([{ engine: "Fire King", missing: [], genesysPoints: 0 }]);
+      expect(workers.bridgeCandidates).toHaveBeenCalledTimes(scans);
+      expect(workers.rateBridge).not.toHaveBeenCalled();
+    } finally { release(); await api.jobs.close(); }
+  });
 
   it("preserves legacy results when a single-engine selector creates the shared job first", async () => {
     const user = seedIdentity(db, { name: "One engine" }), other = seedIdentity(db, { name: "Legacy subscriber" });

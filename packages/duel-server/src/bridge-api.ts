@@ -95,14 +95,16 @@ export class BridgeApi {
       if (!source) throw new BridgeJobError("The deck needs an archetype before searching bridges", 400);
       if (input.format === "genesys") {
         deckCards = [...saved.deck.main, ...saved.deck.extra, ...saved.deck.side];
-        let spent = 0;
-        for (const id of deckCards) {
-          const row = this.db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode=?").get(id) as { capabilities_json: string } | undefined;
-          const points = row ? JSON.parse(row.capabilities_json).card.genesysPoints as number | undefined : undefined;
-          if (points === undefined) throw new BridgeJobError("Genesys points are unavailable for this deck", 400);
-          spent += points;
+        if (remaining === undefined) {
+          let spent = 0;
+          for (const id of deckCards) {
+            const row = this.db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode=?").get(id) as { capabilities_json: string } | undefined;
+            const points = row ? JSON.parse(row.capabilities_json).card.genesysPoints as number | undefined : undefined;
+            if (points === undefined) throw new BridgeJobError("Genesys points are unavailable for this deck", 400);
+            spent += points;
+          }
+          remaining = (saved.genesys?.pointCap ?? 100) - spent;
         }
-        remaining = Math.min(remaining ?? 1000, (saved.genesys?.pointCap ?? 100) - spent);
       }
     }
     const canonical = (value: string) => Object.keys(groups).find(key => key.toLowerCase() === value.trim().toLowerCase());

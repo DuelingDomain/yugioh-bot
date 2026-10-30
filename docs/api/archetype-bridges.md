@@ -23,7 +23,7 @@ including after a deep job saves them in the shared candidate table.
 } }
 ```
 
-For a saved Genesys deck, the host derives remaining points from its cap and existing copies. Only additional required copies consume that allowance. Source-only queries compare the complete evidence package against `genesysRemaining`, defaulting to 100. Card legality and the two review gates apply in either case.
+For a saved Genesys deck, a supplied `genesysRemaining` takes precedence; otherwise the host derives remaining points from its cap and existing copies, including Side. Only additional required copies consume that allowance. Source-only queries compare the complete evidence package against `genesysRemaining`, defaulting to 100. Card legality and the two review gates apply in either case.
 
 `POST /api/cards/bridges/engines` is a SQLite-only fast operation (`engines` on the host). It reads stored candidates without a deep scan or a paid review. Unknown fields are rejected, the body is bounded to 4096 bytes, and each supplied passcode is a positive uint32. At least one of `deck` and `engines` is required; supplying both detects the deck but uses the corrected engines. Names are canonicalized, deduplicated and sorted. An empty detection is a successful empty result. Chip corrections affect Bridges only.
 
@@ -32,7 +32,7 @@ type BridgeDeck = { main: number[]; extra: number[]; deckMaster?: number; pointC
 // Request
 { format: "advanced" | "genesys", deck?: BridgeDeck,
   engines?: string[], // 1–4 names, each at most 120 characters
-  genesysRemaining?: number } // integer 0–1000; used only without deck
+  genesysRemaining?: number } // integer 0–1000; preferred over host deck accounting, including zero
 // Response, HTTP 200
 { engines: string[], detected?: DetectedEngine[], between: ShownBridge[],
   next: EngineSuggestion[], inReview: number }
@@ -53,9 +53,11 @@ Fast suggestions contain at most four next engines and up to twelve directed row
 
 For engine Xi and candidate Z, `link_i = max(v(Xi→Z), 0.7 × v(Z→Xi)) + 0.3 × min(v(Xi→Z), v(Z→Xi))`. Sorted links receive weights 1, 0.8, 0.6, 0.5, then a multiplier `1 + 0.3 × (covered − 1)`. Only non-hub accepted links increase coverage. Target `idf = min(1, 0.05/share)`, where share is the fraction of graph sources with a stored directed row into Z. The final score must reach four. One target per `[format, accessCard, entryCard]` path survives across the complete set. Scores, coverage and two-way labels use the best accepted forward and reverse pair for every selected engine, independently of the display limit. Display selection keeps the best forward rows and best reverse row, at most three total. Pros and cons come from those accepted reviews.
 
-`cards` is the evidence package; `missing` retains required copy multiplicity after subtracting the subscriber's deck. Genesys suggestions charge only missing copies across the combined package, counting shared cards once at the largest required multiplicity. An open deck accepts optional `deck.pointCap` (integer 0–1000), defaults to 100, and includes its Deck Master. Every artwork passcode is mapped to its main card before detection, points and missing-copy calculation. `genesysRemaining` is ignored with an open deck. Unknown deck points reject the query.
+`cards` is the evidence package; `missing` retains required copy multiplicity after subtracting the subscriber's deck. Genesys suggestions charge only missing copies across the combined package, counting shared cards once at the largest required multiplicity. Every artwork passcode is mapped to its main card before detection, points and missing-copy calculation.
 
-Fast engine detection and projection run on the existing read-only scanner pool. Equivalent in-flight requests share work; each user may have one distinct request in flight, and at most eight distinct requests are admitted globally. The scanner queue is bounded to sixteen. A five-second, 64-entry cache includes guild, engine set, deck context and SQLite revisions; feedback and judgement writes invalidate it immediately. Busy actors receive 429 and global overload receives 503, both with a one-second retry hint.
+For both fast engine requests and deep searches, a supplied `genesysRemaining` is the subscriber's remaining Genesys allowance and takes precedence over host deck accounting, including zero. The editor computes it using the deck's real cap and Side Deck; `deck` itself contains Main, Extra and optional Deck Master, with no Side field. Without an explicit allowance, the host subtracts those supplied cards' points from `deck.pointCap` (integer 0–1000, default 100), including the Deck Master. Unknown deck points reject only this fallback calculation; an explicit allowance skips it. Missing bridge cards still need known points to pass affordability checks. Without either deck context or an explicit allowance, Genesys affordability defaults to 100. These fields do not change Advanced affordability.
+
+Fast engine detection and projection run on the existing read-only scanner pool. Equivalent in-flight requests share work; each user may have one distinct request in flight, and at most eight distinct requests are admitted globally. The scanner queue is bounded to sixteen. A five-second, 64-entry cache includes guild, engine set, deck context, explicit `genesysRemaining` and SQLite revisions, so changing the allowance cannot reuse another affordability projection. This fast result cache is separate from the deck-independent shared deep-work cache. Feedback and judgement writes invalidate it immediately. Busy actors receive 429 and global overload receives 503, both with a one-second retry hint.
 
 Browser callers can import `fetchBridgeEngines`, `BridgeEnginesRequest`, and `BridgeDeepSearchRequest` from `packages/web/src/lib/bridges-api.ts`. Server validation and signed-host helpers live in `bridges-server-api.ts`; web processes never construct the graph.
 
@@ -64,7 +66,10 @@ Browser callers can import `fetchBridgeEngines`, `BridgeEnginesRequest`, and `Br
 ```ts
 // Request
 { source?: string, deckId?: number, engines?: string[], deck?: BridgeDeck, target?: string,
-  format?: "advanced" | "genesys", genesysRemaining?: number }
+  format?: "advanced" | "genesys", genesysRemaining?: number } // integer 0–1000; preferred when supplied
+// Editor request for Use my deck or Pick mode with a deck open:
+{ format: "genesys", engines: ["Odion", "Ashtra"],
+  deck: { main: [29762407, 97522863], extra: [], pointCap: 250 }, genesysRemaining: 37 }
 // Response: HTTP 202 for queued/running; HTTP 200 for cached completed jobs
 { jobId: string, state: "queued" | "running" | "done" | "failed", cached: boolean }
 ```
@@ -87,7 +92,7 @@ A multi job with attempted reviews still pending after provider failures uses te
 
 The deterministic shortlist contains at most eight engines. Reviews follow shortlist order and use the best forward display pairs plus the best reverse pair, at most three per engine. The job stops after six engines have reviewed pairs or twelve pairs have needed new reviews. Cached directed-pair evidence is free; a partially reviewed pair consumes one of the twelve when its missing review is requested. Two pair tasks run at a time through the existing global judge queue. Only the existing independent Haiku reviews run; no aggregate prose call is added. Internal engine-to-engine rows are published only if already accepted. Completed projection rechecks all gates and computes at most six next engines using all accepted candidate pairs; pending pairs never add coverage or two-way status. A completed multi job remains reusable for 24 hours even when its intentional review limit leaves part of the shortlist pending.
 
-Single-engine selectors use the legacy source execution and cache tuple `[version, lowerCaseSource, targetOrNull, format]`, preserving `results` regardless of which selector first creates the shared job. Multi-engine keys hash `[version, "multi-v2", sortedLowerCaseEngines, format]`. The deck and points allowance never enter the shared work query or key: `bridge_deep_actor.deck_cards_json` and `genesys_remaining` retain subscriber context. Two players with the same engines share one job but receive their own missing cards and Genesys affordability. Multi jobs keep `results: []`; legacy single-source callers retain their existing results and also receive the new `engines` and `next` fields.
+Single-engine selectors use the legacy source execution and cache tuple `[version, lowerCaseSource, targetOrNull, format]`, preserving `results` regardless of which selector first creates the shared job. Multi-engine keys hash `[version, "multi-v2", sortedLowerCaseEngines, format]`. The deck and points allowance never enter the shared work query or key: `bridge_deep_actor.deck_cards_json` and `genesys_remaining` retain subscriber context. Two players with the same engines share one job but receive their own missing cards and Genesys affordability. Reposting the same work with a changed deck or allowance updates that subscriber's context on an active or completed job without a new scan or review. Multi jobs keep `results: []`; legacy single-source callers retain their existing results and also receive the new `engines` and `next` fields.
 
 Completed deep searches return at most **ten** shown rows: strict bridges first,
 then rows with `tier: "niche"`. These deep-only rows display **Niche** in both

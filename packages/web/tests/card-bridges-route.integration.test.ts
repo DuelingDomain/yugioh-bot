@@ -68,6 +68,16 @@ it("forwards bounded open decks and corrected engines without exposing pending r
   reply = { engines: ["Ashtra", "Odion"], detected: [], between: [], next: [], inReview: 3 };
   expect((await engines({ deck, engines: ["Odion", "Ashtra"], format: "advanced" })).status).toBe(200);
   expect(calls[0].bridgeRequest).toEqual({ op: "engines", deck, engines: ["Odion", "Ashtra"], format: "advanced" });
+  for (const genesysRemaining of [0, 1000]) {
+    const request = { deck, engines: ["Odion"], format: "genesys", genesysRemaining };
+    expect((await engines(request)).status).toBe(200);
+    expect(calls.at(-1)!.bridgeRequest).toEqual({ ...request, op: "engines" });
+  }
+  const forwarded = calls.length;
+  for (const genesysRemaining of [-1, 1001, 0.5, "100", null, true, {}, Number.MAX_SAFE_INTEGER]) {
+    expect((await engines({ deck, engines: ["Odion"], format: "genesys", genesysRemaining })).status).toBe(400);
+  }
+  expect(calls).toHaveLength(forwarded);
   for (const value of [{}, { format: "advanced" }, { engines: [], format: "advanced" }, { engines: Array(5).fill("Odion"), format: "advanced" },
     { engines: ["Odion"], format: "advanced", userId: 2 }, { deck: { ...deck, side: [] }, format: "advanced" },
     { deck: { main: Array(92).fill(1), extra: [] }, format: "advanced" }, { deck: { main: [-1], extra: [] }, format: "advanced" }]) {
@@ -88,9 +98,10 @@ it("runs the browser engines helper through the authenticated signed-host route"
   const signedHostFetch = globalThis.fetch;
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => url === "/api/cards/bridges/engines"
     ? POST(new Request(`http://web.test${url}`, init)) : signedHostFetch(url, init));
-  reply = { engines: ["Odion"], between: [], next: [], inReview: 1 };
-  expect(await fetchBridgeEngines({ engines: ["Odion"], format: "advanced" })).toEqual(reply);
-  expect(calls[0].bridgeRequest).toEqual({ op: "engines", engines: ["Odion"], format: "advanced" });
+  const request = { engines: ["Odion"], deck: { main: [29762407], extra: [], pointCap: 250 }, format: "genesys" as const, genesysRemaining: 0 };
+  reply = { engines: ["Odion"], detected: [], between: [], next: [], inReview: 1 };
+  expect(await fetchBridgeEngines(request)).toEqual(reply);
+  expect(calls[0].bridgeRequest).toEqual({ ...request, op: "engines" });
   reply = { results: [], inReview: 0 };
   await expect(fetchBridgeEngines({ engines: ["Odion"], format: "advanced" })).rejects.toMatchObject({ status: 502 });
 });
@@ -180,11 +191,18 @@ it("accepts deep-search engine sets with optional deck context and preserves leg
   expect((await start({ deck, format: "genesys" })).status).toBe(202);
   expect(calls[1].bridgeRequest).toEqual({ op: "start", deck, format: "genesys" });
   for (const selected of [["Odion"], ["Odion", "Ashtra"]]) {
-    const request: BridgeDeepSearchRequest = { deck, engines: selected, format: "genesys" };
+    const request: BridgeDeepSearchRequest = { deck, engines: selected, format: "genesys", genesysRemaining: 0 };
     expect((await start(request)).status).toBe(202);
     expect(calls.at(-1)!.bridgeRequest).toEqual({ ...request, op: "start" });
   }
+  expect((await start({ deck, engines: ["Odion"], genesysRemaining: 1000 })).status).toBe(202);
+  expect(calls.at(-1)!.bridgeRequest).toEqual({ op: "start", deck, engines: ["Odion"], genesysRemaining: 1000, format: "advanced" });
   const forwarded = calls.length;
+  for (const genesysRemaining of [-1, 1001, 0.5, "100", null, true, {}, Number.MAX_SAFE_INTEGER]) {
+    for (const selector of [{ deck, engines: ["Odion"] }, { deck }, { engines: ["Odion"] }, { source: "Odion" }, { deckId: 1 }]) {
+      expect((await start({ ...selector, format: "genesys", genesysRemaining })).status).toBe(400);
+    }
+  }
   for (const value of [{ source: "Odion", engines: ["Ashtra"] }, { deckId: 1, deck }, { source: "Odion", deck },
     { engines: Array(5).fill("Odion") }, { engines: [] }, { engines: ["Odion"], target: "Ashtra" }, { deck: { ...deck, userId: 2 } },
     { engines: ["Odion"], deck: null }, { engines: ["Odion"], deck: { main: "cards", extra: [] } },

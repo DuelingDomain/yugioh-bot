@@ -151,13 +151,18 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     }));
     const deck = createSavedDeckService(db).create("g", user.userId, { name: "At the points cap", mode: "normal", genesys: { pointCap: 3 },
       deck: { main: [29762407, 97522863, 1710647], extra: [], side: [] } });
-    const api = new BridgeApi(db, { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const bridgeCandidates = vi.fn(async () => [row]);
+    const api = new BridgeApi(db, { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates, rateBridge: vi.fn() });
     const call = (bridgeRequest: unknown) => api.handle({ userId: user.userId, bridgeRequest }, "g", user.playerId);
     expect(await call({ op: "between", source: "Odion", target: "Ashtra", format: "genesys", genesysRemaining: 0 })).toMatchObject({ results: [] });
     expect(await call({ op: "between", deckId: deck.id, target: "Ashtra", format: "genesys" })).toMatchObject({ results: [{ target: "Ashtra" }] });
     createSavedDeckService(db).update(deck.id, "g", user.userId, { name: "Over the points cap", mode: "normal", genesys: { pointCap: 0 },
       deck: { main: [29762407, 97522863, 1710647], extra: [], side: [] } });
     expect(await call({ op: "between", deckId: deck.id, target: "Ashtra", format: "genesys" })).toMatchObject({ results: [] });
+    const started = await call({ op: "start", deckId: deck.id, target: "Ashtra", format: "genesys", genesysRemaining: 0 }) as { jobId: string };
+    await api.jobs.close();
+    expect(await call({ op: "status", jobId: started.jobId })).toMatchObject({ state: "done", results: [{ target: "Ashtra" }] });
+    expect(bridgeCandidates).toHaveBeenCalledTimes(1);
     vi.stubEnv("OWNER_USER_IDS", String(user.userId));
     const beforeReview = (await call({ op: "review" }) as { inReview: number }).inReview;
     saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, "skeptic", {

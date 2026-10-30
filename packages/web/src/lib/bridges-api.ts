@@ -3,7 +3,11 @@ import type { BridgeDeck, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFor
 export type { BridgeDeck, DetectedEngine, EngineSuggestion, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat } from "@yugidraft/shared/cards/effects";
 
 /** Explicit engines select shared work; an accompanying deck supplies subscriber context. */
-export type BridgeDeepSearchRequest = { format?: BridgeFormat; genesysRemaining?: number } & (
+export type BridgeDeepSearchRequest = {
+  format?: BridgeFormat;
+  /** Integer 0–1000; the editor's remaining allowance overrides host deck accounting, including zero. */
+  genesysRemaining?: number;
+} & (
   | { engines: string[]; deck?: BridgeDeck; source?: never; deckId?: never; target?: never }
   | { deck: BridgeDeck; engines?: never; source?: never; deckId?: never; target?: never }
   | { source: string; deckId?: never; target?: string; engines?: never; deck?: never }

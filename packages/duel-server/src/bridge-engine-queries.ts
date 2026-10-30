@@ -40,13 +40,10 @@ export class BridgeEngineQueries {
     const engines = [...new Set(canonical as string[])].sort();
     const deckCards = deck ? [...deck.main, ...deck.extra, ...(deck.deckMaster === undefined ? [] : [deck.deckMaster])] : undefined;
     let remaining = input.genesysRemaining as number | undefined;
-    if (deckCards) {
-      remaining = undefined;
-      if (format === "genesys") {
-        const spent = deckCards.reduce((sum, id) => sum + this.points(id), 0);
-        if (!Number.isFinite(spent)) throw new BridgeJobError("Genesys points are unavailable for this deck", 400);
-        remaining = (deck?.pointCap ?? 100) - spent;
-      }
+    if (remaining === undefined && deckCards && format === "genesys") {
+      const spent = deckCards.reduce((sum, id) => sum + this.points(id), 0);
+      if (!Number.isFinite(spent)) throw new BridgeJobError("Genesys points are unavailable for this deck", 400);
+      remaining = (deck?.pointCap ?? 100) - spent;
     }
     return { query: { source: engines[0] ?? "", engines, format,
       ...(remaining === undefined ? {} : { genesysRemaining: remaining }), ...(deckCards ? { deckCards } : {}) },
