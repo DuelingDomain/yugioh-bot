@@ -163,6 +163,22 @@ test("differential tests and their helpers select both core checks", () => {
   }
 });
 
+test("differential job control files select both core checks", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of [
+      "scripts/ci/run-engine-tests.mjs",
+      "scripts/ci/engine-test-plan.mjs",
+      "packages/duel-server/vitest.config.ts",
+    ]) {
+      const result = classify([file], event);
+      assert.equal(result.core, true, `${event}: ${file}`);
+      assert.equal(result.engine, true, `${event}: ${file}`);
+      assert.equal(result.golden, false, `${event}: ${file}`);
+      assert.equal(result.tests_only, false, `${event}: ${file}`);
+    }
+  }
+});
+
 test("core sources, pins, patches, native tooling and build inputs select both core checks", () => {
   const inputs = [
     "packages/duel-server/domain-core/src/field.cpp",
