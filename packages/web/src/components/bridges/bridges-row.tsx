@@ -10,7 +10,7 @@ import { EngineChips } from "./engine-chips";
 import { EngineList } from "./engine-card";
 import { BridgeRequestError, type BridgeScope, type ShownBridge } from "./bridges-api";
 import { BRIDGES_SHOWN, DEEP_BRIDGES_SHOWN } from "./bridges-model";
-import { NO_EDITS, bridgeFormat, hasEdits, lightEngines, toggleEngine, type EngineEdits } from "./engines-model";
+import { NO_EDITS, bridgeDeck, bridgeFormat, hasEdits, lightEngines, sameNames, toggleEngine, type EngineEdits } from "./engines-model";
 import { useBridgeCards, useBridgeList, useDeepSearch } from "./use-bridges";
 import { useDeckEngines } from "./use-engines";
 import styles from "./bridges.module.css";
@@ -81,7 +81,10 @@ export function BridgesRow({ archetype, deck, deckMaster, mode, genesys, genesys
   const first = set[0] ?? null;
   const genesysPart = genesys && genesysRemaining != null ? { genesysRemaining } : {};
   const listScope: BridgeScope | null = single && !empty ? { source: single, format, ...genesysPart } : null;
-  const scope: BridgeScope | null = first && !empty ? { source: first, format, ...genesysPart } : null;
+  // The deep search runs on the whole set. The open deck stands for the set when it is the one the host finds in it
+  // (the host then also knows the deck's cards and points); a corrected set is sent by name.
+  const multiScope = set.length > 1 ? { engines: set, ...(sameNames(set, engines.found) && engines.detected ? { deck: bridgeDeck(deck, deckMaster) } : {}) } : {};
+  const scope: BridgeScope | null = first && !empty ? { source: first, format, ...genesysPart, ...multiScope } : null;
   const { list, loading, error: listError, retry: retryList } = useBridgeList(listScope, true, active);
   const { deep, start, cooldown, blocked } = useDeepSearch(scope);
   const error = listError ?? (single ? null : engines.error);
@@ -213,7 +216,11 @@ export function BridgesRow({ archetype, deck, deckMaster, mode, genesys, genesys
           {deep.phase === "done" ? (
             <div className={styles.deepResults} data-testid="deep-results">
               <h4 className={styles.subTitle}>Deep search results</h4>
-              {deep.results.length > 0
+              {set.length > 1 ? (
+                deep.next.length > 0
+                  ? <EngineList engines={deep.next} mode={mode} genesys={genesys} cardProps={cardProps} onCatalog={onCatalog} label="Deep search results" />
+                  : <p className={styles.hint} data-testid="deep-none">The deep search found no engine for {names} that passed our checks.</p>
+              ) : deep.results.length > 0
                 ? <BridgeList {...common} bridges={deep.results.slice(0, DEEP_BRIDGES_SHOWN)} label="Deep search results" />
                 : <p className={styles.hint} data-testid="deep-none">The deep search found no more bridges that passed our checks.</p>}
             </div>

@@ -138,9 +138,10 @@ const insightRequests: { deck: { main: number[] }; pool?: number[]; at: number }
 const control = { delayMs: 0, emptyRows: false, deck: "small" as "small" | "full" | "empty", genesys: false };
 /** Bridges: every call the row made, and how the stand-in host should answer. */
 const bridgeCalls = { lists: [] as string[], starts: [] as Record<string, unknown>[], polls: 0, feedback: [] as Record<string, unknown>[], archetypes: 0 };
-const bridgeControl = { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok" as "ok" | "fail", reviewCount: 3, feedbackFails: false, started: 0 };
+const bridgeControl = { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok" as "ok" | "fail", reviewCount: 3, feedbackFails: false, started: 0, deepNone: false };
 /** Engines: the calls of the fast operation, and how the stand-in host detects the deck. */
 const engineCalls: Record<string, any>[] = [];
+const multiJobs = new Map<string, ReturnType<typeof enginesAnswer>>();
 const engineControl = { mode: "single" as "single" | "multi", status: 200, delayMs: 0, nextEmpty: false };
 const GRADE_ORDER = ["Strong", "Good", "Niche", "Risky"];
 const json = (status: number, data: unknown) => ({ status, contentType: "application/json", body: JSON.stringify(data) });
@@ -217,7 +218,12 @@ async function api(method: string, url: URL, body: any) {
     await new Promise((done) => setTimeout(done, 250));
     if (bridgeControl.startRetryAfter > 0) return json(429, { error: "Deep search hourly limit reached", retryAfter: bridgeControl.startRetryAfter });
     bridgeControl.started += 1;
-    return json(202, { jobId: `job-${bridgeControl.started}`, state: "queued", cached: false });
+    const jobId = `job-${bridgeControl.started}`;
+    // The host takes exactly one selector; the deck stands for the engines it finds in it.
+    const selectors = ["source", "deckId", "engines", "deck"].filter((name) => body[name] !== undefined);
+    if (selectors.length !== 1) return json(400, { error: "Send exactly one of source, deckId, engines or deck." });
+    if (body.engines || body.deck) multiJobs.set(jobId, enginesAnswer({ format: body.format, ...(body.engines ? { engines: body.engines } : { deck: body.deck }) }));
+    return json(202, { jobId, state: "queued", cached: false });
   }
   if (path.startsWith("/api/cards/bridges/deep-search/") && method === "GET") {
     bridgeCalls.polls += 1;
@@ -231,6 +237,8 @@ async function api(method: string, url: URL, body: any) {
     if (bridgeControl.jobMode === "fail") return json(200, { jobId, state: "failed", step: "rating", progress: 85, results: [], inReview: bridgeControl.reviewCount, error: "The search stopped before it finished. Try again in a minute." });
     const extra = bridge("Blue-Eyes", "Melodious", "Good", 64, false, ["Dragon Spirit of White", "Foolish Burial", "Terraforming"], ["Terraforming", "Dragon Spirit of White"],
       ["Terraforming finds the field spell both lines want.", "Dragon Spirit of White works as a Tuner in both."], ["No two-way route found.", "Needs a field spell slot."], "No summon lock.");
+    const multi = multiJobs.get(jobId);
+    if (multi) return json(200, { jobId, state: "done", step: "done", progress: 100, engines: multi.engines, next: bridgeControl.deepNone ? [] : multi.next.slice(0, 6), results: [], inReview: bridgeControl.reviewCount - 1 });
     const strict = BRIDGES.filter(entry => entry.source === "Blue-Eyes").slice(0, 4);
     const niche = ["Melodious", "Magistus", "Fire Fist", "Buster Blader", "Primite", "Dracotail", "Beyond cap"].map(target => ({
       ...extra, target, tier: "niche", grade: "Niche", evidence_hash: hashOf(`Blue-Eyes>${target}`), review: { ...extra.review, grade: "niche" },
@@ -574,7 +582,7 @@ try {
   const reset = async (deck: "small" | "full" | "empty" = "small") => {
     await page.evaluate(() => { try { sessionStorage.clear(); localStorage.clear(); } catch { /* Storage is not available. */ } });
     bridgeCalls.starts.length = 0; bridgeCalls.feedback.length = 0; bridgeCalls.polls = 0; bridgeCalls.archetypes = 0;
-    Object.assign(bridgeControl, { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok", feedbackFails: false });
+    Object.assign(bridgeControl, { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok", feedbackFails: false, deepNone: false });
     await open(deck, "on", "Bridges");
     await items.first().waitFor({ state: "visible", timeout: 15_000 });
   };
@@ -1159,6 +1167,100 @@ try {
     await shot(`fit-${viewport.name}`);
   }
   await page.setViewportSize({ width: 1920, height: 1080 });
+
+  // w. Deep search on a set of engines.
+  engineControl.mode = "multi"; engineControl.status = 200; engineControl.nextEmpty = false;
+  Object.assign(bridgeControl, { startRetryAfter: 0, jobMode: "ok", deepNone: false, pollDelayMs: 0 });
+  bridgeCalls.polls = 0;
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await fresh();
+  await goTab("Bridges");
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  bridgeCalls.starts.length = 0; bridgeCalls.polls = 0;
+  await bridges.getByTestId("deep-search-button").dblclick();
+  await bridges.getByTestId("deep-progress").waitFor();
+  check("w1", "two engines in the deck start one search, with the deck as the only selector", bridgeCalls.starts.length === 1 && bridgeCalls.starts[0]!.deck !== undefined && bridgeCalls.starts[0]!.engines === undefined && bridgeCalls.starts[0]!.source === undefined && bridgeCalls.starts[0]!.format === "advanced", bridgeCalls.starts.map((call) => Object.keys(call)));
+  check("w1", "the progress bar and its steps show", (await bridges.getByTestId("deep-progress").getByRole("progressbar").count()) === 1 && (await bridges.getByTestId("deep-progress").locator("li").count()) === 3);
+  check("w1", "the button waits while the search runs", await bridges.getByTestId("deep-search-button").isDisabled());
+  await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
+  const deepEngines = bridges.getByTestId("deep-results").getByTestId("engine-item");
+  check("w1", "the results are engines that fit the whole set", (await deepEngines.count()) >= 1 && (await deepEngines.first().innerText()).includes("Links 2 of 2"), await deepEngines.allInnerTexts());
+  check("w1", "no single-bridge card sits in the results", (await bridges.getByTestId("deep-results").getByTestId("bridge-item").count()) === 0);
+  check("w1", "a result shows its path, cards, and good and bad points", (await deepEngines.first().getByTestId("engine-paths").count()) === 1 && (await deepEngines.first().getByRole("list", { name: /cards$/ }).count()) === 1 && (await deepEngines.first().getByRole("list", { name: "Good" }).count()) === 1);
+  check("w1", "the deep search stays in the engine order the host gave", JSON.stringify(await deepEngines.locator("strong").allInnerTexts()) === JSON.stringify(["Chaos", "Dragon Ruler", "Red-Eyes", "Dark Magician"]), await deepEngines.locator("strong").allInnerTexts());
+  await shot("deep-engines-1920x1080");
+
+  // A tab that is left and opened again picks the same search up, and a reload finds the job of this browser tab.
+  await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
+  await page.getByRole("tab", { name: "Cards", exact: true }).first().waitFor({ state: "visible", timeout: 8000 });
+  await page.waitForTimeout(400);
+  await goTab("Bridges");
+  await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
+  check("w2", "a reload picks the finished search up from the kept job", (await bridges.getByTestId("deep-results").getByTestId("engine-item").count()) >= 1 && bridgeCalls.starts.length === 1, bridgeCalls.starts.length);
+
+  // A corrected set is sent by name, in one selector.
+  engineControl.mode = "single";
+  await fresh();
+  await goTab("Bridges");
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  bridgeCalls.starts.length = 0;
+  await bridges.getByTestId("deep-search-button").click();
+  await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
+  check("w3", "one engine keeps the source selector and its bridge results", bridgeCalls.starts.length === 1 && bridgeCalls.starts[0]!.source === "Blue-Eyes" && bridgeCalls.starts[0]!.engines === undefined && (await bridges.getByTestId("deep-results").getByTestId("bridge-item").count()) > 0, bridgeCalls.starts);
+  await fresh();
+  await goTab("Bridges");
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  await bridges.getByTestId("engine-chips").getByTestId("engine-add").click();
+  await bridges.getByTestId("engine-add-form").getByRole("combobox").fill("Chaos");
+  await bridges.getByTestId("engine-add-form").getByRole("button", { name: "Add", exact: true }).click();
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  bridgeCalls.starts.length = 0;
+  await bridges.getByTestId("deep-search-button").click();
+  await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
+  check("w3", "a changed set is sent as the engines alone", bridgeCalls.starts.length === 1 && JSON.stringify(bridgeCalls.starts[0]!.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]) && bridgeCalls.starts[0]!.deck === undefined && bridgeCalls.starts[0]!.source === undefined, bridgeCalls.starts);
+  // Taking an engine out of the set forgets the search of the old set.
+  await bridges.getByTestId("engine-chips").getByRole("button", { name: "Remove Chaos" }).click();
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  check("w3", "a new set starts clean", (await bridges.getByTestId("deep-results").count()) === 0 && (await bridges.getByTestId("deep-search-button").isEnabled()));
+
+  // The hourly limit still shows its count-down for a set.
+  engineControl.mode = "multi";
+  await fresh();
+  await goTab("Bridges");
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  bridgeControl.startRetryAfter = 45;
+  await bridges.getByTestId("deep-search-button").click();
+  await bridges.getByRole("button", { name: /^Deep search in/ }).waitFor({ timeout: 10_000 });
+  check("w4", "the limit shows a countdown and the 15 per hour hint", (await bridges.innerText()).includes("15 deep searches per hour"));
+  bridgeControl.startRetryAfter = 0;
+
+  // A search with no engine that passed the checks.
+  bridgeControl.deepNone = true;
+  await fresh();
+  await goTab("Bridges");
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  await bridges.getByTestId("deep-search-button").click();
+  await bridges.getByTestId("deep-none").waitFor({ timeout: 20_000 });
+  check("w5", "an empty result names the set", (await bridges.getByTestId("deep-none").innerText()).includes("Blue-Eyes + Dragunity"), await bridges.getByTestId("deep-none").innerText());
+  bridgeControl.deepNone = false;
+
+  // The results at every width.
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await fresh();
+    await goTab("Bridges");
+    await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+    await bridges.getByTestId("deep-search-button").click();
+    await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
+    await bridges.getByTestId("deep-results").scrollIntoViewIfNeeded();
+    await page.waitForTimeout(400);
+    check("w6", `${viewport.name}: the page does not scroll sideways`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+    const inside = await bridges.evaluate((root: HTMLElement) => { const edge = root.getBoundingClientRect().right + 1; return [...root.querySelectorAll('[data-testid="deep-results"] li')].every((node) => node.getBoundingClientRect().right <= edge); });
+    check("w6", `${viewport.name}: the engine results stay inside the column`, inside);
+    await shot(`deep-engines-${viewport.name}`);
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  engineControl.mode = "single";
 
   check("all", "no browser errors", pageErrors.length === 0, pageErrors);
   check("all", "every API call the editor made is mirrored", unrouted.length === 0, [...new Set(unrouted)]);

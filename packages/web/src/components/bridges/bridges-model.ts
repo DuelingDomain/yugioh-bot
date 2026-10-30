@@ -15,6 +15,8 @@ export const DEEP_STEPS: readonly { id: Exclude<DeepStep, "done">; label: string
 ];
 
 export function scopeKey(scope: BridgeScope): string {
+  // A set of engines is one search whatever the order of its names; the open deck is not part of the key.
+  if (scope.engines && scope.engines.length > 1) return JSON.stringify(["multi", scope.engines.map((name) => name.toLowerCase()).sort(), scope.format, scope.format === "genesys" ? scope.genesysRemaining ?? -1 : -1]);
   return JSON.stringify([scope.source.toLowerCase(), scope.target?.toLowerCase() ?? "", scope.format, scope.format === "genesys" ? scope.genesysRemaining ?? -1 : -1]);
 }
 

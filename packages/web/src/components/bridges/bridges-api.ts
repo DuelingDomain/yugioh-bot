@@ -1,15 +1,19 @@
-import type { ShownBridge } from "@yugidraft/shared/cards/effects";
+import type { BridgeDeck, EngineSuggestion, ShownBridge } from "@yugidraft/shared/cards/effects";
 
-export type { ShownBridge };
+export type { BridgeDeck, EngineSuggestion, ShownBridge };
 export type BridgeFormat = "advanced" | "genesys";
 
-/** What a bridge search is about. `genesysRemaining` only counts in Genesys. */
-export type BridgeScope = { source: string; target?: string; format: BridgeFormat; genesysRemaining?: number };
+/**
+ * What a bridge search is about. `genesysRemaining` only counts in Genesys. `source` is the first engine. With
+ * `engines` of two or more the deep search runs on the whole set: `deck` (the open deck, when the set is the one the
+ * host finds in it) or the named `engines`. The deep route takes only one of the two.
+ */
+export type BridgeScope = { source: string; target?: string; format: BridgeFormat; genesysRemaining?: number; engines?: readonly string[]; deck?: BridgeDeck };
 export type BridgeList = { results: ShownBridge[]; reverse?: ShownBridge[]; inReview: number };
 
 export type DeepState = "queued" | "running" | "done" | "failed";
 export type DeepStep = "candidates" | "checking" | "rating" | "done";
-export type DeepStatus = { jobId: string; state: DeepState; step: DeepStep; progress: number; results: ShownBridge[]; inReview: number; error?: string };
+export type DeepStatus = { jobId: string; state: DeepState; step: DeepStep; progress: number; results: ShownBridge[]; inReview: number; error?: string; engines?: string[]; next?: EngineSuggestion[] };
 export type DeepStart = { jobId: string; state: DeepState; cached: boolean };
 
 /** A failed call. `retryAfter` (seconds) comes with a 429. */
@@ -53,8 +57,13 @@ export function fetchBridges(scope: BridgeScope, signal?: AbortSignal): Promise<
 
 /** Start the deep search, or join the one that already runs. */
 export function startDeepSearch(scope: BridgeScope, signal?: AbortSignal): Promise<DeepStart> {
-  const body = { source: scope.source, format: scope.format, ...(scope.target ? { target: scope.target } : {}),
-    ...(scope.format === "genesys" && scope.genesysRemaining != null ? { genesysRemaining: Math.max(0, Math.min(1000, Math.floor(scope.genesysRemaining))) } : {}) };
+  const points = scope.format === "genesys" && scope.genesysRemaining != null ? { genesysRemaining: Math.max(0, Math.min(1000, Math.floor(scope.genesysRemaining))) } : {};
+  // Several engines: exactly one selector. The open deck stands for its engines; the points come from the deck then.
+  const multi = scope.engines && scope.engines.length > 1 ? scope.engines : null;
+  const body = multi
+    ? { format: scope.format, ...(scope.deck ? { deck: scope.deck } : { engines: multi, ...points }) }
+    : { source: scope.source, format: scope.format, ...(scope.target ? { target: scope.target } : {}),
+    ...points };
   return call<DeepStart>("/api/cards/bridges/deep-search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
 }
 

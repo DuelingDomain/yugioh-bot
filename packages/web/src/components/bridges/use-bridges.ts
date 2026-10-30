@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
 import { getDeckCards } from "@/components/decks/api";
-import { BridgeRequestError, fetchBridges, pollDeepSearch, startDeepSearch, type BridgeList, type BridgeScope, type DeepStep, type ShownBridge } from "./bridges-api";
+import { BridgeRequestError, fetchBridges, pollDeepSearch, startDeepSearch, type BridgeList, type BridgeScope, type DeepStep, type EngineSuggestion, type ShownBridge } from "./bridges-api";
 import { DEEP_POLL_FAILURES, DEEP_POLL_MS, readStore, scopeKey, secondsLeft, writeStore } from "./bridges-model";
 
 /** Wait this long after the last deck change before asking again, like the other Suggestions rows. */
@@ -60,8 +60,8 @@ export function useBridgeList(scope: BridgeScope | null, debounce: boolean, enab
 }
 
 export type DeepPhase = "idle" | "starting" | "running" | "done" | "failed";
-export type Deep = { phase: DeepPhase; step: DeepStep; progress: number; results: ShownBridge[]; inReview: number | null; error: string | null };
-const IDLE: Deep = { phase: "idle", step: "candidates", progress: 0, results: [], inReview: null, error: null };
+export type Deep = { phase: DeepPhase; step: DeepStep; progress: number; results: ShownBridge[]; next: EngineSuggestion[]; inReview: number | null; error: string | null };
+const IDLE: Deep = { phase: "idle", step: "candidates", progress: 0, results: [], next: [], inReview: null, error: null };
 
 const COOLDOWN_STORE = "bridges:hourly-limit";
 const jobStore = (key: string) => `bridges:job:${key}`;
@@ -125,14 +125,14 @@ export function useDeepSearch(scope: BridgeScope | null) {
         if (controller.signal.aborted) return;
         failures = 0;
         if (status.state === "done") {
-          setDeep({ phase: "done", step: "done", progress: 100, results: status.results, inReview: status.inReview, error: null });
+          setDeep({ phase: "done", step: "done", progress: 100, results: status.results, next: status.next ?? [], inReview: status.inReview, error: null });
           return;
         }
         if (status.state === "failed") {
-          setDeep((before) => ({ phase: "failed", step: status.step, progress: status.progress || before.progress, results: [], inReview: status.inReview, error: status.error || "The deep search could not finish." }));
+          setDeep((before) => ({ phase: "failed", step: status.step, progress: status.progress || before.progress, results: [], next: [], inReview: status.inReview, error: status.error || "The deep search could not finish." }));
           return;
         }
-        setDeep({ phase: "running", step: status.step, progress: status.progress, results: [], inReview: status.inReview, error: null });
+        setDeep({ phase: "running", step: status.step, progress: status.progress, results: [], next: [], inReview: status.inReview, error: null });
         timer = window.setTimeout(() => void tick(), DEEP_POLL_MS);
       } catch (reason) {
         if (controller.signal.aborted) return;
