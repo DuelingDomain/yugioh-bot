@@ -1,5 +1,6 @@
 import type { BridgeDeck, BridgeEnginesRequest, DetectedEngine } from "@/lib/bridges-api";
 import type { BridgeFormat } from "./bridges-api";
+import { readStore, writeStore } from "./bridges-model";
 
 /** A set holds one to four engines. */
 export const MAX_ENGINES = 4;
@@ -55,3 +56,22 @@ export const hasEdits = (edits: EngineEdits) => edits.added.length > 0 || edits.
 
 /** The format of the host for the editor's mode. */
 export const bridgeFormat = (genesys: boolean): BridgeFormat => (genesys ? "genesys" : "advanced");
+
+const EDITS_PREFIX = "bridges:engines:";
+const NAME_MAX = 120;
+
+/** The chip edits kept for a saved deck in this browser. A deck that is not saved yet has none to keep. */
+export function readEdits(deckId: number | null | undefined): EngineEdits {
+  if (deckId == null) return NO_EDITS;
+  try {
+    const parsed = JSON.parse(readStore("local", `${EDITS_PREFIX}${deckId}`) ?? "null") as Partial<Record<keyof EngineEdits, unknown>> | null;
+    const names = (value: unknown) => (Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0 && item.length <= NAME_MAX).slice(0, 12) : []);
+    return parsed && typeof parsed === "object" ? { added: names(parsed.added), removed: names(parsed.removed) } : NO_EDITS;
+  } catch { return NO_EDITS; }
+}
+
+/** Keep the edits of a deck; no edit at all removes the entry. Storage that is not there is not an error. */
+export function writeEdits(deckId: number | null | undefined, edits: EngineEdits): void {
+  if (deckId == null) return;
+  writeStore("local", `${EDITS_PREFIX}${deckId}`, hasEdits(edits) ? JSON.stringify(edits) : null);
+}

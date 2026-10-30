@@ -14,7 +14,7 @@ import styles from "./bridges.module.css";
  * under "Also in deck" with a +; "+ Add" takes any archetype by name. Four is the most. The chips change the
  * Bridges tab only.
  */
-export function EngineChips({ title, set, light, edited, busy, onRemove, onAdd, onReset, resetLabel = "Reset to deck" }: {
+export function EngineChips({ title, set, light, edited, busy, onRemove, onAdd, onReset, resetLabel = "Reset to deck", emptyText = "No engine found yet. Add one, or add more cards from one archetype." }: {
   title: string;
   set: readonly string[];
   /** Groups in the deck that are not in the set. Pick mode has none. */
@@ -26,6 +26,8 @@ export function EngineChips({ title, set, light, edited, busy, onRemove, onAdd, 
   onAdd: (name: string) => void;
   onReset?: () => void;
   resetLabel?: string;
+  /** What an empty set says. */
+  emptyText?: string;
 }) {
   const full = set.length >= MAX_ENGINES;
   const [adding, setAdding] = useState(false);
@@ -56,7 +58,7 @@ export function EngineChips({ title, set, light, edited, busy, onRemove, onAdd, 
           </li>
         ) : null}
       </ul>
-      {set.length === 0 && !adding ? <p className={styles.note} data-testid="engine-none">No engine found yet. Add one, or add more cards from one archetype.</p> : null}
+      {set.length === 0 && !adding ? <p className={styles.note} data-testid="engine-none">{emptyText}</p> : null}
       {adding && !full ? (
         <form className={styles.addForm} data-testid="engine-add-form" onSubmit={(event) => { event.preventDefault(); if (chosen) add(chosen); }}>
           <ArchetypeCombo label="Add an engine" text={text} names={names} placeholder="Argostars, Blue-Eyes…" onText={setText} />

@@ -702,8 +702,9 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     banlist: banlistOff ? "none" : query.banlist,
     deckMaster: mode === "domain" ? deck.deckMaster ?? null : null,
     archetype: deckArchetype,
+    deckId: savedId ?? (typeof routeId === "number" ? routeId : null),
     ...(genesysSummary ? { genesysRemaining: Math.max(0, genesysSummary.cap - genesysSummary.known) } : {}),
-  }), [deck, banlistOff, query.banlist, mode, genesysSummary, deckArchetype]);
+  }), [deck, banlistOff, query.banlist, mode, genesysSummary, deckArchetype, savedId, routeId]);
   const [deckGuide, setDeckGuide] = useState<ArchetypeGuide | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
   useEffect(() => {

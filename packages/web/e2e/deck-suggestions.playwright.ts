@@ -1262,6 +1262,140 @@ try {
   await page.setViewportSize({ width: 1920, height: 1080 });
   engineControl.mode = "single";
 
+  // x. Saved chip edits, Pick archetypes, and the details of a link.
+  engineControl.mode = "single"; engineControl.status = 200; engineControl.nextEmpty = false;
+  Object.assign(bridgeControl, { startRetryAfter: 0, jobMode: "ok", deepNone: false, pollDelayMs: 0 });
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await fresh();
+  await goTab("Bridges");
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  const modes = bridges.getByTestId("engine-modes");
+  check("x1", "two ways to choose the engines show, and the deck's own is on", (await modes.getByRole("button").allInnerTexts()).join("|") === "Use my deck|Pick archetypes" && (await modes.getByRole("button", { name: "Use my deck" }).getAttribute("aria-pressed")) === "true");
+  await chips.getByRole("button", { name: /^Add Dragunity/ }).click();
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  const storedKey = await page.evaluate(() => { try { return Object.keys(localStorage).filter((key) => key.startsWith("bridges:engines:")); } catch { return []; } });
+  const stored = storedKey.length === 1 ? await page.evaluate((key: string) => localStorage.getItem(key), storedKey[0]) : null;
+  check("x1", "an edit is kept for the deck in this browser", stored != null && JSON.parse(stored).added?.[0] === "Dragunity", { storedKey, stored });
+  await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
+  await page.getByRole("tab", { name: "Cards", exact: true }).first().waitFor({ state: "visible", timeout: 8000 });
+  await page.waitForTimeout(400);
+  await goTab("Bridges");
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  check("x2", "after a reload the chips are the edited set", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes", "Dragunity"]) && (await chips.getByTestId("engine-reset").count()) === 1, await chipNames());
+
+  // The edits are for Bridges only: the Suggest row still reads the deck's own engines.
+  await goTab("Suggest");
+  await fit.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
+  check("x2", "the Suggest row ignores the chip edits", (await fit.getByTestId("engine-fit-item").first().innerText()).includes("Links 1 of 1"));
+  await goTab("Bridges");
+  await chips.getByTestId("engine-reset").click();
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  const afterReset = await page.evaluate(() => { try { return Object.keys(localStorage).filter((key) => key.startsWith("bridges:engines:")); } catch { return ["error"]; } });
+  check("x2", "Reset to deck clears the kept edits", afterReset.length === 0 && JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes"]), afterReset);
+
+  // A broken or unreadable kept value is ignored.
+  await page.evaluate(() => { try { localStorage.setItem("bridges:engines:1", "{not json"); } catch { /* No storage. */ } });
+  await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
+  await page.getByRole("tab", { name: "Cards", exact: true }).first().waitFor({ state: "visible", timeout: 8000 });
+  await page.waitForTimeout(400);
+  await goTab("Bridges");
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  check("x2", "a broken kept value is ignored", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes"]), await chipNames());
+
+  // Pick archetypes: one to four names, no deck.
+  await modes.getByRole("button", { name: "Pick archetypes" }).click();
+  await chips.getByTestId("engine-none").waitFor();
+  check("x3", "Pick archetypes starts with nothing picked", (await chips.getByTestId("engine-chip").count()) === 0 && (await chips.getByTestId("engine-none").innerText()).includes("No archetype picked yet") && (await bridges.getByTestId("bridges-empty").innerText()).includes("Pick one to four"), await bridges.getByTestId("bridges-empty").innerText());
+  const pickAdd = async (name: string) => {
+    await chips.getByTestId("engine-add").click();
+    const form = bridges.getByTestId("engine-add-form");
+    await form.getByRole("combobox").fill(name);
+    await form.getByRole("button", { name: "Add", exact: true }).click();
+  };
+  engineCalls.length = 0;
+  await pickAdd("Blue-Eyes");
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  check("x3", "one pick shows that archetype's own bridges", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes"]) && (await bridges.getByRole("list", { name: "Your deck can bridge into", exact: true }).count()) === 1);
+  await pickAdd("Chaos");
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  check("x3", "two picks ask the host by name, without the deck", engineCalls.length === 1 && JSON.stringify(engineCalls[0]!.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]) && engineCalls[0]!.deck === undefined, engineCalls);
+  check("x3", "two picks show the bridges between them and the next engine", (await bridges.getByTestId("engines-between").count()) + (await bridges.getByTestId("engines-next").count()) >= 1 && (await bridges.getByTestId("engines-next").locator("h4").innerText()) === "Next engine for Blue-Eyes + Chaos");
+  check("x3", "the picks have no reset link and no Also in deck", (await chips.getByTestId("engine-reset").count()) === 0 && (await chips.getByTestId("engine-also").count()) === 0);
+  await pickAdd("Dragunity");
+  await pickAdd("Dark Magician");
+  await page.waitForTimeout(300);
+  check("x3", "four picks are the most", (await chips.getByTestId("engine-chip").count()) === 4 && (await chips.getByTestId("engine-add").count()) === 0);
+  await chips.getByRole("button", { name: "Remove Dark Magician" }).click();
+  await chips.getByRole("button", { name: "Remove Dragunity" }).click();
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  // The deep search on picks sends the names alone.
+  bridgeCalls.starts.length = 0;
+  await bridges.getByTestId("deep-search-button").click();
+  await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
+  check("x3", "the deep search on picks sends the names alone", bridgeCalls.starts.length === 1 && JSON.stringify(bridgeCalls.starts[0]!.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]) && bridgeCalls.starts[0]!.deck === undefined, bridgeCalls.starts);
+  await shot("pick-1920x1080");
+  await modes.getByRole("button", { name: "Use my deck" }).click();
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  check("x3", "Use my deck brings the deck's engines back", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes"]));
+
+  // Pick archetypes needs no cards, so an empty deck can use it.
+  await fresh("empty");
+  await goTab("Bridges");
+  await bridges.getByTestId("engine-modes").waitFor({ timeout: 15_000 });
+  check("x4", "an empty deck still offers the picker", (await bridges.getByTestId("bridges-empty").innerText()).includes("Add a few Main Deck cards"));
+  await bridges.getByTestId("engine-modes").getByRole("button", { name: "Pick archetypes" }).click();
+  await pickAdd("Blue-Eyes");
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  check("x4", "a pick on an empty deck shows bridges", (await items.count()) > 0);
+
+  // Each link opens the details of its bridge, and Back returns to the list.
+  engineControl.mode = "multi";
+  await fresh();
+  await goTab("Bridges");
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  const firstLink = bridges.getByTestId("engines-next").getByTestId("engine-link").first();
+  await firstLink.click();
+  await bridges.getByTestId("bridge-details").waitFor({ timeout: 10_000 });
+  check("x5", "a link opens its bridge details", (await bridges.getByTestId("bridge-drill").innerText()).includes("Chaos") || (await bridges.getByTestId("bridge-drill").innerText()).includes("Dragon"), await bridges.getByTestId("bridge-drill").innerText());
+  await shot("engine-link-details-1920x1080");
+  await bridges.getByTestId("bridge-drill").getByRole("button", { name: /Back/ }).click();
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 10_000 });
+  check("x5", "Back returns to the list with the focus on the link", await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.testid === "engine-link"));
+
+  // Genesys: the engine shows the points its missing cards cost.
+  control.genesys = true;
+  await fresh();
+  await goTab("Bridges");
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  check("x6", "a Genesys deck shows the points an engine needs", (await bridges.getByTestId("engines-next").getByRole("list", { name: "Warnings" }).first().innerText()).includes("Genesys points"));
+  check("x6", "the host was asked for Genesys", engineCalls.every((call) => call.format === "genesys"), engineCalls.map((call) => call.format));
+  control.genesys = false;
+  engineControl.mode = "single";
+
+  // x7. Pick mode and link details at every viewport.
+  engineControl.mode = "multi";
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await fresh();
+    await goTab("Bridges");
+    await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+    await modes.getByRole("button", { name: "Pick archetypes" }).click();
+    for (const name of ["Blue-Eyes", "Chaos", "Dragunity"]) await pickAdd(name);
+    await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(500);
+    await bridges.scrollIntoViewIfNeeded();
+    check("x7", `${viewport.name}: pick mode does not scroll the page sideways`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+    check("x7", `${viewport.name}: the mode switch, chips and cards stay inside the column`, await bridges.evaluate((root: HTMLElement) => { const edge = root.getBoundingClientRect().right + 1; return [...root.querySelectorAll('[data-testid="engine-modes"], [data-testid="engine-chip"], [data-testid="engine-item"]')].every((node) => node.getBoundingClientRect().right <= edge); }));
+    await shot(`pick-${viewport.name}`);
+    await bridges.getByTestId("engines-next").getByTestId("engine-link").first().click();
+    await bridges.getByTestId("bridge-details").waitFor({ timeout: 10_000 });
+    await page.waitForTimeout(300);
+    check("x7", `${viewport.name}: link details do not scroll the page sideways`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+    await shot(`engine-link-details-${viewport.name}`);
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  engineControl.mode = "single";
+
   check("all", "no browser errors", pageErrors.length === 0, pageErrors);
   check("all", "every API call the editor made is mirrored", unrouted.length === 0, [...new Set(unrouted)]);
 } catch (error) {

@@ -4,6 +4,7 @@ import { AlertTriangle, ChevronRight } from "lucide-react";
 import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
 import type { EngineSuggestion } from "@/lib/bridges-api";
+import type { ShownBridge } from "./bridges-api";
 import { CodeThumbs, GradeTag, Points, type CardPropsFor } from "./bridge-card";
 import { useBridgeCards } from "./use-bridges";
 import styles from "./bridges.module.css";
@@ -27,12 +28,14 @@ function linkEnds(engine: EngineSuggestion, from: string, to: string): string {
 }
 
 /** One engine that fits next: grade, how many of your engines it links to, the path of each link, the cards, the points. */
-export function EngineCard({ engine, cards, cardProps, genesys, onOpen, lit }: {
+export function EngineCard({ engine, cards, cardProps, genesys, onOpen, onOpenLink, lit }: {
   engine: EngineSuggestion;
   cards: ReadonlyMap<number, DeckCardInfo>;
   cardProps: CardPropsFor;
   genesys: boolean;
   onOpen?: (engine: EngineSuggestion) => void;
+  /** A link opens the details of its bridge. */
+  onOpenLink?: (bridge: ShownBridge) => void;
   /** The Suggest tab asked for this engine: it is marked. */
   lit?: boolean;
 }) {
@@ -57,8 +60,18 @@ export function EngineCard({ engine, cards, cardProps, genesys, onOpen, lit }: {
       <ul className={styles.paths} aria-label="How it connects" data-testid="engine-paths">
         {engine.links.map((link) => (
           <li key={`${link.from}>${link.to}:${link.bridge.evidence_hash}`}>
-            <span className={styles.pathEnds}>{linkEnds(engine, link.from, link.to)}</span>
-            <span className={styles.pathLine}>{link.bridge.review.line.join(" → ")}</span>
+            {onOpenLink ? (
+              <button type="button" className={styles.pathButton} data-bridge={link.bridge.evidence_hash} data-testid="engine-link"
+                aria-label={`${linkEnds(engine, link.from, link.to)}. ${link.bridge.grade}. Open details`} onClick={() => onOpenLink(link.bridge)}>
+                <span className={styles.pathEnds}>{linkEnds(engine, link.from, link.to)}<ChevronRight size={13} strokeWidth={1.8} aria-hidden className={styles.chevron} /></span>
+                <span className={styles.pathLine}>{link.bridge.review.line.join(" → ")}</span>
+              </button>
+            ) : (
+              <>
+                <span className={styles.pathEnds}>{linkEnds(engine, link.from, link.to)}</span>
+                <span className={styles.pathLine}>{link.bridge.review.line.join(" → ")}</span>
+              </>
+            )}
           </li>
         ))}
       </ul>
@@ -75,20 +88,21 @@ export function EngineCard({ engine, cards, cardProps, genesys, onOpen, lit }: {
 }
 
 /** A list of engines. The cards of all engines load together, so the thumbnails fill in at once. */
-export function EngineList({ engines, mode, genesys, cardProps, onCatalog, onOpen, label, lit }: {
+export function EngineList({ engines, mode, genesys, cardProps, onCatalog, onOpen, onOpenLink, label, lit }: {
   engines: readonly EngineSuggestion[];
   mode: DuelMode;
   genesys: boolean;
   cardProps: CardPropsFor;
   onCatalog: (cards: DeckCardInfo[]) => void;
   onOpen?: (engine: EngineSuggestion) => void;
+  onOpenLink?: (bridge: ShownBridge) => void;
   label: string;
   lit?: string | null;
 }) {
   const cards = useBridgeCards([...new Set(engines.flatMap((engine) => engine.cards.slice(0, 5)))], mode, onCatalog);
   return (
     <ul className={styles.list} aria-label={label}>
-      {engines.map((engine) => <EngineCard key={engine.engine} engine={engine} cards={cards} cardProps={cardProps} genesys={genesys} onOpen={onOpen} lit={lit === engine.engine} />)}
+      {engines.map((engine) => <EngineCard key={engine.engine} engine={engine} cards={cards} cardProps={cardProps} genesys={genesys} onOpen={onOpen} onOpenLink={onOpenLink} lit={lit === engine.engine} />)}
     </ul>
   );
 }
