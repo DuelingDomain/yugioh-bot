@@ -14,7 +14,7 @@ const allLayers = () => ({ ...Object.fromEntries(AREAS.map(area => [area, true])
 // TS host code alone does not select core checks.
 const coreInput = (file) =>
   /^(patches\/|scripts\/native\/|scripts\/ci\/(?:build-core\.sh$|parallel-emxx\.py$|bin\/em\+\+$|core-cache-key\.mjs$|assemble-core-bundle\.mjs$|changed-layers\.mjs$)|\.github\/workflows\/test\.yml$|\.github\/actions\/restore-engine-bundle\/|package(-lock)?\.json$|\.nvmrc$)/.test(file) ||
-  /^packages\/duel-server\/(?:card-script-patches\/|domain-core\/(?:src\/|lua\/|patches\/|multi-scripts\/|pins\.json$|expected-sha256\.txt$)|legacy-1v1\/(?:domain-core\/|scripts\/build-[^/]*core\.(?:sh|ts)$|expected-sha256\.txt$)|scripts\/(?:native\/|build-[^/]*core\.(?:sh|ts)$|(?:prepare-data|released-card-data|card-script-patches)\.ts$|(?:prepare-multi-core-tree|multi-core-common|check-legacy-pin|run-nduel)\.sh$)|package\.json$)/.test(file);
+  /^packages\/duel-server\/(?:card-script-patches\/|domain-core\/(?:src\/|lua\/|patches\/|multi-scripts\/|pins\.json$|expected-sha256\.txt$)|legacy-1v1\/(?:domain-core\/|scripts\/build-[^/]*core\.(?:sh|ts)$|expected-sha256\.txt$)|scripts\/(?:native\/|build-[^/]*core\.(?:sh|ts)$|(?:prepare-data|released-card-data|card-script-patches)\.ts$|(?:prepare-multi-core-tree|multi-core-common|check-legacy-pin|run-nduel)\.sh$)|tests\/(?:differential\/|fuzz\/|support\/(?:cores|shard|setup)\.ts$)|package\.json$)/.test(file);
 
 const docTestInputs = new Map([
   ["docs/adr/0002-multiplayer-duel-rules.md", "engine"],

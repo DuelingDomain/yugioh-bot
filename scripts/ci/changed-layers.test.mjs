@@ -100,7 +100,6 @@ test("TS-only engine PRs and main pushes skip native and differential core check
   for (const event of ["pull_request", "push"]) {
     for (const file of [
       "packages/duel-server/src/engine.ts", "packages/duel-server/tests/engine.test.ts",
-      "packages/duel-server/tests/differential/differential.test.ts",
       "packages/shared/src/duels/settings.ts", "packages/shared/src/services/duels.ts",
       "data/duel-engine-next/cards.cdb",
       "tsconfig.json", "turbo.json", ".github/workflows/deploy.yml",
@@ -138,6 +137,28 @@ test("every golden input selects the native core job that runs golden checks", (
       assert.equal(result.golden, true, `${event}: ${file}`);
       assert.equal(result.core, true, `${event}: golden checks need the native job: ${file}`);
       assert.equal(result.engine, true, `${event}: native checks need the engine bundle: ${file}`);
+    }
+  }
+});
+
+test("differential tests and their helpers select both core checks", () => {
+  const inputs = [
+    "packages/duel-server/tests/differential/differential.test.ts",
+    "packages/duel-server/tests/differential/differential-extended.test.ts",
+    "packages/duel-server/tests/differential/helpers/future-helper.ts",
+    "packages/duel-server/tests/fuzz/generators.ts",
+    "packages/duel-server/tests/fuzz/helpers/future-helper.ts",
+    "packages/duel-server/tests/support/cores.ts",
+    "packages/duel-server/tests/support/shard.ts",
+    "packages/duel-server/tests/support/setup.ts",
+  ];
+  for (const event of ["pull_request", "push"]) {
+    for (const file of inputs) {
+      const result = classify([file], event);
+      assert.equal(result.core, true, `${event}: ${file}`);
+      assert.equal(result.engine, true, `${event}: ${file}`);
+      assert.equal(result.golden, false, `${event}: ${file}`);
+      assert.equal(result.tests_only, event === "pull_request", `${event}: ${file}`);
     }
   }
 });
