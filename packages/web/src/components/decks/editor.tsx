@@ -298,7 +298,8 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   const [bridgesDot, setBridgesDot] = useState(false);
   // Bridges need Suggestions, and a draft pool (no free choice of cards) has none.
   const suggestOn = suggestionsFlag && !suggestDenied;
-  const bridgesOn = suggestOn && !pool && !bridgesDenied;
+  // Bridges are for Standard and Genesys. The Domain formats have none: no tab, no "Engines that fit" row, no request.
+  const bridgesOn = suggestOn && !pool && !bridgesDenied && mode !== "domain";
   const columnTabs = useMemo<ColumnTab[]>(() => ["cards", ...(suggestOn ? ["suggest" as const] : []), ...(bridgesOn ? ["bridges" as const] : [])], [suggestOn, bridgesOn]);
   const activeTab = shownTab(tab, columnTabs, isPhone);
   // The tab as a phone shows it. The phone layout is CSS (a container query), so it is right from the first paint,

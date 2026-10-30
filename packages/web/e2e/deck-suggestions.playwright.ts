@@ -135,7 +135,7 @@ const asFormat = (list: FixtureBridge[], format: string) => list.map((entry) => 
 
 // ---- Request log and answer control ---------------------------------------------------------------
 const insightRequests: { deck: { main: number[] }; pool?: number[]; at: number }[] = [];
-const control = { delayMs: 0, emptyRows: false, deck: "small" as "small" | "full" | "empty", genesys: false };
+const control = { delayMs: 0, emptyRows: false, deck: "small" as "small" | "full" | "empty", genesys: false, mode: "normal" as "normal" | "domain" };
 /** Bridges: every call the row made, and how the stand-in host should answer. */
 const bridgeCalls = { lists: [] as string[], starts: [] as Record<string, unknown>[], polls: 0, feedback: [] as Record<string, unknown>[], archetypes: 0 };
 const bridgeControl = { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok" as "ok" | "fail", reviewCount: 3, feedbackFails: false, started: 0, deepNone: false,
@@ -204,7 +204,7 @@ async function api(method: string, url: URL, body: any) {
   const path = url.pathname;
   if (path === "/api/decks/1" && method === "GET") {
     const deck = control.deck === "full" ? FULL_DECK : control.deck === "empty" ? { main: [], extra: [], side: [] } : SMALL_DECK;
-    return json(200, { deck: { id: 1, name: "Blue-Eyes", mode: "normal", genesys: control.genesys ? { pointCap: 100 } : null, deck, createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z" } });
+    return json(200, { deck: { id: 1, name: "Blue-Eyes", mode: control.mode, genesys: control.genesys ? { pointCap: 100 } : null, deck, createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z" } });
   }
   if (path === "/api/decks/cards/facets") return json(200, FACETS);
   if (path === "/api/decks/cards" && method === "POST") {
@@ -746,6 +746,9 @@ try {
   check("h1", "bridges show best first", JSON.stringify(await items.locator("strong").allInnerTexts()) === JSON.stringify(["Dragunity", "Dragon Ruler", "Chaos", "Red-Eyes"]), await items.locator("strong").allInnerTexts());
   check("h1", "each bridge has a grade badge", JSON.stringify(await items.getByTestId("bridge-grade").allInnerTexts()) === JSON.stringify(["Strong", "Good", "Niche", "Risky"]));
   check("h1", "each bridge says one-way or two-way in words", JSON.stringify(await items.locator("span[data-way]").allInnerTexts()) === JSON.stringify(["Two-way", "One-way", "One-way", "Two-way"]), await items.locator("span[data-way]").allInnerTexts());
+  check("h1", "each bridge has a quiet Report action, not a verdict", JSON.stringify(await items.getByTestId("bridge-report").allInnerTexts()) === JSON.stringify(["Report", "Report", "Report", "Report"]) && (await items.first().getByTestId("bridge-report").getAttribute("aria-label")) === "Report a wrong bridge" && (await items.first().getByTestId("bridge-report").getAttribute("title")) === "Report a wrong bridge" && (await bridges.innerText()).includes("doesn't work") === false);
+  check("h1", "Report is the last thing in the grade row and smaller than the grade badge", await items.first().evaluate((node: HTMLElement) => { const report = node.querySelector('[data-testid="bridge-report"]')!.getBoundingClientRect(); const grade = node.querySelector('[data-testid="bridge-grade"]')!.getBoundingClientRect(); return report.left > grade.right && parseFloat(getComputedStyle(node.querySelector('[data-testid="bridge-report"]')!).fontSize) <= parseFloat(getComputedStyle(node.querySelector('[data-testid="bridge-grade"]')!).fontSize); }));
+  await shot("report-1920x1080");
   const thumbCounts = await items.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.querySelectorAll('ul[aria-label="Bridge cards"] button').length));
   check("h1", "each bridge shows 2 to 4 card images", thumbCounts.every((count: number) => count >= 2 && count <= 4), thumbCounts);
   const points = await items.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => [node.querySelectorAll('ul[aria-label="Good"] li').length, node.querySelectorAll('ul[aria-label="Bad"] li').length]));
@@ -1574,6 +1577,45 @@ try {
     await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
     check("w11", `a click on Deep search after a refused join (${refused}) sends no join`, bridgeCalls.starts.length === 3 && bridgeCalls.starts[2]!.join === undefined, bridgeCalls.starts.map((call) => call.join));
   }
+  engineControl.mode = "single";
+
+  // y. The Domain formats have no Bridges: no tab (desktop or phone), no Engines that fit row, and no request.
+  control.genesys = false; engineControl.mode = "multi";
+  for (const [format, genesysOn] of [["domain", false], ["domain", true]] as const) {
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      control.mode = format; control.genesys = genesysOn;
+      await fresh();
+      // The remembered tab was Bridges: it falls back to Cards.
+      await page.evaluate(() => { try { localStorage.setItem("deck-editor:tab", "bridges"); } catch { /* No storage. */ } });
+      bridgeCalls.lists.length = 0; engineCalls.length = 0; bridgeCalls.starts.length = 0; bridgeCalls.archetypes = 0;
+      await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
+      await page.getByRole("tab", { name: "Cards", exact: true }).first().waitFor({ state: "visible", timeout: 8000 });
+      await page.waitForTimeout(600);
+      const label = `${genesysOn ? "Genesys Domain" : "Domain"} ${viewport.name}`;
+      check("y1", `${label}: there is no Bridges tab`, (await page.getByRole("tab", { name: "Bridges", exact: true }).count()) === 0, await page.getByRole("tab").allInnerTexts());
+      check("y1", `${label}: the remembered Bridges tab falls back to Cards`, (await page.getByRole("tab", { name: "Cards", exact: true }).first().getAttribute("aria-selected")) === "true" || viewport.width === 390);
+      await goTab("Suggest");
+      await page.waitForTimeout(800);
+      check("y1", `${label}: Suggest has no Engines that fit row`, (await page.getByTestId("engines-fit").count()) === 0 && (await page.getByTestId("engines-fit-empty").count()) === 0 && (await page.locator("#suggest-engines").count()) === 0);
+      check("y1", `${label}: no bridges or engines request is made`, bridgeCalls.lists.length === 0 && engineCalls.length === 0 && bridgeCalls.starts.length === 0 && bridgeCalls.archetypes === 0, { lists: bridgeCalls.lists.length, engines: engineCalls.length });
+      if (!genesysOn) await shot(`domain-no-bridges-${viewport.name}`);
+    }
+  }
+  control.mode = "normal"; control.genesys = false;
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  // Switching to a Domain format while Bridges is open falls back to Cards; no bridges request follows.
+  await fresh();
+  await goTab("Bridges");
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  engineCalls.length = 0; bridgeCalls.lists.length = 0;
+  await page.getByRole("button", { name: "Domain", exact: true }).first().click();
+  await page.waitForTimeout(1200);
+  check("y2", "switching to Domain removes the Bridges tab and shows Cards", (await page.getByRole("tab", { name: "Bridges", exact: true }).count()) === 0 && (await page.getByRole("tab", { name: "Cards", exact: true }).first().getAttribute("aria-selected")) === "true", await page.getByRole("tab").allInnerTexts());
+  check("y2", "no bridges request follows the switch", engineCalls.length === 0 && bridgeCalls.lists.length === 0, { engines: engineCalls.length, lists: bridgeCalls.lists.length });
+  await page.getByRole("button", { name: "Standard", exact: true }).first().click();
+  await page.waitForTimeout(600);
+  check("y2", "switching back to Standard brings the Bridges tab back", (await page.getByRole("tab", { name: "Bridges", exact: true }).count()) >= 1);
   engineControl.mode = "single";
 
   // x. Saved chip edits, Pick archetypes, and the details of a link.

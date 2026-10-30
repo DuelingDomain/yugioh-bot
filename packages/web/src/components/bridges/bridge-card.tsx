@@ -95,7 +95,7 @@ export function Points({ pros: allPros, cons: allCons, clamp }: { pros: readonly
 type ReportState = "idle" | "form" | "sending" | "thanks";
 
 /**
- * "This bridge doesn't work": a small action, an optional reason, then a thank-you. A bridge is reported once per
+ * "Report": a small flag action (a bridge that is wrong), an optional reason, then a thank-you. A bridge is reported once per
  * user (the host keeps that rule too); this browser remembers it, so the form does not come back after a reload.
  */
 export function ReportBridge({ bridge }: { bridge: ShownBridge }) {
@@ -128,8 +128,8 @@ export function ReportBridge({ bridge }: { bridge: ShownBridge }) {
   }
   if (state === "idle") {
     return (
-      <button type="button" className={styles.report} data-testid="bridge-report" onClick={() => setState("form")}>
-        <Flag size={12} strokeWidth={1.8} aria-hidden />This bridge doesn&apos;t work
+      <button type="button" className={styles.report} data-testid="bridge-report" aria-label="Report a wrong bridge" title="Report a wrong bridge" onClick={() => setState("form")}>
+        <Flag size={12} strokeWidth={1.8} aria-hidden />Report
       </button>
     );
   }
