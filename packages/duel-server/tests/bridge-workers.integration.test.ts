@@ -1,15 +1,70 @@
 import Database from "better-sqlite3";
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, type ArchetypeBridge, type BridgeJudgeClient } from "@yugidraft/shared/cards/effects";
+import { BRIDGE_JUDGE_FRAMINGS, buildBridgeJudgeEvidence, importBridgeArtifact, makeBridgeJudgementRecord, saveBridgeJudgement, importCardEffectArtifact, type ArchetypeBridge, type BridgeJudgeClient } from "@yugidraft/shared/cards/effects";
 import { createBridgeService, parseDeckSuggestionQuery } from "@yugidraft/shared/services";
 import { defaultDuelSettings } from "@yugidraft/shared/duels";
-import { DeckSuggestionWorkers } from "../src/deck-suggestion-workers.js";
+import { BridgeApi } from "../src/bridge-api.js";
+import { seedIdentity } from "./helpers/identity.js";
+import { DeckSuggestionWorkers, type BridgeScan } from "../src/deck-suggestion-workers.js";
 import { deckSuggestionScope } from "../src/deck-legality.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 
 describe("bridge scanner isolation", () => {
+  it("projects full engines requests off the file-DB host loop and observes external feedback", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bridge-worker-projection-"));
+    const db = new Database(join(directory, "app.sqlite"));
+    db.pragma("journal_mode = WAL"); migrate(db); importCardEffectArtifact(db); importBridgeArtifact(db);
+    const actor = seedIdentity(db), row = createBridgeService(db).bridgeBetween("Odion", "Argostars")!;
+    const evidence = buildBridgeJudgeEvidence(db, row)!;
+    for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, {
+      verdict: "valid", grade: "good", pros: [], cons: [], lock_note: "", line: evidence.cards.map(card => card.name), format_ok: true,
+    }));
+    const workers = new DeckSuggestionWorkers(db, directory), api = new BridgeApi(db, workers);
+    const call = (engines: string[]) => api.handle({ userId: actor.userId, bridgeRequest: { op: "engines", engines, format: "advanced" } }, "g", actor.playerId) as Promise<{ next: { engine: string }[] }>;
+    let ticks = 0;
+    const timer = setInterval(() => { ticks++; }, 2);
+    try {
+      await call(["The Weather", "Genex", "Synchron", "Blue-Eyes"]);
+      expect(ticks).toBeGreaterThan(5);
+      await expect(call(["Unknown engine"])).rejects.toMatchObject({ status: 400 });
+      expect((await call(["Odion"])).next.some(next => next.engine === "Argostars")).toBe(true);
+      const external = new Database(db.name);
+      try {
+        for (const user of ["external-one", "external-two"]) external.prepare("INSERT INTO bridge_feedback(evidence_hash,actor_hash,reason) VALUES(?,?,'')").run(row.evidence_hash, user);
+      } finally { external.close(); }
+      expect((await call(["Odion"])).next.some(next => next.engine === "Argostars")).toBe(false);
+      const service = createBridgeService(db), selected = ["The Weather", "Genex", "Synchron", "Blue-Eyes"];
+      const deep = new BridgeApi(db, {
+        bridgeEngines: (input, guildId) => workers.bridgeEngines(input, guildId),
+        bridgeEngineShortlist: (rows, query) => workers.bridgeEngineShortlist(rows, query),
+        bridgeEngineProjection: (rows, query) => workers.bridgeEngineProjection(rows, query),
+        bridgeCandidates: async (scan: BridgeScan) => service.engineRows([scan.source], scan.format)
+          .filter(row => scan.op === "into" ? row.target === scan.source : row.source === scan.source),
+        rateBridge: async row => {
+          const evidence = buildBridgeJudgeEvidence(db, row)!;
+          for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, {
+            verdict: "valid", grade: "good", pros: [], cons: [], lock_note: "", line: evidence.cards.map(card => card.name), format_ok: true,
+          }));
+        },
+      });
+      try {
+        const started = await deep.handle({ userId: actor.userId, bridgeRequest: { op: "start", engines: selected } }, "g", actor.playerId) as { jobId: string };
+        await deep.jobs.close();
+        const stored = db.prepare("SELECT json_array_length(result_json) AS n FROM bridge_deep_job WHERE id=?").get(started.jobId) as { n: number };
+        expect(stored.n).toBeGreaterThan(100);
+        ticks = 0;
+        const status = await deep.handle({ userId: actor.userId, bridgeRequest: { op: "status", jobId: started.jobId } }, "g", actor.playerId);
+        expect(status).toMatchObject({ state: "done" });
+        expect(ticks).toBeGreaterThan(5);
+      } finally { await deep.jobs.close(); }
+
+    } finally { clearInterval(timer); await api.jobs.close(); await workers.close(); db.close(); rmSync(directory, { recursive: true, force: true }); }
+  }, 20_000);
+
   it("queues bridge scans on one scanner and leaves a scanner available for Suggestions", async () => {
     const db = new Database(":memory:");
     migrate(db); importBridgeArtifact(db);

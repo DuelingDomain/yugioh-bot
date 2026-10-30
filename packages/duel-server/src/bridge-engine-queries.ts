@@ -1,25 +1,30 @@
 import type Database from "better-sqlite3";
-import { bridgeGate, isBridgeDeck, isBridgeEngineNames, rankEngineCandidates, rankNextEngines, shownBridge,
+import { bridgeGate, bridgeProjection, isBridgeDeck, isBridgeEngineNames, rankEngineCandidates, rankNextEngines,
   type ArchetypeBridge, type BridgeDeck, type BridgeEnginesResponse, type BridgeFormat, type DetectedEngine, type EngineSuggestion } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
 import { BridgeJobError, type BridgeSearchQuery } from "./bridge-search-jobs.js";
 
 export interface EngineQuery extends BridgeSearchQuery { engines: string[] }
 
-/** Host-only deck context and review projection, shared by fast reads and durable jobs. */
+/** Cheap boundary validation before worker admission; resolution runs in the scanner. */
+export function validateBridgeEngineInput(input: Record<string, unknown>): void {
+  if (Object.keys(input).some(key => !["op", "format", "deck", "engines", "genesysRemaining"].includes(key))
+    || input.deck === undefined && input.engines === undefined
+    || input.deck !== undefined && !isBridgeDeck(input.deck)
+    || input.engines !== undefined && !isBridgeEngineNames(input.engines)
+    || input.format !== undefined && input.format !== "advanced" && input.format !== "genesys"
+    || input.genesysRemaining !== undefined && (!Number.isSafeInteger(input.genesysRemaining) || Number(input.genesysRemaining) < 0 || Number(input.genesysRemaining) > 1000)) {
+    throw new BridgeJobError("Invalid bridge engine query", 400);
+  }
+}
+
+/** Deck context and review projection for isolated scanners and durable host jobs. */
 export class BridgeEngineQueries {
   readonly service;
   constructor(private readonly db: Database.Database) { this.service = createBridgeService(db); }
 
   resolve(input: Record<string, unknown>, guildId: string): { query: EngineQuery; detected?: DetectedEngine[] } {
-    if (Object.keys(input).some(key => !["op", "format", "deck", "engines", "genesysRemaining"].includes(key))
-      || input.deck === undefined && input.engines === undefined
-      || input.deck !== undefined && !isBridgeDeck(input.deck)
-      || input.engines !== undefined && !isBridgeEngineNames(input.engines)
-      || input.format !== undefined && input.format !== "advanced" && input.format !== "genesys"
-      || input.genesysRemaining !== undefined && (!Number.isSafeInteger(input.genesysRemaining) || Number(input.genesysRemaining) < 0 || Number(input.genesysRemaining) > 1000)) {
-      throw new BridgeJobError("Invalid bridge engine query", 400);
-    }
+    validateBridgeEngineInput(input);
     if (!this.db.prepare("SELECT 1 FROM bridge_graph WHERE id=1").get()) throw new BridgeJobError("Bridge data is unavailable", 503);
     const format: BridgeFormat = input.format === "genesys" ? "genesys" : "advanced";
     const rawDeck = input.deck as BridgeDeck | undefined;
@@ -76,7 +81,8 @@ export class BridgeEngineQueries {
     const selected = new Set(query.engines);
     const candidates = rows.filter(row => row.format === query.format && (selected.has(row.source) || selected.has(row.target))
       && (query.format !== "genesys" || this.package([row], query).points <= (query.genesysRemaining ?? 100)));
-    const shown = candidates.flatMap(row => { const accepted = shownBridge(this.db, row); return accepted ? [accepted] : []; });
+    const projections = candidates.map(row => bridgeProjection(this.db, row));
+    const shown = projections.flatMap(({ shown }) => shown ? [shown] : []);
     const accepted = shown.map(row => ({ ...row, two_way: shown.some(reverse => reverse.source === row.target && reverse.target === row.source) }));
     const between = accepted.filter(row => selected.has(row.source) && selected.has(row.target));
     const next: EngineSuggestion[] = rankNextEngines(query.engines, accepted, this.service.rankingContext(), 8).flatMap(row => {
@@ -87,6 +93,6 @@ export class BridgeEngineQueries {
       return [{ ...row, cards: pack.cards, missing: pack.missing, genesysPoints: pack.genesysPoints, pros, cons }];
     }).slice(0, limit);
     return { engines: query.engines, between, next,
-      inReview: candidates.filter(row => ["pending", "review"].includes(bridgeGate(this.db, row).state)).length };
+      inReview: projections.filter(({ gate }) => ["pending", "review"].includes(gate.state)).length };
   }
 }

@@ -10,9 +10,10 @@ interface JobRow {
   id: string; query_key: string; query_json: string; state: BridgeJobState; step: BridgeJobStep; progress: number;
   result_json: string; review_incomplete: number | null; error: string | null; created_at: number; ended_at: number | null;
 }
+type BridgeProjection = { results: unknown[]; inReview: number; next?: EngineSuggestion[] };
 interface JobOptions {
   execute(query: BridgeSearchQuery, progress: (step: BridgeJobStep, value: number) => void): Promise<ArchetypeBridge[] | { rows: ArchetypeBridge[]; reviewIncomplete: boolean }>;
-  project(rows: ArchetypeBridge[], query: BridgeSearchQuery): { results: unknown[]; inReview: number; next?: EngineSuggestion[] };
+  project(rows: ArchetypeBridge[], query: BridgeSearchQuery): BridgeProjection | Promise<BridgeProjection>;
   version(): string;
   now?: () => number;
 }
@@ -116,14 +117,14 @@ export class BridgeSearchJobs {
     return { ...admitted, state: (this.db.prepare("SELECT state FROM bridge_deep_job WHERE id=?").get(admitted.jobId) as JobRow).state };
   }
 
-  status(actor: BridgeSearchActor, jobId: string) {
+  async status(actor: BridgeSearchActor, jobId: string) {
     const row = this.db.prepare(`SELECT j.*,a.genesys_remaining,a.deck_cards_json FROM bridge_deep_job j JOIN bridge_deep_actor a ON a.job_id=j.id
       WHERE j.id=? AND a.actor_hash=? AND a.guild_id=?`).get(jobId, this.actorHash(actor), actor.guildId) as JobRow & { genesys_remaining: number | null; deck_cards_json: string | null } | undefined;
     if (!row) throw new BridgeJobError("Not found", 404);
     const query = { ...JSON.parse(row.query_json) as BridgeSearchQuery, genesysRemaining: row.genesys_remaining ?? undefined,
       deckCards: row.deck_cards_json ? JSON.parse(row.deck_cards_json) as number[] : undefined };
     if (row.query_key !== this.queryKey(query)) throw new BridgeJobError("Not found", 404);
-    const visible = row.state === "done" ? this.options.project(JSON.parse(row.result_json), query) : { results: [], inReview: 0 };
+    const visible = row.state === "done" ? await this.options.project(JSON.parse(row.result_json), query) : { results: [], inReview: 0 };
     return { jobId: row.id, state: row.state, step: row.step, progress: row.progress,
       engines: query.engines ?? [query.source], next: [], ...visible, ...(row.error ? { error: row.error } : {}) };
   }

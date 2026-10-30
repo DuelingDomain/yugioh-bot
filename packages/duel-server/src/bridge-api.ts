@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { BridgeJobError, BridgeReviewUnavailableError, BridgeSearchJobs, type BridgeSearchQuery } from "./bridge-search-jobs.js";
 import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
 import { BridgeEngineQueries } from "./bridge-engine-queries.js";
+import { BridgeFastQueries } from "./bridge-fast-queries.js";
 import { searchBridgeEngines } from "./bridge-multi-search.js";
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -16,20 +17,22 @@ export class BridgeApi {
   readonly jobs: BridgeSearchJobs;
   private readonly service;
   private readonly engineQueries: BridgeEngineQueries;
+  private readonly fastQueries: BridgeFastQueries;
   private graph?: { source_version: string; groups: BridgeGraphData["groups"] };
   private readonly storedCache = new Map<string, { revision: string; rows: ArchetypeBridge[] }>();
-  constructor(private readonly db: Database.Database, workers: Pick<DeckSuggestionWorkers, "bridgeCandidates" | "rateBridge">, now?: () => number) {
+  constructor(private readonly db: Database.Database, workers: Pick<DeckSuggestionWorkers, "bridgeCandidates" | "rateBridge" | "bridgeEngines" | "bridgeEngineProjection" | "bridgeEngineShortlist">, now?: () => number) {
     this.service = createBridgeService(db);
     this.engineQueries = new BridgeEngineQueries(db);
+    this.fastQueries = new BridgeFastQueries(db, workers, now);
     if (db.prepare("SELECT 1 FROM bridge_graph WHERE id=1").get()) this.engineQueries.service.rankingContext();
     this.jobs = new BridgeSearchJobs(db, {
       now, version: () => `${this.groups().source_version}:${BRIDGE_JUDGE_VERSION}`,
-      project: (rows, query) => {
-        const multi = this.engineQueries.project(rows, { ...query, engines: query.engines ?? [query.source] }, 6);
+      project: async (rows, query) => {
+        const multi = await workers.bridgeEngineProjection(rows, { ...query, engines: query.engines ?? [query.source] });
         return query.engines ? { results: [], ...multi } : { ...this.project(rows, query, true), next: multi.next };
       },
       execute: async (query, progress) => {
-        if (query.engines) return searchBridgeEngines(this.db, workers, this.engineQueries, { ...query, engines: query.engines }, progress);
+        if (query.engines) return searchBridgeEngines(this.db, workers, { ...query, engines: query.engines }, progress);
         const result = await workers.bridgeCandidates({ kind: "bridges", source: query.source, format: query.format,
           ...(query.target ? { op: "explain", target: query.target } : { op: "live" }) }, value => {
           progress("candidates", Math.floor(25 * value.completed / Math.max(1, value.total)));
@@ -199,11 +202,7 @@ export class BridgeApi {
       if (!query.engines.length) throw new BridgeJobError("The deck needs an engine before searching bridges", 400);
       return this.jobs.start(actor, query);
     }
-    if (input.op === "engines") {
-      const { query, detected } = this.engineQueries.resolve(input, guildId);
-      return { ...this.engineQueries.project(this.engineQueries.service.engineRows(query.engines, query.format), query),
-        ...(detected ? { detected } : {}) };
-    }
+    if (input.op === "engines") return this.fastQueries.run(input, guildId, actor.userId);
     if (!["from", "between", "start"].includes(String(input.op))) throw new BridgeJobError("Invalid bridge operation", 400);
     const query = this.query(input, guildId, actor.userId);
     if (input.op === "start") return this.jobs.start(actor, query);

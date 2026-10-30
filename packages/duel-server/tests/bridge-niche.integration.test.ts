@@ -1,8 +1,9 @@
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { BRIDGE_JUDGE_FRAMINGS, bridgeGate, buildBridgeJudgeEvidence, importBridgeArtifact, makeBridgeJudgementRecord, saveBridgeJudgement, shownBridge } from "@yugidraft/shared/cards/effects";
+import { BRIDGE_JUDGE_FRAMINGS, bridgeGate, buildBridgeJudgeEvidence, importBridgeArtifact, makeBridgeJudgementRecord, saveBridgeJudgement, shownBridge, type ArchetypeBridge } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
+import { BridgeEngineQueries, type EngineQuery } from "../src/bridge-engine-queries.js";
 import { BridgeApi } from "../src/bridge-api.js";
 import { seedIdentity } from "./helpers/identity.js";
 
@@ -11,7 +12,8 @@ describe("deep-only Niche API integration", () => {
     const db = new Database(":memory:"); migrate(db); importBridgeArtifact(db);
     const user = seedIdentity(db), service = createBridgeService(db);
     const rows = [service.deepBetween("Odion", "Blue-Eyes")!, service.deepBetween("Odion", "Altergeist")!];
-    const workers = { bridgeCandidates: vi.fn(async () => rows), rateBridge: vi.fn(async () => {}) };
+    const bridgeEngineProjection = async (rows: ArchetypeBridge[], query: EngineQuery) => new BridgeEngineQueries(db).project(rows, query, 6);
+    const workers = { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(async () => rows), rateBridge: vi.fn(async () => {}) };
     const api = new BridgeApi(db, workers);
     const call = (bridgeRequest: unknown) => api.handle({ userId: user.userId, bridgeRequest }, "g", user.playerId);
     try {

@@ -1,11 +1,14 @@
 import { parentPort } from "node:worker_threads";
 import Database from "better-sqlite3";
 import { createBridgeService, createCardInsightService, type BridgeService } from "@yugidraft/shared/services";
-import type { BridgeScan, SuggestionScan } from "./deck-suggestion-workers.js";
+import { BridgeEngineQueries } from "./bridge-engine-queries.js";
+import { BridgeJobError } from "./bridge-search-jobs.js";
+import type { BridgeScan, BridgeEnginesScan, BridgeProjectionScan, SuggestionScan } from "./deck-suggestion-workers.js";
 
 let db: Database.Database | undefined, path: string | undefined;
 let bridges: BridgeService | undefined;
-parentPort!.on("message", async (request: (SuggestionScan | BridgeScan) & {
+let engines: BridgeEngineQueries | undefined;
+parentPort!.on("message", async (request: (SuggestionScan | BridgeScan | BridgeEnginesScan | BridgeProjectionScan) & {
   database: string | Uint8Array; dataDirectory: string;
 }) => {
   try {
@@ -16,7 +19,23 @@ parentPort!.on("message", async (request: (SuggestionScan | BridgeScan) & {
         ? new Database(database, { readonly: true, fileMustExist: true, timeout: 5000 })
         : new Database(Buffer.from(database));
       path = typeof database === "string" ? database : undefined;
-      bridges = undefined;
+      bridges = undefined; engines = undefined;
+    }
+    if ("kind" in request && request.kind === "bridge-engine-projection") {
+      engines ??= new BridgeEngineQueries(db);
+      const result = db.transaction(() => request.op === "shortlist"
+        ? engines!.shortlist(request.rows, request.query) : engines!.project(request.rows, request.query, 6)).deferred();
+      parentPort!.postMessage({ result });
+      return;
+    }
+    if ("kind" in request && request.kind === "bridge-engines") {
+      engines ??= new BridgeEngineQueries(db);
+      const result = db.transaction(() => {
+        const { query, detected } = engines!.resolve(request.input, request.guildId);
+        return { ...engines!.project(engines!.service.engineRows(query.engines, query.format), query), ...(detected ? { detected } : {}) };
+      }).deferred();
+      parentPort!.postMessage({ result });
+      return;
     }
     if ("kind" in request && request.kind === "bridges") {
       bridges ??= createBridgeService(db);
@@ -37,5 +56,6 @@ parentPort!.on("message", async (request: (SuggestionScan | BridgeScan) & {
       ? insights.suggestRows(query.deck, { ...query, deckMaster, legality, cache: false })
       : insights.effectSearch(query.text, query.pool, { ...query, deckMaster, suggestionContext });
     parentPort!.postMessage({ result });
-  } catch { parentPort!.postMessage({ error: true }); }
+  } catch (error) { parentPort!.postMessage({ error: true, ...(error instanceof BridgeJobError
+    ? { bridgeError: { message: error.message, status: error.status, retryAfter: error.retryAfter } } : {}) }); }
 });

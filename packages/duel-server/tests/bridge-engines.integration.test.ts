@@ -4,7 +4,7 @@ import { migrate } from "@yugidraft/shared/db";
 import { BRIDGE_JUDGE_FRAMINGS, buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, makeBridgeJudgementRecord,
   saveBridgeJudgement, type ArchetypeBridge, type BridgeEnginesResponse } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
-import { BridgeEngineQueries } from "../src/bridge-engine-queries.js";
+import { BridgeEngineQueries, type EngineQuery } from "../src/bridge-engine-queries.js";
 import { BridgeApi } from "../src/bridge-api.js";
 import type { BridgeScan } from "../src/deck-suggestion-workers.js";
 import { seedIdentity } from "./helpers/identity.js";
@@ -20,9 +20,43 @@ function approve(row: ArchetypeBridge) {
     lock_note: "Apply the printed conditions.", line: evidence.cards.map(card => card.name), format_ok: true,
   }));
 }
+const bridgeEngines = async (input: Record<string, unknown>, guildId: string) => {
+  const queries = new BridgeEngineQueries(db), { query, detected } = queries.resolve(input, guildId);
+  return { ...queries.project(queries.service.engineRows(query.engines, query.format), query), ...(detected ? { detected } : {}) };
+};
 const deck = { main: [29762407, 29762407, 97522863, 97522863, 1710647, 1710647, 37839434, 37839434], extra: [] };
 
+const bridgeEngineShortlist = async (rows: ArchetypeBridge[], query: EngineQuery) => new BridgeEngineQueries(db).shortlist(rows, query);
+const bridgeEngineProjection = async (rows: ArchetypeBridge[], query: EngineQuery) => new BridgeEngineQueries(db).project(rows, query, 6);
+
 describe("stored multi-engine bridge API", () => {
+  it("coalesces identical work, bounds actor/global flights, and invalidates its short cache", async () => {
+    const actors = Array.from({ length: 10 }, (_, i) => seedIdentity(db, { name: `Fast admission ${i}` }));
+    let release!: () => void, now = Date.now();
+    const ready = new Promise<void>(resolve => { release = resolve; });
+    const bridgeEngines = vi.fn(async (_input: Record<string, unknown>, _guildId: string) => {
+      await ready; return { engines: ["Odion"], between: [], next: [], inReview: 0 };
+    });
+    const api = new BridgeApi(db, { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(), rateBridge: vi.fn() }, () => now);
+    const call = (i: number, engines = ["Odion"]) => api.handle({ userId: actors[i]!.userId, bridgeRequest: { op: "engines", engines } }, "g", actors[i]!.playerId);
+    const pending: Promise<unknown>[] = [];
+    try {
+      pending.push(call(0), call(0, ["odion"]), call(1));
+      await new Promise(resolve => setImmediate(resolve));
+      expect(bridgeEngines).toHaveBeenCalledTimes(1);
+      await expect(call(0, ["Ashtra"])).rejects.toMatchObject({ status: 429 });
+      for (let i = 2; i < 9; i++) pending.push(call(i, [Object.keys(new BridgeEngineQueries(db).service.rankingContext().groups)[i]!]));
+      await expect(call(9, ["Fiendsmith"])).rejects.toMatchObject({ status: 503 });
+      release(); await Promise.all(pending);
+      const scans = bridgeEngines.mock.calls.length;
+      await call(0); expect(bridgeEngines).toHaveBeenCalledTimes(scans);
+      db.prepare("INSERT INTO bridge_feedback(evidence_hash,actor_hash,reason) VALUES(?,?,'')").run("f".repeat(64), "cache-invalidation");
+      await call(0); expect(bridgeEngines).toHaveBeenCalledTimes(scans + 1);
+      now += 5001;
+      await call(0); expect(bridgeEngines).toHaveBeenCalledTimes(scans + 2);
+    } finally { release(); await Promise.allSettled(pending); await api.jobs.close(); }
+  });
+
   it("normalizes artwork identities before detection, points and missing-copy projection", () => {
     const main = 89631139, artwork = 89631140;
     for (const id of [main, artwork]) db.prepare(`INSERT OR IGNORE INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
@@ -57,7 +91,7 @@ describe("stored multi-engine bridge API", () => {
     const forward = service.bridgeBetween("Blue-Eyes", "Black Luster Soldier")!;
     const reverse = service.bridgeBetween("Black Luster Soldier", "Blue-Eyes")!;
     approve(forward);
-    const api = new BridgeApi(db, { bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const api = new BridgeApi(db, { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     const call = (engines: string[]) => api.handle({ userId: user.userId, bridgeRequest: { op: "engines", engines, format: "advanced" } }, "g", user.playerId) as Promise<BridgeEnginesResponse>;
     const round = (n: number) => Math.round(n * 1000) / 1000;
     try {
@@ -77,7 +111,7 @@ describe("stored multi-engine bridge API", () => {
   });
 
   it("detects the open deck and projects only accepted links without admitting work", async () => {
-    const user = seedIdentity(db), workers = { bridgeCandidates: vi.fn(), rateBridge: vi.fn() };
+    const user = seedIdentity(db), workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(), rateBridge: vi.fn() };
     const api = new BridgeApi(db, workers);
     const call = (request: Record<string, unknown>) => api.handle({ userId: user.userId, bridgeRequest: { op: "engines", format: "advanced", ...request } }, "g", user.playerId) as Promise<BridgeEnginesResponse>;
     try {
@@ -112,7 +146,7 @@ describe("stored multi-engine bridge API", () => {
   it("rechecks feedback and keeps Genesys package costs specific to the open deck", async () => {
     const user = seedIdentity(db, { name: "Engine points" });
     const row = createBridgeService(db).bridgeBetween("Odion", "Ashtra", "genesys")!; approve(row);
-    const api = new BridgeApi(db, { bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const api = new BridgeApi(db, { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     const call = (request: Record<string, unknown>) => api.handle({ userId: user.userId, bridgeRequest: { op: "engines", format: "genesys", ...request } }, "g", user.playerId) as Promise<BridgeEnginesResponse>;
     try {
       expect((await call({ engines: ["Odion"], genesysRemaining: 0 })).next.some(next => next.engine === "Ashtra")).toBe(false);
@@ -128,7 +162,7 @@ describe("stored multi-engine bridge API", () => {
 describe("multi-source deep search", () => {
   async function finish(api: BridgeApi, user: ReturnType<typeof seedIdentity>, jobId: string) {
     for (let i = 0; i < 100; i++) {
-      const status = api.jobs.status({ userId: user.userId, guildId: "g" }, jobId);
+      const status = (await api.jobs.status({ userId: user.userId, guildId: "g" }, jobId));
       if (status.state === "done" || status.state === "failed") return status;
       await new Promise(resolve => setImmediate(resolve));
     }
@@ -138,13 +172,13 @@ describe("multi-source deep search", () => {
   it("preserves legacy results when a single-engine selector creates the shared job first", async () => {
     const user = seedIdentity(db, { name: "One engine" }), other = seedIdentity(db, { name: "Legacy subscriber" });
     const row = createBridgeService(db).bridgeBetween("Snake-Eye", "Fire King")!; approve(row);
-    const workers = { bridgeCandidates: vi.fn(async () => [row]), rateBridge: vi.fn() };
+    const workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async () => [row]), rateBridge: vi.fn() };
     const api = new BridgeApi(db, workers);
     try {
       const started = await api.handle({ userId: user.userId, bridgeRequest: { op: "start", engines: ["Snake-Eye"] } }, "g", user.playerId) as { jobId: string };
       expect(await finish(api, user, started.jobId)).toMatchObject({ state: "done", results: [{ target: "Fire King" }], next: [{ engine: "Fire King" }] });
       expect(await api.handle({ userId: other.userId, bridgeRequest: { op: "start", source: "Snake-Eye" } }, "g", other.playerId)).toMatchObject({ jobId: started.jobId, cached: true });
-      expect(api.jobs.status({ userId: other.userId, guildId: "g" }, started.jobId).results).toHaveLength(1);
+      expect((await api.jobs.status({ userId: other.userId, guildId: "g" }, started.jobId)).results).toHaveLength(1);
       expect(workers.bridgeCandidates).toHaveBeenCalledTimes(1);
     } finally { await api.jobs.close(); }
   });
@@ -152,7 +186,7 @@ describe("multi-source deep search", () => {
   it("rescans full outgoing rows after a truncated single job and shares deck-free work", async () => {
     const user = seedIdentity(db, { name: "Multi-source" }), other = seedIdentity(db, { name: "Multi subscriber" });
     const service = createBridgeService(db);
-    const workers = { bridgeCandidates: vi.fn(async (scan: BridgeScan) => {
+    const workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async (scan: BridgeScan) => {
       if (scan.op === "live") return service.deepFrom(scan.source, scan.format, 25);
       return service.engineRows([scan.source], scan.format).filter(row => scan.op === "into" ? row.target === scan.source : row.source === scan.source);
     }), rateBridge: vi.fn(async (row: ArchetypeBridge) => approve(row)) };
@@ -174,7 +208,7 @@ describe("multi-source deep search", () => {
       const reviews = workers.rateBridge.mock.calls.length;
       expect(await call({ op: "start", engines: ["odion", "ashtra"] }, other)).toMatchObject({ jobId: multi.jobId, cached: true });
       expect(workers.rateBridge.mock.calls).toHaveLength(reviews);
-      const subscribed = api.jobs.status({ userId: other.userId, guildId: "g" }, multi.jobId);
+      const subscribed = (await api.jobs.status({ userId: other.userId, guildId: "g" }, multi.jobId));
       expect(subscribed.next.some((next, i) => next.missing.length > result.next[i]!.missing.length)).toBe(true);
       for (const input of [{ op: "start", deck, engines: ["Odion"] }, { op: "start", deck, source: "Odion" }, { op: "start", deckId: 1, engines: ["Odion"] },
         { op: "start", deck: { main: [], extra: [] } }]) await expect(call(input)).rejects.toMatchObject({ status: 400 });
@@ -206,7 +240,7 @@ describe("multi-source deep search", () => {
   it("retries partially failed reviews after ten minutes instead of caching them for a day", async () => {
     const user = seedIdentity(db, { name: "Partial review outage" }), service = createBridgeService(db);
     let calls = 0, now = Date.now();
-    const workers = { bridgeCandidates: vi.fn(async (scan: BridgeScan) => service.engineRows([scan.source], scan.format)
+    const workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async (scan: BridgeScan) => service.engineRows([scan.source], scan.format)
       .filter(row => scan.op === "into" ? row.target === scan.source : row.source === scan.source)),
       rateBridge: vi.fn(async (row: ArchetypeBridge) => { if (!calls++) approve(row); }) };
     const api = new BridgeApi(db, workers, () => now);
@@ -226,7 +260,7 @@ describe("multi-source deep search", () => {
   it("stops at twelve new pair reviews when reviews are unavailable, and at six reviewed engines when they succeed", async () => {
     const user = seedIdentity(db, { name: "Budget" }), service = createBridgeService(db);
     const engines = ["Archfiend", "Performapal"];
-    const workers = { bridgeCandidates: vi.fn(async (scan: BridgeScan) => service.engineRows([scan.source], scan.format)
+    const workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async (scan: BridgeScan) => service.engineRows([scan.source], scan.format)
       .filter(row => scan.op === "into" ? row.target === scan.source : row.source === scan.source)),
       rateBridge: vi.fn(async (_row: ArchetypeBridge) => {}) };
     let now = Date.now();

@@ -38,7 +38,7 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
       } });
     try {
       const job = jobs.start(actor(), query()); await jobs.close();
-      expect(jobs.status(actor(), job.jobId)).toMatchObject({ state: "done", progress: 100 });
+      expect((await jobs.status(actor(), job.jobId))).toMatchObject({ state: "done", progress: 100 });
       expect(prepare.mock.calls.filter(([sql]) => sql.startsWith("UPDATE bridge_deep_job SET step="))).toHaveLength(2);
     } finally { prepare.mockRestore(); await jobs.close(); }
   });
@@ -50,9 +50,9 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const job = jobs.start(actor(), query()); await finish();
-      expect(jobs.status(actor(), job.jobId).state).toBe("running");
+      expect((await jobs.status(actor(), job.jobId)).state).toBe("running");
       db.exec("DROP TRIGGER fail_bridge_completion");
-      await vi.waitFor(() => expect(jobs.status(actor(), job.jobId).state).toBe("done"));
+      await vi.waitFor(async () => expect((await jobs.status(actor(), job.jobId)).state).toBe("done"));
       expect(warning).toHaveBeenCalled();
     } finally { await jobs.close(); warning.mockRestore(); }
   });
@@ -68,7 +68,7 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
       db.exec("DROP TRIGGER fail_bridge_drain");
       await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
       await finish();
-      expect(jobs.status(actor(), job.jobId).state).toBe("done");
+      expect((await jobs.status(actor(), job.jobId)).state).toBe("done");
     } finally { await jobs.close(); warning.mockRestore(); }
   });
 
@@ -92,7 +92,7 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     const first = jobs.start(actor(), query()); await finish();
     expect(jobs.start(actor(2), { ...query(), engines: ["Odion"] })).toMatchObject({ jobId: first.jobId, cached: true });
     expect(jobs.start(actor(3), query())).toMatchObject({ jobId: first.jobId, cached: true });
-    updateVersion("v2"); expect(() => jobs.status(actor(), first.jobId)).toThrowError(expect.objectContaining({ status: 404 }));
+    updateVersion("v2"); await expect(jobs.status(actor(), first.jobId)).rejects.toThrowError(expect.objectContaining({ status: 404 }));
     updateVersion("v1"); advance(86_400_001);
     expect(jobs.start(actor(4), query()).cached).toBe(false); await finish();
   });
@@ -107,11 +107,11 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     }
     await new Promise(resolve => setImmediate(resolve));
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(jobs.status(actor(), first.jobId)).toMatchObject({ state: "running", step: "checking", progress: 50 });
-    expect(() => jobs.status(actor(2), first.jobId)).toThrow("Not found");
-    expect(() => jobs.status(actor(1, "other"), first.jobId)).toThrow("Not found");
+    expect((await jobs.status(actor(), first.jobId))).toMatchObject({ state: "running", step: "checking", progress: 50 });
+    await expect(jobs.status(actor(2), first.jobId)).rejects.toThrow("Not found");
+    await expect(jobs.status(actor(1, "other"), first.jobId)).rejects.toThrow("Not found");
     await finish();
-    expect(jobs.status(actor(), first.jobId)).toMatchObject({ state: "done", step: "done", progress: 100, results: [], inReview: 2 });
+    expect((await jobs.status(actor(), first.jobId))).toMatchObject({ state: "done", step: "done", progress: 100, results: [], inReview: 2 });
   });
 
   it("admits another search immediately after completion and reuses identical results for 24 hours", async () => {
@@ -120,7 +120,7 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     advance(120_000); await finish();
     expect(jobs.start(actor(), query())).toMatchObject({ jobId: first.jobId, cached: true });
     expect(jobs.start(actor(2), query())).toMatchObject({ jobId: first.jobId, cached: true });
-    expect(jobs.status(actor(2), first.jobId).state).toBe("done");
+    expect((await jobs.status(actor(2), first.jobId)).state).toBe("done");
     jobs.start(actor(), query("Blue-Eyes")); await finish();
     advance(86_400_001);
     expect(jobs.start(actor(2), query()).cached).toBe(false);
@@ -146,9 +146,9 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     const { jobs, finish, updateVersion } = setup();
     const first = jobs.start(actor(), query());
     await finish();
-    expect(jobs.status(actor(), first.jobId).state).toBe("done");
+    expect((await jobs.status(actor(), first.jobId)).state).toBe("done");
     updateVersion("v2");
-    expect(() => jobs.status(actor(), first.jobId)).toThrowError(expect.objectContaining({ status: 404 }));
+    await expect(jobs.status(actor(), first.jobId)).rejects.toThrowError(expect.objectContaining({ status: 404 }));
     const next = jobs.start(actor(), query());
     expect(next).toMatchObject({ cached: false });
     expect(next.jobId).not.toBe(first.jobId);
@@ -185,8 +185,8 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     const first = jobs.start(actor(), { ...query(), format: "genesys", genesysRemaining: 100 });
     await new Promise(resolve => setImmediate(resolve)); advance(1);
     expect(jobs.start(actor(2), { ...query(), format: "genesys", genesysRemaining: 5 }).jobId).toBe(first.jobId);
-    expect(jobs.status(actor(), first.jobId).results).toEqual([100]);
-    expect(jobs.status(actor(2), first.jobId).results).toEqual([5]);
+    expect((await jobs.status(actor(), first.jobId)).results).toEqual([100]);
+    expect((await jobs.status(actor(2), first.jobId)).results).toEqual([5]);
   });
 
   it("refreshes a subscriber's points and deck when reusing an identical active query", async () => {
@@ -199,8 +199,8 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
       expect(jobs.start(actor(), { ...query(), format: "genesys", genesysRemaining: 5, deckCards: [1, 2] }).jobId).toBe(first.jobId);
       expect(jobs.start(actor(2), { ...query(), format: "genesys", genesysRemaining: 20, deckCards: [3] }).jobId).toBe(first.jobId);
       finish(); await jobs.close();
-      expect(jobs.status(actor(), first.jobId).results).toEqual([5, [1, 2]]);
-      expect(jobs.status(actor(2), first.jobId).results).toEqual([20, [3]]);
+      expect((await jobs.status(actor(), first.jobId)).results).toEqual([5, [1, 2]]);
+      expect((await jobs.status(actor(2), first.jobId)).results).toEqual([20, [3]]);
     } finally { finish(); await jobs.close(); }
   });
 
@@ -222,7 +222,7 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     const jobs = new BridgeSearchJobs(db, options);
     const failed = jobs.start(actor(), query());
     await new Promise(resolve => setImmediate(resolve));
-    expect(jobs.status(actor(), failed.jobId)).toMatchObject({ state: "failed", results: [], error: "Bridge search could not finish. Try again shortly." });
+    expect((await jobs.status(actor(), failed.jobId))).toMatchObject({ state: "failed", results: [], error: "Bridge search could not finish. Try again shortly." });
     jobs.start(actor(), query("Other"));
     const restarted = new BridgeSearchJobs(db, options);
     expect(restarted.start(actor(), query("Third"))).toMatchObject({ state: "running", cached: false });

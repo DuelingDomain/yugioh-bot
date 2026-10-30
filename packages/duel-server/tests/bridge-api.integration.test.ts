@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { BRIDGE_JUDGE_FRAMINGS, buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, judgeBridgePair, makeBridgeJudgementRecord, saveBridgeJudgement, type ArchetypeBridge, type BridgeJudgeClient } from "@yugidraft/shared/cards/effects";
 import { createBridgeService, createSavedDeckService } from "@yugidraft/shared/services";
+import { BridgeEngineQueries, type EngineQuery } from "../src/bridge-engine-queries.js";
 import { BridgeApi } from "../src/bridge-api.js";
 import { seedIdentity } from "./helpers/identity.js";
 
@@ -13,6 +14,8 @@ beforeAll(() => {
   bridge = createBridgeService(db).bridgeBetween("Odion", "Argostars")!;
 });
 afterAll(() => db.close());
+
+const bridgeEngineProjection = async (rows: ArchetypeBridge[], query: EngineQuery) => new BridgeEngineQueries(db).project(rows, query, 6);
 
 describe("authenticated bridge API and judged deep-search lifecycle", () => {
   it("judges with a mocked client, reuses judgements, and hides cached results after distinct reports", async () => {
@@ -25,8 +28,8 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
         pros: ["Enables early Trap activation.", "Connects the two supplied packages."], cons: ["Requires the supplied cards.", "Uses a Spell and Trap zone."],
         lock_note: "Apply the printed conditions.", line: buildBridgeJudgeEvidence(db, bridge)!.cards.map(card => card.name), format_ok: true }) }],
     })) } };
-    const workers = {
-      bridgeCandidates: vi.fn(async () => { await gate; return [bridge]; }),
+    const workers = { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection,
+      bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(async () => { await gate; return [bridge]; }),
       rateBridge: vi.fn(async (row: ArchetypeBridge) => { await judgeBridgePair(db, row, { client, env: {}, log: () => {} }); }),
     };
     let now = Date.now();
@@ -68,7 +71,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     const client: BridgeJudgeClient = { messages: { async create() {
       throw new APIError(400, { error: { message: "Unsupported schema" } }, "Unsupported schema", new Headers());
     } } };
-    const workers = { bridgeCandidates: vi.fn(async () => [row]), rateBridge: vi.fn(async () => {
+    const workers = { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(async () => [row]), rateBridge: vi.fn(async () => {
       await judgeBridgePair(db, row, { client, env: {}, log: () => {}, onError: () => {} });
     }) };
     const api = new BridgeApi(db, workers, () => now);
@@ -76,7 +79,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     try {
       const first = await start() as { jobId: string };
       await new Promise(resolve => setImmediate(resolve));
-      expect(api.jobs.status({ userId: user.userId, guildId: "g" }, first.jobId)).toMatchObject({ state: "failed", results: [], error: "Review service unavailable, try later." });
+      expect((await api.jobs.status({ userId: user.userId, guildId: "g" }, first.jobId))).toMatchObject({ state: "failed", results: [], error: "Review service unavailable, try later." });
       const evidence = buildBridgeJudgeEvidence(db, row)!;
       saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, "mechanic", {
         verdict: "valid", grade: "good", pros: ["Branded Opening searches Despian Tragedy."],
@@ -87,7 +90,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
       expect(retry.jobId).not.toBe(first.jobId);
       expect(retry.cached).toBe(false);
       await api.jobs.close();
-      expect(api.jobs.status({ userId: user.userId, guildId: "g" }, retry.jobId)).toMatchObject({ state: "failed", error: "Review service unavailable, try later." });
+      expect((await api.jobs.status({ userId: user.userId, guildId: "g" }, retry.jobId))).toMatchObject({ state: "failed", error: "Review service unavailable, try later." });
       expect(workers.rateBridge).toHaveBeenCalledTimes(2);
     } finally { await api.jobs.close(); }
   });
@@ -110,7 +113,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
       }));
     };
     approve(forward);
-    const api = new BridgeApi(db, { bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const api = new BridgeApi(db, { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     const call = () => api.handle({ userId: user.userId, bridgeRequest: { op: "between", source: forward.source, target: forward.target } }, "g", user.playerId);
     try {
       expect(await call()).toMatchObject({ results: [{ two_way: false }] });
@@ -123,7 +126,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
 
   it("resolves saved decks only for their owner and rejects unknown query authority", async () => {
     const user = seedIdentity(db, { name: "Deck owner" }), other = seedIdentity(db, { name: "Not owner" });
-    const api = new BridgeApi(db, { bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const api = new BridgeApi(db, { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     const sourceId = JSON.parse((db.prepare("SELECT graph_json FROM bridge_graph WHERE id=1").get() as { graph_json: string }).graph_json).groups.Odion[0];
     const saved = createSavedDeckService(db).create("g", user.userId, { name: "Bridge deck", mode: "normal", deck: { main: [sourceId], extra: [], side: [] } });
     const call = (bridgeRequest: unknown, identity = user) => api.handle({ userId: identity.userId, bridgeRequest }, "g", identity.playerId);
@@ -148,7 +151,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     }));
     const deck = createSavedDeckService(db).create("g", user.userId, { name: "At the points cap", mode: "normal", genesys: { pointCap: 3 },
       deck: { main: [29762407, 97522863, 1710647], extra: [], side: [] } });
-    const api = new BridgeApi(db, { bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const api = new BridgeApi(db, { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     const call = (bridgeRequest: unknown) => api.handle({ userId: user.userId, bridgeRequest }, "g", user.playerId);
     expect(await call({ op: "between", source: "Odion", target: "Ashtra", format: "genesys", genesysRemaining: 0 })).toMatchObject({ results: [] });
     expect(await call({ op: "between", deckId: deck.id, target: "Ashtra", format: "genesys" })).toMatchObject({ results: [{ target: "Ashtra" }] });

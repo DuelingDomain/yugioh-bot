@@ -1,12 +1,12 @@
 import type Database from "better-sqlite3";
 import { bridgeGate, type ArchetypeBridge } from "@yugidraft/shared/cards/effects";
 import { BridgeReviewUnavailableError, type BridgeJobStep } from "./bridge-search-jobs.js";
-import { BridgeEngineQueries, type EngineQuery } from "./bridge-engine-queries.js";
+import { type EngineQuery } from "./bridge-engine-queries.js";
 import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
 
 /** The budget counts pairs requiring new reviews, never cached verdicts or subscribers. */
-export async function searchBridgeEngines(db: Database.Database, workers: Pick<DeckSuggestionWorkers, "bridgeCandidates" | "rateBridge">,
-  queries: BridgeEngineQueries, query: EngineQuery, progress: (step: BridgeJobStep, value: number) => void) {
+export async function searchBridgeEngines(db: Database.Database, workers: Pick<DeckSuggestionWorkers, "bridgeCandidates" | "rateBridge" | "bridgeEngineShortlist">,
+  query: EngineQuery, progress: (step: BridgeJobStep, value: number) => void) {
   const pairs = new Map<string, ArchetypeBridge>();
   const add = (rows: ArchetypeBridge[]) => rows.forEach(row => pairs.set(JSON.stringify([row.source, row.target, row.format]), row));
   const total = query.engines.length * 2;
@@ -31,7 +31,7 @@ export async function searchBridgeEngines(db: Database.Database, workers: Pick<D
       bridge_json=excluded.bridge_json,evidence_hash=excluded.evidence_hash,source_version=excluded.source_version`);
     for (const row of all) save.run(row.source, row.target, row.format, row.score, row.grade, JSON.stringify(row), row.evidence_hash, version);
   }).immediate();
-  const shortlist = queries.shortlist(all, query);
+  const shortlist = await workers.bridgeEngineShortlist(all, query);
   const display = shortlist.flatMap(engine => engine.links.map(link => link.bridge));
   const selected = new Set(query.engines);
   const internal = all.filter(row => selected.has(row.source) && selected.has(row.target));

@@ -1,6 +1,8 @@
 import { Worker } from "node:worker_threads";
 import type Database from "better-sqlite3";
-import { judgeBridgePair, type ArchetypeBridge, type BridgeFormat, type BridgeProgress, type BridgeJudgeOptions } from "@yugidraft/shared/cards/effects";
+import { judgeBridgePair, type ArchetypeBridge, type BridgeFormat, type BridgeProgress, type BridgeJudgeOptions, type BridgeEnginesResponse, type RankedEngine } from "@yugidraft/shared/cards/effects";
+import type { EngineQuery } from "./bridge-engine-queries.js";
+import { BridgeJobError } from "./bridge-search-jobs.js";
 import type { DeckSuggestionLegality, DeckSuggestionQuery, DeckSuggestionResult, CardEffectSearchResult } from "@yugidraft/shared/services";
 
 type Job = { worker: Worker; reject?: (error: Error) => void; idle?: ReturnType<typeof setTimeout> };
@@ -9,7 +11,9 @@ export type BridgeScan = { kind: "bridges"; source: string; format: BridgeFormat
   { op: "from"; limit?: number } | { op: "live" | "outgoing" | "into" } | { op: "between" | "explain"; target: string }
 );
 export type BridgeScanResult = ArchetypeBridge[] | ArchetypeBridge | null;
-type ScanResult = DeckSuggestionResult | CardEffectSearchResult | BridgeScanResult;
+export type BridgeEnginesScan = { kind: "bridge-engines"; input: Record<string, unknown>; guildId: string };
+export type BridgeProjectionScan = { kind: "bridge-engine-projection"; op: "project" | "shortlist"; rows: ArchetypeBridge[]; query: EngineQuery };
+type ScanResult = DeckSuggestionResult | CardEffectSearchResult | BridgeScanResult | BridgeEnginesResponse | RankedEngine<ArchetypeBridge>[];
 /** Two reusable read-only scanners, isolated from live duel operations. The host owns admission. */
 export class DeckSuggestionWorkers {
   private readonly jobs: Job[] = [];
@@ -17,7 +21,7 @@ export class DeckSuggestionWorkers {
   private readonly judging = new Set<Promise<void>>();
   private readonly judgeAbort = new AbortController();
   private readonly judgeQueue: { bridge: ArchetypeBridge; resolve: () => void; reject: (error: unknown) => void }[] = [];
-  private readonly bridgeQueue: { scan: BridgeScan; progress?: (value: BridgeProgress) => void; resolve: (value: ScanResult) => void; reject: (error: Error) => void }[] = [];
+  private readonly bridgeQueue: { scan: BridgeScan | BridgeEnginesScan | BridgeProjectionScan; progress?: (value: BridgeProgress) => void; resolve: (value: ScanResult) => void; reject: (error: Error) => void }[] = [];
   private closing = false;
   constructor(private readonly db: Database.Database, private readonly dataDirectory: string,
     private readonly idleMs = 120_000, private readonly judgeOptions: BridgeJudgeOptions = {}) {}
@@ -38,6 +42,18 @@ export class DeckSuggestionWorkers {
 
   bridgeCandidates(scan: BridgeScan, progress?: (value: BridgeProgress) => void): Promise<BridgeScanResult> {
     return this.queuedBridge(scan, progress) as Promise<BridgeScanResult>;
+  }
+
+  bridgeEngines(input: Record<string, unknown>, guildId: string): Promise<BridgeEnginesResponse> {
+    return this.queuedBridge({ kind: "bridge-engines", input, guildId }) as Promise<BridgeEnginesResponse>;
+  }
+
+  bridgeEngineProjection(rows: ArchetypeBridge[], query: EngineQuery): Promise<BridgeEnginesResponse> {
+    return this.queuedBridge({ kind: "bridge-engine-projection", op: "project", rows, query }) as Promise<BridgeEnginesResponse>;
+  }
+
+  bridgeEngineShortlist(rows: ArchetypeBridge[], query: EngineQuery): Promise<RankedEngine<ArchetypeBridge>[]> {
+    return this.queuedBridge({ kind: "bridge-engine-projection", op: "shortlist", rows, query }) as Promise<RankedEngine<ArchetypeBridge>[]>;
   }
 
   rateBridge(bridge: ArchetypeBridge): Promise<void> {
@@ -63,8 +79,9 @@ export class DeckSuggestionWorkers {
     }
   }
 
-  private queuedBridge(scan: BridgeScan, progress?: (value: BridgeProgress) => void): Promise<ScanResult> {
+  private queuedBridge(scan: BridgeScan | BridgeEnginesScan | BridgeProjectionScan, progress?: (value: BridgeProgress) => void): Promise<ScanResult> {
     if (this.closing) return Promise.reject(new Error("Suggestion scanner closed"));
+    if (this.bridgeQueue.length >= 16) return Promise.reject(new BridgeJobError("Bridge scanner queue is busy", 503, 1));
     return new Promise((resolve, reject) => { this.bridgeQueue.push({ scan, progress, resolve, reject }); this.drainBridges(); });
   }
 
@@ -76,7 +93,7 @@ export class DeckSuggestionWorkers {
     }
   }
 
-  private scan(scan: SuggestionScan | BridgeScan, progress?: (value: BridgeProgress) => void): Promise<ScanResult> {
+  private scan(scan: SuggestionScan | BridgeScan | BridgeEnginesScan | BridgeProjectionScan, progress?: (value: BridgeProgress) => void): Promise<ScanResult> {
     let job = this.jobs.find(job => !job.reject);
     if (!job) {
       if (this.jobs.length >= 2) throw new Error("Suggestion workers are busy");
@@ -111,25 +128,25 @@ export class DeckSuggestionWorkers {
         current.worker.off("exit", fail);
         current.reject = undefined;
         current.worker.unref();
-        if (error) {
-          this.retire(current);
-          reject(error);
-        } else {
-          // Reuse during a burst of editor requests, then release the isolate,
-          // module graph and read-only SQLite page cache between visits.
+        if (error && !(error instanceof BridgeJobError)) this.retire(current);
+        else {
+          // A rejected query leaves the scanner healthy. Reuse it during a
+          // burst, then release its isolate and read-only page cache when idle.
           current.idle = setTimeout(() => this.retire(current), this.idleMs);
           current.idle.unref();
-          resolve(result!);
         }
+        if (error) reject(error); else resolve(result!);
         this.drainBridges();
       };
       const fail = () => finish(new Error("Suggestion scanner stopped"));
-      const message = (answer: { error?: boolean; result: ScanResult; progress?: BridgeProgress }) => {
+      const message = (answer: { error?: boolean; bridgeError?: { message: string; status: number; retryAfter?: number }; result: ScanResult; progress?: BridgeProgress }) => {
         if (answer.progress) {
           try { progress?.(answer.progress); } catch { /* A disconnected progress consumer must not interrupt the scan. */ }
           return;
         }
-        finish(answer.error ? new Error("Suggestion scan failed") : undefined, answer.result);
+        finish(answer.error ? answer.bridgeError
+          ? new BridgeJobError(answer.bridgeError.message, answer.bridgeError.status, answer.bridgeError.retryAfter)
+          : new Error("Suggestion scan failed") : undefined, answer.result);
       };
       const timer = setTimeout(fail, 30_000);
       current.reject = (error) => finish(error);
