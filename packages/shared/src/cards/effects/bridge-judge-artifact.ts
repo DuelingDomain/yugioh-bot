@@ -24,7 +24,7 @@ export function importBridgeJudgements(db: Database.Database, directory = DEFAUL
       const candidates = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE evidence_hash=?").all(row.evidence_hash) as { bridge_json: string }[];
       const evidence = candidates.map(candidate => buildBridgeJudgeEvidence(db, JSON.parse(candidate.bridge_json) as ArchetypeBridge)).find(evidence => evidence?.input_hash === row.input_hash);
       if (!evidence) { skipped++; continue; }
-      const result = parseBridgeJudgement(row.result, evidence, db);
+      const result = parseBridgeJudgement(row.result, evidence, db, true);
       if (!result) throw new Error("Invalid bridge judgement artifact record");
       const existing = db.prepare("SELECT created_at FROM bridge_judgement WHERE evidence_hash=? AND judge=?").get(row.evidence_hash, row.judge) as { created_at: string } | undefined;
       if (existing && existing.created_at > row.created_at) { skipped++; continue; }

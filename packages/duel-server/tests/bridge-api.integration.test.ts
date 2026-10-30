@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { APIError } from "@anthropic-ai/sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { BRIDGE_JUDGE_FRAMINGS, buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, judgeBridgePair, makeBridgeJudgementRecord, saveBridgeJudgement, type ArchetypeBridge, type BridgeJudgeClient } from "@yugidraft/shared/cards/effects";
@@ -59,24 +60,34 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     await api.jobs.close();
   });
 
-  it("completes with pending pairs hidden in review and rechecks after the cache expires", async () => {
+  it("reports review service failure and permits retry instead of caching an empty success", async () => {
     const user = seedIdentity(db, { name: "Retry reviewer" });
     const row = createBridgeService(db).bridgeBetween("Branded", "Despia")!;
     db.prepare("DELETE FROM bridge_judgement WHERE evidence_hash=?").run(row.evidence_hash);
     let now = 1_000_000;
-    const workers = { bridgeCandidates: vi.fn(async () => [row]), rateBridge: vi.fn(async () => {}) };
+    const client: BridgeJudgeClient = { messages: { async create() {
+      throw new APIError(400, { error: { message: "Unsupported schema" } }, "Unsupported schema", new Headers());
+    } } };
+    const workers = { bridgeCandidates: vi.fn(async () => [row]), rateBridge: vi.fn(async () => {
+      await judgeBridgePair(db, row, { client, env: {}, log: () => {}, onError: () => {} });
+    }) };
     const api = new BridgeApi(db, workers, () => now);
     const start = () => api.handle({ userId: user.userId, bridgeRequest: { op: "start", source: row.source, target: row.target } }, "g", user.playerId);
     try {
       const first = await start() as { jobId: string };
       await new Promise(resolve => setImmediate(resolve));
-      expect(api.jobs.status({ userId: user.userId, guildId: "g" }, first.jobId)).toMatchObject({ state: "done", results: [], inReview: 1 });
-      expect(await start()).toMatchObject({ jobId: first.jobId, cached: true });
-      now += 86_400_001;
+      expect(api.jobs.status({ userId: user.userId, guildId: "g" }, first.jobId)).toMatchObject({ state: "failed", results: [], error: "Review service unavailable, try later." });
+      const evidence = buildBridgeJudgeEvidence(db, row)!;
+      saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, "mechanic", {
+        verdict: "valid", grade: "good", pros: ["Branded Opening searches Despian Tragedy."],
+        cons: ["Branded Opening needs a card to discard during resolution."], lock_note: "The search does not Summon.",
+        line: ["Branded Opening", "Despian Tragedy"], format_ok: true,
+      }));
       const retry = await start() as { jobId: string; cached: boolean };
       expect(retry.jobId).not.toBe(first.jobId);
       expect(retry.cached).toBe(false);
       await api.jobs.close();
+      expect(api.jobs.status({ userId: user.userId, guildId: "g" }, retry.jobId)).toMatchObject({ state: "failed", error: "Review service unavailable, try later." });
       expect(workers.rateBridge).toHaveBeenCalledTimes(2);
     } finally { await api.jobs.close(); }
   });

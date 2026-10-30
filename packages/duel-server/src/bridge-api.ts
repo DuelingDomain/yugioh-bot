@@ -3,7 +3,7 @@ import { bridgeGate, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_VERSION, shownBridge,
 import { createBridgeService, createSavedDeckService } from "@yugidraft/shared/services";
 import { isOwnerUser } from "@yugidraft/shared/access/owner-access";
 import { createHash } from "node:crypto";
-import { BridgeJobError, BridgeSearchJobs, type BridgeSearchQuery } from "./bridge-search-jobs.js";
+import { BridgeJobError, BridgeReviewUnavailableError, BridgeSearchJobs, type BridgeSearchQuery } from "./bridge-search-jobs.js";
 import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -35,6 +35,7 @@ export class BridgeApi {
           for (const row of rows) save.run(row.source, row.target, row.format, row.score, row.grade, JSON.stringify(row), row.evidence_hash, version);
         }).immediate();
         const candidates = rows.filter(row => bridgeGate(this.db, row).state === "pending").slice(0, 10);
+        const previousReviews = new Set(candidates.flatMap(row => bridgeGate(this.db, row).judgements.map(review => review.judge)));
         let next = 0, completed = 0;
         progress("rating", 35);
         await Promise.all(Array.from({ length: Math.min(2, candidates.length) }, async () => {
@@ -44,6 +45,8 @@ export class BridgeApi {
             progress("rating", 35 + Math.floor(64 * ++completed / candidates.length));
           }
         }));
+        if (candidates.length && !candidates.some(row => bridgeGate(this.db, row).judgements.some(review => !previousReviews.has(review.judge)))
+          && !rows.some(row => bridgeGate(this.db, row).state === "shown")) throw new BridgeReviewUnavailableError();
         return rows;
       },
     });

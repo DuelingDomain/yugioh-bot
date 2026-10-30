@@ -19,6 +19,9 @@ interface JobOptions {
 export class BridgeJobError extends Error {
   constructor(message: string, readonly status: number, readonly retryAfter?: number) { super(message); }
 }
+export class BridgeReviewUnavailableError extends Error {
+  constructor() { super("Review service unavailable, try later."); }
+}
 
 /** Admission and completed-query reuse survive host restarts; only the active queue is in memory. */
 export class BridgeSearchJobs {
@@ -126,7 +129,7 @@ export class BridgeSearchJobs {
       const work = (async () => {
         let result: ArchetypeBridge[] = [], error: string | null = null;
         try { result = await this.options.execute(JSON.parse(row.query_json), progress); }
-        catch { error = "Bridge search could not finish. Try again shortly."; }
+        catch (cause) { error = cause instanceof BridgeReviewUnavailableError ? cause.message : "Bridge search could not finish. Try again shortly."; }
         this.db.transaction(() => {
           const now = this.now();
           this.db.prepare("UPDATE bridge_deep_job SET state=?,step=CASE WHEN ? THEN step ELSE 'done' END,progress=CASE WHEN ? THEN progress ELSE 100 END,result_json=?,error=?,ended_at=? WHERE id=? AND state='running'")
