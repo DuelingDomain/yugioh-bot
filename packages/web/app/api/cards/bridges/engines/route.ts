@@ -7,6 +7,6 @@ export async function POST(request: Request) {
     const actor = await requireBridgeActor();
     if (!actor.ok) return actor.response;
     const input = await readBridgeBody(request, "engines");
-    return input.ok ? await answerBridgeRequest(actor, input.value) : input.response;
+    return input.ok ? await answerBridgeRequest(actor, input.value, request.signal) : input.response;
   } catch (error) { return bridgeErrorResponse(error); }
 }

@@ -106,6 +106,28 @@ it("runs the browser engines helper through the authenticated signed-host route"
   await expect(fetchBridgeEngines({ engines: ["Odion"], format: "advanced" })).rejects.toMatchObject({ status: 502 });
 });
 
+it("cancels signed-host engine work when the browser request is aborted", async () => {
+  const { POST } = await import("../app/api/cards/bridges/engines/route");
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  let hostSignal: AbortSignal | undefined;
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    expect((await readSignedRequest(new Request(url, init), { secret, purpose: "duel-host" })).ok).toBe(true);
+    hostSignal = init.signal as AbortSignal;
+    return new Promise<Response>((_, reject) => {
+      hostSignal!.addEventListener("abort", () => reject(hostSignal!.reason), { once: true });
+      started();
+    });
+  });
+  const controller = new AbortController();
+  const pending = POST(new Request("http://web.test/api/cards/bridges/engines", { method: "POST",
+    body: JSON.stringify({ engines: ["Odion"], format: "advanced" }), signal: controller.signal }));
+  await ready;
+  controller.abort();
+  expect((await pending).status).toBe(503);
+  expect(hostSignal?.aborted).toBe(true);
+});
+
 it("authenticates all operations and requires a player in the configured guild", async () => {
   state.auth.mockResolvedValue(null);
   for (const request of [() => lookup(), () => start({ source: "Odion" }), () => poll(), () => feedback({ evidenceHash: hash })]) {

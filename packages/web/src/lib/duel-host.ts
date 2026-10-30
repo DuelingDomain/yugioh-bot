@@ -212,7 +212,7 @@ export async function callDuelHost(input: {
   choice?: DuelFirstChoice;
   /** chain-mode only: the response switch position for the caller's own seat. */
   chainMode?: DuelChainMode;
-} & ({ op: "admin-spectate"; userId: number; playerId?: never } | { op: Exclude<DuelHostOp, "admin-spectate">; playerId: number })): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse; retryable?: boolean }> {
+} & ({ op: "admin-spectate"; userId: number; playerId?: never } | { op: Exclude<DuelHostOp, "admin-spectate">; playerId: number }), signal?: AbortSignal): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse; retryable?: boolean }> {
   const replayOp = input.op === "bug-replay-frame" || input.op === "replay" || input.op === "owner-replay" || input.op === "replay-fork"
     || input.op === "fork-list" || input.op === "fork-restart" || input.op === "fork-cancel";
   const failure = (body: NonNullable<ReturnType<typeof hostErrorBody>>["body"], status: number): NextResponse => NextResponse.json({
@@ -226,7 +226,7 @@ export async function callDuelHost(input: {
     log("warn", "[duel-host] configuration is incomplete");
     return { ok: false, response: failure({ error: configProblem, ...(!replayOp ? { code: "DUEL_ENGINE_CONFIG" } : {}) }, 503), retryable: false };
   }
-  const transport = signedTransport({ ...cfg, purpose: "duel-host", ...(input.op === "engine-data-status" || input.op === "bug-context" || input.op === "bridges" ? { timeoutMs: 5000 }
+  const transport = signedTransport({ ...cfg, signal, purpose: "duel-host", ...(input.op === "engine-data-status" || input.op === "bug-context" || input.op === "bridges" ? { timeoutMs: 5000 }
     : input.op === "normalize-codes" || input.op === "validate-deck-master" ? { timeoutMs: 20000 }
     : replayOp ? { timeoutMs: 30_000 } : {}) });
   const payload: Record<string, unknown> = {

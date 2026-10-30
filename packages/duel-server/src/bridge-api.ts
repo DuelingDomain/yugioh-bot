@@ -163,7 +163,7 @@ export class BridgeApi {
     return { results, inReview: candidates.filter(row => ["pending", "review"].includes(bridgeGate(this.db, row).state)).length };
   }
 
-  async handle(body: Record<string, unknown>, guildId: string, playerId: number) {
+  async handle(body: Record<string, unknown>, guildId: string, playerId: number, signal?: AbortSignal) {
     const player = this.db.prepare("SELECT p.user_id FROM players p JOIN users u ON u.id=p.user_id WHERE p.id=? AND p.guild_id=?")
       .get(playerId, guildId) as { user_id: number } | undefined;
     if (!player || !Number.isSafeInteger(body.userId) || body.userId !== player.user_id) throw new BridgeJobError("Authenticated guild player is required", 403);
@@ -216,7 +216,7 @@ export class BridgeApi {
       if (!query.engines.length) throw new BridgeJobError("The deck needs an engine before searching bridges", 400);
       return this.jobs.start(actor, query, join);
     }
-    if (input.op === "engines") return this.fastQueries.run(input, guildId, actor.userId);
+    if (input.op === "engines") return this.fastQueries.run(input, guildId, actor.userId, undefined, signal);
     if (!["from", "between", "start"].includes(String(input.op))) throw new BridgeJobError("Invalid bridge operation", 400);
     const query = this.query(input, guildId, actor.userId);
     if (input.op === "start") return this.jobs.start(actor, query, join);

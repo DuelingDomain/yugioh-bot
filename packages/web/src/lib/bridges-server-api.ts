@@ -184,15 +184,15 @@ function validResponse(value: unknown, request: BridgeRequest): boolean {
   }
 }
 
-export async function callBridgeHost(actor: { guildId: string; userId: number; playerId: number }, request: BridgeRequest) {
-  const response = await callDuelHost({ op: "bridges", ...actor, bridgeRequest: request });
+export async function callBridgeHost(actor: { guildId: string; userId: number; playerId: number }, request: BridgeRequest, signal?: AbortSignal) {
+  const response = await callDuelHost({ op: "bridges", ...actor, bridgeRequest: request }, signal);
   if (!response.ok) return response;
   if (!validResponse(response.data, request)) return { ok: false as const, response: bridgeJson({ error: "Invalid engine bridge response" }, 502) };
   return response;
 }
 
-export async function answerBridgeRequest(actor: { guildId: string; userId: number; playerId: number }, request: BridgeRequest) {
-  const response = await callBridgeHost(actor, request);
+export async function answerBridgeRequest(actor: { guildId: string; userId: number; playerId: number }, request: BridgeRequest, signal?: AbortSignal) {
+  const response = await callBridgeHost(actor, request, signal);
   if (!response.ok) return response.response;
   const data = response.data as Record<string, unknown>;
   return bridgeJson(data, request.op === "start" && (data.state === "queued" || data.state === "running") ? 202 : 200);

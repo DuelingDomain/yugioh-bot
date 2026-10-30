@@ -5,7 +5,8 @@ import { validateBridgeEngineInput } from "./bridge-engine-queries.js";
 import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
 import { bridgeRevision } from "./bridge-revision.js";
 
-type QueuedQuery = { key: string; input: Record<string, unknown>; guildId: string; deadline: number;
+type QueryWaiter = { deadline: number; abandoned: boolean };
+type QueuedQuery = { key: string; input: Record<string, unknown>; guildId: string; waiters: Set<QueryWaiter>;
   work: Promise<BridgeEnginesResponse>; resolve: (result: BridgeEnginesResponse) => void; reject: (error: unknown) => void };
 
 /** Bounded, read-only scanner work; short cache always rechecks the SQLite revision. */
@@ -20,17 +21,26 @@ export class BridgeFastQueries {
     return bridgeRevision(this.db);
   }
 
-  run(input: Record<string, unknown>, guildId: string, userId: number, deadline = performance.now() + 4500): Promise<BridgeEnginesResponse> {
+  run(input: Record<string, unknown>, guildId: string, userId: number, deadline = performance.now() + 4500, signal?: AbortSignal): Promise<BridgeEnginesResponse> {
     // Each caller keeps its own deadline even when joining existing work.
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new BridgeJobError("Engine suggestions are busy", 503, 1)), Math.max(1, deadline - performance.now()));
-      void this.execute(input, guildId, userId, deadline).then(result => {
-        clearTimeout(timer); resolve(result);
-      }, error => { clearTimeout(timer); reject(error); });
+      const waiter: QueryWaiter = { deadline, abandoned: false };
+      const abandon = () => {
+        waiter.abandoned = true;
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", abandon);
+        reject(new BridgeJobError("Engine suggestions are busy", 503, 1));
+      };
+      const timer = setTimeout(abandon, Math.max(1, deadline - performance.now()));
+      signal?.addEventListener("abort", abandon, { once: true });
+      if (signal?.aborted) { abandon(); return; }
+      void this.execute(input, guildId, userId, new Set([waiter])).then(result => {
+        clearTimeout(timer); signal?.removeEventListener("abort", abandon); resolve(result);
+      }, error => { clearTimeout(timer); signal?.removeEventListener("abort", abandon); reject(error); });
     });
   }
 
-  private async execute(input: Record<string, unknown>, guildId: string, userId: number, deadline: number): Promise<BridgeEnginesResponse> {
+  private async execute(input: Record<string, unknown>, guildId: string, userId: number, waiters: Set<QueryWaiter>): Promise<BridgeEnginesResponse> {
     validateBridgeEngineInput(input);
     const deck = input.deck as BridgeDeck | undefined;
     const key = JSON.stringify([guildId, input.format ?? "advanced",
@@ -39,18 +49,31 @@ export class BridgeFastQueries {
       input.genesysRemaining ?? null]);
     const revision = this.revision(), cached = this.cache.get(key);
     if (cached?.revision === revision && cached.expires > this.now()) return cached.result;
+    const deadline = Math.max(...[...waiters].filter(waiter => !waiter.abandoned).map(waiter => waiter.deadline));
     if (performance.now() >= deadline) throw new BridgeJobError("Engine suggestions are busy", 503, 1);
     const workKey = JSON.stringify([key, revision]), actor = this.actors.get(userId);
     if (actor) {
       if (actor.key === workKey) return actor.work;
+      for (const [key, queued] of actor.next) {
+        if ([...queued.waiters].some(waiter => !waiter.abandoned && waiter.deadline > performance.now())) continue;
+        actor.next.delete(key);
+        queued.reject(new BridgeJobError("Engine suggestions were superseded", 503, 1));
+      }
       const queued = actor.next.get(workKey);
-      if (queued) return queued.work;
+      if (queued) {
+        for (const waiter of waiters) queued.waiters.add(waiter);
+        return queued.work;
+      }
       // Detection and corrected engines are distinct live queries. Give each
-      // key its own deferred; overload may reject but must never mix answers.
-      if (actor.next.size >= 2) throw new BridgeJobError("Engine suggestions are busy", 503, 1);
+      // key its own deferred, retaining the newest editor context on overload.
+      if (actor.next.size >= 2) {
+        const oldest = actor.next.values().next().value!;
+        actor.next.delete(oldest.key);
+        oldest.reject(new BridgeJobError("Engine suggestions were superseded", 503, 1));
+      }
       let resolve!: QueuedQuery["resolve"], reject!: QueuedQuery["reject"];
       const work = new Promise<BridgeEnginesResponse>((yes, no) => { resolve = yes; reject = no; });
-      actor.next.set(workKey, { key: workKey, input, guildId, deadline, work, resolve, reject });
+      actor.next.set(workKey, { key: workKey, input, guildId, waiters, work, resolve, reject });
       return work;
     }
     let work = this.pending.get(workKey);
@@ -69,7 +92,13 @@ export class BridgeFastQueries {
       const current = this.actors.get(userId);
       if (current?.work !== actorWork) return;
       this.actors.delete(userId);
-      for (const next of current.next.values()) void this.run(next.input, next.guildId, userId, next.deadline).then(next.resolve, next.reject);
+      for (const next of current.next.values()) {
+        if (![...next.waiters].some(waiter => !waiter.abandoned && waiter.deadline > performance.now())) {
+          next.reject(new BridgeJobError("Engine suggestions were superseded", 503, 1));
+          continue;
+        }
+        void this.execute(next.input, next.guildId, userId, next.waiters).then(next.resolve, next.reject);
+      }
     });
     this.actors.set(userId, { key: workKey, work: actorWork, next: new Map() });
     return actorWork;
