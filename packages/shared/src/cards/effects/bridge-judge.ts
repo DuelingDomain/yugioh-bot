@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 import * as z from "zod";
 import { BridgeEngine, bridgeLegal } from "./bridge-engine.js";
 import { isExtraDeckCard } from "./card.js";
+import { storedBridgeEngine } from "./bridge-graph-store.js";
 import { actionEvidence, bridgeHash, matchesBridgeFilter, printedText } from "./bridge-text.js";
 import type { ArchetypeBridge, BridgeFormat, BridgeReason, CardCapability, SummonLock } from "./bridge-types.js";
 import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, releaseBridgeJudgeSpend, settleBridgeJudgeSpend, startBridgeJudgeSpend, type BridgeJudgeSpendSummary, type BridgeJudgeUsage } from "./bridge-judge-ledger.js";
@@ -100,8 +101,7 @@ export function buildBridgeJudgeEvidence(db: Database.Database, bridge: Archetyp
     const groupsRow = db.prepare("SELECT json_extract(graph_json,'$.groups') AS groups FROM bridge_graph WHERE id=1").get() as { groups: string } | undefined;
     const groups = groupsRow ? JSON.parse(groupsRow.groups) as Record<string, number[]> : {};
     if (bridge.tier === "niche") {
-      const accessValidator = new BridgeEngine({ capabilities: rows, groups, target_means: { advanced: {}, genesys: {} } });
-      if (!accessValidator.validateAccessPath(bridge.reasons[0]!, bridge.source, bridge.target, bridge.format)) return null;
+      if (!storedBridgeEngine(db).validateAccessPath(bridge.reasons[0]!, bridge.source, bridge.target, bridge.format)) return null;
     }
     const points = bridge.format === "genesys" ? rows.reduce((sum, row) => {
       const copies = Math.max(1, ...bridge.reasons.map(reason => reason.materials?.filter(id => id === row.id).length ?? 0));

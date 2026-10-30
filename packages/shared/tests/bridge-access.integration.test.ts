@@ -39,7 +39,7 @@ describe("deep-only access paths on the pinned catalog", () => {
 
   it("rejects labels, same-deck families, generic discards and negated entry chains", () => {
     const engine = new BridgeEngine(data);
-    for (const [source, target] of [["Elemental HERO", "HERO"], ["Fluffal", "Frightfur"], ["Ghoti", "Shark"], ["Fiendsmith", "Dark World"], ["Branded", "Fabled"], ["Snake-Eye", "Volcanic"], ["Traptrix", "Void"]]) {
+    for (const [source, target] of [["Elemental HERO", "HERO"], ["Fluffal", "Frightfur"], ["Fiendsmith", "Dark World"], ["Branded", "Fabled"], ["Snake-Eye", "Volcanic"], ["Traptrix", "Void"]]) {
       expect(engine.deepBetween(source!, target!), `${source} -> ${target}`).toBeNull();
     }
     // Justicia has a separate valid Spirit material path; the negated Agarpain line is still absent.
@@ -62,6 +62,15 @@ describe("deep-only access paths on the pinned catalog", () => {
     const brokenCost = structuredClone(cost.reasons[0]!);
     brokenCost.cost!.effect = 999;
     expect(engine.validateReason(brokenCost, "advanced")).toBe(false);
+    const simorgh = engine.deepBetween("Blackwing", "Simorgh")!;
+    expect(simorgh).toMatchObject({ tier: "niche", grade: "Niche" });
+    expect(simorgh.reasons[0]).toMatchObject({ key: "access", cost: { card: 28617139, capability: "discard" } });
+    expect(engine.validateAccessPath(simorgh.reasons[0]!, "Blackwing", "Simorgh", "advanced")).toBe(true);
+    // A named Shark output plus a Fish Tribute is access; a shared Fish filter alone is not.
+    const shark = engine.deepBetween("Ghoti", "Shark")!;
+    expect(shark.reasons[0]).toMatchObject({ key: "access", cost: { card: 613013, capability: "tribute" } });
+    expect(shark.reasons[0]!.cost!.using).not.toBe(2405631); // Guoglim needs an unsupported Synchro setup.
+    expect(engine.deepBetween("Machina", "Photon")?.reasons[0]).toMatchObject({ key: "access", cost: { capability: "tribute" } }); // Lillybot's unconditional "Once per turn:" ignition.
     const capabilities = structuredClone(data.capabilities);
     const setter = capabilities.find(row => row.id === 53143898)!;
     setter.provides = setter.provides.filter(capability => capability.key !== "set_spell_trap");

@@ -18,6 +18,11 @@ const round = (value: number) => Math.round(value * 100) / 100;
 const wordIn = (word: string, name: string) => new RegExp(`(?:^|[^a-z0-9])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[^a-z0-9])`, "i").test(name);
 const availableMaterial = (card: Card): boolean => !/Cannot be Normal Summoned|Must (?:first )?be (?:Special|Ritual) Summoned/i.test(printedText(card))
   && ((card.level ?? 0) <= 4 || sentences(printedText(card)).some(text => /Special Summon this card[^.]*from your hand/i.test(text)));
+const costCanUse = (cost: Capability, card: Card): boolean => !!cost.filter && !cost.filter.this_card
+  && particularFilter(cost.filter) && matchesBridgeFilter(cost.filter, card)
+  && (!cost.evidence.includes(":") || /^(?:\(Quick Effect\)|Once per turn|During your Main Phase|(?:If|When) this card is (?:Normal|Normal or Special) Summoned)\s*:/i.test(cost.evidence))
+  && !!cost.from?.some(zone => zone === "hand" || zone === "deck" ? !isExtraDeckCard(card)
+    : zone === "extra_deck" ? isExtraDeckCard(card) : zone === "field" ? !isExtraDeckCard(card) && availableMaterial(card) : true);
 const groupNames = new Map<string, (name: string) => boolean>();
 function groupNameIn(card: Card, name: string, aliases: string[] = []): boolean {
   const key = JSON.stringify([name, aliases]);
@@ -375,9 +380,9 @@ export class BridgeEngine {
       const to = onlyY.find(card => edge.targets.has(card.id) && this.engineMember(card, y, edge.capability, x));
       if (!to) continue;
       const cost = consumer.needs.find(need => ["tribute", "send_to_gy", "banish", "discard"].includes(need.key)
-        && need.effect !== undefined && need.effect === edge.capability.effect && this.specificCapability(need, format)
-        && x.cards.some(card => need.filter && matchesBridgeFilter(need.filter, card)));
-      const using = cost && x.cards.find(card => matchesBridgeFilter(cost.filter!, card));
+        && need.effect !== undefined && need.effect === edge.capability.effect
+        && x.cards.some(card => costCanUse(need, card)));
+      const using = cost && x.cards.find(card => costCanUse(cost, card));
       if (!cost || !using) continue;
       const cards = [...new Set([using.id, consumer.id, to.id])];
       const reason: BridgeReason = { key: "access", weight: 3, cards, evidence: cards.map(id => printedText(rows.get(id)!.card)),
@@ -431,7 +436,7 @@ export class BridgeEngine {
       const cost = reason.cost, consumer = this.rows.get(cost.card), using = this.rows.get(cost.using);
       if (!consumer || !using || !reason.cards.includes(cost.card) || !reason.cards.includes(cost.using)
         || !consumer.needs.some(need => need.key === cost.capability && need.effect === cost.effect && need.filter
-          && !need.filter.this_card && matchesBridgeFilter(need.filter, using.card) && actionEvidence(consumer.card, need.key, need.filter))
+          && !need.filter.this_card && costCanUse(need, using.card) && actionEvidence(consumer.card, need.key, need.filter))
         || !reason.steps?.some(step => step.from === cost.card && consumer.provides.some(capability => capability.key === step.capability
           && capability.effect === cost.effect && capability.filter && matchesBridgeFilter(capability.filter, this.rows.get(step.to)!.card)))) return false;
     }
@@ -539,7 +544,7 @@ export class BridgeEngine {
   validateAccessPath(reason: BridgeReason, source: string, target: string, format: BridgeFormat): boolean {
     this.prepare(format);
     const x = this.contexts.get(format)!.get(source), y = this.contexts.get(format)!.get(target);
-    return !!x && !!y && !this.parentOrAliasFamily(source, target) && this.validateReason(reason, format) && this.accessPath(reason, x, y, format);
+    return !!x && !!y && !this.sameDeck(source, target) && this.validateReason(reason, format) && this.accessPath(reason, x, y, format);
   }
 
   private specificCapability(capability: Capability, format: BridgeFormat): boolean {

@@ -1,24 +1,11 @@
 import type Database from "better-sqlite3";
-import { BridgeEngine } from "../cards/effects/bridge-engine.js";
-import type { ArchetypeBridge, BridgeFormat, BridgeGraphData, BridgeProgress, CapabilityKey, CardCapability } from "../cards/effects/bridge-types.js";
+import { storedBridgeEngine } from "../cards/effects/bridge-graph-store.js";
+import type { ArchetypeBridge, BridgeFormat, BridgeProgress, CapabilityKey, CardCapability } from "../cards/effects/bridge-types.js";
 import { shownBridge, type ShownBridge } from "../cards/effects/bridge-judge.js";
 
 /** Construct in the duel-host scanner or an administrative process, never in the web process. */
 export function createBridgeService(db: Database.Database) {
-  let engine: BridgeEngine | undefined;
-  let engineVersion: string | undefined;
-  const live = () => {
-    const row = db.prepare("SELECT graph_json,source_version FROM bridge_graph WHERE id=1").get() as { graph_json: string; source_version: string } | undefined;
-    if (!row) throw new Error("Bridge artifact has not been imported");
-    if (!engine || engineVersion !== row.source_version) {
-      const graph = JSON.parse(row.graph_json) as Omit<BridgeGraphData, "capabilities">;
-      const capabilities: CardCapability[] = [];
-      for (const row of db.prepare<[], { capabilities_json: string }>("SELECT capabilities_json FROM card_capability ORDER BY passcode").iterate()) capabilities.push(JSON.parse(row.capabilities_json));
-      engine = new BridgeEngine({ ...graph, capabilities });
-      engineVersion = row.source_version;
-    }
-    return engine;
-  };
+  const live = () => storedBridgeEngine(db);
   const stored = (source: string, target: string, format: BridgeFormat): ArchetypeBridge | null => {
     const row = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND target=? COLLATE NOCASE AND format=?").get(source.trim(), target.trim(), format) as { bridge_json: string } | undefined;
     return row ? JSON.parse(row.bridge_json) as ArchetypeBridge : null;
