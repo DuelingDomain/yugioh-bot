@@ -139,6 +139,10 @@ const control = { delayMs: 0, emptyRows: false, deck: "small" as "small" | "full
 /** Bridges: every call the row made, and how the stand-in host should answer. */
 const bridgeCalls = { lists: [] as string[], starts: [] as Record<string, unknown>[], polls: 0, feedback: [] as Record<string, unknown>[], archetypes: 0 };
 const bridgeControl = { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok" as "ok" | "fail", reviewCount: 3, feedbackFails: false, started: 0 };
+/** Engines: the calls of the fast operation, and how the stand-in host detects the deck. */
+const engineCalls: Record<string, any>[] = [];
+const engineControl = { mode: "single" as "single" | "multi", status: 200, delayMs: 0, nextEmpty: false };
+const GRADE_ORDER = ["Strong", "Good", "Niche", "Risky"];
 const json = (status: number, data: unknown) => ({ status, contentType: "application/json", body: JSON.stringify(data) });
 
 function cardImage(code: string) {
@@ -146,6 +150,27 @@ function cardImage(code: string) {
   if (cached && existsSync(cached)) return { status: 200, contentType: "image/jpeg", body: readFileSync(cached) };
   const name = String(cardRow.get(Number(code))?.name ?? code).replace(/[<&>]/g, "").slice(0, 22);
   return { status: 200, contentType: "image/svg+xml", body: `<svg xmlns="http://www.w3.org/2000/svg" width="168" height="246"><rect width="168" height="246" rx="6" fill="#3b3352"/><rect x="10" y="10" width="148" height="226" rx="4" fill="none" stroke="#c9a24a" stroke-width="2"/><text x="84" y="128" fill="#efe7d5" text-anchor="middle" font-family="Arial" font-size="18">${name}</text></svg>` };
+}
+
+/** The stand-in for `POST /api/cards/bridges/engines`: detection from the deck, then the stored rows for the set. */
+function enginesAnswer(body: any) {
+  const format = body.format ?? "advanced";
+  const detected = engineControl.mode === "multi"
+    ? [{ name: "Blue-Eyes", weight: 6, copies: 6, distinct: 5, status: "engine", hybrids: [] }, { name: "Dragunity", weight: 4, copies: 4, distinct: 3, status: "engine", hybrids: [] }, { name: "Chaos", weight: 2, copies: 2, distinct: 2, status: "light", hybrids: [] }]
+    : [{ name: "Blue-Eyes", weight: 6, copies: 6, distinct: 5, status: "engine", hybrids: [] }, { name: "Dragunity", weight: 2, copies: 2, distinct: 2, status: "light", hybrids: [] }];
+  const set: string[] = body.engines ? [...new Set<string>(body.engines.flatMap((name: string) => known(name) ?? []))].sort() : detected.filter((entry) => entry.status === "engine").map((entry) => entry.name).sort();
+  const held = new Set<number>(body.deck?.main ?? []);
+  const between = set.length > 1 ? asFormat(BRIDGES.filter((entry) => set.includes(entry.source) && set.includes(entry.target)), format) : [];
+  const next = set.length === 0 || engineControl.nextEmpty ? [] : ARCHETYPE_NAMES.filter((name) => !set.includes(name)).flatMap((target) => {
+    const links = set.flatMap((from) => { const row = BRIDGES.find((entry) => entry.source === from && entry.target === target); return row ? [{ from, to: target, bridge: asFormat([row], format)[0]! }] : []; });
+    if (links.length === 0) return [];
+    const grade = links.map((link) => link.bridge.grade).sort((a, b) => GRADE_ORDER.indexOf(a) - GRADE_ORDER.indexOf(b))[0]!;
+    const cards = [...new Set(links.flatMap((link) => link.bridge.cards))];
+    return [{ engine: target, score: links.reduce((sum, link) => sum + link.bridge.score, 0) / 10, grade, tier: grade === "Niche" ? "niche" : "strict", covered: links.length, of: set.length,
+      twoWay: links.filter((link) => link.bridge.two_way).map((link) => link.from), links, cards, missing: cards.filter((code) => !held.has(code)), genesysPoints: format === "genesys" ? 6 : null,
+      pros: links[0]!.bridge.review.pros, cons: links[0]!.bridge.review.cons }];
+  }).sort((a, b) => b.covered - a.covered || b.score - a.score).slice(0, 4);
+  return { engines: set, ...(body.deck ? { detected } : {}), between, next, inReview: bridgeControl.reviewCount };
 }
 
 async function api(method: string, url: URL, body: any) {
@@ -179,6 +204,12 @@ async function api(method: string, url: URL, body: any) {
       return json(200, { results: pair(source, other), reverse: pair(other, source), inReview: bridgeControl.reviewCount });
     }
     return json(200, { results: asFormat(bridgeControl.none ? [] : BRIDGES.filter((entry) => entry.source === source).sort((a, b) => b.score - a.score), format), inReview: bridgeControl.reviewCount });
+  }
+  if (path === "/api/cards/bridges/engines" && method === "POST") {
+    engineCalls.push(body);
+    if (engineControl.delayMs) await new Promise((done) => setTimeout(done, engineControl.delayMs));
+    if (engineControl.status !== 200) return json(engineControl.status, { error: engineControl.status === 404 ? "Not found" : "Bridges are busy" });
+    return json(200, enginesAnswer(body));
   }
   if (path === "/api/cards/bridges/archetypes" && method === "GET") { bridgeCalls.archetypes += 1; return json(200, { archetypes: ARCHETYPE_NAMES }); }
   if (path === "/api/cards/bridges/deep-search" && method === "POST") {
@@ -287,7 +318,7 @@ try {
     if (url.pathname.startsWith("/api/")) {
       const raw = request.postData();
       const response = await api(request.method(), url, raw ? JSON.parse(raw) : null);
-      if (response.status === 404 && !(url.pathname === "/api/cards/bridges" && bridgeControl.listStatus === 404)) unrouted.push(`${request.method()} ${url.pathname}`);
+      if (response.status === 404 && !(url.pathname === "/api/cards/bridges" && bridgeControl.listStatus === 404) && !(url.pathname === "/api/cards/bridges/engines" && engineControl.status === 404)) unrouted.push(`${request.method()} ${url.pathname}`);
       return route.fulfill(response);
     }
     const publicDir = resolve(web, "public");
@@ -315,6 +346,7 @@ try {
     control.deck = deck;
     insightRequests.length = 0;
     bridgeCalls.lists.length = 0;
+    engineCalls.length = 0;
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=${flag}`);
     // Some scenarios show no tabs at all, so a missing tab is not an error.
     await page.getByRole("tab", { name: "Cards", exact: true }).waitFor({ state: "visible", timeout: 4000 }).catch(() => undefined);
@@ -786,7 +818,7 @@ try {
   // t. The tabs: Cards | Suggest | Bridges on a desktop, Deck | Cards | Suggest | Bridges on a phone.
   const tabState = (name: string) => page.getByRole("tab", { name, exact: true }).first().getAttribute("aria-selected");
   const fresh = async (deck: "small" | "full" | "empty" = "small") => {
-    control.deck = deck; insightRequests.length = 0; bridgeCalls.lists.length = 0;
+    control.deck = deck; insightRequests.length = 0; bridgeCalls.lists.length = 0; engineCalls.length = 0;
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
     await page.evaluate(() => { try { sessionStorage.clear(); localStorage.clear(); } catch { /* Storage is not available. */ } });
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
@@ -927,6 +959,127 @@ try {
     await shot(`tabs-suggest-${viewport.name}`);
   }
   await page.setViewportSize({ width: 1920, height: 1080 });
+
+  // u. Engine chips: the engines of the open deck, with the player's edits, for the Bridges tab only.
+  engineControl.mode = "single"; engineControl.status = 200; engineControl.nextEmpty = false;
+  bridgeControl.listStatus = 200; bridgeControl.none = false;
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await fresh();
+  await goTab("Bridges");
+  const chips = bridges.getByTestId("engine-chips");
+  await chips.waitFor({ state: "visible", timeout: 15_000 });
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  const chipNames = async () => (await chips.getByTestId("engine-chip").allInnerTexts()).map((text: string) => text.trim());
+  check("u1", "the deck's engine shows as a chip", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes"]), await chipNames());
+  check("u1", "the host was asked once, with the deck and no engines", engineCalls.length === 1 && engineCalls[0]!.deck?.main?.length > 0 && engineCalls[0]!.engines === undefined, engineCalls.map((call) => Object.keys(call)));
+  check("u1", "a group only in part in the deck waits under Also in deck", (await chips.getByTestId("engine-also").innerText()).replace(/\s+/g, " ").includes("Also in deck: Dragunity 2"), await chips.getByTestId("engine-also").innerText());
+  check("u1", "one engine keeps its own bridge list", (await bridges.getByRole("list", { name: "Your deck can bridge into", exact: true }).getByTestId("bridge-item").count()) === 4 && (await bridges.getByTestId("engines-next").count()) === 0);
+  check("u1", "nothing is edited yet, so there is no reset link", (await chips.getByTestId("engine-reset").count()) === 0);
+
+  await chips.getByRole("button", { name: /^Add Dragunity/ }).click();
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  check("u2", "a second engine joins as a chip", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes", "Dragunity"]), await chipNames());
+  check("u2", "the host is asked again with the corrected set and the deck", engineCalls.length === 2 && JSON.stringify(engineCalls[1]!.engines) === JSON.stringify(["Blue-Eyes", "Dragunity"]) && engineCalls[1]!.deck?.main?.length > 0, engineCalls[1]);
+  check("u2", "the light group left the list", (await chips.getByTestId("engine-also").count()) === 0);
+  const between = bridges.getByTestId("engines-between");
+  check("u2", "Bridges between your engines lists both directions", (await between.locator("h4").innerText()) === "Bridges between your engines" && JSON.stringify(await between.getByTestId("bridge-item").locator("strong").allInnerTexts()) === JSON.stringify(["Blue-Eyes → Dragunity", "Dragunity → Blue-Eyes"]), await between.getByTestId("bridge-item").locator("strong").allInnerTexts());
+  const nexts = bridges.getByTestId("engines-next");
+  const engineItems = nexts.getByTestId("engine-item");
+  check("u2", "the next engine section names the set", (await nexts.locator("h4").innerText()) === "Next engine for Blue-Eyes + Dragunity", await nexts.locator("h4").innerText());
+  check("u2", "engines come best first", JSON.stringify(await engineItems.locator("strong").allInnerTexts()) === JSON.stringify(["Chaos", "Dragon Ruler", "Red-Eyes", "Dark Magician"]), await engineItems.locator("strong").allInnerTexts());
+  const chaos = engineItems.first();
+  check("u2", "an engine shows its grade and how many engines it links to", (await chaos.getByTestId("engine-grade").innerText()) === "Good" && (await chaos.getByTestId("engine-covered").innerText()) === "Links 2 of 2");
+  const paths = (await chaos.getByTestId("engine-paths").innerText()).replace(/\s+/g, " ");
+  check("u2", "an engine shows the access path of each link", paths.includes("Blue-Eyes → Chaos") && paths.includes("Dragunity → Chaos") && paths.includes("Monster Reborn"), paths);
+  check("u2", "an engine shows its cards and what the deck lacks", (await chaos.getByRole("list", { name: "Chaos cards" }).locator("li").count()) >= 5 && /to add/.test(await chaos.getByTestId("engine-need").innerText()), await chaos.getByTestId("engine-need").innerText());
+  check("u2", "an engine shows good and bad points", (await chaos.getByRole("list", { name: "Good" }).locator("li").count()) >= 1 && (await chaos.getByRole("list", { name: "Bad" }).locator("li").count()) >= 1);
+  check("u2", "only a two-way engine gets the two-way badge", (await chaos.getByTestId("engine-two-way").count()) === 0 && (await engineItems.nth(2).getByTestId("engine-two-way").count()) === 1);
+  check("u2", "the single-engine list is replaced", (await bridges.getByRole("list", { name: "Your deck can bridge into", exact: true }).count()) === 0);
+  await shot("engines-two-1920x1080");
+
+  // Taking the added engine away again is no edit at all: the first answer is the answer.
+  const callsBefore = engineCalls.length;
+  await chips.getByRole("button", { name: "Remove Dragunity" }).click();
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  check("u3", "removing the added engine goes back to one chip", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes"]), await chipNames());
+  check("u3", "that asks the host for nothing new", engineCalls.length === callsBefore, engineCalls.length - callsBefore);
+  check("u3", "no edit is left, so no reset link", (await chips.getByTestId("engine-reset").count()) === 0);
+
+  // Removing the deck's own engine is an edit, and Reset to deck brings it back.
+  await chips.getByRole("button", { name: "Remove Blue-Eyes" }).click();
+  await chips.getByTestId("engine-none").waitFor();
+  check("u4", "with no engine left, the tab says so", (await chips.getByTestId("engine-chip").count()) === 0 && (await chips.getByTestId("engine-none").innerText()).includes("No engine found yet"));
+  check("u4", "a removed deck engine shows the reset link", (await chips.getByTestId("engine-reset").innerText()) === "Reset to deck");
+  await chips.getByTestId("engine-reset").click();
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  check("u4", "Reset to deck puts the engine back", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes"]) && (await chips.getByTestId("engine-reset").count()) === 0);
+
+  // + Add takes any archetype by name.
+  await chips.getByTestId("engine-add").click();
+  const adder = bridges.getByTestId("engine-add-form");
+  const box = adder.getByRole("combobox");
+  await box.fill("chao");
+  await adder.getByRole("option", { name: "Chaos" }).waitFor();
+  check("u5", "the combo lists the archetypes that fit and leaves out the chosen ones", (await adder.getByRole("option").allInnerTexts()).includes("Chaos") && !(await adder.getByRole("option").allInnerTexts()).includes("Blue-Eyes"));
+  check("u5", "Add stays off until the text is a whole name", await adder.getByRole("button", { name: "Add", exact: true }).isDisabled());
+  await box.press("Enter");
+  await adder.getByRole("button", { name: "Add", exact: true }).click();
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  check("u5", "the named archetype becomes a chip", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes", "Chaos"]), await chipNames());
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(500);
+  check("u5", "the host got the new set", JSON.stringify(engineCalls.at(-1)!.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]), engineCalls.at(-1));
+
+  // Four is the most.
+  await chips.getByTestId("engine-add").click();
+  await box.fill("Dragunity");
+  await adder.getByRole("button", { name: "Add", exact: true }).click();
+  await chips.getByTestId("engine-add").click();
+  await box.fill("Dark Magician");
+  await adder.getByRole("button", { name: "Add", exact: true }).click();
+  await page.waitForTimeout(300);
+  check("u6", "four chips are the most", (await chips.getByTestId("engine-chip").count()) === 4 && (await chips.getByTestId("engine-add").count()) === 0 && (await chips.innerText()).includes("Four engines is the most"), await chipNames());
+  check("u6", "the host is never asked for more than four", engineCalls.every((call) => !call.engines || call.engines.length <= 4));
+  await shot("engines-four-1920x1080");
+
+  // The host finds two engines: two chips and a group under Also in deck.
+  engineControl.mode = "multi";
+  await fresh();
+  await goTab("Bridges");
+  await chips.waitFor({ state: "visible", timeout: 15_000 });
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  check("u7", "two detected engines show as two chips", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes", "Dragunity"]), await chipNames());
+  check("u7", "the first answer is enough, so the host is asked once", engineCalls.length === 1, engineCalls.length);
+  check("u7", "the light group is offered", (await chips.getByTestId("engine-also").innerText()).includes("Chaos"));
+
+  // The size of the chips and the cards at every width.
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await fresh();
+    await goTab("Bridges");
+    await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(500);
+    await bridges.scrollIntoViewIfNeeded();
+    check("u8", `${viewport.name}: the page does not scroll sideways`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+    const fit = await bridges.evaluate((root: HTMLElement) => { const edge = root.getBoundingClientRect().right + 1; return [...root.querySelectorAll('[data-testid="engine-chip"], [data-testid="engine-item"], [data-testid="bridge-item"]')].every((node) => node.getBoundingClientRect().right <= edge); });
+    check("u8", `${viewport.name}: chips and cards stay inside the column`, fit);
+    await shot(`engines-${viewport.name}`);
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
+
+  // The fast call fails or the server has no bridges.
+  engineControl.mode = "single"; engineControl.status = 500;
+  await fresh();
+  await goTab("Bridges");
+  await bridges.getByRole("alert").first().waitFor({ timeout: 15_000 });
+  check("u9", "a failed engine answer says so and offers Try again", (await bridges.getByRole("alert").first().innerText()).includes("not available") && (await bridges.getByRole("button", { name: "Try again" }).count()) === 1);
+  engineControl.status = 404;
+  await fresh();
+  await page.waitForTimeout(300);
+  await goTab("Bridges");
+  await page.waitForTimeout(600);
+  check("u9", "a server with no bridges hides the row and its tab", (await bridges.count()) === 0 && (await page.getByRole("tab", { name: "Bridges", exact: true }).count()) === 0);
+  engineControl.status = 200;
 
   check("all", "no browser errors", pageErrors.length === 0, pageErrors);
   check("all", "every API call the editor made is mirrored", unrouted.length === 0, [...new Set(unrouted)]);

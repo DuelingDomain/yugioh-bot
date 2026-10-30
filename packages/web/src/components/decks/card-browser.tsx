@@ -822,7 +822,8 @@ export function CardBrowser({
             <BridgesRow
               active={columns.tab === "bridges"}
               archetype={suggest.archetype ?? null}
-              empty={suggest.deck.main.length === 0}
+              deck={suggest.deck}
+              deckMaster={suggest.deckMaster}
               mode={mode}
               genesys={genesys}
               genesysRemaining={suggest.genesysRemaining}

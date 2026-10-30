@@ -6,16 +6,21 @@ import { BridgeCard, type CardPropsFor } from "./bridge-card";
 import { BridgeDetails } from "./bridge-details";
 import { BridgeSearch } from "./bridge-search";
 import { DeepProgress, DeepSearchButton } from "./deep-search";
+import { EngineChips } from "./engine-chips";
+import { EngineList } from "./engine-card";
 import { BridgeRequestError, type BridgeScope, type ShownBridge } from "./bridges-api";
 import { BRIDGES_SHOWN, DEEP_BRIDGES_SHOWN } from "./bridges-model";
+import { NO_EDITS, bridgeFormat, hasEdits, lightEngines, toggleEngine, type EngineEdits } from "./engines-model";
 import { useBridgeCards, useBridgeList, useDeepSearch } from "./use-bridges";
+import { useDeckEngines } from "./use-engines";
 import styles from "./bridges.module.css";
 
 type Props = {
-  /** The archetype of the deck. Null: the deck has none yet, so only the two-archetype search works. */
+  /** The archetype the editor found in the deck. Only a start for the two-archetype search; the engines come from the host. */
   archetype: string | null;
-  /** The deck has no Main Deck cards. */
-  empty: boolean;
+  /** The open deck. The host finds its engines from the card lists. */
+  deck: { main: readonly number[]; extra: readonly number[] };
+  deckMaster?: number | null;
   mode: DuelMode;
   genesys: boolean;
   genesysRemaining?: number;
@@ -48,7 +53,7 @@ function BridgeList({ bridges, mode, genesys, cardProps, onCatalog, showSource, 
  * opens its details in place; Deep search looks wider with a progress bar; "Search two archetypes" is a free
  * lookup. Only bridges that passed the checks reach this row, so there is nothing to filter here.
  */
-export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, cardProps, deckCount, limit, onCatalog, onDisabled, active = true, onDeepFinished }: Props) {
+export function BridgesRow({ archetype, deck, deckMaster, mode, genesys, genesysRemaining, cardProps, deckCount, limit, onCatalog, onDisabled, active = true, onDeepFinished }: Props) {
   const onDisabledRef = useRef(onDisabled);
   onDisabledRef.current = onDisabled;
   const onDeepFinishedRef = useRef(onDeepFinished);
@@ -60,10 +65,22 @@ export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, 
   // The bridge a details view was opened from, so Back can give the focus to it again.
   const cameFrom = useRef<string | null>(null);
 
-  const format = genesys ? "genesys" : "advanced";
-  const scope: BridgeScope | null = archetype && !empty ? { source: archetype, format, ...(genesys && genesysRemaining != null ? { genesysRemaining } : {}) } : null;
-  const { list, loading, error, retry } = useBridgeList(scope, true, active);
+  const empty = deck.main.length === 0;
+  const format = bridgeFormat(genesys);
+  // The player's chip edits sit on top of the engines the host finds. They change this tab only.
+  const [edits, setEdits] = useState<EngineEdits>(NO_EDITS);
+  const engines = useDeckEngines({ deck, deckMaster, genesys, empty, enabled: active }, edits);
+  const set = engines.set;
+  const single = set.length === 1 ? set[0]! : null;
+  // One engine: its own bridges, as before. The deep search looks from the first engine of a set.
+  const first = set[0] ?? null;
+  const genesysPart = genesys && genesysRemaining != null ? { genesysRemaining } : {};
+  const listScope: BridgeScope | null = single && !empty ? { source: single, format, ...genesysPart } : null;
+  const scope: BridgeScope | null = first && !empty ? { source: first, format, ...genesysPart } : null;
+  const { list, loading, error: listError, retry: retryList } = useBridgeList(listScope, true, active);
   const { deep, start, cooldown, blocked } = useDeepSearch(scope);
+  const error = listError ?? (single ? null : engines.error);
+  const retry = () => { retryList(); engines.retry(); };
 
   // A search that ends tells the tab bar, so a hidden tab can show a dot.
   const phase = deep.phase;
@@ -75,9 +92,10 @@ export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, 
   }, [phase]);
 
   // The server says bridges are off: this row goes away, like the other rows do for Suggestions.
-  useEffect(() => { if (error?.status === 404) onDisabledRef.current?.(); }, [error]);
-  // A new archetype or format closes the details of the old one.
-  const scopeId = scope ? `${scope.source}|${scope.format}` : "";
+  const disabled = (listError ?? engines.error)?.status === 404;
+  useEffect(() => { if (disabled) onDisabledRef.current?.(); }, [disabled]);
+  // A new set of engines or a new format closes the details of the old one.
+  const scopeId = `${set.join("|")}|${format}`;
   useEffect(() => { setOpen(null); }, [scopeId]);
 
   useLayoutEffect(() => {
@@ -92,19 +110,23 @@ export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, 
     setOpen(bridge);
   }
 
-  if (error?.status === 404) return null;
+  if (disabled) return null;
 
   const common = { mode, genesys, cardProps, onCatalog, onOpen: openBridge };
   const top = list?.results.slice(0, BRIDGES_SHOWN) ?? [];
   const noData = error instanceof BridgeRequestError && error.status === 400;
-  const skeleton = scope != null && list == null && error == null;
-  const inReview = deep.phase === "done" && deep.inReview != null ? deep.inReview : list?.inReview ?? 0;
+  const result = engines.result;
+  const between = result?.between ?? [];
+  const next = result?.next ?? [];
+  const skeleton = single != null ? list == null && error == null : set.length > 1 && result == null && error == null;
+  const inReview = deep.phase === "done" && deep.inReview != null ? deep.inReview : (single ? list?.inReview : result?.inReview) ?? 0;
   const running = deep.phase === "starting" || deep.phase === "running";
 
-  const hint = !archetype || empty
-    ? (empty ? "Add a few Main Deck cards. Bridges for your deck show here." : "Add cards from one archetype to see where your deck can bridge.")
-    : noData ? `No bridges are mapped for ${archetype} yet.`
+  const hint = empty ? "Add a few Main Deck cards. Bridges for your deck show here."
+    : set.length === 0 ? "Add cards from one archetype to see where your deck can bridge."
+    : noData ? `No bridges are mapped for ${single ?? set.join(", ")} yet.`
     : "No bridge that passed our checks yet. Try a deep search.";
+  const names = set.join(" + ");
 
   return (
     <section ref={rootRef} className={styles.row} aria-labelledby={`${hintId}-title`} data-testid="bridges-row">
@@ -113,12 +135,33 @@ export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, 
         <BridgeDetails bridge={open} mode={mode} onCatalog={onCatalog} cardProps={cardProps} deckCount={deckCount} limit={limit} genesys={genesys} onBack={() => setOpen(null)} />
       ) : (
         <div className={styles.body}>
-          <p className={styles.lead}>Your {archetype ? <><strong>{archetype}</strong> </> : null}deck can bridge into</p>
+          {!empty ? (
+            <EngineChips title="Engines in this deck" set={set} light={lightEngines(engines.detected, set)} edited={hasEdits(edits)} busy={engines.loading}
+              onRemove={(name) => setEdits((now) => toggleEngine(now, engines.found, name, false))}
+              onAdd={(name) => setEdits((now) => toggleEngine(now, engines.found, name, true))}
+              onReset={() => setEdits(NO_EDITS)} />
+          ) : null}
+          {single ? <p className={styles.lead}>Your <strong>{single}</strong> deck can bridge into</p> : null}
           {/* One reserved height for loading, results and the empty state, so the list below does not jump. */}
           <div className={styles.results}>
-            {top.length > 0 ? (
+            {single && top.length > 0 ? (
               <div aria-busy={loading || undefined}><BridgeList {...common} bridges={top} label="Your deck can bridge into" /></div>
-            ) : skeleton ? (
+            ) : set.length > 1 && (between.length > 0 || next.length > 0) ? (
+              <div className={styles.betweenList} aria-busy={engines.loading || undefined}>
+                {between.length > 0 ? (
+                  <section aria-label="Bridges between your engines" data-testid="engines-between">
+                    <h4 className={styles.subTitle}>Bridges between your engines</h4>
+                    <BridgeList {...common} bridges={between} showSource label="Bridges between your engines" />
+                  </section>
+                ) : null}
+                {next.length > 0 ? (
+                  <section aria-label={`Next engine for ${names}`} data-testid="engines-next">
+                    <h4 className={styles.subTitle}>Next engine for {names}</h4>
+                    <EngineList engines={next} mode={mode} genesys={genesys} cardProps={cardProps} onCatalog={onCatalog} label={`Next engine for ${names}`} />
+                  </section>
+                ) : null}
+              </div>
+            ) : skeleton || engines.waiting ? (
               <div className={styles.skeletons} role="status" aria-label="Looking for bridges">{Array.from({ length: 4 }, (_, index) => <span key={index} className={styles.skeleton} aria-hidden />)}</div>
             ) : error && !noData ? (
               <p className={styles.hint} role="alert">{error.status === 403 ? "Bridges need a player in this community." : "Bridges are not available right now."}{error.status === 403 ? null : <> <button type="button" className={styles.link} onClick={retry}>Try again</button></>}</p>
@@ -149,7 +192,7 @@ export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, 
           ) : null}
 
           {searching ? (
-            <BridgeSearch start={archetype} genesys={genesys} genesysRemaining={genesysRemaining}
+            <BridgeSearch start={first ?? archetype} genesys={genesys} genesysRemaining={genesysRemaining}
               renderList={(bridges, title) => <BridgeList {...common} bridges={bridges} showSource label={title} />} />
           ) : null}
         </div>

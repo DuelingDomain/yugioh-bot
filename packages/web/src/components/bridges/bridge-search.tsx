@@ -3,12 +3,13 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { foldCardText } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
-import { fetchBridgeArchetypes, type BridgeScope, type ShownBridge } from "./bridges-api";
-import { errorText, useBridgeList } from "./use-bridges";
+import type { BridgeScope, ShownBridge } from "./bridges-api";
+import { useBridgeList } from "./use-bridges";
+import { useArchetypeNames } from "./use-engines";
 import styles from "./bridges.module.css";
 
 /** An archetype box with a list of the names that fit. The text is the choice once it is a whole name. */
-function ArchetypeCombo({ label, text, names, onText, placeholder }: {
+export function ArchetypeCombo({ label, text, names, onText, placeholder }: {
   label: string;
   text: string;
   names: readonly string[] | null;
@@ -81,7 +82,7 @@ function ArchetypeCombo({ label, text, names, onText, placeholder }: {
 }
 
 /** The whole name a text stands for, or null. Case does not matter. */
-function wholeName(text: string, names: readonly string[] | null): string | null {
+export function wholeName(text: string, names: readonly string[] | null): string | null {
   const folded = text.trim().toLowerCase();
   return folded && names ? names.find((name) => name.toLowerCase() === folded) ?? null : null;
 }
@@ -97,19 +98,11 @@ export function BridgeSearch({ start, genesys, genesysRemaining, renderList }: {
   genesysRemaining?: number;
   renderList: (bridges: ShownBridge[], title: string) => React.ReactNode;
 }) {
-  const [names, setNames] = useState<readonly string[] | null>(null);
-  const [namesError, setNamesError] = useState<string | null>(null);
-  const [retry, setRetry] = useState(0);
+  const { names, error: namesError, retry: reloadNames } = useArchetypeNames();
   const [from, setFrom] = useState(start ?? "");
   const [to, setTo] = useState("");
   const [touched, setTouched] = useState(false);
 
-  useEffect(() => {
-    let live = true;
-    setNamesError(null);
-    fetchBridgeArchetypes().then((found) => { if (live) setNames(found); }, (reason: unknown) => { if (live) setNamesError(errorText(reason)); });
-    return () => { live = false; };
-  }, [retry]);
   // The first box follows the deck until the player types in it.
   useEffect(() => { if (!touched && start) setFrom(start); }, [start, touched]);
 
@@ -128,7 +121,7 @@ export function BridgeSearch({ start, genesys, genesysRemaining, renderList }: {
         <span className={styles.searchTo} aria-hidden>→</span>
         <ArchetypeCombo label="To" text={to} names={names} placeholder="Argostars, Ashtra…" onText={setTo} />
       </div>
-      {namesError ? <p className={styles.note} role="alert">{namesError} <button type="button" className={styles.link} onClick={() => setRetry((value) => value + 1)}>Try again</button></p> : null}
+      {namesError ? <p className={styles.note} role="alert">{namesError} <button type="button" className={styles.link} onClick={reloadNames}>Try again</button></p> : null}
       {source && target && source === target ? <p className={styles.note}>Choose two different archetypes.</p> : null}
       {!scope && !namesError && !(source && target) ? <p className={styles.note}>Pick two archetypes to see the bridge each way.</p> : null}
       {scope && loading && !list ? <p className={styles.note} role="status">Looking…</p> : null}
