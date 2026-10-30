@@ -72,6 +72,29 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     } finally { await jobs.close(); warning.mockRestore(); }
   });
 
+  it("expires permanent completion failures in memory and frees global and actor slots", async () => {
+    const { db } = setup();
+    const execute = vi.fn(async () => []);
+    const jobs = new BridgeSearchJobs(db, { execute, project: () => ({ results: [], inReview: 0 }), version: () => "deadline",
+      completionTimeoutMs: 100 });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    db.exec(`CREATE TEMP TRIGGER fail_bridge_terminal BEFORE UPDATE ON bridge_deep_job
+      WHEN OLD.state='running' AND NEW.state IN ('done','failed') AND OLD.query_json LIKE '%Odion%'
+      BEGIN SELECT RAISE(FAIL,'permanent completion fault'); END`);
+    try {
+      const first = jobs.start(actor(), query());
+      const second = jobs.start(actor(2), { ...query(), target: "Ashtra" });
+      const third = jobs.start(actor(3), query("Blue-Eyes"));
+      expect(third.state).toBe("queued");
+      await vi.waitFor(async () => expect((await jobs.status(actor(3), third.jobId)).state).toBe("done"));
+      expect(await jobs.status(actor(), first.jobId)).toMatchObject({ state: "failed", error: expect.stringContaining("could not be saved") });
+      expect((await jobs.status(actor(2), second.jobId)).state).toBe("failed");
+      expect(db.prepare("SELECT state FROM bridge_deep_job WHERE id=?").get(first.jobId)).toEqual({ state: "running" });
+      expect(jobs.start(actor(), query("Argostars"))).toMatchObject({ state: "running" });
+      expect(execute).toHaveBeenCalledTimes(4);
+    } finally { db.exec("DROP TRIGGER fail_bridge_terminal"); await jobs.close(); warning.mockRestore(); }
+  });
+
   it("shares a sorted multi-engine key without deck context and charges it as one search", async () => {
     const { db, jobs, execute, finish } = setup(0);
     const multi = { ...query(), engines: ["Odion", "Ashtra"], deckCards: [1], genesysRemaining: 100 };

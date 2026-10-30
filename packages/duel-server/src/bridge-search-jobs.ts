@@ -16,6 +16,7 @@ interface JobOptions {
   project(rows: ArchetypeBridge[], query: BridgeSearchQuery): BridgeProjection | Promise<BridgeProjection>;
   version(): string;
   now?: () => number;
+  completionTimeoutMs?: number;
 }
 export class BridgeJobError extends Error {
   constructor(message: string, readonly status: number, readonly retryAfter?: number) { super(message); }
@@ -28,6 +29,7 @@ export class BridgeReviewUnavailableError extends Error {
 export class BridgeSearchJobs {
   private readonly active = new Set<string>();
   private readonly running = new Set<Promise<void>>();
+  private readonly failedCompletions = new Map<string, string>();
   private stopped = false;
   private drainTimer?: ReturnType<typeof setTimeout>;
   private readonly now: () => number;
@@ -77,8 +79,10 @@ export class BridgeSearchJobs {
       && (JSON.parse(cached.result_json) as ArchetypeBridge[]).some(row => bridgeGate(this.db, row).state === "pending"));
     const admitted = this.db.transaction(() => {
       const hash = this.actorHash(actor);
+      const failed = JSON.stringify([...this.failedCompletions.keys()]);
       const existing = this.db.prepare(`SELECT j.* FROM bridge_deep_job j JOIN bridge_deep_actor a ON a.job_id=j.id
-        WHERE a.actor_hash=? AND j.state IN ('queued','running') ORDER BY j.created_at LIMIT 1`).get(hash) as JobRow | undefined;
+        WHERE a.actor_hash=? AND j.state IN ('queued','running') AND j.id NOT IN (SELECT value FROM json_each(?))
+        ORDER BY j.created_at LIMIT 1`).get(hash, failed) as JobRow | undefined;
       const subscribe = (job: JobRow, cached: boolean) => {
         this.db.prepare("INSERT OR IGNORE INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at,ended_at,genesys_remaining,deck_cards_json) VALUES(?,?,?,?,?,?,?)")
           .run(job.id, hash, actor.guildId, now, job.ended_at, query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null);
@@ -100,7 +104,8 @@ export class BridgeSearchJobs {
         JOIN bridge_deep_job j ON j.id=a.job_id WHERE a.actor_hash=? AND a.admitted_at>? AND a.admitted_at<=coalesce(j.ended_at,a.admitted_at)`)
         .get(hash, now - 3_600_000) as { n: number; oldest: number | null };
       if (hour.n >= 15) throw new BridgeJobError("Deep search hourly limit reached", 429, Math.max(1, Math.ceil((hour.oldest! + 3_600_000 - now) / 1000)));
-      const pending = this.db.prepare("SELECT * FROM bridge_deep_job WHERE query_key=? AND state IN ('queued','running') ORDER BY created_at LIMIT 1").get(key) as JobRow | undefined;
+      const pending = this.db.prepare(`SELECT * FROM bridge_deep_job WHERE query_key=? AND state IN ('queued','running')
+        AND id NOT IN (SELECT value FROM json_each(?)) ORDER BY created_at LIMIT 1`).get(key, failed) as JobRow | undefined;
       if (pending) return subscribe(pending, false);
       const queued = this.db.prepare("SELECT count(*) AS n FROM bridge_deep_job WHERE state='queued'").get() as { n: number };
       if (queued.n >= 100) throw new BridgeJobError("Bridge search queue is busy", 503, 10);
@@ -121,6 +126,8 @@ export class BridgeSearchJobs {
     const row = this.db.prepare(`SELECT j.*,a.genesys_remaining,a.deck_cards_json FROM bridge_deep_job j JOIN bridge_deep_actor a ON a.job_id=j.id
       WHERE j.id=? AND a.actor_hash=? AND a.guild_id=?`).get(jobId, this.actorHash(actor), actor.guildId) as JobRow & { genesys_remaining: number | null; deck_cards_json: string | null } | undefined;
     if (!row) throw new BridgeJobError("Not found", 404);
+    const failed = this.failedCompletions.get(row.id);
+    if (failed) { row.state = "failed"; row.error = failed; }
     const query = { ...JSON.parse(row.query_json) as BridgeSearchQuery, genesysRemaining: row.genesys_remaining ?? undefined,
       deckCards: row.deck_cards_json ? JSON.parse(row.deck_cards_json) as number[] : undefined };
     if (row.query_key !== this.queryKey(query)) throw new BridgeJobError("Not found", 404);
@@ -173,12 +180,14 @@ export class BridgeSearchJobs {
         }
         catch (cause) { error = cause instanceof BridgeReviewUnavailableError ? cause.message : "Bridge search could not finish. Try again shortly."; }
         let warned = false;
+        const deadline = performance.now() + (this.options.completionTimeoutMs ?? 5000);
+        const resultJson = JSON.stringify(result);
         for (;;) {
           try {
             this.writeWithoutWaiting(() => this.db.transaction(() => {
               const now = this.now();
               this.db.prepare("UPDATE bridge_deep_job SET state=?,step=CASE WHEN ? THEN step ELSE 'done' END,progress=CASE WHEN ? THEN progress ELSE 100 END,result_json=?,review_incomplete=?,error=?,ended_at=? WHERE id=? AND state='running'")
-                .run(error ? "failed" : "done", error ? 1 : 0, error ? 1 : 0, JSON.stringify(result), reviewIncomplete, error, now, row.id);
+                .run(error ? "failed" : "done", error ? 1 : 0, error ? 1 : 0, resultJson, reviewIncomplete, error, now, row.id);
               this.db.prepare("UPDATE bridge_deep_actor SET ended_at=? WHERE job_id=? AND ended_at IS NULL").run(now, row.id);
             }).immediate());
             break;
@@ -186,7 +195,21 @@ export class BridgeSearchJobs {
             if (!warned) console.warn("Bridge job completion write failed; retrying.", { jobId: row.id });
             warned = true;
             if (this.stopped) break; // Startup recovery fails interrupted jobs after shutdown.
-            await new Promise(resolve => setTimeout(resolve, 250));
+            if (performance.now() >= deadline) {
+              const message = "Bridge search completion could not be saved. Try again shortly.";
+              this.failedCompletions.set(row.id, message);
+              // The disk may reject every write. Memory remains authoritative
+              // until startup recovery can persist the interruption.
+              try {
+                this.writeWithoutWaiting(() => this.db.transaction(() => {
+                  this.db.prepare("UPDATE bridge_deep_job SET state='failed',error=?,ended_at=? WHERE id=?").run(message, this.now(), row.id);
+                  this.db.prepare("UPDATE bridge_deep_actor SET ended_at=? WHERE job_id=? AND ended_at IS NULL").run(this.now(), row.id);
+                }).immediate());
+              } catch { /* Keep the terminal state available without holding a slot. */ }
+              console.warn("Bridge job completion deadline exceeded.", { jobId: row.id });
+              break;
+            }
+            await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(1, deadline - performance.now()))));
           }
         }
       })().finally(() => { this.active.delete(row.id); this.running.delete(work); this.drain(); })
