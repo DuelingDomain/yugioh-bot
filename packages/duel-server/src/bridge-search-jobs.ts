@@ -20,6 +20,7 @@ interface JobOptions {
   version(): string;
   now?: () => number;
   completionTimeoutMs?: number;
+  completionBusyTimeoutMs?: number;
 }
 export class BridgeJobError extends Error {
   constructor(message: string, readonly status: number, readonly retryAfter?: number) { super(message); }
@@ -75,6 +76,7 @@ export class BridgeSearchJobs {
 
   start(actor: BridgeSearchActor, query: BridgeSearchQuery) {
     if (this.stopped) throw new BridgeJobError("Bridge search is restarting", 503);
+    this.retryFailedCompletions();
     const key = this.queryKey(query), now = this.now();
     const cached = this.db.prepare("SELECT * FROM bridge_deep_job WHERE query_key=? AND state='done' AND ended_at>? ORDER BY ended_at DESC LIMIT 1").get(key, now - 86_400_000) as JobRow | undefined;
     // Evidence validation can be expensive; keep it outside the admission write lock.
@@ -107,8 +109,9 @@ export class BridgeSearchJobs {
         if (!incomplete || cached.ended_at! > now - 600_000) return subscribe(cached, true);
       }
       const hour = this.db.prepare(`SELECT count(DISTINCT a.job_id) AS n,min(a.admitted_at) AS oldest FROM bridge_deep_actor a
-        JOIN bridge_deep_job j ON j.id=a.job_id WHERE a.actor_hash=? AND a.admitted_at>? AND a.admitted_at<=coalesce(j.ended_at,a.admitted_at)`)
-        .get(hash, now - 3_600_000) as { n: number; oldest: number | null };
+        JOIN bridge_deep_job j ON j.id=a.job_id WHERE a.actor_hash=? AND a.admitted_at>? AND a.admitted_at<=coalesce(j.ended_at,a.admitted_at)
+        AND j.state<>'failed' AND j.id NOT IN (SELECT value FROM json_each(?))`)
+        .get(hash, now - 3_600_000, failed) as { n: number; oldest: number | null };
       if (hour.n >= 15) throw new BridgeJobError("Deep search hourly limit reached", 429, Math.max(1, Math.ceil((hour.oldest! + 3_600_000 - now) / 1000)));
       const pending = this.db.prepare(`SELECT * FROM bridge_deep_job WHERE query_key=? AND state IN ('queued','running')
         AND id NOT IN (SELECT value FROM json_each(?)) ORDER BY created_at LIMIT 1`).get(key, failed) as JobRow | undefined;
@@ -178,6 +181,19 @@ export class BridgeSearchJobs {
     try { return write(); } finally { this.db.pragma(`busy_timeout = ${timeout}`); }
   }
 
+  private retryFailedCompletions(): void {
+    for (const [id, message] of this.failedCompletions) {
+      try {
+        this.writeWithoutWaiting(() => this.db.transaction(() => {
+          const now = this.now();
+          this.db.prepare("UPDATE bridge_deep_job SET state='failed',error=?,ended_at=? WHERE id=?").run(message, now, id);
+          this.db.prepare("UPDATE bridge_deep_actor SET ended_at=? WHERE job_id=? AND ended_at IS NULL").run(now, id);
+        }).immediate());
+        this.failedCompletions.delete(id);
+      } catch { /* Retain unsaved terminal states until the database accepts writes. */ }
+    }
+  }
+
   private drain(): void {
     try { this.drainReady(); }
     catch {
@@ -190,6 +206,7 @@ export class BridgeSearchJobs {
 
   private drainReady(): void {
     if (this.stopped) return;
+    this.retryFailedCompletions();
     while (this.active.size < 2) {
       const row = this.db.prepare("SELECT * FROM bridge_deep_job WHERE state='queued' ORDER BY created_at,id LIMIT 1").get() as JobRow | undefined;
       if (!row) break;
@@ -216,6 +233,7 @@ export class BridgeSearchJobs {
         catch (cause) { error = cause instanceof BridgeReviewUnavailableError ? cause.message : "Bridge search could not finish. Try again shortly."; }
         let warned = false;
         const deadline = performance.now() + (this.options.completionTimeoutMs ?? 5000);
+        const busyDeadline = performance.now() + (this.options.completionBusyTimeoutMs ?? 120_000);
         const resultJson = this.options.serializeResult?.(result, JSON.parse(row.query_json)) ?? JSON.stringify(result);
         for (;;) {
           try {
@@ -226,25 +244,25 @@ export class BridgeSearchJobs {
               this.db.prepare("UPDATE bridge_deep_actor SET ended_at=? WHERE job_id=? AND ended_at IS NULL").run(now, row.id);
             }).immediate());
             break;
-          } catch {
+          } catch (cause) {
             if (!warned) console.warn("Bridge job completion write failed; retrying.", { jobId: row.id });
             warned = true;
             if (this.stopped) break; // Startup recovery fails interrupted jobs after shutdown.
-            if (performance.now() >= deadline) {
+            const code = (cause as { code?: string } | null)?.code ?? "";
+            // BUSY/LOCKED may be another process importing the catalog. Keep
+            // paid results in memory while it finishes, without blocking duels.
+            // Permanent storage/constraint faults retain the short deadline.
+            const retryDeadline = /^SQLITE_(FULL|READONLY|CORRUPT|NOTADB|CONSTRAINT)(_|$)/.test(code) ? deadline : busyDeadline;
+            if (performance.now() >= retryDeadline) {
               const message = "Bridge search completion could not be saved. Try again shortly.";
               this.failedCompletions.set(row.id, message);
               // The disk may reject every write. Memory remains authoritative
               // until startup recovery can persist the interruption.
-              try {
-                this.writeWithoutWaiting(() => this.db.transaction(() => {
-                  this.db.prepare("UPDATE bridge_deep_job SET state='failed',error=?,ended_at=? WHERE id=?").run(message, this.now(), row.id);
-                  this.db.prepare("UPDATE bridge_deep_actor SET ended_at=? WHERE job_id=? AND ended_at IS NULL").run(this.now(), row.id);
-                }).immediate());
-              } catch { /* Keep the terminal state available without holding a slot. */ }
+              this.retryFailedCompletions();
               console.warn("Bridge job completion deadline exceeded.", { jobId: row.id });
               break;
             }
-            await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(1, deadline - performance.now()))));
+            await new Promise(resolve => setTimeout(resolve, Math.min(250, Math.max(1, retryDeadline - performance.now()))));
           }
         }
       })().finally(() => { this.active.delete(row.id); this.running.delete(work); this.drain(); })

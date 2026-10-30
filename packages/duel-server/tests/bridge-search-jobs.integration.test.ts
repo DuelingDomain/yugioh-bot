@@ -1,4 +1,7 @@
 import Database from "better-sqlite3";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { importBridgeArtifact, type ArchetypeBridge } from "@yugidraft/shared/cards/effects";
@@ -25,6 +28,51 @@ function setup(inReview = 2) {
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 
 describe("persistent bridge deep-search admission and lifecycle", () => {
+  it("keeps a finished result through a real SQLite writer lock longer than five seconds", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bridge-completion-lock-"));
+    const db = new Database(join(directory, "app.sqlite"));
+    db.pragma("journal_mode = WAL"); migrate(db);
+    const writer = new Database(db.name);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const execute = vi.fn(async () => { await gate; return []; });
+    const jobs = new BridgeSearchJobs(db, { execute, project: () => ({ results: [], inReview: 0 }), version: () => "writer-lock" });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const job = jobs.start(actor(), query());
+      writer.exec("BEGIN IMMEDIATE");
+      release();
+      await new Promise(resolve => setTimeout(resolve, 5500));
+      expect((await jobs.status(actor(), job.jobId)).state).toBe("running");
+      writer.exec("COMMIT");
+      await vi.waitFor(async () => expect((await jobs.status(actor(), job.jobId)).state).toBe("done"));
+      expect(execute).toHaveBeenCalledTimes(1);
+    } finally {
+      release(); if (writer.inTransaction) writer.exec("ROLLBACK");
+      await jobs.close(); warning.mockRestore(); writer.close(); db.close(); rmSync(directory, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it("does not charge failed completion saves against the hourly limit, including after restart", async () => {
+    const { db } = setup();
+    const options = { execute: async () => [], project: () => ({ results: [], inReview: 0 }), version: () => "save-refund", completionTimeoutMs: 1 };
+    const jobs = new BridgeSearchJobs(db, options);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    db.exec(`CREATE TEMP TRIGGER fail_bridge_done BEFORE UPDATE ON bridge_deep_job
+      WHEN NEW.state='done' BEGIN SELECT RAISE(FAIL,'completion cannot be saved'); END`);
+    try {
+      for (let i = 0; i < 16; i++) {
+        const job = jobs.start(actor(), query(`Save failure ${i}`));
+        await vi.waitFor(async () => expect((await jobs.status(actor(), job.jobId)).state).toBe("failed"));
+      }
+      expect((jobs as unknown as { failedCompletions: Map<string, string> }).failedCompletions.size).toBe(0);
+      await jobs.close(); db.exec("DROP TRIGGER fail_bridge_done");
+      const restarted = new BridgeSearchJobs(db, options);
+      try { expect(restarted.start(actor(), query())).toMatchObject({ state: "running" }); }
+      finally { await restarted.close(); }
+    } finally { await jobs.close(); warning.mockRestore(); }
+  });
+
   it("deduplicates and throttles progress writes while persisting final completion", async () => {
     const { db } = setup();
     const prepare = vi.spyOn(db, "prepare");
@@ -92,7 +140,11 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
       expect(db.prepare("SELECT state FROM bridge_deep_job WHERE id=?").get(first.jobId)).toEqual({ state: "running" });
       expect(jobs.start(actor(), query("Argostars"))).toMatchObject({ state: "running" });
       expect(execute).toHaveBeenCalledTimes(4);
-    } finally { db.exec("DROP TRIGGER fail_bridge_terminal"); await jobs.close(); warning.mockRestore(); }
+      db.exec("DROP TRIGGER fail_bridge_terminal");
+      jobs.start(actor(4), query("Recovered"));
+      expect(db.prepare("SELECT state FROM bridge_deep_job WHERE id=?").get(first.jobId)).toEqual({ state: "failed" });
+      expect((jobs as unknown as { failedCompletions: Map<string, string> }).failedCompletions.size).toBe(0);
+    } finally { db.exec("DROP TRIGGER IF EXISTS fail_bridge_terminal"); await jobs.close(); warning.mockRestore(); }
   });
 
   it("shares a sorted multi-engine key without deck context and charges it as one search", async () => {
