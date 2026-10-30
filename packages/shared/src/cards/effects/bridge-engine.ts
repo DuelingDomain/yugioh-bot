@@ -20,6 +20,8 @@ const availableMaterial = (card: Card): boolean => !/Cannot be Normal Summoned|M
   && ((card.level ?? 0) <= 4 || sentences(printedText(card)).some(text => /Special Summon this card[^.]*from your hand/i.test(text)));
 const costCanUse = (cost: Capability, card: Card): boolean => !!cost.filter && !cost.filter.this_card
   && particularFilter(cost.filter) && matchesBridgeFilter(cost.filter, card)
+  && cost.evidence.includes(";") && !!actionEvidence({ ...card, text: cost.evidence.split(";")[0]!, pendulumText: undefined }, cost.key, cost.filter)
+  && !/\bequipped to (?:this|that) card\b/i.test(cost.evidence.split(";")[0]!)
   && (!cost.evidence.includes(":") || /^(?:\(Quick Effect\)|Once per turn|During your Main Phase|(?:If|When) this card is (?:Normal|Normal or Special) Summoned)\s*:/i.test(cost.evidence))
   && !!cost.from?.some(zone => zone === "hand" || zone === "deck" ? !isExtraDeckCard(card)
     : zone === "extra_deck" ? isExtraDeckCard(card) : zone === "field" ? !isExtraDeckCard(card) && availableMaterial(card) : true);

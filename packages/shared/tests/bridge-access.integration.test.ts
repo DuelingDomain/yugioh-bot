@@ -71,6 +71,8 @@ describe("deep-only access paths on the pinned catalog", () => {
     expect(shark.reasons[0]).toMatchObject({ key: "access", cost: { card: 613013, capability: "tribute" } });
     expect(shark.reasons[0]!.cost!.using).not.toBe(2405631); // Guoglim needs an unsupported Synchro setup.
     expect(engine.deepBetween("Machina", "Photon")?.reasons[0]).toMatchObject({ key: "access", cost: { capability: "tribute" } }); // Lillybot's unconditional "Once per turn:" ignition.
+    expect(engine.deepBetween("Blue-Eyes", "Red-Eyes")).toBeNull(); // A Blue-Eyes Equip cannot equip Gearfried.
+    expect(engine.deepBetween("Odion", "Ancient Warriors")).toBeNull(); // Lu Jing sends after ';' as an effect, not a cost.
     const capabilities = structuredClone(data.capabilities);
     const setter = capabilities.find(row => row.id === 53143898)!;
     setter.provides = setter.provides.filter(capability => capability.key !== "set_spell_trap");
