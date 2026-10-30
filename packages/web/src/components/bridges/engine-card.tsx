@@ -21,6 +21,18 @@ export function needText(engine: EngineSuggestion): string {
   return `${held > 0 ? `${held} already in deck. ` : ""}${add} ${add === 1 ? "card" : "cards"} to add.`;
 }
 
+/** The engines of the set that a suggestion links to, in the order of its links. */
+export function linkedEngines(engine: EngineSuggestion): string[] {
+  return [...new Set(engine.links.map((link) => (link.from === engine.engine ? link.to : link.from)))];
+}
+
+/** "Links Odion + Ashtra", or "Links Odion · 1 of 2" when it does not link the whole set. */
+export function linksText(engine: EngineSuggestion): string {
+  const linked = linkedEngines(engine);
+  const words = `Links ${linked.join(" + ")}`;
+  return engine.of > 1 && engine.covered < engine.of ? `${words} · ${engine.covered} of ${engine.of}` : words;
+}
+
 /** "Odion ↔ Argostars" for a link that goes back too, "Odion → Argostars" for one that does not. */
 function linkEnds(engine: EngineSuggestion, from: string, to: string): string {
   const back = engine.twoWay.includes(from === engine.engine ? to : from);
@@ -28,7 +40,7 @@ function linkEnds(engine: EngineSuggestion, from: string, to: string): string {
 }
 
 /** One engine that fits next: grade, how many of your engines it links to, the path of each link, the cards, the points. */
-export function EngineCard({ engine, cards, cardProps, genesys, onOpen, onOpenLink, lit }: {
+export function EngineCard({ engine, cards, cardProps, genesys, onOpen, onOpenLink, lit, fresh }: {
   engine: EngineSuggestion;
   cards: ReadonlyMap<number, DeckCardInfo>;
   cardProps: CardPropsFor;
@@ -36,10 +48,13 @@ export function EngineCard({ engine, cards, cardProps, genesys, onOpen, onOpenLi
   onOpen?: (engine: EngineSuggestion) => void;
   /** A link opens the details of its bridge. */
   onOpenLink?: (bridge: ShownBridge) => void;
-  /** The Suggest tab asked for this engine: it is marked. */
+  /** The Suggest tab asked for this engine: it is marked, and it can take the focus. */
   lit?: boolean;
+  /** Only the deep search found it. */
+  fresh?: boolean;
 }) {
   const word = engineGrade(engine);
+  const covered = `Links ${engine.covered} of ${engine.of}`;
   const need = needText(engine);
   const title = (
     <>
@@ -48,14 +63,17 @@ export function EngineCard({ engine, cards, cardProps, genesys, onOpen, onOpenLi
     </>
   );
   return (
-    <li className={cn(styles.item, styles.engine)} data-grade={word.toLowerCase()} data-testid="engine-item" data-engine={engine.engine} data-lit={lit ? "" : undefined}>
+    <li className={cn(styles.item, styles.engine)} data-grade={word.toLowerCase()} data-testid="engine-item" data-engine={engine.engine} data-lit={lit ? "" : undefined}
+      tabIndex={lit ? -1 : undefined}>
       {onOpen ? (
-        <button type="button" className={styles.open} aria-label={`${engine.engine}. ${word}, links ${engine.covered} of ${engine.of}. Open details`} onClick={() => onOpen(engine)}>{title}</button>
+        <button type="button" className={styles.open} aria-label={`${engine.engine}. ${word}, ${linksText(engine).toLowerCase()}. Open details`} onClick={() => onOpen(engine)}>{title}</button>
       ) : <div className={styles.open}>{title}</div>}
-      <div className={styles.meta}>
+      {/* Always in this order (grade, links, two-way, new), so the eye finds each in the same place on every card. */}
+      <div className={styles.engineMeta}>
         <GradeTag grade={word.toLowerCase()} text={word} testId="engine-grade" />
-        <span className={styles.way} data-testid="engine-covered">Links {engine.covered} of {engine.of}</span>
+        {engine.of > 1 ? <span className={styles.way} data-testid="engine-covered" title={linksText(engine)}>{covered}</span> : null}
         {engine.twoWay.length > 0 ? <span className={styles.way} data-way="two" data-testid="engine-two-way" title={`Also leads back to ${engine.twoWay.join(", ")}`}>Two-way</span> : null}
+        {fresh ? <span className={styles.way} data-way="new" data-testid="engine-new" title="The deep search found this engine">New</span> : null}
       </div>
       <ul className={styles.paths} aria-label="How it connects" data-testid="engine-paths">
         {engine.links.map((link) => (
@@ -88,7 +106,7 @@ export function EngineCard({ engine, cards, cardProps, genesys, onOpen, onOpenLi
 }
 
 /** A list of engines. The cards of all engines load together, so the thumbnails fill in at once. */
-export function EngineList({ engines, mode, genesys, cardProps, onCatalog, onOpen, onOpenLink, label, lit }: {
+export function EngineList({ engines, mode, genesys, cardProps, onCatalog, onOpen, onOpenLink, label, lit, fresh }: {
   engines: readonly EngineSuggestion[];
   mode: DuelMode;
   genesys: boolean;
@@ -98,11 +116,13 @@ export function EngineList({ engines, mode, genesys, cardProps, onCatalog, onOpe
   onOpenLink?: (bridge: ShownBridge) => void;
   label: string;
   lit?: string | null;
+  /** Engines only the deep search found. */
+  fresh?: ReadonlySet<string>;
 }) {
   const cards = useBridgeCards([...new Set(engines.flatMap((engine) => engine.cards.slice(0, 5)))], mode, onCatalog);
   return (
     <ul className={styles.list} aria-label={label}>
-      {engines.map((engine) => <EngineCard key={engine.engine} engine={engine} cards={cards} cardProps={cardProps} genesys={genesys} onOpen={onOpen} onOpenLink={onOpenLink} lit={lit === engine.engine} />)}
+      {engines.map((engine) => <EngineCard key={engine.engine} engine={engine} cards={cards} cardProps={cardProps} genesys={genesys} onOpen={onOpen} onOpenLink={onOpenLink} lit={lit === engine.engine} fresh={fresh?.has(engine.engine)} />)}
     </ul>
   );
 }

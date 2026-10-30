@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { foldCardText } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
 import type { BridgeScope, ShownBridge } from "./bridges-api";
@@ -9,14 +9,19 @@ import { useArchetypeNames } from "./use-engines";
 import styles from "./bridges.module.css";
 
 /** An archetype box with a list of the names that fit. The text is the choice once it is a whole name. */
-export function ArchetypeCombo({ label, text, names, onText, placeholder }: {
+export function ArchetypeCombo({ label, text, names, onText, placeholder, autoFocus = false }: {
   label: string;
   text: string;
   names: readonly string[] | null;
   onText: (text: string) => void;
   placeholder: string;
+  /** Take the focus once the names are in (the box waits for them). */
+  autoFocus?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const ready = names != null;
+  useEffect(() => { if (autoFocus && ready) inputRef.current?.focus(); }, [autoFocus, ready]);
   const [active, setActive] = useState(0);
   const listId = useId();
   const matches = useMemo(() => {
@@ -45,6 +50,7 @@ export function ArchetypeCombo({ label, text, names, onText, placeholder }: {
       <span className={styles.comboLabel}>{label}</span>
       <span className={styles.combo}>
         <input
+          ref={inputRef}
           className={cn("input", styles.comboInput)}
           role="combobox"
           aria-expanded={expanded}
