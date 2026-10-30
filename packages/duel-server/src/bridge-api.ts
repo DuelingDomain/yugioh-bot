@@ -24,7 +24,6 @@ export class BridgeApi {
     this.service = createBridgeService(db);
     this.engineQueries = new BridgeEngineQueries(db);
     this.fastQueries = new BridgeFastQueries(db, workers, now);
-    if (db.prepare("SELECT 1 FROM bridge_graph WHERE id=1").get()) this.engineQueries.service.rankingContext();
     this.jobs = new BridgeSearchJobs(db, {
       now, version: () => `${this.groups().source_version}:${BRIDGE_JUDGE_VERSION}`,
       project: async (rows, query) => {

@@ -23,6 +23,11 @@ export class BridgeEngineQueries {
   readonly service;
   constructor(private readonly db: Database.Database) { this.service = createBridgeService(db); }
 
+  private rankingContext() {
+    try { return this.service.rankingContext(); }
+    catch { throw new BridgeJobError("Bridge data is unavailable", 503); }
+  }
+
   resolve(input: Record<string, unknown>, guildId: string): { query: EngineQuery; detected?: DetectedEngine[] } {
     validateBridgeEngineInput(input);
     if (!this.db.prepare("SELECT 1 FROM bridge_graph WHERE id=1").get()) throw new BridgeJobError("Bridge data is unavailable", 503);
@@ -34,7 +39,7 @@ export class BridgeEngineQueries {
       ...(rawDeck.deckMaster === undefined ? {} : { deckMaster: mainId(rawDeck.deckMaster) }) } : undefined;
     const detected = deck ? this.service.detectEngines(deck, format, guildId) : undefined;
     const names = input.engines as string[] | undefined ?? detected?.filter(row => row.status === "engine").map(row => row.name) ?? [];
-    const groups = this.service.rankingContext().groups;
+    const groups = this.rankingContext().groups;
     const canonical = names.map(name => Object.keys(groups).find(key => key.toLowerCase() === name.trim().toLowerCase()));
     if (canonical.some(name => !name)) throw new BridgeJobError("Unknown archetype", 400);
     const engines = [...new Set(canonical as string[])].sort();
@@ -71,7 +76,7 @@ export class BridgeEngineQueries {
 
   shortlist(rows: ArchetypeBridge[], query: EngineQuery) {
     const eligible = rows.filter(row => ["pending", "shown"].includes(bridgeGate(this.db, row).state));
-    return rankEngineCandidates(query.engines, eligible, this.service.rankingContext(), 8);
+    return rankEngineCandidates(query.engines, eligible, this.rankingContext(), 8);
   }
 
   project(rows: ArchetypeBridge[], query: EngineQuery, limit = 4): BridgeEnginesResponse {
@@ -82,7 +87,7 @@ export class BridgeEngineQueries {
     const shown = projections.flatMap(({ shown }) => shown ? [shown] : []);
     const accepted = shown.map(row => ({ ...row, two_way: shown.some(reverse => reverse.source === row.target && reverse.target === row.source) }));
     const between = accepted.filter(row => selected.has(row.source) && selected.has(row.target));
-    const next: EngineSuggestion[] = rankNextEngines(query.engines, accepted, this.service.rankingContext(), 8).flatMap(row => {
+    const next: EngineSuggestion[] = rankNextEngines(query.engines, accepted, this.rankingContext(), 8).flatMap(row => {
       const pack = this.package(row.links.map(link => link.bridge), query);
       if (query.format === "genesys" && pack.points > (query.genesysRemaining ?? 100)) return [];
       const pros = [...new Set(row.links.flatMap(link => link.bridge.review.pros))].slice(0, 3);

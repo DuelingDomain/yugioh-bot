@@ -14,6 +14,25 @@ import { deckSuggestionScope } from "../src/deck-legality.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 
 describe("bridge scanner isolation", () => {
+  it("reports unavailable ranking data lazily for an old graph, including an external replacement", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bridge-old-graph-"));
+    const db = new Database(join(directory, "app.sqlite"));
+    migrate(db);
+    db.prepare("INSERT INTO bridge_graph VALUES(1,?,?)").run(JSON.stringify({ groups: {} }), "old");
+    const actor = seedIdentity(db), workers = new DeckSuggestionWorkers(db, directory);
+    const api = new BridgeApi(db, workers);
+    const call = () => api.handle({ userId: actor.userId, bridgeRequest: { op: "engines", engines: ["Odion"] } }, "g", actor.playerId);
+    try {
+      await expect(call()).rejects.toMatchObject({ status: 503, message: "Bridge data is unavailable" });
+      importCardEffectArtifact(db); importBridgeArtifact(db);
+      await expect(call()).resolves.toMatchObject({ engines: ["Odion"] });
+      const external = new Database(db.name);
+      try { external.prepare("UPDATE bridge_graph SET graph_json=?,source_version='older-replacement'").run(JSON.stringify({ groups: {} })); }
+      finally { external.close(); }
+      await expect(call()).rejects.toMatchObject({ status: 503, message: "Bridge data is unavailable" });
+    } finally { await api.jobs.close(); await workers.close(); db.close(); rmSync(directory, { recursive: true, force: true }); }
+  }, 20_000);
+
   it("projects full engines requests off the file-DB host loop and observes external feedback", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bridge-worker-projection-"));
     const db = new Database(join(directory, "app.sqlite"));
