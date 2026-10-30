@@ -51,7 +51,7 @@ describe("stored multi-engine bridge API", () => {
       await expect(call(9, ["Fiendsmith"])).rejects.toMatchObject({ status: 503 });
       release(); await Promise.all(pending);
       expect(bridgeEngines.mock.calls.map(([input]) => input.engines)).toContainEqual(["Genex"]);
-      expect(bridgeEngines.mock.calls.map(([input]) => input.engines)).not.toContainEqual(["Ashtra"]);
+      expect(bridgeEngines.mock.calls.map(([input]) => input.engines)).toContainEqual(["Ashtra"]);
       const scans = bridgeEngines.mock.calls.length;
       await call(0); expect(bridgeEngines).toHaveBeenCalledTimes(scans);
       db.prepare("INSERT OR REPLACE INTO duel_host_heartbeat(id,last_tick_at) VALUES(1,?)").run(now);
@@ -75,6 +75,32 @@ describe("stored multi-engine bridge API", () => {
         await expect(latest).resolves.toMatchObject({ engines: ["Genex"] });
       } finally { unblock(); await Promise.allSettled([stale, replaced, latest]); }
     } finally { release(); await Promise.allSettled(pending); await api.jobs.close(); }
+  });
+
+  it("keeps concurrent detected and corrected waiters tied to their own request keys", async () => {
+    for (const correctedFirst of [false, true]) {
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const queries = new BridgeFastQueries(db, { bridgeEngines: async (input, guildId) => {
+        await gate; return bridgeEngines(input, guildId);
+      } });
+      const stale = queries.run({ engines: ["Genex"] }, "g", 1);
+      const requests = [{ deck }, { deck, engines: ["Odion"] }];
+      if (correctedFirst) requests.reverse();
+      const pending = requests.map(input => queries.run(input, "g", 1));
+      // Rejoining the running key must not redirect either queued waiter.
+      const rejoined = queries.run({ engines: ["Genex"] }, "g", 1);
+      try {
+        release();
+        await expect(stale).resolves.toMatchObject({ engines: ["Genex"] });
+        await expect(rejoined).resolves.toMatchObject({ engines: ["Genex"] });
+        for (const [i, input] of requests.entries()) {
+          const engines = "engines" in input ? ["Odion"] : ["Ashtra", "Odion"];
+          await expect(pending[i]).resolves.toMatchObject({ engines });
+          await expect(queries.run(input, "g", 1)).resolves.toMatchObject({ engines });
+        }
+      } finally { release(); await Promise.allSettled([stale, rejoined, ...pending]); }
+    }
   });
 
   it("normalizes artwork identities before detection, points and missing-copy projection", () => {

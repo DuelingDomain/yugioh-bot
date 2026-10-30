@@ -12,7 +12,7 @@ type QueuedQuery = { key: string; input: Record<string, unknown>; guildId: strin
 export class BridgeFastQueries {
   private readonly cache = new Map<string, { revision: string; expires: number; result: BridgeEnginesResponse }>();
   private readonly pending = new Map<string, Promise<BridgeEnginesResponse>>();
-  private readonly actors = new Map<number, { key: string; work: Promise<BridgeEnginesResponse>; next?: QueuedQuery }>();
+  private readonly actors = new Map<number, { key: string; work: Promise<BridgeEnginesResponse>; next: Map<string, QueuedQuery> }>();
   constructor(private readonly db: Database.Database, private readonly workers: Pick<DeckSuggestionWorkers, "bridgeEngines">,
     private readonly now: () => number = Date.now) {}
 
@@ -21,7 +21,7 @@ export class BridgeFastQueries {
   }
 
   run(input: Record<string, unknown>, guildId: string, userId: number, deadline = performance.now() + 4500): Promise<BridgeEnginesResponse> {
-    // Each caller keeps its own deadline when later edits replace queued work.
+    // Each caller keeps its own deadline even when joining existing work.
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new BridgeJobError("Engine suggestions are busy", 503, 1)), Math.max(1, deadline - performance.now()));
       void this.execute(input, guildId, userId, deadline).then(result => {
@@ -42,23 +42,16 @@ export class BridgeFastQueries {
     if (performance.now() >= deadline) throw new BridgeJobError("Engine suggestions are busy", 503, 1);
     const workKey = JSON.stringify([key, revision]), actor = this.actors.get(userId);
     if (actor) {
-      if (actor.key === workKey) {
-        if (actor.next) {
-          void actor.work.then(actor.next.resolve, actor.next.reject);
-          actor.next = undefined;
-        }
-        return actor.work;
-      }
-      // Aborting a browser fetch does not cancel its worker. Retain just the
-      // newest edit behind that work; superseded waiters receive its answer.
-      if (actor.next) {
-        Object.assign(actor.next, { key: workKey, input, guildId, deadline });
-      } else {
-        let resolve!: QueuedQuery["resolve"], reject!: QueuedQuery["reject"];
-        const work = new Promise<BridgeEnginesResponse>((yes, no) => { resolve = yes; reject = no; });
-        actor.next = { key: workKey, input, guildId, deadline, work, resolve, reject };
-      }
-      return actor.next.work;
+      if (actor.key === workKey) return actor.work;
+      const queued = actor.next.get(workKey);
+      if (queued) return queued.work;
+      // Detection and corrected engines are distinct live queries. Give each
+      // key its own deferred; overload may reject but must never mix answers.
+      if (actor.next.size >= 2) throw new BridgeJobError("Engine suggestions are busy", 503, 1);
+      let resolve!: QueuedQuery["resolve"], reject!: QueuedQuery["reject"];
+      const work = new Promise<BridgeEnginesResponse>((yes, no) => { resolve = yes; reject = no; });
+      actor.next.set(workKey, { key: workKey, input, guildId, deadline, work, resolve, reject });
+      return work;
     }
     let work = this.pending.get(workKey);
     if (!work) {
@@ -76,9 +69,9 @@ export class BridgeFastQueries {
       const current = this.actors.get(userId);
       if (current?.work !== actorWork) return;
       this.actors.delete(userId);
-      if (current.next) void this.run(current.next.input, current.next.guildId, userId, current.next.deadline).then(current.next.resolve, current.next.reject);
+      for (const next of current.next.values()) void this.run(next.input, next.guildId, userId, next.deadline).then(next.resolve, next.reject);
     });
-    this.actors.set(userId, { key: workKey, work: actorWork });
+    this.actors.set(userId, { key: workKey, work: actorWork, next: new Map() });
     return actorWork;
   }
 }
