@@ -1,13 +1,17 @@
 import { bridgeProjectionRows, type BridgeProjectionInput } from "../src/bridge-projection-input.js";
 import Database from "better-sqlite3";
 import { APIError } from "@anthropic-ai/sdk";
+import { rmSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { BRIDGE_JUDGE_FRAMINGS, buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, judgeBridgePair, makeBridgeJudgementRecord, saveBridgeJudgement, type ArchetypeBridge, type BridgeJudgeClient } from "@yugidraft/shared/cards/effects";
 import { createBridgeService, createSavedDeckService } from "@yugidraft/shared/services";
 import { BridgeEngineQueries, type EngineQuery } from "../src/bridge-engine-queries.js";
 import { BridgeApi } from "../src/bridge-api.js";
+import { createDuelHost } from "../src/host.js";
+import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 import { seedIdentity } from "./helpers/identity.js";
+import { signedHeaders } from "./helpers/signed-request.js";
 
 let db: Database.Database, bridge: ArchetypeBridge;
 beforeAll(() => {
@@ -19,6 +23,34 @@ afterAll(() => db.close());
 const bridgeEngineProjection = async (rows: BridgeProjectionInput, query: EngineQuery) => new BridgeEngineQueries(db).project(bridgeProjectionRows(db, rows), query, 6);
 
 describe("authenticated bridge API and judged deep-search lifecycle", () => {
+  it("quietly cancels a signed bridge request disconnected while reading its body", async () => {
+    const directory = createHostDataFixture([]);
+    const host = createDuelHost({ db, dataDirectory: directory, secret: "bridge-disconnect", searchCards: () => [], pollIntervalMs: 60_000 });
+    const user = seedIdentity(db, { name: "Disconnected editor" });
+    const errorReport = vi.spyOn(console, "error").mockImplementation(() => {});
+    const handle = vi.spyOn(BridgeApi.prototype, "handle");
+    try {
+      for (const reason of [undefined, new Error("client disconnected")]) {
+        const abort = new AbortController();
+        const url = "http://local/internal/duel";
+        const raw = JSON.stringify({ op: "bridges", guildId: "g", ...user, bridgeRequest: { op: "engines", engines: ["Odion"] } });
+        const headers = await signedHeaders(raw, "bridge-disconnect", url, "duel-host");
+        const body = new ReadableStream<Uint8Array>({ pull(controller) {
+          abort.abort(reason);
+          controller.enqueue(new TextEncoder().encode(raw));
+          controller.close();
+        } }, { highWaterMark: 0 });
+        const request = new Request(url, { method: "POST", headers, body, signal: abort.signal, ...{ duplex: "half" } });
+        expect(request.signal.aborted).toBe(false);
+        const response = await host.handle(request);
+        expect(request.signal.aborted).toBe(true);
+        expect(errorReport).not.toHaveBeenCalled();
+        expect(response.status).toBe(499);
+        expect(handle).not.toHaveBeenCalled();
+      }
+    } finally { handle.mockRestore(); errorReport.mockRestore(); await host.close(); rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it("judges with a mocked client, reuses judgements, and hides cached results after distinct reports", async () => {
     const user = seedIdentity(db), other = seedIdentity(db, { name: "Other" });
     let complete!: () => void;

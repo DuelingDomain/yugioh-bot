@@ -4361,6 +4361,7 @@ export function createDuelHost(options: {
         })();
         return await (expiry ? Promise.race([rendered, expiry]) : rendered);
       } catch (error) {
+        if (requestOp === "bridges" && request.signal.aborted) return new Response(null, { status: 499 });
         if (error instanceof BridgeJobError) return Response.json({ error: error.message,
           ...(error.retryAfter === undefined ? {} : { retryAfter: error.retryAfter }) }, { status: error.status,
           headers: { "cache-control": "no-store", ...(error.retryAfter === undefined ? {} : { "Retry-After": String(error.retryAfter) }) } });
