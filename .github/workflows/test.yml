@@ -2,7 +2,8 @@ name: Test
 
 # Path-selected app groups: web, bot, ws, worker, shared, duel (no core), e2e and CI scripts.
 # Shared source selects all app consumers; only shared imports reachable from duel-server/src
-# select engine suites. Root build/install/workflow configuration selects everything.
+# select engine suites. Root build/install/workflow configuration selects app/engine groups.
+# Native/differential checks select only core source/pin/patch/build inputs and their CI wiring.
 # Docs-only changes run detection and the final CI result, with no test groups.
 # Engine suites and their sharding are described in docs/adr/0003-duel-test-layers.md.
 # Main uses the same paths, diffing from its last successful tested ancestor.
@@ -73,6 +74,7 @@ jobs:
       effects: ${{ steps.diff.outputs.effects }}
       prod_build: ${{ steps.diff.outputs.prod_build }}
       engine: ${{ steps.diff.outputs.engine }}
+      core: ${{ steps.diff.outputs.core }}
       golden: ${{ steps.diff.outputs.golden }}
       tests_only: ${{ steps.diff.outputs.tests_only }}
       base: ${{ steps.diff.outputs.base }}
@@ -757,8 +759,8 @@ jobs:
         suite: [pinned]
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
         count: [8]
-        # Eight measured-time pinned shards + four surrender parts + two differential legs.
-        # With two legacy jobs and native this is 17 engine jobs; app jobs may briefly queue.
+        # Eight measured-time pinned shards + four surrender parts.
+        # Core changes also select two differential jobs and native (17 engine jobs total).
         # Keep surrender/differential files off the regular+Table shards.
         # Both surrender modes and all differential seeds still run across these groups.
         include:
@@ -766,8 +768,6 @@ jobs:
           - { suite: surrender, shard: 2, count: 4 }
           - { suite: surrender, shard: 3, count: 4 }
           - { suite: surrender, shard: 4, count: 4 }
-          - { suite: differential, shard: 1, count: 2 }
-          - { suite: differential, shard: 2, count: 2 }
     env:
       DUEL_REQUIRE_CORES: "1"
       DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
@@ -882,9 +882,37 @@ jobs:
           CI_TEST_FILES: ${{ steps.selection.outputs.files }}
         run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs legacy ${{ matrix.shard }}/2
 
+  engine-differential:
+    name: Differential engine tests (${{ matrix.shard }}/2)
+    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.core == 'true' }}
+    needs: [cores, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    env:
+      DUEL_REQUIRE_CORES: "1"
+      DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
+      MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+      DOMAIN_MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
+      NSEAT_LIVE: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore engine bundle and test dependencies
+        uses: ./.github/actions/restore-engine-bundle
+        with:
+          key: ${{ needs.cores.outputs.key }}
+
+      - name: Differential engine tests
+        run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs differential ${{ matrix.shard }}/2
+
   native:
     name: Native checks (ASan and UBSan)
-    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.engine == 'true' }}
+    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.core == 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -913,12 +941,12 @@ jobs:
       - name: Install
         run: npm ci
 
-      # scripts/native/checks/run.sh: builds the core from the repo patch series with ASan and UBSan and runs the
+      # scripts/native/checks/run.sh in duel-server builds the repo patch series with ASan and UBSan and runs the
       # committed checks that are marked ready in checks.tsv. The fuzz matrix stays in nduel-nightly.
       - name: Native tests
         run: npm run test:native
 
-      # The job runs for all engine changes; only core/overlay/data/native inputs (or a manual run) check golden.
+      # Within selected core runs, only golden inputs (or a nightly/manual run) check the hashes.
       # Reuse test:native's repo-series library, pinned Lua and trap/ASan/UBSan flags; only compile the driver.
       - name: nduel golden hashes (--check)
         if: needs.changes.outputs.golden == 'true'
@@ -1137,7 +1165,7 @@ jobs:
   ci-result:
     name: CI result
     if: always()
-    needs: [changes, core-cache, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, unit-bot, unit-ws, unit-worker, unit-duel, unit-web, unit-e2e, ci-scripts, engine-shards, engine-legacy-shards, native, rule-coverage, nduel-nightly, production-bundle, production-images, production-dry-run]
+    needs: [changes, core-cache, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, unit-bot, unit-ws, unit-worker, unit-duel, unit-web, unit-e2e, ci-scripts, engine-shards, engine-legacy-shards, engine-differential, native, rule-coverage, nduel-nightly, production-bundle, production-images, production-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1163,7 +1191,8 @@ jobs:
           for (const [area, names] of Object.entries({
             web: selected.data_only === 'true' ? ['unit-web'] : ['unit-web', 'unit-web-build'], shared: ['unit-shared'], bot: ['unit-bot'],
             ws: ['unit-ws'], worker: ['unit-worker'], duel_unit: ['unit-duel'], e2e: ['unit-e2e'],
-            ci_scripts: ['ci-scripts'], engine: ['core-cache', 'cores', 'engine-shards', 'engine-legacy-shards', 'native', 'rule-coverage'],
+            ci_scripts: ['ci-scripts'], engine: ['core-cache', 'cores', 'engine-shards', 'engine-legacy-shards', 'rule-coverage'],
+            core: ['native', 'engine-differential'],
           })) if (selected[area] === 'true') names.forEach(requireSuccess);
           if (process.env.NIGHTLY === 'true') requireSuccess('nduel-nightly');
           if (selected.effects === 'true') requireSuccess('effect-protocol');
