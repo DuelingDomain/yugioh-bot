@@ -207,10 +207,18 @@ export class BridgeEngine {
     const results: T[] = [];
     const primaryTargets = new Map<string, Set<number>>();
     const primaryMentions = new Map<string, Set<string>>();
+    const nichePaths = new Set<string>();
     for (const row of [...rows].sort((a, b) => Number(a.tier === "niche") - Number(b.tier === "niche")
       || (a.tier === "niche" && b.tier === "niche" ? Number(b.two_way) - Number(a.two_way) : 0)
       || b.score - a.score || a.target.localeCompare(b.target))) {
       if (row.tier === "niche" ? !deep : row.score < 4) continue;
+      const reason = row.reasons[0], first = reason?.steps?.[0];
+      const sourceCard = reason?.cost?.using ?? reason?.materials?.[0]
+        ?? reason?.cards.find(id => this.groups.get(row.source)?.has(id));
+      const entryCard = reason?.cost?.card ?? (first && (this.groups.get(row.source)?.has(first.from) ? first.to : first.from));
+      const path = row.tier === "niche" && sourceCard !== undefined && entryCard !== undefined
+        ? JSON.stringify([row.source, row.format, sourceCard, entryCard]) : undefined;
+      if (path && nichePaths.has(path)) continue;
       if (results.some(higher => higher.target === row.target || this.groupOverlap(row.target, higher.target) >= 0.5 * this.groups.get(row.target)!.size)) continue;
       const card = row.reasons[0]?.cards.find(id => this.groups.get(row.source)?.has(id) && !isExtraDeckCard(this.rows.get(id)!.card));
       const primary = card === undefined ? undefined : JSON.stringify([row.source, card]);
@@ -225,6 +233,7 @@ export class BridgeEngine {
       if (primary) primaryTargets.set(primary, new Set([...(primaryTargets.get(primary) ?? []), ...targets]));
       if (mentionPrimary) primaryMentions.set(mentionPrimary, new Set([...(primaryMentions.get(mentionPrimary) ?? []), row.target]));
       results.push(row);
+      if (path) nichePaths.add(path);
       if (results.length >= limit) break;
     }
     return limit > 0 ? results : [];
@@ -535,6 +544,14 @@ export class BridgeEngine {
         && target.ids.has(first.from) && edges[0]!.named && first.capability === "set_spell_trap"
         && !!edges[0]!.capability.from?.includes("deck") && landing.kind === "trap";
     }
+    // A generic Tuner requirement cannot fan a named search out through hybrid
+    // search results into unrelated engines. The named search package owns it.
+    const search = edges[0]!.capability, filter = search.filter;
+    const tunerCost = reason.cost && this.rows.get(reason.cost.card)!.needs.find(need => need.key === reason.cost!.capability
+      && need.effect === reason.cost!.effect && costCanUse(need, this.rows.get(reason.cost!.using)!.card))?.filter;
+    const genericTuner = [filter, tunerCost].some(value => value?.subtypes.includes("tuner") && !value.names.length && !value.archetypes.length);
+    if (first.capability === "search" && search.from?.includes("deck") && genericTuner
+      && !filter?.archetypes.some(name => [target.name, ...(this.data.group_policies?.[target.name]?.aliases ?? [])].some(alias => sameName(name, alias)))) return false;
     // An untyped discard or stat-only filter is never physical engine entry.
     if (first.capability === "discard" || !this.specificCapability(edges[0]!.capability, format) || !edges.some(edge => edge!.named)) return false;
     if (reason.materials?.length) return reason.materials.every(id => source.ids.has(id)) && this.validateReason(reason, format)

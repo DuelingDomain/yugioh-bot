@@ -17,6 +17,29 @@ beforeAll(() => {
 });
 
 describe("deep-only access paths on the pinned catalog", () => {
+  it("keeps generic Tuner search access in its searched archetype", () => {
+    const engine = new BridgeEngine(data);
+    for (const format of ["advanced", "genesys"] as const) {
+      const synchron = engine.deepBetween("Blue-Eyes", "Synchron", format)!;
+      expect(synchron.reasons[0]!.cost).toMatchObject({ card: 11069680 });
+      for (const target of ["Odd-Eyes", "Stardust", "Performapal", "Fleur", "Junk", "Speedroid", "Scrap"]) {
+        expect(engine.deepBetween("Blue-Eyes", target, format), `${format}: ${target}`).toBeNull();
+      }
+      expect(engine.deepCandidates("Blue-Eyes", format).filter(row => row.tier === "niche").map(row => row.target)).toEqual(["Synchron"]);
+    }
+  }, 20_000);
+
+  it("keeps the best Niche target for each source card and entry card", () => {
+    const engine = new BridgeEngine(data);
+    const rows = ["Archfiend", "Lightsworn", "Mimighoul"].map(target => engine.deepBetween("Infernity", target)!);
+    expect(rows.every(row => row.tier === "niche")).toBe(true);
+    expect(new Set(rows.map(row => JSON.stringify(row.reasons[0]!.cost))).size).toBe(1);
+    expect(engine.deepTargets(rows).map(row => row.target)).toEqual(["Archfiend"]);
+    expect(engine.deepTargets(rows.reverse()).map(row => row.target)).toEqual(["Archfiend"]);
+    const other = engine.deepBetween("Odion", "Gravekeeper's")!;
+    expect(engine.deepTargets([...rows, other])).toContain(other);
+  }, 20_000);
+
   it("admits the owner's material and Deck-set paths without changing strict candidates", () => {
     const engine = new BridgeEngine(data);
     const strict = engine.liveCandidates("Odion");

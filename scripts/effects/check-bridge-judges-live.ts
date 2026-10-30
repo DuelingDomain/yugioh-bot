@@ -12,8 +12,9 @@ import {
 } from "@yugidraft/shared/cards/effects";
 
 async function main() {
-  const { values } = parseArgs({ options: { live: { type: "boolean", default: false } } });
+  const { values } = parseArgs({ options: { live: { type: "boolean", default: false }, source: { type: "string" }, target: { type: "string" } } });
   if (!values.live) throw new Error("Opt in to paid calls with --live; this script is never run in CI.");
+  if (!!values.source !== !!values.target) throw new Error("Pass both --source and --target to check one pair.");
   if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is required.");
   const sdk = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 0, timeout: 60_000 });
   const db = new Database(":memory:");
@@ -23,7 +24,8 @@ async function main() {
     const pairs = [["Odion", "Ashtra"], ["Odion", "Argostars"], ["Snake-Eye", "Fire King"], ["Snake-Eye", "Diabell"],
       ["Branded", "Despia"], ["Branded", "Bystial"], ["Kashtira", "Tearlaments"], ["Swordsoul", "Tenyi"],
       ["Danger!", "Dark World"], ["Blue-Eyes", "Black Luster Soldier"]] as const;
-    for (const [source, target] of pairs) {
+    const selected: readonly (readonly [string, string])[] = values.source && values.target ? [[values.source, values.target]] : pairs;
+    for (const [source, target] of selected) {
       const bridge = service.bridgeBetween(source, target, "advanced");
       const evidence = bridge && buildBridgeJudgeEvidence(db, bridge);
       if (!bridge || !evidence) throw new Error(`Missing checked pair: ${source} -> ${target}`);

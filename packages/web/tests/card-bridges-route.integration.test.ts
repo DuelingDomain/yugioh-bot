@@ -81,6 +81,26 @@ it("forwards only the server identity and bounded query over signed HTTP", async
   expect(await response.json()).toEqual(reply);
 });
 
+it("passes grounded reviews with one pro and no cons through lookup and deep-search routes", async () => {
+  const bridge = shown();
+  bridge.review.pros = [bridge.review.pros[0]];
+  bridge.review.cons = [];
+  reply = { results: [bridge], reverse: [{ ...bridge, source: bridge.target, target: bridge.source }], inReview: 0 };
+  const response = await lookup("source=Odion&target=Argostars");
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual(reply);
+
+  const niche = { ...bridge, tier: "niche", grade: "Niche", score: 0,
+    target: "x".repeat(160), review: { ...bridge.review, grade: "niche", pros: [],
+      // The host may fall back to joined printed locks rather than a judge note.
+      lock_note: "x".repeat(4001), line: Array(3).fill("x".repeat(200)) } };
+  reply = { jobId: "bridge-job-1", state: "done", step: "done", progress: 100,
+    results: [bridge, ...Array.from({ length: 9 }, (_, i) => ({ ...niche, target: `${i}${niche.target.slice(1)}` }))], inReview: 0 };
+  const status = await poll();
+  expect(status.status).toBe(200);
+  expect(await status.json()).toEqual(reply);
+});
+
 it("supports owner-scoped deck IDs without accepting client deck cards", async () => {
   expect((await lookup("deckId=23")).status).toBe(200);
   expect(calls[0].bridgeRequest).toEqual({ op: "from", deckId: 23, format: "advanced" });

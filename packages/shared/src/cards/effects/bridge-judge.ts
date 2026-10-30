@@ -5,7 +5,8 @@ import * as z from "zod";
 import { BridgeEngine, bridgeLegal } from "./bridge-engine.js";
 import { isExtraDeckCard } from "./card.js";
 import { storedBridgeEngine } from "./bridge-graph-store.js";
-import { actionEvidence, bridgeHash, matchesBridgeFilter, printedText } from "./bridge-text.js";
+import { actionEvidence, bridgeHash, canReceiveSummon, matchesBridgeFilter, printedText } from "./bridge-text.js";
+import { NO_FILTER } from "./tags.js";
 import type { ArchetypeBridge, BridgeFormat, BridgeReason, CardCapability, SummonLock } from "./bridge-types.js";
 import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, releaseBridgeJudgeSpend, settleBridgeJudgeSpend, startBridgeJudgeSpend, type BridgeJudgeSpendSummary, type BridgeJudgeUsage } from "./bridge-judge-ledger.js";
 import { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS } from "./bridge-judge-model.js";
@@ -124,6 +125,25 @@ export function buildBridgeJudgeEvidence(db: Database.Database, bridge: Archetyp
             detail: step.capability === "search" ? "Add the target to hand from the checked source zone, subject to its printed conditions. This does not Summon the target."
               : `Use the source's ${step.capability} action on the target, subject to its printed conditions and costs.` };
         });
+        if (reason.key === "mention" && !steps.length) {
+          const hybrid = rows.find(row => reason.cards.includes(row.id) && row.card.kind === "monster"
+            && groups[bridge.source]?.includes(row.id) && groups[bridge.target]?.includes(row.id));
+          const summon = hybrid?.provides.find(capability => capability.key === "special_summon" && capability.filter?.this_card
+            && capability.from?.includes("hand") && /Special Summon this card from your hand/i.test(capability.evidence)
+            && printedText(hybrid.card).includes(capability.evidence) && canReceiveSummon(hybrid.card, capability.evidence));
+          if (hybrid && summon) for (const other of rows.filter(row => row.id !== hybrid.id && reason.cards.includes(row.id))) {
+            const condition = other.needs.find(need => need.key === "condition" && printedText(other.card).includes(`while ${need.evidence}:`)
+              && /^you control an? "[^"]+" monster(?: or "[^"]+")?$/i.test(need.evidence));
+            const archetype = condition?.evidence.match(/^you control an? "([^"]+)" monster/i)?.[1];
+            if (!archetype || !matchesBridgeFilter({ ...NO_FILTER, kinds: ["monster"], archetypes: [archetype] }, hybrid.card)) continue;
+            steps.push(
+              { action: "special_summon", card: name(hybrid.id), target: name(hybrid.id), from_zones: summon.from,
+                detail: `Use this shared source/target monster's own effect with all printed requirements: ${summon.evidence}` },
+              { action: "satisfy_control_condition", card: name(hybrid.id), target: name(other.id),
+                detail: `While controlled, this hybrid supplies the monster in this printed condition: ${condition!.evidence}. This does not search, Set or activate the target card; its remaining activation requirements still apply.` });
+            break;
+          }
+        }
         if (bridge.tier === "niche" && reason.materials?.length) {
           const extra = rows.find(row => reason.cards.includes(row.id) && isExtraDeckCard(row.card));
           if (extra) steps.unshift(...reason.materials.map(id => ({ action: "material", card: name(id), target: name(extra.id),
