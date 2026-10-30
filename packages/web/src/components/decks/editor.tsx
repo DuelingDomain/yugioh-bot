@@ -1594,7 +1594,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
           </div>
           {pool ? <span className={styles["de-menu"]}><ShellMenuButton /></span> : null}
         </header>
-        <EditorTabList variant="seg" idPrefix="deck-editor" label="Editor" className={styles["de-tabs"]} tabs={["deck", ...columnTabs]} tab={activeTab} onChange={setTab} deckCount={deck.main.length} bridgesDot={bridgesDot} />
+        <EditorTabList variant="seg" idPrefix="deck-editor" label="Editor" className={styles["de-tabs"]} tabs={["deck", ...columnTabs]} tab={phoneTab} onChange={setTab} deckCount={deck.main.length} bridgesDot={bridgesDot} />
         <div className={styles["de-body"]}>
           <aside className={styles["de-read"]} aria-label="Card details" ref={inspectScrollRef}>
             {shownCode == null ? <DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /> : shown ? <CardPreview insightsEnabled={insightsOn} card={shown} /> : missingReader}
