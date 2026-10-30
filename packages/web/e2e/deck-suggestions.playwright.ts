@@ -138,7 +138,13 @@ const insightRequests: { deck: { main: number[] }; pool?: number[]; at: number }
 const control = { delayMs: 0, emptyRows: false, deck: "small" as "small" | "full" | "empty", genesys: false };
 /** Bridges: every call the row made, and how the stand-in host should answer. */
 const bridgeCalls = { lists: [] as string[], starts: [] as Record<string, unknown>[], polls: 0, feedback: [] as Record<string, unknown>[], archetypes: 0 };
-const bridgeControl = { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok" as "ok" | "fail", reviewCount: 3, feedbackFails: false, started: 0, deepNone: false };
+const bridgeControl = { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok" as "ok" | "fail", reviewCount: 3, feedbackFails: false, started: 0, deepNone: false,
+  /** The deep search on Blue-Eyes + Dragunity finds Melodious (not in the fast list) and drops Dragon Ruler. */
+  deepExtra: false,
+  /** That search has stored its rows, so the fast answer for the set holds Melodious too, as the host's does. */
+  storedExtra: false,
+  /** The next polls answer 503 busy, as a host does while this player has another projection in flight. */
+  pollBusy: 0 };
 /** Engines: the calls of the fast operation, and how the stand-in host detects the deck. */
 const engineCalls: Record<string, any>[] = [];
 const multiJobs = new Map<string, ReturnType<typeof enginesAnswer>>();
@@ -155,6 +161,19 @@ function cardImage(code: string) {
   const name = String(cardRow.get(Number(code))?.name ?? code).replace(/[<&>]/g, "").slice(0, 22);
   return { status: 200, contentType: "image/svg+xml", body: `<svg xmlns="http://www.w3.org/2000/svg" width="168" height="246"><rect width="168" height="246" rx="6" fill="#3b3352"/><rect x="10" y="10" width="148" height="226" rx="4" fill="none" stroke="#c9a24a" stroke-width="2"/><text x="84" y="128" fill="#efe7d5" text-anchor="middle" font-family="Arial" font-size="18">${name}</text></svg>` };
 }
+
+/** An engine that only the deep search finds: linked from both Blue-Eyes and Dragunity, so it ranks first once stored. */
+function melodious(format: string, held: Set<number>) {
+  const links = ["Blue-Eyes", "Dragunity"].map((from) => {
+    const row = asFormat([bridge(from, "Melodious", "Good", 66, false, ["Dragon Spirit of White", "Terraforming", "Foolish Burial"], ["Terraforming", "Dragon Spirit of White"],
+      ["Terraforming finds the field spell both lines want.", "Dragon Spirit of White works as a Tuner in both."], ["No two-way route found.", "Needs a field spell slot."], "No summon lock.")], format)[0]!;
+    return { from, to: "Melodious", bridge: row };
+  });
+  const cards = [...new Set(links.flatMap((link) => link.bridge.cards))];
+  return { engine: "Melodious", score: 13.2, grade: "Good", tier: "strict", covered: 2, of: 2, twoWay: [], links, cards, missing: cards.filter((code) => !held.has(code)),
+    genesysPoints: format === "genesys" ? 6 : null, pros: links[0]!.bridge.review.pros, cons: links[0]!.bridge.review.cons };
+}
+const isBlueDragunity = (set: readonly string[]) => [...set].sort().join("|") === "Blue-Eyes|Dragunity";
 
 /** The stand-in for `POST /api/cards/bridges/engines`: detection from the deck, then the stored rows for the set. */
 function enginesAnswer(body: any) {
@@ -175,7 +194,7 @@ function enginesAnswer(body: any) {
     return [{ engine: target, score: links.reduce((sum, link) => sum + link.bridge.score, 0) / 10, grade, tier: grade === "Niche" ? "niche" : "strict", covered: links.length, of: set.length,
       twoWay: links.filter((link) => link.bridge.two_way).map((link) => link.from), links, cards, missing: cards.filter((code) => !held.has(code)), genesysPoints: format === "genesys" ? 6 : null,
       pros: links[0]!.bridge.review.pros, cons: links[0]!.bridge.review.cons }];
-  }).sort((a, b) => b.covered - a.covered || b.score - a.score).slice(0, 4);
+  }).concat(bridgeControl.storedExtra && isBlueDragunity(set) && !engineControl.nextEmpty ? [melodious(format, held) as any] : []).sort((a, b) => b.covered - a.covered || b.score - a.score).slice(0, 4);
   return { engines: set, ...(body.deck ? { detected } : {}), between, next, inReview: bridgeControl.reviewCount };
 }
 
@@ -243,6 +262,7 @@ async function api(method: string, url: URL, body: any) {
   }
   if (path.startsWith("/api/cards/bridges/deep-search/") && method === "GET") {
     bridgeCalls.polls += 1;
+    if (bridgeControl.pollBusy > 0) { bridgeControl.pollBusy -= 1; bridgeCalls.polls -= 1; return json(503, { error: "Bridge status is busy", retryAfter: 1 }); }
     if (bridgeControl.pollDelayMs) await new Promise((done) => setTimeout(done, bridgeControl.pollDelayMs));
     const jobId = decodeURIComponent(path.split("/").pop()!);
     const polls = bridgeCalls.polls;
@@ -256,6 +276,11 @@ async function api(method: string, url: URL, body: any) {
     const extra = bridge("Blue-Eyes", "Melodious", "Good", 64, false, ["Dragon Spirit of White", "Foolish Burial", "Terraforming"], ["Terraforming", "Dragon Spirit of White"],
       ["Terraforming finds the field spell both lines want.", "Dragon Spirit of White works as a Tuner in both."], ["No two-way route found.", "Needs a field spell slot."], "No summon lock.");
     const multi = multiJobs.get(jobId);
+    if (multi && bridgeControl.deepExtra && isBlueDragunity(multi.engines)) {
+      bridgeControl.storedExtra = true;
+      const next = [melodious("advanced", new Set()), ...multi.next.filter((engine) => engine.engine !== "Dragon Ruler")];
+      return json(200, { jobId, state: "done", step: "done", progress: 100, engines: multi.engines, next, results: [], inReview: bridgeControl.reviewCount - 1 });
+    }
     if (multi) return json(200, { jobId, state: "done", step: "done", progress: 100, engines: multi.engines, next: bridgeControl.deepNone ? [] : multi.next.slice(0, 6), results: [], inReview: bridgeControl.reviewCount - 1 });
     const strict = BRIDGES.filter(entry => entry.source === "Blue-Eyes").slice(0, 4);
     const niche = ["Melodious", "Magistus", "Fire Fist", "Buster Blader", "Primite", "Dracotail", "Beyond cap"].map(target => ({
@@ -373,6 +398,8 @@ try {
     insightRequests.length = 0;
     bridgeCalls.lists.length = 0;
     engineCalls.length = 0;
+    // A search left running by an earlier scenario would answer the next start with a 409 it did not ask for.
+    for (const [work, job] of deepJobs) if (!job.done) deepJobs.delete(work);
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=${flag}`);
     // Some scenarios show no tabs at all, so a missing tab is not an error.
     await page.getByRole("tab", { name: "Cards", exact: true }).waitFor({ state: "visible", timeout: 4000 }).catch(() => undefined);
@@ -439,6 +466,26 @@ try {
     engineControl.nextEmpty = false;
   }
   control.delayMs = 0;
+  // The Engines that fit row keeps its height at the other sizes too.
+  for (const viewport of VIEWPORTS.filter(viewport => [390, 2560].includes(viewport.width))) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    engineControl.delayMs = 2500;
+    await open("small");
+    await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
+    const waitingBoxes = await tileBoxes();
+    const loadingEngines = await page.getByTestId("engines-fit").getByRole("status").count();
+    await page.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
+    const answeredBoxes = await tileBoxes();
+    const moved = (a: number[][], b: number[][]) => a.map((box, i) => b[i] && box.every((value, axis) => Math.abs(value - b[i]![axis]!) <= 1) ? null : [i, box, b[i]]).filter(Boolean);
+    check("layout", `${viewport.name}: the engine answer moves no card row`, loadingEngines === 1 && answeredBoxes.length === waitingBoxes.length && moved(waitingBoxes, answeredBoxes).length === 0, { loadingEngines, moved: moved(waitingBoxes, answeredBoxes).slice(0, 3) });
+    engineControl.delayMs = 0; engineControl.nextEmpty = true;
+    await panel.locator('section[aria-labelledby="suggest-staples"] button').first().dblclick();
+    await page.getByTestId("engines-fit-empty").waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(400);
+    const emptyBoxes = await tileBoxes();
+    check("layout", `${viewport.name}: an empty engine answer after a deck edit moves no card row`, moved(answeredBoxes, emptyBoxes).length === 0, moved(answeredBoxes, emptyBoxes).slice(0, 3));
+    engineControl.nextEmpty = false;
+  }
   await page.setViewportSize({ width: 1920, height: 1080 });
 
   // a. A small deck: three ready rows, the Extra row as a hint.
@@ -867,7 +914,7 @@ try {
   // t. The tabs: Cards | Suggest | Bridges on a desktop, Deck | Cards | Suggest | Bridges on a phone.
   const tabState = (name: string) => page.getByRole("tab", { name, exact: true }).first().getAttribute("aria-selected");
   const fresh = async (deck: "small" | "full" | "empty" = "small") => {
-    control.deck = deck; insightRequests.length = 0; bridgeCalls.lists.length = 0; engineCalls.length = 0; deepJobs.clear(); bridgeCalls.polls = 0;
+    control.deck = deck; insightRequests.length = 0; bridgeCalls.lists.length = 0; engineCalls.length = 0; deepJobs.clear(); bridgeCalls.polls = 0; bridgeControl.storedExtra = false; bridgeControl.pollBusy = 0;
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
     await page.evaluate(() => { try { sessionStorage.clear(); localStorage.clear(); } catch { /* Storage is not available. */ } });
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
@@ -981,8 +1028,19 @@ try {
   check("t7", "with Suggestions off there is no tab bar", (await tablist.count()) === 0 && (await page.getByRole("tab").count()) === 0 && await page.locator("#deck-editor-cards").isVisible());
 
   // The phone: Deck | Cards | Suggest | Bridges in the segmented control.
+  // Every tab the control marks as chosen, from the first paint on (before the editor has measured itself).
+  // Plain text, so the tsx transform adds no helper the page does not have.
+  await page.addInitScript({ content: `(() => {
+    const seen = []; window.__segSeen = seen;
+    const look = () => { const id = document.querySelector('[data-testid="editor-tabs-seg"] [role="tab"][aria-selected="true"]')?.id; if (id && seen.at(-1) !== id) seen.push(id); };
+    const observer = new MutationObserver(look);
+    observer.observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-selected"] });
+    setTimeout(() => observer.disconnect(), 4000);
+  })();` });
   await page.setViewportSize({ width: 390, height: 844 });
   await fresh();
+  const segSeen = await page.evaluate(() => (window as unknown as { __segSeen?: string[] }).__segSeen ?? []);
+  check("t8", "the phone control marks Deck from the first paint and never Cards first", JSON.stringify(segSeen) === JSON.stringify(["deck-editor-deck-tab"]), segSeen);
   const seg = page.getByTestId("editor-tabs-seg");
   const phoneTabs = (await seg.getByRole("tab").allInnerTexts()).map((text: string) => text.replace(/\s+/g, " ").trim());
   check("t8", "a phone shows Deck with its count, Cards, Suggest and Bridges", phoneTabs.length === 4 && /^Deck \d+$/.test(phoneTabs[0]!) && phoneTabs.slice(1).join("|") === "Cards|Suggest|Bridges", phoneTabs);
@@ -1062,6 +1120,8 @@ try {
   await chips.getByRole("button", { name: "Remove Blue-Eyes" }).click();
   await items.first().waitFor({ state: "visible", timeout: 15_000 });
   check("u4", "a removed deck engine leaves the other chip and shows the reset link", JSON.stringify(await chipNames()) === JSON.stringify(["Dragunity"]) && (await chips.getByTestId("engine-reset").innerText()) === "Reset to deck", await chipNames());
+  check("u4", "the reset link sits in the row of chips, not on a line of its own", (await chips.getByRole("list").first().getByTestId("engine-reset").count()) === 1);
+  await shot("engines-reset-1920x1080");
   check("u4", "the focus goes on after a chip is removed", await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) === "engine-add", await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 80)));
   await chips.getByTestId("engine-reset").click();
   await items.first().waitFor({ state: "visible", timeout: 15_000 });
@@ -1164,6 +1224,8 @@ try {
 
   // A tap from Suggest leaves Pick mode: the deck's engine, not the picks, shows the tapped engine.
   await bridges.getByRole("button", { name: /^Back/ }).click();
+  await page.waitForTimeout(100);
+  check("v2", "Back from an asked bridge leaves the focus in the tab", await page.evaluate(() => document.activeElement !== document.body && !!document.activeElement?.closest('[data-testid="bridges-row"]')), await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 80)));
   await bridges.getByTestId("engine-modes").getByRole("button", { name: "Pick archetypes" }).click();
   await bridges.getByTestId("engine-add").click();
   await bridges.getByTestId("engine-add-form").getByRole("combobox").fill("Red-Eyes");
@@ -1408,6 +1470,68 @@ try {
     await shot(`deep-engines-${viewport.name}`);
   }
   await page.setViewportSize({ width: 1920, height: 1080 });
+
+  // w9. The deep search finds an engine the fast list did not have: it alone is marked New, and the mark stays after
+  // the fast answer is asked again (that answer then holds the stored row too).
+  bridgeControl.deepExtra = true;
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await fresh();
+    await goTab("Bridges");
+    await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+    await bridges.getByTestId("deep-search-button").click();
+    await bridges.getByTestId("deep-results").getByTestId("engine-item").first().waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(1500);
+    const marked = await bridges.getByTestId("engine-new").evaluateAll((nodes: Element[]) => nodes.map((node) => node.closest('[data-testid="engine-item"]')?.getAttribute("data-engine")));
+    check("w9", `${viewport.name}: only the engine the deep search found is marked New, and the mark stays after the fast list is asked again`, JSON.stringify(marked) === JSON.stringify(["Melodious"]) && (await bridges.getByTestId("deep-from").innerText()).includes("1 new") && engineCalls.length >= 2, { marked, engineCalls: engineCalls.length });
+    await bridges.getByTestId("deep-results").scrollIntoViewIfNeeded();
+    await shot(`deep-new-${viewport.name}`);
+    if (viewport.width === 1920) {
+      // Suggest lists Dragon Ruler (a fast engine) that the deep results left out: a tap says so, never nothing.
+      await goTab("Suggest");
+      const ruler = fit.locator('[data-testid="engine-fit-item"][data-engine="Dragon Ruler"]');
+      await ruler.waitFor({ state: "visible", timeout: 15_000 });
+      await ruler.getByRole("button", { name: /Open in Bridges/ }).click();
+      await bridges.getByTestId("bridges-notice").waitFor({ timeout: 10_000 });
+      await page.waitForTimeout(200);
+      check("w9", "a tapped engine that the deep results left out gets a line with the focus", (await bridges.getByTestId("bridges-notice").innerText()).includes("not among your deep search results") && await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) === "bridges-notice", await bridges.getByTestId("bridges-notice").innerText());
+    }
+  }
+  bridgeControl.deepExtra = false;
+  await page.setViewportSize({ width: 1920, height: 1080 });
+
+  // w10. A kept job measured against another deck. Fresh enough: a reload sends this deck to the same job, quietly.
+  // Too old to refresh: the stale line shows and nothing is sent. A busy host on the way back is asked again.
+  await fresh();
+  await goTab("Bridges");
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  bridgeCalls.starts.length = 0;
+  await bridges.getByTestId("deep-search-button").click();
+  await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
+  const keptKey = `bridges:job:${JSON.stringify(["multi", ["blue-eyes", "dragunity"], "advanced"])}`;
+  const editKept = (age: number) => page.evaluate(([key, ms]: [string, number]) => {
+    const kept = JSON.parse(sessionStorage.getItem(key) ?? "{}");
+    sessionStorage.setItem(key, JSON.stringify({ ...kept, context: JSON.stringify(["another deck", -1]), doneAt: Date.now() - ms }));
+  }, [keptKey, age] as [string, number]);
+  const reopen = async () => {
+    await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
+    await page.getByRole("tab", { name: "Cards", exact: true }).first().waitFor({ state: "visible", timeout: 8000 });
+    await page.waitForTimeout(400);
+    await goTab("Bridges");
+  };
+  await editKept(60_000);
+  bridgeControl.pollBusy = 2;
+  await reopen();
+  await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(2500);
+  check("w10", "a busy host on the way back is asked again, and the kept results show", bridgeControl.pollBusy === 0 && await bridges.getByTestId("deep-results").isVisible());
+  check("w10", "a reload with a kept job for another deck sends this deck to the same job, with no progress bar and no stale line", bridgeCalls.starts.length === 2 && bridgeCalls.starts[1]!.deck !== undefined && (await bridges.getByTestId("deep-progress").count()) === 0 && (await bridges.getByTestId("deep-stale").count()) === 0, { starts: bridgeCalls.starts.length });
+  await editKept(10 * 60_000);
+  await reopen();
+  await bridges.getByTestId("deep-stale").waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(2000);
+  check("w10", "a kept job too old to refresh says the cards changed and sends nothing", bridgeCalls.starts.length === 2 && (await bridges.getByTestId("deep-results").count()) === 0 && (await bridges.getByTestId("deep-search-button").innerText()).includes("Search again"), { starts: bridgeCalls.starts.length });
+  await shot("deep-stale-1920x1080");
   engineControl.mode = "single";
 
   // x. Saved chip edits, Pick archetypes, and the details of a link.
@@ -1469,6 +1593,7 @@ try {
   check("x3", "two picks ask the host by name, with the open deck as context", engineCalls.length === 1 && JSON.stringify(engineCalls[0]!.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]) && engineCalls[0]!.deck !== undefined, engineCalls);
   check("x3", "two picks show the bridge between them", JSON.stringify(await bridges.getByTestId("engines-between").getByTestId("bridge-item").locator("strong").allInnerTexts()) === JSON.stringify(["Blue-Eyes → Chaos"]) && (await bridges.getByTestId("engines-between").locator("h4").innerText()) === "Bridges between these archetypes", await bridges.getByTestId("engines-between").getByTestId("bridge-item").locator("strong").allInnerTexts());
   check("x3", "two picks show the next engine for them", (await bridges.getByTestId("engines-next").locator("h4").innerText()) === "Next engine for Blue-Eyes + Chaos");
+  check("x3", "two picks hide the two-archetype search, which would say the same", (await bridges.getByTestId("bridge-search-toggle").count()) === 0);
   check("x3", "the picks have no reset link and no Also in deck", (await chips.getByTestId("engine-reset").count()) === 0 && (await chips.getByTestId("engine-also").count()) === 0);
   await pickAdd("Dragunity");
   await pickAdd("Dark Magician");
@@ -1496,6 +1621,15 @@ try {
   await page.waitForTimeout(1000);
   check("x4", "an empty deck still offers the picker", (await bridges.getByTestId("bridges-empty").innerText()).includes("Add a few Main Deck cards"));
   check("x4", "an empty deck asks for no engines and no bridges", engineCalls.length === 0 && bridgeCalls.lists.length === 0, { engines: engineCalls.length, lists: bridgeCalls.lists });
+  // A kept chip edit that adds an engine: the empty deck still says only to add cards, with no "Your ... deck" line.
+  await page.evaluate(() => { try { localStorage.setItem("bridges:engines:1", JSON.stringify({ added: ["Blue-Eyes"], removed: [] })); } catch { /* No storage. */ } });
+  await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
+  await page.getByRole("tab", { name: "Cards", exact: true }).first().waitFor({ state: "visible", timeout: 8000 });
+  await page.waitForTimeout(400);
+  await goTab("Bridges");
+  await bridges.getByTestId("bridges-empty").waitFor({ timeout: 15_000 });
+  check("x4", "an empty deck with a kept added engine shows no lead line above the hint", (await bridges.getByTestId("bridges-empty").innerText()).includes("Add a few Main Deck cards") && (await bridges.locator("p", { hasText: "can bridge into" }).count()) === 0);
+  await page.evaluate(() => { try { localStorage.clear(); } catch { /* No storage. */ } });
   await bridges.getByTestId("engine-modes").getByRole("button", { name: "Pick archetypes" }).click();
   await pickAdd("Blue-Eyes");
   await items.first().waitFor({ state: "visible", timeout: 15_000 });
