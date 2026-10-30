@@ -102,8 +102,7 @@ test("TS-only engine PRs and main pushes skip native and differential core check
       "packages/duel-server/src/engine.ts", "packages/duel-server/tests/engine.test.ts",
       "packages/duel-server/tests/differential/differential.test.ts",
       "packages/shared/src/duels/settings.ts", "packages/shared/src/services/duels.ts",
-      "packages/duel-server/scripts/prepare-data.ts", "packages/duel-server/card-script-patches/c123.lua",
-      "packages/duel-server/domain-core/multi-scripts/c123.lua", "data/duel-engine-next/cards.cdb",
+      "data/duel-engine-next/cards.cdb",
       "tsconfig.json", "turbo.json", ".github/workflows/deploy.yml",
       ".github/actions/setup-ci-node/action.yml", ".github/actions/prepare-production-bundle/action.yml",
       "packages/duel-server/domain-core/proposals/core.cpp", "packages/duel-server/domain-core/patches/README.md",
@@ -112,6 +111,34 @@ test("TS-only engine PRs and main pushes skip native and differential core check
       assert.equal(result.core, false, `${event}: ${file}`);
     }
     assert.equal(classify(["packages/duel-server/src/engine.ts"], event).engine, true, event);
+  }
+});
+
+test("every golden input selects the native core job that runs golden checks", () => {
+  const inputs = [
+    ".github/workflows/test.yml",
+    "scripts/ci/changed-layers.mjs",
+    "packages/duel-server/card-script-patches/c123.lua",
+    "packages/duel-server/domain-core/patches/0001-core.patch",
+    "packages/duel-server/domain-core/multi-scripts/c123.lua",
+    "packages/duel-server/domain-core/pins.json",
+    "packages/duel-server/scripts/native/nduel.cpp",
+    "packages/duel-server/scripts/native/checks/checks.tsv",
+    "packages/duel-server/scripts/run-nduel.sh",
+    "packages/duel-server/scripts/build-native-core.sh",
+    "packages/duel-server/scripts/prepare-multi-core-tree.sh",
+    "packages/duel-server/scripts/multi-core-common.sh",
+    "packages/duel-server/scripts/prepare-data.ts",
+    "packages/duel-server/scripts/released-card-data.ts",
+    "packages/duel-server/scripts/card-script-patches.ts",
+  ];
+  for (const event of ["pull_request", "push"]) {
+    for (const file of inputs) {
+      const result = classify([file], event);
+      assert.equal(result.golden, true, `${event}: ${file}`);
+      assert.equal(result.core, true, `${event}: golden checks need the native job: ${file}`);
+      assert.equal(result.engine, true, `${event}: native checks need the engine bundle: ${file}`);
+    }
   }
 });
 
