@@ -8,6 +8,10 @@ All player routes require an authenticated application user with a player in the
 
 `GET /api/cards/bridges?source=Odion&format=advanced` returns at most four shown bridges. Optional query parameters are `target`, `genesysRemaining` (integer 0–1000), and `format=advanced|genesys` (default Advanced). Supply a positive integer `deckId` instead of `source` to infer the archetype from the authenticated owner's saved deck. Exactly one source selector is required. A target requests both directed lookups; `reverse` is present for that lookup.
 
+Suggestions and free two-archetype lookups use the existing strict candidates,
+score floor and top-four selection. Deep-only rows never enter these results,
+including after a deep job saves them in the shared candidate table.
+
 ```ts
 // GET response, HTTP 200
 { results: ShownBridge[], reverse?: ShownBridge[], inReview: number }
@@ -41,6 +45,34 @@ For a saved Genesys deck, the host derives remaining points from its cap and exi
 ```
 
 Jobs progress `queued → running → done|failed`. Queued jobs start at `candidates/0`; running steps are candidates, deterministic checking, then rating. Success ends at `done/100`; failures retain their last progress and a safe error. Interrupted jobs become failed on host restart. `inReview` includes pending and disputed candidates, never invalid ones.
+
+Completed deep searches return at most **ten** shown rows: strict bridges first,
+then rows with `tier: "niche"`. These deep-only rows display **Niche** in both
+the list and details even if the reviewers assign a higher usefulness grade.
+The existing `grade: "Niche"` can still occur on strict candidates; only the
+new `tier` field identifies deep-only eligibility. Both independent Haiku 5.5
+reviews, format checks, current evidence and feedback gates apply to every row.
+No pending or disputed row fills an empty slot. Within the Niche tier, two-way
+access ranks before one-way access, then score and target name break ties.
+
+A Niche candidate requires a physical access path over checked capability
+edges: a source card searches/adds, Summons, Sets, places or sends a genuine
+target-engine card, or a complete supported material procedure or specific
+cost leads to a card with that action. A wide stat filter or generic discard
+alone does not establish entry. Generic one-card toolbox searchers fetching
+any Trap do not qualify. Material procedures and costs retain their card IDs
+and the same-effect cost identity in the evidence sent to both judges.
+Scores below four and generic Link-1 procedures are allowed only in this tier.
+Strict score normalization is computed before any deep-only evidence.
+
+For example, The Man with the Mark can make Spirit with Eyes of Blue, which
+Tributes itself to Summon a Blue-Eyes from hand or GY. Spirit's Dragon lock
+ends when it leaves as that cost. Altergeist Marionetter's specific Deck Set
+of Altergeist Emulatelf plus Temple's same-turn activation permission is also
+accepted as an access path, at score 3.99. Temple permission alone is
+insufficient: Paleozoic Traps merely played alongside Odion do not qualify.
+Name-label groups, same-deck families, negated entry chains and unsupported
+material/placement setups remain excluded.
 
 Admission permits one queued/running search per application user across guilds. Another POST returns that job ID. There is no completion or failure cooldown; at most 15 new jobs are admitted per user per rolling hour. Two jobs run globally in the host, with a queue bounded to 100 waiting jobs. Identical source/target/format queries share pending work and completed results for 24 hours, without new review calls; artifact/prompt versions invalidate that reuse. Each subscriber retains its own points and saved-deck context. Cached completed queries bypass new-work admission. The hourly limit returns HTTP 429, `Retry-After: <seconds>`, and JSON `{error:string,retryAfter:number}`. Invalid requests return 400, missing subscriptions/decks 404, missing guild membership 403, and unavailable bridge data or a full queue 503. The UI shows a countdown only for the hourly-limit 429 with `retryAfter`; completion and failure enable the button immediately.
 
@@ -137,14 +169,22 @@ All files live in `packages/shared/data/effects/`. The independent `bridges-mani
 | `bridges-advanced.jsonl.gz`, `bridges-genesys.jsonl.gz` | `ArchetypeBridge`, up to 25 per source |
 | `bridges-manifest.json` | `{schema_version:1,algorithm_version,inputs:{tags,profiles,engine,metadata,genesys_revision,groups},files:{capabilities,advanced,genesys},groups,target_means,reason_frequencies,group_policies,materials,version}` |
 | `bridge-groups.json` | Group curation, aliases, exclusions and membership selectors (hashed in the manifest inputs) |
-| `bridges-golden.json` | `{pairs:[{source,target,format,expected:"bridge"|"not_bridge",min_grade?,cards?,why,source_url}]}` |
+| `bridges-golden.json` | `{pairs:[{source,target,format,expected:"bridge"|"not_bridge",tier?:"deep",min_grade?,cards?,why,source_url}]}` |
 | `bridge-judgements.jsonl.gz` | `{evidence_hash,input_hash,judge,framing,model,result,created_at}`; current reviews plus inert historical identities |
 
 Each file descriptor is `{path,records,bytes,sha256,gzipBytes,gzipSha256}`. `version` hashes the manifest identity without itself. `groups` maps exact primary archetypes with profiles to IDs, folding duplicate case variants; Odion additionally groups exact Temple references and Apophis names. `materials` stores complete supported material lines by format and source. Unsupported material procedures fail closed.
 
 `Capability` is `{key,value?,filter?:CardFilter,from?:string[],effect?:number,evidence,targets?:number[]}`. The closed 33-key vocabulary is `CAPABILITY_KEYS`. Targets are precomputed over the identity universe and filtered for format legality at runtime. `SummonLock` is `{scope,allow:CardFilter,extra_deck_only,self_removal,unresolved,evidence}`.
 
-`ArchetypeBridge` is `{source,target,format,score,raw_score,target_mean,two_way,grade,reasons,cards,warnings,genesys_points,validation,judge,engine_status,evidence_hash}`. Each reason has `{key,weight,cards,evidence,description,steps?,materials?}`. Steps are `{from,to,capability}`. `materials` retains repeated passcodes when multiple copies are required. Evidence hashes incorporate contributing IDs, reason keys, material lines and card text/capability hashes, including evidence that contributed to aggregate scoring.
+`ArchetypeBridge` is `{source,target,format,tier?:"niche",score,raw_score,target_mean,two_way,grade,reasons,cards,warnings,genesys_points,validation,judge,engine_status,evidence_hash}`. Each reason has `{key,weight,cards,evidence,description,steps?,materials?,cost?}`. Steps are `{from,to,capability}`; `cost` is `{card,using,capability,effect}`. `materials` retains repeated passcodes when multiple copies are required. Evidence hashes incorporate contributing IDs, reason keys, material lines and card text/capability hashes, including evidence that contributed to aggregate scoring. Deep-only hashes also bind the tier and cost identities.
+
+Golden labels with `tier: "deep"` are evaluated against the deep top ten and
+excluded from strict recall/precision denominators. The evaluator reports
+strict `recall_at_4` and `recall_at_10` separately from `deep_recall_at_10` for
+these deep-only positives. `--check` requires all deep positives to be found
+at their minimum grade; `--strict-precision` retains full strict judgement
+coverage. Golden evaluation measures deterministic candidates, independently
+of the live judge cache.
 
 Genesys excludes Link/Pendulum cards and lines with mandatory Link/Pendulum dependencies. It uses the existing verified Genesys snapshot reader, including known zeroes, and ignores the competitive Forbidden/Limited list. `genesys_points` counts one copy of each displayed evidence card plus required material multiplicity. It describes that evidence package; it is not a claim that an existing deck has sufficient remaining points. The caller must use the existing deck admission checker for the selected deck cap and copies.
 
@@ -165,13 +205,13 @@ Graph imports validate pinned compressed and decompressed bytes before one trans
 
 ## Rebuild, CLI and evaluation
 
-Use Node 22. All engine reads use the same `loadCardDatabase` / `engineInsightCard` path as effect indexing. No application catalog race field is used. The public metadata snapshot supplies primary archetype labels, TCG availability and verified Genesys points; card identity, exact engine setcode memberships and printed text come from the read-only engine bundle. A candidate must include a named target-engine member (or a member of a curated unnamed engine). Generic face-down access and single-material generic Link-1 lines cannot establish a bridge alone; retained generic Link-1 evidence caps the grade at Niche. Each target/reason weight scales down above 5% source frequency, using the same persisted frequencies for live and offline searches. Thematic group labels never establish an effect's rules membership: Sage with Eyes of Blue is grouped with Blue-Eyes support but cannot be summoned by an effect requiring a Blue-Eyes monster.
+Use Node 22. All engine reads use the same `loadCardDatabase` / `engineInsightCard` path as effect indexing. No application catalog race field is used. The public metadata snapshot supplies primary archetype labels, TCG availability and verified Genesys points; card identity, exact engine setcode memberships and printed text come from the read-only engine bundle. A candidate must include a named target-engine member (or a member of a curated unnamed engine). Generic face-down access cannot establish a bridge alone. Single-material generic Link-1 lines cannot establish a strict bridge alone; a checked physical access path through one can establish a deep-only Niche bridge. Each target/reason weight scales down above 5% source frequency, using the same persisted frequencies for live and offline searches. Thematic group labels never establish an effect's rules membership: Sage with Eyes of Blue is grouped with Blue-Eyes support but cannot be summoned by an effect requiring a Blue-Eyes monster.
 
 ```sh
 prlimit --core=0 -- npm run build --workspace=packages/shared
 DUEL_DATA_DIR=/path/to/read-only/engine prlimit --core=0 -- npx tsx scripts/effects/rebuild-bridges.ts
 prlimit --core=0 -- npm run build --workspace=packages/shared
-prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check
+prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check --strict-precision
 prlimit --core=0 -- npx tsx scripts/effects/benchmark-bridges.ts
 
 npx tsx scripts/effects/bridges.ts from Odion
