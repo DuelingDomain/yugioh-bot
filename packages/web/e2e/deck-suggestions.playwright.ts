@@ -142,7 +142,10 @@ const bridgeControl = { listStatus: 200, none: false, pollDelayMs: 0, startRetry
 /** Engines: the calls of the fast operation, and how the stand-in host detects the deck. */
 const engineCalls: Record<string, any>[] = [];
 const multiJobs = new Map<string, ReturnType<typeof enginesAnswer>>();
-const engineControl = { mode: "single" as "single" | "multi", status: 200, delayMs: 0, nextEmpty: false };
+const engineControl = { mode: "single" as "single" | "multi" | "none", status: 200, delayMs: 0, nextEmpty: false };
+/** The stand-in host's deep jobs: one per search (engines and format, or source), shared like the host shares them. */
+const deepJobs = new Map<string, { id: string; done: boolean }>();
+const deepWork = (body: any) => body.engines?.length > 1 ? JSON.stringify(["multi", [...body.engines].map((name: string) => name.toLowerCase()).sort(), body.format ?? "advanced"]) : JSON.stringify([String(body.engines?.[0] ?? body.source ?? "").toLowerCase(), body.target ?? "", body.format ?? "advanced"]);
 const GRADE_ORDER = ["Strong", "Good", "Niche", "Risky"];
 const json = (status: number, data: unknown) => ({ status, contentType: "application/json", body: JSON.stringify(data) });
 
@@ -156,7 +159,9 @@ function cardImage(code: string) {
 /** The stand-in for `POST /api/cards/bridges/engines`: detection from the deck, then the stored rows for the set. */
 function enginesAnswer(body: any) {
   const format = body.format ?? "advanced";
-  const detected = engineControl.mode === "multi"
+  const detected = engineControl.mode === "none"
+    ? [{ name: "Dragunity", weight: 2, copies: 2, distinct: 2, status: "light", hybrids: [] }]
+    : engineControl.mode === "multi"
     ? [{ name: "Blue-Eyes", weight: 6, copies: 6, distinct: 5, status: "engine", hybrids: [] }, { name: "Dragunity", weight: 4, copies: 4, distinct: 3, status: "engine", hybrids: [] }, { name: "Chaos", weight: 2, copies: 2, distinct: 2, status: "light", hybrids: [] }]
     : [{ name: "Blue-Eyes", weight: 6, copies: 6, distinct: 5, status: "engine", hybrids: [] }, { name: "Dragunity", weight: 2, copies: 2, distinct: 2, status: "light", hybrids: [] }];
   const set: string[] = body.engines ? [...new Set<string>(body.engines.flatMap((name: string) => known(name) ?? []))].sort() : detected.filter((entry) => entry.status === "engine").map((entry) => entry.name).sort();
@@ -217,12 +222,23 @@ async function api(method: string, url: URL, body: any) {
     bridgeCalls.starts.push(body);
     await new Promise((done) => setTimeout(done, 250));
     if (bridgeControl.startRetryAfter > 0) return json(429, { error: "Deep search hourly limit reached", retryAfter: bridgeControl.startRetryAfter });
+    // The host takes one selector (source, deckId or engines); the deck goes with the engines as context only.
+    const selectors = ["source", "deckId", "engines"].filter((name) => body[name] !== undefined);
+    if (selectors.length !== 1 && !(selectors.length === 0 && body.deck)) return json(400, { error: "Send exactly one of source, deckId or engines." });
+    if (body.deck && body.source !== undefined) return json(400, { error: "The deck goes with engines only." });
+    const work = deepWork(body);
+    const kept = deepJobs.get(work);
+    // The same search again joins its job; the new deck is this player's context from now on.
+    if (kept) {
+      if (body.engines || body.deck) multiJobs.set(kept.id, enginesAnswer({ format: body.format, ...(body.engines ? { engines: body.engines } : {}), ...(body.deck ? { deck: body.deck } : {}) }));
+      return json(kept.done ? 200 : 202, { jobId: kept.id, state: kept.done ? "done" : "running", cached: kept.done });
+    }
+    const other = [...deepJobs.entries()].find(([, job]) => !job.done);
+    if (other) return json(409, { error: `A deep search for ${JSON.parse(other[0])[1]?.join?.(" + ") ?? "another archetype"} is still running`, retryAfter: 10 });
     bridgeControl.started += 1;
     const jobId = `job-${bridgeControl.started}`;
-    // The host takes exactly one selector; the deck stands for the engines it finds in it.
-    const selectors = ["source", "deckId", "engines", "deck"].filter((name) => body[name] !== undefined);
-    if (selectors.length !== 1) return json(400, { error: "Send exactly one of source, deckId, engines or deck." });
-    if (body.engines || body.deck) multiJobs.set(jobId, enginesAnswer({ format: body.format, ...(body.engines ? { engines: body.engines } : { deck: body.deck }) }));
+    deepJobs.set(work, { id: jobId, done: false });
+    if (body.engines || body.deck) multiJobs.set(jobId, enginesAnswer({ format: body.format, ...(body.engines ? { engines: body.engines } : {}), ...(body.deck ? { deck: body.deck } : {}) }));
     return json(202, { jobId, state: "queued", cached: false });
   }
   if (path.startsWith("/api/cards/bridges/deep-search/") && method === "GET") {
@@ -233,8 +249,10 @@ async function api(method: string, url: URL, body: any) {
     // Four answers: finding, checking, rating, then done (or failed).
     const phases = [["candidates", 20], ["checking", 55], ["rating", 85]] as const;
     const index = Math.min(polls - 1, 3);
-    if (index < 3) return json(200, { jobId, state: index === 0 ? "queued" : "running", step: phases[index]![0], progress: phases[index]![1], results: [], inReview: bridgeControl.reviewCount });
-    if (bridgeControl.jobMode === "fail") return json(200, { jobId, state: "failed", step: "rating", progress: 85, results: [], inReview: bridgeControl.reviewCount, error: "The search stopped before it finished. Try again in a minute." });
+    const entry = [...deepJobs.entries()].find(([, job]) => job.id === jobId);
+    if (index < 3 && !entry?.[1].done) return json(200, { jobId, state: index === 0 ? "queued" : "running", step: phases[index]![0], progress: phases[index]![1], results: [], inReview: bridgeControl.reviewCount });
+    if (bridgeControl.jobMode === "fail") { if (entry) deepJobs.delete(entry[0]); return json(200, { jobId, state: "failed", step: "rating", progress: 85, results: [], inReview: bridgeControl.reviewCount, error: "The search stopped before it finished. Try again in a minute." }); }
+    if (entry) entry[1].done = true;
     const extra = bridge("Blue-Eyes", "Melodious", "Good", 64, false, ["Dragon Spirit of White", "Foolish Burial", "Terraforming"], ["Terraforming", "Dragon Spirit of White"],
       ["Terraforming finds the field spell both lines want.", "Dragon Spirit of White works as a Tuner in both."], ["No two-way route found.", "Needs a field spell slot."], "No summon lock.");
     const multi = multiJobs.get(jobId);
@@ -401,6 +419,24 @@ try {
     check("layout", `${viewport.name}: empty rows retain four slots`, await panel.locator('section[aria-labelledby^="suggest-"]:not([aria-labelledby="suggest-engines"])').count() === 4);
     await shot(`stable-empty-${viewport.name}`);
     control.emptyRows = false;
+
+    // The Engines that fit row keeps one height: a slow engine answer, then an empty one, moves no card row.
+    engineControl.delayMs = 2500;
+    await open("small");
+    await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
+    const waitingBoxes = await tileBoxes();
+    const loadingEngines = await page.getByTestId("engines-fit").getByRole("status").count();
+    await page.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
+    const answeredBoxes = await tileBoxes();
+    const moved = (a: number[][], b: number[][]) => a.map((box, i) => b[i] && box.every((value, axis) => Math.abs(value - b[i]![axis]!) <= 1) ? null : [i, box, b[i]]).filter(Boolean);
+    check("layout", `${viewport.name}: the engine answer moves no card row`, loadingEngines === 1 && answeredBoxes.length === waitingBoxes.length && moved(waitingBoxes, answeredBoxes).length === 0, { loadingEngines, moved: moved(waitingBoxes, answeredBoxes).slice(0, 3) });
+    engineControl.delayMs = 0; engineControl.nextEmpty = true;
+    await panel.locator('section[aria-labelledby="suggest-staples"] button').first().dblclick();
+    await page.getByTestId("engines-fit-empty").waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(400);
+    const emptyBoxes = await tileBoxes();
+    check("layout", `${viewport.name}: an empty engine answer after a deck edit moves no card row`, moved(answeredBoxes, emptyBoxes).length === 0, moved(answeredBoxes, emptyBoxes).slice(0, 3));
+    engineControl.nextEmpty = false;
   }
   control.delayMs = 0;
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -572,7 +608,10 @@ try {
   check("g", "an empty deck makes no request", insightRequests.length === 0 && bridgeCalls.lists.length === 0, { insight: insightRequests.length, bridges: bridgeCalls.lists });
   await shot("g-empty-deck");
   await goTab("Bridges");
+  await page.getByTestId("bridges-empty").waitFor({ timeout: 10_000 });
+  await page.waitForTimeout(1000);
   check("g", "an empty deck gets a short Bridges hint", (await page.getByTestId("bridges-empty").innerText()).includes("Add a few Main Deck cards"));
+  check("g", "the Bridges tab of an empty deck asks for nothing", bridgeCalls.lists.length === 0 && engineCalls.length === 0, { lists: bridgeCalls.lists, engines: engineCalls.length });
 
   }
 
@@ -581,7 +620,7 @@ try {
   const items = bridges.getByTestId("bridge-item");
   const reset = async (deck: "small" | "full" | "empty" = "small") => {
     await page.evaluate(() => { try { sessionStorage.clear(); localStorage.clear(); } catch { /* Storage is not available. */ } });
-    bridgeCalls.starts.length = 0; bridgeCalls.feedback.length = 0; bridgeCalls.polls = 0; bridgeCalls.archetypes = 0;
+    bridgeCalls.starts.length = 0; bridgeCalls.feedback.length = 0; bridgeCalls.polls = 0; bridgeCalls.archetypes = 0; deepJobs.clear();
     Object.assign(bridgeControl, { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok", feedbackFails: false, deepNone: false });
     await open(deck, "on", "Bridges");
     await items.first().waitFor({ state: "visible", timeout: 15_000 });
@@ -828,7 +867,7 @@ try {
   // t. The tabs: Cards | Suggest | Bridges on a desktop, Deck | Cards | Suggest | Bridges on a phone.
   const tabState = (name: string) => page.getByRole("tab", { name, exact: true }).first().getAttribute("aria-selected");
   const fresh = async (deck: "small" | "full" | "empty" = "small") => {
-    control.deck = deck; insightRequests.length = 0; bridgeCalls.lists.length = 0; engineCalls.length = 0;
+    control.deck = deck; insightRequests.length = 0; bridgeCalls.lists.length = 0; engineCalls.length = 0; deepJobs.clear(); bridgeCalls.polls = 0;
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
     await page.evaluate(() => { try { sessionStorage.clear(); localStorage.clear(); } catch { /* Storage is not available. */ } });
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
@@ -1015,11 +1054,15 @@ try {
   check("u3", "that asks the host for nothing new", engineCalls.length === callsBefore, engineCalls.length - callsBefore);
   check("u3", "no edit is left, so no reset link", (await chips.getByTestId("engine-reset").count()) === 0);
 
-  // Removing the deck's own engine is an edit, and Reset to deck brings it back.
+  // The deck keeps one engine: the last chip has no working ×. Removing the deck's own engine is an edit, and Reset to deck brings it back.
+  check("u4", "the last engine of the deck cannot be removed", await chips.getByRole("button", { name: "Remove Blue-Eyes" }).isDisabled());
+  await chips.getByRole("button", { name: /^Add Dragunity/ }).click();
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  check("u4", "the + of Also in deck gives the focus to the new chip", await page.evaluate(() => document.activeElement?.getAttribute("aria-label")) === "Remove Dragunity", await page.evaluate(() => document.activeElement?.getAttribute("aria-label")));
   await chips.getByRole("button", { name: "Remove Blue-Eyes" }).click();
-  await chips.getByTestId("engine-none").waitFor();
-  check("u4", "with no engine left, the tab says so", (await chips.getByTestId("engine-chip").count()) === 0 && (await chips.getByTestId("engine-none").innerText()).includes("No engine found yet"));
-  check("u4", "a removed deck engine shows the reset link", (await chips.getByTestId("engine-reset").innerText()) === "Reset to deck");
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  check("u4", "a removed deck engine leaves the other chip and shows the reset link", JSON.stringify(await chipNames()) === JSON.stringify(["Dragunity"]) && (await chips.getByTestId("engine-reset").innerText()) === "Reset to deck", await chipNames());
+  check("u4", "the focus goes on after a chip is removed", await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) === "engine-add", await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 80)));
   await chips.getByTestId("engine-reset").click();
   await items.first().waitFor({ state: "visible", timeout: 15_000 });
   check("u4", "Reset to deck puts the engine back", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes"]) && (await chips.getByTestId("engine-reset").count()) === 0);
@@ -1028,6 +1071,8 @@ try {
   await chips.getByTestId("engine-add").click();
   const adder = bridges.getByTestId("engine-add-form");
   const box = adder.getByRole("combobox");
+  await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "combobox", null, { timeout: 5000 }).catch(() => undefined);
+  check("u5", "+ Add puts the focus in the name box", await page.evaluate(() => document.activeElement?.getAttribute("role")) === "combobox");
   await box.fill("chao");
   await adder.getByRole("option", { name: "Chaos" }).waitFor();
   check("u5", "the combo lists the archetypes that fit and leaves out the chosen ones", (await adder.getByRole("option").allInnerTexts()).includes("Chaos") && !(await adder.getByRole("option").allInnerTexts()).includes("Blue-Eyes"));
@@ -1036,6 +1081,7 @@ try {
   await adder.getByRole("button", { name: "Add", exact: true }).click();
   await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
   check("u5", "the named archetype becomes a chip", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes", "Chaos"]), await chipNames());
+  check("u5", "after Add the focus is back on the Add chip", await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) === "engine-add");
   await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
   await page.waitForTimeout(500);
   check("u5", "the host got the new set", JSON.stringify(engineCalls.at(-1)!.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]), engineCalls.at(-1));
@@ -1102,7 +1148,7 @@ try {
   const fitItems = fit.getByTestId("engine-fit-item");
   check("v1", "the row is the first in the Suggest tab", (await panel.locator("h3").first().innerText()) === "Engines that fit", await panel.locator("h3").allInnerTexts());
   check("v1", "it shows the top three engines, best first", JSON.stringify(await fitItems.locator("strong").allInnerTexts()) === JSON.stringify(["Dragunity", "Dragon Ruler", "Chaos"]), await fitItems.locator("strong").allInnerTexts());
-  check("v1", "each engine shows a grade and how many of your engines it links to", (await fitItems.first().getByTestId("engine-fit-grade").innerText()).length > 0 && (await fitItems.first().innerText()).includes("Links 1 of 1"), await fitItems.first().innerText());
+  check("v1", "each engine shows a grade and names the deck engine it links", (await fitItems.first().getByTestId("engine-fit-grade").innerText()).length > 0 && (await fitItems.first().getByTestId("engine-fit-links").innerText()) === "Links Blue-Eyes", await fitItems.first().innerText());
   check("v1", "each engine shows small cards", (await fitItems.first().getByRole("list", { name: /cards$/ }).locator("li").count()) >= 2);
   check("v1", "the row asked the host once", engineCalls.length === 1, engineCalls.length);
   const callsAtSuggest = engineCalls.length;
@@ -1114,6 +1160,20 @@ try {
   await bridges.getByTestId("bridge-drill").waitFor({ timeout: 15_000 });
   check("v2", "the bridge to that engine opens its details", (await bridges.getByTestId("bridge-drill").innerText()).includes("Dragunity"), await bridges.getByTestId("bridge-drill").innerText());
   check("v2", "the Bridges tab reused the answer of Suggest", engineCalls.length === callsAtSuggest, engineCalls.length - callsAtSuggest);
+  check("v2", "the focus is on Back in the details that opened", await page.evaluate(() => /^Back/.test(document.activeElement?.textContent ?? "")));
+
+  // A tap from Suggest leaves Pick mode: the deck's engine, not the picks, shows the tapped engine.
+  await bridges.getByRole("button", { name: /^Back/ }).click();
+  await bridges.getByTestId("engine-modes").getByRole("button", { name: "Pick archetypes" }).click();
+  await bridges.getByTestId("engine-add").click();
+  await bridges.getByTestId("engine-add-form").getByRole("combobox").fill("Red-Eyes");
+  await bridges.getByTestId("engine-add-form").getByRole("button", { name: "Add", exact: true }).click();
+  await goTab("Suggest");
+  await fitItems.nth(2).getByRole("button", { name: /Open in Bridges/ }).click();
+  await bridges.getByTestId("bridge-drill").waitFor({ timeout: 15_000 });
+  check("v2", "a tap while Bridges is in Pick mode goes back to the deck and opens the engine", (await bridges.getByTestId("engine-modes").count()) === 0 && (await bridges.getByTestId("bridge-drill").innerText()).includes("Chaos"), await bridges.getByTestId("bridge-drill").innerText());
+  await bridges.getByRole("button", { name: /^Back/ }).click();
+  check("v2", "Back from there shows Use my deck", (await bridges.getByTestId("engine-modes").getByRole("button", { name: "Use my deck" }).getAttribute("aria-pressed")) === "true");
 
   // With two engines, the tap shows the engine card in the Bridges list.
   engineControl.mode = "multi";
@@ -1121,11 +1181,37 @@ try {
   await goTab("Suggest");
   await fit.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
   const multiFirst = await fit.getByTestId("engine-fit-item").first().getAttribute("data-engine");
-  check("v3", "two engines still show a short list", (await fit.getByTestId("engine-fit-item").count()) <= 3 && (await fit.innerText()).includes("Links 2 of 2"), await fit.innerText());
+  check("v3", "two engines still show a short list that names both linked engines", (await fit.getByTestId("engine-fit-item").count()) <= 3 && (await fit.getByTestId("engine-fit-links").first().innerText()) === "Links Blue-Eyes + Dragunity", await fit.innerText());
   await fit.getByTestId("engine-fit-item").first().getByRole("button", { name: /Open in Bridges/ }).click();
   await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
   await bridges.locator(`[data-testid="engine-item"][data-lit]`).waitFor({ timeout: 5000 });
   check("v3", "the tapped engine is marked in the Bridges list", (await bridges.locator('[data-testid="engine-item"][data-lit]').getAttribute("data-engine")) === multiFirst, multiFirst);
+  await page.waitForTimeout(200);
+  check("v3", "the marked engine has the focus", await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.engine ?? null) === multiFirst, await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 80)));
+
+  // With edited chips the tapped engine can be a chip already, or not a next engine: a line says so and offers a reset.
+  await bridges.getByTestId("engine-chips").getByRole("button", { name: /^Add Chaos/ }).click();
+  await bridges.getByTestId("engines-next").locator("h4", { hasText: "Chaos" }).waitFor({ timeout: 15_000 });
+  await goTab("Suggest");
+  await fit.getByTestId("engine-fit-item").first().getByRole("button", { name: /Open in Bridges/ }).click();
+  await bridges.getByTestId("bridges-notice").waitFor({ timeout: 10_000 });
+  check("v3", "a tapped engine that is a chip already gets a short line", (await bridges.getByTestId("bridges-notice").innerText()).includes("Chaos is already one of your engines"), await bridges.getByTestId("bridges-notice").innerText());
+  // Only Red-Eyes is left: nothing in the stored rows leads from it to Chaos.
+  await bridges.getByTestId("engine-chips").getByRole("button", { name: "Remove Chaos" }).click();
+  await bridges.getByTestId("engine-chips").getByTestId("engine-add").click();
+  await bridges.getByTestId("engine-add-form").getByRole("combobox").fill("Red-Eyes");
+  await bridges.getByTestId("engine-add-form").getByRole("button", { name: "Add", exact: true }).click();
+  await bridges.getByTestId("engine-chips").getByRole("button", { name: "Remove Blue-Eyes" }).click();
+  await bridges.getByTestId("engine-chips").getByRole("button", { name: "Remove Dragunity" }).click();
+  await bridges.getByTestId("bridges-empty").waitFor({ timeout: 15_000 });
+  await goTab("Suggest");
+  await fit.getByTestId("engine-fit-item").first().getByRole("button", { name: /Open in Bridges/ }).click();
+  await bridges.getByTestId("bridges-notice").waitFor({ timeout: 10_000 });
+  check("v3", "a tapped engine that the edited chips do not reach says so, with a reset", (await bridges.getByTestId("bridges-notice").innerText()).includes("not a next engine") && (await bridges.getByTestId("bridges-notice-reset").count()) === 1, await bridges.getByTestId("bridges-notice").innerText());
+  check("v3", "the line has the focus", await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) === "bridges-notice");
+  await bridges.getByTestId("bridges-notice-reset").click();
+  await bridges.locator('[data-testid="engine-item"][data-lit]').waitFor({ timeout: 10_000 });
+  check("v3", "the reset brings the deck's engines back and marks the engine", (await bridges.locator('[data-testid="engine-item"][data-lit]').getAttribute("data-engine")) === multiFirst && (await bridges.getByTestId("engine-chip").count()) === 2);
 
   // No engine passed the checks: a plain hint that points to Deep search.
   engineControl.mode = "single"; engineControl.nextEmpty = true;
@@ -1138,14 +1224,29 @@ try {
   await shot("fit-empty-1920x1080");
   await fit.getByRole("button", { name: /Deep search/ }).click();
   check("v4", "its link opens the Bridges tab", (await tabState("Bridges")) === "true");
+  await page.waitForFunction(() => document.activeElement?.getAttribute("data-testid") === "deep-search-button", null, { timeout: 10_000 }).catch(() => undefined);
+  check("v4", "the Deep search button has the focus and works", await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) === "deep-search-button" && await bridges.getByTestId("deep-search-button").isEnabled());
   engineControl.nextEmpty = false;
+
+  // No engine in the deck: the hint points to Pick archetypes, never to a Deep search that is off.
+  engineControl.mode = "none";
+  await fresh();
+  await goTab("Suggest");
+  await fit.getByTestId("engines-fit-empty").waitFor({ timeout: 15_000 });
+  const noneText = await fit.getByTestId("engines-fit-empty").innerText();
+  check("v4", "a deck with no engine gets a hint to pick archetypes", noneText.includes("pick archetypes") && !noneText.includes("Deep search"), noneText);
+  await fit.getByRole("button", { name: /pick archetypes/ }).click();
+  await bridges.getByTestId("engine-add").waitFor({ timeout: 10_000 });
+  await page.waitForTimeout(200);
+  check("v4", "its link opens Bridges in Pick archetypes with the focus on Add", (await bridges.getByTestId("engine-modes").getByRole("button", { name: "Pick archetypes" }).getAttribute("aria-pressed")) === "true" && await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) === "engine-add");
+  engineControl.mode = "single";
 
   // The host fails: the rest of Suggest still works.
   engineControl.status = 500;
   await fresh();
   await goTab("Suggest");
   await fit.getByTestId("engines-fit-empty").waitFor({ timeout: 15_000 });
-  check("v5", "a failed answer says the engines are not available", (await fit.getByTestId("engines-fit-empty").innerText()).includes("not available"));
+  check("v5", "a failed answer says the engines are not available and offers Try again in place", (await fit.getByTestId("engines-fit-empty").innerText()).includes("not available") && (await fit.getByRole("button", { name: "Try again" }).count()) === 1 && !(await fit.getByTestId("engines-fit-empty").innerText()).includes("Deep search"));
   check("v5", "the four rows still load", (await tileButtons.count()) > 0 || await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().isVisible());
   engineControl.status = 404;
   await fresh();
@@ -1179,7 +1280,8 @@ try {
   bridgeCalls.starts.length = 0; bridgeCalls.polls = 0;
   await bridges.getByTestId("deep-search-button").dblclick();
   await bridges.getByTestId("deep-progress").waitFor();
-  check("w1", "two engines in the deck start one search, with the deck as the only selector", bridgeCalls.starts.length === 1 && bridgeCalls.starts[0]!.deck !== undefined && bridgeCalls.starts[0]!.engines === undefined && bridgeCalls.starts[0]!.source === undefined && bridgeCalls.starts[0]!.format === "advanced", bridgeCalls.starts.map((call) => Object.keys(call)));
+  check("w1", "two engines in the deck start one search, for the chips on screen with the deck as context", bridgeCalls.starts.length === 1 && bridgeCalls.starts[0]!.deck !== undefined && JSON.stringify(bridgeCalls.starts[0]!.engines) === JSON.stringify(["Blue-Eyes", "Dragunity"]) && bridgeCalls.starts[0]!.source === undefined && bridgeCalls.starts[0]!.format === "advanced", bridgeCalls.starts.map((call) => Object.keys(call)));
+  check("w1", "the Deep search button and its progress sit above the engine list", await bridges.evaluate((root: HTMLElement) => { const button = root.querySelector('[data-testid="deep-search-button"]')!.getBoundingClientRect(); const list = root.querySelector('[data-testid="engines-next"]')?.getBoundingClientRect(); return !!list && button.bottom <= list.top; }));
   check("w1", "the progress bar and its steps show", (await bridges.getByTestId("deep-progress").getByRole("progressbar").count()) === 1 && (await bridges.getByTestId("deep-progress").locator("li").count()) === 3);
   check("w1", "the button waits while the search runs", await bridges.getByTestId("deep-search-button").isDisabled());
   await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
@@ -1188,6 +1290,7 @@ try {
   check("w1", "no single-bridge card sits in the results", (await bridges.getByTestId("deep-results").getByTestId("bridge-item").count()) === 0);
   check("w1", "a result shows its path, cards, and good and bad points", (await deepEngines.first().getByTestId("engine-paths").count()) === 1 && (await deepEngines.first().getByRole("list", { name: /cards$/ }).count()) === 1 && (await deepEngines.first().getByRole("list", { name: "Good" }).count()) === 1);
   check("w1", "the deep search stays in the engine order the host gave", JSON.stringify(await deepEngines.locator("strong").allInnerTexts()) === JSON.stringify(["Chaos", "Dragon Ruler", "Red-Eyes", "Dark Magician"]), await deepEngines.locator("strong").allInnerTexts());
+  check("w1", "the deep results take the place of the fast list, so no engine shows twice", (await bridges.getByTestId("engines-next").count()) === 0 && (await bridges.getByTestId("engine-item").count()) === (await deepEngines.count()), { fast: await bridges.getByTestId("engines-next").count(), all: await bridges.getByTestId("engine-item").count() });
   await shot("deep-engines-1920x1080");
 
   // A tab that is left and opened again picks the same search up, and a reload finds the job of this browser tab.
@@ -1197,6 +1300,51 @@ try {
   await goTab("Bridges");
   await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
   check("w2", "a reload picks the finished search up from the kept job", (await bridges.getByTestId("deep-results").getByTestId("engine-item").count()) >= 1 && bridgeCalls.starts.length === 1, bridgeCalls.starts.length);
+
+  // A deck edit after the search: the host hears of the new deck (the same job, no new search) and the results follow it.
+  const needBefore = await bridges.getByTestId("deep-results").getByTestId("engine-item").first().getByTestId("engine-need").innerText();
+  await goTab("Cards");
+  await search().fill("Chaos Sorcerer");
+  await page.locator('[data-pane="cards"] button[title="Chaos Sorcerer"]').first().dblclick({ timeout: 10_000 });
+  await search().fill("");
+  await goTab("Bridges");
+  await page.waitForTimeout(2500);
+  const needAfter = await bridges.getByTestId("deep-results").getByTestId("engine-item").first().getByTestId("engine-need").innerText().catch(() => "");
+  check("w2", "a deck edit after the search sends the new deck to the same search, and no progress bar or dot shows", bridgeCalls.starts.length === 2 && bridgeCalls.starts[1]!.deck !== undefined && (await bridges.getByTestId("deep-progress").count()) === 0 && (await page.locator('[role="tab"][data-dot]').count()) === 0, { starts: bridgeCalls.starts.length });
+  check("w2", "the results then count the card the deck holds now", needAfter !== "" && needAfter !== needBefore, { needBefore, needAfter });
+
+  // A running search is never lost: Pick archetypes shows it as still running, the button waits, and it lands on the way back.
+  await fresh();
+  bridgeControl.pollDelayMs = 900;
+  await goTab("Bridges");
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  await bridges.getByTestId("deep-search-button").click();
+  await bridges.getByTestId("deep-progress").waitFor();
+  await bridges.getByTestId("engine-modes").getByRole("button", { name: "Pick archetypes" }).click();
+  await bridges.getByTestId("deep-elsewhere").waitFor({ timeout: 5000 });
+  check("w7", "another set shows that the first search still runs, by name", (await bridges.getByTestId("deep-elsewhere").innerText()).includes("Blue-Eyes + Dragunity"), await bridges.getByTestId("deep-elsewhere").innerText());
+  for (const name of ["Chaos", "Red-Eyes"]) {
+    await bridges.getByTestId("engine-add").click();
+    await bridges.getByTestId("engine-add-form").getByRole("combobox").fill(name);
+    await bridges.getByTestId("engine-add-form").getByRole("button", { name: "Add", exact: true }).click();
+  }
+  check("w7", "the button waits while the other search runs, so no 409 can show as a failure", await bridges.getByTestId("deep-search-button").isDisabled() && (await bridges.getByTestId("deep-error").count()) === 0);
+  await bridges.getByTestId("deep-elsewhere").waitFor({ state: "detached", timeout: 20_000 });
+  check("w7", "when it ends, the button works for the picks", await bridges.getByTestId("deep-search-button").isEnabled());
+  await bridges.getByTestId("engine-modes").getByRole("button", { name: "Use my deck" }).click();
+  await bridges.getByTestId("deep-results").waitFor({ timeout: 10_000 });
+  check("w7", "back on the deck, the results of the first search are there", (await bridges.getByTestId("deep-results").getByTestId("engine-item").count()) >= 1);
+  bridgeControl.pollDelayMs = 0;
+
+  // A search of this player from another browser tab: a 409 is a wait with its reason, never a failed progress bar.
+  await fresh();
+  await goTab("Bridges");
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  deepJobs.set(JSON.stringify(["multi", ["chaos", "red-eyes"], "advanced"]), { id: "job-other-tab", done: false });
+  await bridges.getByTestId("deep-search-button").click();
+  await bridges.getByTestId("deep-notice").waitFor({ timeout: 10_000 });
+  check("w8", "a 409 shows its reason and no failed bar", (await bridges.getByTestId("deep-notice").innerText()).includes("still running") && (await bridges.getByTestId("deep-progress").count()) === 0 && (await bridges.getByTestId("deep-error").count()) === 0, await bridges.getByTestId("deep-notice").innerText());
+  deepJobs.clear();
 
   // A corrected set is sent by name, in one selector.
   engineControl.mode = "single";
@@ -1217,7 +1365,7 @@ try {
   bridgeCalls.starts.length = 0;
   await bridges.getByTestId("deep-search-button").click();
   await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
-  check("w3", "a changed set is sent as the engines alone", bridgeCalls.starts.length === 1 && JSON.stringify(bridgeCalls.starts[0]!.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]) && bridgeCalls.starts[0]!.deck === undefined && bridgeCalls.starts[0]!.source === undefined, bridgeCalls.starts);
+  check("w3", "a changed set is sent by name, with the deck as context", bridgeCalls.starts.length === 1 && JSON.stringify(bridgeCalls.starts[0]!.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]) && bridgeCalls.starts[0]!.deck !== undefined && bridgeCalls.starts[0]!.source === undefined, bridgeCalls.starts);
   // Taking an engine out of the set forgets the search of the old set.
   await bridges.getByTestId("engine-chips").getByRole("button", { name: "Remove Chaos" }).click();
   await items.first().waitFor({ state: "visible", timeout: 15_000 });
@@ -1286,7 +1434,7 @@ try {
   // The edits are for Bridges only: the Suggest row still reads the deck's own engines.
   await goTab("Suggest");
   await fit.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
-  check("x2", "the Suggest row ignores the chip edits", (await fit.getByTestId("engine-fit-item").first().innerText()).includes("Links 1 of 1"));
+  check("x2", "the Suggest row ignores the chip edits", (await fit.getByTestId("engine-fit-links").first().innerText()) === "Links Blue-Eyes");
   await goTab("Bridges");
   await chips.getByTestId("engine-reset").click();
   await items.first().waitFor({ state: "visible", timeout: 15_000 });
@@ -1304,8 +1452,8 @@ try {
 
   // Pick archetypes: one to four names, no deck.
   await modes.getByRole("button", { name: "Pick archetypes" }).click();
-  await chips.getByTestId("engine-none").waitFor();
-  check("x3", "Pick archetypes starts with nothing picked", (await chips.getByTestId("engine-chip").count()) === 0 && (await chips.getByTestId("engine-none").innerText()).includes("No archetype picked yet") && (await bridges.getByTestId("bridges-empty").innerText()).includes("Pick one to four"), await bridges.getByTestId("bridges-empty").innerText());
+  await bridges.getByTestId("bridges-empty").waitFor();
+  check("x3", "Pick archetypes starts with nothing picked, said once", (await chips.getByTestId("engine-chip").count()) === 0 && (await chips.getByTestId("engine-none").count()) === 0 && (await bridges.getByTestId("bridges-empty").innerText()).includes("Pick one to four"), await bridges.getByTestId("bridges-empty").innerText());
   const pickAdd = async (name: string) => {
     await chips.getByTestId("engine-add").click();
     const form = bridges.getByTestId("engine-add-form");
@@ -1315,11 +1463,12 @@ try {
   engineCalls.length = 0;
   await pickAdd("Blue-Eyes");
   await items.first().waitFor({ state: "visible", timeout: 15_000 });
-  check("x3", "one pick shows that archetype's own bridges", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes"]) && (await bridges.getByRole("list", { name: "Your deck can bridge into", exact: true }).count()) === 1);
+  check("x3", "one pick shows that archetype's own bridges, without saying your deck", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes"]) && (await bridges.getByRole("list", { name: "Blue-Eyes can bridge into", exact: true }).count()) === 1 && !(await bridges.innerText()).includes("Your Blue-Eyes deck"));
   await pickAdd("Chaos");
   await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
-  check("x3", "two picks ask the host by name, without the deck", engineCalls.length === 1 && JSON.stringify(engineCalls[0]!.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]) && engineCalls[0]!.deck === undefined, engineCalls);
-  check("x3", "two picks show the bridges between them and the next engine", (await bridges.getByTestId("engines-between").count()) + (await bridges.getByTestId("engines-next").count()) >= 1 && (await bridges.getByTestId("engines-next").locator("h4").innerText()) === "Next engine for Blue-Eyes + Chaos");
+  check("x3", "two picks ask the host by name, with the open deck as context", engineCalls.length === 1 && JSON.stringify(engineCalls[0]!.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]) && engineCalls[0]!.deck !== undefined, engineCalls);
+  check("x3", "two picks show the bridge between them", JSON.stringify(await bridges.getByTestId("engines-between").getByTestId("bridge-item").locator("strong").allInnerTexts()) === JSON.stringify(["Blue-Eyes → Chaos"]) && (await bridges.getByTestId("engines-between").locator("h4").innerText()) === "Bridges between these archetypes", await bridges.getByTestId("engines-between").getByTestId("bridge-item").locator("strong").allInnerTexts());
+  check("x3", "two picks show the next engine for them", (await bridges.getByTestId("engines-next").locator("h4").innerText()) === "Next engine for Blue-Eyes + Chaos");
   check("x3", "the picks have no reset link and no Also in deck", (await chips.getByTestId("engine-reset").count()) === 0 && (await chips.getByTestId("engine-also").count()) === 0);
   await pickAdd("Dragunity");
   await pickAdd("Dark Magician");
@@ -1332,7 +1481,9 @@ try {
   bridgeCalls.starts.length = 0;
   await bridges.getByTestId("deep-search-button").click();
   await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
-  check("x3", "the deep search on picks sends the names alone", bridgeCalls.starts.length === 1 && JSON.stringify(bridgeCalls.starts[0]!.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]) && bridgeCalls.starts[0]!.deck === undefined, bridgeCalls.starts);
+  check("x3", "the deep search on picks sends the names, with the open deck as context", bridgeCalls.starts.length === 1 && JSON.stringify(bridgeCalls.starts[0]!.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]) && bridgeCalls.starts[0]!.deck !== undefined, bridgeCalls.starts);
+  const pickResults = bridges.getByTestId("deep-results").getByTestId("engine-item");
+  check("x3", "the deep search on picks shows engine cards for the set of both picks", (await pickResults.count()) >= 1 && /^Links [12] of 2$/.test(await pickResults.first().getByTestId("engine-covered").innerText()) && (await bridges.getByTestId("deep-results").locator("h4").innerText()) === "Next engine for Blue-Eyes + Chaos" && (await bridges.getByTestId("deep-none").count()) === 0 && (await bridges.getByTestId("deep-results").getByTestId("bridge-item").count()) === 0, await pickResults.locator("strong").allInnerTexts());
   await shot("pick-1920x1080");
   await modes.getByRole("button", { name: "Use my deck" }).click();
   await items.first().waitFor({ state: "visible", timeout: 15_000 });
@@ -1342,25 +1493,38 @@ try {
   await fresh("empty");
   await goTab("Bridges");
   await bridges.getByTestId("engine-modes").waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(1000);
   check("x4", "an empty deck still offers the picker", (await bridges.getByTestId("bridges-empty").innerText()).includes("Add a few Main Deck cards"));
+  check("x4", "an empty deck asks for no engines and no bridges", engineCalls.length === 0 && bridgeCalls.lists.length === 0, { engines: engineCalls.length, lists: bridgeCalls.lists });
   await bridges.getByTestId("engine-modes").getByRole("button", { name: "Pick archetypes" }).click();
   await pickAdd("Blue-Eyes");
   await items.first().waitFor({ state: "visible", timeout: 15_000 });
-  check("x4", "a pick on an empty deck shows bridges", (await items.count()) > 0);
+  check("x4", "a pick on an empty deck shows bridges, without saying your deck", (await items.count()) > 0 && (await bridges.locator("p", { hasText: "can bridge into" }).first().innerText()) === "Blue-Eyes can bridge into");
 
   // Each link opens the details of its bridge, and Back returns to the list.
   engineControl.mode = "multi";
   await fresh();
   await goTab("Bridges");
   await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
-  const firstLink = bridges.getByTestId("engines-next").getByTestId("engine-link").first();
-  await firstLink.click();
+  // The second link of the first engine (Dragunity → Chaos), opened from a scrolled list.
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.waitForTimeout(300);
+  const link = bridges.getByTestId("engines-next").getByTestId("engine-item").first().getByTestId("engine-link").nth(1);
+  await link.scrollIntoViewIfNeeded();
+  const linkHash = await link.getAttribute("data-bridge");
+  const paneScroll = () => page.locator('[data-pane="bridges"] > div').evaluate((node: HTMLElement) => node.scrollTop);
+  await page.locator('[data-pane="bridges"] > div').evaluate((node: HTMLElement) => { node.scrollTop += 40; });
+  const scrolled = await paneScroll();
+  await link.click();
   await bridges.getByTestId("bridge-details").waitFor({ timeout: 10_000 });
-  check("x5", "a link opens its bridge details", (await bridges.getByTestId("bridge-drill").innerText()).includes("Chaos") || (await bridges.getByTestId("bridge-drill").innerText()).includes("Dragon"), await bridges.getByTestId("bridge-drill").innerText());
-  await shot("engine-link-details-1920x1080");
+  const crumbs = (await bridges.getByTestId("bridge-drill").getByRole("navigation", { name: "Where you are" }).locator("li").allInnerTexts()).map((text: string) => text.trim());
+  check("x5", "a link opens the details of its own bridge", JSON.stringify(crumbs) === JSON.stringify(["Dragunity", "Chaos"]) && (await bridges.getByTestId("bridge-line").innerText()).includes("Dragunity Dux") && linkHash === hashOf("Dragunity>Chaos"), { crumbs, linkHash });
+  await shot("engine-link-details-1366x768");
   await bridges.getByTestId("bridge-drill").getByRole("button", { name: /Back/ }).click();
   await bridges.getByTestId("engines-next").waitFor({ timeout: 10_000 });
-  check("x5", "Back returns to the list with the focus on the link", await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.testid === "engine-link"));
+  check("x5", "Back puts the focus on the same link", await page.evaluate((hash: string | null) => { const node = document.activeElement as HTMLElement | null; return node?.dataset?.testid === "engine-link" && node.dataset.bridge === hash && !!node.closest('[data-testid="engines-next"]'); }, linkHash));
+  check("x5", "Back puts the list where it was", Math.abs((await paneScroll()) - scrolled) <= 2 && scrolled > 0, { scrolled, after: await paneScroll() });
+  await page.setViewportSize({ width: 1920, height: 1080 });
 
   // Genesys: the engine shows the points its missing cards cost.
   control.genesys = true;
@@ -1392,6 +1556,52 @@ try {
     await page.waitForTimeout(300);
     check("x7", `${viewport.name}: link details do not scroll the page sideways`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
     await shot(`engine-link-details-${viewport.name}`);
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  engineControl.mode = "single";
+
+  // z. The views for review at every size: deck engines, picks, link details, deep search done, and Suggest.
+  engineControl.mode = "multi";
+  Object.assign(bridgeControl, { startRetryAfter: 0, jobMode: "ok", deepNone: false, pollDelayMs: 0 });
+  const paneTop = (pane: string) => page.locator(`[data-pane="${pane}"] > div`).evaluate((node: HTMLElement) => { node.scrollTop = 0; });
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await fresh();
+    await goTab("Bridges");
+    await bridges.getByTestId("engines-next").getByTestId("engine-item").first().waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(500);
+    await paneTop("bridges");
+    await shot(`z-bridges-deck-${viewport.name}`);
+    const nextTop = await bridges.getByTestId("engines-next").evaluate((node: HTMLElement) => node.getBoundingClientRect().top);
+    check("z", `${viewport.name}: the next engine list starts on the first screen`, nextTop < viewport.height - 120, nextTop);
+    if (viewport.width < 960) {
+      const targets = await bridges.evaluate((root: HTMLElement) => [...root.querySelectorAll('[data-testid="engine-chip"] button, [data-testid="engine-add"], [data-testid="engine-modes"] button, [data-testid="engine-also"] button')].map((node) => { const box = node.getBoundingClientRect(); return [node.getAttribute("aria-label") ?? node.textContent?.trim(), Math.round(box.width), Math.round(box.height)]; }));
+      check("z", "phone touch targets are at least 40px tall and wide", targets.length > 0 && targets.every(([, width, height]) => Number(width) >= 40 && Number(height) >= 40), targets);
+    }
+    await bridges.getByTestId("engines-next").getByTestId("engine-link").first().click();
+    await bridges.getByTestId("bridge-details").waitFor({ timeout: 10_000 });
+    await page.waitForTimeout(300);
+    await shot(`z-bridges-details-${viewport.name}`);
+    await bridges.getByRole("button", { name: /^Back/ }).click();
+    await bridges.getByTestId("deep-search-button").click();
+    await bridges.getByTestId("deep-results").getByTestId("engine-item").first().waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(400);
+    await paneTop("bridges");
+    await shot(`z-bridges-deep-${viewport.name}`);
+    await modes.getByRole("button", { name: "Pick archetypes" }).click();
+    for (const name of ["Blue-Eyes", "Chaos"]) await pickAdd(name);
+    await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(500);
+    await paneTop("bridges");
+    await shot(`z-bridges-pick-${viewport.name}`);
+    await goTab("Suggest");
+    await fit.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
+    await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
+    await page.waitForTimeout(400);
+    await shot(`z-suggest-${viewport.name}`);
+    if (viewport.width < 960) {
+      check("z", "the phone panels are named by the phone tabs", await page.evaluate(() => [...document.querySelectorAll('[role="tabpanel"]')].every((pane) => { const tab = document.getElementById(pane.getAttribute("aria-labelledby") ?? ""); return tab?.getAttribute("role") === "tab" && tab.closest('[data-testid="editor-tabs-seg"]') != null; })));
+    }
   }
   await page.setViewportSize({ width: 1920, height: 1080 });
   engineControl.mode = "single";
