@@ -70,8 +70,8 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
     const display = [...forwards.slice(0, back ? 2 : 3), ...(back ? [back] : [])];
     if (!display.length) continue;
     const links = engines.map(source => {
-      const forward = display.find(row => row.source === source && row.target === engine);
-      const reverse = display.find(row => row.source === engine && row.target === source);
+      const forward = best(source, engine);
+      const reverse = best(engine, source);
       const f = forward ? value(forward) : 0, b = reverse ? value(reverse) : 0;
       return { source, value: Math.max(f, 0.7 * b) + 0.3 * Math.min(f, b),
         covered: !!forward && !hubBridge(forward, context) || !!reverse && !hubBridge(reverse, context), twoWay: !!forward && !!reverse };
@@ -101,7 +101,7 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
   return limit > 0 ? results : [];
 }
 
-/** Only accepted displayed pairs contribute to score, coverage, or two-way claims. */
+/** Only accepted pairs contribute to score, coverage, or two-way claims. */
 export function rankNextEngines(engines: readonly string[], rows: readonly ShownBridge[], context: EngineRankingContext, limit = 4): RankedEngine[] {
   return rankEngineCandidates(engines, rows.filter(row => row.judge === "accepted"), context, limit);
 }

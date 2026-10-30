@@ -86,6 +86,7 @@ export interface BridgeGroupPolicy {
   include?: { names?: string[]; mentions?: string[]; name_patterns?: string[] };
 }
 export interface BridgeGraphData {
+  engine_ranking?: { hubs: number[]; idf: Record<BridgeFormat, Record<string, number>> };
   capabilities: CardCapability[];
   groups: Record<string, number[]>;
   group_policies?: Record<string, BridgeGroupPolicy>;

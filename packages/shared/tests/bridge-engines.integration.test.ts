@@ -28,6 +28,46 @@ describe("open-deck bridge engine detection", () => {
       if (engines.includes("Odion")) expect(next.some(row => /synchron/i.test(row.engine))).toBe(false);
     }
   }, 20_000);
+  it("scores all four source links independently of the three displayed pairs", () => {
+    const service = createBridgeService(db), context = service.rankingContext();
+    const rows = (db.prepare("SELECT bridge_json FROM archetype_bridge WHERE format='advanced'").all() as { bridge_json: string }[])
+      .map(row => JSON.parse(row.bridge_json));
+    const eligible = rows.filter(row => !row.reasons[0]?.cards.some((id: number) => context.hubs.has(id)) && !context.related(row.source, row.target));
+    const target = eligible.find(row => new Set(eligible.filter(other => other.target === row.target).map(other => other.source)).size >= 4
+      && eligible.some(other => other.source === row.target && other.target === row.source))!.target;
+    const forward = eligible.filter(row => row.target === target).filter((row, i, all) => all.findIndex(other => other.source === row.source) === i).slice(0, 4);
+    const engines = forward.map(row => row.source);
+    const candidate = rankEngineCandidates(engines, forward, context)[0]!;
+    expect(candidate).toMatchObject({ engine: target, covered: 4, of: 4 });
+    expect(candidate.links).toHaveLength(3);
+    const reverse = eligible.filter(row => row.source === target && engines.includes(row.target));
+    const twoWay = rankEngineCandidates(engines, [...forward, ...reverse], context)[0]!;
+    expect(twoWay.covered).toBe(4);
+    expect(twoWay.score).toBeGreaterThanOrEqual(candidate.score);
+    expect(twoWay.twoWay.sort()).toEqual(reverse.map(row => row.target).sort());
+    expect(twoWay.links).toHaveLength(3);
+  });
+
+  it("keeps artifact ranking statistics stable after deep rows and a service restart", () => {
+    const isolated = new Database(":memory:");
+    try {
+      migrate(isolated); importBridgeArtifact(isolated);
+      const service = createBridgeService(isolated), before = service.rankingContext();
+      const rows = service.deepInto("Blue-Eyes", "advanced");
+      const insert = isolated.prepare(`INSERT OR REPLACE INTO archetype_bridge(source,target,format,score,grade,bridge_json,evidence_hash,source_version)
+        VALUES(?,?,?,?,?,?,?,?)`);
+      for (const row of rows) insert.run(row.source, row.target, row.format, row.score, row.grade, JSON.stringify(row), row.evidence_hash, "deep-fixture");
+      const after = createBridgeService(isolated).rankingContext();
+      expect([...after.hubs].sort()).toEqual([...before.hubs].sort());
+      expect([...after.idf.advanced].sort()).toEqual([...before.idf.advanced].sort());
+      expect([...after.idf.genesys].sort()).toEqual([...before.idf.genesys].sort());
+      // Existing installations must backfill from the pinned files, never from the enlarged table.
+      isolated.exec("UPDATE bridge_graph SET graph_json=json_remove(graph_json,'$.engine_ranking')");
+      importBridgeArtifact(isolated);
+      expect([...createBridgeService(isolated).rankingContext().idf.advanced].sort()).toEqual([...before.idf.advanced].sort());
+    } finally { isolated.close(); }
+  });
+
   it("detects curated and named engines without archetypal hand traps or format staples", () => {
     const fixtures = [
       { main: [29762407, 29762407, 97522863, 97522863, 1710647, 1710647, 37839434, 37839434], expected: ["Ashtra", "Odion"] },

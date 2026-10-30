@@ -5,7 +5,7 @@ import { shownBridge, type ShownBridge } from "../cards/effects/bridge-judge.js"
 import { detectDeckEngines, type BridgeDeck } from "../cards/effects/bridge-engines.js";
 import { formatStaples } from "../cards/effects/staples.js";
 import type { BridgeGraphData } from "../cards/effects/bridge-types.js";
-import { engineRankingStats, type EngineRankingContext } from "../cards/effects/bridge-engine-ranking.js";
+import { type EngineRankingContext } from "../cards/effects/bridge-engine-ranking.js";
 
 /** Construct in the duel-host scanner or an administrative process, never in the web process. */
 export function createBridgeService(db: Database.Database) {
@@ -17,12 +17,16 @@ export function createBridgeService(db: Database.Database) {
   };
   return {
     rankingContext(): EngineRankingContext {
-      const graph = db.prepare("SELECT graph_json,source_version FROM bridge_graph WHERE id=1").get() as { graph_json: string; source_version: string };
-      if (ranking?.version === graph.source_version) return ranking.context;
-      const groups = (JSON.parse(graph.graph_json) as BridgeGraphData).groups;
-      const rows = (db.prepare("SELECT bridge_json FROM archetype_bridge").all() as { bridge_json: string }[]).map(row => JSON.parse(row.bridge_json) as ArchetypeBridge);
-      const context = { groups, ...engineRankingStats(groups, rows), related: (a: string, b: string) => live().relatedEngines(a, b) };
-      ranking = { version: graph.source_version, context }; return context;
+      const { source_version } = db.prepare("SELECT source_version FROM bridge_graph WHERE id=1").get() as { source_version: string };
+      if (ranking?.version === source_version) return ranking.context;
+      const { graph_json } = db.prepare("SELECT graph_json FROM bridge_graph WHERE id=1").get() as { graph_json: string };
+      const { groups, engine_ranking: stats } = JSON.parse(graph_json) as BridgeGraphData;
+      if (!stats) throw new Error("Bridge ranking snapshot has not been imported");
+      const engine = live();
+      const context: EngineRankingContext = { groups, hubs: new Set(stats.hubs),
+        idf: { advanced: new Map(Object.entries(stats.idf.advanced)), genesys: new Map(Object.entries(stats.idf.genesys)) },
+        related: (a, b) => engine.relatedEngines(a, b) };
+      ranking = { version: source_version, context }; return context;
     },
     engineRows(engines: readonly string[], format: BridgeFormat): ArchetypeBridge[] {
       const rows = new Map<string, ArchetypeBridge>();
