@@ -3,6 +3,8 @@ import type { BridgeScope, DeepStep, ShownBridge } from "./bridges-api";
 /** A list shows this many bridges. */
 export const BRIDGES_SHOWN = 4;
 export const DEEP_BRIDGES_SHOWN = 10;
+/** How many cards of a bridge are loaded to find the cards of its path: the line is named, not numbered. */
+export const PATH_CARDS = 12;
 /** How often a running search is asked for its progress. */
 export const DEEP_POLL_MS = 1000;
 /** Poll answers that fail in a row before the search shows an error. The job itself keeps running on the host. */

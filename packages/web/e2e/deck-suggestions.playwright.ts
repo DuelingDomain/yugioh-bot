@@ -749,14 +749,14 @@ try {
   check("h1", "each bridge has a quiet Report action, not a verdict", JSON.stringify(await items.getByTestId("bridge-report").allInnerTexts()) === JSON.stringify(["Report", "Report", "Report", "Report"]) && (await items.first().getByTestId("bridge-report").getAttribute("aria-label")) === "Report a wrong bridge" && (await items.first().getByTestId("bridge-report").getAttribute("title")) === "Report a wrong bridge" && (await bridges.innerText()).includes("doesn't work") === false);
   check("h1", "Report is the last thing in the grade row and smaller than the grade badge", await items.first().evaluate((node: HTMLElement) => { const report = node.querySelector('[data-testid="bridge-report"]')!.getBoundingClientRect(); const grade = node.querySelector('[data-testid="bridge-grade"]')!.getBoundingClientRect(); return report.left > grade.right && parseFloat(getComputedStyle(node.querySelector('[data-testid="bridge-report"]')!).fontSize) <= parseFloat(getComputedStyle(node.querySelector('[data-testid="bridge-grade"]')!).fontSize); }));
   await shot("report-1920x1080");
-  const thumbCounts = await items.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.querySelectorAll('ul[aria-label="Bridge cards"] button').length));
-  check("h1", "each bridge shows 2 to 4 card images", thumbCounts.every((count: number) => count >= 2 && count <= 4), thumbCounts);
+  const thumbCounts = await items.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.querySelectorAll('ol[aria-label="Path of cards"] button').length));
+  check("h1", "each bridge shows its path as 3 card images", thumbCounts.every((count: number) => count === 3), thumbCounts);
   const points = await items.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => [node.querySelectorAll('ul[aria-label="Good"] li').length, node.querySelectorAll('ul[aria-label="Bad"] li').length]));
   check("h1", "each bridge shows 2 good and 2 bad points", points.every(([good, bad]: number[]) => good === 2 && bad === 2), points);
   check("h1", "a lock or format warning shows on the bridges that have one", (await items.nth(2).getByRole("list", { name: "Warnings" }).innerText()).includes("Forbidden") && (await items.nth(0).getByRole("list", { name: "Warnings" }).count()) === 0);
   check("h1", "the list text says nothing about AI", !/\bai\b|\bllm\b|judge/i.test(await bridges.innerText()));
   // A card image opens the card inspector, like a tile elsewhere in Suggestions.
-  const thumb = items.first().locator('ul[aria-label="Bridge cards"] button').first();
+  const thumb = items.first().locator('ol[aria-label="Path of cards"] button').first();
   const thumbName = (await thumb.getAttribute("aria-label")) ?? "";
   await thumb.hover();
   await page.waitForTimeout(300);
@@ -773,7 +773,7 @@ try {
   await details.waitFor();
   check("h2", "the breadcrumb names the source and the target", (await details.getByRole("navigation", { name: "Where you are" }).innerText()).replace(/\s+/g, " ").includes("Blue-Eyes") && (await details.getByRole("navigation", { name: "Where you are" }).innerText()).includes("Dragunity"));
   check("h2", "Back has the focus when the details open", await page.evaluate(() => /^Back/.test(document.activeElement?.textContent ?? "")));
-  check("h2", "the line lists the card names in order", JSON.stringify(await details.getByTestId("bridge-line").locator("li").allInnerTexts()) === JSON.stringify(["Sage with Eyes of Blue", "Dragon Shrine", "Dragunity Phalanx"]), await details.getByTestId("bridge-line").locator("li").allInnerTexts());
+  check("h2", "the line lists the card names in order", JSON.stringify(await details.getByTestId("bridge-step-name").allInnerTexts()) === JSON.stringify(["Sage with Eyes of Blue", "Dragon Shrine", "Dragunity Phalanx"]), await details.getByTestId("bridge-step-name").allInnerTexts());
   check("h2", "every bridge card is a drill-down tile", (await details.getByTestId("bridge-cards").locator("li > button").count()) === 4);
   check("h2", "the details show the lock note", (await details.innerText()).includes("No summon lock"));
   const tileButton = details.getByTestId("bridge-cards").locator("li > button").first();
@@ -1105,8 +1105,9 @@ try {
   const chaos = engineItems.first();
   check("u2", "an engine shows its grade and how many engines it links to", (await chaos.getByTestId("engine-grade").innerText()) === "Good" && (await chaos.getByTestId("engine-covered").innerText()) === "Links 2 of 2");
   const paths = (await chaos.getByTestId("engine-paths").innerText()).replace(/\s+/g, " ");
-  check("u2", "an engine shows the access path of each link", paths.includes("Blue-Eyes → Chaos") && paths.includes("Dragunity → Chaos") && paths.includes("Monster Reborn"), paths);
-  check("u2", "an engine shows its cards and what the deck lacks", (await chaos.getByRole("list", { name: "Chaos cards" }).locator("li").count()) >= 5 && /to add/.test(await chaos.getByTestId("engine-need").innerText()), await chaos.getByTestId("engine-need").innerText());
+  const chaosThumbs = await chaos.getByTestId("engine-paths").locator('ol[aria-label$="path of cards"] button').evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.getAttribute("aria-label")));
+  check("u2", "an engine shows the access path of each link as card images", paths.includes("Blue-Eyes → Chaos") && paths.includes("Dragunity → Chaos") && chaosThumbs.includes("Monster Reborn") && chaosThumbs.includes("Dragunity Dux"), { paths, chaosThumbs });
+  check("u2", "an engine says what the deck lacks, and each link says Details", /to add/.test(await chaos.getByTestId("engine-need").innerText()) && (await chaos.getByTestId("engine-link").first().innerText()).includes("Details"), await chaos.getByTestId("engine-need").innerText());
   check("u2", "an engine shows good and bad points", (await chaos.getByRole("list", { name: "Good" }).locator("li").count()) >= 1 && (await chaos.getByRole("list", { name: "Bad" }).locator("li").count()) >= 1);
   check("u2", "only a two-way engine gets the two-way badge", (await chaos.getByTestId("engine-two-way").count()) === 0 && (await engineItems.nth(2).getByTestId("engine-two-way").count()) === 1);
   check("u2", "the single-engine list is replaced", (await bridges.getByRole("list", { name: "Your deck can bridge into", exact: true }).count()) === 0);
@@ -1361,7 +1362,7 @@ try {
   const deepEngines = bridges.getByTestId("deep-results").getByTestId("engine-item");
   check("w1", "the results are engines that fit the whole set", (await deepEngines.count()) >= 1 && (await deepEngines.first().innerText()).includes("Links 2 of 2"), await deepEngines.allInnerTexts());
   check("w1", "no single-bridge card sits in the results", (await bridges.getByTestId("deep-results").getByTestId("bridge-item").count()) === 0);
-  check("w1", "a result shows its path, cards, and good and bad points", (await deepEngines.first().getByTestId("engine-paths").count()) === 1 && (await deepEngines.first().getByRole("list", { name: /cards$/ }).count()) === 1 && (await deepEngines.first().getByRole("list", { name: "Good" }).count()) === 1);
+  check("w1", "a result shows its path, cards, and good and bad points", (await deepEngines.first().getByTestId("engine-paths").count()) === 1 && (await deepEngines.first().getByRole("list", { name: /path of cards$/ }).count() >= 1) && (await deepEngines.first().getByRole("list", { name: "Good" }).count()) === 1);
   check("w1", "the deep search stays in the engine order the host gave", JSON.stringify(await deepEngines.locator("strong").allInnerTexts()) === JSON.stringify(["Chaos", "Dragon Ruler", "Red-Eyes", "Dark Magician"]), await deepEngines.locator("strong").allInnerTexts());
   check("w1", "the deep results take the place of the fast list, so no engine shows twice", (await bridges.getByTestId("engines-next").count()) === 0 && (await bridges.getByTestId("engine-item").count()) === (await deepEngines.count()), { fast: await bridges.getByTestId("engines-next").count(), all: await bridges.getByTestId("engine-item").count() });
   await shot("deep-engines-1920x1080");
@@ -1777,6 +1778,133 @@ try {
   }
   await page.setViewportSize({ width: 1920, height: 1080 });
   engineControl.mode = "single";
+
+  // p. The visual path: card images with arrows, what each step does, and Add cards.
+  const mainCount = async () => Number(/Main\s+(\d+)/.exec(await page.locator('main[aria-label="Deck"]').innerText())?.[1] ?? -1);
+  const extraCount = async () => Number(/Extra\s+(\d+)/.exec(await page.locator('main[aria-label="Deck"]').innerText())?.[1] ?? -1);
+  engineControl.mode = "single";
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await fresh();
+  await goTab("Bridges");
+  await bridges.getByRole("list", { name: "Your deck can bridge into", exact: true }).getByTestId("bridge-item").first().waitFor({ timeout: 15_000 });
+  const pItems = bridges.getByRole("list", { name: "Your deck can bridge into", exact: true }).getByTestId("bridge-item");
+  const firstPath = pItems.first().getByTestId("bridge-path");
+  check("p1", "a list item shows its path as images with an arrow between each", (await firstPath.locator("li").count()) === 3 && (await firstPath.locator("svg").count()) === 2 && (await firstPath.locator("button img").count()) === 3, { items: await firstPath.locator("li").count(), arrows: await firstPath.locator("svg").count() });
+  check("p1", "the path images are in the order of the line", JSON.stringify(await firstPath.locator("button").evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.getAttribute("aria-label")))) === JSON.stringify(["Sage with Eyes of Blue", "Dragon Shrine", "Dragunity Phalanx"]));
+  check("p1", "the list item says Details next to the chevron", (await pItems.first().locator("button[data-bridge]").innerText()).includes("Details"));
+  check("p1", "list thumbnails are small", await firstPath.locator("button").first().evaluate((node: HTMLElement) => node.getBoundingClientRect().width <= 48));
+  const pathThumb = firstPath.locator("button").nth(1);
+  await pathThumb.hover();
+  await page.waitForTimeout(300);
+  check("p1", "hovering a path card opens the card inspector", (await page.locator('aside[aria-label="Card details"]').innerText()).includes("Dragon Shrine"));
+  await shot("p-list-1920x1080");
+
+  await pItems.first().locator("button[data-bridge]").click();
+  const pDetails = bridges.getByTestId("bridge-details");
+  await pDetails.waitFor();
+  const steps = pDetails.getByTestId("bridge-step");
+  check("p2", "the expanded path has one step per card, with a card image each", (await steps.count()) === 3 && (await steps.locator("button img").count()) === 3);
+  const texts = await pDetails.getByTestId("bridge-step-text").allInnerTexts();
+  check("p2", "each step shows only text the bridge data holds for it", texts.length === 3 && texts.every((text: string, index: number) => text === `${["Sage with Eyes of Blue", "Dragon Shrine", "Dragunity Phalanx"][index]} connects Blue-Eyes and Dragunity.`), texts);
+  const addBox = pDetails.getByTestId("bridge-add-box");
+  const addButton = pDetails.getByTestId("bridge-add");
+  const notIn = (await pDetails.getByTestId("bridge-step-deck").allInnerTexts()).filter((text: string) => text === "Not in deck").length;
+  const mainBefore = await mainCount();
+  const extraBefore = await extraCount();
+  if (notIn > 0) {
+    check("p3", "the button names how many cards it adds", (await addButton.innerText()) === `Add ${notIn} ${notIn === 1 ? "card" : "cards"}`, await addButton.innerText());
+    check("p3", "the cards that go in are named before the click, with their section", /^Adds .*Main Deck/.test(await pDetails.getByTestId("bridge-add-list").innerText()), await pDetails.getByTestId("bridge-add-list").innerText());
+    await shot("p-details-before-add-1920x1080");
+    await addButton.click();
+    await page.waitForTimeout(500);
+    check("p3", "Add cards puts the missing cards in the Main Deck", (await mainCount()) === mainBefore + notIn, { mainBefore, now: await mainCount(), notIn });
+    check("p3", "afterwards every step is in the deck and the button says Already in deck", (await pDetails.getByTestId("bridge-step-deck").allInnerTexts()).every((text: string) => text.startsWith("In deck")) && (await addButton.innerText()).includes("Already in deck") && (await addButton.getAttribute("aria-disabled")) === "true", await addButton.innerText());
+    await shot("p-details-after-add-1920x1080");
+    await page.keyboard.press("Control+z");
+    await page.waitForTimeout(400);
+    check("p3", "one undo takes all the added cards out", (await mainCount()) === mainBefore, { mainBefore, now: await mainCount() });
+    check("p3", "after the undo the button offers the cards again", (await addButton.innerText()) === `Add ${notIn} ${notIn === 1 ? "card" : "cards"}`, await addButton.innerText());
+  } else {
+    check("p3", "the deck holds every card, so the button says so", (await addButton.innerText()).includes("Already in deck"));
+  }
+
+  // A line with an Extra Deck card sends it to the Extra Deck.
+  await bridges.getByRole("button", { name: /^Back/ }).click();
+  await pItems.nth(3).locator("button[data-bridge]").click();
+  await pDetails.waitFor();
+  const redEyesList = await pDetails.getByTestId("bridge-add-list").innerText().catch(() => "");
+  check("p4", "an Extra Deck card is listed for the Extra Deck", /Red-Eyes Dark Dragoon \(Extra Deck\)/.test(redEyesList), redEyesList);
+  const extra0 = await extraCount();
+  const main0 = await mainCount();
+  await addButton.click();
+  await page.waitForTimeout(500);
+  check("p4", "the Extra Deck card went to the Extra Deck, the others to Main", (await extraCount()) === extra0 + 1 && (await mainCount()) > main0, { extra0, extra: await extraCount(), main0, main: await mainCount() });
+  await page.keyboard.press("Control+z");
+  await page.waitForTimeout(400);
+  check("p4", "one undo takes them all back", (await extraCount()) === extra0 && (await mainCount()) === main0);
+
+  await fresh();
+  await goTab("Bridges");
+  await pItems.first().waitFor({ timeout: 15_000 });
+
+  // Picked archetypes and deep search: their paths are images and their details can add.
+  engineControl.mode = "multi";
+  Object.assign(bridgeControl, { startRetryAfter: 0, jobMode: "ok", deepNone: false, pollDelayMs: 0 });
+  await fresh();
+  await goTab("Bridges");
+  await bridges.getByTestId("engines-next").getByTestId("engine-item").first().waitFor({ timeout: 15_000 });
+  const engineThumbs = bridges.getByTestId("engines-next").getByTestId("engine-item").first().locator('ol[aria-label$="path of cards"]');
+  check("p6", "a deck engine shows each link as a path of images", (await engineThumbs.count()) === 2 && (await engineThumbs.first().locator("button img").count()) >= 2, await engineThumbs.count());
+  await bridges.getByTestId("engines-next").getByTestId("engine-link").first().click();
+  await pDetails.waitFor({ timeout: 10_000 });
+  check("p6", "a link opens details with Add cards", (await pDetails.getByTestId("bridge-add").count()) === 1);
+  await bridges.getByRole("button", { name: /^Back/ }).click();
+  await bridges.getByTestId("deep-search-button").click();
+  await bridges.getByTestId("deep-results").getByTestId("engine-item").first().waitFor({ timeout: 20_000 });
+  check("p6", "deep results show path images", (await bridges.getByTestId("deep-results").getByTestId("engine-item").first().locator('ol[aria-label$="path of cards"]').count()) >= 1);
+  await bridges.getByTestId("deep-results").getByTestId("engine-link").first().click();
+  await pDetails.waitFor({ timeout: 10_000 });
+  const deepBefore = await mainCount();
+  const deepState = await pDetails.getByTestId("bridge-add").getAttribute("data-state");
+  if (deepState === "ready") {
+    await pDetails.getByTestId("bridge-add").click();
+    await page.waitForTimeout(500);
+    check("p6", "deep search details add the missing cards", (await mainCount()) + (await extraCount()) > deepBefore, { deepBefore, now: await mainCount() });
+    await page.keyboard.press("Control+z");
+  } else check("p6", "deep search details report the deck state", deepState === "done" || deepState === "blocked", deepState);
+  await bridges.getByRole("button", { name: /^Back/ }).click();
+  await modes.getByRole("button", { name: "Pick archetypes" }).click();
+  for (const name of ["Blue-Eyes", "Chaos"]) await pickAdd(name);
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  await bridges.getByTestId("engines-next").getByTestId("engine-link").first().click();
+  await pDetails.waitFor({ timeout: 10_000 });
+  check("p6", "picked archetypes open details with Add cards", (await pDetails.getByTestId("bridge-add").count()) === 1);
+  engineControl.mode = "single";
+
+  // The same views at every size. On a phone the steps stack with a down arrow.
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await fresh();
+    await goTab("Bridges");
+    await pItems.first().waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(400);
+    await pItems.first().scrollIntoViewIfNeeded();
+    check("p7", `${viewport.name}: the list does not scroll the page sideways and paths stay in their item`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1) && await pItems.first().evaluate((item: HTMLElement) => { const edge = item.getBoundingClientRect().right + 1; return [...item.querySelectorAll('[data-testid="bridge-path"] button')].every((node) => node.getBoundingClientRect().right <= edge); }));
+    await shot(`p-list-${viewport.name}`);
+    await pItems.first().locator("button[data-bridge]").click();
+    await pDetails.waitFor();
+    await page.waitForTimeout(400);
+    const line = pDetails.getByTestId("bridge-line");
+    await line.scrollIntoViewIfNeeded();
+    check("p7", `${viewport.name}: the expanded path fits the width`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1) && await line.evaluate((node: HTMLElement) => node.scrollWidth <= node.clientWidth + 1));
+    const tops = await line.locator("li").evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => Math.round(node.getBoundingClientRect().top)));
+    check("p7", `${viewport.name}: the steps stack one under the other with a down arrow between`, tops.every((top: number, index: number) => index === 0 || top > tops[index - 1]!) && (await line.locator("svg").count()) === 2, tops);
+    if (viewport.width < 960) {
+      check("p7", "on a phone the Add button is at least 40px tall", (await pDetails.getByTestId("bridge-add").evaluate((node: HTMLElement) => node.getBoundingClientRect().height)) >= 40);
+    }
+    await shot(`p-details-${viewport.name}`);
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
 
   // z. The views for review at every size: deck engines, picks, link details, deep search done, and Suggest.
   engineControl.mode = "multi";

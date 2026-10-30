@@ -3,6 +3,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
+import type { CardAdder } from "@/components/decks/card-adder";
 import { BridgeCard, GradeBadge, directionText, type CardPropsFor } from "./bridge-card";
 import { BridgeDetails } from "./bridge-details";
 import { BridgeSearch } from "./bridge-search";
@@ -10,7 +11,7 @@ import { DeepProgress, DeepSearchButton } from "./deep-search";
 import { EngineChips } from "./engine-chips";
 import { EngineList } from "./engine-card";
 import { BridgeRequestError, type BridgeScope, type ShownBridge } from "./bridges-api";
-import { BRIDGES_SHOWN, DEEP_BRIDGES_SHOWN, deepWorkKey } from "./bridges-model";
+import { BRIDGES_SHOWN, DEEP_BRIDGES_SHOWN, PATH_CARDS, bridgeCodes, deepWorkKey } from "./bridges-model";
 import { MAX_ENGINES, NO_EDITS, bridgeDeck, bridgeFormat, hasEdits, lightEngines, readEdits, toggleEngine, writeEdits, type EngineEdits } from "./engines-model";
 import { useBridgeCards, useBridgeList, useDeepSearch } from "./use-bridges";
 import { refreshEngines, useDeckEngines, useEnginesAnswer } from "./use-engines";
@@ -37,6 +38,8 @@ type Props = {
   cardProps: CardPropsFor;
   deckCount: (card: DeckCardInfo) => number;
   limit: (card: DeckCardInfo) => 0 | 1 | 2 | 3;
+  /** Adds the cards a bridge's line needs. Not given: the details have no Add button. */
+  adder?: CardAdder;
   onCatalog: (cards: DeckCardInfo[]) => void;
   /** The server has no bridges (or Suggestions are off). */
   onDisabled?: () => void;
@@ -51,7 +54,7 @@ type ListProps = Pick<Props, "mode" | "genesys" | "cardProps" | "onCatalog"> & {
 
 /** A list of bridges. The cards of the bridges load together, so the thumbnails fill in at once. */
 function BridgeList({ bridges, mode, genesys, cardProps, onCatalog, showSource, onOpen, label }: ListProps) {
-  const cards = useBridgeCards([...new Set(bridges.flatMap((bridge) => bridge.cards.slice(0, 4)))], mode, onCatalog);
+  const cards = useBridgeCards(bridgeCodes(bridges, PATH_CARDS), mode, onCatalog);
   return (
     <ul className={styles.list} aria-label={label}>
       {bridges.map((bridge) => <BridgeCard key={`${bridge.source}>${bridge.target}:${bridge.evidence_hash}`} bridge={bridge} cards={cards} cardProps={cardProps} genesys={genesys} showSource={showSource} onOpen={onOpen} />)}
@@ -112,7 +115,7 @@ type FocusTarget = "deep" | "add" | "lit" | "notice";
  * engine to add next. Deep search sits right under the chips, so it is never far down. A bridge opens its details in
  * place, and Back returns to the same place in the list. Only bridges that passed the checks reach this tab.
  */
-export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, genesys, genesysRemaining, cardProps, deckCount, limit, onCatalog, onDisabled, active = true, onDeepFinished, ask = null }: Props) {
+export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, genesys, genesysRemaining, cardProps, deckCount, limit, adder, onCatalog, onDisabled, active = true, onDeepFinished, ask = null }: Props) {
   const onDisabledRef = useRef(onDisabled);
   onDisabledRef.current = onDisabled;
   const onDeepFinishedRef = useRef(onDeepFinished);
@@ -328,7 +331,7 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
       onClickCapture={(event) => { clicked.current = (event.target as HTMLElement).closest<HTMLElement>("[data-bridge]"); }}>
       <h3 id={`${hintId}-title`} className={styles.rowTitle} tabIndex={-1}>Bridges</h3>
       {open ? (
-        <BridgeDetails bridge={open} mode={mode} onCatalog={onCatalog} cardProps={cardProps} deckCount={deckCount} limit={limit} genesys={genesys} onBack={() => setOpen(null)} />
+        <BridgeDetails bridge={open} mode={mode} onCatalog={onCatalog} cardProps={cardProps} deckCount={deckCount} limit={limit} genesys={genesys} adder={adder} onBack={() => setOpen(null)} />
       ) : (
         <div className={styles.body}>
           <div className={styles.modes} role="group" aria-label="Choose the engines" data-testid="engine-modes">
