@@ -25,6 +25,53 @@ function setup(inReview = 2) {
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 
 describe("persistent bridge deep-search admission and lifecycle", () => {
+  it("deduplicates and throttles progress writes while persisting final completion", async () => {
+    const { db } = setup();
+    const prepare = vi.spyOn(db, "prepare");
+    let now = 1_000_000;
+    const jobs = new BridgeSearchJobs(db, { version: () => "progress-fixture", now: () => now,
+      project: () => ({ results: [], inReview: 0 }), execute: async (_query, progress) => {
+        for (let i = 0; i < 184; i++) progress("candidates", Math.floor(28 * i / 184));
+        progress("checking", 30); progress("rating", 35);
+        now += 1001; progress("rating", 70); progress("rating", 70);
+        return [];
+      } });
+    try {
+      const job = jobs.start(actor(), query()); await jobs.close();
+      expect(jobs.status(actor(), job.jobId)).toMatchObject({ state: "done", progress: 100 });
+      expect(prepare.mock.calls.filter(([sql]) => sql.startsWith("UPDATE bridge_deep_job SET step="))).toHaveLength(2);
+    } finally { prepare.mockRestore(); await jobs.close(); }
+  });
+
+  it("retries a failed completion transaction without an unhandled rejection", async () => {
+    const { db, jobs, finish } = setup();
+    db.exec(`CREATE TEMP TRIGGER fail_bridge_completion BEFORE UPDATE ON bridge_deep_job
+      WHEN NEW.state='done' BEGIN SELECT RAISE(FAIL,'injected completion fault'); END`);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const job = jobs.start(actor(), query()); await finish();
+      expect(jobs.status(actor(), job.jobId).state).toBe("running");
+      db.exec("DROP TRIGGER fail_bridge_completion");
+      await vi.waitFor(() => expect(jobs.status(actor(), job.jobId).state).toBe("done"));
+      expect(warning).toHaveBeenCalled();
+    } finally { await jobs.close(); warning.mockRestore(); }
+  });
+
+  it("contains drain write failures and retries queued jobs", async () => {
+    const { db, jobs, execute, finish } = setup();
+    db.exec(`CREATE TEMP TRIGGER fail_bridge_drain BEFORE UPDATE ON bridge_deep_job
+      WHEN NEW.state='running' BEGIN SELECT RAISE(FAIL,'injected drain fault'); END`);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const job = jobs.start(actor(), query());
+      expect(job.state).toBe("queued");
+      db.exec("DROP TRIGGER fail_bridge_drain");
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+      await finish();
+      expect(jobs.status(actor(), job.jobId).state).toBe("done");
+    } finally { await jobs.close(); warning.mockRestore(); }
+  });
+
   it("shares a sorted multi-engine key without deck context and charges it as one search", async () => {
     const { db, jobs, execute, finish } = setup(0);
     const multi = { ...query(), engines: ["Odion", "Ashtra"], deckCards: [1], genesysRemaining: 100 };

@@ -28,6 +28,7 @@ export class BridgeSearchJobs {
   private readonly active = new Set<string>();
   private readonly running = new Set<Promise<void>>();
   private stopped = false;
+  private drainTimer?: ReturnType<typeof setTimeout>;
   private readonly now: () => number;
   constructor(private readonly db: Database.Database, private readonly options: JobOptions) {
     this.now = options.now ?? Date.now;
@@ -127,16 +128,40 @@ export class BridgeSearchJobs {
       engines: query.engines ?? [query.source], next: [], ...visible, ...(row.error ? { error: row.error } : {}) };
   }
 
+  /** Status writes must never wait five seconds for a web/bot writer on the duel loop. */
+  private writeWithoutWaiting<T>(write: () => T): T {
+    const timeout = this.db.pragma("busy_timeout", { simple: true }) as number;
+    this.db.pragma("busy_timeout = 0");
+    try { return write(); } finally { this.db.pragma(`busy_timeout = ${timeout}`); }
+  }
+
   private drain(): void {
+    try { this.drainReady(); }
+    catch {
+      console.warn("Bridge job queue write failed; retrying.");
+      if (!this.stopped && !this.drainTimer) this.drainTimer = setTimeout(() => {
+        this.drainTimer = undefined; this.drain();
+      }, 250);
+    }
+  }
+
+  private drainReady(): void {
     if (this.stopped) return;
     while (this.active.size < 2) {
       const row = this.db.prepare("SELECT * FROM bridge_deep_job WHERE state='queued' ORDER BY created_at,id LIMIT 1").get() as JobRow | undefined;
       if (!row) break;
-      this.db.prepare("UPDATE bridge_deep_job SET state='running' WHERE id=?").run(row.id);
+      this.writeWithoutWaiting(() => this.db.prepare("UPDATE bridge_deep_job SET state='running' WHERE id=?").run(row.id));
       this.active.add(row.id);
+      let last = { step: row.step, value: row.progress, at: -Infinity };
       const progress = (step: BridgeJobStep, value: number) => {
-        this.db.prepare("UPDATE bridge_deep_job SET step=?,progress=max(progress,?) WHERE id=? AND state='running'")
-          .run(step, Math.max(0, Math.min(99, Math.floor(value))), row.id);
+        const next = Math.max(last.value, Math.max(0, Math.min(99, Math.floor(value)))), now = this.now();
+        if (last.step === step && last.value === next || now - last.at < 1000) return;
+        last.at = now;
+        try {
+          this.writeWithoutWaiting(() => this.db.prepare("UPDATE bridge_deep_job SET step=?,progress=max(progress,?) WHERE id=? AND state='running'")
+            .run(step, next, row.id));
+          last = { step, value: next, at: now };
+        } catch { /* Progress is best effort; completion persists the final state. */ }
       };
       const work = (async () => {
         let result: ArchetypeBridge[] = [], error: string | null = null, reviewIncomplete: number | null = null;
@@ -146,16 +171,28 @@ export class BridgeSearchJobs {
           reviewIncomplete = Array.isArray(outcome) ? null : Number(outcome.reviewIncomplete);
         }
         catch (cause) { error = cause instanceof BridgeReviewUnavailableError ? cause.message : "Bridge search could not finish. Try again shortly."; }
-        this.db.transaction(() => {
-          const now = this.now();
-          this.db.prepare("UPDATE bridge_deep_job SET state=?,step=CASE WHEN ? THEN step ELSE 'done' END,progress=CASE WHEN ? THEN progress ELSE 100 END,result_json=?,review_incomplete=?,error=?,ended_at=? WHERE id=? AND state='running'")
-            .run(error ? "failed" : "done", error ? 1 : 0, error ? 1 : 0, JSON.stringify(result), reviewIncomplete, error, now, row.id);
-          this.db.prepare("UPDATE bridge_deep_actor SET ended_at=? WHERE job_id=? AND ended_at IS NULL").run(now, row.id);
-        }).immediate();
-      })().finally(() => { this.active.delete(row.id); this.running.delete(work); this.drain(); });
+        let warned = false;
+        for (;;) {
+          try {
+            this.writeWithoutWaiting(() => this.db.transaction(() => {
+              const now = this.now();
+              this.db.prepare("UPDATE bridge_deep_job SET state=?,step=CASE WHEN ? THEN step ELSE 'done' END,progress=CASE WHEN ? THEN progress ELSE 100 END,result_json=?,review_incomplete=?,error=?,ended_at=? WHERE id=? AND state='running'")
+                .run(error ? "failed" : "done", error ? 1 : 0, error ? 1 : 0, JSON.stringify(result), reviewIncomplete, error, now, row.id);
+              this.db.prepare("UPDATE bridge_deep_actor SET ended_at=? WHERE job_id=? AND ended_at IS NULL").run(now, row.id);
+            }).immediate());
+            break;
+          } catch {
+            if (!warned) console.warn("Bridge job completion write failed; retrying.", { jobId: row.id });
+            warned = true;
+            if (this.stopped) break; // Startup recovery fails interrupted jobs after shutdown.
+            await new Promise(resolve => setTimeout(resolve, 250));
+          }
+        }
+      })().finally(() => { this.active.delete(row.id); this.running.delete(work); this.drain(); })
+        .catch(() => { console.warn("Bridge job failed to settle.", { jobId: row.id }); });
       this.running.add(work);
     }
   }
 
-  async close(): Promise<void> { this.stopped = true; await Promise.allSettled(this.running); }
+  async close(): Promise<void> { this.stopped = true; clearTimeout(this.drainTimer); await Promise.allSettled(this.running); }
 }
