@@ -22,7 +22,7 @@ export type BridgeRequest =
 const NO_STORE = { "cache-control": "private, no-store" };
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const integer = (value: unknown, max = Number.MAX_SAFE_INTEGER): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= max;
-const name = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 120 && !/[\u0000-\u001f\u007f]/.test(value);
+const name = (value: unknown, max = 120): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= max && !/[\u0000-\u001f\u007f]/.test(value);
 const text = (value: unknown, max: number): value is string => typeof value === "string" && value.length <= max;
 const hash = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const format = (value: unknown): value is BridgeFormat => value === "advanced" || value === "genesys";
@@ -92,21 +92,25 @@ export function readBridgeJob(request: Request, value: string): BridgeRequest | 
   return !new URL(request.url).search && jobId(value) ? { op: "status", jobId: value } : null;
 }
 
-function shownBridge(value: unknown): boolean {
-  if (!object(value) || !name(value.source) || !name(value.target) || !format(value.format)
+function shownBridge(value: unknown, deep: boolean): boolean {
+  if (!object(value) || !name(value.source, 160) || !name(value.target, 160) || !format(value.format)
     || value.judge !== "accepted" || value.validation !== "deterministic" || !hash(value.evidence_hash)
+    || value.engine_status !== "unverified"
     || typeof value.score !== "number" || !Number.isFinite(value.score) || value.score < 0 || value.score > 100
-    || !["Strong", "Good", "Niche", "Risky"].includes(String(value.grade))
+    || typeof value.grade !== "string" || !["Strong", "Good", "Niche", "Risky"].includes(value.grade)
+    || (value.tier !== undefined && (!deep || value.tier !== "niche" || value.grade !== "Niche"))
     || !Array.isArray(value.cards) || value.cards.length > 100 || !value.cards.every(card => integer(card, 0xffffffff) && card > 0)
     || !Array.isArray(value.reasons) || value.reasons.length > 100 || !Array.isArray(value.warnings) || value.warnings.length > 100) return false;
   const review = value.review;
-  return object(review) && ["strong", "good", "niche", "risky"].includes(String(review.grade))
-    && strings(review.pros, 2, 3, 2000) && strings(review.cons, 2, 3, 2000) && text(review.lock_note, 4000)
-    && strings(review.line, 1, 100, 200);
+  return object(review) && typeof review.grade === "string" && ["strong", "good", "niche", "risky"].includes(review.grade)
+    && (value.tier !== "niche" || review.grade === "niche")
+    && strings(review.pros, 0, 3, 500) && strings(review.cons, 0, 3, 500)
+    // The host falls back to joined printed locks, which have no judge-note length cap.
+    && typeof review.lock_note === "string" && strings(review.line, 1, 3, 200);
 }
 
-const results = (value: unknown, expectedFormat?: BridgeFormat) => Array.isArray(value) && value.length <= 4
-  && value.every(row => shownBridge(row) && (expectedFormat === undefined || row.format === expectedFormat));
+const results = (value: unknown, expectedFormat?: BridgeFormat, deep = false) => Array.isArray(value) && value.length <= (deep ? 10 : 4)
+  && value.every(row => shownBridge(row, deep) && (expectedFormat === undefined || row.format === expectedFormat));
 const state = (value: unknown) => value === "queued" || value === "running" || value === "done" || value === "failed";
 function validResponse(value: unknown, request: BridgeRequest): boolean {
   if (!object(value)) return false;
@@ -116,12 +120,12 @@ function validResponse(value: unknown, request: BridgeRequest): boolean {
     case "start": return jobId(value.jobId) && state(value.state) && typeof value.cached === "boolean"
       && (value.error === undefined || text(value.error, 2000));
     case "status": return value.jobId === request.jobId && state(value.state)
-      && ["candidates", "checking", "rating", "done"].includes(String(value.step))
-      && integer(value.progress, 100) && results(value.results) && integer(value.inReview)
+      && typeof value.step === "string" && ["candidates", "checking", "rating", "done"].includes(value.step)
+      && integer(value.progress, 100) && results(value.results, undefined, true) && integer(value.inReview)
       && (value.error === undefined || text(value.error, 2000));
     case "feedback": return value.accepted === true && typeof value.hidden === "boolean";
     case "review": return Array.isArray(value.feedback) && value.feedback.length <= 200 && integer(value.inReview)
-      && value.feedback.every(row => object(row) && hash(row.evidenceHash) && name(row.source) && name(row.target)
+      && value.feedback.every(row => object(row) && hash(row.evidenceHash) && name(row.source, 160) && name(row.target, 160)
         && format(row.format) && integer(row.users) && Array.isArray(row.reasons) && row.reasons.length <= 200 && row.reasons.every(reason => text(reason, 512))
         && text(row.createdAt, 100) && typeof row.hidden === "boolean");
   }
