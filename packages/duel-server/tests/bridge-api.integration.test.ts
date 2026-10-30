@@ -28,14 +28,17 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     const fixture = new Database(":memory:"); migrate(fixture);
     // A legacy schema fault must disable bridges without disabling gameplay.
     fixture.exec("CREATE TABLE bridge_deep_job(id TEXT PRIMARY KEY)");
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorReport = vi.spyOn(console, "error").mockImplementation(() => {});
     const user = seedIdentity(fixture, { name: "Available host" });
     const session = createDuelService(fixture).create({ guildId: "g", organizerPlayerId: user.playerId, name: "Available lobby", mode: "normal" });
     let host: ReturnType<typeof createDuelHost> | undefined;
     vi.stubEnv("EFFECT_SEARCH", "1"); vi.stubEnv("DECK_SUGGESTIONS", "1");
     try {
       host = createDuelHost({ db: fixture, dataDirectory: directory, secret: "bridge-startup-failure", searchCards: () => [], pollIntervalMs: 60_000 });
-      expect(warning).toHaveBeenCalledWith("[duel] bridge search startup failed", expect.objectContaining({ code: "SQLITE_ERROR" }));
+      expect(errorReport).toHaveBeenCalledWith(expect.objectContaining({
+        message: expect.stringContaining("query_key"),
+        tags: { operation: "[duel] bridge search startup failed" },
+      }));
       const url = "http://local/internal/duel";
       const post = async (op: string) => {
         const raw = JSON.stringify({ op, guildId: "g", ...user, slug: session.slug, bridgeRequest: { op: "engines", engines: ["Odion"] } });
@@ -47,8 +50,9 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
       expect(bridgeResponse.headers.get("Retry-After")).toBe("1");
       expect(await bridgeResponse.json()).toMatchObject({ error: "Bridge search is unavailable. Try again shortly." });
       expect((await post("view")).status).toBe(200);
+      expect(errorReport).toHaveBeenCalledTimes(1);
     } finally {
-      await host?.close(); warning.mockRestore(); vi.unstubAllEnvs(); fixture.close(); rmSync(directory, { recursive: true, force: true });
+      await host?.close(); errorReport.mockRestore(); vi.unstubAllEnvs(); fixture.close(); rmSync(directory, { recursive: true, force: true });
     }
   });
 

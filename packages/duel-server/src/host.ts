@@ -443,8 +443,7 @@ export function createDuelHost(options: {
   let bridgeApi: BridgeApi | undefined;
   try { bridgeApi = new BridgeApi(options.db, suggestionWorkers, options.now); }
   catch (error) {
-    log("warn", "[duel] bridge search startup failed", {
-      name: error instanceof Error ? error.name : "Unknown", code: (error as { code?: string })?.code ?? "unknown" });
+    report(error, { tags: { operation: "[duel] bridge search startup failed" } });
   }
   const suggestingPlayers = new Set<number>();
   const reservations = new Map<DuelGameWorker, { release: WorkerReservation; session?: DuelSession }>();
