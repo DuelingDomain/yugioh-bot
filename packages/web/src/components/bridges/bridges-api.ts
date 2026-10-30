@@ -5,8 +5,8 @@ export type BridgeFormat = "advanced" | "genesys";
 
 /**
  * What a bridge search is about. `genesysRemaining` only counts in Genesys. `source` is the first engine. With
- * `engines` of two or more the deep search runs on the whole set: `deck` (the open deck, when the set is the one the
- * host finds in it) or the named `engines`. The deep route takes only one of the two.
+ * `engines` of two or more the deep search runs on the whole set. `deck` is the open deck: the host counts the cards
+ * the deck already holds from it, but the set is always `engines`, so the search is for the chips on screen.
  */
 export type BridgeScope = { source: string; target?: string; format: BridgeFormat; genesysRemaining?: number; engines?: readonly string[]; deck?: BridgeDeck };
 export type BridgeList = { results: ShownBridge[]; reverse?: ShownBridge[]; inReview: number };
@@ -16,7 +16,7 @@ export type DeepStep = "candidates" | "checking" | "rating" | "done";
 export type DeepStatus = { jobId: string; state: DeepState; step: DeepStep; progress: number; results: ShownBridge[]; inReview: number; error?: string; engines?: string[]; next?: EngineSuggestion[] };
 export type DeepStart = { jobId: string; state: DeepState; cached: boolean };
 
-/** A failed call. `retryAfter` (seconds) comes with a 429. */
+/** A failed call. `retryAfter` (seconds) comes with a 429, and with a 409 when another search of this player still runs. */
 export class BridgeRequestError extends Error {
   constructor(readonly status: number, message: string, readonly retryAfter?: number) {
     super(message);
@@ -58,12 +58,12 @@ export function fetchBridges(scope: BridgeScope, signal?: AbortSignal): Promise<
 /** Start the deep search, or join the one that already runs. */
 export function startDeepSearch(scope: BridgeScope, signal?: AbortSignal): Promise<DeepStart> {
   const points = scope.format === "genesys" && scope.genesysRemaining != null ? { genesysRemaining: Math.max(0, Math.min(1000, Math.floor(scope.genesysRemaining))) } : {};
-  // Several engines: exactly one selector. The open deck stands for its engines; the points come from the deck then.
+  // Several engines: the set is the work, the open deck (when there is one) only says what the player already holds.
+  // The points come from the editor, which also counts the Side Deck and the player's own cap.
   const multi = scope.engines && scope.engines.length > 1 ? scope.engines : null;
   const body = multi
-    ? { format: scope.format, ...(scope.deck ? { deck: scope.deck } : { engines: multi, ...points }) }
-    : { source: scope.source, format: scope.format, ...(scope.target ? { target: scope.target } : {}),
-    ...points };
+    ? { format: scope.format, engines: [...multi], ...(scope.deck ? { deck: scope.deck } : {}), ...points }
+    : { source: scope.source, format: scope.format, ...(scope.target ? { target: scope.target } : {}), ...points };
   return call<DeepStart>("/api/cards/bridges/deep-search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
 }
 

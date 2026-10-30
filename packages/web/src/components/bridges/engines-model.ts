@@ -1,6 +1,6 @@
 import type { BridgeDeck, BridgeEnginesRequest, DetectedEngine } from "@/lib/bridges-api";
 import type { BridgeFormat } from "./bridges-api";
-import { readStore, writeStore } from "./bridges-model";
+import { deckSignature, readStore, writeStore } from "./bridges-model";
 
 /** A set holds one to four engines. */
 export const MAX_ENGINES = 4;
@@ -14,7 +14,10 @@ export const NO_EDITS: EngineEdits = { added: [], removed: [] };
 /** The same names, in any order. */
 export const sameNames = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((name) => b.includes(name));
 
-/** The deck as the host wants it: Main and Extra only (Side never counts), a Deck Master only in Domain. Capped, so a long list is not refused. */
+/**
+ * The deck as the host wants it: Main and Extra only, a Deck Master only in Domain. Capped, so a long list is not
+ * refused. The Side Deck is not sent: its Genesys points are in the editor's points left, which go with the deck.
+ */
 export function bridgeDeck(deck: { main: readonly number[]; extra: readonly number[] }, deckMaster: number | null | undefined): BridgeDeck {
   const master = deckMaster != null ? 1 : 0;
   const main = deck.main.slice(0, MAX_DECK_IDS - master);
@@ -22,11 +25,9 @@ export function bridgeDeck(deck: { main: readonly number[]; extra: readonly numb
   return { main: [...main], extra: [...extra], ...(master ? { deckMaster: deckMaster! } : {}) };
 }
 
-/** One key for a request. The order of the cards does not matter. */
+/** One key for a request. The order of the cards does not matter. The host takes the editor's points left with a deck too. */
 export function enginesKey(query: BridgeEnginesRequest): { deck: string; rest: string } {
-  const sorted = (codes: readonly number[]) => [...codes].sort((a, b) => a - b).join(",");
-  const deck = query.deck ? `${sorted(query.deck.main)}|${sorted(query.deck.extra)}|${query.deck.deckMaster ?? 0}` : "";
-  return { deck, rest: JSON.stringify([query.format, query.engines ?? null, query.deck ? null : query.genesysRemaining ?? null]) };
+  return { deck: deckSignature(query.deck), rest: JSON.stringify([query.format, query.engines ?? null, query.genesysRemaining ?? null]) };
 }
 
 /**
