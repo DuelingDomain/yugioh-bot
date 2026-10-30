@@ -5,7 +5,7 @@ import { validateBridgeEngineInput } from "./bridge-engine-queries.js";
 import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
 import { bridgeRevision } from "./bridge-revision.js";
 
-type QueuedQuery = { key: string; input: Record<string, unknown>; guildId: string;
+type QueuedQuery = { key: string; input: Record<string, unknown>; guildId: string; deadline: number;
   work: Promise<BridgeEnginesResponse>; resolve: (result: BridgeEnginesResponse) => void; reject: (error: unknown) => void };
 
 /** Bounded, read-only scanner work; short cache always rechecks the SQLite revision. */
@@ -20,7 +20,17 @@ export class BridgeFastQueries {
     return bridgeRevision(this.db);
   }
 
-  async run(input: Record<string, unknown>, guildId: string, userId: number): Promise<BridgeEnginesResponse> {
+  run(input: Record<string, unknown>, guildId: string, userId: number, deadline = performance.now() + 4500): Promise<BridgeEnginesResponse> {
+    // Each caller keeps its own deadline when later edits replace queued work.
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new BridgeJobError("Engine suggestions are busy", 503, 1)), Math.max(1, deadline - performance.now()));
+      void this.execute(input, guildId, userId, deadline).then(result => {
+        clearTimeout(timer); resolve(result);
+      }, error => { clearTimeout(timer); reject(error); });
+    });
+  }
+
+  private async execute(input: Record<string, unknown>, guildId: string, userId: number, deadline: number): Promise<BridgeEnginesResponse> {
     validateBridgeEngineInput(input);
     const deck = input.deck as BridgeDeck | undefined;
     const key = JSON.stringify([guildId, input.format ?? "advanced",
@@ -29,6 +39,7 @@ export class BridgeFastQueries {
       input.genesysRemaining ?? null]);
     const revision = this.revision(), cached = this.cache.get(key);
     if (cached?.revision === revision && cached.expires > this.now()) return cached.result;
+    if (performance.now() >= deadline) throw new BridgeJobError("Engine suggestions are busy", 503, 1);
     const workKey = JSON.stringify([key, revision]), actor = this.actors.get(userId);
     if (actor) {
       if (actor.key === workKey) {
@@ -41,18 +52,18 @@ export class BridgeFastQueries {
       // Aborting a browser fetch does not cancel its worker. Retain just the
       // newest edit behind that work; superseded waiters receive its answer.
       if (actor.next) {
-        Object.assign(actor.next, { key: workKey, input, guildId });
+        Object.assign(actor.next, { key: workKey, input, guildId, deadline });
       } else {
         let resolve!: QueuedQuery["resolve"], reject!: QueuedQuery["reject"];
         const work = new Promise<BridgeEnginesResponse>((yes, no) => { resolve = yes; reject = no; });
-        actor.next = { key: workKey, input, guildId, work, resolve, reject };
+        actor.next = { key: workKey, input, guildId, deadline, work, resolve, reject };
       }
       return actor.next.work;
     }
     let work = this.pending.get(workKey);
     if (!work) {
       if (this.pending.size >= 8) throw new BridgeJobError("Engine suggestions are busy", 503, 1);
-      work = Promise.resolve().then(() => this.workers.bridgeEngines(input, guildId)).then(result => {
+      work = Promise.resolve().then(() => this.workers.bridgeEngines(input, guildId, Math.max(1, deadline - performance.now()))).then(result => {
         if (this.revision() === revision) {
           this.cache.delete(key); this.cache.set(key, { revision, result, expires: this.now() + 5000 });
           if (this.cache.size > 64) this.cache.delete(this.cache.keys().next().value!);
@@ -65,7 +76,7 @@ export class BridgeFastQueries {
       const current = this.actors.get(userId);
       if (current?.work !== actorWork) return;
       this.actors.delete(userId);
-      if (current.next) void this.run(current.next.input, current.next.guildId, userId).then(current.next.resolve, current.next.reject);
+      if (current.next) void this.run(current.next.input, current.next.guildId, userId, current.next.deadline).then(current.next.resolve, current.next.reject);
     });
     this.actors.set(userId, { key: workKey, work: actorWork });
     return actorWork;

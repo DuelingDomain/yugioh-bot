@@ -212,6 +212,37 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     expect((await jobs.status(actor(2), first.jobId)).results).toEqual([5]);
   });
 
+  it("coalesces and bounds completed projections and invalidates them on feedback", async () => {
+    const { db } = setup();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const project = vi.fn(async () => { await gate; return { results: [], inReview: 0 }; });
+    const jobs = new BridgeSearchJobs(db, { execute: async () => [], project, version: () => "status-cache" });
+    const pending: Promise<unknown>[] = [];
+    try {
+      const first = jobs.start(actor(), query());
+      await new Promise(resolve => setImmediate(resolve));
+      for (let i = 0; i < 20; i++) pending.push(jobs.status(actor(), first.jobId));
+      await new Promise(resolve => setImmediate(resolve));
+      expect(project).toHaveBeenCalledTimes(1);
+      for (let i = 2; i <= 4; i++) {
+        jobs.start(actor(i), { ...query(), genesysRemaining: i });
+        pending.push(jobs.status(actor(i), first.jobId));
+      }
+      jobs.start(actor(5), { ...query(), genesysRemaining: 5 });
+      await expect(jobs.status(actor(5), first.jobId)).rejects.toMatchObject({ status: 503 });
+      jobs.start(actor(), { ...query(), genesysRemaining: 30 });
+      await expect(jobs.status(actor(), first.jobId)).rejects.toMatchObject({ status: 503 });
+      release(); await Promise.all(pending);
+      jobs.start(actor(), query());
+      await jobs.status(actor(), first.jobId);
+      expect(project).toHaveBeenCalledTimes(4);
+      db.prepare("INSERT INTO bridge_feedback(evidence_hash,actor_hash,reason) VALUES('status-feedback','one','')").run();
+      await jobs.status(actor(), first.jobId);
+      expect(project).toHaveBeenCalledTimes(5);
+    } finally { release(); await Promise.allSettled(pending); await jobs.close(); }
+  });
+
   it("refreshes a subscriber's points and deck when reusing an identical active query", async () => {
     const { db } = setup(); let finish!: () => void;
     const ready = new Promise<void>(resolve => { finish = resolve; });

@@ -98,7 +98,7 @@ describe("bridge scanner isolation", () => {
     } finally { clearInterval(timer); await api.jobs.close(); await workers.close(); db.close(); rmSync(directory, { recursive: true, force: true }); }
   }, 20_000);
 
-  it("queues bridge scans on one scanner and leaves a scanner available for Suggestions", async () => {
+  it("keeps deep scans in their own lane while interactive traffic and Suggestions run", async () => {
     const db = new Database(":memory:");
     migrate(db); importBridgeArtifact(db);
     const directory = createHostDataFixture([{ code: 89631139, name: "Blue-Eyes White Dragon", type: 0x11 }]);
@@ -114,12 +114,14 @@ describe("bridge scanner isolation", () => {
       const second = workers.bridgeCandidates({ ...scan, source: "Blue-Eyes" });
       const genesys = workers.bridgeCandidates({ ...scan, format: "genesys" });
       expect(jobs()).toHaveLength(1);
+      const interactive = workers.bridgeEngines({ engines: ["Odion"] }, "g");
       const suggestions = workers.run({
         query: parseDeckSuggestionQuery({ op: "suggestRows", deck: { main: [89631139], extra: [], side: [] } })!,
         legality: deckSuggestionScope("normal", directory, defaultDuelSettings("normal"), { cardBlocks: [] }),
       });
-      expect(jobs()).toHaveLength(2);
-      const [result, queued, filtered, normal] = await Promise.all([first, second, genesys, suggestions]);
+      expect(jobs()).toHaveLength(3);
+      const [result, queued, filtered, normal, fast] = await Promise.all([first, second, genesys, suggestions, interactive]);
+      expect(fast.engines).toEqual(["Odion"]);
       expect(Array.isArray(result)).toBe(true);
       expect(Array.isArray(queued)).toBe(true);
       expect(Array.isArray(filtered) && filtered.length > 0 && filtered.every(row => row.format === "genesys")).toBe(true);
@@ -132,6 +134,19 @@ describe("bridge scanner isolation", () => {
       ]);
       expect(Array.isArray(outgoing) && outgoing.length > 0 && outgoing.every(row => row.source === "Blue-Eyes")).toBe(true);
       expect(Array.isArray(incoming) && incoming.length > 0 && incoming.every(row => row.target === "Blue-Eyes")).toBe(true);
+      const started = performance.now();
+      const pressure = Array.from({ length: 20 }, () => workers.bridgeEngineProjection([], {
+        source: "Odion", engines: ["Odion"], format: "advanced",
+      }).then(() => "done", error => error.status));
+      await expect(workers.bridgeCandidates({ ...scan, op: "from", limit: 1 })).resolves.toBeInstanceOf(Array);
+      const answers = await Promise.all(pressure);
+      expect(answers).toContain(503);
+      expect(performance.now() - started).toBeLessThan(4900);
+      const cold = new DeckSuggestionWorkers(db, directory);
+      try {
+        await expect(cold.bridgeEngines({ engines: ["Odion"] }, "g", 1)).rejects.toMatchObject({ status: 503 });
+        expect((cold as unknown as { jobs: unknown[] }).jobs).toHaveLength(0);
+      } finally { await cold.close(); }
     } finally { await workers.close(); db.close(); rmSync(directory, { recursive: true, force: true }); }
   }, 20_000);
 

@@ -7,6 +7,7 @@ import { BRIDGE_JUDGE_FRAMINGS, buildBridgeJudgeEvidence, importBridgeArtifact, 
 import { createBridgeService } from "@yugidraft/shared/services";
 import { BridgeEngineQueries, type EngineQuery } from "../src/bridge-engine-queries.js";
 import { BridgeApi } from "../src/bridge-api.js";
+import { BridgeFastQueries } from "../src/bridge-fast-queries.js";
 import type { BridgeScan } from "../src/deck-suggestion-workers.js";
 import { seedIdentity } from "./helpers/identity.js";
 
@@ -59,6 +60,20 @@ describe("stored multi-engine bridge API", () => {
       await call(0); expect(bridgeEngines).toHaveBeenCalledTimes(scans + 1);
       now += 5001;
       await call(0); expect(bridgeEngines).toHaveBeenCalledTimes(scans + 2);
+      let unblock!: () => void;
+      const gate = new Promise<void>(resolve => { unblock = resolve; });
+      const bounded = new BridgeFastQueries(db, { bridgeEngines: async input => {
+        await gate; return { engines: input.engines as string[], between: [], next: [], inReview: 0 };
+      } });
+      const shortDeadline = performance.now() + 20;
+      const stale = bounded.run({ engines: ["Odion"] }, "g", actors[0]!.userId, shortDeadline);
+      const replaced = bounded.run({ engines: ["Ashtra"] }, "g", actors[0]!.userId, shortDeadline);
+      const latest = bounded.run({ engines: ["Genex"] }, "g", actors[0]!.userId, performance.now() + 1000);
+      try {
+        expect((await Promise.allSettled([stale, replaced])).map(result => result.status)).toEqual(["rejected", "rejected"]);
+        unblock();
+        await expect(latest).resolves.toMatchObject({ engines: ["Genex"] });
+      } finally { unblock(); await Promise.allSettled([stale, replaced, latest]); }
     } finally { release(); await Promise.allSettled(pending); await api.jobs.close(); }
   });
 

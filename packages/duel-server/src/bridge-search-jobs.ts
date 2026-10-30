@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import { bridgeGate, type ArchetypeBridge, type BridgeFormat, type EngineSuggestion } from "@yugidraft/shared/cards/effects";
+import { bridgeRevision } from "./bridge-revision.js";
 
 export interface BridgeSearchQuery { source: string; target?: string; engines?: string[]; format: BridgeFormat; genesysRemaining?: number; deckCards?: number[] }
 export interface BridgeSearchActor { userId: number; guildId: string }
@@ -32,6 +33,9 @@ export class BridgeSearchJobs {
   private readonly active = new Set<string>();
   private readonly running = new Set<Promise<void>>();
   private readonly failedCompletions = new Map<string, string>();
+  private readonly projections = new Map<string, { expires: number; result: BridgeProjection }>();
+  private readonly pendingProjections = new Map<string, Promise<BridgeProjection>>();
+  private readonly projectingActors = new Map<number, { key: string; work: Promise<BridgeProjection> }>();
   private stopped = false;
   private drainTimer?: ReturnType<typeof setTimeout>;
   private readonly now: () => number;
@@ -134,11 +138,37 @@ export class BridgeSearchJobs {
     const query = { ...JSON.parse(row.query_json) as BridgeSearchQuery, genesysRemaining: row.genesys_remaining ?? undefined,
       deckCards: row.deck_cards_json ? JSON.parse(row.deck_cards_json) as number[] : undefined };
     if (row.query_key !== this.queryKey(query)) throw new BridgeJobError("Not found", 404);
-    const visible = row.state === "done" ? await (this.options.projectStored?.(row.id, query)
-      ?? this.options.project(JSON.parse((this.db.prepare("SELECT result_json FROM bridge_deep_job WHERE id=?").get(row.id) as JobRow).result_json), query))
-      : { results: [], inReview: 0 };
+    const visible = row.state === "done" ? await this.completedProjection(actor, row, query) : { results: [], inReview: 0 };
     return { jobId: row.id, state: row.state, step: row.step, progress: row.progress,
       engines: query.engines ?? [query.source], next: [], ...visible, ...(row.error ? { error: row.error } : {}) };
+  }
+
+  private completedProjection(actor: BridgeSearchActor, row: JobRow, query: BridgeSearchQuery): Promise<BridgeProjection> {
+    const revision = bridgeRevision(this.db), key = JSON.stringify([row.id, row.ended_at, query, revision]);
+    const cached = this.projections.get(key);
+    if (cached && cached.expires > this.now()) return Promise.resolve(cached.result);
+    const current = this.projectingActors.get(actor.userId);
+    if (current) {
+      if (current.key === key) return current.work;
+      return Promise.reject(new BridgeJobError("Bridge status is busy", 503, 1));
+    }
+    let work = this.pendingProjections.get(key);
+    if (!work) {
+      if (this.pendingProjections.size >= 4) return Promise.reject(new BridgeJobError("Bridge status is busy", 503, 1));
+      work = Promise.resolve().then(() => this.options.projectStored?.(row.id, query)
+        ?? this.options.project(JSON.parse((this.db.prepare("SELECT result_json FROM bridge_deep_job WHERE id=?").get(row.id) as JobRow).result_json), query))
+        .then(result => {
+          if (bridgeRevision(this.db) === revision) {
+            this.projections.set(key, { result, expires: this.now() + 5000 });
+            if (this.projections.size > 64) this.projections.delete(this.projections.keys().next().value!);
+          }
+          return result;
+        }).finally(() => { this.pendingProjections.delete(key); });
+      this.pendingProjections.set(key, work);
+    }
+    const actorWork = work.finally(() => { this.projectingActors.delete(actor.userId); });
+    this.projectingActors.set(actor.userId, { key, work: actorWork });
+    return actorWork;
   }
 
   /** Status writes must never wait five seconds for a web/bot writer on the duel loop. */
