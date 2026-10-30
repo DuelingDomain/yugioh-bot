@@ -1,4 +1,4 @@
-import { bridgeProjectionRows, type BridgeProjectionInput } from "../src/bridge-projection-input.js";
+import { bridgeProjectionRows, compactBridgeRows, type BridgeProjectionInput } from "../src/bridge-projection-input.js";
 import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -32,6 +32,22 @@ const bridgeEngineShortlist = async (rows: ArchetypeBridge[], query: EngineQuery
 const bridgeEngineProjection = async (rows: BridgeProjectionInput, query: EngineQuery) => new BridgeEngineQueries(db).project(bridgeProjectionRows(db, rows), query, 6);
 
 describe("stored multi-engine bridge API", () => {
+  it("rehydrates compact completed pairs after their evidence changes or an artifact is imported", () => {
+    const fixture = new Database(":memory:"); migrate(fixture); importBridgeArtifact(fixture);
+    const row = createBridgeService(fixture).bridgeBetween("Odion", "Argostars")!;
+    const input = compactBridgeRows([row]);
+    try {
+      expect(bridgeProjectionRows(fixture, input)).toEqual([row]);
+      const changed = { ...row, evidence_hash: "new-evidence", score: row.score + 1 };
+      fixture.prepare("UPDATE archetype_bridge SET evidence_hash=?,bridge_json=? WHERE source=? AND target=? AND format=?")
+        .run(changed.evidence_hash, JSON.stringify(changed), row.source, row.target, row.format);
+      expect(bridgeProjectionRows(fixture, input)).toEqual([changed]);
+      fixture.exec("DELETE FROM bridge_artifact_import");
+      expect(importBridgeArtifact(fixture).skipped).toBe(false);
+      expect(bridgeProjectionRows(fixture, compactBridgeRows([changed]))).toEqual([row]);
+    } finally { fixture.close(); }
+  });
+
   it("coalesces identical work, bounds actor/global flights, and invalidates its short cache", async () => {
     const actors = Array.from({ length: 10 }, (_, i) => seedIdentity(db, { name: `Fast admission ${i}` }));
     let release!: () => void, now = Date.now();

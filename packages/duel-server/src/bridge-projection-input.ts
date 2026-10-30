@@ -29,8 +29,11 @@ export function bridgeProjectionRows(db: Database.Database, input: BridgeProject
   }
   if (Array.isArray(input)) return input;
   const read = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? AND target=? AND format=? AND evidence_hash=?");
+  const current = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? AND target=? AND format=?");
   return input.pairs.flatMap(pair => {
-    const row = read.get(...pair) as { bridge_json: string } | undefined;
+    // Re-upserts and artifact imports replace evidence for the same pair.
+    // Project its current evidence (and current review gate) rather than lose it.
+    const row = (read.get(...pair) ?? current.get(pair[0], pair[1], pair[2])) as { bridge_json: string } | undefined;
     return row ? [JSON.parse(row.bridge_json) as ArchetypeBridge] : [];
   });
 }
