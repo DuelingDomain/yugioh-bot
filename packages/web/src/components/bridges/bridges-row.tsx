@@ -15,6 +15,9 @@ import { useBridgeCards, useBridgeList, useDeepSearch } from "./use-bridges";
 import { useDeckEngines } from "./use-engines";
 import styles from "./bridges.module.css";
 
+/** An engine the Suggest tab asked to show. `count` grows with every ask, so asking again for the same engine works. */
+export type FocusEngine = { name: string; count: number };
+
 type Props = {
   /** The archetype the editor found in the deck. Only a start for the two-archetype search; the engines come from the host. */
   archetype: string | null;
@@ -34,6 +37,8 @@ type Props = {
   active?: boolean;
   /** A deep search just finished. */
   onDeepFinished?: () => void;
+  /** Show this engine: its bridge opens (one engine) or its card is brought into view (several). */
+  focus?: FocusEngine | null;
 };
 
 type ListProps = Pick<Props, "mode" | "genesys" | "cardProps" | "onCatalog"> & { bridges: readonly ShownBridge[]; showSource?: boolean; onOpen: (bridge: ShownBridge) => void; label: string };
@@ -53,7 +58,7 @@ function BridgeList({ bridges, mode, genesys, cardProps, onCatalog, showSource, 
  * opens its details in place; Deep search looks wider with a progress bar; "Search two archetypes" is a free
  * lookup. Only bridges that passed the checks reach this row, so there is nothing to filter here.
  */
-export function BridgesRow({ archetype, deck, deckMaster, mode, genesys, genesysRemaining, cardProps, deckCount, limit, onCatalog, onDisabled, active = true, onDeepFinished }: Props) {
+export function BridgesRow({ archetype, deck, deckMaster, mode, genesys, genesysRemaining, cardProps, deckCount, limit, onCatalog, onDisabled, active = true, onDeepFinished, focus = null }: Props) {
   const onDisabledRef = useRef(onDisabled);
   onDisabledRef.current = onDisabled;
   const onDeepFinishedRef = useRef(onDeepFinished);
@@ -110,6 +115,29 @@ export function BridgesRow({ archetype, deck, deckMaster, mode, genesys, genesys
     setOpen(bridge);
   }
 
+  // A tap on an engine in Suggest: wait for the answer it needs, then open or show it, once.
+  const handled = useRef(0);
+  const [lit, setLit] = useState<string | null>(null);
+  useEffect(() => {
+    if (!lit) return;
+    const node = [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-engine]") ?? [])].find((entry) => entry.dataset.engine === lit);
+    node?.scrollIntoView({ block: "nearest" });
+  }, [lit, engines.result]);
+  useEffect(() => {
+    if (!focus || handled.current === focus.count || !active || open) return;
+    if (single) {
+      if (list == null) { if (error) handled.current = focus.count; return; }
+      const bridge = list.results.find((entry) => entry.target === focus.name);
+      handled.current = focus.count;
+      if (bridge) openBridge(bridge);
+      return;
+    }
+    if (!engines.result) { if (error) handled.current = focus.count; return; }
+    handled.current = focus.count;
+    setLit(focus.name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, active, open, single, list, error, engines.result]);
+
   if (disabled) return null;
 
   const common = { mode, genesys, cardProps, onCatalog, onOpen: openBridge };
@@ -157,7 +185,7 @@ export function BridgesRow({ archetype, deck, deckMaster, mode, genesys, genesys
                 {next.length > 0 ? (
                   <section aria-label={`Next engine for ${names}`} data-testid="engines-next">
                     <h4 className={styles.subTitle}>Next engine for {names}</h4>
-                    <EngineList engines={next} mode={mode} genesys={genesys} cardProps={cardProps} onCatalog={onCatalog} label={`Next engine for ${names}`} />
+                    <EngineList engines={next} mode={mode} genesys={genesys} cardProps={cardProps} onCatalog={onCatalog} label={`Next engine for ${names}`} lit={lit} />
                   </section>
                 ) : null}
               </div>

@@ -27,12 +27,14 @@ function linkEnds(engine: EngineSuggestion, from: string, to: string): string {
 }
 
 /** One engine that fits next: grade, how many of your engines it links to, the path of each link, the cards, the points. */
-export function EngineCard({ engine, cards, cardProps, genesys, onOpen }: {
+export function EngineCard({ engine, cards, cardProps, genesys, onOpen, lit }: {
   engine: EngineSuggestion;
   cards: ReadonlyMap<number, DeckCardInfo>;
   cardProps: CardPropsFor;
   genesys: boolean;
   onOpen?: (engine: EngineSuggestion) => void;
+  /** The Suggest tab asked for this engine: it is marked. */
+  lit?: boolean;
 }) {
   const word = engineGrade(engine);
   const need = needText(engine);
@@ -43,7 +45,7 @@ export function EngineCard({ engine, cards, cardProps, genesys, onOpen }: {
     </>
   );
   return (
-    <li className={cn(styles.item, styles.engine)} data-grade={word.toLowerCase()} data-testid="engine-item" data-engine={engine.engine}>
+    <li className={cn(styles.item, styles.engine)} data-grade={word.toLowerCase()} data-testid="engine-item" data-engine={engine.engine} data-lit={lit ? "" : undefined}>
       {onOpen ? (
         <button type="button" className={styles.open} aria-label={`${engine.engine}. ${word}, links ${engine.covered} of ${engine.of}. Open details`} onClick={() => onOpen(engine)}>{title}</button>
       ) : <div className={styles.open}>{title}</div>}
@@ -73,7 +75,7 @@ export function EngineCard({ engine, cards, cardProps, genesys, onOpen }: {
 }
 
 /** A list of engines. The cards of all engines load together, so the thumbnails fill in at once. */
-export function EngineList({ engines, mode, genesys, cardProps, onCatalog, onOpen, label }: {
+export function EngineList({ engines, mode, genesys, cardProps, onCatalog, onOpen, label, lit }: {
   engines: readonly EngineSuggestion[];
   mode: DuelMode;
   genesys: boolean;
@@ -81,11 +83,12 @@ export function EngineList({ engines, mode, genesys, cardProps, onCatalog, onOpe
   onCatalog: (cards: DeckCardInfo[]) => void;
   onOpen?: (engine: EngineSuggestion) => void;
   label: string;
+  lit?: string | null;
 }) {
   const cards = useBridgeCards([...new Set(engines.flatMap((engine) => engine.cards.slice(0, 5)))], mode, onCatalog);
   return (
     <ul className={styles.list} aria-label={label}>
-      {engines.map((engine) => <EngineCard key={engine.engine} engine={engine} cards={cards} cardProps={cardProps} genesys={genesys} onOpen={onOpen} />)}
+      {engines.map((engine) => <EngineCard key={engine.engine} engine={engine} cards={cards} cardProps={cardProps} genesys={genesys} onOpen={onOpen} lit={lit === engine.engine} />)}
     </ul>
   );
 }

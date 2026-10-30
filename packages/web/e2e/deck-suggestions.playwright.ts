@@ -353,8 +353,10 @@ try {
     await goTab(tab);
   };
   // Positions are relative to the panel, so a scroll of the list (hover scrolls a tile into view) is not a move.
-  const tileBoxes = () => panel.evaluate((root: HTMLElement) => { const base = root.getBoundingClientRect(); return [...root.querySelectorAll("button")].map((node) => { const box = node.getBoundingClientRect(); return [Math.round(box.x - base.x), Math.round(box.y - base.y), Math.round(box.width), Math.round(box.height)]; }); });
-  const rowTitles = () => panel.locator("h3").allTextContents();
+  const tileBoxes = () => panel.evaluate((root: HTMLElement) => { const base = root.getBoundingClientRect(); return [...root.querySelectorAll('section[aria-labelledby^="suggest-"]:not([aria-labelledby="suggest-engines"]) button')].map((node) => { const box = node.getBoundingClientRect(); return [Math.round(box.x - base.x), Math.round(box.y - base.y), Math.round(box.width), Math.round(box.height)]; }); });
+  const rowTitles = () => panel.locator("h3:not(#suggest-engines)").allTextContents();
+  // The four card rows; the "Engines that fit" row above them has its own tests.
+  const tileButtons = panel.locator('section[aria-labelledby^="suggest-"]:not([aria-labelledby="suggest-engines"]) button');
 
   if (process.env.SUGGESTIONS_BRIDGES_ONLY !== "1") {
   await page.goto(`${ORIGIN}/index.html?scenario=pool`);
@@ -382,13 +384,13 @@ try {
     await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
     const after = await listTop();
     check("layout", `${viewport.name}: list top is stable on first answer`, Math.abs(after - before) <= 40, { before, after });
-    check("layout", `${viewport.name}: all four slots are present`, await panel.locator('section[aria-labelledby^="suggest-"]').count() === 4);
+    check("layout", `${viewport.name}: all four slots are present`, await panel.locator('section[aria-labelledby^="suggest-"]:not([aria-labelledby="suggest-engines"])').count() === 4);
     control.emptyRows = true; control.delayMs = 0;
     await panel.locator('section[aria-labelledby="suggest-archetype"] button').first().dblclick();
     await panel.getByText("No archetype support fits your deck yet.").waitFor({ timeout: 10_000 });
     const emptyTop = await listTop();
     check("layout", `${viewport.name}: list top is stable when all rows empty`, Math.abs(emptyTop - after) <= 1, { after, emptyTop });
-    check("layout", `${viewport.name}: empty rows retain four slots`, await panel.locator('section[aria-labelledby^="suggest-"]').count() === 4);
+    check("layout", `${viewport.name}: empty rows retain four slots`, await panel.locator('section[aria-labelledby^="suggest-"]:not([aria-labelledby="suggest-engines"])').count() === 4);
     await shot(`stable-empty-${viewport.name}`);
     control.emptyRows = false;
   }
@@ -422,7 +424,7 @@ try {
   });
   check("a", "a long reason is clamped, not grown", clamp.after[2] > 0 && clamp.before[0] === clamp.after[0] && clamp.before[1] === clamp.after[1], clamp);
   const badges = await panel.locator("span[class*=de-lim]").count();
-  const badgeOverlap = await panel.locator("button").evaluateAll((nodes: HTMLElement[]) => nodes.filter((node) => {
+  const badgeOverlap = await tileButtons.evaluateAll((nodes: HTMLElement[]) => nodes.filter((node) => {
     const badge = node.querySelector("[class*=de-lim]") as HTMLElement | null;
     const have = node.querySelector("[class*=have]") as HTMLElement | null;
     const name = node.querySelector("[class*=name]") as HTMLElement | null;
@@ -466,8 +468,8 @@ try {
   // b. Hover moves nothing.
   await page.waitForTimeout(800);
   const before = await tileBoxes();
-  await panel.locator("button").nth(0).hover();
-  await panel.locator("button").nth(1).hover();
+  await tileButtons.nth(0).hover();
+  await tileButtons.nth(1).hover();
   await page.waitForTimeout(250);
   const afterHover = await tileBoxes();
   check("b", "hover leaves every tile where it was", JSON.stringify(before) === JSON.stringify(afterHover), before.map((box: number[], i: number) => JSON.stringify(box) === JSON.stringify(afterHover[i]) ? null : [i, box, afterHover[i]]).filter(Boolean).slice(0, 3));
@@ -507,7 +509,7 @@ try {
   await panel.locator('section[aria-labelledby="suggest-staples"] button').nth(3).dblclick();
   await page.waitForTimeout(1300);
   check("c3", "the status says Updating while the answer is slow", (await panel.getByText("Updating…").count()) === 1);
-  check("c3", "the old rows stay on screen while loading", (await tileBoxes()).length === shown.length && (await panel.locator("button").count()) > 0);
+  check("c3", "the old rows stay on screen while loading", (await tileBoxes()).length === shown.length && (await tileButtons.count()) > 0);
   // Boxes are rounded, so a half-pixel of layout can show as one pixel; two or more is a real move.
   { const moved = await tileBoxes(); const off = shown.map((box: number[], i: number) => moved[i] && box.every((value, axis) => Math.abs(value - moved[i][axis]) <= 1) ? null : [i, box, moved[i]]).filter(Boolean); check("c3", "no tile moved while loading", off.length === 0, off.slice(0, 3)); }
   await shot("c3-updating");
@@ -522,7 +524,7 @@ try {
   await page.waitForTimeout(400);
   await shot("d-search");
   await goTab("Suggest");
-  check("d", "a search on the Cards tab does not hide Suggest", await panel.isVisible() && (await panel.locator("button").count()) > 0);
+  check("d", "a search on the Cards tab does not hide Suggest", await panel.isVisible() && (await tileButtons.count()) > 0);
   await goTab("Cards");
   check("d", "the search text stays when the tab is closed and opened again", (await search().inputValue()) === "dragon");
   await search().fill("");
@@ -1080,6 +1082,83 @@ try {
   await page.waitForTimeout(600);
   check("u9", "a server with no bridges hides the row and its tab", (await bridges.count()) === 0 && (await page.getByRole("tab", { name: "Bridges", exact: true }).count()) === 0);
   engineControl.status = 200;
+
+  // v. Engines that fit: the top row of the Suggest tab.
+  engineControl.mode = "single"; engineControl.status = 200; engineControl.nextEmpty = false; engineControl.delayMs = 0;
+  bridgeControl.listStatus = 200; bridgeControl.none = false;
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await fresh();
+  await goTab("Suggest");
+  const fit = page.getByTestId("engines-fit");
+  await fit.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
+  const fitItems = fit.getByTestId("engine-fit-item");
+  check("v1", "the row is the first in the Suggest tab", (await panel.locator("h3").first().innerText()) === "Engines that fit", await panel.locator("h3").allInnerTexts());
+  check("v1", "it shows the top three engines, best first", JSON.stringify(await fitItems.locator("strong").allInnerTexts()) === JSON.stringify(["Dragunity", "Dragon Ruler", "Chaos"]), await fitItems.locator("strong").allInnerTexts());
+  check("v1", "each engine shows a grade and how many of your engines it links to", (await fitItems.first().getByTestId("engine-fit-grade").innerText()).length > 0 && (await fitItems.first().innerText()).includes("Links 1 of 1"), await fitItems.first().innerText());
+  check("v1", "each engine shows small cards", (await fitItems.first().getByRole("list", { name: /cards$/ }).locator("li").count()) >= 2);
+  check("v1", "the row asked the host once", engineCalls.length === 1, engineCalls.length);
+  const callsAtSuggest = engineCalls.length;
+  await shot("fit-1920x1080");
+
+  // A tap opens the engine in the Bridges tab; Bridges shares the answer, so the host is not asked again.
+  await fitItems.first().getByRole("button", { name: /Open in Bridges/ }).click();
+  check("v2", "the Bridges tab opens", (await tabState("Bridges")) === "true");
+  await bridges.getByTestId("bridge-drill").waitFor({ timeout: 15_000 });
+  check("v2", "the bridge to that engine opens its details", (await bridges.getByTestId("bridge-drill").innerText()).includes("Dragunity"), await bridges.getByTestId("bridge-drill").innerText());
+  check("v2", "the Bridges tab reused the answer of Suggest", engineCalls.length === callsAtSuggest, engineCalls.length - callsAtSuggest);
+
+  // With two engines, the tap shows the engine card in the Bridges list.
+  engineControl.mode = "multi";
+  await fresh();
+  await goTab("Suggest");
+  await fit.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
+  const multiFirst = await fit.getByTestId("engine-fit-item").first().getAttribute("data-engine");
+  check("v3", "two engines still show a short list", (await fit.getByTestId("engine-fit-item").count()) <= 3 && (await fit.innerText()).includes("Links 2 of 2"), await fit.innerText());
+  await fit.getByTestId("engine-fit-item").first().getByRole("button", { name: /Open in Bridges/ }).click();
+  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
+  await bridges.locator(`[data-testid="engine-item"][data-lit]`).waitFor({ timeout: 5000 });
+  check("v3", "the tapped engine is marked in the Bridges list", (await bridges.locator('[data-testid="engine-item"][data-lit]').getAttribute("data-engine")) === multiFirst, multiFirst);
+
+  // No engine passed the checks: a plain hint that points to Deep search.
+  engineControl.mode = "single"; engineControl.nextEmpty = true;
+  await fresh();
+  await goTab("Suggest");
+  await fit.getByTestId("engines-fit-empty").waitFor({ timeout: 15_000 });
+  const emptyText = await fit.getByTestId("engines-fit-empty").innerText();
+  check("v4", "the empty state points to Deep search in the Bridges tab", emptyText.includes("Deep search") && emptyText.includes("Bridges tab"), emptyText);
+  check("v4", "the empty state is not an error", (await fit.getByRole("alert").count()) === 0);
+  await shot("fit-empty-1920x1080");
+  await fit.getByRole("button", { name: /Deep search/ }).click();
+  check("v4", "its link opens the Bridges tab", (await tabState("Bridges")) === "true");
+  engineControl.nextEmpty = false;
+
+  // The host fails: the rest of Suggest still works.
+  engineControl.status = 500;
+  await fresh();
+  await goTab("Suggest");
+  await fit.getByTestId("engines-fit-empty").waitFor({ timeout: 15_000 });
+  check("v5", "a failed answer says the engines are not available", (await fit.getByTestId("engines-fit-empty").innerText()).includes("not available"));
+  check("v5", "the four rows still load", (await tileButtons.count()) > 0 || await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().isVisible());
+  engineControl.status = 404;
+  await fresh();
+  await goTab("Suggest");
+  await page.waitForTimeout(800);
+  check("v5", "a server with no bridges has no row", (await fit.count()) === 0);
+  engineControl.status = 200;
+
+  // The row at every width.
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await fresh();
+    await goTab("Suggest");
+    await fit.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
+    await page.waitForTimeout(400);
+    check("v6", `${viewport.name}: the page does not scroll sideways`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+    const inside = await fit.evaluate((root: HTMLElement) => { const edge = root.getBoundingClientRect().right + 1; return [...root.querySelectorAll("li, button")].every((node) => node.getBoundingClientRect().right <= edge); });
+    check("v6", `${viewport.name}: the engines stay inside the column`, inside);
+    await shot(`fit-${viewport.name}`);
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
 
   check("all", "no browser errors", pageErrors.length === 0, pageErrors);
   check("all", "every API call the editor made is mirrored", unrouted.length === 0, [...new Set(unrouted)]);

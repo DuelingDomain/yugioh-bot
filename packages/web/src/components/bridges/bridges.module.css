@@ -127,6 +127,7 @@
 .alsoItem:disabled { opacity: 0.5; cursor: default; }
 .alsoItem:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .engine { grid-template-rows: none; min-height: 0; }
+.engine[data-lit] { box-shadow: 0 0 0 1px var(--pen), 0 0 0 4px var(--pen-soft); }
 .paths { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .paths li { display: grid; gap: 1px; min-width: 0; font-size: 12px; line-height: 1.35; }
 .pathEnds { color: var(--ink); font-weight: 500; }

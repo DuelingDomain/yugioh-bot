@@ -8,7 +8,8 @@ import { mayReadEffect } from "@yugidraft/shared/cards/effects/capability";
 import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
 import { HowItPlays, type HookFind } from "@/components/effect-search/how-it-plays";
 import { HookDrill } from "@/components/effect-search/hook-drill";
-import { BridgesRow } from "@/components/bridges/bridges-row";
+import { BridgesRow, type FocusEngine } from "@/components/bridges/bridges-row";
+import { EngineFit } from "@/components/bridges/engine-fit";
 import { IntentHeading, RelaxHints } from "@/components/effect-search/search-intent";
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
 import { cn } from "@/lib/utils";
@@ -215,6 +216,9 @@ export function CardBrowser({
   if ((columns.tab === "suggest" && !seen.suggest) || (columns.tab === "bridges" && !seen.bridges)) {
     setSeen({ suggest: seen.suggest || columns.tab === "suggest", bridges: seen.bridges || columns.tab === "bridges" });
   }
+  // A tap on an engine in Suggest opens the Bridges tab on that engine. The count makes a second tap on the same engine count.
+  const [focusEngine, setFocusEngine] = useState<FocusEngine | null>(null);
+  const openEngine = (name: string) => { setFocusEngine((now) => ({ name, count: (now?.count ?? 0) + 1 })); columns.onTab("bridges"); };
   const paneProps = (tab: ColumnTab) => ({
     id: `deck-editor-${tab}`,
     className: styles.pane,
@@ -811,6 +815,20 @@ export function CardBrowser({
               limit={(card) => (pool || genesys || !limits ? 3 : cardLimit(limits, card))}
               onCatalog={(found) => onCatalogRef.current(found)}
               onDisabled={columns.onSuggestDisabled}
+              engines={hasBridges && !pool ? (
+                <EngineFit
+                  deck={suggest.deck}
+                  deckMaster={suggest.deckMaster}
+                  mode={mode}
+                  genesys={genesys}
+                  active={columns.tab === "suggest"}
+                  cardProps={suggestionProps}
+                  onCatalog={(found) => onCatalogRef.current(found)}
+                  onOpenEngine={openEngine}
+                  onOpenBridges={() => columns.onTab("bridges")}
+                  onDisabled={columns.onBridgesDisabled}
+                />
+              ) : undefined}
             />
           </div>
         </div>
@@ -833,6 +851,7 @@ export function CardBrowser({
               onCatalog={(found) => onCatalogRef.current(found)}
               onDisabled={columns.onBridgesDisabled}
               onDeepFinished={columns.onDeepFinished}
+              focus={focusEngine}
             />
           </div>
         </div>
