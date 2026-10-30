@@ -28,14 +28,15 @@ assert.deepEqual(engine, inventory.engine.filter(file => !file.startsWith("tests
 assert.deepEqual([...new Set([...unit, ...engine, ...legacy])].sort(), all, "No file may be dropped");
 assert.ok(unit.every(file => !engine.includes(file) && !legacy.includes(file)), "No unit-only file may run twice");
 
-const matrix = parse(readFileSync(new URL(".github/workflows/test.yml", root), "utf8")).jobs["engine-shards"].strategy.matrix;
+const { jobs } = parse(readFileSync(new URL(".github/workflows/test.yml", root), "utf8"));
+const matrix = jobs["engine-shards"].strategy.matrix;
 assert.deepEqual(matrix.suite, ["pinned"]);
 assert.deepEqual(matrix.count, [PINNED_SHARDS]);
 assert.deepEqual(matrix.shard, Array.from({ length: PINNED_SHARDS }, (_, i) => i + 1));
 assert.deepEqual(matrix.include, [
   ...Array.from({ length: 4 }, (_, i) => ({ suite: "surrender", shard: i + 1, count: 4 })),
-  ...Array.from({ length: 2 }, (_, i) => ({ suite: "differential", shard: i + 1, count: 2 })),
 ]);
+assert.deepEqual(jobs["engine-differential"].strategy.matrix.shard, [1, 2]);
 const plan = pinnedPlan(engine);
 // --filesOnly does not apply Vitest's sequencer. Exercise the actual configured
 // sequencer against Vitest specifications, still without collecting test modules.

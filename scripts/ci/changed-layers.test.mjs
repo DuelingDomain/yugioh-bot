@@ -96,6 +96,144 @@ test("missing diffs and manual/scheduled events still run every layer", () => {
   for (const event of ["workflow_dispatch", "schedule"]) assert.deepEqual(changedLayers([], event), allLayers);
 });
 
+test("TS-only engine PRs and main pushes skip native and differential core checks", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of [
+      "packages/duel-server/src/engine.ts", "packages/duel-server/tests/engine.test.ts",
+      "packages/shared/src/duels/settings.ts", "packages/shared/src/services/duels.ts",
+      "data/duel-engine-next/cards.cdb",
+      "tsconfig.json", "turbo.json", ".github/workflows/deploy.yml",
+      ".github/actions/setup-ci-node/action.yml", ".github/actions/prepare-production-bundle/action.yml",
+      "packages/duel-server/domain-core/proposals/core.cpp", "packages/duel-server/domain-core/patches/README.md",
+    ]) {
+      const result = classify([file], event);
+      assert.equal(result.core, false, `${event}: ${file}`);
+    }
+    assert.equal(classify(["packages/duel-server/src/engine.ts"], event).engine, true, event);
+  }
+});
+
+test("every golden input selects the native core job that runs golden checks", () => {
+  const inputs = [
+    ".github/workflows/test.yml",
+    "scripts/ci/changed-layers.mjs",
+    "packages/duel-server/card-script-patches/c123.lua",
+    "packages/duel-server/domain-core/patches/0001-core.patch",
+    "packages/duel-server/domain-core/multi-scripts/c123.lua",
+    "packages/duel-server/domain-core/pins.json",
+    "packages/duel-server/scripts/native/nduel.cpp",
+    "packages/duel-server/scripts/native/checks/checks.tsv",
+    "packages/duel-server/scripts/run-nduel.sh",
+    "packages/duel-server/scripts/build-native-core.sh",
+    "packages/duel-server/scripts/prepare-multi-core-tree.sh",
+    "packages/duel-server/scripts/multi-core-common.sh",
+    "packages/duel-server/scripts/prepare-data.ts",
+    "packages/duel-server/scripts/released-card-data.ts",
+    "packages/duel-server/scripts/card-script-patches.ts",
+  ];
+  for (const event of ["pull_request", "push"]) {
+    for (const file of inputs) {
+      const result = classify([file], event);
+      assert.equal(result.golden, true, `${event}: ${file}`);
+      assert.equal(result.core, true, `${event}: golden checks need the native job: ${file}`);
+      assert.equal(result.engine, true, `${event}: native checks need the engine bundle: ${file}`);
+    }
+  }
+});
+
+test("differential tests and their helpers select both core checks", () => {
+  const inputs = [
+    "packages/duel-server/tests/differential/differential.test.ts",
+    "packages/duel-server/tests/differential/differential-extended.test.ts",
+    "packages/duel-server/tests/differential/helpers/future-helper.ts",
+    "packages/duel-server/tests/fuzz/generators.ts",
+    "packages/duel-server/tests/fuzz/helpers/future-helper.ts",
+    "packages/duel-server/tests/support/cores.ts",
+    "packages/duel-server/tests/support/shard.ts",
+    "packages/duel-server/tests/support/setup.ts",
+  ];
+  for (const event of ["pull_request", "push"]) {
+    for (const file of inputs) {
+      const result = classify([file], event);
+      assert.equal(result.core, true, `${event}: ${file}`);
+      assert.equal(result.engine, true, `${event}: ${file}`);
+      assert.equal(result.golden, false, `${event}: ${file}`);
+      assert.equal(result.tests_only, event === "pull_request", `${event}: ${file}`);
+    }
+  }
+});
+
+test("differential job control files select both core checks", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of [
+      "scripts/ci/run-engine-tests.mjs",
+      "scripts/ci/engine-test-plan.mjs",
+      "packages/duel-server/vitest.config.ts",
+    ]) {
+      const result = classify([file], event);
+      assert.equal(result.core, true, `${event}: ${file}`);
+      assert.equal(result.engine, true, `${event}: ${file}`);
+      assert.equal(result.golden, false, `${event}: ${file}`);
+      assert.equal(result.tests_only, false, `${event}: ${file}`);
+    }
+  }
+});
+
+test("core sources, pins, patches, native tooling and build inputs select both core checks", () => {
+  const inputs = [
+    "packages/duel-server/domain-core/src/field.cpp",
+    "packages/duel-server/domain-core/src/apply-core-fixes.mjs",
+    "packages/duel-server/domain-core/lua/domain.lua",
+    "packages/duel-server/domain-core/patches/0001-core.patch",
+    "packages/duel-server/domain-core/pins.json",
+    "packages/duel-server/domain-core/expected-sha256.txt",
+    "packages/duel-server/legacy-1v1/domain-core/src/domain_master.cpp",
+    "packages/duel-server/legacy-1v1/domain-core/lua/domain.lua",
+    "packages/duel-server/legacy-1v1/domain-core/pins.json",
+    "packages/duel-server/legacy-1v1/expected-sha256.txt",
+    "packages/duel-server/legacy-1v1/scripts/build-domain-core.sh",
+    "packages/duel-server/scripts/build-domain-core.ts",
+    "packages/duel-server/scripts/build-domain-core.sh",
+    "packages/duel-server/scripts/build-standard-core.sh",
+    "packages/duel-server/scripts/build-multi-core.sh",
+    "packages/duel-server/scripts/build-native-core.sh",
+    "packages/duel-server/scripts/multi-core-common.sh",
+    "packages/duel-server/scripts/prepare-multi-core-tree.sh",
+    "packages/duel-server/scripts/check-legacy-pin.sh",
+    "packages/duel-server/scripts/run-nduel.sh",
+    "packages/duel-server/scripts/native/checks/run.sh",
+    "packages/duel-server/scripts/native/checks/checks.tsv",
+    "packages/duel-server/scripts/native/checks/zones.cpp",
+    "scripts/native/checks/run.sh",
+    "patches/ocgcore-wasm+0.1.2.patch",
+    "scripts/ci/build-core.sh", "scripts/ci/parallel-emxx.py", "scripts/ci/bin/em++",
+    "scripts/ci/core-cache-key.mjs", "scripts/ci/assemble-core-bundle.mjs", "scripts/ci/changed-layers.mjs",
+    ".github/workflows/test.yml", ".github/actions/restore-engine-bundle/action.yml",
+    "packages/duel-server/package.json",
+    "package.json", "package-lock.json", ".nvmrc",
+  ];
+  for (const event of ["pull_request", "push"]) {
+    for (const file of inputs) {
+      const result = classify(["packages/duel-server/src/engine.ts", file, "README.md"], event);
+      assert.equal(result.core, true, `${event}: ${file}`);
+      assert.equal(classify([file], event).engine, true, `${event}: core checks need the engine bundle`);
+      assert.equal(result.tests_only, false, `${event}: ${file}`);
+    }
+  }
+});
+
+test("core checks always run nightly, manually and when the diff is unavailable", () => {
+  for (const event of ["pull_request", "push", "schedule", "workflow_dispatch"]) {
+    assert.equal(classify(null, event).core, true, event);
+  }
+  for (const event of ["schedule", "workflow_dispatch"]) {
+    for (const files of [[], ["packages/duel-server/src/engine.ts"]]) assert.equal(classify(files, event).core, true, event);
+  }
+  for (const event of ["pull_request", "push"]) {
+    for (const files of [[], ["README.md"], ["packages/web/src/app/page.tsx"]]) assert.equal(classify(files, event).core, false, event);
+  }
+});
+
 test("Docker inputs select release safety script checks", () => {
   for (const event of ["pull_request", "push"]) {
     for (const file of ["Dockerfile", ".dockerignore"]) {
@@ -300,9 +438,20 @@ test("the CLI uses the whole pushed range, not just the last commit", t => {
   const tip = f.commit("packages/web/src/app/other.tsx");
   const result = f.run(web, tip);
   assert.equal(result.engine, "true");
+  assert.equal(result.core, "false");
   assert.equal(result.tests_only, "false");
   assert.equal(result.base, web);
   assert.equal(result.head, tip);
+});
+
+test("push ranges and renamed or deleted core inputs keep both core checks selected", t => {
+  const f = fixture(t);
+  f.commit("packages/duel-server/domain-core/patches/0001-core.patch");
+  const tip = f.commit("packages/duel-server/src/engine.ts");
+  assert.equal(f.run(f.base, tip).core, "true");
+  f.git("mv", "packages/duel-server/domain-core/patches/0001-core.patch", "old-core.txt");
+  f.git("commit", "-m", "Move core patch out of core paths");
+  assert.equal(f.run(tip, f.git("rev-parse", "HEAD")).core, "true");
 });
 
 test("a merge push compares to before (the first parent), not the PR merge base", t => {
@@ -339,6 +488,7 @@ test("zero, missing, unavailable and non-ancestor push bases fail open to every 
   for (const before of ["", "0".repeat(40), "f".repeat(40), other]) {
     const result = f.run(before, head);
     assert.equal(result.engine, "true", before);
+    assert.equal(result.core, "true", before);
     assert.equal(result.golden, "true", before);
     assert.equal(result.tests_only, "false", before);
   }
@@ -352,6 +502,7 @@ test("a failed git diff enables every layer", t => {
   writeFileSync(join(bin, "git"), '#!/bin/sh\n[ "$1" != diff ]\n', { mode: 0o755 });
   const result = f.run(f.base, head, { PATH: `${bin}:${process.env.PATH}` });
   assert.equal(result.engine, "true");
+  assert.equal(result.core, "true");
   assert.equal(result.golden, "true");
 });
 
@@ -365,10 +516,13 @@ test("PR API pages include both sides of renames and fail open on errors or capp
   const pages = [[{ filename: "README.md" }], [{ filename: "docs/moved.md", previous_filename: "packages/duel-server/src/engine.ts" }]];
   const renamed = f.run(f.base, head, { ...env, PR_FILES: JSON.stringify(pages) });
   assert.equal(renamed.engine, "true");
+  assert.equal(renamed.core, "false");
   assert.equal(renamed.docs_only, "false");
+  const coreRename = [[{ filename: "docs/old-core.md", previous_filename: "packages/duel-server/domain-core/src/field.cpp" }]];
+  assert.equal(f.run(f.base, head, { ...env, PR_FILES: JSON.stringify(coreRename) }).core, "true");
   assert.equal(f.run(f.base, head, { ...env, PR_FILES: '[[{"filename":"README.md"}]]' }).docs_only, "true");
   for (const extra of [{ API_FAIL: "1" }, { PR_FILES: "invalid JSON" }, { PR_FILES: JSON.stringify([Array.from({ length: 3000 }, () => ({ filename: "README.md" }))]) }]) {
     const result = f.run(f.base, head, { ...env, ...extra });
-    for (const flag of ["engine", "web", "shared", "ci_scripts", "effects", "prod_build"]) assert.equal(result[flag], "true", flag);
+    for (const flag of ["engine", "core", "web", "shared", "ci_scripts", "effects", "prod_build"]) assert.equal(result[flag], "true", flag);
   }
 });
