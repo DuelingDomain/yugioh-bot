@@ -812,6 +812,17 @@ export function migrate(db: Database.Database) {
         end;`);
     }
   }
+  db.exec(`create table if not exists bridge_revision (
+    id integer primary key check (id = 1), revision integer not null default 0
+  ); insert or ignore into bridge_revision(id) values(1);`);
+  for (const table of ["bridge_graph", "archetype_bridge", "card_capability", "bridge_judgement", "bridge_feedback"]) {
+    for (const event of ["insert", "update", "delete"]) {
+      db.exec(`create trigger if not exists ${table}_bridge_${event}
+        after ${event} on ${table} begin
+          update bridge_revision set revision=revision+1 where id=1;
+        end;`);
+    }
+  }
   addColumnIfMissing(db, "drafts", "tournament_id", "integer references tournaments(id)");
   addColumnIfMissing(db, "drafts", "complete_message_id", "text");
   addColumnIfMissing(db, "matches", "notify_channel_id", "text");

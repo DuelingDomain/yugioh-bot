@@ -8,6 +8,7 @@ import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
 import { BridgeEngineQueries } from "./bridge-engine-queries.js";
 import { BridgeFastQueries } from "./bridge-fast-queries.js";
 import { searchBridgeEngines } from "./bridge-multi-search.js";
+import { bridgeRevision } from "./bridge-revision.js";
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const name = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 160;
@@ -131,7 +132,7 @@ export class BridgeApi {
   }
 
   private storedRows(source: string, target: string | undefined, format: BridgeSearchQuery["format"]): ArchetypeBridge[] {
-    const revision = `${this.groups().source_version}:${this.db.pragma("data_version", { simple: true })}:${(this.db.prepare("SELECT total_changes() AS n").get() as { n: number }).n}`;
+    const revision = bridgeRevision(this.db);
     const key = JSON.stringify([source, target, format]), cached = this.storedCache.get(key);
     if (cached?.revision === revision) return cached.rows;
     const pair = target ? this.service.bridgeBetween(source, target, format) : null;

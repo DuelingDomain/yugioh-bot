@@ -50,6 +50,8 @@ describe("stored multi-engine bridge API", () => {
       release(); await Promise.all(pending);
       const scans = bridgeEngines.mock.calls.length;
       await call(0); expect(bridgeEngines).toHaveBeenCalledTimes(scans);
+      db.prepare("INSERT OR REPLACE INTO duel_host_heartbeat(id,last_tick_at) VALUES(1,?)").run(now);
+      await call(0); expect(bridgeEngines).toHaveBeenCalledTimes(scans);
       db.prepare("INSERT INTO bridge_feedback(evidence_hash,actor_hash,reason) VALUES(?,?,'')").run("f".repeat(64), "cache-invalidation");
       await call(0); expect(bridgeEngines).toHaveBeenCalledTimes(scans + 1);
       now += 5001;
