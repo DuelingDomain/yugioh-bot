@@ -9,7 +9,7 @@ import { Worker } from "node:worker_threads";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { importBridgeArtifact, type ArchetypeBridge } from "@yugidraft/shared/cards/effects";
-import { BridgeSearchJobs } from "../src/bridge-search-jobs.js";
+import { BridgeReviewUnavailableError, BridgeSearchJobs } from "../src/bridge-search-jobs.js";
 
 const query = (source = "Odion") => ({ source, format: "advanced" as const });
 const actor = (userId = 1, guildId = "g") => ({ userId, guildId });
@@ -150,6 +150,92 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     expect(execute).toHaveBeenCalledTimes(17);
   });
 
+  it("uses only reads for an absent join under a held writer lock and rejects starts with 503", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "bridge-admission-lock-"));
+    const statements: string[] = [];
+    const db = new Database(join(directory, "app.sqlite"), { verbose: sql => { statements.push(String(sql)); } });
+    db.pragma("journal_mode = WAL"); migrate(db);
+    const execute = vi.fn(async () => []);
+    const jobs = new BridgeSearchJobs(db, { execute, project: () => ({ results: [], inReview: 0 }), version: () => "admission-lock", completionTimeoutMs: 1 });
+    const writer = new Database(db.name);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Keep a real failed completion pending in memory. Joining must not try
+      // to flush it or acquire any write transaction before returning 404.
+      db.exec(`CREATE TEMP TRIGGER fail_bridge_terminal BEFORE UPDATE ON bridge_deep_job
+        WHEN NEW.state IN ('done','failed') BEGIN SELECT RAISE(FAIL,'unsaved completion'); END`);
+      const failed = jobs.start(actor(), query());
+      await vi.waitFor(async () => expect((await jobs.status(actor(), failed.jobId)).state).toBe("failed"));
+      expect(db.prepare("SELECT state FROM bridge_deep_job WHERE id=?").get(failed.jobId)).toEqual({ state: "running" });
+      db.exec("DROP TRIGGER fail_bridge_terminal");
+      writer.exec("BEGIN IMMEDIATE");
+      statements.length = 0;
+      const started = performance.now();
+      expect(() => jobs.start(actor(2), query("Absent"), true)).toThrowError(expect.objectContaining({ status: 404 }));
+      expect(statements.length).toBeGreaterThan(0);
+      expect(statements.every(sql => /^SELECT\b/i.test(sql.trim()))).toBe(true);
+      expect(() => jobs.start(actor(2), query("Absent"))).toThrowError(expect.objectContaining({ status: 503, retryAfter: 1 }));
+      expect(performance.now() - started).toBeLessThan(1000);
+      expect(writer.inTransaction).toBe(true);
+      expect(db.pragma("busy_timeout", { simple: true })).toBe(5000);
+      expect(db.inTransaction).toBe(false);
+      expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_job").get()).toEqual({ n: 1 });
+      expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_actor").get()).toEqual({ n: 1 });
+      expect(execute).toHaveBeenCalledTimes(1);
+    } finally {
+      if (writer.inTransaction) writer.exec("ROLLBACK");
+      await jobs.close(); warning.mockRestore(); writer.close(); db.close(); rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("refunds queued and running interruptions across restart without exhausting admission", async () => {
+    const { db, jobs } = setup();
+    await jobs.close();
+    const hash = createHash("sha256").update("bridge-user:1").digest("hex");
+    for (let i = 0; i < 16; i++) {
+      db.prepare(`INSERT INTO bridge_deep_job(id,query_key,query_json,state,step,created_at)
+        VALUES(?,?,'{}',?,'checking',999000)`).run(`interrupted-${i}`, `interrupted-${i}`, i % 2 ? "queued" : "running");
+      db.prepare("INSERT INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at) VALUES(?,?,'g',999000)")
+        .run(`interrupted-${i}`, hash);
+    }
+    const options = { execute: async () => [], project: () => ({ results: [], inReview: 0 }), version: () => "v1", now: () => 1_000_000 };
+    const restarted = new BridgeSearchJobs(db, options);
+    try {
+      expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_job WHERE state='failed' AND limit_refunded=1 AND error=?")
+        .get("Bridge search was interrupted. Try again shortly.")).toEqual({ n: 16 });
+      expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_actor WHERE ended_at=1000000").get()).toEqual({ n: 16 });
+      expect(restarted.start(actor(), query())).toMatchObject({ state: "running" });
+    } finally { await restarted.close(); }
+    const again = new BridgeSearchJobs(db, options);
+    try { expect(again.start(actor(), query("After another restart"))).toMatchObject({ state: "running" }); }
+    finally { await again.close(); }
+  });
+
+  it.each([
+    ["provider", new Error("provider failure"), "Bridge search could not finish. Try again shortly."],
+    ["review", new BridgeReviewUnavailableError(), "Review service unavailable, try later."],
+  ] as const)("charges fifteen paid %s failures and rejects the sixteenth with 429 across restart", async (_kind, failure, message) => {
+    const { db, jobs } = setup();
+    await jobs.close();
+    const execute = vi.fn(async () => { throw failure; });
+    const options = { execute, project: () => ({ results: [], inReview: 0 }), version: () => "paid-failure", now: () => 1_000_000 };
+    const paid = new BridgeSearchJobs(db, options);
+    try {
+      for (let i = 0; i < 15; i++) {
+        const job = paid.start(actor(), query(`Paid failure ${i}`));
+        await new Promise(resolve => setImmediate(resolve));
+        expect(await paid.status(actor(), job.jobId)).toMatchObject({ state: "failed", error: message });
+      }
+      expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_job WHERE state='failed' AND limit_refunded=0").get()).toEqual({ n: 15 });
+      expect(() => paid.start(actor(1, "other"), query("Sixteenth"))).toThrowError(expect.objectContaining({ status: 429, retryAfter: 3600 }));
+    } finally { await paid.close(); }
+    const restarted = new BridgeSearchJobs(db, options);
+    try {
+      expect(() => restarted.start(actor(), query("Sixteenth"))).toThrowError(expect.objectContaining({ status: 429, retryAfter: 3600 }));
+      expect(execute).toHaveBeenCalledTimes(15);
+    } finally { await restarted.close(); }
+  });
+
   it("keeps a finished result through a real SQLite writer lock longer than five seconds", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bridge-completion-lock-"));
     const db = new Database(join(directory, "app.sqlite"));
@@ -187,6 +273,8 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
         const job = jobs.start(actor(), query(`Save failure ${i}`));
         await vi.waitFor(async () => expect((await jobs.status(actor(), job.jobId)).state).toBe("failed"));
       }
+      expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_job WHERE state='failed' AND limit_refunded=1 AND error=?")
+        .get("Bridge search completion could not be saved. Try again shortly.")).toEqual({ n: 16 });
       expect((jobs as unknown as { failedCompletions: Map<string, string> }).failedCompletions.size).toBe(0);
       await jobs.close(); db.exec("DROP TRIGGER fail_bridge_done");
       const restarted = new BridgeSearchJobs(db, options);
