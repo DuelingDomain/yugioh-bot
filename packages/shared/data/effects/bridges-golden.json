@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "pairs": [
     {
       "source": "Odion",
@@ -19,9 +19,16 @@
       "source": "Odion",
       "target": "Blue-Eyes",
       "format": "advanced",
-      "expected": "not_bridge",
-      "why": "The only proposed line uses the generic single-material Link-1 Spirit with Eyes of Blue; that access cannot establish an engine bridge on its own.",
-      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Blue-Eyes%20White%20Dragon%2C%20the%20White%20Phantom%20Beast"
+      "expected": "bridge",
+      "why": "The Man with the Mark is a Level 4 Spellcaster and the complete material for Spirit with Eyes of Blue. Spirit can Tribute itself to Special Summon a Blue-Eyes from hand or GY. Its Dragon-only restriction ends with its self-Tribute. Generic Link-1 access qualifies only in deep search.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Blue-Eyes%20White%20Dragon%2C%20the%20White%20Phantom%20Beast",
+      "min_grade": "niche",
+      "tier": "deep",
+      "cards": [
+        "The Man with the Mark",
+        "Spirit with Eyes of Blue",
+        "Blue-Eyes White Dragon"
+      ]
     },
     {
       "source": "Snake-Eye",
@@ -717,7 +724,8 @@
         "Altergeist Emulatelf"
       ],
       "why": "Altergeist Marionetter Sets an Altergeist Trap from the Deck. Temple of the Kings can activate that Set Trap immediately, including Emulatelf as a protective monster.",
-      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings",
+      "tier": "deep"
     },
     {
       "source": "Blue-Eyes",
@@ -1130,7 +1138,8 @@
         "Altergeist Emulatelf"
       ],
       "why": "Altergeist Marionetter Sets an Altergeist Trap from the Deck. Temple of the Kings can activate that Set Trap immediately, including Emulatelf as a protective monster.",
-      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings",
+      "tier": "deep"
     },
     {
       "source": "Blue-Eyes",
@@ -1575,6 +1584,24 @@
       ],
       "why": "High Spirits needs a same-Type Level 8 Fusion with 2500 ATK or DEF. The legal card pool has no such Reptile Fusion, so Tsuchinoko cannot be the revealed and discarded monster in this line.",
       "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Branded%20in%20High%20Spirits"
+    },
+    {
+      "source": "Odion",
+      "target": "Paleozoic",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "why": "Temple activation permission only lets already available Traps activate sooner. No Odion card reaches a Paleozoic card and no specific target-engine Deck setter supplies the Trap; generic any-Trap toolboxes do not establish access.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+    },
+    {
+      "source": "Odion",
+      "target": "Paleozoic",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "why": "Temple activation permission only lets already available Traps activate sooner. No Odion card reaches a Paleozoic card and no specific target-engine Deck setter supplies the Trap; generic any-Trap toolboxes do not establish access.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
     }
   ],
   "core_sources": [

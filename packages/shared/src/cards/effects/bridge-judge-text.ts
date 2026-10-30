@@ -11,7 +11,11 @@ export function deterministicBridgePros(evidence: BridgeJudgeEvidence): string[]
     const conditions = ", subject to its printed conditions.";
     const stats = target.level && target.attribute ? ` (Level ${target.level} ${target.attribute})` : "";
     let text: string | undefined;
-    if (reason.key === "rule_enabler") text = `${source.name} allows ${target.name} to be activated the turn it was Set${conditions}`;
+    if (reason.key === "rule_enabler") {
+      const enabler = evidence.cards.find(card => card.id === reason.cards[0]);
+      text = first ? `${source.name} can Set ${target.name} from the Deck; ${enabler!.name} allows it to be activated the turn it was Set${conditions}`
+        : `${source.name} allows ${target.name} to be activated the turn it was Set${conditions}`;
+    }
     else if (first) {
       const zones = evidence.proposed_lines.find(line => line.reason === reason.key && line.steps[0]?.card === source.name
         && line.steps[0]?.target === target.name)?.steps[0]?.from_zones ?? [];

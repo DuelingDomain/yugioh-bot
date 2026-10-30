@@ -19,7 +19,7 @@ export function directionText(bridge: ShownBridge): string {
 
 /** The grade as a small badge. The text carries the meaning, the color only helps. */
 export function GradeBadge({ bridge }: { bridge: ShownBridge }) {
-  return <span className={styles.grade} data-grade={bridge.review.grade} data-testid="bridge-grade">{bridge.grade}</span>;
+  return <span className={styles.grade} data-grade={bridge.tier === "niche" ? "niche" : bridge.review.grade} data-testid="bridge-grade">{bridge.tier === "niche" ? "Niche" : bridge.grade}</span>;
 }
 
 /** The bridge cards as small card images. A card opens the card inspector on hover, like a tile in Suggestions. */

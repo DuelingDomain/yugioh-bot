@@ -5,6 +5,19 @@ import { describe, expect, it } from "vitest";
 import { evaluateBridges } from "../evaluate-bridges.js";
 
 describe("bridge golden evaluation", () => {
+  it("counts deep positives separately from strict Suggestions recall", () => {
+    const root = resolve(import.meta.dirname, "../../.."), status = join(root, ".status");
+    mkdirSync(status, { recursive: true });
+    const directory = mkdtempSync(join(status, "bridge-evaluation-")), path = join(directory, "golden.json");
+    const golden = JSON.parse(readFileSync(join(root, "packages/shared/data/effects/bridges-golden.json"), "utf8"));
+    try {
+      const deep = golden.pairs.filter((pair: { tier?: string }) => pair.tier === "deep");
+      writeFileSync(path, JSON.stringify({ core_sources: ["Odion"], pairs: deep }));
+      const result = evaluateBridges(path);
+      expect(result.advanced).toMatchObject({ positive_labels: 0, recall_at_4: null, recall_at_10: null, deep_positive_labels: 2, deep_hits_at_10: 2, deep_recall_at_10: 1, known_false_bridges: 0 });
+      expect(result.genesys).toMatchObject({ positive_labels: 0, deep_positive_labels: 1, deep_hits_at_10: 1, deep_recall_at_10: 1, known_false_bridges: 0 });
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
   it("rejects nonexistent engine labels and excluded labels that still exist", () => {
     const root = resolve(import.meta.dirname, "../../.."), status = join(root, ".status");
     mkdirSync(status, { recursive: true });

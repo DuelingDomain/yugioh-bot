@@ -96,7 +96,10 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     const user = seedIdentity(db, { name: "Two-way reviewer" });
     const pair = db.prepare(`SELECT a.bridge_json AS forward,b.bridge_json AS reverse FROM archetype_bridge a
       JOIN archetype_bridge b ON b.source=a.target AND b.target=a.source AND b.format=a.format
-      WHERE a.format='advanced' AND a.source<>'Odion' AND a.target<>'Odion' ORDER BY a.score DESC,a.source,a.target LIMIT 1`).get() as { forward: string; reverse: string };
+      WHERE a.format='advanced' AND a.source<>'Odion' AND a.target<>'Odion'
+      AND coalesce(json_extract(a.bridge_json,'$.tier'),'strict')<>'niche'
+      AND coalesce(json_extract(b.bridge_json,'$.tier'),'strict')<>'niche'
+      ORDER BY a.score DESC,a.source,a.target LIMIT 1`).get() as { forward: string; reverse: string };
     const forward = JSON.parse(pair.forward) as ArchetypeBridge, reverse = JSON.parse(pair.reverse) as ArchetypeBridge;
     const approve = (row: ArchetypeBridge) => {
       const evidence = buildBridgeJudgeEvidence(db, row)!;

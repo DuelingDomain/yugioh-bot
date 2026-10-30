@@ -7,7 +7,7 @@ import { bridgeHash, printedText } from "./bridge-text.js";
 import { bridgeLegal } from "./bridge-engine.js";
 import { CAPABILITY_KEYS, REASON_CAPS, type ArchetypeBridge, type BridgeGraphData, type CardCapability } from "./bridge-types.js";
 
-export const BRIDGE_ARTIFACT_MANIFEST_SHA256 = "3cd62e6274cc79c9fa10d875528471255465a57f778f3a86525d6749561aed19";
+export const BRIDGE_ARTIFACT_MANIFEST_SHA256 = "472de6f70a8590133de6204610be91d84b8b8cd266b160143606b01085b03569";
 export interface BridgeArtifactFile { path: string; records: number; bytes: number; sha256: string; gzipBytes: number; gzipSha256: string }
 export interface BridgeManifest {
   schema_version: 1;
@@ -60,6 +60,7 @@ export function importBridgeArtifact(db: Database.Database, directory = DEFAULT_
       const insertBridge = db.prepare("INSERT INTO archetype_bridge(source,target,format,score,grade,bridge_json,evidence_hash,source_version) VALUES(?,?,?,?,?,?,?,?)");
       for (const format of ["advanced", "genesys"] as const) read(manifest.files[format], (row: ArchetypeBridge) => {
         if (row.format !== format || !manifest.groups[row.source] || !manifest.groups[row.target] || row.source === row.target || row.validation !== "deterministic" || !Number.isFinite(row.score) || row.score < 0 || row.score > 100 || !/^[a-f0-9]{64}$/.test(row.evidence_hash)
+          || row.tier !== undefined && (row.tier !== "niche" || row.grade !== "Niche")
           || !row.reasons.length || row.reasons.some(reason => !Object.hasOwn(REASON_CAPS, reason.key) || reason.cards.some(id => !row.cards.includes(id)))
           || row.cards.some(id => !cards.has(id) || !bridgeLegal(cards.get(id)!, format))) throw new Error("Invalid archetype bridge");
         insertBridge.run(row.source, row.target, row.format, row.score, row.grade, JSON.stringify(row), row.evidence_hash, manifest.version);

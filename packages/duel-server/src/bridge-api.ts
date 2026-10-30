@@ -19,13 +19,13 @@ export class BridgeApi {
     this.service = createBridgeService(db);
     this.jobs = new BridgeSearchJobs(db, {
       now, version: () => `${this.groups().source_version}:${BRIDGE_JUDGE_VERSION}`,
-      project: (rows, query) => this.project(rows, query),
+      project: (rows, query) => this.project(rows, query, true),
       execute: async (query, progress) => {
         const result = await workers.bridgeCandidates({ kind: "bridges", source: query.source, format: query.format,
           ...(query.target ? { op: "explain", target: query.target } : { op: "live" }) }, value => {
           progress("candidates", Math.floor(25 * value.completed / Math.max(1, value.total)));
         });
-        const rows = (Array.isArray(result) ? result : result ? [result] : []).slice(0, 25);
+        const rows = this.service.deepTargets(Array.isArray(result) ? result : result ? [result] : [], 25);
         progress("checking", 30);
         const version = this.groups().source_version;
         this.db.transaction(() => {
@@ -128,16 +128,18 @@ export class BridgeApi {
     return rows;
   }
 
-  private project(rows: ArchetypeBridge[], query: BridgeSearchQuery) {
-    const results = this.service.distinctTargets(rows.filter(row => row.source === query.source && row.format === query.format
+  private project(rows: ArchetypeBridge[], query: BridgeSearchQuery, deep = false) {
+    const candidates = rows.filter(row => (deep || row.tier !== "niche") && row.source === query.source && row.format === query.format
       && (!query.target || row.target === query.target)
-      && (row.format !== "genesys" || this.incrementalPoints(row, query) <= (query.genesysRemaining ?? 100)))
+      && (row.format !== "genesys" || this.incrementalPoints(row, query) <= (query.genesysRemaining ?? 100)));
+    const shown = candidates
       .flatMap(row => { const shown = shownBridge(this.db, row); if (!shown) return [];
-        const reverse = this.service.bridgeBetween(row.target, row.source, row.format);
+        const reverse = deep ? this.service.deepBetween(row.target, row.source, row.format) : this.service.bridgeBetween(row.target, row.source, row.format);
         const twoWay = !!reverse && !!shownBridge(this.db, reverse)
           && (reverse.format !== "genesys" || this.incrementalPoints(reverse, query) <= (query.genesysRemaining ?? 100));
-        return [{ ...shown, two_way: twoWay }]; }), 4);
-    return { results, inReview: rows.filter(row => ["pending", "review"].includes(bridgeGate(this.db, row).state)).length };
+        return [{ ...shown, two_way: twoWay }]; });
+    const results = deep ? this.service.deepTargets(shown, 10) : this.service.distinctTargets(shown, 4);
+    return { results, inReview: candidates.filter(row => ["pending", "review"].includes(bridgeGate(this.db, row).state)).length };
   }
 
   async handle(body: Record<string, unknown>, guildId: string, playerId: number) {
