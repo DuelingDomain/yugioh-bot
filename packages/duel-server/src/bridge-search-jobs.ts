@@ -14,6 +14,8 @@ type BridgeProjection = { results: unknown[]; inReview: number; next?: EngineSug
 interface JobOptions {
   execute(query: BridgeSearchQuery, progress: (step: BridgeJobStep, value: number) => void): Promise<ArchetypeBridge[] | { rows: ArchetypeBridge[]; reviewIncomplete: boolean }>;
   project(rows: ArchetypeBridge[], query: BridgeSearchQuery): BridgeProjection | Promise<BridgeProjection>;
+  projectStored?(jobId: string, query: BridgeSearchQuery): Promise<BridgeProjection>;
+  serializeResult?(rows: ArchetypeBridge[], query: BridgeSearchQuery): string;
   version(): string;
   now?: () => number;
   completionTimeoutMs?: number;
@@ -123,7 +125,8 @@ export class BridgeSearchJobs {
   }
 
   async status(actor: BridgeSearchActor, jobId: string) {
-    const row = this.db.prepare(`SELECT j.*,a.genesys_remaining,a.deck_cards_json FROM bridge_deep_job j JOIN bridge_deep_actor a ON a.job_id=j.id
+    const row = this.db.prepare(`SELECT j.id,j.query_key,j.query_json,j.state,j.step,j.progress,j.error,j.ended_at,
+      a.genesys_remaining,a.deck_cards_json FROM bridge_deep_job j JOIN bridge_deep_actor a ON a.job_id=j.id
       WHERE j.id=? AND a.actor_hash=? AND a.guild_id=?`).get(jobId, this.actorHash(actor), actor.guildId) as JobRow & { genesys_remaining: number | null; deck_cards_json: string | null } | undefined;
     if (!row) throw new BridgeJobError("Not found", 404);
     const failed = this.failedCompletions.get(row.id);
@@ -131,7 +134,9 @@ export class BridgeSearchJobs {
     const query = { ...JSON.parse(row.query_json) as BridgeSearchQuery, genesysRemaining: row.genesys_remaining ?? undefined,
       deckCards: row.deck_cards_json ? JSON.parse(row.deck_cards_json) as number[] : undefined };
     if (row.query_key !== this.queryKey(query)) throw new BridgeJobError("Not found", 404);
-    const visible = row.state === "done" ? await this.options.project(JSON.parse(row.result_json), query) : { results: [], inReview: 0 };
+    const visible = row.state === "done" ? await (this.options.projectStored?.(row.id, query)
+      ?? this.options.project(JSON.parse((this.db.prepare("SELECT result_json FROM bridge_deep_job WHERE id=?").get(row.id) as JobRow).result_json), query))
+      : { results: [], inReview: 0 };
     return { jobId: row.id, state: row.state, step: row.step, progress: row.progress,
       engines: query.engines ?? [query.source], next: [], ...visible, ...(row.error ? { error: row.error } : {}) };
   }
@@ -181,7 +186,7 @@ export class BridgeSearchJobs {
         catch (cause) { error = cause instanceof BridgeReviewUnavailableError ? cause.message : "Bridge search could not finish. Try again shortly."; }
         let warned = false;
         const deadline = performance.now() + (this.options.completionTimeoutMs ?? 5000);
-        const resultJson = JSON.stringify(result);
+        const resultJson = this.options.serializeResult?.(result, JSON.parse(row.query_json)) ?? JSON.stringify(result);
         for (;;) {
           try {
             this.writeWithoutWaiting(() => this.db.transaction(() => {

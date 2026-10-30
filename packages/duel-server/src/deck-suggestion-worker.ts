@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import { createBridgeService, createCardInsightService, type BridgeService } from "@yugidraft/shared/services";
 import { BridgeEngineQueries } from "./bridge-engine-queries.js";
 import { BridgeJobError } from "./bridge-search-jobs.js";
+import { bridgeProjectionRows } from "./bridge-projection-input.js";
 import type { BridgeScan, BridgeEnginesScan, BridgeProjectionScan, SuggestionScan } from "./deck-suggestion-workers.js";
 
 let db: Database.Database | undefined, path: string | undefined;
@@ -24,7 +25,7 @@ parentPort!.on("message", async (request: (SuggestionScan | BridgeScan | BridgeE
     if ("kind" in request && request.kind === "bridge-engine-projection") {
       engines ??= new BridgeEngineQueries(db);
       const result = db.transaction(() => request.op === "shortlist"
-        ? engines!.shortlist(request.rows, request.query) : engines!.project(request.rows, request.query, 6)).deferred();
+        ? engines!.shortlist(request.rows, request.query) : engines!.project(bridgeProjectionRows(db!, request.rows), request.query, 6)).deferred();
       parentPort!.postMessage({ result });
       return;
     }

@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import { judgeBridgePair, type ArchetypeBridge, type BridgeFormat, type BridgeProgress, type BridgeJudgeOptions, type BridgeEnginesResponse, type RankedEngine } from "@yugidraft/shared/cards/effects";
 import type { EngineQuery } from "./bridge-engine-queries.js";
 import { BridgeJobError } from "./bridge-search-jobs.js";
+import type { BridgeProjectionInput } from "./bridge-projection-input.js";
 import type { DeckSuggestionLegality, DeckSuggestionQuery, DeckSuggestionResult, CardEffectSearchResult } from "@yugidraft/shared/services";
 
 type Job = { worker: Worker; reject?: (error: Error) => void; idle?: ReturnType<typeof setTimeout> };
@@ -12,7 +13,9 @@ export type BridgeScan = { kind: "bridges"; source: string; format: BridgeFormat
 );
 export type BridgeScanResult = ArchetypeBridge[] | ArchetypeBridge | null;
 export type BridgeEnginesScan = { kind: "bridge-engines"; input: Record<string, unknown>; guildId: string };
-export type BridgeProjectionScan = { kind: "bridge-engine-projection"; op: "project" | "shortlist"; rows: ArchetypeBridge[]; query: EngineQuery };
+export type BridgeProjectionScan = { kind: "bridge-engine-projection"; query: EngineQuery } & (
+  { op: "project"; rows: BridgeProjectionInput } | { op: "shortlist"; rows: ArchetypeBridge[] }
+);
 type ScanResult = DeckSuggestionResult | CardEffectSearchResult | BridgeScanResult | BridgeEnginesResponse | RankedEngine<ArchetypeBridge>[];
 /** Two reusable read-only scanners, isolated from live duel operations. The host owns admission. */
 export class DeckSuggestionWorkers {
@@ -48,7 +51,7 @@ export class DeckSuggestionWorkers {
     return this.queuedBridge({ kind: "bridge-engines", input, guildId }) as Promise<BridgeEnginesResponse>;
   }
 
-  bridgeEngineProjection(rows: ArchetypeBridge[], query: EngineQuery): Promise<BridgeEnginesResponse> {
+  bridgeEngineProjection(rows: BridgeProjectionInput, query: EngineQuery): Promise<BridgeEnginesResponse> {
     return this.queuedBridge({ kind: "bridge-engine-projection", op: "project", rows, query }) as Promise<BridgeEnginesResponse>;
   }
 

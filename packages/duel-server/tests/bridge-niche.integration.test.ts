@@ -1,3 +1,4 @@
+import { bridgeProjectionRows, type BridgeProjectionInput } from "../src/bridge-projection-input.js";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -12,7 +13,7 @@ describe("deep-only Niche API integration", () => {
     const db = new Database(":memory:"); migrate(db); importBridgeArtifact(db);
     const user = seedIdentity(db), service = createBridgeService(db);
     const rows = [service.deepBetween("Odion", "Blue-Eyes")!, service.deepBetween("Odion", "Altergeist")!];
-    const bridgeEngineProjection = async (rows: ArchetypeBridge[], query: EngineQuery) => new BridgeEngineQueries(db).project(rows, query, 6);
+    const bridgeEngineProjection = async (rows: BridgeProjectionInput, query: EngineQuery) => new BridgeEngineQueries(db).project(bridgeProjectionRows(db, rows), query, 6);
     const workers = { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(async () => rows), rateBridge: vi.fn(async () => {}) };
     const api = new BridgeApi(db, workers);
     const call = (bridgeRequest: unknown) => api.handle({ userId: user.userId, bridgeRequest }, "g", user.playerId);

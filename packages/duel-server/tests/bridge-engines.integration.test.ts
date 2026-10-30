@@ -1,3 +1,4 @@
+import { bridgeProjectionRows, type BridgeProjectionInput } from "../src/bridge-projection-input.js";
 import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -27,7 +28,7 @@ const bridgeEngines = async (input: Record<string, unknown>, guildId: string) =>
 const deck = { main: [29762407, 29762407, 97522863, 97522863, 1710647, 1710647, 37839434, 37839434], extra: [] };
 
 const bridgeEngineShortlist = async (rows: ArchetypeBridge[], query: EngineQuery) => new BridgeEngineQueries(db).shortlist(rows, query);
-const bridgeEngineProjection = async (rows: ArchetypeBridge[], query: EngineQuery) => new BridgeEngineQueries(db).project(rows, query, 6);
+const bridgeEngineProjection = async (rows: BridgeProjectionInput, query: EngineQuery) => new BridgeEngineQueries(db).project(bridgeProjectionRows(db, rows), query, 6);
 
 describe("stored multi-engine bridge API", () => {
   it("coalesces identical work, bounds actor/global flights, and invalidates its short cache", async () => {

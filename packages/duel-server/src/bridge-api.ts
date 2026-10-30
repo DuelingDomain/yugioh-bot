@@ -9,6 +9,7 @@ import { BridgeEngineQueries } from "./bridge-engine-queries.js";
 import { BridgeFastQueries } from "./bridge-fast-queries.js";
 import { searchBridgeEngines } from "./bridge-multi-search.js";
 import { bridgeRevision } from "./bridge-revision.js";
+import { bridgeProjectionRows, compactBridgeRows } from "./bridge-projection-input.js";
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const name = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 160;
@@ -30,6 +31,12 @@ export class BridgeApi {
       project: async (rows, query) => {
         const multi = await workers.bridgeEngineProjection(rows, { ...query, engines: query.engines ?? [query.source] });
         return query.engines ? { results: [], ...multi } : { ...this.project(rows, query, true), next: multi.next };
+      },
+      serializeResult: (rows, query) => JSON.stringify(query.engines ? compactBridgeRows(rows) : rows),
+      projectStored: async (jobId, query) => {
+        const multi = await workers.bridgeEngineProjection({ jobId }, { ...query, engines: query.engines ?? [query.source] });
+        return query.engines ? { results: [], ...multi }
+          : { ...this.project(bridgeProjectionRows(db, { jobId }), query, true), next: multi.next };
       },
       execute: async (query, progress) => {
         if (query.engines) return searchBridgeEngines(this.db, workers, { ...query, engines: query.engines }, progress);

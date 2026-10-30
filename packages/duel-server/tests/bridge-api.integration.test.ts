@@ -1,3 +1,4 @@
+import { bridgeProjectionRows, type BridgeProjectionInput } from "../src/bridge-projection-input.js";
 import Database from "better-sqlite3";
 import { APIError } from "@anthropic-ai/sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -15,7 +16,7 @@ beforeAll(() => {
 });
 afterAll(() => db.close());
 
-const bridgeEngineProjection = async (rows: ArchetypeBridge[], query: EngineQuery) => new BridgeEngineQueries(db).project(rows, query, 6);
+const bridgeEngineProjection = async (rows: BridgeProjectionInput, query: EngineQuery) => new BridgeEngineQueries(db).project(bridgeProjectionRows(db, rows), query, 6);
 
 describe("authenticated bridge API and judged deep-search lifecycle", () => {
   it("judges with a mocked client, reuses judgements, and hides cached results after distinct reports", async () => {

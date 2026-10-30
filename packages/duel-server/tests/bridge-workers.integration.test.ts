@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { BRIDGE_JUDGE_FRAMINGS, buildBridgeJudgeEvidence, importBridgeArtifact, makeBridgeJudgementRecord, saveBridgeJudgement, importCardEffectArtifact, type ArchetypeBridge, type BridgeJudgeClient } from "@yugidraft/shared/cards/effects";
 import { createBridgeService, parseDeckSuggestionQuery } from "@yugidraft/shared/services";
@@ -73,12 +73,26 @@ describe("bridge scanner isolation", () => {
       try {
         const started = await deep.handle({ userId: actor.userId, bridgeRequest: { op: "start", engines: selected } }, "g", actor.playerId) as { jobId: string };
         await deep.jobs.close();
-        const stored = db.prepare("SELECT json_array_length(result_json) AS n FROM bridge_deep_job WHERE id=?").get(started.jobId) as { n: number };
+        const stored = db.prepare("SELECT json_array_length(result_json,'$.pairs') AS n,length(result_json) AS bytes FROM bridge_deep_job WHERE id=?")
+          .get(started.jobId) as { n: number; bytes: number };
         expect(stored.n).toBeGreaterThan(100);
+        expect(stored.bytes).toBeLessThan(JSON.stringify(service.engineRows(selected, "advanced")).length / 4);
         ticks = 0;
         const status = await deep.handle({ userId: actor.userId, bridgeRequest: { op: "status", jobId: started.jobId } }, "g", actor.playerId);
         expect(status).toMatchObject({ state: "done" });
         expect(ticks).toBeGreaterThan(5);
+        // An already completed job from the previous build can still contain
+        // full rows. Send only its ID and parse those rows in a fresh scanner.
+        const legacyJson = JSON.stringify(service.engineRows(selected, "advanced"));
+        db.prepare("UPDATE bridge_deep_job SET result_json=? WHERE id=?").run(legacyJson, started.jobId);
+        const legacyWorkers = new DeckSuggestionWorkers(db, directory);
+        const parse = vi.spyOn(JSON, "parse");
+        try {
+          expect(await legacyWorkers.bridgeEngineProjection({ jobId: started.jobId }, {
+            source: selected[0]!, engines: selected, format: "advanced",
+          })).toMatchObject({ engines: selected });
+          expect(parse.mock.calls.some(([value]) => value === legacyJson)).toBe(false);
+        } finally { parse.mockRestore(); await legacyWorkers.close(); }
       } finally { await deep.jobs.close(); }
 
     } finally { clearInterval(timer); await api.jobs.close(); await workers.close(); db.close(); rmSync(directory, { recursive: true, force: true }); }
