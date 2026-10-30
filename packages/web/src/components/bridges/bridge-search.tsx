@@ -15,13 +15,13 @@ export function ArchetypeCombo({ label, text, names, onText, placeholder, autoFo
   names: readonly string[] | null;
   onText: (text: string) => void;
   placeholder: string;
-  /** Take the focus once the names are in (the box waits for them). */
+  /** Take the focus at once. While the names load the box is read-only, so the focus never drops to the page. */
   autoFocus?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const ready = names != null;
-  useEffect(() => { if (autoFocus && ready) inputRef.current?.focus(); }, [autoFocus, ready]);
+  useEffect(() => { if (autoFocus) inputRef.current?.focus(); }, [autoFocus]);
   const [active, setActive] = useState(0);
   const listId = useId();
   const matches = useMemo(() => {
@@ -59,7 +59,8 @@ export function ArchetypeCombo({ label, text, names, onText, placeholder, autoFo
           aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
           placeholder={names ? placeholder : "Loading archetypes…"}
           value={text}
-          disabled={!names}
+          readOnly={!ready}
+          aria-busy={!ready || undefined}
           autoComplete="off"
           onChange={(event) => { onText(event.target.value); setOpen(true); setActive(0); }}
           onFocus={() => setOpen(true)}

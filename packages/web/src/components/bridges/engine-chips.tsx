@@ -83,6 +83,12 @@ export function EngineChips({ title, set, light, edited, busy, keepOne, onRemove
             <button ref={addButton} type="button" className={cn(styles.chip, styles.chipAdd)} data-testid="engine-add" onClick={() => setAdding(true)}><Plus size={13} strokeWidth={2} aria-hidden />Add</button>
           </li>
         ) : null}
+        {/* With the chips, so it reads as part of them and does not stand alone across the panel. */}
+        {edited && onReset ? (
+          <li className={styles.chipReset}>
+            <button type="button" className={styles.link} data-testid="engine-reset" onClick={() => { onReset(); moveFocus(null); }}>{resetLabel}</button>
+          </li>
+        ) : null}
       </ul>
       {set.length === 0 && !adding && emptyText ? <p className={styles.note} data-testid="engine-none">{emptyText}</p> : null}
       {adding && !full ? (
@@ -105,7 +111,6 @@ export function EngineChips({ title, set, light, edited, busy, keepOne, onRemove
           ))}
         </p>
       ) : null}
-      {edited && onReset ? <button type="button" className={styles.link} data-testid="engine-reset" onClick={() => { onReset(); moveFocus(null); }}>{resetLabel}</button> : null}
     </div>
   );
 }

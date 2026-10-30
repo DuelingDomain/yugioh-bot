@@ -10,7 +10,7 @@ import { DeepProgress, DeepSearchButton } from "./deep-search";
 import { EngineChips } from "./engine-chips";
 import { EngineList } from "./engine-card";
 import { BridgeRequestError, type BridgeScope, type ShownBridge } from "./bridges-api";
-import { BRIDGES_SHOWN, DEEP_BRIDGES_SHOWN } from "./bridges-model";
+import { BRIDGES_SHOWN, DEEP_BRIDGES_SHOWN, deepWorkKey } from "./bridges-model";
 import { MAX_ENGINES, NO_EDITS, bridgeDeck, bridgeFormat, hasEdits, lightEngines, readEdits, toggleEngine, writeEdits, type EngineEdits } from "./engines-model";
 import { useBridgeCards, useBridgeList, useDeepSearch } from "./use-bridges";
 import { refreshEngines, useDeckEngines, useEnginesAnswer } from "./use-engines";
@@ -170,6 +170,7 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
   const scope: BridgeScope | null = first && !noCards
     ? set.length > 1 ? { source: first, format, engines: set, ...(openDeck ? { deck: openDeck } : {}), ...points } : { source: first, format, ...points }
     : null;
+  const workKey = scope ? deepWorkKey(scope) : null;
   const { list, loading, error: listError, retry: retryList } = useBridgeList(listScope, true, active);
   const { deep, start, cooldown, blocked, elsewhere, stale, updating, notice: deepNotice } = useDeepSearch(scope, {
     names,
@@ -197,9 +198,10 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
     if (box) box.scrollTop = back.scroll;
     const nodes = [...(rootRef.current?.querySelectorAll<HTMLElement>("[data-bridge]") ?? [])];
     const atIndex = back.index >= 0 && nodes[back.index]?.dataset.bridge === back.hash ? nodes[back.index] : undefined;
-    const button = atIndex ?? nodes.find((node) => node.dataset.bridge === back.hash);
+    // A bridge opened from Suggest can be one the list does not show: the tab title takes the focus then.
+    const button = atIndex ?? nodes.find((node) => node.dataset.bridge === back.hash) ?? rootRef.current?.querySelector<HTMLElement>("h3");
     button?.focus({ preventScroll: true });
-    button?.scrollIntoView?.({ block: "nearest" });
+    if (button?.dataset.bridge) button.scrollIntoView?.({ block: "nearest" });
   }, [open]);
 
   function openBridge(bridge: ShownBridge) {
@@ -245,7 +247,19 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
   const deepDone = set.length > 1 && deep.phase === "done";
   const deepNext = deepDone ? deep.next : [];
   const next = deepNext.length > 0 ? deepNext : fastNext;
-  const fresh = useMemo(() => new Set(deepNext.filter((engine) => !fastNext.some((known) => known.engine === engine.engine)).map((engine) => engine.engine)), [deepNext, fastNext]);
+  // "New" is measured against the fast list from before the deep search ended. The fast answer is asked again once it
+  // ends and then holds the rows the deep search stored, so it alone would take the marks away a moment later.
+  const [fastBefore, setFastBefore] = useState<Readonly<Record<string, string>>>({});
+  const fastNames = result && !setLoading && set.length > 1 ? result.next.map((engine) => engine.engine).join("\n") : null;
+  useEffect(() => {
+    if (!workKey || deepDone || fastNames == null) return;
+    setFastBefore((before) => (before[workKey] === fastNames ? before : { ...before, [workKey]: fastNames }));
+  }, [workKey, deepDone, fastNames]);
+  const fresh = useMemo(() => {
+    const kept = workKey ? fastBefore[workKey] : undefined;
+    const known = new Set(kept != null ? kept.split("\n") : fastNext.map((engine) => engine.engine));
+    return new Set(deepNext.filter((engine) => !known.has(engine.engine)).map((engine) => engine.engine));
+  }, [deepNext, fastNext, fastBefore, workKey]);
 
   useEffect(() => {
     if (!pending || !active) return;
@@ -259,7 +273,12 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
     const say = (text: string, resetFor?: string) => { setNotice({ text, ...(resetFor ? { resetFor } : {}) }); focusOn("notice"); };
     if (!answer) { say(engines.error ? `${name} cannot be shown: ${engines.error.message}` : `${name} cannot be shown right now.`); return; }
     if (set.includes(name)) { say(`${name} is already one of your engines.`); return; }
-    const engine = next.find((entry) => entry.engine === name) ?? answer.next.find((entry) => entry.engine === name);
+    // Only an engine on screen can be shown: deep results take the place of the fast list.
+    const engine = next.find((entry) => entry.engine === name);
+    if (!engine && deepNext.length > 0 && answer.next.some((entry) => entry.engine === name)) {
+      say(`${name} is not among your deep search results for ${names}.`);
+      return;
+    }
     if (!engine) {
       const edited = hasEdits(edits);
       say(`${name} is not a next engine for ${names || "these engines"}.${edited ? " Suggest uses the engines the deck has without your chip changes." : ""}`, edited ? name : undefined);
@@ -270,7 +289,7 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
     setLit(name);
     focusOn("lit");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, active, pickMode, engines.waiting, engines.loading, engines.result, engines.error, set, next]);
+  }, [pending, active, pickMode, engines.waiting, engines.loading, engines.result, engines.error, set, next, deepNext]);
 
   if (disabled) return null;
 
@@ -283,6 +302,8 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
   const inReview = deep.phase === "done" && deep.inReview != null ? deep.inReview : (single ? list?.inReview : result?.inReview) ?? 0;
   const running = deep.phase === "starting" || deep.phase === "running";
   const removedAll = !pickMode && !empty && set.length === 0 && engines.found.length > 0;
+  // Two or more picks already compare archetypes, so the two-archetype search would only say the same thing again.
+  const searchOffered = !(pickMode && set.length > 1);
 
   const hint = noCards ? "Add a few Main Deck cards. Bridges for your deck show here."
     : pickMode && set.length === 0 ? "Pick one to four archetypes to see the bridges between them."
@@ -329,7 +350,7 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
           {/* Deep search sits under the chips: the second thing a player looks for, never a long scroll away. */}
           <div className={styles.actions}>
             <DeepSearchButton deep={deep} cooldown={cooldown} blocked={blocked} disabled={!scope} again={stale} describedBy={hintId} onStart={() => void start()} />
-            <button type="button" className={styles.link} aria-expanded={searching} data-testid="bridge-search-toggle" onClick={() => setSearching((now) => !now)}>{searching ? "Hide two-archetype search" : "Search two archetypes"}</button>
+            {searchOffered ? <button type="button" className={styles.link} aria-expanded={searching} data-testid="bridge-search-toggle" onClick={() => setSearching((now) => !now)}>{searching ? "Hide two-archetype search" : "Search two archetypes"}</button> : null}
             <span id={hintId} className={styles.actionHint}>{actionHint}</span>
           </div>
           {elsewhere ? <DeepProgress deep={{ phase: "running", step: elsewhere.step, progress: elsewhere.progress }} title={`Your deep search for ${elsewhere.names || "other engines"} is still running...`} testId="deep-elsewhere" /> : null}
@@ -337,12 +358,12 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
           {deep.phase === "failed" && deep.error ? <p className={styles.errorLine} role="alert" data-testid="deep-error">{deep.error}</p> : null}
           {deepNotice ? <p className={styles.note} role="status" data-testid="deep-notice">{deepNotice}</p> : null}
           {stale ? <p className={styles.note} data-testid="deep-stale">Your cards changed since the deep search for {names}. Search again to update what it shows.</p> : null}
-          {searching ? (
+          {searching && searchOffered ? (
             <BridgeSearch start={first ?? archetype} genesys={genesys} genesysRemaining={genesysRemaining}
               renderList={(bridges, title) => <BridgeList {...common} bridges={bridges} showSource label={title} />} />
           ) : null}
 
-          {single ? <p className={styles.lead}>{pickMode ? <><strong>{single}</strong> can bridge into</> : <>Your <strong>{single}</strong> deck can bridge into</>}</p> : null}
+          {single && !noCards ? <p className={styles.lead}>{pickMode ? <><strong>{single}</strong> can bridge into</> : <>Your <strong>{single}</strong> deck can bridge into</>}</p> : null}
           {/* One reserved height for loading, results and the empty state, so the list below does not jump. */}
           <div className={styles.results}>
             {single && !noCards && top.length > 0 ? (
