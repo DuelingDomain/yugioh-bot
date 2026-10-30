@@ -14,6 +14,24 @@ import { deckSuggestionScope } from "../src/deck-legality.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 
 describe("bridge scanner isolation", () => {
+  it("reserves a scanner for Suggestions when multiple interactive bridge queries arrive", async () => {
+    const db = new Database(":memory:"); migrate(db); importBridgeArtifact(db);
+    const directory = createHostDataFixture([{ code: 89631139, name: "Blue-Eyes White Dragon", type: 0x11 }]);
+    const workers = new DeckSuggestionWorkers(db, directory);
+    const pending: Promise<unknown>[] = [];
+    try {
+      pending.push(workers.bridgeEngines({ engines: ["Odion"] }, "g"), workers.bridgeEngines({ engines: ["Blue-Eyes"] }, "g"));
+      pending.push(Promise.resolve().then(() => workers.run({
+        query: parseDeckSuggestionQuery({ op: "suggestRows", deck: { main: [89631139], extra: [], side: [] } })!,
+        legality: deckSuggestionScope("normal", directory, defaultDuelSettings("normal"), { cardBlocks: [] }),
+      })));
+      const results = await Promise.all(pending);
+      expect(results[0]).toMatchObject({ engines: ["Odion"] });
+      expect(results[1]).toMatchObject({ engines: ["Blue-Eyes"] });
+      expect(results[2]).toHaveProperty("rows");
+    } finally { await workers.close(); await Promise.allSettled(pending); db.close(); rmSync(directory, { recursive: true, force: true }); }
+  }, 20_000);
+
   it("reports unavailable ranking data lazily for an old graph, including an external replacement", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bridge-old-graph-"));
     const db = new Database(join(directory, "app.sqlite"));

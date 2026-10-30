@@ -107,7 +107,9 @@ export class DeckSuggestionWorkers {
 
   private drainBridges(): void {
     for (const lane of ["deep", "interactive"] as const) {
-      const queue = this.bridgeQueues[lane], limit = lane === "deep" ? 1 : 2;
+      // Suggestions share the interactive pool. Keep its second scanner free,
+      // including when fast queries and completed projections arrive together.
+      const queue = this.bridgeQueues[lane], limit = 1;
       while (!this.closing && queue.length && this.jobs.filter(job => job.lane === lane && job.reject).length < limit) {
         const next = queue.shift()!;
         clearTimeout(next.timer);
@@ -121,7 +123,7 @@ export class DeckSuggestionWorkers {
     if (deadline !== undefined && performance.now() >= deadline) throw new BridgeJobError("Bridge query timed out. Try again shortly.", 503, 1);
     let job = this.jobs.find(job => job.lane === lane && !job.reject);
     if (!job) {
-      if (this.jobs.filter(job => job.lane === lane).length >= (lane === "deep" ? 1 : 2)) throw new Error("Suggestion workers are busy");
+      if (this.jobs.filter(job => job.lane === lane).length >= (lane === "deep" ? 1 : 2)) throw new BridgeJobError("Suggestion workers are busy", 503, 1);
       const development = import.meta.url.endsWith(".ts");
       const module = new URL(development ? "./deck-suggestion-worker.ts" : "./deck-suggestion-worker.js", import.meta.url);
       // Bound each scanner independently; Node reports heap OOM via
