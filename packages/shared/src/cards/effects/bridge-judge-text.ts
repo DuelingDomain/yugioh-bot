@@ -32,7 +32,12 @@ export function deterministicBridgePros(evidence: BridgeJudgeEvidence): string[]
         return_to_hand: `can return ${target.name} to the hand`, return_to_deck: `can return ${target.name} to the Deck`,
       };
       if (actions[first.capability]) text = `${source.name} ${actions[first.capability]}${conditions}`;
-    } else if (reason.key === "mention") text = reason.description + ".";
+    } else if (reason.key === "mention") {
+      const control = evidence.proposed_lines.find(line => line.reason === reason.key)?.steps
+        .find(step => step.action === "satisfy_control_condition" && step.card === source.name && step.target === target.name);
+      text = control ? `${source.name}, while controlled, satisfies the monster requirement for ${target.name}'s activation${conditions}`
+        : reason.description + ".";
+    }
     if (text && text.length <= 500 && !pros.includes(text)) pros.push(text);
   }
   return pros.slice(0, 3);

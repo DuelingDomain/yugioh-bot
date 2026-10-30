@@ -41,6 +41,32 @@ function approved(db: Database.Database, bridge: ArchetypeBridge, second = resul
 }
 
 describe("bridge judgement pipeline", () => {
+  it("gives hybrid mentions a playable self-Summon and target control-condition line", () => {
+    const db = new Database(":memory:"); migrate(db);
+    try {
+      importBridgeArtifact(db);
+      for (const format of ["advanced", "genesys"] as const) {
+        const bridge = createBridgeService(db).bridgeBetween("Kashtira", "Tearlaments", format)!;
+        const evidence = buildBridgeJudgeEvidence(db, bridge)!;
+        const hybrid = evidence.cards.find(card => card.name === "Tearlaments Kashtira")!;
+        expect(hybrid.bridge_groups).toEqual(["Kashtira", "Tearlaments"]);
+        expect(evidence.proposed_lines[0]!.steps).toMatchObject([
+          { action: "special_summon", card: hybrid.name, target: hybrid.name, from_zones: ["hand"] },
+          { action: "satisfy_control_condition", card: hybrid.name, target: "Tearlaments Cryme" },
+        ]);
+        const sent = JSON.parse(bridgeJudgeRequest(evidence, "mechanic").messages[0]!.content as string);
+        expect(sent.deterministic_pros).toEqual([
+          "Tearlaments Kashtira, while controlled, satisfies the monster requirement for Tearlaments Cryme's activation, subject to its printed conditions.",
+        ]);
+      }
+      const graph = JSON.parse((db.prepare("SELECT graph_json FROM bridge_graph WHERE id=1").get() as { graph_json: string }).graph_json);
+      graph.groups.Tearlaments = graph.groups.Tearlaments.filter((id: number) => id !== 4928565);
+      db.prepare("UPDATE bridge_graph SET graph_json=? WHERE id=1").run(JSON.stringify(graph));
+      const bridge = createBridgeService(db).bridgeBetween("Kashtira", "Tearlaments")!;
+      expect(buildBridgeJudgeEvidence(db, bridge)!.proposed_lines[0]!.steps).toEqual([]);
+    } finally { db.close(); }
+  });
+
   it("keeps punctuation in supplied card names while splitting uncited second sentences", () => {
     const db = new Database(":memory:"); migrate(db);
     try {
