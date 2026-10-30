@@ -5,7 +5,7 @@ import { rmSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { BRIDGE_JUDGE_FRAMINGS, buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, judgeBridgePair, makeBridgeJudgementRecord, saveBridgeJudgement, type ArchetypeBridge, type BridgeJudgeClient } from "@yugidraft/shared/cards/effects";
-import { createBridgeService, createSavedDeckService } from "@yugidraft/shared/services";
+import { createBridgeService, createDuelService, createSavedDeckService } from "@yugidraft/shared/services";
 import { BridgeEngineQueries, type EngineQuery } from "../src/bridge-engine-queries.js";
 import { BridgeApi } from "../src/bridge-api.js";
 import { createDuelHost } from "../src/host.js";
@@ -23,6 +23,35 @@ afterAll(() => db.close());
 const bridgeEngineProjection = async (rows: BridgeProjectionInput, query: EngineQuery) => new BridgeEngineQueries(db).project(bridgeProjectionRows(db, rows), query, 6);
 
 describe("authenticated bridge API and judged deep-search lifecycle", () => {
+  it("keeps the host available when bridge startup fails and returns a retryable bridge response", async () => {
+    const directory = createHostDataFixture([]);
+    const fixture = new Database(":memory:"); migrate(fixture);
+    // A legacy schema fault must disable bridges without disabling gameplay.
+    fixture.exec("CREATE TABLE bridge_deep_job(id TEXT PRIMARY KEY)");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const user = seedIdentity(fixture, { name: "Available host" });
+    const session = createDuelService(fixture).create({ guildId: "g", organizerPlayerId: user.playerId, name: "Available lobby", mode: "normal" });
+    let host: ReturnType<typeof createDuelHost> | undefined;
+    vi.stubEnv("EFFECT_SEARCH", "1"); vi.stubEnv("DECK_SUGGESTIONS", "1");
+    try {
+      host = createDuelHost({ db: fixture, dataDirectory: directory, secret: "bridge-startup-failure", searchCards: () => [], pollIntervalMs: 60_000 });
+      expect(warning).toHaveBeenCalledWith("[duel] bridge search startup failed", expect.objectContaining({ code: "SQLITE_ERROR" }));
+      const url = "http://local/internal/duel";
+      const post = async (op: string) => {
+        const raw = JSON.stringify({ op, guildId: "g", ...user, slug: session.slug, bridgeRequest: { op: "engines", engines: ["Odion"] } });
+        return host!.handle(new Request(url, { method: "POST", body: raw,
+          headers: await signedHeaders(raw, "bridge-startup-failure", url, "duel-host") }));
+      };
+      const bridgeResponse = await post("bridges");
+      expect(bridgeResponse.status).toBe(503);
+      expect(bridgeResponse.headers.get("Retry-After")).toBe("1");
+      expect(await bridgeResponse.json()).toMatchObject({ error: "Bridge search is unavailable. Try again shortly." });
+      expect((await post("view")).status).toBe(200);
+    } finally {
+      await host?.close(); warning.mockRestore(); vi.unstubAllEnvs(); fixture.close(); rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("quietly cancels a signed bridge request disconnected while reading its body", async () => {
     const directory = createHostDataFixture([]);
     const host = createDuelHost({ db, dataDirectory: directory, secret: "bridge-disconnect", searchCards: () => [], pollIntervalMs: 60_000 });

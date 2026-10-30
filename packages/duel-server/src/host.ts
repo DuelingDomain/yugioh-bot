@@ -440,7 +440,12 @@ export function createDuelHost(options: {
   const limits = workerLimitsFromEnv();
   const pool = new WorkerPool(options.maxWorkers ?? limits.maxWorkers, options.maxTablesPerPlayer ?? limits.maxTablesPerPlayer);
   const suggestionWorkers = new DeckSuggestionWorkers(options.db, options.dataDirectory);
-  const bridgeApi = new BridgeApi(options.db, suggestionWorkers, options.now);
+  let bridgeApi: BridgeApi | undefined;
+  try { bridgeApi = new BridgeApi(options.db, suggestionWorkers, options.now); }
+  catch (error) {
+    log("warn", "[duel] bridge search startup failed", {
+      name: error instanceof Error ? error.name : "Unknown", code: (error as { code?: string })?.code ?? "unknown" });
+  }
   const suggestingPlayers = new Set<number>();
   const reservations = new Map<DuelGameWorker, { release: WorkerReservation; session?: DuelSession }>();
   const reservedTableState = options.db.prepare<[number], { status: string; archived_at: string | null }>(
@@ -3331,6 +3336,7 @@ export function createDuelHost(options: {
     const { op } = body;
     if (op === "bridges") {
       if (!deckSuggestionsEnabled()) throw new RequestError("Deck suggestions are disabled", 404);
+      if (!bridgeApi) throw new BridgeJobError("Bridge search is unavailable. Try again shortly.", 503, 1);
       return bridgeApi.handle(body, guildId, actor, ctl?.signal);
     }
     const accessActor = { guildId, playerId: actor, ...(body.userId !== undefined ? { userId: body.userId as number } : {}) };
@@ -4410,7 +4416,7 @@ export function createDuelHost(options: {
       replayCache.clear();
       await replayJsonEncoder.close();
       await suggestionWorkers.close();
-      await bridgeApi.jobs.close();
+      await bridgeApi?.jobs.close();
       await engineResourceCache.close();
     },
   };
