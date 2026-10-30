@@ -51,11 +51,15 @@ export class BridgeSearchJobs {
     CREATE TABLE IF NOT EXISTS bridge_deep_actor (
       job_id TEXT NOT NULL REFERENCES bridge_deep_job(id) ON DELETE CASCADE,
       actor_hash TEXT NOT NULL, guild_id TEXT NOT NULL, admitted_at INTEGER NOT NULL, ended_at INTEGER, genesys_remaining INTEGER, deck_cards_json TEXT,
+      counts_toward_limit INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY(job_id,actor_hash,guild_id)
     );
     CREATE INDEX IF NOT EXISTS bridge_deep_user ON bridge_deep_actor(actor_hash,admitted_at DESC);`);
     if (!(db.prepare("PRAGMA table_info(bridge_deep_job)").all() as { name: string }[]).some(column => column.name === "review_incomplete")) {
       db.exec("ALTER TABLE bridge_deep_job ADD COLUMN review_incomplete INTEGER");
+    }
+    if (!(db.prepare("PRAGMA table_info(bridge_deep_actor)").all() as { name: string }[]).some(column => column.name === "counts_toward_limit")) {
+      db.exec("ALTER TABLE bridge_deep_actor ADD COLUMN counts_toward_limit INTEGER NOT NULL DEFAULT 1");
     }
     db.transaction(() => {
       const now = this.now();
@@ -74,7 +78,7 @@ export class BridgeSearchJobs {
     return createHash("sha256").update(JSON.stringify(tuple)).digest("hex");
   }
 
-  start(actor: BridgeSearchActor, query: BridgeSearchQuery) {
+  start(actor: BridgeSearchActor, query: BridgeSearchQuery, join = false) {
     if (this.stopped) throw new BridgeJobError("Bridge search is restarting", 503);
     this.retryFailedCompletions();
     const key = this.queryKey(query), now = this.now();
@@ -83,7 +87,7 @@ export class BridgeSearchJobs {
     // Permanent reviews are complete, even though the UI still hides those rows.
     // Only intentionally bounded multi work gets full-day reuse. Failed attempted
     // reviews retry after ten minutes; legacy rows without metadata are checked.
-    const incomplete = cached && (cached.review_incomplete === 1 || cached.review_incomplete === null
+    const incomplete = !join && cached && (cached.review_incomplete === 1 || cached.review_incomplete === null
       && (JSON.parse(cached.result_json) as ArchetypeBridge[]).some(row => bridgeGate(this.db, row).state === "pending"));
     const admitted = this.db.transaction(() => {
       const hash = this.actorHash(actor);
@@ -92,8 +96,8 @@ export class BridgeSearchJobs {
         WHERE a.actor_hash=? AND j.state IN ('queued','running') AND j.id NOT IN (SELECT value FROM json_each(?))
         ORDER BY j.created_at LIMIT 1`).get(hash, failed) as JobRow | undefined;
       const subscribe = (job: JobRow, cached: boolean) => {
-        this.db.prepare("INSERT OR IGNORE INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at,ended_at,genesys_remaining,deck_cards_json) VALUES(?,?,?,?,?,?,?)")
-          .run(job.id, hash, actor.guildId, now, job.ended_at, query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null);
+        this.db.prepare("INSERT OR IGNORE INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at,ended_at,genesys_remaining,deck_cards_json,counts_toward_limit) VALUES(?,?,?,?,?,?,?,?)")
+          .run(job.id, hash, actor.guildId, now, job.ended_at, query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null, join ? 0 : 1);
         this.db.prepare("UPDATE bridge_deep_actor SET genesys_remaining=?,deck_cards_json=? WHERE job_id=? AND actor_hash=? AND guild_id=?")
           .run(query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null, job.id, hash, actor.guildId);
         return { jobId: job.id, state: job.state, cached };
@@ -108,13 +112,18 @@ export class BridgeSearchJobs {
       if (cached) {
         if (!incomplete || cached.ended_at! > now - 600_000) return subscribe(cached, true);
       }
-      const hour = this.db.prepare(`SELECT count(DISTINCT a.job_id) AS n,min(a.admitted_at) AS oldest FROM bridge_deep_actor a
-        JOIN bridge_deep_job j ON j.id=a.job_id WHERE a.actor_hash=? AND a.admitted_at>? AND a.admitted_at<=coalesce(j.ended_at,a.admitted_at)
-        AND j.state<>'failed' AND j.id NOT IN (SELECT value FROM json_each(?))`)
-        .get(hash, now - 3_600_000, failed) as { n: number; oldest: number | null };
-      if (hour.n >= 15) throw new BridgeJobError("Deep search hourly limit reached", 429, Math.max(1, Math.ceil((hour.oldest! + 3_600_000 - now) / 1000)));
       const pending = this.db.prepare(`SELECT * FROM bridge_deep_job WHERE query_key=? AND state IN ('queued','running')
         AND id NOT IN (SELECT value FROM json_each(?)) ORDER BY created_at LIMIT 1`).get(key, failed) as JobRow | undefined;
+      // Context refreshes can subscribe and update projections, but can never admit paid work.
+      if (join) {
+        if (pending) return subscribe(pending, false);
+        throw new BridgeJobError("No existing bridge search", 404);
+      }
+      const hour = this.db.prepare(`SELECT count(DISTINCT a.job_id) AS n,min(a.admitted_at) AS oldest FROM bridge_deep_actor a
+        JOIN bridge_deep_job j ON j.id=a.job_id WHERE a.actor_hash=? AND a.admitted_at>? AND a.admitted_at<=coalesce(j.ended_at,a.admitted_at)
+        AND a.counts_toward_limit=1 AND j.state<>'failed' AND j.id NOT IN (SELECT value FROM json_each(?))`)
+        .get(hash, now - 3_600_000, failed) as { n: number; oldest: number | null };
+      if (hour.n >= 15) throw new BridgeJobError("Deep search hourly limit reached", 429, Math.max(1, Math.ceil((hour.oldest! + 3_600_000 - now) / 1000)));
       if (pending) return subscribe(pending, false);
       const queued = this.db.prepare("SELECT count(*) AS n FROM bridge_deep_job WHERE state='queued'").get() as { n: number };
       if (queued.n >= 100) throw new BridgeJobError("Bridge search queue is busy", 503, 10);
@@ -127,7 +136,7 @@ export class BridgeSearchJobs {
         .run(id, hash, actor.guildId, now, query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null);
       return { jobId: id, state: "queued" as BridgeJobState, cached: false };
     }).immediate();
-    this.drain();
+    if (!join) this.drain();
     return { ...admitted, state: (this.db.prepare("SELECT state FROM bridge_deep_job WHERE id=?").get(admitted.jobId) as JobRow).state };
   }
 

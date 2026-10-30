@@ -260,10 +260,14 @@ describe("multi-source deep search", () => {
       bridgeRequest: { ...context, ...extra } }, "g", identity.playerId) as Promise<{ jobId: string; cached: boolean }>;
     const status = (identity: typeof user, jobId: string) => api.jobs.status({ userId: identity.userId, guildId: "g" }, jobId);
     try {
+      await expect(start(user, { join: true })).rejects.toMatchObject({ status: 404 });
+      for (const join of [null, "true", 1, {}, []]) {
+        await expect(start(user, { join })).rejects.toMatchObject({ status: 400 });
+      }
       const unknown = await start(user, { deck: { main: [0xffffffff], extra: [] } });
-      const first = await start(user, { genesysRemaining: row.genesys_points });
+      const first = await start(user, { join: true, genesysRemaining: row.genesys_points });
       expect(first.jobId).toBe(unknown.jobId);
-      expect(await start(other, { genesysRemaining: 0 })).toMatchObject({ jobId: first.jobId, cached: false });
+      expect(await start(other, { join: true, genesysRemaining: 0 })).toMatchObject({ jobId: first.jobId, cached: false });
       const work = JSON.parse((db.prepare("SELECT query_json FROM bridge_deep_job WHERE id=?").get(first.jobId) as { query_json: string }).query_json);
       expect(work).not.toHaveProperty("genesysRemaining"); expect(work).not.toHaveProperty("deckCards");
       release();
@@ -271,9 +275,9 @@ describe("multi-source deep search", () => {
       expect(completed).toMatchObject({ state: "done", next: [{ engine: "Fire King", genesysPoints: row.genesys_points }] });
       expect((await status(other, first.jobId)).next).toEqual([]);
       const scans = workers.bridgeCandidates.mock.calls.length;
-      expect(await start(user, { genesysRemaining: 0 })).toMatchObject({ jobId: first.jobId, cached: true });
+      expect(await start(user, { join: true, genesysRemaining: 0 })).toMatchObject({ jobId: first.jobId, cached: true });
       expect((await status(user, first.jobId)).next).toEqual([]);
-      expect(await start(other, { genesysRemaining: 0, deck: { main: row.cards, extra: [] } })).toMatchObject({ jobId: first.jobId, cached: true });
+      expect(await start(other, { join: true, genesysRemaining: 0, deck: { main: row.cards, extra: [] } })).toMatchObject({ jobId: first.jobId, cached: true });
       expect((await status(other, first.jobId)).next).toMatchObject([{ engine: "Fire King", missing: [], genesysPoints: 0 }]);
       expect(workers.bridgeCandidates).toHaveBeenCalledTimes(scans);
       expect(workers.rateBridge).not.toHaveBeenCalled();
@@ -370,6 +374,10 @@ describe("multi-source deep search", () => {
       expect((await finish(api, user, first.jobId)).state).toBe("done");
       expect(await start()).toMatchObject({ jobId: first.jobId, cached: true });
       now += 600_001;
+      const scans = workers.bridgeCandidates.mock.calls.length;
+      expect(await api.handle({ userId: user.userId, bridgeRequest: { op: "start", engines: ["Blue-Eyes", "Fiendsmith"], join: true } }, "g", user.playerId))
+        .toMatchObject({ jobId: first.jobId, cached: true });
+      expect(workers.bridgeCandidates).toHaveBeenCalledTimes(scans);
       const retry = await start();
       expect(retry.cached).toBe(false);
       expect(retry.jobId).not.toBe(first.jobId);

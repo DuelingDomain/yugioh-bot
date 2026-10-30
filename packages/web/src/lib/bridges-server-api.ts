@@ -90,17 +90,21 @@ export async function readBridgeBody(request: Request, op: "start" | "feedback" 
     return { ok: true as const, value: { ...value, op } as BridgeRequest };
   }
   if (op === "start") {
-    const value = body.value;
+    if (!object(body.value) || body.value.join !== undefined && typeof body.value.join !== "boolean") {
+      return { ok: false as const, response: invalidBridgeRequest() };
+    }
+    const { join, ...value } = body.value;
+    const options = join === undefined ? {} : { join };
     if (object(value) && (value.engines !== undefined || value.deck !== undefined)) {
       if (!keys(value, ["engines", "deck", "format", "genesysRemaining"])
         || value.deck !== undefined && !isBridgeDeck(value.deck)
         || value.engines !== undefined && !isBridgeEngineNames(value.engines)
         || value.format !== undefined && !format(value.format)
         || value.genesysRemaining !== undefined && !integer(value.genesysRemaining, 1000)) return { ok: false as const, response: invalidBridgeRequest() };
-      return { ok: true as const, value: { ...value, format: value.format ?? "advanced", op } as BridgeRequest };
+      return { ok: true as const, value: { ...value, ...options, format: value.format ?? "advanced", op } as BridgeRequest };
     }
     const query = parseQuery(value);
-    return query ? { ok: true as const, value: { ...query, op } as BridgeRequest }
+    return query ? { ok: true as const, value: { ...query, ...options, op } as BridgeRequest }
       : { ok: false as const, response: invalidBridgeRequest() };
   }
   const value = body.value;

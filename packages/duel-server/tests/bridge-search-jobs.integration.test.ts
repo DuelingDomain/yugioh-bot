@@ -28,6 +28,46 @@ function setup(inReview = 2) {
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 
 describe("persistent bridge deep-search admission and lifecycle", () => {
+  it("joins only existing work without admitting or charging jobs, including across restart", async () => {
+    const { db, jobs, execute, finish, advance } = setup(0);
+    for (let i = 0; i < 16; i++) {
+      expect(() => jobs.start(actor(2), query(`Missing ${i}`), true)).toThrowError(expect.objectContaining({ status: 404 }));
+    }
+    expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_job").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_actor").get()).toEqual({ n: 0 });
+    expect(execute).not.toHaveBeenCalled();
+    const shared = jobs.start(actor(), query());
+    expect(jobs.start(actor(2), { ...query(), deckCards: [1], genesysRemaining: 0 }, true))
+      .toMatchObject({ jobId: shared.jobId, state: "running", cached: false });
+    await finish(); advance(1);
+    expect(jobs.start(actor(2), { ...query(), deckCards: [2], genesysRemaining: 5 }, true))
+      .toMatchObject({ jobId: shared.jobId, state: "done", cached: true });
+    expect(db.prepare("SELECT deck_cards_json,genesys_remaining FROM bridge_deep_actor WHERE job_id=? AND counts_toward_limit=0").get(shared.jobId))
+      .toEqual({ deck_cards_json: "[2]", genesys_remaining: 5 });
+    expect(execute).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 15; i++) { jobs.start(actor(2), query(`Paid ${i}`)); await finish(); advance(1); }
+    expect(() => jobs.start(actor(2), query("Sixteenth"))).toThrowError(expect.objectContaining({ status: 429 }));
+    // Joining running work bypasses exhausted admission, and stays free when it completes.
+    const running = jobs.start(actor(3), query("Shared at limit"));
+    expect(jobs.start(actor(2), query("Shared at limit"), true)).toMatchObject({ jobId: running.jobId, cached: false });
+    expect(() => jobs.start(actor(2), query("Different"), true)).toThrowError(expect.objectContaining({ status: 409 }));
+    await finish(); advance(1);
+    await jobs.close();
+    let version = "v1", now = 1_000_017;
+    const restarted = new BridgeSearchJobs(db, { execute, project: () => ({ results: [], inReview: 0 }), version: () => version, now: () => now });
+    try {
+      expect(restarted.start(actor(2), query(), true)).toMatchObject({ jobId: shared.jobId, cached: true });
+      expect(() => restarted.start(actor(2), query("Missing"), true)).toThrowError(expect.objectContaining({ status: 404 }));
+      expect(() => restarted.start(actor(2), query("Sixteenth"))).toThrowError(expect.objectContaining({ status: 429 }));
+      expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_actor WHERE counts_toward_limit=1").get()).toEqual({ n: 17 });
+      version = "v2";
+      expect(() => restarted.start(actor(4), query(), true)).toThrowError(expect.objectContaining({ status: 404 }));
+      version = "v1"; now += 86_400_001;
+      expect(() => restarted.start(actor(4), query(), true)).toThrowError(expect.objectContaining({ status: 404 }));
+    } finally { await restarted.close(); }
+    expect(execute).toHaveBeenCalledTimes(17);
+  });
+
   it("keeps a finished result through a real SQLite writer lock longer than five seconds", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bridge-completion-lock-"));
     const db = new Database(join(directory, "app.sqlite"));

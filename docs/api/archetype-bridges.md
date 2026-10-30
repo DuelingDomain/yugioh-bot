@@ -68,13 +68,18 @@ Browser callers can import `fetchBridgeEngines`, `BridgeEnginesRequest`, and `Br
 ```ts
 // Request
 { source?: string, deckId?: number, engines?: string[], deck?: BridgeDeck, target?: string,
-  format?: "advanced" | "genesys", genesysRemaining?: number } // integer 0–1000; preferred when supplied
+  format?: "advanced" | "genesys", genesysRemaining?: number, // integer 0–1000; preferred when supplied
+  join?: boolean } // true: reuse existing work only; never admit or charge a search
 // Editor request for Use my deck or Pick mode with a deck open:
 { format: "genesys", engines: ["Odion", "Ashtra"],
   deck: { main: [29762407, 97522863], extra: [], pointCap: 250 }, genesysRemaining: 37 }
 // Response: HTTP 202 for queued/running; HTTP 200 for cached completed jobs
 { jobId: string, state: "queued" | "running" | "done" | "failed", cached: boolean }
 ```
+
+For automatic deck/points refreshes, send **`join: true` as a top-level JSON field** in that POST body, alongside the selector, `deck`, `format` and `genesysRemaining`. The host subscribes to matching queued/running work or a completed job retained in the 24-hour work cache, and updates only that subscriber's deck/points context. This also reuses retained incomplete-review results after their normal ten-minute retry window, without retrying reviews. If there is no reusable work (including expired or version-invalidated work), it returns 404; a different search already running for that user returns 409. Join-only requests bypass hourly admission and the queue limit, never create a job, never call scan/review workers and never count toward the 15/hour limit, including subscriptions to running work and after host restarts. Omitting `join` or sending `false` retains normal admission. Non-boolean values return 400.
+
+`BridgeDeepSearchRequest` in `packages/web/src/lib/bridges-api.ts` includes `join?: boolean`. The UI's actual POST builder is `startDeepSearch` in `packages/web/src/components/bridges/bridges-api.ts`: its UI worker must carry `join: true` into the top level of either payload branch for context refreshes. A normal user click should omit it or send `false`.
 
 `GET /api/cards/bridges/deep-search/[jobId]` accepts no query parameters or body. Only a subscribed user in the same guild can poll it. Results remain empty until completion. Completed projections use a five-second, 64-entry cache keyed by job, subscriber deck/points context and the bridge-input revision. Evidence, review and feedback writes invalidate it immediately. Equivalent polls share work; a user can have one distinct projection in flight and at most four distinct projections run globally. Additional distinct polls receive 503 with a one-second retry hint. Multi jobs persist the complete candidate set as compact source/target/format/evidence-hash references. Status sends the job ID to a scanner, which loads those inputs and resolves unchanged evidence rows. Older full-row results are also parsed in the scanner, with a bounded parse cache. Large candidate sets never cross the host loop on status reads.
 
@@ -255,7 +260,7 @@ Genesys excludes Link/Pendulum cards and lines with mandatory Link/Pendulum depe
 | `bridge_search_admission` | `actor_hash` PK, `admitted_at` epoch milliseconds |
 | `bridge_judge_spend` | Durable request keys, submission state, reserved/actual microdollars, usage and UTC billing month |
 | `bridge_deep_job` | Job/query identity, state, step, progress, candidate JSON, safe error and completion time |
-| `bridge_deep_actor` | Job/user/guild subscription, admission/completion times and private points/deck context |
+| `bridge_deep_actor` | Job/user/guild subscription, admission/completion times, private points/deck context and `counts_toward_limit` (zero for join-only subscriptions) |
 
 Graph imports validate pinned compressed and decompressed bytes before one transaction; changed artifacts replace graph rows while preserving judgement/feedback history. Review imports revalidate current checked input and skip stale identities. Duel-host effect startup imports graph and reviews behind the existing effect-search flag.
 

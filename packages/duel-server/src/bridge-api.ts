@@ -167,8 +167,13 @@ export class BridgeApi {
     const player = this.db.prepare("SELECT p.user_id FROM players p JOIN users u ON u.id=p.user_id WHERE p.id=? AND p.guild_id=?")
       .get(playerId, guildId) as { user_id: number } | undefined;
     if (!player || !Number.isSafeInteger(body.userId) || body.userId !== player.user_id) throw new BridgeJobError("Authenticated guild player is required", 403);
-    const actor = { userId: player.user_id, guildId }, input = body.bridgeRequest;
-    if (!object(input)) throw new BridgeJobError("Invalid bridge request", 400);
+    const actor = { userId: player.user_id, guildId };
+    const request = body.bridgeRequest;
+    if (!object(request)) throw new BridgeJobError("Invalid bridge request", 400);
+    const join = request.op === "start" && request.join === true;
+    if (request.op === "start" && request.join !== undefined && typeof request.join !== "boolean") throw new BridgeJobError("Invalid bridge join option", 400);
+    const { join: _join, ...queryInput } = request;
+    const input = request.op === "start" ? queryInput : request;
     if (input.op === "review") {
       if (Object.keys(input).length !== 1) throw new BridgeJobError("Invalid bridge request", 400);
       if (!isOwnerUser(actor.userId)) throw new BridgeJobError("Owner access is required", 403);
@@ -209,12 +214,12 @@ export class BridgeApi {
       if (["source", "deckId"].some(key => input[key] !== undefined)) throw new BridgeJobError("Choose one bridge source selector", 400);
       const { query } = this.engineQueries.resolve(input, guildId);
       if (!query.engines.length) throw new BridgeJobError("The deck needs an engine before searching bridges", 400);
-      return this.jobs.start(actor, query);
+      return this.jobs.start(actor, query, join);
     }
     if (input.op === "engines") return this.fastQueries.run(input, guildId, actor.userId);
     if (!["from", "between", "start"].includes(String(input.op))) throw new BridgeJobError("Invalid bridge operation", 400);
     const query = this.query(input, guildId, actor.userId);
-    if (input.op === "start") return this.jobs.start(actor, query);
+    if (input.op === "start") return this.jobs.start(actor, query, join);
     if (input.op === "between" && !query.target) throw new BridgeJobError("Target archetype is required", 400);
     const result = this.project(this.storedRows(query.source, query.target, query.format), query);
     if (!query.target) return result;

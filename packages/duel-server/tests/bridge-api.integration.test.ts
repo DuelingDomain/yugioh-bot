@@ -37,14 +37,19 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     const api = new BridgeApi(db, workers, () => now);
     const call = (bridgeRequest: unknown, identity = user, guildId = "g") => api.handle({ userId: identity.userId, bridgeRequest }, guildId, identity.playerId);
     expect(await call({ op: "from", source: "Odion" })).toMatchObject({ results: [] });
+    await expect(call({ op: "start", source: "Odion", target: "Argostars", join: true })).rejects.toMatchObject({ status: 404 });
+    for (const join of [null, "true", 1, {}, []]) {
+      await expect(call({ op: "start", source: "Odion", join })).rejects.toMatchObject({ status: 400 });
+    }
     const job = await call({ op: "start", source: "Odion", target: "Argostars" }) as { jobId: string };
+    expect(await call({ op: "start", source: "Odion", target: "Argostars", join: true })).toMatchObject({ jobId: job.jobId, cached: false });
     await expect(call({ op: "start", source: "Blue-Eyes" })).rejects.toMatchObject({ status: 409, message: "A deep search for Odion is still running", retryAfter: 10 });
     expect(await call({ op: "status", jobId: job.jobId })).toMatchObject({ state: "running", results: [] });
     complete();
     for (let i = 0; i < 30 && (await call({ op: "status", jobId: job.jobId }) as { state: string }).state !== "done"; i++) await new Promise(resolve => setImmediate(resolve));
     expect(await call({ op: "status", jobId: job.jobId })).toMatchObject({ state: "done", progress: 100, results: [{ target: "Argostars", judge: "accepted" }] });
     expect(client.messages.create).toHaveBeenCalledTimes(2);
-    expect(await call({ op: "start", source: "Odion", target: "Argostars" }, other)).toMatchObject({ jobId: job.jobId, cached: true });
+    expect(await call({ op: "start", source: "Odion", target: "Argostars", join: true }, other)).toMatchObject({ jobId: job.jobId, cached: true });
     expect(await call({ op: "between", source: "Odion", target: "Argostars" })).toMatchObject({ results: [{ judge: "accepted" }], reverse: [] });
     expect(await call({ op: "feedback", evidenceHash: bridge.evidence_hash, reason: "Timing concern" })).toEqual({ accepted: true, hidden: false });
     expect(await call({ op: "feedback", evidenceHash: bridge.evidence_hash })).toEqual({ accepted: true, hidden: false });

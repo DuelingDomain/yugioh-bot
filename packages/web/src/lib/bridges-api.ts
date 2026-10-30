@@ -5,6 +5,8 @@ export type { BridgeDeck, DetectedEngine, EngineSuggestion, BridgeEnginesRequest
 /** Explicit engines select shared work; an accompanying deck supplies subscriber context. */
 export type BridgeDeepSearchRequest = {
   format?: BridgeFormat;
+  /** Refresh context on existing work only; never admits or counts a new search. */
+  join?: boolean;
   /** Integer 0–1000; the editor's remaining allowance overrides host deck accounting, including zero. */
   genesysRemaining?: number;
 } & (

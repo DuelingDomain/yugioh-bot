@@ -223,6 +223,23 @@ it("preserves the hourly-limit response and countdown header", async () => {
   expect(await response.json()).toEqual(reply);
 });
 
+it("validates and forwards join-only requests for every deep-search selector", async () => {
+  reply = { jobId: "bridge-job-1", state: "running", cached: false };
+  const deck = { main: [29762407], extra: [] };
+  for (const selector of [{ engines: ["Odion", "Ashtra"], deck }, { deck }, { engines: ["Odion"] }, { source: "Odion" }, { deckId: 23 }]) {
+    for (const join of [true, false]) {
+      const request: BridgeDeepSearchRequest = { ...selector, join, format: "genesys", genesysRemaining: 0 };
+      expect((await start(request)).status).toBe(202);
+      expect(calls.at(-1)!.bridgeRequest).toEqual({ ...request, op: "start" });
+    }
+    const forwarded = calls.length;
+    for (const join of [null, "true", 1, {}, []]) expect((await start({ ...selector, join })).status).toBe(400);
+    expect(calls).toHaveLength(forwarded);
+  }
+  replyStatus = 404; reply = { error: "No existing bridge search" };
+  expect((await start({ engines: ["Odion"], join: true })).status).toBe(404);
+});
+
 it("sends bounded feedback and returns the hidden decision", async () => {
   reply = { accepted: true, hidden: true };
   const response = await feedback({ evidenceHash: hash, reason: "The lock prevents the summon." });
