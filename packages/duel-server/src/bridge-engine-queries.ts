@@ -68,7 +68,8 @@ export class BridgeEngineQueries {
   }
 
   shortlist(rows: ArchetypeBridge[], query: EngineQuery) {
-    return rankEngineCandidates(query.engines, rows, this.service.rankingContext(), 8);
+    const eligible = rows.filter(row => ["pending", "shown"].includes(bridgeGate(this.db, row).state));
+    return rankEngineCandidates(query.engines, eligible, this.service.rankingContext(), 8);
   }
 
   project(rows: ArchetypeBridge[], query: EngineQuery, limit = 4): BridgeEnginesResponse {

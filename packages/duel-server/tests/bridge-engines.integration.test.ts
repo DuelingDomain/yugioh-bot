@@ -149,7 +149,7 @@ describe("multi-source deep search", () => {
     } finally { await api.jobs.close(); }
   });
 
-  it("reuses a fresh forward job, scans incoming pairs, and shares the deck-free job across players", async () => {
+  it("rescans full outgoing rows after a truncated single job and shares deck-free work", async () => {
     const user = seedIdentity(db, { name: "Multi-source" }), other = seedIdentity(db, { name: "Multi subscriber" });
     const service = createBridgeService(db);
     const workers = { bridgeCandidates: vi.fn(async (scan: BridgeScan) => {
@@ -166,7 +166,7 @@ describe("multi-source deep search", () => {
       const result = await finish(api, user, multi.jobId);
       expect(result).toMatchObject({ state: "done", engines: ["Ashtra", "Odion"], results: [], next: expect.any(Array) });
       expect(workers.bridgeCandidates.mock.calls.map(([scan]) => [scan.op, scan.source])).toEqual([
-        ["outgoing", "Ashtra"], ["into", "Ashtra"], ["into", "Odion"],
+        ["outgoing", "Ashtra"], ["into", "Ashtra"], ["outgoing", "Odion"], ["into", "Odion"],
       ]);
       expect(workers.rateBridge.mock.calls.length).toBeLessThanOrEqual(12);
       expect(result.next.length).toBeGreaterThan(0);
@@ -178,6 +178,48 @@ describe("multi-source deep search", () => {
       expect(subscribed.next.some((next, i) => next.missing.length > result.next[i]!.missing.length)).toBe(true);
       for (const input of [{ op: "start", deck, engines: ["Odion"] }, { op: "start", deck, source: "Odion" }, { op: "start", deckId: 1, engines: ["Odion"] },
         { op: "start", deck: { main: [], extra: [] } }]) await expect(call(input)).rejects.toMatchObject({ status: 400 });
+    } finally { await api.jobs.close(); }
+  });
+
+  it("excludes rejected and reported pairs before shortlist slots and access paths are claimed", () => {
+    const queries = new BridgeEngineQueries(db), engines = ["Genex", "The Weather"];
+    const query = { source: engines[0]!, engines, format: "advanced" as const };
+    const rows = queries.service.engineRows(engines, "advanced");
+    const initial = queries.shortlist(rows, query);
+    expect(initial.length).toBeGreaterThanOrEqual(6);
+    const rejected = initial.slice(0, 6).flatMap(engine => rows.filter(row => row.source === engine.engine || row.target === engine.engine));
+    for (const [i, row] of rejected.entries()) {
+      if (i % 2) {
+        for (const actor of ["shortlist-report-one", "shortlist-report-two"]) db.prepare("INSERT OR IGNORE INTO bridge_feedback(evidence_hash,actor_hash,reason) VALUES(?,?,'')").run(row.evidence_hash, actor);
+      } else {
+        const evidence = buildBridgeJudgeEvidence(db, row)!;
+        for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, {
+          verdict: "invalid", grade: "risky", pros: [], cons: [], lock_note: "", line: [], format_ok: true,
+        }));
+      }
+    }
+    const after = queries.shortlist(rows, query);
+    expect(after.some(engine => initial.slice(0, 6).some(old => old.engine === engine.engine))).toBe(false);
+    expect(after.length).toBeGreaterThan(0);
+  });
+
+  it("retries partially failed reviews after ten minutes instead of caching them for a day", async () => {
+    const user = seedIdentity(db, { name: "Partial review outage" }), service = createBridgeService(db);
+    let calls = 0, now = Date.now();
+    const workers = { bridgeCandidates: vi.fn(async (scan: BridgeScan) => service.engineRows([scan.source], scan.format)
+      .filter(row => scan.op === "into" ? row.target === scan.source : row.source === scan.source)),
+      rateBridge: vi.fn(async (row: ArchetypeBridge) => { if (!calls++) approve(row); }) };
+    const api = new BridgeApi(db, workers, () => now);
+    const start = () => api.handle({ userId: user.userId, bridgeRequest: { op: "start", engines: ["Blue-Eyes", "Fiendsmith"] } }, "g", user.playerId) as Promise<{ jobId: string; cached: boolean }>;
+    try {
+      const first = await start();
+      expect((await finish(api, user, first.jobId)).state).toBe("done");
+      expect(await start()).toMatchObject({ jobId: first.jobId, cached: true });
+      now += 600_001;
+      const retry = await start();
+      expect(retry.cached).toBe(false);
+      expect(retry.jobId).not.toBe(first.jobId);
+      await finish(api, user, retry.jobId);
     } finally { await api.jobs.close(); }
   });
 

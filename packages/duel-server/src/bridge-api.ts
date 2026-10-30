@@ -29,7 +29,7 @@ export class BridgeApi {
         return query.engines ? { results: [], ...multi } : { ...this.project(rows, query, true), next: multi.next };
       },
       execute: async (query, progress) => {
-        if (query.engines) return searchBridgeEngines(this.db, workers, this.engineQueries, this.jobs, { ...query, engines: query.engines }, progress);
+        if (query.engines) return searchBridgeEngines(this.db, workers, this.engineQueries, { ...query, engines: query.engines }, progress);
         const result = await workers.bridgeCandidates({ kind: "bridges", source: query.source, format: query.format,
           ...(query.target ? { op: "explain", target: query.target } : { op: "live" }) }, value => {
           progress("candidates", Math.floor(25 * value.completed / Math.max(1, value.total)));

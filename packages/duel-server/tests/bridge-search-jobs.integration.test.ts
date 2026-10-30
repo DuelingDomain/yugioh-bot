@@ -40,14 +40,14 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
     expect(() => jobs.start(actor(), { ...query(), engines: ["Odion", "Sixteenth"] })).toThrowError(expect.objectContaining({ status: 429 }));
   });
 
-  it("preserves the single-engine key and expires reusable source rows after 24 hours or a version change", async () => {
+  it("preserves the single-engine key and expires completed work after 24 hours or a version change", async () => {
     const { jobs, finish, results, advance, updateVersion } = setup(0);
     const first = jobs.start(actor(), query()); await finish();
     expect(jobs.start(actor(2), { ...query(), engines: ["Odion"] })).toMatchObject({ jobId: first.jobId, cached: true });
-    expect(jobs.freshSingleSourceRows("Odion", "advanced")).toEqual(results);
-    expect(jobs.freshSingleSourceRows("Odion", "genesys")).toBeUndefined();
-    updateVersion("v2"); expect(jobs.freshSingleSourceRows("Odion", "advanced")).toBeUndefined();
-    updateVersion("v1"); advance(86_400_001); expect(jobs.freshSingleSourceRows("Odion", "advanced")).toBeUndefined();
+    expect(jobs.start(actor(3), query())).toMatchObject({ jobId: first.jobId, cached: true });
+    updateVersion("v2"); expect(() => jobs.status(actor(), first.jobId)).toThrowError(expect.objectContaining({ status: 404 }));
+    updateVersion("v1"); advance(86_400_001);
+    expect(jobs.start(actor(4), query()).cached).toBe(false); await finish();
   });
   it("coalesces repeat clicks, polls progress, and scopes job access to user and guild", async () => {
     const { jobs, execute, finish } = setup();

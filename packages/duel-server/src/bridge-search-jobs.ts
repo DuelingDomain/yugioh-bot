@@ -8,10 +8,10 @@ export type BridgeJobState = "queued" | "running" | "done" | "failed";
 export type BridgeJobStep = "candidates" | "checking" | "rating" | "done";
 interface JobRow {
   id: string; query_key: string; query_json: string; state: BridgeJobState; step: BridgeJobStep; progress: number;
-  result_json: string; error: string | null; created_at: number; ended_at: number | null;
+  result_json: string; review_incomplete: number | null; error: string | null; created_at: number; ended_at: number | null;
 }
 interface JobOptions {
-  execute(query: BridgeSearchQuery, progress: (step: BridgeJobStep, value: number) => void): Promise<ArchetypeBridge[]>;
+  execute(query: BridgeSearchQuery, progress: (step: BridgeJobStep, value: number) => void): Promise<ArchetypeBridge[] | { rows: ArchetypeBridge[]; reviewIncomplete: boolean }>;
   project(rows: ArchetypeBridge[], query: BridgeSearchQuery): { results: unknown[]; inReview: number; next?: EngineSuggestion[] };
   version(): string;
   now?: () => number;
@@ -34,7 +34,7 @@ export class BridgeSearchJobs {
     db.exec(`CREATE TABLE IF NOT EXISTS bridge_deep_job (
       id TEXT PRIMARY KEY, query_key TEXT NOT NULL, query_json TEXT NOT NULL,
       state TEXT NOT NULL, step TEXT NOT NULL, progress INTEGER NOT NULL DEFAULT 0,
-      result_json TEXT NOT NULL DEFAULT '[]', error TEXT, created_at INTEGER NOT NULL, ended_at INTEGER
+      result_json TEXT NOT NULL DEFAULT '[]', review_incomplete INTEGER, error TEXT, created_at INTEGER NOT NULL, ended_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS bridge_deep_query ON bridge_deep_job(query_key,created_at DESC);
     CREATE TABLE IF NOT EXISTS bridge_deep_actor (
@@ -43,6 +43,9 @@ export class BridgeSearchJobs {
       PRIMARY KEY(job_id,actor_hash,guild_id)
     );
     CREATE INDEX IF NOT EXISTS bridge_deep_user ON bridge_deep_actor(actor_hash,admitted_at DESC);`);
+    if (!(db.prepare("PRAGMA table_info(bridge_deep_job)").all() as { name: string }[]).some(column => column.name === "review_incomplete")) {
+      db.exec("ALTER TABLE bridge_deep_job ADD COLUMN review_incomplete INTEGER");
+    }
     db.transaction(() => {
       const now = this.now();
       db.prepare("UPDATE bridge_deep_actor SET ended_at=? WHERE job_id IN (SELECT id FROM bridge_deep_job WHERE state IN ('queued','running'))").run(now);
@@ -55,15 +58,9 @@ export class BridgeSearchJobs {
   private actorHash(actor: BridgeSearchActor): string { return createHash("sha256").update(`bridge-user:${actor.userId}`).digest("hex"); }
   private queryKey(query: BridgeSearchQuery): string {
     const engines = query.engines?.map(name => name.toLowerCase()).sort();
-    const tuple = engines && engines.length >= 2 ? [this.options.version(), "multi", engines, query.format]
+    const tuple = engines && engines.length >= 2 ? [this.options.version(), "multi-v2", engines, query.format]
       : [this.options.version(), engines?.[0] ?? query.source.toLowerCase(), query.target?.toLowerCase() ?? null, query.format];
     return createHash("sha256").update(JSON.stringify(tuple)).digest("hex");
-  }
-
-  freshSingleSourceRows(source: string, format: BridgeFormat): ArchetypeBridge[] | undefined {
-    const row = this.db.prepare(`SELECT result_json FROM bridge_deep_job WHERE query_key=? AND state='done' AND ended_at>?
-      ORDER BY ended_at DESC LIMIT 1`).get(this.queryKey({ source, format }), this.now() - 86_400_000) as { result_json: string } | undefined;
-    return row ? (JSON.parse(row.result_json) as ArchetypeBridge[]).filter(row => row.source === source && row.format === format) : undefined;
   }
 
   start(actor: BridgeSearchActor, query: BridgeSearchQuery) {
@@ -72,10 +69,10 @@ export class BridgeSearchJobs {
     const cached = this.db.prepare("SELECT * FROM bridge_deep_job WHERE query_key=? AND state='done' AND ended_at>? ORDER BY ended_at DESC LIMIT 1").get(key, now - 86_400_000) as JobRow | undefined;
     // Evidence validation can be expensive; keep it outside the admission write lock.
     // Permanent reviews are complete, even though the UI still hides those rows.
-    // Multi searches intentionally leave shortlist rows pending after the judge
-    // stop rule. Completing that bounded work is a full 24-hour cache entry.
-    const incomplete = cached && !(JSON.parse(cached.query_json) as BridgeSearchQuery).engines
-      && (JSON.parse(cached.result_json) as ArchetypeBridge[]).some(row => bridgeGate(this.db, row).state === "pending");
+    // Only intentionally bounded multi work gets full-day reuse. Failed attempted
+    // reviews retry after ten minutes; legacy rows without metadata are checked.
+    const incomplete = cached && (cached.review_incomplete === 1 || cached.review_incomplete === null
+      && (JSON.parse(cached.result_json) as ArchetypeBridge[]).some(row => bridgeGate(this.db, row).state === "pending"));
     const admitted = this.db.transaction(() => {
       const hash = this.actorHash(actor);
       const existing = this.db.prepare(`SELECT j.* FROM bridge_deep_job j JOIN bridge_deep_actor a ON a.job_id=j.id
@@ -142,13 +139,17 @@ export class BridgeSearchJobs {
           .run(step, Math.max(0, Math.min(99, Math.floor(value))), row.id);
       };
       const work = (async () => {
-        let result: ArchetypeBridge[] = [], error: string | null = null;
-        try { result = await this.options.execute(JSON.parse(row.query_json), progress); }
+        let result: ArchetypeBridge[] = [], error: string | null = null, reviewIncomplete: number | null = null;
+        try {
+          const outcome = await this.options.execute(JSON.parse(row.query_json), progress);
+          result = Array.isArray(outcome) ? outcome : outcome.rows;
+          reviewIncomplete = Array.isArray(outcome) ? null : Number(outcome.reviewIncomplete);
+        }
         catch (cause) { error = cause instanceof BridgeReviewUnavailableError ? cause.message : "Bridge search could not finish. Try again shortly."; }
         this.db.transaction(() => {
           const now = this.now();
-          this.db.prepare("UPDATE bridge_deep_job SET state=?,step=CASE WHEN ? THEN step ELSE 'done' END,progress=CASE WHEN ? THEN progress ELSE 100 END,result_json=?,error=?,ended_at=? WHERE id=? AND state='running'")
-            .run(error ? "failed" : "done", error ? 1 : 0, error ? 1 : 0, JSON.stringify(result), error, now, row.id);
+          this.db.prepare("UPDATE bridge_deep_job SET state=?,step=CASE WHEN ? THEN step ELSE 'done' END,progress=CASE WHEN ? THEN progress ELSE 100 END,result_json=?,review_incomplete=?,error=?,ended_at=? WHERE id=? AND state='running'")
+            .run(error ? "failed" : "done", error ? 1 : 0, error ? 1 : 0, JSON.stringify(result), reviewIncomplete, error, now, row.id);
           this.db.prepare("UPDATE bridge_deep_actor SET ended_at=? WHERE job_id=? AND ended_at IS NULL").run(now, row.id);
         }).immediate();
       })().finally(() => { this.active.delete(row.id); this.running.delete(work); this.drain(); });
