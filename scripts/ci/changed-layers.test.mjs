@@ -105,6 +105,7 @@ test("TS-only engine PRs and main pushes skip native and differential core check
       "packages/duel-server/scripts/prepare-data.ts", "packages/duel-server/card-script-patches/c123.lua",
       "packages/duel-server/domain-core/multi-scripts/c123.lua", "data/duel-engine-next/cards.cdb",
       "tsconfig.json", "turbo.json", ".github/workflows/deploy.yml",
+      ".github/actions/setup-ci-node/action.yml", ".github/actions/prepare-production-bundle/action.yml",
       "packages/duel-server/domain-core/proposals/core.cpp", "packages/duel-server/domain-core/patches/README.md",
     ]) {
       const result = classify([file], event);
@@ -144,7 +145,7 @@ test("core sources, pins, patches, native tooling and build inputs select both c
     "scripts/ci/build-core.sh", "scripts/ci/parallel-emxx.py", "scripts/ci/bin/em++",
     "scripts/ci/core-cache-key.mjs", "scripts/ci/assemble-core-bundle.mjs", "scripts/ci/changed-layers.mjs",
     ".github/workflows/test.yml", ".github/actions/restore-engine-bundle/action.yml",
-    ".github/actions/setup-ci-node/action.yml", "packages/duel-server/package.json",
+    "packages/duel-server/package.json",
     "package.json", "package-lock.json", ".nvmrc",
   ];
   for (const event of ["pull_request", "push"]) {
