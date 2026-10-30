@@ -65,7 +65,7 @@ export async function rebuildBridges(options: { engineDirectory: string; directo
     return { path, records: rows.length, bytes: bytes.length, sha256: sha(bytes), gzipBytes: compressed.length, gzipSha256: sha(compressed) };
   };
   const identity: Omit<BridgeManifest, "version"> = {
-    schema_version: 1, algorithm_version: "capability-bridges-v5",
+    schema_version: 1, algorithm_version: "capability-bridges-v6-access",
     inputs: { tags: sha(readFileSync(join(directory, "tags.jsonl.gz"))), profiles: sha(readFileSync(join(directory, "profiles.jsonl.gz"))),
       engine: sha(readFileSync(join(options.engineDirectory, "cards.cdb"))), metadata: sha(metadataBytes), genesys_revision: points.revision, groups: sha(policyBytes) },
     files: { capabilities: emit("card-capabilities.jsonl.gz", capabilities), advanced: emit("bridges-advanced.jsonl.gz", bridges.filter(row => row.format === "advanced")), genesys: emit("bridges-genesys.jsonl.gz", bridges.filter(row => row.format === "genesys")) },
@@ -80,6 +80,7 @@ export async function rebuildBridges(options: { engineDirectory: string; directo
   const known = new Set(cards.map(card => card.id));
   const missing = metadata.data.filter((card: any) => card.archetype && groups[card.archetype] === undefined && profiles.some(profile => profile.archetype === card.archetype) && !known.has(card.id)).map((card: any) => ({ id: card.id, name: card.name, archetype: card.archetype }));
   const report = { version: manifest.version, cards: capabilities.length, groups: Object.keys(groups).length, bridges: bridges.length,
+    niche_rows: bridges.filter(row => row.tier === "niche").length,
     gzip_bytes: Object.values(manifest.files).reduce((sum, file) => sum + file.gzipBytes, 0), elapsed_ms: Math.round(performance.now() - started), max_rss_kib: process.resourceUsage().maxRSS,
     missing_engine_cards: missing,
     sanity: Object.fromEntries(["advanced", "genesys"].map(format => [format, bridges.filter(row => row.source === "Odion" && row.format === format).slice(0, 5).map(row => ({ target: row.target, score: row.score }))])) };
