@@ -446,7 +446,11 @@ export function createDuelHost(options: {
   const limits = workerLimitsFromEnv();
   const pool = new WorkerPool(options.maxWorkers ?? limits.maxWorkers, options.maxTablesPerPlayer ?? limits.maxTablesPerPlayer);
   const suggestionWorkers = new DeckSuggestionWorkers(options.db, options.dataDirectory);
-  const bridgeApi = new BridgeApi(options.db, suggestionWorkers, options.now);
+  let bridgeApi: BridgeApi | undefined;
+  try { bridgeApi = new BridgeApi(options.db, suggestionWorkers, options.now); }
+  catch (error) {
+    report(error, { tags: { operation: "[duel] bridge search startup failed" } });
+  }
   const suggestingPlayers = new Set<number>();
   const reservations = new Map<DuelGameWorker, { release: WorkerReservation; session?: DuelSession }>();
   const reservedTableState = options.db.prepare<[number], { status: string; archived_at: string | null }>(
@@ -3447,6 +3451,7 @@ export function createDuelHost(options: {
     const { op } = body;
     if (op === "bridges") {
       if (!deckSuggestionsEnabled()) throw new RequestError("Deck suggestions are disabled", 404);
+      if (!bridgeApi) throw new BridgeJobError("Bridge search is unavailable. Try again shortly.", 503, 1);
       return bridgeApi.handle(body, guildId, actor, ctl?.signal);
     }
     const accessActor = { guildId, playerId: actor, ...(body.userId !== undefined ? { userId: body.userId as number } : {}) };
@@ -4565,6 +4570,7 @@ export function createDuelHost(options: {
         })();
         return await (expiry ? Promise.race([rendered, expiry]) : rendered);
       } catch (error) {
+        if (requestOp === "bridges" && request.signal.aborted) return new Response(null, { status: 499 });
         if (error instanceof BridgeJobError) return Response.json({ error: error.message,
           ...(error.retryAfter === undefined ? {} : { retryAfter: error.retryAfter }) }, { status: error.status,
           headers: { "cache-control": "no-store", ...(error.retryAfter === undefined ? {} : { "Retry-After": String(error.retryAfter) }) } });
@@ -4613,7 +4619,7 @@ export function createDuelHost(options: {
       replayCache.clear();
       await replayJsonEncoder.close();
       await suggestionWorkers.close();
-      await bridgeApi.jobs.close();
+      await bridgeApi?.jobs.close();
       await engineResourceCache.close();
     },
   };

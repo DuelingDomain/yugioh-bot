@@ -119,6 +119,36 @@ describe("stored multi-engine bridge API", () => {
     }
   });
 
+  it("evicts the oldest queued key with 503 and keeps the newest answers tied to each request", async () => {
+    const user = seedIdentity(db, { name: "Rapid engine corrections" });
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const scan = vi.fn(async (input: Record<string, unknown>, guildId: string) => {
+      await gate; return bridgeEngines(input, guildId);
+    });
+    const api = new BridgeApi(db, { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines: scan, bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const call = (input: Record<string, unknown>) => api.handle({ userId: user.userId, bridgeRequest: { op: "engines", ...input } }, "g", user.playerId);
+    const running = call({ engines: ["Genex"] });
+    const evicted = Promise.allSettled([call({ deck }), call({ deck })]);
+    const corrected = call({ deck, engines: ["Odion"] });
+    const newest = call({ deck, engines: ["Ashtra"] });
+    try {
+      for (const result of await evicted) {
+        expect(result.status).toBe("rejected");
+        if (result.status === "rejected") expect(result.reason).toMatchObject({ status: 503, retryAfter: 1, message: "Engine suggestions were superseded" });
+      }
+      expect(scan).toHaveBeenCalledTimes(1);
+      release();
+      await expect(running).resolves.toMatchObject({ engines: ["Genex"] });
+      await expect(corrected).resolves.toMatchObject({ engines: ["Odion"], detected: expect.any(Array) });
+      await expect(newest).resolves.toMatchObject({ engines: ["Ashtra"], detected: expect.any(Array) });
+      expect(scan.mock.calls.map(([input]) => input.engines)).toEqual([["Genex"], ["Odion"], ["Ashtra"]]);
+      await expect(call({ deck, engines: ["Odion"] })).resolves.toMatchObject({ engines: ["Odion"] });
+      await expect(call({ deck, engines: ["Ashtra"] })).resolves.toMatchObject({ engines: ["Ashtra"] });
+      expect(scan).toHaveBeenCalledTimes(3);
+    } finally { release(); await Promise.allSettled([running, evicted, corrected, newest]); await api.jobs.close(); }
+  });
+
   it("normalizes artwork identities before detection, points and missing-copy projection", () => {
     const main = 89631139, artwork = 89631140;
     for (const id of [main, artwork]) db.prepare(`INSERT OR IGNORE INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)

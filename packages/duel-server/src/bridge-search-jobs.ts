@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import { bridgeGate, type ArchetypeBridge, type BridgeFormat, type EngineSuggestion } from "@yugidraft/shared/cards/effects";
 import { bridgeRevision } from "./bridge-revision.js";
+import { retryStartupDatabase } from "./startup-database.js";
 
 export interface BridgeSearchQuery { source: string; target?: string; engines?: string[]; format: BridgeFormat; genesysRemaining?: number; deckCards?: number[] }
 export interface BridgeSearchActor { userId: number; guildId: string }
@@ -42,7 +43,8 @@ export class BridgeSearchJobs {
   private readonly now: () => number;
   constructor(private readonly db: Database.Database, private readonly options: JobOptions) {
     this.now = options.now ?? Date.now;
-    db.exec(`CREATE TABLE IF NOT EXISTS bridge_deep_job (
+    retryStartupDatabase("bridge search jobs", () => {
+      db.exec(`CREATE TABLE IF NOT EXISTS bridge_deep_job (
       id TEXT PRIMARY KEY, query_key TEXT NOT NULL, query_json TEXT NOT NULL,
       state TEXT NOT NULL, step TEXT NOT NULL, progress INTEGER NOT NULL DEFAULT 0,
       result_json TEXT NOT NULL DEFAULT '[]', review_incomplete INTEGER, error TEXT, created_at INTEGER NOT NULL, ended_at INTEGER,
@@ -56,22 +58,27 @@ export class BridgeSearchJobs {
       PRIMARY KEY(job_id,actor_hash,guild_id)
     );
     CREATE INDEX IF NOT EXISTS bridge_deep_user ON bridge_deep_actor(actor_hash,admitted_at DESC);`);
-    if (!(db.prepare("PRAGMA table_info(bridge_deep_job)").all() as { name: string }[]).some(column => column.name === "review_incomplete")) {
-      db.exec("ALTER TABLE bridge_deep_job ADD COLUMN review_incomplete INTEGER");
-    }
-    if (!(db.prepare("PRAGMA table_info(bridge_deep_actor)").all() as { name: string }[]).some(column => column.name === "counts_toward_limit")) {
-      db.exec("ALTER TABLE bridge_deep_actor ADD COLUMN counts_toward_limit INTEGER NOT NULL DEFAULT 1");
-    }
-    if (!(db.prepare("PRAGMA table_info(bridge_deep_job)").all() as { name: string }[]).some(column => column.name === "limit_refunded")) {
-      db.exec("ALTER TABLE bridge_deep_job ADD COLUMN limit_refunded INTEGER NOT NULL DEFAULT 0");
-    }
-    db.transaction(() => {
-      const now = this.now();
-      db.prepare("UPDATE bridge_deep_actor SET ended_at=? WHERE job_id IN (SELECT id FROM bridge_deep_job WHERE state IN ('queued','running'))").run(now);
-      db.prepare("UPDATE bridge_deep_job SET state='failed',error=?,ended_at=?,limit_refunded=1 WHERE state IN ('queued','running')").run("Bridge search was interrupted. Try again shortly.", now);
-      db.prepare("DELETE FROM bridge_deep_actor WHERE job_id IN (SELECT id FROM bridge_deep_job WHERE ended_at<?)").run(now - 172_800_000);
-      db.prepare("DELETE FROM bridge_deep_job WHERE ended_at<?").run(now - 172_800_000);
-    }).immediate();
+      if (!(db.prepare("PRAGMA table_info(bridge_deep_job)").all() as { name: string }[]).some(column => column.name === "review_incomplete")) {
+        db.exec("ALTER TABLE bridge_deep_job ADD COLUMN review_incomplete INTEGER");
+      }
+      if (!(db.prepare("PRAGMA table_info(bridge_deep_actor)").all() as { name: string }[]).some(column => column.name === "counts_toward_limit")) {
+        db.exec("ALTER TABLE bridge_deep_actor ADD COLUMN counts_toward_limit INTEGER NOT NULL DEFAULT 1");
+      }
+      if (!(db.prepare("PRAGMA table_info(bridge_deep_job)").all() as { name: string }[]).some(column => column.name === "limit_refunded")) {
+        db.transaction(() => {
+          db.exec("ALTER TABLE bridge_deep_job ADD COLUMN limit_refunded INTEGER NOT NULL DEFAULT 0");
+          db.prepare("UPDATE bridge_deep_job SET limit_refunded=1 WHERE state='failed' AND error IN (?,?)")
+            .run("Bridge search was interrupted. Try again shortly.", "Bridge search completion could not be saved. Try again shortly.");
+        }).immediate();
+      }
+      db.transaction(() => {
+        const now = this.now();
+        db.prepare("UPDATE bridge_deep_actor SET ended_at=? WHERE job_id IN (SELECT id FROM bridge_deep_job WHERE state IN ('queued','running'))").run(now);
+        db.prepare("UPDATE bridge_deep_job SET state='failed',error=?,ended_at=?,limit_refunded=1 WHERE state IN ('queued','running')").run("Bridge search was interrupted. Try again shortly.", now);
+        db.prepare("DELETE FROM bridge_deep_actor WHERE job_id IN (SELECT id FROM bridge_deep_job WHERE ended_at<?)").run(now - 172_800_000);
+        db.prepare("DELETE FROM bridge_deep_job WHERE ended_at<?").run(now - 172_800_000);
+      }).immediate();
+    }, { db });
   }
 
   private actorHash(actor: BridgeSearchActor): string { return createHash("sha256").update(`bridge-user:${actor.userId}`).digest("hex"); }
