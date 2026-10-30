@@ -25,6 +25,10 @@ type Props = {
   onCatalog: (cards: DeckCardInfo[]) => void;
   /** The server has no bridges (or Suggestions are off). */
   onDisabled?: () => void;
+  /** The tab of the row is on screen. A hidden row asks for no new list, but a running deep search goes on. */
+  active?: boolean;
+  /** A deep search just finished. */
+  onDeepFinished?: () => void;
 };
 
 type ListProps = Pick<Props, "mode" | "genesys" | "cardProps" | "onCatalog"> & { bridges: readonly ShownBridge[]; showSource?: boolean; onOpen: (bridge: ShownBridge) => void; label: string };
@@ -40,13 +44,15 @@ function BridgeList({ bridges, mode, genesys, cardProps, onCatalog, showSource, 
 }
 
 /**
- * The Bridges row of Suggestions: where the deck's archetype can go next, the best few bridges first. A bridge
+ * The Bridges tab of the deck editor: where the deck's archetype can go next, the best few bridges first. A bridge
  * opens its details in place; Deep search looks wider with a progress bar; "Search two archetypes" is a free
  * lookup. Only bridges that passed the checks reach this row, so there is nothing to filter here.
  */
-export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, cardProps, deckCount, limit, onCatalog, onDisabled }: Props) {
+export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, cardProps, deckCount, limit, onCatalog, onDisabled, active = true, onDeepFinished }: Props) {
   const onDisabledRef = useRef(onDisabled);
   onDisabledRef.current = onDisabled;
+  const onDeepFinishedRef = useRef(onDeepFinished);
+  onDeepFinishedRef.current = onDeepFinished;
   const rootRef = useRef<HTMLElement>(null);
   const hintId = useId();
   const [open, setOpen] = useState<ShownBridge | null>(null);
@@ -56,8 +62,17 @@ export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, 
 
   const format = genesys ? "genesys" : "advanced";
   const scope: BridgeScope | null = archetype && !empty ? { source: archetype, format, ...(genesys && genesysRemaining != null ? { genesysRemaining } : {}) } : null;
-  const { list, loading, error, retry } = useBridgeList(scope, true);
+  const { list, loading, error, retry } = useBridgeList(scope, true, active);
   const { deep, start, cooldown, blocked } = useDeepSearch(scope);
+
+  // A search that ends tells the tab bar, so a hidden tab can show a dot.
+  const phase = deep.phase;
+  const lastPhase = useRef(phase);
+  useEffect(() => {
+    const before = lastPhase.current;
+    lastPhase.current = phase;
+    if (before !== phase && phase === "done") onDeepFinishedRef.current?.();
+  }, [phase]);
 
   // The server says bridges are off: this row goes away, like the other rows do for Suggestions.
   useEffect(() => { if (error?.status === 404) onDisabledRef.current?.(); }, [error]);

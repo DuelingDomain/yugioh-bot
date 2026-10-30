@@ -305,16 +305,20 @@ try {
     await page.screenshot({ path: file });
     shots[name] = file;
   };
-  const open = async (deck: "small" | "full" | "empty", flag = "on") => {
+  // The right column has tabs (Cards, Suggest, Bridges); a phone has Deck first. With the flag off there are none.
+  const goTab = async (name: "Cards" | "Suggest" | "Bridges") => {
+    // A tab with a dot also says "(new results)".
+    const tab = page.getByRole("tab", { name: new RegExp(`^${name}`) });
+    if (await tab.isVisible().catch(() => false)) await tab.click();
+  };
+  const open = async (deck: "small" | "full" | "empty", flag = "on", tab: "Cards" | "Suggest" | "Bridges" = "Suggest") => {
     control.deck = deck;
     insightRequests.length = 0;
     bridgeCalls.lists.length = 0;
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=${flag}`);
-    // The phone layout keeps the card list on its own tab.
-    const cardsTab = page.getByRole("tab", { name: "Cards" });
-    // Some scenarios show no panel at all, so a missing tab and panel is not an error.
-    await cardsTab.or(panel).first().waitFor({ state: "visible", timeout: 4000 }).catch(() => undefined);
-    if (await cardsTab.isVisible().catch(() => false)) await cardsTab.click();
+    // Some scenarios show no tabs at all, so a missing tab is not an error.
+    await page.getByRole("tab", { name: "Cards", exact: true }).waitFor({ state: "visible", timeout: 4000 }).catch(() => undefined);
+    await goTab(tab);
   };
   // Positions are relative to the panel, so a scroll of the list (hover scrolls a tile into view) is not a move.
   const tileBoxes = () => panel.evaluate((root: HTMLElement) => { const base = root.getBoundingClientRect(); return [...root.querySelectorAll("button")].map((node) => { const box = node.getBoundingClientRect(); return [Math.round(box.x - base.x), Math.round(box.y - base.y), Math.round(box.width), Math.round(box.height)]; }); });
@@ -332,10 +336,10 @@ try {
   check("pool", "same-size pool replacement sends a new query", insightRequests.length === 2, insightRequests.map(request => request.pool));
   check("pool", "replacement query contains the changed pool", insightRequests.at(-1)?.pool?.includes(23995346) === true);
 
-  // The list below keeps (within a card row of drift, since cards size to their text) its content position on the initial response and when rows empty.
+  // The Suggest tab keeps (within a card row of drift, since cards size to their text) its height on the initial response and when rows empty.
   const listTop = () => panel.evaluate((root: HTMLElement) => {
-    const list = root.nextElementSibling!, parent = root.parentElement!;
-    return list.getBoundingClientRect().top - parent.getBoundingClientRect().top + parent.scrollTop;
+    const parent = root.parentElement!;
+    return root.getBoundingClientRect().bottom - parent.getBoundingClientRect().top + parent.scrollTop;
   });
   for (const viewport of VIEWPORTS.filter(viewport => [1366, 1920].includes(viewport.width))) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -364,13 +368,16 @@ try {
   await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
   await page.waitForTimeout(500);
   check("a", "Suggestions show while the search box is empty", await panel.isVisible());
-  check("a", "rows are in the owner's order", JSON.stringify(await rowTitles()) === JSON.stringify(["Archetype support", "Outside the archetype", "Extra Deck you can make", "Staples for this format", "Bridges"]), await rowTitles());
+  check("a", "rows are in the owner's order", JSON.stringify(await rowTitles()) === JSON.stringify(["Archetype support", "Outside the archetype", "Extra Deck you can make", "Staples for this format"]), await rowTitles());
   check("a", "the Extra row shows its hint under 40 Main cards", (await panel.getByText("Add 40 Main Deck cards to see what your deck can make").count()) === 1);
   check("a", "Staples show at most 6 cards", (await panel.locator('section[aria-labelledby="suggest-staples"] button').count()) <= 6);
   const text = (await page.locator("body").innerText()).toLowerCase();
   check("a", "no AI or searchygo text on the page", !/\bai\b|searchygo/.test(text));
   check("a", "the first answer took one request", insightRequests.length === 1, insightRequests.length);
+  check("a", "Bridges wait for their tab: no request while it is closed", bridgeCalls.lists.length === 0, bridgeCalls.lists);
+  await goTab("Bridges");
   await page.getByTestId("bridges-row").getByTestId("bridge-item").first().waitFor({ timeout: 15_000 });
+  await goTab("Suggest");
   check("a", "Bridges ask for the deck archetype in the deck's format", bridgeCalls.lists.length === 1 && bridgeCalls.lists[0] === "?source=Blue-Eyes&format=advanced", bridgeCalls.lists);
   const whyHeights = await panel.locator("button span[class*=why]").evaluateAll((nodes: HTMLElement[]) => [...new Set(nodes.map((node) => Math.round(node.getBoundingClientRect().height)))]);
   check("a", "every reason has the same fixed height", whyHeights.length === 1, whyHeights);
@@ -476,16 +483,19 @@ try {
   check("c3", "the status clears when the answer lands", (await panel.getByText("Updating…").count()) === 0);
   control.delayMs = 0;
 
-  // d. Typing hides Suggestions; clearing brings them back with no new request.
+  // d. A search on the Cards tab stays there: Suggest keeps its rows and asks for nothing new.
   const requestsBefore = insightRequests.length;
+  await goTab("Cards");
   await search().fill("dragon");
   await page.waitForTimeout(400);
-  check("d", "typing a search hides Suggestions", (await panel.count()) === 0);
   await shot("d-search");
+  await goTab("Suggest");
+  check("d", "a search on the Cards tab does not hide Suggest", await panel.isVisible() && (await panel.locator("button").count()) > 0);
+  await goTab("Cards");
+  check("d", "the search text stays when the tab is closed and opened again", (await search().inputValue()) === "dragon");
   await search().fill("");
-  await panel.waitFor({ state: "visible", timeout: 5000 });
+  await goTab("Suggest");
   await page.waitForTimeout(900);
-  check("d", "clearing the search brings Suggestions back", await panel.isVisible() && (await panel.locator("button").count()) > 0);
   check("d", "the same deck is not asked for again", insightRequests.length === requestsBefore, insightRequests.length - requestsBefore);
 
   // e. Flag off: no panel.
@@ -505,7 +515,7 @@ try {
   }
   // The phone layout keeps the card list on its own tab.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("tab", { name: "Cards" }).click();
+  await page.getByRole("tab", { name: "Suggest", exact: true }).click();
   await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 5000 });
   await page.waitForTimeout(400);
   await shot("full-390x844-cards-tab");
@@ -518,8 +528,9 @@ try {
   await page.waitForTimeout(1200);
   check("g", "an empty deck shows the empty state", (await panel.innerText()).includes("Add a few Main Deck cards"));
   check("g", "an empty deck makes no request", insightRequests.length === 0 && bridgeCalls.lists.length === 0, { insight: insightRequests.length, bridges: bridgeCalls.lists });
-  check("g", "an empty deck gets a short Bridges hint", (await page.getByTestId("bridges-empty").innerText()).includes("Add a few Main Deck cards"));
   await shot("g-empty-deck");
+  await goTab("Bridges");
+  check("g", "an empty deck gets a short Bridges hint", (await page.getByTestId("bridges-empty").innerText()).includes("Add a few Main Deck cards"));
 
   }
 
@@ -530,11 +541,11 @@ try {
     await page.evaluate(() => { try { sessionStorage.clear(); localStorage.clear(); } catch { /* Storage is not available. */ } });
     bridgeCalls.starts.length = 0; bridgeCalls.feedback.length = 0; bridgeCalls.polls = 0; bridgeCalls.archetypes = 0;
     Object.assign(bridgeControl, { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok", feedbackFails: false });
-    await open(deck);
+    await open(deck, "on", "Bridges");
     await items.first().waitFor({ state: "visible", timeout: 15_000 });
   };
   /** Whole items, no sideways scroll, nothing cut at the panel edge. */
-  const whole = (name: string) => panel.evaluate((root: HTMLElement, label: string) => {
+  const whole = (name: string) => bridges.evaluate((root: HTMLElement, label: string) => {
     const box = root.getBoundingClientRect();
     const nodes = [...root.querySelectorAll('[data-testid="bridges-row"] li')] as HTMLElement[];
     const outside = nodes.filter((node) => { const r = node.getBoundingClientRect(); return r.left < box.left - 0.5 || r.right > box.right + 0.5; }).length;
@@ -652,7 +663,7 @@ try {
   check("h3", "a double click on Send sends one report", bridgeCalls.feedback.filter((entry) => entry.reason).length === 2 && bridgeCalls.feedback.length === 2, bridgeCalls.feedback);
   check("h3", "the report carries the bridge hash and the reason", bridgeCalls.feedback.at(-1)?.evidenceHash === hashOf("Blue-Eyes>Dragon Ruler") && bridgeCalls.feedback.at(-1)?.reason === "The line needs a card the deck does not play.", bridgeCalls.feedback.at(-1));
   check("h3", "a thank-you replaces the form and the action", (await report.getByTestId("bridge-report").count()) === 0 && (await report.getByTestId("bridge-thanks").innerText()).includes("Thank you"));
-  await open("small");
+  await open("small", "on", "Bridges");
   await items.first().waitFor();
   check("h3", "the same bridge cannot be reported twice in this browser", (await items.nth(1).getByTestId("bridge-thanks").count()) === 1 && (await items.nth(1).getByTestId("bridge-report").count()) === 0);
   await items.nth(0).getByTestId("bridge-report").click();
@@ -758,19 +769,164 @@ try {
   // j. The list itself fails or is off.
   await reset();
   bridgeControl.none = true;
-  await open("small");
+  await open("small", "on", "Bridges");
   await bridges.getByTestId("bridges-empty").waitFor({ timeout: 15_000 });
   check("j", "no bridge that passed the checks gives a plain empty state", (await bridges.getByTestId("bridges-empty").innerText()).includes("No bridge that passed our checks yet"), await bridges.getByTestId("bridges-empty").innerText());
   bridgeControl.none = false;
   bridgeControl.listStatus = 503;
-  await open("small");
+  await open("small", "on", "Bridges");
   await bridges.getByRole("alert").first().waitFor({ timeout: 15_000 });
   check("j", "a failed list says so and offers Try again", (await bridges.getByRole("alert").first().innerText()).includes("not available") && (await bridges.getByRole("button", { name: "Try again" }).count()) === 1);
   bridgeControl.listStatus = 404;
-  await open("small");
+  await open("small", "on", "Bridges");
   await page.waitForTimeout(1500);
-  check("j", "a server with no bridges hides the row", (await bridges.count()) === 0 && (await panel.locator('section[aria-labelledby^="suggest-"]').count()) === 4);
+  check("j", "a server with no bridges hides the row and its tab", (await bridges.count()) === 0 && (await page.getByRole("tab", { name: "Bridges", exact: true }).count()) === 0 && (await page.getByRole("tab", { name: "Suggest", exact: true }).count()) === 1 && await (async () => { await goTab("Suggest"); return true; })() && (await panel.locator('section[aria-labelledby^="suggest-"]').count()) === 4);
   bridgeControl.listStatus = 200;
+
+  // t. The tabs: Cards | Suggest | Bridges on a desktop, Deck | Cards | Suggest | Bridges on a phone.
+  const tabState = (name: string) => page.getByRole("tab", { name, exact: true }).first().getAttribute("aria-selected");
+  const fresh = async (deck: "small" | "full" | "empty" = "small") => {
+    control.deck = deck; insightRequests.length = 0; bridgeCalls.lists.length = 0;
+    await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
+    await page.evaluate(() => { try { sessionStorage.clear(); localStorage.clear(); } catch { /* Storage is not available. */ } });
+    await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
+    await page.getByRole("tab", { name: "Cards", exact: true }).first().waitFor({ state: "visible", timeout: 8000 });
+    // The editor measures its width after the first paint, so the phone and desktop tab lists settle a moment later.
+    await page.waitForTimeout(400);
+  };
+  /** The scroll box of the card list, the one that holds the results. */
+  const cardScroller = () => page.locator('[data-pane="cards"]').evaluateHandle((pane: HTMLElement) => [...pane.querySelectorAll("div")].find((node) => getComputedStyle(node).overflowY === "auto" && node.scrollHeight > node.clientHeight + 50) ?? null);
+
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await fresh();
+  const tablist = page.getByTestId("editor-tabs-bar");
+  check("t1", "a desktop shows Cards, Suggest and Bridges in a tab list", (await tablist.getByRole("tab").allInnerTexts()).map((text: string) => text.trim()).join("|") === "Cards|Suggest|Bridges");
+  check("t1", "Cards is the default tab", (await tabState("Cards")) === "true" && (await tabState("Suggest")) === "false");
+  await page.waitForTimeout(1500);
+  check("t1", "Suggest and Bridges ask for nothing until opened", insightRequests.length === 0 && bridgeCalls.lists.length === 0, { insight: insightRequests.length, bridges: bridgeCalls.lists.length });
+  check("t1", "each tab names its panel and the panel names its tab", await page.evaluate(() => [...document.querySelectorAll('[role="tablist"][data-testid="editor-tabs-bar"] [role="tab"]')].every((tab) => { const panel = document.getElementById(tab.getAttribute("aria-controls") ?? ""); return panel?.getAttribute("role") === "tabpanel" && panel.getAttribute("aria-labelledby") === tab.id; })));
+  check("t1", "the Cards panel is visible and the others are empty until opened", await page.locator("#deck-editor-cards").isVisible() && (await page.locator("#deck-editor-suggest").innerHTML()) === "" && (await page.locator("#deck-editor-bridges").innerHTML()) === "");
+  check("t1", "the Engines that fit slot has no chips yet", (await page.locator('[data-testid="engines-fit"]').count()) === 0);
+  await shot("tabs-cards-1920x1080");
+
+  // Arrow keys move between the tabs, wrap, and Home / End jump to the ends.
+  await page.getByRole("tab", { name: "Cards", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  check("t2", "ArrowRight opens Suggest and moves focus to it", (await tabState("Suggest")) === "true" && await page.evaluate(() => document.activeElement?.id) === "deck-editor-column-suggest-tab");
+  await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
+  check("t2", "Suggest asks once, when it first opens", insightRequests.length === 1, insightRequests.length);
+  check("t2", "Bridges still wait while Suggest is open", bridgeCalls.lists.length === 0, bridgeCalls.lists);
+  await page.keyboard.press("ArrowRight");
+  check("t2", "ArrowRight again opens Bridges", (await tabState("Bridges")) === "true");
+  await page.keyboard.press("ArrowRight");
+  check("t2", "ArrowRight on the last tab wraps to Cards", (await tabState("Cards")) === "true");
+  await page.keyboard.press("End");
+  check("t2", "End opens the last tab", (await tabState("Bridges")) === "true");
+  await page.keyboard.press("Home");
+  check("t2", "Home opens the first tab", (await tabState("Cards")) === "true");
+  check("t2", "a hidden panel is hidden for the page, not only dimmed", !(await page.locator("#deck-editor-suggest").isVisible()) && await page.locator("#deck-editor-suggest").getAttribute("hidden") !== null);
+
+  // The panes stay mounted: search text and scroll are still there when the tab comes back.
+  await search().fill("dragon");
+  await page.waitForTimeout(1200);
+  const scroller = await cardScroller();
+  const canScroll = await scroller.evaluate((node: HTMLElement | null) => node != null);
+  check("t3", "the card list has a scroll box to test", canScroll);
+  if (canScroll) {
+    await scroller.evaluate((node: HTMLElement) => { node.scrollTop = 420; });
+    const before = await scroller.evaluate((node: HTMLElement) => node.scrollTop);
+    await goTab("Suggest");
+    await page.waitForTimeout(300);
+    await goTab("Cards");
+    await page.waitForTimeout(300);
+    const after = await scroller.evaluate((node: HTMLElement) => node.scrollTop);
+    check("t3", "the card list keeps its scroll while another tab is open", before > 0 && Math.abs(after - before) <= 1, { before, after });
+  }
+  check("t3", "the search text stays", (await search().inputValue()) === "dragon");
+  await search().fill("");
+
+  // Suggest refreshes after a deck edit only while it is on screen.
+  await goTab("Suggest");
+  await page.waitForTimeout(900);
+  const asked = insightRequests.length;
+  await panel.locator('section[aria-labelledby="suggest-archetype"] button').first().dblclick();
+  await page.waitForTimeout(1500);
+  check("t4", "a deck edit refreshes Suggest while it is open", insightRequests.length === asked + 1, { asked, now: insightRequests.length });
+  await goTab("Cards");
+  const hiddenAsked = insightRequests.length;
+  await page.locator('[data-pane="cards"] button[aria-label^="Add "]').first().click({ timeout: 5000 }).catch(async () => { await page.locator('[data-pane="cards"] ul button, [data-pane="cards"] [role="listitem"] button').first().dblclick(); });
+  await page.waitForTimeout(1500);
+  check("t4", "a deck edit does not refresh Suggest while it is hidden", insightRequests.length === hiddenAsked, { hiddenAsked, now: insightRequests.length });
+  await goTab("Suggest");
+  await page.waitForTimeout(1500);
+  check("t4", "opening Suggest again catches up with the edit", insightRequests.length > hiddenAsked, { hiddenAsked, now: insightRequests.length });
+
+  // The last tab is remembered.
+  await goTab("Suggest");
+  await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
+  await page.getByRole("tab", { name: "Suggest", exact: true }).waitFor({ state: "visible", timeout: 8000 });
+  check("t5", "a reload opens the tab used last", (await tabState("Suggest")) === "true");
+
+  // A deep search that finishes while Bridges is hidden marks the tab with a dot, and opening the tab clears it.
+  await fresh();
+  bridgeControl.pollDelayMs = 1200;
+  await goTab("Bridges");
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  await bridges.getByTestId("deep-search-button").click();
+  await bridges.getByTestId("deep-progress").waitFor();
+  await goTab("Cards");
+  check("t6", "no dot while the search runs", (await page.locator('[role="tab"][data-dot]').count()) === 0);
+  await page.locator('[role="tab"][data-dot]').first().waitFor({ state: "attached", timeout: 30_000 });
+  check("t6", "a dot marks the Bridges tab when the search finishes while it is hidden", (await page.getByRole("tab", { name: /^Bridges/ }).first().getAttribute("data-dot")) !== null);
+  check("t6", "a screen reader hears that there are new results", (await page.getByRole("tab", { name: /^Bridges/ }).first().innerText()).includes("new results"));
+  await shot("tabs-bridges-dot-1920x1080");
+  await goTab("Bridges");
+  await page.waitForTimeout(300);
+  check("t6", "the dot is gone once the tab opens", (await page.locator('[role="tab"][data-dot]').count()) === 0);
+  check("t6", "the finished results are waiting in the tab", await bridges.getByTestId("deep-results").isVisible());
+  bridgeControl.pollDelayMs = 0;
+
+  // A finish while Bridges is open leaves no dot.
+  await fresh();
+  await goTab("Bridges");
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  await bridges.getByTestId("deep-search-button").click();
+  await bridges.getByTestId("deep-results").waitFor({ timeout: 20_000 });
+  check("t6", "no dot when the search finishes in the open tab", (await page.locator('[role="tab"][data-dot]').count()) === 0);
+
+  // No tab bar when Suggestions are off.
+  await open("small", "off");
+  await page.waitForTimeout(800);
+  check("t7", "with Suggestions off there is no tab bar", (await tablist.count()) === 0 && (await page.getByRole("tab").count()) === 0 && await page.locator("#deck-editor-cards").isVisible());
+
+  // The phone: Deck | Cards | Suggest | Bridges in the segmented control.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await fresh();
+  const seg = page.getByTestId("editor-tabs-seg");
+  const phoneTabs = (await seg.getByRole("tab").allInnerTexts()).map((text: string) => text.replace(/\s+/g, " ").trim());
+  check("t8", "a phone shows Deck with its count, Cards, Suggest and Bridges", phoneTabs.length === 4 && /^Deck \d+$/.test(phoneTabs[0]!) && phoneTabs.slice(1).join("|") === "Cards|Suggest|Bridges", phoneTabs);
+  check("t8", "the desktop bar is not on a phone", (await tablist.count()) === 0);
+  await page.getByRole("tab", { name: "Bridges", exact: true }).click();
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  check("t8", "Bridges opens on a phone and the page does not scroll sideways", await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+  await shot("tabs-bridges-390x844");
+  await page.getByRole("tab", { name: "Suggest", exact: true }).click();
+  await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
+  await shot("tabs-suggest-390x844");
+
+  // The tab bar at the other desktop sizes.
+  for (const viewport of VIEWPORTS.filter((entry) => entry.width !== 390)) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await fresh();
+    await goTab("Suggest");
+    await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
+    await page.waitForTimeout(300);
+    const barFits = await tablist.evaluate((node: HTMLElement) => node.scrollWidth <= node.clientWidth + 1);
+    check("t9", `${viewport.name}: the tab bar fits its column`, barFits);
+    check("t9", `${viewport.name}: the page does not scroll sideways`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+    await shot(`tabs-suggest-${viewport.name}`);
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
 
   check("all", "no browser errors", pageErrors.length === 0, pageErrors);
   check("all", "every API call the editor made is mirrored", unrouted.length === 0, [...new Set(unrouted)]);

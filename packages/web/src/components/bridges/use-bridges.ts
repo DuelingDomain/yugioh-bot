@@ -18,17 +18,23 @@ type ListAnswer = { key: string; retry: number; list: BridgeList } | { key: stri
 
 /**
  * The shown bridges for a scope. The last answer stays while a new one loads, so the list does not flicker.
- * `debounce` waits for a deck to settle; a typed search asks at once.
+ * `debounce` waits for a deck to settle; a typed search asks at once. `enabled` false (a hidden tab) asks for nothing
+ * and keeps the last answer; a scope that changed meanwhile is asked for when it is enabled again.
  */
-export function useBridgeList(scope: BridgeScope | null, debounce: boolean) {
+export function useBridgeList(scope: BridgeScope | null, debounce: boolean, enabled = true) {
   const key = scope ? scopeKey(scope) : null;
   const [answer, setAnswer] = useState<ListAnswer | null>(null);
   const [retry, setRetry] = useState(0);
   const latest = useRef(scope);
   latest.current = scope;
+  const answered = useRef(answer);
+  answered.current = answer;
 
   useEffect(() => {
     if (!key) { setAnswer(null); return; }
+    if (!enabled) return;
+    // Shown again with nothing new to ask: the last answer is still the answer.
+    if (answered.current?.key === key && answered.current.retry === retry) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       const now = latest.current;
@@ -42,7 +48,7 @@ export function useBridgeList(scope: BridgeScope | null, debounce: boolean) {
       );
     }, debounce ? LIST_DEBOUNCE_MS : 0);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [key, retry, debounce]);
+  }, [key, retry, debounce, enabled]);
 
   const current = answer?.key === key && answer.retry === retry;
   return {
