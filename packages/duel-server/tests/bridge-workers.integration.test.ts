@@ -15,6 +15,25 @@ import { deckSuggestionScope } from "../src/deck-legality.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 
 describe("bridge scanner isolation", () => {
+  it("lets the first bridge scan warm even after Suggestions has used the scanner", async () => {
+    const db = new Database(":memory:"); migrate(db); importBridgeArtifact(db);
+    const directory = createHostDataFixture([{ code: 89631139, name: "Blue-Eyes White Dragon", type: 0x11 }]);
+    const workers = new DeckSuggestionWorkers(db, directory);
+    const jobs = () => (workers as unknown as { jobs: { worker: Worker; reject?: unknown; retiring?: boolean }[] }).jobs;
+    try {
+      await workers.run({
+        query: parseDeckSuggestionQuery({ op: "suggestRows", deck: { main: [89631139], extra: [], side: [] } })!,
+        legality: deckSuggestionScope("normal", directory, defaultDuelSettings("normal"), { cardBlocks: [] }),
+      });
+      const scanner = jobs()[0]!.worker;
+      await expect(workers.bridgeEngines({ engines: ["Odion"] }, "g", 1)).rejects.toMatchObject({ status: 503 });
+      expect(jobs()[0]?.retiring).not.toBe(true);
+      await vi.waitFor(() => expect(jobs()[0]?.reject).toBeUndefined(), { timeout: 10_000 });
+      await expect(workers.bridgeEngines({ engines: ["Odion"] }, "g")).resolves.toMatchObject({ engines: ["Odion"] });
+      expect(jobs()[0]!.worker).toBe(scanner);
+    } finally { await workers.close(); db.close(); rmSync(directory, { recursive: true, force: true }); }
+  }, 20_000);
+
   it("spawns scanners lazily within a 512 MiB heap budget and retires them while idle", async () => {
     const db = new Database(":memory:"); migrate(db); importBridgeArtifact(db);
     const directory = createHostDataFixture([{ code: 89631139, name: "Blue-Eyes White Dragon", type: 0x11 }]);
@@ -30,7 +49,7 @@ describe("bridge scanner isolation", () => {
       };
       pending.push(workers.run(scan), workers.run(scan));
       expect(jobs()).toHaveLength(3);
-      const heap = jobs().reduce((mb, { worker }) => mb + worker.resourceLimits.maxOldGenerationSizeMb! + worker.resourceLimits.maxYoungGenerationSizeMb!, 0);
+      const heap = jobs().reduce((mb, { worker }) => mb + worker.resourceLimits!.maxOldGenerationSizeMb! + worker.resourceLimits!.maxYoungGenerationSizeMb!, 0);
       expect(heap).toBeLessThanOrEqual(512);
       await Promise.all(pending);
       await vi.waitFor(() => expect(jobs()).toHaveLength(0));
