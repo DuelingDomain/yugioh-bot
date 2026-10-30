@@ -200,7 +200,11 @@ async function api(method: string, url: URL, body: any) {
     if (bridgeControl.jobMode === "fail") return json(200, { jobId, state: "failed", step: "rating", progress: 85, results: [], inReview: bridgeControl.reviewCount, error: "The search stopped before it finished. Try again in a minute." });
     const extra = bridge("Blue-Eyes", "Melodious", "Good", 64, false, ["Dragon Spirit of White", "Foolish Burial", "Terraforming"], ["Terraforming", "Dragon Spirit of White"],
       ["Terraforming finds the field spell both lines want.", "Dragon Spirit of White works as a Tuner in both."], ["No two-way route found.", "Needs a field spell slot."], "No summon lock.");
-    return json(200, { jobId, state: "done", step: "done", progress: 100, results: [extra], inReview: bridgeControl.reviewCount - 1 });
+    const strict = BRIDGES.filter(entry => entry.source === "Blue-Eyes").slice(0, 4);
+    const niche = ["Melodious", "Magistus", "Fire Fist", "Buster Blader", "Primite", "Dracotail", "Beyond cap"].map(target => ({
+      ...extra, target, tier: "niche", grade: "Niche", evidence_hash: hashOf(`Blue-Eyes>${target}`), review: { ...extra.review, grade: "niche" },
+    }));
+    return json(200, { jobId, state: "done", step: "done", progress: 100, results: [...strict, ...niche], inReview: bridgeControl.reviewCount - 1 });
   }
   if (path === "/api/cards/bridges/feedback" && method === "POST") {
     bridgeCalls.feedback.push(body);
@@ -701,7 +705,10 @@ try {
   const value = Number(await progress.getByRole("progressbar").getAttribute("aria-valuenow"));
   check("i", "the bar fills as the steps advance", value >= 55 && value < 100, value);
   await bridges.getByTestId("deep-results").waitFor({ timeout: 15_000 });
-  check("i", "the results show after the last step", (await bridges.getByTestId("deep-results").getByTestId("bridge-item").count()) === 1 && (await bridges.getByTestId("deep-results").innerText()).includes("Melodious"));
+  const deepItems = bridges.getByTestId("deep-results").getByTestId("bridge-item");
+  check("i", "deep search shows at most ten results", await deepItems.count() === 10);
+  check("i", "strict results precede deep-only Niche rows", JSON.stringify(await deepItems.getByTestId("bridge-grade").allInnerTexts()) === JSON.stringify(["Strong", "Good", "Niche", "Risky", ...Array(6).fill("Niche")]));
+  check("i", "deep results do not expand Suggestions", await bridges.getByRole("list", { name: "Your deck can bridge into", exact: true }).getByTestId("bridge-item").count() === 4);
   check("i", "the count of bridges still in review shows", (await bridges.getByTestId("bridges-in-review").innerText()).includes("2 bridges are still in review"), await bridges.getByTestId("bridges-in-review").innerText());
   check("i", "a completed search immediately enables Search again", await deepButton.isEnabled() && (await deepButton.innerText()).trim() === "Search again", await deepButton.innerText());
   await shot("bridges-completed-1920x1080");

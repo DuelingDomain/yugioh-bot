@@ -7,7 +7,7 @@ import { BridgeDetails } from "./bridge-details";
 import { BridgeSearch } from "./bridge-search";
 import { DeepProgress, DeepSearchButton } from "./deep-search";
 import { BridgeRequestError, type BridgeScope, type ShownBridge } from "./bridges-api";
-import { BRIDGES_SHOWN } from "./bridges-model";
+import { BRIDGES_SHOWN, DEEP_BRIDGES_SHOWN } from "./bridges-model";
 import { useBridgeCards, useBridgeList, useDeepSearch } from "./use-bridges";
 import styles from "./bridges.module.css";
 
@@ -128,7 +128,7 @@ export function BridgesRow({ archetype, empty, mode, genesys, genesysRemaining, 
             <div className={styles.deepResults} data-testid="deep-results">
               <h4 className={styles.subTitle}>Deep search results</h4>
               {deep.results.length > 0
-                ? <BridgeList {...common} bridges={deep.results} label="Deep search results" />
+                ? <BridgeList {...common} bridges={deep.results.slice(0, DEEP_BRIDGES_SHOWN)} label="Deep search results" />
                 : <p className={styles.hint} data-testid="deep-none">The deep search found no more bridges that passed our checks.</p>}
             </div>
           ) : null}
