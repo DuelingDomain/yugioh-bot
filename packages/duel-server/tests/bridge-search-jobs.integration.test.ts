@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,6 +29,39 @@ function setup(inReview = 2) {
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 
 describe("persistent bridge deep-search admission and lifecycle", () => {
+  it("backfills only interrupted and failed-save refunds when upgrading historical jobs", async () => {
+    const { db, jobs } = setup();
+    await jobs.close();
+    db.exec("ALTER TABLE bridge_deep_job DROP COLUMN limit_refunded");
+    const interrupted = "Bridge search was interrupted. Try again shortly.";
+    const unsaved = "Bridge search completion could not be saved. Try again shortly.";
+    const historical = [
+      ...Array.from({ length: 16 }, (_, i) => ({ state: "failed", error: i % 2 ? interrupted : unsaved, refunded: 1 })),
+      { state: "failed", error: "Bridge search could not finish. Try again shortly.", refunded: 0 },
+      { state: "failed", error: "Review service unavailable, try later.", refunded: 0 },
+      { state: "done", error: interrupted, refunded: 0 },
+      { state: "failed", error: `${unsaved} Other failure.`, refunded: 0 },
+    ];
+    const hash = createHash("sha256").update("bridge-user:1").digest("hex");
+    for (const [i, row] of historical.entries()) {
+      db.prepare(`INSERT INTO bridge_deep_job(id,query_key,query_json,state,step,error,created_at,ended_at)
+        VALUES(?,?,'{}',?,'done',?,999000,999001)`).run(`legacy-${i}`, `legacy-${i}`, row.state, row.error);
+      db.prepare("INSERT INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at,ended_at) VALUES(?,?,'g',999000,999001)")
+        .run(`legacy-${i}`, hash);
+    }
+    const options = { execute: async () => [], project: () => ({ results: [], inReview: 0 }), version: () => "v1", now: () => 1_000_000 };
+    for (let restart = 0; restart < 2; restart++) {
+      const upgraded = new BridgeSearchJobs(db, options);
+      try {
+        for (const [i, row] of historical.entries()) {
+          expect(db.prepare("SELECT limit_refunded FROM bridge_deep_job WHERE id=?").get(`legacy-${i}`))
+            .toEqual({ limit_refunded: row.refunded });
+        }
+        expect(upgraded.start(actor(), query(`After upgrade ${restart}`))).toMatchObject({ state: "running" });
+      } finally { await upgraded.close(); }
+    }
+  });
+
   it("joins only existing work without admitting or charging jobs, including across restart", async () => {
     const { db, jobs, execute, finish, advance } = setup(0);
     for (let i = 0; i < 16; i++) {

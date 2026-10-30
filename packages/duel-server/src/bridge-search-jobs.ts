@@ -63,7 +63,11 @@ export class BridgeSearchJobs {
       db.exec("ALTER TABLE bridge_deep_actor ADD COLUMN counts_toward_limit INTEGER NOT NULL DEFAULT 1");
     }
     if (!(db.prepare("PRAGMA table_info(bridge_deep_job)").all() as { name: string }[]).some(column => column.name === "limit_refunded")) {
-      db.exec("ALTER TABLE bridge_deep_job ADD COLUMN limit_refunded INTEGER NOT NULL DEFAULT 0");
+      db.transaction(() => {
+        db.exec("ALTER TABLE bridge_deep_job ADD COLUMN limit_refunded INTEGER NOT NULL DEFAULT 0");
+        db.prepare("UPDATE bridge_deep_job SET limit_refunded=1 WHERE state='failed' AND error IN (?,?)")
+          .run("Bridge search was interrupted. Try again shortly.", "Bridge search completion could not be saved. Try again shortly.");
+      }).immediate();
     }
     db.transaction(() => {
       const now = this.now();
