@@ -7,7 +7,7 @@ import type { BridgeProjectionInput } from "./bridge-projection-input.js";
 import type { DeckSuggestionLegality, DeckSuggestionQuery, DeckSuggestionResult, CardEffectSearchResult } from "@yugidraft/shared/services";
 
 type Lane = "deep" | "interactive";
-type Job = { worker: Worker; lane: Lane; bridgeWarm: boolean; retiring?: boolean; reject?: (error: Error) => void; idle?: ReturnType<typeof setTimeout> };
+type Job = { worker: Worker; lane: Lane; suggestionsOnly: boolean; bridgeWarm: boolean; retiring?: boolean; reject?: (error: Error) => void; idle?: ReturnType<typeof setTimeout> };
 export type SuggestionScan = { guildId?: string; query: DeckSuggestionQuery; legality: DeckSuggestionLegality; deckMaster?: number };
 export type BridgeScan = { kind: "bridges"; source: string; format: BridgeFormat } & (
   { op: "from"; limit?: number } | { op: "live" | "outgoing" | "into" } | { op: "between" | "explain"; target: string }
@@ -92,7 +92,7 @@ export class DeckSuggestionWorkers {
   }
 
   private queuedBridge(lane: Lane, scan: BridgeScan | BridgeEnginesScan | BridgeProjectionScan, progress?: (value: BridgeProgress) => void, timeoutMs = 4500): Promise<ScanResult> {
-    if (this.closing) return Promise.reject(new Error("Suggestion scanner closed"));
+    if (this.closing) return Promise.reject(new BridgeJobError("Suggestion scanner closed", 503, 1));
     const queue = this.bridgeQueues[lane];
     // Deep admission is already bounded to two running jobs. Their steps wait
     // in a dedicated lane and cannot lose paid work to polling pressure.
@@ -116,9 +116,10 @@ export class DeckSuggestionWorkers {
       // Suggestions share the interactive pool. Keep its second scanner free,
       // including when fast queries and completed projections arrive together.
       const queue = this.bridgeQueues[lane], limit = 1;
-      while (!this.closing && queue.length && this.jobs.filter(job => job.lane === lane && job.reject).length < limit
-        && (this.jobs.some(job => job.lane === lane && !job.reject && !job.retiring)
-          || this.jobs.filter(job => job.lane === lane).length < (lane === "deep" ? 1 : 2))) {
+      while (!this.closing && queue.length && this.jobs.filter(job => job.lane === lane && !job.suggestionsOnly && job.reject).length < limit
+        && (this.jobs.some(job => job.lane === lane && !job.suggestionsOnly && !job.reject && !job.retiring)
+          || this.jobs.filter(job => job.lane === lane).length < (lane === "deep" ? 1 : 2)
+            && !this.jobs.some(job => job.lane === lane && !job.suggestionsOnly))) {
         const next = queue.shift()!;
         clearTimeout(next.timer);
         try { void this.scan(next.scan, next.progress, lane, next.deadline).then(next.resolve, next.reject); }
@@ -128,20 +129,28 @@ export class DeckSuggestionWorkers {
   }
 
   private scan(scan: SuggestionScan | BridgeScan | BridgeEnginesScan | BridgeProjectionScan, progress?: (value: BridgeProgress) => void, lane: Lane = "interactive", deadline?: number): Promise<ScanResult> {
+    if (this.closing) throw new BridgeJobError("Suggestion scanner closed", 503, 1);
     if (deadline !== undefined && performance.now() >= deadline) throw new BridgeJobError("Bridge query timed out. Try again shortly.", 503, 1);
-    let job = this.jobs.find(job => job.lane === lane && !job.reject && !job.retiring);
+    const bridgeScan = "kind" in scan;
+    const idle = (job: Job) => job.lane === lane && !job.reject && !job.retiring && (!bridgeScan || !job.suggestionsOnly);
+    let job = this.jobs.find(job => idle(job) && job.suggestionsOnly) ?? this.jobs.find(idle);
     if (!job) {
       if (this.jobs.filter(job => job.lane === lane).length >= (lane === "deep" ? 1 : 2)) throw new BridgeJobError("Suggestion workers are busy", 503, 1);
+      const suggestionsOnly = lane === "interactive" && this.jobs.some(job => job.lane === lane && !job.suggestionsOnly);
+      if (bridgeScan && suggestionsOnly) throw new BridgeJobError("Bridge scanner is busy", 503, 1);
       const development = import.meta.url.endsWith(".ts");
       const module = new URL(development ? "./deck-suggestion-worker.ts" : "./deck-suggestion-worker.js", import.meta.url);
-      // Three lazy isolates share at most 504 MiB of old + young V8 heaps,
-      // below the old two-scanner 512 MiB old-generation budget. Native/SQLite
-      // allocations are separate; idle retirement releases their page caches.
-      const resourceLimits = { maxOldGenerationSizeMb: 160, maxYoungGenerationSizeMb: 8 };
+      // Node 22 full-catalog, four-engine heapUsed peaks stayed below 152 MiB
+      // interactive, 142 MiB deep and 40 MiB Suggestions-only. Reserve bridge
+      // caches in the larger isolate: 224 + 176 + 112 = 512 MiB total.
+      // Native/SQLite allocations are separate and released on idle retirement.
+      const resourceLimits = suggestionsOnly ? { maxOldGenerationSizeMb: 96, maxYoungGenerationSizeMb: 16 }
+        : lane === "deep" ? { maxOldGenerationSizeMb: 168, maxYoungGenerationSizeMb: 8 }
+        : { maxOldGenerationSizeMb: 208, maxYoungGenerationSizeMb: 16 };
       const worker = development
         ? new Worker(`import('tsx/esm/api').then(({ tsImport }) => tsImport(${JSON.stringify(module.href)}, ${JSON.stringify(import.meta.url)}))`, { eval: true, resourceLimits })
         : new Worker(module, { resourceLimits });
-      job = { worker, lane, bridgeWarm: false }; this.jobs.push(job);
+      job = { worker, lane, suggestionsOnly, bridgeWarm: false }; this.jobs.push(job);
       // An idle worker may exit too. Keep errors handled and never reuse a dead scanner.
       worker.on("error", () => {});
       worker.once("exit", () => {
@@ -155,7 +164,7 @@ export class DeckSuggestionWorkers {
     current.worker.ref();
     return new Promise((resolve, reject) => {
       let settled = false;
-      const finish = (error?: Error, result?: ScanResult, timedOut = false) => {
+      const finish = (error?: Error, result?: ScanResult, retire = false) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
@@ -165,7 +174,7 @@ export class DeckSuggestionWorkers {
         current.worker.off("exit", fail);
         current.reject = undefined;
         current.worker.unref();
-        if (timedOut || error && !(error instanceof BridgeJobError)) this.retire(current);
+        if (retire || error && !(error instanceof BridgeJobError)) this.retire(current);
         else {
           // A rejected query leaves the scanner healthy. Reuse it during a
           // burst, then release its isolate and read-only page cache when idle.
@@ -175,7 +184,7 @@ export class DeckSuggestionWorkers {
         if (error) reject(error); else resolve(result!);
         this.drainBridges();
       };
-      const fail = () => finish(new Error("Suggestion scanner stopped"));
+      const fail = () => finish(new BridgeJobError("Suggestion scanner stopped. Try again shortly.", 503, 1), undefined, true);
       const message = (answer: { error?: boolean; bridgeError?: { message: string; status: number; retryAfter?: number }; result: ScanResult; progress?: BridgeProgress }) => {
         if (answer.progress) {
           try { progress?.(answer.progress); } catch { /* A disconnected progress consumer must not interrupt the scan. */ }
@@ -195,7 +204,7 @@ export class DeckSuggestionWorkers {
         if (!current.bridgeWarm) reject(error);
         else finish(error, undefined, true);
       }, Math.max(1, deadline - performance.now()));
-      current.reject = (error) => finish(error);
+      current.reject = (error) => finish(error, undefined, this.closing);
       current.worker.on("message", message);
       current.worker.once("error", fail);
       current.worker.once("exit", fail);
@@ -214,12 +223,12 @@ export class DeckSuggestionWorkers {
     this.judgeAbort.abort();
     for (const queued of this.judgeQueue.splice(0)) queued.reject(new Error("Bridge judging closed"));
     for (const queue of Object.values(this.bridgeQueues)) for (const queued of queue.splice(0)) {
-      clearTimeout(queued.timer); queued.reject(new Error("Suggestion scanner closed"));
+      clearTimeout(queued.timer); queued.reject(new BridgeJobError("Suggestion scanner closed", 503, 1));
     }
     const jobs = [...this.jobs];
     for (const job of jobs) {
       clearTimeout(job.idle);
-      job.reject?.(new Error("Suggestion scanner closed"));
+      job.reject?.(new BridgeJobError("Suggestion scanner closed", 503, 1));
     }
     await Promise.all([...this.retiring, ...jobs.map(job => job.worker.terminate())]);
     await Promise.allSettled(this.judging);
