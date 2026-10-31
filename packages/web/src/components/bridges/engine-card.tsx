@@ -8,7 +8,7 @@ import type { EngineSuggestion } from "@/lib/bridges-api";
 import type { ShownBridge } from "./bridges-api";
 import { GradeTag, OwnedTag, Points, type CardPropsFor } from "./bridge-card";
 import { AddPathCards, PathThumbs, pathSteps, type PathStep } from "./bridge-path";
-import { AddEngineCards, EngineCoreGroup, coreCodes } from "./engine-core";
+import { AddEngineCards, EngineCoreGroup, coreCodes, engineAdd } from "./engine-core";
 import { bridgeCodes } from "./bridges-model";
 import { cardsState, useBridgeCards } from "./use-bridges";
 import styles from "./bridges.module.css";
@@ -63,7 +63,8 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, adder, lim
 }) {
   const word = engineGrade(engine);
   const covered = `Links ${engine.covered} of ${engine.of}`;
-  const need = needText(engine);
+  // With the Add buttons the counts come from the open deck (the core and the buttons); the host's count would disagree.
+  const need = adder ? "" : needText(engine);
   // The bridge cards of the engine: the cards of every link's line, once each.
   const line: PathStep[] = [];
   for (const link of engine.links) {
@@ -71,6 +72,8 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, adder, lim
       if (!line.some((known) => known.name === step.name)) line.push(step);
     }
   }
+  // The Add engine note says what the copies cost; then the host's total for the missing cards is not shown too.
+  const engineNote = adder && engine.core?.ready ? engineAdd(engine.core, line, cards, mode, adder, genesys).note : undefined;
   const title = (
     <>
       <strong className={styles.target}>{engine.engine}</strong>
@@ -108,15 +111,15 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, adder, lim
         })}
       </ul>
       {need ? <p className={styles.need} data-testid="engine-need">{need}</p> : null}
-      {engine.core ? <EngineCoreGroup core={engine.core} cards={cards} cardProps={cardProps} genesys={genesys} held={adder?.held} limit={limit} heading="h5" /> : null}
+      {engine.core ? <EngineCoreGroup core={engine.core} name={engine.engine} cards={cards} cardProps={cardProps} genesys={genesys} held={adder?.held} limit={limit} heading="h5" /> : null}
       {adder ? (
         <div className={styles.addRow}>
-          <AddPathCards steps={line} held={adder.held} adder={adder} owned={engine.alreadyInDeck} />
-          <AddEngineCards core={engine.core} line={line} cards={cards} mode={mode} adder={adder} genesys={genesys} />
+          <AddPathCards steps={line} name={engine.engine} held={adder.held} adder={adder} owned={engine.alreadyInDeck} />
+          <AddEngineCards core={engine.core} name={engine.engine} line={line} cards={cards} mode={mode} adder={adder} genesys={genesys} />
         </div>
       ) : null}
       <Points pros={engine.pros} cons={engine.cons} clamp={2} />
-      {genesys && engine.genesysPoints != null ? (
+      {genesys && engine.genesysPoints != null && !engineNote ? (
         <ul className={styles.warnings} aria-label="Warnings"><li><AlertTriangle size={13} strokeWidth={1.8} aria-hidden /><span>Needs about {engine.genesysPoints} Genesys points for its missing cards.</span></li></ul>
       ) : null}
     </li>

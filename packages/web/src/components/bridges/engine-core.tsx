@@ -33,8 +33,10 @@ function pointsOf(entry: CoreCard, card: DeckCardInfo | undefined): number | und
  * deck does; a card that has not loaded yet shows the counts the host sent. A core that is not ready says why and has
  * no Add button.
  */
-export function EngineCoreGroup({ core, cards, cardProps, genesys, held, limit, heading: Heading = "h4" }: {
+export function EngineCoreGroup({ core, name, cards, cardProps, genesys, held, limit, heading: Heading = "h4" }: {
   core: EngineCore;
+  /** The engine's name, for the labels of screen readers. */
+  name: string;
   cards: ReadonlyMap<number, DeckCardInfo>;
   cardProps: CardPropsFor;
   genesys: boolean;
@@ -44,7 +46,7 @@ export function EngineCoreGroup({ core, cards, cardProps, genesys, held, limit, 
   heading?: "h4" | "h5";
 }) {
   return (
-    <section className={styles.coreBox} aria-label="Engine core" data-testid="engine-core" data-ready={core.ready ? "" : undefined}>
+    <section className={styles.coreBox} aria-label={`${name} engine core`} data-testid="engine-core" data-ready={core.ready ? "" : undefined}>
       <Heading className={styles.subTitle}>Engine core</Heading>
       {core.caption ? <p className={styles.coreCaption} data-testid="engine-core-caption">{core.caption}</p> : null}
       {!core.ready ? (
@@ -53,7 +55,7 @@ export function EngineCoreGroup({ core, cards, cardProps, genesys, held, limit, 
         </p>
       ) : null}
       {core.cards.length > 0 ? (
-        <ul className={styles.coreCards} aria-label="Engine core cards" data-testid="engine-core-cards">
+        <ul className={styles.coreCards} aria-label={`${name} engine core cards`} data-testid="engine-core-cards">
           {core.cards.map((entry) => {
             const card = cards.get(entry.code);
             const have = card && held ? held(card) : entry.held;
@@ -68,14 +70,14 @@ export function EngineCoreGroup({ core, cards, cardProps, genesys, held, limit, 
                     {limit ? <LimitBadge limit={limit(card)} /> : null}
                   </button>
                 ) : <span className={styles.coreArt} role="img" aria-label={entry.name}>{art}</span>}
-                <div className={styles.fullText}>
+                <div className={styles.coreText}>
                   <span className={styles.stepName} data-testid="engine-core-name">{entry.name}</span>
                   <span className={styles.coreTags}>
                     <span className={styles.roleTag} data-role={entry.role} data-testid="engine-core-role">{ROLE_WORDS[entry.role]}</span>
                     <span className="num" data-testid="engine-core-copies">×{entry.copies}</span>
                     <span data-testid="engine-core-section">{entry.section === "extra" ? "Extra" : "Main"}</span>
                     {genesys && points == null ? <span data-testid="engine-core-points">Points unknown</span> : null}
-                    {points != null && points > 0 ? <span className="num" data-testid="engine-core-points">{points} pts</span> : null}
+                    {points != null && points > 0 ? <span className="num" data-testid="engine-core-points">{points} pts{entry.copies > 1 ? " each" : ""}</span> : null}
                   </span>
                   <span className={styles.stepDeck} data-testid="engine-core-deck">
                     {have > 0 ? <span data-have="" data-testid="engine-core-held">In deck ×{have}</span> : null}
@@ -94,8 +96,13 @@ export function EngineCoreGroup({ core, cards, cardProps, genesys, held, limit, 
 
 /** What "Add engine" asks for: per card, the copies the deck still lacks. The maximum of the line and the core, not their sum. */
 export function engineRequests(core: EngineCore, line: readonly PathStep[], cards: ReadonlyMap<number, DeckCardInfo>, held: (card: DeckCardInfo) => number, state: CardsState) {
+  // One source for Genesys points: the host's number for a core card, else the catalog's. The planner reads the card.
+  const hostPoints = new Map<string, number>();
+  for (const entry of core.cards) if (entry.points != null) hostPoints.set(entry.name, entry.points);
   const wanted = new Map<string, CopyRequest>();
-  const want = (card: DeckCardInfo, copies: number) => {
+  const want = (source: DeckCardInfo, copies: number) => {
+    const points = hostPoints.get(source.name);
+    const card = points == null ? source : { ...source, genesysPoints: points };
     const known = wanted.get(card.name);
     if (!known) wanted.set(card.name, { card, copies });
     else if (copies > known.copies) known.copies = copies;
@@ -122,12 +129,25 @@ export function engineRequests(core: EngineCore, line: readonly PathStep[], card
   return { requests, unfound: [...new Set(unfound)], unloaded: [...new Set(unloaded)], loading };
 }
 
+/** What "Add engine" would do for the open deck: the plan, its count and the Genesys note. One place, so a card and its button agree. */
+export function engineAdd(core: EngineCore, line: readonly PathStep[], cards: ReadonlyMap<number, DeckCardInfo>, mode: DuelMode, adder: CardAdder, genesys: boolean) {
+  const { requests, unfound, unloaded, loading } = engineRequests(core, line, cards, adder.held, cardsState(coreCodes(core), mode));
+  const plan = adder.planCopies(requests);
+  const copies = plan.add.reduce((sum, entry) => sum + entry.copies, 0);
+  const known = plan.add.every((entry) => typeof entry.card.genesysPoints === "number");
+  const total = plan.add.reduce((sum, entry) => sum + (entry.card.genesysPoints ?? 0) * entry.copies, 0);
+  const note = genesys && copies > 0 && known ? `These copies cost ${total} Genesys points in all.` : undefined;
+  return { requests, unfound, unloaded, loading, plan, copies, note };
+}
+
 /**
  * "Add engine (4)": every copy of the core and of the line that the deck lacks, in one undo step. It shows only for
  * a ready core: a core with gaps says "Not ready" and offers no button.
  */
-export function AddEngineCards({ core, line, cards, mode, adder, owned = false, genesys }: {
+export function AddEngineCards({ core, name, line, cards, mode, adder, owned = false, genesys }: {
   core: EngineCore | undefined;
+  /** The engine's name, for the label of screen readers. */
+  name: string;
   /** The bridge cards of the chosen path, which the engine needs too. */
   line: readonly PathStep[];
   cards: ReadonlyMap<number, DeckCardInfo>;
@@ -137,15 +157,9 @@ export function AddEngineCards({ core, line, cards, mode, adder, owned = false, 
   genesys: boolean;
 }) {
   if (!core || !core.ready) return null;
-  const { requests, unfound, unloaded, loading } = engineRequests(core, line, cards, adder.held, cardsState(coreCodes(core), mode));
-  const plan = adder.planCopies(requests);
-  const copies = plan.add.reduce((sum, entry) => sum + entry.copies, 0);
-  const costs = plan.add.map((entry) => entry.card.genesysPoints);
-  const note = genesys && copies > 0 && costs.every((points) => typeof points === "number")
-    ? `Needs about ${plan.add.reduce((sum, entry) => sum + (entry.card.genesysPoints ?? 0) * entry.copies, 0)} Genesys points for these copies.`
-    : undefined;
+  const { requests, unfound, unloaded, loading, plan, copies, note } = engineAdd(core, line, cards, mode, adder, genesys);
   return (
-    <AddBox prefix="core" verb="Add engine" count={copies} adds={plan.add} blocked={plan.blocked} unknownPoints={plan.unknownPoints}
+    <AddBox prefix="core" verb="Add engine" count={copies} label={`Add ${name} engine, ${copies} ${copies === 1 ? "card" : "cards"}`} adds={plan.add} blocked={plan.blocked} unknownPoints={plan.unknownPoints}
       lacking={requests.reduce((sum, request) => sum + request.copies, 0)} loading={loading} unfound={unfound} unloaded={unloaded}
       owned={owned} note={note} onAdd={() => adder.addCopies(requests)} />
   );
@@ -158,8 +172,10 @@ const OTHER_WAYS_SHOWN = 2;
  * The other ways into the engine, one compact row each: card images with arrows, in play order. The first two show;
  * the rest sit behind a button.
  */
-export function OtherWays({ paths, codes, cards, state, cardProps }: {
+export function OtherWays({ paths, name, codes, cards, state, cardProps }: {
   paths: readonly BridgeAlternativePath[];
+  /** The engine's name, for the label of screen readers. */
+  name: string;
   codes: readonly number[];
   cards: ReadonlyMap<number, DeckCardInfo>;
   state: CardsState;
@@ -169,14 +185,20 @@ export function OtherWays({ paths, codes, cards, state, cardProps }: {
   if (paths.length === 0) return null;
   const shown = all ? paths : paths.slice(0, OTHER_WAYS_SHOWN);
   return (
-    <section className={styles.otherWays} aria-label="Other ways in" data-testid="bridge-other-ways">
+    <section className={styles.otherWays} aria-label={`Other ways into ${name}`} data-testid="bridge-other-ways">
       <h5 className={styles.subTitle}>Other ways in</h5>
       <ul className={styles.otherRows} data-testid="bridge-other-rows">
         {shown.map((path, index) => {
           const steps = alternativeSteps(path, codes, cards, state);
           return (
-            <li key={`${index}-${path.line.join(">")}`} className={styles.otherRow} data-testid="bridge-other-row" title={path.steps.map((step) => `${step.card}: ${step.text}`).join("\n")}>
+            <li key={`${index}-${path.line.join(">")}`} className={styles.otherRow} data-testid="bridge-other-row">
               <PathThumbs steps={steps} cardProps={cardProps} label={`Other way in: ${path.line.join(", then ")}`} testId="bridge-other-path" />
+              {path.steps.some((step) => step.text) ? (
+                <details className={styles.otherSteps} data-testid="bridge-other-steps">
+                  <summary>What each card does</summary>
+                  <ol>{path.steps.map((step, at) => <li key={`${at}-${step.card}`}><strong>{step.card}.</strong> {step.text}</li>)}</ol>
+                </details>
+              ) : null}
             </li>
           );
         })}

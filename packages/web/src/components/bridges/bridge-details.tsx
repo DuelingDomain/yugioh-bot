@@ -76,14 +76,14 @@ export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, l
       <section aria-labelledby={`line-${bridge.evidence_hash}`}>
         <h4 id={`line-${bridge.evidence_hash}`} className={styles.subTitle}>Bridge cards</h4>
         <PathSteps steps={steps} cardProps={cardProps} deckCount={deckCount} held={held} limit={limit} />
-        {adder ? <AddPathCards steps={steps} held={held} adder={adder} owned={bridge.alreadyInDeck} /> : null}
-        <OtherWays paths={others} codes={codes} cards={cards} state={state} cardProps={cardProps} />
+        {adder ? <AddPathCards steps={steps} name={bridge.target} held={held} adder={adder} owned={bridge.alreadyInDeck} /> : null}
+        <OtherWays paths={others} name={bridge.target} codes={codes} cards={cards} state={state} cardProps={cardProps} />
       </section>
 
       {core ? (
         <div data-testid="bridge-engine-core">
-          <EngineCoreGroup core={core} cards={cards} cardProps={cardProps} genesys={genesys} held={adder?.held} limit={limit} />
-          {adder ? <AddEngineCards core={core} line={steps} cards={cards} mode={mode} adder={adder} genesys={genesys} /> : null}
+          <EngineCoreGroup core={core} name={bridge.target} cards={cards} cardProps={cardProps} genesys={genesys} held={adder?.held} limit={limit} />
+          {adder ? <AddEngineCards core={core} name={bridge.target} line={steps} cards={cards} mode={mode} adder={adder} genesys={genesys} /> : null}
         </div>
       ) : null}
 

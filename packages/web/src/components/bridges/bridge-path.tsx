@@ -151,6 +151,8 @@ export type AddView = {
   verb: string;
   /** Copies the button adds. */
   count: number;
+  /** The label of screen readers for the Add button, with the engine's name. */
+  label?: string;
   adds: readonly { card: DeckCardInfo; section: "main" | "extra"; copies: number }[];
   blocked: readonly { card: DeckCardInfo; reason: string; copies?: number }[];
   unknownPoints: readonly DeckCardInfo[];
@@ -171,7 +173,7 @@ export type AddView = {
  * cards go in (and where), and which cannot (banlist, a full section). It never says "Already in deck" while a card
  * is still loading or was not found: it says so and names that card.
  */
-export function AddBox({ prefix, verb, count, adds, blocked, unknownPoints, lacking, loading, unfound, unloaded, owned = false, note, onAdd }: AddView) {
+export function AddBox({ prefix, verb, count, label, adds, blocked, unknownPoints, lacking, loading, unfound, unloaded, owned = false, note, onAdd }: AddView) {
   const id = `${prefix}-add`;
   if (owned) {
     return (
@@ -185,7 +187,7 @@ export function AddBox({ prefix, verb, count, adds, blocked, unknownPoints, lack
   return (
     <div className={styles.addBox} data-testid={`${id}-box`}>
       {count > 0 ? (
-        <button type="button" className="btn btn-primary btn-sm" data-testid={id} data-state="ready" onClick={onAdd}>
+        <button type="button" className="btn btn-primary btn-sm" aria-label={label} data-testid={id} data-state="ready" onClick={onAdd}>
           {verb} ({count})
         </button>
       ) : complete && lacking === 0 ? (
@@ -217,12 +219,12 @@ export function AddBox({ prefix, verb, count, adds, blocked, unknownPoints, lack
 }
 
 /** "Add bridge (2)": the cards of the line that the deck lacks (one copy each). */
-export function AddPathCards({ steps, held, adder, owned = false }: { steps: readonly PathStep[]; held: (card: DeckCardInfo) => number; adder: CardAdder; /** The host says the deck holds the whole package: no Add, a quiet label. */ owned?: boolean }) {
+export function AddPathCards({ steps, name, held, adder, owned = false }: { steps: readonly PathStep[]; /** The engine the bridge leads to, for the label of screen readers. */ name: string; held: (card: DeckCardInfo) => number; adder: CardAdder; /** The host says the deck holds the whole package: no Add, a quiet label. */ owned?: boolean }) {
   if (steps.length === 0) return null;
   const missing = missingSteps(steps, held);
   const plan = adder.plan(missing);
   return (
-    <AddBox prefix="bridge" verb="Add bridge" count={plan.add.length} adds={plan.add.map((entry) => ({ ...entry, copies: 1 }))} blocked={plan.blocked} unknownPoints={plan.unknownPoints}
+    <AddBox prefix="bridge" verb="Add bridge" count={plan.add.length} label={`Add ${name} bridge, ${plan.add.length} ${plan.add.length === 1 ? "card" : "cards"}`} adds={plan.add.map((entry) => ({ ...entry, copies: 1 }))} blocked={plan.blocked} unknownPoints={plan.unknownPoints}
       lacking={missing.length} loading={steps.some((step) => step.status === "loading")}
       unfound={steps.filter((step) => step.status === "missing").map((step) => step.name)} unloaded={steps.filter((step) => step.status === "failed").map((step) => step.name)}
       owned={owned} onAdd={() => adder.add(missing)} />

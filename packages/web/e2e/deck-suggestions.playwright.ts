@@ -141,7 +141,7 @@ const CORES: Record<string, { caption: string; gaps?: string[]; cards: [string, 
   "Dragunity": { caption: "Phalanx starts the engine and Dux adds pressure.", cards: [["Dragunity Phalanx", "main", "starter", 3], ["Dragunity Dux", "main", "payoff", 2], ["Dragon Shrine", "main", "support", 1]] },
   "Dragon Ruler": { caption: "Tidal and Redox fill the Graveyard.", cards: [["Tidal, Dragon Ruler of Waterfalls", "main", "starter", 3], ["Redox, Dragon Ruler of Boulders", "main", "extender", 2], ["Foolish Burial", "main", "support", 1]] },
   "Chaos": { caption: "Chaos needs a banish line.", gaps: ["Black Luster Soldier needs a Ritual route that we could not confirm.", "Chaos Sorcerer has no second starter."], cards: [["Chaos Sorcerer", "main", "starter", 3], ["Black Luster Soldier - Envoy of the Beginning", "main", "payoff", 1]] },
-  "Red-Eyes": { caption: "Red-Eyes Fusion makes the Dragoon.", cards: [["Red-Eyes Black Dragon", "main", "starter", 3], ["Red-Eyes Fusion", "main", "support", 2], ["Red-Eyes Dark Dragoon", "extra", "payoff", 1, 3]] },
+  "Red-Eyes": { caption: "Red-Eyes Fusion makes the Dragoon.", cards: [["Red-Eyes Black Dragon", "main", "starter", 3, 2], ["Red-Eyes Fusion", "main", "support", 2], ["Red-Eyes Dark Dragoon", "extra", "payoff", 1, 3]] },
   "Dark Magician": { caption: "Dark Magician is the start.", cards: [["Dark Magician", "main", "starter", 3], ["Magician of Black Chaos", "main", "payoff", 1]] },
   "Blue-Eyes": { caption: "Sage and Shrine start Blue-Eyes.", cards: [["Sage with Eyes of Blue", "main", "starter", 3], ["Dragon Shrine", "main", "support", 2]] },
   "Melodious": { caption: "Terraforming finds the field spell.", cards: [["Terraforming", "main", "searcher", 2], ["Dragon Spirit of White", "main", "extender", 1], ["Foolish Burial", "main", "support", 1]] },
@@ -1151,7 +1151,7 @@ try {
   const paths = (await chaos.getByTestId("engine-paths").innerText()).replace(/\s+/g, " ");
   const chaosThumbs = await chaos.getByTestId("engine-paths").locator('ol[aria-label$="path of cards"] button').evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.getAttribute("aria-label")));
   check("u2", "an engine shows the access path of each link as card images", paths.includes("Blue-Eyes → Chaos") && paths.includes("Dragunity → Chaos") && chaosThumbs.includes("Monster Reborn") && chaosThumbs.includes("Dragunity Dux"), { paths, chaosThumbs });
-  check("u2", "an engine says what the deck lacks, and each link says Details", /to add/.test(await chaos.getByTestId("engine-need").innerText()) && (await chaos.getByTestId("engine-link").first().innerText()).includes("Details"), await chaos.getByTestId("engine-need").innerText());
+  check("u2", "an engine shows its core with what the deck lacks (one count, no host text above the buttons), and each link says Details", (await chaos.getByTestId("engine-need").count()) === 0 && (await chaos.getByTestId("engine-core-card").count()) > 0 && (await chaos.getByTestId("engine-link").first().innerText()).includes("Details"), await chaos.innerText());
   check("u2", "an engine shows good and bad points", (await chaos.getByRole("list", { name: "Good" }).locator("li").count()) >= 1 && (await chaos.getByRole("list", { name: "Bad" }).locator("li").count()) >= 1);
   check("u2", "only a two-way engine gets the two-way badge", (await chaos.getByTestId("engine-two-way").count()) === 0 && (await engineItems.nth(2).getByTestId("engine-two-way").count()) === 1);
   check("u2", "the single-engine list is replaced", (await bridges.getByRole("list", { name: "Your deck can bridge into", exact: true }).count()) === 0);
@@ -1435,14 +1435,15 @@ try {
   check("w2", "a reload picks the finished search up from the kept job", (await bridges.getByTestId("deep-results").getByTestId("engine-item").count()) >= 1 && bridgeCalls.starts.length === 1, bridgeCalls.starts.length);
 
   // A deck edit after the search: the host hears of the new deck (the same job, no new search) and the results follow it.
-  const needBefore = await bridges.getByTestId("deep-results").getByTestId("engine-item").first().getByTestId("engine-need").innerText();
+  const needOf = async () => (await bridges.getByTestId("deep-results").getByTestId("engine-item").first().locator('[data-testid="bridge-add"], [data-testid="core-add"], [data-testid="engine-core-deck"]').allInnerTexts()).join("|");
+  const needBefore = await needOf();
   await goTab("Cards");
   await search().fill("Chaos Sorcerer");
   await page.locator('[data-pane="cards"] button[title="Chaos Sorcerer"]').first().dblclick({ timeout: 10_000 });
   await search().fill("");
   await goTab("Bridges");
   await page.waitForTimeout(2500);
-  const needAfter = await bridges.getByTestId("deep-results").getByTestId("engine-item").first().getByTestId("engine-need").innerText().catch(() => "");
+  const needAfter = await needOf().catch(() => "");
   check("w2", "a deck edit after the search sends the new deck to the same search, and no progress bar or dot shows", bridgeCalls.starts.length === 2 && bridgeCalls.starts[1]!.deck !== undefined && bridgeCalls.starts[1]!.join === true && (await bridges.getByTestId("deep-progress").count()) === 0 && (await page.locator('[role="tab"][data-dot]').count()) === 0, { starts: bridgeCalls.starts.length });
   check("w2", "the results then count the card the deck holds now", needAfter !== "" && needAfter !== needBefore, { needBefore, needAfter });
 
@@ -2072,6 +2073,7 @@ try {
   const coreBtn = pDetails.getByTestId("core-add");
   check("s2", "Add bridge counts the missing line cards and Add engine counts the copies of the core, not their sum", (await bridgeBtn.innerText()) === "Add bridge (1)" && (await coreBtn.innerText()) === "Add engine (5)", [await bridgeBtn.innerText(), await coreBtn.innerText()]);
   check("s2", "Add engine names each card with its copies and section", /^Adds Dragunity Phalanx ×3 \(Main Deck\), Dragunity Dux ×2 \(Main Deck\)\./.test(await pDetails.getByTestId("core-add-list").innerText()), await pDetails.getByTestId("core-add-list").innerText());
+  check("s2", "the buttons and sections name the engine for a screen reader", (await bridgeBtn.getAttribute("aria-label")) === "Add Dragunity bridge, 1 card" && (await coreBtn.getAttribute("aria-label")) === "Add Dragunity engine, 5 cards" && (await pDetails.getByTestId("engine-core").getAttribute("aria-label")) === "Dragunity engine core" && (await pDetails.getByTestId("bridge-other-ways").getAttribute("aria-label")) === "Other ways into Dragunity", [await bridgeBtn.getAttribute("aria-label"), await coreBtn.getAttribute("aria-label"), await pDetails.getByTestId("engine-core").getAttribute("aria-label")]);
   await shot("s-details-core-1920x1080");
   const sMain = await mainCount();
   await coreBtn.click();
@@ -2092,6 +2094,11 @@ try {
   const sOther = pDetails.getByTestId("bridge-other-ways");
   check("s4", "other ways in show two rows with a button for the third", (await sOther.getByTestId("bridge-other-row").count()) === 2 && (await sOther.getByTestId("bridge-other-more").innerText()) === "Show 1 more" && (await sOther.getByTestId("bridge-other-more").getAttribute("aria-expanded")) === "false");
   check("s4", "a row is card images with arrows in play order", JSON.stringify(await sOther.getByTestId("bridge-other-row").first().locator("button").evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.getAttribute("aria-label")))) === JSON.stringify(["Dragon Shrine", "Dragunity Dux"]) && (await sOther.getByTestId("bridge-other-row").first().locator("svg").count()) === 1);
+  const sSteps = sOther.getByTestId("bridge-other-row").first().getByTestId("bridge-other-steps");
+  check("s4", "the other ways keep their step text out of a tooltip: it is a button-like summary that opens visible text", (await sOther.getByTestId("bridge-other-row").first().getAttribute("title")) === null && (await sSteps.locator("summary").innerText()) === "What each card does" && !(await sSteps.locator("ol").isVisible()));
+  await sSteps.locator("summary").click();
+  check("s4", "the step text shows for each card, in play order", (await sSteps.locator("li").allInnerTexts()).join("|") === "Dragon Shrine. Dragon Shrine is another way in.|Dragunity Dux. Dragunity Dux is another way in." && await sSteps.locator("ol").isVisible());
+  await sSteps.locator("summary").click();
   await sOther.getByTestId("bridge-other-more").click();
   check("s4", "the button shows the third row and then offers fewer", (await sOther.getByTestId("bridge-other-row").count()) === 3 && (await sOther.getByTestId("bridge-other-more").innerText()) === "Show fewer");
   await sOther.getByTestId("bridge-other-more").click();
@@ -2113,6 +2120,9 @@ try {
   await items.filter({ hasText: "Red-Eyes" }).first().locator("button[data-bridge]").click();
   await pDetails.waitFor();
   check("s7", "a Genesys deck shows the points of a core card", (await pDetails.getByTestId("engine-core-card").filter({ hasText: "Red-Eyes Dark Dragoon" }).getByTestId("engine-core-points").innerText()) === "3 pts" && (await pDetails.getByTestId("engine-core-card").filter({ hasText: "Red-Eyes Dark Dragoon" }).getByTestId("engine-core-section").innerText()) === "Extra");
+  check("s7", "a card with several copies says its points are per copy", (await pDetails.getByTestId("engine-core-card").filter({ hasText: "Red-Eyes Black Dragon" }).getByTestId("engine-core-points").innerText()) === "2 pts each");
+  const sNote = await pDetails.getByTestId("core-add-list").innerText();
+  check("s7", "the Add engine note gives the total, and the host's points count in it", /Genesys points/.test(sNote) && (!/cost/.test(sNote) || /cost \d+ Genesys points in all\./.test(sNote)), sNote);
   await shot("s-details-genesys-1920x1080");
   control.genesys = false;
 
@@ -2131,6 +2141,8 @@ try {
     await ruler.scrollIntoViewIfNeeded();
     check("s8", `${viewport.name}: a ready engine shows its core cards with images, and both buttons`, (await ruler.getByTestId("engine-core-card").count()) === 3 && (await ruler.getByTestId("engine-core-card").locator("img").count()) === 3 && (await ruler.getByTestId("bridge-add").innerText()) === "Add bridge (1)" && (await ruler.getByTestId("core-add").innerText()) === "Add engine (5)", [await ruler.getByTestId("bridge-add").innerText(), await ruler.getByTestId("core-add").innerText()]);
     check("s8", `${viewport.name}: the engine card does not scroll the page sideways and stays in the column`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1) && await ruler.evaluate((node: HTMLElement) => node.scrollWidth <= node.clientWidth + 1));
+    check("s8", `${viewport.name}: each core card is image-high, not twice as tall (text beside the image)`, await ruler.getByTestId("engine-core-card").evaluateAll((nodes: HTMLElement[]) => nodes.every((node) => { const art = node.querySelector("button, [role=img]") as HTMLElement; return node.getBoundingClientRect().height <= art.getBoundingClientRect().height + 30; })), await ruler.getByTestId("engine-core-card").evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => Math.round(node.getBoundingClientRect().height))));
+    check("s8", `${viewport.name}: the card has no host count line above the buttons`, (await ruler.getByTestId("engine-need").count()) === 0);
     if (viewport.width < 960) check("s8", "on a phone both Add buttons are at least 40px tall", (await ruler.getByTestId("core-add").evaluate((node: HTMLElement) => node.getBoundingClientRect().height)) >= 40 && (await ruler.getByTestId("bridge-add").evaluate((node: HTMLElement) => node.getBoundingClientRect().height)) >= 40);
     await shot(`s-engine-core-${viewport.name}`);
     if (viewport.width === 1920) {
@@ -2159,6 +2171,7 @@ try {
     await shot(`s-details-other-ways-${viewport.name}`);
     await pDetails.getByTestId("bridge-engine-core").scrollIntoViewIfNeeded();
     check("s9", `${viewport.name}: the engine core fits the width and its images are all inside the column`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1) && await pDetails.getByTestId("bridge-engine-core").evaluate((node: HTMLElement) => { const edge = node.getBoundingClientRect().right + 1; return node.scrollWidth <= node.clientWidth + 1 && [...node.querySelectorAll("img")].every((img) => img.getBoundingClientRect().right <= edge); }));
+    check("s9", `${viewport.name}: each core card is image-high, not twice as tall`, await pDetails.getByTestId("engine-core-card").evaluateAll((nodes: HTMLElement[]) => nodes.every((node) => { const art = node.querySelector("button, [role=img]") as HTMLElement; return node.getBoundingClientRect().height <= art.getBoundingClientRect().height + 30; })));
     if (viewport.width < 960) check("s9", "on a phone Add engine and the core card images are big enough to hit", (await pDetails.getByTestId("core-add").evaluate((node: HTMLElement) => node.getBoundingClientRect().height)) >= 40 && (await pDetails.getByTestId("engine-core-card").first().locator("button").evaluate((node: HTMLElement) => node.getBoundingClientRect().width)) >= 40);
     await shot(`s-details-core-${viewport.name}`);
   }
