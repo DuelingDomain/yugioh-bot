@@ -6,7 +6,6 @@ import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
 import type { CardAdder } from "@/components/decks/card-adder";
 import { BridgeCard, GradeBadge, OwnedTag, directionText, type CardPropsFor } from "./bridge-card";
 import { BridgeDetails } from "./bridge-details";
-import { BridgeSearch } from "./bridge-search";
 import { DeepProgress, DeepSearchButton } from "./deep-search";
 import { EngineChips } from "./engine-chips";
 import { EngineList } from "./engine-card";
@@ -18,8 +17,6 @@ import { refreshEngines, useDeckEngines, useEnginesAnswer } from "./use-engines"
 import styles from "./bridges.module.css";
 
 type Props = {
-  /** The archetype the editor found in the deck. Only a start for the two-archetype search; the engines come from the host. */
-  archetype: string | null;
   /** The saved deck, to keep the player's chip edits for it in this browser. Null: not saved yet. */
   deckId?: number | null;
   /** The open deck. The host finds its engines from the card lists. */
@@ -104,7 +101,7 @@ function scrollBox(node: HTMLElement | null): HTMLElement | null {
  * engine to add next. Deep search sits right under the chips, so it is never far down. A bridge opens its details in
  * place, and Back returns to the same place in the list. Only bridges that passed the checks reach this tab.
  */
-export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, genesys, genesysRemaining, cardProps, deckCount, limit, adder, onCatalog, onDisabled, active = true, onDeepFinished }: Props) {
+export function BridgesRow({ deckId = null, deck, deckMaster, mode, genesys, genesysRemaining, cardProps, deckCount, limit, adder, onCatalog, onDisabled, active = true, onDeepFinished }: Props) {
   const onDisabledRef = useRef(onDisabled);
   onDisabledRef.current = onDisabled;
   const onDeepFinishedRef = useRef(onDeepFinished);
@@ -112,7 +109,6 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
   const rootRef = useRef<HTMLElement>(null);
   const hintId = useId();
   const [open, setOpen] = useState<ShownBridge | null>(null);
-  const [searching, setSearching] = useState(false);
   // The link a details view was opened from (its place among the links, and the scroll), so Back returns to it.
   const cameFrom = useRef<{ hash: string; index: number; scroll: number } | null>(null);
   const clicked = useRef<HTMLElement | null>(null);
@@ -241,8 +237,6 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
   const inReview = deep.phase === "done" && deep.inReview != null ? deep.inReview : (single ? list?.inReview : result?.inReview) ?? 0;
   const running = deep.phase === "starting" || deep.phase === "running";
   const removedAll = !pickMode && !empty && set.length === 0 && engines.found.length > 0;
-  // Two or more picks already compare archetypes, so the two-archetype search would only say the same thing again.
-  const searchOffered = !(pickMode && set.length > 1);
 
   const hint = noCards ? "Add a few Main Deck cards. Bridges for your deck show here."
     : pickMode && set.length === 0 ? "Pick one to four archetypes to see the bridges between them."
@@ -286,7 +280,6 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
           {/* Deep search sits under the chips: the second thing a player looks for, never a long scroll away. */}
           <div className={styles.actions}>
             <DeepSearchButton deep={deep} cooldown={cooldown} blocked={blocked} disabled={!scope} again={stale} describedBy={hintId} onStart={() => void start()} />
-            {searchOffered ? <button type="button" className={styles.link} aria-expanded={searching} data-testid="bridge-search-toggle" onClick={() => setSearching((now) => !now)}>{searching ? "Hide two-archetype search" : "Search two archetypes"}</button> : null}
             <span id={hintId} className={styles.actionHint}>{actionHint}</span>
           </div>
           {elsewhere ? <DeepProgress deep={{ phase: "running", step: elsewhere.step, progress: elsewhere.progress }} title={`Your deep search for ${elsewhere.names || "other engines"} is still running...`} testId="deep-elsewhere" /> : null}
@@ -294,10 +287,6 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
           {deep.phase === "failed" && deep.error ? <p className={styles.errorLine} role="alert" data-testid="deep-error">{deep.error}</p> : null}
           {deepNotice ? <p className={styles.note} role="status" data-testid="deep-notice">{deepNotice}</p> : null}
           {stale ? <p className={styles.note} data-testid="deep-stale">Your cards changed since the deep search for {names}. Search again to update what it shows.</p> : null}
-          {searching && searchOffered ? (
-            <BridgeSearch start={first ?? archetype} genesys={genesys} genesysRemaining={genesysRemaining}
-              renderList={(bridges, title) => <BridgeList {...common} bridges={bridges} showSource label={title} />} />
-          ) : null}
 
           {single && !noCards ? <p className={styles.lead}>{pickMode ? <><strong>{single}</strong> can bridge into</> : <>Your <strong>{single}</strong> deck can bridge into</>}</p> : null}
           {/* One reserved height for loading, results and the empty state, so the list below does not jump. */}

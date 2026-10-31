@@ -828,7 +828,6 @@ export function CardBrowser({
           <div className={styles.paneScroll}>
             <BridgesRow
               active={columns.tab === "bridges"}
-              archetype={suggest.archetype ?? null}
               deckId={suggest.deckId ?? null}
               deck={suggest.deck}
               deckMaster={suggest.deckMaster}

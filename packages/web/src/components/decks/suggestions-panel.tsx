@@ -37,8 +37,6 @@ export type BrowserSuggest = {
   banlist?: string;
   deckMaster?: number | null;
   genesysRemaining?: number;
-  /** The archetype of the deck, for the Bridges tab. Null: the deck has none yet. */
-  archetype?: string | null;
   /** The saved deck, to keep the player's engine chips for it. Null: the deck is not saved yet. */
   deckId?: number | null;
 };

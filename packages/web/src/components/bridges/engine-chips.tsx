@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import type { DetectedEngine } from "@/lib/bridges-api";
 import { cn } from "@/lib/utils";
-import { ArchetypeCombo, wholeName } from "./bridge-search";
+import { ArchetypeCombo, wholeName } from "./archetype-combo";
 import { MAX_ENGINES } from "./engines-model";
 import { useArchetypeNames } from "./use-engines";
 import styles from "./bridges.module.css";

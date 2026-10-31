@@ -156,9 +156,6 @@ button.coreArt:hover { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.5); }
 .lockNote strong { color: var(--chain-ink); font-weight: 500; }
 .plainTile { cursor: default; }
 
-.search { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--rule-lo); }
-.searchBoxes { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
-.searchTo { padding-bottom: 8px; color: var(--ink-4); }
 .comboField { display: grid; flex: 1 1 180px; gap: 4px; min-width: 0; }
 .comboLabel { color: var(--ink-3); font-size: 11.5px; }
 .combo { position: relative; display: block; }
@@ -166,10 +163,6 @@ button.coreArt:hover { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.5); }
 .comboList { position: absolute; z-index: 5; inset: calc(100% + 4px) 0 auto; max-height: 220px; margin: 0; padding: 4px; overflow-y: auto; border-radius: 8px; background: var(--panel-3); box-shadow: 0 0 0 1px var(--rule), 0 12px 28px rgb(0 0 0 / 0.5); list-style: none; }
 .comboOption { padding: 6px 8px; border-radius: 5px; color: var(--ink-2); font-size: 13px; cursor: pointer; }
 .comboOption[aria-selected="true"] { background: var(--pen-soft); color: var(--ink); }
-.searchResults { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px; align-items: start; }
-.searchResults > div { display: grid; gap: 8px; min-width: 0; }
-.searchResults > p { grid-column: 1 / -1; }
-.searchResults .list { grid-template-columns: minmax(0, 1fr); }
 
 /* The engines of the open deck as chips, and the engines that fit next. */
 .chips { display: grid; gap: 8px; min-width: 0; }

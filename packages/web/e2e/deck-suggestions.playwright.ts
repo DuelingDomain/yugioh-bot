@@ -687,7 +687,7 @@ try {
 
   }
 
-  // h. Bridges: the row, its details, the two-archetype search, the deep search and the report action.
+  // h. Bridges: the row, its details, the deep search and the report action.
   const bridges = page.getByTestId("bridges-row");
   const items = bridges.getByTestId("bridge-item");
   const reset = async (deck: "small" | "full" | "empty" = "small") => {
@@ -724,17 +724,6 @@ try {
     check("h", `${viewport.name}: bridge details fit the panel`, detailsLayout.outside === 0 && detailsLayout.page, detailsLayout);
     await bridges.getByRole("button", { name: /^Back/ }).click();
     await items.first().waitFor();
-
-    // The two-archetype search.
-    await bridges.getByTestId("bridge-search-toggle").click();
-    const search = bridges.getByTestId("bridge-search");
-    await search.getByRole("combobox").nth(1).fill("Dragu");
-    await search.getByRole("option", { name: "Dragunity" }).click();
-    await search.getByTestId("bridge-search-results").waitFor();
-    await settle();
-    await shot(`bridges-search-${viewport.name}`);
-    const searchLayout = await whole(`${viewport.name} search`);
-    check("h", `${viewport.name}: the two-archetype search fits the panel`, searchLayout.outside === 0 && searchLayout.page, searchLayout);
 
     // A deep search that is running, and its result.
     await reset();
@@ -826,27 +815,6 @@ try {
   await items.nth(0).getByRole("button", { name: "Send" }).click();
   await items.nth(0).getByTestId("bridge-thanks").waitFor();
   check("h3", "the reason is optional", bridgeCalls.feedback.at(-1)?.reason === undefined, bridgeCalls.feedback.at(-1));
-
-  // h4. The free "X to Y" search: names by autocomplete, the bridge each way.
-  await reset();
-  await bridges.getByTestId("bridge-search-toggle").click();
-  const pair = bridges.getByTestId("bridge-search");
-  const [from, to] = [pair.getByRole("combobox").nth(0), pair.getByRole("combobox").nth(1)];
-  check("h4", "the first box starts with the deck archetype", (await from.inputValue()) === "Blue-Eyes", await from.inputValue());
-  await to.fill("dragu");
-  check("h4", "typing offers the matching archetype names", JSON.stringify(await pair.getByRole("option").allInnerTexts()) === JSON.stringify(["Dragunity"]), await pair.getByRole("option").allInnerTexts());
-  await to.press("ArrowDown");
-  await to.press("Enter");
-  await pair.getByTestId("bridge-search-results").waitFor();
-  check("h4", "the search shows the bridge each way", (await pair.getByTestId("bridge-item").count()) === 2 && (await pair.getByRole("heading", { level: 4 }).allInnerTexts()).join("|") === "Blue-Eyes → Dragunity|Dragunity → Blue-Eyes", await pair.getByRole("heading", { level: 4 }).allInnerTexts());
-  check("h4", "the search asks for both names in the deck's format", bridgeCalls.lists.at(-1) === "?source=Blue-Eyes&format=advanced&target=Dragunity", bridgeCalls.lists.at(-1));
-  check("h4", "the archetype list loads once", bridgeCalls.archetypes === 1, bridgeCalls.archetypes);
-  await from.fill("Chaos");
-  await to.fill("Red-Eyes");
-  await page.waitForTimeout(400);
-  check("h4", "a pair with no bridge says so, both ways", (await pair.getByTestId("bridge-search-none").count()) === 2, await pair.getByTestId("bridge-search-none").count());
-  await to.fill("Chaos");
-  check("h4", "the same archetype twice is refused kindly", (await pair.innerText()).includes("Choose two different archetypes"));
 
   // h5. Genesys follows the deck's format.
   control.genesys = true;
@@ -1572,7 +1540,6 @@ try {
   check("x3", "two picks ask the host by name, with the open deck as context", engineCalls.length === 1 && JSON.stringify(engineCalls[0]!.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]) && engineCalls[0]!.deck !== undefined, engineCalls);
   check("x3", "two picks show the bridge between them", JSON.stringify(await bridges.getByTestId("engines-between").getByTestId("bridge-item").locator("strong").allInnerTexts()) === JSON.stringify(["Blue-Eyes → Chaos"]) && (await bridges.getByTestId("engines-between").locator("h4").innerText()) === "Bridges between these archetypes", await bridges.getByTestId("engines-between").getByTestId("bridge-item").locator("strong").allInnerTexts());
   check("x3", "two picks show the next engine for them", (await bridges.getByTestId("engines-next").locator("h4").innerText()) === "Next engine for Blue-Eyes + Chaos");
-  check("x3", "two picks hide the two-archetype search, which would say the same", (await bridges.getByTestId("bridge-search-toggle").count()) === 0);
   check("x3", "the picks have no reset link and no Also in deck", (await chips.getByTestId("engine-reset").count()) === 0 && (await chips.getByTestId("engine-also").count()) === 0);
   await pickAdd("Dragunity");
   await pickAdd("Dark Magician");
