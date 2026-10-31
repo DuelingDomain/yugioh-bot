@@ -34,18 +34,30 @@ The UI discriminator is `next[i].kind === "synergy"`; each associated
 
 Full engine construction, core derivation, ranking, detection, and directed
 projection run in the scanner worker. Host gates validate only evidence and the
-two relevant engine packages. Stat-filter validation lazily caches a global set
-of legal IDs, preserving full-catalog selectivity without loading all effects.
+two relevant engine packages. Scanners lazily build the global legal-ID set for
+stat-filter validation and send it to the host with its database revision. Host
+gates, review reuse, legacy admission checks, and judge checks use that set within
+a matching read transaction; stale worker replies are retried. Concurrent loads
+for the same format coalesce. This preserves full-catalog selectivity without a
+catalog scan or legality rebuild on the duel thread.
 Existing ordinary judge prompts and identities are unchanged. The 31 previously
 reviewed live rows retain the same gate distribution: 18 shown, 3 review, 9 invalid,
 1 pending. The managed-job namespace changes so stale candidate sets are rescanned.
 
-`bridge_engine_revision` changes only with semantic card/effect/graph inputs.
-Timestamp/image refreshes, no-op capability writes, and artwork `is_main` resets
-preserve the engine/core/ranking caches. Broad catalog revisions continue to
+`bridge_engine_revision` changes only with `card_capability` and `bridge_graph`
+inputs. Catalog, release, tag/profile and archetype directory writes, including
+new artwork catalog rows, preserve the engine/core/ranking caches. No-op
+capability writes and capability source-version refreshes also preserve them.
+Migration atomically drops the old trigger names (including removed inputs) and
+recreates current definitions, so existing databases receive changed column
+lists without duplicate revision bumps. Broad catalog revisions continue to
 invalidate cheap response projections, including changed artwork identities.
 Completed legacy jobs produce results and next suggestions in one worker request,
 under one 4.5-second deadline.
+
+Accepted review reuse requires the stored row and new candidate to have the same
+`kind`. A still-valid accepted synergy cannot replace a newly discovered access
+bridge for the same directed pair; unchanged kinds retain review reuse.
 
 Stellarknight → Constellar, same scratch benchmark pair, milliseconds:
 
@@ -102,3 +114,27 @@ Final host integration run: 77/77 across nine files; web validators: 33/33;
 golden evaluator integration: 5/5. Shared, duel-server and web type checks and
 the shared build pass. Both formats pass the strict golden CLI gate with precision,
 judgement coverage and deep/access/synergy recall of 1, and zero known false bridges.
+
+Follow-up verification (2026-10-31), Node v22.23.3:
+
+```sh
+npx vitest run --root packages/duel-server 'tests/bridge-' --maxWorkers=1 --testTimeout=30000
+npx vitest run --root packages/duel-server tests/bridge-cache.integration.test.ts tests/bridge-workers.integration.test.ts --maxWorkers=1 --testTimeout=30000
+npx vitest run --root packages/shared tests/bridge-judge.integration.test.ts tests/bridge-grounding.integration.test.ts tests/bridge-set-access.integration.test.ts tests/bridge-engines.integration.test.ts tests/archetype-bridges.integration.test.ts --maxWorkers=1 --testTimeout=30000
+npm run build --workspace=@yugidraft/shared
+npm run build --workspace=@yugidraft/duel-server
+npm run typecheck --workspace=@yugidraft/shared
+npm run typecheck --workspace=@yugidraft/duel-server
+```
+
+The full host run passed 78/79; its remaining assertion expected provider requests
+before asynchronous cold legality preparation. After updating that fixture, the
+final cache/worker rerun passed 12/12, covering all previously failing assertions.
+The other seven host integration files passed unchanged, including same-kind
+review reuse and accepted synergy superseded by real access. Shared passed 71/71
+across five integration files. Both production builds and type checks passed.
+A compiled JavaScript scanner smoke check also passed cold/revised legality,
+host scan protection, and judge gating on a disposable WAL database. All database
+writes used scratch/in-memory fixtures; judge clients were fixtures, with no live
+provider calls. Generated duel-server output was removed and the pre-existing
+shared build directory restored after verification.

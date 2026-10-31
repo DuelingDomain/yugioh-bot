@@ -6,7 +6,7 @@ import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
 import { reuseAcceptedBridge } from "./bridge-reviewed-candidates.js";
 
 /** The budget counts pairs requiring new reviews, never cached verdicts or subscribers. */
-export async function searchBridgeEngines(db: Database.Database, workers: Pick<DeckSuggestionWorkers, "bridgeCandidates" | "rateBridge" | "bridgeEngineShortlist">,
+export async function searchBridgeEngines(db: Database.Database, workers: Pick<DeckSuggestionWorkers, "bridgeCandidates" | "rateBridge" | "bridgeEngineShortlist" | "withBridgeLegality">,
   query: EngineQuery, progress: (step: BridgeJobStep, value: number) => void) {
   const pairs = new Map<string, ArchetypeBridge>();
   const add = (rows: ArchetypeBridge[]) => rows.forEach(row => pairs.set(JSON.stringify([row.source, row.target, row.format]), row));
@@ -23,7 +23,8 @@ export async function searchBridgeEngines(db: Database.Database, workers: Pick<D
       scanned++; progress("candidates", Math.floor(28 * scanned / total));
     }
   }
-  const all = [...pairs.values()].filter(row => row.format === query.format).map(row => reuseAcceptedBridge(db, row));
+  const read = <T>(callback: () => T) => workers.withBridgeLegality(query.format, callback);
+  const all = await read(() => [...pairs.values()].filter(row => row.format === query.format).map(row => reuseAcceptedBridge(db, row)));
   progress("checking", 30);
   const version = (db.prepare("SELECT source_version FROM bridge_graph WHERE id=1").get() as { source_version: string }).source_version;
   db.transaction(() => {
@@ -42,15 +43,15 @@ export async function searchBridgeEngines(db: Database.Database, workers: Pick<D
   for (const engine of shortlist) {
     if (reviewedEngines >= 6 || newReviews >= 12) break;
     let reviewedThisEngine = false;
-    const pending = engine.links.map(link => link.bridge).filter(row => bridgeGate(db, row).state === "pending").slice(0, 12 - newReviews);
+    const pending = await read(() => engine.links.map(link => link.bridge).filter(row => bridgeGate(db, row).state === "pending").slice(0, 12 - newReviews));
     // Keep two pair tasks in flight, using the existing globally bounded judge queue.
     for (let i = 0; i < pending.length; i += 2) {
       const batch = pending.slice(i, i + 2);
       newReviews += batch.length;
       await Promise.all(batch.map(async row => {
-        const before = new Set(bridgeGate(db, row).judgements.map(review => review.judge));
+        const before = await read(() => new Set(bridgeGate(db, row).judgements.map(review => review.judge)));
         await workers.rateBridge(row);
-        const after = bridgeGate(db, row);
+        const after = await read(() => bridgeGate(db, row));
         if (after.judgements.some(review => !before.has(review.judge))) gainedReviews = reviewedThisEngine = true;
         // A swallowed provider error can consume an attempt without producing
         // both verdicts. Keep this distinct from unattempted stop-rule leftovers.
@@ -58,8 +59,8 @@ export async function searchBridgeEngines(db: Database.Database, workers: Pick<D
       }));
       progress("rating", 35 + Math.floor(64 * Math.max(newReviews / 12, reviewedEngines / 6)));
     }
-    if (reviewedThisEngine || engine.links.some(link => bridgeGate(db, link.bridge).state === "shown")) reviewedEngines++;
+    if (reviewedThisEngine || await read(() => engine.links.some(link => bridgeGate(db, link.bridge).state === "shown"))) reviewedEngines++;
   }
-  if (newReviews && !gainedReviews && !rows.some(row => bridgeGate(db, row).state === "shown")) throw new BridgeReviewUnavailableError();
+  if (newReviews && !gainedReviews && await read(() => !rows.some(row => bridgeGate(db, row).state === "shown"))) throw new BridgeReviewUnavailableError();
   return { rows: all, reviewIncomplete };
 }

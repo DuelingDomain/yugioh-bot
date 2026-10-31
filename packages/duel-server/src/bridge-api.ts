@@ -20,7 +20,7 @@ export class BridgeApi {
   private readonly engineQueries: BridgeEngineQueries;
   private readonly fastQueries: BridgeFastQueries;
   private graph?: { source_version: string; groups: BridgeGraphData["groups"] };
-  constructor(private readonly db: Database.Database, private readonly workers: Pick<DeckSuggestionWorkers, "bridgeCandidates" | "rateBridge" | "bridgeEngines" | "bridgeEngineProjection" | "bridgeEngineShortlist" | "bridgeDirectedProjection" | "bridgeResolve">, now?: () => number) {
+  constructor(private readonly db: Database.Database, private readonly workers: Pick<DeckSuggestionWorkers, "bridgeCandidates" | "rateBridge" | "bridgeEngines" | "bridgeEngineProjection" | "bridgeEngineShortlist" | "bridgeDirectedProjection" | "bridgeResolve" | "withBridgeLegality">, now?: () => number) {
     this.engineQueries = new BridgeEngineQueries(db);
     this.fastQueries = new BridgeFastQueries(db, workers, now);
     this.jobs = new BridgeSearchJobs(db, {
@@ -43,7 +43,8 @@ export class BridgeApi {
           ...(query.target ? { op: "explain", target: query.target } : { op: "live" }) }, value => {
           progress("candidates", Math.floor(25 * value.completed / Math.max(1, value.total)));
         });
-        const rows = (Array.isArray(result) ? result : result ? [result] : []).map(row => reuseAcceptedBridge(this.db, row));
+        const read = <T>(callback: () => T) => workers.withBridgeLegality(query.format, callback);
+        const rows = await read(() => (Array.isArray(result) ? result : result ? [result] : []).map(row => reuseAcceptedBridge(this.db, row)));
         progress("checking", 30);
         const version = this.groups().source_version;
         this.db.transaction(() => {
@@ -52,8 +53,8 @@ export class BridgeApi {
             bridge_json=excluded.bridge_json,evidence_hash=excluded.evidence_hash,source_version=excluded.source_version`);
           for (const row of rows) save.run(row.source, row.target, row.format, row.score, row.grade, JSON.stringify(row), row.evidence_hash, version);
         }).immediate();
-        const candidates = rows.filter(row => bridgeGate(this.db, row).state === "pending").slice(0, 10);
-        const previousReviews = new Set(candidates.flatMap(row => bridgeGate(this.db, row).judgements.map(review => review.judge)));
+        const candidates = await read(() => rows.filter(row => bridgeGate(this.db, row).state === "pending").slice(0, 10));
+        const previousReviews = await read(() => new Set(candidates.flatMap(row => bridgeGate(this.db, row).judgements.map(review => review.judge))));
         let next = 0, completed = 0;
         progress("rating", 35);
         await Promise.all(Array.from({ length: Math.min(2, candidates.length) }, async () => {
@@ -63,8 +64,8 @@ export class BridgeApi {
             progress("rating", 35 + Math.floor(64 * ++completed / candidates.length));
           }
         }));
-        if (candidates.length && !candidates.some(row => bridgeGate(this.db, row).judgements.some(review => !previousReviews.has(review.judge)))
-          && !rows.some(row => bridgeGate(this.db, row).state === "shown")) throw new BridgeReviewUnavailableError();
+        if (candidates.length && await read(() => !candidates.some(row => bridgeGate(this.db, row).judgements.some(review => !previousReviews.has(review.judge)))
+          && !rows.some(row => bridgeGate(this.db, row).state === "shown"))) throw new BridgeReviewUnavailableError();
         return rows;
       },
     });
@@ -186,12 +187,12 @@ export class BridgeApi {
       validateBridgeEngineInput(input);
       const { query } = await this.workers.bridgeResolve(input, guildId);
       if (!query.engines.length) throw new BridgeJobError("The deck needs an engine before searching bridges", 400);
-      return this.jobs.start(actor, query, join);
+      return this.workers.withBridgeLegality(query.format, () => this.jobs.start(actor, query, join));
     }
     if (input.op === "engines") return this.fastQueries.run(input, guildId, actor.userId, undefined, signal);
     if (!["from", "between", "start"].includes(String(input.op))) throw new BridgeJobError("Invalid bridge operation", 400);
     const query = this.query(input, guildId, actor.userId);
-    if (input.op === "start") return this.jobs.start(actor, query, join);
+    if (input.op === "start") return this.workers.withBridgeLegality(query.format, () => this.jobs.start(actor, query, join));
     if (input.op === "between" && !query.target) throw new BridgeJobError("Target archetype is required", 400);
     return this.workers.bridgeDirectedProjection(query);
   }

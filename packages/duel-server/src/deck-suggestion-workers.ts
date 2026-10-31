@@ -1,6 +1,6 @@
 import { Worker } from "node:worker_threads";
 import type Database from "better-sqlite3";
-import { judgeBridgePair, type ArchetypeBridge, type BridgeFormat, type BridgeProgress, type BridgeJudgeOptions, type BridgeEnginesResponse, type RankedEngine } from "@yugidraft/shared/cards/effects";
+import { bridgeGate, cacheBridgeLegalIds, cachedBridgeLegalIds, judgeBridgePair, type BridgeLegalitySnapshot, type ArchetypeBridge, type BridgeFormat, type BridgeProgress, type BridgeJudgeOptions, type BridgeEnginesResponse, type RankedEngine } from "@yugidraft/shared/cards/effects";
 import type { BridgeDirectedResponse, BridgeEngineQueries, EngineQuery } from "./bridge-engine-queries.js";
 import type { BridgeSearchQuery } from "./bridge-search-jobs.js";
 import { BridgeJobError } from "./bridge-search-jobs.js";
@@ -23,9 +23,10 @@ export type BridgeProjectionScan = { kind: "bridge-engine-projection"; query: En
 );
 export type BridgeDirectedScan = { kind: "bridge-directed-projection"; query: BridgeSearchQuery; rows?: BridgeProjectionInput; deep: boolean };
 export type BridgeResolveScan = { kind: "bridge-engine-resolve"; input: Record<string, unknown>; guildId: string };
-type BridgeWork = BridgeScan | BridgeEnginesScan | BridgeProjectionScan | BridgeDirectedScan | BridgeResolveScan;
+export type BridgeLegalityScan = { kind: "bridge-legality"; format: BridgeFormat };
+type BridgeWork = BridgeScan | BridgeEnginesScan | BridgeProjectionScan | BridgeDirectedScan | BridgeResolveScan | BridgeLegalityScan;
 type ResolvedBridgeQuery = ReturnType<BridgeEngineQueries["resolve"]>;
-type ScanResult = DeckSuggestionResult | CardEffectSearchResult | BridgeScanResult | BridgeEnginesResponse | RankedEngine<ArchetypeBridge>[] | BridgeDirectedResponse | ResolvedBridgeQuery;
+type ScanResult = DeckSuggestionResult | CardEffectSearchResult | BridgeScanResult | BridgeEnginesResponse | RankedEngine<ArchetypeBridge>[] | BridgeDirectedResponse | ResolvedBridgeQuery | BridgeLegalitySnapshot;
 type QueuedBridge = { scan: BridgeWork; progress?: (value: BridgeProgress) => void;
   resolve: (value: ScanResult) => void; reject: (error: Error) => void; deadline?: number; timer?: ReturnType<typeof setTimeout> };
 /** One deep scanner plus two interactive/Suggestions scanners. The host owns admission. */
@@ -36,6 +37,7 @@ export class DeckSuggestionWorkers {
   private readonly judgeAbort = new AbortController();
   private readonly judgeQueue: { bridge: ArchetypeBridge; resolve: () => void; reject: (error: unknown) => void }[] = [];
   private readonly bridgeQueues: Record<Lane, QueuedBridge[]> = { deep: [], interactive: [] };
+  private readonly legalityLoads = new Map<BridgeFormat, Promise<BridgeLegalitySnapshot>>();
   private closing = false;
   constructor(private readonly db: Database.Database, private readonly dataDirectory: string,
     private readonly idleMs = 120_000, private readonly judgeOptions: BridgeJudgeOptions = {}) {}
@@ -85,6 +87,28 @@ export class DeckSuggestionWorkers {
     return this.queuedBridge("interactive", { kind: "bridge-engine-resolve", input, guildId }, undefined, BRIDGE_ENGINES_TIMEOUT_MS) as Promise<ResolvedBridgeQuery>;
   }
 
+  /** Run synchronous host gates/admission against worker-built, current legal IDs.
+   * Never hold the read transaction while awaiting a scanner or judge provider.
+   */
+  async withBridgeLegality<T>(format: BridgeFormat, read: () => T): Promise<T> {
+    let snapshot: BridgeLegalitySnapshot | undefined;
+    for (;;) {
+      const result = this.db.transaction(() => {
+        if (snapshot) cacheBridgeLegalIds(this.db, snapshot);
+        if (!cachedBridgeLegalIds(this.db, format)) return undefined;
+        return { value: read() };
+      }).deferred();
+      if (result) return result.value;
+      let pending = this.legalityLoads.get(format);
+      if (!pending) {
+        pending = (this.queuedBridge("interactive", { kind: "bridge-legality", format }) as Promise<BridgeLegalitySnapshot>)
+          .finally(() => this.legalityLoads.delete(format));
+        this.legalityLoads.set(format, pending);
+      }
+      snapshot = await pending;
+    }
+  }
+
   rateBridge(bridge: ArchetypeBridge): Promise<void> {
     if (this.closing) return Promise.reject(new Error("Bridge judging closed"));
     return new Promise((resolve, reject) => {
@@ -99,6 +123,7 @@ export class DeckSuggestionWorkers {
       const work = (async () => {
         try {
           await judgeBridgePair(this.db, next.bridge, { ...this.judgeOptions,
+            gate: bridge => this.withBridgeLegality(bridge.format, () => bridgeGate(this.db, bridge)),
             signal: AbortSignal.any([this.judgeAbort.signal, AbortSignal.timeout(110_000), ...(this.judgeOptions.signal ? [this.judgeOptions.signal] : [])]),
             log: this.judgeOptions.log ?? (entry => console.info(JSON.stringify({ event: "bridge-judge-spend", ...entry }))) });
           next.resolve();

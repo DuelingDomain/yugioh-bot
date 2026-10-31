@@ -9,5 +9,5 @@ export function reuseAcceptedBridge(db: Database.Database, candidate: ArchetypeB
   if (!stored) return candidate;
   const previous = JSON.parse(stored.bridge_json) as ArchetypeBridge;
   // Rechecks printed evidence, current access, both judge identities and feedback.
-  return bridgeGate(db, previous).state === "shown" ? previous : candidate;
+  return previous.kind === candidate.kind && bridgeGate(db, previous).state === "shown" ? previous : candidate;
 }

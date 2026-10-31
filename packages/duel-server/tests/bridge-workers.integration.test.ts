@@ -118,6 +118,7 @@ describe("bridge scanner isolation", () => {
       expect((await call(["Odion"])).next.some(next => next.engine === "Argostars")).toBe(false);
       const service = createBridgeService(db), selected = ["The Weather", "Genex", "Synchron", "Blue-Eyes"];
       const deep = new BridgeApi(db, {
+        withBridgeLegality: (format, read) => workers.withBridgeLegality(format, read),
         bridgeResolve: (input, guildId) => workers.bridgeResolve(input, guildId),
         bridgeDirectedProjection: (query, rows, deep) => workers.bridgeDirectedProjection(query, rows, deep),
         bridgeEngines: (input, guildId) => workers.bridgeEngines(input, guildId),
@@ -239,8 +240,10 @@ describe("bridge scanner isolation", () => {
     const pending: Promise<void>[] = [];
     try {
       for (const bridge of bridges) { expect(bridge).toBeTruthy(); pending.push(workers.rateBridge(bridge as ArchetypeBridge)); }
-      expect(active).toBe(2);
-      expect((workers as unknown as { jobs: unknown[] }).jobs).toHaveLength(0);
+      await vi.waitFor(() => expect(active).toBe(2), { timeout: 10_000 });
+      // Cold legality was prepared in a scanner before judging. Provider waits
+      // leave that scanner idle and both Suggestions slots available.
+      expect((workers as unknown as { jobs: { reject?: unknown }[] }).jobs.every(job => !job.reject)).toBe(true);
       const scan = {
         query: parseDeckSuggestionQuery({ op: "suggestRows", deck: { main: [89631139], extra: [], side: [] } })!,
         legality: deckSuggestionScope("normal", directory, defaultDuelSettings("normal"), { cardBlocks: [] }),

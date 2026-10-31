@@ -14,6 +14,7 @@ export * from "./bridge-package.js";
 export * from "./bridge-capabilities.js";
 export * from "./bridge-grounding.js";
 export * from "./bridge-engine.js";
+export { cacheBridgeLegalIds, cachedBridgeLegalIds, snapshotBridgeLegalIds, type BridgeLegalitySnapshot } from "./bridge-legality-store.js";
 export * from "./bridge-artifact.js";
 export * from "./bridge-judge.js";
 export * from "./bridge-judge-ledger.js";

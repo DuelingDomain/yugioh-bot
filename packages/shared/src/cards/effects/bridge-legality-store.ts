@@ -6,6 +6,30 @@ import type { BridgeFormat } from "./bridge-types.js";
 
 const universes = new WeakMap<Database.Database, { revision: number; formats: Map<BridgeFormat, ReadonlySet<number>> }>();
 
+export interface BridgeLegalitySnapshot { revision: number; format: BridgeFormat; ids: ReadonlySet<number> }
+
+export function cachedBridgeLegalIds(db: Database.Database, format: BridgeFormat): ReadonlySet<number> | undefined {
+  const cached = universes.get(db);
+  return cached?.revision === bridgeEngineRevision(db) ? cached.formats.get(format) : undefined;
+}
+
+/** Install only within the caller's matching read snapshot; never rescan on the host. */
+export function cacheBridgeLegalIds(db: Database.Database, snapshot: BridgeLegalitySnapshot): boolean {
+  if (snapshot.revision !== bridgeEngineRevision(db)) return false;
+  let cached = universes.get(db);
+  if (cached?.revision !== snapshot.revision) {
+    cached = { revision: snapshot.revision, formats: new Map() };
+    universes.set(db, cached);
+  }
+  cached.formats.set(snapshot.format, snapshot.ids);
+  return true;
+}
+
+/** Called lazily by a scanner, with revision and IDs in one SQLite read snapshot. */
+export function snapshotBridgeLegalIds(db: Database.Database, format: BridgeFormat): BridgeLegalitySnapshot {
+  return db.transaction(() => ({ revision: bridgeEngineRevision(db), format, ids: storedBridgeLegalIds(db, format) })).deferred();
+}
+
 /** Only IDs and legality fields: scoped gates need the global denominator, never the full effect graph. */
 export function storedBridgeLegalIds(db: Database.Database, format: BridgeFormat): ReadonlySet<number> {
   const revision = bridgeEngineRevision(db);

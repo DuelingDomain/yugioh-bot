@@ -812,30 +812,29 @@ export function migrate(db: Database.Database) {
         end;`);
     }
   }
-  // Bridge plans depend on semantic card/effect data. A catalog lookup also
-  // refreshes timestamps/images and reassigns unchanged fields; none of those
-  // writes should discard a scanner's complete grounded graph.
+  // Engine plans and legality read the imported capabilities and graph, not
+  // the on-demand catalog, release/tag metadata or archetype directory.
   db.exec(`create table if not exists bridge_engine_revision (
     id integer primary key check (id = 1), revision integer not null default 0
   ); insert or ignore into bridge_engine_revision(id) values(1);`);
   const bridgeInputs: Record<string, string[]> = {
-    card_catalog: ["ygoprodeck_id", "name", "type", "frame_type", "effect_text", "atk", "def", "attribute", "level", "archetype", "race", "setcodes_json", "is_extra_deck", "is_prerelease", "genesys_points"],
-    card_tags: ["passcode", "summary", "roles_json", "tags_json", "popularity", "text_hash", "schema_version"],
-    card_tag_profiles: ["archetype", "plan", "hooks_json", "schema_version", "cards"],
-    card_release: ["passcode", "tcg_date", "ocg_date", "quality"],
-    archetypes: ["name"],
     card_capability: ["passcode", "capabilities_json", "text_hash", "evidence_hash"],
     bridge_graph: ["graph_json", "source_version"],
   };
-  for (const [table, columns] of Object.entries(bridgeInputs)) {
-    for (const event of ["insert", "update", "delete"]) {
+  db.transaction(() => {
+    // Replace definitions by name on every migration, including removed inputs.
+    // IF NOT EXISTS alone would leave the old column lists active on upgrades.
+    for (const table of ["card_catalog", "card_tags", "card_tag_profiles", "card_release", "archetypes", ...Object.keys(bridgeInputs)]) {
+      for (const event of ["insert", "update", "delete"]) db.exec(`drop trigger if exists ${table}_bridge_engine_${event}`);
+    }
+    for (const [table, columns] of Object.entries(bridgeInputs)) for (const event of ["insert", "update", "delete"]) {
       const changed = event === "update" ? `when ${columns.map(column => `old.${column} is not new.${column}`).join(" or ")}` : "";
-      db.exec(`create trigger if not exists ${table}_bridge_engine_${event}
+      db.exec(`create trigger ${table}_bridge_engine_${event}
         after ${event} on ${table} ${changed} begin
           update bridge_engine_revision set revision=revision+1 where id=1;
         end;`);
     }
-  }
+  }).immediate();
   db.exec(`create table if not exists bridge_revision (
     id integer primary key check (id = 1), revision integer not null default 0
   ); insert or ignore into bridge_revision(id) values(1);`);

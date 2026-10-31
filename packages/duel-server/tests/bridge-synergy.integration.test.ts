@@ -5,6 +5,7 @@ import { bridgeGate, buildBridgeJudgeEvidence, importBridgeArtifact, judgeBridge
   type ArchetypeBridge, type BridgeGraphData, type BridgeJudgeClient } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
 import { BridgeEngineQueries } from "../src/bridge-engine-queries.js";
+import { reuseAcceptedBridge } from "../src/bridge-reviewed-candidates.js";
 
 it("caps resource synergy reviews and accepted display without bridge coverage or extra judge calls", async () => {
   const db = new Database(":memory:"); migrate(db); importBridgeArtifact(db);
@@ -53,5 +54,18 @@ it("caps resource synergy reviews and accepted display without bridge coverage o
     await judgeBridgePair(db, rows[0] as ArchetypeBridge, { client, env: {} });
     expect(calls).toBe(rows.length * 2);
     expect(service.deepBetween("Toy", "Ashtra")).toBeNull();
+    const accepted = rows.find(row => row.target === "Ashtra")!;
+    db.prepare(`INSERT INTO archetype_bridge(source,target,format,score,grade,bridge_json,evidence_hash,source_version)
+      VALUES(?,?,?,?,?,?,?,'fixture') ON CONFLICT(source,target,format) DO UPDATE SET bridge_json=excluded.bridge_json,evidence_hash=excluded.evidence_hash`)
+      .run(accepted.source, accepted.target, accepted.format, accepted.score, accepted.grade, JSON.stringify(accepted), accepted.evidence_hash);
+    expect(reuseAcceptedBridge(db, { ...accepted, evidence_hash: "a".repeat(64) })).toEqual(accepted);
+    // Adding real access to the same curated package must supersede its accepted synergy.
+    graph.groups.Toy!.push(2511); // Labrynth Cooclock's printed Trap permission.
+    db.prepare("UPDATE bridge_graph SET graph_json=? WHERE id=1").run(JSON.stringify(graph));
+    const access = service.deepBetween("Toy", "Ashtra")!;
+    expect(access).not.toBeNull();
+    expect(access.kind).toBeUndefined();
+    expect(bridgeGate(db, accepted).state).toBe("shown");
+    expect(reuseAcceptedBridge(db, access)).toEqual(access);
   } finally { db.close(); }
 }, 30_000);

@@ -324,6 +324,8 @@ function shownFromGate(bridge: ArchetypeBridge, gate: BridgeGate): ShownBridge |
 }
 
 export interface BridgeJudgeOptions {
+  /** Hosts can perform revision-sensitive evidence checks through their scanner. */
+  gate?: (bridge: ArchetypeBridge) => Promise<BridgeGate>;
   client?: BridgeJudgeClient;
   apiKey?: string;
   env?: Record<string, string | undefined>;
@@ -333,7 +335,7 @@ export interface BridgeJudgeOptions {
   onError?: (entry: { status: number | null; message: string; framing: BridgeJudgeFraming }) => void;
 }
 export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBridge, options: BridgeJudgeOptions = {}): Promise<BridgeGate> {
-  const initial = bridgeGate(db, bridge), evidence = initial.evidence;
+  const initial = options.gate ? await options.gate(bridge) : bridgeGate(db, bridge), evidence = initial.evidence;
   if (!evidence || initial.state === "review" || initial.judgements.length === 2) return initial;
   const env = options.env ?? process.env, key = options.apiKey ?? env.ANTHROPIC_API_KEY;
   let client = options.client;
@@ -409,5 +411,5 @@ export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBr
       log(bridgeJudgeSpendSummary(db, id));
     }
   }
-  return bridgeGate(db, bridge);
+  return options.gate ? options.gate(bridge) : bridgeGate(db, bridge);
 }
