@@ -1,6 +1,6 @@
 import type { BridgeDeck, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat } from "@yugidraft/shared/cards/effects";
 
-export type { BridgeDeck, DetectedEngine, EngineSuggestion, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, BridgeReviewStep, ShownBridge } from "@yugidraft/shared/cards/effects";
+export type { BridgeDeck, BridgePackage, DetectedEngine, EngineSuggestion, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, BridgeReviewStep, ShownBridge } from "@yugidraft/shared/cards/effects";
 
 /** Explicit engines select shared work; an accompanying deck supplies subscriber context. */
 export type BridgeDeepSearchRequest = {

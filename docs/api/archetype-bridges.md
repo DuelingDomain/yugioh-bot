@@ -16,7 +16,7 @@ including after a deep job saves them in the shared candidate table.
 // GET response, HTTP 200
 { results: ShownBridge[], reverse?: ShownBridge[], inReview: number }
 // Every ShownBridge includes all ArchetypeBridge fields and:
-{ judge: "accepted", review: {
+{ judge: "accepted", missing: number[], alreadyInDeck: boolean, review: {
   grade: "strong" | "good" | "niche" | "risky",
   pros: string[], cons: string[], // zero to three of each
   lock_note: string, line: string[], // one to three exact supplied card names in order
@@ -59,7 +59,7 @@ type EngineSuggestion = {
   engine: string; score: number; grade: "Strong" | "Good" | "Niche" | "Risky";
   tier: "strict" | "niche"; covered: number; of: number; twoWay: string[];
   links: { from: string; to: string; bridge: ShownBridge }[]; // 1–3 accepted display pairs
-  cards: number[]; missing: number[]; genesysPoints: number | null;
+  cards: number[]; missing: number[]; alreadyInDeck: boolean; genesysPoints: number | null;
   pros: string[]; cons: string[];
 };
 ```
@@ -70,7 +70,11 @@ Fast suggestions contain at most four next engines and up to twelve directed row
 
 For engine Xi and candidate Z, `link_i = max(v(Xi→Z), 0.7 × v(Z→Xi)) + 0.3 × min(v(Xi→Z), v(Z→Xi))`. Sorted links receive weights 1, 0.8, 0.6, 0.5, then a multiplier `1 + 0.3 × (covered − 1)`. Only non-hub accepted links increase coverage. Target `idf = min(1, 0.05/share)`, where share is the fraction of graph sources with a stored directed row into Z. The final score must reach four. One target per `[format, accessCard, entryCard]` path survives across the complete set. Scores, coverage and two-way labels use the best accepted forward and reverse pair for every selected engine, independently of the display limit. Display selection keeps the best forward rows and best reverse row, at most three total. Pros and cons come from those accepted reviews.
 
-`cards` is the evidence package; `missing` retains required copy multiplicity after subtracting the subscriber's deck. Genesys suggestions charge only missing copies across the combined package, counting shared cards once at the largest required multiplicity. Every artwork passcode is mapped to its main card before detection, points and missing-copy calculation.
+`cards` is the evidence package; `missing` retains required copy multiplicity after subtracting copies in **Main and Extra only**. Side and Deck Master copies do not satisfy a package. Every shown bridge (including `between`, `reverse`, engine links and completed deep results) and engine suggestion includes `alreadyInDeck`. It is true exactly when a nonempty package has no missing cards. A complete engine package remains an informational row for an **Already in deck** label, rather than an actionable next-engine recommendation; actionable packages sort first. If any package card is still missing, `alreadyInDeck` is false and `missing` lists all additional required copies. An engine suggestion checks the combined package of its displayed links; each link checks its own package. Source-only requests without deck context count the whole package as missing. Saved `deckId` lookups provide Main+Extra context in Advanced as well as Genesys.
+
+The shared `BridgePackageSchema` validates host projections and web responses: card IDs are positive uint32s, `cards` contains unique IDs, missing IDs belong to the package, and the flag agrees with the missing list. Combined Genesys affordability and ownership preference apply before path/group deduplication and candidate limits, so ineligible or complete packages cannot crowd out actionable ones. Genesys suggestions charge only missing copies across the combined package, counting shared cards once at the largest required multiplicity. Every artwork passcode is mapped to its main card before detection, points and missing-copy calculation. Side and Deck Master still count toward a saved deck's Genesys spending; a supplied open deck's Deck Master still counts toward its spending and detection.
+
+Deep-work keys include the `main-extra-packages-v1` context namespace. Older subscriber copy arrays did not retain zones and cannot safely be reinterpreted; their status IDs return 404 and are not reused. New explicit start requests supply current context. Existing evidence and independent-review caches remain reusable.
 
 For both fast engine requests and deep searches, a supplied `genesysRemaining` is the subscriber's remaining Genesys allowance and takes precedence over host deck accounting, including zero. The editor computes it using the deck's real cap and Side Deck; `deck` itself contains Main, Extra and optional Deck Master, with no Side field. Without an explicit allowance, the host subtracts those supplied cards' points from `deck.pointCap` (integer 0–1000, default 100), including the Deck Master. If any deck card has unknown points, the host skips that calculation, retains the copy context and uses the normal 100-point fallback; the engine search remains available. An explicit allowance skips deck accounting. Missing bridge cards still need known points to pass affordability checks. Without either deck context or an explicit allowance, Genesys affordability defaults to 100. These fields do not change Advanced affordability.
 
@@ -79,6 +83,8 @@ Fast engine detection and projection use two read-only scanners shared with Sugg
 Host construction does not load ranking data. With `EFFECT_SEARCH=0` and an older graph lacking `engine_ranking`, the duel host still starts; engine requests return 503 until a compatible artifact is imported. Replacing the graph with an older version also degrades engine requests without affecting duels.
 
 Browser callers can import `fetchBridgeEngines`, `BridgeEnginesRequest`, `BridgeDeepSearchRequest`, `ShownBridge`, and `BridgeReviewStep` from `packages/web/src/lib/bridges-api.ts`. Server validation and signed-host helpers live in `bridges-server-api.ts`; web processes never construct the graph.
+
+Caller cancellation is an expected web-to-host outcome, including Next.js's empty-message `ResponseAborted` reason. It returns a descriptive cancellation response without reporting an exception. Unexpected transport/HTTP failures always have a nonempty diagnostic message and include `hostStatus` and a redacted, bounded `hostBody` (at most 2048 characters); empty or invalid successful bodies log the same host details. A failed engines request is not a successful detection of zero engines.
 
 `POST /api/cards/bridges/deep-search` accepts one selector form: `source`, `deckId`, `engines` with optional `deck`, or `deck` alone. Unknown fields are rejected, bodies are bounded to 4096 bytes, and archetype names to 120 characters. Engine sets contain 1–4 names. When `engines` is supplied, it alone selects the shared work and cache key; an accompanying `deck` is subscriber context for existing copies, missing cards and Genesys points. Its detected engines never replace the supplied set, including in Pick mode. A deck-only request resolves to its detected engine set at admission; a deck with no detected engines returns 400 only when explicit engines are absent. The legacy single-selector forms remain supported. `target` is available only with `source`/`deckId`; those selectors cannot be combined with `engines` or `deck`.
 
@@ -181,7 +187,7 @@ extractCardCapabilities(card: Card, tags?: CardTags, profile?: ArchetypeProfile)
 indexBridgeCapabilities(rows: CardCapability[]): void;
 bridgeGroups(capabilities: readonly CardCapability[], profiles: ReadonlyMap<string, ArchetypeProfile>): Record<string, number[]>;
 detectDeckEngines(deck: BridgeDeck, groups: Record<string, number[]>, skip?: ReadonlySet<number>): DetectedEngine[];
-rankNextEngines(engines: readonly string[], rows: readonly ShownBridge[], context: EngineRankingContext, limit?: number): RankedEngine[];
+rankNextEngines(engines: readonly string[], rows: readonly ShownBridge[], context: EngineRankingContext, limit?: number, options?: EngineRankingOptions): RankedEngine[];
 bridgeLegal(card: Card, format: BridgeFormat): boolean;
 readBridgeManifest(directory?: string): BridgeManifest;
 importBridgeArtifact(db: Database.Database, directory?: string): {

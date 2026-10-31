@@ -1,13 +1,14 @@
 import type { ArchetypeBridge, BridgeFormat, BridgeGrade, BridgeGraphData } from "./bridge-types.js";
 import type { ShownBridge } from "./bridge-judge.js";
+import { bridgePackage, type BridgePackage } from "./bridge-package.js";
 
 export interface EngineLink<T extends ArchetypeBridge = ShownBridge> { from: string; to: string; bridge: T }
 export interface RankedEngine<T extends ArchetypeBridge = ShownBridge> {
   engine: string; score: number; grade: BridgeGrade; tier: "strict" | "niche";
   covered: number; of: number; twoWay: string[]; links: EngineLink<T>[];
 }
-export interface EngineSuggestion extends RankedEngine {
-  cards: number[]; missing: number[]; genesysPoints: number | null; pros: string[]; cons: string[];
+export interface EngineSuggestion extends RankedEngine, BridgePackage {
+  genesysPoints: number | null; pros: string[]; cons: string[];
 }
 export interface BridgeEnginesResponse {
   engines: string[]; detected?: import("./bridge-engines.js").DetectedEngine[];
@@ -17,6 +18,11 @@ export interface EngineRankingContext {
   groups: BridgeGraphData["groups"]; hubs: ReadonlySet<number>;
   idf: Record<BridgeFormat, ReadonlyMap<string, number>>;
   related(a: string, b: string): boolean;
+}
+export interface EngineRankingOptions<T extends ArchetypeBridge = ShownBridge> {
+  deckCards?: readonly number[];
+  /** Subscriber-specific package checks run before deduplication and limits. */
+  eligible?: (row: RankedEngine<T>) => boolean;
 }
 
 /** Compute once per artifact on host start, independently of review status. */
@@ -52,7 +58,7 @@ export function bridgePairValue(row: ArchetypeBridge, context: EngineRankingCont
 }
 
 /** Internal deterministic shortlist; publication must pass accepted rows instead. */
-export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonly string[], rows: readonly T[], context: EngineRankingContext, limit = 8): RankedEngine<T>[] {
+export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonly string[], rows: readonly T[], context: EngineRankingContext, limit = 8, options: EngineRankingOptions<T> = {}): RankedEngine<T>[] {
   const selected = new Set(engines), byTarget = new Map<string, T[]>();
   for (const row of rows) {
     const target = selected.has(row.source) && !selected.has(row.target) ? row.target
@@ -83,12 +89,16 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
     if (score < 4) continue;
     const strongest = [...display].sort((a, b) => value(b) - value(a))[0]!;
     const tier = display.every(row => row.tier === "niche") ? "niche" : "strict";
-    ranked.push({ engine, score: Math.round(score * 1000) / 1000, grade: tier === "niche" ? "Niche" : strongest.grade, tier,
+    const candidate: RankedEngine<T> = { engine, score: Math.round(score * 1000) / 1000, grade: tier === "niche" ? "Niche" : strongest.grade, tier,
       covered, of: engines.length, twoWay: links.filter(link => link.twoWay).map(link => link.source).sort(),
-      links: display.map(bridge => ({ from: bridge.source, to: bridge.target, bridge })) });
+      links: display.map(bridge => ({ from: bridge.source, to: bridge.target, bridge })) };
+    if (!options.eligible || options.eligible(candidate)) ranked.push(candidate);
   }
+  // Ownership must precede path/group deduplication and truncation, or a fully
+  // owned high score can suppress a useful package with missing cards.
+  const owned = new Set(options.deckCards === undefined ? [] : ranked.filter(row => bridgePackage(row.links.map(link => link.bridge), options.deckCards).alreadyInDeck));
   const paths = new Set<string>(), results: RankedEngine<T>[] = [];
-  for (const row of ranked.sort((a, b) => b.score - a.score || a.engine.localeCompare(b.engine))) {
+  for (const row of ranked.sort((a, b) => Number(owned.has(a)) - Number(owned.has(b)) || b.score - a.score || a.engine.localeCompare(b.engine))) {
     const used = row.links.flatMap(link => { const path = bridgeAccessPath(link.bridge, context.groups); return path ? [path] : []; });
     if (used.some(path => paths.has(path))) continue;
     if (results.some(higher => {
@@ -102,6 +112,6 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
 }
 
 /** Only accepted pairs contribute to score, coverage, or two-way claims. */
-export function rankNextEngines(engines: readonly string[], rows: readonly ShownBridge[], context: EngineRankingContext, limit = 4): RankedEngine[] {
-  return rankEngineCandidates(engines, rows.filter(row => row.judge === "accepted"), context, limit);
+export function rankNextEngines(engines: readonly string[], rows: readonly ShownBridge[], context: EngineRankingContext, limit = 4, options: EngineRankingOptions = {}): RankedEngine[] {
+  return rankEngineCandidates(engines, rows.filter(row => row.judge === "accepted"), context, limit, options);
 }

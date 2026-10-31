@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { bridgeGate, bridgeProjection, isBridgeDeck, isBridgeEngineNames, rankEngineCandidates, rankNextEngines,
+import { bridgeGate, bridgeProjection, bridgePackage, isBridgeDeck, isBridgeEngineNames, rankEngineCandidates, rankNextEngines,
   type ArchetypeBridge, type BridgeDeck, type BridgeEnginesResponse, type BridgeFormat, type DetectedEngine, type EngineSuggestion } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
 import { BridgeJobError, type BridgeSearchQuery } from "./bridge-search-jobs.js";
@@ -43,10 +43,11 @@ export class BridgeEngineQueries {
     const canonical = names.map(name => Object.keys(groups).find(key => key.toLowerCase() === name.trim().toLowerCase()));
     if (canonical.some(name => !name)) throw new BridgeJobError("Unknown archetype", 400);
     const engines = [...new Set(canonical as string[])].sort();
-    const deckCards = deck ? [...deck.main, ...deck.extra, ...(deck.deckMaster === undefined ? [] : [deck.deckMaster])] : undefined;
+    const deckCards = deck ? [...deck.main, ...deck.extra] : undefined;
     let remaining = input.genesysRemaining as number | undefined;
     if (remaining === undefined && deckCards && format === "genesys") {
-      const spent = deckCards.reduce((sum, id) => sum + this.points(id), 0);
+      const spent = [...deckCards, ...(deck?.deckMaster === undefined ? [] : [deck.deckMaster])]
+        .reduce((sum, id) => sum + this.points(id), 0);
       // Missing catalog/points data must not block an explicit engine search.
       // Keep copy context and use the normal no-allowance projection fallback.
       if (Number.isFinite(spent)) remaining = (deck?.pointCap ?? 100) - spent;
@@ -62,17 +63,9 @@ export class BridgeEngineQueries {
   }
 
   package(rows: readonly ArchetypeBridge[], query: BridgeSearchQuery) {
-    const counts = new Map<number, number>();
-    for (const row of rows) for (const id of row.cards) counts.set(id, Math.max(counts.get(id) ?? 0, 1,
-      ...row.reasons.map(reason => reason.materials?.filter(code => code === id).length ?? 0)));
-    const cards = [...counts.keys()].sort((a, b) => a - b), missing: number[] = [];
-    let points = 0;
-    for (const id of cards) {
-      const count = Math.max(0, counts.get(id)! - (query.deckCards?.filter(code => code === id).length ?? 0));
-      for (let i = 0; i < count; i++) missing.push(id);
-      if (count) points += this.points(id) * count;
-    }
-    return { cards, missing, genesysPoints: query.format === "genesys" && Number.isFinite(points) ? points : null, points };
+    const pack = bridgePackage(rows, query.deckCards);
+    const points = pack.missing.reduce((sum, id) => sum + this.points(id), 0);
+    return { ...pack, genesysPoints: query.format === "genesys" && Number.isFinite(points) ? points : null, points };
   }
 
   shortlist(rows: ArchetypeBridge[], query: EngineQuery) {
@@ -85,15 +78,17 @@ export class BridgeEngineQueries {
     const candidates = rows.filter(row => row.format === query.format && (selected.has(row.source) || selected.has(row.target))
       && (query.format !== "genesys" || this.package([row], query).points <= (query.genesysRemaining ?? 100)));
     const projections = candidates.map(row => bridgeProjection(this.db, row));
-    const shown = projections.flatMap(({ shown }) => shown ? [shown] : []);
+    const shown = projections.flatMap(({ shown }) => shown ? [{ ...shown, ...bridgePackage([shown], query.deckCards) }] : []);
     const accepted = shown.map(row => ({ ...row, two_way: shown.some(reverse => reverse.source === row.target && reverse.target === row.source) }));
     const between = accepted.filter(row => selected.has(row.source) && selected.has(row.target));
-    const next: EngineSuggestion[] = rankNextEngines(query.engines, accepted, this.rankingContext(), 8).flatMap(row => {
+    const next: EngineSuggestion[] = rankNextEngines(query.engines, accepted, this.rankingContext(), 8, {
+      deckCards: query.deckCards,
+      eligible: row => query.format !== "genesys" || this.package(row.links.map(link => link.bridge), query).points <= (query.genesysRemaining ?? 100),
+    }).map(row => {
       const pack = this.package(row.links.map(link => link.bridge), query);
-      if (query.format === "genesys" && pack.points > (query.genesysRemaining ?? 100)) return [];
       const pros = [...new Set(row.links.flatMap(link => link.bridge.review.pros))].slice(0, 3);
       const cons = [...new Set(row.links.flatMap(link => link.bridge.review.cons))].slice(0, 3);
-      return [{ ...row, cards: pack.cards, missing: pack.missing, genesysPoints: pack.genesysPoints, pros, cons }];
+      return { ...row, cards: pack.cards, missing: pack.missing, alreadyInDeck: pack.alreadyInDeck, genesysPoints: pack.genesysPoints, pros, cons };
     }).slice(0, limit);
     return { engines: query.engines, between, next,
       inReview: projections.filter(({ gate }) => ["pending", "review"].includes(gate.state)).length };

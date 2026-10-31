@@ -2,11 +2,12 @@ import { bridgeProjectionRows, compactBridgeRows, type BridgeProjectionInput } f
 import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { BRIDGE_JUDGE_FRAMINGS, buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, makeBridgeJudgementRecord,
-  saveBridgeJudgement, type ArchetypeBridge, type BridgeEnginesResponse } from "@yugidraft/shared/cards/effects";
-import { createBridgeService } from "@yugidraft/shared/services";
+import { BRIDGE_JUDGE_FRAMINGS, BRIDGE_JUDGE_VERSION, buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, makeBridgeJudgementRecord,
+  saveBridgeJudgement, rankEngineCandidates, bridgePackage, type ArchetypeBridge, type BridgeEnginesResponse } from "@yugidraft/shared/cards/effects";
+import { createBridgeService, createSavedDeckService } from "@yugidraft/shared/services";
 import { BridgeEngineQueries, type EngineQuery } from "../src/bridge-engine-queries.js";
 import { BridgeApi } from "../src/bridge-api.js";
+import { BridgeSearchJobs } from "../src/bridge-search-jobs.js";
 import { BridgeFastQueries } from "../src/bridge-fast-queries.js";
 import type { BridgeScan } from "../src/deck-suggestion-workers.js";
 import { seedIdentity } from "./helpers/identity.js";
@@ -14,10 +15,10 @@ import { seedIdentity } from "./helpers/identity.js";
 let db: Database.Database;
 beforeAll(() => { db = new Database(":memory:"); migrate(db); importCardEffectArtifact(db); importBridgeArtifact(db); });
 afterAll(() => db.close());
-function approve(row: ArchetypeBridge) {
-  const evidence = buildBridgeJudgeEvidence(db, row)!;
+function approve(row: ArchetypeBridge, database = db) {
+  const evidence = buildBridgeJudgeEvidence(database, row)!;
   expect(evidence).not.toBeNull();
-  for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, {
+  for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(database, makeBridgeJudgementRecord(evidence, framing, {
     verdict: "valid", grade: "good", pros: ["The supplied cards interact."], cons: ["Needs the supplied cards."],
     lock_note: "Apply the printed conditions.", line: evidence.cards.map(card => card.name), format_ok: true,
   }));
@@ -32,6 +33,80 @@ const bridgeEngineShortlist = async (rows: ArchetypeBridge[], query: EngineQuery
 const bridgeEngineProjection = async (rows: BridgeProjectionInput, query: EngineQuery) => new BridgeEngineQueries(db).project(bridgeProjectionRows(db, rows), query, 6);
 
 describe("stored multi-engine bridge API", () => {
+  it("keeps actionable packages ahead of owned packages before ranking truncates and deduplicates", () => {
+    const fixture = new Database(":memory:"); migrate(fixture); importCardEffectArtifact(fixture); importBridgeArtifact(fixture);
+    try {
+      const queries = new BridgeEngineQueries(fixture), engines = ["Performapal"];
+      const rows = queries.service.engineRows(engines, "advanced");
+      const ranked = rankEngineCandidates(engines, rows, queries.service.rankingContext(), 100);
+      expect(ranked.length).toBeGreaterThan(8);
+      for (const row of ranked) for (const link of row.links) approve(link.bridge, fixture);
+      const deckCards = [...new Set(ranked.slice(0, 8).flatMap(row => bridgePackage(row.links.map(link => link.bridge)).missing))];
+      const next = queries.project(rows, { source: "Performapal", engines, format: "advanced", deckCards }).next;
+      expect(next.map(({ engine, alreadyInDeck, missing }) => ({ engine, alreadyInDeck, missing })))
+        .toContainEqual({ engine: "Spellbook", alreadyInDeck: false, missing: [14824019] });
+      const firstOwned = next.findIndex(row => row.alreadyInDeck);
+      expect(next.slice(firstOwned < 0 ? next.length : firstOwned).every(row => row.alreadyInDeck)).toBe(true);
+    } finally { fixture.close(); }
+  });
+
+  it("detects the Light and darkness Azamina deck's engines and light package", async () => {
+    const main = [70405001,44001993,98684220,98684220,98684220,50073633,24088928,24088928,97462632,
+      14965712,14965712,14965712,72270339,72270339,72270339,42141493,42141493,42141493,14558127,14558127,14558127,
+      59438930,59438930,59438930,33599853,77456448,94845588,66328392,80845034,80845034,80845034,
+      24461358,24461358,24461358,40366667,40366667,40366667,24749710];
+    const extra = [59400890,73391962,9785661,94259633,5043010,86066372,45819647,4731783,8264361,65741786,29301450];
+    const result = await bridgeEngines({ op: "engines", format: "advanced", deck: { main, extra } }, "g");
+    expect(result.engines).toEqual(["Chaos", "Sinful Spoils"]);
+    expect(result.detected).toContainEqual(expect.objectContaining({ name: "Azamina", weight: 2, distinct: 3, status: "light" }));
+  });
+
+  it("marks saved deck bridge rows using Main and Extra while preserving Side-only missing cards", async () => {
+    const fixture = new Database(":memory:"); migrate(fixture); importCardEffectArtifact(fixture); importBridgeArtifact(fixture);
+    const row = createBridgeService(fixture).bridgeBetween("Odion", "Ashtra")!;
+    approve(row, fixture);
+    const user = seedIdentity(fixture, { name: "Package ownership" });
+    const savedDecks = createSavedDeckService(fixture);
+    const main = [...new Set([...row.cards, 97522863])];
+    const saved = savedDecks.create("g", user.userId, { name: "Complete package", mode: "normal",
+      deck: { main, extra: [], side: [] } });
+    const version = (fixture.prepare("SELECT source_version FROM bridge_graph WHERE id=1").get() as { source_version: string }).source_version;
+    const legacy = new BridgeSearchJobs(fixture, { version: () => `${version}:${BRIDGE_JUDGE_VERSION}`,
+      execute: async () => [], project: () => ({ results: [], inReview: 0 }) });
+    const old = await legacy.start({ userId: user.userId, guildId: "g" }, { source: "Odion", format: "advanced", deckCards: row.cards });
+    await legacy.close();
+    const api = new BridgeApi(fixture, { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection: vi.fn(), bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const request = () => api.handle({ userId: user.userId, bridgeRequest: { op: "between", deckId: saved.id, target: "Ashtra" } }, "g", user.playerId);
+    try {
+      await expect(api.handle({ userId: user.userId, bridgeRequest: { op: "status", jobId: old.jobId } }, "g", user.playerId))
+        .rejects.toMatchObject({ status: 404 });
+      expect(await request()).toMatchObject({ results: [{ alreadyInDeck: true, missing: [] }] });
+      savedDecks.update(saved.id, "g", user.userId, { name: "Side-only card", mode: "normal",
+        deck: { main: main.filter(id => id !== 1710647), extra: [], side: [1710647] } });
+      expect(await request()).toMatchObject({ results: [{ alreadyInDeck: false, missing: [1710647] }] });
+    } finally { await api.jobs.close(); fixture.close(); }
+  });
+
+  it("marks complete packages and retains partial packages and required copy multiplicity", async () => {
+    const queries = new BridgeEngineQueries(db);
+    const row = queries.service.bridgeBetween("Sinful Spoils", "Azamina")!;
+    approve(row);
+    const main = row.cards.slice(0, -1), extra = row.cards.slice(-1);
+    const answer = (main: number[], extra: number[], deckMaster?: number) => bridgeEngines({
+      op: "engines", engines: ["Sinful Spoils"], deck: { main, extra, ...(deckMaster ? { deckMaster } : {}) }, format: "advanced",
+    }, "g");
+    const complete = (await answer(main, extra)).next.find(next => next.engine === "Azamina")!;
+    expect(complete).toMatchObject({ alreadyInDeck: true, missing: [] });
+    expect(complete.links[0]!.bridge).toMatchObject({ alreadyInDeck: true, missing: [] });
+    const partial = (await answer(main, [], extra[0])).next.find(next => next.engine === "Azamina")!;
+    expect(partial).toMatchObject({ alreadyInDeck: false, missing: extra });
+    expect(partial.links[0]!.bridge).toMatchObject({ alreadyInDeck: false, missing: extra });
+    const repeated = { ...row, reasons: [{ ...row.reasons[0]!, materials: [row.cards[0]!, row.cards[0]!] }] };
+    const query = { source: row.source, engines: [row.source], format: row.format, deckCards: row.cards };
+    expect(queries.package([repeated], query)).toMatchObject({ alreadyInDeck: false, missing: [row.cards[0]] });
+    expect(queries.package([repeated], { ...query, deckCards: [...row.cards, row.cards[0]!] })).toMatchObject({ alreadyInDeck: true, missing: [] });
+  });
+
   it("rehydrates compact completed pairs after their evidence changes or an artifact is imported", () => {
     const fixture = new Database(":memory:"); migrate(fixture); importBridgeArtifact(fixture);
     const row = createBridgeService(fixture).bridgeBetween("Odion", "Argostars")!;
@@ -157,7 +232,7 @@ describe("stored multi-engine bridge API", () => {
     const queries = new BridgeEngineQueries(db);
     const resolved = queries.resolve({ op: "engines", format: "genesys", deck: { main: [artwork, artwork, 8240199, 8240199], extra: [artwork], deckMaster: artwork } }, "g");
     expect(resolved.query.engines).toContain("Blue-Eyes");
-    expect(resolved.query.deckCards!.filter(id => id === main)).toHaveLength(4);
+    expect(resolved.query.deckCards!.filter(id => id === main)).toHaveLength(3);
     expect(resolved.query.deckCards).not.toContain(artwork);
     expect(resolved.query.genesysRemaining).toBeTypeOf("number");
     const row = createBridgeService(db).bridgeBetween("Blue-Eyes", "Black Luster Soldier", "genesys")!;

@@ -19,7 +19,7 @@ let replyStatus: number;
 const hash = "a".repeat(64);
 const shown = () => ({ source: "Odion", target: "Argostars", format: "advanced", score: 70, raw_score: 72,
   target_mean: 2, two_way: false, grade: "Good", reasons: [], cards: [123], warnings: [], genesys_points: null,
-  validation: "deterministic", judge: "accepted", engine_status: "unverified", evidence_hash: hash,
+  validation: "deterministic", judge: "accepted", engine_status: "unverified", evidence_hash: hash, missing: [123], alreadyInDeck: false,
   review: { grade: "good", pros: ["Turns on the Traps.", "Shares its starter."], cons: ["Needs Temple.", "Uses deck space."], lock_note: "No summon lock.", line: ["Temple of the Kings"], steps: [{ card: "Temple of the Kings", text: "" }] } });
 
 beforeEach(() => {
@@ -86,9 +86,21 @@ it("forwards bounded open decks and corrected engines without exposing pending r
   }
   for (const pointCap of [-1, 1001, 0.5, "100"]) expect((await engines({ deck: { ...deck, pointCap }, format: "advanced" })).status).toBe(400);
   const next = { engine: "Argostars", score: 8, grade: "Good", tier: "strict", covered: 1, of: 1, twoWay: [],
-    links: [{ from: "Odion", to: "Argostars", bridge: shown() }], cards: [123], missing: [123], genesysPoints: null, pros: [], cons: [] };
+    links: [{ from: "Odion", to: "Argostars", bridge: shown() }], cards: [123], missing: [123], alreadyInDeck: false, genesysPoints: null, pros: [], cons: [] };
   reply = { engines: ["Odion"], between: [], next: [next], inReview: 0 };
   expect((await engines({ engines: ["Odion"], format: "advanced" })).status).toBe(200);
+  for (const owned of [true, false]) {
+    reply = { engines: ["Odion"], between: [], next: [{ ...next, missing: owned ? [] : [123], alreadyInDeck: owned,
+      links: [{ ...next.links[0], bridge: { ...shown(), missing: owned ? [] : [123], alreadyInDeck: owned } }] }], inReview: 0 };
+    expect((await engines({ engines: ["Odion"], format: "advanced" })).status).toBe(200);
+  }
+  for (const invalid of [{ missing: [123], alreadyInDeck: true }, { missing: [], alreadyInDeck: false },
+    { missing: [999], alreadyInDeck: false }, { missing: [], alreadyInDeck: "true" }]) {
+    reply = { engines: ["Odion"], between: [], next: [{ ...next, ...invalid }], inReview: 0 };
+    expect((await engines({ engines: ["Odion"], format: "advanced" })).status).toBe(502);
+    reply = { results: [{ ...shown(), ...invalid }], inReview: 0 };
+    expect((await lookup()).status).toBe(502);
+  }
   reply = { ...reply as object, next: [{ ...next, links: [{ ...next.links[0], bridge: { ...shown(), judge: "pending" } }] }] };
   expect((await engines({ engines: ["Odion"], format: "advanced" })).status).toBe(502);
 });
@@ -127,6 +139,63 @@ it("cancels signed-host engine work when the browser request is aborted", async 
   controller.abort();
   expect((await pending).status).toBe(503);
   expect(hostSignal?.aborted).toBe(true);
+});
+
+it("quietly cancels a live host request with Next's empty ResponseAborted reason", async () => {
+  const { createServer } = await import("node:http");
+  const { ResponseAborted } = await import("next/dist/server/web/spec-extension/adapters/next-request");
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  const host = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const signed = await readSignedRequest(new Request("http://host.test/internal/duel", {
+      method: "POST", headers: request.headers as Record<string, string>, body: Buffer.concat(chunks),
+    }), { secret, purpose: "duel-host" });
+    expect(signed.ok).toBe(true);
+    started();
+    response.once("close", () => response.end());
+  });
+  await new Promise<void>(resolve => host.listen(0, "127.0.0.1", resolve));
+  const address = host.address() as { port: number };
+  vi.stubEnv("DUEL_INTERNAL_URL", `http://127.0.0.1:${address.port}`);
+  vi.unstubAllGlobals();
+  try {
+    const { POST } = await import("../app/api/cards/bridges/engines/route");
+    const controller = new AbortController();
+    const pending = POST(new Request("http://web.test/api/cards/bridges/engines", { method: "POST",
+      body: JSON.stringify({ engines: ["Sinful Spoils"], format: "advanced" }), signal: controller.signal }));
+    await ready;
+    expect(new ResponseAborted().message).toBe("");
+    controller.abort(new ResponseAborted());
+    const response = await pending;
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining("cancelled") });
+    expect(errors).not.toHaveBeenCalled();
+  } finally {
+    host.closeAllConnections();
+    await new Promise<void>(resolve => host.close(() => resolve()));
+    errors.mockRestore(); warnings.mockRestore();
+  }
+});
+
+it("reports empty host failure bodies with the operation, host status and body", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    for (const [status, body] of [[0, ""], [499, ""], [500, ""], [502, ""], [502, "upstream rejected request"]] as const) {
+      vi.stubGlobal("fetch", async () => { if (status === 0) throw new Error(""); return new Response(body, { status }); });
+      await engines({ engines: ["Sinful Spoils"], format: "advanced" });
+      expect(errors).toHaveBeenLastCalledWith(expect.objectContaining({
+        message: expect.stringContaining(`HTTP ${status}`),
+        tags: { operation: "bridges" }, extra: { hostStatus: status, hostBody: body },
+      }));
+    }
+    vi.stubGlobal("fetch", async () => Response.json({ error: "   " }, { status: 503 }));
+    const response = await engines({ engines: ["Sinful Spoils"], format: "advanced" });
+    expect((await response.json()).error.trim().length).toBeGreaterThan(0);
+  } finally { errors.mockRestore(); }
 });
 
 it("authenticates all operations and requires a player in the configured guild", async () => {
@@ -386,7 +455,7 @@ it("passes real host step projections through lookup, engines and deep routes", 
     const fast = await lookup(`source=${encodeURIComponent(source)}`);
     expect(fast.status).toBe(200); expect(await fast.json()).toEqual(reply);
     const next = { engine: target, score: 8, grade: "Good", tier: "strict", covered: 1, of: 1, twoWay: [],
-      links: [{ from: source, to: target, bridge }], cards: bridge.cards, missing: bridge.cards,
+      links: [{ from: source, to: target, bridge }], cards: bridge.cards, missing: bridge.missing, alreadyInDeck: false,
       genesysPoints: null, pros: [], cons: [] };
     reply = { engines: [source], between: [], next: [next], inReview: 0 };
     const engineResult = await engines({ engines: [source], format: "advanced" });
