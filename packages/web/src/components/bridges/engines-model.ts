@@ -1,5 +1,4 @@
-import type { BridgeDeck, BridgeEnginesRequest, DetectedEngine } from "@/lib/bridges-api";
-import type { BridgeFormat } from "./bridges-api";
+import type { BridgeDeck, BridgeEnginesRequest, BridgeFormat, DetectedEngine } from "@/lib/bridges-api";
 import { deckSignature, readStore, writeStore } from "./bridges-model";
 
 /** A set holds one to four engines. */

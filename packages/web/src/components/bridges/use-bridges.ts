@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
 import { getDeckCards } from "@/components/decks/api";
-import { BridgeRequestError, fetchBridges, pollDeepSearch, startDeepSearch, type BridgeList, type BridgeScope, type DeepStep, type EngineSuggestion, type ShownBridge } from "./bridges-api";
+import { BridgeRequestError, fetchBridges, pollDeepSearch, startDeepSearch, type BridgeList, type BridgeScope, type DeepStep, type EngineSuggestion, type ShownBridge } from "@/lib/bridges-api";
 import { DEEP_POLL_FAILURES, DEEP_POLL_MS, deepContextKey, deepWorkKey, readStore, scopeKey, secondsLeft, writeStore } from "./bridges-model";
 
 /** Wait this long after the last deck change before asking again, like the other Suggestions rows. */
@@ -39,7 +39,8 @@ export function useBridgeList(scope: BridgeScope | null, debounce: boolean, enab
     const timer = window.setTimeout(() => {
       const now = latest.current;
       if (!now) return;
-      void fetchBridges(now, controller.signal).then(
+      const points = now.format === "genesys" && now.genesysRemaining != null ? { genesysRemaining: Math.max(0, Math.min(1000, Math.floor(now.genesysRemaining))) } : {};
+      void fetchBridges({ source: now.source, ...(now.target ? { target: now.target } : {}), format: now.format, ...(now.deck ? { deck: now.deck } : {}), ...points }, controller.signal).then(
         (list) => { if (!controller.signal.aborted) setAnswer({ key, retry, list }); },
         (reason: unknown) => {
           if (controller.signal.aborted) return;

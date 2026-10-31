@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { foldCardText } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
-import type { BridgeScope, ShownBridge } from "./bridges-api";
+import type { BridgeScope, ShownBridge } from "@/lib/bridges-api";
 import { useBridgeList } from "./use-bridges";
 import { useArchetypeNames } from "./use-engines";
 import styles from "./bridges.module.css";

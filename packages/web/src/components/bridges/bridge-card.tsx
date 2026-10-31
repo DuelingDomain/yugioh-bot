@@ -5,7 +5,7 @@ import { AlertTriangle, Check, ChevronRight, Flag, Minus, Plus } from "lucide-re
 import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
 import { CardArt } from "@/components/decks/card-art";
 import { cn } from "@/lib/utils";
-import { reportBridge, type ShownBridge } from "./bridges-api";
+import { reportBridge, type ShownBridge } from "@/lib/bridges-api";
 import { PathThumbs, pathSteps } from "./bridge-path";
 import { cardsState, errorText } from "./use-bridges";
 import { reportedBridges, rememberReported } from "./bridges-model";

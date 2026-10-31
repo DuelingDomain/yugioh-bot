@@ -1,4 +1,4 @@
-import type { BridgeScope, DeepStep, ShownBridge } from "./bridges-api";
+import type { BridgeScope, DeepStep, ShownBridge } from "@/lib/bridges-api";
 
 /** A list shows this many bridges. */
 export const BRIDGES_SHOWN = 4;

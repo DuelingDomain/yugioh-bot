@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { fetchBridgeEngines, type BridgeEnginesRequest, type BridgeEnginesResponse } from "@/lib/bridges-api";
-import { BridgeRequestError, fetchBridgeArchetypes } from "./bridges-api";
+import { BridgeRequestError, fetchBridgeArchetypes, fetchBridgeEngines, type BridgeEnginesRequest, type BridgeEnginesResponse } from "@/lib/bridges-api";
 import { applyEdits, bridgeDeck, bridgeFormat, enginesKey, sameNames, type EngineEdits } from "./engines-model";
 import { errorText } from "./use-bridges";
 

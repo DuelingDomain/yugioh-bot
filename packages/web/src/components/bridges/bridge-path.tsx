@@ -9,8 +9,7 @@ import { cn } from "@/lib/utils";
 import type { CardPropsFor } from "./bridge-card";
 import { roleFor } from "./bridges-model";
 import type { CardsState } from "./use-bridges";
-import type { BridgeAlternativePath } from "@/lib/bridges-api";
-import type { ShownBridge } from "./bridges-api";
+import type { BridgeAlternativePath, ShownBridge } from "@/lib/bridges-api";
 import styles from "./bridges.module.css";
 
 /** One card of the line. `card` is null while its details load ("loading") or when none was found for the name ("missing"). */

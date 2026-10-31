@@ -10,7 +10,7 @@ import { BridgeSearch } from "./bridge-search";
 import { DeepProgress, DeepSearchButton } from "./deep-search";
 import { EngineChips } from "./engine-chips";
 import { EngineList } from "./engine-card";
-import { BridgeRequestError, type BridgeScope, type ShownBridge } from "./bridges-api";
+import { BridgeRequestError, type BridgeScope, type ShownBridge } from "@/lib/bridges-api";
 import { BRIDGES_SHOWN, DEEP_BRIDGES_SHOWN, actionableFirst, bridgeCodes, capActionable, deepWorkKey } from "./bridges-model";
 import { MAX_ENGINES, NO_EDITS, bridgeDeck, bridgeFormat, hasEdits, lightEngines, readEdits, toggleEngine, writeEdits, type EngineEdits } from "./engines-model";
 import { useBridgeCards, useBridgeList, useDeepSearch } from "./use-bridges";
