@@ -255,7 +255,7 @@ export interface Candidate {
 }
 
 /** A hook that fits more than this share of all cards describes nothing in particular, and is not used. */
-const TOO_COMMON_SHARE = 0.05;
+export const TOO_COMMON_SHARE = 0.05;
 
 export interface HookResult {
   hook: Hook;

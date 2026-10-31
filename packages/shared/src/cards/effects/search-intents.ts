@@ -3,8 +3,9 @@ import {readReleaseQuery} from "./release-query.js";
 import type { Card } from "./card.js";
 import type { MatchTags } from "./effect-match.js";
 import { matchCard } from "./effect-match.js";
-import { describe, type Interpretation } from "./query.js";
-import { belongsTo, hookQuery, type ArchetypeProfile } from "./synergy.js";
+import { describe, isEmptyObject, type EffectQuery, type Interpretation } from "./query.js";
+import { compactEffectName } from "./name-match.js";
+import { belongsTo, hookQuery, TOO_COMMON_SHARE, type ArchetypeProfile } from "./synergy.js";
 import { type CounterProfile, type Weakness } from "./counters.js";
 import { shortReason } from "./search-reasons.js";
 
@@ -18,10 +19,25 @@ export const searchIntentTarget = (text: string): { kind: "similar" | "counters"
   return counter ? { kind: "counters", target: counter[1]!.trim() } : undefined;
 };
 
+export const synergyTarget = (text: string): string | undefined =>
+  text.trim().replace(/[?.!]+$/, "").match(/^(?:cards?\s+that\s+)?(?:works?\s+(?:well\s+)?with|synerg(?:y|ies|izes?|ises?)\s+(?:with|for)|partners?\s+for)\s+(.+)$/i)?.[1];
+
 export function intentReading(text: string, card: (name: string) => { id: number; name: string } | undefined, archetype: (name: string) => string | undefined): Interpretation | null {
   const format=readFormatQuery(text), release=readReleaseQuery(format.text);
   const facets={...(format.filter?{formatFilter:format.filter}:{}),...(release.released?{released:release.released,releaseLabel:release.releaseLabel}:{}),...(release.sort?{sort:release.sort}:{})};
   text=release.text;
+  const synergy = synergyTarget(text) ?? text.trim().replace(/[?.!]+$/, "").match(/^(.+?)\s+(?:synerg(?:y|ies)|partners?|combos?)$/i)?.[1];
+  if (synergy) {
+    const targets = synergy.split(/\s+(?:and|&|\+)\s+|,\s*/i).map(name => name.trim());
+    const resolved = targets.map(name => archetype(name));
+    // An exact archetype wins over a fuzzy card name (Monarch vs. The First Monarch).
+    // Other complete card names still take the individual-card path.
+    if (resolved.every((name, at) => name && compactEffectName(name) === compactEffectName(targets[at]!))) {
+      const empty = { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] };
+      const query = { ...facets, card: empty, roles: [], quick: false, text: "", supports: { ...empty, archetypes: [...new Set(resolved as string[])] } };
+      return { query, chips: describe(query) };
+    }
+  }
   if (!(release.released && /^hand[- ]?traps$/i.test(text.trim())) && /^(?:(?:best|format|generic|popular|current|tcg|domain|genesys)\s+)*(?:staples?|hand[- ]?traps)(?:\s+(?:for (?:this|the) format|this format))?[?.!]*$/i.test(text.trim())) {
     const query = { ...facets, intent: { kind: "staples" as const }, card: { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] }, roles: /hand[- ]?traps/i.test(text) ? ["hand_trap" as const] : [], quick: false, text: "" };
     return { query, chips: describe(query) };
@@ -44,6 +60,73 @@ export function intentReading(text: string, card: (name: string) => { id: number
   if (!intent) return null;
   const query = { ...facets, intent, card: { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] }, roles: [], quick: false, text: "" };
   return { query, chips: describe(query) };
+}
+
+/** Compile named support and stored outside-card hooks once for either search entry point.
+ * Matching several archetypes outranks matching just one; single matches remain as a ranked union.
+ * Other card, effect and date constraints remain mandatory. */
+export function archetypeSupportMatcher(query: EffectQuery, profiles: ReadonlyMap<string, ArchetypeProfile>, population?: {
+  candidates: () => Iterable<{ card: Card; tags?: MatchTags }>;
+  total: number;
+}) {
+  if (query.intent || !query.supports?.archetypes.length) return undefined;
+  const empty = { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] };
+  const support = { ...query.supports, archetypes: [] };
+  const base = { ...query, supports: isEmptyObject(support) ? undefined : support };
+  const targets = query.supports.archetypes.map(archetype => ({
+    archetype,
+    direct: { card: empty, roles: [], quick: false, text: "", supports: { ...empty, archetypes: [archetype] } },
+    hooks: (profiles.get(archetype)?.hooks ?? []).map(hook => {
+      const query = hookQuery(hook, archetype);
+      // An explicit Xyz/Link hook describes a Rank/Rating; other bounds describe a Level.
+      if ((query.card.levelMin !== undefined || query.card.levelMax !== undefined) && !query.card.subtypes.some(subtype => subtype === "xyz" || subtype === "link")) query.card.levelOnly = true;
+      return { hook, query, phrases: hook.phrases.map(phrase => phrase.toLowerCase()), matches: 0, ignored: false };
+    }),
+  }));
+  const fits = (candidate: { card: Card; tags?: MatchTags }, printed: string, hook: typeof targets[number]["hooks"][number]) =>
+    hook.phrases.every(phrase => printed.includes(phrase)) && matchCard(candidate.card, candidate.tags, hook.query) !== null;
+  // Use the whole tagged catalog, independent of the requested pool/filters. As in findPartners,
+  // generic hooks (for example discarding any card) must not swamp the specific partner hooks.
+  if (population && targets.some(target => target.hooks.length)) {
+    for (const candidate of population.candidates()) {
+      const printed = `${candidate.card.text}\n${candidate.card.pendulumText ?? ""}`.toLowerCase();
+      for (const target of targets) {
+        if (belongsTo(candidate.card, target.archetype) || matchCard(candidate.card, candidate.tags, target.direct) !== null) continue;
+        for (const hook of target.hooks) if (fits(candidate, printed, hook)) hook.matches++;
+      }
+    }
+    for (const target of targets) {
+      for (const hook of target.hooks) hook.ignored = hook.matches > population.total * TOO_COMMON_SHARE;
+      if (target.hooks.every(hook => hook.ignored || !hook.matches)) {
+        const narrowest = target.hooks.filter(hook => hook.matches).sort((a, b) => a.matches - b.matches)[0];
+        if (narrowest) narrowest.ignored = false;
+      }
+    }
+  }
+  return (candidate: { card: Card; tags?: MatchTags }): { score: number; reason: string } | null => {
+    const baseScore = matchCard(candidate.card, candidate.tags, base);
+    if (baseScore === null) return null;
+    const printed = `${candidate.card.text}\n${candidate.card.pendulumText ?? ""}`.toLowerCase();
+    const matches: Array<{ archetype: string; label?: string }> = [];
+    let strength = 0;
+    for (const target of targets) {
+      if (matchCard(candidate.card, candidate.tags, target.direct) !== null) {
+        matches.push({ archetype: target.archetype });
+        continue;
+      }
+      if (belongsTo(candidate.card, target.archetype)) continue;
+      const found = target.hooks.filter(hook => !hook.ignored && fits(candidate, printed, hook));
+      if (!found.length) continue;
+      matches.push({ archetype: target.archetype, label: found[0]!.hook.label });
+      strength += found.length;
+    }
+    if (!matches.length) return null;
+    return {
+      score: matches.length * 100 + Math.min(90, strength * 4) + Math.min(9, baseScore),
+      reason: shortReason(matches.length > 1 ? `Works with ${matches.map(match => match.archetype).join(" + ")}`
+        : matches[0]!.label ? `${matches[0]!.label} for ${matches[0]!.archetype}` : `Supports ${matches[0]!.archetype}`),
+    };
+  };
 }
 
 /** Weighted Jaccard, emphasizing role and action overlap over kind and zones. */
