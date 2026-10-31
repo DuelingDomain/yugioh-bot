@@ -379,8 +379,23 @@ function LinkRow({ creatorId, link, url, actions, onChange }: { creatorId: numbe
 
 function NewLinkForm({ creatorId, actions, onCreated }: { creatorId: number; actions: ConsoleActions; onCreated: (url: string, label: string) => void }) {
   const [preset, setPreset] = useState<Preset>("community");
+  const [customUses, setCustomUses] = useState("10");
+  const [lockedEmail, setLockedEmail] = useState("");
+  const [lockError, setLockError] = useState<string>();
+  const lockInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  function choosePreset(next: Preset) {
+    setPreset(next);
+    setLockError(undefined);
+  }
+
+  function showLockError(message: string) {
+    setError(null);
+    setLockError(message);
+    lockInput.current?.focus();
+  }
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -388,20 +403,23 @@ function NewLinkForm({ creatorId, actions, onCreated }: { creatorId: number; act
     const element = e.currentTarget;
     const form = new FormData(element);
     const typed = String(form.get("label") ?? "").trim().slice(0, 60);
-    const maxUses = preset === "custom" ? Number(form.get("maxUses")) : PRESETS[preset].maxUses;
+    const lock = preset === "personal" || preset === "custom" ? lockedEmail.trim() || null : null;
+    const maxUses = preset === "custom" ? (lock ? 1 : Number(form.get("maxUses"))) : PRESETS[preset].maxUses;
     const expiresInDays = Number(form.get("expiresInDays"));
     if (!Number.isInteger(maxUses) || maxUses < 1 || maxUses > 500) { setError("Uses must be a whole number from 1 to 500."); return; }
     if (!Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 90) { setError("Days must be a whole number from 1 to 90."); return; }
-    const lockedEmail = preset === "personal" || preset === "custom" ? String(form.get("lockedEmail") ?? "").trim() || null : null;
-    if (preset === "personal" && !lockedEmail) { setError("Enter the creator’s email to lock this personal invite."); return; }
+    if (preset === "personal" && !lock) { showLockError("Enter the creator’s email to lock this personal invite."); return; }
     const label = typed || (preset === "custom" ? null : PRESETS[preset].label);
     setError(null);
+    setLockError(undefined);
     setPending(true);
-    const result = await api<CreateLinkResponse>(`${base(creatorId)}/links`, "POST", { label, maxUses, expiresInDays, lockedEmail });
+    const result = await api<CreateLinkResponse>(`${base(creatorId)}/links`, "POST", { label, maxUses, expiresInDays, lockedEmail: lock });
     setPending(false);
-    if (!result.ok && result.error === "invalid_locked_email") { setError("Enter a valid email in Locked to email."); return; }
+    if (!result.ok && result.error === "invalid_locked_email") { showLockError("Enter a valid email in Locked to email."); return; }
     if (!result.ok) { setError(failText(result, result.status === 400 ? "Check the uses, days and label." : "The link was not made. Try again.")); return; }
     element.reset();
+    setLockedEmail("");
+    setCustomUses("10");
     actions.toast("Link made. Copy it from the top of the list.");
     onCreated(result.data.url, result.data.link.label ?? "");
   }
@@ -410,15 +428,15 @@ function NewLinkForm({ creatorId, actions, onCreated }: { creatorId: number; act
     <form className={`${styles.crForm} ${styles.crPanel}`} style={{ marginTop: 14 }} onSubmit={submit} noValidate aria-label="New link" aria-busy={pending}>
       <BlockHead title="New link" />
       <div className={styles.seg} role="group" aria-label="Link type">
-        <button type="button" aria-pressed={preset === "personal"} onClick={() => setPreset("personal")}>Personal<span>{PRESETS.personal.hint}</span></button>
-        <button type="button" aria-pressed={preset === "friends"} onClick={() => setPreset("friends")}>Friends<span>{PRESETS.friends.hint}</span></button>
-        <button type="button" aria-pressed={preset === "community"} onClick={() => setPreset("community")}>Community<span>{PRESETS.community.hint}</span></button>
-        <button type="button" aria-pressed={preset === "custom"} onClick={() => setPreset("custom")}>Custom</button>
+        <button type="button" aria-pressed={preset === "personal"} onClick={() => choosePreset("personal")}>Personal<span>{PRESETS.personal.hint}</span></button>
+        <button type="button" aria-pressed={preset === "friends"} onClick={() => choosePreset("friends")}>Friends<span>{PRESETS.friends.hint}</span></button>
+        <button type="button" aria-pressed={preset === "community"} onClick={() => choosePreset("community")}>Community<span>{PRESETS.community.hint}</span></button>
+        <button type="button" aria-pressed={preset === "custom"} onClick={() => choosePreset("custom")}>Custom</button>
       </div>
-      <div className={preset === "custom" ? styles.crRow3 : undefined}>
+      <div className={preset === "custom" ? styles.crRow3 : styles.crRow2}>
         {preset === "custom" ? (
           <CrField id={`cr-uses-${creatorId}`} label="Uses">
-            {(aria) => <input id={`cr-uses-${creatorId}`} name="maxUses" type="number" inputMode="numeric" min={1} max={500} defaultValue={10} className={styles.crInput} {...aria} />}
+            {(aria) => <input id={`cr-uses-${creatorId}`} name="maxUses" type="number" inputMode="numeric" min={1} max={500} value={lockedEmail.trim() ? "1" : customUses} onChange={(e) => setCustomUses(e.target.value)} disabled={!!lockedEmail.trim()} className={styles.crInput} {...aria} />}
           </CrField>
         ) : null}
         <CrField id={`cr-days-${creatorId}`} label="Days">
@@ -429,8 +447,8 @@ function NewLinkForm({ creatorId, actions, onCreated }: { creatorId: number; act
         </CrField>
       </div>
       {preset === "personal" || preset === "custom" ? (
-        <CrField id={`cr-lock-${creatorId}`} label="Locked to email" optional={preset === "custom"} hint={preset === "personal" ? "Enter the creator’s email. Only this inbox can claim the invite." : "Leave empty to let anyone with the link join."}>
-          {(aria) => <input id={`cr-lock-${creatorId}`} name="lockedEmail" type="email" maxLength={254} autoComplete="off" required={preset === "personal"} className={styles.crInput} placeholder="creator@example.com" {...aria} />}
+        <CrField id={`cr-lock-${creatorId}`} label="Locked to email" optional={preset === "custom"} error={lockError} hint={preset === "personal" ? "Enter the creator’s email. Only this inbox can claim the invite." : "Leave empty to let anyone with the link join."}>
+          {(aria) => <input ref={lockInput} id={`cr-lock-${creatorId}`} name="lockedEmail" type="email" maxLength={254} autoComplete="off" required={preset === "personal"} value={lockedEmail} onChange={(e) => { setLockedEmail(e.target.value); setLockError(undefined); }} className={styles.crInput} placeholder="creator@example.com" {...aria} />}
         </CrField>
       ) : <p className={styles.crHint}>Anyone with this link can join and skip the waitlist.</p>}
       {error ? <p className={styles.crErr} role="alert">{error}</p> : null}
