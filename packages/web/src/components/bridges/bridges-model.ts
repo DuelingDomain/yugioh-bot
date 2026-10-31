@@ -16,7 +16,7 @@ export const DEEP_STEPS: readonly { id: Exclude<DeepStep, "done">; label: string
 
 /** The key of a free list: the source, the target, the format and the points (the list is filtered by the points). */
 export function scopeKey(scope: BridgeScope): string {
-  return JSON.stringify([scope.source.toLowerCase(), scope.target?.toLowerCase() ?? "", scope.format, scope.format === "genesys" ? scope.genesysRemaining ?? -1 : -1]);
+  return JSON.stringify([scope.source.toLowerCase(), scope.target?.toLowerCase() ?? "", scope.format, scope.format === "genesys" ? scope.genesysRemaining ?? -1 : -1, deckSignature(scope.deck)]);
 }
 
 /**

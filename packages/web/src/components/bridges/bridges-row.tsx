@@ -169,7 +169,9 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
   const single = set.length === 1 ? set[0]! : null;
   const first = set[0] ?? null;
   const names = set.join(" + ");
-  const listScope: BridgeScope | null = single && !noCards ? { source: single, format, ...points } : null;
+  // The open deck goes with the list, so each row knows what the deck already holds. A deck edit changes the request
+  // key: the list is asked again after the usual wait, and an answer for an older deck never replaces a newer one.
+  const listScope: BridgeScope | null = single && !noCards ? { source: single, format, ...(openDeck ? { deck: openDeck } : {}), ...points } : null;
   // The deep search runs on the set on screen. The open deck says what the player already holds.
   const scope: BridgeScope | null = first && !noCards
     ? set.length > 1 ? { source: first, format, engines: set, ...(openDeck ? { deck: openDeck } : {}), ...points } : { source: first, format, ...points }

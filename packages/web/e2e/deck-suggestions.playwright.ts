@@ -132,14 +132,18 @@ const BRIDGES: FixtureBridge[] = [
 const ARCHETYPE_NAMES = ["Blue-Eyes", "Chaos", "Dark Magician", "Dragon Ruler", "Dragunity", "Red-Eyes"];
 const known = (name: string) => ARCHETYPE_NAMES.find((entry) => entry.toLowerCase() === name.trim().toLowerCase());
 /** `owned`: the deck already holds the whole package of the rows with that target, as a host answer with deck context says. */
-const asFormat = (list: FixtureBridge[], format: string, owned = "") => list.map((entry) => ({ ...entry, format, missing: entry.target === owned ? [] : entry.cards, alreadyInDeck: entry.target === owned, ...(format === "genesys" ? { genesys_points: entry.genesys_points ?? 4 } : {}) }));
+/** `held` (the open deck's Main and Extra) makes the package count real: only cards the deck lacks are missing. */
+const asFormat = (list: FixtureBridge[], format: string, owned = "", held?: ReadonlySet<number>) => list.map((entry) => {
+  const missing = entry.target === owned ? [] : held ? entry.cards.filter((code) => !held.has(code)) : entry.cards;
+  return { ...entry, format, missing, alreadyInDeck: missing.length === 0, ...(format === "genesys" ? { genesys_points: entry.genesys_points ?? 4 } : {}) };
+});
 
 // ---- Request log and answer control ---------------------------------------------------------------
 const insightRequests: { deck: { main: number[] }; pool?: number[]; at: number }[] = [];
 const control = { delayMs: 0, emptyRows: false, deck: "small" as "small" | "full" | "empty", genesys: false, mode: "normal" as "normal" | "domain" };
 /** Bridges: every call the row made, and how the stand-in host should answer. */
-const bridgeCalls = { lists: [] as string[], starts: [] as Record<string, unknown>[], polls: 0, feedback: [] as Record<string, unknown>[], archetypes: 0 };
-const bridgeControl = { ownedTarget: "", listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok" as "ok" | "fail", reviewCount: 3, feedbackFails: false, started: 0, deepNone: false,
+const bridgeCalls = { lists: [] as string[], listBodies: [] as Record<string, any>[], starts: [] as Record<string, unknown>[], polls: 0, feedback: [] as Record<string, unknown>[], archetypes: 0 };
+const bridgeControl = { ownedTarget: "", listDelayMs: 0, slowMain: -1, listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok" as "ok" | "fail", reviewCount: 3, feedbackFails: false, started: 0, deepNone: false,
   /** The deep search on Blue-Eyes + Dragunity finds Melodious (not in the fast list) and drops Dragon Ruler. */
   deepExtra: false,
   /** A status the host answers a join-only request with (404 or 409), or 0. */
@@ -218,20 +222,26 @@ async function api(method: string, url: URL, body: any) {
     const cards = codes.map(details).filter(Boolean);
     return json(200, { cards, missing: codes.filter((code) => !details(code)) });
   }
-  if (path === "/api/cards/bridges" && method === "GET") {
-    bridgeCalls.lists.push(url.search);
+  if (path === "/api/cards/bridges" && (method === "GET" || method === "POST")) {
+    // A POST carries the open deck. It is logged like the GET query, and in full for the checks of its deck.
+    const params = method === "POST" ? new URLSearchParams({ source: body.source ?? "", format: body.format ?? "advanced", ...(body.target ? { target: body.target } : {}), ...(body.genesysRemaining != null ? { genesysRemaining: String(body.genesysRemaining) } : {}) }) : url.searchParams;
+    if (method === "POST") bridgeCalls.listBodies.push(body);
+    bridgeCalls.lists.push(method === "POST" ? `?${params}` : url.search);
+    // A slow answer for one deck size, to see that it never lands over the newer deck's answer.
+    if (method === "POST" && bridgeControl.listDelayMs && body.deck?.main?.length === bridgeControl.slowMain) await new Promise((done) => setTimeout(done, bridgeControl.listDelayMs));
+    const held = method === "POST" ? new Set<number>([...(body.deck?.main ?? []), ...(body.deck?.extra ?? [])]) : undefined;
     if (bridgeControl.listStatus !== 200) return json(bridgeControl.listStatus, { error: bridgeControl.listStatus === 404 ? "Not found" : "Bridges are busy" });
-    const source = known(url.searchParams.get("source") ?? "");
-    const format = url.searchParams.get("format") ?? "advanced";
+    const source = known(params.get("source") ?? "");
+    const format = params.get("format") ?? "advanced";
     if (!source) return json(400, { error: "Unknown archetype" });
-    const target = url.searchParams.get("target");
+    const target = params.get("target");
     if (target) {
       const other = known(target);
       if (!other) return json(400, { error: "Unknown archetype" });
-      const pair = (from: string, to: string) => asFormat(bridgeControl.none ? [] : BRIDGES.filter((entry) => entry.source === from && entry.target === to), format);
+      const pair = (from: string, to: string) => asFormat(bridgeControl.none ? [] : BRIDGES.filter((entry) => entry.source === from && entry.target === to), format, "", held);
       return json(200, { results: pair(source, other), reverse: pair(other, source), inReview: bridgeControl.reviewCount });
     }
-    return json(200, { results: asFormat(bridgeControl.none ? [] : BRIDGES.filter((entry) => entry.source === source).sort((a, b) => b.score - a.score), format, bridgeControl.ownedTarget), inReview: bridgeControl.reviewCount });
+    return json(200, { results: asFormat(bridgeControl.none ? [] : BRIDGES.filter((entry) => entry.source === source).sort((a, b) => b.score - a.score), format, bridgeControl.ownedTarget, held), inReview: bridgeControl.reviewCount });
   }
   if (path === "/api/cards/bridges/engines" && method === "POST") {
     engineCalls.push(body);
@@ -403,6 +413,7 @@ try {
     control.deck = deck;
     insightRequests.length = 0;
     bridgeCalls.lists.length = 0;
+    bridgeCalls.listBodies.length = 0;
     engineCalls.length = 0;
     // A search left running by an earlier scenario would answer the next start with a 409 it did not ask for.
     for (const [work, job] of deepJobs) if (!job.done) deepJobs.delete(work);
@@ -923,7 +934,7 @@ try {
   // t. The tabs: Cards | Suggest | Bridges on a desktop, Deck | Cards | Suggest | Bridges on a phone.
   const tabState = (name: string) => page.getByRole("tab", { name, exact: true }).first().getAttribute("aria-selected");
   const fresh = async (deck: "small" | "full" | "empty" = "small") => {
-    control.deck = deck; insightRequests.length = 0; bridgeCalls.lists.length = 0; engineCalls.length = 0; deepJobs.clear(); bridgeCalls.polls = 0; bridgeControl.storedExtra = false; bridgeControl.pollBusy = 0;
+    control.deck = deck; insightRequests.length = 0; bridgeCalls.lists.length = 0; bridgeCalls.listBodies.length = 0; engineCalls.length = 0; deepJobs.clear(); bridgeCalls.polls = 0; bridgeControl.storedExtra = false; bridgeControl.pollBusy = 0;
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
     await page.evaluate(() => { try { sessionStorage.clear(); localStorage.clear(); } catch { /* Storage is not available. */ } });
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
@@ -1965,6 +1976,47 @@ try {
   await bridges.getByRole("button", { name: /^Back/ }).click();
   engineControl.owned = "";
   engineControl.mode = "single";
+
+  // r. The single-engine list is asked with the open deck, follows deck edits, and never shows an older deck's answer.
+  engineControl.mode = "single";
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await fresh();
+  await goTab("Bridges");
+  await pItems.first().waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(400);
+  const firstBody = bridgeCalls.listBodies[0];
+  check("r1", "the list is a POST with the source, the format and the open deck", bridgeCalls.listBodies.length === 1 && firstBody?.source === "Blue-Eyes" && firstBody?.format === "advanced" && Object.keys(firstBody ?? {}).sort().join() === "deck,format,source" && firstBody?.deck?.main?.length === small.length && firstBody.deck.main.includes(small[0]), bridgeCalls.listBodies);
+  check("r1", "no row says Already in deck while the deck lacks cards of every package", (await bridges.locator("[data-owned]").count()) === 0);
+  const bodiesBefore = bridgeCalls.listBodies.length;
+  bridgeControl.listDelayMs = 2500;
+  bridgeControl.slowMain = small.length + 1;
+  await goTab("Cards");
+  await search().fill("Tidal, Dragon Ruler of Waterfalls");
+  await page.locator('[data-pane="cards"] button[title="Tidal, Dragon Ruler of Waterfalls"]').first().dblclick({ timeout: 10_000 });
+  await goTab("Bridges");
+  await page.waitForTimeout(1000);
+  await goTab("Cards");
+  await search().fill("Redox, Dragon Ruler of Boulders");
+  await page.locator('[data-pane="cards"] button[title="Redox, Dragon Ruler of Boulders"]').first().dblclick({ timeout: 10_000 });
+  await search().fill("");
+  await goTab("Bridges");
+  await bridges.locator('[data-owned]').first().waitFor({ timeout: 6000 }).catch(() => undefined);
+  const ownedRow = bridges.getByTestId("bridge-item").and(bridges.locator("[data-owned]"));
+  check("r2", "a deck edit asks again with the new deck, and the row for the package the deck now holds says Already in deck", bridgeCalls.listBodies.length > bodiesBefore && bridgeCalls.listBodies.at(-1)?.deck?.main?.length === small.length + 2 && (await ownedRow.count()) === 1 && (await ownedRow.innerText()).includes("Dragon Ruler"), { asked: bridgeCalls.listBodies.length - bodiesBefore, owned: await ownedRow.count() });
+  await page.waitForTimeout(3200);
+  check("r3", "the slower answer for the older deck never replaces the newer one", (await ownedRow.count()) === 1 && (await pItems.last().getAttribute("data-owned")) !== null, await ownedRow.count());
+  bridgeControl.listDelayMs = 0;
+  bridgeControl.slowMain = -1;
+  // Pick mode with one archetype asks with the open deck too.
+  await bridges.getByTestId("engine-modes").getByRole("button", { name: "Pick archetypes" }).click();
+  bridgeCalls.listBodies.length = 0;
+  await bridges.getByTestId("engine-add").click();
+  await bridges.getByTestId("engine-add-form").getByRole("combobox").fill("Blue-Eyes");
+  await bridges.getByTestId("engine-add-form").getByRole("button", { name: "Add", exact: true }).click();
+  await items.first().waitFor({ state: "visible", timeout: 15_000 });
+  await page.waitForTimeout(400);
+  check("r4", "one pick asks for its list with the open deck", bridgeCalls.listBodies.length >= 1 && bridgeCalls.listBodies.at(-1)?.source === "Blue-Eyes" && bridgeCalls.listBodies.at(-1)?.deck?.main?.length === small.length + 2, bridgeCalls.listBodies.at(-1));
+  check("r4", "that list says Already in deck for the package the deck holds", (await ownedRow.count()) === 1);
 
   // z. The views for review at every size: deck engines, picks, link details, deep search done, and Suggest.
   engineControl.mode = "multi";
