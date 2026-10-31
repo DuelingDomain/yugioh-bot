@@ -14,9 +14,9 @@ import { isEmptyObject, type EffectQuery, type EventQuery, type ObjectQuery } fr
 import type { CardFilter, CardTags, Effect, GameEvent } from "./tags.js";
 import { compactEffectName } from "./name-match.js";
 
-export type MatchFilter = Pick<CardFilter, "this_card" | "kinds" | "subtypes" | "types" | "attributes" | "archetypes" | "names" | "level_min" | "level_max">;
-export type MatchEvent = Pick<GameEvent, "verb" | "player" | "from"> & { what: MatchFilter };
-export type MatchEffect = Pick<Effect, "timing" | "location"> & { actions: MatchEvent[]; costs: MatchEvent[]; triggers: MatchEvent[] };
+export type MatchFilter = Pick<CardFilter, "this_card" | "kinds" | "subtypes" | "types" | "attributes" | "archetypes" | "names" | "level_min" | "level_max"> & Partial<Pick<CardFilter, "other">>;
+export type MatchEvent = Pick<GameEvent, "verb" | "player" | "from"> & Partial<Pick<GameEvent, "note">> & { what: MatchFilter };
+export type MatchEffect = Pick<Effect, "timing" | "location"> & Partial<Pick<Effect, "conditions">> & { actions: MatchEvent[]; costs: MatchEvent[]; triggers: MatchEvent[] };
 export type MatchTags = Pick<CardTags, "roles" | "supports"> & { effects: MatchEffect[] };
 
 /** Events whose tags carry no zone, so a zone in the query cannot be checked against them. */

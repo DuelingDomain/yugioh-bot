@@ -63,6 +63,36 @@ describe.skipIf(!existsSync(`${engineDataDirectory}/cards.cdb`))("specific syner
     const result = search("Labrynth synergy", { passcodes: [98301564, 80101899] });
     expect(result.effectHits!.map(card => card.name)).toEqual(["Trap Trick"]);
   });
+  it.each(["Temple of the Kings", "Labrynth"])("rejects incompatible Trap filters and top-card excavation for %s", target => {
+    const result = search(`${target} synergy`, { passcodes: [53666449, 98301564, 16261341, 952523, 91812341, 45803070, 53770666, 61307542, 80101899] });
+    expect(result.effectHits!.map(card => card.name)).toEqual(["Trap Trick"]);
+  });
+  it("labels setup and weaker recovery by their actual source and action", () => {
+    const result = search("Temple of the Kings synergy", { passcodes: [80101899, 28933734, 11443677, 24425055] });
+    const setup = result.effectHits!.find(card => card.code === 80101899)!;
+    const recovery = result.effectHits!.find(card => card.code === 28933734)!;
+    expect(setup.reason).toContain("Sets a Normal Trap from your Deck");
+    expect(recovery.reason).toContain("Returns a Trap from your GY to your hand");
+    expect(recovery.score).toBeLessThan(setup.score);
+    expect(result.effectHits!.find(card => card.code === 11443677)?.reason).toContain("Re-Sets a Trap from your GY");
+    expect(result.effectHits!.find(card => card.code === 24425055)?.reason).toContain("Sets a Continuous Trap from your hand");
+    expect(search("Labrynth synergy", { passcodes: [24425055] }).effectHits).toEqual([]);
+  });
+  it("does not borrow Trap text from another effect or omit a named setup prerequisite", () => {
+    // Mantis' immunity mentions Normal Traps; its hand Set is generic. Cat and
+    // Kelbek require Necrovalley/Exchange of the Spirit for the matching action.
+    const pool = [...cards.all()].filter(card => ["Traptrix Mantis", "A Cat of Ill Omen", "Kelbek the Ancient Vanguard", "Exchange of Despair and Hope", "The Despair Uranus", "Sacred Serpent's Wake", "Legendary Knight Critias", "Diabrocken the Ominous Specter", "Sunvine Shrine", "Litmus Doom Swordsman", "Loki, Lord of the Aesir", "Labrynth Archfiend"].includes(card.name)).map(card => card.code);
+    expect(pool).toHaveLength(12);
+    expect(search("Temple of the Kings synergy", { passcodes: pool }).effectHits).toEqual([]);
+    const sanctum = [...cards.all()].find(card => card.name === "Artifact Sanctum")!;
+    expect(search("Labrynth synergy", { passcodes: [sanctum.code] }).effectHits).toEqual([]);
+    const typedPayments = [...cards.all()].filter(card => ["Dragonmaid Tidying", "Icarus Attack", "Cybernetic Overflow"].includes(card.name)).map(card => card.code);
+    expect(typedPayments).toHaveLength(3);
+    expect(search("Labrynth synergy", { passcodes: typedPayments }).effectHits).toEqual([]);
+    // These make players remove cards by rule, so they do not trigger the
+    // profile's "monster leaves by your Normal Trap effect" payoff.
+    expect(search("Labrynth synergy", { passcodes: [15693423, 30748475] }).effectHits).toEqual([]);
+  });
   it("rejects Tribute removal that forbids the deck's Normal Summon", () => {
     const result = search("Monarch synergy", { passcodes: [102380, 55063751] });
     expect(result.effectHits!.map(card => card.name)).toEqual(["Gameciel, the Sea Turtle Kaiju"]);

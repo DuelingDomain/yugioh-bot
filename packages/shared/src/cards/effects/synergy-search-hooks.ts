@@ -3,6 +3,7 @@ import type { MatchTags } from "./effect-match.js";
 import { matchCard } from "./effect-match.js";
 import { hookQuery, type ArchetypeProfile, type Hook } from "./synergy.js";
 import { compactEffectName } from "./name-match.js";
+import { trapMechanicMatch, trapMechanicTargets, trapRemovalReason } from "./synergy-trap-hooks.js";
 
 export const SYNERGY_SEARCH_LIMIT = 40;
 export const SYNERGY_ARCHETYPE_LIMIT = 15;
@@ -35,6 +36,9 @@ export function synergyHookMatcher(profile: ArchetypeProfile | undefined, archet
   const normalTraps = hooks.some(hook => hook.card?.kinds.includes("trap") && hook.card.subtypes.includes("normal") && hook.does);
   const trapPlan = hooks.some(hook => hook.does?.verbs.includes("set_spell_trap") && /trap/i.test(hook.why))
     || normalTraps;
+  const trapTargets = trapMechanicTargets(normalTraps);
+  const resourceTypes = new Set(hooks.flatMap(hook => [...hook.card?.types ?? [], ...hook.supports?.types ?? []]));
+  const resourceAttributes = new Set(hooks.flatMap(hook => [...hook.card?.attributes ?? [], ...hook.supports?.attributes ?? []]));
   const compiled = hooks.flatMap(hook => {
     const score = strength(hook);
     if (!score) return [];
@@ -51,20 +55,7 @@ export function synergyHookMatcher(profile: ArchetypeProfile | undefined, archet
     const unrestrictedSummon = normalSummons.some(action => action.player !== "opponent" && !action.what.this_card
       && !action.what.types.length && !action.what.attributes.length && !action.what.subtypes.length
       && !action.what.archetypes.length && !action.what.names.length);
-    // Require a positive Trap engine effect. Negating/destroying an opposing Trap, or
-    // merely being a Trap, cannot satisfy this hook. Generic Spell/Trap recovery is too broad.
-    const trapText = /normal traps?\b|set traps?\b|face-down traps?\b|(?<!\/)\btrap cards?\b/.test(printed)
-      || /(?:if|when|while)[^.:\n]*(?:set (?:spell\/trap|cards?)|face-down cards?)/.test(printed);
-    const trapSetup = trapText && effects.some(effect => effect.actions.some(action => ["set_spell_trap", "add_to_hand"].includes(action.verb)
-      && action.player !== "opponent" && !action.what.this_card && !action.what.archetypes.length && !action.what.names.length
-      && (!normalTraps || !action.what.subtypes.length || action.what.subtypes.includes("normal"))
-      && action.from.some(zone => zone === "deck" || zone === "gy")
-      && (action.what.kinds.includes("trap") || (action.verb === "set_spell_trap" && /normal traps?/i.test(printed)))));
-    const trapPayoff = /normal traps?\b/.test(printed) && effects.some(effect => effect.triggers.some(event => event.verb === "activate" && event.player === "you"
-      && event.what.kinds.includes("trap") && event.what.subtypes.includes("normal") && !event.what.archetypes.length && !event.what.names.length)
-      && effect.actions.some(action => ["draw", "special_summon", "add_to_hand", "set_spell_trap"].includes(action.verb)));
-    let best = trapPlan && (trapSetup || trapPayoff)
-      ? { score: 140, label: trapSetup ? "Searches or Sets Traps" : "Pays off Trap activations" } : undefined;
+    let best = trapPlan ? trapMechanicMatch(effects, printed, trapTargets) : undefined;
     // Some stored tags describe Tribute substitution as "other" rather than Tribute.
     // Require the printed substitution rule and an actual opponent-Tribute profile hook.
     if (hooks.some(hook => hook.does?.verbs.includes("tribute") && hook.does.player === "opponent")
@@ -113,7 +104,31 @@ export function synergyHookMatcher(profile: ArchetypeProfile | undefined, archet
         && !unrestrictedSummon) continue;
       // Token generators that forbid Tribute Summons cannot supply Monarch fodder.
       if (hook.does?.verbs.includes("summon_token") && /cannot be tributed|cannot tribute summon|cannot (?:normal|special) summon.*except/i.test(printed)) continue;
-      if (!best || score > best.score) best = { score, label: hook.label };
+      if (hook.card?.kinds.includes("trap") && hook.does) {
+        const removal = candidate.tags?.effects.filter(effect => effect.location.includes("field")
+          && !effect.triggers.some(event => event.what.this_card && ["destroy", "send_to_gy", "banish"].includes(event.verb))
+          // The removal cannot also demand another engine's body/payment.
+          // For example, Tidying needs your Dragon and Icarus needs a Winged Beast.
+          && ![...effect.actions, ...effect.costs].some(event => event.player === "you" && !event.what.this_card
+            && ["tribute", "discard", "banish", "send_to_gy", "destroy", "return_to_hand"].includes(event.verb)
+            && (event.what.names.length || event.what.archetypes.length
+              || (event.what.other ?? "").replace(/\b(?:face-up|face-down|set)\b/gi, "")
+                // A comparison with the chosen target is conditional removal,
+                // not an unproven resource identity (e.g. Punishment's ATK).
+                .replace(/with (?:atk|def) (?:equal to or )?(?:higher|lower) than the targeted monster/gi, "").trim()
+              || event.what.types.length && !event.what.types.some(type => resourceTypes.has(type))
+              || event.what.attributes.length && !event.what.attributes.some(attribute => resourceAttributes.has(attribute)))))
+          .flatMap(effect => effect.actions.filter(action => hook.does!.verbs.includes(action.verb)
+            && ["destroy", "banish", "return_to_hand", "send_to_gy"].includes(action.verb)
+            // Making a player remove cards uses rule removal, not removal by
+            // this Normal Trap effect (Evenly Matched / Daruma Karma Cannon).
+            && !(action.verb === "banish" && /make (?:your opponent|each player) banish/.test(printed))
+            && !(action.verb === "send_to_gy" && /(?:they|each player) must send/.test(printed))
+            && action.from.includes("field") && action.player !== "you" && !action.what.this_card
+            && matchCard(candidate.card, { ...candidate.tags!, effects: [{ ...effect, actions: [action], costs: [] }] }, query) !== null))[0];
+        if (!removal) continue;
+        if (!best || score > best.score) best = { score, label: trapRemovalReason(removal) };
+      } else if (!best || score > best.score) best = { score, label: hook.label };
     }
     return best;
   };
