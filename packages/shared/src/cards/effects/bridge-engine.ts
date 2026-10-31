@@ -2,8 +2,12 @@ import { ATTRIBUTES, MONSTER_TYPES, isBarredFromGenesys, isExtraDeckCard, type C
 import type { ArchetypeProfile } from "./synergy.js";
 import type { Capability, CapabilityKey, CardCapability, BridgeFormat, BridgeGraphData, BridgeProgress, ArchetypeBridge, BridgeReason, BridgeReasonKey } from "./bridge-types.js";
 import { REASON_CAPS } from "./bridge-types.js";
-import { actionEvidence, allowedByLock, bridgeHash, canReceiveSummon, genericLinkOneMaterial, faceDownNeedEvidence, matchesBridgeFilter, mentionReachesCard, namedIn, particularFilter, positiveMention, printedText, quotedNames, sameName, sentences, sharedSmallWorldStats, trapMonsterEvidence, trapTurnSetEvidence } from "./bridge-text.js";
+import { actionEvidence, allowedByLock, bridgeHash, canReceiveSummon, genericLinkOneMaterial, faceDownNeedEvidence, matchesBridgeFilter, mentionReachesCard, namedIn, particularFilter, positiveMention, printedText, quotedNames, sameName, sentences, sharedSmallWorldStats, trapMonsterEvidence, trapTurnSetEvidence, trapTurnSetAllows } from "./bridge-text.js";
 import { bridgeMaterials } from "./bridge-materials.js";
+import { groundBridgeGraph } from "./bridge-grounding.js";
+import { narrowSetCapability, setReturnSummonEvidence, setAccessOrigin, extraDeckSetResources } from "./bridge-set-access.js";
+import { mechanicProfile, mechanicSynergyReason, validateMechanicSynergy } from "./bridge-mechanics.js";
+import { coPlayPair, observationFormat } from "./bridge-observations.js";
 
 export function bridgeLegal(card: Card, format: BridgeFormat): boolean {
   if (!card.formats.includes("TCG") || card.prerelease || card.subtypes.includes("token")) return false;
@@ -18,6 +22,10 @@ const round = (value: number) => Math.round(value * 100) / 100;
 const wordIn = (word: string, name: string) => new RegExp(`(?:^|[^a-z0-9])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[^a-z0-9])`, "i").test(name);
 const availableMaterial = (card: Card): boolean => !/Cannot be Normal Summoned|Must (?:first )?be (?:Special|Ritual) Summoned/i.test(printedText(card))
   && ((card.level ?? 0) <= 4 || sentences(printedText(card)).some(text => /Special Summon this card[^.]*from your hand/i.test(text)));
+const negatedEntry = (capability: Capability): boolean => {
+  if (capability.from?.includes("hand") && /if you Special Summoned an Effect Monster from your GY by this effect, it cannot attack and its effects are negated/i.test(capability.evidence)) return false;
+  return /negat(?:e|ing) (?:its|their) effects|(?:its|their) effects(?:\s+\(if any\))?\s+(?:(?:are|is)\s+)?negated/i.test(capability.evidence);
+};
 const costCanUse = (cost: Capability, card: Card): boolean => !!cost.filter && !cost.filter.this_card
   && particularFilter(cost.filter) && matchesBridgeFilter(cost.filter, card)
   && cost.evidence.includes(";") && !!actionEvidence({ ...card, text: cost.evidence.split(";")[0]!, pendulumText: undefined }, cost.key, cost.filter)
@@ -69,10 +77,13 @@ export class BridgeEngine {
   private readonly discardSetups = new Map<string, number[] | undefined>();
   private readonly specificFilters = new Map<BridgeFormat, WeakMap<Capability, boolean>>();
   private readonly accessExtras = new Map<string, Context["extras"]>();
+  private readonly mechanicContexts = new Map<string, { members: CardCapability[]; profile: ReturnType<typeof mechanicProfile> }>();
   private collectingOutlets?: Map<number, Map<BridgeReasonKey, Set<string>>>;
   private readonly names: string[];
 
-  constructor(readonly data: BridgeGraphData) {
+  constructor(readonly data: BridgeGraphData, private readonly validationLegal?: (format: BridgeFormat) => ReadonlySet<number>) {
+    data = groundBridgeGraph(data);
+    this.data = data;
     this.rows = new Map(data.capabilities.map(row => [row.id, row]));
     this.groups = new Map(Object.entries(data.groups).map(([name, ids]) => [name, new Set(ids)]));
     this.names = [...this.groups.keys()].sort();
@@ -102,14 +113,16 @@ export class BridgeEngine {
           .filter(([, values]) => values.length).map(([key, values]) => new Set(values.flatMap(value => [...(index.get(`${key}:${key === "name" ? value.toLowerCase() : value}`) ?? [])])));
         candidates = pools.length ? [...pools.sort((a, b) => a.size - b.size)[0]!] : all;
       }
-      const targets = new Set(candidates.filter(target => target !== id && legal.has(target) && (capability.targets || matchesBridgeFilter(f, legal.get(target)!.card))
-        && (capability.key !== "special_summon" || summonable.has(target))
+      const targets = new Set(candidates.filter(target => target !== id && legal.has(target) && matchesBridgeFilter(f, legal.get(target)!.card)
+        && (capability.key !== "special_summon" || summonable.has(target)
+          || capability.from?.includes("extra_deck") && canReceiveSummon(legal.get(target)!.card, printedText(row.card)))
         && (capability.key !== "normal_summon" || normalSummonable.has(target))
         && (!capability.from?.length || capability.from.some(zone => zone === "deck" ? !isExtraDeckCard(legal.get(target)!.card) : zone === "extra_deck" ? isExtraDeckCard(legal.get(target)!.card) : true))));
       if (!targets.size) continue;
       const named = !!(f.names.length || f.archetypes.length);
       // Large generic effects are toolboxes, not evidence of an engine connection.
       if (!named && targets.size >= 300) continue;
+      if (capability.key === "set_spell_trap" && !setAccessOrigin(capability)) continue;
       edges.push({ from: id, capability, targets, named, weight: named ? 6 : 2 });
     }
     const edgesFrom = new Map<number, Edge[]>(), searchersByTarget = new Map<number, Edge[]>();
@@ -216,6 +229,7 @@ export class BridgeEngine {
     for (const row of [...rows].sort((a, b) => Number(a.tier === "niche") - Number(b.tier === "niche")
       || (a.tier === "niche" && b.tier === "niche" ? Number(b.two_way) - Number(a.two_way) : 0)
       || b.score - a.score || a.target.localeCompare(b.target))) {
+      if (row.kind === "synergy" && (!deep || results.filter(row => row.kind === "synergy").length >= 2)) continue;
       if (row.tier === "niche" ? !deep : row.score < 4) continue;
       const reason = row.reasons[0], first = reason?.steps?.[0];
       const sourceCard = reason?.cost?.using ?? reason?.materials?.[0]
@@ -276,10 +290,10 @@ export class BridgeEngine {
     const onlyY = y.cards.filter(card => !x.ids.has(card.id));
     if (!onlyY.length) return [];
     const legal = this.legal.get(format)!, rows = this.rows, reasons: BridgeReason[] = [];
-    const add = (key: BridgeReasonKey, weight: number, ids: number[], description: string, steps?: BridgeReason["steps"], materials?: number[]) => {
+    const add = (key: BridgeReasonKey, weight: number, ids: number[], description: string, steps?: BridgeReason["steps"], materials?: number[], alternative = false) => {
       const cards = [...new Set(ids)];
       const reason: BridgeReason = { key, weight: round(weight * this.frequencyScale(target, key, format)), cards,
-        evidence: cards.map(id => printedText(rows.get(id)!.card) || rows.get(id)!.card.name), description, ...(steps ? { steps } : {}), ...(materials ? { materials } : {}) };
+        evidence: cards.map(id => printedText(rows.get(id)!.card) || rows.get(id)!.card.name), description, ...(steps ? { steps } : {}), ...(materials ? { materials } : {}), ...(alternative ? { alternative: true as const } : {}) };
       if (this.statOutlet(reason) && this.data.ancillary_outlets?.[format]?.[this.outlet(reason)]?.includes(key)) {
         reason.ancillary = true;
         reason.weight = Math.min(1, reason.weight);
@@ -293,7 +307,9 @@ export class BridgeEngine {
           if (!keys.has(key)) keys.set(key, new Set());
           keys.get(key)!.add(target);
         }
+        return true;
       }
+      return false;
     };
     for (const card of x.cards) {
       for (const other of onlyY) {
@@ -308,12 +324,11 @@ export class BridgeEngine {
       const hit = onlyY.filter(card => edge.targets.has(card.id) && this.engineMember(card, y, edge.capability, x));
       if (!hit.length) continue;
       const card = rows.get(edge.from)!.card, to = hit[0]!;
-      const negatedEntry = ["special_summon", "normal_summon"].includes(edge.capability.key)
-        && /negat(?:e|ing) (?:its|their) effects|(?:its|their) effects(?:\s+\(if any\))?\s+(?:(?:are|is)\s+)?negated/i.test(edge.capability.evidence);
+      const negated = ["special_summon", "normal_summon"].includes(edge.capability.key) && negatedEntry(edge.capability);
       // GY/banished extenders need setup before they can enter another engine.
       const freshEntry = ["search", "special_summon", "normal_summon"].includes(edge.capability.key)
         && edge.capability.from?.some(zone => zone === "deck" || zone === "hand");
-      const entry = (negatedEntry || !freshEntry ? [] : hit).flatMap(card => y.edges.filter(next => next.from === card.id && next.named && next.capability.from?.includes("deck")
+      const entry = (negated || !freshEntry ? [] : hit).flatMap(card => y.edges.filter(next => next.from === card.id && next.named && next.capability.from?.includes("deck")
         && /If this card is (?:Normal|Special|Normal or Special) Summoned\s*:/i.test(next.capability.evidence))
         .flatMap(next => onlyY.filter(other => next.targets.has(other.id)).sort((a, b) =>
           Number(y.edges.some(edge => edge.from === b.id && edge.named && edge.capability.from?.includes("deck")))
@@ -322,10 +337,21 @@ export class BridgeEngine {
       const coversEngine = y.monsters.length > 0 && y.monsters.filter(card => !x.ids.has(card.id) && edge.targets.has(card.id)).length >= y.monsters.length / 3;
       const reach = edge.named || coversEngine || namedConnection;
       add(reach ? "reach" : "type_support", (reach ? edge.weight : Math.min(1, edge.weight)) * Math.min(1, hit.length / 3 + 0.4), [card.id, to.id], `${card.name}: ${edge.capability.key} → ${to.name}`, [{ from: card.id, to: to.id, capability: edge.capability.key }]);
+      let alternatives = 0;
+      for (const other of hit.slice(1)) if (add(reach ? "reach" : "type_support", (reach ? edge.weight : Math.min(1, edge.weight)) * Math.min(1, hit.length / 3 + 0.4),
+        [card.id, other.id], `${card.name}: ${edge.capability.key} → ${other.name}`, [{ from: card.id, to: other.id, capability: edge.capability.key }], undefined, true)
+        && ++alternatives >= 3) break;
       if (!edge.named && entry) add("reach", 6, [card.id, entry.card.id, entry.other.id], `${card.name} → ${entry.card.name} → ${entry.other.name}`,
         [{ from: card.id, to: entry.card.id, capability: edge.capability.key }, { from: entry.card.id, to: entry.other.id, capability: entry.next.capability.key }]);
       if (["send_to_gy", "discard"].includes(edge.capability.key) && rows.get(to.id)!.provides.some(capability => capability.key === "gy_effect")) add("gy_fuel", 3, [card.id, to.id], `${card.name} supplies the GY effect of ${to.name}`, [{ from: card.id, to: to.id, capability: edge.capability.key }]);
       if (!edge.named && (edge.capability.filter!.types.length || edge.capability.filter!.attributes.length || edge.capability.filter!.level_min || edge.capability.filter!.level_max)) add("type_support", Math.min(1.5, 1.5 * hit.length / Math.max(1, onlyY.filter(card => card.kind === "monster").length)), [card.id, to.id], `${card.name} supports the printed Type, Attribute or Level of ${to.name}`, [{ from: card.id, to: to.id, capability: edge.capability.key }]);
+    }
+    if (access) for (const edge of x.edges) {
+      if (!narrowSetCapability(edge.capability) || !setAccessOrigin(edge.capability) || isExtraDeckCard(rows.get(edge.from)!.card)) continue;
+      for (const to of onlyY.filter(card => (card.kind === "spell" || card.kind === "trap") && edge.targets.has(card.id) && this.engineMember(card, y, edge.capability, x))) {
+        add("access", 3, [edge.from, to.id], `${rows.get(edge.from)!.card.name} Sets ${to.name} using its printed recipient filter`,
+          [{ from: edge.from, to: to.id, capability: "set_spell_trap" }]);
+      }
     }
     // A resource interaction must name both its provider and its consumer.
     // Tokens and Normal Monsters can enable effects requiring a non-Effect body.
@@ -336,23 +362,30 @@ export class BridgeEngine {
       add("profile", 4, [nonEffect.id, consumer.id, edge.from], `${nonEffect.name} supplies the non-Effect monster required by ${consumer.name}; ${rows.get(edge.from)!.card.name} can also reach it when its printed conditions are met`,
         [{ from: edge.from, to: consumer.id, capability: edge.capability.key }]);
     }
-    const enabler = x.cards.find(card => trapTurnSetEvidence(card));
-    const traps = onlyY.filter(card => trapMonsterEvidence(card) && !/in (?:your|the) (?:GY|Graveyard)/i.test(trapMonsterEvidence(card)!)
-      && !/cannot (?:be )?activated? (?:the|this) turn/i.test(printedText(card)));
-    if (enabler && traps.length) {
-      const trap = traps[0]!;
-      const setter = y.monsters.find(card => rows.get(card.id)!.provides.some(capability => capability.key === "set_spell_trap" && capability.from?.includes("deck")
-        && capability.filter && traps.some(trap => matchesBridgeFilter(capability.filter!, trap)) && actionEvidence(card, "set_spell_trap")));
-      const continuousSupport = y.monsters.find(card => rows.get(card.id)!.provides.some(capability => ["set_spell_trap", "place_on_field"].includes(capability.key)
-        && capability.filter?.subtypes.includes("continuous") && traps.some(trap => matchesBridgeFilter({ ...capability.filter!,
-          other: capability.filter!.archetypes.length || capability.filter!.names.length ? "" : capability.filter!.other }, trap)) && actionEvidence(card, capability.key)));
-      const need = onlyY.find(card => faceDownNeedEvidence(card));
-      const specific = setter ?? need ?? continuousSupport;
-      const weight = setter || need ? Math.min(3, traps.length * 0.5) + Math.min(7, traps.length * 2.5)
-        : continuousSupport ? Math.min(8, 2 + traps.length * 2) : Math.min(2, traps.length * 0.5);
-      const set = access && setter ? y.edges.find(edge => edge.from === setter.id && edge.named && edge.capability.key === "set_spell_trap" && edge.capability.from?.includes("deck") && edge.targets.has(trap.id)) : undefined;
-      add("rule_enabler", weight, [enabler.id, trap.id, ...(specific ? [specific.id] : [])], `${enabler.name} lets you activate a ${target} Trap the turn it is Set (${traps.length} compatible Traps)${specific ? `; ${specific.name} supports this Trap engine` : ""}`,
-        set ? [{ from: setter!.id, to: trap.id, capability: "set_spell_trap" }] : undefined);
+    for (const enabler of x.cards.filter(card => trapTurnSetEvidence(card))) {
+      // Effect-based permissions have costs/conditions; admit them through the
+      // checked deep access line rather than inflate the historical strict score.
+      if (!access && enabler.kind !== "spell") continue;
+      const monsters = onlyY.filter(card => trapMonsterEvidence(card));
+      const traps = onlyY.filter(card => trapTurnSetAllows(enabler, card) && (trapMonsterEvidence(card) || access && !monsters.length && card.kind === "trap"
+        && y.edges.some(edge => edge.capability.key === "set_spell_trap" && narrowSetCapability(edge.capability) && edge.targets.has(card.id)))
+        && !/in (?:your|the) (?:GY|Graveyard)/i.test(trapMonsterEvidence(card) ?? "")
+        && !/cannot (?:be )?activated? (?:the|this) turn/i.test(printedText(card)));
+      if (enabler && traps.length) {
+        const trap = traps[0]!;
+        const setter = y.monsters.find(card => rows.get(card.id)!.provides.some(capability => capability.key === "set_spell_trap" && capability.from?.includes("deck")
+          && capability.filter && traps.some(trap => matchesBridgeFilter(capability.filter!, trap)) && actionEvidence(card, "set_spell_trap")));
+        const continuousSupport = y.monsters.find(card => rows.get(card.id)!.provides.some(capability => ["set_spell_trap", "place_on_field"].includes(capability.key)
+          && capability.filter?.subtypes.includes("continuous") && traps.some(trap => matchesBridgeFilter({ ...capability.filter!,
+            other: capability.filter!.archetypes.length || capability.filter!.names.length ? "" : capability.filter!.other }, trap)) && actionEvidence(card, capability.key)));
+        const need = onlyY.find(card => faceDownNeedEvidence(card));
+        const specific = setter ?? need ?? continuousSupport;
+        const weight = setter || need ? Math.min(3, traps.length * 0.5) + Math.min(7, traps.length * 2.5)
+          : continuousSupport ? Math.min(8, 2 + traps.length * 2) : Math.min(2, traps.length * 0.5);
+        const set = access && setter ? y.edges.find(edge => edge.from === setter.id && narrowSetCapability(edge.capability) && edge.capability.from?.includes("deck") && edge.targets.has(trap.id)) : undefined;
+        add("rule_enabler", weight, [enabler.id, trap.id, ...(specific ? [specific.id] : [])], `${enabler.name} lets you activate a ${target} Trap the turn it is Set (${traps.length} compatible Traps)${specific ? `; ${specific.name} supports this Trap engine` : ""}`,
+          set ? [{ from: setter!.id, to: trap.id, capability: "set_spell_trap" }] : undefined);
+      }
     }
     const needs = onlyY.filter(card => faceDownNeedEvidence(card));
     const supplies = x.cards.filter(card => rows.get(card.id)!.provides.some(capability => capability.key === "set_spell_trap" && !capability.filter?.this_card && capability.from?.some(zone => zone === "deck" || zone === "gy")));
@@ -382,12 +415,18 @@ export class BridgeEngine {
       if (!access && !specificMaterial && extra.weight < 0.6) continue;
       for (const edge of this.edgesFrom.get(format)!.get(extra.id) ?? []) {
         const hit = onlyY.filter(other => edge.targets.has(other.id)
-          && (!access || edge.capability.key !== "special_summon" || !/effects[^.]*negated|negate (?:its|their) effects/i.test(edge.capability.evidence) || other.subtypes.includes("normal")));
+          && (!access || edge.capability.key !== "special_summon" || !negatedEntry(edge.capability) || other.subtypes.includes("normal")))
+          .sort((a, b) => /if you Special Summoned an Effect Monster from your GY by this effect/i.test(edge.capability.evidence)
+            ? Number(b.subtypes.includes("normal")) - Number(a.subtypes.includes("normal")) : 0);
         if (!hit.length || !edge.named) continue;
         if (edge.capability.from?.length && edge.capability.from.every(zone => zone === "gy" || zone === "banished")) continue;
         if (["send_to_gy", "discard"].includes(edge.capability.key) || /(?:If|When)[^:;]*(?:destroyed|leaves the field|sent[^:;]*(?:GY|Graveyard)|Tributed|banished|battle damage|opponent activates)/i.test(edge.capability.evidence)) continue;
         const focus = Math.min(1, 2 * hit.length / edge.targets.size);
         add("extra_deck", 6 * extra.weight * focus, [...extra.materials, extra.id, hit[0]!.id], `${rows.get(extra.materials[0]!)!.card.name} → ${card.name} → ${hit[0]!.name}`, [{ from: extra.id, to: hit[0]!.id, capability: edge.capability.key }], extra.materials);
+        let alternatives = 0;
+        for (const other of hit.slice(1)) if (add("extra_deck", 6 * extra.weight * focus, [...extra.materials, extra.id, other.id],
+          `${rows.get(extra.materials[0]!)!.card.name} → ${card.name} → ${other.name}`, [{ from: extra.id, to: other.id, capability: edge.capability.key }], extra.materials, true)
+          && ++alternatives >= 3) break;
       }
     }
     if (access) for (const edge of this.edges.get(format)!) {
@@ -426,7 +465,7 @@ export class BridgeEngine {
     // Ancillary search overlap alone is not an engine bridge.
     const seen = new Set<string>();
     const unique = reasons.sort((a, b) => b.weight - a.weight || a.description.localeCompare(b.description)).filter(reason => {
-      const identity = JSON.stringify([reason.key, reason.cards, reason.steps, reason.materials, reason.cost]);
+      const identity = JSON.stringify([reason.key, reason.cards, reason.steps, reason.materials, reason.cost, reason.setup]);
       if (seen.has(identity)) return false;
       seen.add(identity); return true;
     });
@@ -448,6 +487,15 @@ export class BridgeEngine {
     if (!reason.cards.length || reason.cards.some(id => !this.rows.has(id) || !bridgeLegal(this.rows.get(id)!.card, format))) return false;
     if (reason.evidence.length !== reason.cards.length || reason.cards.some((id, i) => reason.evidence[i] !== (printedText(this.rows.get(id)!.card) || this.rows.get(id)!.card.name))) return false;
     const cards = reason.cards.map(id => this.rows.get(id)!.card);
+    if (reason.setup) {
+      const setup = reason.setup, step = reason.steps?.[0], consumer = this.rows.get(setup.card);
+      if (reason.key !== "synergy" || setup.capability !== "face_down_card" || !consumer || !reason.cards.includes(setup.card) || !reason.cards.includes(setup.using)
+        || !setReturnSummonEvidence(consumer.card) || reason.steps?.length !== 1 || step?.capability !== "set_spell_trap" || step.to !== setup.using
+        || !this.rows.get(step.from)!.provides.some(capability => extraDeckSetResources(capability)
+          && matchesBridgeFilter(capability.filter!, this.rows.get(setup.using)!.card))) return false;
+    }
+    if (reason.mechanic) return reason.key === "synergy" && !reason.setup && !reason.steps?.length && !reason.cost && !reason.materials?.length;
+    if (reason.key === "synergy" && !reason.setup) return false;
     if (reason.cost) {
       const cost = reason.cost, consumer = this.rows.get(cost.card), using = this.rows.get(cost.using);
       if (!consumer || !using || !reason.cards.includes(cost.card) || !reason.cards.includes(cost.using)
@@ -476,7 +524,7 @@ export class BridgeEngine {
     })) return false;
     if (reason.key === "profile") return cards.length >= 2 && this.providesNonEffect(cards[0]!) && this.requiresNonEffect(cards[1]!) && !!reason.steps?.some(step => step.to === cards[1]!.id);
     if (reason.key === "mention") return cards.some((card, i) => cards.some((other, j) => i !== j && (positiveMention(card, other.name) || !!other.archetype && mentionReachesCard(card, other.archetype, other))));
-    if (reason.key === "rule_enabler") return !!trapTurnSetEvidence(cards[0]!) && (!!trapMonsterEvidence(cards[1]!)
+    if (reason.key === "rule_enabler") return trapTurnSetAllows(cards[0]!, cards[1]!) && (!!trapMonsterEvidence(cards[1]!)
       || cards[1]!.kind === "trap" && !!reason.steps?.some(step => step.to === cards[1]!.id && step.capability === "set_spell_trap"));
     if (reason.key === "face_down") return (cards[0]!.kind === "trap" || !!actionEvidence(cards[0]!, "set_spell_trap")) && !!faceDownNeedEvidence(cards[1]!);
     if (reason.key === "small_world") return cards[0]!.name === "Small World" && /exactly 1/i.test(cards[0]!.text) && sharedSmallWorldStats(cards[1]!, cards[2]!) === 1 && sharedSmallWorldStats(cards[2]!, cards[3]!) === 1;
@@ -539,14 +587,16 @@ export class BridgeEngine {
     const edges = steps.map(step => this.edgesFrom.get(format)!.get(step.from)?.find(edge => edge.capability.key === step.capability && edge.targets.has(step.to)));
     if (edges.some(edge => !edge)) return false;
     const first = steps[0]!, last = steps.at(-1)!, landing = this.rows.get(last.to)!.card;
+    if (reason.setup || reason.key === "synergy") return false;
+    if (edges.some(edge => edge!.capability.key === "set_spell_trap" && (!setAccessOrigin(edge!.capability) || !narrowSetCapability(edge!.capability)))) return false;
     if (!target.ids.has(last.to) || source.ids.has(last.to) || !this.engineMember(landing, target, edges.at(-1)!.capability, source)) return false;
     if (steps.some((step, i) => i > 0 && steps[i - 1]!.to !== step.from)) return false;
     if (edges.some((edge, i) => ["special_summon", "normal_summon"].includes(edge!.capability.key)
-      && /negat(?:e|ing) (?:its|their) effects|(?:its|their) effects(?:\s+\(if any\))?\s+(?:(?:are|is)\s+)?negated/i.test(edge!.capability.evidence)
+      && negatedEntry(edge!.capability)
       && !this.rows.get(steps[i]!.to)!.card.subtypes.includes("normal"))) return false;
     if (reason.key === "rule_enabler") {
       return source.ids.has(reason.cards[0]!) && !!trapTurnSetEvidence(this.rows.get(reason.cards[0]!)!.card)
-        && target.ids.has(first.from) && edges[0]!.named && first.capability === "set_spell_trap"
+        && target.ids.has(first.from) && narrowSetCapability(edges[0]!.capability) && first.capability === "set_spell_trap"
         && !!edges[0]!.capability.from?.includes("deck") && landing.kind === "trap";
     }
     // A generic Tuner requirement cannot fan a named search out through hybrid
@@ -558,7 +608,8 @@ export class BridgeEngine {
     if (first.capability === "search" && search.from?.includes("deck") && genericTuner
       && !filter?.archetypes.some(name => [target.name, ...(this.data.group_policies?.[target.name]?.aliases ?? [])].some(alias => sameName(name, alias)))) return false;
     // An untyped discard or stat-only filter is never physical engine entry.
-    if (first.capability === "discard" || !this.specificCapability(edges[0]!.capability, format) || !edges.some(edge => edge!.named)) return false;
+    if (first.capability === "discard" || !this.specificCapability(edges[0]!.capability, format)
+      || !edges.some(edge => edge!.named || narrowSetCapability(edge!.capability))) return false;
     if (reason.materials?.length) return reason.materials.every(id => source.ids.has(id)) && this.validateReason(reason, format)
       && !edges.some(edge => /\b(?:if|while)[^:;]*\bequipped\b/i.test(edge!.capability.evidence));
     if (reason.cost) return source.ids.has(reason.cost.using) && this.validateReason(reason, format);
@@ -571,9 +622,20 @@ export class BridgeEngine {
     return !!x && !!y && !this.sameDeck(source, target) && this.validateReason(reason, format) && this.accessPath(reason, x, y, format);
   }
 
+  validateSynergy(reason: BridgeReason, source: string, target: string, format: BridgeFormat): boolean {
+    if (reason.mechanic) return source !== target && !this.sameDeck(source, target) && this.validateReason(reason, format)
+      && validateMechanicSynergy(reason, source, target, this.data, row => bridgeLegal(row.card, format));
+    const from = this.groups.get(source), to = this.groups.get(target), step = reason.steps?.[0], setup = reason.setup;
+    if (!from || !to || !step || !setup || !this.validateReason(reason, format) || reason.key !== "synergy"
+      || !from.has(step.from) || !from.has(setup.using) || !to.has(setup.card) || from.has(setup.card)) return false;
+    return this.rows.get(step.from)!.provides.some(capability => extraDeckSetResources(capability)
+      && capability.targets?.includes(setup.using) && capability.targets.filter(id => from.has(id)).length >= 2);
+  }
+
   private specificCapability(capability: Capability, format: BridgeFormat): boolean {
     const filter = capability.filter;
     if (!filter || filter.this_card) return false;
+    if (capability.key === "set_spell_trap") return setAccessOrigin(capability) && narrowSetCapability(capability);
     if (filter.names.length || filter.archetypes.length) return true;
     if (!particularFilter(filter)) return false;
     if (!filter.level_min && !filter.level_max && !filter.subtypes.length && !filter.other
@@ -582,15 +644,16 @@ export class BridgeEngine {
     if (!cache) this.specificFilters.set(format, cache = new WeakMap());
     if (!cache.has(capability)) {
       const legal = this.legal.get(format)!;
-      const matches = capability.targets ? capability.targets.filter(id => legal.has(id)).length
-        : [...legal.values()].filter(row => matchesBridgeFilter(filter, row.card)).length;
-      cache.set(capability, matches <= legal.size * 0.015);
+      const globalLegal = this.validationLegal?.(format);
+      const matches = capability.targets ? capability.targets.filter(id => (globalLegal ?? legal).has(id)).length
+        : globalLegal ? Infinity : [...legal.values()].filter(row => matchesBridgeFilter(filter, row.card)).length;
+      cache.set(capability, matches <= (globalLegal ?? legal).size * 0.015);
     }
     return cache.get(capability)!;
   }
 
   private raw(reasons: BridgeReason[]): number {
-    return Object.entries(REASON_CAPS).reduce((score, [key, cap]) => score + Math.min(cap, reasons.filter(reason => reason.key === key).reduce((sum, reason) => sum + reason.weight, 0)), 0);
+    return Object.entries(REASON_CAPS).reduce((score, [key, cap]) => score + Math.min(cap, reasons.filter(reason => reason.key === key && !reason.alternative).reduce((sum, reason) => sum + reason.weight, 0)), 0);
   }
 
   private outlet(reason: BridgeReason): number {
@@ -639,7 +702,7 @@ export class BridgeEngine {
 
   private substantive(reason: BridgeReason, target: Context, source: Context, format: BridgeFormat): boolean {
     if (reason.ancillary) return false;
-    if (["searcher", "small_world", "type_support", "face_down"].includes(reason.key)) return false;
+    if (reason.setup || ["searcher", "small_world", "type_support", "face_down", "synergy"].includes(reason.key)) return false;
     // Access to a Toon version of another engine's monster needs evidence
     // supplying its named field setup, rather than just the shared name.
     const toonNeeds = reason.cards.map(id => this.rows.get(id)!.card)
@@ -708,12 +771,42 @@ export class BridgeEngine {
     if (!x || !y) return null;
     const reasons = this.reasons(x, y, format, access);
     if (!reasons.length) return null;
-    const primary = reasons.find(reason => access ? this.accessPath(reason, this.contexts.get(format)!.get(x)!, this.contexts.get(format)!.get(y)!, format)
-      : this.substantive(reason, this.contexts.get(format)!.get(y)!, this.contexts.get(format)!.get(x)!, format));
+    const sourceContext = this.contexts.get(format)!.get(x)!, targetContext = this.contexts.get(format)!.get(y)!;
+    const qualifications = new Map<BridgeReason, boolean>();
+    const qualifies = (reason: BridgeReason) => {
+      if (!qualifications.has(reason)) qualifications.set(reason, access ? this.accessPath(reason, sourceContext, targetContext, format)
+        : this.substantive(reason, targetContext, sourceContext, format));
+      return qualifications.get(reason)!;
+    };
+    const practicality = (reason: BridgeReason) => {
+      if (!qualifies(reason)) return 20;
+      if (reason.materials?.length || reason.cost) return 6;
+      if (reason.key === "rule_enabler") return 2;
+      const step = reason.steps?.[0];
+      if (!step) return 10;
+      const capability = this.rows.get(step.from)!.provides.find(cap => cap.key === step.capability && cap.filter && matchesBridgeFilter(cap.filter, this.rows.get(step.to)!.card));
+      return ["search", "set_spell_trap", "special_summon", "normal_summon", "place_on_field"].includes(step.capability)
+        ? capability?.from?.includes("deck") ? 0 : 1 : 5;
+    };
+    const ordered = reasons.map(reason => ({ reason, rank: practicality(reason) })).sort((a, b) => a.rank - b.rank
+      || b.reason.weight - a.reason.weight || Number(!!a.reason.alternative) - Number(!!b.reason.alternative)
+      || a.reason.description.localeCompare(b.reason.description)).map(entry => entry.reason);
+    const primary = ordered.find(qualifies);
     if (!primary) return null;
-    const otherReasons = reasons.filter(reason => reason.key !== primary.key && !["searcher", "small_world"].includes(reason.key) && !this.genericLinkOne(reason)
+    const otherReasons = ordered.filter(reason => reason !== primary && !["searcher", "small_world"].includes(reason.key) && (!this.genericLinkOne(reason) || access)
       && (reason.key !== "type_support" || reason.cards.every(id => primary.cards.includes(id))));
-    const selectedReasons = [primary, ...otherReasons.filter((reason, i, list) => list.findIndex(other => other.key === reason.key) === i)].slice(0, 4);
+    const selectedReasons = [primary];
+    const outletsSeen = new Set([this.outlet(primary)]);
+    // First give distinct practical outlets a slot, then distinct recipients of
+    // those outlets. A redundant naming reason cannot crowd out a physical path.
+    const physical = otherReasons.filter(reason => qualifies(reason) && reason.steps?.length);
+    for (const pool of [physical, otherReasons.filter(reason => !physical.includes(reason))]) for (const distinctOutlet of [true, false]) for (const reason of pool) {
+      if (selectedReasons.length >= 4 || selectedReasons.includes(reason)) continue;
+      const identity = (value: BridgeReason) => JSON.stringify([value.steps ?? [value.key, value.cards], value.materials, value.cost, value.setup]);
+      const samePath = selectedReasons.some(other => identity(other) === identity(reason));
+      if (samePath || distinctOutlet && outletsSeen.has(this.outlet(reason))) continue;
+      selectedReasons.push(reason); outletsSeen.add(this.outlet(reason));
+    }
     const cards = [...new Set(selectedReasons.flatMap(reason => reason.cards))].sort((a, b) => a - b);
     const sourcePolicy = this.data.group_policies?.[x];
     if (!sourcePolicy?.curated && !cards.some(id => {
@@ -766,18 +859,67 @@ export class BridgeEngine {
       reasons: selectedReasons, cards, warnings: [...warnings], genesys_points: points,
       validation: "deterministic", judge: "pending", engine_status: "unverified",
       evidence_hash: bridgeHash({ cards: [...new Set(reasons.flatMap(reason => reason.cards))].sort((a, b) => a - b).map(id => [id, this.rows.get(id)!.text_hash, this.rows.get(id)!.evidence_hash]), reasons: reasons.map(reason => [reason.key, reason.cards, reason.steps, reason.materials]), format,
-        ...(access ? { tier: "niche", costs: reasons.map(reason => reason.cost) } : {}) }) };
+        ...(access ? { tier: "niche", costs: reasons.map(reason => reason.cost) } : {}),
+        ...(reasons.some(reason => reason.setup) ? { setups: reasons.map(reason => reason.setup) } : {}) }) };
   }
 
   deepBetween(source: string, target: string, format: BridgeFormat = "advanced"): ArchetypeBridge | null {
     return this.between(source, target, format) ?? this.between(source, target, format, true);
   }
 
+  /** Resource generation helps the target's printed procedure without reaching its engine. */
+  synergyBetween(source: string, target: string, format: BridgeFormat = "advanced"): ArchetypeBridge | null {
+    const x = this.resolve(source), y = this.resolve(target);
+    if (!x || !y || x === y || this.sameDeck(x, y)) return null;
+    this.prepare(format);
+    const from = this.contexts.get(format)!.get(x), to = this.contexts.get(format)!.get(y);
+    if (!from || !to) return null;
+    for (const edge of from.edges.filter(edge => extraDeckSetResources(edge.capability))) {
+      const resources = from.cards.filter(card => edge.targets.has(card.id));
+      // At least two distinct source resources can be produced by the same effect.
+      if (resources.length < 2) continue;
+      const consumer = to.cards.find(card => !from.ids.has(card.id) && setReturnSummonEvidence(card) && this.engineMember(card, to, undefined, from));
+      if (!consumer) continue;
+      const using = resources[0]!, cards = [...new Set([edge.from, ...resources.slice(0, 2).map(card => card.id), consumer.id])];
+      const reason: BridgeReason = { key: "synergy", weight: 3, cards,
+        evidence: cards.map(id => printedText(this.rows.get(id)!.card)),
+        description: `${this.rows.get(edge.from)!.card.name} generates extra Set cards from Deck; reveal and return ${using.name} to Special Summon ${consumer.name} from hand`,
+        steps: [{ from: edge.from, to: using.id, capability: "set_spell_trap" }],
+        setup: { card: consumer.id, using: using.id, capability: "face_down_card" } };
+      if (!this.validateReason(reason, format)) continue;
+      return { kind: "synergy", tier: "niche", source: x, target: y, format, score: 3, raw_score: 3, target_mean: 0,
+        two_way: false, grade: "Niche", reasons: [reason], cards, warnings: ["Requires a target card in hand; this resource interaction does not access the target engine."],
+        genesys_points: format === "genesys" ? cards.reduce((sum, id) => sum + this.rows.get(id)!.card.genesysPoints!, 0) : null,
+        validation: "deterministic", judge: "pending", engine_status: "unverified",
+        evidence_hash: bridgeHash({ kind: "synergy", source: x, target: y, format, reason,
+          cards: cards.map(id => [id, this.rows.get(id)!.text_hash, this.rows.get(id)!.evidence_hash]) }) };
+    }
+    const mechanicContext = (name: string, ids: Set<number>) => {
+      const key = JSON.stringify([format,name]);
+      let cached = this.mechanicContexts.get(key);
+      if (!cached) { const members = [...ids].map(id=>this.rows.get(id)!).sort((a,b)=>a.id-b.id);
+        cached = { members, profile: mechanicProfile(name,members) }; this.mechanicContexts.set(key,cached); }
+      return cached;
+    };
+    const left = mechanicContext(x,from.ids), right = mechanicContext(y,to.ids);
+    const reason = mechanicSynergyReason(left.profile,right.profile,left.members,right.members);
+    if (!reason || !this.validateReason(reason, format)) return null;
+    const cards = reason.cards;
+    return { kind: "synergy", tier: "niche", source: x, target: y, format, score: reason.weight, raw_score: reason.weight, target_mean: 0,
+      two_way: false, grade: "Niche", reasons: [reason], cards,
+      warnings: ["Shared/complementary mechanics only; both engines must already be available. Printed conditions and locks apply."],
+      genesys_points: format === "genesys" ? cards.reduce((sum,id)=>sum+this.rows.get(id)!.card.genesysPoints!,0) : null,
+      validation: "deterministic", judge: "pending", engine_status: "unverified",
+      evidence_hash: bridgeHash({ kind: "mechanic-synergy-v1", source:x, target:y, format, reason,
+        cards: cards.map(id=>[id,this.rows.get(id)!.text_hash,this.rows.get(id)!.evidence_hash]) }) };
+  }
+
   deepCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void, distinct = true): ArchetypeBridge[] {
     this.prepare(format);
     const results: ArchetypeBridge[] = [];
-    for (const [i, target] of this.names.entries()) {
-      const row = this.deepBetween(source, target, format);
+    const targets = [...this.names].sort((a,b)=>(coPlayPair(source,b,observationFormat(format))?.decks??0)-(coPlayPair(source,a,observationFormat(format))?.decks??0) || a.localeCompare(b));
+    for (const [i, target] of targets.entries()) {
+      const row = this.deepBetween(source, target, format) ?? this.synergyBetween(source, target, format);
       if (row) results.push(row);
       if (i % 20 === 0) progress?.({ phase: "score", completed: i, total: this.names.length });
     }
@@ -788,8 +930,9 @@ export class BridgeEngine {
   deepInto(target: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
     this.prepare(format);
     const results: ArchetypeBridge[] = [];
-    for (const [i, source] of this.names.entries()) {
-      const row = this.deepBetween(source, target, format);
+    const sources = [...this.names].sort((a,b)=>(coPlayPair(b,target,observationFormat(format))?.decks??0)-(coPlayPair(a,target,observationFormat(format))?.decks??0) || a.localeCompare(b));
+    for (const [i, source] of sources.entries()) {
+      const row = this.deepBetween(source, target, format) ?? this.synergyBetween(source, target, format);
       if (row) results.push(row);
       if (i % 20 === 0) progress?.({ phase: "score", completed: i, total: this.names.length });
     }
@@ -937,5 +1080,5 @@ export function bridgeGroups(capabilities: readonly CardCapability[], profiles: 
       delete merged[alias];
     }
   }
-  return engineGroups(merged, capabilities, policies);
+  return groundBridgeGraph({ groups: engineGroups(merged, capabilities, policies), capabilities: [...capabilities], target_means: { advanced: {}, genesys: {} } }).groups;
 }

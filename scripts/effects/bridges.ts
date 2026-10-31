@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { migrate } from "@yugidraft/shared/db";
 import { importBridgeArtifact } from "@yugidraft/shared/cards/effects";
-import { CAPABILITY_KEYS, type ArchetypeBridge, type BridgeFormat, type CapabilityKey } from "@yugidraft/shared/cards/effects";
+import { CAPABILITY_KEYS, displayBridgeGroups, resolveBridgeGroup, type ArchetypeBridge, type BridgeFormat, type CapabilityKey } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
 
 export function bridgeCli(args: string[]): unknown {
@@ -14,12 +14,14 @@ export function bridgeCli(args: string[]): unknown {
   const path = option("--database"), db = path ? new Database(path, { readonly: true, fileMustExist: true }) : new Database(":memory:");
   try {
     if (!path) { migrate(db); importBridgeArtifact(db); }
-    const service = createBridgeService(db), [command, a, b] = positional;
+    const service = createBridgeService(db), [command, rawA, rawB] = positional;
+    const canonical = (name: string | undefined) => name === undefined ? undefined : resolveBridgeGroup(name, service.rankingContext().groups) ?? name;
+    const a = command === "needs" || command === "provides" ? rawA : canonical(rawA), b = canonical(rawB);
     if (command === "needs" || command === "provides") {
       if (!CAPABILITY_KEYS.includes(a as CapabilityKey)) throw new Error(`Unknown capability; choose from ${CAPABILITY_KEYS.join(", ")}`);
       return service.capabilities(a as CapabilityKey, command).filter(row => row.card.formats.includes("TCG"));
     }
-    if (command === "from" && a) return option("--to") ? service.explain(a, option("--to")!, format) : service.bridgesFrom(a, format, Number(option("--limit") ?? 4));
+    if (command === "from" && a) return option("--to") ? service.explain(a, canonical(option("--to"))!, format) : service.bridgesFrom(a, format, Number(option("--limit") ?? 4));
     if (command === "explain" && a && b) return service.explain(a, b, format);
     if (command === "path" && a && b) {
       const hops = Number(option("--hops") ?? 3);
@@ -41,6 +43,6 @@ export function bridgeCli(args: string[]): unknown {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  try { console.log(JSON.stringify(bridgeCli(process.argv.slice(2)), null, 2)); }
+  try { console.log(JSON.stringify(displayBridgeGroups(bridgeCli(process.argv.slice(2))), null, 2)); }
   catch (error) { console.log(JSON.stringify({ error: error instanceof Error ? error.message : String(error) })); process.exitCode = 1; }
 }

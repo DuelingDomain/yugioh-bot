@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import type { CardPropsFor } from "./bridge-card";
 import { roleFor } from "./bridges-model";
 import type { CardsState } from "./use-bridges";
+import type { BridgeAlternativePath } from "@/lib/bridges-api";
 import type { ShownBridge } from "./bridges-api";
 import styles from "./bridges.module.css";
 
@@ -44,6 +45,22 @@ export function pathSteps(bridge: ShownBridge, cards: ReadonlyMap<number, DeckCa
   });
 }
 
+/**
+ * One other way in as steps. Its names are matched to the loaded cards of `codes` (the bridge cards and the engine
+ * core), like the main line. Each step keeps the sentence the host wrote for it.
+ */
+export function alternativeSteps(path: BridgeAlternativePath, codes: readonly number[], cards: ReadonlyMap<number, DeckCardInfo>, state: CardsState = "settled"): PathStep[] {
+  const byName = new Map<string, DeckCardInfo>();
+  for (const code of codes) {
+    const card = cards.get(code);
+    if (card && !byName.has(card.name)) byName.set(card.name, card);
+  }
+  return path.line.map((name, index) => {
+    const card = byName.get(name) ?? null;
+    return { name, card, status: card ? "ready" : state === "settled" ? "missing" : state === "failed" ? "failed" : "loading", text: path.steps[index]?.text ?? "" };
+  });
+}
+
 /** The cards of the line that the deck (Main and Extra) does not hold yet, once each. */
 export function missingSteps(steps: readonly PathStep[], held: (card: DeckCardInfo) => number): DeckCardInfo[] {
   const seen = new Set<string>();
@@ -61,10 +78,10 @@ export function missingSteps(steps: readonly PathStep[], held: (card: DeckCardIn
  * tap, like a tile elsewhere in Suggestions. An arrow stays with the card after it, so a wrapped line never starts
  * with a loose arrow.
  */
-export function PathThumbs({ steps, cardProps, label = "Path of cards" }: { steps: readonly PathStep[]; cardProps: CardPropsFor; label?: string }) {
+export function PathThumbs({ steps, cardProps, label = "Path of cards", testId = "bridge-path" }: { steps: readonly PathStep[]; cardProps: CardPropsFor; label?: string; testId?: string }) {
   if (steps.length === 0) return null;
   return (
-    <ol className={styles.path} aria-label={label} data-testid="bridge-path">
+    <ol className={styles.path} aria-label={label} data-testid={testId}>
       {steps.map((step, index) => (
         <li key={`${index}-${step.name}`} className={styles.pathStep}>
           {index > 0 ? <ArrowRight size={14} strokeWidth={1.8} aria-hidden className={styles.pathArrow} /> : null}
@@ -126,57 +143,90 @@ export function PathSteps({ steps, cardProps, deckCount, held, limit }: {
   );
 }
 
+/** What an add button shows: the cards that go in (and where), the ones that cannot, and what is not known yet. */
+export type AddView = {
+  /** Sets the test ids: `bridge-add`, `core-add`. */
+  prefix: "bridge" | "core";
+  /** "Add bridge" or "Add engine". */
+  verb: string;
+  /** Copies the button adds. */
+  count: number;
+  /** The label of screen readers for the Add button, with the engine's name. */
+  label?: string;
+  adds: readonly { card: DeckCardInfo; section: "main" | "extra"; copies: number }[];
+  blocked: readonly { card: DeckCardInfo; reason: string; copies?: number }[];
+  unknownPoints: readonly DeckCardInfo[];
+  /** Copies the deck lacks, before the rules decide. Zero: the deck holds it all. */
+  lacking: number;
+  loading: boolean;
+  unfound: readonly string[];
+  unloaded: readonly string[];
+  /** The host says the deck holds the whole package: no Add, a quiet label. */
+  owned?: boolean;
+  /** One more line under the list, for example the Genesys points the copies cost. */
+  note?: string;
+  onAdd: () => void;
+};
+
 /**
- * "Add 2 cards": puts the cards of the line that the deck lacks into the deck, in one undo step. It says which cards
- * go in (and where), and which cannot (banlist, a full section). It never says "Already in deck" while a card of the
- * line is still loading or was not found: it says so and names that card.
+ * "Add bridge (2)" or "Add engine (4)": puts the cards the deck lacks into the deck, in one undo step. It says which
+ * cards go in (and where), and which cannot (banlist, a full section). It never says "Already in deck" while a card
+ * is still loading or was not found: it says so and names that card.
  */
-export function AddPathCards({ steps, held, adder, owned = false }: { steps: readonly PathStep[]; held: (card: DeckCardInfo) => number; adder: CardAdder; /** The host says the deck holds the whole package: no Add, a quiet label. */ owned?: boolean }) {
-  if (steps.length === 0) return null;
+export function AddBox({ prefix, verb, count, label, adds, blocked, unknownPoints, lacking, loading, unfound, unloaded, owned = false, note, onAdd }: AddView) {
+  const id = `${prefix}-add`;
   if (owned) {
     return (
-      <div className={styles.addBox} data-testid="bridge-add-box">
-        <span className={styles.owned} data-testid="bridge-add" data-state="owned"><Check size={12} strokeWidth={2} aria-hidden />Already in deck</span>
+      <div className={styles.addBox} data-testid={`${id}-box`}>
+        <span className={styles.owned} data-testid={id} data-state="owned"><Check size={12} strokeWidth={2} aria-hidden />Already in deck</span>
       </div>
     );
   }
-  const loading = steps.some((step) => step.status === "loading");
-  const unfound = steps.filter((step) => step.status === "missing").map((step) => step.name);
-  const unloaded = steps.filter((step) => step.status === "failed").map((step) => step.name);
-  const missing = missingSteps(steps, held);
-  const plan = adder.plan(missing);
-  const count = plan.add.length;
   const where = (section: "main" | "extra") => (section === "extra" ? "Extra Deck" : "Main Deck");
-  const complete = !loading && unfound.length === 0 && unloaded.length === 0 && plan.blocked.length === 0;
+  const complete = !loading && unfound.length === 0 && unloaded.length === 0 && blocked.length === 0;
   return (
-    <div className={styles.addBox} data-testid="bridge-add-box">
+    <div className={styles.addBox} data-testid={`${id}-box`}>
       {count > 0 ? (
-        <button type="button" className="btn btn-primary btn-sm" data-testid="bridge-add" data-state="ready" onClick={() => adder.add(missing)}>
-          Add {count} {count === 1 ? "card" : "cards"}
+        <button type="button" className="btn btn-primary btn-sm" aria-label={label} data-testid={id} data-state="ready" onClick={onAdd}>
+          {verb} ({count})
         </button>
-      ) : complete && missing.length === 0 ? (
-        <button type="button" className="btn btn-secondary btn-sm" aria-disabled="true" data-testid="bridge-add" data-state="done" onClick={(event) => event.preventDefault()}>
+      ) : complete && lacking === 0 ? (
+        <button type="button" className="btn btn-secondary btn-sm" aria-disabled="true" data-testid={id} data-state="done" onClick={(event) => event.preventDefault()}>
           <Check size={14} strokeWidth={2} aria-hidden />Already in deck
         </button>
       ) : (
-        <button type="button" className="btn btn-secondary btn-sm" aria-disabled="true" aria-busy={loading || undefined} data-testid="bridge-add" data-state={loading ? "loading" : "blocked"} onClick={(event) => event.preventDefault()}>
-          {loading ? "Add cards" : "Cannot add"}
+        <button type="button" className="btn btn-secondary btn-sm" aria-disabled="true" aria-busy={loading || undefined} data-testid={id} data-state={loading ? "loading" : "blocked"} onClick={(event) => event.preventDefault()}>
+          {loading ? verb : "Cannot add"}
         </button>
       )}
       {count > 0 ? (
-        <p className={styles.addList} data-testid="bridge-add-list">
-          Adds {plan.add.map((entry) => `${entry.card.name} (${where(entry.section)})`).join(", ")}.
-          {plan.unknownPoints.length > 0 ? ` Genesys points unknown: ${plan.unknownPoints.map((card) => card.name).join(", ")}.` : ""}
+        <p className={styles.addList} data-testid={`${id}-list`}>
+          Adds {adds.map((entry) => `${entry.card.name}${entry.copies > 1 ? ` ×${entry.copies}` : ""} (${where(entry.section)})`).join(", ")}.
+          {unknownPoints.length > 0 ? ` Genesys points unknown: ${unknownPoints.map((card) => card.name).join(", ")}.` : ""}
+          {note ? ` ${note}` : ""}
         </p>
       ) : null}
-      {plan.blocked.length > 0 ? (
-        <ul className={styles.addBlocked} aria-label="Cards that cannot be added" data-testid="bridge-add-blocked">
-          {plan.blocked.map((entry) => <li key={entry.card.code}><strong>{entry.card.name}:</strong> {entry.reason}</li>)}
+      {blocked.length > 0 ? (
+        <ul className={styles.addBlocked} aria-label="Cards that cannot be added" data-testid={`${id}-blocked`}>
+          {blocked.map((entry) => <li key={entry.card.code}><strong>{entry.card.name}{entry.copies && entry.copies > 1 ? ` ×${entry.copies}` : ""}:</strong> {entry.reason}</li>)}
         </ul>
       ) : null}
-      {unfound.length > 0 ? <p className={styles.addList} data-testid="bridge-add-unfound">{unfound.join(", ")} could not be found, so {unfound.length === 1 ? "it is" : "they are"} not added.</p> : null}
-      {unloaded.length > 0 ? <p className={styles.addList} data-testid="bridge-add-unloaded">{unloaded.join(", ")} could not be loaded, so {unloaded.length === 1 ? "it is" : "they are"} not added. Try again in a moment.</p> : null}
-      {loading ? <p className={styles.addList} data-testid="bridge-add-loading">Some cards of the line are still loading.</p> : null}
+      {unfound.length > 0 ? <p className={styles.addList} data-testid={`${id}-unfound`}>{unfound.join(", ")} could not be found, so {unfound.length === 1 ? "it is" : "they are"} not added.</p> : null}
+      {unloaded.length > 0 ? <p className={styles.addList} data-testid={`${id}-unloaded`}>{unloaded.join(", ")} could not be loaded, so {unloaded.length === 1 ? "it is" : "they are"} not added. Try again in a moment.</p> : null}
+      {loading ? <p className={styles.addList} data-testid={`${id}-loading`}>Some cards are still loading.</p> : null}
     </div>
+  );
+}
+
+/** "Add bridge (2)": the cards of the line that the deck lacks (one copy each). */
+export function AddPathCards({ steps, name, held, adder, owned = false }: { steps: readonly PathStep[]; /** The engine the bridge leads to, for the label of screen readers. */ name: string; held: (card: DeckCardInfo) => number; adder: CardAdder; /** The host says the deck holds the whole package: no Add, a quiet label. */ owned?: boolean }) {
+  if (steps.length === 0) return null;
+  const missing = missingSteps(steps, held);
+  const plan = adder.plan(missing);
+  return (
+    <AddBox prefix="bridge" verb="Add bridge" count={plan.add.length} label={`Add ${name} bridge, ${plan.add.length} ${plan.add.length === 1 ? "card" : "cards"}`} adds={plan.add.map((entry) => ({ ...entry, copies: 1 }))} blocked={plan.blocked} unknownPoints={plan.unknownPoints}
+      lacking={missing.length} loading={steps.some((step) => step.status === "loading")}
+      unfound={steps.filter((step) => step.status === "missing").map((step) => step.name)} unloaded={steps.filter((step) => step.status === "failed").map((step) => step.name)}
+      owned={owned} onAdd={() => adder.add(missing)} />
   );
 }

@@ -19,6 +19,19 @@ export type CardAdder = {
   held: (card: DeckCardInfo) => number;
   plan: (cards: readonly DeckCardInfo[]) => AddPlan;
   add: (cards: readonly DeckCardInfo[]) => void;
+  /** Like `plan` and `add`, for several copies of a card (an engine's core). `copies` is how many to add, not how many to hold. */
+  planCopies: (requests: readonly CopyRequest[]) => CopyPlan;
+  addCopies: (requests: readonly CopyRequest[]) => void;
+};
+
+/** `copies` more copies of a card, to add on top of what the deck holds. */
+export type CopyRequest = { card: DeckCardInfo; copies: number };
+
+/** What "Add engine" does: per card, the copies it adds and where, and the copies it cannot add with the reason. */
+export type CopyPlan = {
+  add: (PlannedAdd & { copies: number })[];
+  blocked: { card: DeckCardInfo; reason: string; copies: number }[];
+  unknownPoints: DeckCardInfo[];
 };
 
 export const DOMAIN_ONE_COPY = "Domain decks hold one copy of each card.";
@@ -80,6 +93,63 @@ export function planCardAdds(input: AddPlanInput): AddPlan {
     taken.add(key);
     if (mark?.kind === "unknown") plan.unknownPoints.push(card);
     plan.add.push({ card, section });
+  }
+  return plan;
+}
+
+export interface CopyPlanInput extends Omit<AddPlanInput, "cards" | "held" | "poolBlock"> {
+  requests: readonly CopyRequest[];
+  /** A draft deck takes only what the player drafted: copies of this card left in the pool. Not given: no pool. */
+  poolRoom?: (card: DeckCardInfo) => number;
+  /** Why a card is not in the pool at all (zero room), or null. */
+  poolBlock?: (card: DeckCardInfo) => string | null;
+}
+
+/**
+ * The copies of an engine's core that the deck can take. It follows the rules of `planCardAdds` for each copy (banlist,
+ * a Domain deck's single copy, the Genesys forbidden list, the room of each section), but it adds as many copies of a
+ * card as fit and names the copies that do not. Two requests for one card (two arts) are one request.
+ */
+export function planCopyAdds(input: CopyPlanInput): CopyPlan {
+  const { deck, mode, deckCount, limits, limitsPending, banlistName, genesys } = input;
+  const size = { main: deck.main.length, extra: deck.extra.length };
+  const plan: CopyPlan = { add: [], blocked: [], unknownPoints: [] };
+  const wanted = new Map<string, CopyRequest>();
+  for (const request of input.requests) {
+    const known = wanted.get(request.card.name);
+    if (!known) wanted.set(request.card.name, { ...request });
+    else if (request.copies > known.copies) known.copies = request.copies;
+  }
+  for (const { card, copies } of wanted.values()) {
+    if (copies < 1) continue;
+    const refuse = (reason: string, count = copies) => plan.blocked.push({ card, reason, copies: count });
+    if (card.unavailableReason) { refuse(`unavailable: ${card.unavailableReason}`); continue; }
+    const mark = genesys ? genesysMark(card) : null;
+    if (mark?.kind === "forbidden") { refuse(GENESYS_FORBIDDEN_MESSAGE); continue; }
+    const fromPool = input.poolBlock?.(card);
+    if (fromPool) { refuse(fromPool); continue; }
+    if (!input.poolBlock && limitsPending) { refuse("the banlist is still loading."); continue; }
+    const listed = limits ? cardLimit(limits, card) : 3;
+    const max = mode === "domain" ? Math.min(1, listed) : listed;
+    if (max < 1) { refuse(`${banlistName ?? "the banlist"} ${copiesText(0)}.`); continue; }
+    const section = defaultAddSection(card);
+    // Each limit says how many copies it still allows and why it stops there. The tightest one decides.
+    const limitsLeft: { room: number; reason: string }[] = [
+      // A copy in the Side Deck counts toward the limit, as it does for one add from the card list.
+      { room: max - deckCount(card), reason: mode === "domain" ? DOMAIN_ONE_COPY : limits ? `${banlistName ?? "the banlist"} ${copiesText(max)}.` : `a deck holds at most ${max} copies.` },
+      { room: DECK_SECTION_LIMITS[section] - size[section], reason: deckSectionFullMessage(section) },
+    ];
+    if (input.poolRoom) {
+      const room = input.poolRoom(card);
+      limitsLeft.push({ room, reason: room > 0 ? `only ${room} ${room === 1 ? "copy" : "copies"} left in your pool.` : "no copies left in your pool." });
+    }
+    const tightest = limitsLeft.reduce((best, entry) => (entry.room < best.room ? entry : best));
+    const addable = Math.max(0, Math.min(copies, tightest.room));
+    if (addable < copies) refuse(tightest.reason, copies - addable);
+    if (addable < 1) continue;
+    size[section] += addable;
+    if (mark?.kind === "unknown") plan.unknownPoints.push(card);
+    plan.add.push({ card, section, copies: addable });
   }
   return plan;
 }

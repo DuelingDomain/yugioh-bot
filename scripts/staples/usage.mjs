@@ -41,7 +41,7 @@ export function validateArtifact(data) {
   const { version, ...identity } = data;
   if (sha(identity) !== version || Object.keys(data.formats).some(key => !FORMATS.includes(key))) throw Error('Invalid staple version/formats');
   for (const sample of Object.values(data.formats)) {
-    if (!keys(sample,'deckCount,archetypeCount,cards,genericUsage,archetypeDeckCounts,archetypeUsage,sources') || !Array.isArray(sample.cards) || !Number.isInteger(sample.deckCount) || sample.deckCount < POLICY.minimumDecks || !Number.isInteger(sample.archetypeCount) || sample.archetypeCount < 3 || sample.cards.length > 80 || !Array.isArray(sample.sources) || !sample.sources.length || sample.sources.length > 5) throw Error('Invalid staple sample');
+    if (!keys(sample,'deckCount,archetypeCount,cards,genericUsage,archetypeDeckCounts,archetypeUsage,sources') || !Array.isArray(sample.cards) || !Number.isInteger(sample.deckCount) || sample.deckCount < POLICY.minimumDecks || !Number.isInteger(sample.archetypeCount) || sample.archetypeCount < 3 || sample.cards.length > 80 || !Array.isArray(sample.sources) || !sample.sources.length || sample.sources.length > 50) throw Error('Invalid staple sample');
     for (const source of sample.sources) if (!keys(source,'url,sha256') || !/^https:\/\/ygoprodeck.com\//.test(source.url) || !/^[a-f0-9]{64}$/.test(source.sha256)) throw Error('Invalid staple source');
     if (!sample.archetypeDeckCounts || !sample.archetypeUsage || Object.keys(sample.archetypeDeckCounts).length!==sample.archetypeCount
       || Object.keys(sample.archetypeUsage).length!==sample.archetypeCount || Object.values(sample.archetypeDeckCounts).some(n=>!Number.isInteger(n)||n<1)

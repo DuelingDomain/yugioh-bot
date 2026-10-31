@@ -4,15 +4,17 @@ import type Database from "better-sqlite3";
 import * as z from "zod";
 import { BridgeEngine, bridgeLegal } from "./bridge-engine.js";
 import { isExtraDeckCard } from "./card.js";
-import { storedBridgeEngine } from "./bridge-graph-store.js";
+import { storedBridgeLegalIds } from "./bridge-legality-store.js";
+import { groundBridgeGraph } from "./bridge-grounding.js";
 import { actionEvidence, bridgeHash, canReceiveSummon, matchesBridgeFilter, printedText } from "./bridge-text.js";
 import { NO_FILTER } from "./tags.js";
 import type { ArchetypeBridge, BridgeFormat, BridgeReason, CardCapability, SummonLock } from "./bridge-types.js";
 import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, releaseBridgeJudgeSpend, settleBridgeJudgeSpend, startBridgeJudgeSpend, type BridgeJudgeSpendSummary, type BridgeJudgeUsage } from "./bridge-judge-ledger.js";
 import { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS } from "./bridge-judge-model.js";
 import { BRIDGE_FACT_CHECK_SYSTEM, bridgeTextFields, deterministicBridgePros, groundBridgeSentences, validBridgeCitations } from "./bridge-judge-text.js";
-import { deterministicBridgeSteps } from "./bridge-step-text.js";
+import { deterministicBridgeSteps, deterministicBridgeAlternatives } from "./bridge-step-text.js";
 import { bridgePackage, type BridgePackage } from "./bridge-package.js";
+import { setActivationEvidence, setReturnSummonEvidence } from "./bridge-set-access.js";
 export { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS, bridgeJudgeRates } from "./bridge-judge-model.js";
 
 export const BRIDGE_JUDGE_FRAMINGS = ["mechanic", "skeptic"] as const;
@@ -42,6 +44,7 @@ export const BridgeJudgementRecordSchema = z.object({
 }).strict();
 export type BridgeJudgementRecord = z.infer<typeof BridgeJudgementRecordSchema>;
 export interface BridgeJudgeEvidence {
+  kind?: "synergy";
   tier?: "niche";
   access_rule?: string;
   evidence_hash: string;
@@ -93,30 +96,44 @@ export function buildBridgeJudgeEvidence(db: Database.Database, bridge: Archetyp
 }
 function buildBridgeJudgeContext(db: Database.Database, bridge: ArchetypeBridge): BridgeJudgeContext | null {
   try {
-    if (bridge.validation !== "deterministic" || !/^[a-f0-9]{64}$/.test(bridge.evidence_hash) || !bridge.reasons.length || !bridge.cards.length || bridge.source === bridge.target) return null;
-    const rows = bridge.cards.map(id => {
+    if (bridge.kind !== undefined && bridge.kind !== "synergy" || bridge.kind !== "synergy" && bridge.reasons.some(reason => reason.setup || reason.key === "synergy")
+      || bridge.kind === "synergy" && (bridge.tier !== "niche" || bridge.two_way || bridge.reasons.some(reason => reason.key !== "synergy"))
+      || bridge.validation !== "deterministic" || !/^[a-f0-9]{64}$/.test(bridge.evidence_hash) || !bridge.reasons.length || !bridge.cards.length || bridge.source === bridge.target) return null;
+    const sourceRows = bridge.cards.map(id => {
       const stored = db.prepare("SELECT capabilities_json,text_hash,evidence_hash FROM card_capability WHERE passcode=?").get(id) as { capabilities_json: string; text_hash: string; evidence_hash: string } | undefined;
       if (!stored) throw new Error("Missing bridge card");
       const row = JSON.parse(stored.capabilities_json) as CardCapability;
       if (row.id !== id || row.card.id !== id || row.text_hash !== stored.text_hash || row.text_hash !== bridgeHash(printedText(row.card)) || row.evidence_hash !== stored.evidence_hash || !bridgeLegal(row.card, bridge.format)) throw new Error("Changed bridge evidence");
       return row;
     });
+    const rows = groundBridgeGraph({ scoped: true, capabilities: sourceRows, groups: {}, target_means: { advanced: {}, genesys: {} } }).capabilities;
     if (new Set(bridge.cards).size !== bridge.cards.length || bridge.reasons.some(reason => reason.cards.some(id => !bridge.cards.includes(id)))) return null;
-    const validator = new BridgeEngine({ capabilities: rows, groups: {}, target_means: { advanced: {}, genesys: {} } });
-    if (bridge.reasons.some(reason => !validator.validateReason(reason, bridge.format))) return null;
     const summary = (name: string) => (db.prepare("SELECT plan FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE").get(name) as { plan: string } | undefined)?.plan ?? "No checked archetype summary is available.";
-    const groupsRow = db.prepare("SELECT json_extract(graph_json,'$.groups') AS groups FROM bridge_graph WHERE id=1").get() as { groups: string } | undefined;
+    const groupsRow = db.prepare("SELECT json_extract(graph_json,'$.groups') AS groups, json_extract(graph_json,'$.group_policies') AS policies FROM bridge_graph WHERE id=1").get() as { groups: string; policies: string | null } | undefined;
     const groups = groupsRow ? JSON.parse(groupsRow.groups) as Record<string, number[]> : {};
-    if (bridge.tier === "niche") {
-      if (!storedBridgeEngine(db).validateAccessPath(bridge.reasons[0]!, bridge.source, bridge.target, bridge.format)) return null;
+    const policies = groupsRow?.policies ? JSON.parse(groupsRow.policies) : {};
+    // Validate only the supplied evidence against stored group identities. A gate
+    // on the duel thread must never construct the complete catalog engine.
+    const pairGroups = Object.fromEntries([bridge.source, bridge.target].map(name => [name, groups[name] ?? []]));
+    const memberIds = [...new Set([...Object.values(pairGroups).flat(), ...bridge.cards])];
+    const memberRows = bridge.tier !== "niche" ? sourceRows : (db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode IN (SELECT value FROM json_each(?))").all(JSON.stringify(memberIds)) as { capabilities_json: string }[])
+      .map(row => JSON.parse(row.capabilities_json) as CardCapability);
+    const validator = new BridgeEngine({ scoped: true, capabilities: memberRows, groups: bridge.tier === "niche" ? pairGroups : {}, group_policies: policies, target_means: { advanced: {}, genesys: {} } }, format => storedBridgeLegalIds(db, format));
+    if (bridge.reasons.some(reason => !validator.validateReason(reason, bridge.format))) return null;
+    if (bridge.kind === "synergy") {
+      if (!bridge.reasons.every(reason => validator.validateSynergy(reason, bridge.source, bridge.target, bridge.format))) return null;
+    } else if (bridge.tier === "niche") {
+      if (!validator.validateAccessPath(bridge.reasons[0]!, bridge.source, bridge.target, bridge.format)) return null;
     }
     const points = bridge.format === "genesys" ? rows.reduce((sum, row) => {
       const copies = Math.max(1, ...bridge.reasons.map(reason => reason.materials?.filter(id => id === row.id).length ?? 0));
       return sum + row.card.genesysPoints! * copies;
     }, 0) : null;
     if (points !== bridge.genesys_points) return null;
-    const checked = { evidence_hash: bridge.evidence_hash, source: { name: bridge.source, summary: summary(bridge.source) }, target: { name: bridge.target, summary: summary(bridge.target) }, format: bridge.format,
-      ...(bridge.tier === "niche" ? { tier: "niche" as const, access_rule: "Deep-only Niche: require the supplied physical access path, including its material or specific cost. One-way access, generic Link-1 access, and scores below four are allowed. A Trap permission alone without the supplied target-engine Deck Set is insufficient. Judge legality and utility independently; ordinary setup requirements still apply." } : {}),
+    const checked = { ...(bridge.kind === "synergy" ? { kind: "synergy" as const } : {}), evidence_hash: bridge.evidence_hash, source: { name: bridge.source, summary: summary(bridge.source) }, target: { name: bridge.target, summary: summary(bridge.target) }, format: bridge.format,
+      ...(bridge.kind === "synergy" ? { access_rule: bridge.reasons.some(reason => reason.mechanic)
+        ? "Mechanic synergy only: evaluate the supplied shared/complementary effect interaction, naming its cards and all printed conditions. Both engines must already be available. A common Type, Attribute or broad GY theme is insufficient. This does not establish engine access or coverage. Use the same two independent reviews and reject unusable interactions."
+        : "Synergy only: the source generates extra Set resources from Deck and the target specifically reveals and returns one for its printed hand Summon. Both engines must already be available. This is not engine access; judge the resource benefit and all printed conditions using the same reviews." } : bridge.tier === "niche" ? { tier: "niche" as const, access_rule: "Deep-only Niche: require the supplied physical access path, including its material or specific cost. One-way access, generic Link-1 access, and scores below four are allowed. A Trap permission alone without the supplied target-engine Deck Set is insufficient. Judge legality and utility independently; ordinary setup requirements still apply." } : {}),
       cards: rows.map(({ card, locks }) => ({ id: card.id, name: card.name, text: printedText(card), archetype: card.archetype ?? null, archetypes: card.archetypes ?? [],
         bridge_groups: [bridge.source, bridge.target].filter(group => groups[group]?.includes(card.id)), kind: card.kind, type_line: card.typeLine, subtypes: card.subtypes,
         monster_type: card.monsterType, attribute: card.attribute, level: card.level, rank: card.rank, link_rating: card.linkRating, atk: card.atk, def: card.def,
@@ -157,13 +174,25 @@ function buildBridgeJudgeContext(db: Database.Database, bridge: ArchetypeBridge)
         }
         if (reason.cost) steps.unshift({ action: reason.cost.capability, card: name(reason.cost.card), target: name(reason.cost.using),
           detail: "Pay this supplied source card as the specific cost of the same effect that reaches the target; do not treat a cost as a resolving effect." });
+        if (reason.setup) steps.push({ action: "reveal_return_set", card: name(reason.setup.card), target: name(reason.setup.using), from_zones: ["hand"],
+          detail: setReturnSummonEvidence(rows.find(row => row.id === reason.setup!.card)!.card)! });
+        for (const step of reason.steps ?? []) if (step.capability === "set_spell_trap") {
+          const source = rows.find(row => row.id === step.from)!, target = rows.find(row => row.id === step.to)!;
+          const capability = source.provides.find(cap => cap.key === "set_spell_trap" && cap.filter && matchesBridgeFilter(cap.filter, target.card));
+          const permission = capability && setActivationEvidence(source.card, target.card, capability);
+          if (permission) steps.push({ action: "activate_set", card: target.card.name, target: source.card.name,
+            detail: permission + " This permission applies to the Trap just Set by this effect; its activation conditions still apply." });
+        }
         if (reason.key === "rule_enabler") {
           const trap = reason.cards.find(id => rows.find(row => row.id === id)!.card.kind === "trap");
           if (trap) steps.push(
-            { action: "activate", card: name(reason.cards[0]!), target: name(trap), detail: "Activate this Spell from hand into its proper zone. Its continuous permission applies while face-up; do not activate the permission as a separate effect." },
+            { action: "activate", card: name(reason.cards[0]!), target: name(trap), detail: rows.find(row => row.id === reason.cards[0])!.card.kind === "spell"
+              ? "Activate this Spell from hand into its proper zone. Its continuous permission applies while face-up; do not activate the permission as a separate effect."
+              : "Use the supplied card's printed Trap activation permission, paying its costs and meeting its conditions. This does not waive the target Trap's activation conditions." },
             ...(!reason.steps?.some(step => step.capability === "set_spell_trap" && step.to === trap) ? [{ action: "set", card: name(trap), target: name(trap), detail: "Set this Trap from hand into a free Spell/Trap Zone. A normal Set cannot take a card from the Deck." }] : []),
             { action: "activate", card: name(trap), target: name(trap), detail: "Activate the Set Trap this turn under that permission; resolve its chosen legal effect. A later Extra Deck Summon is optional." });
         }
+        if (reason.mechanic) steps.push({ action: "mechanic_synergy", card: name(reason.mechanic.provider), target: name(reason.mechanic.consumer), detail: reason.description });
         return { reason: reason.key, ancillary: reason.ancillary ?? false, steps };
       }), warnings: bridge.warnings, genesys_points: points };
     if (Buffer.byteLength(JSON.stringify(checked)) > 200_000) return null;
@@ -266,11 +295,17 @@ export function bridgeGate(db: Database.Database, bridge: ArchetypeBridge): Brid
 
 export const BridgeReviewStepSchema = z.object({ card: z.string().min(1).max(200), text: z.string().max(500) }).strict();
 export type BridgeReviewStep = z.infer<typeof BridgeReviewStepSchema>;
+export const BridgeAlternativePathSchema = z.object({
+  line: z.array(z.string().min(1).max(200)).min(1).max(3), steps: z.array(BridgeReviewStepSchema).min(1).max(3),
+}).strict().refine(path => path.steps.length === path.line.length && path.steps.every((step, i) => step.card === path.line[i]),
+  { message: "Alternative steps must match their line in order" });
+export type BridgeAlternativePath = z.infer<typeof BridgeAlternativePathSchema>;
 export const ShownBridgeReviewSchema = BridgeJudgementSchema.pick({ pros: true, cons: true, lock_note: true, line: true, grade: true })
-  .extend({ lock_note: z.string(), line: z.array(z.string().min(1).max(200)).min(1).max(3), steps: z.array(BridgeReviewStepSchema).min(1).max(3) })
+  .extend({ lock_note: z.string(), line: z.array(z.string().min(1).max(200)).min(1).max(3), steps: z.array(BridgeReviewStepSchema).min(1).max(3),
+    alternative_paths: z.array(BridgeAlternativePathSchema).max(3).optional() })
   .refine(review => review.steps.length === review.line.length && review.steps.every((step, i) => step.card === review.line[i]),
     { message: "Review steps must match the reviewed line in order" });
-export interface ShownBridge extends ArchetypeBridge, BridgePackage { judge: "accepted"; review: z.infer<typeof ShownBridgeReviewSchema> }
+export interface ShownBridge extends ArchetypeBridge, BridgePackage { judge: "accepted"; core?: import("./engine-core.js").EngineCore; review: z.infer<typeof ShownBridgeReviewSchema> }
 export function bridgeProjection(db: Database.Database, bridge: ArchetypeBridge): { gate: BridgeGate; shown: ShownBridge | null } {
   const gate = bridgeGate(db, bridge);
   return { gate, shown: shownFromGate(bridge, gate) };
@@ -286,11 +321,14 @@ function shownFromGate(bridge: ArchetypeBridge, gate: BridgeGate): ShownBridge |
   const { evidence, capabilities } = gate;
   const review = ShownBridgeReviewSchema.parse({ grade, pros: result.pros, cons: result.cons,
     lock_note: result.lock_note || evidence.cards.flatMap(card => card.locks.map(lock => `${card.name}: ${lock.evidence}`)).join(" "),
-    line: result.line, steps: deterministicBridgeSteps(evidence, result.line, capabilities) });
+    line: result.line, steps: deterministicBridgeSteps(evidence, result.line, capabilities),
+    alternative_paths: deterministicBridgeAlternatives(evidence, result.line, capabilities) });
   return { ...bridge, ...bridgePackage([bridge]), grade: grades[grade], judge: "accepted", review };
 }
 
 export interface BridgeJudgeOptions {
+  /** Hosts can perform revision-sensitive evidence checks through their scanner. */
+  gate?: (bridge: ArchetypeBridge) => Promise<BridgeGate>;
   client?: BridgeJudgeClient;
   apiKey?: string;
   env?: Record<string, string | undefined>;
@@ -300,7 +338,7 @@ export interface BridgeJudgeOptions {
   onError?: (entry: { status: number | null; message: string; framing: BridgeJudgeFraming }) => void;
 }
 export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBridge, options: BridgeJudgeOptions = {}): Promise<BridgeGate> {
-  const initial = bridgeGate(db, bridge), evidence = initial.evidence;
+  const initial = options.gate ? await options.gate(bridge) : bridgeGate(db, bridge), evidence = initial.evidence;
   if (!evidence || initial.state === "review" || initial.judgements.length === 2) return initial;
   const env = options.env ?? process.env, key = options.apiKey ?? env.ANTHROPIC_API_KEY;
   let client = options.client;
@@ -376,5 +414,5 @@ export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBr
       log(bridgeJudgeSpendSummary(db, id));
     }
   }
-  return bridgeGate(db, bridge);
+  return options.gate ? options.gate(bridge) : bridgeGate(db, bridge);
 }

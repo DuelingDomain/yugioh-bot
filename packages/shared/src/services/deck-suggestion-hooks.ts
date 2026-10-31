@@ -109,7 +109,7 @@ export function prepareSuggestionHookMatching(hooks: readonly SuggestionHook[], 
   };
 }
 
-interface SupportContext {
+export interface SupportContext {
   main: readonly Candidate[];
   monsters: readonly Candidate[];
   extra: readonly Candidate[];
@@ -133,7 +133,8 @@ export function deckSupportContext(main: readonly Candidate[], extra: readonly C
 }
 
 /** Only known residual restrictions are accepted; every stat is tested on the same target. */
-function reaches(filter: CardFilter, card: Card, context: SupportContext): boolean {
+export function supportFilterReaches(filter: CardFilter, card: Card, context: SupportContext): boolean {
+  if (!filter.other) return filterReachesCard(filter, card);
   let other = filter.other;
   let tested = true;
   const consume = (pattern: RegExp, check: (match: RegExpExecArray) => boolean) => {
@@ -151,6 +152,8 @@ function reaches(filter: CardFilter, card: Card, context: SupportContext): boole
   if (!tested || other) return false;
   return filterReachesCard({ ...filter, other: "" }, card);
 }
+
+const reaches = supportFilterReaches;
 
 /** Printed activation restrictions apply to every effect; read them once per card. */
 function candidatePenalty(candidate: Candidate, context: SupportContext): number | undefined {

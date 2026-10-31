@@ -57,6 +57,7 @@
     "excluded": true
   },
   "Odion": {
+    "display_name": "Temple of the Kings",
     "curated": true,
     "include": {
       "names": [

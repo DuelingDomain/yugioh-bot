@@ -1,3 +1,4 @@
+import { bridgeQueryFixture } from "./helpers/bridge-query-fixture.js";
 import { bridgeProjectionRows, compactBridgeRows, type BridgeProjectionInput } from "../src/bridge-projection-input.js";
 import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -75,8 +76,8 @@ describe("stored multi-engine bridge API", () => {
       execute: async () => [], project: () => ({ results: [], inReview: 0 }) });
     const old = await legacy.start({ userId: user.userId, guildId: "g" }, { source: "Odion", format: "advanced", deckCards: row.cards });
     await legacy.close();
-    const api = new BridgeApi(fixture, { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection: vi.fn(), bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
-    const request = () => api.handle({ userId: user.userId, bridgeRequest: { op: "between", deckId: saved.id, target: "Ashtra" } }, "g", user.playerId);
+    const api = new BridgeApi(fixture, { ...bridgeQueryFixture(fixture), bridgeEngineShortlist: vi.fn(), bridgeEngineProjection: vi.fn(), bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const request = () => api.handle({ userId: user.userId, bridgeRequest: { op: "between", source: "Temple of the Kings", deck: savedDecks.get(saved.id, "g", user.userId).deck, target: "Ashtra" } }, "g", user.playerId);
     try {
       await expect(api.handle({ userId: user.userId, bridgeRequest: { op: "status", jobId: old.jobId } }, "g", user.playerId))
         .rejects.toMatchObject({ status: 404 });
@@ -130,7 +131,7 @@ describe("stored multi-engine bridge API", () => {
     const bridgeEngines = vi.fn(async (_input: Record<string, unknown>, _guildId: string) => {
       await ready; return { engines: ["Odion"], between: [], next: [], inReview: 0 };
     });
-    const api = new BridgeApi(db, { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(), rateBridge: vi.fn() }, () => now);
+    const api = new BridgeApi(db, { ...bridgeQueryFixture(db), bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(), rateBridge: vi.fn() }, () => now);
     const call = (i: number, engines = ["Odion"]) => api.handle({ userId: actors[i]!.userId, bridgeRequest: { op: "engines", engines } }, "g", actors[i]!.playerId);
     const pending: Promise<unknown>[] = [];
     try {
@@ -177,11 +178,11 @@ describe("stored multi-engine bridge API", () => {
       await new Promise(resolve => setTimeout(resolve, 6000));
       return { engines: ["Odion"], between: [], next: [], inReview: 0 };
     });
-    const api = new BridgeApi(db, { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines: scan, bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const api = new BridgeApi(db, { ...bridgeQueryFixture(db), bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines: scan, bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     vi.useFakeTimers();
     try {
       const pending = api.handle({ userId: actor.userId, bridgeRequest: { op: "engines", engines: ["Odion"] } }, "g", actor.playerId);
-      const result = expect(pending).resolves.toMatchObject({ engines: ["Odion"] });
+      const result = expect(pending).resolves.toMatchObject({ engines: ["Temple of the Kings"] });
       await ready;
       expect(scan.mock.calls[0]![2]).toBeGreaterThan(15_000);
       await vi.advanceTimersByTimeAsync(6000);
@@ -222,7 +223,7 @@ describe("stored multi-engine bridge API", () => {
     const scan = vi.fn(async (input: Record<string, unknown>, guildId: string) => {
       await gate; return bridgeEngines(input, guildId);
     });
-    const api = new BridgeApi(db, { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines: scan, bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const api = new BridgeApi(db, { ...bridgeQueryFixture(db), bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines: scan, bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     const call = (input: Record<string, unknown>) => api.handle({ userId: user.userId, bridgeRequest: { op: "engines", ...input } }, "g", user.playerId);
     const running = call({ engines: ["Genex"] });
     const evicted = Promise.allSettled([call({ deck }), call({ deck })]);
@@ -236,10 +237,10 @@ describe("stored multi-engine bridge API", () => {
       expect(scan).toHaveBeenCalledTimes(1);
       release();
       await expect(running).resolves.toMatchObject({ engines: ["Genex"] });
-      await expect(corrected).resolves.toMatchObject({ engines: ["Odion"], detected: expect.any(Array) });
+      await expect(corrected).resolves.toMatchObject({ engines: ["Temple of the Kings"], detected: expect.any(Array) });
       await expect(newest).resolves.toMatchObject({ engines: ["Ashtra"], detected: expect.any(Array) });
       expect(scan.mock.calls.map(([input]) => input.engines)).toEqual([["Genex"], ["Odion"], ["Ashtra"]]);
-      await expect(call({ deck, engines: ["Odion"] })).resolves.toMatchObject({ engines: ["Odion"] });
+      await expect(call({ deck, engines: ["Odion"] })).resolves.toMatchObject({ engines: ["Temple of the Kings"] });
       await expect(call({ deck, engines: ["Ashtra"] })).resolves.toMatchObject({ engines: ["Ashtra"] });
       expect(scan).toHaveBeenCalledTimes(3);
     } finally { release(); await Promise.allSettled([running, evicted, corrected, newest]); await api.jobs.close(); }
@@ -289,7 +290,7 @@ describe("stored multi-engine bridge API", () => {
     const forward = service.bridgeBetween("Blue-Eyes", "Black Luster Soldier")!;
     const reverse = service.bridgeBetween("Black Luster Soldier", "Blue-Eyes")!;
     approve(forward);
-    const api = new BridgeApi(db, { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const api = new BridgeApi(db, { ...bridgeQueryFixture(db), bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     const call = (engines: string[]) => api.handle({ userId: user.userId, bridgeRequest: { op: "engines", engines, format: "advanced" } }, "g", user.playerId) as Promise<BridgeEnginesResponse>;
     const round = (n: number) => Math.round(n * 1000) / 1000;
     try {
@@ -309,11 +310,11 @@ describe("stored multi-engine bridge API", () => {
   });
 
   it("detects the open deck and projects only accepted links without admitting work", async () => {
-    const user = seedIdentity(db), workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(), rateBridge: vi.fn() };
+    const user = seedIdentity(db), workers = { ...bridgeQueryFixture(db), bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(), rateBridge: vi.fn() };
     const api = new BridgeApi(db, workers);
     const call = (request: Record<string, unknown>) => api.handle({ userId: user.userId, bridgeRequest: { op: "engines", format: "advanced", ...request } }, "g", user.playerId) as Promise<BridgeEnginesResponse>;
     try {
-      expect(await call({ deck })).toMatchObject({ engines: ["Ashtra", "Odion"], next: [], between: [], detected: expect.any(Array) });
+      expect(await call({ deck })).toMatchObject({ engines: ["Ashtra", "Temple of the Kings"], next: [], between: [], detected: expect.any(Array) });
       const service = createBridgeService(db);
       for (const [from, to] of [["Odion", "Ashtra"], ["Ashtra", "Odion"], ["Odion", "Argostars"], ["Ashtra", "Argostars"], ["Argostars", "Odion"]]) {
         const row = service.bridgeBetween(from!, to!); if (row) approve(row);
@@ -330,12 +331,12 @@ describe("stored multi-engine bridge API", () => {
       expect(argostars.score).toBeGreaterThanOrEqual(4);
       expect(argostars.missing).not.toContain(29762407);
       expect(result.next.every(row => !/synchron/i.test(row.engine))).toBe(true);
-      expect(await call({ deck, engines: ["odion"] })).toMatchObject({ engines: ["Odion"], detected: expect.any(Array) });
-      expect(await call({ engines: ["odion", " ASHTRA "] })).toMatchObject({ engines: ["Ashtra", "Odion"] });
+      expect(await call({ deck, engines: ["odion"] })).toMatchObject({ engines: ["Temple of the Kings"], detected: expect.any(Array) });
+      expect(await call({ engines: ["odion", " ASHTRA "] })).toMatchObject({ engines: ["Ashtra", "Temple of the Kings"] });
       expect(workers.bridgeCandidates).not.toHaveBeenCalled(); expect(workers.rateBridge).not.toHaveBeenCalled();
       expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_job").get()).toEqual({ n: 0 });
       for (const request of [{}, { engines: [] }, { engines: ["missing"] }, { engines: Array(5).fill("Odion") },
-        { deck: { ...deck, side: [] } }, { deck: { main: Array(92).fill(1), extra: [] } }, { deck: { main: [0], extra: [] } }, { engines: ["Odion"], userId: 3 }]) {
+        { deck: { ...deck, side: [0] } }, { deck: { main: Array(92).fill(1), extra: [] } }, { deck: { main: [0], extra: [] } }, { engines: ["Odion"], userId: 3 }]) {
         await expect(call(request)).rejects.toMatchObject({ status: 400 });
       }
     } finally { await api.jobs.close(); }
@@ -344,7 +345,7 @@ describe("stored multi-engine bridge API", () => {
   it("rechecks feedback and keeps Genesys package costs specific to the open deck", async () => {
     const user = seedIdentity(db, { name: "Engine points" });
     const row = createBridgeService(db).bridgeBetween("Odion", "Ashtra", "genesys")!; approve(row);
-    const api = new BridgeApi(db, { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const api = new BridgeApi(db, { ...bridgeQueryFixture(db), bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     const call = (request: Record<string, unknown>) => api.handle({ userId: user.userId, bridgeRequest: { op: "engines", format: "genesys", ...request } }, "g", user.playerId) as Promise<BridgeEnginesResponse>;
     try {
       expect((await call({ engines: ["Odion"], genesysRemaining: 0 })).next.some(next => next.engine === "Ashtra")).toBe(false);
@@ -378,7 +379,7 @@ describe("multi-source deep search", () => {
     expect(row.genesys_points).toBeGreaterThan(0);
     let release!: () => void;
     const ready = new Promise<void>(resolve => { release = resolve; });
-    const workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines,
+    const workers = { ...bridgeQueryFixture(db), bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines,
       bridgeCandidates: vi.fn(async () => { await ready; return [row]; }), rateBridge: vi.fn() };
     const api = new BridgeApi(db, workers);
     const context = { op: "start", engines: ["Snake-Eye", "Blue-Eyes"], format: "genesys", deck: { main: [], extra: [], pointCap: 0 } };
@@ -413,22 +414,21 @@ describe("multi-source deep search", () => {
   it("preserves legacy results when a single-engine selector creates the shared job first", async () => {
     const user = seedIdentity(db, { name: "One engine" }), other = seedIdentity(db, { name: "Legacy subscriber" });
     const row = createBridgeService(db).bridgeBetween("Snake-Eye", "Fire King")!; approve(row);
-    const workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async () => [row]), rateBridge: vi.fn() };
+    const workers = { ...bridgeQueryFixture(db), bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async () => [row]), rateBridge: vi.fn() };
     const api = new BridgeApi(db, workers);
     try {
       const started = await api.handle({ userId: user.userId, bridgeRequest: { op: "start", engines: ["Snake-Eye"], deck: { main: [], extra: [] } } }, "g", user.playerId) as { jobId: string };
       expect(await finish(api, user, started.jobId)).toMatchObject({ state: "done", results: [{ target: "Fire King" }], next: [{ engine: "Fire King" }] });
       expect(await api.handle({ userId: other.userId, bridgeRequest: { op: "start", source: "Snake-Eye" } }, "g", other.playerId)).toMatchObject({ jobId: started.jobId, cached: true });
       expect((await api.jobs.status({ userId: other.userId, guildId: "g" }, started.jobId)).results).toHaveLength(1);
-      expect(workers.bridgeCandidates).toHaveBeenCalledTimes(1);
+      expect(workers.bridgeCandidates).toHaveBeenCalledTimes(2);
     } finally { await api.jobs.close(); }
   });
 
-  it("rescans full outgoing rows after a truncated single job and shares deck-free work", async () => {
+  it("scans both complete directions for single and multi jobs and shares deck-free work", async () => {
     const user = seedIdentity(db, { name: "Multi-source" }), other = seedIdentity(db, { name: "Multi subscriber" });
     const service = createBridgeService(db);
-    const workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async (scan: BridgeScan) => {
-      if (scan.op === "live") return service.deepFrom(scan.source, scan.format, 25);
+    const workers = { ...bridgeQueryFixture(db), bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async (scan: BridgeScan) => {
       return service.engineRows([scan.source], scan.format).filter(row => scan.op === "into" ? row.target === scan.source : row.source === scan.source);
     }), rateBridge: vi.fn(async (row: ArchetypeBridge) => approve(row)) };
     const api = new BridgeApi(db, workers);
@@ -436,6 +436,9 @@ describe("multi-source deep search", () => {
     try {
       const first = await call({ op: "start", source: "Odion" }) as { jobId: string };
       expect((await finish(api, user, first.jobId)).state).toBe("done");
+      expect(workers.bridgeCandidates.mock.calls.map(([scan]) => [scan.op, scan.source])).toEqual([
+        ["outgoing", "Odion"], ["into", "Odion"],
+      ]);
       workers.bridgeCandidates.mockClear(); workers.rateBridge.mockClear();
       const multi = await call({ op: "start", deck, engines: ["odion", "ashtra"] }) as { jobId: string };
       const result = await finish(api, user, multi.jobId);
@@ -490,7 +493,7 @@ describe("multi-source deep search", () => {
   it("retries partially failed reviews after ten minutes instead of caching them for a day", async () => {
     const user = seedIdentity(db, { name: "Partial review outage" }), service = createBridgeService(db);
     let calls = 0, now = Date.now();
-    const workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async (scan: BridgeScan) => service.engineRows([scan.source], scan.format)
+    const workers = { ...bridgeQueryFixture(db), bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async (scan: BridgeScan) => service.engineRows([scan.source], scan.format)
       .filter(row => scan.op === "into" ? row.target === scan.source : row.source === scan.source)),
       rateBridge: vi.fn(async (row: ArchetypeBridge) => { if (!calls++) approve(row); }) };
     const api = new BridgeApi(db, workers, () => now);
@@ -514,7 +517,7 @@ describe("multi-source deep search", () => {
   it("stops at twelve new pair reviews when reviews are unavailable, and at six reviewed engines when they succeed", async () => {
     const user = seedIdentity(db, { name: "Budget" }), service = createBridgeService(db);
     const engines = ["Archfiend", "Performapal"];
-    const workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async (scan: BridgeScan) => service.engineRows([scan.source], scan.format)
+    const workers = { ...bridgeQueryFixture(db), bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async (scan: BridgeScan) => service.engineRows([scan.source], scan.format)
       .filter(row => scan.op === "into" ? row.target === scan.source : row.source === scan.source)),
       rateBridge: vi.fn(async (_row: ArchetypeBridge) => {}) };
     let now = Date.now();

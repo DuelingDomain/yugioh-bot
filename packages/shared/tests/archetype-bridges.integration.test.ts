@@ -24,7 +24,7 @@ describe("pinned bridge pipeline", () => {
         const fabled = engine.between("Fiendsmith", "Fabled", format)!;
         expect(fabled.score).toBeGreaterThanOrEqual(4);
         expect(fabled.reasons[0]!.key).toBe("reach");
-        expect(fabled.reasons.find(reason => reason.key === "gy_fuel")).toMatchObject({ ancillary: true });
+        expect(engine.reasons("Fiendsmith", "Fabled", format).find(reason => reason.key === "gy_fuel")).toMatchObject({ ancillary: true });
         expect(engine.between("Snake-Eye", "Fire King", format)).not.toBeNull();
         expect(engine.between("Battleguard", "K9", format)).not.toBeNull();
         const maliss = engine.between("Code Talker", "Maliss", format);

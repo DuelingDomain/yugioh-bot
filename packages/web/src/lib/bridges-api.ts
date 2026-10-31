@@ -1,29 +1,50 @@
-import type { BridgeDeck, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, ShownBridge } from "@yugidraft/shared/cards/effects";
+import type { BridgeDeck, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, EngineSuggestion, ShownBridge } from "@yugidraft/shared/cards/effects";
 
-export type { BridgeDeck, BridgePackage, DetectedEngine, EngineSuggestion, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, BridgeReviewStep, ShownBridge } from "@yugidraft/shared/cards/effects";
+/** ShownBridge and EngineSuggestion carry kind?: "synergy"; ordinary access bridges omit kind. */
+export type { ArchetypeBridge, RankedEngine, BridgeDeck, BridgePackage, CoreCard, EngineCore, DetectedEngine, EngineSuggestion, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, BridgeReviewStep, BridgeAlternativePath, ShownBridge } from "@yugidraft/shared/cards/effects";
 
 /** The selected source stays authoritative; an open deck supplies only copies and points. */
 export type BridgeListRequest = {
+  source: string;
+  deck?: BridgeDeck;
   target?: string;
   format?: BridgeFormat;
   genesysRemaining?: number;
-} & (
-  | { source: string; deck?: BridgeDeck; deckId?: never }
-  | { deckId: number; source?: never; deck?: never }
-);
+};
 export type BridgeListResponse = { results: ShownBridge[]; reverse?: ShownBridge[]; inReview: number };
 
-/** Stored directed lists, with the same bounded JSON deck transport as engines. */
-export async function fetchBridges(query: BridgeListRequest, signal?: AbortSignal): Promise<BridgeListResponse> {
-  const response = await fetch("/api/cards/bridges", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(query), signal });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({})) as { error?: string; retryAfter?: number };
-    const retryAfter = body.retryAfter ?? Number(response.headers.get("Retry-After"));
-    throw Object.assign(new Error(body.error || `Bridges are not available (${response.status}).`), { status: response.status,
-      ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfter } : {}) });
+/** Compatibility names retained for the existing component imports. */
+export type BridgeScope = { source: string; target?: string; format: BridgeFormat; genesysRemaining?: number; engines?: readonly string[]; deck?: BridgeDeck };
+export type BridgeList = BridgeListResponse;
+export type DeepState = "queued" | "running" | "done" | "failed";
+export type DeepStep = "candidates" | "checking" | "rating" | "done";
+export type DeepStatus = { jobId: string; state: DeepState; step: DeepStep; progress: number; results: ShownBridge[]; inReview: number; error?: string; engines?: string[]; next?: EngineSuggestion[] };
+export type DeepStart = { jobId: string; state: DeepState; cached: boolean };
+
+export class BridgeRequestError extends Error {
+  constructor(readonly status: number, message: string, readonly retryAfter?: number) {
+    super(message); this.name = "BridgeRequestError";
   }
-  return response.json() as Promise<BridgeListResponse>;
+}
+
+async function requestBridge(url: string, init?: RequestInit): Promise<Response> {
+  const response = await fetch(url, init);
+  if (response.ok) return response;
+  const body = await response.json().catch(() => ({})) as { error?: unknown; retryAfter?: unknown };
+  const hint = typeof body.retryAfter === "number" ? body.retryAfter : Number(response.headers.get("Retry-After"));
+  throw new BridgeRequestError(response.status,
+    typeof body.error === "string" && body.error ? body.error : `Bridges are not available (${response.status}).`,
+    Number.isFinite(hint) && hint > 0 ? Math.ceil(hint) : undefined);
+}
+const post = (body: unknown, signal?: AbortSignal): RequestInit => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
+const call = async <T>(url: string, init?: RequestInit): Promise<T> => (await requestBridge(url, init)).json() as Promise<T>;
+
+/** Stored directed lists always use bounded POST JSON, including when no deck is open. */
+export function fetchBridges(query: BridgeListRequest, signal?: AbortSignal): Promise<BridgeListResponse> {
+  const { source, target, format, deck, genesysRemaining } = query;
+  return call("/api/cards/bridges", post({ source, ...(target === undefined ? {} : { target }),
+    ...(format === undefined ? {} : { format }), ...(deck === undefined ? {} : { deck }),
+    ...(genesysRemaining === undefined ? {} : { genesysRemaining }) }, signal));
 }
 
 /** HTTP 202: retry this read while keeping the existing loading presentation. */
@@ -53,25 +74,45 @@ export type BridgeDeepSearchRequest = {
   /** Integer 0–1000; the editor's remaining allowance overrides host deck accounting, including zero. */
   genesysRemaining?: number;
 } & (
-  | { engines: string[]; deck?: BridgeDeck; source?: never; deckId?: never; target?: never }
-  | { deck: BridgeDeck; engines?: never; source?: never; deckId?: never; target?: never }
-  | { source: string; deckId?: never; target?: string; engines?: never; deck?: never }
-  | { deckId: number; source?: never; target?: string; engines?: never; deck?: never }
+  | { engines: string[]; deck?: BridgeDeck; source?: never }
+  | { deck: BridgeDeck; engines?: never; source?: never }
+  | { source: string; engines?: never; deck?: never }
 );
 
 /** Stored-row reads only. Retry loading responses until answered or the tab/deck request is cancelled. */
 export async function fetchBridgeEngines(query: BridgeEnginesRequest, signal?: AbortSignal): Promise<BridgeEnginesResponse> {
   while (true) {
     signal?.throwIfAborted();
-    const response = await fetch("/api/cards/bridges/engines", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(query), signal });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({})) as { error?: string };
-      throw Object.assign(new Error(body.error || `Bridges are not available (${response.status}).`), { status: response.status });
-    }
+    const response = await requestBridge("/api/cards/bridges/engines", post(query, signal));
     const body: unknown = await response.json();
     if (response.status !== 202) return body as BridgeEnginesResponse;
-    if (!isBridgeLoadingResponse(body)) throw Object.assign(new Error("Invalid bridge loading response"), { status: 502 });
+    if (!isBridgeLoadingResponse(body)) throw new BridgeRequestError(502, "Invalid bridge loading response");
     await waitForBridgeRetry(body.retryAfter, signal);
   }
+}
+
+/** Existing source-only callers share the same engine search execution and retain directed status projection. */
+export function startDeepSearch(scope: BridgeScope, signal?: AbortSignal, join = false): Promise<DeepStart> {
+  const points = scope.format === "genesys" && scope.genesysRemaining != null
+    ? { genesysRemaining: Math.max(0, Math.min(1000, Math.floor(scope.genesysRemaining))) } : {};
+  const selected = scope.engines?.length ? [...scope.engines] : scope.target ? [scope.source, scope.target] : scope.deck ? [scope.source] : undefined;
+  const selector = selected ? { engines: selected, ...(scope.deck ? { deck: scope.deck } : {}) } : { source: scope.source };
+  return call("/api/cards/bridges/deep-search", post({ ...selector, format: scope.format, ...points, ...(join ? { join: true } : {}) }, signal));
+}
+
+export function pollDeepSearch(jobId: string, signal?: AbortSignal): Promise<DeepStatus> {
+  return call(`/api/cards/bridges/deep-search/${encodeURIComponent(jobId)}`, { signal });
+}
+
+export function reportBridge(evidenceHash: string, reason: string, signal?: AbortSignal): Promise<{ accepted: true; hidden: boolean }> {
+  return call("/api/cards/bridges/feedback", post({ evidenceHash, ...(reason.trim() ? { reason: reason.trim() } : {}) }, signal));
+}
+
+let archetypeNames: Promise<string[]> | null = null;
+export function fetchBridgeArchetypes(): Promise<string[]> {
+  if (!archetypeNames) {
+    archetypeNames = call<{ archetypes: string[] }>("/api/cards/bridges/archetypes").then(body => body.archetypes);
+    archetypeNames.catch(() => { archetypeNames = null; });
+  }
+  return archetypeNames;
 }

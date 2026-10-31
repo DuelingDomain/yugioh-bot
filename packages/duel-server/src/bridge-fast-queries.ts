@@ -45,7 +45,7 @@ export class BridgeFastQueries {
     const deck = input.deck as BridgeDeck | undefined;
     const key = JSON.stringify([guildId, input.format ?? "advanced",
       input.engines ? [...new Set((input.engines as string[]).map(name => name.trim().toLowerCase()))].sort() : null,
-      deck ? [[...deck.main].sort((a, b) => a - b), [...deck.extra].sort((a, b) => a - b), deck.deckMaster ?? null, deck.pointCap ?? 100] : null,
+      deck ? [[...deck.main].sort((a, b) => a - b), [...deck.extra].sort((a, b) => a - b), deck.deckMaster ?? null, deck.pointCap ?? 100, deck.mode ?? "normal", deck.singleton ?? false, [...(deck.side ?? [])].sort((a, b) => a - b)] : null,
       input.genesysRemaining ?? null]);
     const revision = this.revision(), cached = this.cache.get(key);
     if (cached?.revision === revision && cached.expires > this.now()) return cached.result;

@@ -15,14 +15,14 @@ import { seedIdentity } from "./helpers/identity.js";
 import { signedHeaders } from "./helpers/signed-request.js";
 
 const SECRET = "deck-suggestions-signed-integration";
-const BLUE = 89631139, SILVER = 87025064, LINK = 990003, PENDULUM = 990004;
+const BLUE = 89631139, SEARCH = 79816536, LINK = 990003, PENDULUM = 990004;
 const deck = { main: [BLUE, BLUE, BLUE], extra: [], side: [] };
 let directory: string, db: Database.Database, host: DuelHost, playerId: number, userId: number;
 
 beforeAll(() => {
   directory = createHostDataFixture([
     { code: BLUE, name: "Blue-Eyes White Dragon", type: 0x11 },
-    { code: SILVER, name: "Silver's Cry", type: 0x10002 },
+    { code: SEARCH, name: "Summoner's Art", type: 0x2 },
     { code: LINK, name: "Link Master", type: 0x4000021 },
     { code: PENDULUM, name: "Pendulum Master", type: 0x1000021 },
   ]);
@@ -39,7 +39,7 @@ beforeEach(() => {
     (ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,archetype,image_url,image_url_small,card_sets_json,cached_at)
     VALUES(?,?,?,?,?,?,?,?,'fixture','fixture','[]','now')`);
   insert.run(BLUE, "Blue-Eyes White Dragon", "Dragon / Normal Monster", "normal", "A powerful dragon.", "LIGHT", 8, "Blue-Eyes");
-  insert.run(SILVER, "Silver's Cry", "Quick-Play Spell Card", "spell", "Target 1 Dragon Normal Monster in your GY; Special Summon that target.", null, null, null);
+  insert.run(SEARCH, "Summoner's Art", "Spell Card", "spell", "Add 1 Level 5 or higher Normal Monster from your Deck to your hand.", null, null, null);
   for (let n = 0; n < 100; n++) insert.run(500000000 + n, `Unrelated catalog card ${n}`, "Spell Card", "spell", "", null, null, null);
   host = createDuelHost({ db, dataDirectory: directory, secret: SECRET, searchCards: () => [],
     createWorker: vi.fn(() => { throw new Error("Suggestions must not create an engine worker"); }) });
@@ -73,7 +73,7 @@ describe("signed deterministic deck suggestion computation", () => {
     const rows = await post({ op: "suggestRows", deck });
     expect(rows.status).toBe(200);
     expect(rows.data.contextVersion).toMatch(/^[a-f0-9]{64}$/);
-    expect(rows.data.result.rows[1].cards.map((card: { passcode: number }) => card.passcode)).toEqual([SILVER]);
+    expect(rows.data.result.rows[1].cards.map((card: { passcode: number }) => card.passcode)).toEqual([SEARCH]);
     const legality = deckSuggestionScope("normal", directory, defaultDuelSettings("normal"), { cardBlocks: [] });
     const service = createCardInsightService(db, { dataDirectory: directory });
     expect(rows.data.result).toEqual(service.suggestRows(deck, { format: "normal", legality, cache: false }));
@@ -83,7 +83,7 @@ describe("signed deterministic deck suggestion computation", () => {
     expect(outside.data.result.reading.query.intent).toEqual({ kind: "outside", archetype: "Blue-Eyes" });
     const registry = (globalThis as unknown as Record<symbol, WeakMap<Database.Database, Map<string, string>>>)[Symbol.for("yugidraft.deck-suggestions.caches.v1")];
     expect(registry?.get(db)?.size ?? 0).toBe(0);
-    expect((await post({ op: "effectSearch", text: "outside Blue-Eyes", deck, exclude: [SILVER] })).data.result.cards).toEqual([]);
+    expect((await post({ op: "effectSearch", text: "outside Blue-Eyes", deck, exclude: [SEARCH] })).data.result.cards).toEqual([]);
   });
 
 
@@ -91,11 +91,11 @@ describe("signed deterministic deck suggestion computation", () => {
     db.prepare("INSERT INTO genesys_points_meta(id,revision,effective_date,source_url,synced_at) VALUES(1,'budget-test','2026-10-01','fixture',CURRENT_TIMESTAMP)").run();
     db.prepare("UPDATE card_catalog SET genesys_points=0,genesys_revision='budget-test'").run();
     db.prepare("UPDATE card_catalog SET genesys_points=60 WHERE ygoprodeck_id=?").run(BLUE);
-    db.prepare("UPDATE card_catalog SET genesys_points=150 WHERE ygoprodeck_id=?").run(SILVER);
+    db.prepare("UPDATE card_catalog SET genesys_points=150 WHERE ygoprodeck_id=?").run(SEARCH);
     const query = { op: "suggestRows", deck, format: "genesys", genesysRemaining: 220 };
     const generous = await post(query);
     expect(generous.status).toBe(200);
-    expect(generous.data.result.rows[1].cards.map((card: { passcode: number }) => card.passcode)).toContain(SILVER);
+    expect(generous.data.result.rows[1].cards.map((card: { passcode: number }) => card.passcode)).toContain(SEARCH);
     expect((await post({ ...query, genesysRemaining: 100 })).data.result.rows[1].cards).toEqual([]);
     db.prepare("UPDATE card_catalog SET genesys_points=300 WHERE ygoprodeck_id=?").run(BLUE);
     expect((await post({ ...query, genesysRemaining: 1000 })).data.result.rows[1].cards).toEqual([]);
@@ -106,16 +106,16 @@ describe("signed deterministic deck suggestion computation", () => {
     const first = await post(query);
     const suggestionVersion = first.data.contextVersion;
     expect((await post({ ...query, format: "normal" }, { suggestionVersion })).data).toEqual({ contextVersion: suggestionVersion, notModified: true });
-    const orderedQuery = { ...query, deck: { main: [BLUE, BLUE, SILVER], extra: [LINK, PENDULUM], side: [] }, pool: [BLUE, SILVER] };
+    const orderedQuery = { ...query, deck: { main: [BLUE, BLUE, SEARCH], extra: [LINK, PENDULUM], side: [] }, pool: [BLUE, SEARCH] };
     const ordered = await post(orderedQuery);
-    expect((await post({ ...orderedQuery, deck: { main: [SILVER, BLUE, BLUE], extra: [PENDULUM, LINK], side: [] }, pool: [SILVER, BLUE] },
+    expect((await post({ ...orderedQuery, deck: { main: [SEARCH, BLUE, BLUE], extra: [PENDULUM, LINK], side: [] }, pool: [SEARCH, BLUE] },
       { suggestionVersion: ordered.data.contextVersion })).data).toEqual({ contextVersion: ordered.data.contextVersion, notModified: true });
-    for (const change of [{ exclude: [SILVER] }, { pool: [BLUE] }, { genesysRemaining: 0 }, { banlist: "none" },
-      { deck: { ...deck, side: [SILVER] } }, { released: { from: "2020-01" } }]) {
+    for (const change of [{ exclude: [SEARCH] }, { pool: [BLUE] }, { genesysRemaining: 0 }, { banlist: "none" },
+      { deck: { ...deck, side: [SEARCH] } }, { released: { from: "2020-01" } }]) {
       const changed = await post({ ...query, ...change }, { suggestionVersion });
       expect(changed.status).toBe(200); expect(changed.data.contextVersion).not.toBe(suggestionVersion); expect(changed.data).toHaveProperty("result");
     }
-    db.prepare("UPDATE card_catalog SET effect_text='Updated printed metadata' WHERE ygoprodeck_id=?").run(SILVER);
+    db.prepare("UPDATE card_catalog SET effect_text='Updated printed metadata' WHERE ygoprodeck_id=?").run(SEARCH);
     const catalogChanged = await post(query, { suggestionVersion });
     expect(catalogChanged.data.contextVersion).not.toBe(suggestionVersion);
     db.prepare("INSERT INTO genesys_points_meta(id,revision,effective_date,source_url,synced_at) VALUES(1,'new-points','2026-10-01','fixture',CURRENT_TIMESTAMP)").run();
@@ -126,11 +126,11 @@ describe("signed deterministic deck suggestion computation", () => {
   it("invalidates conditional results when operational admission blocks change", async () => {
     const query = { op: "effectSearch", text: "outside Blue-Eyes", deck };
     const first = await post(query);
-    expect(first.data.result.cards.map((card: { passcode: number }) => card.passcode)).toEqual([SILVER]);
+    expect(first.data.result.cards.map((card: { passcode: number }) => card.passcode)).toEqual([SEARCH]);
     db.prepare(`INSERT INTO card_script_auto_blocks
       (code,reason,blocked_at,distinct_duels,error_count,threshold,window_days,bundle_version,script_hash,engine_kind)
       VALUES(?,'fixture block',CURRENT_TIMESTAMP,3,3,3,7,'fixture',?,'pinned-normal')`)
-      .run(SILVER, cardScriptHash(loadCardDatabase(directory), SILVER, "pinned-normal"));
+      .run(SEARCH, cardScriptHash(loadCardDatabase(directory), SEARCH, "pinned-normal"));
     const blocked = await post(query, { suggestionVersion: first.data.contextVersion });
     expect(blocked.status).toBe(200); expect(blocked.data.contextVersion).not.toBe(first.data.contextVersion);
     expect(blocked.data.result.cards).toEqual([]);
@@ -151,7 +151,7 @@ describe("signed deterministic deck suggestion computation", () => {
     vi.stubEnv("EFFECT_SEARCH", "0"); expect((await post(query, { suggestionVersion: version })).status).toBe(404);
     vi.stubEnv("EFFECT_SEARCH", "1"); vi.stubEnv("DECK_SUGGESTIONS", "0"); expect((await post(query)).status).toBe(404);
     vi.stubEnv("DECK_SUGGESTIONS", "1");
-    for (const deckMaster of [999999, SILVER]) expect((await post({ ...query, format: "domain", deckMaster })).status).toBe(400);
+    for (const deckMaster of [999999, SEARCH]) expect((await post({ ...query, format: "domain", deckMaster })).status).toBe(400);
     for (const deckMaster of [LINK, PENDULUM]) expect((await post({ ...query, format: "genesys-domain", deckMaster })).status).toBe(400);
     const missing = await post({ ...query, format: "domain" });
     expect(missing.status).toBe(200); expect(missing.data.result.rows.every((row: { cards: unknown[] }) => !row.cards.length)).toBe(true);

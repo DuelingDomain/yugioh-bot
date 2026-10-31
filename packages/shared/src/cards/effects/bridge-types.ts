@@ -20,6 +20,8 @@ export interface Capability {
   effect?: number;
   evidence: string;
   targets?: number[];
+  /** Full catalog pool size retained when validating a scoped evidence graph. */
+  poolSize?: number;
 }
 export interface SummonLock {
   scope: LockScope;
@@ -40,13 +42,15 @@ export interface CardCapability {
 }
 export const REASON_CAPS = {
   mention: 12, reach: 12, profile: 10, rule_enabler: 10, extra_deck: 10,
-  searcher: 2, small_world: 2, gy_fuel: 6, type_support: 3, face_down: 8, access: 6,
+  searcher: 2, small_world: 2, gy_fuel: 6, type_support: 3, face_down: 8, access: 6, synergy: 3,
 } as const;
 export type BridgeReasonKey = keyof typeof REASON_CAPS;
 export interface BridgeReason {
   key: BridgeReasonKey;
   weight: number;
   ancillary?: boolean;
+  /** Another grounded recipient of the same action; does not add aggregate score. */
+  alternative?: true;
   cards: number[];
   /** Printed evidence in the same order as cards. */
   evidence: string[];
@@ -56,9 +60,15 @@ export interface BridgeReason {
   materials?: number[];
   /** A source card pays the same effect's specific cost before that effect reaches the target. */
   cost?: { card: number; using: number; capability: CapabilityKey; effect: number };
+  /** Synergy only: an extra Deck Set resource pays a printed reveal/return procedure. */
+  setup?: { card: number; using: number; capability: "face_down_card" };
+  /** Shared/complementary effects; never establishes engine access. */
+  mechanic?: import("./bridge-mechanics.js").MechanicInteraction;
 }
 export type BridgeGrade = "Strong" | "Good" | "Niche" | "Risky";
 export interface ArchetypeBridge {
+  /** Resource synergy is judged separately and never establishes bridge access or coverage. */
+  kind?: "synergy";
   /** Missing on historical strict rows. Niche tier rows are exclusive to deep search. */
   tier?: "niche";
   source: string;
@@ -80,12 +90,16 @@ export interface ArchetypeBridge {
 }
 export interface BridgeProgress { phase: "index" | "score" | "validate" | "done"; completed: number; total: number }
 export interface BridgeGroupPolicy {
+  /** Official label; the policy key remains the stable storage identity. */
+  display_name?: string;
   curated?: boolean;
   excluded?: boolean;
   aliases?: string[];
   include?: { names?: string[]; mentions?: string[]; name_patterns?: string[] };
 }
 export interface BridgeGraphData {
+  /** Evidence validators contain only the relevant engines, not the complete catalog. */
+  scoped?: true;
   engine_ranking?: { hubs: number[]; idf: Record<BridgeFormat, Record<string, number>> };
   capabilities: CardCapability[];
   groups: Record<string, number[]>;

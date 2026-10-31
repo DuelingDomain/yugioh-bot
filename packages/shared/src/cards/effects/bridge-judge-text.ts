@@ -4,6 +4,7 @@ import type { BridgeJudgeEvidence } from "./bridge-judge.js";
 export function deterministicBridgePros(evidence: BridgeJudgeEvidence): string[] {
   const pros: string[] = [];
   for (const reason of evidence.reasons.filter(reason => !reason.ancillary)) {
+    if (reason.mechanic) { pros.push(reason.description); continue; }
     const first = reason.steps?.[0];
     const source = evidence.cards.find(card => card.id === (first?.from ?? reason.cards[0]));
     const target = evidence.cards.find(card => card.id === (first?.to ?? reason.cards[1]));
@@ -11,7 +12,12 @@ export function deterministicBridgePros(evidence: BridgeJudgeEvidence): string[]
     const conditions = ", subject to its printed conditions.";
     const stats = target.level && target.attribute ? ` (Level ${target.level} ${target.attribute})` : "";
     let text: string | undefined;
-    if (reason.key === "rule_enabler") {
+    if (reason.setup) {
+      const consumer = evidence.cards.find(card => card.id === reason.setup!.card);
+      const using = evidence.cards.find(card => card.id === reason.setup!.using);
+      if (consumer && using) text = `${source.name} can Set ${using.name}; ${consumer.name} can reveal and return that Set card to Special Summon itself from hand${conditions}`;
+    }
+    else if (reason.key === "rule_enabler") {
       const enabler = evidence.cards.find(card => card.id === reason.cards[0]);
       text = first ? `${source.name} can Set ${target.name} from the Deck; ${enabler!.name} allows it to be activated the turn it was Set${conditions}`
         : `${source.name} allows ${target.name} to be activated the turn it was Set${conditions}`;

@@ -16,7 +16,7 @@ afterAll(() => rmSync(directory, { recursive: true, force: true }));
 
 it("caps both real scanner heaps and replaces a crashed worker before the next scan", async () => {
   const db = new Database(":memory:"); migrate(db);
-  const pool = new DeckSuggestionWorkers(db, directory);
+  let pool = new DeckSuggestionWorkers(db, directory);
   // Inspect the actual Node workers, without substituting their messages or lifecycle events.
   const jobs = () => (pool as unknown as { jobs: { worker: Worker }[] }).jobs;
   const scan = {
@@ -34,6 +34,7 @@ it("caps both real scanner heaps and replaces a crashed worker before the next s
     }
     // Terminate during cold bootstrap, before the scanner can finish its tiny fixture.
     await pool.close();
+    pool = new DeckSuggestionWorkers(db, directory);
     const pending = pool.run(scan);
     const crashed = jobs()[0].worker;
     const rejected = expect(pending).rejects.toThrow("Suggestion scanner stopped");

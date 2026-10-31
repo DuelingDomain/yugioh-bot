@@ -1,15 +1,16 @@
 import { parentPort } from "node:worker_threads";
 import Database from "better-sqlite3";
+import { snapshotBridgeLegalIds } from "@yugidraft/shared/cards/effects";
 import { createBridgeService, createCardInsightService, type BridgeService } from "@yugidraft/shared/services";
 import { BridgeEngineQueries } from "./bridge-engine-queries.js";
 import { BridgeJobError } from "./bridge-search-jobs.js";
 import { bridgeProjectionRows } from "./bridge-projection-input.js";
-import type { BridgeScan, BridgeEnginesScan, BridgeProjectionScan, SuggestionScan } from "./deck-suggestion-workers.js";
+import type { BridgeScan, BridgeEnginesScan, BridgeProjectionScan, BridgeDirectedScan, BridgeResolveScan, BridgeLegalityScan, SuggestionScan } from "./deck-suggestion-workers.js";
 
 let db: Database.Database | undefined, path: string | undefined;
 let bridges: BridgeService | undefined;
 let engines: BridgeEngineQueries | undefined;
-parentPort!.on("message", async (request: (SuggestionScan | BridgeScan | BridgeEnginesScan | BridgeProjectionScan) & {
+parentPort!.on("message", async (request: (SuggestionScan | BridgeScan | BridgeEnginesScan | BridgeProjectionScan | BridgeDirectedScan | BridgeResolveScan | BridgeLegalityScan) & {
   database: string | Uint8Array; dataDirectory: string;
 }) => {
   try {
@@ -21,6 +22,18 @@ parentPort!.on("message", async (request: (SuggestionScan | BridgeScan | BridgeE
         : new Database(Buffer.from(database));
       path = typeof database === "string" ? database : undefined;
       bridges = undefined; engines = undefined;
+    }
+    if ("kind" in request && request.kind === "bridge-legality") {
+      parentPort!.postMessage({ result: snapshotBridgeLegalIds(db, request.format) });
+      return;
+    }
+    if ("kind" in request && (request.kind === "bridge-directed-projection" || request.kind === "bridge-engine-resolve")) {
+      engines ??= new BridgeEngineQueries(db);
+      const result = db.transaction(() => request.kind === "bridge-engine-resolve"
+        ? engines!.resolve(request.input, request.guildId)
+        : engines!.projectDirected(request.query, request.rows ? bridgeProjectionRows(db!, request.rows) : undefined, request.deep)).deferred();
+      parentPort!.postMessage({ result });
+      return;
     }
     if ("kind" in request && request.kind === "bridge-engine-projection") {
       engines ??= new BridgeEngineQueries(db);

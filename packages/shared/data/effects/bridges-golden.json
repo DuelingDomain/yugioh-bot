@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "pairs": [
     {
       "source": "Odion",
@@ -1602,6 +1602,316 @@
       "tier": "deep",
       "why": "Temple activation permission only lets already available Traps activate sooner. No Odion card reaches a Paleozoic card and no specific target-engine Deck setter supplies the Trap; generic any-Trap toolboxes do not establish access.",
       "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+    },
+    {
+      "source": "Toy",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "synergy",
+      "tier": "deep",
+      "min_grade": "Niche",
+      "cards": [
+        24878656,
+        58132856,
+        65504487,
+        1710647
+      ],
+      "why": "Toy Box generates two Toy monsters as extra Set resources from Deck. Yoa can reveal and return one for its printed hand Summon, but an Ashtra card must already be in hand. This is resource synergy, not access to the Ashtra engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Toy%20Box"
+    },
+    {
+      "source": "Labrynth",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "bridge",
+      "tier": "deep",
+      "access_path": true,
+      "min_grade": "Niche",
+      "cards": [
+        2511,
+        1710647,
+        37839434
+      ],
+      "why": "Labrynth Cooclock supplies same-turn Normal Trap activation permission while controlling a Labrynth monster, and Yoa the Plague Deity Ashtra Sets an Ashtra Trap from the Deck. This checked permission path uses the target engine's own Deck setter; generic Normal Trap toolboxes and hand or GY Sets do not establish access.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Labrynth%20Cooclock"
+    },
+    {
+      "source": "Lady of Lament",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "cards": [
+        25643346,
+        50699850,
+        37839434
+      ],
+      "why": "Malice and Loris require an Ashtra Normal Trap already in the GY or banishment, so their Sets do not access its engine. Lilith's subtype-only Normal Trap Deck selection is a generic toolbox, not focused Ashtra access.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Malice%2C%20Lady%20of%20Lament"
+    },
+    {
+      "source": "Sunvine",
+      "target": "Argostars",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "cards": [
+        27946124,
+        65889305
+      ],
+      "why": "Sunvine Shrine Sets a Continuous Trap already in the GY. Reusing an Argostars Trap already available there does not access the Argostars engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Sunvine%20Shrine"
+    },
+    {
+      "source": "Supreme King",
+      "target": "Argostars",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "cards": [
+        40456412,
+        30964246
+      ],
+      "why": "Miracle of the Supreme King Sets a Quick-Play Spell from the Deck, but that broad subtype-only pool is a generic toolbox. Including Argostars - Giantslaying in that pool does not establish focused Argostars access.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Miracle%20of%20the%20Supreme%20King"
+    },
+    {
+      "source": "Toy",
+      "target": "Argostars",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Toy Box only Sets qualifying original-name Toy monsters; it cannot Set Argostars cards, and Argostars has no checked reveal-return hand Summon using that Set resource.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Toy%20Box"
+    },
+    {
+      "source": "Sangen",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Sangen Furo banishes its Set recipient when it leaves the field, so that resource cannot actually be returned to hand to pay an Ashtra hand Summon procedure.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Sangen%20Furo"
+    },
+    {
+      "source": "Toy",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "synergy",
+      "tier": "deep",
+      "min_grade": "Niche",
+      "cards": [
+        24878656,
+        58132856,
+        65504487,
+        1710647
+      ],
+      "why": "Toy Box generates two Toy monsters as extra Set resources from Deck. Yoa can reveal and return one for its printed hand Summon, but an Ashtra card must already be in hand. This is resource synergy, not access to the Ashtra engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Toy%20Box"
+    },
+    {
+      "source": "Labrynth",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "bridge",
+      "tier": "deep",
+      "access_path": true,
+      "min_grade": "Niche",
+      "cards": [
+        2511,
+        1710647,
+        37839434
+      ],
+      "why": "Labrynth Cooclock supplies same-turn Normal Trap activation permission while controlling a Labrynth monster, and Yoa the Plague Deity Ashtra Sets an Ashtra Trap from the Deck. This checked permission path uses the target engine's own Deck setter; generic Normal Trap toolboxes and hand or GY Sets do not establish access.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Labrynth%20Cooclock"
+    },
+    {
+      "source": "Lady of Lament",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "cards": [
+        25643346,
+        50699850,
+        37839434
+      ],
+      "why": "Malice and Loris require an Ashtra Normal Trap already in the GY or banishment, so their Sets do not access its engine. Lilith's subtype-only Normal Trap Deck selection is a generic toolbox, not focused Ashtra access.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Malice%2C%20Lady%20of%20Lament"
+    },
+    {
+      "source": "Sunvine",
+      "target": "Argostars",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "cards": [
+        27946124,
+        65889305
+      ],
+      "why": "Sunvine Shrine Sets a Continuous Trap already in the GY. Reusing an Argostars Trap already available there does not access the Argostars engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Sunvine%20Shrine"
+    },
+    {
+      "source": "Supreme King",
+      "target": "Argostars",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "cards": [
+        40456412,
+        30964246
+      ],
+      "why": "Miracle of the Supreme King Sets a Quick-Play Spell from the Deck, but that broad subtype-only pool is a generic toolbox. Including Argostars - Giantslaying in that pool does not establish focused Argostars access.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Miracle%20of%20the%20Supreme%20King"
+    },
+    {
+      "source": "Toy",
+      "target": "Argostars",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Toy Box only Sets qualifying original-name Toy monsters; it cannot Set Argostars cards, and Argostars has no checked reveal-return hand Summon using that Set resource.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Toy%20Box"
+    },
+    {
+      "source": "Sangen",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Sangen Furo banishes its Set recipient when it leaves the field, so that resource cannot actually be returned to hand to pay an Ashtra hand Summon procedure.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Sangen%20Furo"
+    },
+    {
+      "source": "Altergeist",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Altergeist Deck setters only reach their own named Traps. A single Set Altergeist Trap is neither Ashtra access nor the extra Deck-generated Set resource synergy checked for Toy Box.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Altergeist%20Marionetter"
+    },
+    {
+      "source": "Archfiend",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Archfiend's Usurpation Sets named Archfiend Traps. Those Sets do not reach Ashtra, and having an Ashtra monster already in hand cannot turn an unrelated Set card into engine access.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Archfiend%27s%20Usurpation"
+    },
+    {
+      "source": "Abyss Actor",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Abyss Actor and Abyss Script Set effects only reach named Abyss Script Spells. They do not access Ashtra; an Ashtra monster already in hand using an unrelated Set card does not establish engine access.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Abyss%20Actor%20-%20Superstar"
+    },
+    {
+      "source": "Ashtra",
+      "target": "Labrynth",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Mikumari can Set a Normal Trap already in the GY after its printed Synchro Material trigger. That reuse requires a Labrynth card already available and does not access the Labrynth engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Mikumari%20the%20Sealing%20Deity%20Ashtra"
+    },
+    {
+      "source": "Argostars",
+      "target": "Golden Land",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Fierce Parthe Sets a Continuous Trap from hand. A Golden Land Trap must already be in hand, so the action does not access the Golden Land engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Argostars%20-%20Fierce%20Parthe"
+    },
+    {
+      "source": "Argostars",
+      "target": "True Draco",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Fierce Parthe Sets a Continuous Trap from hand. A True Draco Trap must already be in hand, so the action does not access the True Draco engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Argostars%20-%20Fierce%20Parthe"
+    },
+    {
+      "source": "Altergeist",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Altergeist Deck setters only reach their own named Traps. A single Set Altergeist Trap is neither Ashtra access nor the extra Deck-generated Set resource synergy checked for Toy Box.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Altergeist%20Marionetter"
+    },
+    {
+      "source": "Archfiend",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Archfiend's Usurpation Sets named Archfiend Traps. Those Sets do not reach Ashtra, and having an Ashtra monster already in hand cannot turn an unrelated Set card into engine access.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Archfiend%27s%20Usurpation"
+    },
+    {
+      "source": "Abyss Actor",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Abyss Actor and Abyss Script Set effects only reach named Abyss Script Spells. They do not access Ashtra; an Ashtra monster already in hand using an unrelated Set card does not establish engine access.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Abyss%20Actor%20-%20Superstar"
+    },
+    {
+      "source": "Ashtra",
+      "target": "Labrynth",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Mikumari can Set a Normal Trap already in the GY after its printed Synchro Material trigger. That reuse requires a Labrynth card already available and does not access the Labrynth engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Mikumari%20the%20Sealing%20Deity%20Ashtra"
+    },
+    {
+      "source": "Argostars",
+      "target": "Golden Land",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Fierce Parthe Sets a Continuous Trap from hand. A Golden Land Trap must already be in hand, so the action does not access the Golden Land engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Argostars%20-%20Fierce%20Parthe"
+    },
+    {
+      "source": "Argostars",
+      "target": "True Draco",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Fierce Parthe Sets a Continuous Trap from hand. A True Draco Trap must already be in hand, so the action does not access the True Draco engine.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Argostars%20-%20Fierce%20Parthe"
     }
   ],
   "core_sources": [

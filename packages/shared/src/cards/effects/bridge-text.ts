@@ -63,7 +63,27 @@ export function matchesBridgeFilter(filter: CardFilter, card: Card): boolean {
     || [...card.text.matchAll(/always treated as (?:an? )?["“]([^"”]+)["”]/gi)].some(match => word(match[1]!, name)))) return false;
   if ((filter.level_min || filter.level_max) && (card.level === undefined || filter.level_min && card.level < filter.level_min || filter.level_max && card.level > filter.level_max)) return false;
   const other = filter.other.trim();
-  if (other && !/^(?:face[- ]up|face[- ]down|you control|in your (?:GY|hand|Deck)|except this card|other than this card|on the field|with a different name)$/i.test(other)) {
+  const exceptName = /^except ["“]([^"”]+)["”]$/i.exec(other);
+  if (exceptName) { if (sameName(card.name, exceptName[1]!)) return false; }
+  else if (/^non-Wyrm$/i.test(other)) { if (card.kind !== "monster" || card.monsterType === "Wyrm") return false; }
+  else if (/^non-["“][^"”]+["”](?: Normal Trap, different names)?$/i.test(other)) {
+    const excluded = /["“]([^"”]+)["”]/.exec(other)![1]!;
+    if (matchesBridgeFilter({ ...NO_FILTER, archetypes: [excluded] }, card)) return false;
+  }
+  else if (other === "can Set themselves from hand as Spells") {
+    if (card.kind !== "monster" || !/Toy/i.test(card.name) || !/You can Set this card from your hand to your Spell & Trap Zone as a Spell\./i.test(printedText(card))) return false;
+  }
+  else if (/^with an effect that Special Summons itself as a monster$/i.test(other)) { if (!trapMonsterEvidence(card)) return false; }
+  else if (/^that can only be activated when an attack is declared$/i.test(other)) {
+    if (!/^(?:When|If) (?:an? |your |your opponent['’]s )?(?:opponent['’]s )?monster(?: you control)? declares an attack\s*:/i.test(printedText(card))) return false;
+  }
+  else if (/^except Field Spells, each with a different name, equal to the number of targeted face-down cards$/i.test(other)) {
+    if (card.kind === "spell" && card.subtypes.includes("field")) return false;
+  }
+  // These qualifiers constrain quantity/state, not the identity of one recipient.
+  // Keep their full text on the capability for dependency and setup checks.
+  else if (/^different names, up to 2, face-up in your Spell & Trap Zone$/i.test(other)) { /* identity fields above still apply */ }
+  else if (other && !/^(?:face[- ]up|face[- ]down|you control|in your (?:GY|hand|Deck)|except this card|other than this card|on the field|with a different name)$/i.test(other)) {
     const stat = /^(\d+) (?:or (less|more) )?(ATK|DEF)$/i.exec(other);
     if (!stat) return false;
     const value = stat[3]!.toUpperCase() === "ATK" ? card.atk : card.def;
@@ -100,13 +120,21 @@ const actionText: Partial<Record<CapabilityKey, RegExp>> = {
 };
 export function actionEvidence(card: Card, key: CapabilityKey, filter?: CardFilter): string | undefined {
   const regex = actionText[key];
-  return regex ? sentences(printedText(card)).find(text => regex.test(text) && (!filter || !particularFilter(filter) || filterPrinted(filter, text))) : undefined;
+  return regex ? sentences(printedText(card)).find(text => regex.test(text)
+    && (key !== "set_spell_trap" || /\bSet\s+(?:(?:up to )?\d+|an?\b|this\b|it\b|that\b|them\b|those\b|the\b|on\b|from\b|non-|["“])/i.test(text) && !/cannot Set/i.test(text))
+    && (!filter || !particularFilter(filter) || filterPrinted(filter, text))) : undefined;
 }
 
 export function trapTurnSetEvidence(card: Card): string | undefined {
   // A permission on a single Trap just Set by an effect (Fierce Parthe) is not a global rule.
-  return sentences(printedText(card)).find(text => /(?:you can activate|trap cards? can be activated)\s*(?:up to )?(?:1 |one )?(?:trap cards?\s*)?(?:the turn (?:it|they) (?:was|were|is|are) set)/i.test(text)
-    && /trap card/i.test(text) && !/this card|that card|those cards/i.test(text));
+  return sentences(printedText(card)).find(text => /(?:you can activate|trap cards? can be activated)\s*(?:up to )?(?:1 |one )?(?:(?:Normal |Continuous )?trap cards?\s*)?(?:the turn (?:it|they) (?:was|were|is|are) set|that was Set this turn)/i.test(text)
+    && /trap card/i.test(text) && !/activate this card|this card can be activated|that card|those cards/i.test(text));
+}
+export function trapTurnSetAllows(card: Card, target: Card): boolean {
+  const evidence = trapTurnSetEvidence(card);
+  if (!evidence || target.kind !== "trap" || /cannot (?:be )?activated? (?:the|this) turn/i.test(printedText(target))) return false;
+  return (!/Normal Trap/i.test(evidence) || target.subtypes.includes("normal"))
+    && (!/Continuous Trap/i.test(evidence) || target.subtypes.includes("continuous"));
 }
 export function faceDownNeedEvidence(card: Card): string | undefined {
   return sentences(printedText(card)).find(text => /(?:face-down cards?|set (?:trap )?cards?)/i.test(text)
@@ -114,10 +142,19 @@ export function faceDownNeedEvidence(card: Card): string | undefined {
     && !/this Set card|cannot Set|destroy[^.]*Set card|Set card[^.]*destroy|opponent.*?(?:controls?|set)|\bor\b[^.]*Trap in your GY/i.test(text));
 }
 export function canReceiveSummon(card: Card, evidence: string): boolean {
-  if (isExtraDeckCard(card)) return false;
+  if (isExtraDeckCard(card)) {
+    const procedure = alternativeFusionProcedure(evidence);
+    return !!procedure && matchesBridgeFilter(procedure.filter, card);
+  }
   if (/cannot be (?:Normal Summoned\/Set|Special Summoned)(?:\.|,|\s+except)/i.test(card.text)) return false;
   if (/must (?:first )?be (?:Special|Fusion|Synchro|Xyz|Link|Ritual) Summoned|cannot be Special Summoned by other ways/i.test(card.text)) return false;
   return /Special Summon/i.test(evidence);
+}
+
+/** The revealed recipient is Fusion Summoned by this exact printed alternative procedure. */
+export function alternativeFusionProcedure(text: string): { filter: CardFilter; evidence: string } | undefined {
+  const match = /(?:During the Main Phase: )?Reveal 1 ["“]([^"”]+)["”] Fusion Monster in your Extra Deck, and for every 4 Levels it has \(round down\), (?:send|shuffle) [\s\S]*?then Special Summon (?:that |the )revealed monster\.\s*\(This is treated as a Fusion Summon\.\)/i.exec(text);
+  return match ? { filter: { ...NO_FILTER, kinds: ["monster"], subtypes: ["fusion"], archetypes: [match[1]!] }, evidence: match[0] } : undefined;
 }
 export function trapMonsterEvidence(card: Card): string | undefined {
   return card.kind === "trap" ? sentences(printedText(card)).find(text => /Special Summon this card as an? (?:Effect |Normal |Tuner )*Monster/i.test(text)) : undefined;

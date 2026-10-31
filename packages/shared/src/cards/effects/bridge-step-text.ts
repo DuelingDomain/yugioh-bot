@@ -1,5 +1,5 @@
 import { isExtraDeckCard, type Card } from "./card.js";
-import type { BridgeJudgeEvidence, BridgeReviewStep } from "./bridge-judge.js";
+import type { BridgeAlternativePath, BridgeJudgeEvidence, BridgeReviewStep } from "./bridge-judge.js";
 import { actionEvidence, matchesBridgeFilter } from "./bridge-text.js";
 import type { CapabilityKey, CardCapability } from "./bridge-types.js";
 
@@ -47,6 +47,11 @@ export function deterministicBridgeSteps(evidence: BridgeJudgeEvidence, line: re
   // Primary reasons win over optional benefits; only describe relations between reviewed cards.
   for (const reason of [...evidence.reasons].sort((a, b) => Number(!!a.ancillary) - Number(!!b.ancillary))) {
     const cards = reason.cards.map(id => rows.get(id)).filter(row => row !== undefined);
+    if (reason.setup) {
+      const consumer = rows.get(reason.setup.card), using = rows.get(reason.setup.using);
+      if (consumer && using && present.has(using.card.name)) add(outgoing, consumer.card.name,
+        `can Special Summon itself from hand by revealing and returning the Set ${using.card.name} to hand.`);
+    }
     if (reason.cost) {
       const cost = reason.cost, consumer = rows.get(cost.card), using = rows.get(cost.using);
       const need = consumer?.needs.find(need => need.key === cost.capability && need.effect === cost.effect
@@ -99,4 +104,22 @@ export function deterministicBridgeSteps(evidence: BridgeJudgeEvidence, line: re
     }
   }
   return line.map(card => ({ card, text: outgoing.get(card) ?? incoming.get(card) ?? "" }));
+}
+
+/** Presentation of independently grounded alternatives already supplied to the pair judges. */
+export function deterministicBridgeAlternatives(evidence: BridgeJudgeEvidence, reviewed: readonly string[], capabilities: readonly CardCapability[]): BridgeAlternativePath[] {
+  const seen = new Set([JSON.stringify([...reviewed].sort())]), paths: BridgeAlternativePath[] = [];
+  for (const [i, reason] of evidence.reasons.entries()) {
+    if (reason.ancillary || !reason.steps?.length) continue;
+    const ids = reason.key === "rule_enabler" ? [...new Set([reason.cards[0]!, ...reason.steps.flatMap(step => [step.from, step.to])])] : reason.cards;
+    const line = ids.map(id => evidence.cards.find(card => card.id === id)!.name);
+    const key = JSON.stringify([...line].sort());
+    if (line.length > 3 || seen.has(key)) continue;
+    const scoped = { ...evidence, reasons: [reason], proposed_lines: [evidence.proposed_lines[i]!] };
+    const steps = deterministicBridgeSteps(scoped, line, capabilities);
+    if (!steps.some(step => step.text)) continue;
+    paths.push({ line, steps }); seen.add(key);
+    if (paths.length >= 3) break;
+  }
+  return paths;
 }

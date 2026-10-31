@@ -85,7 +85,7 @@ describe("bridge scanner isolation", () => {
     try {
       await expect(call()).rejects.toMatchObject({ status: 503, message: "Bridge data is unavailable" });
       importCardEffectArtifact(db); importBridgeArtifact(db);
-      await expect(call()).resolves.toMatchObject({ engines: ["Odion"] });
+      await expect(call()).resolves.toMatchObject({ engines: ["Temple of the Kings"] });
       const external = new Database(db.name);
       try { external.prepare("UPDATE bridge_graph SET graph_json=?,source_version='older-replacement'").run(JSON.stringify({ groups: {} })); }
       finally { external.close(); }
@@ -118,6 +118,9 @@ describe("bridge scanner isolation", () => {
       expect((await call(["Odion"])).next.some(next => next.engine === "Argostars")).toBe(false);
       const service = createBridgeService(db), selected = ["The Weather", "Genex", "Synchron", "Blue-Eyes"];
       const deep = new BridgeApi(db, {
+        withBridgeLegality: (format, read) => workers.withBridgeLegality(format, read),
+        bridgeResolve: (input, guildId) => workers.bridgeResolve(input, guildId),
+        bridgeDirectedProjection: (query, rows, deep) => workers.bridgeDirectedProjection(query, rows, deep),
         bridgeEngines: (input, guildId) => workers.bridgeEngines(input, guildId),
         bridgeEngineShortlist: (rows, query) => workers.bridgeEngineShortlist(rows, query),
         bridgeEngineProjection: (rows, query) => workers.bridgeEngineProjection(rows, query),
@@ -237,8 +240,10 @@ describe("bridge scanner isolation", () => {
     const pending: Promise<void>[] = [];
     try {
       for (const bridge of bridges) { expect(bridge).toBeTruthy(); pending.push(workers.rateBridge(bridge as ArchetypeBridge)); }
-      expect(active).toBe(2);
-      expect((workers as unknown as { jobs: unknown[] }).jobs).toHaveLength(0);
+      await vi.waitFor(() => expect(active).toBe(2), { timeout: 10_000 });
+      // Cold legality was prepared in a scanner before judging. Provider waits
+      // leave that scanner idle and both Suggestions slots available.
+      expect((workers as unknown as { jobs: { reject?: unknown }[] }).jobs.every(job => !job.reject)).toBe(true);
       const scan = {
         query: parseDeckSuggestionQuery({ op: "suggestRows", deck: { main: [89631139], extra: [], side: [] } })!,
         legality: deckSuggestionScope("normal", directory, defaultDuelSettings("normal"), { cardBlocks: [] }),

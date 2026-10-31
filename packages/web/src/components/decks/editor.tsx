@@ -63,7 +63,7 @@ import { EditorTabList } from "./editor-tab-list";
 import { EDITOR_TAB_ORDER, readLastTab, rememberTab, shownTab, type ColumnTab, type EditorTab } from "./editor-tabs";
 import type { BrowserSuggest } from "./suggestions-panel";
 import { CardBottomSheet } from "./card-bottom-sheet";
-import { DOMAIN_ONE_COPY, copiesText, planCardAdds, type CardAdder } from "./card-adder";
+import { DOMAIN_ONE_COPY, copiesText, planCardAdds, planCopyAdds, type CardAdder, type CopyRequest } from "./card-adder";
 import { CardPreview } from "./card-preview";
 import { DeckSegmented, DeckSelect } from "./controls";
 import { useCopyYdke } from "./copy-ydke";
@@ -1057,7 +1057,41 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     setNotice(`Added ${plan.add.length} ${plan.add.length === 1 ? "card" : "cards"}: ${names}.${unknown}${left} Press Ctrl+Z to undo.`);
   }
 
-  const adder: CardAdder = { held, plan: planAdds, add: addCards };
+  /** What "Add engine" would do for these copies: `planAdds` for several copies of a card. Changes nothing. */
+  function planCopies(requests: readonly CopyRequest[]) {
+    return planCopyAdds({
+      requests, deck, mode, deckCount, limits, limitsPending, banlistName,
+      poolBlock: poolMap ? (card) => (canAddFromPool(poolMap, usage, poolCode(card.code), forcedMap) ? null : poolMap.has(poolCode(card.code)) ? "no copies left in your pool." : "it is not in your draft pool.") : undefined,
+      poolRoom: poolMap ? (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap) : undefined,
+      genesys: genesysOn,
+    });
+  }
+
+  /** The copies of an engine's core in one go. One undo step; the copies that cannot go in are named in the notice. */
+  function addCopies(requests: readonly CopyRequest[]) {
+    if (busy) {
+      setNotice("Saving, try again in a moment.");
+      return;
+    }
+    const plan = planCopies(requests);
+    const of = (card: DeckCardInfo, copies: number) => (copies > 1 ? `${card.name} ×${copies}` : card.name);
+    if (plan.add.length === 0) {
+      setNotice(plan.blocked.length ? `Nothing added. ${plan.blocked.map((entry) => `${of(entry.card, entry.copies)}: ${entry.reason}`).join(" ")}` : "Those cards are already in your deck.");
+      return;
+    }
+    rememberCatalog(plan.add.map((entry) => entry.card));
+    let next = selection;
+    for (const { card, section, copies } of plan.add) {
+      for (let copy = 0; copy < copies; copy += 1) next = placeCardAt(next, { code: card.code, from: "list" }, section).selection;
+    }
+    if (!commit(next)) return;
+    const total = plan.add.reduce((sum, entry) => sum + entry.copies, 0);
+    const unknown = plan.unknownPoints.length ? ` Genesys points unknown: ${plan.unknownPoints.map((card) => card.name).join(", ")}.` : "";
+    const left = plan.blocked.length ? ` Not added: ${plan.blocked.map((entry) => `${of(entry.card, entry.copies)} (${entry.reason.replace(/\.$/, "")})`).join("; ")}.` : "";
+    setNotice(`Added ${total} ${total === 1 ? "card" : "cards"}: ${plan.add.map((entry) => of(entry.card, entry.copies)).join(", ")}.${unknown}${left} Press Ctrl+Z to undo.`);
+  }
+
+  const adder: CardAdder = { held, plan: planAdds, add: addCards, planCopies, addCopies };
 
   function makeMaster(code: number, section?: DeckSection) {
     const card = catalog.get(code);
