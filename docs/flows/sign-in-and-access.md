@@ -44,10 +44,10 @@ The create-account card asks the optional "How did you hear about us?" and sends
 
 Normal people stay on the waitlist. Content creators and their communities get in at once. The decision is [ADR 0007](../adr/0007-creator-fast-track.md).
 
-1. The owner makes a creator in `/admin` > Creators, then adds the creator's email (allowlist) or makes a link: Personal (1 use, 14 days) or Community (50 uses, 30 days, or custom 1 to 500 uses).
+1. The owner makes a creator in `/admin` > Creators, then adds the creator's email (allowlist) or makes a link: Personal (1 use, 14 days, email lock required in the form), Friends (3 uses, 14 days, unlocked), Community (50 uses, 30 days, unlocked), or Custom (1 to 500 uses, optional email lock). Every preset allows choosing expiry from 1 to 90 days. The admin link list shows a masked lock address.
 2. A visitor opens `/join/<code>`. The card shows "Invited by <creator>", the spots left, and one email field.
-3. `POST /api/join/<code>` checks the link, claims one use in one SQLite transaction (`creator_grants`), and asks Clerk to send an invitation (`notify: true`, redirect `/sign-up?via=creator`, `public_metadata.ddGrant`).
-4. The card always says "If this email can join, your invite is on its way. Check your inbox." The same answer covers an inbox that already has a grant and an email that already has an account.
+3. `POST /api/join/<code>` checks the link and any email lock using the existing same-inbox key (case, plus tags and Gmail aliases), claims one use in one SQLite transaction (`creator_grants`), and asks Clerk to send an invitation (`notify: true`, redirect `/sign-up?via=creator`, `public_metadata.ddGrant`). A different inbox gets 403 `email_mismatch`: "This invite is for a different email address." No use is claimed or invitation sent; the locked address is never exposed publicly.
+4. An eligible inbox gets "If this email can join, your invite is on its way. Check your inbox." The same answer covers an inbox that already has a grant and an email that already has an account. Success, retry and email-mismatch responses retain the 1200 ms timing floor.
 5. The person follows the email to the normal invite card (section 2) and uses a password or Discord.
 6. Clerk sync after sign-up binds the grant to the user: `creator_grants.status = signed_up`, `users.creator_id`, `users.heard_from = creator`.
 

@@ -139,6 +139,24 @@ it("revokes a link: 200 with the count, then the link reads revoked", async () =
   expect(sheet.links[0]).toMatchObject({ id: link.id, state: "revoked" });
 });
 
+it("creates and displays an owner-only email lock and rejects invalid locks", async () => {
+  const { creator } = await (await createCreator({ name: "Yugi" })).json();
+  const response = await createLink(creator.id, { maxUses: 1, expiresInDays: 90, lockedEmail: " A.B+creator@GoogleMail.com " });
+  expect(response.status).toBe(201);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  const { link } = await response.json();
+  expect(link.lockedEmail).toBe("a.b+creator@googlemail.com");
+  expect((await (await detail(creator.id)).json()).links[0].lockedEmail).toBe(link.lockedEmail);
+  for (const lockedEmail of ["invalid", "@example.test", 42, {}, false]) {
+    const invalid = await createLink(creator.id, { maxUses: 1, expiresInDays: 14, lockedEmail });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({ error: "invalid_locked_email" });
+  }
+  const unlocked = await createLink(creator.id, { maxUses: 3, expiresInDays: 14, lockedEmail: null });
+  expect(unlocked.status).toBe(201);
+  expect((await unlocked.json()).link).toMatchObject({ maxUses: 3, lockedEmail: null });
+});
+
 it("the admin waitlist hides a pending entry whose inbox has a grant", async () => {
   const { creator } = await (await createCreator({ name: "Kaiba" })).json();
   await (await routes.emails()).POST(req(`/api/admin/console/creators/${creator.id}/emails`, "POST", { emails: ["vip+creator@gmail.com"] }), { params: Promise.resolve({ id: String(creator.id) }) });

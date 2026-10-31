@@ -36,7 +36,7 @@ export interface CreatorDetailResponse extends CreatorDetail {
 export interface UpdateCreatorBody { name?: string; channelUrl?: string | null; notes?: string | null; archived?: boolean }
 
 /** POST /api/admin/console/creators/[id]/links  body CreateLinkBody -> 201 CreateLinkResponse */
-export interface CreateLinkBody { label?: string | null; maxUses: number; expiresInDays: number }
+export interface CreateLinkBody { label?: string | null; maxUses: number; expiresInDays: number; lockedEmail?: string | null }
 export interface CreateLinkResponse { link: CreatorLink; url: string }
 
 /** POST /api/admin/console/creators/[id]/links/[linkId]/revoke  (no body) -> 200 RevokeLinkResponse */
@@ -57,7 +57,8 @@ export interface BusyResponse { error: "busy"; retryAfterSeconds: number }
  *  200 { status: "sent" }      claimed+sent, same inbox already granted, or existing account (generic, no leak)
  *  409 { status: LinkState }   full / expired / revoked: show the waitlist form (source "creator:<code>")
  *  404 { status: "revoked" }   unknown code reads like a closed link
- *  400 { error: "invalid_email" } | 403 { error: "invalid_origin" } | 415 | 429 BusyResponse
+ *  400 { error: "invalid_email" } | 403 { error: "invalid_origin" | "email_mismatch" } | 415 | 429 BusyResponse
+ *  email_mismatch uses the same 1200 ms answer floor as sent/retry_later and never returns the locked address.
  *  503 { error: "retry_later" } Clerk failed; the grant is failed and no use is counted
  * Honeypot `company` non-empty -> 200 { status: "sent" } with no write. Body max 2 KB.
  * Limits: 5 posts per IP per 10 min, 20 sends per link per hour, 80 sends per hour in all (shared budget).
