@@ -102,6 +102,8 @@ export function BridgesRow({ deckId = null, deck, deckMaster, mode, genesys, gen
   const rootRef = useRef<HTMLElement>(null);
   const hintId = useId();
   const [open, setOpen] = useState<ShownBridge | null>(null);
+  // The engine card that is open: kept here, so Details and Back leave it as it was. One card at a time.
+  const [openName, setOpenName] = useState<string | null>(null);
   // The link a details view was opened from (its place among the links, and the scroll), so Back returns to it.
   const cameFrom = useRef<{ hash: string; index: number; scroll: number } | null>(null);
   const clicked = useRef<HTMLElement | null>(null);
@@ -173,7 +175,7 @@ export function BridgesRow({ deckId = null, deck, deckMaster, mode, genesys, gen
   useEffect(() => { if (disabled) onDisabledRef.current?.(); }, [disabled]);
   // A new set of engines or a new format closes the details of the old one.
   const scopeId = `${set.join("|")}|${format}|${pickMode}`;
-  useEffect(() => { setOpen(null); }, [scopeId]);
+  useEffect(() => { setOpen(null); setOpenName(null); }, [scopeId]);
 
   useLayoutEffect(() => {
     if (open || !cameFrom.current) return;
@@ -289,7 +291,7 @@ export function BridgesRow({ deckId = null, deck, deckMaster, mode, genesys, gen
                   <section aria-label={`Next engine for ${names}`} data-testid={deepNext.length > 0 ? "deep-results" : "engines-next"}>
                     <h4 className={styles.subTitle}>Next engine for {names}</h4>
                     {deepNext.length > 0 ? <p className={styles.note} data-testid="deep-from">From your deep search{fresh.size > 0 ? `: ${fresh.size} new` : ""}.</p> : null}
-                    <EngineList engines={next} mode={mode} genesys={genesys} cardProps={cardProps} adder={adder} limit={limit} onCatalog={onCatalog} label={`Next engine for ${names}`} fresh={fresh} onOpenLink={openBridge} />
+                    <EngineList engines={next} openName={openName} onToggle={setOpenName} mode={mode} genesys={genesys} cardProps={cardProps} adder={adder} limit={limit} onCatalog={onCatalog} label={`Next engine for ${names}`} fresh={fresh} onOpenLink={openBridge} />
                   </section>
                 ) : null}
                 {deepDone && deepNext.length === 0 ? (

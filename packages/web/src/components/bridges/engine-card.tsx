@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
 import type { CardAdder } from "@/components/decks/card-adder";
@@ -78,7 +78,7 @@ function EngineBody({ engine, id, mode, cards, cardProps, genesys, adder, limit,
       <div className={styles.lines} data-testid="engine-steps">
         {engine.links.map((link, index) => (
           <section key={`${link.from}>${link.to}:${link.bridge.evidence_hash}`} aria-label={`${linkEnds(engine, link.from, link.to)}, the line`}>
-            <h5 className={styles.subTitle}>{linkEnds(engine, link.from, link.to)}</h5>
+            {engine.links.length > 1 ? <h5 className={styles.subTitle}>{linkEnds(engine, link.from, link.to)}</h5> : null}
             <ol className={styles.lineSteps}>
               {(steps[index] ?? []).map((step, at) => (
                 <li key={`${at}-${step.name}`} data-testid="engine-step"><strong>{step.name}</strong>{step.text ? <span> {step.text}</span> : null}</li>
@@ -142,6 +142,7 @@ function EngineCard({ engine, mode, cards, cardProps, genesys, adder, limit, onO
           {engine.of > 1 && !synergy ? <span className={styles.way} data-testid="engine-covered" title={linksText(engine)}>{covered}</span> : null}
           {engine.twoWay.length > 0 ? <span className={styles.way} data-way="two" data-testid="engine-two-way" title={`Also leads back to ${engine.twoWay.join(", ")}`}>Two-way</span> : null}
           {engine.alreadyInDeck ? <OwnedTag /> : null}
+          {genesys && engine.genesysPoints != null ? <span className={styles.way} data-testid="engine-points" title={`Needs about ${engine.genesysPoints} Genesys points for its missing cards`}>~{engine.genesysPoints} pts</span> : null}
           {fresh ? <span className={styles.way} data-way="new" data-testid="engine-new" title="The deep search found this engine">New</span> : null}
         </span>
       </button>
@@ -167,7 +168,7 @@ function EngineCard({ engine, mode, cards, cardProps, genesys, adder, limit, onO
 }
 
 /** A list of engines. The cards of all engines (their links and their core) load together, so the thumbnails fill in at once. */
-export function EngineList({ engines, mode, genesys, cardProps, adder, limit, onCatalog, onOpenLink, label, fresh }: {
+export function EngineList({ engines, mode, genesys, cardProps, adder, limit, onCatalog, onOpenLink, label, fresh, openName, onToggle }: {
   engines: readonly EngineSuggestion[];
   mode: DuelMode;
   genesys: boolean;
@@ -179,15 +180,16 @@ export function EngineList({ engines, mode, genesys, cardProps, adder, limit, on
   label: string;
   /** Engines only the deep search found. */
   fresh?: ReadonlySet<string>;
+  /** The engine whose card is open (one at a time). The parent keeps it, so a trip to the details and back leaves it open. */
+  openName: string | null;
+  onToggle: (name: string | null) => void;
 }) {
   const cards = useBridgeCards([...new Set([...bridgeCodes(engines.flatMap((engine) => engine.links.map((link) => link.bridge))), ...engines.flatMap((engine) => coreCodes(engine.core))])], mode, onCatalog);
   // Real bridges first, then the synergies, whatever order the host sent.
   const ordered = [...engines.filter((engine) => !isSynergy(engine)), ...engines.filter(isSynergy)];
-  // One card is open at a time, and nothing is remembered once the list is gone.
-  const [openName, setOpenName] = useState<string | null>(null);
   return (
     <ul className={styles.list} aria-label={label}>
-      {ordered.map((engine) => <EngineCard key={engine.engine} engine={engine} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} adder={adder} limit={limit} onOpenLink={onOpenLink} fresh={fresh?.has(engine.engine)} open={openName === engine.engine} onToggle={() => setOpenName((now) => (now === engine.engine ? null : engine.engine))} />)}
+      {ordered.map((engine) => <EngineCard key={engine.engine} engine={engine} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} adder={adder} limit={limit} onOpenLink={onOpenLink} fresh={fresh?.has(engine.engine)} open={openName === engine.engine} onToggle={() => onToggle(openName === engine.engine ? null : engine.engine)} />)}
     </ul>
   );
 }
