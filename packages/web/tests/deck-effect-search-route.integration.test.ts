@@ -129,6 +129,19 @@ it("checks every cached result with the real host and isolates mutations, actors
   } finally { state.db!.prepare("UPDATE card_catalog SET name='Silver''s Cry' WHERE ygoprodeck_id=87025064").run(); }
 });
 
+it("accepts the shared prerelease metadata through the signed host result validator", async () => {
+  const engine = new Database(join(directory, "cards.cdb"));
+  const original = engine.prepare("SELECT ot FROM datas WHERE id=87025064").get() as { ot: number };
+  try {
+    engine.prepare("UPDATE datas SET ot=ot|256 WHERE id=87025064").run();
+    const { loadDeckSuggestions } = await import("../src/lib/deck-suggestions");
+    const result = await loadDeckSuggestions({ guildId: "configured-community", userId: 123,
+      query: { op: "suggestRows", format: "normal", deck: { main: [89631139,89631139,89631139], extra: [], side: [] }, exclude: [500000098] } });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.result.rows[1].cards[0].release).toMatchObject({ prerelease: true });
+  } finally { engine.prepare("UPDATE datas SET ot=? WHERE id=87025064").run(original.ot); engine.close(); }
+});
+
 // This serial eviction proof crosses the signed host and scanner worker for 65 uncached requests.
 it("retains at most 64 completed results across module reloads and reuses only validated versions", async () => {
   const { loadDeckSuggestions } = await import("../src/lib/deck-suggestions");
