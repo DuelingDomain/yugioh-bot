@@ -1,7 +1,7 @@
 import type { BridgeDeck, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, EngineSuggestion, ShownBridge } from "@yugidraft/shared/cards/effects";
 
 /** ShownBridge and EngineSuggestion carry kind?: "synergy"; ordinary access bridges omit kind. */
-export type { ArchetypeBridge, RankedEngine, BridgeDeck, BridgePackage, CoreCard, EngineCore, DetectedEngine, EngineSuggestion, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, BridgeReviewStep, BridgeAlternativePath, ShownBridge } from "@yugidraft/shared/cards/effects";
+export type { BridgeDeck, CoreCard, EngineCore, DetectedEngine, EngineSuggestion, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, BridgeAlternativePath, ShownBridge } from "@yugidraft/shared/cards/effects";
 
 /** The selected source stays authoritative; an open deck supplies only copies and points. */
 export type BridgeListRequest = {
@@ -13,9 +13,8 @@ export type BridgeListRequest = {
 };
 export type BridgeListResponse = { results: ShownBridge[]; reverse?: ShownBridge[]; inReview: number };
 
-/** Compatibility names retained for the existing component imports. */
+/** Selected engines and optional subscriber context for deep search. */
 export type BridgeScope = { source: string; target?: string; format: BridgeFormat; genesysRemaining?: number; engines?: readonly string[]; deck?: BridgeDeck };
-export type BridgeList = BridgeListResponse;
 export type DeepState = "queued" | "running" | "done" | "failed";
 export type DeepStep = "candidates" | "checking" | "rating" | "done";
 export type DeepStatus = { jobId: string; state: DeepState; step: DeepStep; progress: number; results: ShownBridge[]; inReview: number; error?: string; engines?: string[]; next?: EngineSuggestion[] };

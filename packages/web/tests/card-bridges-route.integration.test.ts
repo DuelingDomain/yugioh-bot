@@ -127,8 +127,7 @@ it("accepts bounded POST list context and rejects malformed controls", async () 
   expect(response.headers.get("cache-control")).toBe("private, no-store");
   expect(calls[0].bridgeRequest).toEqual({ op: "from", source: "Odion", deck, format: "advanced" });
   expect((await list({ deckId: 23 })).status).toBe(400);
-  const { GET } = await import("../app/api/cards/bridges/route");
-  expect((await GET(new Request("http://web.test/api/cards/bridges?source=Temple%20of%20the%20Kings"))).status).toBe(200);
+  expect(await import("../app/api/cards/bridges/route")).not.toHaveProperty("GET");
   for (const genesysRemaining of [0, 1000]) {
     expect((await list({ source: "Odion", deck, genesysRemaining })).status).toBe(200);
     expect(calls.at(-1)!.bridgeRequest).toMatchObject({ deck, genesysRemaining });

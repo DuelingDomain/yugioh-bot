@@ -30,7 +30,7 @@ await fetchBridges({ source: "Temple of the Kings", format: "genesys",
   genesysRemaining: 37 }, signal);
 ```
 
-The canonical helper sends POST JSON and throws `BridgeRequestError` with `status` and optional `retryAfter` seconds; cancellation uses the supplied signal. A temporary GET transport shim delegates through the same POST validator because the component-local API module remains under the owner's no-component-edit restriction. It has no saved-deck selector or independent source detector. List evidence is cached only by source, target and format with the bridge revision; deck copies and allowance are applied separately to every response and never enter that shared cache key. Context cannot leak between callers or change cached evidence.
+The canonical helper sends POST JSON and throws `BridgeRequestError` with `status` and optional `retryAfter` seconds; cancellation uses the supplied signal. The list route is POST-only; `GET /api/cards/bridges` returns 405. Browser callers import `@/lib/bridges-api`; the old component-folder client has been removed. Both web and host validators reject saved-deck selectors and deep `source + target` selectors; deep pairs use `engines`. List evidence is cached only by source, target and format with the bridge revision; deck copies and allowance are applied separately to every response and never enter that shared cache key. Context cannot leak between callers or change cached evidence.
 
 Suggestions and free two-archetype lookups use the existing strict candidates,
 score floor and top-four selection. Deep-only rows never enter these results,
