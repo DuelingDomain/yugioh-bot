@@ -187,7 +187,7 @@ describe("bridge engine cache and host isolation", () => {
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const call = (bridgeRequest: Record<string, unknown>) => api.handle({ userId: identity.userId, bridgeRequest }, "g", identity.playerId);
     try {
-      const started = await call({ op: "start", source: "Odion", target: "Argostars" }) as { jobId: string };
+      const started = await call({ op: "start", source: "Temple of the Kings" }) as { jobId: string };
       await api.jobs.close();
       messages.mockClear();
       const status = () => call({ op: "status", jobId: started.jobId });

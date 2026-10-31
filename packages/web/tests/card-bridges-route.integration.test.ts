@@ -43,8 +43,11 @@ beforeEach(() => {
 afterEach(() => { state.db?.close(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 async function lookup(query = "source=Odion") {
-  const { GET } = await import("../app/api/cards/bridges/route");
-  return GET(new Request(`http://web.test/api/cards/bridges?${query}`));
+  const params = new URLSearchParams(query);
+  const value: Record<string, unknown> = Object.fromEntries(params);
+  for (const key of params.keys()) if (params.getAll(key).length > 1) value[key] = params.getAll(key);
+  if (typeof value.genesysRemaining === "string" && /^(0|[1-9]\d*)$/.test(value.genesysRemaining)) value.genesysRemaining = Number(value.genesysRemaining);
+  return list(value);
 }
 async function list(value: unknown) {
   const { POST } = await import("../app/api/cards/bridges/route");
@@ -90,14 +93,42 @@ it("runs the browser list helper with open deck context through the signed-host 
   await expect(fetchBridges(request)).rejects.toMatchObject({ message: "Bridge list is busy", status: 503, retryAfter: 1 });
 });
 
-it("accepts bounded list context, preserves legacy GET and rejects malformed POST controls", async () => {
+it("uses the canonical browser helpers for deck-free POST lists, engine-set deep work and typed errors", async () => {
+  const api = await import("../src/lib/bridges-api");
+  const listRoute = await import("../app/api/cards/bridges/route");
+  const deepRoute = await import("../app/api/cards/bridges/deep-search/route");
+  const hostFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    if (url === "/api/cards/bridges") {
+      expect(init.method).toBe("POST");
+      return listRoute.POST(new Request(`http://web.test${url}`, init));
+    }
+    if (url === "/api/cards/bridges/deep-search") return deepRoute.POST(new Request(`http://web.test${url}`, init));
+    return hostFetch(url, init);
+  });
+  expect(await api.fetchBridges({ source: "Temple of the Kings" })).toEqual(reply);
+  expect(calls.at(-1)!.bridgeRequest).toEqual({ op: "from", source: "Temple of the Kings", format: "advanced" });
+  reply = { jobId: "bridge-job-1", state: "queued", cached: false };
+  await api.startDeepSearch({ source: "Temple of the Kings", target: "Argostars", format: "advanced" });
+  expect(calls.at(-1)!.bridgeRequest).toEqual({ op: "start", engines: ["Temple of the Kings", "Argostars"], format: "advanced" });
+  await api.startDeepSearch({ source: "Temple of the Kings", engines: ["Temple of the Kings"],
+    deck: { main: [123], extra: [] }, format: "genesys", genesysRemaining: 0 }, undefined, true);
+  expect(calls.at(-1)!.bridgeRequest).toMatchObject({ engines: ["Temple of the Kings"], deck: { main: [123], extra: [] }, genesysRemaining: 0, join: true });
+  replyStatus = 429; reply = { error: "Deep search hourly limit reached", retryAfter: 12 };
+  const failed = api.startDeepSearch({ source: "Temple of the Kings", format: "advanced" });
+  await expect(failed).rejects.toBeInstanceOf(api.BridgeRequestError);
+  await expect(failed).rejects.toMatchObject({ status: 429, retryAfter: 12 });
+});
+
+it("accepts bounded POST list context and rejects malformed controls", async () => {
   const deck = { main: [123], extra: [], pointCap: 250 };
   const response = await list({ source: " Odion ", deck });
   expect(response.status).toBe(200);
   expect(response.headers.get("cache-control")).toBe("private, no-store");
   expect(calls[0].bridgeRequest).toEqual({ op: "from", source: "Odion", deck, format: "advanced" });
-  expect((await list({ deckId: 23 })).status).toBe(200);
-  expect(calls[1].bridgeRequest).toEqual({ op: "from", deckId: 23, format: "advanced" });
+  expect((await list({ deckId: 23 })).status).toBe(400);
+  const { GET } = await import("../app/api/cards/bridges/route");
+  expect((await GET(new Request("http://web.test/api/cards/bridges?source=Temple%20of%20the%20Kings"))).status).toBe(200);
   for (const genesysRemaining of [0, 1000]) {
     expect((await list({ source: "Odion", deck, genesysRemaining })).status).toBe(200);
     expect(calls.at(-1)!.bridgeRequest).toMatchObject({ deck, genesysRemaining });
@@ -326,7 +357,7 @@ it("runs the browser engines helper through the authenticated signed-host route"
 
 it("keeps first engines and list requests loading past the old five-second timeout", async () => {
   const { POST } = await import("../app/api/cards/bridges/engines/route");
-  const { GET } = await import("../app/api/cards/bridges/route");
+  const { POST: listPost } = await import("../app/api/cards/bridges/route");
   const hostFetch = globalThis.fetch;
   let started!: () => void;
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
@@ -341,7 +372,7 @@ it("keeps first engines and list requests loading past the old five-second timeo
       const ready = new Promise<void>(resolve => { started = resolve; });
       const pending = op === "engines"
         ? POST(new Request("http://web.test/api/cards/bridges/engines", { method: "POST", body: JSON.stringify({ engines: ["Odion"], format: "advanced" }) }))
-        : GET(new Request(`http://web.test/api/cards/bridges?source=Odion${op === "between" ? "&target=Argostars" : ""}`));
+        : listPost(new Request("http://web.test/api/cards/bridges", { method: "POST", body: JSON.stringify({ source: "Odion", ...(op === "between" ? { target: "Argostars" } : {}) }) }));
       let settled = false;
       void pending.then(() => { settled = true; });
       await ready;
@@ -532,12 +563,13 @@ it("passes grounded reviews with one pro and no cons through lookup and deep-sea
   expect(await status.json()).toEqual(reply);
 });
 
-it("supports owner-scoped deck IDs without accepting client deck cards", async () => {
-  expect((await lookup("deckId=23")).status).toBe(200);
-  expect(calls[0].bridgeRequest).toEqual({ op: "from", deckId: 23, format: "advanced" });
-  reply = { jobId: "bridge-job-1", state: "queued", cached: false };
-  expect((await start({ deckId: 23, format: "genesys" })).status).toBe(202);
-  expect(calls[1].bridgeRequest).toEqual({ op: "start", deckId: 23, format: "genesys" });
+it("rejects removed deck IDs and pair deep-search selectors without forwarding them", async () => {
+  for (const value of [{ deckId: 23 }, { source: "Odion", deckId: 23 }]) {
+    expect((await list(value)).status).toBe(400);
+    expect((await start(value)).status).toBe(400);
+  }
+  expect((await start({ source: "Odion", target: "Argostars" })).status).toBe(400);
+  expect(calls).toHaveLength(0);
 });
 
 it("rejects duplicate, unknown and malformed query controls", async () => {
@@ -550,9 +582,9 @@ it("rejects duplicate, unknown and malformed query controls", async () => {
 
 it("starts, resumes and polls a host job without exposing actor overrides", async () => {
   reply = { jobId: "bridge-job-1", state: "running", cached: false };
-  const response = await start({ source: "Odion", target: "Argostars" });
+  const response = await start({ engines: ["Odion", "Argostars"] });
   expect(response.status).toBe(202); expect(await response.json()).toEqual(reply);
-  expect(calls[0].bridgeRequest).toEqual({ op: "start", source: "Odion", target: "Argostars", format: "advanced" });
+  expect(calls[0].bridgeRequest).toEqual({ op: "start", engines: ["Odion", "Argostars"], format: "advanced" });
   reply = { jobId: "bridge-job-1", state: "running", step: "rating", progress: 70, results: [], inReview: 2 };
   const status = await poll(); expect(status.status).toBe(200); expect(await status.json()).toEqual(reply);
   expect(calls[1].bridgeRequest).toEqual({ op: "status", jobId: "bridge-job-1" });
@@ -565,7 +597,7 @@ it("starts, resumes and polls a host job without exposing actor overrides", asyn
   expect((await poll("x".repeat(129))).status).toBe(400);
 });
 
-it("accepts deep-search engine sets with optional deck context and preserves legacy selectors", async () => {
+it("accepts deep-search engine sets with optional deck context and a source-only compatibility selector", async () => {
   reply = { jobId: "bridge-job-1", state: "queued", cached: false };
   const deck = { main: [29762407, 97522863], extra: [] };
   expect((await start({ engines: ["Odion", "Ashtra"] })).status).toBe(202);
@@ -631,7 +663,7 @@ it("preserves valid retry hints for busy bridge status and starts, and keeps eng
 it("validates and forwards join-only requests for every deep-search selector", async () => {
   reply = { jobId: "bridge-job-1", state: "running", cached: false };
   const deck = { main: [29762407], extra: [] };
-  for (const selector of [{ engines: ["Odion", "Ashtra"], deck }, { deck }, { engines: ["Odion"] }, { source: "Odion" }, { deckId: 23 }]) {
+  for (const selector of [{ engines: ["Odion", "Ashtra"], deck }, { deck }, { engines: ["Odion"] }, { source: "Odion" }]) {
     for (const join of [true, false]) {
       const request: BridgeDeepSearchRequest = { ...selector, join, format: "genesys", genesysRemaining: 0 };
       expect((await start(request)).status).toBe(202);
@@ -664,11 +696,11 @@ it("does not present pending or malformed host bridges", async () => {
 });
 
 it("bounds stalled list reads with a still-loading response after twenty-five seconds", async () => {
-  const { GET } = await import("../app/api/cards/bridges/route");
+  const { POST: listPost } = await import("../app/api/cards/bridges/route");
   vi.useFakeTimers();
   vi.stubGlobal("fetch", () => new Promise<Response>(() => {}));
   try {
-    const pending = GET(new Request("http://web.test/api/cards/bridges?source=Odion"));
+    const pending = listPost(new Request("http://web.test/api/cards/bridges", { method: "POST", body: JSON.stringify({ source: "Odion" }) }));
     await vi.advanceTimersByTimeAsync(25_000);
     const response = await pending;
     expect(response.status).toBe(503);
@@ -725,7 +757,7 @@ it("lists the archetype names that have bridge data, for signed-in players only"
   const response = await GET();
   expect(response.status).toBe(200);
   expect(response.headers.get("cache-control")).toBe("private, no-store");
-  expect(await response.json()).toEqual({ archetypes: ["Argostars", "Odion"] });
+  expect(await response.json()).toEqual({ archetypes: ["Argostars", "Temple of the Kings"] });
   expect(calls).toHaveLength(0);
   state.auth.mockResolvedValue({ user: { id: "2", name: "Kaiba" } });
   expect((await GET()).status).toBe(403);

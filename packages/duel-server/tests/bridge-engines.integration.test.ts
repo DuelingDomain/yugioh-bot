@@ -77,7 +77,7 @@ describe("stored multi-engine bridge API", () => {
     const old = await legacy.start({ userId: user.userId, guildId: "g" }, { source: "Odion", format: "advanced", deckCards: row.cards });
     await legacy.close();
     const api = new BridgeApi(fixture, { ...bridgeQueryFixture(fixture), bridgeEngineShortlist: vi.fn(), bridgeEngineProjection: vi.fn(), bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
-    const request = () => api.handle({ userId: user.userId, bridgeRequest: { op: "between", deckId: saved.id, target: "Ashtra" } }, "g", user.playerId);
+    const request = () => api.handle({ userId: user.userId, bridgeRequest: { op: "between", source: "Temple of the Kings", deck: savedDecks.get(saved.id, "g", user.userId).deck, target: "Ashtra" } }, "g", user.playerId);
     try {
       await expect(api.handle({ userId: user.userId, bridgeRequest: { op: "status", jobId: old.jobId } }, "g", user.playerId))
         .rejects.toMatchObject({ status: 404 });

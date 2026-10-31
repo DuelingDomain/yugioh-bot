@@ -85,7 +85,7 @@ describe("bridge scanner isolation", () => {
     try {
       await expect(call()).rejects.toMatchObject({ status: 503, message: "Bridge data is unavailable" });
       importCardEffectArtifact(db); importBridgeArtifact(db);
-      await expect(call()).resolves.toMatchObject({ engines: ["Odion"] });
+      await expect(call()).resolves.toMatchObject({ engines: ["Temple of the Kings"] });
       const external = new Database(db.name);
       try { external.prepare("UPDATE bridge_graph SET graph_json=?,source_version='older-replacement'").run(JSON.stringify({ groups: {} })); }
       finally { external.close(); }

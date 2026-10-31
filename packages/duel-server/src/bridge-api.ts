@@ -1,18 +1,16 @@
 import type Database from "better-sqlite3";
-import { bridgeGate, displayBridgeGroups, resolveBridgeGroup, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_VERSION, isBridgeDeck, type ArchetypeBridge, type BridgeDeck, type BridgeGraphData } from "@yugidraft/shared/cards/effects";
-import { createSavedDeckService } from "@yugidraft/shared/services";
+import { displayBridgeGroups, resolveBridgeGroup, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_VERSION, isBridgeDeck, type BridgeDeck, type BridgeGraphData } from "@yugidraft/shared/cards/effects";
 import { isOwnerUser } from "@yugidraft/shared/access/owner-access";
 import { createHash } from "node:crypto";
-import { BridgeJobError, BridgeReviewUnavailableError, BridgeSearchJobs, type BridgeSearchQuery } from "./bridge-search-jobs.js";
+import { BridgeJobError, BridgeSearchJobs, type BridgeSearchQuery } from "./bridge-search-jobs.js";
 import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
 import { BridgeEngineQueries, validateBridgeEngineInput } from "./bridge-engine-queries.js";
 import { BridgeFastQueries } from "./bridge-fast-queries.js";
 import { searchBridgeEngines } from "./bridge-multi-search.js";
 import { compactBridgeRows } from "./bridge-projection-input.js";
-import { reuseAcceptedBridge } from "./bridge-reviewed-candidates.js";
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
-const name = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 160;
+const name = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 120 && !/[\u0000-\u001f\u007f]/.test(value);
 const hash = (userId: number) => createHash("sha256").update(`bridge-user:${userId}`).digest("hex");
 
 export class BridgeApi {
@@ -34,40 +32,8 @@ export class BridgeApi {
       projectStored: async (jobId, query) => query.engines
         ? { results: [], ...await workers.bridgeEngineProjection({ jobId }, { ...query, engines: query.engines }) }
         : workers.bridgeDirectedProjection(query, { jobId }, true),
-      execute: async (query, progress) => {
-        if (query.engines) return searchBridgeEngines(this.db, workers, { ...query, engines: query.engines }, progress);
-        // Next-engine discovery needs both complete directions. The legacy
-        // directed list is projected separately from these same saved rows.
-        if (!query.target) return searchBridgeEngines(this.db, workers, { ...query, engines: [query.source] }, progress);
-        const result = await workers.bridgeCandidates({ kind: "bridges", source: query.source, format: query.format,
-          ...(query.target ? { op: "explain", target: query.target } : { op: "live" }) }, value => {
-          progress("candidates", Math.floor(25 * value.completed / Math.max(1, value.total)));
-        });
-        const read = <T>(callback: () => T) => workers.withBridgeLegality(query.format, callback);
-        const rows = await read(() => (Array.isArray(result) ? result : result ? [result] : []).map(row => reuseAcceptedBridge(this.db, row)));
-        progress("checking", 30);
-        const version = this.groups().source_version;
-        this.db.transaction(() => {
-          const save = this.db.prepare(`INSERT INTO archetype_bridge(source,target,format,score,grade,bridge_json,evidence_hash,source_version)
-            VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(source,target,format) DO UPDATE SET score=excluded.score,grade=excluded.grade,
-            bridge_json=excluded.bridge_json,evidence_hash=excluded.evidence_hash,source_version=excluded.source_version`);
-          for (const row of rows) save.run(row.source, row.target, row.format, row.score, row.grade, JSON.stringify(row), row.evidence_hash, version);
-        }).immediate();
-        const candidates = await read(() => rows.filter(row => bridgeGate(this.db, row).state === "pending").slice(0, 10));
-        const previousReviews = await read(() => new Set(candidates.flatMap(row => bridgeGate(this.db, row).judgements.map(review => review.judge))));
-        let next = 0, completed = 0;
-        progress("rating", 35);
-        await Promise.all(Array.from({ length: Math.min(2, candidates.length) }, async () => {
-          while (next < candidates.length) {
-            const row = candidates[next++]!;
-            await workers.rateBridge(row);
-            progress("rating", 35 + Math.floor(64 * ++completed / candidates.length));
-          }
-        }));
-        if (candidates.length && await read(() => !candidates.some(row => bridgeGate(this.db, row).judgements.some(review => !previousReviews.has(review.judge)))
-          && !rows.some(row => bridgeGate(this.db, row).state === "shown"))) throw new BridgeReviewUnavailableError();
-        return rows;
-      },
+      execute: (query, progress) => searchBridgeEngines(this.db, workers,
+        { ...query, engines: query.engines ?? [query.source] }, progress),
     });
   }
 
@@ -81,58 +47,24 @@ export class BridgeApi {
     return this.graph!;
   }
 
-  private query(input: Record<string, unknown>, guildId: string, userId: number): BridgeSearchQuery {
-    const allowed = ["op", "source", "deckId", "target", "format", "genesysRemaining"];
-    if (input.op === "from" || input.op === "between") allowed.push("deck");
-    if (Object.keys(input).some(key => !allowed.includes(key)) || (input.source === undefined) === (input.deckId === undefined)
-      || (input.source !== undefined && !name(input.source)) || (input.target !== undefined && !name(input.target))
-      || (input.deck !== undefined && (input.deckId !== undefined || !isBridgeDeck(input.deck)))
-      || (input.format !== undefined && input.format !== "advanced" && input.format !== "genesys")
-      || (input.genesysRemaining !== undefined && (!Number.isSafeInteger(input.genesysRemaining) || Number(input.genesysRemaining) < 0 || Number(input.genesysRemaining) > 1000))) {
+  private query(input: Record<string, unknown>): BridgeSearchQuery {
+    const allowed = ["op", "source", "format", "genesysRemaining"];
+    if (input.op === "from" || input.op === "between") allowed.push("deck", "target");
+    if (Object.keys(input).some(key => !allowed.includes(key)) || !name(input.source)
+      || input.target !== undefined && !name(input.target)
+      || input.deck !== undefined && !isBridgeDeck(input.deck)
+      || input.format !== undefined && input.format !== "advanced" && input.format !== "genesys"
+      || input.genesysRemaining !== undefined && (!Number.isSafeInteger(input.genesysRemaining) || Number(input.genesysRemaining) < 0 || Number(input.genesysRemaining) > 1000)) {
       throw new BridgeJobError("Invalid bridge query", 400);
     }
     const { groups } = this.groups();
-    let source = input.source as string | undefined, remaining = input.genesysRemaining as number | undefined, deckCards: number[] | undefined, deck: BridgeDeck | undefined;
-    if (input.deck !== undefined) {
-      const context = this.engineQueries.deckContext(input.deck as BridgeDeck, input.format === "genesys" ? "genesys" : "advanced", remaining);
-      deckCards = context.deckCards;
-      deck = context.deck;
-      remaining = context.genesysRemaining;
-    }
-    if (input.deckId !== undefined) {
-      if (!Number.isSafeInteger(input.deckId) || Number(input.deckId) <= 0) throw new BridgeJobError("Invalid deck", 400);
-      let saved;
-      try { saved = createSavedDeckService(this.db).get(Number(input.deckId), guildId, userId); }
-      catch { throw new BridgeJobError("Deck not found", 404); }
-      const artwork = this.db.prepare("SELECT card_id FROM card_artworks WHERE artwork_id=?");
-      const mainId = (id: number) => (artwork.get(id) as { card_id: number } | undefined)?.card_id ?? id;
-      deck = { main: saved.deck.main.map(mainId), extra: saved.deck.extra.map(mainId), side: saved.deck.side.map(mainId), mode: saved.mode,
-        ...(saved.deck.deckMaster === undefined ? {} : { deckMaster: mainId(saved.deck.deckMaster) }), ...(saved.genesys ? { pointCap: saved.genesys.pointCap } : {}) };
-      deckCards = [...deck.main, ...deck.extra];
-      const cards = new Set(saved.deck.main.map(mainId));
-      source = Object.entries(groups).map(([key, ids]) => ({ key, count: ids.filter(id => cards.has(id)).length }))
-        .filter(row => row.count > 0).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))[0]?.key;
-      if (!source) throw new BridgeJobError("The deck needs an archetype before searching bridges", 400);
-      if (input.format === "genesys") {
-        if (remaining === undefined) {
-          let spent = 0;
-          for (const id of [...deckCards, ...saved.deck.side.map(mainId), ...(saved.deck.deckMaster === undefined ? [] : [mainId(saved.deck.deckMaster)])]) {
-            const row = this.db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode=?").get(id) as { capabilities_json: string } | undefined;
-            const points = row ? JSON.parse(row.capabilities_json).card.genesysPoints as number | undefined : undefined;
-            if (points === undefined) throw new BridgeJobError("Genesys points are unavailable for this deck", 400);
-            spent += points;
-          }
-          remaining = (saved.genesys?.pointCap ?? 100) - spent;
-        }
-      }
-    }
-    const canonical = (value: string) => resolveBridgeGroup(value, groups);
-    const resolved = canonical(source!);
-    const target = input.target === undefined ? undefined : canonical(input.target as string);
-    if (!resolved || input.target !== undefined && !target) throw new BridgeJobError("Unknown archetype", 400);
-    if (resolved === target) throw new BridgeJobError("Choose two different archetypes", 400);
-    return { source: resolved, ...(target ? { target } : {}), format: input.format === "genesys" ? "genesys" : "advanced",
-      ...(remaining === undefined ? {} : { genesysRemaining: remaining }), ...(deckCards ? { deckCards } : {}), ...(deck ? { deck } : {}) };
+    const source = resolveBridgeGroup(input.source, groups);
+    const target = input.target === undefined ? undefined : resolveBridgeGroup(input.target as string, groups);
+    if (!source || input.target !== undefined && !target) throw new BridgeJobError("Unknown archetype", 400);
+    if (source === target) throw new BridgeJobError("Choose two different archetypes", 400);
+    const format = input.format === "genesys" ? "genesys" : "advanced";
+    return { source, ...(target ? { target } : {}), format,
+      ...this.engineQueries.deckContext(input.deck as BridgeDeck | undefined, format, input.genesysRemaining as number | undefined) };
   }
 
   async handle(body: Record<string, unknown>, guildId: string, playerId: number, signal?: AbortSignal) {
@@ -191,7 +123,7 @@ export class BridgeApi {
       return { accepted: true, hidden: users >= 2 };
     }
     if (input.op === "start" && (input.engines !== undefined || input.deck !== undefined)) {
-      if (["source", "deckId"].some(key => input[key] !== undefined)) throw new BridgeJobError("Choose one bridge source selector", 400);
+      if (input.source !== undefined) throw new BridgeJobError("Choose one bridge source selector", 400);
       validateBridgeEngineInput(input);
       const { query } = await this.workers.bridgeResolve(input, guildId);
       if (!query.engines.length) throw new BridgeJobError("The deck needs an engine before searching bridges", 400);
@@ -199,7 +131,7 @@ export class BridgeApi {
     }
     if (input.op === "engines") return this.fastQueries.run(input, guildId, actor.userId, undefined, signal);
     if (!["from", "between", "start"].includes(String(input.op))) throw new BridgeJobError("Invalid bridge operation", 400);
-    const query = this.query(input, guildId, actor.userId);
+    const query = this.query(input);
     if (input.op === "start") return this.workers.withBridgeLegality(query.format, () => this.jobs.start(actor, query, join));
     if (input.op === "between" && !query.target) throw new BridgeJobError("Target archetype is required", 400);
     return this.workers.bridgeDirectedProjection(query);
