@@ -118,7 +118,7 @@ const BRIDGES: FixtureBridge[] = [
     ["Monster Reborn revives the Chaos monster you banish for.", "Fits a Dragon deck that plays Light and Dark monsters."], ["Banishing your own Dragons costs card advantage.", "Hard to start with only a few Chaos monsters."],
     "A banished Chaos line limits you from using the Graveyard afterwards.", ["Chaos Emperor Dragon - Envoy of the End is Forbidden in the TCG list."]),
   bridge("Blue-Eyes", "Red-Eyes", "Risky", 38, true, ["Red-Eyes Black Dragon", "Red-Eyes Fusion", "Polymerization", "Red-Eyes Dark Dragoon"],
-    ["Polymerization", "Red-Eyes Fusion", "Red-Eyes Dark Dragoon"],
+    ["Polymerization", "Red-Eyes Fusion", "Red-Eyes Dark Dragoon", "Ghost Card Not In Catalog"],
     ["Both archetypes share Polymerization effects.", "Red-Eyes Black Dragon is a Dragon and works with Dragon Shrine."], ["Needs a Red-Eyes Normal Monster you do not play now.", "Slow without both Fusion spells."],
     "You can not Special Summon from the Extra Deck except Fusion Monsters.", ["Red-Eyes Fusion locks your Special Summons for the turn."], 6),
   bridge("Blue-Eyes", "Dark Magician", "Niche", 33, false, ["Dark Magician", "Magician of Black Chaos", "Polymerization"],
@@ -1842,6 +1842,11 @@ try {
   await page.keyboard.press("Control+z");
   await page.waitForTimeout(400);
   check("p4", "one undo takes them all back", (await extraCount()) === extra0 && (await mainCount()) === main0);
+  // A line name that no card of the bridge matches is "not found", never "loading" and never "Already in deck".
+  check("p4", "a name with no card says Card not found in the step", (await pDetails.getByTestId("bridge-step-deck").allInnerTexts()).includes("Card not found"));
+  check("p4", "the Add box names the card it could not add and does not wait forever", (await pDetails.getByTestId("bridge-add-unfound").innerText()).includes("Ghost Card Not In Catalog") && (await pDetails.getByTestId("bridge-add-loading").count()) === 0 && (await addButton.getAttribute("aria-busy")) === null);
+  await bridges.getByRole("button", { name: /^Back/ }).click();
+  check("p4", "the list tile for that name is plain and marked not found", (await pItems.nth(3).getByTestId("bridge-path").locator('[data-missing]').count()) === 1);
 
   await fresh();
   await goTab("Bridges");

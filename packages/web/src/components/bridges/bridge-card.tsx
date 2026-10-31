@@ -2,13 +2,13 @@
 
 import { useRef, useState, type ButtonHTMLAttributes } from "react";
 import { AlertTriangle, ChevronRight, Flag, Minus, Plus } from "lucide-react";
-import type { DeckCardInfo } from "@yugidraft/shared/duels";
+import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
 import { CardArt } from "@/components/decks/card-art";
 import { cn } from "@/lib/utils";
 import { reportBridge, type ShownBridge } from "./bridges-api";
 import { PathThumbs, pathSteps } from "./bridge-path";
-import { errorText } from "./use-bridges";
-import { reportedBridges, rememberReported } from "./bridges-model";
+import { cardsSettled, errorText } from "./use-bridges";
+import { PATH_CARDS, bridgeCodes, reportedBridges, rememberReported } from "./bridges-model";
 import styles from "./bridges.module.css";
 
 export type CardPropsFor = (card: DeckCardInfo) => ButtonHTMLAttributes<HTMLButtonElement>;
@@ -146,8 +146,9 @@ export function ReportBridge({ bridge }: { bridge: ShownBridge }) {
 }
 
 /** One bridge in a list: the target, grade, direction, the path as card images, two good and two bad points, and a warning. */
-export function BridgeCard({ bridge, cards, cardProps, genesys, showSource, onOpen }: {
+export function BridgeCard({ bridge, mode, cards, cardProps, genesys, showSource, onOpen }: {
   bridge: ShownBridge;
+  mode: DuelMode;
   cards: ReadonlyMap<number, DeckCardInfo>;
   cardProps: CardPropsFor;
   genesys: boolean;
@@ -167,7 +168,7 @@ export function BridgeCard({ bridge, cards, cardProps, genesys, showSource, onOp
         <span className={styles.way} data-way={bridge.two_way ? "two" : "one"} title={bridge.two_way ? `${bridge.target} also leads back to ${bridge.source}` : `${bridge.source} leads to ${bridge.target}, not back`}>{directionText(bridge)}</span>
         <ReportBridge bridge={bridge} />
       </div>
-      <PathThumbs steps={pathSteps(bridge, cards)} cardProps={cardProps} />
+      <PathThumbs steps={pathSteps(bridge, cards, cardsSettled(bridgeCodes([bridge], PATH_CARDS), mode))} cardProps={cardProps} />
       <ProsCons bridge={bridge} clamp={2} />
       <Warnings bridge={bridge} genesys={genesys} clamp={1} />
     </li>

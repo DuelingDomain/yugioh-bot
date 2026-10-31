@@ -727,6 +727,16 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     [counts, poolMap, usage, catalog],
   );
 
+  // Copies in Main and Extra only: the Side Deck is not part of a bridge's path.
+  const heldCounts = useMemo(() => copyCounts({ ...deck, side: [] }, catalog), [deck, catalog]);
+  const heldUsage = useMemo(() => deckUsage({ ...deck, side: [] }, catalog), [deck, catalog]);
+  const held = useCallback(
+    (card: DeckCardInfo) => (poolMap
+      ? heldUsage.get(canonicalCardCode(card.code, catalog)) ?? 0
+      : heldCounts.get(`name:${card.name}`) ?? heldCounts.get(`code:${card.code}`) ?? 0),
+    [heldCounts, heldUsage, poolMap, catalog],
+  );
+
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
   const modeRef = useRef(mode);
@@ -1020,15 +1030,18 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   /** What "Add cards" would do for these cards, with the same rules as one add from the card list. Changes nothing. */
   function planAdds(cards: readonly DeckCardInfo[]) {
     return planCardAdds({
-      cards, deck, mode, deckCount, limits, limitsPending, banlistName,
+      cards, deck, mode, deckCount, held, limits, limitsPending, banlistName,
       poolBlock: poolMap ? (card) => (canAddFromPool(poolMap, usage, poolCode(card.code), forcedMap) ? null : poolMap.has(poolCode(card.code)) ? "no copies left in your pool." : "it is not in your draft pool.") : undefined,
-      genesys: genesysOn ? { pointsLeft: genesysSummary ? Math.max(0, genesysSummary.cap - genesysSummary.known) : null } : null,
+      genesys: genesysOn,
     });
   }
 
   /** Several cards from a list in one go (a bridge's path). One undo step; what cannot go in is named in the notice. */
   function addCards(cards: readonly DeckCardInfo[]) {
-    if (busy) return;
+    if (busy) {
+      setNotice("Saving, try again in a moment.");
+      return;
+    }
     const plan = planAdds(cards);
     if (plan.add.length === 0) {
       setNotice(plan.blocked.length ? `Nothing added. ${plan.blocked.map((entry) => `${entry.card.name}: ${entry.reason}`).join(" ")}` : "Those cards are already in your deck.");
@@ -1039,11 +1052,12 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     for (const { card, section } of plan.add) next = placeCardAt(next, { code: card.code, from: "list" }, section).selection;
     if (!commit(next)) return;
     const names = plan.add.map((entry) => entry.card.name).join(", ");
+    const unknown = plan.unknownPoints.length ? ` Genesys points unknown: ${plan.unknownPoints.map((card) => card.name).join(", ")}.` : "";
     const left = plan.blocked.length ? ` Not added: ${plan.blocked.map((entry) => `${entry.card.name} (${entry.reason.replace(/\.$/, "")})`).join("; ")}.` : "";
-    setNotice(`Added ${plan.add.length} ${plan.add.length === 1 ? "card" : "cards"}: ${names}.${left} Press Ctrl+Z to undo.`);
+    setNotice(`Added ${plan.add.length} ${plan.add.length === 1 ? "card" : "cards"}: ${names}.${unknown}${left} Press Ctrl+Z to undo.`);
   }
 
-  const adder: CardAdder = { plan: planAdds, add: addCards };
+  const adder: CardAdder = { held, plan: planAdds, add: addCards };
 
   function makeMaster(code: number, section?: DeckSection) {
     const card = catalog.get(code);

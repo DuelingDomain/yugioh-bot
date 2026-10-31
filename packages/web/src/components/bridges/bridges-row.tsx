@@ -57,7 +57,7 @@ function BridgeList({ bridges, mode, genesys, cardProps, onCatalog, showSource, 
   const cards = useBridgeCards(bridgeCodes(bridges, PATH_CARDS), mode, onCatalog);
   return (
     <ul className={styles.list} aria-label={label}>
-      {bridges.map((bridge) => <BridgeCard key={`${bridge.source}>${bridge.target}:${bridge.evidence_hash}`} bridge={bridge} cards={cards} cardProps={cardProps} genesys={genesys} showSource={showSource} onOpen={onOpen} />)}
+      {bridges.map((bridge) => <BridgeCard key={`${bridge.source}>${bridge.target}:${bridge.evidence_hash}`} bridge={bridge} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} showSource={showSource} onOpen={onOpen} />)}
     </ul>
   );
 }

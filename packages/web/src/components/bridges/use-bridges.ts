@@ -379,6 +379,13 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
 }
 
 const known = new Map<string, DeckCardInfo>();
+/** Cards the host did not return, or a request that failed: they will not load, so a list stops waiting for them. */
+const notFound = new Set<string>();
+
+/** Whether every card is either loaded or known not to load. Until then a missing card may still arrive. */
+export function cardsSettled(codes: readonly number[], mode: DuelMode): boolean {
+  return codes.every((code) => known.has(`${mode}:${code}`) || notFound.has(`${mode}:${code}`));
+}
 
 /**
  * Card details for bridge cards, so a thumbnail can open the card inspector like any other tile. The editor's
@@ -399,9 +406,15 @@ export function useBridgeCards(codes: readonly number[], mode: DuelMode, onCatal
     void getDeckCards(missing, { mode }, controller.signal).then(({ cards }) => {
       if (controller.signal.aborted) return;
       for (const card of cards) known.set(`${mode}:${card.code}`, card);
+      for (const code of missing) if (!known.has(`${mode}:${code}`)) notFound.add(`${mode}:${code}`);
       catalog.current(cards);
       bump((value) => value + 1);
-    }, () => { /* The thumbnails stay plain art. */ });
+    }, () => {
+      // The thumbnails stay plain art, and a path says which cards it could not load.
+      if (controller.signal.aborted) return;
+      for (const code of missing) notFound.add(`${mode}:${code}`);
+      bump((value) => value + 1);
+    });
     return () => controller.abort();
   }, [list, mode]);
   return new Map(codes.flatMap((code) => { const card = known.get(`${mode}:${code}`); return card ? [[code, card] as const] : []; }));

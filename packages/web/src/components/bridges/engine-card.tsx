@@ -8,7 +8,7 @@ import type { ShownBridge } from "./bridges-api";
 import { GradeTag, Points, type CardPropsFor } from "./bridge-card";
 import { PathThumbs, pathSteps } from "./bridge-path";
 import { PATH_CARDS, bridgeCodes } from "./bridges-model";
-import { useBridgeCards } from "./use-bridges";
+import { cardsSettled, useBridgeCards } from "./use-bridges";
 import styles from "./bridges.module.css";
 
 /** The grade word of an engine. A niche engine always says Niche, like a niche bridge. */
@@ -42,8 +42,9 @@ function linkEnds(engine: EngineSuggestion, from: string, to: string): string {
 }
 
 /** One engine that fits next: grade, how many of your engines it links to, the path of each link, the cards, the points. */
-export function EngineCard({ engine, cards, cardProps, genesys, onOpen, onOpenLink, lit, fresh }: {
+export function EngineCard({ engine, mode, cards, cardProps, genesys, onOpen, onOpenLink, lit, fresh }: {
   engine: EngineSuggestion;
+  mode: DuelMode;
   cards: ReadonlyMap<number, DeckCardInfo>;
   cardProps: CardPropsFor;
   genesys: boolean;
@@ -88,7 +89,7 @@ export function EngineCard({ engine, cards, cardProps, genesys, onOpen, onOpenLi
                   <span className={styles.pathEnds}>{ends}<span className={styles.openHint}>Details<ChevronRight size={13} strokeWidth={1.8} aria-hidden className={styles.chevron} /></span></span>
                 </button>
               ) : <span className={styles.pathEnds}>{ends}</span>}
-              <PathThumbs steps={pathSteps(link.bridge, cards)} cardProps={cardProps} label={`${ends}, path of cards`} />
+              <PathThumbs steps={pathSteps(link.bridge, cards, cardsSettled(bridgeCodes([link.bridge], PATH_CARDS), mode))} cardProps={cardProps} label={`${ends}, path of cards`} />
             </li>
           );
         })}
@@ -119,7 +120,7 @@ export function EngineList({ engines, mode, genesys, cardProps, onCatalog, onOpe
   const cards = useBridgeCards(bridgeCodes(engines.flatMap((engine) => engine.links.map((link) => link.bridge)), PATH_CARDS), mode, onCatalog);
   return (
     <ul className={styles.list} aria-label={label}>
-      {engines.map((engine) => <EngineCard key={engine.engine} engine={engine} cards={cards} cardProps={cardProps} genesys={genesys} onOpen={onOpen} onOpenLink={onOpenLink} lit={lit === engine.engine} fresh={fresh?.has(engine.engine)} />)}
+      {engines.map((engine) => <EngineCard key={engine.engine} engine={engine} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} onOpen={onOpen} onOpenLink={onOpenLink} lit={lit === engine.engine} fresh={fresh?.has(engine.engine)} />)}
     </ul>
   );
 }

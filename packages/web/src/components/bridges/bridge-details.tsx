@@ -12,7 +12,7 @@ import type { CardAdder } from "@/components/decks/card-adder";
 import { AddPathCards, PathSteps, pathSteps } from "./bridge-path";
 import { GradeBadge, ProsCons, ReportBridge, Warnings, directionText, type CardPropsFor } from "./bridge-card";
 import { roleFor } from "./bridges-model";
-import { useBridgeCards } from "./use-bridges";
+import { cardsSettled, useBridgeCards } from "./use-bridges";
 import type { ShownBridge } from "./bridges-api";
 import styles from "./bridges.module.css";
 
@@ -55,7 +55,8 @@ export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, l
   onBack: () => void;
 }) {
   const cards = useBridgeCards(bridge.cards, mode, onCatalog);
-  const steps = pathSteps(bridge, cards);
+  const steps = pathSteps(bridge, cards, cardsSettled(bridge.cards, mode));
+  const held = adder?.held ?? deckCount;
   return (
     <div className={styles.details} data-testid="bridge-details">
       <BridgeDrill source={bridge.source} target={bridge.target} onBack={onBack} />
@@ -67,8 +68,8 @@ export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, l
 
       <section aria-labelledby={`line-${bridge.evidence_hash}`}>
         <h4 id={`line-${bridge.evidence_hash}`} className={styles.subTitle}>The line</h4>
-        <PathSteps steps={steps} cardProps={cardProps} deckCount={deckCount} limit={limit} />
-        {adder ? <AddPathCards steps={steps} deckCount={deckCount} adder={adder} /> : null}
+        <PathSteps steps={steps} cardProps={cardProps} deckCount={deckCount} held={held} limit={limit} />
+        {adder ? <AddPathCards steps={steps} held={held} adder={adder} /> : null}
       </section>
 
       <ProsCons bridge={bridge} />
