@@ -14,7 +14,7 @@ import { GradeBadge, ProsCons, ReportBridge, SynergyTag, Warnings, directionText
 import { roleFor } from "./bridges-model";
 import { AddEngineCards, EngineCoreGroup, OtherWays, coreCodes } from "./engine-core";
 import { cardsState, useBridgeCards } from "./use-bridges";
-import type { ShownBridge } from "./bridges-api";
+import type { ShownBridge } from "@/lib/bridges-api";
 import styles from "./bridges.module.css";
 
 /** The top of a bridge's details: where you are ("Odion › Argostars") and a Back button, like the hook drill-down. */

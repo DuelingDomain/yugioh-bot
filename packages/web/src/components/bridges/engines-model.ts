@@ -1,6 +1,7 @@
-import type { BridgeDeck, BridgeEnginesRequest, DetectedEngine } from "@/lib/bridges-api";
-import type { BridgeFormat } from "./bridges-api";
+import type { BridgeDeck, BridgeEnginesRequest, BridgeFormat, DetectedEngine } from "@/lib/bridges-api";
 import { deckSignature, readStore, writeStore } from "./bridges-model";
+
+import { foldCardText } from "@yugidraft/shared/duels";
 
 /** A set holds one to four engines. */
 export const MAX_ENGINES = 4;
@@ -75,4 +76,23 @@ export function readEdits(deckId: number | null | undefined): EngineEdits {
 export function writeEdits(deckId: number | null | undefined, edits: EngineEdits): void {
   if (deckId == null) return;
   writeStore("local", `${EDITS_PREFIX}${deckId}`, hasEdits(edits) ? JSON.stringify(edits) : null);
+}
+
+/**
+ * The official archetype names a text says, in the order it says them (one to four). Case, accents and punctuation do not
+ * matter, a name must stand as whole words, and a long name wins over a shorter one inside it.
+ */
+export function archetypesInText(text: string, names: readonly string[] | null): string[] {
+  if (!names) return [];
+  let rest = ` ${foldCardText(text)} `;
+  const found: { at: number; name: string }[] = [];
+  for (const name of [...names].sort((a, b) => b.length - a.length)) {
+    const key = foldCardText(name);
+    if (key.length < 3) continue;
+    const at = rest.indexOf(` ${key} `);
+    if (at < 0 || found.some((entry) => entry.name === name)) continue;
+    found.push({ at, name });
+    rest = `${rest.slice(0, at + 1)}${" ".repeat(key.length)}${rest.slice(at + 1 + key.length)}`;
+  }
+  return found.sort((a, b) => a.at - b.at).map((entry) => entry.name).slice(0, MAX_ENGINES);
 }

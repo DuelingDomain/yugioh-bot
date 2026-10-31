@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes } from "react";
 import type { DeckCardInfo, DuelDeck, DuelMode } from "@yugidraft/shared/duels";
 import type { DeckSuggestionRow } from "@yugidraft/shared/services";
 import { cn } from "@/lib/utils";
@@ -37,8 +37,6 @@ export type BrowserSuggest = {
   banlist?: string;
   deckMaster?: number | null;
   genesysRemaining?: number;
-  /** The archetype of the deck, for the Bridges tab. Null: the deck has none yet. */
-  archetype?: string | null;
   /** The saved deck, to keep the player's engine chips for it. Null: the deck is not saved yet. */
   deckId?: number | null;
 };
@@ -49,8 +47,6 @@ type Loaded = { key: string; rows: Row[] };
 type Props = {
   /** The Suggest tab is on screen. A hidden panel stays mounted but asks for nothing; it asks again when it is shown. */
   active: boolean;
-  /** The "Engines that fit" row, above the four rows. Not given yet: no space is used. */
-  engines?: ReactNode;
   suggest: BrowserSuggest;
   mode: DuelMode;
   genesys: boolean;
@@ -75,7 +71,7 @@ function requestKey(props: Pick<Props, "mode" | "genesys" | "pool"> & BrowserSug
  * The Suggest tab of the deck editor. The rows stay while a new answer loads,
  * so the list does not flicker, and every tile has a fixed size, so nothing moves.
  */
-export function SuggestionsPanel({ active, engines, suggest, mode, genesys, pool, cardProps, deckCount, limit, onCatalog, onDisabled }: Props) {
+export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardProps, deckCount, limit, onCatalog, onDisabled }: Props) {
   const { deck, banlist, deckMaster, genesysRemaining } = suggest;
   const needsMaster = mode === "domain" && deckMaster == null;
   const empty = deck.main.length === 0;
@@ -199,7 +195,6 @@ export function SuggestionsPanel({ active, engines, suggest, mode, genesys, pool
         <h2 className={styles.title}>Suggestions</h2>
         <span className={styles.status} aria-live="polite">{updating ? "Updating…" : ""}</span>
       </header>
-      {engines}
       {body}
     </section>
   );

@@ -1,8 +1,5 @@
-import type { BridgeScope, DeepStep, ShownBridge } from "./bridges-api";
+import type { BridgeScope, DeepStep, ShownBridge } from "@/lib/bridges-api";
 
-/** A list shows this many bridges. */
-export const BRIDGES_SHOWN = 4;
-export const DEEP_BRIDGES_SHOWN = 10;
 /** How often a running search is asked for its progress. */
 export const DEEP_POLL_MS = 1000;
 /** Poll answers that fail in a row before the search shows an error. The job itself keeps running on the host. */
@@ -14,17 +11,12 @@ export const DEEP_STEPS: readonly { id: Exclude<DeepStep, "done">; label: string
   { id: "rating", label: "Rating" },
 ];
 
-/** The key of a free list: the source, the target, the format and the points (the list is filtered by the points). */
-export function scopeKey(scope: BridgeScope): string {
-  return JSON.stringify([scope.source.toLowerCase(), scope.target?.toLowerCase() ?? "", scope.format, scope.format === "genesys" ? scope.genesysRemaining ?? -1 : -1, deckSignature(scope.deck)]);
-}
-
 /**
  * What a deep search does on the host: the set of engines (in any order) and the format, or one source with its target.
  * The deck and the points are not part of it, so a deck edit never loses a running search.
  */
 export function deepWorkKey(scope: BridgeScope): string {
-  if (scope.engines && scope.engines.length > 1) return JSON.stringify(["multi", scope.engines.map((name) => name.toLowerCase()).sort(), scope.format]);
+  if (scope.engines && scope.engines.length > 0) return JSON.stringify(["multi", scope.engines.map((name) => name.toLowerCase()).sort(), scope.format]);
   return JSON.stringify([scope.source.toLowerCase(), scope.target?.toLowerCase() ?? "", scope.format]);
 }
 
@@ -66,30 +58,12 @@ export function actionableFirst<T extends { alreadyInDeck?: boolean }>(rows: rea
   return [...rows.filter((row) => !row.alreadyInDeck), ...rows.filter((row) => row.alreadyInDeck)];
 }
 
-/** Packages the deck already holds that stay visible, below the recommended rows. */
-export const OWNED_SHOWN = 2;
-
-/** At most `limit` recommended rows, then the rows the deck already holds (a few), so a full package stays findable. */
-export function capActionable<T extends { alreadyInDeck?: boolean }>(rows: readonly T[], limit: number): T[] {
-  const sorted = actionableFirst(rows);
-  return [...sorted.filter((row) => !row.alreadyInDeck).slice(0, limit), ...sorted.filter((row) => row.alreadyInDeck).slice(0, OWNED_SHOWN)];
-}
-
 /**
  * Every distinct card of the bridges, in the order they are shown. All of them are loaded, not the first few: the
  * line names its cards, not their codes, so a name is found by its loaded card and may sit anywhere in the list.
  */
 export function bridgeCodes(bridges: readonly ShownBridge[]): number[] {
   return [...new Set(bridges.flatMap((bridge) => bridge.cards))];
-}
-
-/** The printed evidence of a bridge card: the first reason that names it. */
-export function evidenceFor(bridge: ShownBridge, code: number): string {
-  for (const reason of bridge.reasons) {
-    const at = reason.cards.indexOf(code);
-    if (at >= 0) return reason.evidence[at] || reason.description;
-  }
-  return "";
 }
 
 /** One short sentence for the "why" under a card of the details list. */

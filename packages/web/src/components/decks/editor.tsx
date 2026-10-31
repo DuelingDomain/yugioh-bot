@@ -22,7 +22,6 @@ import {
   type DuelDeckCardRef,
   type DuelMode,
   type GenesysSettings,
-  type SavedDeck,
   type SelectableCardArtwork,
 } from "@yugidraft/shared/duels";
 import {
@@ -43,7 +42,7 @@ import {
   X,
 } from "lucide-react";
 import { canBeDeckMaster, isSpellOrTrapType, SPELL_TRAP_MASTER_MESSAGE } from "@/components/duel/deck-card-types";
-import { selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
+import type { DeckMasterSelection } from "@/components/duel/ydk";
 import { SheetRoot, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { useDeckSuggestionsEnabled } from "@/components/effect-search/capability-context";
 import { useTabDirection } from "@/lib/tab-motion";
@@ -129,7 +128,6 @@ import {
   shuffled,
   snapshotOf,
   sortDeck,
-  uniqueCodes,
   type CopyProblem,
   type CardSource,
   type DeckSection,
@@ -293,7 +291,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   const [bridgesDot, setBridgesDot] = useState(false);
   // Bridges need Suggestions, and a draft pool (no free choice of cards) has none.
   const suggestOn = suggestionsFlag && !suggestDenied;
-  // Bridges are for Standard and Genesys. The Domain formats have none: no tab, no "Engines that fit" row, no request.
+  // Bridges are for Standard and Genesys. The Domain formats have none: no tab, no request.
   const bridgesOn = suggestOn && !pool && !bridgesDenied && mode !== "domain";
   const columnTabs = useMemo<ColumnTab[]>(() => ["cards", ...(suggestOn ? ["suggest" as const] : []), ...(bridgesOn ? ["bridges" as const] : [])], [suggestOn, bridgesOn]);
   const activeTab = shownTab(tab, columnTabs, isPhone);
@@ -704,10 +702,9 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     deck,
     banlist: banlistOff ? "none" : query.banlist,
     deckMaster: mode === "domain" ? deck.deckMaster ?? null : null,
-    archetype: deckArchetype,
     deckId: savedId ?? (typeof routeId === "number" ? routeId : null),
     ...(genesysSummary ? { genesysRemaining: Math.max(0, genesysSummary.cap - genesysSummary.known) } : {}),
-  }), [deck, banlistOff, query.banlist, mode, genesysSummary, deckArchetype, savedId, routeId]);
+  }), [deck, banlistOff, query.banlist, mode, genesysSummary, savedId, routeId]);
   const [deckGuide, setDeckGuide] = useState<ArchetypeGuide | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
   useEffect(() => {

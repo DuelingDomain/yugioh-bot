@@ -3,9 +3,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { foldCardText } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
-import type { BridgeScope, ShownBridge } from "./bridges-api";
-import { useBridgeList } from "./use-bridges";
-import { useArchetypeNames } from "./use-engines";
 import styles from "./bridges.module.css";
 
 /** An archetype box with a list of the names that fit. The text is the choice once it is a whole name. */
@@ -92,60 +89,4 @@ export function ArchetypeCombo({ label, text, names, onText, placeholder, autoFo
 export function wholeName(text: string, names: readonly string[] | null): string | null {
   const folded = text.trim().toLowerCase();
   return folded && names ? names.find((name) => name.toLowerCase() === folded) ?? null : null;
-}
-
-/**
- * "X to Y": pick two archetypes and see the bridge each way. This is a free, stored lookup and needs no
- * deep search. A bridge that did not pass the checks is not shown, so an empty answer says so.
- */
-export function BridgeSearch({ start, genesys, genesysRemaining, renderList }: {
-  /** The deck's archetype, to fill the first box. */
-  start: string | null;
-  genesys: boolean;
-  genesysRemaining?: number;
-  renderList: (bridges: ShownBridge[], title: string) => React.ReactNode;
-}) {
-  const { names, error: namesError, retry: reloadNames } = useArchetypeNames();
-  const [from, setFrom] = useState(start ?? "");
-  const [to, setTo] = useState("");
-  const [touched, setTouched] = useState(false);
-
-  // The first box follows the deck until the player types in it.
-  useEffect(() => { if (!touched && start) setFrom(start); }, [start, touched]);
-
-  const source = wholeName(from, names);
-  const target = wholeName(to, names);
-  const scope = useMemo<BridgeScope | null>(
-    () => (source && target && source !== target ? { source, target, format: genesys ? "genesys" : "advanced", ...(genesys && genesysRemaining != null ? { genesysRemaining } : {}) } : null),
-    [source, target, genesys, genesysRemaining],
-  );
-  const { list, loading, error, retry: again } = useBridgeList(scope, false);
-
-  return (
-    <div className={styles.search} data-testid="bridge-search">
-      <div className={styles.searchBoxes}>
-        <ArchetypeCombo label="From" text={from} names={names} placeholder="Odion, Blue-Eyes…" onText={(text) => { setTouched(true); setFrom(text); }} />
-        <span className={styles.searchTo} aria-hidden>→</span>
-        <ArchetypeCombo label="To" text={to} names={names} placeholder="Argostars, Ashtra…" onText={setTo} />
-      </div>
-      {namesError ? <p className={styles.note} role="alert">{namesError} <button type="button" className={styles.link} onClick={reloadNames}>Try again</button></p> : null}
-      {source && target && source === target ? <p className={styles.note}>Choose two different archetypes.</p> : null}
-      {!scope && !namesError && !(source && target) ? <p className={styles.note}>Pick two archetypes to see the bridge each way.</p> : null}
-      {scope && loading && !list ? <p className={styles.note} role="status">Looking…</p> : null}
-      {scope && error ? <p className={styles.note} role="alert">{error.message} <button type="button" className={styles.link} onClick={again}>Try again</button></p> : null}
-      {scope && list && !error ? (
-        <div className={styles.searchResults} aria-busy={loading || undefined} data-testid="bridge-search-results">
-          <div>
-            <h4 className={styles.subTitle}>{scope.source} → {scope.target}</h4>
-            {list.results.length ? renderList(list.results, `${scope.source} to ${scope.target}`) : <p className={styles.note} data-testid="bridge-search-none">No bridge that passed our checks.</p>}
-          </div>
-          <div>
-            <h4 className={styles.subTitle}>{scope.target} → {scope.source}</h4>
-            {list.reverse?.length ? renderList(list.reverse, `${scope.target} to ${scope.source}`) : <p className={styles.note} data-testid="bridge-search-none">No bridge that passed our checks.</p>}
-          </div>
-          {list.inReview > 0 ? <p className={styles.note}>{list.inReview} {list.inReview === 1 ? "bridge is" : "bridges are"} still in review.</p> : null}
-        </div>
-      ) : null}
-    </div>
-  );
 }

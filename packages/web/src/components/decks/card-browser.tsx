@@ -9,7 +9,8 @@ import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
 import { HowItPlays, type HookFind } from "@/components/effect-search/how-it-plays";
 import { HookDrill } from "@/components/effect-search/hook-drill";
 import { BridgesRow, type BridgesAsk } from "@/components/bridges/bridges-row";
-import { EngineFit } from "@/components/bridges/engine-fit";
+import { archetypesInText } from "@/components/bridges/engines-model";
+import { useArchetypeNames } from "@/components/bridges/use-engines";
 import { IntentHeading, RelaxHints } from "@/components/effect-search/search-intent";
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
 import { cn } from "@/lib/utils";
@@ -222,12 +223,11 @@ export function CardBrowser({
   if ((columns.tab === "suggest" && !seen.suggest) || (columns.tab === "bridges" && !seen.bridges)) {
     setSeen({ suggest: seen.suggest || columns.tab === "suggest", bridges: seen.bridges || columns.tab === "bridges" });
   }
-  // A tap in Suggest opens the Bridges tab on an engine, at its Deep search, or in Pick archetypes. The count makes a second tap count.
+  // A search that names two or more archetypes offers their bridges. The names load once the text is long enough to hold two.
+  const queryText = query.text;
+  const bridgeNames = useArchetypeNames(hasBridges && !pool && !partner && queryText.trim().length >= 7).names;
+  const namedArchetypes = useMemo(() => (hasBridges && !pool && !partner ? archetypesInText(queryText, bridgeNames) : []), [hasBridges, pool, partner, queryText, bridgeNames]);
   const [bridgesAsk, setBridgesAsk] = useState<BridgesAsk | null>(null);
-  const askBridges = (ask: { kind: "engine"; name: string } | { kind: "deep" } | { kind: "pick" }) => {
-    setBridgesAsk((now) => ({ ...ask, count: (now?.count ?? 0) + 1 }));
-    columns.onTab("bridges");
-  };
   const panels = columns.panels ?? columns.tabs.length > 1;
   const paneProps = (tab: ColumnTab) => ({
     id: `deck-editor-${tab}`,
@@ -659,6 +659,14 @@ export function CardBrowser({
               {stale ? <span className={styles.working}>Updating…</span> : null}
             </p>
 
+            {namedArchetypes.length >= 2 ? (
+              <div className={styles.guide}>
+                <button type="button" className={cn("btn btn-secondary btn-sm", styles.askBridges)} data-testid="bridges-ask"
+                  onClick={() => { setBridgesAsk((now) => ({ archetypes: namedArchetypes, n: (now?.n ?? 0) + 1 })); columns.onTab("bridges"); }}>
+                  <Link2 size={14} strokeWidth={1.8} aria-hidden /><span>See bridges for {namedArchetypes.join(" + ")}</span>
+                </button>
+              </div>
+            ) : null}
             {!partner && results?.key === key && !stale && !results.error && total > 0 && effectTotal === 0 && results.relax?.length ? <div className={styles.guide}><RelaxHints relax={results.relax} onRemove={(chip) => onQueryChange({ ...query, effectOmit: [...new Set([...(query.effectOmit ?? []), chip])] })} /></div> : null}
             {intent?.kind === "counters" && !results?.error && !stale ? <div className={styles.guide}><IntentHeading intent={intent} count={effectTotal} /></div> : null}
             {shownGuide && !results?.error ? <div className={styles.guide} hidden={hookOpen}><HowItPlays guide={shownGuide} onHook={onPartnerChange ? openHook : undefined} /></div> : null}
@@ -825,21 +833,6 @@ export function CardBrowser({
               limit={(card) => (pool || genesys || !limits ? 3 : cardLimit(limits, card))}
               onCatalog={(found) => onCatalogRef.current(found)}
               onDisabled={columns.onSuggestDisabled}
-              engines={hasBridges && !pool ? (
-                <EngineFit
-                  deck={suggest.deck}
-                  deckMaster={suggest.deckMaster}
-                  mode={mode}
-                  genesys={genesys}
-                  genesysRemaining={suggest.genesysRemaining}
-                  active={columns.tab === "suggest"}
-                  cardProps={suggestionProps}
-                  onCatalog={(found) => onCatalogRef.current(found)}
-                  onOpenEngine={(name) => askBridges({ kind: "engine", name })}
-                  onOpenBridges={(to) => askBridges({ kind: to })}
-                  onDisabled={columns.onBridgesDisabled}
-                />
-              ) : undefined}
             />
           </div>
         </div>
@@ -850,7 +843,6 @@ export function CardBrowser({
           <div className={styles.paneScroll}>
             <BridgesRow
               active={columns.tab === "bridges"}
-              archetype={suggest.archetype ?? null}
               deckId={suggest.deckId ?? null}
               deck={suggest.deck}
               deckMaster={suggest.deckMaster}

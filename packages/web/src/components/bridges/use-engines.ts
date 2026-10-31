@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { fetchBridgeEngines, type BridgeEnginesRequest, type BridgeEnginesResponse } from "@/lib/bridges-api";
-import { BridgeRequestError, fetchBridgeArchetypes } from "./bridges-api";
+import { BridgeRequestError, fetchBridgeArchetypes, fetchBridgeEngines, type BridgeEnginesRequest, type BridgeEnginesResponse } from "@/lib/bridges-api";
 import { applyEdits, bridgeDeck, bridgeFormat, enginesKey, sameNames, type EngineEdits } from "./engines-model";
 import { errorText } from "./use-bridges";
 
@@ -93,7 +92,7 @@ export function useEnginesAnswer(query: BridgeEnginesRequest | null, enabled: bo
   };
 }
 
-export type DeckEnginesInput = {
+type DeckEnginesInput = {
   deck: { main: readonly number[]; extra: readonly number[] };
   deckMaster: number | null | undefined;
   genesys: boolean;
@@ -105,7 +104,7 @@ export type DeckEnginesInput = {
 };
 
 /** The engines of the open deck as the host sees them, before any chip edit: the Suggest tab uses this alone. */
-export function useDetectedEngines({ deck, deckMaster, genesys, empty, enabled, genesysRemaining }: DeckEnginesInput) {
+function useDetectedEngines({ deck, deckMaster, genesys, empty, enabled, genesysRemaining }: DeckEnginesInput) {
   const format = bridgeFormat(genesys);
   const points = genesys && genesysRemaining != null ? Math.max(0, Math.min(1000, Math.floor(genesysRemaining))) : null;
   const query = useMemo<BridgeEnginesRequest | null>(

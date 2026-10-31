@@ -9,8 +9,7 @@ import { cn } from "@/lib/utils";
 import type { CardPropsFor } from "./bridge-card";
 import { roleFor } from "./bridges-model";
 import type { CardsState } from "./use-bridges";
-import type { BridgeAlternativePath } from "@/lib/bridges-api";
-import type { ShownBridge } from "./bridges-api";
+import type { BridgeAlternativePath, ShownBridge } from "@/lib/bridges-api";
 import styles from "./bridges.module.css";
 
 /** One card of the line. `card` is null while its details load ("loading") or when none was found for the name ("missing"). */
@@ -62,7 +61,7 @@ export function alternativeSteps(path: BridgeAlternativePath, codes: readonly nu
 }
 
 /** The cards of the line that the deck (Main and Extra) does not hold yet, once each. */
-export function missingSteps(steps: readonly PathStep[], held: (card: DeckCardInfo) => number): DeckCardInfo[] {
+function missingSteps(steps: readonly PathStep[], held: (card: DeckCardInfo) => number): DeckCardInfo[] {
   const seen = new Set<string>();
   const out: DeckCardInfo[] = [];
   for (const { card } of steps) {
@@ -144,7 +143,7 @@ export function PathSteps({ steps, cardProps, deckCount, held, limit }: {
 }
 
 /** What an add button shows: the cards that go in (and where), the ones that cannot, and what is not known yet. */
-export type AddView = {
+type AddView = {
   /** Sets the test ids: `bridge-add`, `core-add`. */
   prefix: "bridge" | "core";
   /** "Add bridge" or "Add engine". */

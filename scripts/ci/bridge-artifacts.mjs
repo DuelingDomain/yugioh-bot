@@ -5,7 +5,7 @@ import { gunzipSync } from "node:zlib";
 
 const DATA = "packages/shared/data/effects";
 export const BRIDGE_PIN_FILE = "packages/shared/src/cards/effects/bridge-artifact.ts";
-export const BRIDGE_FILES = ["bridges-advanced.jsonl.gz", "bridges-genesys.jsonl.gz", "card-capabilities.jsonl.gz", "bridges-manifest.json"].map(file => `${DATA}/${file}`).concat(BRIDGE_PIN_FILE);
+export const BRIDGE_FILES = ["bridges-advanced.jsonl.gz", "bridges-genesys.jsonl.gz", "card-capabilities.jsonl.gz", "bridge-mechanic-facts.json", "bridges-manifest.json"].map(file => `${DATA}/${file}`).concat(BRIDGE_PIN_FILE);
 const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 
 /** Inert data plus one literal integrity pin; candidate source is never executed. */
@@ -17,6 +17,12 @@ export function validateBridgeCandidate(root, output, bridge) {
   if (sha(bytes) !== bridge.manifest_sha256 || bytes.length > 10_000_000) throw new Error("Bridge manifest integrity mismatch");
   const manifest = JSON.parse(bytes), { version, ...identity } = manifest;
   if (version !== sha(JSON.stringify(identity)) || version !== bridge.version || manifest.schema_version !== 1) throw new Error("Invalid bridge manifest identity");
+  const factsBytes = readFileSync(join(output, DATA, "bridge-mechanic-facts.json"));
+  if (factsBytes.length > 350_000) throw new Error("Mechanic facts artifact too large");
+  const facts = JSON.parse(factsBytes), { version: factsVersion, ...factsIdentity } = facts;
+  if (facts.schemaVersion !== 1 || facts.tagsSha256 !== manifest.inputs.tags || sha(JSON.stringify(factsIdentity)) !== factsVersion
+    || !facts.cards || Array.isArray(facts.cards) || Object.entries(facts.cards).some(([id, mask]) =>
+      !/^\d+$/.test(id) || +id < 1 || +id > 0xffffffff || !Number.isInteger(mask) || mask < 0 || mask >= 2048)) throw new Error("Invalid mechanic facts artifact");
   const cardIds = new Set();
   for (const [key, path] of [["capabilities", "card-capabilities.jsonl.gz"], ["advanced", "bridges-advanced.jsonl.gz"], ["genesys", "bridges-genesys.jsonl.gz"]]) {
     const file = manifest.files[key];

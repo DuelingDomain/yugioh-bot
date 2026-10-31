@@ -1,13 +1,11 @@
 "use client";
 
 import { useRef, useState, type ButtonHTMLAttributes } from "react";
-import { AlertTriangle, Check, ChevronRight, Flag, Minus, Plus } from "lucide-react";
-import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
-import { CardArt } from "@/components/decks/card-art";
+import { AlertTriangle, Check, Flag, Minus, Plus } from "lucide-react";
+import type { DeckCardInfo } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
-import { reportBridge, type ShownBridge } from "./bridges-api";
-import { PathThumbs, pathSteps } from "./bridge-path";
-import { cardsState, errorText } from "./use-bridges";
+import { reportBridge, type ShownBridge } from "@/lib/bridges-api";
+import { errorText } from "./use-bridges";
 import { reportedBridges, rememberReported } from "./bridges-model";
 import styles from "./bridges.module.css";
 
@@ -36,31 +34,6 @@ export function synergyText(from: string, to: string): string {
 /** A grade word as a badge. `grade` is the lower-case grade that sets the color; `text` is the word. */
 export function GradeTag({ grade, text, testId = "bridge-grade" }: { grade: string; text: string; testId?: string }) {
   return <span className={styles.grade} data-grade={grade} data-testid={testId}>{text}</span>;
-}
-
-/** Small card images for a list of passcodes. */
-export function CodeThumbs({ codes, label, cards, cardProps, limit = 4 }: { codes: readonly number[]; label: string; cards: ReadonlyMap<number, DeckCardInfo>; cardProps: CardPropsFor; limit?: number }) {
-  const shown = codes.slice(0, limit);
-  const more = codes.length - shown.length;
-  return (
-    <ul className={styles.thumbs} aria-label={label}>
-      {shown.map((code) => {
-        const card = cards.get(code);
-        return (
-          <li key={code}>
-            {card ? (
-              <button type="button" className={styles.thumb} aria-label={card.name} title={card.name} {...cardProps(card)}>
-                <CardArt code={code} name={card.name} />
-              </button>
-            ) : (
-              <span className={styles.thumb} role="img" aria-label="Card"><CardArt code={code} name="" /></span>
-            )}
-          </li>
-        );
-      })}
-      {more > 0 ? <li className={styles.thumbMore} aria-label={`${more} more cards`}>+{more}</li> : null}
-    </ul>
-  );
 }
 
 /** Warnings of a bridge: format, lock and points. */
@@ -158,35 +131,4 @@ export function ReportBridge({ bridge }: { bridge: ShownBridge }) {
 /** The deck already holds the whole package: a quiet state, not a recommendation. */
 export function OwnedTag() {
   return <span className={styles.owned} data-testid="bridge-owned"><Check size={12} strokeWidth={2} aria-hidden />Already in deck</span>;
-}
-
-/** One bridge in a list: the target, grade, direction, the path as card images, two good and two bad points, and a warning. */
-export function BridgeCard({ bridge, mode, cards, cardProps, genesys, showSource, onOpen }: {
-  bridge: ShownBridge;
-  mode: DuelMode;
-  cards: ReadonlyMap<number, DeckCardInfo>;
-  cardProps: CardPropsFor;
-  genesys: boolean;
-  /** Two-archetype search: name both ends, since the list holds both directions. */
-  showSource?: boolean;
-  onOpen: (bridge: ShownBridge) => void;
-}) {
-  const title = showSource ? `${bridge.source} to ${bridge.target}` : bridge.target;
-  return (
-    <li className={styles.item} data-grade={bridge.review.grade} data-testid="bridge-item" data-owned={bridge.alreadyInDeck ? "" : undefined}>
-      <button type="button" className={styles.open} data-bridge={bridge.evidence_hash} aria-label={`${title}. ${bridge.grade}, ${directionText(bridge).toLowerCase()}. Open details`} onClick={() => onOpen(bridge)}>
-        <strong className={styles.target}>{showSource ? <>{bridge.source}<span className={styles.arrow} aria-hidden> → </span></> : null}{bridge.target}</strong>
-        <span className={styles.openHint}>Details<ChevronRight size={15} strokeWidth={1.8} aria-hidden className={styles.chevron} /></span>
-      </button>
-      <div className={styles.meta}>
-        <GradeBadge bridge={bridge} />
-        <span className={styles.way} data-way={bridge.two_way ? "two" : "one"} title={bridge.two_way ? `${bridge.target} also leads back to ${bridge.source}` : `${bridge.source} leads to ${bridge.target}, not back`}>{directionText(bridge)}</span>
-        {bridge.alreadyInDeck ? <OwnedTag /> : null}
-        <ReportBridge bridge={bridge} />
-      </div>
-      <PathThumbs steps={pathSteps(bridge, cards, cardsState(bridge.cards, mode))} cardProps={cardProps} />
-      <ProsCons bridge={bridge} clamp={2} />
-      <Warnings bridge={bridge} genesys={genesys} clamp={1} />
-    </li>
-  );
 }

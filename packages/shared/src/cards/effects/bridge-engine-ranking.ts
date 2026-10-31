@@ -78,8 +78,9 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
     byTarget.set(target, [...(byTarget.get(target) ?? []), row]);
   }
   const value = (row: T) => bridgePairValue(row, context);
-  const checkedNiche = (row: T) => row.tier === "niche" && row.validation === "deterministic"
-    && !hubBridge(row, context) && bridgeAccessPath(row, context.groups) !== undefined
+  const structuralAccess = (row: T) => row.validation === "deterministic"
+    && !hubBridge(row, context) && bridgeAccessPath(row, context.groups) !== undefined;
+  const checkedNiche = (row: T) => row.tier === "niche" && structuralAccess(row)
     && (options.acceptedNiche ? options.acceptedNiche(row) : "judge" in row && row.judge === "accepted");
   const ranked: RankedEngine<T>[] = [], nicheLane = new Set<RankedEngine<T>>(), coPlayLane = new Set<RankedEngine<T>>(), observedFloor = new Set<RankedEngine<T>>();
   const prior = (target: string, pairs: T[]) => Math.max(0, ...engines.map(source =>
@@ -120,7 +121,12 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
       // both current reviews contribute; pending companions cannot inflate it.
       const accepted = candidateFor(engine, pairs.filter(checkedNiche));
       if (accepted) { candidate = accepted; nicheLane.add(candidate); }
-      else if (!boost) continue;
+      else {
+        if (!boost) continue;
+        const observed = candidateFor(engine, pairs.filter(structuralAccess));
+        if (!observed) continue;
+        candidate = observed;
+      }
     }
     if (boost) coPlayLane.add(candidate);
     if (boost && candidate.score < 4 && candidate.kind !== "synergy") observedFloor.add(candidate);

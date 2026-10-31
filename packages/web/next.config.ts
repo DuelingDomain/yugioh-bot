@@ -17,6 +17,11 @@ const nextConfig: NextConfig = {
   // .next/standalone/.worktrees/domain-multiplayer/... so Docker
   // `node packages/web/server.js` would miss the emitted server.
   outputFileTracingRoot: worktreeRoot,
+  // Bridge discovery runs on the duel host; barrel exports must not trace its data into web.
+  outputFileTracingExcludes: {
+    "/*": ["../shared/data/effects/tags.jsonl.gz", "../shared/data/effects/bridge-mechanic-facts.json",
+      "../shared/data/staples/bridge-observations.json"],
+  },
   transpilePackages: ["@yugidraft/shared"],
   serverExternalPackages: ["better-sqlite3", "sharp"],
   images: { unoptimized: true },

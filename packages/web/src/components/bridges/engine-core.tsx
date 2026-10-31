@@ -95,7 +95,7 @@ export function EngineCoreGroup({ core, name, cards, cardProps, genesys, held, l
 }
 
 /** What "Add engine" asks for: per card, the copies the deck still lacks. The maximum of the line and the core, not their sum. */
-export function engineRequests(core: EngineCore, line: readonly PathStep[], cards: ReadonlyMap<number, DeckCardInfo>, held: (card: DeckCardInfo) => number, state: CardsState) {
+function engineRequests(core: EngineCore, line: readonly PathStep[], cards: ReadonlyMap<number, DeckCardInfo>, held: (card: DeckCardInfo) => number, state: CardsState) {
   // One source for Genesys points: the host's number for a core card, else the catalog's. The planner reads the card.
   const hostPoints = new Map<string, number>();
   for (const entry of core.cards) if (entry.points != null) hostPoints.set(entry.name, entry.points);
