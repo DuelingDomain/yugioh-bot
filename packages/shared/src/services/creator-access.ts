@@ -575,6 +575,7 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
       const lockedEmail = hasLock ? normalizeJoinEmail(rawLock) : null;
       const lockedEmailKey = lockedEmail ? emailKey(lockedEmail) : null;
       if (hasLock && (!lockedEmail || !lockedEmailKey)) throw bad("invalid_locked_email");
+      if (hasLock && input.maxUses !== 1) throw bad("invalid_max_uses");
       const creator = creatorRow(creatorId);
       if (!creator || creator.archived_at !== null) return null;
       const insert = db.prepare(`insert into creator_links
@@ -600,7 +601,7 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
         const link = db.prepare<[number, number], { id: number }>("select id from creator_links where id = ? and creator_id = ?")
           .get(linkId, creatorId);
         if (!link) return null;
-        db.prepare("update creator_links set revoked_at = coalesce(revoked_at, ?) where id = ?").run(clock(), linkId);
+        db.prepare("update creator_links set revoked_at = coalesce(revoked_at, ?), locked_email = null where id = ?").run(clock(), linkId);
         const open = db.prepare<[number], { clerk_invitation_id: string | null }>(
           "select clerk_invitation_id from creator_grants where link_id = ? and status in ('sending', 'sent')").all(linkId);
         db.prepare("update creator_grants set status = 'revoked' where link_id = ? and status in ('sending', 'sent')").run(linkId);

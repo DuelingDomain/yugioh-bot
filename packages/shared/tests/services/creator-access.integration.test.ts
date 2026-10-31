@@ -103,7 +103,7 @@ describe("creator links", () => {
     const creator = setup();
     await claimAndSend(link(creator.id, 5).code, "granted@example.test");
     const locked = service.createLink(creator.id, {
-      maxUses: 3, expiresInDays: 14, lockedEmail: "target@example.test", actorUserId: 1,
+      maxUses: 1, expiresInDays: 14, lockedEmail: "target@example.test", actorUserId: 1,
     })!;
     const before = grants();
     for (const email of ["stranger@example.test", "owner@example.test", "granted@example.test"]) {
@@ -113,6 +113,26 @@ describe("creator links", () => {
     expect(clerk.createInvitation).toHaveBeenCalledOnce();
     expect(linkView(creator.id, locked.id)).toMatchObject({ used: 0, state: "open" });
     expect((await claimAndSend(locked.code, "target+friend@example.test")).send).toEqual({ kind: "sent" });
+  });
+
+  it("rejects an email lock with more than one use before creating a link", () => {
+    const creator = setup();
+    expect(() => service.createLink(creator.id, {
+      maxUses: 3, expiresInDays: 14, lockedEmail: "target@example.test", actorUserId: 1,
+    })).toThrow(expect.objectContaining({ status: 400, code: "invalid_max_uses" }));
+    expect(service.creatorDetail(creator.id)!.links).toEqual([]);
+  });
+
+  it("clears the display email on revoke and preserves the inbox key", async () => {
+    const creator = setup();
+    const locked = service.createLink(creator.id, {
+      ...LINK_PRESETS.personal, lockedEmail: "a.b+creator@googlemail.com", actorUserId: 1,
+    })!;
+    expect(await service.revokeLink(creator.id, locked.id)).toEqual({ invitationsRevoked: 0 });
+    expect(linkView(creator.id, locked.id)).toMatchObject({ lockedEmail: null, state: "revoked" });
+    expect(db.prepare("select locked_email, locked_email_key from creator_links where id = ?").get(locked.id))
+      .toEqual({ locked_email: null, locked_email_key: "ab@gmail.com" });
+    expect(service.claimLinkGrant(locked.code, "ab@gmail.com")).toEqual({ kind: "revoked" });
   });
 
   it.each([undefined, null, "", "   "])("leaves an optional empty email lock %j unlocked", (lockedEmail) => {
