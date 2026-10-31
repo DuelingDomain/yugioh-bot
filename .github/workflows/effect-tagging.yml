@@ -260,7 +260,7 @@ jobs:
   staples:
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
@@ -279,6 +279,8 @@ jobs:
           node-version: "22"
       - name: Refresh bounded public deck usage (no paid tagging key)
         run: prlimit --core=0 -- node scripts/staples/refresh.mjs "$STAPLES_OUTPUT/candidate.json"
+      - name: Install dependencies for derived bridge statistics (no native build)
+        run: npm ci --ignore-scripts
       - name: Validate schema, counts, provenance and additive formats
         run: prlimit --core=0 -- node scripts/staples/publish.mjs --validate-only
       - uses: actions/upload-artifact@v4
