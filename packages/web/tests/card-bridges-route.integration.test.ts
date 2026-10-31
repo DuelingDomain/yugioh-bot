@@ -46,6 +46,10 @@ async function lookup(query = "source=Odion") {
   const { GET } = await import("../app/api/cards/bridges/route");
   return GET(new Request(`http://web.test/api/cards/bridges?${query}`));
 }
+async function list(value: unknown) {
+  const { POST } = await import("../app/api/cards/bridges/route");
+  return POST(new Request("http://web.test/api/cards/bridges", { method: "POST", body: JSON.stringify(value) }));
+}
 async function start(value: unknown) {
   const { POST } = await import("../app/api/cards/bridges/deep-search/route");
   return POST(new Request("http://web.test/api/cards/bridges/deep-search", { method: "POST", body: JSON.stringify(value) }));
@@ -63,6 +67,66 @@ async function engines(value: unknown) {
   const { POST } = await import("../app/api/cards/bridges/engines/route");
   return POST(new Request("http://web.test/api/cards/bridges/engines", { method: "POST", body: JSON.stringify(value) }));
 }
+
+it("runs the browser list helper with open deck context through the signed-host route", async () => {
+  const { fetchBridges } = await import("../src/lib/bridges-api");
+  const { POST } = await import("../app/api/cards/bridges/route");
+  const hostFetch = globalThis.fetch;
+  let browserSignal: AbortSignal | null | undefined;
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    if (url !== "/api/cards/bridges") return hostFetch(url, init);
+    browserSignal = init.signal;
+    return POST(new Request(`http://web.test${url}`, init));
+  });
+  const request = { source: "Odion", target: "Argostars", format: "genesys" as const,
+    deck: { main: [123], extra: [], deckMaster: 1710647, pointCap: 250 }, genesysRemaining: 0 };
+  reply = { results: [{ ...shown(), format: "genesys", missing: [], alreadyInDeck: true }], reverse: [], inReview: 0 };
+  const controller = new AbortController();
+  expect(await fetchBridges(request, controller.signal)).toEqual(reply);
+  expect(browserSignal).toBe(controller.signal);
+  expect(calls[0]).toEqual({ op: "bridges", guildId: "guild-1", userId: 1, playerId: 11,
+    bridgeRequest: { ...request, op: "between" } });
+  replyStatus = 503; reply = { error: "Bridge list is busy", retryAfter: 1 };
+  await expect(fetchBridges(request)).rejects.toMatchObject({ message: "Bridge list is busy", status: 503, retryAfter: 1 });
+});
+
+it("accepts bounded list context, preserves legacy GET and rejects malformed POST controls", async () => {
+  const deck = { main: [123], extra: [], pointCap: 250 };
+  const response = await list({ source: " Odion ", deck });
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(calls[0].bridgeRequest).toEqual({ op: "from", source: "Odion", deck, format: "advanced" });
+  expect((await list({ deckId: 23 })).status).toBe(200);
+  expect(calls[1].bridgeRequest).toEqual({ op: "from", deckId: 23, format: "advanced" });
+  for (const genesysRemaining of [0, 1000]) {
+    expect((await list({ source: "Odion", deck, genesysRemaining })).status).toBe(200);
+    expect(calls.at(-1)!.bridgeRequest).toMatchObject({ deck, genesysRemaining });
+  }
+  expect((await lookup()).status).toBe(200);
+  expect(calls.at(-1)!.bridgeRequest).toEqual({ op: "from", source: "Odion", format: "advanced" });
+  const forwarded = calls.length;
+  for (const value of [{}, { deck }, { source: "Odion", deckId: 23 }, { deckId: 23, deck },
+    { source: "Odion", deck: null }, { source: "Odion", deck: { ...deck, side: [] } },
+    { source: "Odion", deck: { main: Array(92).fill(1), extra: [] } },
+    ...[0, -1, 0.5, 0x100000000, "123"].map(id => ({ source: "Odion", deck: { main: [id], extra: [] } })),
+    ...[-1, 1001, 0.5, "100", null].map(pointCap => ({ source: "Odion", deck: { ...deck, pointCap } })),
+    ...[-1, 1001, 0.5, "0", null].map(genesysRemaining => ({ source: "Odion", deck, genesysRemaining })),
+    { source: "Odion", userId: 2 }, { source: "Odion", op: "start" }, { source: "Odion", engines: ["Ashtra"] },
+    { source: "Odion", format: "normal" }, { source: "x".repeat(121) }]) {
+    expect((await list(value)).status, JSON.stringify(value)).toBe(400);
+  }
+  const { POST } = await import("../app/api/cards/bridges/route");
+  for (const body of ["{", "null", "[]"]) {
+    expect((await POST(new Request("http://web.test/api/cards/bridges", { method: "POST", body }))).status).toBe(400);
+  }
+  expect((await POST(new Request("http://web.test/api/cards/bridges?source=Odion", { method: "POST", body: JSON.stringify({ source: "Odion", deck }) }))).status).toBe(400);
+  expect((await POST(new Request("http://web.test/api/cards/bridges", { method: "POST", body: JSON.stringify({ source: "Odion", padding: "x".repeat(4096) }) }))).status).toBe(413);
+  expect((await lookup(`source=Odion&deck=${encodeURIComponent(JSON.stringify(deck))}`)).status).toBe(400);
+  expect(calls).toHaveLength(forwarded);
+  state.auth.mockResolvedValue(null);
+  expect((await list({ source: "Odion", deck })).status).toBe(401);
+  expect(calls).toHaveLength(forwarded);
+});
 
 it("forwards bounded open decks and corrected engines without exposing pending rows", async () => {
   const deck = { main: [29762407, 97522863], extra: [], deckMaster: 1710647, pointCap: 250 };

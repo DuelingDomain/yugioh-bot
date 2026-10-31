@@ -1,6 +1,30 @@
-import type { BridgeDeck, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat } from "@yugidraft/shared/cards/effects";
+import type { BridgeDeck, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, ShownBridge } from "@yugidraft/shared/cards/effects";
 
 export type { BridgeDeck, BridgePackage, DetectedEngine, EngineSuggestion, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, BridgeReviewStep, ShownBridge } from "@yugidraft/shared/cards/effects";
+
+/** The selected source stays authoritative; an open deck supplies only copies and points. */
+export type BridgeListRequest = {
+  target?: string;
+  format?: BridgeFormat;
+  genesysRemaining?: number;
+} & (
+  | { source: string; deck?: BridgeDeck; deckId?: never }
+  | { deckId: number; source?: never; deck?: never }
+);
+export type BridgeListResponse = { results: ShownBridge[]; reverse?: ShownBridge[]; inReview: number };
+
+/** Stored directed lists, with the same bounded JSON deck transport as engines. */
+export async function fetchBridges(query: BridgeListRequest, signal?: AbortSignal): Promise<BridgeListResponse> {
+  const response = await fetch("/api/cards/bridges", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(query), signal });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as { error?: string; retryAfter?: number };
+    const retryAfter = body.retryAfter ?? Number(response.headers.get("Retry-After"));
+    throw Object.assign(new Error(body.error || `Bridges are not available (${response.status}).`), { status: response.status,
+      ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfter } : {}) });
+  }
+  return response.json() as Promise<BridgeListResponse>;
+}
 
 /** HTTP 202: retry this read while keeping the existing loading presentation. */
 export type BridgeLoadingResponse = { state: "loading"; retryAfter: number };

@@ -1,4 +1,5 @@
 import type { BridgeDeck, EngineSuggestion, ShownBridge } from "@yugidraft/shared/cards/effects";
+import { fetchBridges as postBridges } from "@/lib/bridges-api";
 
 export type { BridgeDeck, EngineSuggestion, ShownBridge };
 export type { BridgeReviewStep } from "@yugidraft/shared/cards/effects";
@@ -54,9 +55,22 @@ function queryOf(scope: BridgeScope): string {
   return params.toString();
 }
 
-/** The top shown bridges from one archetype; with a target, the bridge each way. */
-export function fetchBridges(scope: BridgeScope, signal?: AbortSignal): Promise<BridgeList> {
-  return call<BridgeList>(`/api/cards/bridges?${queryOf(scope)}`, { signal });
+/**
+ * The top shown bridges from one archetype; with a target, the bridge each way. With the open deck in the scope the
+ * host also counts the cards the deck holds (`missing`, `alreadyInDeck`), so the list is asked for with a POST body.
+ */
+export async function fetchBridges(scope: BridgeScope, signal?: AbortSignal): Promise<BridgeList> {
+  if (!scope.deck) return call<BridgeList>(`/api/cards/bridges?${queryOf(scope)}`, { signal });
+  const points = scope.format === "genesys" && scope.genesysRemaining != null ? { genesysRemaining: Math.max(0, Math.min(1000, Math.floor(scope.genesysRemaining))) } : {};
+  try {
+    return await postBridges({ source: scope.source, ...(scope.target ? { target: scope.target } : {}), format: scope.format, deck: scope.deck, ...points }, signal);
+  } catch (reason) {
+    // The shared helper keeps the HTTP status on its error; a failed connection has none and passes through.
+    const status = (reason as { status?: unknown } | null)?.status;
+    if (typeof status !== "number") throw reason;
+    const retryAfter = (reason as { retryAfter?: unknown }).retryAfter;
+    throw new BridgeRequestError(status, (reason as Error).message, typeof retryAfter === "number" ? retryAfter : undefined);
+  }
 }
 
 /**

@@ -7,14 +7,10 @@ import { callDuelHost } from "./duel-host";
 import { apiErrorResponse } from "./api-errors";
 import { readJsonBody } from "./bug-reports/read-body";
 import { BridgePackageSchema, isBridgeDeck, isBridgeEngineNames, type BridgeEnginesRequest } from "@yugidraft/shared/cards/effects";
-import { isBridgeLoadingResponse, type BridgeDeepSearchRequest, type BridgeLoadingResponse } from "./bridges-api";
+import { isBridgeLoadingResponse, type BridgeDeepSearchRequest, type BridgeListRequest, type BridgeLoadingResponse } from "./bridges-api";
 
 type BridgeFormat = "advanced" | "genesys";
-type BridgeQuery = ({ source: string; deckId?: never } | { deckId: number; source?: never }) & {
-  target?: string;
-  format: BridgeFormat;
-  genesysRemaining?: number;
-};
+type BridgeQuery = BridgeListRequest & { format: BridgeFormat };
 export type BridgeRequest =
   | (BridgeQuery & { op: "from" | "between" })
   | (BridgeDeepSearchRequest & { format: BridgeFormat; op: "start" })
@@ -49,16 +45,18 @@ export async function requireBridgeActor() {
 }
 
 /** Saved deck ownership and its source archetype are resolved again on the host. */
-function parseQuery(value: unknown): BridgeQuery | null {
-  if (!object(value) || !keys(value, ["source", "deckId", "target", "format", "genesysRemaining"])) return null;
+function parseQuery(value: unknown, allowDeck = false): BridgeQuery | null {
+  if (!object(value) || !keys(value, ["source", "deckId", "target", "format", "genesysRemaining", ...(allowDeck ? ["deck"] : [])])) return null;
   if ((value.source === undefined) === (value.deckId === undefined)) return null;
   if (value.source !== undefined && !name(value.source)) return null;
   if (value.deckId !== undefined && (!integer(value.deckId) || value.deckId === 0)) return null;
+  if (value.deck !== undefined && (value.deckId !== undefined || !isBridgeDeck(value.deck))) return null;
   if (value.target !== undefined && !name(value.target)) return null;
   if (value.format !== undefined && !format(value.format)) return null;
   if (value.genesysRemaining !== undefined && !integer(value.genesysRemaining, 1000)) return null;
   return { ...(typeof value.source === "string" ? { source: value.source.trim() } : { deckId: value.deckId as number }),
     ...(typeof value.target === "string" ? { target: value.target.trim() } : {}), format: value.format ?? "advanced",
+    ...(value.deck !== undefined ? { deck: value.deck } : {}),
     ...(value.genesysRemaining !== undefined ? { genesysRemaining: value.genesysRemaining } : {}) } as BridgeQuery;
 }
 
@@ -75,11 +73,16 @@ export function readBridgeQuery(request: Request): BridgeRequest | null {
   return parsed ? { ...parsed, op: parsed.target ? "between" : "from" } : null;
 }
 
-export async function readBridgeBody(request: Request, op: "start" | "feedback" | "engines") {
+export async function readBridgeBody(request: Request, op: "list" | "start" | "feedback" | "engines") {
   if (new URL(request.url).search) return { ok: false as const, response: invalidBridgeRequest() };
   const body = await readJsonBody(request, 4096);
   if (!body.ok) return { ok: false as const, response: body.response.status === 413
     ? bridgeJson({ error: "Bridge request is too large" }, 413) : invalidBridgeRequest() };
+  if (op === "list") {
+    const query = parseQuery(body.value, true);
+    return query ? { ok: true as const, value: { ...query, op: query.target ? "between" : "from" } as BridgeRequest }
+      : { ok: false as const, response: invalidBridgeRequest() };
+  }
   if (op === "engines") {
     const value = body.value;
     if (!object(value) || !keys(value, ["format", "deck", "engines", "genesysRemaining"]) || !format(value.format)

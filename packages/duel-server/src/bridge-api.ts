@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { bridgeGate, bridgePackage, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_VERSION, shownBridge, type ArchetypeBridge, type BridgeGraphData } from "@yugidraft/shared/cards/effects";
+import { bridgeGate, bridgePackage, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_VERSION, isBridgeDeck, shownBridge, type ArchetypeBridge, type BridgeDeck, type BridgeGraphData } from "@yugidraft/shared/cards/effects";
 import { createBridgeService, createSavedDeckService } from "@yugidraft/shared/services";
 import { isOwnerUser } from "@yugidraft/shared/access/owner-access";
 import { createHash } from "node:crypto";
@@ -85,14 +85,21 @@ export class BridgeApi {
 
   private query(input: Record<string, unknown>, guildId: string, userId: number): BridgeSearchQuery {
     const allowed = ["op", "source", "deckId", "target", "format", "genesysRemaining"];
+    if (input.op === "from" || input.op === "between") allowed.push("deck");
     if (Object.keys(input).some(key => !allowed.includes(key)) || (input.source === undefined) === (input.deckId === undefined)
       || (input.source !== undefined && !name(input.source)) || (input.target !== undefined && !name(input.target))
+      || (input.deck !== undefined && (input.deckId !== undefined || !isBridgeDeck(input.deck)))
       || (input.format !== undefined && input.format !== "advanced" && input.format !== "genesys")
       || (input.genesysRemaining !== undefined && (!Number.isSafeInteger(input.genesysRemaining) || Number(input.genesysRemaining) < 0 || Number(input.genesysRemaining) > 1000))) {
       throw new BridgeJobError("Invalid bridge query", 400);
     }
     const { groups } = this.groups();
     let source = input.source as string | undefined, remaining = input.genesysRemaining as number | undefined, deckCards: number[] | undefined;
+    if (input.deck !== undefined) {
+      const context = this.engineQueries.deckContext(input.deck as BridgeDeck, input.format === "genesys" ? "genesys" : "advanced", remaining);
+      deckCards = context.deckCards;
+      remaining = context.genesysRemaining;
+    }
     if (input.deckId !== undefined) {
       if (!Number.isSafeInteger(input.deckId) || Number(input.deckId) <= 0) throw new BridgeJobError("Invalid deck", 400);
       let saved;

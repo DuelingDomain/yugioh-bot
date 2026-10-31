@@ -4,7 +4,7 @@ import { APIError } from "@anthropic-ai/sdk";
 import { rmSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { BRIDGE_JUDGE_FRAMINGS, buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, judgeBridgePair, makeBridgeJudgementRecord, saveBridgeJudgement, type ArchetypeBridge, type BridgeJudgeClient } from "@yugidraft/shared/cards/effects";
+import { BRIDGE_JUDGE_FRAMINGS, bridgePackage, buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, judgeBridgePair, makeBridgeJudgementRecord, saveBridgeJudgement, type ArchetypeBridge, type BridgeJudgeClient } from "@yugidraft/shared/cards/effects";
 import { createBridgeService, createDuelService, createSavedDeckService } from "@yugidraft/shared/services";
 import { BridgeEngineQueries, type EngineQuery } from "../src/bridge-engine-queries.js";
 import { BridgeApi } from "../src/bridge-api.js";
@@ -23,6 +23,88 @@ afterAll(() => db.close());
 const bridgeEngineProjection = async (rows: BridgeProjectionInput, query: EngineQuery) => new BridgeEngineQueries(db).project(bridgeProjectionRows(db, rows), query, 6);
 
 describe("authenticated bridge API and judged deep-search lifecycle", () => {
+  it("projects open-deck list ownership per caller without changing its selected source or cached rows", async () => {
+    const user = seedIdentity(db, { name: "Open deck list" }), other = seedIdentity(db, { name: "Other open deck" });
+    const pair = db.prepare(`SELECT a.bridge_json AS forward,b.bridge_json AS reverse FROM archetype_bridge a
+      JOIN archetype_bridge b ON b.source=a.target AND b.target=a.source AND b.format=a.format
+      WHERE a.format='advanced' AND a.source<>'Odion' AND a.target<>'Odion'
+      AND coalesce(json_extract(a.bridge_json,'$.tier'),'strict')<>'niche'
+      AND coalesce(json_extract(b.bridge_json,'$.tier'),'strict')<>'niche'
+      ORDER BY a.score DESC,a.source,a.target LIMIT 1`).get() as { forward: string; reverse: string };
+    const forward = JSON.parse(pair.forward) as ArchetypeBridge, reverse = JSON.parse(pair.reverse) as ArchetypeBridge;
+    for (const row of [forward, reverse]) {
+      const evidence = buildBridgeJudgeEvidence(db, row)!;
+      for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, {
+        verdict: "valid", grade: "good", pros: ["The supplied cards interact."], cons: ["Needs the supplied cards."],
+        lock_note: "Apply the printed conditions.", line: evidence.cards.map(card => card.name), format_ok: true,
+      }));
+    }
+    const workers = { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection: vi.fn(), bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() };
+    const api = new BridgeApi(db, workers);
+    const call = (context: Record<string, unknown> = {}, identity = user) => api.handle({ userId: identity.userId,
+      bridgeRequest: { op: "between", source: forward.source, target: forward.target, ...context } }, "g", identity.playerId);
+    const copies = bridgePackage([forward, reverse]).missing;
+    const deck = { main: copies.slice(0, -1), extra: copies.slice(-1) };
+    try {
+      expect(await call()).toMatchObject({ results: [{ source: forward.source, alreadyInDeck: false }], reverse: [{ alreadyInDeck: false }] });
+      expect(await call({ deck })).toMatchObject({ results: [{ source: forward.source, missing: [], alreadyInDeck: true }], reverse: [{ missing: [], alreadyInDeck: true }] });
+      expect(await call({ deck: { main: [], extra: [] } }, other)).toMatchObject({
+        results: [{ missing: bridgePackage([forward]).missing, alreadyInDeck: false }],
+        reverse: [{ missing: bridgePackage([reverse]).missing, alreadyInDeck: false }],
+      });
+      const held = bridgePackage([forward]).missing;
+      expect(await call({ deck: { main: held.slice(1), extra: [], deckMaster: held[0] } })).toMatchObject({
+        results: [{ missing: [held[0]], alreadyInDeck: false }],
+      });
+      expect(await call({ op: "from", target: undefined, deck })).toMatchObject({ results: expect.arrayContaining([
+        expect.objectContaining({ target: forward.target, alreadyInDeck: true, missing: [] }),
+      ]) });
+      expect(await call()).toMatchObject({ results: [{ alreadyInDeck: false }] });
+      for (const context of [{ deck: null }, { deck: { ...deck, side: [] } }, { deck: { main: [0], extra: [] } },
+        { deck: { main: Array(92).fill(1), extra: [] } }, { deck: { ...deck, pointCap: 1001 } },
+        { deck, deckId: 1 }, { deck, genesysRemaining: -1 }, { deck, engines: [forward.source] }]) {
+        await expect(call(context)).rejects.toMatchObject({ status: 400 });
+      }
+      expect(workers.bridgeEngines).not.toHaveBeenCalled();
+      expect(workers.bridgeCandidates).not.toHaveBeenCalled();
+      expect(workers.rateBridge).not.toHaveBeenCalled();
+    } finally {
+      await api.jobs.close();
+      for (const row of [forward, reverse]) db.prepare("DELETE FROM bridge_judgement WHERE evidence_hash=?").run(row.evidence_hash);
+    }
+  });
+
+  it("uses open-deck incremental Genesys points, the editor allowance and unknown-point fallback for lists", async () => {
+    const user = seedIdentity(db, { name: "Open deck points" });
+    const row = createBridgeService(db).bridgeBetween("Odion", "Ashtra", "genesys")!;
+    const evidence = buildBridgeJudgeEvidence(db, row)!;
+    for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, {
+      verdict: "valid", grade: "good", pros: ["The supplied cards interact."], cons: ["Needs the supplied cards."],
+      lock_note: "Apply the printed conditions.", line: evidence.cards.map(card => card.name), format_ok: true,
+    }));
+    const api = new BridgeApi(db, { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection: vi.fn(), bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const call = (context: Record<string, unknown>) => api.handle({ userId: user.userId,
+      bridgeRequest: { op: "between", source: "Odion", target: "Ashtra", format: "genesys", ...context } }, "g", user.playerId);
+    const required = bridgePackage([row]).missing;
+    const deck = { main: required.slice(0, -1), extra: required.slice(-1), pointCap: 3 };
+    const paidCard = required.find(id => {
+      const stored = db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode=?").get(id) as { capabilities_json: string };
+      return JSON.parse(stored.capabilities_json).card.genesysPoints > 0;
+    })!;
+    try {
+      expect(await call({ genesysRemaining: 0 })).toMatchObject({ results: [] });
+      expect(await call({ deck })).toMatchObject({ results: [{ missing: [], alreadyInDeck: true }] });
+      expect(await call({ deck: { ...deck, pointCap: 0 } })).toMatchObject({ results: [] });
+      expect(await call({ deck: { ...deck, pointCap: 0 }, genesysRemaining: 0 })).toMatchObject({ results: [{ missing: [], alreadyInDeck: true }] });
+      const empty = { main: [], extra: [], pointCap: 0 };
+      expect(await call({ deck: empty })).toMatchObject({ results: [] });
+      expect(await call({ deck: empty, genesysRemaining: 3 })).toMatchObject({ results: [{ alreadyInDeck: false }] });
+      expect(await call({ deck: { ...empty, deckMaster: paidCard, pointCap: 3 } })).toMatchObject({ results: [] });
+      expect(await call({ deck: { main: [0xffffffff], extra: [], pointCap: 0 } })).toMatchObject({ results: [{ alreadyInDeck: false }] });
+      expect(await call({ deck: { main: [0xffffffff], extra: [] }, genesysRemaining: 0 })).toMatchObject({ results: [] });
+    } finally { await api.jobs.close(); }
+  });
+
   it("keeps the host available when bridge startup fails and returns a retryable bridge response", async () => {
     const directory = createHostDataFixture([]);
     const fixture = new Database(":memory:"); migrate(fixture);
