@@ -292,9 +292,10 @@ async function copyText(text: string, actions: ConsoleActions) {
 }
 
 /* links */
-type Preset = "personal" | "community" | "custom";
+type Preset = "personal" | "friends" | "community" | "custom";
 const PRESETS: Record<Exclude<Preset, "custom">, { label: string; maxUses: number; expiresInDays: number; hint: string }> = {
   personal: { label: "Personal", maxUses: 1, expiresInDays: 14, hint: "1 use, 14 days" },
+  friends: { label: "Friends", maxUses: 3, expiresInDays: 14, hint: "3 uses, 14 days" },
   community: { label: "Community", maxUses: 50, expiresInDays: 30, hint: "50 uses, 30 days" },
 };
 
@@ -354,6 +355,7 @@ function LinkRow({ creatorId, link, url, actions, onChange }: { creatorId: numbe
         {!closed && url ? <button type="button" className={`${styles.btn} ${styles.btnSm}`} onClick={() => void copyText(url, actions)} aria-label={`Copy link ${label}`}><Icon name="copy" />Copy</button> : null}
       </div>
       <div className={styles.crMeta}>
+        {link.lockedEmail ? <span>Locked: {maskEmail(link.lockedEmail)}</span> : null}
         <span>{plural(link.signedUp, "sign-up", "sign-ups")}</span>
         <span>{link.revokedAt ? `Revoked ${day(link.revokedAt)}` : link.expiresAt <= now ? `Ended ${day(link.expiresAt)}` : `Ends ${day(link.expiresAt)}`}</span>
         {link.state !== "revoked" ? (
@@ -386,21 +388,18 @@ function NewLinkForm({ creatorId, actions, onCreated }: { creatorId: number; act
     const element = e.currentTarget;
     const form = new FormData(element);
     const typed = String(form.get("label") ?? "").trim().slice(0, 60);
-    let maxUses: number;
-    let expiresInDays: number;
-    if (preset === "custom") {
-      maxUses = Number(form.get("maxUses"));
-      expiresInDays = Number(form.get("expiresInDays"));
-      if (!Number.isInteger(maxUses) || maxUses < 1 || maxUses > 500) { setError("Uses must be a whole number from 1 to 500."); return; }
-      if (!Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 90) { setError("Days must be a whole number from 1 to 90."); return; }
-    } else {
-      ({ maxUses, expiresInDays } = PRESETS[preset]);
-    }
+    const maxUses = preset === "custom" ? Number(form.get("maxUses")) : PRESETS[preset].maxUses;
+    const expiresInDays = Number(form.get("expiresInDays"));
+    if (!Number.isInteger(maxUses) || maxUses < 1 || maxUses > 500) { setError("Uses must be a whole number from 1 to 500."); return; }
+    if (!Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 90) { setError("Days must be a whole number from 1 to 90."); return; }
+    const lockedEmail = preset === "personal" || preset === "custom" ? String(form.get("lockedEmail") ?? "").trim() || null : null;
+    if (preset === "personal" && !lockedEmail) { setError("Enter the creator’s email to lock this personal invite."); return; }
     const label = typed || (preset === "custom" ? null : PRESETS[preset].label);
     setError(null);
     setPending(true);
-    const result = await api<CreateLinkResponse>(`${base(creatorId)}/links`, "POST", { label, maxUses, expiresInDays });
+    const result = await api<CreateLinkResponse>(`${base(creatorId)}/links`, "POST", { label, maxUses, expiresInDays, lockedEmail });
     setPending(false);
+    if (!result.ok && result.error === "invalid_locked_email") { setError("Enter a valid email in Locked to email."); return; }
     if (!result.ok) { setError(failText(result, result.status === 400 ? "Check the uses, days and label." : "The link was not made. Try again.")); return; }
     element.reset();
     actions.toast("Link made. Copy it from the top of the list.");
@@ -412,24 +411,28 @@ function NewLinkForm({ creatorId, actions, onCreated }: { creatorId: number; act
       <BlockHead title="New link" />
       <div className={styles.seg} role="group" aria-label="Link type">
         <button type="button" aria-pressed={preset === "personal"} onClick={() => setPreset("personal")}>Personal<span>{PRESETS.personal.hint}</span></button>
+        <button type="button" aria-pressed={preset === "friends"} onClick={() => setPreset("friends")}>Friends<span>{PRESETS.friends.hint}</span></button>
         <button type="button" aria-pressed={preset === "community"} onClick={() => setPreset("community")}>Community<span>{PRESETS.community.hint}</span></button>
         <button type="button" aria-pressed={preset === "custom"} onClick={() => setPreset("custom")}>Custom</button>
       </div>
       <div className={preset === "custom" ? styles.crRow3 : undefined}>
         {preset === "custom" ? (
-          <>
-            <CrField id={`cr-uses-${creatorId}`} label="Uses">
-              {(aria) => <input id={`cr-uses-${creatorId}`} name="maxUses" type="number" inputMode="numeric" min={1} max={500} defaultValue={10} className={styles.crInput} {...aria} />}
-            </CrField>
-            <CrField id={`cr-days-${creatorId}`} label="Days">
-              {(aria) => <input id={`cr-days-${creatorId}`} name="expiresInDays" type="number" inputMode="numeric" min={1} max={90} defaultValue={30} className={styles.crInput} {...aria} />}
-            </CrField>
-          </>
+          <CrField id={`cr-uses-${creatorId}`} label="Uses">
+            {(aria) => <input id={`cr-uses-${creatorId}`} name="maxUses" type="number" inputMode="numeric" min={1} max={500} defaultValue={10} className={styles.crInput} {...aria} />}
+          </CrField>
         ) : null}
+        <CrField id={`cr-days-${creatorId}`} label="Days">
+          {(aria) => <input key={preset} id={`cr-days-${creatorId}`} name="expiresInDays" type="number" inputMode="numeric" min={1} max={90} defaultValue={preset === "custom" ? 30 : PRESETS[preset].expiresInDays} className={styles.crInput} {...aria} />}
+        </CrField>
         <CrField id={`cr-label-${creatorId}`} label="Label" optional>
           {(aria) => <input id={`cr-label-${creatorId}`} name="label" maxLength={60} autoComplete="off" className={styles.crInput} placeholder={preset === "custom" ? "For example: Stream 24 Oct" : PRESETS[preset].label} {...aria} />}
         </CrField>
       </div>
+      {preset === "personal" || preset === "custom" ? (
+        <CrField id={`cr-lock-${creatorId}`} label="Locked to email" optional={preset === "custom"} hint={preset === "personal" ? "Enter the creator’s email. Only this inbox can claim the invite." : "Leave empty to let anyone with the link join."}>
+          {(aria) => <input id={`cr-lock-${creatorId}`} name="lockedEmail" type="email" maxLength={254} autoComplete="off" required={preset === "personal"} className={styles.crInput} placeholder="creator@example.com" {...aria} />}
+        </CrField>
+      ) : <p className={styles.crHint}>Anyone with this link can join and skip the waitlist.</p>}
       {error ? <p className={styles.crErr} role="alert">{error}</p> : null}
       <div className={styles.crActs}>
         <button type="submit" className={`${styles.btn} ${styles.btnPrimary}`} disabled={pending}><Icon name="link" />{pending ? "Making link" : "Make link"}</button>
