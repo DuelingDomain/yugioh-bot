@@ -3,6 +3,7 @@ import { migrate } from "@yugidraft/shared/db";
 import { readSignedRequest } from "@yugidraft/shared/internal-auth";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { BridgeDeepSearchRequest } from "../src/lib/bridges-api";
+import type { DeckCardInfo } from "@yugidraft/shared/duels";
 
 const state = vi.hoisted(() => ({ auth: vi.fn(), db: null as Database.Database | null }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db }));
@@ -19,7 +20,7 @@ const hash = "a".repeat(64);
 const shown = () => ({ source: "Odion", target: "Argostars", format: "advanced", score: 70, raw_score: 72,
   target_mean: 2, two_way: false, grade: "Good", reasons: [], cards: [123], warnings: [], genesys_points: null,
   validation: "deterministic", judge: "accepted", engine_status: "unverified", evidence_hash: hash,
-  review: { grade: "good", pros: ["Turns on the Traps.", "Shares its starter."], cons: ["Needs Temple.", "Uses deck space."], lock_note: "No summon lock.", line: ["Temple of the Kings"] } });
+  review: { grade: "good", pros: ["Turns on the Traps.", "Shares its starter."], cons: ["Needs Temple.", "Uses deck space."], lock_note: "No summon lock.", line: ["Temple of the Kings"], steps: [{ card: "Temple of the Kings", text: "" }] } });
 
 beforeEach(() => {
   vi.resetModules();
@@ -164,7 +165,8 @@ it("passes grounded reviews with one pro and no cons through lookup and deep-sea
   const niche = { ...bridge, tier: "niche", grade: "Niche", score: 0,
     target: "x".repeat(160), review: { ...bridge.review, grade: "niche", pros: [],
       // The host may fall back to joined printed locks rather than a judge note.
-      lock_note: "x".repeat(4001), line: Array(3).fill("x".repeat(200)) } };
+      lock_note: "x".repeat(4001), line: Array(3).fill("x".repeat(200)),
+      steps: Array.from({ length: 3 }, () => ({ card: "x".repeat(200), text: "" })) } };
   reply = { jobId: "bridge-job-1", state: "done", step: "done", progress: 100,
     results: [bridge, ...Array.from({ length: 9 }, (_, i) => ({ ...niche, target: `${i}${niche.target.slice(1)}` }))], inReview: 0 };
   const status = await poll();
@@ -346,4 +348,66 @@ it("lists the archetype names that have bridge data, for signed-in players only"
   expect(calls).toHaveLength(0);
   state.auth.mockResolvedValue({ user: { id: "2", name: "Kaiba" } });
   expect((await GET()).status).toBe(403);
+});
+
+it("passes real host step projections through lookup, engines and deep routes", async () => {
+  const { importBridgeArtifact, buildBridgeJudgeEvidence, BRIDGE_JUDGE_FRAMINGS, makeBridgeJudgementRecord,
+    saveBridgeJudgement, shownBridge, ShownBridgeReviewSchema } = await import("@yugidraft/shared/cards/effects");
+  const { createBridgeService } = await import("@yugidraft/shared/services");
+  const { pathSteps, PathSteps } = await import("../src/components/bridges/bridge-path");
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const db = state.db!;
+  importBridgeArtifact(db);
+  const service = createBridgeService(db);
+  for (const [source, target, line] of [
+    ["Odion", "Ashtra", ["Temple of the Kings", "Yoa the Plague Deity Ashtra", "Ashtra Divine Domain"]],
+    ["Sinful Spoils", "Regenesis", ["Sinful Spoils Subdual", "Regenesis Lord", "Regenesis Birth"]],
+  ] as const) {
+    const row = service.bridgeBetween(source, target)!;
+    const evidence = buildBridgeJudgeEvidence(db, row)!;
+    for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, {
+      verdict: "valid", grade: "good", pros: [], cons: [], lock_note: "", line: [...line], format_ok: true,
+    }));
+    const bridge = shownBridge(db, row)!;
+    expect(bridge.review.steps.map(step => step.card)).toEqual(line);
+    expect(bridge.review.steps.every(step => step.text.length > 0)).toBe(true);
+    expect(ShownBridgeReviewSchema.safeParse(bridge.review).success).toBe(true);
+    // Captions survive the API-to-path boundary even before artwork details arrive.
+    const steps = pathSteps(bridge, new Map());
+    expect(steps.map(step => ({ card: step.name, text: step.text }))).toEqual(bridge.review.steps);
+    const props = { steps, cardProps: () => ({}), deckCount: () => 0, held: () => 0, limit: () => 3 as const };
+    const markup = renderToStaticMarkup(createElement(PathSteps, props));
+    expect(markup.match(/data-testid="bridge-step-text"/g)).toHaveLength(line.length);
+    const cards = new Map(evidence.cards.map(card => [card.id, { code: card.id, name: card.name } as DeckCardInfo]));
+    const blank = { ...bridge, review: { ...bridge.review, steps: bridge.review.steps.map(step => ({ ...step, text: "" })) } };
+    expect(pathSteps(blank, cards).map(step => step.text)).toEqual(line.map(() => ""));
+    reply = { results: [bridge], inReview: 0 };
+    const fast = await lookup(`source=${encodeURIComponent(source)}`);
+    expect(fast.status).toBe(200); expect(await fast.json()).toEqual(reply);
+    const next = { engine: target, score: 8, grade: "Good", tier: "strict", covered: 1, of: 1, twoWay: [],
+      links: [{ from: source, to: target, bridge }], cards: bridge.cards, missing: bridge.cards,
+      genesysPoints: null, pros: [], cons: [] };
+    reply = { engines: [source], between: [], next: [next], inReview: 0 };
+    const engineResult = await engines({ engines: [source], format: "advanced" });
+    expect(engineResult.status).toBe(200); expect(await engineResult.json()).toEqual(reply);
+    reply = { engines: [source, target], between: [bridge], next: [], inReview: 0 };
+    const between = await engines({ engines: [source, target], format: "advanced" });
+    expect(between.status).toBe(200); expect(await between.json()).toEqual(reply);
+    reply = { jobId: "bridge-job-1", state: "done", step: "done", progress: 100, results: [bridge], next: [next], inReview: 0 };
+    const deep = await poll();
+    expect(deep.status).toBe(200); expect(await deep.json()).toEqual(reply);
+    for (const steps of [null, [], [...bridge.review.steps].reverse(),
+      [{ card: line[0], text: 42 }, ...bridge.review.steps.slice(1)],
+      [{ card: line[0], text: "x".repeat(501) }, ...bridge.review.steps.slice(1)]]) {
+      const review = { ...bridge.review, steps };
+      expect(ShownBridgeReviewSchema.safeParse(review).success).toBe(false);
+      reply = { results: [{ ...bridge, review }], inReview: 0 };
+      expect((await lookup(`source=${encodeURIComponent(source)}`)).status).toBe(502);
+      reply = { engines: [source], between: [], next: [{ ...next, links: [{ from: source, to: target, bridge: { ...bridge, review } }] }], inReview: 0 };
+      expect((await engines({ engines: [source], format: "advanced" })).status).toBe(502);
+      reply = { jobId: "bridge-job-1", state: "done", step: "done", progress: 100, results: [{ ...bridge, review }], inReview: 0 };
+      expect((await poll()).status).toBe(502);
+    }
+  }
 });

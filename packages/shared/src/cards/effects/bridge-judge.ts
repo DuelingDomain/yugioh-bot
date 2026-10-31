@@ -11,6 +11,7 @@ import type { ArchetypeBridge, BridgeFormat, BridgeReason, CardCapability, Summo
 import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, releaseBridgeJudgeSpend, settleBridgeJudgeSpend, startBridgeJudgeSpend, type BridgeJudgeSpendSummary, type BridgeJudgeUsage } from "./bridge-judge-ledger.js";
 import { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS } from "./bridge-judge-model.js";
 import { BRIDGE_FACT_CHECK_SYSTEM, bridgeTextFields, deterministicBridgePros, groundBridgeSentences, validBridgeCitations } from "./bridge-judge-text.js";
+import { deterministicBridgeSteps } from "./bridge-step-text.js";
 export { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS, bridgeJudgeRates } from "./bridge-judge-model.js";
 
 export const BRIDGE_JUDGE_FRAMINGS = ["mechanic", "skeptic"] as const;
@@ -254,7 +255,13 @@ export function bridgeGate(db: Database.Database, bridge: ArchetypeBridge): Brid
   return { state: "shown", judgements, grade: judgementGrades[Math.max(outlets.size < 2 ? 1 : 0, ...ranks)]! };
 }
 
-export interface ShownBridge extends ArchetypeBridge { judge: "accepted"; review: Pick<BridgeJudgement, "pros" | "cons" | "lock_note" | "line" | "grade"> }
+export const BridgeReviewStepSchema = z.object({ card: z.string().min(1).max(200), text: z.string().max(500) }).strict();
+export type BridgeReviewStep = z.infer<typeof BridgeReviewStepSchema>;
+export const ShownBridgeReviewSchema = BridgeJudgementSchema.pick({ pros: true, cons: true, lock_note: true, line: true, grade: true })
+  .extend({ lock_note: z.string(), line: z.array(z.string().min(1).max(200)).min(1).max(3), steps: z.array(BridgeReviewStepSchema).min(1).max(3) })
+  .refine(review => review.steps.length === review.line.length && review.steps.every((step, i) => step.card === review.line[i]),
+    { message: "Review steps must match the reviewed line in order" });
+export interface ShownBridge extends ArchetypeBridge { judge: "accepted"; review: z.infer<typeof ShownBridgeReviewSchema> }
 export function bridgeProjection(db: Database.Database, bridge: ArchetypeBridge): { gate: BridgeGate; shown: ShownBridge | null } {
   const gate = bridgeGate(db, bridge);
   return { gate, shown: shownFromGate(db, bridge, gate) };
@@ -267,7 +274,12 @@ function shownFromGate(db: Database.Database, bridge: ArchetypeBridge, gate: Bri
   const result = [...gate.judgements].sort((a, b) => judgementGrades.indexOf(b.result.grade) - judgementGrades.indexOf(a.result.grade))[0]!.result;
   const grades = { strong: "Strong", good: "Good", niche: "Niche", risky: "Risky" } as const;
   const grade = bridge.tier === "niche" ? "niche" : gate.grade!;
-  return { ...bridge, grade: grades[grade], judge: "accepted", review: { grade, pros: result.pros, cons: result.cons, lock_note: result.lock_note || buildBridgeJudgeEvidence(db, bridge)!.cards.flatMap(card => card.locks.map(lock => `${card.name}: ${lock.evidence}`)).join(" "), line: result.line } };
+  const evidence = buildBridgeJudgeEvidence(db, bridge)!;
+  const capabilities = bridge.cards.map(id => JSON.parse((db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode=?").get(id) as { capabilities_json: string }).capabilities_json) as CardCapability);
+  const review = ShownBridgeReviewSchema.parse({ grade, pros: result.pros, cons: result.cons,
+    lock_note: result.lock_note || evidence.cards.flatMap(card => card.locks.map(lock => `${card.name}: ${lock.evidence}`)).join(" "),
+    line: result.line, steps: deterministicBridgeSteps(evidence, result.line, capabilities) });
+  return { ...bridge, grade: grades[grade], judge: "accepted", review };
 }
 
 export interface BridgeJudgeOptions {

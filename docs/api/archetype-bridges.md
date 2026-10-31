@@ -18,10 +18,27 @@ including after a deep job saves them in the shared candidate table.
 // Every ShownBridge includes all ArchetypeBridge fields and:
 { judge: "accepted", review: {
   grade: "strong" | "good" | "niche" | "risky",
-  pros: string[], cons: string[], // two or three of each
-  lock_note: string, line: string[] // exact supplied card names in order
+  pros: string[], cons: string[], // zero to three of each
+  lock_note: string, line: string[], // one to three exact supplied card names in order
+  steps: { card: string; text: string }[] // exactly one entry per line name, in the same order
 } }
 ```
+
+`review.steps` is generated in code when accepted rows are projected, including
+fast lists, `engines` operation `between` rows and `next[].links[].bridge`, and
+completed deep results and links. Each `card` exactly matches its corresponding
+`review.line` name (at most 200 characters). Each `text` is at most 500 characters
+and describes checked access actions and source zones, material use, specific
+same-effect costs, or Trap activation permission. An outgoing action takes
+precedence over how the card is reached. Later actions remain subject to their
+printed conditions; a search does not imply a Summon or a complete playable combo.
+Unsupported steps have `text: ""`; no reason description or model-written prose
+is substituted. Captions never enter judge input, stored judgements, prompts,
+evidence hashes or cache keys, and require no new model calls. Host projection
+and web response validators check the shape and ordered alignment. The web
+accepts older responses without `steps` during rollout; `pathSteps` prefers an
+aligned caption, including empty text, and uses its existing reason fallback
+only when the caption is absent.
 
 For a saved Genesys deck, a supplied `genesysRemaining` takes precedence; otherwise the host derives remaining points from its cap and existing copies, including Side. Only additional required copies consume that allowance. Source-only queries compare the complete evidence package against `genesysRemaining`, defaulting to 100. Card legality and the two review gates apply in either case.
 
@@ -61,7 +78,7 @@ Fast engine detection and projection use two read-only scanners shared with Sugg
 
 Host construction does not load ranking data. With `EFFECT_SEARCH=0` and an older graph lacking `engine_ranking`, the duel host still starts; engine requests return 503 until a compatible artifact is imported. Replacing the graph with an older version also degrades engine requests without affecting duels.
 
-Browser callers can import `fetchBridgeEngines`, `BridgeEnginesRequest`, and `BridgeDeepSearchRequest` from `packages/web/src/lib/bridges-api.ts`. Server validation and signed-host helpers live in `bridges-server-api.ts`; web processes never construct the graph.
+Browser callers can import `fetchBridgeEngines`, `BridgeEnginesRequest`, `BridgeDeepSearchRequest`, `ShownBridge`, and `BridgeReviewStep` from `packages/web/src/lib/bridges-api.ts`. Server validation and signed-host helpers live in `bridges-server-api.ts`; web processes never construct the graph.
 
 `POST /api/cards/bridges/deep-search` accepts one selector form: `source`, `deckId`, `engines` with optional `deck`, or `deck` alone. Unknown fields are rejected, bodies are bounded to 4096 bytes, and archetype names to 120 characters. Engine sets contain 1–4 names. When `engines` is supplied, it alone selects the shared work and cache key; an accompanying `deck` is subscriber context for existing copies, missing cards and Genesys points. Its detected engines never replace the supplied set, including in Pick mode. A deck-only request resolves to its detected engine set at admission; a deck with no detected engines returns 400 only when explicit engines are absent. The legacy single-selector forms remain supported. `target` is available only with `source`/`deckId`; those selectors cannot be combined with `engines` or `deck`.
 

@@ -21,9 +21,8 @@ export type PathStep = {
 
 /**
  * The line of a bridge as steps, in play order. The reviewed line holds card names; each name is matched to the
- * bridge card of that name. The text of a step is the sentence the bridge data holds for that card (the reason it
- * belongs to). Nothing is written for a step the data says nothing about, and a sentence shared by two steps shows
- * once, under the first.
+ * bridge card of that name. Prefer the code-written review step, including an explicit empty caption. Older rows
+ * fall back to reason text, with a shared reason shown once under the first card.
  */
 export function pathSteps(bridge: ShownBridge, cards: ReadonlyMap<number, DeckCardInfo>): PathStep[] {
   const byName = new Map<string, { code: number; card: DeckCardInfo }>();
@@ -32,10 +31,11 @@ export function pathSteps(bridge: ShownBridge, cards: ReadonlyMap<number, DeckCa
     if (card && !byName.has(card.name)) byName.set(card.name, { code, card });
   }
   const said = new Set<string>();
-  return bridge.review.line.map((name) => {
+  return bridge.review.line.map((name, index) => {
     const found = byName.get(name);
-    const sentence = found ? roleFor(bridge, found.code) : "";
-    const text = sentence && !said.has(sentence) ? sentence : "";
+    const reviewed = bridge.review.steps?.[index];
+    const sentence = reviewed?.card === name ? reviewed.text : found ? roleFor(bridge, found.code) : "";
+    const text = reviewed?.card === name ? sentence : sentence && !said.has(sentence) ? sentence : "";
     if (sentence) said.add(sentence);
     return { name, card: found?.card ?? null, text };
   });
