@@ -6,7 +6,7 @@ import type { CardAdder } from "@/components/decks/card-adder";
 import { cn } from "@/lib/utils";
 import type { EngineSuggestion } from "@/lib/bridges-api";
 import type { ShownBridge } from "./bridges-api";
-import { GradeTag, OwnedTag, Points, type CardPropsFor } from "./bridge-card";
+import { GradeTag, OwnedTag, Points, SynergyTag, synergyText, type CardPropsFor } from "./bridge-card";
 import { AddPathCards, PathThumbs, pathSteps, type PathStep } from "./bridge-path";
 import { AddEngineCards, EngineCoreGroup, coreCodes, engineAdd } from "./engine-core";
 import { bridgeCodes } from "./bridges-model";
@@ -15,6 +15,9 @@ import styles from "./bridges.module.css";
 
 /** The grade word of an engine. A niche engine always says Niche, like a niche bridge. */
 export const engineGrade = (engine: EngineSuggestion) => (engine.tier === "niche" ? "Niche" : engine.grade);
+
+/** A resource synergy: the source gives the target a resource, but it is no way in. It never counts as a link. */
+export const isSynergy = (engine: EngineSuggestion) => engine.kind === "synergy";
 
 /** What the deck still needs: cards it holds against copies to add. */
 export function needText(engine: EngineSuggestion): string {
@@ -33,6 +36,7 @@ export function linkedEngines(engine: EngineSuggestion): string[] {
 /** "Links Odion + Ashtra", or "Links Odion · 1 of 2" when it does not link the whole set. */
 export function linksText(engine: EngineSuggestion): string {
   const linked = linkedEngines(engine);
+  if (isSynergy(engine)) return `Synergy with ${linked.join(" + ")}`;
   const words = `Links ${linked.join(" + ")}`;
   return engine.of > 1 && engine.covered < engine.of ? `${words} · ${engine.covered} of ${engine.of}` : words;
 }
@@ -61,7 +65,8 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, adder, lim
   /** Only the deep search found it. */
   fresh?: boolean;
 }) {
-  const word = engineGrade(engine);
+  const synergy = isSynergy(engine);
+  const word = synergy ? "Synergy" : engineGrade(engine);
   const covered = `Links ${engine.covered} of ${engine.of}`;
   // With the Add buttons the counts come from the open deck (the core and the buttons); the host's count would disagree.
   const need = adder ? "" : needText(engine);
@@ -81,15 +86,15 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, adder, lim
     </>
   );
   return (
-    <li className={cn(styles.item, styles.engine)} data-grade={word.toLowerCase()} data-testid="engine-item" data-engine={engine.engine} data-lit={lit ? "" : undefined} data-owned={engine.alreadyInDeck ? "" : undefined}
+    <li className={cn(styles.item, styles.engine)} data-grade={synergy ? undefined : word.toLowerCase()} data-kind={synergy ? "synergy" : undefined} data-testid="engine-item" data-engine={engine.engine} data-lit={lit ? "" : undefined} data-owned={engine.alreadyInDeck ? "" : undefined}
       tabIndex={lit ? -1 : undefined}>
       {onOpen ? (
         <button type="button" className={styles.open} aria-label={`${engine.engine}. ${word}, ${linksText(engine).toLowerCase()}. Open details`} onClick={() => onOpen(engine)}>{title}</button>
       ) : <div className={styles.open}>{title}</div>}
       {/* Always in this order (grade, links, two-way, new), so the eye finds each in the same place on every card. */}
       <div className={styles.engineMeta}>
-        <GradeTag grade={word.toLowerCase()} text={word} testId="engine-grade" />
-        {engine.of > 1 ? <span className={styles.way} data-testid="engine-covered" title={linksText(engine)}>{covered}</span> : null}
+        {synergy ? <SynergyTag testId="engine-synergy" /> : <GradeTag grade={word.toLowerCase()} text={word} testId="engine-grade" />}
+        {engine.of > 1 && !synergy ? <span className={styles.way} data-testid="engine-covered" title={linksText(engine)}>{covered}</span> : null}
         {engine.twoWay.length > 0 ? <span className={styles.way} data-way="two" data-testid="engine-two-way" title={`Also leads back to ${engine.twoWay.join(", ")}`}>Two-way</span> : null}
         {engine.alreadyInDeck ? <OwnedTag /> : null}
         {fresh ? <span className={styles.way} data-way="new" data-testid="engine-new" title="The deep search found this engine">New</span> : null}
@@ -101,7 +106,7 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, adder, lim
             <li key={`${link.from}>${link.to}:${link.bridge.evidence_hash}`}>
               {onOpenLink ? (
                 <button type="button" className={styles.pathButton} data-bridge={link.bridge.evidence_hash} data-testid="engine-link"
-                  aria-label={`${ends}. ${link.bridge.grade}. Open details`} onClick={() => onOpenLink(link.bridge)}>
+                  aria-label={`${ends}. ${synergy ? "Synergy" : link.bridge.grade}. Open details`} onClick={() => onOpenLink(link.bridge)}>
                   <span className={styles.pathEnds}>{ends}<span className={styles.openHint}>Details<ChevronRight size={13} strokeWidth={1.8} aria-hidden className={styles.chevron} /></span></span>
                 </button>
               ) : <span className={styles.pathEnds}>{ends}</span>}
@@ -110,6 +115,7 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, adder, lim
           );
         })}
       </ul>
+      {synergy && engine.links[0] ? <p className={styles.need} data-testid="engine-synergy-note">{synergyText(engine.links[0].from, engine.links[0].to)}</p> : null}
       {need ? <p className={styles.need} data-testid="engine-need">{need}</p> : null}
       {engine.core ? <EngineCoreGroup core={engine.core} name={engine.engine} cards={cards} cardProps={cardProps} genesys={genesys} held={adder?.held} limit={limit} heading="h5" /> : null}
       {adder ? (
@@ -143,9 +149,11 @@ export function EngineList({ engines, mode, genesys, cardProps, adder, limit, on
   fresh?: ReadonlySet<string>;
 }) {
   const cards = useBridgeCards([...new Set([...bridgeCodes(engines.flatMap((engine) => engine.links.map((link) => link.bridge))), ...engines.flatMap((engine) => coreCodes(engine.core))])], mode, onCatalog);
+  // Real bridges first, then the synergies, whatever order the host sent.
+  const ordered = [...engines.filter((engine) => !isSynergy(engine)), ...engines.filter(isSynergy)];
   return (
     <ul className={styles.list} aria-label={label}>
-      {engines.map((engine) => <EngineCard key={engine.engine} engine={engine} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} adder={adder} limit={limit} onOpen={onOpen} onOpenLink={onOpenLink} lit={lit === engine.engine} fresh={fresh?.has(engine.engine)} />)}
+      {ordered.map((engine) => <EngineCard key={engine.engine} engine={engine} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} adder={adder} limit={limit} onOpen={onOpen} onOpenLink={onOpenLink} lit={lit === engine.engine} fresh={fresh?.has(engine.engine)} />)}
     </ul>
   );
 }

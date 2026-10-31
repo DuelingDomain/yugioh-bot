@@ -144,6 +144,7 @@ const CORES: Record<string, { caption: string; gaps?: string[]; cards: [string, 
   "Red-Eyes": { caption: "Red-Eyes Fusion makes the Dragoon.", cards: [["Red-Eyes Black Dragon", "main", "starter", 3, 2], ["Red-Eyes Fusion", "main", "support", 2], ["Red-Eyes Dark Dragoon", "extra", "payoff", 1, 3]] },
   "Dark Magician": { caption: "Dark Magician is the start.", cards: [["Dark Magician", "main", "starter", 3], ["Magician of Black Chaos", "main", "payoff", 1]] },
   "Blue-Eyes": { caption: "Sage and Shrine start Blue-Eyes.", cards: [["Sage with Eyes of Blue", "main", "starter", 3], ["Dragon Shrine", "main", "support", 2]] },
+  "Ashtra": { caption: "Ashtra uses the face-down cards that the source Sets.", cards: [["Dragon Shrine", "main", "starter", 2], ["Foolish Burial", "main", "support", 1]] },
   "Melodious": { caption: "Terraforming finds the field spell.", cards: [["Terraforming", "main", "searcher", 2], ["Dragon Spirit of White", "main", "extender", 1], ["Foolish Burial", "main", "support", 1]] },
 };
 /** Copies of each card the open deck holds (Main and Extra), from the deck of the last Bridges request. */
@@ -186,7 +187,7 @@ const bridgeControl = { ownedTarget: "", listDelayMs: 0, slowMain: -1, listStatu
 /** Engines: the calls of the fast operation, and how the stand-in host detects the deck. */
 const engineCalls: Record<string, any>[] = [];
 const multiJobs = new Map<string, ReturnType<typeof enginesAnswer>>();
-const engineControl = { mode: "single" as "single" | "multi" | "none", status: 200, delayMs: 0, nextEmpty: false, owned: "" };
+const engineControl = { mode: "single" as "single" | "multi" | "none", status: 200, delayMs: 0, nextEmpty: false, owned: "", synergy: false };
 /** The stand-in host's deep jobs: one per search (engines and format, or source), shared like the host shares them. */
 const deepJobs = new Map<string, { id: string; done: boolean }>();
 const deepWork = (body: any) => body.engines?.length > 1 ? JSON.stringify(["multi", [...body.engines].map((name: string) => name.toLowerCase()).sort(), body.format ?? "advanced"]) : JSON.stringify([String(body.engines?.[0] ?? body.source ?? "").toLowerCase(), body.target ?? "", body.format ?? "advanced"]);
@@ -198,6 +199,16 @@ function cardImage(code: string) {
   if (cached && existsSync(cached)) return { status: 200, contentType: "image/jpeg", body: readFileSync(cached) };
   const name = String(cardRow.get(Number(code))?.name ?? code).replace(/[<&>]/g, "").slice(0, 22);
   return { status: 200, contentType: "image/svg+xml", body: `<svg xmlns="http://www.w3.org/2000/svg" width="168" height="246"><rect width="168" height="246" rx="6" fill="#3b3352"/><rect x="10" y="10" width="148" height="226" rx="4" fill="none" stroke="#c9a24a" stroke-width="2"/><text x="84" y="128" fill="#efe7d5" text-anchor="middle" font-family="Arial" font-size="18">${name}</text></svg>` };
+}
+
+/** A resource synergy: the first engine of the set Sets extra cards that Ashtra can use. No access: grade Niche, covered 0, no two-way. */
+function synergy(set: readonly string[], format: string, held: Set<number>) {
+  const from = set[0]!;
+  const row = { ...asFormat([bridge(from, "Ashtra", "Niche", 40, false, ["Dragon Shrine", "Foolish Burial"], ["Dragon Shrine", "Foolish Burial"],
+    ["The source Sets extra cards.", "Ashtra returns them from the hand."], ["Needs the Set cards to stay on the field."], "")], format)[0]!, kind: "synergy", tier: "niche" };
+  const cards = [...row.cards];
+  return { engine: "Ashtra", score: 4, grade: "Niche", kind: "synergy", tier: "niche", covered: 0, of: set.length, twoWay: [], links: [{ from, to: "Ashtra", bridge: row }], cards, missing: cards.filter((code) => !held.has(code)), alreadyInDeck: false,
+    genesysPoints: format === "genesys" ? 6 : null, pros: row.review.pros, cons: row.review.cons, core: coreOf("Ashtra", format) };
 }
 
 /** An engine that only the deep search finds: linked from both Blue-Eyes and Dragunity, so it ranks first once stored. */
@@ -233,6 +244,8 @@ function enginesAnswer(body: any) {
       twoWay: links.filter((link) => link.bridge.two_way).map((link) => link.from), links, cards, missing: target === engineControl.owned ? [] : cards.filter((code) => !held.has(code)), alreadyInDeck: target === engineControl.owned, genesysPoints: format === "genesys" ? 6 : null,
       pros: links[0]!.bridge.review.pros, cons: links[0]!.bridge.review.cons, core: coreOf(target, format) }];
   }).concat(bridgeControl.storedExtra && isBlueDragunity(set) && !engineControl.nextEmpty ? [melodious(format, held) as any] : []).sort((a, b) => b.covered - a.covered || b.score - a.score).slice(0, 4);
+  // The host may send a synergy anywhere in the list; the stand-in puts it first, so the page must move it below the bridges.
+  if (engineControl.synergy && set.length > 0) next.unshift(synergy(set, format, held) as any);
   return { engines: set, ...(body.deck ? { detected } : {}), between, next, inReview: bridgeControl.reviewCount };
 }
 
@@ -2175,6 +2188,38 @@ try {
     if (viewport.width < 960) check("s9", "on a phone Add engine and the core card images are big enough to hit", (await pDetails.getByTestId("core-add").evaluate((node: HTMLElement) => node.getBoundingClientRect().height)) >= 40 && (await pDetails.getByTestId("engine-core-card").first().locator("button").evaluate((node: HTMLElement) => node.getBoundingClientRect().width)) >= 40);
     await shot(`s-details-core-${viewport.name}`);
   }
+  await page.setViewportSize({ width: 1920, height: 1080 });
+
+  // t. A resource synergy: its own tag, one line of explanation, below the real bridges, not counted as a link; the core and Add engine stay.
+  engineControl.mode = "multi"; engineControl.synergy = true;
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await fresh();
+    await goTab("Bridges");
+    const nextList = bridges.getByTestId("engines-next");
+    await nextList.getByTestId("engine-item").first().waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(500);
+    const rows = nextList.getByTestId("engine-item");
+    const names = await rows.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.getAttribute("data-engine")));
+    const toy = nextList.locator('[data-engine="Ashtra"]');
+    await toy.scrollIntoViewIfNeeded();
+    check("t1", `${viewport.name}: the synergy sits below every real bridge`, names.length >= 2 && names[names.length - 1] === "Ashtra" && names.indexOf("Ashtra") === names.length - 1, names);
+    check("t1", `${viewport.name}: it has a Synergy tag and no grade or Links k of n`, (await toy.getByTestId("engine-synergy").innerText()) === "Synergy" && (await toy.getByTestId("engine-grade").count()) === 0 && (await toy.getByTestId("engine-covered").count()) === 0 && (await toy.getAttribute("data-grade")) === null && (await toy.getAttribute("data-kind")) === "synergy");
+    check("t1", `${viewport.name}: the tag is not the grade style`, await toy.getByTestId("engine-synergy").evaluate((node: HTMLElement) => getComputedStyle(node).borderStyle === "dashed"));
+    check("t1", `${viewport.name}: one line says what a synergy is`, (await toy.getByTestId("engine-synergy-note").innerText()) === "Works well together: Blue-Eyes Sets extra cards that Ashtra can use; no direct search or summon path.", await toy.getByTestId("engine-synergy-note").innerText());
+    check("t1", `${viewport.name}: the core and both buttons stay`, (await toy.getByTestId("engine-core-card").count()) === 2 && (await toy.getByTestId("core-add").innerText()) === "Add engine (1)" && (await toy.getByTestId("bridge-add").count()) === 1, [await toy.getByTestId("core-add").innerText()]);
+    check("t1", `${viewport.name}: a real bridge still shows its grade and Links k of n`, (await nextList.getByTestId("engine-item").first().getByTestId("engine-grade").count()) === 1);
+    check("t1", `${viewport.name}: the synergy card fits the width`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1) && await toy.evaluate((node: HTMLElement) => node.scrollWidth <= node.clientWidth + 1));
+    await shot(`t-synergy-${viewport.name}`);
+    if (viewport.width === 1920) {
+      await toy.getByTestId("engine-link").first().click();
+      await pDetails.waitFor();
+      check("t2", "the details of a synergy say Synergy, with the same line, and no grade, direction or lead-back text", (await pDetails.getByTestId("bridge-synergy").innerText()) === "Synergy" && (await pDetails.getByTestId("bridge-grade").count()) === 0 && (await pDetails.getByTestId("bridge-synergy-note").innerText()) === "Works well together: Blue-Eyes Sets extra cards that Ashtra can use; no direct search or summon path." && (await pDetails.getByTestId("engine-core-card").count()) === 2 && !/lead/i.test(await pDetails.locator('[class*="detailHead"]').innerText()), await pDetails.locator('[class*="detailHead"]').innerText());
+      await shot("t-synergy-details-1920x1080");
+      await bridges.getByRole("button", { name: /^Back/ }).click();
+    }
+  }
+  engineControl.synergy = false; engineControl.mode = "single";
   await page.setViewportSize({ width: 1920, height: 1080 });
 
   // z. The views for review at every size: deck engines, picks, link details, deep search done, and Suggest.

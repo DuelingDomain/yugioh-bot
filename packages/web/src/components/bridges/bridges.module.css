@@ -35,6 +35,7 @@
 .grade[data-grade="niche"] { background: var(--chain-soft); color: var(--chain-ink); }
 .grade[data-grade="risky"] { background: var(--loss-soft); color: var(--loss-ink); }
 .way { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--rule-lo); color: var(--ink-3); font-size: 11.5px; }
+.way[data-way="synergy"] { color: var(--ink-2); box-shadow: none; border: 1px dashed var(--rule); }
 .way[data-way="two"] { color: var(--gold-ink); box-shadow: inset 0 0 0 1px var(--rule); }
 
 .thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }

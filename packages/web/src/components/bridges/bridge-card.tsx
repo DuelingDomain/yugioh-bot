@@ -23,6 +23,16 @@ export function GradeBadge({ bridge }: { bridge: ShownBridge }) {
   return <GradeTag grade={bridge.tier === "niche" ? "niche" : bridge.review.grade} text={bridge.tier === "niche" ? "Niche" : bridge.grade} />;
 }
 
+/** A resource synergy is not an access bridge, so it gets its own dashed tag and never a Strong, Good or Niche grade. */
+export function SynergyTag({ testId = "bridge-synergy" }: { testId?: string }) {
+  return <span className={styles.way} data-way="synergy" data-testid={testId} title="Works well together. It is not a way to search or summon the engine.">Synergy</span>;
+}
+
+/** The one line that says what a synergy is. */
+export function synergyText(from: string, to: string): string {
+  return `Works well together: ${from} Sets extra cards that ${to} can use; no direct search or summon path.`;
+}
+
 /** A grade word as a badge. `grade` is the lower-case grade that sets the color; `text` is the word. */
 export function GradeTag({ grade, text, testId = "bridge-grade" }: { grade: string; text: string; testId?: string }) {
   return <span className={styles.grade} data-grade={grade} data-testid={testId}>{text}</span>;

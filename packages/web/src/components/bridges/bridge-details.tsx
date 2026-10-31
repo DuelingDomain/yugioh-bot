@@ -10,7 +10,7 @@ import tileStyles from "@/components/decks/suggestions-panel.module.css";
 import { cn } from "@/lib/utils";
 import type { CardAdder } from "@/components/decks/card-adder";
 import { AddPathCards, PathSteps, pathSteps } from "./bridge-path";
-import { GradeBadge, ProsCons, ReportBridge, Warnings, directionText, type CardPropsFor } from "./bridge-card";
+import { GradeBadge, ProsCons, ReportBridge, SynergyTag, Warnings, directionText, synergyText, type CardPropsFor } from "./bridge-card";
 import { roleFor } from "./bridges-model";
 import { AddEngineCards, EngineCoreGroup, OtherWays, coreCodes } from "./engine-core";
 import { cardsState, useBridgeCards } from "./use-bridges";
@@ -57,6 +57,7 @@ export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, l
   onBack: () => void;
 }) {
   const core = bridge.core;
+  const synergy = bridge.kind === "synergy";
   // The core cards and the other ways in load with the bridge cards, so they fill in at once.
   const codes = [...new Set([...bridge.cards, ...coreCodes(core)])];
   const cards = useBridgeCards(codes, mode, onCatalog);
@@ -68,9 +69,9 @@ export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, l
     <div className={styles.details} data-testid="bridge-details">
       <BridgeDrill source={bridge.source} target={bridge.target} onBack={onBack} />
       <div className={styles.detailHead}>
-        <GradeBadge bridge={bridge} />
-        <span className={styles.way} data-way={bridge.two_way ? "two" : "one"}>{directionText(bridge)}</span>
-        <p className={styles.wayNote}>{bridge.two_way ? `${bridge.target} also leads back to ${bridge.source}.` : `${bridge.source} leads to ${bridge.target}. It does not lead back.`}</p>
+        {synergy ? <SynergyTag /> : <GradeBadge bridge={bridge} />}
+        {synergy ? null : <span className={styles.way} data-way={bridge.two_way ? "two" : "one"}>{directionText(bridge)}</span>}
+        <p className={styles.wayNote} data-testid={synergy ? "bridge-synergy-note" : undefined}>{synergy ? synergyText(bridge.source, bridge.target) : bridge.two_way ? `${bridge.target} also leads back to ${bridge.source}.` : `${bridge.source} leads to ${bridge.target}. It does not lead back.`}</p>
       </div>
 
       <section aria-labelledby={`line-${bridge.evidence_hash}`}>
