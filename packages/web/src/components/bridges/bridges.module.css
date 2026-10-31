@@ -2,8 +2,6 @@
 .row { display: grid; gap: 8px; min-width: 0; }
 .rowTitle { margin: 0; color: var(--ink-3); font-size: 12px; font-weight: 500; letter-spacing: 0.02em; }
 .body { display: grid; gap: 10px; min-width: 0; }
-.lead { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.4; }
-.lead strong { color: var(--gold-ink); font-weight: 500; }
 .results { display: grid; min-height: 120px; container-type: inline-size; }
 .results > div { min-width: 0; }
 .hint { box-sizing: border-box; margin: 0; padding: 12px 14px; border: 1px dashed var(--rule-lo); border-radius: 8px; color: var(--ink-3); font-size: 12.5px; line-height: 1.4; }
@@ -24,8 +22,6 @@
 .arrow { color: var(--ink-4); }
 .chevron { flex: none; color: var(--ink-4); }
 .open:hover .chevron { color: var(--ink); }
-.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
-.meta > :last-child { margin-left: auto; }
 .skeletons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 268px), 1fr)); gap: 8px; }
 .skeleton { display: block; height: 300px; border-radius: 10px; background: rgb(239 231 213 / 0.04); }
 @container (min-width: 320px) { .skeleton { height: 250px; } }
@@ -80,7 +76,6 @@
 .steps li[data-state="current"] { color: var(--pen-ink); font-weight: 500; }
 .steps li[data-state="done"] { color: var(--ok); }
 .steps li[data-state="done"]::before { content: "\2713\00a0"; }
-.deepResults { display: grid; gap: 8px; }
 
 /* "Details" beside the chevron: an item that opens says so in words. */
 .openHint { display: inline-flex; flex: none; align-items: center; gap: 2px; color: var(--ink-3); font-size: 12px; font-weight: 400; }

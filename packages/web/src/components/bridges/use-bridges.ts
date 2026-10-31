@@ -3,61 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
 import { getDeckCards } from "@/components/decks/api";
-import { BridgeRequestError, fetchBridges, pollDeepSearch, startDeepSearch, type BridgeList, type BridgeScope, type DeepStep, type EngineSuggestion, type ShownBridge } from "@/lib/bridges-api";
-import { DEEP_POLL_FAILURES, DEEP_POLL_MS, deepContextKey, deepWorkKey, readStore, scopeKey, secondsLeft, writeStore } from "./bridges-model";
-
-/** Wait this long after the last deck change before asking again, like the other Suggestions rows. */
-const LIST_DEBOUNCE_MS = 600;
+import { BridgeRequestError, pollDeepSearch, startDeepSearch, type BridgeScope, type DeepStep, type EngineSuggestion, type ShownBridge } from "@/lib/bridges-api";
+import { DEEP_POLL_FAILURES, DEEP_POLL_MS, deepContextKey, deepWorkKey, readStore, secondsLeft, writeStore } from "./bridges-model";
 
 export function errorText(error: unknown): string {
   if (error instanceof BridgeRequestError) return error.message;
   return "Could not reach the server. Check your connection and try again.";
-}
-
-type ListAnswer = { key: string; retry: number; list: BridgeList } | { key: string; retry: number; error: BridgeRequestError };
-
-/**
- * The shown bridges for a scope. The last answer stays while a new one loads, so the list does not flicker.
- * `debounce` waits for a deck to settle; a typed search asks at once. `enabled` false (a hidden tab) asks for nothing
- * and keeps the last answer; a scope that changed meanwhile is asked for when it is enabled again.
- */
-export function useBridgeList(scope: BridgeScope | null, debounce: boolean, enabled = true) {
-  const key = scope ? scopeKey(scope) : null;
-  const [answer, setAnswer] = useState<ListAnswer | null>(null);
-  const [retry, setRetry] = useState(0);
-  const latest = useRef(scope);
-  latest.current = scope;
-  const answered = useRef(answer);
-  answered.current = answer;
-
-  useEffect(() => {
-    if (!key) { setAnswer(null); return; }
-    if (!enabled) return;
-    // Shown again with nothing new to ask: the last answer is still the answer.
-    if (answered.current?.key === key && answered.current.retry === retry) return;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      const now = latest.current;
-      if (!now) return;
-      const points = now.format === "genesys" && now.genesysRemaining != null ? { genesysRemaining: Math.max(0, Math.min(1000, Math.floor(now.genesysRemaining))) } : {};
-      void fetchBridges({ source: now.source, ...(now.target ? { target: now.target } : {}), format: now.format, ...(now.deck ? { deck: now.deck } : {}), ...points }, controller.signal).then(
-        (list) => { if (!controller.signal.aborted) setAnswer({ key, retry, list }); },
-        (reason: unknown) => {
-          if (controller.signal.aborted) return;
-          setAnswer({ key, retry, error: reason instanceof BridgeRequestError ? reason : new BridgeRequestError(0, errorText(reason)) });
-        },
-      );
-    }, debounce ? LIST_DEBOUNCE_MS : 0);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [key, retry, debounce, enabled]);
-
-  const current = answer?.key === key && answer.retry === retry;
-  return {
-    list: answer && "list" in answer ? answer.list : null,
-    error: answer && "error" in answer && answer.key === key ? answer.error : null,
-    loading: key != null && !current,
-    retry: () => setRetry((value) => value + 1),
-  };
 }
 
 export type DeepPhase = "idle" | "starting" | "running" | "done" | "failed";

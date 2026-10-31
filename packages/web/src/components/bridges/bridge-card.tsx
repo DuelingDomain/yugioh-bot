@@ -1,12 +1,11 @@
 "use client";
 
 import { useRef, useState, type ButtonHTMLAttributes } from "react";
-import { AlertTriangle, Check, ChevronRight, Flag, Minus, Plus } from "lucide-react";
-import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
+import { AlertTriangle, Check, Flag, Minus, Plus } from "lucide-react";
+import type { DeckCardInfo } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
 import { reportBridge, type ShownBridge } from "@/lib/bridges-api";
-import { PathThumbs, pathSteps } from "./bridge-path";
-import { cardsState, errorText } from "./use-bridges";
+import { errorText } from "./use-bridges";
 import { reportedBridges, rememberReported } from "./bridges-model";
 import styles from "./bridges.module.css";
 
@@ -132,35 +131,4 @@ export function ReportBridge({ bridge }: { bridge: ShownBridge }) {
 /** The deck already holds the whole package: a quiet state, not a recommendation. */
 export function OwnedTag() {
   return <span className={styles.owned} data-testid="bridge-owned"><Check size={12} strokeWidth={2} aria-hidden />Already in deck</span>;
-}
-
-/** One bridge in a list: the target, grade, direction, the path as card images, two good and two bad points, and a warning. */
-export function BridgeCard({ bridge, mode, cards, cardProps, genesys, showSource, onOpen }: {
-  bridge: ShownBridge;
-  mode: DuelMode;
-  cards: ReadonlyMap<number, DeckCardInfo>;
-  cardProps: CardPropsFor;
-  genesys: boolean;
-  /** Two-archetype search: name both ends, since the list holds both directions. */
-  showSource?: boolean;
-  onOpen: (bridge: ShownBridge) => void;
-}) {
-  const title = showSource ? `${bridge.source} to ${bridge.target}` : bridge.target;
-  return (
-    <li className={styles.item} data-grade={bridge.review.grade} data-testid="bridge-item" data-owned={bridge.alreadyInDeck ? "" : undefined}>
-      <button type="button" className={styles.open} data-bridge={bridge.evidence_hash} aria-label={`${title}. ${bridge.grade}, ${directionText(bridge).toLowerCase()}. Open details`} onClick={() => onOpen(bridge)}>
-        <strong className={styles.target}>{showSource ? <>{bridge.source}<span className={styles.arrow} aria-hidden> → </span></> : null}{bridge.target}</strong>
-        <span className={styles.openHint}>Details<ChevronRight size={15} strokeWidth={1.8} aria-hidden className={styles.chevron} /></span>
-      </button>
-      <div className={styles.meta}>
-        <GradeBadge bridge={bridge} />
-        <span className={styles.way} data-way={bridge.two_way ? "two" : "one"} title={bridge.two_way ? `${bridge.target} also leads back to ${bridge.source}` : `${bridge.source} leads to ${bridge.target}, not back`}>{directionText(bridge)}</span>
-        {bridge.alreadyInDeck ? <OwnedTag /> : null}
-        <ReportBridge bridge={bridge} />
-      </div>
-      <PathThumbs steps={pathSteps(bridge, cards, cardsState(bridge.cards, mode))} cardProps={cardProps} />
-      <ProsCons bridge={bridge} clamp={2} />
-      <Warnings bridge={bridge} genesys={genesys} clamp={1} />
-    </li>
-  );
 }
