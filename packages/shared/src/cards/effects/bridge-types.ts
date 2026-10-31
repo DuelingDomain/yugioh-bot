@@ -62,6 +62,8 @@ export interface BridgeReason {
   cost?: { card: number; using: number; capability: CapabilityKey; effect: number };
   /** Synergy only: an extra Deck Set resource pays a printed reveal/return procedure. */
   setup?: { card: number; using: number; capability: "face_down_card" };
+  /** Shared/complementary effects; never establishes engine access. */
+  mechanic?: import("./bridge-mechanics.js").MechanicInteraction;
 }
 export type BridgeGrade = "Strong" | "Good" | "Niche" | "Risky";
 export interface ArchetypeBridge {

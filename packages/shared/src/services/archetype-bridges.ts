@@ -7,6 +7,8 @@ import { formatStaples } from "../cards/effects/staples.js";
 import type { BridgeGraphData } from "../cards/effects/bridge-types.js";
 import { deriveEngineCore, type EngineCorePlan } from "../cards/effects/engine-core.js";
 import { type EngineRankingContext } from "../cards/effects/bridge-engine-ranking.js";
+import { observedEngineCore } from "../cards/effects/engine-core-observed.js";
+import { observationFormat } from "../cards/effects/bridge-observations.js";
 
 /** Construct in the duel-host scanner or an administrative process, never in the web process. */
 export function createBridgeService(db: Database.Database) {
@@ -30,13 +32,13 @@ export function createBridgeService(db: Database.Database) {
     return bridge?.kind === "synergy" ? null : bridge;
   };
   return {
-    corePlan(engine: string, format: BridgeFormat): EngineCorePlan {
+    corePlan(engine: string, format: BridgeFormat, domain = false): EngineCorePlan {
       const { version } = parsedGraph();
       const revision = bridgeEngineRevision(db);
-      const key = JSON.stringify([version, revision, format, engine]);
+      const key = JSON.stringify([version, revision, format, engine, domain]);
       let plan = cores.get(key);
       if (!plan) {
-        plan = deriveEngineCore(live().data, engine, format);
+        plan = observedEngineCore(deriveEngineCore(live().data, engine, format), live().data, engine, format, observationFormat(format, domain));
         cores.set(key, plan);
         if (cores.size > 512) cores.delete(cores.keys().next().value!);
       }

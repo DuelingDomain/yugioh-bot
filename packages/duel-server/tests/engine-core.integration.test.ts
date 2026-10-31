@@ -74,7 +74,9 @@ describe("deterministic engine cores against the pinned catalog", () => {
       await jobs.close();
       const one = await jobs.status(a, first.jobId), two = await jobs.status(b, second.jobId);
       expect(one.state).toBe("done"); expect(two.state).toBe("done");
-      expect(one.results[0]).toMatchObject({ ready: true, cards: expect.arrayContaining([expect.objectContaining({ name: "Yoa the Plague Deity Ashtra", copies: 3 })]) });
+      // Sampled quantities now replace fixed copies; the larger observed package
+      // retains the deck-space gap rather than bypassing its readiness checks.
+      expect(one.results[0]).toMatchObject({ ready: false, cards: expect.arrayContaining([expect.objectContaining({ name: "Yoa the Plague Deity Ashtra", copies: 2 })]) });
       expect(two.results[0]).toMatchObject({ ready: false, cards: expect.arrayContaining([expect.objectContaining({ name: "Yoa the Plague Deity Ashtra", copies: 1 })]) });
       const work = JSON.parse((db.prepare("SELECT query_json FROM bridge_deep_job WHERE id=?").get(first.jobId) as { query_json: string }).query_json);
       expect(work).not.toHaveProperty("deck"); expect(work).not.toHaveProperty("deckCards"); expect(work).not.toHaveProperty("genesysRemaining");

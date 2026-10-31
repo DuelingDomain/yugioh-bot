@@ -2,6 +2,7 @@ import type { ArchetypeBridge, BridgeFormat, BridgeGrade, BridgeGraphData } from
 import type { ShownBridge } from "./bridge-judge.js";
 import { bridgePackage, type BridgePackage } from "./bridge-package.js";
 import type { EngineCore } from "./engine-core.js";
+import { coPlayBoost, coPlayPair, observationFormat, type ObservationFormat } from "./bridge-observations.js";
 
 export interface EngineLink<T extends ArchetypeBridge = ShownBridge> { from: string; to: string; bridge: T }
 export interface RankedEngine<T extends ArchetypeBridge = ShownBridge> {
@@ -30,6 +31,7 @@ export interface EngineRankingOptions<T extends ArchetypeBridge = ShownBridge> {
   eligible?: (row: RankedEngine<T>) => boolean;
   /** Raw shortlists must supply the current two-review gate, never a stored flag. */
   acceptedNiche?: (row: T) => boolean;
+  observationFormat?: ObservationFormat;
 }
 
 /** Compute once per artifact on host start, independently of review status. */
@@ -79,7 +81,9 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
   const checkedNiche = (row: T) => row.tier === "niche" && row.validation === "deterministic"
     && !hubBridge(row, context) && bridgeAccessPath(row, context.groups) !== undefined
     && (options.acceptedNiche ? options.acceptedNiche(row) : "judge" in row && row.judge === "accepted");
-  const ranked: RankedEngine<T>[] = [], nicheLane = new Set<RankedEngine<T>>();
+  const ranked: RankedEngine<T>[] = [], nicheLane = new Set<RankedEngine<T>>(), coPlayLane = new Set<RankedEngine<T>>(), observedFloor = new Set<RankedEngine<T>>();
+  const prior = (target: string, pairs: T[]) => Math.max(0, ...engines.map(source =>
+    coPlayBoost(coPlayPair(source, target, options.observationFormat ?? observationFormat(pairs[0]!.format)))));
   const candidateFor = (engine: string, pairs: T[]): RankedEngine<T> | undefined => {
     const bridges = pairs.filter(row => row.kind !== "synergy");
     pairs = bridges.length ? bridges : pairs;
@@ -110,21 +114,26 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
   for (const [engine, pairs] of byTarget) {
     let candidate = candidateFor(engine, pairs);
     if (!candidate) continue;
+    const boost = prior(engine, pairs);
     if (candidate.score < 4 && candidate.kind !== "synergy") {
       // Scores still order this bounded lane. Only complete physical paths with
       // both current reviews contribute; pending companions cannot inflate it.
-      candidate = candidateFor(engine, pairs.filter(checkedNiche));
-      if (!candidate) continue;
-      nicheLane.add(candidate);
+      const accepted = candidateFor(engine, pairs.filter(checkedNiche));
+      if (accepted) { candidate = accepted; nicheLane.add(candidate); }
+      else if (!boost) continue;
     }
-    candidate.score = Math.round(candidate.score * 1000) / 1000;
+    if (boost) coPlayLane.add(candidate);
+    if (boost && candidate.score < 4 && candidate.kind !== "synergy") observedFloor.add(candidate);
+    candidate.score = Math.round(candidate.score * (1 + boost) * 1000) / 1000;
     if (!options.eligible || options.eligible(candidate)) ranked.push(candidate);
   }
   // Ownership must precede path/group deduplication and truncation, or a fully
   // owned high score can suppress a useful package with missing cards.
   const owned = new Set(options.deckCards === undefined ? [] : ranked.filter(row => bridgePackage(row.links.map(link => link.bridge), options.deckCards).alreadyInDeck));
   const compare = (a: RankedEngine<T>, b: RankedEngine<T>) => Number(owned.has(a)) - Number(owned.has(b)) || b.score - a.score || a.engine.localeCompare(b.engine);
-  const ordered = ranked.sort(compare), niches = ordered.filter(row => nicheLane.has(row));
+  const ordered = ranked.sort(compare);
+  const observed = ordered.find(row => coPlayLane.has(row) && row.kind !== "synergy");
+  const niches = ordered.filter(row => nicheLane.has(row) && row !== observed);
   const paths = new Set<string>(), results: RankedEngine<T>[] = [];
   const synergyLimit = Math.max(0, Math.min(2, options.synergyLimit ?? 1));
   const add = (row: RankedEngine<T>) => {
@@ -143,18 +152,23 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
   // access. Cached paths can backfill without consuming the new-review budget.
   const reserved = Math.min(2, niches.length, limit);
   const synergyReserved = Math.min(synergyLimit, ordered.filter(row => row.kind === "synergy").length, Math.max(0, limit - reserved));
-  const first = Math.max(0, limit - reserved - synergyReserved);
+  // One candidate slot for an observed pair with real evidence. Co-play alone
+  // never enters byTarget, and synergy keeps its existing one/two-row cap.
+  const observedReserved = observed && limit > reserved + synergyReserved ? 1 : 0;
+  const first = Math.max(0, limit - reserved - synergyReserved - observedReserved);
+  if (observedReserved) add(observed!);
   let primaryCount = 0, admitted = 0;
   for (const row of ordered) {
+    if (results.includes(row)) continue;
     if (row.kind === "synergy") {
       if (results.filter(row => row.kind === "synergy").length < synergyReserved) add(row);
     } else if (nicheLane.has(row)) {
       if (admitted < reserved && add(row)) admitted++;
-    } else if (primaryCount < first && add(row)) primaryCount++;
+    } else if (!observedFloor.has(row) && !results.includes(row) && primaryCount < first && add(row)) primaryCount++;
   }
   for (const row of ordered) {
     if (results.length >= limit) break;
-    if (!nicheLane.has(row) && !results.includes(row)) add(row);
+    if (!nicheLane.has(row) && !observedFloor.has(row) && !results.includes(row)) add(row);
   }
   return results.sort(compare);
 }

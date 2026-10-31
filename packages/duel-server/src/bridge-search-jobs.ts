@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
-import { bridgeGate, type ArchetypeBridge, type BridgeFormat, type BridgeDeck, type EngineSuggestion } from "@yugidraft/shared/cards/effects";
+import { bridgeGate, BRIDGE_APPROACH_VERSION, type ArchetypeBridge, type BridgeFormat, type BridgeDeck, type EngineSuggestion } from "@yugidraft/shared/cards/effects";
 import { bridgeRevision } from "./bridge-revision.js";
 import { retryStartupDatabase } from "./startup-database.js";
 
@@ -89,7 +89,7 @@ export class BridgeSearchJobs {
     const engines = query.engines?.map(name => name.toLowerCase()).sort();
     const tuple = engines && engines.length >= 2 ? [this.options.version(), "multi-v2", engines, query.format]
       : [this.options.version(), engines?.[0] ?? query.source.toLowerCase(), query.target?.toLowerCase() ?? null, query.format];
-    return createHash("sha256").update(JSON.stringify(tuple)).digest("hex");
+    return createHash("sha256").update(JSON.stringify([BRIDGE_APPROACH_VERSION, tuple])).digest("hex");
   }
 
   start(actor: BridgeSearchActor, query: BridgeSearchQuery, join = false) {

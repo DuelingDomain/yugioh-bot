@@ -38,3 +38,6 @@ export * from "./format-query.js";
 export * from "./role-ranking.js";
 
 export * from "./engine-core.js";
+export * from "./bridge-observations.js";
+export * from "./bridge-mechanics.js";
+export * from "./engine-core-observed.js";

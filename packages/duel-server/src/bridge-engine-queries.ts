@@ -3,6 +3,7 @@ import { bridgeGate, bridgeProjection, bridgePackage, shownBridge, isBridgeDeck,
   type ArchetypeBridge, type BridgeDeck, type BridgeEnginesResponse, type BridgeFormat, type DetectedEngine, type EngineSuggestion } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
 import { BridgeJobError, type BridgeSearchQuery } from "./bridge-search-jobs.js";
+import { observationFormat } from "@yugidraft/shared/cards/effects";
 
 export interface EngineQuery extends BridgeSearchQuery { engines: string[] }
 export interface BridgeDirectedResponse { results: ArchetypeBridge[]; inReview: number; reverse?: ArchetypeBridge[]; next?: EngineSuggestion[] }
@@ -74,7 +75,7 @@ export class BridgeEngineQueries {
   }
 
   core(engine: string, query: BridgeSearchQuery) {
-    const plan = this.service.corePlan(engine, query.format);
+    const plan = this.service.corePlan(engine, query.format, query.deck?.mode === "domain" || query.deck?.singleton === true);
     const unknownAllowance = query.format === "genesys" && query.deck && query.genesysRemaining === undefined;
     return projectEngineCore(unknownAllowance ? { ...plan, gaps: [...plan.gaps, "Genesys allowance is unknown because existing deck points are unavailable."] } : plan, query);
   }
@@ -111,7 +112,8 @@ export class BridgeEngineQueries {
 
   shortlist(rows: ArchetypeBridge[], query: EngineQuery) {
     const eligible = rows.filter(row => ["pending", "shown"].includes(bridgeGate(this.db, row).state));
-    return rankEngineCandidates(query.engines, eligible, this.rankingContext(), 8, { acceptedNiche: row => bridgeGate(this.db, row).state === "shown" });
+    return rankEngineCandidates(query.engines, eligible, this.rankingContext(), 8, { acceptedNiche: row => bridgeGate(this.db, row).state === "shown",
+      observationFormat: observationFormat(query.format, query.deck?.mode === "domain" || query.deck?.singleton === true) });
   }
 
   project(rows: ArchetypeBridge[], query: EngineQuery, limit = 4): BridgeEnginesResponse {
@@ -125,6 +127,7 @@ export class BridgeEngineQueries {
     const between = accepted.filter(row => row.kind !== "synergy" && selected.has(row.source) && selected.has(row.target));
     const next: EngineSuggestion[] = rankNextEngines(query.engines, accepted, this.rankingContext(), 8, {
       deckCards: query.deckCards,
+      observationFormat: observationFormat(query.format, query.deck?.mode === "domain" || query.deck?.singleton === true),
       eligible: row => query.format !== "genesys" || this.package(row.links.map(link => link.bridge), query).points <= (query.genesysRemaining ?? 100),
     }).map(row => {
       const pack = this.package(row.links.map(link => link.bridge), query);

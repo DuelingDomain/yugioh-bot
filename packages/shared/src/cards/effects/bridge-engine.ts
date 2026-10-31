@@ -6,6 +6,8 @@ import { actionEvidence, allowedByLock, bridgeHash, canReceiveSummon, genericLin
 import { bridgeMaterials } from "./bridge-materials.js";
 import { groundBridgeGraph } from "./bridge-grounding.js";
 import { narrowSetCapability, setReturnSummonEvidence, setAccessOrigin, extraDeckSetResources } from "./bridge-set-access.js";
+import { mechanicProfile, mechanicSynergyReason, validateMechanicSynergy } from "./bridge-mechanics.js";
+import { coPlayPair, observationFormat } from "./bridge-observations.js";
 
 export function bridgeLegal(card: Card, format: BridgeFormat): boolean {
   if (!card.formats.includes("TCG") || card.prerelease || card.subtypes.includes("token")) return false;
@@ -75,6 +77,7 @@ export class BridgeEngine {
   private readonly discardSetups = new Map<string, number[] | undefined>();
   private readonly specificFilters = new Map<BridgeFormat, WeakMap<Capability, boolean>>();
   private readonly accessExtras = new Map<string, Context["extras"]>();
+  private readonly mechanicContexts = new Map<string, { members: CardCapability[]; profile: ReturnType<typeof mechanicProfile> }>();
   private collectingOutlets?: Map<number, Map<BridgeReasonKey, Set<string>>>;
   private readonly names: string[];
 
@@ -491,6 +494,7 @@ export class BridgeEngine {
         || !this.rows.get(step.from)!.provides.some(capability => extraDeckSetResources(capability)
           && matchesBridgeFilter(capability.filter!, this.rows.get(setup.using)!.card))) return false;
     }
+    if (reason.mechanic) return reason.key === "synergy" && !reason.setup && !reason.steps?.length && !reason.cost && !reason.materials?.length;
     if (reason.key === "synergy" && !reason.setup) return false;
     if (reason.cost) {
       const cost = reason.cost, consumer = this.rows.get(cost.card), using = this.rows.get(cost.using);
@@ -619,6 +623,8 @@ export class BridgeEngine {
   }
 
   validateSynergy(reason: BridgeReason, source: string, target: string, format: BridgeFormat): boolean {
+    if (reason.mechanic) return source !== target && !this.sameDeck(source, target) && this.validateReason(reason, format)
+      && validateMechanicSynergy(reason, source, target, this.data, row => bridgeLegal(row.card, format));
     const from = this.groups.get(source), to = this.groups.get(target), step = reason.steps?.[0], setup = reason.setup;
     if (!from || !to || !step || !setup || !this.validateReason(reason, format) || reason.key !== "synergy"
       || !from.has(step.from) || !from.has(setup.using) || !to.has(setup.card) || from.has(setup.card)) return false;
@@ -888,13 +894,31 @@ export class BridgeEngine {
         evidence_hash: bridgeHash({ kind: "synergy", source: x, target: y, format, reason,
           cards: cards.map(id => [id, this.rows.get(id)!.text_hash, this.rows.get(id)!.evidence_hash]) }) };
     }
-    return null;
+    const mechanicContext = (name: string, ids: Set<number>) => {
+      const key = JSON.stringify([format,name]);
+      let cached = this.mechanicContexts.get(key);
+      if (!cached) { const members = [...ids].map(id=>this.rows.get(id)!).sort((a,b)=>a.id-b.id);
+        cached = { members, profile: mechanicProfile(name,members) }; this.mechanicContexts.set(key,cached); }
+      return cached;
+    };
+    const left = mechanicContext(x,from.ids), right = mechanicContext(y,to.ids);
+    const reason = mechanicSynergyReason(left.profile,right.profile,left.members,right.members);
+    if (!reason || !this.validateReason(reason, format)) return null;
+    const cards = reason.cards;
+    return { kind: "synergy", tier: "niche", source: x, target: y, format, score: reason.weight, raw_score: reason.weight, target_mean: 0,
+      two_way: false, grade: "Niche", reasons: [reason], cards,
+      warnings: ["Shared/complementary mechanics only; both engines must already be available. Printed conditions and locks apply."],
+      genesys_points: format === "genesys" ? cards.reduce((sum,id)=>sum+this.rows.get(id)!.card.genesysPoints!,0) : null,
+      validation: "deterministic", judge: "pending", engine_status: "unverified",
+      evidence_hash: bridgeHash({ kind: "mechanic-synergy-v1", source:x, target:y, format, reason,
+        cards: cards.map(id=>[id,this.rows.get(id)!.text_hash,this.rows.get(id)!.evidence_hash]) }) };
   }
 
   deepCandidates(source: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void, distinct = true): ArchetypeBridge[] {
     this.prepare(format);
     const results: ArchetypeBridge[] = [];
-    for (const [i, target] of this.names.entries()) {
+    const targets = [...this.names].sort((a,b)=>(coPlayPair(source,b,observationFormat(format))?.decks??0)-(coPlayPair(source,a,observationFormat(format))?.decks??0) || a.localeCompare(b));
+    for (const [i, target] of targets.entries()) {
       const row = this.deepBetween(source, target, format) ?? this.synergyBetween(source, target, format);
       if (row) results.push(row);
       if (i % 20 === 0) progress?.({ phase: "score", completed: i, total: this.names.length });
@@ -906,7 +930,8 @@ export class BridgeEngine {
   deepInto(target: string, format: BridgeFormat = "advanced", progress?: (progress: BridgeProgress) => void): ArchetypeBridge[] {
     this.prepare(format);
     const results: ArchetypeBridge[] = [];
-    for (const [i, source] of this.names.entries()) {
+    const sources = [...this.names].sort((a,b)=>(coPlayPair(b,target,observationFormat(format))?.decks??0)-(coPlayPair(a,target,observationFormat(format))?.decks??0) || a.localeCompare(b));
+    for (const [i, source] of sources.entries()) {
       const row = this.deepBetween(source, target, format) ?? this.synergyBetween(source, target, format);
       if (row) results.push(row);
       if (i % 20 === 0) progress?.({ phase: "score", completed: i, total: this.names.length });

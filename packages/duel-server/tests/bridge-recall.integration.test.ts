@@ -3,7 +3,7 @@ import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { BRIDGE_JUDGE_FRAMINGS, bridgeGate, buildBridgeJudgeEvidence, importBridgeArtifact, makeBridgeJudgementRecord,
-  rankEngineCandidates, saveBridgeJudgement, shownBridge, type ArchetypeBridge } from "@yugidraft/shared/cards/effects";
+  rankEngineCandidates, coPlayPair, saveBridgeJudgement, shownBridge, type ArchetypeBridge } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
 import { BridgeApi } from "../src/bridge-api.js";
 import { BridgeEngineQueries, type EngineQuery } from "../src/bridge-engine-queries.js";
@@ -60,7 +60,7 @@ function fixture() {
 }
 
 describe("checked physical Niche recall and incoming single-engine discovery", () => {
-  it("restores owner deck 10 from three to five using cached agreements and no review calls", async () => {
+  it("restores owner deck 10 from four to five using co-play, cached agreements and no review calls", async () => {
     const { db, queries, service, review, workers, pair } = fixture();
     const engines = ["Kashtira", "Odion", "Primite"], query: EngineQuery = {
       source: engines[0]!, engines, format: "advanced", deckCards: [...ownerDeck.main, ...ownerDeck.extra],
@@ -82,7 +82,7 @@ describe("checked physical Niche recall and incoming single-engine discovery", (
         const shown = shownBridge(db, row); return shown ? [shown] : [];
       });
       expect(rankEngineCandidates(engines, accepted, service.rankingContext(), 8, { acceptedNiche: () => false }))
-        .toHaveLength(3);
+        .toHaveLength(4);
       const result = await searchBridgeEngines(db, workers, query, () => {});
       const next = queries.project(result.rows, query, 6).next;
       expect(next.map(row => row.engine)).toEqual(["Tearlaments", "Ashtra", "Argostars", "Altergeist", "Blue-Eyes"]);
@@ -116,7 +116,7 @@ describe("checked physical Niche recall and incoming single-engine discovery", (
     } finally { db.close(); }
   });
 
-  it("reserves no more than two of eight shortlist slots for accepted subfloor paths", () => {
+  it("reserves two accepted subfloor slots plus one co-play slot within eight total", () => {
     const { db, queries, service, review, pair } = fixture();
     const engines = ["Kashtira", "Odion", "Primite", "Snake-Eye"];
     try {
@@ -126,10 +126,11 @@ describe("checked physical Niche recall and incoming single-engine discovery", (
       pairs.forEach(row => review(row));
       const shortlist = queries.shortlist(pairs, { source: engines[0]!, engines, format: "advanced" });
       expect(shortlist).toHaveLength(8);
-      expect(shortlist.filter(row => row.score < 4).map(row => row.engine)).toEqual(["Dragon Ruler", "Altergeist"]);
-      expect(shortlist.map(row => row.engine)).not.toContain("Blue-Eyes");
+      expect(shortlist.filter(row => row.score < 4).map(row => row.engine)).toEqual(["Dragon Ruler", "Altergeist", "Blue-Eyes"]);
+      expect(coPlayPair("Primite", "Blue-Eyes", "tcg")!.decks).toBeGreaterThanOrEqual(2);
       db.exec("DELETE FROM bridge_judgement");
-      expect(queries.shortlist(pairs, { source: engines[0]!, engines, format: "advanced" }).every(row => row.score >= 4)).toBe(true);
+      const pending = queries.shortlist(pairs, { source: engines[0]!, engines, format: "advanced" });
+      expect(pending.filter(row => row.score < 4).map(row => row.engine)).toEqual(["Blue-Eyes"]);
     } finally { db.close(); }
   });
 

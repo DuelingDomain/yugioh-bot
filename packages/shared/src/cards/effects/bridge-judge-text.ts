@@ -4,6 +4,7 @@ import type { BridgeJudgeEvidence } from "./bridge-judge.js";
 export function deterministicBridgePros(evidence: BridgeJudgeEvidence): string[] {
   const pros: string[] = [];
   for (const reason of evidence.reasons.filter(reason => !reason.ancillary)) {
+    if (reason.mechanic) { pros.push(reason.description); continue; }
     const first = reason.steps?.[0];
     const source = evidence.cards.find(card => card.id === (first?.from ?? reason.cards[0]));
     const target = evidence.cards.find(card => card.id === (first?.to ?? reason.cards[1]));
