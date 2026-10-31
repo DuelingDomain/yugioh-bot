@@ -2,17 +2,27 @@ import type { Card } from "./card.js";
 import type { MatchTags } from "./effect-match.js";
 import { matchCard } from "./effect-match.js";
 import { hookQuery, type ArchetypeProfile, type Hook } from "./synergy.js";
+import { compactEffectName } from "./name-match.js";
 
 export const SYNERGY_SEARCH_LIMIT = 40;
 export const SYNERGY_ARCHETYPE_LIMIT = 15;
 export const SYNERGY_OUTSIDE_LIMIT = SYNERGY_SEARCH_LIMIT - SYNERGY_ARCHETYPE_LIMIT;
+export const SYNERGY_OUTSIDE_ARCHETYPE_LIMIT = 3;
 /** Relative to all requested targets: outside belongs to none and names none as support. */
 export type SynergyCategory = "member" | "support" | "outside";
 
 /** Input is already ranked. Reserve each share before pagination, without generic backfill. */
-export function selectSynergyResults<T extends { synergyCategory?: SynergyCategory }>(ranked: readonly T[]): T[] {
+export function selectSynergyResults<T extends { synergyCategory?: SynergyCategory }>(ranked: readonly T[], archetypes: (card: T) => readonly string[]): T[] {
   const archetype = ranked.filter(card => card.synergyCategory !== "outside").slice(0, SYNERGY_ARCHETYPE_LIMIT);
-  const outside = ranked.filter(card => card.synergyCategory === "outside").slice(0, SYNERGY_OUTSIDE_LIMIT);
+  const outside: T[] = [], counts = new Map<string, number>();
+  for (const card of ranked) {
+    if (card.synergyCategory !== "outside") continue;
+    const names = [...new Set(archetypes(card).map(compactEffectName).filter(Boolean))];
+    if (names.some(name => (counts.get(name) ?? 0) >= SYNERGY_OUTSIDE_ARCHETYPE_LIMIT)) continue;
+    outside.push(card);
+    for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
+    if (outside.length === SYNERGY_OUTSIDE_LIMIT) break;
+  }
   return [...archetype, ...outside];
 }
 export const SYNERGY_SCORE_FLOOR = 100;
@@ -66,12 +76,23 @@ export function synergyHookMatcher(profile: ArchetypeProfile | undefined, archet
       if (hook.does?.verbs.includes("send_to_gy") && hook.does.what.types.length) {
         const material = hook.does.what;
         const normalMaterial = hooks.some(value => value.phrases.some(phrase => /normal monster/i.test(phrase)));
+        // Compact tags can call excavated cards "monsters". Ground deliberate
+        // selection in print as well, while allowing a card with both effects.
+        const selections = [
+          ...printed.matchAll(/\bsend\b([^.;:\n]*?)\bfrom your (?:hand or )?deck to (?:the )?(?:gy|graveyard)\b/g),
+          ...printed.matchAll(/\bsend from your (?:hand or )?deck to (?:the )?(?:gy|graveyard),?\s+([^.;:\n]+)/g),
+        ].map(([, object]) => object!.trim()).filter(object => /\b(?:monsters?|cards?)\b/.test(object) && !/\btop\b/.test(object));
+        if (!selections.length) continue;
+        const anyCardSelection = selections.some(object => /^(?:up to )?(?:\d+|one) cards?$/.test(object));
         // matchCard normally only penalizes an extra resource restriction. Search
         // must fail closed if the profile cannot establish that resource fits.
         // Validate the same Deck-send event, rather than another action on the card.
         const setup = effects.some(effect => {
           const actions = [...effect.actions, ...effect.costs].filter(action => action.verb === "send_to_gy"
             && action.from.includes("deck") && action.player !== "opponent" && !action.what.this_card
+            // An unspecified top-card mill cannot deliberately send the deck's
+            // material. Keep monster selection and unrestricted card selection.
+            && (action.what.kinds.length || action.what.types.length || anyCardSelection)
             && !action.what.archetypes.length && !action.what.names.length
             && (!action.what.attributes.length || material.attributes.some(attribute => action.what.attributes.includes(attribute)))
             && (!(action.what.level_min || action.what.level_max) || (material.level_min || material.level_max)

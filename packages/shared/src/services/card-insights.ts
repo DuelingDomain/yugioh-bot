@@ -17,7 +17,7 @@ import { cachedEffectReading, effectArchetypes } from "../cards/effects/reading-
 import { intentReading, searchIntentTarget, synergyTarget, archetypeSupportMatcher, cardSimilarity, counterProfileFromHooks, counterLink } from "../cards/effects/search-intents.js";
 import { effectMatchReason, softTextScore, shortReason } from "../cards/effects/search-reasons.js";
 import { ArchetypeProfile } from "../cards/effects/synergy.js";
-import { SYNERGY_ARCHETYPE_LIMIT, SYNERGY_OUTSIDE_LIMIT } from "../cards/effects/synergy-search-hooks.js";
+import { selectSynergyResults, SYNERGY_ARCHETYPE_LIMIT, SYNERGY_OUTSIDE_LIMIT, SYNERGY_OUTSIDE_ARCHETYPE_LIMIT } from "../cards/effects/synergy-search-hooks.js";
 import { createInsightCatalog, type InsightCatalog } from "./card-insight-catalog.js";
 import { readArchetypeGuide, readArchetypeHook, readInsightProfiles, readNamedInsightProfiles } from "./card-insight-profiles.js";
 import { suggestDeckRows, type DeckSuggestionOptions, type DeckSuggestionLegality } from "./deck-suggestions.js";
@@ -81,6 +81,9 @@ export interface CardPickInsight {
 
 type Retained = RankedInsightCard & { popularity: number; releaseDates: ReleaseDates };
 const compare = (a: Retained, b: Retained) => b.linkedCards - a.linkedCards || b.score - a.score || b.popularity - a.popularity || a.passcode - b.passcode;
+const comparePage = (opts: CardInsightOptions, currentMonth: string) => (a: Retained, b: Retained) => opts.sort === "newest"
+  ? compareNewest(a.releaseDates, b.releaseDates, opts.released?.region, currentMonth) || b.popularity - a.popularity || b.score - a.score || a.passcode - b.passcode
+  : compare(a, b);
 const limitOf = (value?: number) => Math.max(1, Math.min(120, Number.isFinite(value) ? Math.floor(value!) : 30));
 const domain = (format?: CardInsightFormat) => format === "domain" || format === "genesys-domain";
 const allowed = ({ card }: Candidate, options: CardInsightOptions) => {
@@ -90,12 +93,10 @@ const allowed = ({ card }: Candidate, options: CardInsightOptions) => {
   return !isBarredFromGenesys(card) && card.genesysPoints !== undefined && card.genesysPoints <= (options.genesysRemaining ?? Infinity);
 };
 const retain = (ranked: Retained[], result: RankedInsightCard, candidate: Candidate, limit: number, currentMonth: string, opts: CardInsightOptions = {}) => {
-  const comparePage = (a: Retained, b: Retained) => opts.sort === "newest"
-    ? compareNewest(a.releaseDates, b.releaseDates, opts.released?.region, currentMonth) || b.popularity - a.popularity || b.score - a.score || a.passcode - b.passcode
-    : compare(a, b);
+  const compareRanked = comparePage(opts, currentMonth);
   const entry = { ...result, release: cardReleaseInfo(candidate.card, opts.released?.region), popularity: candidate.card.views, releaseDates: candidate.card };
-  if (ranked.length === limit && comparePage(entry, ranked[ranked.length - 1]!) >= 0) return;
-  ranked.push(entry); ranked.sort(comparePage);
+  if (ranked.length === limit && compareRanked(entry, ranked[ranked.length - 1]!) >= 0) return;
+  ranked.push(entry); ranked.sort(compareRanked);
   if (ranked.length > limit) ranked.pop();
 };
 const withoutPopularity = (ranked: Retained[]) => ranked.map(({ popularity: _popularity, releaseDates: _releaseDates, ...card }) => card);
@@ -237,7 +238,8 @@ export function createCardInsightService(db: Database.Database, options: {
           const candidate = catalog.candidate(anchor);
           return { reading, ...rank(catalog, candidate ? [candidate] : [], pool, effective) };
         }
-        const ranked: Retained[] = [], outsideRanked: Retained[] = [];
+        const ranked: Retained[] = [], outsideBuckets = new Map<string, Retained[]>();
+        const memberships = (card: Card) => [...new Set((card.archetypes ?? (card.archetype ? [card.archetype] : [])).map(compactEffectName).filter(Boolean))].sort();
         const supportProfiles = readNamedInsightProfiles(db, reading.query.supports?.archetypes ?? []);
         const supportMatch = archetypeSupportMatcher(reading.query, supportProfiles);
         const supportMatchers = new WeakMap<import("../cards/effects/query.js").EffectQuery, ReturnType<typeof archetypeSupportMatcher>>();
@@ -269,7 +271,7 @@ export function createCardInsightService(db: Database.Database, options: {
           return base + softTextScore(candidate.card, query.text);
         };
         const master = domain(opts.format) && opts.deckMaster !== undefined ? catalog.candidate(opts.deckMaster) : undefined;
-        let total = 0, archetypeTotal = 0, outsideTotal = 0;
+        let total = 0;
         for (const candidate of catalog.candidates(pool)) {
           if (!allowed(candidate, opts)) continue;
           const score = match(candidate);
@@ -277,16 +279,23 @@ export function createCardInsightService(db: Database.Database, options: {
           total++;
           const support = supportMatch?.(candidate);
           const outside = support?.synergyCategory === "outside";
-          if (support) { if (outside) outsideTotal++; else archetypeTotal++; }
-          retain(outside ? outsideRanked : ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + (roleIntent ? 0 : cardEraBoost(candidate.card, opts.era)), linkedCards: 0, ...(support ? { synergyCategory: support.synergyCategory } : {}), reason: support ? support.reason : roleIntent ? rankArchetypeRole(candidate.card,candidate.tags,roleIntent.archetype,roleIntent.role,archetypeMember(candidate.card,roleIntent.archetype),staples!)!.reason : reading.query.intent?.kind === "staples" && staples!.cards.size ? stapleReason(staples!.cards.get(candidate.card.id)!, staples!.label) : counter && archetype ? counterLink(counter, archetype, candidate)!.reason
+          const names = outside ? memberships(candidate.card) : [], key = JSON.stringify(names);
+          if (outside && !outsideBuckets.has(key)) outsideBuckets.set(key, []);
+          // Three per identical membership set suffice even for overlapping
+          // archetypes: once a higher card is blocked, later peers stay blocked.
+          retain(outside ? outsideBuckets.get(key)! : ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + (roleIntent ? 0 : cardEraBoost(candidate.card, opts.era)), linkedCards: 0, ...(support ? { synergyCategory: support.synergyCategory } : {}), reason: support ? support.reason : roleIntent ? rankArchetypeRole(candidate.card,candidate.tags,roleIntent.archetype,roleIntent.role,archetypeMember(candidate.card,roleIntent.archetype),staples!)!.reason : reading.query.intent?.kind === "staples" && staples!.cards.size ? stapleReason(staples!.cards.get(candidate.card.id)!, staples!.label) : counter && archetype ? counterLink(counter, archetype, candidate)!.reason
             : similar ? shortReason(`Similar ${candidate.tags?.roles.find(role => similar.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${similar.card.name}`)
             : effectMatchReason(candidate.card, candidate.tags, reading.query, candidate.tags?.summary),
-            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, supportMatch ? outside ? SYNERGY_OUTSIDE_LIMIT : SYNERGY_ARCHETYPE_LIMIT : limitOf(opts.limit), currentMonth, effective);
+            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, supportMatch ? outside ? names.length ? SYNERGY_OUTSIDE_ARCHETYPE_LIMIT : SYNERGY_OUTSIDE_LIMIT : SYNERGY_ARCHETYPE_LIMIT : limitOf(opts.limit), currentMonth, effective);
         }
         if (supportMatch) {
-          total = Math.min(SYNERGY_ARCHETYPE_LIMIT, archetypeTotal) + Math.min(SYNERGY_OUTSIDE_LIMIT, outsideTotal);
-          ranked.push(...outsideRanked);
-          ranked.length = Math.min(ranked.length, limitOf(opts.limit));
+          const outsideRanked = [...outsideBuckets.values()].flat().sort(comparePage(effective, currentMonth));
+          const selected = selectSynergyResults([...ranked, ...outsideRanked], hit => {
+            const card = catalog.candidate(hit.passcode)?.card;
+            return card ? memberships(card) : [];
+          });
+          total = selected.length;
+          ranked.splice(0, ranked.length, ...selected.slice(0, limitOf(opts.limit)));
         }
         if (supportMatch && !total && reading.query.supports!.archetypes.length > 1) {
           const groups = reading.query.supports!.archetypes.map(archetype => {
