@@ -28,9 +28,54 @@ it.each(["Temple of the Kings synergy", "synergy with Temple of the Kings", "car
   const result = service.effectSearch(text);
   expect(result.cards.map(card => card.passcode)).toContain(80101899);
   expect(result.cards.map(card => card.passcode)).toContain(29762407);
-  expect(result.cards.find(card => card.passcode === 80101899)?.reason).toContain("Sets Traps");
+  expect(result.cards.find(card => card.passcode === 80101899)?.reason).toContain("Sets a Normal Trap from your Deck");
   expect(result.cards.find(card => card.passcode === 80101899)?.synergyCategory).toBe("outside");
   expect(result.cards.find(card => card.passcode === 29762407)?.synergyCategory).toBe("member");
+});
+
+it.each(["Temple of the Kings", "Labrynth"])("checks every setup and payoff filter against %s's Trap mechanic", target => {
+  db.exec("SAVEPOINT trap_filter_test");
+  try {
+    const insert = db.prepare(`INSERT INTO card_catalog
+      (ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)
+      VALUES(?,?,'Effect Monster','effect',?,'image','small','[]','now')`);
+    insert.run(53666449, "Minerva, Scholar of the Sky", 'Each time a Counter Trap Card is activated, immediately after it resolves, this card gains 500 ATK, and if it does, and "The Sanctuary in the Sky" is on the field, add 1 Counter Trap with a different name from your GY to your hand.');
+    insert.run(98301564, "Guiding Ariadne", "If this card is destroyed: Reveal 3 Counter Traps from your Deck; your opponent chooses 1 to add to your hand.");
+    insert.run(952523, "Traptrix Cularia", 'After you activate a "Hole" Normal Trap Card, you can Set it instead of sending it to the GY.');
+    insert.run(91812341, "Traptrix Myrmeleo", 'When this card is Normal Summoned: You can add 1 "Hole" Normal Trap Card from your Deck to your hand.');
+    insert.run(61307542, "Paleozoic Anomalocaris", "If a Trap Card is sent from your Spell & Trap Zone to the GY: Excavate the top card of your Deck, and if it is a Trap Card, add it to your hand.");
+    const result = service.effectSearch(`${target} synergy`, [53666449, 98301564, 952523, 91812341, 61307542, 80101899]);
+    expect(result.cards.map(card => card.name)).toEqual(["Trap Trick"]);
+
+    const original = JSON.parse((db.prepare("SELECT tags_json FROM card_tags WHERE passcode=80101899").get() as { tags_json: string }).tags_json);
+    for (const restriction of [{ subtypes: ["counter"] }, { names: ["Time Seal"] }, { archetypes: ["Hole"] }, { other: '"Hole" Normal Trap Card' }, { other: "Traps that equip themselves to monsters" }, { types: ["Fiend"] }, { level_min: 4 }]) {
+      const tags = structuredClone(original);
+      Object.assign(tags.effects[0].actions.find((action: { verb: string }) => action.verb === "set_spell_trap").what, restriction);
+      db.prepare("UPDATE card_tags SET tags_json=? WHERE passcode=80101899").run(JSON.stringify(tags));
+      expect(service.effectSearch(`${target} synergy`, [80101899]).cards, JSON.stringify(restriction)).toEqual([]);
+    }
+  } finally { db.exec("ROLLBACK TO trap_filter_test; RELEASE trap_filter_test"); }
+});
+
+it("separates weaker GY recursion from Deck setup and checks hand Sets against the Trap mechanic", () => {
+  db.exec("SAVEPOINT trap_source_test");
+  try {
+    const insert = db.prepare(`INSERT INTO card_catalog
+      (ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)
+      VALUES(?,?,?,?,?,'image','small','[]','now')`);
+    insert.run(28933734, "Mask of Darkness", "Flip Effect Monster", "effect", "FLIP: Target 1 Trap in your GY; add that target to your hand.");
+    insert.run(11443677, "Blue-Eyes Tyrant Dragon", "Fusion Monster", "fusion", "At the end of the Damage Step, if this card battled: Target 1 Trap in your GY; Set it to your Spell & Trap Zone.");
+    insert.run(24425055, "Booby Trap E", "Trap Card", "trap", "Discard 1 card; Set 1 Continuous Trap Card from your hand or Graveyard to your field.");
+    const pool = [28933734, 11443677, 24425055, 80101899];
+    const result = service.effectSearch("Temple of the Kings synergy", pool);
+    const setup = result.cards.find(card => card.passcode === 80101899)!;
+    const recursion = result.cards.find(card => card.passcode === 28933734)!;
+    expect(recursion.reason).toContain("Returns a Trap from your GY to your hand");
+    expect(recursion.score).toBeLessThan(setup.score);
+    expect(result.cards.find(card => card.passcode === 11443677)?.reason).toContain("Re-Sets a Trap from your GY");
+    expect(result.cards.find(card => card.passcode === 24425055)?.reason).toContain("Sets a Continuous Trap from your hand");
+    expect(service.effectSearch("Labrynth synergy", [24425055]).cards).toEqual([]);
+  } finally { db.exec("ROLLBACK TO trap_source_test; RELEASE trap_source_test"); }
 });
 
 it.each(["Monarch synergy", "cards that work with Monarch"])("uses the archetype rather than a fuzzy card anchor: %s", text => {

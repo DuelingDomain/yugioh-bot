@@ -33,9 +33,9 @@ export function buildCardEffectFacets(db: Database.Database, flush?: (facets: Ca
     const result: MatchFilter = {
       this_card: what.this_card, kinds: intern(what.kinds), subtypes: intern(what.subtypes), types: intern(what.types),
       attributes: intern(what.attributes), archetypes: intern(what.archetypes), names: intern(what.names),
-      level_min: what.level_min, level_max: what.level_max,
+      level_min: what.level_min, level_max: what.level_max, other: what.other,
     };
-    const key = `${Number(result.this_card)}:${identity(result.kinds)}:${identity(result.subtypes)}:${identity(result.types)}:${identity(result.attributes)}:${identity(result.archetypes)}:${identity(result.names)}:${result.level_min}:${result.level_max}`;
+    const key = `${Number(result.this_card)}:${identity(result.kinds)}:${identity(result.subtypes)}:${identity(result.types)}:${identity(result.attributes)}:${identity(result.archetypes)}:${identity(result.names)}:${result.level_min}:${result.level_max}:${JSON.stringify(result.other)}`;
     const existing = filters.get(key);
     if (existing) return existing;
     filters.set(key, result);
@@ -43,9 +43,9 @@ export function buildCardEffectFacets(db: Database.Database, flush?: (facets: Ca
   };
   const event = (value: CardTags["effects"][number]["actions"][number]): MatchEvent => {
     const from = intern(value.from), what = filter(value.what);
-    const key = `${value.verb}:${value.player}:${identity(from)}:${identity(what)}`;
+    const key = `${value.verb}:${value.player}:${identity(from)}:${identity(what)}:${JSON.stringify(value.note)}`;
     let result = events.get(key);
-    if (!result) { result = { verb: value.verb, player: value.player, from, what }; events.set(key, result); }
+    if (!result) { result = { verb: value.verb, player: value.player, from, what, note: value.note }; events.set(key, result); }
     return result;
   };
   const eventArray = (values: CardTags["effects"][number]["actions"]): MatchEvent[] => {
@@ -58,9 +58,10 @@ export function buildCardEffectFacets(db: Database.Database, flush?: (facets: Ca
   const effectArray = (values: CardTags["effects"]): MatchEffect[] => {
     const result = values.map(value => {
       const location = intern(value.location), actions = eventArray(value.actions), costs = eventArray(value.costs), triggers = eventArray(value.triggers);
-      const key = `${value.timing}:${identity(location)}:${identity(actions)}:${identity(costs)}:${identity(triggers)}`;
+      const conditions = intern(value.conditions);
+      const key = `${value.timing}:${identity(location)}:${identity(actions)}:${identity(costs)}:${identity(triggers)}:${identity(conditions)}`;
       let effect = effects.get(key);
-      if (!effect) { effect = { timing: value.timing, location, actions, costs, triggers }; effects.set(key, effect); }
+      if (!effect) { effect = { timing: value.timing, location, actions, costs, triggers, conditions }; effects.set(key, effect); }
       return effect;
     });
     const key = result.map(identity).join(","), existing = effectArrays.get(key);
