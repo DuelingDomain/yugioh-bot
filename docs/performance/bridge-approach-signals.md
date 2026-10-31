@@ -4,6 +4,8 @@ The approved approach is implemented: larger tournament samples, a bounded co-pl
 
 Implementation commits: `303a89441` (sampling, artifacts and refresh pipeline) and `1983a93a8` (mechanic discovery, ranking, cores and integration coverage).
 
+The [review follow-up](bridge-approach-review-2026-10-31.md) supersedes the original nomination and runtime-loading behavior below. It records the corrected all-pairs counts and ten GY samples.
+
 ## Data and provenance
 
 | Sample | Bridge lists | Unrelated pairs | Pairs in ≥2 lists | Engines in ≥5 lists |
@@ -28,15 +30,15 @@ The ranking prior only operates on supplied, checked bridge/mechanic rows. It ca
 
 ## Mechanic evidence
 
-Profiles aggregate legal member tags and printed effects for Trap/Set, Trap activation, GY, banish, face-down, discard, Fusion, Synchro, Xyz, Link and Ritual mechanics. Type and Attribute are absent from the feature vocabulary. Weighted shared mechanics rank complementary effects; broad similarity alone cannot nominate a pair. The small retained tag facts use approximately 2.2 MB after collection, and profiles are cached per engine/format.
+Profiles aggregate legal member tags and printed effects for Trap/Set, Trap activation, GY, banish, face-down, discard, Fusion, Synchro, Xyz, Link and Ritual mechanics. Type and Attribute are absent from the feature vocabulary. Weighted shared mechanics rank complementary effects; broad similarity alone cannot nominate a pair. The review follow-up replaces runtime full-tag decompression with a lazily loaded 180,206-byte mechanic-facts artifact; profiles remain cached per engine/format.
 
 **Temple of the Kings + Labrynth, Advanced:** complementarity 2.492. The legal member profiles have Trap/Set shares of 50% and 80%. The candidate names Temple of the Kings, Welcome Labrynth, and Lady Labrynth of the Silver Castle: Temple permits a Trap to activate the turn it was Set; Welcome is a Normal Trap; Lady responds to Normal Trap activation. Printed timing, activation conditions, once-per-turn limits and locks remain in the evidence. It is `kind: "synergy"`, Niche, score capped at 3, zero access coverage, and currently pending review.
 
 **Fiendsmith + Labrynth, Advanced:** complementarity 0.833, with Fiendsmith's Trap/Set share below the 20% focus threshold. There is no new synergy candidate and no access candidate. Sharing a Type/Attribute or merely having GY effects supplies no reason.
 
-**Fiendsmith + Labrynth, Genesys:** removing illegal members changes the profile. A pending synergy can name Fiendsmith Kyrie's Normal Trap activation feeding Lady Labrynth's printed Normal Trap trigger. Complementarity is 1.000. This is an effect interaction, and still requires both judges; it is not a type rule or a published recommendation.
+**Fiendsmith + Labrynth, Genesys:** the owner rejects this pairing. The corrected generic Trap branch requires at least two Normal Traps and a 40% Normal Trap share among legal source members. Kyrie alone cannot nominate it; both synergy and access are null in Advanced and Genesys.
 
-GY/discard nominations require a compatible Main Deck recipient, actual source targets/zones, and a useful GY activation/discard trigger. Excavation, random milling, and conditional GY presence alone are excluded. Integration regressions reject Pixiel → Beetrooper Armor Horn while preserving real discard-trigger candidates.
+GY nominations now require a named/archetype filter on an exact printed Deck-to-GY clause, with the recipient's canonical/printed identity confirming that filter. Type, Attribute, Level, empty filters, and inferred unrelated labels cannot nominate a GY pair. GY/discard nominations still require a compatible Main Deck recipient, source targets/zones, and a useful GY activation/discard trigger. Excavation, random milling, and conditional GY presence alone are excluded. Integration regressions reject Pixiel → Beetrooper Armor Horn while preserving real discard-trigger candidates.
 
 ## Engine cores
 

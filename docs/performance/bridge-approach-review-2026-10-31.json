@@ -1,0 +1,3610 @@
+{
+  "graphVersion": "c439c63ab59fe486df9bc37ee1b71c8c5cf631ab62a5d142c8ef484ef4295061",
+  "mechanicFactsVersion": "266808e5705c76ee757734cedf62ba7842f502b7a5037de20ed5713feae8f1da",
+  "formats": {
+    "advanced": {
+      "groups": 453,
+      "directedPairs": 204756,
+      "elapsedMs": 12331,
+      "total": 73,
+      "counts": {
+        "gy_setup": 17,
+        "trap_trigger": 8,
+        "discard_trigger": 45,
+        "trap_activation": 3
+      },
+      "fiendsmithLabrynth": null,
+      "templeLabrynth": "Shared Normal Trap activation/Set mechanic: Temple of the Kings permits Welcome Labrynth to activate the turn it was Set; Lady Labrynth of the Silver Castle responds to Normal Trap activation. Printed conditions and once-per-turn limits still apply; both engines must be available.",
+      "gySamples": [
+        {
+          "source": "Atlantean",
+          "target": "Mermail",
+          "key": "gy_setup",
+          "provider": {
+            "id": 99193444,
+            "name": "Poseidra, the Storming Atlantean"
+          },
+          "consumer": {
+            "id": 21767650,
+            "name": "Mermail Abyssmander"
+          },
+          "description": "Complementary GY setup mechanic: Poseidra, the Storming Atlantean's printed send_to_gy effect can use Mermail Abyssmander, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Atlantean",
+                  "Mermail"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Atlantean\" or \"Mermail\" monster from your Deck to the GY, then target 1 card your opponent controls; return it to the hand."
+            }
+          ],
+          "consumerText": "You can banish this card from your Graveyard to activate 1 of these effects;\r\n● Increase the Levels of all \"Mermail\" monsters you currently control by 1.\r\n● Increase the Levels of all \"Mermail\" monsters you currently control by 2."
+        },
+        {
+          "source": "Bystial",
+          "target": "Branded",
+          "key": "gy_setup",
+          "provider": {
+            "id": 60242223,
+            "name": "Bystial Saronir"
+          },
+          "consumer": {
+            "id": 17751597,
+            "name": "Branded Retribution"
+          },
+          "description": "Complementary GY setup mechanic: Bystial Saronir's printed send_to_gy effect can use Branded Retribution, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Bystial",
+                  "Branded"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is sent to the GY: You can send 1 \"Bystial\" monster or 1 \"Branded\" Spell/Trap from your Deck to the GY, except \"Bystial Saronir\"."
+            }
+          ],
+          "consumerText": "When a Spell/Trap Card, or monster effect, is activated that includes an effect that Special Summons a monster(s): Return to the Extra Deck, 1 face-up Fusion Monster you control, or 2 Fusion Monsters in your GY, that mention \"Fallen of Albaz\" as material, and if you do, negate the activation, and if you do that, destroy that card. You can banish this card from your GY, then target 1 \"Branded\" Spell/Trap in your GY, except \"Branded Retribution\"; add it to your hand. You can only use 1 \"Branded Retribution\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Chimera",
+          "target": "Gimmick Puppet",
+          "key": "gy_setup",
+          "provider": {
+            "id": 97520532,
+            "name": "Gimmick Puppet Chimera Doll"
+          },
+          "consumer": {
+            "id": 36436372,
+            "name": "Gimmick Puppet Little Soldiers"
+          },
+          "description": "Complementary GY setup mechanic: Gimmick Puppet Chimera Doll's printed send_to_gy effect can use Gimmick Puppet Little Soldiers, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Gimmick Puppet"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "During your Main Phase, if you control this Link Summoned card: You can activate this effect; you cannot Special Summon monsters from the Extra Deck for the rest of this turn, except Machine Xyz Monsters, also take 1 \"Gimmick Puppet\" monster from your Deck, and either add it to your hand or send it to the GY, then, if all monsters you control are \"Gimmick Puppet\" monsters (min."
+            }
+          ],
+          "consumerText": "If this card is Normal or Special Summoned: You can send 1 \"Gimmick Puppet\" monster with a different Level than this card from your Deck to the GY; this card's Level becomes that monster's. You can only use this effect of \"Gimmick Puppet Little Soldiers\" once per turn. You can banish this card from your GY, then target up to 2 \"Gimmick Puppet\" monsters you control; increase their Levels by 4 until the end of this turn."
+        },
+        {
+          "source": "Chimera",
+          "target": "Puppet",
+          "key": "gy_setup",
+          "provider": {
+            "id": 97520532,
+            "name": "Gimmick Puppet Chimera Doll"
+          },
+          "consumer": {
+            "id": 36436372,
+            "name": "Gimmick Puppet Little Soldiers"
+          },
+          "description": "Complementary GY setup mechanic: Gimmick Puppet Chimera Doll's printed send_to_gy effect can use Gimmick Puppet Little Soldiers, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Gimmick Puppet"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "During your Main Phase, if you control this Link Summoned card: You can activate this effect; you cannot Special Summon monsters from the Extra Deck for the rest of this turn, except Machine Xyz Monsters, also take 1 \"Gimmick Puppet\" monster from your Deck, and either add it to your hand or send it to the GY, then, if all monsters you control are \"Gimmick Puppet\" monsters (min."
+            }
+          ],
+          "consumerText": "If this card is Normal or Special Summoned: You can send 1 \"Gimmick Puppet\" monster with a different Level than this card from your Deck to the GY; this card's Level becomes that monster's. You can only use this effect of \"Gimmick Puppet Little Soldiers\" once per turn. You can banish this card from your GY, then target up to 2 \"Gimmick Puppet\" monsters you control; increase their Levels by 4 until the end of this turn."
+        },
+        {
+          "source": "Goblin",
+          "target": "Memento",
+          "key": "gy_setup",
+          "provider": {
+            "id": 17943271,
+            "name": "Mementotlan Goblin"
+          },
+          "consumer": {
+            "id": 80722024,
+            "name": "Mementotlan Bone Party"
+          },
+          "description": "Complementary GY setup mechanic: Mementotlan Goblin's printed send_to_gy effect can use Mementotlan Bone Party, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Memento"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "During your Main Phase: You can destroy 1 \"Memento\" monster you control, and if you do, send up to 2 \"Memento\" cards with different names from each other from your Deck to the GY, except \"Mementotlan Goblin\"."
+            }
+          ],
+          "consumerText": "Destroy 1 \"Memento\" monster in your hand or face-up field, and if you do, take 1 \"Memento\" monster from your Deck with a different name, and either add it to your hand or Special Summon it in Defense Position. During your Main Phase: You can banish this card from your GY, then target 1 \"Memento\" monster you control; if it attacks a Defense Position monster this turn, inflict piercing battle damage to your opponent. You can only use each effect of \"Mementotlan Bone Party\" once per turn.\r\n\r\n* The above text is unofficial and describes the card's functionality in the OCG."
+        },
+        {
+          "source": "Gogogo",
+          "target": "Dododo",
+          "key": "gy_setup",
+          "provider": {
+            "id": 59911557,
+            "name": "Gogogo Goram"
+          },
+          "consumer": {
+            "id": 55088578,
+            "name": "Onomatokage"
+          },
+          "description": "Complementary GY setup mechanic: Gogogo Goram's printed send_to_gy effect can use Onomatokage, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Gogogo"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card on the field is destroyed and sent to the Graveyard: Send 1 \"Gogogo\" monster from your Deck to the Graveyard."
+            }
+          ],
+          "consumerText": "(This card is always treated as a \"Zubaba\", \"Gagaga\", \"Gogogo\", and \"Dododo\" card.)\r\nIf you control a \"Zubaba\", \"Gagaga\", \"Gogogo\", or \"Dododo\" monster and this card is in your hand or GY: You can Special Summon this card, but banish it when it leaves the field. You can banish this card from your GY; return up to 2 Xyz Monsters from your GY to the Extra Deck. You can only use each effect of \"Onomatokage\" once per turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "Knightmare",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 4055337,
+            "name": "Orcust Knightmare"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use Orcust Knightmare, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "Cannot be destroyed by battle with a Link Monster. You can banish this card from your GY, then target 1 face-up monster on the field; you cannot Special Summon monsters, except DARK monsters, for the rest of this turn, also send 1 DARK Machine monster from your Deck to the GY, except \"Orcust Knightmare\", and if you do, the targeted monster gains ATK equal to the Level of the monster sent to the GY x 100, until the end of this turn. You can only use this effect of \"Orcust Knightmare\" once per turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "Krawler",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 27705190,
+            "name": "World Legacy's Mind Meld"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy's Mind Meld, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When an opponent's monster activates its effect while you control a \"Krawler\" monster: The activated effect becomes \"return 1 face-up monster your opponent controls to the hand\". You can banish this card from your GY, then target 1 Link Monster on the field; Special Summon 1 \"Krawler\" monster from your hand, Deck, or GY to your zone the target points to, in face-down Defense Position. You can only use 1 \"World Legacy's Mind Meld\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "Orcust",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 703897,
+            "name": "Orcust Crescendo"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use Orcust Crescendo, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When a Spell/Trap Card, or monster effect, is activated while you control an \"Orcust\" Link Monster: Negate the activation, and if you do, banish that card. You can banish this card from your GY; add to your hand 1 of your DARK Machine monsters that is banished or in your Deck. You cannot Special Summon monsters the turn you activate this effect, except DARK Machine monsters. You can only use 1 \"Orcust Crescendo\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "World Chalice",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 57288708,
+            "name": "World Legacy - \"World Chalice\""
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy - \"World Chalice\", whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "If a monster(s) is Special Summoned from the Extra Deck (except during the Damage Step): You can Tribute this card; send that monster(s) to the GY. You can only use each of the following effects of \"World Legacy - \"World Chalice\"\" once per turn.\r\n● If this face-up Normal Summoned/Set card leaves the field: You can Special Summon 2 \"World Chalice\" monsters from your Deck, except \"World Legacy - \"World Chalice\"\".\r\n● During your Main Phase, except the turn this card was sent to the GY: You can banish this card from your GY; add 1 \"World Legacy\" card from your Deck to your hand."
+        }
+      ],
+      "rows": [
+        {
+          "source": "Atlantean",
+          "target": "Mermail",
+          "key": "gy_setup",
+          "provider": {
+            "id": 99193444,
+            "name": "Poseidra, the Storming Atlantean"
+          },
+          "consumer": {
+            "id": 21767650,
+            "name": "Mermail Abyssmander"
+          },
+          "description": "Complementary GY setup mechanic: Poseidra, the Storming Atlantean's printed send_to_gy effect can use Mermail Abyssmander, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Atlantean",
+                  "Mermail"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Atlantean\" or \"Mermail\" monster from your Deck to the GY, then target 1 card your opponent controls; return it to the hand."
+            }
+          ],
+          "consumerText": "You can banish this card from your Graveyard to activate 1 of these effects;\r\n● Increase the Levels of all \"Mermail\" monsters you currently control by 1.\r\n● Increase the Levels of all \"Mermail\" monsters you currently control by 2."
+        },
+        {
+          "source": "Attraction",
+          "target": "Labrynth",
+          "key": "trap_trigger",
+          "provider": {
+            "id": 29867611,
+            "name": "Amaze Attraction Majestic Merry-Go-Round"
+          },
+          "consumer": {
+            "id": 81497285,
+            "name": "Lady Labrynth of the Silver Castle"
+          },
+          "description": "Shared Normal Trap activation mechanic: activating Amaze Attraction Majestic Merry-Go-Round can feed Lady Labrynth of the Silver Castle's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+        },
+        {
+          "source": "Attraction",
+          "target": "Traptrix",
+          "key": "trap_trigger",
+          "provider": {
+            "id": 29867611,
+            "name": "Amaze Attraction Majestic Merry-Go-Round"
+          },
+          "consumer": {
+            "id": 73639099,
+            "name": "Traptrix Sera"
+          },
+          "description": "Shared Normal Trap activation mechanic: activating Amaze Attraction Majestic Merry-Go-Round can feed Traptrix Sera's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+        },
+        {
+          "source": "Bystial",
+          "target": "Branded",
+          "key": "gy_setup",
+          "provider": {
+            "id": 60242223,
+            "name": "Bystial Saronir"
+          },
+          "consumer": {
+            "id": 17751597,
+            "name": "Branded Retribution"
+          },
+          "description": "Complementary GY setup mechanic: Bystial Saronir's printed send_to_gy effect can use Branded Retribution, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Bystial",
+                  "Branded"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is sent to the GY: You can send 1 \"Bystial\" monster or 1 \"Branded\" Spell/Trap from your Deck to the GY, except \"Bystial Saronir\"."
+            }
+          ],
+          "consumerText": "When a Spell/Trap Card, or monster effect, is activated that includes an effect that Special Summons a monster(s): Return to the Extra Deck, 1 face-up Fusion Monster you control, or 2 Fusion Monsters in your GY, that mention \"Fallen of Albaz\" as material, and if you do, negate the activation, and if you do that, destroy that card. You can banish this card from your GY, then target 1 \"Branded\" Spell/Trap in your GY, except \"Branded Retribution\"; add it to your hand. You can only use 1 \"Branded Retribution\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Chimera",
+          "target": "Gimmick Puppet",
+          "key": "gy_setup",
+          "provider": {
+            "id": 97520532,
+            "name": "Gimmick Puppet Chimera Doll"
+          },
+          "consumer": {
+            "id": 36436372,
+            "name": "Gimmick Puppet Little Soldiers"
+          },
+          "description": "Complementary GY setup mechanic: Gimmick Puppet Chimera Doll's printed send_to_gy effect can use Gimmick Puppet Little Soldiers, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Gimmick Puppet"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "During your Main Phase, if you control this Link Summoned card: You can activate this effect; you cannot Special Summon monsters from the Extra Deck for the rest of this turn, except Machine Xyz Monsters, also take 1 \"Gimmick Puppet\" monster from your Deck, and either add it to your hand or send it to the GY, then, if all monsters you control are \"Gimmick Puppet\" monsters (min."
+            }
+          ],
+          "consumerText": "If this card is Normal or Special Summoned: You can send 1 \"Gimmick Puppet\" monster with a different Level than this card from your Deck to the GY; this card's Level becomes that monster's. You can only use this effect of \"Gimmick Puppet Little Soldiers\" once per turn. You can banish this card from your GY, then target up to 2 \"Gimmick Puppet\" monsters you control; increase their Levels by 4 until the end of this turn."
+        },
+        {
+          "source": "Chimera",
+          "target": "Puppet",
+          "key": "gy_setup",
+          "provider": {
+            "id": 97520532,
+            "name": "Gimmick Puppet Chimera Doll"
+          },
+          "consumer": {
+            "id": 36436372,
+            "name": "Gimmick Puppet Little Soldiers"
+          },
+          "description": "Complementary GY setup mechanic: Gimmick Puppet Chimera Doll's printed send_to_gy effect can use Gimmick Puppet Little Soldiers, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Gimmick Puppet"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "During your Main Phase, if you control this Link Summoned card: You can activate this effect; you cannot Special Summon monsters from the Extra Deck for the rest of this turn, except Machine Xyz Monsters, also take 1 \"Gimmick Puppet\" monster from your Deck, and either add it to your hand or send it to the GY, then, if all monsters you control are \"Gimmick Puppet\" monsters (min."
+            }
+          ],
+          "consumerText": "If this card is Normal or Special Summoned: You can send 1 \"Gimmick Puppet\" monster with a different Level than this card from your Deck to the GY; this card's Level becomes that monster's. You can only use this effect of \"Gimmick Puppet Little Soldiers\" once per turn. You can banish this card from your GY, then target up to 2 \"Gimmick Puppet\" monsters you control; increase their Levels by 4 until the end of this turn."
+        },
+        {
+          "source": "Danger!",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 15083304,
+            "name": "Danger! Zone"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Danger! Zone's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Danger!",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 15083304,
+            "name": "Danger! Zone"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Danger! Zone's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Danger!",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 15083304,
+            "name": "Danger! Zone"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Danger! Zone's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Dark World",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 3167439,
+            "name": "Dark World Punishment"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Dark World Punishment's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Dark World",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 3167439,
+            "name": "Dark World Punishment"
+          },
+          "consumer": {
+            "id": 19439119,
+            "name": "Fabled Krus"
+          },
+          "description": "Complementary discard trigger mechanic: Dark World Punishment's printed discard effect can use Fabled Krus, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Dark World",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 6214884,
+            "name": "Brron, Mad King of Dark World"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Brron, Mad King of Dark World's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Dominus",
+          "target": "Labrynth",
+          "key": "trap_trigger",
+          "provider": {
+            "id": 6325660,
+            "name": "Dominus Spark"
+          },
+          "consumer": {
+            "id": 81497285,
+            "name": "Lady Labrynth of the Silver Castle"
+          },
+          "description": "Shared Normal Trap activation mechanic: activating Dominus Spark can feed Lady Labrynth of the Silver Castle's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+        },
+        {
+          "source": "Dominus",
+          "target": "Traptrix",
+          "key": "trap_trigger",
+          "provider": {
+            "id": 6325660,
+            "name": "Dominus Spark"
+          },
+          "consumer": {
+            "id": 73639099,
+            "name": "Traptrix Sera"
+          },
+          "description": "Shared Normal Trap activation mechanic: activating Dominus Spark can feed Traptrix Sera's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+        },
+        {
+          "source": "Fabled",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 9061682,
+            "name": "Fabled Andwraith"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Fabled Andwraith's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fabled",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 9061682,
+            "name": "Fabled Andwraith"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Fabled Andwraith's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fabled",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 9061682,
+            "name": "Fabled Andwraith"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Fabled Andwraith's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fiendsmith",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 98567237,
+            "name": "Fiendsmith's Tract"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Fiendsmith's Tract's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fiendsmith",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 98567237,
+            "name": "Fiendsmith's Tract"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Fiendsmith's Tract's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fiendsmith",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 98567237,
+            "name": "Fiendsmith's Tract"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Fiendsmith's Tract's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fiendsmith",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 98567237,
+            "name": "Fiendsmith's Tract"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Fiendsmith's Tract's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fishborg",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 57420265,
+            "name": "Fishborg Harpooner"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Fishborg Harpooner's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Goblin",
+          "target": "Memento",
+          "key": "gy_setup",
+          "provider": {
+            "id": 17943271,
+            "name": "Mementotlan Goblin"
+          },
+          "consumer": {
+            "id": 80722024,
+            "name": "Mementotlan Bone Party"
+          },
+          "description": "Complementary GY setup mechanic: Mementotlan Goblin's printed send_to_gy effect can use Mementotlan Bone Party, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Memento"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "During your Main Phase: You can destroy 1 \"Memento\" monster you control, and if you do, send up to 2 \"Memento\" cards with different names from each other from your Deck to the GY, except \"Mementotlan Goblin\"."
+            }
+          ],
+          "consumerText": "Destroy 1 \"Memento\" monster in your hand or face-up field, and if you do, take 1 \"Memento\" monster from your Deck with a different name, and either add it to your hand or Special Summon it in Defense Position. During your Main Phase: You can banish this card from your GY, then target 1 \"Memento\" monster you control; if it attacks a Defense Position monster this turn, inflict piercing battle damage to your opponent. You can only use each effect of \"Mementotlan Bone Party\" once per turn.\r\n\r\n* The above text is unofficial and describes the card's functionality in the OCG."
+        },
+        {
+          "source": "Gogogo",
+          "target": "Dododo",
+          "key": "gy_setup",
+          "provider": {
+            "id": 59911557,
+            "name": "Gogogo Goram"
+          },
+          "consumer": {
+            "id": 55088578,
+            "name": "Onomatokage"
+          },
+          "description": "Complementary GY setup mechanic: Gogogo Goram's printed send_to_gy effect can use Onomatokage, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Gogogo"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card on the field is destroyed and sent to the Graveyard: Send 1 \"Gogogo\" monster from your Deck to the Graveyard."
+            }
+          ],
+          "consumerText": "(This card is always treated as a \"Zubaba\", \"Gagaga\", \"Gogogo\", and \"Dododo\" card.)\r\nIf you control a \"Zubaba\", \"Gagaga\", \"Gogogo\", or \"Dododo\" monster and this card is in your hand or GY: You can Special Summon this card, but banish it when it leaves the field. You can banish this card from your GY; return up to 2 Xyz Monsters from your GY to the Extra Deck. You can only use each effect of \"Onomatokage\" once per turn."
+        },
+        {
+          "source": "Labrynth",
+          "target": "Traptrix",
+          "key": "trap_activation",
+          "provider": {
+            "id": 2511,
+            "name": "Labrynth Cooclock"
+          },
+          "consumer": {
+            "id": 73639099,
+            "name": "Traptrix Sera"
+          },
+          "description": "Shared Normal Trap activation/Set mechanic: Labrynth Cooclock permits Traptrix Trap Hole Nightmare to activate the turn it was Set; Traptrix Sera responds to Normal Trap activation. Printed conditions and once-per-turn limits still apply; both engines must be available."
+        },
+        {
+          "source": "Megalith",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29876299,
+            "name": "Megalith Anastasis"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Megalith Anastasis's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Megalith",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29876299,
+            "name": "Megalith Anastasis"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Megalith Anastasis's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Megalith",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29876299,
+            "name": "Megalith Anastasis"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Megalith Anastasis's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Megalith",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29876299,
+            "name": "Megalith Anastasis"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Megalith Anastasis's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "Knightmare",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 4055337,
+            "name": "Orcust Knightmare"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use Orcust Knightmare, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "Cannot be destroyed by battle with a Link Monster. You can banish this card from your GY, then target 1 face-up monster on the field; you cannot Special Summon monsters, except DARK monsters, for the rest of this turn, also send 1 DARK Machine monster from your Deck to the GY, except \"Orcust Knightmare\", and if you do, the targeted monster gains ATK equal to the Level of the monster sent to the GY x 100, until the end of this turn. You can only use this effect of \"Orcust Knightmare\" once per turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "Krawler",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 27705190,
+            "name": "World Legacy's Mind Meld"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy's Mind Meld, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When an opponent's monster activates its effect while you control a \"Krawler\" monster: The activated effect becomes \"return 1 face-up monster your opponent controls to the hand\". You can banish this card from your GY, then target 1 Link Monster on the field; Special Summon 1 \"Krawler\" monster from your hand, Deck, or GY to your zone the target points to, in face-down Defense Position. You can only use 1 \"World Legacy's Mind Meld\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "Orcust",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 703897,
+            "name": "Orcust Crescendo"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use Orcust Crescendo, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When a Spell/Trap Card, or monster effect, is activated while you control an \"Orcust\" Link Monster: Negate the activation, and if you do, banish that card. You can banish this card from your GY; add to your hand 1 of your DARK Machine monsters that is banished or in your Deck. You cannot Special Summon monsters the turn you activate this effect, except DARK Machine monsters. You can only use 1 \"Orcust Crescendo\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "World Chalice",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 57288708,
+            "name": "World Legacy - \"World Chalice\""
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy - \"World Chalice\", whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "If a monster(s) is Special Summoned from the Extra Deck (except during the Damage Step): You can Tribute this card; send that monster(s) to the GY. You can only use each of the following effects of \"World Legacy - \"World Chalice\"\" once per turn.\r\n● If this face-up Normal Summoned/Set card leaves the field: You can Special Summon 2 \"World Chalice\" monsters from your Deck, except \"World Legacy - \"World Chalice\"\".\r\n● During your Main Phase, except the turn this card was sent to the GY: You can banish this card from your GY; add 1 \"World Legacy\" card from your Deck to your hand."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "World Legacy",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 27705190,
+            "name": "World Legacy's Mind Meld"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy's Mind Meld, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When an opponent's monster activates its effect while you control a \"Krawler\" monster: The activated effect becomes \"return 1 face-up monster your opponent controls to the hand\". You can banish this card from your GY, then target 1 Link Monster on the field; Special Summon 1 \"Krawler\" monster from your hand, Deck, or GY to your zone the target points to, in face-down Defense Position. You can only use 1 \"World Legacy's Mind Meld\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Mermail",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 71133680,
+            "name": "Mermail Abyssnerei"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Mermail Abyssnerei's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Mermail",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 71133680,
+            "name": "Mermail Abyssnerei"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Mermail Abyssnerei's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Mermail",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 71133680,
+            "name": "Mermail Abyssnerei"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Mermail Abyssnerei's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Metalmorph",
+          "target": "Labrynth",
+          "key": "trap_trigger",
+          "provider": {
+            "id": 15216188,
+            "name": "Time Engine"
+          },
+          "consumer": {
+            "id": 81497285,
+            "name": "Lady Labrynth of the Silver Castle"
+          },
+          "description": "Shared Normal Trap activation mechanic: activating Time Engine can feed Lady Labrynth of the Silver Castle's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+        },
+        {
+          "source": "Metalmorph",
+          "target": "Traptrix",
+          "key": "trap_trigger",
+          "provider": {
+            "id": 15216188,
+            "name": "Time Engine"
+          },
+          "consumer": {
+            "id": 73639099,
+            "name": "Traptrix Sera"
+          },
+          "description": "Shared Normal Trap activation mechanic: activating Time Engine can feed Traptrix Sera's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+        },
+        {
+          "source": "Odd-Eyes",
+          "target": "Performapal",
+          "key": "gy_setup",
+          "provider": {
+            "id": 4836680,
+            "name": "Performapal Odd-Eyes Seer"
+          },
+          "consumer": {
+            "id": 58938528,
+            "name": "Performapal Ladyange"
+          },
+          "description": "Complementary GY setup mechanic: Performapal Odd-Eyes Seer's printed send_to_gy effect can use Performapal Ladyange, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [
+                  "pendulum"
+                ],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Performapal",
+                  "Odd-Eyes"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "● Defense Position: Take 1 \"Performapal\" or \"Odd-Eyes\" Pendulum Monster from your Deck, and either add it to your face-up Extra Deck or send it to the GY."
+            }
+          ],
+          "consumerText": "You can discard this card and 1 \"Performapal\" monster, except \"Performapal Ladyange\"; draw 2 cards. If this card is in your GY and you control an \"Odd-Eyes\" card or \"Performapal Gentrude\": You can place this card in your Pendulum Zone. You can only use 1 \"Performapal Ladyange\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Odion",
+          "target": "Labrynth",
+          "key": "trap_activation",
+          "provider": {
+            "id": 29762407,
+            "name": "Temple of the Kings"
+          },
+          "consumer": {
+            "id": 81497285,
+            "name": "Lady Labrynth of the Silver Castle"
+          },
+          "description": "Shared Normal Trap activation/Set mechanic: Temple of the Kings permits Welcome Labrynth to activate the turn it was Set; Lady Labrynth of the Silver Castle responds to Normal Trap activation. Printed conditions and once-per-turn limits still apply; both engines must be available."
+        },
+        {
+          "source": "Odion",
+          "target": "Traptrix",
+          "key": "trap_activation",
+          "provider": {
+            "id": 29762407,
+            "name": "Temple of the Kings"
+          },
+          "consumer": {
+            "id": 73639099,
+            "name": "Traptrix Sera"
+          },
+          "description": "Shared Normal Trap activation/Set mechanic: Temple of the Kings permits Traptrix Trap Hole Nightmare to activate the turn it was Set; Traptrix Sera responds to Normal Trap activation. Printed conditions and once-per-turn limits still apply; both engines must be available."
+        },
+        {
+          "source": "Orcust",
+          "target": "Krawler",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 27705190,
+            "name": "World Legacy's Mind Meld"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy's Mind Meld, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When an opponent's monster activates its effect while you control a \"Krawler\" monster: The activated effect becomes \"return 1 face-up monster your opponent controls to the hand\". You can banish this card from your GY, then target 1 Link Monster on the field; Special Summon 1 \"Krawler\" monster from your hand, Deck, or GY to your zone the target points to, in face-down Defense Position. You can only use 1 \"World Legacy's Mind Meld\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Orcust",
+          "target": "World Chalice",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 57288708,
+            "name": "World Legacy - \"World Chalice\""
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy - \"World Chalice\", whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "If a monster(s) is Special Summoned from the Extra Deck (except during the Damage Step): You can Tribute this card; send that monster(s) to the GY. You can only use each of the following effects of \"World Legacy - \"World Chalice\"\" once per turn.\r\n● If this face-up Normal Summoned/Set card leaves the field: You can Special Summon 2 \"World Chalice\" monsters from your Deck, except \"World Legacy - \"World Chalice\"\".\r\n● During your Main Phase, except the turn this card was sent to the GY: You can banish this card from your GY; add 1 \"World Legacy\" card from your Deck to your hand."
+        },
+        {
+          "source": "Orcust",
+          "target": "World Legacy",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 27705190,
+            "name": "World Legacy's Mind Meld"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy's Mind Meld, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When an opponent's monster activates its effect while you control a \"Krawler\" monster: The activated effect becomes \"return 1 face-up monster your opponent controls to the hand\". You can banish this card from your GY, then target 1 Link Monster on the field; Special Summon 1 \"Krawler\" monster from your hand, Deck, or GY to your zone the target points to, in face-down Defense Position. You can only use 1 \"World Legacy's Mind Meld\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Paleozoic",
+          "target": "Labrynth",
+          "key": "trap_trigger",
+          "provider": {
+            "id": 1154611,
+            "name": "Paleozoic Leanchoilia"
+          },
+          "consumer": {
+            "id": 81497285,
+            "name": "Lady Labrynth of the Silver Castle"
+          },
+          "description": "Shared Normal Trap activation mechanic: activating Paleozoic Leanchoilia can feed Lady Labrynth of the Silver Castle's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+        },
+        {
+          "source": "Paleozoic",
+          "target": "Traptrix",
+          "key": "trap_trigger",
+          "provider": {
+            "id": 1154611,
+            "name": "Paleozoic Leanchoilia"
+          },
+          "consumer": {
+            "id": 73639099,
+            "name": "Traptrix Sera"
+          },
+          "description": "Shared Normal Trap activation mechanic: activating Paleozoic Leanchoilia can feed Traptrix Sera's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+        },
+        {
+          "source": "Penguin",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 13241004,
+            "name": "Fluffal Penguin"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Fluffal Penguin's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Penguin",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 13241004,
+            "name": "Fluffal Penguin"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Fluffal Penguin's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Penguin",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 13241004,
+            "name": "Fluffal Penguin"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Fluffal Penguin's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Penguin",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 13241004,
+            "name": "Fluffal Penguin"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Fluffal Penguin's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Purrely",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29599813,
+            "name": "Purrely Pretty Memory"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Purrely Pretty Memory's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Purrely",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29599813,
+            "name": "Purrely Pretty Memory"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Purrely Pretty Memory's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Purrely",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29599813,
+            "name": "Purrely Pretty Memory"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Purrely Pretty Memory's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Purrely",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29599813,
+            "name": "Purrely Pretty Memory"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Purrely Pretty Memory's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Ragnaraika",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 4841383,
+            "name": "Ragnaraika Bloom"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Ragnaraika Bloom's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Ragnaraika",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 4841383,
+            "name": "Ragnaraika Bloom"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Ragnaraika Bloom's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Ragnaraika",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 4841383,
+            "name": "Ragnaraika Bloom"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Ragnaraika Bloom's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Ragnaraika",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 4841383,
+            "name": "Ragnaraika Bloom"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Ragnaraika Bloom's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Shark",
+          "target": "Scrap",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69155991,
+            "name": "Scrap Shark"
+          },
+          "consumer": {
+            "id": 67038874,
+            "name": "Scrap Mind Reader"
+          },
+          "description": "Complementary GY setup mechanic: Scrap Shark's printed send_to_gy effect can use Scrap Mind Reader, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Scrap"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is destroyed by the effect of a \"Scrap\" card and sent to the Graveyard, you can send 1 \"Scrap\" monster from your Deck to the Graveyard."
+            }
+          ],
+          "consumerText": "Once per turn, while this card is in your Graveyard during your Main Phase 2, you can select 1 face-up \"Scrap\" monster you control, except \"Scrap Mind Reader\". Destroy that monster and Special Summon this card from the Graveyard. If you do, remove this card from play when it is removed from the field. If this card is used as a Synchro Material Monster, all other Synchro Material Monsters must be \"Scrap\" monsters."
+        },
+        {
+          "source": "Synchron",
+          "target": "Speedroid",
+          "key": "gy_setup",
+          "provider": {
+            "id": 2254222,
+            "name": "Speedroid Wing Synchron"
+          },
+          "consumer": {
+            "id": 58543073,
+            "name": "Speedroid Dupligate"
+          },
+          "description": "Complementary GY setup mechanic: Speedroid Wing Synchron's printed send_to_gy effect can use Speedroid Dupligate, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "spell",
+                  "trap"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Speedroid"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is added to your Extra Deck face-up, and you control 2 or more different Types of WIND Synchro Monsters: You can send 1 \"Speedroid\" Spell/Trap from your Deck to the GY."
+            }
+          ],
+          "consumerText": "Banish 1 WIND monster from your GY, then target 1 card your opponent controls; return it to the hand. During your Main Phase, if this card is in your GY: You can target 1 Level 2 or higher \"Speedroid\" monster you control; reduce its Level by 1, and if you do, Special Summon this card as a Normal Monster (Machine/Tuner/WIND/Level 1/ATK 0/DEF 0). (This card is NOT treated as a Trap.) You can only use this effect of \"Speedroid Dupligate\" once per Duel."
+        },
+        {
+          "source": "Voiceless Voice",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 10804018,
+            "name": "Saffira, Divine Dragon of the Voiceless Voice"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Saffira, Divine Dragon of the Voiceless Voice's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Voiceless Voice",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 10804018,
+            "name": "Saffira, Divine Dragon of the Voiceless Voice"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Saffira, Divine Dragon of the Voiceless Voice's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Voiceless Voice",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 10804018,
+            "name": "Saffira, Divine Dragon of the Voiceless Voice"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Saffira, Divine Dragon of the Voiceless Voice's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Voiceless Voice",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 10804018,
+            "name": "Saffira, Divine Dragon of the Voiceless Voice"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Saffira, Divine Dragon of the Voiceless Voice's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Void",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 60830240,
+            "name": "Void Reignition"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Void Reignition's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Void",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 60830240,
+            "name": "Void Reignition"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Void Reignition's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Void",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 60830240,
+            "name": "Void Reignition"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Void Reignition's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Void",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 60830240,
+            "name": "Void Reignition"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Void Reignition's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "WAKE CUP!",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 6361316,
+            "name": "WAKE CUP! Kuro"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: WAKE CUP! Kuro's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "WAKE CUP!",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 6361316,
+            "name": "WAKE CUP! Kuro"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: WAKE CUP! Kuro's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "WAKE CUP!",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 6361316,
+            "name": "WAKE CUP! Kuro"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: WAKE CUP! Kuro's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "WAKE CUP!",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 6361316,
+            "name": "WAKE CUP! Kuro"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: WAKE CUP! Kuro's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        }
+      ]
+    },
+    "genesys": {
+      "groups": 453,
+      "directedPairs": 204756,
+      "elapsedMs": 9780,
+      "total": 73,
+      "counts": {
+        "gy_setup": 14,
+        "trap_trigger": 4,
+        "discard_trigger": 54,
+        "trap_activation": 1
+      },
+      "fiendsmithLabrynth": null,
+      "templeLabrynth": "Shared Normal Trap activation/Set mechanic: Temple of the Kings permits Welcome Labrynth to activate the turn it was Set; Lady Labrynth of the Silver Castle responds to Normal Trap activation. Printed conditions and once-per-turn limits still apply; both engines must be available.",
+      "gySamples": [
+        {
+          "source": "Atlantean",
+          "target": "Mermail",
+          "key": "gy_setup",
+          "provider": {
+            "id": 99193444,
+            "name": "Poseidra, the Storming Atlantean"
+          },
+          "consumer": {
+            "id": 21767650,
+            "name": "Mermail Abyssmander"
+          },
+          "description": "Complementary GY setup mechanic: Poseidra, the Storming Atlantean's printed send_to_gy effect can use Mermail Abyssmander, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Atlantean",
+                  "Mermail"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Atlantean\" or \"Mermail\" monster from your Deck to the GY, then target 1 card your opponent controls; return it to the hand."
+            }
+          ],
+          "consumerText": "You can banish this card from your Graveyard to activate 1 of these effects;\r\n● Increase the Levels of all \"Mermail\" monsters you currently control by 1.\r\n● Increase the Levels of all \"Mermail\" monsters you currently control by 2."
+        },
+        {
+          "source": "Bystial",
+          "target": "Branded",
+          "key": "gy_setup",
+          "provider": {
+            "id": 60242223,
+            "name": "Bystial Saronir"
+          },
+          "consumer": {
+            "id": 17751597,
+            "name": "Branded Retribution"
+          },
+          "description": "Complementary GY setup mechanic: Bystial Saronir's printed send_to_gy effect can use Branded Retribution, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Bystial",
+                  "Branded"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is sent to the GY: You can send 1 \"Bystial\" monster or 1 \"Branded\" Spell/Trap from your Deck to the GY, except \"Bystial Saronir\"."
+            }
+          ],
+          "consumerText": "When a Spell/Trap Card, or monster effect, is activated that includes an effect that Special Summons a monster(s): Return to the Extra Deck, 1 face-up Fusion Monster you control, or 2 Fusion Monsters in your GY, that mention \"Fallen of Albaz\" as material, and if you do, negate the activation, and if you do that, destroy that card. You can banish this card from your GY, then target 1 \"Branded\" Spell/Trap in your GY, except \"Branded Retribution\"; add it to your hand. You can only use 1 \"Branded Retribution\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Diabell",
+          "target": "Snake-Eye",
+          "key": "gy_setup",
+          "provider": {
+            "id": 60145298,
+            "name": "Diabellze the White Witch"
+          },
+          "consumer": {
+            "id": 89023486,
+            "name": "Original Sinful Spoils - Snake-Eye"
+          },
+          "description": "Complementary GY setup mechanic: Diabellze the White Witch's printed send_to_gy effect can use Original Sinful Spoils - Snake-Eye, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Sinful Spoils",
+                  "Diabell"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Sinful Spoils\" or \"Diabell\" card from your Deck to the GY."
+            }
+          ],
+          "consumerText": "Send 1 other face-up card you control to the GY; Special Summon 1 Level 1 FIRE monster from your hand or Deck. You can banish this card from your GY, then target 1 \"Snake-Eye\" or \"Diabellstar\" monster in your GY; add 1 Level 1 FIRE monster from your Deck to your hand, then place the targeted monster on the bottom of the Deck. You can only use 1 \"Original Sinful Spoils - Snake-Eye\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Goblin",
+          "target": "Memento",
+          "key": "gy_setup",
+          "provider": {
+            "id": 17943271,
+            "name": "Mementotlan Goblin"
+          },
+          "consumer": {
+            "id": 80722024,
+            "name": "Mementotlan Bone Party"
+          },
+          "description": "Complementary GY setup mechanic: Mementotlan Goblin's printed send_to_gy effect can use Mementotlan Bone Party, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Memento"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "During your Main Phase: You can destroy 1 \"Memento\" monster you control, and if you do, send up to 2 \"Memento\" cards with different names from each other from your Deck to the GY, except \"Mementotlan Goblin\"."
+            }
+          ],
+          "consumerText": "Destroy 1 \"Memento\" monster in your hand or face-up field, and if you do, take 1 \"Memento\" monster from your Deck with a different name, and either add it to your hand or Special Summon it in Defense Position. During your Main Phase: You can banish this card from your GY, then target 1 \"Memento\" monster you control; if it attacks a Defense Position monster this turn, inflict piercing battle damage to your opponent. You can only use each effect of \"Mementotlan Bone Party\" once per turn.\r\n\r\n* The above text is unofficial and describes the card's functionality in the OCG."
+        },
+        {
+          "source": "Gogogo",
+          "target": "Dododo",
+          "key": "gy_setup",
+          "provider": {
+            "id": 59911557,
+            "name": "Gogogo Goram"
+          },
+          "consumer": {
+            "id": 55088578,
+            "name": "Onomatokage"
+          },
+          "description": "Complementary GY setup mechanic: Gogogo Goram's printed send_to_gy effect can use Onomatokage, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Gogogo"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card on the field is destroyed and sent to the Graveyard: Send 1 \"Gogogo\" monster from your Deck to the Graveyard."
+            }
+          ],
+          "consumerText": "(This card is always treated as a \"Zubaba\", \"Gagaga\", \"Gogogo\", and \"Dododo\" card.)\r\nIf you control a \"Zubaba\", \"Gagaga\", \"Gogogo\", or \"Dododo\" monster and this card is in your hand or GY: You can Special Summon this card, but banish it when it leaves the field. You can banish this card from your GY; return up to 2 Xyz Monsters from your GY to the Extra Deck. You can only use each effect of \"Onomatokage\" once per turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "Knightmare",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 4055337,
+            "name": "Orcust Knightmare"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use Orcust Knightmare, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "Cannot be destroyed by battle with a Link Monster. You can banish this card from your GY, then target 1 face-up monster on the field; you cannot Special Summon monsters, except DARK monsters, for the rest of this turn, also send 1 DARK Machine monster from your Deck to the GY, except \"Orcust Knightmare\", and if you do, the targeted monster gains ATK equal to the Level of the monster sent to the GY x 100, until the end of this turn. You can only use this effect of \"Orcust Knightmare\" once per turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "Krawler",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 27705190,
+            "name": "World Legacy's Mind Meld"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy's Mind Meld, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When an opponent's monster activates its effect while you control a \"Krawler\" monster: The activated effect becomes \"return 1 face-up monster your opponent controls to the hand\". You can banish this card from your GY, then target 1 Link Monster on the field; Special Summon 1 \"Krawler\" monster from your hand, Deck, or GY to your zone the target points to, in face-down Defense Position. You can only use 1 \"World Legacy's Mind Meld\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "Orcust",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 703897,
+            "name": "Orcust Crescendo"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use Orcust Crescendo, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When a Spell/Trap Card, or monster effect, is activated while you control an \"Orcust\" Link Monster: Negate the activation, and if you do, banish that card. You can banish this card from your GY; add to your hand 1 of your DARK Machine monsters that is banished or in your Deck. You cannot Special Summon monsters the turn you activate this effect, except DARK Machine monsters. You can only use 1 \"Orcust Crescendo\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "World Chalice",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 57288708,
+            "name": "World Legacy - \"World Chalice\""
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy - \"World Chalice\", whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "If a monster(s) is Special Summoned from the Extra Deck (except during the Damage Step): You can Tribute this card; send that monster(s) to the GY. You can only use each of the following effects of \"World Legacy - \"World Chalice\"\" once per turn.\r\n● If this face-up Normal Summoned/Set card leaves the field: You can Special Summon 2 \"World Chalice\" monsters from your Deck, except \"World Legacy - \"World Chalice\"\".\r\n● During your Main Phase, except the turn this card was sent to the GY: You can banish this card from your GY; add 1 \"World Legacy\" card from your Deck to your hand."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "World Legacy",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 27705190,
+            "name": "World Legacy's Mind Meld"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy's Mind Meld, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When an opponent's monster activates its effect while you control a \"Krawler\" monster: The activated effect becomes \"return 1 face-up monster your opponent controls to the hand\". You can banish this card from your GY, then target 1 Link Monster on the field; Special Summon 1 \"Krawler\" monster from your hand, Deck, or GY to your zone the target points to, in face-down Defense Position. You can only use 1 \"World Legacy's Mind Meld\" effect per turn, and only once that turn."
+        }
+      ],
+      "rows": [
+        {
+          "source": "Atlantean",
+          "target": "Mermail",
+          "key": "gy_setup",
+          "provider": {
+            "id": 99193444,
+            "name": "Poseidra, the Storming Atlantean"
+          },
+          "consumer": {
+            "id": 21767650,
+            "name": "Mermail Abyssmander"
+          },
+          "description": "Complementary GY setup mechanic: Poseidra, the Storming Atlantean's printed send_to_gy effect can use Mermail Abyssmander, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Atlantean",
+                  "Mermail"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Atlantean\" or \"Mermail\" monster from your Deck to the GY, then target 1 card your opponent controls; return it to the hand."
+            }
+          ],
+          "consumerText": "You can banish this card from your Graveyard to activate 1 of these effects;\r\n● Increase the Levels of all \"Mermail\" monsters you currently control by 1.\r\n● Increase the Levels of all \"Mermail\" monsters you currently control by 2."
+        },
+        {
+          "source": "Attraction",
+          "target": "Labrynth",
+          "key": "trap_trigger",
+          "provider": {
+            "id": 29867611,
+            "name": "Amaze Attraction Majestic Merry-Go-Round"
+          },
+          "consumer": {
+            "id": 81497285,
+            "name": "Lady Labrynth of the Silver Castle"
+          },
+          "description": "Shared Normal Trap activation mechanic: activating Amaze Attraction Majestic Merry-Go-Round can feed Lady Labrynth of the Silver Castle's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+        },
+        {
+          "source": "Bystial",
+          "target": "Branded",
+          "key": "gy_setup",
+          "provider": {
+            "id": 60242223,
+            "name": "Bystial Saronir"
+          },
+          "consumer": {
+            "id": 17751597,
+            "name": "Branded Retribution"
+          },
+          "description": "Complementary GY setup mechanic: Bystial Saronir's printed send_to_gy effect can use Branded Retribution, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Bystial",
+                  "Branded"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is sent to the GY: You can send 1 \"Bystial\" monster or 1 \"Branded\" Spell/Trap from your Deck to the GY, except \"Bystial Saronir\"."
+            }
+          ],
+          "consumerText": "When a Spell/Trap Card, or monster effect, is activated that includes an effect that Special Summons a monster(s): Return to the Extra Deck, 1 face-up Fusion Monster you control, or 2 Fusion Monsters in your GY, that mention \"Fallen of Albaz\" as material, and if you do, negate the activation, and if you do that, destroy that card. You can banish this card from your GY, then target 1 \"Branded\" Spell/Trap in your GY, except \"Branded Retribution\"; add it to your hand. You can only use 1 \"Branded Retribution\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Clear",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 33900648,
+            "name": "Clear World"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Clear World's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Danger!",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 15083304,
+            "name": "Danger! Zone"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Danger! Zone's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Danger!",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 15083304,
+            "name": "Danger! Zone"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Danger! Zone's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Danger!",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 15083304,
+            "name": "Danger! Zone"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Danger! Zone's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Dark World",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 3167439,
+            "name": "Dark World Punishment"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Dark World Punishment's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Dark World",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 3167439,
+            "name": "Dark World Punishment"
+          },
+          "consumer": {
+            "id": 19439119,
+            "name": "Fabled Krus"
+          },
+          "description": "Complementary discard trigger mechanic: Dark World Punishment's printed discard effect can use Fabled Krus, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Dark World",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 6214884,
+            "name": "Brron, Mad King of Dark World"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Brron, Mad King of Dark World's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Diabell",
+          "target": "Snake-Eye",
+          "key": "gy_setup",
+          "provider": {
+            "id": 60145298,
+            "name": "Diabellze the White Witch"
+          },
+          "consumer": {
+            "id": 89023486,
+            "name": "Original Sinful Spoils - Snake-Eye"
+          },
+          "description": "Complementary GY setup mechanic: Diabellze the White Witch's printed send_to_gy effect can use Original Sinful Spoils - Snake-Eye, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Sinful Spoils",
+                  "Diabell"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Sinful Spoils\" or \"Diabell\" card from your Deck to the GY."
+            }
+          ],
+          "consumerText": "Send 1 other face-up card you control to the GY; Special Summon 1 Level 1 FIRE monster from your hand or Deck. You can banish this card from your GY, then target 1 \"Snake-Eye\" or \"Diabellstar\" monster in your GY; add 1 Level 1 FIRE monster from your Deck to your hand, then place the targeted monster on the bottom of the Deck. You can only use 1 \"Original Sinful Spoils - Snake-Eye\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Dominus",
+          "target": "Labrynth",
+          "key": "trap_trigger",
+          "provider": {
+            "id": 6325660,
+            "name": "Dominus Spark"
+          },
+          "consumer": {
+            "id": 81497285,
+            "name": "Lady Labrynth of the Silver Castle"
+          },
+          "description": "Shared Normal Trap activation mechanic: activating Dominus Spark can feed Lady Labrynth of the Silver Castle's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+        },
+        {
+          "source": "Fabled",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 9061682,
+            "name": "Fabled Andwraith"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Fabled Andwraith's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fabled",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 9061682,
+            "name": "Fabled Andwraith"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Fabled Andwraith's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fabled",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 9061682,
+            "name": "Fabled Andwraith"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Fabled Andwraith's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fiendsmith",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 98567237,
+            "name": "Fiendsmith's Tract"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Fiendsmith's Tract's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fiendsmith",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 98567237,
+            "name": "Fiendsmith's Tract"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Fiendsmith's Tract's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fiendsmith",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 98567237,
+            "name": "Fiendsmith's Tract"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Fiendsmith's Tract's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fiendsmith",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 98567237,
+            "name": "Fiendsmith's Tract"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Fiendsmith's Tract's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fishborg",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 57420265,
+            "name": "Fishborg Harpooner"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Fishborg Harpooner's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fur Hire",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 26162470,
+            "name": "Fandora, the Flying Fighting Furtress"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Fandora, the Flying Fighting Furtress's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fur Hire",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 26162470,
+            "name": "Fandora, the Flying Fighting Furtress"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Fandora, the Flying Fighting Furtress's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fur Hire",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 26162470,
+            "name": "Fandora, the Flying Fighting Furtress"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Fandora, the Flying Fighting Furtress's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Fur Hire",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 26162470,
+            "name": "Fandora, the Flying Fighting Furtress"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Fandora, the Flying Fighting Furtress's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Goblin",
+          "target": "Memento",
+          "key": "gy_setup",
+          "provider": {
+            "id": 17943271,
+            "name": "Mementotlan Goblin"
+          },
+          "consumer": {
+            "id": 80722024,
+            "name": "Mementotlan Bone Party"
+          },
+          "description": "Complementary GY setup mechanic: Mementotlan Goblin's printed send_to_gy effect can use Mementotlan Bone Party, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Memento"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "During your Main Phase: You can destroy 1 \"Memento\" monster you control, and if you do, send up to 2 \"Memento\" cards with different names from each other from your Deck to the GY, except \"Mementotlan Goblin\"."
+            }
+          ],
+          "consumerText": "Destroy 1 \"Memento\" monster in your hand or face-up field, and if you do, take 1 \"Memento\" monster from your Deck with a different name, and either add it to your hand or Special Summon it in Defense Position. During your Main Phase: You can banish this card from your GY, then target 1 \"Memento\" monster you control; if it attacks a Defense Position monster this turn, inflict piercing battle damage to your opponent. You can only use each effect of \"Mementotlan Bone Party\" once per turn.\r\n\r\n* The above text is unofficial and describes the card's functionality in the OCG."
+        },
+        {
+          "source": "Gogogo",
+          "target": "Dododo",
+          "key": "gy_setup",
+          "provider": {
+            "id": 59911557,
+            "name": "Gogogo Goram"
+          },
+          "consumer": {
+            "id": 55088578,
+            "name": "Onomatokage"
+          },
+          "description": "Complementary GY setup mechanic: Gogogo Goram's printed send_to_gy effect can use Onomatokage, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Gogogo"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card on the field is destroyed and sent to the Graveyard: Send 1 \"Gogogo\" monster from your Deck to the Graveyard."
+            }
+          ],
+          "consumerText": "(This card is always treated as a \"Zubaba\", \"Gagaga\", \"Gogogo\", and \"Dododo\" card.)\r\nIf you control a \"Zubaba\", \"Gagaga\", \"Gogogo\", or \"Dododo\" monster and this card is in your hand or GY: You can Special Summon this card, but banish it when it leaves the field. You can banish this card from your GY; return up to 2 Xyz Monsters from your GY to the Extra Deck. You can only use each effect of \"Onomatokage\" once per turn."
+        },
+        {
+          "source": "Megalith",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29876299,
+            "name": "Megalith Anastasis"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Megalith Anastasis's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Megalith",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29876299,
+            "name": "Megalith Anastasis"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Megalith Anastasis's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Megalith",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29876299,
+            "name": "Megalith Anastasis"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Megalith Anastasis's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Megalith",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29876299,
+            "name": "Megalith Anastasis"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Megalith Anastasis's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "Knightmare",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 4055337,
+            "name": "Orcust Knightmare"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use Orcust Knightmare, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "Cannot be destroyed by battle with a Link Monster. You can banish this card from your GY, then target 1 face-up monster on the field; you cannot Special Summon monsters, except DARK monsters, for the rest of this turn, also send 1 DARK Machine monster from your Deck to the GY, except \"Orcust Knightmare\", and if you do, the targeted monster gains ATK equal to the Level of the monster sent to the GY x 100, until the end of this turn. You can only use this effect of \"Orcust Knightmare\" once per turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "Krawler",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 27705190,
+            "name": "World Legacy's Mind Meld"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy's Mind Meld, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When an opponent's monster activates its effect while you control a \"Krawler\" monster: The activated effect becomes \"return 1 face-up monster your opponent controls to the hand\". You can banish this card from your GY, then target 1 Link Monster on the field; Special Summon 1 \"Krawler\" monster from your hand, Deck, or GY to your zone the target points to, in face-down Defense Position. You can only use 1 \"World Legacy's Mind Meld\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "Orcust",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 703897,
+            "name": "Orcust Crescendo"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use Orcust Crescendo, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When a Spell/Trap Card, or monster effect, is activated while you control an \"Orcust\" Link Monster: Negate the activation, and if you do, banish that card. You can banish this card from your GY; add to your hand 1 of your DARK Machine monsters that is banished or in your Deck. You cannot Special Summon monsters the turn you activate this effect, except DARK Machine monsters. You can only use 1 \"Orcust Crescendo\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "World Chalice",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 57288708,
+            "name": "World Legacy - \"World Chalice\""
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy - \"World Chalice\", whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "If a monster(s) is Special Summoned from the Extra Deck (except during the Damage Step): You can Tribute this card; send that monster(s) to the GY. You can only use each of the following effects of \"World Legacy - \"World Chalice\"\" once per turn.\r\n● If this face-up Normal Summoned/Set card leaves the field: You can Special Summon 2 \"World Chalice\" monsters from your Deck, except \"World Legacy - \"World Chalice\"\".\r\n● During your Main Phase, except the turn this card was sent to the GY: You can banish this card from your GY; add 1 \"World Legacy\" card from your Deck to your hand."
+        },
+        {
+          "source": "Mekk-Knight",
+          "target": "World Legacy",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 27705190,
+            "name": "World Legacy's Mind Meld"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy's Mind Meld, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When an opponent's monster activates its effect while you control a \"Krawler\" monster: The activated effect becomes \"return 1 face-up monster your opponent controls to the hand\". You can banish this card from your GY, then target 1 Link Monster on the field; Special Summon 1 \"Krawler\" monster from your hand, Deck, or GY to your zone the target points to, in face-down Defense Position. You can only use 1 \"World Legacy's Mind Meld\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Mermail",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 71133680,
+            "name": "Mermail Abyssnerei"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Mermail Abyssnerei's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Mermail",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 71133680,
+            "name": "Mermail Abyssnerei"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Mermail Abyssnerei's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Mermail",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 71133680,
+            "name": "Mermail Abyssnerei"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Mermail Abyssnerei's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Metalmorph",
+          "target": "Labrynth",
+          "key": "trap_trigger",
+          "provider": {
+            "id": 15216188,
+            "name": "Time Engine"
+          },
+          "consumer": {
+            "id": 81497285,
+            "name": "Lady Labrynth of the Silver Castle"
+          },
+          "description": "Shared Normal Trap activation mechanic: activating Time Engine can feed Lady Labrynth of the Silver Castle's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+        },
+        {
+          "source": "Odion",
+          "target": "Labrynth",
+          "key": "trap_activation",
+          "provider": {
+            "id": 29762407,
+            "name": "Temple of the Kings"
+          },
+          "consumer": {
+            "id": 81497285,
+            "name": "Lady Labrynth of the Silver Castle"
+          },
+          "description": "Shared Normal Trap activation/Set mechanic: Temple of the Kings permits Welcome Labrynth to activate the turn it was Set; Lady Labrynth of the Silver Castle responds to Normal Trap activation. Printed conditions and once-per-turn limits still apply; both engines must be available."
+        },
+        {
+          "source": "Orcust",
+          "target": "Krawler",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 27705190,
+            "name": "World Legacy's Mind Meld"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy's Mind Meld, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When an opponent's monster activates its effect while you control a \"Krawler\" monster: The activated effect becomes \"return 1 face-up monster your opponent controls to the hand\". You can banish this card from your GY, then target 1 Link Monster on the field; Special Summon 1 \"Krawler\" monster from your hand, Deck, or GY to your zone the target points to, in face-down Defense Position. You can only use 1 \"World Legacy's Mind Meld\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Orcust",
+          "target": "World Chalice",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 57288708,
+            "name": "World Legacy - \"World Chalice\""
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy - \"World Chalice\", whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "If a monster(s) is Special Summoned from the Extra Deck (except during the Damage Step): You can Tribute this card; send that monster(s) to the GY. You can only use each of the following effects of \"World Legacy - \"World Chalice\"\" once per turn.\r\n● If this face-up Normal Summoned/Set card leaves the field: You can Special Summon 2 \"World Chalice\" monsters from your Deck, except \"World Legacy - \"World Chalice\"\".\r\n● During your Main Phase, except the turn this card was sent to the GY: You can banish this card from your GY; add 1 \"World Legacy\" card from your Deck to your hand."
+        },
+        {
+          "source": "Orcust",
+          "target": "World Legacy",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69811710,
+            "name": "Girsu, the Orcust Mekk-Knight"
+          },
+          "consumer": {
+            "id": 27705190,
+            "name": "World Legacy's Mind Meld"
+          },
+          "description": "Complementary GY setup mechanic: Girsu, the Orcust Mekk-Knight's printed send_to_gy effect can use World Legacy's Mind Meld, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Orcust",
+                  "World Legacy"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is Normal or Special Summoned: You can send 1 \"Orcust\" or \"World Legacy\" card from your Deck to the GY, then, if there are 2 or more other cards in this card's column, treat this card as a Tuner this turn."
+            }
+          ],
+          "consumerText": "When an opponent's monster activates its effect while you control a \"Krawler\" monster: The activated effect becomes \"return 1 face-up monster your opponent controls to the hand\". You can banish this card from your GY, then target 1 Link Monster on the field; Special Summon 1 \"Krawler\" monster from your hand, Deck, or GY to your zone the target points to, in face-down Defense Position. You can only use 1 \"World Legacy's Mind Meld\" effect per turn, and only once that turn."
+        },
+        {
+          "source": "Paleozoic",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 38761908,
+            "name": "Paleozoic Dinomischus"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Paleozoic Dinomischus's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Paleozoic",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 38761908,
+            "name": "Paleozoic Dinomischus"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Paleozoic Dinomischus's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Paleozoic",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 38761908,
+            "name": "Paleozoic Dinomischus"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Paleozoic Dinomischus's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Paleozoic",
+          "target": "Labrynth",
+          "key": "trap_trigger",
+          "provider": {
+            "id": 1154611,
+            "name": "Paleozoic Leanchoilia"
+          },
+          "consumer": {
+            "id": 81497285,
+            "name": "Lady Labrynth of the Silver Castle"
+          },
+          "description": "Shared Normal Trap activation mechanic: activating Paleozoic Leanchoilia can feed Lady Labrynth of the Silver Castle's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+        },
+        {
+          "source": "Paleozoic",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 38761908,
+            "name": "Paleozoic Dinomischus"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Paleozoic Dinomischus's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Penguin",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 13241004,
+            "name": "Fluffal Penguin"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Fluffal Penguin's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Penguin",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 13241004,
+            "name": "Fluffal Penguin"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Fluffal Penguin's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Penguin",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 13241004,
+            "name": "Fluffal Penguin"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Fluffal Penguin's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Penguin",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 13241004,
+            "name": "Fluffal Penguin"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Fluffal Penguin's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Purrely",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29599813,
+            "name": "Purrely Pretty Memory"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Purrely Pretty Memory's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Purrely",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29599813,
+            "name": "Purrely Pretty Memory"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Purrely Pretty Memory's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Purrely",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29599813,
+            "name": "Purrely Pretty Memory"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Purrely Pretty Memory's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Purrely",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 29599813,
+            "name": "Purrely Pretty Memory"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Purrely Pretty Memory's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Ragnaraika",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 4841383,
+            "name": "Ragnaraika Bloom"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Ragnaraika Bloom's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Ragnaraika",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 4841383,
+            "name": "Ragnaraika Bloom"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Ragnaraika Bloom's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Ragnaraika",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 4841383,
+            "name": "Ragnaraika Bloom"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Ragnaraika Bloom's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Ragnaraika",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 4841383,
+            "name": "Ragnaraika Bloom"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Ragnaraika Bloom's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Shark",
+          "target": "Scrap",
+          "key": "gy_setup",
+          "provider": {
+            "id": 69155991,
+            "name": "Scrap Shark"
+          },
+          "consumer": {
+            "id": 67038874,
+            "name": "Scrap Mind Reader"
+          },
+          "description": "Complementary GY setup mechanic: Scrap Shark's printed send_to_gy effect can use Scrap Mind Reader, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply.",
+          "providerClauses": [
+            {
+              "filter": {
+                "this_card": false,
+                "kinds": [
+                  "monster"
+                ],
+                "subtypes": [],
+                "types": [],
+                "attributes": [],
+                "archetypes": [
+                  "Scrap"
+                ],
+                "names": [],
+                "level_min": 0,
+                "level_max": 0,
+                "other": ""
+              },
+              "from": [
+                "deck"
+              ],
+              "evidence": "If this card is destroyed by the effect of a \"Scrap\" card and sent to the Graveyard, you can send 1 \"Scrap\" monster from your Deck to the Graveyard."
+            }
+          ],
+          "consumerText": "Once per turn, while this card is in your Graveyard during your Main Phase 2, you can select 1 face-up \"Scrap\" monster you control, except \"Scrap Mind Reader\". Destroy that monster and Special Summon this card from the Graveyard. If you do, remove this card from play when it is removed from the field. If this card is used as a Synchro Material Monster, all other Synchro Material Monsters must be \"Scrap\" monsters."
+        },
+        {
+          "source": "Voiceless Voice",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 10804018,
+            "name": "Saffira, Divine Dragon of the Voiceless Voice"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Saffira, Divine Dragon of the Voiceless Voice's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Voiceless Voice",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 10804018,
+            "name": "Saffira, Divine Dragon of the Voiceless Voice"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Saffira, Divine Dragon of the Voiceless Voice's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Voiceless Voice",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 10804018,
+            "name": "Saffira, Divine Dragon of the Voiceless Voice"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Saffira, Divine Dragon of the Voiceless Voice's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Voiceless Voice",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 10804018,
+            "name": "Saffira, Divine Dragon of the Voiceless Voice"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Saffira, Divine Dragon of the Voiceless Voice's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Void",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 60830240,
+            "name": "Void Reignition"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: Void Reignition's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Void",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 60830240,
+            "name": "Void Reignition"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: Void Reignition's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Void",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 60830240,
+            "name": "Void Reignition"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: Void Reignition's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "Void",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 60830240,
+            "name": "Void Reignition"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: Void Reignition's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "WAKE CUP!",
+          "target": "Danger!",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 6361316,
+            "name": "WAKE CUP! Kuro"
+          },
+          "consumer": {
+            "id": 16209941,
+            "name": "Danger! Chupacabra!"
+          },
+          "description": "Complementary discard trigger mechanic: WAKE CUP! Kuro's printed discard effect can use Danger! Chupacabra!, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "WAKE CUP!",
+          "target": "Dark World",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 6361316,
+            "name": "WAKE CUP! Kuro"
+          },
+          "consumer": {
+            "id": 3289027,
+            "name": "Parl, Hermit of Dark World"
+          },
+          "description": "Complementary discard trigger mechanic: WAKE CUP! Kuro's printed discard effect can use Parl, Hermit of Dark World, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "WAKE CUP!",
+          "target": "Fabled",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 6361316,
+            "name": "WAKE CUP! Kuro"
+          },
+          "consumer": {
+            "id": 18282103,
+            "name": "The Fabled Ganashia"
+          },
+          "description": "Complementary discard trigger mechanic: WAKE CUP! Kuro's printed discard effect can use The Fabled Ganashia, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        },
+        {
+          "source": "WAKE CUP!",
+          "target": "Mermail",
+          "key": "discard_trigger",
+          "provider": {
+            "id": 6361316,
+            "name": "WAKE CUP! Kuro"
+          },
+          "consumer": {
+            "id": 69293721,
+            "name": "Mermail Abyssgunde"
+          },
+          "description": "Complementary discard trigger mechanic: WAKE CUP! Kuro's printed discard effect can use Mermail Abyssgunde, whose printed discard trigger supplies the payoff. All printed costs, zones, locks and timing apply."
+        }
+      ]
+    }
+  }
+}
