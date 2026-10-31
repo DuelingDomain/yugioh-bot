@@ -63,6 +63,7 @@ import { EditorTabList } from "./editor-tab-list";
 import { EDITOR_TAB_ORDER, readLastTab, rememberTab, shownTab, type ColumnTab, type EditorTab } from "./editor-tabs";
 import type { BrowserSuggest } from "./suggestions-panel";
 import { CardBottomSheet } from "./card-bottom-sheet";
+import { DOMAIN_ONE_COPY, copiesText, planCardAdds, type CardAdder } from "./card-adder";
 import { CardPreview } from "./card-preview";
 import { DeckSegmented, DeckSelect } from "./controls";
 import { useCopyYdke } from "./copy-ydke";
@@ -202,12 +203,6 @@ function draftDeckName(draftName: string): string {
   return `${draftName.trim() || "Draft"} deck`.slice(0, MAX_NAME_LENGTH);
 }
 
-const DOMAIN_ONE_COPY = "Domain decks hold one copy of each card.";
-
-function copiesText(max: number): string {
-  if (max === 0) return "is Forbidden";
-  return `allows ${max} ${max === 1 ? "copy" : "copies"}`;
-}
 
 /**
  * The deck editor. With `pool` it edits the player's draft deck: the card list holds only the pool,
@@ -298,7 +293,8 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   const [bridgesDot, setBridgesDot] = useState(false);
   // Bridges need Suggestions, and a draft pool (no free choice of cards) has none.
   const suggestOn = suggestionsFlag && !suggestDenied;
-  const bridgesOn = suggestOn && !pool && !bridgesDenied;
+  // Bridges are for Standard and Genesys. The Domain formats have none: no tab, no "Engines that fit" row, no request.
+  const bridgesOn = suggestOn && !pool && !bridgesDenied && mode !== "domain";
   const columnTabs = useMemo<ColumnTab[]>(() => ["cards", ...(suggestOn ? ["suggest" as const] : []), ...(bridgesOn ? ["bridges" as const] : [])], [suggestOn, bridgesOn]);
   const activeTab = shownTab(tab, columnTabs, isPhone);
   // The tab as a phone shows it. The phone layout is CSS (a container query), so it is right from the first paint,
@@ -731,6 +727,16 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     [counts, poolMap, usage, catalog],
   );
 
+  // Copies in Main and Extra only: the Side Deck is not part of a bridge's path.
+  const heldCounts = useMemo(() => copyCounts({ ...deck, side: [] }, catalog), [deck, catalog]);
+  const heldUsage = useMemo(() => deckUsage({ ...deck, side: [] }, catalog), [deck, catalog]);
+  const held = useCallback(
+    (card: DeckCardInfo) => (poolMap
+      ? heldUsage.get(canonicalCardCode(card.code, catalog)) ?? 0
+      : heldCounts.get(`name:${card.name}`) ?? heldCounts.get(`code:${card.code}`) ?? 0),
+    [heldCounts, heldUsage, poolMap, catalog],
+  );
+
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
   const modeRef = useRef(mode);
@@ -1020,6 +1026,38 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
     const max = poolMap ? deckAllowance(poolMap, poolCode(source.code), forcedMap) : copyLimit(source.code, catalog, limits);
     setNotice(`Added ${cardName(source.code)} (${have} of ${max}).`);
   }
+
+  /** What "Add cards" would do for these cards, with the same rules as one add from the card list. Changes nothing. */
+  function planAdds(cards: readonly DeckCardInfo[]) {
+    return planCardAdds({
+      cards, deck, mode, deckCount, held, limits, limitsPending, banlistName,
+      poolBlock: poolMap ? (card) => (canAddFromPool(poolMap, usage, poolCode(card.code), forcedMap) ? null : poolMap.has(poolCode(card.code)) ? "no copies left in your pool." : "it is not in your draft pool.") : undefined,
+      genesys: genesysOn,
+    });
+  }
+
+  /** Several cards from a list in one go (a bridge's path). One undo step; what cannot go in is named in the notice. */
+  function addCards(cards: readonly DeckCardInfo[]) {
+    if (busy) {
+      setNotice("Saving, try again in a moment.");
+      return;
+    }
+    const plan = planAdds(cards);
+    if (plan.add.length === 0) {
+      setNotice(plan.blocked.length ? `Nothing added. ${plan.blocked.map((entry) => `${entry.card.name}: ${entry.reason}`).join(" ")}` : "Those cards are already in your deck.");
+      return;
+    }
+    rememberCatalog(plan.add.map((entry) => entry.card));
+    let next = selection;
+    for (const { card, section } of plan.add) next = placeCardAt(next, { code: card.code, from: "list" }, section).selection;
+    if (!commit(next)) return;
+    const names = plan.add.map((entry) => entry.card.name).join(", ");
+    const unknown = plan.unknownPoints.length ? ` Genesys points unknown: ${plan.unknownPoints.map((card) => card.name).join(", ")}.` : "";
+    const left = plan.blocked.length ? ` Not added: ${plan.blocked.map((entry) => `${entry.card.name} (${entry.reason.replace(/\.$/, "")})`).join("; ")}.` : "";
+    setNotice(`Added ${plan.add.length} ${plan.add.length === 1 ? "card" : "cards"}: ${names}.${unknown}${left} Press Ctrl+Z to undo.`);
+  }
+
+  const adder: CardAdder = { held, plan: planAdds, add: addCards };
 
   function makeMaster(code: number, section?: DeckSection) {
     const card = catalog.get(code);
@@ -1663,7 +1701,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
             <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} warning={extraWarning} />
             <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, Ctrl+click a deck card, or use Side on a selected card." actions={clearButton("side", "Side")} />
           </main>
-          <CardBrowser suggest={suggest} columns={columns} onEffectCapability={setInsightsOn} partner={partner} onPartnerChange={setPartner} onWorksWith={findPartners} mode={mode} genesys={genesysOn} id="deck-editor-column" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={browserQuery} onQueryChange={(next) => setQuery(genesysOn ? { ...next, banlist: query.banlist, limits: query.limits } : next)} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} fullReason={(card) => sectionFullReason(deck, defaultAddSection(card))} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
+          <CardBrowser adder={adder} suggest={suggest} columns={columns} onEffectCapability={setInsightsOn} partner={partner} onPartnerChange={setPartner} onWorksWith={findPartners} mode={mode} genesys={genesysOn} id="deck-editor-column" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code), forcedMap), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code, forcedMap), 0) } : undefined} query={browserQuery} onQueryChange={(next) => setQuery(genesysOn ? { ...next, banlist: query.banlist, limits: query.limits } : next)} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} fullReason={(card) => sectionFullReason(deck, defaultAddSection(card))} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
         </div>
         {artMenu ? <DeckArtMenu key={`${artMenu.section}-${artMenu.index}`} target={artMenu} knownCount={altArtCount(artMenu.code, catalog) + 1} busy={artBusy} disabled={busy} onClose={() => setArtMenu(null)} onFamily={(family) => { void loadFamilyCards(family); }} onPick={(art, family) => { void pickMenuArtwork(art, family); }} /> : null}
         {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview insightsEnabled={insightsOn} card={shown} compact copySummary={inspected && !previewing ? <><CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? deckAllowance(poolMap, poolCode(inspected.code), forcedMap) : undefined} forced={forcedMap.get(poolCode(inspected.code)) ?? 0} />{genesysOn ? <GenesysCardLine card={inspected} /> : null}</> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}

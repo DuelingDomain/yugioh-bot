@@ -1,6 +1,7 @@
 import type { BridgeDeck, EngineSuggestion, ShownBridge } from "@yugidraft/shared/cards/effects";
 
 export type { BridgeDeck, EngineSuggestion, ShownBridge };
+export type { BridgeReviewStep } from "@yugidraft/shared/cards/effects";
 export type BridgeFormat = "advanced" | "genesys";
 
 /**

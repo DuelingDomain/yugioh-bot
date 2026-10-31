@@ -11,6 +11,7 @@ import type { ArchetypeBridge, BridgeFormat, BridgeReason, CardCapability, Summo
 import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, releaseBridgeJudgeSpend, settleBridgeJudgeSpend, startBridgeJudgeSpend, type BridgeJudgeSpendSummary, type BridgeJudgeUsage } from "./bridge-judge-ledger.js";
 import { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS } from "./bridge-judge-model.js";
 import { BRIDGE_FACT_CHECK_SYSTEM, bridgeTextFields, deterministicBridgePros, groundBridgeSentences, validBridgeCitations } from "./bridge-judge-text.js";
+import { deterministicBridgeSteps } from "./bridge-step-text.js";
 export { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS, bridgeJudgeRates } from "./bridge-judge-model.js";
 
 export const BRIDGE_JUDGE_FRAMINGS = ["mechanic", "skeptic"] as const;
@@ -85,7 +86,11 @@ export interface BridgeJudgeReply {
 }
 export interface BridgeJudgeClient { messages: { create(request: BridgeJudgeRequest, options?: { signal?: AbortSignal }): Promise<BridgeJudgeReply> } }
 
+interface BridgeJudgeContext { evidence: BridgeJudgeEvidence; capabilities: CardCapability[] }
 export function buildBridgeJudgeEvidence(db: Database.Database, bridge: ArchetypeBridge): BridgeJudgeEvidence | null {
+  return buildBridgeJudgeContext(db, bridge)?.evidence ?? null;
+}
+function buildBridgeJudgeContext(db: Database.Database, bridge: ArchetypeBridge): BridgeJudgeContext | null {
   try {
     if (bridge.validation !== "deterministic" || !/^[a-f0-9]{64}$/.test(bridge.evidence_hash) || !bridge.reasons.length || !bridge.cards.length || bridge.source === bridge.target) return null;
     const rows = bridge.cards.map(id => {
@@ -161,7 +166,7 @@ export function buildBridgeJudgeEvidence(db: Database.Database, bridge: Archetyp
         return { reason: reason.key, ancillary: reason.ancillary ?? false, steps };
       }), warnings: bridge.warnings, genesys_points: points };
     if (Buffer.byteLength(JSON.stringify(checked)) > 200_000) return null;
-    return { ...checked, input_hash: bridgeHash(checked) };
+    return { evidence: { ...checked, input_hash: bridgeHash(checked) }, capabilities: rows };
   } catch { return null; }
 }
 
@@ -236,38 +241,52 @@ export function saveBridgeJudgement(db: Database.Database, value: BridgeJudgemen
     ON CONFLICT(evidence_hash,judge) DO UPDATE SET verdict=excluded.verdict,judgement_json=excluded.judgement_json,created_at=excluded.created_at`).run(row.evidence_hash, row.judge, verdict, JSON.stringify(row), row.created_at);
 }
 
-export interface BridgeGate { state: "shown" | "review" | "invalid" | "pending"; judgements: BridgeJudgementRecord[]; grade?: BridgeJudgement["grade"]; reason?: string }
+export type BridgeGate = { judgements: BridgeJudgementRecord[]; grade?: BridgeJudgement["grade"]; reason?: string } & (
+  { state: "shown" | "review" | "pending" } & BridgeJudgeContext
+  | { state: "invalid" } & Partial<BridgeJudgeContext>
+);
 export function bridgeGate(db: Database.Database, bridge: ArchetypeBridge): BridgeGate {
-  const evidence = buildBridgeJudgeEvidence(db, bridge);
-  if (!evidence) return { state: "invalid", judgements: [], reason: "Deterministic evidence no longer passes." };
+  const context = buildBridgeJudgeContext(db, bridge);
+  if (!context) return { state: "invalid", judgements: [], reason: "Deterministic evidence no longer passes." };
+  const { evidence } = context;
   const judgements = readBridgeJudgements(db, bridge.evidence_hash).filter(row => row.input_hash === evidence.input_hash).flatMap(row => {
     const result = parseBridgeJudgement(row.result, evidence, db, true);
     return result ? [{ ...row, result }] : [];
   });
-  if (db.prepare("SELECT 1 FROM bridge_feedback WHERE evidence_hash=? AND resolved_at IS NULL GROUP BY evidence_hash HAVING count(DISTINCT actor_hash)>=2").get(bridge.evidence_hash)) return { state: "review", judgements, reason: "Multiple players reported this bridge." };
-  if (!BRIDGE_JUDGE_FRAMINGS.every(framing => judgements.some(row => row.framing === framing))) return { state: "pending", judgements };
-  if (judgements.every(row => row.result.verdict === "invalid")) return { state: "invalid", judgements };
-  if (judgements.some(row => row.result.verdict !== "valid" || !row.result.format_ok)) return { state: "review", judgements, reason: "The independent reviews did not agree on a valid line." };
+  if (db.prepare("SELECT 1 FROM bridge_feedback WHERE evidence_hash=? AND resolved_at IS NULL GROUP BY evidence_hash HAVING count(DISTINCT actor_hash)>=2").get(bridge.evidence_hash)) return { ...context, state: "review", judgements, reason: "Multiple players reported this bridge." };
+  if (!BRIDGE_JUDGE_FRAMINGS.every(framing => judgements.some(row => row.framing === framing))) return { ...context, state: "pending", judgements };
+  if (judgements.every(row => row.result.verdict === "invalid")) return { ...context, state: "invalid", judgements };
+  if (judgements.some(row => row.result.verdict !== "valid" || !row.result.format_ok)) return { ...context, state: "review", judgements, reason: "The independent reviews did not agree on a valid line." };
   const ranks = judgements.map(row => judgementGrades.indexOf(row.result.grade));
-  if (Math.max(...ranks) - Math.min(...ranks) > 1) return { state: "review", judgements, reason: "The independent grades differ." };
+  if (Math.max(...ranks) - Math.min(...ranks) > 1) return { ...context, state: "review", judgements, reason: "The independent grades differ." };
   const outlets = new Set(bridge.reasons.filter(reason => !reason.ancillary).map(reason => reason.steps?.[0]?.from ?? reason.cards[0]));
-  return { state: "shown", judgements, grade: judgementGrades[Math.max(outlets.size < 2 ? 1 : 0, ...ranks)]! };
+  return { ...context, state: "shown", judgements, grade: judgementGrades[Math.max(outlets.size < 2 ? 1 : 0, ...ranks)]! };
 }
 
-export interface ShownBridge extends ArchetypeBridge { judge: "accepted"; review: Pick<BridgeJudgement, "pros" | "cons" | "lock_note" | "line" | "grade"> }
+export const BridgeReviewStepSchema = z.object({ card: z.string().min(1).max(200), text: z.string().max(500) }).strict();
+export type BridgeReviewStep = z.infer<typeof BridgeReviewStepSchema>;
+export const ShownBridgeReviewSchema = BridgeJudgementSchema.pick({ pros: true, cons: true, lock_note: true, line: true, grade: true })
+  .extend({ lock_note: z.string(), line: z.array(z.string().min(1).max(200)).min(1).max(3), steps: z.array(BridgeReviewStepSchema).min(1).max(3) })
+  .refine(review => review.steps.length === review.line.length && review.steps.every((step, i) => step.card === review.line[i]),
+    { message: "Review steps must match the reviewed line in order" });
+export interface ShownBridge extends ArchetypeBridge { judge: "accepted"; review: z.infer<typeof ShownBridgeReviewSchema> }
 export function bridgeProjection(db: Database.Database, bridge: ArchetypeBridge): { gate: BridgeGate; shown: ShownBridge | null } {
   const gate = bridgeGate(db, bridge);
-  return { gate, shown: shownFromGate(db, bridge, gate) };
+  return { gate, shown: shownFromGate(bridge, gate) };
 }
 export function shownBridge(db: Database.Database, bridge: ArchetypeBridge): ShownBridge | null {
   return bridgeProjection(db, bridge).shown;
 }
-function shownFromGate(db: Database.Database, bridge: ArchetypeBridge, gate: BridgeGate): ShownBridge | null {
+function shownFromGate(bridge: ArchetypeBridge, gate: BridgeGate): ShownBridge | null {
   if (gate.state !== "shown") return null;
   const result = [...gate.judgements].sort((a, b) => judgementGrades.indexOf(b.result.grade) - judgementGrades.indexOf(a.result.grade))[0]!.result;
   const grades = { strong: "Strong", good: "Good", niche: "Niche", risky: "Risky" } as const;
   const grade = bridge.tier === "niche" ? "niche" : gate.grade!;
-  return { ...bridge, grade: grades[grade], judge: "accepted", review: { grade, pros: result.pros, cons: result.cons, lock_note: result.lock_note || buildBridgeJudgeEvidence(db, bridge)!.cards.flatMap(card => card.locks.map(lock => `${card.name}: ${lock.evidence}`)).join(" "), line: result.line } };
+  const { evidence, capabilities } = gate;
+  const review = ShownBridgeReviewSchema.parse({ grade, pros: result.pros, cons: result.cons,
+    lock_note: result.lock_note || evidence.cards.flatMap(card => card.locks.map(lock => `${card.name}: ${lock.evidence}`)).join(" "),
+    line: result.line, steps: deterministicBridgeSteps(evidence, result.line, capabilities) });
+  return { ...bridge, grade: grades[grade], judge: "accepted", review };
 }
 
 export interface BridgeJudgeOptions {
@@ -280,7 +299,7 @@ export interface BridgeJudgeOptions {
   onError?: (entry: { status: number | null; message: string; framing: BridgeJudgeFraming }) => void;
 }
 export async function judgeBridgePair(db: Database.Database, bridge: ArchetypeBridge, options: BridgeJudgeOptions = {}): Promise<BridgeGate> {
-  const initial = bridgeGate(db, bridge), evidence = buildBridgeJudgeEvidence(db, bridge);
+  const initial = bridgeGate(db, bridge), evidence = initial.evidence;
   if (!evidence || initial.state === "review" || initial.judgements.length === 2) return initial;
   const env = options.env ?? process.env, key = options.apiKey ?? env.ANTHROPIC_API_KEY;
   let client = options.client;

@@ -2,11 +2,12 @@
 
 import { useRef, useState, type ButtonHTMLAttributes } from "react";
 import { AlertTriangle, ChevronRight, Flag, Minus, Plus } from "lucide-react";
-import type { DeckCardInfo } from "@yugidraft/shared/duels";
+import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
 import { CardArt } from "@/components/decks/card-art";
 import { cn } from "@/lib/utils";
 import { reportBridge, type ShownBridge } from "./bridges-api";
-import { errorText } from "./use-bridges";
+import { PathThumbs, pathSteps } from "./bridge-path";
+import { cardsState, errorText } from "./use-bridges";
 import { reportedBridges, rememberReported } from "./bridges-model";
 import styles from "./bridges.module.css";
 
@@ -25,11 +26,6 @@ export function GradeBadge({ bridge }: { bridge: ShownBridge }) {
 /** A grade word as a badge. `grade` is the lower-case grade that sets the color; `text` is the word. */
 export function GradeTag({ grade, text, testId = "bridge-grade" }: { grade: string; text: string; testId?: string }) {
   return <span className={styles.grade} data-grade={grade} data-testid={testId}>{text}</span>;
-}
-
-/** The bridge cards as small card images. A card opens the card inspector on hover, like a tile in Suggestions. */
-export function Thumbs({ bridge, cards, cardProps, limit = 4 }: { bridge: ShownBridge; cards: ReadonlyMap<number, DeckCardInfo>; cardProps: CardPropsFor; limit?: number }) {
-  return <CodeThumbs codes={bridge.cards} label="Bridge cards" cards={cards} cardProps={cardProps} limit={limit} />;
 }
 
 /** Small card images for a list of passcodes. */
@@ -95,7 +91,7 @@ export function Points({ pros: allPros, cons: allCons, clamp }: { pros: readonly
 type ReportState = "idle" | "form" | "sending" | "thanks";
 
 /**
- * "This bridge doesn't work": a small action, an optional reason, then a thank-you. A bridge is reported once per
+ * "Report": a small flag action (a bridge that is wrong), an optional reason, then a thank-you. A bridge is reported once per
  * user (the host keeps that rule too); this browser remembers it, so the form does not come back after a reload.
  */
 export function ReportBridge({ bridge }: { bridge: ShownBridge }) {
@@ -128,8 +124,8 @@ export function ReportBridge({ bridge }: { bridge: ShownBridge }) {
   }
   if (state === "idle") {
     return (
-      <button type="button" className={styles.report} data-testid="bridge-report" onClick={() => setState("form")}>
-        <Flag size={12} strokeWidth={1.8} aria-hidden />This bridge doesn&apos;t work
+      <button type="button" className={styles.report} data-testid="bridge-report" aria-label="Report a wrong bridge" title="Report a wrong bridge" onClick={() => setState("form")}>
+        <Flag size={12} strokeWidth={1.8} aria-hidden />Report
       </button>
     );
   }
@@ -149,9 +145,10 @@ export function ReportBridge({ bridge }: { bridge: ShownBridge }) {
   );
 }
 
-/** One bridge in a list: the target, grade, direction, the cards, two good and two bad points, and a warning. */
-export function BridgeCard({ bridge, cards, cardProps, genesys, showSource, onOpen }: {
+/** One bridge in a list: the target, grade, direction, the path as card images, two good and two bad points, and a warning. */
+export function BridgeCard({ bridge, mode, cards, cardProps, genesys, showSource, onOpen }: {
   bridge: ShownBridge;
+  mode: DuelMode;
   cards: ReadonlyMap<number, DeckCardInfo>;
   cardProps: CardPropsFor;
   genesys: boolean;
@@ -164,14 +161,14 @@ export function BridgeCard({ bridge, cards, cardProps, genesys, showSource, onOp
     <li className={styles.item} data-grade={bridge.review.grade} data-testid="bridge-item">
       <button type="button" className={styles.open} data-bridge={bridge.evidence_hash} aria-label={`${title}. ${bridge.grade}, ${directionText(bridge).toLowerCase()}. Open details`} onClick={() => onOpen(bridge)}>
         <strong className={styles.target}>{showSource ? <>{bridge.source}<span className={styles.arrow} aria-hidden> → </span></> : null}{bridge.target}</strong>
-        <ChevronRight size={15} strokeWidth={1.8} aria-hidden className={styles.chevron} />
+        <span className={styles.openHint}>Details<ChevronRight size={15} strokeWidth={1.8} aria-hidden className={styles.chevron} /></span>
       </button>
       <div className={styles.meta}>
         <GradeBadge bridge={bridge} />
         <span className={styles.way} data-way={bridge.two_way ? "two" : "one"} title={bridge.two_way ? `${bridge.target} also leads back to ${bridge.source}` : `${bridge.source} leads to ${bridge.target}, not back`}>{directionText(bridge)}</span>
         <ReportBridge bridge={bridge} />
       </div>
-      <Thumbs bridge={bridge} cards={cards} cardProps={cardProps} />
+      <PathThumbs steps={pathSteps(bridge, cards, cardsState(bridge.cards, mode))} cardProps={cardProps} />
       <ProsCons bridge={bridge} clamp={2} />
       <Warnings bridge={bridge} genesys={genesys} clamp={1} />
     </li>

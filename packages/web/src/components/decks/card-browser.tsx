@@ -31,6 +31,7 @@ import { cardKind, type BanlistLimits } from "./model";
 import { queryPoolCards } from "./pool-search";
 import { EditorTabList } from "./editor-tab-list";
 import type { ColumnTab } from "./editor-tabs";
+import type { CardAdder } from "./card-adder";
 import { SuggestionsPanel, type BrowserSuggest } from "./suggestions-panel";
 import styles from "./card-browser.module.css";
 
@@ -140,6 +141,7 @@ export function CardBrowser({
   onPartnerChange,
   onWorksWith,
   suggest,
+  adder,
   columns = SOLO_COLUMNS,
 }: {
   id?: string;
@@ -173,6 +175,8 @@ export function CardBrowser({
   onWorksWith?: (card: DeckCardInfo) => void;
   /** The deck, for the Suggestions rows that show while the search box is empty. Not given: no rows. */
   suggest?: BrowserSuggest;
+  /** Adds several cards at once, for "Add cards" on a bridge path. Not given: no such button. */
+  adder?: CardAdder;
   columns?: BrowserColumns;
 }) {
   const key = `${mode}:${genesys}:${suggest?.deckMaster??""}:${partnerKey(partner)}${queryKey(query)}`;
@@ -856,6 +860,7 @@ export function CardBrowser({
               cardProps={suggestionProps}
               deckCount={deckCount}
               limit={(card) => (genesys || !limits ? 3 : cardLimit(limits, card))}
+              adder={adder}
               onCatalog={(found) => onCatalogRef.current(found)}
               onDisabled={columns.onBridgesDisabled}
               onDeepFinished={columns.onDeepFinished}

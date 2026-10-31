@@ -8,9 +8,11 @@ import { LimitBadge } from "@/components/decks/limit-badge";
 import drillStyles from "@/components/effect-search/hook-drill.module.css";
 import tileStyles from "@/components/decks/suggestions-panel.module.css";
 import { cn } from "@/lib/utils";
+import type { CardAdder } from "@/components/decks/card-adder";
+import { AddPathCards, PathSteps, pathSteps } from "./bridge-path";
 import { GradeBadge, ProsCons, ReportBridge, Warnings, directionText, type CardPropsFor } from "./bridge-card";
 import { roleFor } from "./bridges-model";
-import { useBridgeCards } from "./use-bridges";
+import { cardsState, useBridgeCards } from "./use-bridges";
 import type { ShownBridge } from "./bridges-api";
 import styles from "./bridges.module.css";
 
@@ -37,10 +39,10 @@ function BridgeDrill({ source, target, onBack }: { source: string; target: strin
 }
 
 /**
- * One bridge in full: the line in order, the good and bad points, the lock note, the warnings, and every bridge
+ * One bridge in full: the line in order as card images with what each step does, the good and bad points, the lock note, the warnings, and every bridge
  * card as a tile that works like a tile in Suggestions.
  */
-export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, limit, genesys, onBack }: {
+export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, limit, genesys, adder, onBack }: {
   bridge: ShownBridge;
   mode: DuelMode;
   onCatalog: (cards: DeckCardInfo[]) => void;
@@ -48,9 +50,13 @@ export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, l
   deckCount: (card: DeckCardInfo) => number;
   limit: (card: DeckCardInfo) => 0 | 1 | 2 | 3;
   genesys: boolean;
+  /** Adds the cards of the line that the deck lacks. Not given: no button. */
+  adder?: CardAdder;
   onBack: () => void;
 }) {
   const cards = useBridgeCards(bridge.cards, mode, onCatalog);
+  const steps = pathSteps(bridge, cards, cardsState(bridge.cards, mode));
+  const held = adder?.held ?? deckCount;
   return (
     <div className={styles.details} data-testid="bridge-details">
       <BridgeDrill source={bridge.source} target={bridge.target} onBack={onBack} />
@@ -62,9 +68,8 @@ export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, l
 
       <section aria-labelledby={`line-${bridge.evidence_hash}`}>
         <h4 id={`line-${bridge.evidence_hash}`} className={styles.subTitle}>The line</h4>
-        <ol className={styles.line} data-testid="bridge-line">
-          {bridge.review.line.map((name, index) => <li key={`${index}-${name}`}>{name}</li>)}
-        </ol>
+        <PathSteps steps={steps} cardProps={cardProps} deckCount={deckCount} held={held} limit={limit} />
+        {adder ? <AddPathCards steps={steps} held={held} adder={adder} /> : null}
       </section>
 
       <ProsCons bridge={bridge} />

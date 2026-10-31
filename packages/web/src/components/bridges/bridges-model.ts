@@ -58,9 +58,12 @@ export function secondsLeft(until: number | null, now: number): number {
   return until == null ? 0 : Math.max(0, Math.ceil((until - now) / 1000));
 }
 
-/** Every distinct card of the bridges, in the order they are shown. */
-export function bridgeCodes(bridges: readonly ShownBridge[], perBridge = 4): number[] {
-  return [...new Set(bridges.flatMap((bridge) => bridge.cards.slice(0, perBridge)))];
+/**
+ * Every distinct card of the bridges, in the order they are shown. All of them are loaded, not the first few: the
+ * line names its cards, not their codes, so a name is found by its loaded card and may sit anywhere in the list.
+ */
+export function bridgeCodes(bridges: readonly ShownBridge[]): number[] {
+  return [...new Set(bridges.flatMap((bridge) => bridge.cards))];
 }
 
 /** The printed evidence of a bridge card: the first reason that names it. */

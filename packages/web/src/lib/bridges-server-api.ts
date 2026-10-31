@@ -128,11 +128,16 @@ function shownBridge(value: unknown, deep: boolean): boolean {
     || !Array.isArray(value.cards) || value.cards.length > 100 || !value.cards.every(card => integer(card, 0xffffffff) && card > 0)
     || !Array.isArray(value.reasons) || value.reasons.length > 100 || !Array.isArray(value.warnings) || value.warnings.length > 100) return false;
   const review = value.review;
-  return object(review) && typeof review.grade === "string" && ["strong", "good", "niche", "risky"].includes(review.grade)
+  if (!object(review)) return false;
+  const line = review.line;
+  return typeof review.grade === "string" && ["strong", "good", "niche", "risky"].includes(review.grade)
     && (value.tier !== "niche" || review.grade === "niche")
     && strings(review.pros, 0, 3, 500) && strings(review.cons, 0, 3, 500)
     // The host falls back to joined printed locks, which have no judge-note length cap.
-    && typeof review.lock_note === "string" && strings(review.line, 1, 3, 200);
+    && typeof review.lock_note === "string" && Array.isArray(line) && strings(line, 1, 3, 200)
+    && (review.steps === undefined || Array.isArray(review.steps) && review.steps.length === line.length
+      && review.steps.every((step, i) => object(step) && keys(step, ["card", "text"]) && step.card === line[i]
+        && typeof step.text === "string" && step.text.length <= 500));
 }
 
 const results = (value: unknown, expectedFormat?: BridgeFormat, deep = false) => Array.isArray(value) && value.length <= (deep ? 10 : 4)
