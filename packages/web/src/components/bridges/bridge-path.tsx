@@ -32,11 +32,12 @@ export function pathSteps(bridge: ShownBridge, cards: ReadonlyMap<number, DeckCa
     if (card && !byName.has(card.name)) byName.set(card.name, { code, card });
   }
   const said = new Set<string>();
-  return bridge.review.line.map((name) => {
+  return bridge.review.line.map((name, index) => {
     const found = byName.get(name);
     const status = found ? "ready" : settled ? "missing" : "loading";
-    const sentence = found ? roleFor(bridge, found.code) : "";
-    const text = sentence && !said.has(sentence) ? sentence : "";
+    const reviewed = bridge.review.steps?.[index];
+    const sentence = reviewed?.card === name ? reviewed.text : found ? roleFor(bridge, found.code) : "";
+    const text = reviewed?.card === name ? sentence : sentence && !said.has(sentence) ? sentence : "";
     if (sentence) said.add(sentence);
     return { name, card: found?.card ?? null, status, text };
   });
