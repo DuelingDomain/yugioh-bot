@@ -1,4 +1,4 @@
-import { formatStaples, stapleReason } from "../cards/effects/staples.js";
+import { formatStaples } from "../cards/effects/staples.js";
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import { DEFAULT_GENESYS_POINT_CAP, MAX_GENESYS_POINT_CAP, type DuelDeck } from "../duels/index.js";
@@ -9,8 +9,9 @@ import { matchesReleased, cardReleaseInfo } from "../cards/effects/releases.js";
 import { createMainDeckSummonChecker } from "../cards/effects/deck-summon.js";
 import type { CardInsightOptions, CardInsightFormat } from "./card-insights.js";
 import type { InsightCatalog } from "./card-insight-catalog.js";
-import { readInsightProfiles } from "./card-insight-profiles.js";
-import { deckSuggestionCore, deckSuggestionHooks, deckSupportContext, scoreDeckSupport, prepareSuggestionHookMatching } from "./deck-suggestion-hooks.js";
+import { deckSuggestionCore, deckSupportContext } from "./deck-suggestion-hooks.js";
+import { outsideUtilityEvaluator, utilitySelectivity } from "./deck-suggestion-utility.js";
+import { suggestionStapleReason, viableSuggestionStaple } from "./deck-suggestion-staples.js";
 import { extraDeckRanking } from "./deck-suggestion-extra.js";
 import { archetypeDeckRanking } from "./deck-suggestion-archetype.js";
 
@@ -47,13 +48,15 @@ const cacheKey = Symbol.for("yugidraft.deck-suggestions.caches.v1");
 const cacheRuntime = globalThis as typeof globalThis & { [cacheKey]?: WeakMap<Database.Database, Map<string, string>> };
 const caches = cacheRuntime[cacheKey] ??= new WeakMap<Database.Database, Map<string, string>>();
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-type Entry = RankedInsightCard & { popularity: number };
-const compare = (a: Entry, b: Entry) => b.score - a.score || b.popularity - a.popularity || a.passcode - b.passcode;
+type Entry = RankedInsightCard & { popularity: number; role?: number; playShare?: number };
+type RankOrder = Pick<Entry, "score" | "popularity" | "passcode" | "role" | "playShare">;
+const compare = (a: RankOrder, b: RankOrder) => b.score - a.score || (b.role ?? 0) - (a.role ?? 0)
+  || (b.playShare ?? 0) - (a.playShare ?? 0) || b.popularity - a.popularity || a.passcode - b.passcode;
 function retain(list: Entry[], item: Entry, limit = 12) {
   if (list.length === limit && compare(item, list[list.length - 1]!) >= 0) return;
   list.push(item); list.sort(compare); if (list.length > limit) list.pop();
 }
-const publicCard = ({ popularity: _, ...card }: Entry): RankedInsightCard => card;
+const publicCard = ({ popularity: _, role: _role, playShare: _share, ...card }: Entry): RankedInsightCard => card;
 const counts = (codes: readonly number[], canonical: (code: number) => number) => {
   const result = new Map<number, number>();
   for (const code of codes) { const id = canonical(code); result.set(id, (result.get(id) ?? 0) + 1); }
@@ -61,14 +64,14 @@ const counts = (codes: readonly number[], canonical: (code: number) => number) =
 };
 const sorted = (codes: readonly number[], canonical: (code: number) => number) => codes.map(canonical).sort((a, b) => a - b);
 
-/** One streaming scan; only bounded hook queues and the four result rows survive it. */
+/** One streaming scan with bounded proof queues and a compact legal stat histogram. */
 export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, deck: DuelDeck, opts: DeckSuggestionOptions, dataDirectory?: string): DeckSuggestionResult {
   const canonical = (code: number) => catalog.canonical(code);
   const master = opts.deckMaster ?? deck.deckMaster;
   const revision = (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
   const pointsRevision = (db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
   const usage = formatStaples(opts.format, opts.banlist, db, opts.guildId);
-  const version = `suggestions-3:${usage.version}:${revision}:${pointsRevision ?? ""}:${opts.legality?.version ?? "no-admission"}`;
+  const version = `suggestions-4:${usage.version}:${revision}:${pointsRevision ?? ""}:${opts.legality?.version ?? "no-admission"}`;
   let cache: Map<string, string> | undefined, key: string | undefined;
   if (opts.cache !== false) {
     key = hash({ main: sorted(deck.main, canonical), extra: sorted(deck.extra, canonical), side: sorted(deck.side, canonical), master: master && canonical(master),
@@ -95,13 +98,11 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
   const rowCore = deckSuggestionCore(main, true);
   const supportMain = core.anchors;
   const extraCards = deck.extra.flatMap(code => { const card = catalog.candidate(code); return card ? [card] : []; });
-  const profiles = readInsightProfiles(db, core.anchors.filter(({ card }) => card.archetype && core.archetypes.includes(card.archetype)));
-  const hooks = deckSuggestionHooks(main, profiles, extraCards);
   const supportContext = deckSupportContext(supportMain, extraCards, core.archetypes);
   const rankArchetype = archetypeDeckRanking(main, rowCore.archetypes, supportContext);
-  const matchingHooks = prepareSuggestionHookMatching(hooks, supportMain, extraCards);
-  const queues = hooks.map(() => [] as Entry[]), matches = hooks.map(() => 0);
-  const multi: Array<{ entry: Entry; hooks: number[] }> = [];
+  const evaluateOutside = outsideUtilityEvaluator(supportContext, usage, core.archetypes);
+  const selectivity = utilitySelectivity();
+  const queues = new Map<string, Entry[]>();
   const archetypes = rowCore.archetypes;
   const ranked = rows.map(() => [] as Entry[]);
   const genericExtra: Entry[] = [];
@@ -119,12 +120,9 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
     }
     remaining = Math.min(opts.genesysRemaining ?? DEFAULT_GENESYS_POINT_CAP - used, MAX_GENESYS_POINT_CAP - used);
   }
-  let scanned = 0;
   for (const candidate of catalog.suggestionCandidates()) {
-    scanned++;
-    const fits = matchingHooks(candidate);
-    for (const at of fits) matches[at]!++;
     const { card, tags } = candidate, id = card.id, heldCount = held.get(group(id)) ?? 0;
+    if (admitted.has(id) && (scope.limits[id] ?? 3) > 0) selectivity.observe(candidate);
     // Empty-search Suggestions propose new cards; all artworks share the same identity.
     if (!admitted.has(id) || owned.has(id) || excluded.has(id) || heldCount >= (scope.limits[id] ?? (singleton ? 1 : 3))
       || (pool && (pool.get(id) ?? 0) <= (owned.get(id) ?? 0)) || !matchesReleased(card, opts.released)) continue;
@@ -132,18 +130,24 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
     const family = catalog.suggestionFamily(candidate);
     if (family !== id && admitted.has(family)) continue;
     const extra = isExtraDeckCard(card);
-    const summon = extra && deck.main.length >= 40 ? canSummon(candidate) : undefined;
-    if (extra && !summon) continue;
     const item = (score: number, reason: string, linkedCards = 0): Entry => ({ passcode: id, name: card.name, score, linkedCards,
       reason: shortReason(reason.replace(/[\r\n]+/g, " ")), popularity: card.views, release: cardReleaseInfo(card),
       ...(singleton && master ? { deckMasterFit: true } : {}) });
     if (extra) {
+      if (deck.main.length < 40) continue;
       const fit = rankExtra(candidate);
-      if (fit.generic) {
-        // A pile of hand traps cannot justify an off-profile Link or Rank.
-        const coreSummon = canSummonWithCore(candidate);
-        if (coreSummon) retain(genericExtra, item(fit.score, coreSummon, fit.linkedCards), 3);
-      } else retain(ranked[2]!, item(fit.score, summon!, fit.linkedCards));
+      const queue = fit.generic ? genericExtra : ranked[2]!, capacity = fit.generic ? 3 : 12;
+      // Retained entries already have complete summon proofs. A candidate that
+      // cannot outrank their worst entry cannot change the row; avoid its solver.
+      if (queue.length === capacity && compare({ score: fit.score, popularity: card.views, passcode: id }, queue.at(-1)!) >= 0) continue;
+      // A proof using the strategy core also proves the full Main Deck subset.
+      const summon = (fit.generic ? canSummonWithCore : canSummon)(candidate);
+      if (summon) retain(queue, item(fit.score, summon, fit.linkedCards), capacity);
+      continue;
+    }
+    const played = usage.cards.get(id);
+    if (played) {
+      if (viableSuggestionStaple(candidate, extraCards, main)) retain(ranked[3]!, item(played.playShare, suggestionStapleReason(candidate, played, usage.label)), 18);
       continue;
     }
     const archetype = rankArchetype(candidate);
@@ -153,30 +157,26 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
     }
     if (archetype.claimed) continue;
     const staple = tags?.roles.find(role => role === "hand_trap" || role === "board_breaker" || role === "negation");
-    const played = usage.cards.get(id);
-    if (played) retain(ranked[3]!, item(played.playShare, stapleReason(played, usage.label)), 18);
-    else if (!usage.cards.size && staple) retain(ranked[3]!, item(1, tags?.summary || `Adds ${staple.replaceAll("_", " ")}`), 18);
-    if (!fits.length || tags?.roles.includes("hand_trap")) continue;
-    const support = scoreDeckSupport(candidate, supportContext);
+    if (!usage.cards.size && staple) {
+      if (viableSuggestionStaple(candidate, extraCards, main)) retain(ranked[3]!, item(1, suggestionStapleReason(candidate, undefined, usage.label)), 18);
+      continue;
+    }
+    const support = evaluateOutside(candidate);
     if (!support) continue;
     const supported = item(support.score, support.reason, support.linkedCards);
-    for (const at of fits) retain(queues[at]!, supported);
-    if (fits.length) {
-      multi.push({ entry: supported, hooks: fits });
-      multi.sort((a, b) => compare(a.entry, b.entry)); if (multi.length > 12) multi.pop();
-    }
+    supported.role = support.role; supported.playShare = support.playShare;
+    // Restriction shapes, rather than catalog size, bound retained candidates.
+    if (queues.size >= 256 && support.selectivity) continue;
+    const key = selectivity.key(support.selectivity);
+    const queue = queues.get(key) ?? [];
+    retain(queue, supported); queues.set(key, queue);
   }
-  // Use the complete catalog as the common-hook denominator, also for a small draft pool.
-  const catalogSize = scanned;
-  const usable = matches.map(n => n > 0 && n <= catalogSize * 0.05);
-  const chosen = new Set<number>();
-  const addOutside = (entry: Entry) => { if (rows[1]!.cards.length < 12 && !chosen.has(entry.passcode)) { chosen.add(entry.passcode); rows[1]!.cards.push(publicCard(entry)); } };
-  for (const match of multi) if (match.hooks.some(at => usable[at])) addOutside(match.entry);
-  for (let turn = 0; turn < 12; turn++) queues.forEach((queue, at) => { if (usable[at] && queue[turn]) addOutside(queue[turn]!); });
+  for (const [key, queue] of queues) if (selectivity.accepts(key, supportContext)) for (const entry of queue) retain(ranked[1]!, entry);
+  rows[1]!.cards = ranked[1]!.map(publicCard);
   ranked[2]!.push(...genericExtra.slice(0, 12 - ranked[2]!.length));
   for (const at of [0, 2, 3]) rows[at]!.cards = ranked[at]!.map(publicCard);
   // Staples may occupy at most a quarter of the visible suggestions.
-  rows[3]!.cards = rows[3]!.cards.filter(card => !chosen.has(card.passcode)).slice(0, Math.min(6, Math.floor(rows.slice(0, 3).reduce((n, row) => n + row.cards.length, 0) / 3)));
+  rows[3]!.cards = rows[3]!.cards.slice(0, Math.min(6, Math.floor(rows.slice(0, 3).reduce((n, row) => n + row.cards.length, 0) / 3)));
   if (cache && key) {
     cache.set(key, JSON.stringify(result));
     while (cache.size > 64) cache.delete(cache.keys().next().value!);

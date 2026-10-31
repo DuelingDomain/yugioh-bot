@@ -327,6 +327,8 @@ async function benchmark() {
   mkdirSync(outputDirectory, { recursive: true });
   const sourcePaths = ["packages/shared/src/services/card-insight-catalog.ts", "packages/shared/src/services/card-insights.ts",
     "packages/shared/src/services/deck-suggestions.ts", "packages/shared/src/services/deck-suggestion-hooks.ts",
+    "packages/shared/src/services/deck-suggestion-utility.ts", "packages/shared/src/services/deck-suggestion-combos.ts",
+    "packages/shared/src/services/deck-suggestion-staples.ts",
     "packages/shared/src/cards/effects/name-match.ts", "packages/shared/src/cards/effects/synergy.ts",
     "packages/shared/src/cards/effects/effect-match.ts", "packages/shared/src/duels/card-query.ts",
     "packages/shared/src/cards/effects/deck-summon.ts", "packages/duel-server/src/deck-legality.ts",
