@@ -59,6 +59,23 @@ export function secondsLeft(until: number | null, now: number): number {
 }
 
 /**
+ * A package the deck already holds is not a recommendation: it goes below the recommended rows, in the order it came.
+ * Rows without the flag (an answer without deck context) count as recommended.
+ */
+export function actionableFirst<T extends { alreadyInDeck?: boolean }>(rows: readonly T[]): T[] {
+  return [...rows.filter((row) => !row.alreadyInDeck), ...rows.filter((row) => row.alreadyInDeck)];
+}
+
+/** Packages the deck already holds that stay visible, below the recommended rows. */
+export const OWNED_SHOWN = 2;
+
+/** At most `limit` recommended rows, then the rows the deck already holds (a few), so a full package stays findable. */
+export function capActionable<T extends { alreadyInDeck?: boolean }>(rows: readonly T[], limit: number): T[] {
+  const sorted = actionableFirst(rows);
+  return [...sorted.filter((row) => !row.alreadyInDeck).slice(0, limit), ...sorted.filter((row) => row.alreadyInDeck).slice(0, OWNED_SHOWN)];
+}
+
+/**
  * Every distinct card of the bridges, in the order they are shown. All of them are loaded, not the first few: the
  * line names its cards, not their codes, so a name is found by its loaded card and may sit anywhere in the list.
  */
