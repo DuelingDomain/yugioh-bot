@@ -20,6 +20,10 @@
 :global(.ms) .de-chips :global(.chip) { font: inherit; font-size: 12.5px; cursor: pointer; }
 .de-clrf { height: 26px; padding: 0 8px; font-size: 12.5px; }
 .guide { margin-bottom: 14px; }
+/* Up to four archetype names: the offer wraps in a narrow list and never pushes the page sideways. */
+.guide .askBridges { display: inline-flex; align-items: flex-start; gap: 6px; height: auto; min-height: 32px; max-width: 100%; padding-block: 6px; white-space: normal; text-align: left; }
+.guide .askBridges svg { flex: none; margin-top: 2px; }
+.guide .askBridges span { min-width: 0; overflow-wrap: anywhere; }
 .de-count { color: var(--ink-3); font-size: 12.5px; }
 .de-count b { margin-right: 3px; color: var(--ink-2); font-size: 14px; font-weight: 400; }
 .de-res { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }

@@ -8,7 +8,9 @@ import { mayReadEffect } from "@yugidraft/shared/cards/effects/capability";
 import type { ArchetypeGuide } from "@yugidraft/shared/cards/effects";
 import { HowItPlays, type HookFind } from "@/components/effect-search/how-it-plays";
 import { HookDrill } from "@/components/effect-search/hook-drill";
-import { BridgesRow } from "@/components/bridges/bridges-row";
+import { BridgesRow, type BridgesAsk } from "@/components/bridges/bridges-row";
+import { archetypesInText } from "@/components/bridges/engines-model";
+import { useArchetypeNames } from "@/components/bridges/use-engines";
 import { IntentHeading, RelaxHints } from "@/components/effect-search/search-intent";
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
 import { cn } from "@/lib/utils";
@@ -221,6 +223,11 @@ export function CardBrowser({
   if ((columns.tab === "suggest" && !seen.suggest) || (columns.tab === "bridges" && !seen.bridges)) {
     setSeen({ suggest: seen.suggest || columns.tab === "suggest", bridges: seen.bridges || columns.tab === "bridges" });
   }
+  // A search that names two or more archetypes offers their bridges. The names load once the text is long enough to hold two.
+  const queryText = query.text;
+  const bridgeNames = useArchetypeNames(hasBridges && !pool && !partner && queryText.trim().length >= 7).names;
+  const namedArchetypes = useMemo(() => (hasBridges && !pool && !partner ? archetypesInText(queryText, bridgeNames) : []), [hasBridges, pool, partner, queryText, bridgeNames]);
+  const [bridgesAsk, setBridgesAsk] = useState<BridgesAsk | null>(null);
   const panels = columns.panels ?? columns.tabs.length > 1;
   const paneProps = (tab: ColumnTab) => ({
     id: `deck-editor-${tab}`,
@@ -652,6 +659,14 @@ export function CardBrowser({
               {stale ? <span className={styles.working}>Updating…</span> : null}
             </p>
 
+            {namedArchetypes.length >= 2 ? (
+              <div className={styles.guide}>
+                <button type="button" className={cn("btn btn-secondary btn-sm", styles.askBridges)} data-testid="bridges-ask"
+                  onClick={() => { setBridgesAsk((now) => ({ archetypes: namedArchetypes, n: (now?.n ?? 0) + 1 })); columns.onTab("bridges"); }}>
+                  <Link2 size={14} strokeWidth={1.8} aria-hidden /><span>See bridges for {namedArchetypes.join(" + ")}</span>
+                </button>
+              </div>
+            ) : null}
             {!partner && results?.key === key && !stale && !results.error && total > 0 && effectTotal === 0 && results.relax?.length ? <div className={styles.guide}><RelaxHints relax={results.relax} onRemove={(chip) => onQueryChange({ ...query, effectOmit: [...new Set([...(query.effectOmit ?? []), chip])] })} /></div> : null}
             {intent?.kind === "counters" && !results?.error && !stale ? <div className={styles.guide}><IntentHeading intent={intent} count={effectTotal} /></div> : null}
             {shownGuide && !results?.error ? <div className={styles.guide} hidden={hookOpen}><HowItPlays guide={shownGuide} onHook={onPartnerChange ? openHook : undefined} /></div> : null}
@@ -841,6 +856,7 @@ export function CardBrowser({
               onCatalog={(found) => onCatalogRef.current(found)}
               onDisabled={columns.onBridgesDisabled}
               onDeepFinished={columns.onDeepFinished}
+              ask={bridgesAsk}
             />
           </div>
         </div>

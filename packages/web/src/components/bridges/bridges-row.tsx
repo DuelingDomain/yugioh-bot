@@ -37,7 +37,12 @@ type Props = {
   active?: boolean;
   /** A deep search just finished. */
   onDeepFinished?: () => void;
+  /** The Cards tab asks for these archetypes: the row switches to Pick archetypes with them. `n` tells one ask from the next. */
+  ask?: BridgesAsk | null;
 };
+
+/** A request from the Cards tab to look at the bridges between archetypes it found in a search. */
+export type BridgesAsk = { archetypes: readonly string[]; n: number };
 
 /** The between rows that show before "Show all". */
 const BETWEEN_SHOWN = 3;
@@ -89,7 +94,7 @@ function scrollBox(node: HTMLElement | null): HTMLElement | null {
  * engine to add next. Deep search sits right under the chips, so it is never far down. A bridge opens its details in
  * place, and Back returns to the same place in the list. Only bridges that passed the checks reach this tab.
  */
-export function BridgesRow({ deckId = null, deck, deckMaster, mode, genesys, genesysRemaining, cardProps, deckCount, limit, adder, onCatalog, onDisabled, active = true, onDeepFinished }: Props) {
+export function BridgesRow({ deckId = null, deck, deckMaster, mode, genesys, genesysRemaining, cardProps, deckCount, limit, adder, onCatalog, onDisabled, active = true, onDeepFinished, ask = null }: Props) {
   const onDisabledRef = useRef(onDisabled);
   onDisabledRef.current = onDisabled;
   const onDeepFinishedRef = useRef(onDeepFinished);
@@ -121,6 +126,14 @@ export function BridgesRow({ deckId = null, deck, deckMaster, mode, genesys, gen
   // Two ways to choose the engines: the deck's own, or one to four archetypes picked by name.
   const [pickMode, setPickMode] = useState(false);
   const [picks, setPicks] = useState<readonly string[]>([]);
+  const askedN = useRef(0);
+  useEffect(() => {
+    if (!ask || ask.n === askedN.current) return;
+    askedN.current = ask.n;
+    setPickMode(true);
+    setPicks(ask.archetypes.slice(0, MAX_ENGINES));
+    setOpen(null);
+  }, [ask]);
   const points = genesys && genesysRemaining != null ? { genesysRemaining } : {};
   const engines = useDeckEngines({ deck, deckMaster, genesys, empty, enabled: active && !pickMode, genesysRemaining }, edits);
   // The open deck goes with every set as context only: the host counts the cards it already holds.

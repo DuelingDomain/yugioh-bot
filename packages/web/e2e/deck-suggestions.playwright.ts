@@ -1579,6 +1579,55 @@ try {
   await items.first().waitFor({ state: "visible", timeout: 15_000 });
   check("x4", "a pick on an empty deck shows the next engines, without saying your deck", (await items.count()) > 0 && (await bridges.getByTestId("engines-next").locator("h4").innerText()) === "Next engine for Blue-Eyes" && !(await bridges.innerText()).includes("Your Blue-Eyes deck"));
 
+  // e1. A Cards tab search that names two or more official archetypes offers their bridges in one click.
+  engineControl.mode = "single";
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await fresh();
+  await goTab("Cards");
+  const askButton = page.getByTestId("bridges-ask");
+  await search().fill("synergy with Blue-Eyes and Chaos");
+  await askButton.waitFor({ timeout: 10_000 });
+  check("e1", "a search naming two archetypes offers See bridges for both, in the order it names them", (await askButton.innerText()).trim() === "See bridges for Blue-Eyes + Chaos", await askButton.innerText());
+  check("e1", "the offer sits with the Cards results and the search text stays", (await page.locator('[data-pane="cards"]').getByTestId("bridges-ask").count()) === 1 && (await search().inputValue()) === "synergy with Blue-Eyes and Chaos");
+  await search().fill("synergy with Blue-Eyes");
+  await page.waitForTimeout(600);
+  check("e1", "one archetype in the search offers nothing", (await askButton.count()) === 0);
+  await search().fill("synergy with Imaginary Nonsense and Made Up Name");
+  await page.waitForTimeout(600);
+  check("e1", "words that are not official archetype names offer nothing", (await askButton.count()) === 0);
+  await search().fill("Blue-Eyes Chaos Dark Magician Dragon Ruler Dragunity");
+  await askButton.waitFor({ timeout: 10_000 });
+  check("e1", "the offer holds at most four archetypes", (await askButton.innerText()).trim() === "See bridges for Blue-Eyes + Chaos + Dark Magician + Dragon Ruler", await askButton.innerText());
+  await search().fill("synergy with Blue-Eyes and Chaos");
+  await askButton.waitFor({ timeout: 10_000 });
+  engineCalls.length = 0;
+  await askButton.click();
+  await bridges.getByTestId("engines-between").waitFor({ timeout: 15_000 });
+  check("e1", "the click opens Bridges in Pick archetypes mode with both archetypes", (await page.getByRole("tab", { name: /^Bridges/ }).getAttribute("aria-selected")) === "true" && (await bridges.getByTestId("engine-modes").getByRole("button", { name: "Pick archetypes" }).getAttribute("aria-pressed")) === "true" && JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes", "Chaos"]), await chipNames());
+  check("e1", "the host is asked for both archetypes by name", engineCalls.length >= 1 && JSON.stringify(engineCalls.at(-1)?.engines) === JSON.stringify(["Blue-Eyes", "Chaos"]), engineCalls.map((call) => call.engines));
+  // Back on the Cards tab the same search still offers the link, and a new ask replaces the picks.
+  await goTab("Cards");
+  await search().fill("Dragunity with Red-Eyes");
+  await askButton.waitFor({ timeout: 10_000 });
+  await askButton.click();
+  await bridges.getByTestId("engines-between").waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(400);
+  check("e1", "a second ask replaces the picks", JSON.stringify(await chipNames()) === JSON.stringify(["Dragunity", "Red-Eyes"]), await chipNames());
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await fresh();
+    await goTab("Cards");
+    await search().fill("synergy with Blue-Eyes and Chaos");
+    await askButton.waitFor({ timeout: 10_000 });
+    check("e1", `${viewport.name}: the offer fits the width and the page does not scroll sideways`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1) && await askButton.evaluate((node: HTMLElement) => { const box = node.getBoundingClientRect(); return box.left >= 0 && box.right <= window.innerWidth + 1; }));
+    await shot(`e-ask-${viewport.name}`);
+    await search().fill("Blue-Eyes Chaos Dark Magician Dragon Ruler Dragunity");
+    await page.waitForTimeout(400);
+    check("e1", `${viewport.name}: four names wrap inside the width`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1) && await askButton.evaluate((node: HTMLElement) => { const box = node.getBoundingClientRect(); return box.left >= 0 && box.right <= window.innerWidth + 1; }));
+    await shot(`e-ask-four-${viewport.name}`);
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
+
   // Each link opens the details of its bridge, and Back returns to the list.
   engineControl.mode = "multi";
   await fresh();
