@@ -401,7 +401,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const supportSearch = !reading?.query.intent && !!reading?.query.supports?.archetypes.length;
   if (supportSearch) effectFound = selectSynergyResults(effectFound.map(hit => ({
     ...hit, synergyCategory: effects!.synergyCategory?.(hit.entry.card.code, reading!),
-  })));
+  })), hit => index.archetypes.filter(archetype => archetype.codes.some(code => inArchetype(hit.entry.card.setcodes, code))).map(archetype => archetype.name));
   const effectGroups = supportSearch && !effectFound.length && reading!.query.supports!.archetypes.length > 1
     ? reading!.query.supports!.archetypes.map(archetype => {
       const single = { ...reading!, query: { ...reading!.query, supports: { ...reading!.query.supports!, archetypes: [archetype] } } };

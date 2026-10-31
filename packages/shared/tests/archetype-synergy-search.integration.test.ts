@@ -1,4 +1,7 @@
 import Database from "better-sqlite3";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { migrate } from "../src/db/schema.js";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
@@ -106,4 +109,77 @@ it("reserves outside space even when more than 40 members qualify", () => {
     expect(result.cards.find(card => card.passcode === 52112003)?.synergyCategory).toBe("outside");
     expect(result.total).toBe(result.cards.length);
   } finally { db.exec("ROLLBACK TO cap_test; RELEASE cap_test"); }
+});
+
+it("caps each outside archetype before the result share while keeping ungrouped partners independent", () => {
+  db.exec("SAVEPOINT diversity_test");
+  try {
+    const insert = db.prepare(`INSERT INTO card_catalog
+      (ygoprodeck_id,name,type,frame_type,effect_text,archetype,image_url,image_url_small,card_sets_json,cached_at)
+      VALUES(?,?,'Effect Monster','effect',?,'Kaiju','image','small','[]','now')`);
+    const kaiju = [
+      [55063751, "Gameciel, the Sea Turtle Kaiju"], [63941210, "Jizukiru, the Star Destroying Kaiju"],
+      [93332803, "Dogoran, the Mad Flame Kaiju"], [28674152, "Radian, the Multidimensional Kaiju"],
+      [48770333, "Thunder King, the Lightningstrike Kaiju"],
+    ] as const;
+    for (const [code, name] of kaiju) insert.run(code, name, "You can Special Summon this card to your opponent's field by Tributing 1 monster they control.");
+    const result = service.effectSearch("Monarch synergy", undefined, { limit: 120 });
+    const outside = result.cards.filter(card => card.synergyCategory === "outside");
+    expect(outside.filter(card => kaiju.some(([code]) => code === card.passcode))).toHaveLength(3);
+    expect(outside.map(card => card.passcode)).toContain(52112003);
+    expect(result.total).toBe(result.cards.length);
+    const pool = kaiju.map(([code]) => code);
+    expect(service.effectSearch("Monarch synergy", pool).total).toBe(3);
+    for (const [at, [code]] of kaiju.entries()) db.prepare("INSERT INTO card_release(passcode,tcg_date,quality,source_version) VALUES(?,?,'ok','integration') ON CONFLICT(passcode) DO UPDATE SET tcg_date=excluded.tcg_date,ocg_date=NULL").run(code, `202${at}-01`);
+    const newest = service.effectSearch("Monarch synergy", pool, { sort: "newest", limit: 1 });
+    expect(newest.total).toBe(3);
+    expect(newest.cards.map(card => card.passcode)).toEqual([48770333]);
+  } finally { db.exec("ROLLBACK TO diversity_test; RELEASE diversity_test"); }
+});
+
+it("rejects random Deck milling while preserving both printed orders of deliberate Blue-Eyes setup", () => {
+  db.exec("SAVEPOINT deliberate_setup_test");
+  try {
+    const insert = db.prepare(`INSERT INTO card_catalog
+      (ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)
+      VALUES(?,?,'Effect Monster','effect',?,'image','small','[]','now')`);
+    insert.run(572850, "Tearlaments Scheiren", "Special Summon this card from your hand, send 1 monster from your hand to the GY, then send the top 3 cards of your Deck to the GY.");
+    insert.run(67441435, "Glow-Up Bulb", "Send the top card of your Deck to the GY, and Special Summon this card.");
+    insert.run(81439173, "Foolish Burial", "Send from your Deck to the GY, 1 monster.");
+    insert.run(63198739, "Primite Dragon Ether Beryl", "You can Tribute this card; send 1 Normal Monster from your Deck to the GY.");
+    insert.run(15381252, "Berserker Soul", "Excavate the top card of your Deck, and if it is a Monster Card, send it to the Graveyard.");
+    insert.run(27552504, "Beatrice, Lady of the Eternal", "Send 1 card from your hand or Deck to the GY.");
+    const result = service.effectSearch("Blue-Eyes synergy", [572850, 67441435, 15381252, 81439173, 63198739, 62265044, 27552504]);
+    expect(result.cards.map(card => card.name)).toEqual(expect.arrayContaining(["Foolish Burial", "Primite Dragon Ether Beryl", "Dragon Ravine", "Beatrice, Lady of the Eternal"]));
+    expect(result.cards).toHaveLength(4);
+  } finally { db.exec("ROLLBACK TO deliberate_setup_test; RELEASE deliberate_setup_test"); }
+});
+
+it("counts overlapping engine memberships without charging rejected cards to another group", () => {
+  const directory = mkdtempSync(join(tmpdir(), "synergy-overlap-"));
+  db.exec("SAVEPOINT overlap_test");
+  const engine = new Database(join(directory, "cards.cdb"));
+  try {
+    engine.exec(`CREATE TABLE datas(id INTEGER PRIMARY KEY,alias INTEGER,type INTEGER,atk INTEGER,def INTEGER,level INTEGER,race INTEGER,attribute INTEGER,setcode INTEGER,ot INTEGER DEFAULT 3);
+      CREATE TABLE texts(id INTEGER PRIMARY KEY,name TEXT,desc TEXT);`);
+    writeFileSync(join(directory, "strings.conf"), "!setname 0x123 First fixture group\n!setname 0x124 Second fixture group\n");
+    const codes = [55063751, 93332803, 28674152, 63941210, 36956512, 48770333, 29726552, 27204311];
+    const insert = db.prepare(`INSERT INTO card_catalog
+      (ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)
+      VALUES(?,?,'Effect Monster','effect',?,'image','small','[]','now')`);
+    for (const [at, code] of codes.entries()) {
+      const name = `Overlap fixture ${code}`, text = "Tribute 1 monster your opponent controls.";
+      insert.run(code, name, text);
+      db.prepare("UPDATE card_tags SET popularity=? WHERE passcode=?").run(100 - at, code);
+      engine.prepare("INSERT INTO datas VALUES(?,0,33,1000,1000,4,1,16,?,3)").run(code, at < 3 ? 0x123 : at < 5 ? 0x1240123 : 0x124);
+      engine.prepare("INSERT INTO texts VALUES(?,?,?)").run(code, name, text);
+    }
+    const result = createCardInsightService(db, { dataDirectory: directory }).effectSearch("Monarch synergy", codes, { limit: 120 });
+    expect(result.cards.map(card => card.passcode)).toEqual([...codes.slice(0, 3), ...codes.slice(5)]);
+    expect(result.total).toBe(6);
+  } finally {
+    engine.close();
+    db.exec("ROLLBACK TO overlap_test; RELEASE overlap_test");
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

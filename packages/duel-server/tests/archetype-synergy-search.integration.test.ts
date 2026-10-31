@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { importCardEffectArtifact } from "@yugidraft/shared/cards/effects";
-import { emptyCardQuery } from "@yugidraft/shared/duels";
+import { emptyCardQuery, inArchetype } from "@yugidraft/shared/duels";
 import { loadCardDatabase } from "../src/cards.js";
 import { createCanonicalEffectResolver, createCardEffectIndex, type CardEffectIndex } from "../src/card-effects.js";
 import { queryCards } from "../src/card-search.js";
@@ -25,7 +25,8 @@ describe.skipIf(!existsSync(`${engineDataDirectory}/cards.cdb`))("specific syner
     const result = search("Temple of the Kings synergy");
     const names = result.effectHits!.map(card => card.name);
     expect(names[0]).toBe("Temple of the Kings");
-    expect(names).toEqual(expect.arrayContaining(["Trap Trick", "Lady Labrynth of the Silver Castle", "Trap Holic", "Farewelcome Labrynth"]));
+    expect(names).toEqual(expect.arrayContaining(["Trap Trick", "Lady Labrynth of the Silver Castle", "Trap Holic"]));
+    expect(search("Temple of the Kings synergy", { passcodes: [32785578] }).effectHits!.map(card => card.name)).toEqual(["Farewelcome Labrynth"]);
     for (const name of ["Ryu Senshi", "Lightstorm Dragon", "Fossil Machine Skull Wagon", "Elemental HERO Wild Wingman", "Gem-Knight Prismaura", "Evil Dragon Ananta", "That's 10!", "Magician's Rod", "Toadally Awesome", "F.A. Dawn Dragster", "Number 100: Numeron Dragon"]) expect(names).not.toContain(name);
     expect(result.effectTotal).toBeLessThanOrEqual(40);
   });
@@ -89,5 +90,23 @@ describe.skipIf(!existsSync(`${engineDataDirectory}/cards.cdb`))("specific syner
     const result = search("Monarch synergy");
     const outside = result.effectHits!.filter(card => card.synergyCategory === "outside");
     expect(outside.map(card => card.name)).toEqual(expect.arrayContaining(["Soul Exchange", "Lair of Darkness", "Gameciel, the Sea Turtle Kaiju"]));
+  });
+  it.each(["Monarch synergy", "Labrynth synergy", "Blue-Eyes synergy"])("keeps at most three outside cards in any other archetype: %s", text => {
+    const outside = search(text).effectHits!.filter(card => card.synergyCategory === "outside");
+    for (const [code, name] of cards.setnames()) {
+      expect(outside.filter(card => inArchetype(card.setcodes, code)).length, name).toBeLessThanOrEqual(3);
+    }
+    if (text === "Monarch synergy") expect(outside.slice(0, 10).map(card => card.name)).toEqual(expect.arrayContaining(["Soul Exchange", "Lair of Darkness"]));
+  });
+  it("applies diversity within a constrained pool without inventing replacements", () => {
+    const result = search("Monarch synergy", { passcodes: [55063751, 63941210, 93332803, 28674152, 48770333, 68005187, 52112003] });
+    expect(result.effectHits).toHaveLength(5);
+    expect(result.effectTotal).toBe(5);
+    expect(result.effectHits!.map(card => card.name)).toEqual(expect.arrayContaining(["Soul Exchange", "Card Advance"]));
+    expect(search("Monarch synergy", { passcodes: [55063751, 63941210, 93332803, 28674152, 48770333] }).effectTotal).toBe(3);
+  });
+  it("rejects incidental milling as Blue-Eyes setup even in an explicit pool", () => {
+    const result = search("Blue-Eyes synergy", { passcodes: [572850, 67441435, 96363153, 58577036, 3040496, 15381252, 21903613, 81439173, 41620959, 62265044, 63198739] });
+    expect(result.effectHits!.map(card => card.name)).toEqual(["Foolish Burial", "Dragon Shrine", "Dragon Ravine", "Primite Dragon Ether Beryl"]);
   });
 });
