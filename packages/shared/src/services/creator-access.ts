@@ -765,8 +765,13 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
   };
 }
 
-/** Account deletion: remove every grant bound to the user or to the email's key. Returns rows deleted. */
+/** Account deletion: scrub/revoke matching email locks, then remove bound/same-inbox grants. Returns grants deleted. */
 export function deleteCreatorGrantsForUser(db: Database.Database, userId: number, email: string | null): number {
   const key = email ? emailKey(email) : null;
+  // Revocation preserves the restriction after its personal data is erased. Read bound grant keys before deleting them,
+  // including when the account's email has since changed or been cleared.
+  db.prepare(`update creator_links set locked_email = null, locked_email_key = null, revoked_at = coalesce(revoked_at, ?)
+    where locked_email_key = ? or locked_email_key in (select email_key from creator_grants where user_id = ?)`)
+    .run(Date.now(), key, userId);
   return db.prepare("delete from creator_grants where user_id = ? or email_key = ?").run(userId, key).changes;
 }

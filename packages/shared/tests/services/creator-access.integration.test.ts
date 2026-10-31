@@ -479,6 +479,23 @@ describe("sign-up attribution and account deletion", () => {
     expect(grant((loose.claim as { grantId: number }).grantId)).toBeUndefined();
     expect(grant((keep.claim as { grantId: number }).grantId)).toMatchObject({ status: "sent" });
   });
+
+  it.each(["ab+account@gmail.com", null])("account deletion scrubs and revokes matching email locks without unlocking them (account email %j)", async (accountEmail) => {
+    const creator = setup();
+    const locked = service.createLink(creator.id, { ...LINK_PRESETS.personal, lockedEmail: "a.b+creator@googlemail.com", actorUserId: 1 })!;
+    const other = service.createLink(creator.id, { ...LINK_PRESETS.personal, lockedEmail: "other@example.test", actorUserId: 1 })!;
+    const { claim } = await claimAndSend(locked.code, "ab@gmail.com");
+    db.exec("insert into users(id, username, display_name, email) values (10, 'locked', 'Locked', 'ab+account@gmail.com')");
+    service.attributeSignUp({ userId: 10, email: "ab+account@gmail.com", grantId: (claim as { grantId: number }).grantId });
+    db.prepare("update users set email = ? where id = 10").run(accountEmail);
+    deleteUserAccount(db, 10);
+    expect(linkView(creator.id, locked.id)).toMatchObject({ lockedEmail: null, state: "revoked" });
+    expect(db.prepare("select locked_email, locked_email_key from creator_links where id = ?").get(locked.id))
+      .toEqual({ locked_email: null, locked_email_key: null });
+    expect(service.claimLinkGrant(locked.code, "someone@example.test")).toEqual({ kind: "revoked" });
+    expect(linkView(creator.id, other.id)).toMatchObject({ lockedEmail: "other@example.test", state: "open" });
+    expect(grants()).toEqual([]);
+  });
 });
 
 describe("migration", () => {
