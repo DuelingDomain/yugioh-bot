@@ -33,6 +33,7 @@ export const MAX_LINK_DAYS = 90;
 export const MAX_EMAILS_PER_ADD = 20;
 export const LINK_PRESETS = {
   personal: { label: "Personal", maxUses: 1, expiresInDays: 14 },
+  friends: { label: "Friends", maxUses: 3, expiresInDays: 14 },
   community: { label: "Community", maxUses: 50, expiresInDays: 30 },
 } as const;
 /** 12 chars base62 from crypto.randomBytes (about 71 bits). */
@@ -68,6 +69,8 @@ export interface CreatorLink {
   creatorId: number;
   code: string;
   label: string | null;
+  /** Owner-only display address. Never include this in PublicLinkView. */
+  lockedEmail: string | null;
   maxUses: number;
   /** signed_up, plus sent/sending that is not expired. */
   used: number;
@@ -129,6 +132,8 @@ export type ClaimResult =
   | { kind: "claimed"; grantId: number }
   /** Same inbox has a live grant, or the email already has an account. Answer generically; send nothing. */
   | { kind: "already" }
+  /** Different inbox from the link's lock. Does not reveal the address or look up an account. */
+  | { kind: "email_mismatch" }
   | { kind: "full" }
   | { kind: "expired" }
   | { kind: "revoked" }
@@ -179,8 +184,8 @@ export interface CreatorAccessService {
   /** Total creator sign-ups (signed_up_at >= since). For the Overview tile. */
   creatorSignUpsSince(since: number): number;
 
-  /** maxUses 1-500, expiresInDays 1-90, label up to 60. null when the creator is missing or archived. */
-  createLink(creatorId: number, input: { label?: string | null; maxUses: number; expiresInDays: number; actorUserId: number }): CreatorLink | null;
+  /** maxUses 1-500, expiresInDays 1-90, label up to 60, optional validated email lock. null when the creator is missing or archived. */
+  createLink(creatorId: number, input: { label?: string | null; maxUses: number; expiresInDays: number; lockedEmail?: string | null; actorUserId: number }): CreatorLink | null;
   /**
    * Stops new uses at once (revoked_at), marks the link's grants in sending/sent `revoked` (signed_up stays), then
    * best-effort revokes their Clerk invitations. null when the link is not this creator's.
@@ -190,7 +195,7 @@ export interface CreatorAccessService {
   /** null for an unknown or malformed code. Archived creator -> state revoked. */
   publicLink(code: string): PublicLinkView | null;
   /**
-   * One BEGIN IMMEDIATE transaction: check the link, count uses, check the email key, insert or re-open the grant
+   * One BEGIN IMMEDIATE transaction: check the link and email lock before account/grant lookup, count uses, insert or re-open the grant
    * in `sending` (expires_at = now + SENDING_LEASE_MS). An existing grant for the same email key is re-opened (moved
    * to this link and creator) only when it is failed, revoked, or expired; otherwise -> already. An email that
    * belongs to a users row -> already. `email` must be already validated and lower-cased by the caller.
@@ -248,6 +253,7 @@ interface SummaryRow extends CreatorRow {
 }
 interface LinkRow {
   id: number; creator_id: number; code: string; label: string | null; max_uses: number; expires_at: number;
+  locked_email: string | null;
   revoked_at: number | null; created_at: number; creator_archived_at: number | null; creator_name: string;
   used: number; signed_up: number;
 }
@@ -320,6 +326,7 @@ const toSummary = (row: SummaryRow): CreatorSummary => ({
 const toLink = (row: LinkRow, now: number): CreatorLink => ({
   id: row.id, creatorId: row.creator_id, code: row.code, label: row.label, maxUses: row.max_uses, used: row.used,
   signedUp: row.signed_up, expiresAt: row.expires_at, revokedAt: row.revoked_at, createdAt: row.created_at,
+  lockedEmail: row.locked_email,
   state: linkState(row, now),
 });
 
@@ -346,7 +353,7 @@ const SUMMARY_SELECT = `
   from creators c`;
 
 const LINK_SELECT = `
-  select l.id, l.creator_id, l.code, l.label, l.max_uses, l.expires_at, l.revoked_at, l.created_at,
+  select l.id, l.creator_id, l.code, l.label, l.max_uses, l.expires_at, l.revoked_at, l.created_at, l.locked_email,
     c.archived_at as creator_archived_at, c.name as creator_name,
     (select count(*) from creator_grants g where g.link_id = l.id and ${LIVE("g")}) as used,
     (select count(*) from creator_grants g where g.link_id = l.id and g.status = 'signed_up') as signed_up
@@ -563,16 +570,22 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
         throw bad("invalid_expires_in_days");
       }
       const label = cleanText(input.label, 60, "invalid_label", { plain: true });
+      const rawLock = input.lockedEmail;
+      const hasLock = rawLock !== undefined && rawLock !== null && !(typeof rawLock === "string" && rawLock.trim() === "");
+      const lockedEmail = hasLock ? normalizeJoinEmail(rawLock) : null;
+      const lockedEmailKey = lockedEmail ? emailKey(lockedEmail) : null;
+      if (hasLock && (!lockedEmail || !lockedEmailKey)) throw bad("invalid_locked_email");
       const creator = creatorRow(creatorId);
       if (!creator || creator.archived_at !== null) return null;
-      const insert = db.prepare(`insert into creator_links (creator_id, code, label, max_uses, expires_at, created_by_user_id, created_at)
-        values (@creatorId, @code, @label, @maxUses, @expiresAt, (select id from users where id = @actor), @now)`);
+      const insert = db.prepare(`insert into creator_links
+        (creator_id, code, label, max_uses, expires_at, locked_email, locked_email_key, created_by_user_id, created_at)
+        values (@creatorId, @code, @label, @maxUses, @expiresAt, @lockedEmail, @lockedEmailKey, (select id from users where id = @actor), @now)`);
       for (let attempt = 0; attempt < 5; attempt++) {
         const code = newCode();
         if (!LINK_CODE_PATTERN.test(code)) throw new CreatorAccessError(500, "invalid_link_code");
         const now = clock();
         try {
-          const id = Number(insert.run({ creatorId, code, label, maxUses: input.maxUses,
+          const id = Number(insert.run({ creatorId, code, label, lockedEmail, lockedEmailKey, maxUses: input.maxUses,
             expiresAt: now + input.expiresInDays * DAY_MS, actor: input.actorUserId, now }).lastInsertRowid);
           return toLink(linkById(id, now)!, now);
         } catch (error) {
@@ -611,7 +624,7 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
         const now = clock();
         if (typeof code !== "string" || !LINK_CODE_PATTERN.test(code)) return { kind: "not_found" };
         const link = db.prepare<[string], { id: number; creator_id: number; max_uses: number; expires_at: number;
-          revoked_at: number | null; creator_archived_at: number | null }>(`select l.id, l.creator_id, l.max_uses, l.expires_at,
+          locked_email_key: string | null; revoked_at: number | null; creator_archived_at: number | null }>(`select l.id, l.creator_id, l.max_uses, l.expires_at, l.locked_email_key,
           l.revoked_at, c.archived_at as creator_archived_at from creator_links l join creators c on c.id = l.creator_id
           where l.code = ?`).get(code);
         if (!link) return { kind: "not_found" };
@@ -620,6 +633,7 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
         const address = email.trim().toLowerCase();
         const key = emailKey(address);
         if (!key) throw bad("invalid_email");
+        if (link.locked_email_key !== null && key !== link.locked_email_key) return { kind: "email_mismatch" };
         if (hasAccount(address, key)) return { kind: "already" };
         const existing = grantByKey(key);
         if (existing && isLive(existing, now)) return { kind: "already" };
