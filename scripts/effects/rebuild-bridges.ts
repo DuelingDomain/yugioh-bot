@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { loadTaggingCatalog } from "./catalog.js";
+import { buildMechanicFacts } from "../../packages/shared/src/cards/effects/bridge-mechanic-facts.js";
 import { parseGenesysPointsSnapshot } from "@yugidraft/shared/services";
 import { PINNED_TCG_BANLIST_ID } from "@yugidraft/shared/duels";
 import { extractCardCapabilities, BridgeEngine, bridgeGroups, indexBridgeCapabilities, bridgeHash,
@@ -12,7 +13,7 @@ import { extractCardCapabilities, BridgeEngine, bridgeGroups, indexBridgeCapabil
 const sha = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
 const root = resolve(import.meta.dirname, "../..");
 const data = "packages/shared/data/effects";
-export const BRIDGE_UPDATE_FILES = ["bridges-advanced.jsonl.gz", "bridges-genesys.jsonl.gz", "card-capabilities.jsonl.gz", "bridges-manifest.json"].map(file => `${data}/${file}`);
+export const BRIDGE_UPDATE_FILES = ["bridges-advanced.jsonl.gz", "bridges-genesys.jsonl.gz", "card-capabilities.jsonl.gz", "bridge-mechanic-facts.json", "bridges-manifest.json"].map(file => `${data}/${file}`);
 
 export async function rebuildBridges(options: { engineDirectory: string; directory?: string; output?: string; metadata?: string; pin?: string }) {
   const started = performance.now(), directory = resolve(options.directory ?? join(root, data)), output = resolve(options.output ?? directory);
@@ -59,6 +60,7 @@ export async function rebuildBridges(options: { engineDirectory: string; directo
     if (performance.now() - lastProgress > 15_000) { console.error(`${progress.phase}: ${progress.completed}/${progress.total}`); lastProgress = performance.now(); }
   });
   mkdirSync(output, { recursive: true });
+  writeFileSync(join(output, "bridge-mechanic-facts.json"), JSON.stringify(buildMechanicFacts(tags, sha(readFileSync(join(directory, "tags.jsonl.gz"))))) + "\n");
   const emit = (path: string, rows: unknown[]): BridgeArtifactFile => {
     const bytes = Buffer.from(rows.map(row => JSON.stringify(row)).join("\n") + "\n"), compressed = gzipSync(bytes, { level: 9 });
     writeFileSync(join(output, path), compressed);

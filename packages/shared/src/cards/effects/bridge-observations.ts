@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { BridgeFormat } from "./bridge-types.js";
+import { log } from "../../observability/index.js";
+import { mechanicFactsVersion } from "./bridge-mechanic-facts.js";
 
 const count = z.number().int().positive();
 const CardUsage = z.object({ code: count, decks: count, copies: count }).strict();
@@ -49,12 +51,16 @@ export function bridgeObservations(): BridgeObservations | null {
     const bytes = readFileSync(new URL("../../../data/staples/bridge-observations.json", import.meta.url));
     if (bytes.length > 8_000_000) throw Error("Observation artifact too large");
     cached = validateBridgeObservations(JSON.parse(bytes.toString()));
-  } catch { cached = null; }
+  } catch (error) {
+    cached = null;
+    log("warn", "[bridges] observations unavailable; co-play and sampled cores disabled", { error: String(error) });
+  }
   return cached;
 }
 
 /** Changing discovery data expires durable shortlists, while evidence reviews survive. */
-export const BRIDGE_APPROACH_VERSION = `mechanic-synergy-v1:${bridgeObservations()?.version ?? "no-observations"}`;
+export const bridgeApproachVersion = (): string =>
+  `mechanic-synergy-v2:${mechanicFactsVersion()}:${bridgeObservations()?.version ?? "no-observations"}`;
 
 const indices = new WeakMap<BridgeObservations, Map<ObservationFormat, Map<string, CoPlayPair>>>();
 export function coPlayPair(a: string, b: string, format: ObservationFormat, artifact = bridgeObservations()): CoPlayPair | undefined {

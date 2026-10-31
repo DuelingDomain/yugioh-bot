@@ -1,39 +1,19 @@
-import { readFileSync } from "node:fs";
-import { gunzipSync } from "node:zlib";
-import type { CardTags } from "./tags.js";
 import { isExtraDeckCard } from "./card.js";
-import type { BridgeGraphData, BridgeReason, CardCapability } from "./bridge-types.js";
-import { actionEvidence, bridgeHash, matchesBridgeFilter, printedText, trapTurnSetAllows, trapTurnSetEvidence } from "./bridge-text.js";
+import type { BridgeGraphData, BridgeReason, CardCapability, Capability } from "./bridge-types.js";
+import { actionEvidence, bridgeHash, filterPrinted, matchesBridgeFilter, printedText, quotedNames, sentences, trapTurnSetAllows, trapTurnSetEvidence } from "./bridge-text.js";
+import { cardMechanicFacts } from "./bridge-mechanic-facts.js";
 
 export const MECHANICS = ["trap_set", "trap_activation", "gy", "banish", "fusion", "synchro", "xyz", "link", "ritual", "face_down", "discard"] as const;
 export type Mechanic = typeof MECHANICS[number];
 export interface MechanicProfile { engine: string; members: number; mechanics: Record<Mechanic, { count: number; share: number; cards: number[] }> }
 export interface MechanicInteraction { key: "trap_activation" | "trap_trigger" | "gy_setup" | "discard_trigger"; provider: number; consumer: number; resource?: number }
-interface MechanicTagFacts { gy: boolean; banished: boolean; discard: boolean; faceDown: boolean; summons: string[]; trapTrigger: boolean; gyAction: boolean }
-let tags: Map<number, MechanicTagFacts> | undefined;
-function cardTags(id: number): MechanicTagFacts | undefined {
-  if (!tags) {
-    try { tags = new Map(gunzipSync(readFileSync(new URL("../../../data/effects/tags.jsonl.gz", import.meta.url)), { maxOutputLength: 50_000_000 })
-      .toString().trim().split("\n").map(line => {
-        const row = JSON.parse(line) as {id:number;tags:CardTags}, effects=row.tags.effects;
-        const events=effects.flatMap(effect=>[...effect.actions,...effect.costs,...effect.triggers]);
-        return [row.id, { gy:events.some(event=>event.from.includes("gy")), banished:events.some(event=>event.from.includes("banished")),
-          discard:events.some(event=>event.verb==="discard"), faceDown:effects.some(effect=>effect.conditions.some(condition=>/face-down|Set card/i.test(condition))),
-          summons:[...new Set(events.flatMap(event=>event.what.subtypes))],
-          trapTrigger:effects.some(effect=>effect.triggers.some(event=>event.verb==="activate" && event.player!=="opponent" && (event.what.kinds.includes("trap") || /Normal Trap/i.test(event.note)))),
-          gyAction:effects.some(effect=>effect.location.includes("gy") && ["ignition","quick"].includes(effect.timing)) }];
-      })); }
-    catch { tags = new Map(); }
-  }
-  return tags.get(id);
-}
 
 /** Searchygo events seed the profile; printed clauses and grounded capabilities confirm it.
  * Type and Attribute are deliberately absent from the feature vocabulary. */
 export function mechanicProfile(engine: string, members: readonly CardCapability[]): MechanicProfile {
   const mechanics = Object.fromEntries(MECHANICS.map(key => [key, { count: 0, share: 0, cards: [] as number[] }])) as MechanicProfile["mechanics"];
   for (const row of members) {
-    const text = printedText(row.card), tagged = cardTags(row.id);
+    const text = printedText(row.card), tagged = cardMechanicFacts(row.id);
     const has = (key: string) => [...row.provides, ...row.needs].some(cap => cap.key === key);
     const flags: Record<Mechanic, boolean> = {
       trap_set: (row.card.kind === "trap" || has("set_spell_trap")) && /Trap|Set/i.test(text),
@@ -62,8 +42,24 @@ export function mechanicComplementarity(a: MechanicProfile, b: MechanicProfile):
 }
 
 function trapTrigger(row: CardCapability): boolean {
-  return cardTags(row.id)?.trapTrigger === true
+  return cardMechanicFacts(row.id)?.trapTrigger === true
     && /(?:Normal Trap Card|Normal Trap)[^.\n]{0,80}(?:is activated|activated this turn)/i.test(printedText(row.card));
+}
+
+/** A named recipient must be the object of this printed Deck-to-GY clause.
+ * Tags can otherwise attach a Deck zone/filter to a detach cost or another effect. */
+function namedGySetup(provider: CardCapability, cap: Capability): boolean {
+  const filter = cap.filter, evidence = cap.evidence.trim();
+  if (!filter || !(filter.names.length || filter.archetypes.length)
+    || !cap.from?.includes("deck") || /excavat|\btop\b|random/i.test(evidence)
+    || !printedText(provider.card).includes(evidence)) return false;
+  const direct = /\bsend\s+([^;]+?)\s+from\s+([^;]+?)\s+to\s+(?:the|your)\s+(?:GY|Graveyard)\b/i.exec(evidence);
+  if (direct && /\byour\b/i.test(direct[2]!) && /\bDeck\b/i.test(direct[2]!)
+    && !/^your Extra Deck$/i.test(direct[2]!) && filterPrinted(filter, direct[1]!)) return true;
+  // "Take a named card from your Deck, and either add it ... or send it ...".
+  const choice = /\btake\s+([^;]+?)\s+from your Deck\b([^;]*)/i.exec(evidence);
+  return !!choice && filterPrinted(filter, choice[1]!)
+    && /\bsend (?:it|that card) to (?:the|your) (?:GY|Graveyard)\b/i.test(choice[2]!);
 }
 
 /** Nomination requires complementary printed effects. Shared GY or Summon families alone never suffice. */
@@ -80,18 +76,24 @@ export function mechanicSynergyReason(source: MechanicProfile, target: MechanicP
     if (permission && resource && consumer) return make({ key: "trap_activation", provider: permission.id, consumer: consumer.id, resource: resource.id },
       `Shared Normal Trap activation/Set mechanic: ${permission.card.name} permits ${resource.card.name} to activate the turn it was Set; ${consumer.card.name} responds to Normal Trap activation. Printed conditions and once-per-turn limits still apply; both engines must be available.`);
     const trap = from.find(row => row.card.kind === "trap" && row.card.subtypes.includes("normal"));
-    if (trap && consumer) return make({ key: "trap_trigger", provider: trap.id, consumer: consumer.id },
+    const normalTraps = from.filter(row => row.card.kind === "trap" && row.card.subtypes.includes("normal")).length;
+    if (trap && consumer && normalTraps >= 2 && normalTraps / from.length >= 0.4) return make({ key: "trap_trigger", provider: trap.id, consumer: consumer.id },
       `Shared Normal Trap activation mechanic: activating ${trap.card.name} can feed ${consumer.card.name}'s printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine.`);
   }
   for (const [feature, key, action] of [["gy", "gy_setup", "send_to_gy"], ["discard", "discard_trigger", "discard"]] as const) {
     if (!focused(source, feature) || !focused(target, feature)) continue;
     for (const provider of from) for (const cap of provider.provides.filter(cap => cap.key === action && cap.filter && !cap.filter.this_card
-      && (key !== "gy_setup" || cap.from?.includes("deck")))) {
+      && (key !== "gy_setup" || namedGySetup(provider, cap)))) {
       const consumer = to.find(row => !from.some(other => other.id === row.id) && !isExtraDeckCard(row.card)
         && (!cap.targets || cap.targets.includes(row.id)) && matchesBridgeFilter(cap.filter!, row.card)
+        // Inferred memberships can contain unrelated labels (e.g. Synthess as
+        // "Magnet Warrior"). Confirm the recipient's printed/canonical identity.
+        && (key !== "gy_setup" || matchesBridgeFilter(cap.filter!, { ...row.card,
+          archetypes: [row.card.archetype ?? "", ...sentences(printedText(row.card))
+            .filter(text => /this card is always treated as/i.test(text)).flatMap(quotedNames)] }))
         && !/excavat|\btop\b|random/i.test(cap.evidence)
         && actionEvidence(provider.card, action, cap.filter) && (key === "gy_setup" ? row.provides.some(cap => cap.key === "gy_effect")
-          && cardTags(row.id)?.gyAction
+          && cardMechanicFacts(row.id)?.gyAction
           : row.needs.some(need => need.key === "trigger" && need.value === "discard" && need.filter?.this_card && /discard/i.test(need.evidence))));
       if (consumer) return make({ key, provider: provider.id, consumer: consumer.id },
         `Complementary ${feature === "gy" ? "GY setup" : "discard trigger"} mechanic: ${provider.card.name}'s printed ${action} effect can use ${consumer.card.name}, whose printed ${feature === "gy" ? "GY effect" : "discard trigger"} supplies the payoff. All printed costs, zones, locks and timing apply.`);

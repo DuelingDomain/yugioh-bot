@@ -14,6 +14,11 @@ describe("bridge publication integrity", () => {
       const manifest = readFileSync(join(root, "packages/shared/data/effects/bridges-manifest.json"));
       const bridge = { files: BRIDGE_FILES, manifest_sha256: createHash("sha256").update(manifest).digest("hex"), version: JSON.parse(manifest.toString()).version };
       expect(validateBridgeCandidate(root, output, bridge)).toEqual(BRIDGE_FILES);
+      const factsPath = join(output, "packages/shared/data/effects/bridge-mechanic-facts.json"), factsBytes = readFileSync(factsPath);
+      const facts = JSON.parse(factsBytes.toString()); facts.cards[Object.keys(facts.cards)[0]!] ^= 1;
+      writeFileSync(factsPath, JSON.stringify(facts));
+      expect(() => validateBridgeCandidate(root, output, bridge)).toThrow("Invalid mechanic facts artifact");
+      writeFileSync(factsPath, factsBytes);
       const pin = BRIDGE_FILES.at(-1)!, before = readFileSync(join(output, pin));
       writeFileSync(join(output, pin), before.toString().replace("schema_version: 1", "schema_version: 2"));
       expect(() => validateBridgeCandidate(root, output, bridge)).toThrow("outside its integrity pin");

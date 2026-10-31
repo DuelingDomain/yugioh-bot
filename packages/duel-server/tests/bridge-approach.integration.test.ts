@@ -46,12 +46,11 @@ it("grounds Temple + Labrynth in Normal Trap mechanics and rejects Fiendsmith's 
   expect(row.score).toBeLessThanOrEqual(3);
   expect(row.reasons[0]!.description).toMatch(/Temple of the Kings.*Welcome Labrynth.*Lady Labrynth/);
   expect(buildBridgeJudgeEvidence(db,row)).toMatchObject({kind:"synergy",access_rule:expect.stringContaining("Mechanic synergy only")});
-  expect(engine.synergyBetween("Fiendsmith","Labrynth")).toBeNull();
-  expect(engine.deepBetween("Fiendsmith","Labrynth")).toBeNull();
-  const genesys = engine.synergyBetween("Fiendsmith","Labrynth","genesys")!;
-  expect(genesys.reasons[0]!.description).toMatch(/Fiendsmith Kyrie.*Lady Labrynth/);
-  expect(genesys.reasons[0]!.mechanic!.key).toBe("trap_trigger");
-  expect(bridgeGate(db,genesys).state).toBe("pending");
+  for (const format of ["advanced", "genesys"] as const) {
+    expect(engine.synergyBetween("Fiendsmith","Labrynth",format)).toBeNull();
+    expect(engine.deepBetween("Fiendsmith","Labrynth",format)).toBeNull();
+    expect(engine.synergyBetween("Odion","Labrynth",format)?.reasons[0]?.mechanic?.key).toBe("trap_activation");
+  }
   // Pixiel excavates Main Deck cards; it cannot send an Extra Deck Link to GY.
   expect(engine.synergyBetween("Altergeist","Beetrooper")).toBeNull();
   const discard=engine.synergyBetween("Fiendsmith","Dark World")!;
@@ -59,6 +58,31 @@ it("grounds Temple + Labrynth in Normal Trap mechanics and rejects Fiendsmith's 
   expect(buildBridgeJudgeEvidence(db,discard)?.kind).toBe("synergy");
   expect(buildBridgeJudgeEvidence(db,{...row,kind:undefined})).toBeNull();
   expect(buildBridgeJudgeEvidence(db,{...row,reasons:[{...row.reasons[0]!,description:"Unsupported mechanic"}]})).toBeNull();
+});
+
+it("rejects broad, empty, random and mismatched GY setup clauses in both formats", () => {
+  for (const format of ["advanced", "genesys"] as const) {
+    for (const [source,target] of [["Lightsworn","Mecha Phantom Beast"], ["Shaddoll","Junk"],
+      ["Chaos","Photon"], ["Sylvan","Hecahands"], ["Crystal","The Weather"],
+      ["Archfiend","Fiendsmith"], ["Spright","Mecha Phantom Beast"], ["Gishki","Fishborg"],
+      ["Tindangle","Battlewasp"], ["Magnet","Symphonic Warrior"]]) {
+      expect(testEngine.synergyBetween(source!,target!,format), `${source} -> ${target} (${format})`).toBeNull();
+    }
+  }
+});
+
+it("keeps named Deck-to-GY payoffs and rejects evidence borrowed from another printed effect", () => {
+  for (const format of ["advanced", "genesys"] as const) {
+    const row = testEngine.synergyBetween("Bystial", "Branded", format)!;
+    expect(row.reasons[0]?.mechanic?.key).toBe("gy_setup");
+    expect(row.reasons[0]?.description).toMatch(/Bystial Saronir.*Branded Retribution/);
+    expect(buildBridgeJudgeEvidence(db, row)?.kind).toBe("synergy");
+  }
+  const capabilities = graph.capabilities.map(row => row.card.name !== "Bystial Saronir" ? row : { ...row,
+    provides: row.provides.map(cap => cap.key !== "send_to_gy" ? cap : { ...cap,
+      evidence: "You can target 1 LIGHT or DARK monster in either GY; banish it, and if you do, Special Summon this card from your hand." }) });
+  const engine = new BridgeEngine({ ...graph, capabilities });
+  for (const format of ["advanced", "genesys"] as const) expect(engine.synergyBetween("Bystial", "Branded", format)).toBeNull();
 });
 
 it("requires both independent Haiku reviews, caps synergy, and never calls it access coverage", async () => {
@@ -96,6 +120,17 @@ it("uses co-play to rank real paths and never publishes unjudged or evidence-fre
   expect(withPrior[0]!.score).toBeGreaterThan(without[0]!.score);
   expect(rankEngineCandidates(["Snake-Eye"],[],context)).toEqual([]);
   expect(queries.project([row],{source:"Snake-Eye",engines:["Snake-Eye"],format:"genesys"}).next).toEqual([]);
+  const belowFloor={...row,score:0.1};
+  expect(rankEngineCandidates(["Snake-Eye"],[belowFloor],context,8,{observationFormat:"genesys"})).toHaveLength(1);
+  for (const invalid of [
+    {...belowFloor,validation:undefined as unknown as typeof row.validation},
+    {...belowFloor,reasons:belowFloor.reasons.map(reason=>({...reason,cost:undefined,steps:undefined,materials:undefined}))},
+  ]) expect(rankEngineCandidates(["Snake-Eye"],[invalid],context,8,{observationFormat:"genesys"})).toEqual([]);
+  const hubs=new Set(row.reasons[0]!.cards);
+  expect(rankEngineCandidates(["Snake-Eye"],[belowFloor],{...context,hubs},8,{observationFormat:"genesys"})).toEqual([]);
+  const invalidCompanion={...belowFloor,score:0.2,validation:undefined as unknown as typeof row.validation};
+  const mixed=rankEngineCandidates(["Snake-Eye"],[belowFloor,invalidCompanion],context,8,{observationFormat:"genesys"});
+  expect(mixed[0]!.links.map(link=>link.bridge)).toEqual([belowFloor]);
 });
 
 it("adjusts cores from real sampled quantities while preserving grounded dependencies, Genesys budgets and Domain rules", () => {

@@ -68,5 +68,5 @@ if (!refreshed) throw Error('No source refreshed');
 const identity = { schemaVersion: 3, generatedAt: new Date().toISOString(), policy: POLICY, formats };
 const result = validateArtifact({ ...identity, version: sha(identity) });
 mkdirSync(resolve(output, '..'), { recursive: true });
-writeFileSync(output, JSON.stringify(result, null, 2)+'\n');
+writeFileSync(output, JSON.stringify(result)+'\n');
 writeFileSync(join(resolve(output, '..'), 'decks.json'), JSON.stringify(evidence)+'\n');
