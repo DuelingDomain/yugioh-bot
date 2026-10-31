@@ -95,6 +95,7 @@
 
 /* The path in the details: each step is a card, its name, whether the deck holds it, and what the data says it does. */
 .pathBox { margin-top: 6px; min-width: 0; }
+.pathNote { margin: 0 0 6px; color: var(--ink-3); font-size: 12px; line-height: 1.4; }
 .pathFull { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .fullStep { display: grid; grid-template-columns: 72px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 12px; row-gap: 2px; align-content: start; width: 100%; min-width: 0; }
 .fullArrow { grid-column: 1; grid-row: 1; display: grid; place-items: center; color: var(--ink-4); }

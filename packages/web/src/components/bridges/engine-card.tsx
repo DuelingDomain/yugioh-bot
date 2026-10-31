@@ -7,8 +7,8 @@ import type { EngineSuggestion } from "@/lib/bridges-api";
 import type { ShownBridge } from "./bridges-api";
 import { GradeTag, Points, type CardPropsFor } from "./bridge-card";
 import { PathThumbs, pathSteps } from "./bridge-path";
-import { PATH_CARDS, bridgeCodes } from "./bridges-model";
-import { cardsSettled, useBridgeCards } from "./use-bridges";
+import { bridgeCodes } from "./bridges-model";
+import { cardsState, useBridgeCards } from "./use-bridges";
 import styles from "./bridges.module.css";
 
 /** The grade word of an engine. A niche engine always says Niche, like a niche bridge. */
@@ -89,7 +89,7 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, onOpen, on
                   <span className={styles.pathEnds}>{ends}<span className={styles.openHint}>Details<ChevronRight size={13} strokeWidth={1.8} aria-hidden className={styles.chevron} /></span></span>
                 </button>
               ) : <span className={styles.pathEnds}>{ends}</span>}
-              <PathThumbs steps={pathSteps(link.bridge, cards, cardsSettled(bridgeCodes([link.bridge], PATH_CARDS), mode))} cardProps={cardProps} label={`${ends}, path of cards`} />
+              <PathThumbs steps={pathSteps(link.bridge, cards, cardsState(link.bridge.cards, mode))} cardProps={cardProps} label={`${ends}, path of cards`} />
             </li>
           );
         })}
@@ -117,7 +117,7 @@ export function EngineList({ engines, mode, genesys, cardProps, onCatalog, onOpe
   /** Engines only the deep search found. */
   fresh?: ReadonlySet<string>;
 }) {
-  const cards = useBridgeCards(bridgeCodes(engines.flatMap((engine) => engine.links.map((link) => link.bridge)), PATH_CARDS), mode, onCatalog);
+  const cards = useBridgeCards(bridgeCodes(engines.flatMap((engine) => engine.links.map((link) => link.bridge))), mode, onCatalog);
   return (
     <ul className={styles.list} aria-label={label}>
       {engines.map((engine) => <EngineCard key={engine.engine} engine={engine} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} onOpen={onOpen} onOpenLink={onOpenLink} lit={lit === engine.engine} fresh={fresh?.has(engine.engine)} />)}

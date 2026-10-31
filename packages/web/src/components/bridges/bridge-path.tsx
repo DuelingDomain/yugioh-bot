@@ -8,6 +8,7 @@ import { LimitBadge } from "@/components/decks/limit-badge";
 import { cn } from "@/lib/utils";
 import type { CardPropsFor } from "./bridge-card";
 import { roleFor } from "./bridges-model";
+import type { CardsState } from "./use-bridges";
 import type { ShownBridge } from "./bridges-api";
 import styles from "./bridges.module.css";
 
@@ -15,7 +16,7 @@ import styles from "./bridges.module.css";
 export type PathStep = {
   name: string;
   card: DeckCardInfo | null;
-  status: "ready" | "loading" | "missing";
+  status: "ready" | "loading" | "missing" | "failed";
   /** What the bridge data says this step does. Empty when it says nothing, or the same as the step before. */
   text: string;
 };
@@ -25,7 +26,7 @@ export type PathStep = {
  * bridge card of that name. Prefer the code-written review step, including an explicit empty caption. Older rows
  * fall back to reason text, with a shared reason shown once under the first card.
  */
-export function pathSteps(bridge: ShownBridge, cards: ReadonlyMap<number, DeckCardInfo>, settled = true): PathStep[] {
+export function pathSteps(bridge: ShownBridge, cards: ReadonlyMap<number, DeckCardInfo>, state: CardsState = "settled"): PathStep[] {
   const byName = new Map<string, { code: number; card: DeckCardInfo }>();
   for (const code of bridge.cards) {
     const card = cards.get(code);
@@ -34,7 +35,7 @@ export function pathSteps(bridge: ShownBridge, cards: ReadonlyMap<number, DeckCa
   const said = new Set<string>();
   return bridge.review.line.map((name, index) => {
     const found = byName.get(name);
-    const status = found ? "ready" : settled ? "missing" : "loading";
+    const status = found ? "ready" : state === "settled" ? "missing" : state === "failed" ? "failed" : "loading";
     const reviewed = bridge.review.steps?.[index];
     const sentence = reviewed?.card === name ? reviewed.text : found ? roleFor(bridge, found.code) : "";
     const text = reviewed?.card === name ? sentence : sentence && !said.has(sentence) ? sentence : "";
@@ -72,7 +73,7 @@ export function PathThumbs({ steps, cardProps, label = "Path of cards" }: { step
               <CardArt code={step.card.code} name={step.name} />
             </button>
           ) : (
-            <span className={cn(styles.thumb, styles.thumbName)} role="img" data-missing={step.status === "missing" ? "" : undefined} aria-label={step.status === "missing" ? `${step.name}, card not found` : step.name} title={step.status === "missing" ? `${step.name}: card not found` : step.name}><span aria-hidden>{step.name}</span></span>
+            <span className={cn(styles.thumb, styles.thumbName)} role="img" data-missing={step.status === "missing" || step.status === "failed" ? "" : undefined} aria-label={step.status === "missing" ? `${step.name}, card not found` : step.status === "failed" ? `${step.name}, could not load` : step.name} title={step.status === "missing" ? `${step.name}: card not found` : step.status === "failed" ? `${step.name}: could not load` : step.name}><span aria-hidden>{step.name}</span></span>
           )}
         </li>
       ))}
@@ -94,6 +95,7 @@ export function PathSteps({ steps, cardProps, deckCount, held, limit }: {
 }) {
   return (
     <div className={styles.pathBox}>
+      <p className={styles.pathNote} data-testid="bridge-line-note">Each step still needs its card&apos;s printed conditions and costs.</p>
       <ol className={styles.pathFull} data-testid="bridge-line" aria-label="The line, in play order">
         {steps.map((step, index) => {
           const count = step.card ? held(step.card) : 0;
@@ -113,7 +115,7 @@ export function PathSteps({ steps, cardProps, deckCount, held, limit }: {
               )}
               <div className={styles.fullText}>
                 <strong className={styles.stepName} data-testid="bridge-step-name">{step.name}</strong>
-                {step.card ? <span className={styles.stepDeck} data-have={count > 0 ? "" : undefined} data-testid="bridge-step-deck">{count > 0 ? `In deck ×${count}` : side > 0 ? `In Side Deck ×${side}` : "Not in deck"}</span> : step.status === "missing" ? <span className={styles.stepDeck} data-testid="bridge-step-deck" data-missing="">Card not found</span> : null}
+                {step.card ? <span className={styles.stepDeck} data-have={count > 0 ? "" : undefined} data-testid="bridge-step-deck">{count > 0 ? `In deck ×${count}` : side > 0 ? `In Side Deck ×${side}` : "Not in deck"}</span> : step.status === "missing" || step.status === "failed" ? <span className={styles.stepDeck} data-testid="bridge-step-deck" data-missing="">{step.status === "missing" ? "Card not found" : "Could not load"}</span> : null}
                 {step.text ? <p className={styles.stepSays} data-testid="bridge-step-text">{step.text}</p> : null}
               </div>
             </li>
@@ -133,11 +135,12 @@ export function AddPathCards({ steps, held, adder }: { steps: readonly PathStep[
   if (steps.length === 0) return null;
   const loading = steps.some((step) => step.status === "loading");
   const unfound = steps.filter((step) => step.status === "missing").map((step) => step.name);
+  const unloaded = steps.filter((step) => step.status === "failed").map((step) => step.name);
   const missing = missingSteps(steps, held);
   const plan = adder.plan(missing);
   const count = plan.add.length;
   const where = (section: "main" | "extra") => (section === "extra" ? "Extra Deck" : "Main Deck");
-  const complete = !loading && unfound.length === 0 && plan.blocked.length === 0;
+  const complete = !loading && unfound.length === 0 && unloaded.length === 0 && plan.blocked.length === 0;
   return (
     <div className={styles.addBox} data-testid="bridge-add-box">
       {count > 0 ? (
@@ -165,6 +168,7 @@ export function AddPathCards({ steps, held, adder }: { steps: readonly PathStep[
         </ul>
       ) : null}
       {unfound.length > 0 ? <p className={styles.addList} data-testid="bridge-add-unfound">{unfound.join(", ")} could not be found, so {unfound.length === 1 ? "it is" : "they are"} not added.</p> : null}
+      {unloaded.length > 0 ? <p className={styles.addList} data-testid="bridge-add-unloaded">{unloaded.join(", ")} could not be loaded, so {unloaded.length === 1 ? "it is" : "they are"} not added. Try again in a moment.</p> : null}
       {loading ? <p className={styles.addList} data-testid="bridge-add-loading">Some cards of the line are still loading.</p> : null}
     </div>
   );

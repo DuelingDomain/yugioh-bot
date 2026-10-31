@@ -379,12 +379,20 @@ export function useDeepSearch(scope: BridgeScope | null, { names, active, onFini
 }
 
 const known = new Map<string, DeckCardInfo>();
-/** Cards the host did not return, or a request that failed: they will not load, so a list stops waiting for them. */
+/** Cards the host answered without: it has no such card, so waiting will not help. */
 const notFound = new Set<string>();
+/** Cards whose requests kept failing (network or host error). They are not "not found": a new request tries again. */
+const failed = new Set<string>();
+/** How many times a failed request is tried again before the cards are shown as "could not load". */
+const RETRIES = 2;
 
-/** Whether every card is either loaded or known not to load. Until then a missing card may still arrive. */
-export function cardsSettled(codes: readonly number[], mode: DuelMode): boolean {
-  return codes.every((code) => known.has(`${mode}:${code}`) || notFound.has(`${mode}:${code}`));
+/** "loading": a card may still arrive. "failed": a request kept failing. "settled": each card is loaded or not found. */
+export type CardsState = "loading" | "failed" | "settled";
+
+export function cardsState(codes: readonly number[], mode: DuelMode): CardsState {
+  const pending = codes.filter((code) => !known.has(`${mode}:${code}`) && !notFound.has(`${mode}:${code}`));
+  if (pending.length === 0) return "settled";
+  return pending.every((code) => failed.has(`${mode}:${code}`)) ? "failed" : "loading";
 }
 
 /**
@@ -395,6 +403,7 @@ export function useBridgeCards(codes: readonly number[], mode: DuelMode, onCatal
   const [, bump] = useState(0);
   const catalog = useRef(onCatalog);
   catalog.current = onCatalog;
+  const [attempt, setAttempt] = useState(0);
   const list = codes.join(",");
   useEffect(() => {
     const wanted = list ? list.split(",").map(Number) : [];
@@ -403,19 +412,26 @@ export function useBridgeCards(codes: readonly number[], mode: DuelMode, onCatal
     const missing = wanted.filter((code) => !known.has(`${mode}:${code}`));
     if (!missing.length) return;
     const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    for (const code of missing) failed.delete(`${mode}:${code}`);
     void getDeckCards(missing, { mode }, controller.signal).then(({ cards }) => {
       if (controller.signal.aborted) return;
       for (const card of cards) known.set(`${mode}:${card.code}`, card);
+      // Only an answer that lacks a card means "not found". A failed request (below) never does.
       for (const code of missing) if (!known.has(`${mode}:${code}`)) notFound.add(`${mode}:${code}`);
       catalog.current(cards);
       bump((value) => value + 1);
     }, () => {
-      // The thumbnails stay plain art, and a path says which cards it could not load.
+      // The thumbnails stay plain art. Try again a few times, then say the cards could not load.
       if (controller.signal.aborted) return;
-      for (const code of missing) notFound.add(`${mode}:${code}`);
+      if (attempt < RETRIES) {
+        timer = setTimeout(() => setAttempt(attempt + 1), 1500 * (attempt + 1));
+        return;
+      }
+      for (const code of missing) failed.add(`${mode}:${code}`);
       bump((value) => value + 1);
     });
-    return () => controller.abort();
-  }, [list, mode]);
+    return () => { controller.abort(); if (timer) clearTimeout(timer); };
+  }, [list, mode, attempt]);
   return new Map(codes.flatMap((code) => { const card = known.get(`${mode}:${code}`); return card ? [[code, card] as const] : []; }));
 }

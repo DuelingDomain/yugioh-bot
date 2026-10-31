@@ -1806,6 +1806,7 @@ try {
   check("p2", "the expanded path has one step per card, with a card image each", (await steps.count()) === 3 && (await steps.locator("button img").count()) === 3);
   const texts = await pDetails.getByTestId("bridge-step-text").allInnerTexts();
   check("p2", "each step shows only text the bridge data holds for it", texts.length === 3 && texts.every((text: string, index: number) => text === `${["Sage with Eyes of Blue", "Dragon Shrine", "Dragunity Phalanx"][index]} connects Blue-Eyes and Dragunity.`), texts);
+  check("p2", "one general line under The line says each step needs its printed conditions and costs", (await pDetails.getByTestId("bridge-line-note").innerText()) === "Each step still needs its card's printed conditions and costs.");
   const addBox = pDetails.getByTestId("bridge-add-box");
   const addButton = pDetails.getByTestId("bridge-add");
   const notIn = (await pDetails.getByTestId("bridge-step-deck").allInnerTexts()).filter((text: string) => text === "Not in deck").length;

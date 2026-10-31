@@ -7,8 +7,8 @@ import { CardArt } from "@/components/decks/card-art";
 import { cn } from "@/lib/utils";
 import { reportBridge, type ShownBridge } from "./bridges-api";
 import { PathThumbs, pathSteps } from "./bridge-path";
-import { cardsSettled, errorText } from "./use-bridges";
-import { PATH_CARDS, bridgeCodes, reportedBridges, rememberReported } from "./bridges-model";
+import { cardsState, errorText } from "./use-bridges";
+import { reportedBridges, rememberReported } from "./bridges-model";
 import styles from "./bridges.module.css";
 
 export type CardPropsFor = (card: DeckCardInfo) => ButtonHTMLAttributes<HTMLButtonElement>;
@@ -168,7 +168,7 @@ export function BridgeCard({ bridge, mode, cards, cardProps, genesys, showSource
         <span className={styles.way} data-way={bridge.two_way ? "two" : "one"} title={bridge.two_way ? `${bridge.target} also leads back to ${bridge.source}` : `${bridge.source} leads to ${bridge.target}, not back`}>{directionText(bridge)}</span>
         <ReportBridge bridge={bridge} />
       </div>
-      <PathThumbs steps={pathSteps(bridge, cards, cardsSettled(bridgeCodes([bridge], PATH_CARDS), mode))} cardProps={cardProps} />
+      <PathThumbs steps={pathSteps(bridge, cards, cardsState(bridge.cards, mode))} cardProps={cardProps} />
       <ProsCons bridge={bridge} clamp={2} />
       <Warnings bridge={bridge} genesys={genesys} clamp={1} />
     </li>

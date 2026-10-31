@@ -12,7 +12,7 @@ import type { CardAdder } from "@/components/decks/card-adder";
 import { AddPathCards, PathSteps, pathSteps } from "./bridge-path";
 import { GradeBadge, ProsCons, ReportBridge, Warnings, directionText, type CardPropsFor } from "./bridge-card";
 import { roleFor } from "./bridges-model";
-import { cardsSettled, useBridgeCards } from "./use-bridges";
+import { cardsState, useBridgeCards } from "./use-bridges";
 import type { ShownBridge } from "./bridges-api";
 import styles from "./bridges.module.css";
 
@@ -55,7 +55,7 @@ export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, l
   onBack: () => void;
 }) {
   const cards = useBridgeCards(bridge.cards, mode, onCatalog);
-  const steps = pathSteps(bridge, cards, cardsSettled(bridge.cards, mode));
+  const steps = pathSteps(bridge, cards, cardsState(bridge.cards, mode));
   const held = adder?.held ?? deckCount;
   return (
     <div className={styles.details} data-testid="bridge-details">

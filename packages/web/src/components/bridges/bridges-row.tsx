@@ -11,7 +11,7 @@ import { DeepProgress, DeepSearchButton } from "./deep-search";
 import { EngineChips } from "./engine-chips";
 import { EngineList } from "./engine-card";
 import { BridgeRequestError, type BridgeScope, type ShownBridge } from "./bridges-api";
-import { BRIDGES_SHOWN, DEEP_BRIDGES_SHOWN, PATH_CARDS, bridgeCodes, deepWorkKey } from "./bridges-model";
+import { BRIDGES_SHOWN, DEEP_BRIDGES_SHOWN, bridgeCodes, deepWorkKey } from "./bridges-model";
 import { MAX_ENGINES, NO_EDITS, bridgeDeck, bridgeFormat, hasEdits, lightEngines, readEdits, toggleEngine, writeEdits, type EngineEdits } from "./engines-model";
 import { useBridgeCards, useBridgeList, useDeepSearch } from "./use-bridges";
 import { refreshEngines, useDeckEngines, useEnginesAnswer } from "./use-engines";
@@ -54,7 +54,7 @@ type ListProps = Pick<Props, "mode" | "genesys" | "cardProps" | "onCatalog"> & {
 
 /** A list of bridges. The cards of the bridges load together, so the thumbnails fill in at once. */
 function BridgeList({ bridges, mode, genesys, cardProps, onCatalog, showSource, onOpen, label }: ListProps) {
-  const cards = useBridgeCards(bridgeCodes(bridges, PATH_CARDS), mode, onCatalog);
+  const cards = useBridgeCards(bridgeCodes(bridges), mode, onCatalog);
   return (
     <ul className={styles.list} aria-label={label}>
       {bridges.map((bridge) => <BridgeCard key={`${bridge.source}>${bridge.target}:${bridge.evidence_hash}`} bridge={bridge} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} showSource={showSource} onOpen={onOpen} />)}

@@ -3,8 +3,6 @@ import type { BridgeScope, DeepStep, ShownBridge } from "./bridges-api";
 /** A list shows this many bridges. */
 export const BRIDGES_SHOWN = 4;
 export const DEEP_BRIDGES_SHOWN = 10;
-/** How many cards of a bridge are loaded to find the cards of its path: the line is named, not numbered. */
-export const PATH_CARDS = 30;
 /** How often a running search is asked for its progress. */
 export const DEEP_POLL_MS = 1000;
 /** Poll answers that fail in a row before the search shows an error. The job itself keeps running on the host. */
@@ -60,9 +58,12 @@ export function secondsLeft(until: number | null, now: number): number {
   return until == null ? 0 : Math.max(0, Math.ceil((until - now) / 1000));
 }
 
-/** Every distinct card of the bridges, in the order they are shown. */
-export function bridgeCodes(bridges: readonly ShownBridge[], perBridge = 4): number[] {
-  return [...new Set(bridges.flatMap((bridge) => bridge.cards.slice(0, perBridge)))];
+/**
+ * Every distinct card of the bridges, in the order they are shown. All of them are loaded, not the first few: the
+ * line names its cards, not their codes, so a name is found by its loaded card and may sit anywhere in the list.
+ */
+export function bridgeCodes(bridges: readonly ShownBridge[]): number[] {
+  return [...new Set(bridges.flatMap((bridge) => bridge.cards))];
 }
 
 /** The printed evidence of a bridge card: the first reason that names it. */
