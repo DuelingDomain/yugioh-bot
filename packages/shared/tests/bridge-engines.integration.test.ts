@@ -23,7 +23,8 @@ describe("open-deck bridge engine detection", () => {
         expect(owners.get(path) ?? candidate.engine).toBe(candidate.engine);
         owners.set(path, candidate.engine);
       }
-      expect(next.every(row => row.score >= 4)).toBe(true);
+      expect(next.every(row => row.kind === "synergy" || row.score >= 4)).toBe(true);
+      expect(next.filter(row => row.kind === "synergy").length).toBeLessThanOrEqual(1);
       expect(next.filter(row => row.links.some(link => link.bridge.reasons[0]?.evidence.some(text => /Junk Converter/.test(text)))).length).toBeLessThanOrEqual(1);
       if (engines.includes("Odion")) expect(next.some(row => /synchron/i.test(row.engine))).toBe(false);
     }

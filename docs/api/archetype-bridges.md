@@ -74,7 +74,7 @@ rendering or controls are added in this build. The field is derived after review
 outside judge input/hashes and all shared or subscriber-specific query keys.
 
 The generator retains up to four distinct grounded reasons per directed pair.
-Practical Deck access, then hand/GY access and activation permissions precede
+Practical Deck access, then other checked access and activation permissions precede
 material or cost setups and naming overlap. Different physical outlets get slots
 before redundant paths from one outlet; additional recipients can then fill spare
 slots. Both existing Haiku framings see these alternatives together. The limit
@@ -108,12 +108,28 @@ type DetectedEngine = { name: string; weight: number; copies: number; distinct: 
   status: "engine" | "light"; hybrids: number[]; includes?: string[] };
 type EngineSuggestion = {
   engine: string; score: number; grade: "Strong" | "Good" | "Niche" | "Risky";
+  kind?: "synergy"; // ordinary access bridges omit this field
   tier: "strict" | "niche"; covered: number; of: number; twoWay: string[];
   links: { from: string; to: string; bridge: ShownBridge }[]; // 1–3 accepted display pairs
   cards: number[]; missing: number[]; alreadyInDeck: boolean; genesysPoints: number | null;
   pros: string[]; cons: string[]; core: EngineCore;
 };
 ```
+
+The UI distinguishes a resource synergy using **`next[i].kind === "synergy"`**.
+Its accepted `links[].bridge` rows also carry `kind: "synergy"`. The
+directed `results` and `between` lists contain access bridges; resource suggestions
+use `next`. Ordinary bridges omit `kind` for historical
+compatibility; `"bridge"` is not a valid explicit value. Unknown values are rejected
+by the host evidence gate and web response validators.
+
+Synergy rows have `tier: "niche"`, `two_way: false` and the displayed Niche grade.
+Synergy suggestions have `covered: 0`, `twoWay: []` and only synergy links;
+`of` still records the number of selected engines. They never add access coverage,
+two-way status or `between` rows, and cannot enter the free strict lists or their
+`reverse` results. Accepted stored synergies can appear in `next` without further
+review calls. At most two synergy suggestions or deep result rows are shown, within
+the existing response limits. An ordinary suggestion cannot include synergy links.
 
 ## Engine cores and UI add semantics
 
@@ -153,7 +169,7 @@ The shared detector uses bridge groups, including aliases and curated Odion memb
 
 Fast suggestions contain at most four next engines and up to twelve directed rows between the chosen engines. Same-deck families and groups overlapping an existing engine by at least 50% are excluded. For each accepted pair, `v = score × gradeWeight × hubFactor`: grade weights are Strong 1, Good 0.8, strict Niche 0.6, Risky 0.3, and deep Niche 0.45. The primary line's hub factor is 0.25 for a hub, otherwise 1. Artifact import snapshots hub fan-out and target IDF from artifact rows alone; deep-search rows never alter these statistics. Primary access cards external to both groups become hubs at fifteen distinct directed pairs.
 
-For engine Xi and candidate Z, `link_i = max(v(Xi→Z), 0.7 × v(Z→Xi)) + 0.3 × min(v(Xi→Z), v(Z→Xi))`. Sorted links receive weights 1, 0.8, 0.6, 0.5, then a multiplier `1 + 0.3 × (covered − 1)`. Only non-hub accepted links increase coverage. Target `idf = min(1, 0.05/share)`, where share is the fraction of graph sources with a stored directed row into Z. Strict candidates must reach four. A bounded Niche lane admits complete non-hub physical paths accepted by both reviewers; score orders these paths without vetoing them, including a score rounded to zero. Up to two of eight shortlist slots belong to that lane. One target per `[format, accessCard, entryCard]` path survives across the complete set. Scores, coverage and two-way labels use the best accepted forward and reverse pair for every selected engine, independently of the display limit. Display selection keeps the best forward rows and best reverse row, at most three total. Pros and cons come from those accepted reviews.
+For engine Xi and candidate Z, `link_i = max(v(Xi→Z), 0.7 × v(Z→Xi)) + 0.3 × min(v(Xi→Z), v(Z→Xi))`. Sorted links receive weights 1, 0.8, 0.6, 0.5, then a multiplier `1 + 0.3 × (covered − 1)`. Only non-hub accepted access links increase coverage. Target `idf = min(1, 0.05/share)`, where share is the fraction of graph sources with a stored directed row into Z. Strict candidates must reach four. A bounded Niche lane admits complete non-hub physical paths accepted by both reviewers; score orders these paths without vetoing them, including a score rounded to zero. Up to two of eight shortlist slots belong to that lane, with resource synergies capped separately at one of the eight slots. One target per `[format, accessCard, entryCard]` path survives across the complete set. Access scores, coverage and two-way labels use the best accepted forward and reverse pair for every selected engine, independently of the display limit; synergy rows cannot affect those values. Display selection keeps the best forward rows and best reverse row, at most three total. Pros and cons come from those accepted reviews.
 
 `cards` is the evidence package; `missing` retains required copy multiplicity after subtracting copies in **Main and Extra only**. Side and Deck Master copies do not satisfy a package. Every shown bridge (including `between`, `reverse`, engine links and completed deep results) and engine suggestion includes `alreadyInDeck`. It is true exactly when a nonempty package has no missing cards. A complete engine package remains an informational row for an **Already in deck** label, rather than an actionable next-engine recommendation; actionable packages sort first. If any package card is still missing, `alreadyInDeck` is false and `missing` lists all additional required copies. An engine suggestion checks the combined package of its displayed links; each link checks its own package. Source-only requests without deck context count the whole package as missing. Saved `deckId` lookups provide Main+Extra context in Advanced as well as Genesys.
 
@@ -209,12 +225,13 @@ For both single-engine and multiple-engine Next engine searches, each source get
 
 A multi job with attempted reviews still pending after provider failures uses ten-minute retry admission, even when other pairs were accepted. Only successful bounded work retains the full 24-hour cache. Invalid, disputed and player-hidden pairs are excluded before shortlist slots or shared access paths are assigned. An engine counts toward the six-engine stop only with a shown link or a new verdict saved by this job.
 
-The deterministic shortlist contains at most eight engines, reserving up to two slots for complete non-hub physical Niche paths that already passed both independent reviews. Reviews follow shortlist order and use the best forward display pairs plus the best reverse pair, at most three per engine. The job stops after six engines have reviewed pairs or twelve directed pairs have needed new reviews. Cached accepted paths can backfill without paid calls, including after the paid-review stop; a partially reviewed pair consumes one of the twelve when its missing review is requested. Two pair tasks run at a time through the existing global judge queue. Only the existing independent Haiku reviews run; no aggregate or core prose call is added. Internal engine-to-engine rows are published only if already accepted. Completed projection rechecks all gates and computes at most six next engines using accepted candidate pairs; pending pairs never add coverage or two-way status. Invalid, disputed, generic-toolbox and hub-only paths cannot fill the Niche lane. A completed multi job remains reusable for 24 hours even when its intentional review limit leaves part of the shortlist pending.
+The deterministic shortlist contains at most eight engines, reserving up to two slots for complete non-hub physical Niche paths that already passed both independent reviews. Resource synergies can occupy at most one of those eight slots. Reviews follow shortlist order and use the best forward display pairs plus the best reverse pair, at most three per engine. The job stops after six engines have reviewed pairs or twelve directed pairs have needed new reviews. Cached accepted paths can backfill without paid calls, including after the paid-review stop; a partially reviewed pair consumes one of the twelve when its missing review is requested. Two pair tasks run at a time through the existing global judge queue. Only the existing independent Haiku reviews run for bridges and synergies; no aggregate, core prose or additional synergy call is added. Internal engine-to-engine rows are published only if already accepted access bridges. Completed projection rechecks all gates and computes at most six next engines using accepted candidate pairs; pending pairs never add coverage or two-way status, and synergies never count as access. Invalid, disputed, generic-toolbox and hub-only paths cannot fill the Niche lane. A completed multi job remains reusable for 24 hours even when its intentional review limit leaves part of the shortlist pending.
 
 Single-engine selectors use the legacy source execution and cache tuple `[version, lowerCaseSource, targetOrNull, format]`, preserving `results` regardless of which selector first creates the shared job. Multi-engine keys hash `[version, "multi-v2", sortedLowerCaseEngines, format]`. The deck and points allowance never enter the shared work query or key: `bridge_deep_actor.deck_cards_json`, `deck_context_json` and `genesys_remaining` retain subscriber context, including sections, mode and singleton rules. Two players with the same engines share one job but receive their own missing cards and Genesys affordability. Reposting the same work with a changed deck or allowance updates that subscriber's context on an active or completed job without a new scan or review. Multi jobs keep `results: []`; legacy single-source callers retain their existing results and also receive the new `engines` and `next` fields.
 
 Completed deep searches return at most **ten** shown rows: strict bridges first,
-then rows with `tier: "niche"`. These deep-only rows display **Niche** in both
+then rows with `tier: "niche"`, including at most two resource synergies.
+These deep-only rows display **Niche** in both
 the list and details even if the reviewers assign a higher usefulness grade.
 The existing `grade: "Niche"` can still occur on strict candidates; only the
 new `tier` field identifies deep-only eligibility. Both independent Haiku 5.5
@@ -222,7 +239,7 @@ reviews, format checks, current evidence and feedback gates apply to every row.
 No pending or disputed row fills an empty slot. Within the Niche tier, two-way
 access ranks before one-way access, then score and target name break ties.
 
-A Niche candidate requires a physical access path over checked capability
+A Niche access bridge requires a physical access path over checked capability
 edges: a source card searches/adds, Summons, Sets, places or sends a genuine
 target-engine card, or a complete supported material procedure or specific
 cost leads to a card with that action. A wide stat filter or generic discard
@@ -241,22 +258,27 @@ insufficient: Paleozoic Traps merely played alongside Odion do not qualify.
 Name-label groups, same-deck families, negated entry chains and unsupported
 material/placement setups remain excluded.
 
-Set access checks the actual printed recipient and its origin. Named/archetype
-Spell/Trap filters and narrower subtype filters (for example, Continuous Trap or
-Normal Trap) qualify even when many cards fit them. An unrestricted any-card,
-Spell/Trap or any-Trap effect still cannot establish access alone. Hand, Deck, GY
-and other printed origins retain their setup requirements; Setting never implies
-activation. Arias the Labrynth Butler and Argostars - Fierce Parthe keep their
-permission scoped to the Trap just Set. Global permissions also respect the
-printed Normal/Continuous Trap restriction and activation conditions. Delayed
-activation prohibitions are not waived.
+Set access checks the printed recipient and origin. A named/archetype filter or
+an actual matching catalog pool of at most 30 cards qualifies. A subtype alone,
+such as Normal Trap or Continuous Trap, does not bypass the normal toolbox cap;
+broad subtype pools cannot establish access. A Set must take its recipient from
+the Deck, or an otherwise inaccessible Extra Deck origin. A Set from the player's
+own hand never establishes access, and a GY Set is recursion. Setting never implies
+activation. Scoped and global activation permissions still retain their printed
+recipient restrictions, conditions and costs; delayed activation prohibitions
+are not waived.
 
-Toy Box itself cannot Set Ashtra cards. Its checked path Sets a qualifying
-original-name Toy monster as a Spell, then an Ashtra monster reveals and actually
-returns that Set resource to pay its printed hand Summon procedure. This complete
-resource path uses `reason.setup: {card, using, capability: "face_down_card"}`.
-A Set affinity without that procedure, or a recipient that would be banished
-instead of returning to hand, is insufficient. Older tag recipient indexes are
+Toy Box itself cannot Set Ashtra cards, so Toy → Ashtra is a resource synergy,
+not an access bridge. The source must generate an additional checked Set resource
+from the Deck in a multi-card effect: Toy Box can Set up to two qualifying
+original-name Toy monsters as Spells. A source that only Sets one of its own cards
+does not qualify.
+The target Ashtra monster's printed hand Summon procedure must reveal and actually
+return that Set resource. This path uses `kind: "synergy"` and
+`reason.setup: {card, using, capability: "face_down_card"}`; `setup` never establishes
+bridge access. A generic ability to Set a card from hand, a Set affinity without
+the printed consumer, or a recipient that would be banished instead of returning
+to hand is insufficient. Older tag recipient indexes are
 rechecked against current identity filters; omitted trap-monster/attack-only
 restrictions and explicit exclusions are preserved. Unsupported qualifiers fail
 closed.
@@ -370,7 +392,7 @@ Each file descriptor is `{path,records,bytes,sha256,gzipBytes,gzipSha256}`. `ver
 
 `Capability` is `{key,value?,filter?:CardFilter,from?:string[],effect?:number,evidence,targets?:number[]}`. The closed 33-key vocabulary is `CAPABILITY_KEYS`. Targets are precomputed over the identity universe and filtered for format legality at runtime. `SummonLock` is `{scope,allow:CardFilter,extra_deck_only,self_removal,unresolved,evidence}`.
 
-`ArchetypeBridge` is `{source,target,format,tier?:"niche",score,raw_score,target_mean,two_way,grade,reasons,cards,warnings,genesys_points,validation,judge,engine_status,evidence_hash}`. Each reason has `{key,weight,cards,evidence,description,alternative?:true,steps?,materials?,cost?,setup?}`. Steps are `{from,to,capability}`; `cost` is `{card,using,capability,effect}`. `alternative?: true` marks additional recipients of an already scored action; these paths do not add aggregate score. `setup` binds the checked target hand-Summon consumer and the actual Set resource. `materials` retains repeated passcodes when multiple copies are required. Evidence hashes incorporate contributing IDs, reason keys, material lines and card text/capability hashes, including evidence that contributed to aggregate scoring. Deep-only hashes also bind the tier, cost and Set-resource setup identities.
+`ArchetypeBridge` is `{source,target,format,kind?:"synergy",tier?:"niche",score,raw_score,target_mean,two_way,grade,reasons,cards,warnings,genesys_points,validation,judge,engine_status,evidence_hash}`. `ShownBridge` retains that optional discriminator, and `RankedEngine`/`EngineSuggestion` carry it for a synergy suggestion. Ordinary access bridges omit it. Each reason has `{key,weight,cards,evidence,description,alternative?:true,steps?,materials?,cost?,setup?}`. Steps are `{from,to,capability}`; `cost` is `{card,using,capability,effect}`. `alternative?: true` marks additional recipients of an already scored action; these paths do not add aggregate score. Only synergy reasons use `setup`, which binds the checked target hand-Summon consumer and the actual Set resource; a bridge reason containing it is rejected. `materials` retains repeated passcodes when multiple copies are required. Evidence hashes incorporate contributing IDs, reason keys, material lines and card text/capability hashes, including evidence that contributed to aggregate scoring. Deep-only hashes also bind the tier, cost and Set-resource setup identities, and synergy identities cannot reuse access-bridge reviews.
 
 Golden labels with `tier: "deep", access_path: true` check a directed physical
 access regression through the current generator and checked judge-evidence builder,

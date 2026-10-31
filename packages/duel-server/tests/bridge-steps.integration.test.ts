@@ -1,3 +1,4 @@
+import { bridgeQueryFixture } from "./helpers/bridge-query-fixture.js";
 import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -32,7 +33,7 @@ describe("grounded shown bridge steps", () => {
     const evidence = rows.map((row, i) => approve(row, i === 0 ? odionLine : sinfulLine));
     const stored = db.prepare("SELECT judgement_json FROM bridge_judgement ORDER BY judge").all();
     const user = seedIdentity(db);
-    const workers = {
+    const workers = { ...bridgeQueryFixture(db),
       bridgeCandidates: vi.fn(async () => rows), rateBridge: vi.fn(), bridgeEngineShortlist: vi.fn(),
       bridgeEngines: vi.fn(async (input: Record<string, unknown>, guildId: string) => {
         const { query } = queries.resolve(input, guildId);
@@ -136,14 +137,14 @@ describe("grounded shown bridge steps", () => {
 
 it("projects alternative Set paths from cached verdicts for different subscriber decks", () => {
   const service = createBridgeService(db), queries = new BridgeEngineQueries(db);
-  const row = service.deepBetween("Labrynth", "Ashtra")!;
+  const row = service.deepBetween("Azamina", "White Forest")!;
   const evidence = buildBridgeJudgeEvidence(db, row)!;
   const line = row.reasons[0]!.cards.map(id => evidence.cards.find(card => card.id === id)!.name);
   approve(row, line);
   const records = db.prepare("SELECT judgement_json FROM bridge_judgement ORDER BY judge").all();
-  const empty = queries.project([row], { source: "Labrynth", engines: ["Labrynth", "Ashtra"], format: "advanced", deckCards: [] }, 6);
-  const owned = queries.project([row], { source: "Labrynth", engines: ["Labrynth", "Ashtra"], format: "advanced", deckCards: row.cards }, 6);
-  const first = empty.between.find(bridge => bridge.source === "Labrynth")!, second = owned.between.find(bridge => bridge.source === "Labrynth")!;
+  const empty = queries.project([row], { source: "Azamina", engines: ["Azamina", "White Forest"], format: "advanced", deckCards: [] }, 6);
+  const owned = queries.project([row], { source: "Azamina", engines: ["Azamina", "White Forest"], format: "advanced", deckCards: row.cards }, 6);
+  const first = empty.between.find(bridge => bridge.source === "Azamina")!, second = owned.between.find(bridge => bridge.source === "Azamina")!;
   expect(first.review.alternative_paths!.length).toBeGreaterThanOrEqual(1);
   expect(second.review.alternative_paths).toEqual(first.review.alternative_paths);
   expect(first.missing.length).toBeGreaterThan(0); expect(second.missing).toEqual([]);

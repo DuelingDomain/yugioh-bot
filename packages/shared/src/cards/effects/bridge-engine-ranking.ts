@@ -5,6 +5,7 @@ import type { EngineCore } from "./engine-core.js";
 
 export interface EngineLink<T extends ArchetypeBridge = ShownBridge> { from: string; to: string; bridge: T }
 export interface RankedEngine<T extends ArchetypeBridge = ShownBridge> {
+  kind?: "synergy";
   engine: string; score: number; grade: BridgeGrade; tier: "strict" | "niche";
   covered: number; of: number; twoWay: string[]; links: EngineLink<T>[];
 }
@@ -23,6 +24,8 @@ export interface EngineRankingContext {
 }
 export interface EngineRankingOptions<T extends ArchetypeBridge = ShownBridge> {
   deckCards?: readonly number[];
+  /** One review slot; accepted display may include at most two resource synergies. */
+  synergyLimit?: number;
   /** Subscriber-specific package checks run before deduplication and limits. */
   eligible?: (row: RankedEngine<T>) => boolean;
   /** Raw shortlists must supply the current two-review gate, never a stored flag. */
@@ -34,6 +37,7 @@ export function engineRankingStats(groups: BridgeGraphData["groups"], rows: read
   const fanout = new Map<number, Set<string>>();
   const sources: Record<BridgeFormat, Map<string, Set<string>>> = { advanced: new Map(), genesys: new Map() };
   for (const row of rows) {
+    if (row.kind === "synergy") continue;
     const reason = row.reasons[0];
     const access = reason?.cost?.card ?? reason?.steps?.[0]?.from ?? reason?.cards[0];
     if (access !== undefined && !groups[row.source]?.includes(access) && !groups[row.target]?.includes(access)) {
@@ -50,6 +54,7 @@ export function engineRankingStats(groups: BridgeGraphData["groups"], rows: read
 }
 
 export function bridgeAccessPath(row: ArchetypeBridge, groups: BridgeGraphData["groups"]): string | undefined {
+  if (row.kind === "synergy") return undefined;
   const reason = row.reasons[0], first = reason?.steps?.[0], source = new Set(groups[row.source]);
   const access = reason?.cost?.using ?? reason?.materials?.[0] ?? reason?.cards.find(id => source.has(id));
   const entry = reason?.cost?.card ?? (first && (source.has(first.from) ? first.to : first.from));
@@ -76,6 +81,9 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
     && (options.acceptedNiche ? options.acceptedNiche(row) : "judge" in row && row.judge === "accepted");
   const ranked: RankedEngine<T>[] = [], nicheLane = new Set<RankedEngine<T>>();
   const candidateFor = (engine: string, pairs: T[]): RankedEngine<T> | undefined => {
+    const bridges = pairs.filter(row => row.kind !== "synergy");
+    pairs = bridges.length ? bridges : pairs;
+    const synergy = !bridges.length;
     const best = (source: string, target: string) => pairs.filter(row => row.source === source && row.target === target)
       .sort((a, b) => value(b) - value(a) || a.evidence_hash.localeCompare(b.evidence_hash))[0];
     const forwards = engines.flatMap(source => { const row = best(source, engine); return row ? [row] : []; }).sort((a, b) => value(b) - value(a) || a.source.localeCompare(b.source));
@@ -95,14 +103,14 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
       * (1 + 0.3 * (covered - 1)) * (context.idf[display[0]!.format].get(engine) ?? 1);
     const strongest = [...display].sort((a, b) => value(b) - value(a))[0]!;
     const tier = display.every(row => row.tier === "niche") ? "niche" : "strict";
-    return { engine, score, grade: tier === "niche" ? "Niche" : strongest.grade, tier,
-      covered, of: engines.length, twoWay: links.filter(link => link.twoWay).map(link => link.source).sort(),
+    return { ...(synergy ? { kind: "synergy" as const } : {}), engine, score, grade: tier === "niche" ? "Niche" : strongest.grade, tier,
+      covered: synergy ? 0 : covered, of: engines.length, twoWay: synergy ? [] : links.filter(link => link.twoWay).map(link => link.source).sort(),
       links: display.map(bridge => ({ from: bridge.source, to: bridge.target, bridge })) };
   };
   for (const [engine, pairs] of byTarget) {
     let candidate = candidateFor(engine, pairs);
     if (!candidate) continue;
-    if (candidate.score < 4) {
+    if (candidate.score < 4 && candidate.kind !== "synergy") {
       // Scores still order this bounded lane. Only complete physical paths with
       // both current reviews contribute; pending companions cannot inflate it.
       candidate = candidateFor(engine, pairs.filter(checkedNiche));
@@ -118,7 +126,9 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
   const compare = (a: RankedEngine<T>, b: RankedEngine<T>) => Number(owned.has(a)) - Number(owned.has(b)) || b.score - a.score || a.engine.localeCompare(b.engine);
   const ordered = ranked.sort(compare), niches = ordered.filter(row => nicheLane.has(row));
   const paths = new Set<string>(), results: RankedEngine<T>[] = [];
+  const synergyLimit = Math.max(0, Math.min(2, options.synergyLimit ?? 1));
   const add = (row: RankedEngine<T>) => {
+    if (row.kind === "synergy" && results.filter(row => row.kind === "synergy").length >= synergyLimit) return false;
     const used = row.links.flatMap(link => { const path = bridgeAccessPath(link.bridge, context.groups); return path ? [path] : []; });
     if (used.some(path => paths.has(path))) return false;
     if (results.some(higher => {
@@ -131,10 +141,14 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
   if (limit <= 0) return [];
   // Reserve at most two of the eight review slots for already accepted Niche
   // access. Cached paths can backfill without consuming the new-review budget.
-  const reserved = Math.min(2, niches.length, limit), first = Math.max(0, limit - reserved);
+  const reserved = Math.min(2, niches.length, limit);
+  const synergyReserved = Math.min(synergyLimit, ordered.filter(row => row.kind === "synergy").length, Math.max(0, limit - reserved));
+  const first = Math.max(0, limit - reserved - synergyReserved);
   let primaryCount = 0, admitted = 0;
   for (const row of ordered) {
-    if (nicheLane.has(row)) {
+    if (row.kind === "synergy") {
+      if (results.filter(row => row.kind === "synergy").length < synergyReserved) add(row);
+    } else if (nicheLane.has(row)) {
       if (admitted < reserved && add(row)) admitted++;
     } else if (primaryCount < first && add(row)) primaryCount++;
   }
@@ -147,5 +161,5 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
 
 /** Only accepted pairs contribute to score, coverage, or two-way claims. */
 export function rankNextEngines(engines: readonly string[], rows: readonly ShownBridge[], context: EngineRankingContext, limit = 4, options: EngineRankingOptions = {}): RankedEngine[] {
-  return rankEngineCandidates(engines, rows.filter(row => row.judge === "accepted"), context, limit, options);
+  return rankEngineCandidates(engines, rows.filter(row => row.judge === "accepted"), context, limit, { ...options, synergyLimit: 2 });
 }

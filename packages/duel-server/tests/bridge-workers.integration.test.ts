@@ -118,6 +118,8 @@ describe("bridge scanner isolation", () => {
       expect((await call(["Odion"])).next.some(next => next.engine === "Argostars")).toBe(false);
       const service = createBridgeService(db), selected = ["The Weather", "Genex", "Synchron", "Blue-Eyes"];
       const deep = new BridgeApi(db, {
+        bridgeResolve: (input, guildId) => workers.bridgeResolve(input, guildId),
+        bridgeDirectedProjection: (query, rows, deep) => workers.bridgeDirectedProjection(query, rows, deep),
         bridgeEngines: (input, guildId) => workers.bridgeEngines(input, guildId),
         bridgeEngineShortlist: (rows, query) => workers.bridgeEngineShortlist(rows, query),
         bridgeEngineProjection: (rows, query) => workers.bridgeEngineProjection(rows, query),

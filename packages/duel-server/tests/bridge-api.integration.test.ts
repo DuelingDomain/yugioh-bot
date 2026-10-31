@@ -1,3 +1,4 @@
+import { bridgeQueryFixture } from "./helpers/bridge-query-fixture.js";
 import { bridgeProjectionRows, type BridgeProjectionInput } from "../src/bridge-projection-input.js";
 import Database from "better-sqlite3";
 import { APIError } from "@anthropic-ai/sdk";
@@ -39,7 +40,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
         lock_note: "Apply the printed conditions.", line: evidence.cards.map(card => card.name), format_ok: true,
       }));
     }
-    const workers = { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection: vi.fn(), bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() };
+    const workers = { ...bridgeQueryFixture(db), bridgeEngineShortlist: vi.fn(), bridgeEngineProjection: vi.fn(), bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() };
     const api = new BridgeApi(db, workers);
     const call = (context: Record<string, unknown> = {}, identity = user) => api.handle({ userId: identity.userId,
       bridgeRequest: { op: "between", source: forward.source, target: forward.target, ...context } }, "g", identity.playerId);
@@ -82,7 +83,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
       verdict: "valid", grade: "good", pros: ["The supplied cards interact."], cons: ["Needs the supplied cards."],
       lock_note: "Apply the printed conditions.", line: evidence.cards.map(card => card.name), format_ok: true,
     }));
-    const api = new BridgeApi(db, { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection: vi.fn(), bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const api = new BridgeApi(db, { ...bridgeQueryFixture(db), bridgeEngineShortlist: vi.fn(), bridgeEngineProjection: vi.fn(), bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     const call = (context: Record<string, unknown>) => api.handle({ userId: user.userId,
       bridgeRequest: { op: "between", source: "Odion", target: "Ashtra", format: "genesys", ...context } }, "g", user.playerId);
     const required = bridgePackage([row]).missing;
@@ -176,7 +177,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
         pros: ["Enables early Trap activation.", "Connects the two supplied packages."], cons: ["Requires the supplied cards.", "Uses a Spell and Trap zone."],
         lock_note: "Apply the printed conditions.", line: buildBridgeJudgeEvidence(db, bridge)!.cards.map(card => card.name), format_ok: true }) }],
     })) } };
-    const workers = { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection,
+    const workers = { ...bridgeQueryFixture(db), bridgeEngineShortlist: vi.fn(), bridgeEngineProjection,
       bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(async () => { await gate; return [bridge]; }),
       rateBridge: vi.fn(async (row: ArchetypeBridge) => { await judgeBridgePair(db, row, { client, env: {}, log: () => {} }); }),
     };
@@ -224,7 +225,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     const client: BridgeJudgeClient = { messages: { async create() {
       throw new APIError(400, { error: { message: "Unsupported schema" } }, "Unsupported schema", new Headers());
     } } };
-    const workers = { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(async () => [row]), rateBridge: vi.fn(async () => {
+    const workers = { ...bridgeQueryFixture(db), bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(async () => [row]), rateBridge: vi.fn(async () => {
       await judgeBridgePair(db, row, { client, env: {}, log: () => {}, onError: () => {} });
     }) };
     const api = new BridgeApi(db, workers, () => now);
@@ -266,7 +267,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
       }));
     };
     approve(forward);
-    const api = new BridgeApi(db, { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const api = new BridgeApi(db, { ...bridgeQueryFixture(db), bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     const call = () => api.handle({ userId: user.userId, bridgeRequest: { op: "between", source: forward.source, target: forward.target } }, "g", user.playerId);
     try {
       expect(await call()).toMatchObject({ results: [{ two_way: false }] });
@@ -279,7 +280,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
 
   it("resolves saved decks only for their owner and rejects unknown query authority", async () => {
     const user = seedIdentity(db, { name: "Deck owner" }), other = seedIdentity(db, { name: "Not owner" });
-    const api = new BridgeApi(db, { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    const api = new BridgeApi(db, { ...bridgeQueryFixture(db), bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     const sourceId = JSON.parse((db.prepare("SELECT graph_json FROM bridge_graph WHERE id=1").get() as { graph_json: string }).graph_json).groups.Odion[0];
     const saved = createSavedDeckService(db).create("g", user.userId, { name: "Bridge deck", mode: "normal", deck: { main: [sourceId], extra: [], side: [] } });
     const call = (bridgeRequest: unknown, identity = user) => api.handle({ userId: identity.userId, bridgeRequest }, "g", identity.playerId);
@@ -305,7 +306,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     const deck = createSavedDeckService(db).create("g", user.userId, { name: "At the points cap", mode: "normal", genesys: { pointCap: 3 },
       deck: { main: [29762407, 97522863, 1710647], extra: [], side: [] } });
     const bridgeCandidates = vi.fn(async () => [row]);
-    const api = new BridgeApi(db, { bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates, rateBridge: vi.fn() });
+    const api = new BridgeApi(db, { ...bridgeQueryFixture(db), bridgeEngineShortlist: vi.fn(), bridgeEngineProjection, bridgeEngines: vi.fn(), bridgeCandidates, rateBridge: vi.fn() });
     const call = (bridgeRequest: unknown) => api.handle({ userId: user.userId, bridgeRequest }, "g", user.playerId);
     expect(await call({ op: "between", source: "Odion", target: "Ashtra", format: "genesys", genesysRemaining: 0 })).toMatchObject({ results: [] });
     expect(await call({ op: "between", deckId: deck.id, target: "Ashtra", format: "genesys" })).toMatchObject({ results: [{ target: "Ashtra" }] });

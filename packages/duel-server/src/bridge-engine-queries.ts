@@ -1,10 +1,11 @@
 import type Database from "better-sqlite3";
-import { bridgeGate, bridgeProjection, bridgePackage, isBridgeDeck, isBridgeEngineNames, rankEngineCandidates, rankNextEngines, projectEngineCore,
+import { bridgeGate, bridgeProjection, bridgePackage, shownBridge, isBridgeDeck, isBridgeEngineNames, rankEngineCandidates, rankNextEngines, projectEngineCore,
   type ArchetypeBridge, type BridgeDeck, type BridgeEnginesResponse, type BridgeFormat, type DetectedEngine, type EngineSuggestion } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
 import { BridgeJobError, type BridgeSearchQuery } from "./bridge-search-jobs.js";
 
 export interface EngineQuery extends BridgeSearchQuery { engines: string[] }
+export interface BridgeDirectedResponse { results: ArchetypeBridge[]; inReview: number; reverse?: ArchetypeBridge[]; next?: EngineSuggestion[] }
 
 /** Cheap boundary validation before worker admission; resolution runs in the scanner. */
 export function validateBridgeEngineInput(input: Record<string, unknown>): void {
@@ -78,6 +79,36 @@ export class BridgeEngineQueries {
     return projectEngineCore(unknownAllowance ? { ...plan, gaps: [...plan.gaps, "Genesys allowance is unknown because existing deck points are unavailable."] } : plan, query);
   }
 
+  /** Legacy directed lists share the scanner's graph/core cache too. */
+  projectDirected(query: BridgeSearchQuery, rows?: ArchetypeBridge[], deep = false): BridgeDirectedResponse {
+    const storedRows = (source: string, target?: string) => {
+      const pair = target ? this.service.bridgeBetween(source, target, query.format) : null;
+      return target ? pair ? [pair] : [] : this.service.bridgesFrom(source, query.format, 25);
+    };
+    const project = (input: ArchetypeBridge[], context: BridgeSearchQuery) => {
+      const eligible = (row: ArchetypeBridge) => row.format !== "genesys" || this.package([row], context).points <= (context.genesysRemaining ?? 100);
+      const candidates = input.filter(row => row.kind !== "synergy" && (deep || row.tier !== "niche") && row.source === context.source
+        && row.format === context.format && (!context.target || row.target === context.target) && eligible(row));
+      const shown = candidates.flatMap(row => {
+        const shown = shownBridge(this.db, row);
+        if (!shown) return [];
+        const reverse = deep ? this.service.deepBetween(row.target, row.source, row.format) : this.service.bridgeBetween(row.target, row.source, row.format);
+        const twoWay = !!reverse && reverse.kind !== "synergy" && !!shownBridge(this.db, reverse) && eligible(reverse);
+        return [{ ...shown, ...bridgePackage([shown], context.deckCards), core: this.core(shown.target, context), two_way: twoWay }];
+      });
+      return { results: deep ? this.service.deepTargets(shown, 10) : this.service.distinctTargets(shown, 4),
+        inReview: candidates.filter(row => ["pending", "review"].includes(bridgeGate(this.db, row).state)).length };
+    };
+    const inputRows = rows ?? storedRows(query.source, query.target);
+    const result = project(inputRows, query);
+    // Complete legacy status projection in the same scanner request and read
+    // transaction, so both views share its single end-to-end caller deadline.
+    if (deep) return { ...result, next: this.project(inputRows, { ...query, engines: query.engines ?? [query.source] }, 6).next };
+    if (!query.target) return result;
+    const reversed = project(storedRows(query.target, query.source), { ...query, source: query.target, target: query.source });
+    return { ...result, reverse: reversed.results, inReview: result.inReview + reversed.inReview };
+  }
+
   shortlist(rows: ArchetypeBridge[], query: EngineQuery) {
     const eligible = rows.filter(row => ["pending", "shown"].includes(bridgeGate(this.db, row).state));
     return rankEngineCandidates(query.engines, eligible, this.rankingContext(), 8, { acceptedNiche: row => bridgeGate(this.db, row).state === "shown" });
@@ -89,8 +120,9 @@ export class BridgeEngineQueries {
       && (query.format !== "genesys" || this.package([row], query).points <= (query.genesysRemaining ?? 100)));
     const projections = candidates.map(row => bridgeProjection(this.db, row));
     const shown = projections.flatMap(({ shown }) => shown ? [{ ...shown, ...bridgePackage([shown], query.deckCards), core: this.core(shown.target, query) }] : []);
-    const accepted = shown.map(row => ({ ...row, two_way: shown.some(reverse => reverse.source === row.target && reverse.target === row.source) }));
-    const between = accepted.filter(row => selected.has(row.source) && selected.has(row.target));
+    const accepted = shown.map(row => ({ ...row, two_way: row.kind !== "synergy"
+      && shown.some(reverse => reverse.kind !== "synergy" && reverse.source === row.target && reverse.target === row.source) }));
+    const between = accepted.filter(row => row.kind !== "synergy" && selected.has(row.source) && selected.has(row.target));
     const next: EngineSuggestion[] = rankNextEngines(query.engines, accepted, this.rankingContext(), 8, {
       deckCards: query.deckCards,
       eligible: row => query.format !== "genesys" || this.package(row.links.map(link => link.bridge), query).points <= (query.genesysRemaining ?? 100),

@@ -9,7 +9,7 @@ import { deterministicBridgeAlternatives } from "../src/cards/effects/bridge-ste
 it("judges alternative paths together and derives captions without changing cached verdicts", async () => {
   const db = new Database(":memory:"); migrate(db); importBridgeArtifact(db);
   try {
-    const row = storedBridgeEngine(db).deepBetween("Labrynth", "Ashtra")!;
+    const row = storedBridgeEngine(db).deepBetween("Azamina", "White Forest")!;
     const evidence = buildBridgeJudgeEvidence(db, row)!;
     let calls = 0;
     const client: BridgeJudgeClient = { messages: { create: async request => {

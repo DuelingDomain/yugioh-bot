@@ -1,15 +1,14 @@
 import type Database from "better-sqlite3";
-import { bridgeGate, bridgePackage, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_VERSION, isBridgeDeck, shownBridge, type ArchetypeBridge, type BridgeDeck, type BridgeGraphData } from "@yugidraft/shared/cards/effects";
-import { createBridgeService, createSavedDeckService } from "@yugidraft/shared/services";
+import { bridgeGate, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_VERSION, isBridgeDeck, type ArchetypeBridge, type BridgeDeck, type BridgeGraphData } from "@yugidraft/shared/cards/effects";
+import { createSavedDeckService } from "@yugidraft/shared/services";
 import { isOwnerUser } from "@yugidraft/shared/access/owner-access";
 import { createHash } from "node:crypto";
 import { BridgeJobError, BridgeReviewUnavailableError, BridgeSearchJobs, type BridgeSearchQuery } from "./bridge-search-jobs.js";
 import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
-import { BridgeEngineQueries } from "./bridge-engine-queries.js";
+import { BridgeEngineQueries, validateBridgeEngineInput } from "./bridge-engine-queries.js";
 import { BridgeFastQueries } from "./bridge-fast-queries.js";
 import { searchBridgeEngines } from "./bridge-multi-search.js";
-import { bridgeRevision } from "./bridge-revision.js";
-import { bridgeProjectionRows, compactBridgeRows } from "./bridge-projection-input.js";
+import { compactBridgeRows } from "./bridge-projection-input.js";
 import { reuseAcceptedBridge } from "./bridge-reviewed-candidates.js";
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -18,29 +17,23 @@ const hash = (userId: number) => createHash("sha256").update(`bridge-user:${user
 
 export class BridgeApi {
   readonly jobs: BridgeSearchJobs;
-  private readonly service;
   private readonly engineQueries: BridgeEngineQueries;
   private readonly fastQueries: BridgeFastQueries;
   private graph?: { source_version: string; groups: BridgeGraphData["groups"] };
-  private readonly storedCache = new Map<string, { revision: string; rows: ArchetypeBridge[] }>();
-  constructor(private readonly db: Database.Database, workers: Pick<DeckSuggestionWorkers, "bridgeCandidates" | "rateBridge" | "bridgeEngines" | "bridgeEngineProjection" | "bridgeEngineShortlist">, now?: () => number) {
-    this.service = createBridgeService(db);
+  constructor(private readonly db: Database.Database, private readonly workers: Pick<DeckSuggestionWorkers, "bridgeCandidates" | "rateBridge" | "bridgeEngines" | "bridgeEngineProjection" | "bridgeEngineShortlist" | "bridgeDirectedProjection" | "bridgeResolve">, now?: () => number) {
     this.engineQueries = new BridgeEngineQueries(db);
     this.fastQueries = new BridgeFastQueries(db, workers, now);
     this.jobs = new BridgeSearchJobs(db, {
       // Old subscriber arrays included Side or Deck Master without recording
       // their zones. Require refreshed context; evidence/review caches survive.
-      now, version: () => `${this.groups().source_version}:${BRIDGE_JUDGE_VERSION}:main-extra-packages-v1:full-engine-recall-v1:engine-core-v1:set-access-alternatives-v1`,
-      project: async (rows, query) => {
-        const multi = await workers.bridgeEngineProjection(rows, { ...query, engines: query.engines ?? [query.source] });
-        return query.engines ? { results: [], ...multi } : { ...this.project(rows, query, true), next: multi.next };
-      },
+      now, version: () => `${this.groups().source_version}:${BRIDGE_JUDGE_VERSION}:main-extra-packages-v1:full-engine-recall-v1:engine-core-v1:set-access-synergy-v2`,
+      project: async (rows, query) => query.engines
+        ? { results: [], ...await workers.bridgeEngineProjection(rows, { ...query, engines: query.engines }) }
+        : workers.bridgeDirectedProjection(query, rows, true),
       serializeResult: (rows, query) => JSON.stringify(query.engines ? compactBridgeRows(rows) : rows),
-      projectStored: async (jobId, query) => {
-        const multi = await workers.bridgeEngineProjection({ jobId }, { ...query, engines: query.engines ?? [query.source] });
-        return query.engines ? { results: [], ...multi }
-          : { ...this.project(bridgeProjectionRows(db, { jobId }), query, true), next: multi.next };
-      },
+      projectStored: async (jobId, query) => query.engines
+        ? { results: [], ...await workers.bridgeEngineProjection({ jobId }, { ...query, engines: query.engines }) }
+        : workers.bridgeDirectedProjection(query, { jobId }, true),
       execute: async (query, progress) => {
         if (query.engines) return searchBridgeEngines(this.db, workers, { ...query, engines: query.engines }, progress);
         // Next-engine discovery needs both complete directions. The legacy
@@ -50,7 +43,7 @@ export class BridgeApi {
           ...(query.target ? { op: "explain", target: query.target } : { op: "live" }) }, value => {
           progress("candidates", Math.floor(25 * value.completed / Math.max(1, value.total)));
         });
-        const rows = this.service.deepTargets((Array.isArray(result) ? result : result ? [result] : []).map(row => reuseAcceptedBridge(this.db, row)), 25);
+        const rows = (Array.isArray(result) ? result : result ? [result] : []).map(row => reuseAcceptedBridge(this.db, row));
         progress("checking", 30);
         const version = this.groups().source_version;
         this.db.transaction(() => {
@@ -141,46 +134,6 @@ export class BridgeApi {
       ...(remaining === undefined ? {} : { genesysRemaining: remaining }), ...(deckCards ? { deckCards } : {}), ...(deck ? { deck } : {}) };
   }
 
-  private incrementalPoints(row: ArchetypeBridge, query: BridgeSearchQuery): number {
-    if (!query.deckCards) return row.genesys_points ?? Infinity;
-    let total = 0;
-    for (const id of row.cards) {
-      const required = Math.max(1, ...row.reasons.map(reason => reason.materials?.filter(code => code === id).length ?? 0));
-      const missing = Math.max(0, required - query.deckCards.filter(code => code === id).length);
-      if (!missing) continue;
-      const stored = this.db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode=?").get(id) as { capabilities_json: string } | undefined;
-      const points = stored ? JSON.parse(stored.capabilities_json).card.genesysPoints as number | undefined : undefined;
-      if (points === undefined) return Infinity;
-      total += points * missing;
-    }
-    return total;
-  }
-
-  private storedRows(source: string, target: string | undefined, format: BridgeSearchQuery["format"]): ArchetypeBridge[] {
-    const revision = bridgeRevision(this.db);
-    const key = JSON.stringify([source, target, format]), cached = this.storedCache.get(key);
-    if (cached?.revision === revision) return cached.rows;
-    const pair = target ? this.service.bridgeBetween(source, target, format) : null;
-    const rows = target ? pair ? [pair] : [] : this.service.bridgesFrom(source, format, 25);
-    this.storedCache.delete(key); this.storedCache.set(key, { revision, rows });
-    if (this.storedCache.size > 64) this.storedCache.delete(this.storedCache.keys().next().value!);
-    return rows;
-  }
-
-  private project(rows: ArchetypeBridge[], query: BridgeSearchQuery, deep = false) {
-    const candidates = rows.filter(row => (deep || row.tier !== "niche") && row.source === query.source && row.format === query.format
-      && (!query.target || row.target === query.target)
-      && (row.format !== "genesys" || this.incrementalPoints(row, query) <= (query.genesysRemaining ?? 100)));
-    const shown = candidates
-      .flatMap(row => { const shown = shownBridge(this.db, row); if (!shown) return [];
-        const reverse = deep ? this.service.deepBetween(row.target, row.source, row.format) : this.service.bridgeBetween(row.target, row.source, row.format);
-        const twoWay = !!reverse && !!shownBridge(this.db, reverse)
-          && (reverse.format !== "genesys" || this.incrementalPoints(reverse, query) <= (query.genesysRemaining ?? 100));
-        return [{ ...shown, ...bridgePackage([shown], query.deckCards), core: this.engineQueries.core(shown.target, query), two_way: twoWay }]; });
-    const results = deep ? this.service.deepTargets(shown, 10) : this.service.distinctTargets(shown, 4);
-    return { results, inReview: candidates.filter(row => ["pending", "review"].includes(bridgeGate(this.db, row).state)).length };
-  }
-
   async handle(body: Record<string, unknown>, guildId: string, playerId: number, signal?: AbortSignal) {
     const player = this.db.prepare("SELECT p.user_id FROM players p JOIN users u ON u.id=p.user_id WHERE p.id=? AND p.guild_id=?")
       .get(playerId, guildId) as { user_id: number } | undefined;
@@ -230,7 +183,8 @@ export class BridgeApi {
     }
     if (input.op === "start" && (input.engines !== undefined || input.deck !== undefined)) {
       if (["source", "deckId"].some(key => input[key] !== undefined)) throw new BridgeJobError("Choose one bridge source selector", 400);
-      const { query } = this.engineQueries.resolve(input, guildId);
+      validateBridgeEngineInput(input);
+      const { query } = await this.workers.bridgeResolve(input, guildId);
       if (!query.engines.length) throw new BridgeJobError("The deck needs an engine before searching bridges", 400);
       return this.jobs.start(actor, query, join);
     }
@@ -239,9 +193,6 @@ export class BridgeApi {
     const query = this.query(input, guildId, actor.userId);
     if (input.op === "start") return this.jobs.start(actor, query, join);
     if (input.op === "between" && !query.target) throw new BridgeJobError("Target archetype is required", 400);
-    const result = this.project(this.storedRows(query.source, query.target, query.format), query);
-    if (!query.target) return result;
-    const reversed = this.project(this.storedRows(query.target, query.source, query.format), { ...query, source: query.target, target: query.source });
-    return { ...result, reverse: reversed.results, inReview: result.inReview + reversed.inReview };
+    return this.workers.bridgeDirectedProjection(query);
   }
 }

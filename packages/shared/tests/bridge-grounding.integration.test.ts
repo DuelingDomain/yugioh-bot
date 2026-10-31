@@ -24,13 +24,15 @@ beforeAll(() => {
 const named = (rows: readonly CardCapability[], name: string) => rows.find(row => row.card.name === name)!;
 
 describe("grounded engine membership and directed access on the pinned catalog", () => {
-  it("invalidates the grounded stored graph when the catalog revision changes", () => {
+  it("retains lookup-only catalog changes and invalidates the grounded graph on engine data changes", () => {
     const db = new Database(":memory:");
     try {
       migrate(db); importBridgeArtifact(db);
       const first = storedBridgeEngine(db);
       expect(storedBridgeEngine(db)).toBe(first);
       db.prepare("UPDATE card_catalog_revision SET revision=revision+1 WHERE id=1").run();
+      expect(storedBridgeEngine(db)).toBe(first);
+      db.prepare("UPDATE bridge_engine_revision SET revision=revision+1 WHERE id=1").run();
       const refreshed = storedBridgeEngine(db);
       expect(refreshed).not.toBe(first);
       expect(refreshed.rows.get(73956664)!.text_hash).toBe(first.rows.get(73956664)!.text_hash);

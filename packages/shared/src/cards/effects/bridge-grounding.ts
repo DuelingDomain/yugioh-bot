@@ -44,7 +44,7 @@ export function groundBridgeGraph(data: BridgeGraphData): BridgeGraphData {
   if (cached) return cached;
   const capabilities = data.capabilities.map(row => {
     let changed = false;
-    const provides = groundedSetCapabilities(row, data.capabilities).map(capability => {
+    const provides = groundedSetCapabilities(row, data.capabilities, !data.scoped).map(capability => {
       if (!checkedQualifier(row, capability)) return capability;
       changed = true;
       return { ...capability, targets: data.capabilities.filter(target => capability.filter && matchesBridgeFilter(capability.filter, target.card)

@@ -256,6 +256,60 @@ it("accepts low-score Niche suggestions and keeps the strict response floor", as
   }
 });
 
+it("validates optional synergy kinds without presenting them as bridge access", async () => {
+  const bridge = { ...shown(), source: "Toy", target: "Ashtra", kind: "synergy", tier: "niche", grade: "Niche", score: 0,
+    review: { ...shown().review, grade: "niche" } };
+  const next = { engine: "Ashtra", kind: "synergy", score: 0, grade: "Niche", tier: "niche", covered: 0, of: 1, twoWay: [],
+    links: [{ from: "Toy", to: "Ashtra", bridge }], cards: [123], missing: [123], alreadyInDeck: false,
+    genesysPoints: null, pros: [], cons: [] };
+  const completed = (results: unknown[], suggestions: unknown[] = []) => ({ jobId: "bridge-job-1", state: "done", step: "done",
+    progress: 100, engines: ["Toy"], results, next: suggestions, inReview: 0 });
+
+  reply = completed([bridge], [next]);
+  const response = await poll();
+  expect(response.status).toBe(200); expect(await response.json()).toEqual(reply);
+  reply = { engines: ["Toy"], between: [], next: [next], inReview: 0 };
+  expect((await engines({ engines: ["Toy"], format: "advanced" })).status).toBe(200);
+
+  for (const kind of ["bridge", "access", "Synergy", "", null, 1, true, {}]) {
+    reply = completed([{ ...bridge, kind }]);
+    expect((await poll()).status, `row kind ${JSON.stringify(kind)}`).toBe(502);
+    reply = completed([], [{ ...next, kind }]);
+    expect((await poll()).status, `suggestion kind ${JSON.stringify(kind)}`).toBe(502);
+    reply = { results: [{ ...shown(), kind }], inReview: 0 };
+    expect((await lookup()).status, `list kind ${JSON.stringify(kind)}`).toBe(502);
+  }
+  for (const invalid of [{ covered: 1 }, { twoWay: ["Toy"] }, { tier: "strict" },
+    { links: [{ ...next.links[0], bridge: { ...bridge, two_way: true } }] },
+    { links: [{ ...next.links[0], bridge: { ...bridge, kind: undefined } }] },
+    { links: [{ ...next.links[0], bridge: { ...bridge, kind: "unknown" } }] }, { kind: undefined, covered: 1 }]) {
+    reply = completed([], [{ ...next, ...invalid }]);
+    expect((await poll()).status, JSON.stringify(invalid)).toBe(502);
+  }
+  for (const invalid of [{ two_way: true }, { tier: undefined }]) {
+    reply = completed([{ ...bridge, ...invalid }]);
+    expect((await poll()).status, JSON.stringify(invalid)).toBe(502);
+  }
+  reply = { results: [bridge], inReview: 0 };
+  expect((await lookup("source=Toy")).status).toBe(502);
+  reply = { results: [], reverse: [bridge], inReview: 0 };
+  expect((await lookup("source=Ashtra&target=Toy")).status).toBe(502);
+  reply = { engines: ["Toy", "Ashtra"], between: [bridge], next: [], inReview: 0 };
+  expect((await engines({ engines: ["Toy", "Ashtra"], format: "advanced" })).status).toBe(502);
+
+  const rows = [bridge, { ...bridge, target: "Second" }];
+  const suggestions = [next, { ...next, engine: "Second", links: [{ from: "Toy", to: "Second", bridge: rows[1] }] }];
+  reply = completed(rows, suggestions);
+  expect((await poll()).status).toBe(200);
+  reply = completed([...rows, { ...bridge, target: "Third" }]);
+  expect((await poll()).status).toBe(502);
+  const third = { ...next, engine: "Third", links: [{ from: "Toy", to: "Third", bridge: { ...bridge, target: "Third" } }] };
+  reply = completed([], [...suggestions, third]);
+  expect((await poll()).status).toBe(502);
+  reply = { engines: ["Toy"], between: [], next: [...suggestions, third], inReview: 0 };
+  expect((await engines({ engines: ["Toy"], format: "advanced" })).status).toBe(502);
+});
+
 it("runs the browser engines helper through the authenticated signed-host route", async () => {
   const { fetchBridgeEngines } = await import("../src/lib/bridges-api");
   const { POST } = await import("../app/api/cards/bridges/engines/route");
@@ -744,7 +798,7 @@ it("validates grounded alternative paths through engines and completed deep jobs
     saveBridgeJudgement, shownBridge, BridgeAlternativePathSchema } = await import("@yugidraft/shared/cards/effects");
   const { createBridgeService } = await import("@yugidraft/shared/services");
   const db = state.db!; importBridgeArtifact(db);
-  const row = createBridgeService(db).deepBetween("Labrynth", "Ashtra")!;
+  const row = createBridgeService(db).bridgeBetween("Azamina", "White Forest")!;
   const evidence = buildBridgeJudgeEvidence(db, row)!;
   const line = row.reasons[0]!.cards.map(id => evidence.cards.find(card => card.id === id)!.name);
   for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, {
@@ -754,8 +808,8 @@ it("validates grounded alternative paths through engines and completed deep jobs
   expect(bridge.review.alternative_paths!.length).toBeGreaterThanOrEqual(1);
   const validate = async (paths: unknown, expected: number) => {
     const changed = { ...bridge, review: { ...bridge.review, alternative_paths: paths } };
-    reply = { engines: ["Labrynth", "Ashtra"], between: [changed], next: [], inReview: 0 };
-    expect((await engines({ engines: ["Labrynth", "Ashtra"], format: "advanced" })).status).toBe(expected);
+    reply = { engines: ["Azamina", "White Forest"], between: [changed], next: [], inReview: 0 };
+    expect((await engines({ engines: ["Azamina", "White Forest"], format: "advanced" })).status).toBe(expected);
     reply = { jobId: "bridge-job-1", state: "done", step: "done", progress: 100, results: [changed], inReview: 0 };
     expect((await poll()).status).toBe(expected);
   };

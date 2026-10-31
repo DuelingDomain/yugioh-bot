@@ -3,15 +3,15 @@ import { NO_FILTER, type CardFilter } from "./tags.js";
 import type { Capability, CardCapability } from "./bridge-types.js";
 import { actionEvidence, matchesBridgeFilter, printedText, sameName, sentences } from "./bridge-text.js";
 
-/** A subtype is a real recipient restriction; an unrestricted Spell/Trap pool is not. */
+/** Named recipients or a genuinely small catalog pool; a subtype alone is a toolbox. */
 export function narrowSetCapability(capability: Capability): boolean {
   const f = capability.filter;
   return capability.key === "set_spell_trap" && !!f && !f.this_card
-    && !!(f.names.length || f.archetypes.length || f.kinds.length && f.kinds.every(kind => kind === "spell" || kind === "trap") && f.subtypes.length);
+    && !!(f.names.length || f.archetypes.length || capability.targets && capability.targets.length > 0 && (capability.poolSize ?? capability.targets.length) <= 30);
 }
 
 /** Preserve constraints which older tags omitted instead of trusting their wide target index. */
-export function groundedSetCapabilities(row: CardCapability, universe: readonly CardCapability[]): Capability[] {
+export function groundedSetCapabilities(row: CardCapability, universe: readonly CardCapability[], completeUniverse = true): Capability[] {
   const provides = row.provides.map(capability => {
     if (capability.key !== "set_spell_trap" || capability.filter?.this_card || !capability.filter) return capability;
     const evidence = actionEvidence(row.card, capability.key, capability.filter);
@@ -29,7 +29,8 @@ export function groundedSetCapabilities(row: CardCapability, universe: readonly 
       ...(!capability.filter.kinds.length && recipient ? { kinds: /Spell\/Trap/i.test(recipient[2]!) ? ["spell", "trap"] as CardFilter["kinds"] : /Trap/i.test(recipient[2]!) ? ["trap"] as CardFilter["kinds"] : ["spell"] as CardFilter["kinds"] } : {}) };
     const newQualifier = /^(?:non-["“]|with an effect that Special Summons itself as a monster$|that can only be activated when an attack is declared$)/i.test(other);
     return JSON.stringify(filter) === JSON.stringify(capability.filter) && !newQualifier ? capability : { ...capability, filter, evidence,
-      targets: universe.filter(target => matchesBridgeFilter(filter, target.card)).map(target => target.id) };
+      targets: universe.filter(target => matchesBridgeFilter(filter, target.card)).map(target => target.id),
+      ...(!completeUniverse ? { poolSize: capability.targets?.length ?? Number.MAX_SAFE_INTEGER } : {}) };
   });
   // Recover ordinary explicit Set recipients even if effect tags are missing.
   for (const evidence of sentences(printedText(row.card))) {
@@ -50,7 +51,7 @@ export function groundedSetCapabilities(row: CardCapability, universe: readonly 
       other: exclusion ? `except ${exclusion[1]}` : "" };
     const from = [({ Deck: "deck", hand: "hand", GY: "gy", Graveyard: "gy", banishment: "banished" } as Record<string, string>)[match[2]!]!];
     const capability: Capability = { key: "set_spell_trap", filter, from, evidence };
-    if (narrowSetCapability(capability)) provides.push({ ...capability,
+    provides.push({ ...capability, ...(!completeUniverse ? { poolSize: Number.MAX_SAFE_INTEGER } : {}),
       targets: universe.filter(target => matchesBridgeFilter(filter, target.card)).map(target => target.id) });
   }
   // Toy Box Sets only original-name Toy monsters with their own printed hand-Set
@@ -82,4 +83,15 @@ export function setActivationEvidence(source: Card, target: Card, capability: Ca
   const following = text.slice(start + evidence.length).trim();
   const permission = /^(?:It|The Set (?:Normal |Continuous )?Trap) can be activated this turn\./i.exec(following)?.[0];
   return permission && !/cannot be activated this turn|cannot activate it/i.test(evidence) ? permission : undefined;
+}
+
+/** Access brings a new card out of the Deck, never an ordinary hand Set or GY reset. */
+export function setAccessOrigin(capability: Capability): boolean {
+  return capability.key === "set_spell_trap" && !!capability.from?.some(zone => zone === "deck" || zone === "extra_deck");
+}
+
+/** Extra resources must be generated together from Deck, not just an ordinary single Set. */
+export function extraDeckSetResources(capability: Capability): boolean {
+  return setAccessOrigin(capability) && capability.from!.includes("deck") && narrowSetCapability(capability)
+    && setResourceCanReturn(capability) && /\b(?:Set|choose) (?:up to )?(?:[2-9]|[1-9]\d+)\b/i.test(capability.evidence);
 }

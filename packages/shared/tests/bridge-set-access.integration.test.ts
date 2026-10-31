@@ -5,6 +5,8 @@ import { importBridgeArtifact } from "../src/cards/effects/bridge-artifact.js";
 import { storedBridgeEngine } from "../src/cards/effects/bridge-graph-store.js";
 import { buildBridgeJudgeEvidence, bridgeJudgeRequest } from "../src/cards/effects/bridge-judge.js";
 import { extractCardCapabilities } from "../src/cards/effects/bridge-capabilities.js";
+import { rankEngineCandidates } from "../src/cards/effects/bridge-engine-ranking.js";
+import { createBridgeService } from "../src/services/archetype-bridges.js";
 import { BridgeEngine } from "../src/cards/effects/bridge-engine.js";
 
 let db: Database.Database;
@@ -12,50 +14,66 @@ beforeAll(() => { db = new Database(":memory:"); migrate(db); importBridgeArtifa
 afterAll(() => db.close());
 
 describe("printed Set access on the pinned catalog", () => {
-  it("reaches real target Traps through narrow hand, Deck and GY setters", () => {
+  it("keeps full-catalog selectivity when validating legitimate Niche stat access", () => {
     const engine = storedBridgeEngine(db);
-    for (const format of ["advanced", "genesys"] as const) for (const [source, target, setter] of [
-      ["Labrynth", "Ashtra", 73602965], ["Lady of Lament", "Ashtra", 25643346],
-      ["Sunvine", "Argostars", 27946124], ["Ashtra", "Labrynth", 38114652],
-    ] as const) {
-      const row = engine.deepBetween(source, target, format);
-      expect(row, `${format}: ${source} -> ${target}`).not.toBeNull();
-      expect(row!.reasons.some(reason => reason.steps?.some(step => step.from === setter && step.capability === "set_spell_trap"))).toBe(true);
-      expect(engine.validateAccessPath(row!.reasons[0]!, source, target, format)).toBe(true);
-      expect(buildBridgeJudgeEvidence(db, row!)?.proposed_lines.some(line => line.steps.some(step => step.action === "set_spell_trap"))).toBe(true);
+    for (const [source, target] of [["Fire Formation", "Lunalight"], ["Cyber Dragon", "Drytron"]]) {
+      const row = engine.deepBetween(source!, target!)!;
+      expect(engine.validateAccessPath(row.reasons[0]!, source!, target!, "advanced")).toBe(true);
+      expect(buildBridgeJudgeEvidence(db, row), `${source} -> ${target}`).not.toBeNull();
     }
   });
 
-  it("proves Toy's Set resource for Ashtra without claiming Toy Box Sets Ashtra cards", () => {
+  it("rejects subtype toolboxes, hand Sets and GY recursion as engine access", () => {
+    const engine = storedBridgeEngine(db);
+    for (const format of ["advanced", "genesys"] as const) for (const [source, target] of [
+      ["Lady of Lament", "Ashtra"], ["Sunvine", "Argostars"],
+      ["Ashtra", "Labrynth"], ["Supreme King", "Argostars"], ["Altergeist", "Ashtra"],
+      ["Archfiend", "Ashtra"], ["Abyss Actor", "Ashtra"], ["Toy", "Ashtra"],
+    ] as const) expect(engine.deepBetween(source, target, format), `${format}: ${source} -> ${target}`).toBeNull();
+  });
+
+  it("retains Cooclock's permission with Ashtra's own named Deck Set path", () => {
+    const engine = storedBridgeEngine(db), row = engine.deepBetween("Labrynth", "Ashtra")!;
+    expect(row.reasons[0]).toMatchObject({ key: "rule_enabler", steps: [{ from: 1710647, capability: "set_spell_trap" }] });
+    expect(row.reasons.flatMap(reason => reason.steps ?? []).some(step => [73602965, 81497285].includes(step.from))).toBe(false);
+  });
+
+  it("proves Toy's extra Deck Set resources only as synergy, with the existing Haiku judges", () => {
     const engine = storedBridgeEngine(db);
     for (const format of ["advanced", "genesys"] as const) {
-      const row = engine.deepBetween("Toy", "Ashtra", format)!;
-      expect(row).toMatchObject({ tier: "niche" });
-      const setup = row.reasons.find(reason => reason.setup?.card === 1710647)!;
+      const row = engine.synergyBetween("Toy", "Ashtra", format)!;
+      expect(row).toMatchObject({ kind: "synergy", tier: "niche", two_way: false });
+      const setup = row.reasons[0]!;
       expect(setup.setup).toMatchObject({ card: 1710647 });
-      expect(setup.cards).toContain(24878656);
       expect(setup.steps![0]).toMatchObject({ from: 24878656, capability: "set_spell_trap" });
       expect([58132856, 65504487, 69925461]).toContain(setup.steps![0]!.to);
-      expect(engine.validateAccessPath(setup, "Toy", "Ashtra", format)).toBe(true);
-      const broken = structuredClone(setup); broken.setup!.using = 37839434;
-      expect(engine.validateAccessPath(broken, "Toy", "Ashtra", format)).toBe(false);
+      expect(engine.validateAccessPath(setup, "Toy", "Ashtra", format)).toBe(false);
       const evidence = buildBridgeJudgeEvidence(db, row)!;
+      expect(evidence).not.toBeNull();
+      expect(evidence.kind).toBe("synergy");
       expect(evidence.proposed_lines.some(line => line.steps.some(step => step.action === "reveal_return_set"))).toBe(true);
       expect(evidence.proposed_lines.every(line => !line.steps.some(step => step.card === "Toy Box" && step.target?.includes("Ashtra")))).toBe(true);
+      expect(bridgeJudgeRequest(evidence, "mechanic").model).toBe("claude-haiku-5-5");
+      expect(buildBridgeJudgeEvidence(db, { ...row, kind: undefined })).toBeNull();
+      for (const source of ["Altergeist", "Archfiend", "Abyss Actor", "Sangen"]) expect(engine.synergyBetween(source, "Ashtra", format)).toBeNull();
     }
   });
 
-  it("retains several distinct physical paths before mentions, including local activation permissions", () => {
-    const engine = storedBridgeEngine(db), row = engine.deepBetween("Labrynth", "Ashtra")!;
-    const setPaths = row.reasons.filter(reason => reason.steps?.[0]?.capability === "set_spell_trap");
-    expect(setPaths.length).toBeGreaterThanOrEqual(2);
-    expect(new Set(setPaths.map(reason => reason.steps![0]!.from)).size).toBeGreaterThanOrEqual(2);
-    expect(row.reasons[0]!.steps?.[0]?.capability).toBe("set_spell_trap");
-    const evidence = buildBridgeJudgeEvidence(db, row)!;
-    expect(evidence.proposed_lines.length).toBeGreaterThanOrEqual(2);
-    expect(JSON.stringify(bridgeJudgeRequest(evidence, "mechanic"))).toContain("The Set Normal Trap can be activated this turn");
-    expect(bridgeJudgeRequest(evidence, "mechanic").model).toBe("claude-haiku-5-5");
-  });
+  it("keeps Ashtra and Labrynth shortlists free of subtype-only Set and hand/GY access rows", () => {
+    const service = createBridgeService(db), engine = storedBridgeEngine(db);
+    for (const source of ["Ashtra", "Labrynth"]) {
+      const rows = [...engine.deepCandidates(source, "advanced", undefined, false), ...engine.deepInto(source)];
+      const shortlist = rankEngineCandidates([source], rows, service.rankingContext(), 8, { acceptedNiche: () => false });
+      expect(shortlist.filter(row => row.kind === "synergy").length).toBeLessThanOrEqual(1);
+      for (const row of shortlist) for (const { bridge } of row.links) {
+        if (bridge.kind === "synergy") { expect(row.covered).toBe(0); expect(row.twoWay).toEqual([]); continue; }
+        for (const step of bridge.reasons[0]!.steps ?? []) if (step.capability === "set_spell_trap") {
+          const caps = engine.rows.get(step.from)!.provides.filter(cap => cap.key === step.capability && cap.targets?.includes(step.to));
+          expect(caps.some(cap => cap.from?.includes("deck") && (cap.filter!.names.length || cap.filter!.archetypes.length || cap.targets!.length <= 30))).toBe(true);
+        }
+      }
+    }
+  }, 30_000);
 
   it("grounds revealed Normal Trap recipients and non-archetype Set filters", () => {
     const engine = storedBridgeEngine(db);

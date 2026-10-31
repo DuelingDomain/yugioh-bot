@@ -123,6 +123,8 @@ export function readBridgeJob(request: Request, value: string): BridgeRequest | 
 
 function shownBridge(value: unknown, deep: boolean): boolean {
   if (!object(value) || !name(value.source, 160) || !name(value.target, 160) || !format(value.format)
+    || value.kind !== undefined && value.kind !== "synergy"
+    || value.kind === "synergy" && (!deep || value.tier !== "niche" || value.two_way !== false)
     || !BridgePackageSchema.safeParse(value).success
     || value.core !== undefined && !EngineCoreSchema.safeParse(value.core).success
     || value.judge !== "accepted" || value.validation !== "deterministic" || !hash(value.evidence_hash)
@@ -148,18 +150,23 @@ function shownBridge(value: unknown, deep: boolean): boolean {
 }
 
 const results = (value: unknown, expectedFormat?: BridgeFormat, deep = false) => Array.isArray(value) && value.length <= (deep ? 10 : 4)
+  && value.filter(row => object(row) && row.kind === "synergy").length <= 2
   && value.every(row => shownBridge(row, deep) && (expectedFormat === undefined || row.format === expectedFormat));
 const state = (value: unknown) => value === "queued" || value === "running" || value === "done" || value === "failed";
 function engineSuggestions(value: unknown, expectedFormat?: BridgeFormat, max = 4): boolean {
-  return Array.isArray(value) && value.length <= max && value.every(row => object(row) && name(row.engine, 160)
+  return Array.isArray(value) && value.length <= max && value.filter(row => object(row) && row.kind === "synergy").length <= 2
+    && value.every(row => object(row) && name(row.engine, 160)
+    && (row.kind === undefined || row.kind === "synergy")
     && BridgePackageSchema.safeParse(row).success
     && (row.core === undefined || EngineCoreSchema.safeParse(row.core).success)
     && typeof row.score === "number" && Number.isFinite(row.score) && row.score >= 0 && (row.tier === "niche" || row.score >= 4)
     && typeof row.grade === "string" && ["Strong", "Good", "Niche", "Risky"].includes(row.grade)
     && (row.tier === "strict" || row.tier === "niche") && integer(row.of, 4) && row.of >= 1 && integer(row.covered, row.of)
     && Array.isArray(row.twoWay) && row.twoWay.length <= row.of && row.twoWay.every(value => name(value, 160))
+    && (row.kind !== "synergy" || row.tier === "niche" && row.covered === 0 && row.twoWay.length === 0)
     && Array.isArray(row.links) && row.links.length >= 1 && row.links.length <= 3 && row.links.every(link => object(link)
       && name(link.from, 160) && name(link.to, 160) && shownBridge(link.bridge, true) && object(link.bridge)
+      && row.kind === link.bridge.kind
       && link.from === link.bridge.source && link.to === link.bridge.target && (link.from === row.engine || link.to === row.engine)
       && (expectedFormat === undefined || link.bridge.format === expectedFormat))
     && [row.cards, row.missing].every(ids => Array.isArray(ids) && ids.length <= 300 && ids.every(id => integer(id, 0xffffffff) && id > 0))
@@ -178,6 +185,7 @@ function validResponse(value: unknown, request: BridgeRequest): boolean {
     case "engines": return isBridgeLoadingResponse(value) || Array.isArray(value.engines) && value.engines.length <= 4 && value.engines.every(value => name(value, 160))
       && (request.deck === undefined ? value.detected === undefined : detectedEngines(value.detected))
       && Array.isArray(value.between) && value.between.length <= 12 && value.between.every(row => shownBridge(row, true) && object(row)
+        && row.kind === undefined
         && row.format === request.format && (value.engines as string[]).includes(String(row.source)) && (value.engines as string[]).includes(String(row.target)))
       && engineSuggestions(value.next, request.format) && integer(value.inReview);
     case "from": case "between": return results(value.results, request.format) && integer(value.inReview)

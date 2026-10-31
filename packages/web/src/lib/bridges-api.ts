@@ -1,6 +1,7 @@
 import type { BridgeDeck, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, ShownBridge } from "@yugidraft/shared/cards/effects";
 
-export type { BridgeDeck, BridgePackage, CoreCard, EngineCore, DetectedEngine, EngineSuggestion, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, BridgeReviewStep, BridgeAlternativePath, ShownBridge } from "@yugidraft/shared/cards/effects";
+/** ShownBridge and EngineSuggestion carry kind?: "synergy"; ordinary access bridges omit kind. */
+export type { ArchetypeBridge, RankedEngine, BridgeDeck, BridgePackage, CoreCard, EngineCore, DetectedEngine, EngineSuggestion, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, BridgeReviewStep, BridgeAlternativePath, ShownBridge } from "@yugidraft/shared/cards/effects";
 
 /** The selected source stays authoritative; an open deck supplies only copies and points. */
 export type BridgeListRequest = {

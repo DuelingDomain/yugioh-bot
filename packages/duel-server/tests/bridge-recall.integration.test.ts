@@ -1,3 +1,4 @@
+import { bridgeQueryFixture } from "./helpers/bridge-query-fixture.js";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
@@ -46,7 +47,7 @@ function fixture() {
       line: verdicts[i] === "valid" ? line ?? evidence.cards.slice(0, 3).map(card => card.name) : [], format_ok: true,
     }));
   };
-  const workers = {
+  const workers = { ...bridgeQueryFixture(db),
     bridgeEngineShortlist: vi.fn(async (rows: ArchetypeBridge[], query: EngineQuery) => queries.shortlist(rows, query)),
     bridgeEngineProjection: async (input: BridgeProjectionInput, query: EngineQuery) => queries.project(bridgeProjectionRows(db, input), query, 6),
     bridgeEngines: vi.fn(),
