@@ -689,6 +689,12 @@ try {
     return { label, outside, clipped, page: document.documentElement.scrollWidth <= window.innerWidth + 1, items: nodes.length };
   }, name);
   const settle = async () => { await bridges.scrollIntoViewIfNeeded(); await page.waitForTimeout(250); };
+  /** Opens an engine card in place (one card is open at a time), then waits for its body. */
+  const openCard = async (item: ReturnType<typeof bridges.getByTestId>) => {
+    const toggle = item.getByTestId("engine-toggle");
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+    await item.getByTestId("engine-body").waitFor({ timeout: 5_000 });
+  };
 
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -697,6 +703,14 @@ try {
     const layout = await whole(viewport.name);
     check("h", `${viewport.name}: bridge items are whole and the page does not scroll sideways`, layout.outside === 0 && layout.clipped === 0 && layout.page && layout.items > 0, layout);
     await shot(`bridges-list-${viewport.name}`);
+    // The first card open in place: it stays whole, and the page does not scroll sideways.
+    await openCard(items.first());
+    await items.first().scrollIntoViewIfNeeded();
+    await page.waitForTimeout(150);
+    const openLayout = await whole(`${viewport.name} open`);
+    check("h", `${viewport.name}: an open engine card fits the panel`, openLayout.outside === 0 && openLayout.clipped === 0 && openLayout.page, openLayout);
+    await shot(`bridges-card-open-${viewport.name}`);
+    await items.first().getByTestId("engine-toggle").click();
 
     // Details: open the first bridge, then go back.
     await items.first().getByTestId("engine-link").click();
@@ -745,9 +759,45 @@ try {
   check("h1", "the old single-bridge list is gone", (await bridges.getByTestId("bridge-item").count()) === 0 && (await bridges.getByRole("list", { name: /can bridge into/ }).count()) === 0 && !(await bridges.innerText()).includes("can bridge into"));
   const thumbCounts = await items.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.querySelectorAll('ol[aria-label$="path of cards"] button').length));
   check("h1", "each engine shows its path as 3 card images", thumbCounts.every((count: number) => count === 3), thumbCounts);
-  check("h1", "each engine shows its core", (await items.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.querySelectorAll('[data-testid="engine-core-card"]').length))).every((count: number) => count > 0));
-  const points = await items.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => [node.querySelectorAll('ul[aria-label="Good"] li').length, node.querySelectorAll('ul[aria-label="Bad"] li').length]));
+  const cores: number[] = [];
+  const points: number[][] = [];
+  for (let at = 0; at < (await items.count()); at += 1) {
+    await openCard(items.nth(at));
+    cores.push(await items.nth(at).getByTestId("engine-core-card").count());
+    points.push([await items.nth(at).locator('ul[aria-label="Good"] li').count(), await items.nth(at).locator('ul[aria-label="Bad"] li').count()]);
+  }
+  check("h1", "each engine shows its core once it is open", cores.every((count: number) => count > 0), cores);
   check("h1", "each engine shows 2 good and 2 bad points", points.every(([good, bad]: number[]) => good === 2 && bad === 2), points);
+  // h1c. Closed by default: one compact row; the header opens the rest in place, one card at a time.
+  await reset();
+  const rowOf = (at: number) => items.nth(at);
+  check("h1c", "every card is closed by default, with a toggle that says so", (await items.getByTestId("engine-body").count()) === 0 && (await items.evaluateAll((nodes: HTMLElement[]) => nodes.every((node) => node.querySelector('[data-testid="engine-toggle"]')?.getAttribute("aria-expanded") === "false"))));
+  check("h1c", "a closed card shows only the name, the grade, the path images and Details", (await rowOf(0).getByTestId("engine-grade").count()) === 1 && (await rowOf(0).getByTestId("engine-paths").locator('ol[aria-label$="path of cards"] button').count()) === 3 && (await rowOf(0).getByTestId("engine-link").first().innerText()).includes("Details") && (await rowOf(0).getByTestId("engine-core").count()) === 0 && (await rowOf(0).getByTestId("core-add").count()) === 0 && (await rowOf(0).getByTestId("bridge-add").count()) === 0 && (await rowOf(0).locator('ul[aria-label="Good"], ul[aria-label="Bad"]').count()) === 0 && (await rowOf(0).getByTestId("engine-step").count()) === 0);
+  const closedHeights = await items.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
+  check("h1c", "a closed card is compact", closedHeights.every((height: number) => height <= 170), closedHeights);
+  await shot("bridges-closed-1920x1080");
+  await rowOf(0).getByTestId("engine-toggle").click();
+  const openBody = rowOf(0).getByTestId("engine-body");
+  await openBody.waitFor({ timeout: 5_000 });
+  check("h1c", "a click on the header opens the card in place, and aria-expanded follows", (await rowOf(0).getByTestId("engine-toggle").getAttribute("aria-expanded")) === "true" && (await rowOf(0).getAttribute("data-open")) !== null);
+  check("h1c", "the open card shows the line with a sentence for each step, the core, the Add buttons and the reasons", (await openBody.getByTestId("engine-step").count()) >= 3 && (await openBody.getByTestId("engine-core-card").count()) > 0 && (await openBody.getByTestId("core-add").count()) + (await openBody.getByTestId("engine-core-gaps").count()) >= 1 && (await openBody.getByTestId("bridge-add").count()) === 1 && (await openBody.locator('ul[aria-label="Good"] li').count()) === 2 && (await openBody.locator('ul[aria-label="Bad"] li').count()) === 2, await openBody.innerText());
+  check("h1c", "the toggle names the body it controls", (await rowOf(0).getByTestId("engine-toggle").getAttribute("aria-controls")) === (await openBody.getAttribute("id")));
+  await shot("bridges-open-1920x1080");
+  await rowOf(1).getByTestId("engine-toggle").click();
+  await rowOf(1).getByTestId("engine-body").waitFor({ timeout: 5_000 });
+  check("h1c", "only one card is open at a time", (await items.getByTestId("engine-body").count()) === 1 && (await rowOf(0).getByTestId("engine-toggle").getAttribute("aria-expanded")) === "false");
+  await rowOf(1).getByTestId("engine-toggle").focus();
+  await page.keyboard.press("Enter");
+  check("h1c", "Enter on the header closes the card again", (await items.getByTestId("engine-body").count()) === 0 && (await rowOf(1).getByTestId("engine-toggle").getAttribute("aria-expanded")) === "false");
+  await rowOf(0).getByTestId("engine-toggle").click();
+  await rowOf(0).getByTestId("engine-body").waitFor({ timeout: 5_000 });
+  await rowOf(0).getByTestId("engine-link").first().click();
+  await bridges.getByTestId("bridge-details").waitFor();
+  check("h1c", "Details opens the full page of the bridge from an open card too", (await bridges.getByTestId("bridge-details").count()) === 1);
+  await bridges.getByRole("button", { name: /^Back/ }).click();
+  await items.first().waitFor();
+  await reset();
+  check("h1c", "nothing is remembered: after a reload every card is closed", (await items.getByTestId("engine-body").count()) === 0);
   check("h1", "the list text says nothing about AI", !/\bai\b|\bllm\b|judge/i.test(await bridges.innerText()));
   // A card image opens the card inspector, like a tile elsewhere in Suggestions.
   const thumb = items.first().locator('ol[aria-label$="path of cards"] button').first();
@@ -819,7 +869,8 @@ try {
   control.genesys = true;
   await reset();
   check("h5", "a Genesys deck asks for Genesys engines with its points left", engineCalls[0]?.format === "genesys" && typeof engineCalls[0]?.genesysRemaining === "number", engineCalls[0]);
-  check("h5", "the Genesys points of an engine show in its card", (await items.nth(3).innerText()).includes("Genesys points"), await items.nth(3).innerText());
+  await openCard(items.nth(3));
+  check("h5", "the Genesys points of an engine show in its card once it is open", (await items.nth(3).innerText()).includes("Genesys points"), await items.nth(3).innerText());
   await shot("bridges-genesys-1920x1080");
   control.genesys = false;
 
@@ -1097,6 +1148,7 @@ try {
   const paths = (await chaos.getByTestId("engine-paths").innerText()).replace(/\s+/g, " ");
   const chaosThumbs = await chaos.getByTestId("engine-paths").locator('ol[aria-label$="path of cards"] button').evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.getAttribute("aria-label")));
   check("u2", "an engine shows the access path of each link as card images", paths.includes("Blue-Eyes → Chaos") && paths.includes("Dragunity → Chaos") && chaosThumbs.includes("Monster Reborn") && chaosThumbs.includes("Dragunity Dux"), { paths, chaosThumbs });
+  await openCard(chaos);
   check("u2", "an engine shows its core with what the deck lacks (one count, no host text above the buttons), and each link says Details", (await chaos.getByTestId("engine-need").count()) === 0 && (await chaos.getByTestId("engine-core-card").count()) > 0 && (await chaos.getByTestId("engine-link").first().innerText()).includes("Details"), await chaos.innerText());
   check("u2", "an engine shows good and bad points", (await chaos.getByRole("list", { name: "Good" }).locator("li").count()) >= 1 && (await chaos.getByRole("list", { name: "Bad" }).locator("li").count()) >= 1);
   check("u2", "only a two-way engine gets the two-way badge", (await chaos.getByTestId("engine-two-way").count()) === 0 && (await engineItems.nth(2).getByTestId("engine-two-way").count()) === 1);
@@ -1235,8 +1287,9 @@ try {
   const deepEngines = bridges.getByTestId("deep-results").getByTestId("engine-item");
   check("w1", "the results are engines that fit the whole set", (await deepEngines.count()) >= 1 && (await deepEngines.first().innerText()).includes("Links 2 of 2"), await deepEngines.allInnerTexts());
   check("w1", "no single-bridge card sits in the results", (await bridges.getByTestId("deep-results").getByTestId("bridge-item").count()) === 0);
+  await openCard(deepEngines.first());
   check("w1", "a result shows its path, cards, and good and bad points", (await deepEngines.first().getByTestId("engine-paths").count()) === 1 && (await deepEngines.first().getByRole("list", { name: /path of cards$/ }).count() >= 1) && (await deepEngines.first().getByRole("list", { name: "Good" }).count()) === 1);
-  check("w1", "the deep search stays in the engine order the host gave", JSON.stringify(await deepEngines.locator("strong").allInnerTexts()) === JSON.stringify(["Chaos", "Dragon Ruler", "Red-Eyes", "Dark Magician"]), await deepEngines.locator("strong").allInnerTexts());
+  check("w1", "the deep search stays in the engine order the host gave", JSON.stringify(await deepEngines.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.getAttribute("data-engine")))) === JSON.stringify(["Chaos", "Dragon Ruler", "Red-Eyes", "Dark Magician"]), await deepEngines.evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.getAttribute("data-engine"))));
   check("w1", "the deep results take the place of the fast list, so no engine shows twice", (await bridges.getByTestId("engines-next").count()) === 0 && (await bridges.getByTestId("engine-item").count()) === (await deepEngines.count()), { fast: await bridges.getByTestId("engines-next").count(), all: await bridges.getByTestId("engine-item").count() });
   await shot("deep-engines-1920x1080");
 
@@ -1249,7 +1302,7 @@ try {
   check("w2", "a reload picks the finished search up from the kept job", (await bridges.getByTestId("deep-results").getByTestId("engine-item").count()) >= 1 && bridgeCalls.starts.length === 1, bridgeCalls.starts.length);
 
   // A deck edit after the search: the host hears of the new deck (the same job, no new search) and the results follow it.
-  const needOf = async () => (await bridges.getByTestId("deep-results").getByTestId("engine-item").first().locator('[data-testid="bridge-add"], [data-testid="core-add"], [data-testid="engine-core-deck"]').allInnerTexts()).join("|");
+  const needOf = async () => (await openCard(bridges.getByTestId("deep-results").getByTestId("engine-item").first()), await bridges.getByTestId("deep-results").getByTestId("engine-item").first().locator('[data-testid="bridge-add"], [data-testid="core-add"], [data-testid="engine-core-deck"]').allInnerTexts()).join("|");
   const needBefore = await needOf();
   await goTab("Cards");
   await search().fill("Chaos Sorcerer");
@@ -1658,7 +1711,13 @@ try {
   await fresh();
   await goTab("Bridges");
   await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
-  check("x6", "a Genesys deck shows the points an engine needs", (await bridges.getByTestId("engines-next").getByRole("list", { name: "Warnings" }).first().innerText()).includes("Genesys points"));
+  const xItems = bridges.getByTestId("engines-next").getByTestId("engine-item");
+  const xWarnings: string[] = [];
+  for (let at = 0; at < (await xItems.count()); at += 1) {
+    await openCard(xItems.nth(at));
+    xWarnings.push(...(await xItems.nth(at).getByRole("list", { name: "Warnings" }).allInnerTexts()));
+  }
+  check("x6", "a Genesys deck shows the points an engine needs once its card is open", xWarnings.some((text) => text.includes("Genesys points")), xWarnings);
   check("x6", "the host was asked for Genesys", engineCalls.every((call) => call.format === "genesys"), engineCalls.map((call) => call.format));
   control.genesys = false;
   engineControl.mode = "single";
@@ -1984,8 +2043,10 @@ try {
     await page.waitForTimeout(500);
     const chaos = bridges.getByTestId("engines-next").locator('[data-engine="Chaos"]');
     const ruler = bridges.getByTestId("engines-next").locator('[data-engine="Dragon Ruler"]');
+    await openCard(chaos);
     await chaos.scrollIntoViewIfNeeded();
     check("s8", `${viewport.name}: an engine with a core gap says Not ready and has no Add engine`, (await chaos.getByTestId("engine-core-gaps").innerText()).startsWith("Not ready: ") && (await chaos.getByTestId("core-add").count()) === 0 && (await chaos.getByTestId("bridge-add").count()) === 1);
+    await openCard(ruler);
     await ruler.scrollIntoViewIfNeeded();
     check("s8", `${viewport.name}: a ready engine shows its core cards with images, and both buttons`, (await ruler.getByTestId("engine-core-card").count()) === 3 && (await ruler.getByTestId("engine-core-card").locator("img").count()) === 3 && (await ruler.getByTestId("bridge-add").innerText()) === "Add bridge (1)" && (await ruler.getByTestId("core-add").innerText()) === "Add engine (5)", [await ruler.getByTestId("bridge-add").innerText(), await ruler.getByTestId("core-add").innerText()]);
     check("s8", `${viewport.name}: the engine card does not scroll the page sideways and stays in the column`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1) && await ruler.evaluate((node: HTMLElement) => node.scrollWidth <= node.clientWidth + 1));
@@ -2041,6 +2102,7 @@ try {
     check("t1", `${viewport.name}: the synergy sits below every real bridge`, names.length >= 2 && names[names.length - 1] === "Ashtra" && names.indexOf("Ashtra") === names.length - 1, names);
     check("t1", `${viewport.name}: it has a Synergy tag and no grade or Links k of n`, (await toy.getByTestId("engine-synergy").innerText()) === "Synergy" && (await toy.getByTestId("engine-grade").count()) === 0 && (await toy.getByTestId("engine-covered").count()) === 0 && (await toy.getAttribute("data-grade")) === null && (await toy.getAttribute("data-kind")) === "synergy");
     check("t1", `${viewport.name}: the tag is not the grade style`, await toy.getByTestId("engine-synergy").evaluate((node: HTMLElement) => getComputedStyle(node).borderStyle === "dashed"));
+    await openCard(toy);
     check("t1", `${viewport.name}: one line says what a synergy is`, (await toy.getByTestId("engine-synergy-note").innerText()) === "Works well together: Blue-Eyes Sets extra cards that Ashtra can use; no direct search or summon path.", await toy.getByTestId("engine-synergy-note").innerText());
     check("t1", `${viewport.name}: the core and both buttons stay`, (await toy.getByTestId("engine-core-card").count()) === 2 && (await toy.getByTestId("core-add").innerText()) === "Add engine (1)" && (await toy.getByTestId("bridge-add").count()) === 1, [await toy.getByTestId("core-add").innerText()]);
     check("t1", `${viewport.name}: a real bridge still shows its grade and Links k of n`, (await nextList.getByTestId("engine-item").first().getByTestId("engine-grade").count()) === 1);

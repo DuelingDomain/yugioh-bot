@@ -197,6 +197,18 @@ button.coreArt:hover { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.5); }
 .way[data-way="new"] { color: var(--pen-ink); box-shadow: inset 0 0 0 1px var(--pen-soft); }
 .engine:focus { outline: none; }
 .engine:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* A closed engine card is one compact row: the header (name, grade, links) is the toggle, the paths sit under it. */
+.engineHead { display: grid; gap: 6px; width: calc(100% + 8px); min-width: 0; padding: 3px 4px; margin: -3px -4px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.engineHead:hover { background: rgb(239 231 213 / 0.05); }
+.engineHead:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.expandIcon { flex: none; margin-left: auto; color: var(--ink-4); transition: transform 0.15s; }
+.engineHead[aria-expanded="true"] .expandIcon { transform: rotate(180deg); }
+.engineBody { display: grid; gap: 10px; min-width: 0; padding-top: 8px; border-top: 1px solid var(--rule-lo); }
+.lines { display: grid; gap: 8px; min-width: 0; }
+.lines section { display: grid; gap: 3px; min-width: 0; }
+.lineSteps { display: grid; gap: 3px; margin: 0; padding: 0 0 0 18px; color: var(--ink-2); font-size: 12px; line-height: 1.4; }
+.lineSteps strong { color: var(--ink); font-weight: 500; }
+@media (prefers-reduced-motion: reduce) { .expandIcon { transition: none; } }
 
 /* The bridges between the engines of a set: one short line each, so the next engine stays near the top. */
 .between { display: grid; gap: 6px; min-width: 0; }
