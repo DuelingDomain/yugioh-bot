@@ -47,7 +47,7 @@ export async function POST(request: Request) {
       }
       case "effectSearch": {
         let result = service.effectSearch(input.text, input.pool, input);
-        if (!outside && !input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
+        if (!outside && !input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && !result.reading?.query.supports?.archetypes.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
           if (await fallbackEffectReading(getDb(), input.text, actor.userId)) result = service.effectSearch(input.text, input.pool, input);
         }
         data = result; break;

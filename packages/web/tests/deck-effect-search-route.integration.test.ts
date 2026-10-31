@@ -86,17 +86,30 @@ it.each([
   ["Monarch synergy", 52112003],
   ["cards that work with Monarch", 52112003],
   ["Monarch synergy before 2020", 52112003],
-  ["synergy with Temple of the Kings and Blue-Eyes", 62265044],
 ] as const)("finds stored-hook partners through the signed Cards-tab route: %s", async (text, code) => {
   const response = await post({ text });
   expect(response.status).toBe(200);
   const result = await response.json();
   expect(result.effectHits.map((card: DeckCardInfo) => card.code)).toContain(code);
   expect(result.effectHits.find((card: DeckCardInfo) => card.code === code).reason).not.toBe("Matches your search");
-  if (text.includes("and Blue-Eyes")) {
-    expect(result.effectHits[0].code).toBe(code);
-    expect(result.effectHits[0].reason).toContain("Temple of the Kings + Blue-Eyes");
-  }
+  expect(state.fallback).not.toHaveBeenCalled();
+});
+it("returns separately labelled archetype lists instead of a generic intersection", async () => {
+  const response = await post({ text: "synergy with Temple of the Kings and Blue-Eyes" });
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result.effectHits).toEqual([]);
+  expect(result.effectTotal).toBe(0);
+  expect(result.effectGroups.map((group: { archetype: string }) => group.archetype)).toEqual(["Temple of the Kings", "Blue-Eyes"]);
+  expect(result.effectGroups[0].cards.map((card: DeckCardInfo) => card.code)).toContain(80101899);
+  expect(result.effectGroups[1].cards.map((card: DeckCardInfo) => card.code)).toContain(62265044);
+  expect(state.fallback).not.toHaveBeenCalled();
+});
+it("preserves explicit pools in both fallback lists", async () => {
+  const response = await post({ text: "synergy with Temple of the Kings and Blue-Eyes", passcodes: [80101899] });
+  const result = await response.json();
+  expect(result.effectGroups[0].cards.map((card: DeckCardInfo) => card.code)).toEqual([80101899]);
+  expect(result.effectGroups[1].cards).toEqual([]);
   expect(state.fallback).not.toHaveBeenCalled();
 });
 it("uses the same Outside row through the signed deck-search and insight entry points", async () => {

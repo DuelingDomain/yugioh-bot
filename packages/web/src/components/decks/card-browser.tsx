@@ -49,7 +49,7 @@ const SCOPE_CHOICES = [
 /** A search result. Server searches say how many other arts the card has; the pool list does not. */
 export type BrowserCard = DeckCardInfo & { altArtCount?: number; reason?: string };
 
-type Results = Pick<CardQueryResult, "effectSearchEnabled" | "reading" | "effectHits" | "effectTotal" | "profile" | "relax"> & {
+type Results = Pick<CardQueryResult, "effectSearchEnabled" | "reading" | "effectHits" | "effectTotal" | "effectGroups" | "profile" | "relax"> & {
   key: string;
   /** A hook's list is cut at the best few; more cards fit than are shown. */
   capped?: boolean;
@@ -370,6 +370,8 @@ export function CardBrowser({
   const total = results?.key === key ? results.total : 0;
   const effectCards = results?.key === key ? results.effectHits ?? [] : [];
   const effectTotal = results?.key === key ? results.effectTotal ?? 0 : 0;
+  const effectGroups = results?.key === key ? results.effectGroups : undefined;
+  const separateCards = effectGroups?.flatMap(group => group.cards) ?? [];
   const hasMore = results != null && results.key === key && !results.error && (cards.length < total || effectCards.length < effectTotal);
 
   function loadMore() {
@@ -467,6 +469,14 @@ export function CardBrowser({
   function heading(position: number) {
     if (partner?.hook) return null;
     if (partner) return position === 0 ? <li className={styles.effectHeading}><h3>Works with {partner.name}</h3><span>{total.toLocaleString("en-US")} {total === 1 ? "card" : "cards"}</span></li> : null;
+    if (effectGroups) {
+      let start = cards.length;
+      for (const group of effectGroups) {
+        if (position === start && group.cards.length) return <li className={styles.effectHeading}><h3>Works with {group.archetype}</h3><span>{group.total} matches</span></li>;
+        start += group.cards.length;
+      }
+      return null;
+    }
     if (position !== cards.length || effectCards.length === 0) return null;
     // "Cards like X" heads its own group; "How to beat X" already heads the page, so its cards are "Answers".
     if (intent?.kind === "similar") return <li className={styles.effectHeading}><IntentHeading intent={intent} testId="intent-group-heading" /><span>{effectTotal.toLocaleString("en-US")} matches</span></li>;
@@ -518,6 +528,7 @@ export function CardBrowser({
       ? partner ? partner.hook ? "Finding cards…" : `Finding cards that work with ${partner.name}…` : pool ? "Loading your pool…" : "Searching…"
       : partner?.hook ? `${total.toLocaleString("en-US")} ${total === 1 ? "card" : "cards"}${results.capped ? ", best matches first" : ""}`
       : partner ? `${total.toLocaleString("en-US")} ${total === 1 ? "card works" : "cards work"} with ${partner.name}`
+      : effectGroups ? "No shared synergy found. Suggestions for each archetype:"
       : `${displayedTotal.toLocaleString("en-US")} ${displayedTotal === 1 ? "card" : "cards"}${pool ? " in your pool" : ""}`;
 
   return (
@@ -679,7 +690,7 @@ export function CardBrowser({
                   <DeckButton className={styles.retry} onClick={() => setRetry((value) => value + 1)}><RotateCw className="ic sm" aria-hidden />Try again</DeckButton>
                 </div>
               </div>
-            ) : results != null && total === 0 && effectTotal === 0 && !stale ? (
+            ) : results != null && total === 0 && effectTotal === 0 && separateCards.length === 0 && !stale ? (
               <div className={styles.none}>
                 {results.relax?.length && !partner ? <RelaxHints relax={results.relax} onRemove={(chip) => onQueryChange({ ...query, effectOmit: [...new Set([...(query.effectOmit ?? []), chip])] })} /> : <p>{partner ? partner.hook ? chips.length > 0 ? "No card here fits these filters." : partner.hook.members ? "No card fits this." : `No card outside ${partner.hook.archetype} fits this.` : `No card that works with ${partner.name} fits these filters.` : "No cards match."}</p>}
                 {chips.length > 0 ? (
@@ -691,7 +702,7 @@ export function CardBrowser({
               </div>
             ) : (
               <ul className={view === "grid" ? styles["de-res"] : styles.rows} data-stale={stale ? "true" : undefined}>
-                {([...cards, ...effectCards] as BrowserCard[]).map((card, position) => {
+                {([...cards, ...effectCards, ...separateCards] as BrowserCard[]).map((card, position) => {
                   const count = deckCount(card);
                   const left = pool?.remaining(card) ?? 0;
                   // A pool card is full when no copy is left; a pool has no banlist marks.
@@ -721,7 +732,7 @@ export function CardBrowser({
                   };
                   if (view === "grid") {
                     return (
-                      <Fragment key={card.code}>
+                      <Fragment key={`${position}:${card.code}`}>
                       {heading(position)}
                       <li className={styles.tileCell}>
                         <button type="button" className={styles["de-t"]} aria-label={label} data-full={card.unavailableReason || (pool && full) ? "true" : undefined} data-un={card.unavailableReason ? "" : undefined} {...handlers}>
@@ -745,7 +756,7 @@ export function CardBrowser({
                   }
                   const stats = cardStatsText(card);
                   return (
-                    <Fragment key={card.code}>
+                    <Fragment key={`${position}:${card.code}`}>
                     {heading(position)}
                     <li className={styles.row}>
                       <button type="button" className={styles.rowMain} aria-label={label} data-full={card.unavailableReason || (pool && full) ? "true" : undefined} {...handlers}>

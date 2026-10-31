@@ -250,6 +250,8 @@ export interface CardQueryResult {
   profile?: ArchetypeGuide;
   effectHits?: Array<DeckCardInfo & { altArtCount: number; score: number; reason: string }>;
   effectTotal?: number;
+  /** Only present when no card qualifies for every requested archetype. */
+  effectGroups?: Array<{ archetype: string; cards: NonNullable<CardQueryResult["effectHits"]>; total: number }>;
   relax?: Array<{ chip: string; count: number }>;
   effectOffset?: number;
 }

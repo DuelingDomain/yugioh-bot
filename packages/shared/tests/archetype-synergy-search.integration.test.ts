@@ -31,16 +31,17 @@ it.each(["Temple of the Kings synergy", "synergy with Temple of the Kings", "car
 it.each(["Monarch synergy", "cards that work with Monarch"])("uses the archetype rather than a fuzzy card anchor: %s", text => {
   const result = service.effectSearch(text);
   expect(result.reading?.query.supports?.archetypes).toEqual(["Monarch"]);
-  expect(result.cards[0]?.passcode).toBe(52112003);
+  expect(result.cards[0]?.passcode).toBe(4929256);
   expect(result.cards.map(card => card.passcode)).toContain(4929256);
 });
 
-it("ranks cards fitting both profiles before the union of single-archetype partners", () => {
+it("shows separate lists when no candidate has a specific hook into both archetypes", () => {
   const result = service.effectSearch("synergy with Temple of the Kings and Blue-Eyes");
-  expect(result.cards[0]?.passcode).toBe(62265044);
-  expect(result.cards[0]?.reason).toContain("Temple of the Kings + Blue-Eyes");
-  expect(result.cards.map(card => card.passcode)).toContain(80101899);
-  expect(new Set(result.cards.map(card => card.passcode)).size).toBe(result.total);
+  expect(result.cards).toEqual([]);
+  expect(result.total).toBe(0);
+  expect(result.groups?.map(group => group.archetype)).toEqual(["Temple of the Kings", "Blue-Eyes"]);
+  expect(result.groups?.[0]?.cards.map(card => card.passcode)).toContain(80101899);
+  expect(result.groups?.[1]?.cards.map(card => card.passcode)).toContain(62265044);
 });
 
 it("preserves explicit pools, card-kind constraints, omitted chips and exact text", () => {
@@ -63,7 +64,7 @@ it("keeps named support when an optional profile is missing or corrupt", () => {
   } finally { db.exec("ROLLBACK TO profile_test; RELEASE profile_test"); }
 });
 
-it("keeps explicit Rank and Link Rating hooks searchable and preserves individual-card Works with", () => {
+it("rejects Rank and Link Rating alone and preserves individual-card Works with", () => {
   db.exec("SAVEPOINT extra_deck_test");
   try {
     const insert = db.prepare(`INSERT INTO card_catalog
@@ -71,9 +72,35 @@ it("keeps explicit Rank and Link Rating hooks searchable and preserves individua
       VALUES(?,?,?,?,?,?,?,'image','small','[]','now')`);
     insert.run(39972129, "Number 64: Ronin Raccoon Sandayu", "Beast / Xyz Monster", "xyz", "2 Level 2 Beast monsters", "EARTH", 2);
     insert.run(65741786, "I:P Masquerena", "Cyberse / Link Effect Monster", "link", "2 non-Link Monsters", "DARK", 2);
-    expect(service.effectSearch("Spright synergy", [39972129]).cards.map(card => card.passcode)).toEqual([39972129]);
-    expect(service.effectSearch("Code Talker synergy", [65741786]).cards.map(card => card.passcode)).toEqual([65741786]);
+    expect(service.effectSearch("Spright synergy", [39972129]).cards).toEqual([]);
+    expect(service.effectSearch("Code Talker synergy", [65741786]).cards).toEqual([]);
     expect(service.worksWith(29762407, [29762407, 80101899]).map(card => card.passcode)).not.toContain(29762407);
     expect(service.readQuery("works with Trap Trick")?.query.supports?.archetypes).toEqual(["Trap Trick"]);
   } finally { db.exec("ROLLBACK TO extra_deck_test; RELEASE extra_deck_test"); }
+});
+
+it("rejects generic Trap removal and type-only partners even in a tiny explicit pool", () => {
+  db.exec("SAVEPOINT generic_test");
+  try {
+    const insert = db.prepare(`INSERT INTO card_catalog
+      (ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,image_url,image_url_small,card_sets_json,cached_at)
+      VALUES(?,?,?,?,?,?,?,'image','small','[]','now')`);
+    insert.run(49868263, "Ryu Senshi", "Warrior / Fusion Monster", "fusion", "Negate the activation of a Normal Trap Card, and destroy it.", "EARTH", 6);
+    insert.run(10515412, "Lightstorm Dragon", "Dragon / Synchro Effect Monster", "synchro", "Destroy 1 Spell/Trap on the field.", "LIGHT", 9);
+    expect(service.effectSearch("Temple of the Kings synergy", [49868263, 10515412]).cards).toEqual([]);
+    expect(service.effectSearch("Blue-Eyes synergy", [10515412]).cards).toEqual([]);
+  } finally { db.exec("ROLLBACK TO generic_test; RELEASE generic_test"); }
+});
+
+it("caps high-quality results at 40 before pagination", () => {
+  db.exec("SAVEPOINT cap_test");
+  try {
+    const insert = db.prepare(`INSERT INTO card_catalog
+      (ygoprodeck_id,name,type,frame_type,effect_text,archetype,image_url,image_url_small,card_sets_json,cached_at)
+      VALUES(?,?,'Effect Monster','effect','Tribute Summon this card.','Monarch','image','small','[]','now')`);
+    for (let n = 0; n < 50; n++) insert.run(900000000 + n, `Monarch fixture ${n}`);
+    const result = service.effectSearch("Monarch synergy", undefined, { limit: 120 });
+    expect(result.total).toBe(40);
+    expect(result.cards).toHaveLength(40);
+  } finally { db.exec("ROLLBACK TO cap_test; RELEASE cap_test"); }
 });

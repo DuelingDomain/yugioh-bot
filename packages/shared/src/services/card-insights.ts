@@ -17,6 +17,7 @@ import { cachedEffectReading, effectArchetypes } from "../cards/effects/reading-
 import { intentReading, searchIntentTarget, synergyTarget, archetypeSupportMatcher, cardSimilarity, counterProfileFromHooks, counterLink } from "../cards/effects/search-intents.js";
 import { effectMatchReason, softTextScore, shortReason } from "../cards/effects/search-reasons.js";
 import { ArchetypeProfile } from "../cards/effects/synergy.js";
+import { SYNERGY_SEARCH_LIMIT } from "../cards/effects/synergy-search-hooks.js";
 import { createInsightCatalog, type InsightCatalog } from "./card-insight-catalog.js";
 import { readArchetypeGuide, readArchetypeHook, readInsightProfiles, readNamedInsightProfiles } from "./card-insight-profiles.js";
 import { suggestDeckRows, type DeckSuggestionOptions, type DeckSuggestionLegality } from "./deck-suggestions.js";
@@ -57,6 +58,8 @@ export interface CardEffectSearchResult {
   guide?: ArchetypeGuide;
   cards: RankedInsightCard[];
   total: number;
+  /** Separate suggestions, never an intersection, when no card fits every target. */
+  groups?: Array<{ archetype: string; cards: RankedInsightCard[]; total: number }>;
   relax?: Array<{ chip: string; count: number }>;
 }
 export interface CardPoolHealth {
@@ -190,7 +193,7 @@ export function createCardInsightService(db: Database.Database, options: {
     });
   });
 
-  const searchEffects = (text: string, pool: readonly number[] | undefined, opts: CardInsightOptions): CardEffectSearchResult => {
+  const searchEffects = (text: string, pool: readonly number[] | undefined, opts: CardInsightOptions, suppliedReading?: Interpretation): CardEffectSearchResult => {
       const currentMonth = new Date().toISOString().slice(0, 7);
       if (opts.exact) return withCatalog(catalog => {
         const literal = text.trim().toLowerCase(), ranked: Retained[] = [];
@@ -204,7 +207,7 @@ export function createCardInsightService(db: Database.Database, options: {
         }
         return { reading: null, cards: withoutPopularity(ranked), total };
       });
-      const initial = readQuery(text);
+      const initial = suppliedReading ?? readQuery(text);
       const reading = initial?.query.intent?.kind === "outside" ? initial : initial ? omitReadingChips(initial, opts.omittedChips) : null;
       if (!reading || pool?.length === 0) return { reading, cards: [], total: 0, relax: [] };
       const target = cachedEffectReading(db, text) ? undefined : synergyTarget(text);
@@ -236,8 +239,7 @@ export function createCardInsightService(db: Database.Database, options: {
         }
         const ranked: Retained[] = [];
         const supportProfiles = readNamedInsightProfiles(db, reading.query.supports?.archetypes ?? []);
-        const supportPopulation = { candidates: () => catalog.suggestionCandidates(), total: (db.prepare("SELECT count(*) AS n FROM card_tags").get() as { n: number }).n };
-        const supportMatch = archetypeSupportMatcher(reading.query, supportProfiles, supportPopulation);
+        const supportMatch = archetypeSupportMatcher(reading.query, supportProfiles);
         const supportMatchers = new WeakMap<import("../cards/effects/query.js").EffectQuery, ReturnType<typeof archetypeSupportMatcher>>();
         supportMatchers.set(reading.query, supportMatch);
         const usesUsage = reading.query.intent?.kind === "staples" || reading.query.intent?.kind === "archetype_role";
@@ -252,7 +254,7 @@ export function createCardInsightService(db: Database.Database, options: {
           if ((effective.sort === "newest" || query.released || opts.released) && candidate.card.dateSearchEligible === false) return null;
           if (query.formatFilter && !opts.formatAdmission?.(candidate.card)) return null;
           if (query.supports?.archetypes.length && !query.intent) {
-            if (!supportMatchers.has(query)) supportMatchers.set(query, archetypeSupportMatcher(query, supportProfiles, supportPopulation));
+            if (!supportMatchers.has(query)) supportMatchers.set(query, archetypeSupportMatcher(query, supportProfiles));
             const support = supportMatchers.get(query)?.(candidate);
             return support ? support.score + softTextScore(candidate.card, query.text) : null;
           }
@@ -276,7 +278,16 @@ export function createCardInsightService(db: Database.Database, options: {
           retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + (roleIntent ? 0 : cardEraBoost(candidate.card, opts.era)), linkedCards: 0, reason: supportMatch ? supportMatch(candidate)!.reason : roleIntent ? rankArchetypeRole(candidate.card,candidate.tags,roleIntent.archetype,roleIntent.role,archetypeMember(candidate.card,roleIntent.archetype),staples!)!.reason : reading.query.intent?.kind === "staples" && staples!.cards.size ? stapleReason(staples!.cards.get(candidate.card.id)!, staples!.label) : counter && archetype ? counterLink(counter, archetype, candidate)!.reason
             : similar ? shortReason(`Similar ${candidate.tags?.roles.find(role => similar.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${similar.card.name}`)
             : effectMatchReason(candidate.card, candidate.tags, reading.query, candidate.tags?.summary),
-            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, limitOf(opts.limit), currentMonth, effective);
+            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, supportMatch ? Math.min(SYNERGY_SEARCH_LIMIT, limitOf(opts.limit)) : limitOf(opts.limit), currentMonth, effective);
+        }
+        if (supportMatch) total = Math.min(SYNERGY_SEARCH_LIMIT, total);
+        if (supportMatch && !total && reading.query.supports!.archetypes.length > 1) {
+          const groups = reading.query.supports!.archetypes.map(archetype => {
+            const query = { ...reading.query, supports: { ...reading.query.supports!, archetypes: [archetype] } };
+            const result = searchEffects(text, pool, { ...opts, omittedChips: [] }, { query, chips: describe(query) });
+            return { archetype, cards: result.cards, total: result.total };
+          });
+          return { reading, cards: [], total: 0, groups };
         }
         const relax: Array<{ chip: string; count: number }> = [];
         if (!total) {

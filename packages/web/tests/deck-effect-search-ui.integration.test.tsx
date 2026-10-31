@@ -67,9 +67,11 @@ describe.skipIf(!directory || !existsSync(`${directory}/cards.cdb`))("Name + tex
     }
   });
   it.each([
-    ["Temple of the Kings synergy", "Ryu Senshi"],
-    ["Monarch synergy", "Lair of Darkness"],
-    ["synergy with Temple of the Kings and Blue-Eyes", "Lightstorm Dragon"],
+    ["Temple of the Kings synergy", "Trap Holic"],
+    ["Monarch synergy", "The Monarchs Stormforth"],
+    ["synergy with Temple of the Kings and Blue-Eyes", "Blue-Eyes Tyrant Dragon"],
+    ["Labrynth synergy", "Welcome Labrynth"],
+    ["Blue-Eyes synergy", "Sage with Eyes of Blue"],
   ])("shows outside synergy partners and retains the bridges offer: %s", async (text, name) => {
     const names = vi.spyOn(bridgesApi, "fetchBridgeArchetypes").mockResolvedValue(["Temple of the Kings", "Blue-Eyes", "Monarch"]);
     const onTab = vi.fn();
@@ -81,13 +83,37 @@ describe.skipIf(!directory || !existsSync(`${directory}/cards.cdb`))("Name + tex
         columns={{ tabs: ["cards", "bridges"], tab: "cards", onTab, bar: false, tabIdPrefix: "synergy-test", bridgesDot: false,
           onDeepFinished: vi.fn(), onSuggestDisabled: vi.fn(), onBridgesDisabled: vi.fn() }} />);
       await waitFor(() => expect(screen.getByRole("button", { name: label => label === name || label.startsWith(`${name},`) })).toBeVisible(), { timeout: 5000 });
-      expect(last.effectTotal).toBeGreaterThan(0);
       if (text.includes("and Blue-Eyes")) {
+        expect(last.effectTotal).toBe(1);
+        expect(last.effectHits?.[0]?.reason).toContain("Temple of the Kings + Blue-Eyes");
+        expect(screen.queryByRole("button", { name: "Lightstorm Dragon" })).not.toBeInTheDocument();
         const offer = screen.getByRole("button", { name: "See bridges for Temple of the Kings + Blue-Eyes" });
         expect(offer).toBeVisible();
         fireEvent.click(offer);
         expect(onTab).toHaveBeenCalledWith("bridges");
-      }
+      } else expect(last.effectTotal).toBeGreaterThan(0);
     } finally { names.mockRestore(); }
   });
+  it("shows two distinct lists and the bridge offer when the pool has no shared synergy", async () => {
+    const names = vi.spyOn(bridgesApi, "fetchBridgeArchetypes").mockResolvedValue(["Temple of the Kings", "Blue-Eyes"]);
+    const onTab = vi.fn();
+    try {
+      render(<CardBrowser query={{ ...emptyCardQuery(), text: "synergy with Temple of the Kings and Blue-Eyes", passcodes: [80101899, 8240199] }}
+        onQueryChange={vi.fn()} archetypes={[]} limits={null} view="list" onViewChange={vi.fn()} deckCount={() => 0}
+        inspectCode={null} onInspect={vi.fn()} onHover={vi.fn()} onAdd={vi.fn()} onCatalog={vi.fn()} onRemoveDrop={vi.fn()}
+        searchRef={createRef<HTMLInputElement>()} suggest={{ deck: { main: [], extra: [], side: [] } }}
+        columns={{ tabs: ["cards", "bridges"], tab: "cards", onTab, bar: false, tabIdPrefix: "synergy-fallback", bridgesDot: false,
+          onDeepFinished: vi.fn(), onSuggestDisabled: vi.fn(), onBridgesDisabled: vi.fn() }} />);
+      await waitFor(() => expect(screen.getByRole("heading", { name: "Works with Temple of the Kings" })).toBeVisible(), { timeout: 5000 });
+      expect(last.effectHits).toEqual([]);
+      expect(last.effectTotal).toBe(0);
+      expect(screen.getByRole("heading", { name: "Works with Blue-Eyes" })).toBeVisible();
+      expect(screen.getByText("No shared synergy found. Suggestions for each archetype:")).toBeVisible();
+      expect(screen.getByRole("button", { name: /^Trap Trick(?:,|$)/ })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Sage with Eyes of Blue" })).toBeVisible();
+      fireEvent.click(screen.getByRole("button", { name: "See bridges for Temple of the Kings + Blue-Eyes" }));
+      expect(onTab).toHaveBeenCalledWith("bridges");
+    } finally { names.mockRestore(); }
+  });
+
 });

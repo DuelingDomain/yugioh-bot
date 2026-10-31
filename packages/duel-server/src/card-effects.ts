@@ -75,20 +75,13 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
   const canonical = (code: number) => cards.get(code)?.canonicalPasscode ?? code;
   const summary = db.prepare<[number], { summary: string; tags_json: string }>("SELECT summary,tags_json FROM card_tags WHERE passcode=?");
   const profileRow = db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE");
-  function* supportCandidates() {
-    for (const card of cards.all()) {
-      const raw = cards.deckCard(card.code);
-      if (!raw || (raw.canonicalPasscode && raw.canonicalPasscode !== raw.code)) continue;
-      yield { card: engineInsightCard(raw), tags: facets.get(canonical(card.code)) };
-    }
-  }
   const defaultUsage = formatStaples();
   const contexts = new WeakMap<Interpretation, { support?: ReturnType<typeof archetypeSupportMatcher>; role?: { members: Set<number> }; anchor?: { card: Card; tags?: import("@yugidraft/shared/cards/effects").MatchTags }; counter?: import("@yugidraft/shared/cards/effects").CounterProfile }>();
   const context = (reading: Interpretation) => {
     let result = contexts.get(reading);
     if (result) return result;
     result = {};
-    result.support = archetypeSupportMatcher(reading.query, readNamedInsightProfiles(db, reading.query.supports?.archetypes ?? []), { candidates: supportCandidates, total: facets.size });
+    result.support = archetypeSupportMatcher(reading.query, readNamedInsightProfiles(db, reading.query.supports?.archetypes ?? []));
     const intent = reading.query.intent;
     if (intent?.kind === "archetype_role") {
       const codes=[...cards.setnames()].filter(([,name])=>compactEffectName(name)===compactEffectName(intent.archetype)).map(([code])=>code);

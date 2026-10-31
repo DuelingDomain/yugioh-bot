@@ -18,5 +18,6 @@ export async function loadFormatEffectSearch(input: Extract<CardInsightRequest,{
     cards.push(...(data.effectHits??[]).map(card=>({passcode:card.canonicalPasscode??card.code,name:card.name,score:card.score,reason:card.reason,linkedCards:0,release:card.release})));
     if(cards.length>=(data.effectTotal??0)||!data.effectHits?.length)break;
   }
-  return {ok:true,result:{reading:first?.reading??null,cards,total:first?.effectTotal??0,...(first?.profile?{guide:first.profile}:{})}};
+  const groups=first?.effectGroups?.map(group=>({...group,cards:group.cards.slice(0,limit).map(card=>({passcode:card.canonicalPasscode??card.code,name:card.name,score:card.score,reason:card.reason,linkedCards:0,release:card.release}))}));
+  return {ok:true,result:{reading:first?.reading??null,cards,total:first?.effectTotal??0,...(groups?{groups}:{}),...(first?.profile?{guide:first.profile}:{})}};
 }

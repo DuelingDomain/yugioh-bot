@@ -1,5 +1,7 @@
 # Archetype synergy search investigation — 2026-10-31
 
+> The coordinator rejected the broad matcher below. Its results and conclusions are superseded by [the quality correction](archetype-synergy-search-quality.md).
+
 Cause: the imported SQL/duel-host search paths used `matchCard(... query.supports)` to require explicit archetype support tags (or the archetype name in the candidate name). They never consulted the stored outside-card profile hooks. With two archetypes, `matchSupports` required both names, so the result was empty. The SQL prefix shortcut could additionally resolve `Monarch` to the fuzzy card anchor `The First Monarch`.
 
 All three live archetype profiles exist and parse, each with six hooks. No generation was necessary. Paid LLM spend: **$0**.
