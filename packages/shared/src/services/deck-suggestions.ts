@@ -71,7 +71,7 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
   const revision = (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
   const pointsRevision = (db.prepare("SELECT revision FROM genesys_points_meta WHERE id=1").get() as { revision: string } | undefined)?.revision;
   const usage = formatStaples(opts.format, opts.banlist, db, opts.guildId);
-  const version = `suggestions-4:${usage.version}:${revision}:${pointsRevision ?? ""}:${opts.legality?.version ?? "no-admission"}`;
+  const version = `suggestions-5:${usage.version}:${revision}:${pointsRevision ?? ""}:${opts.legality?.version ?? "no-admission"}`;
   let cache: Map<string, string> | undefined, key: string | undefined;
   if (opts.cache !== false) {
     key = hash({ main: sorted(deck.main, canonical), extra: sorted(deck.extra, canonical), side: sorted(deck.side, canonical), master: master && canonical(master),
@@ -145,17 +145,17 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
       if (summon) retain(queue, item(fit.score, summon, fit.linkedCards), capacity);
       continue;
     }
-    const played = usage.cards.get(id);
-    if (played) {
-      if (viableSuggestionStaple(candidate, extraCards, main)) retain(ranked[3]!, item(played.playShare, suggestionStapleReason(candidate, played, usage.label)), 18);
-      continue;
-    }
     const archetype = rankArchetype(candidate);
     if (archetype.rank) {
       const fit = archetype.rank;
       retain(ranked[0]!, item(fit.score, fit.reason, fit.linkedCards)); continue;
     }
     if (archetype.claimed) continue;
+    const played = usage.cards.get(id);
+    if (played) {
+      if (viableSuggestionStaple(candidate, extraCards, main)) retain(ranked[3]!, item(played.playShare, suggestionStapleReason(candidate, played, usage.label)), 18);
+      continue;
+    }
     const staple = tags?.roles.find(role => role === "hand_trap" || role === "board_breaker" || role === "negation");
     if (!usage.cards.size && staple) {
       if (viableSuggestionStaple(candidate, extraCards, main)) retain(ranked[3]!, item(1, suggestionStapleReason(candidate, undefined, usage.label)), 18);
@@ -166,7 +166,8 @@ export function suggestDeckRows(db: Database.Database, catalog: InsightCatalog, 
     const supported = item(support.score, support.reason, support.linkedCards);
     supported.role = support.role; supported.playShare = support.playShare;
     // Restriction shapes, rather than catalog size, bound retained candidates.
-    if (queues.size >= 256 && support.selectivity) continue;
+    const knownKey = support.selectivity ? JSON.stringify(support.selectivity) : "proved";
+    if (queues.size >= 256 && support.selectivity && !queues.has(knownKey)) continue;
     const key = selectivity.key(support.selectivity);
     const queue = queues.get(key) ?? [];
     retain(queue, supported); queues.set(key, queue);

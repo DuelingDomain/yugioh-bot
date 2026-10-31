@@ -31,7 +31,7 @@ beforeAll(() => {
     {code:14558127,name:"Ash Blossom & Joyous Spring",type:0x21},
     {code:97268402,name:"Effect Veiler",type:0x21},
     {code:89631139,name:"Blue-Eyes White Dragon",type:0x11},
-    {code:87025064,name:"Silver's Cry",type:0x10002},
+    {code:79816536,name:"Summoner's Art",type:0x2},
   ]);
   const engine = new Database(join(directory,"cards.cdb"));
   engine.prepare("UPDATE datas SET race=?,attribute=?,level=? WHERE id=?").run(0x2,0x10,1,97268402);
@@ -39,8 +39,8 @@ beforeAll(() => {
   engine.close();
   const insert = state.db.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,archetype,image_url,image_url_small,card_sets_json,cached_at) VALUES(?,?,?,?,?,?,?,?,'fixture','fixture','[]','now')`);
   insert.run(89631139, "Blue-Eyes White Dragon", "Dragon / Normal Monster", "normal", "A powerful dragon.", "LIGHT", 8, "Blue-Eyes");
-  insert.run(87025064, "Silver's Cry", "Quick-Play Spell Card", "spell", "Target 1 Dragon Normal Monster in your GY; Special Summon that target.", null, null, null);
-  // Unrelated cached catalog records give the real 5% broad-hook guard a useful denominator.
+  insert.run(79816536, "Summoner's Art", "Spell Card", "spell", "Add 1 Level 5 or higher Normal Monster from your Deck to your hand.", null, null, null);
+  // Unrelated cached records supply distinct exclusion keys for cache eviction checks.
   for (let n = 0; n < 100; n++) insert.run(500000000 + n, `Unrelated catalog card ${n}`, "Spell Card", "spell", "", null, null, null);
   host=createDuelHost({db:state.db,dataDirectory:directory,secret:"web-effect-secret",searchCards:()=>[],pollIntervalMs:60_000});
 });
@@ -80,23 +80,23 @@ it("uses the same Outside row through the signed deck-search and insight entry p
   expect(search.status).toBe(200);
   const found = await search.json();
   expect(found.reading.query.intent).toEqual({ kind: "outside", archetype: "Blue-Eyes" });
-  expect(found.effectHits.map((card: DeckCardInfo) => card.code)).toEqual([87025064]);
+  expect(found.effectHits.map((card: DeckCardInfo) => card.code)).toEqual([79816536]);
   const { POST } = await import("../app/api/cards/insights/route");
   const response = await POST(new Request("http://web/api/cards/insights", { method: "POST", body: JSON.stringify({ op: "suggestRows", deck }) }));
   expect(response.status).toBe(200);
   const suggestions = await response.json();
-  expect(suggestions.rows[1].cards.map((card: { passcode: number }) => card.passcode)).toEqual([87025064]);
+  expect(suggestions.rows[1].cards.map((card: { passcode: number }) => card.passcode)).toEqual([79816536]);
   const insights = await POST(new Request("http://web/api/cards/insights", { method: "POST", body: JSON.stringify({ op: "effectSearch", text: "outside Blue-Eyes", deck }) }));
   expect(insights.status).toBe(200);
-  expect((await insights.json()).cards.map((card: { passcode: number }) => card.passcode)).toEqual([87025064]);
+  expect((await insights.json()).cards.map((card: { passcode: number }) => card.passcode)).toEqual([79816536]);
   const { POST: resolve } = await import("../app/api/cards/resolve/route");
   const resolved = await resolve(new Request("http://web/api/cards/resolve", { method: "POST", body: JSON.stringify({ op: "effectSearch", text: "outside Blue-Eyes", deck }) }));
   expect(resolved.status).toBe(200);
-  expect((await resolved.json()).cards.map((card: { id: number }) => card.id)).toEqual([87025064]);
+  expect((await resolved.json()).cards.map((card: { id: number }) => card.id)).toEqual([79816536]);
   expect(state.suggestionRequests).toHaveLength(4);
   expect(state.suggestionRequests[3].suggestionVersion).toMatch(/^[a-f0-9]{64}$/);
   expect(state.suggestionResponses[3]).toMatchObject({ notModified: true });
-  const excluded = await post({ text: "outside Blue-Eyes", deck, exclude: [87025064] });
+  const excluded = await post({ text: "outside Blue-Eyes", deck, exclude: [79816536] });
   expect(excluded.status).toBe(200);
   expect((await excluded.json()).effectHits).toEqual([]);
   expect(state.fallback).not.toHaveBeenCalled();
@@ -114,32 +114,32 @@ it("checks every cached result with the real host and isolates mutations, actors
   first.result.rows[1].cards[0].name = "caller mutation";
   const repeated = await loadDeckSuggestions({ ...input, query: { ...input.query, deck: { ...input.query.deck, side: [...input.query.deck.side].reverse() } } });
   expect(repeated.ok).toBe(true);
-  if (repeated.ok) expect(repeated.result.rows[1].cards[0].name).toBe("Silver's Cry");
+  if (repeated.ok) expect(repeated.result.rows[1].cards[0].name).toBe("Summoner's Art");
   expect(state.suggestionRequests.at(-1)?.suggestionVersion).toMatch(/^[a-f0-9]{64}$/);
   expect(state.suggestionResponses.at(-1)).toMatchObject({ notModified: true });
   expect((await loadDeckSuggestions({ ...input, userId: 124 })).ok).toBe(true);
   expect(state.suggestionRequests.at(-1)?.userId).toBe(124);
   expect(state.suggestionRequests.at(-1)?.suggestionVersion).toBeUndefined();
-  state.db!.prepare("UPDATE card_catalog SET name='Updated Silver Cry' WHERE ygoprodeck_id=87025064").run();
+  state.db!.prepare("UPDATE card_catalog SET name='Updated Summoner Art' WHERE ygoprodeck_id=79816536").run();
   try {
     const updated = await loadDeckSuggestions(input);
     expect(updated.ok).toBe(true);
-    if (updated.ok) expect(updated.result.rows[1].cards[0].name).toBe("Updated Silver Cry");
+    if (updated.ok) expect(updated.result.rows[1].cards[0].name).toBe("Updated Summoner Art");
     expect(state.suggestionResponses.at(-1)).not.toHaveProperty("notModified");
-  } finally { state.db!.prepare("UPDATE card_catalog SET name='Silver''s Cry' WHERE ygoprodeck_id=87025064").run(); }
+  } finally { state.db!.prepare("UPDATE card_catalog SET name='Summoner''s Art' WHERE ygoprodeck_id=79816536").run(); }
 });
 
 it("accepts the shared prerelease metadata through the signed host result validator", async () => {
   const engine = new Database(join(directory, "cards.cdb"));
-  const original = engine.prepare("SELECT ot FROM datas WHERE id=87025064").get() as { ot: number };
+  const original = engine.prepare("SELECT ot FROM datas WHERE id=79816536").get() as { ot: number };
   try {
-    engine.prepare("UPDATE datas SET ot=ot|256 WHERE id=87025064").run();
+    engine.prepare("UPDATE datas SET ot=ot|256 WHERE id=79816536").run();
     const { loadDeckSuggestions } = await import("../src/lib/deck-suggestions");
     const result = await loadDeckSuggestions({ guildId: "configured-community", userId: 123,
       query: { op: "suggestRows", format: "normal", deck: { main: [89631139,89631139,89631139], extra: [], side: [] }, exclude: [500000098] } });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.result.rows[1].cards[0].release).toMatchObject({ prerelease: true });
-  } finally { engine.prepare("UPDATE datas SET ot=? WHERE id=87025064").run(original.ot); engine.close(); }
+  } finally { engine.prepare("UPDATE datas SET ot=? WHERE id=79816536").run(original.ot); engine.close(); }
 });
 
 // This serial eviction proof crosses the signed host and scanner worker for 65 uncached requests.
@@ -167,7 +167,7 @@ it("fails closed on host outages and malformed conditional/result responses even
   expect(outage.ok).toBe(false);
   if (!outage.ok) expect(outage.response.status).toBe(503);
   for (const body of [{ contextVersion: "0".repeat(64), notModified: true }, { contextVersion: "0".repeat(64), result: { rows: [], version: "invalid" } },
-    { contextVersion: "0".repeat(64), result: {}, allowed: [87025064] }]) {
+    { contextVersion: "0".repeat(64), result: {}, allowed: [79816536] }]) {
     vi.stubGlobal("fetch", async () => Response.json(body));
     const malformed = await loadDeckSuggestions(input);
     expect(malformed.ok).toBe(false);

@@ -40,8 +40,11 @@ export const reachesSupport = (filter: CardFilter, c: Candidate, context: Suppor
     .some(member => member?.toLowerCase() === name.toLowerCase()))) return false;
   return supportFilterReaches(filter.archetypes.length ? { ...filter, archetypes: [] } : filter, c.card, context);
 };
-const dimensionality = (filter: CardFilter) => [filter.subtypes.length, filter.types.length, filter.attributes.length,
-  filter.level_min || filter.level_max, filter.other].filter(Boolean).length;
+// Effect is the default for most monsters. Normal OR Effect is no restriction
+// either; positional prose must not manufacture another evaluated dimension.
+const dimensionality = (filter: CardFilter) => [filter.subtypes.some(type => type !== "effect"
+  && !(type === "normal" && filter.subtypes.includes("effect"))), filter.types.length, filter.attributes.length,
+  filter.level_min || filter.level_max, /ATK|DEF|non[- ]Tuner/i.test(filter.other)].filter(Boolean).length;
 const named = (filter: CardFilter) => !!(filter.names.length || filter.archetypes.length);
 
 /** Unknown conditions and costs fail closed. State requirements remain visible. */
@@ -90,18 +93,26 @@ function narrowProofs(candidate: Candidate, context: SupportContext): UtilityPro
       if (action.note && !/^option \d$/i.test(action.note)) continue;
       if (/Fusion Material|listed on.*Fusion/i.test(action.what.other)) continue;
       if (action.from.includes("extra_deck") || !action.from.some(zone => ["deck", "hand", "gy"].includes(zone))) continue;
+      // A static deck list establishes no GY setup for generic recovery.
+      if (action.from.every(zone => zone === "gy") && !named(action.what)) continue;
       if (!named(action.what) && dimensionality(action.what) < 2) continue;
       let targets = distinctCandidates(context.main.filter(c => reachesSupport(action.what, c, context) && usefulTarget(c, context)));
       if (action.verb === "special_summon") targets = targets.filter(c => c.card.kind === "monster"
         && !c.card.subtypes.includes("ritual") && !/Must (?:first )?be|Cannot be Special Summoned/i.test(c.card.text));
       if (!targets.length) continue;
+      const handOnly = action.verb === "special_summon" && action.from.every(zone => zone === "hand");
+      // Two-card hand extenders need a real density of usable partners. A lone
+      // matching brick is not a starter, even with a sufficiently narrow filter.
+      if (handOnly && context.main.filter(c => targets.some(target => target.card.id === c.card.id)).length
+        < Math.max(4, context.main.length * 0.1)) continue;
       // A paid generic tutor needs enough live targets to justify its extra card.
       if (effect.costs.some(c => c.verb === "discard") && !named(action.what)
         && context.main.filter(c => reachesSupport(action.what, c, context)).length < 3) continue;
       targets.sort((a, b) => (context.importance.get(b.card.id) ?? 0) - (context.importance.get(a.card.id) ?? 0) || a.card.id - b.card.id);
       const target = targets[0]!;
       const fromDeck = action.from.includes("deck"), fromGY = action.from.includes("gy") && !fromDeck;
-      const requirements = [...practical.requirements, ...(fromGY ? [action.from.includes("hand") ? "from hand/GY" : "requires it in GY"] : [])];
+      const requirements = [...practical.requirements, ...(handOnly ? ["from hand"] : []),
+        ...(fromGY ? [action.from.includes("hand") ? "from hand/GY" : "requires it in GY"] : [])];
       const verb = action.verb === "add_to_hand" ? (fromDeck ? "Searches" : "Recovers") : "Summons";
       // Put prerequisites first so shortening cannot hide an activation cost.
       const prefix = requirements.length ? `${requirements.join("; ")}: ` : "";
@@ -142,7 +153,7 @@ export function utilitySelectivity() {
   // A frequency table of stat shapes avoids decoding the catalog's effect JSON
   // twice. No card text, tags, identities, or route graph is retained here.
   const shapes = new Map<string, { card: Card; copies: number }>();
-  let legalCards = 0;
+  const legalKinds = new Map<Card["kind"], number>();
   return {
     key(filter?: CardFilter) {
       if (!filter) return "proved";
@@ -151,7 +162,7 @@ export function utilitySelectivity() {
       return key;
     },
     observe(candidate: Candidate) {
-      legalCards++;
+      legalKinds.set(candidate.card.kind, (legalKinds.get(candidate.card.kind) ?? 0) + 1);
       const { kind, subtypes, monsterType, attribute, level, atk, def } = candidate.card;
       const key = JSON.stringify([kind, subtypes, monsterType, attribute, level, atk, def]);
       const old = shapes.get(key);
@@ -163,6 +174,16 @@ export function utilitySelectivity() {
       if (key === "proved") return true;
       const summary = filters.get(key)!;
       summary.count ??= [...shapes.values()].reduce((count, shape) => count + (reachesSupport(summary.filter, { card: shape.card }, context) ? shape.copies : 0), 0);
+      const filter = summary.filter;
+      // Kind can be implicit in the vocabulary (e.g. Dragon or Level). Use the
+      // same eligible kinds for the denominator, including multi-kind filters.
+      const kinds: readonly Card["kind"][] = filter.kinds.length ? filter.kinds
+        : filter.types.length || filter.attributes.length || filter.level_min || filter.level_max
+          || /ATK|DEF|non[- ]Tuner/i.test(filter.other)
+          || filter.subtypes.some(type => ["effect", "tuner", "ritual", "fusion", "synchro", "xyz", "link", "pendulum", "flip", "gemini", "union", "spirit", "toon", "token"].includes(type)) ? ["monster"]
+        : filter.subtypes.some(type => ["field", "equip", "quick_play"].includes(type)) ? ["spell"]
+        : filter.subtypes.includes("counter") ? ["trap"] : ["monster", "spell", "trap"];
+      const legalCards = kinds.reduce((sum, kind) => sum + (legalKinds.get(kind) ?? 0), 0);
       // Two evaluated dimensions are already required. Small integration catalogs
       // retain the same concrete proof without pretending their share is measured.
       return summary.count <= Math.max(3, legalCards * 0.06);

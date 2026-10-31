@@ -551,7 +551,8 @@ describe.skipIf(!suggestionEngineDirectory || !existsSync(`${suggestionEngineDir
       const staples = result.rows.find(row => row.id === "staples")!;
       expect(staples.cards.length).toBeGreaterThan(0);
       expect(staples.cards.every(card => card.reason.match(/^Format staple: .+ · \d+% of sampled (TCG|Domain) decks$/))).toBe(true);
-      if (fixture.id === "branded" && scenario.id === "trimmed") expect(staples.cards.map(card => card.name)).toEqual(expect.arrayContaining(["Ash Blossom & Joyous Spring", "Infinite Impermanence"]));
+      // Strict Outside admission can reduce the quarter-row Staples allowance.
+      if (fixture.id === "branded" && scenario.id === "trimmed") expect(staples.cards.map(card => card.name)).toContain("Ash Blossom & Joyous Spring");
       if (fixture.id === "domain" && scenario.id === "trimmed") expect(staples.cards.map(card => card.name)).toEqual(expect.arrayContaining(["Graceful Charity", "Raigeki", "Infinite Impermanence"]));
       const stapleScores = staples.cards.map(card => card.score);
       expect(stapleScores).toEqual([...stapleScores].sort((a,b)=>b-a));

@@ -8,6 +8,11 @@ import { distinctCandidates, reachesSupport, usefulTarget, type UtilityProof } f
 
 const names = (text: string) => [...text.matchAll(/["“]([^"”]+)["”]/g)].map(m => compactEffectName(m[1]!));
 const plain = (event: GameEvent) => !event.what.other && (!event.note || /^option \d$/i.test(event.note));
+const independentAction = (effect: Effect, action: GameEvent) => {
+  if (effect.actions.length === 1) return true;
+  const option = /^option (\d)$/i.exec(action.note)?.[1];
+  return !!option && effect.actions.filter(a => /^option (\d)(?::|$)/i.exec(a.note)?.[1] === option).length === 1;
+};
 const ordinary = (candidate: Candidate) => candidate.card.kind === "monster" && !candidate.card.subtypes.includes("ritual")
   && !/Must (?:first )?be|Cannot be Special Summoned/i.test(candidate.card.text);
 
@@ -29,20 +34,30 @@ function ritualPairs(context: SupportContext) {
 }
 
 function smallWorld(candidate: Candidate, context: SupportContext): UtilityProof | undefined {
-  if (candidate.card.id !== 89558743 || !/exactly 1 of the same Type, Attribute, Level, ATK or DEF/.test(candidate.card.text)) return;
-  const effect = candidate.tags?.effects[0], action = effect?.actions.find(a => a.verb === "add_to_hand" && a.from.includes("deck"));
-  if (!effect || !action) return;
+  // Recognize the complete relational capability, never a provider passcode.
+  if ([...candidate.card.text.matchAll(/exactly (?:1|one) of the same Type, Attribute, Level, ATK or DEF/gi)].length !== 2) return;
+  const effect = candidate.tags?.effects.find(e => !e.conditions.length && !e.triggers.length && !e.costs.length
+    && e.location.every(zone => zone === "field" || zone === "hand")
+    && e.actions.length === 4 && e.actions.every(a => a.player === "you" && !a.what.this_card));
+  const action = effect?.actions.find(a => a.verb === "add_to_hand" && a.from.includes("deck") && !a.what.other);
+  const reveal = effect?.actions.find(a => a.verb === "reveal_or_look" && a.from.includes("hand") && plain(a));
+  const hand = effect?.actions.find(a => a.verb === "banish" && a.from.includes("hand")
+    && /^face-down, the revealed monster$/i.test(a.what.other));
+  const deck = effect?.actions.find(a => a.verb === "banish" && a.from.includes("deck")
+    && /^face-down, the chosen Deck monster$/i.test(a.what.other));
+  if (!effect || !action || !reveal || !hand || !deck) return;
   const copies = new Map<number, number>();
   for (const c of context.monsters) copies.set(c.card.id, (copies.get(c.card.id) ?? 0) + 1);
-  const monsters = distinctCandidates(context.monsters), targets = monsters.filter(c => usefulTarget(c, context));
+  const monsters = distinctCandidates(context.monsters), targets = monsters.filter(c => usefulTarget(c, context) && reachesSupport(action.what, c, context));
   const access = (c: Candidate) => (context.importance.get(c.card.id) ?? 0)
     + (ordinary(c) && c.tags?.roles.some(r => r === "searcher" || r === "draw_power") ? 3 : 0);
   targets.sort((a, b) => access(b) - access(a) || a.card.id - b.card.id);
   // At most 60 submitted copies, never a catalog-wide middle-card search.
   for (const target of targets) for (const middle of monsters) {
-    if (sharedSmallWorldStats(middle.card, target.card) !== 1) continue;
+    if (!reachesSupport({ ...deck.what, other: "" }, middle, context) || sharedSmallWorldStats(middle.card, target.card) !== 1) continue;
     for (const source of monsters) {
-      if (sharedSmallWorldStats(source.card, middle.card) !== 1) continue;
+      if (!reachesSupport(reveal.what, source, context) || !reachesSupport({ ...hand.what, other: "" }, source, context)
+        || sharedSmallWorldStats(source.card, middle.card) !== 1) continue;
       const used = new Map<number, number>();
       for (const c of [source, middle, target]) used.set(c.card.id, (used.get(c.card.id) ?? 0) + 1);
       if ([...used].some(([id, count]) => count > copies.get(id)!)) continue;
@@ -60,11 +75,32 @@ function fieldPayoff(field: Candidate, context: SupportContext): Candidate | und
     if (effect.conditions.length || effect.costs.length || effect.triggers.some(t => t.verb !== "activate" || !t.what.this_card)) continue;
     for (const action of effect.actions) {
       if (action.player !== "you" || !action.from.includes("deck") || !["add_to_hand", "set_spell_trap", "special_summon"].includes(action.verb)
-        || !plain(action) || !action.what.names.length && !action.what.archetypes.length) continue;
+        || !plain(action) || !independentAction(effect, action) || !action.what.names.length && !action.what.archetypes.length) continue;
       const target = context.main.find(c => c.card.id !== field.card.id && reachesSupport(action.what, c, context) && usefulTarget(c, context));
       if (target) return target;
     }
   }
+}
+
+/** A searched card must have an evaluated use, not just a matching name. */
+function handPayoff(target: Candidate, context: SupportContext): { payoff: Candidate; requirement?: string } | undefined {
+  if (!usefulTarget(target, context)) return;
+  if (target.card.subtypes.includes("field")) {
+    const payoff = fieldPayoff(target, context);
+    return payoff && { payoff };
+  }
+  if (target.card.subtypes.includes("ritual")) {
+    const pair = ritualPairs(context).find(pair => pair.monster.card.id === target.card.id || pair.spell.card.id === target.card.id);
+    return pair && { payoff: pair.monster, requirement: "use the owned Ritual pair and materials" };
+  }
+  if (ordinary(target) && (target.card.level ?? Infinity) <= 4) return { payoff: target };
+  // High-Level hand searches need an owned, usable hand-summon enabler.
+  const enabler = ordinary(target) && context.main.find(provider => provider.card.kind === "spell" && provider.tags?.effects.some(e =>
+    !e.conditions.length && !e.triggers.length && !e.costs.length && e.actions.length === 1
+    && e.location.every(zone => zone === "field" || zone === "hand")
+    && e.actions[0]!.verb === "special_summon" && e.actions[0]!.player === "you" && e.actions[0]!.from.length === 1
+    && e.actions[0]!.from[0] === "hand" && plain(e.actions[0]!) && reachesSupport(e.actions[0]!.what, target, context)));
+  if (enabler) return { payoff: target, requirement: `${enabler.card.name} in hand` };
 }
 
 function millPayoff(target: Candidate, context: SupportContext): { payoff: Candidate[]; reason: string; requirements: string[]; friction: number } | undefined {
@@ -83,9 +119,24 @@ function millPayoff(target: Candidate, context: SupportContext): { payoff: Candi
         if (pair) return { payoff: [pair.spell, pair.monster], reason: `Sends ${target.card.name} for named Ritual access`,
           requirements: [`send ${pair.spell.card.name} from Deck to search ${pair.monster.card.name}`], friction: 3 };
       }
-      // A generic sent-to-GY search is not the final payoff: the searched card
-      // may itself need an unowned engine (e.g. Ghost Fusion). Unsupported chains
-      // stay out until their whole package has an evaluated proof.
+      // Follow any simple sent-trigger search/summon through a supported terminal
+      // payoff. Exclude the already-sent copy from the remaining Deck/hand proof.
+      if (!effect.costs.length && effect.actions.length === 1) {
+        const action = effect.actions[0]!;
+        const remaining = [...context.main], at = remaining.findIndex(c => c.card.id === target.card.id);
+        if (at >= 0) remaining.splice(at, 1);
+        const next = { ...context, main: remaining, monsters: remaining.filter(c => c.card.kind === "monster") };
+        if (action.player === "you" && action.from.length === 1 && action.from[0] === "deck" && !action.what.this_card && plain(action)) {
+          for (const searched of distinctCandidates(remaining.filter(c => reachesSupport(action.what, c, context)))) {
+            const result = action.verb === "add_to_hand" ? handPayoff(searched, next)
+              : action.verb === "special_summon" && ordinary(searched) && usefulTarget(searched, next) ? { payoff: searched } : undefined;
+            if (result) return { payoff: [searched, result.payoff],
+              reason: result.requirement ? `Needs ${result.requirement}: ${target.card.name} → ${searched.card.name}`
+                : `Sends ${target.card.name}; ${action.verb === "add_to_hand" ? "searches" : "summons"} ${searched.card.name}`,
+              requirements: result.requirement ? [result.requirement] : [], friction: action.verb === "add_to_hand" ? 3 : 0 };
+          }
+        }
+      }
     }
     const endPhase = effect.triggers.length === 1 && effect.triggers[0]!.verb === "phase" && /^End Phase$/i.test(effect.triggers[0]!.note)
       && effect.conditions.length === 1 && /^this card is in the GY because it was sent there this turn$/i.test(effect.conditions[0]!);
@@ -126,18 +177,23 @@ export function compositionalProofs(candidate: Candidate, context: SupportContex
     for (const action of effect.actions) {
       if (action.what.this_card || action.player === "opponent") continue;
       const noSetup = !effect.conditions.length && !effect.costs.length;
-      if (noSetup && action.from.includes("deck") && action.what.subtypes.includes("field")
+      if (noSetup && action.from.includes("deck")
         && ["add_to_hand", "set_spell_trap"].includes(action.verb)) {
         const fields = distinctCandidates(context.main.filter(c => c.card.kind === "spell" && c.card.subtypes.includes("field") && reachesSupport(action.what, c, context)));
         const field = fields.find(c => fieldPayoff(c, context));
         if (!field) continue;
         const payoff = fieldPayoff(field, context)!;
-        if (candidate.card.id === 73468603 && fields.length >= 2) proofs.push({ effect, action, targets: fields, payoff: [field, payoff],
+        const pair = /^2 with different names: 1 on your field and 1 on your opponent's field$/i.test(action.note);
+        if (!independentAction(effect, action) || action.what.other || !pair && (!plain(action) || action.player !== "you")) continue;
+        if (pair && action.verb === "set_spell_trap" && new Set(fields.map(c => compactEffectName(c.card.name))).size >= 2
+          && /neither player can activate or Set other Field Spells/i.test(candidate.card.text)) proofs.push({ effect, action, targets: fields, payoff: [field, payoff],
           requirements: ["two differently named Field Spells in Deck", "opposing Set Field Spell locks further Field access"], compositional: true,
           utility: 3, friction: 6, reason: `Field lock: Sets ${field.card.name} using 2 different Fields` });
-        if (candidate.card.id === 89208725 && action.verb === "add_to_hand") proofs.push({ effect, action, targets: [field], payoff: [field, payoff],
-          requirements: ["set this Trap first", "add to hand for later normal activation"], compositional: true, utility: 3, friction: 5,
-          reason: `Searches ${field.card.name} for later activation` });
+        if (!pair) proofs.push({ effect, action, targets: [field], payoff: [field, payoff],
+          requirements: [...(candidate.card.kind === "trap" ? ["set this Trap first"] : []), "later normal activation"],
+          compositional: true, utility: candidate.card.kind === "trap" || action.verb === "set_spell_trap" ? 3 : 4,
+          friction: candidate.card.kind === "trap" ? 5 : 0,
+          reason: `${action.verb === "add_to_hand" ? "Searches" : "Sets"} ${field.card.name} for later activation` });
       }
       // Count discardable copies only for draw density, never generic support rank.
       if (action.verb === "draw" && action.player === "you" && /^2 cards$/i.test(action.note) && effect.costs.length === 1
