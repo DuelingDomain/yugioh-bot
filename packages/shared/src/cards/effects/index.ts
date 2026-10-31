@@ -41,4 +41,4 @@ export * from "./engine-core.js";
 export * from "./bridge-observations.js";
 export * from "./bridge-mechanics.js";
 export * from "./engine-core-observed.js";
-export { SYNERGY_SEARCH_LIMIT, SYNERGY_SCORE_FLOOR } from "./synergy-search-hooks.js";
+export { SYNERGY_SEARCH_LIMIT, SYNERGY_ARCHETYPE_LIMIT, SYNERGY_OUTSIDE_LIMIT, SYNERGY_SCORE_FLOOR, selectSynergyResults, type SynergyCategory } from "./synergy-search-hooks.js";

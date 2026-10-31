@@ -6,7 +6,8 @@ import { matchCard } from "./effect-match.js";
 import { describe, isEmptyObject, type EffectQuery, type Interpretation } from "./query.js";
 import { compactEffectName } from "./name-match.js";
 import { belongsTo, hookQuery, type ArchetypeProfile } from "./synergy.js";
-import { synergyHookMatcher, SYNERGY_SCORE_FLOOR } from "./synergy-search-hooks.js";
+import { archetypeMember } from "./archetype-roles.js";
+import { synergyHookMatcher, SYNERGY_SCORE_FLOOR, type SynergyCategory } from "./synergy-search-hooks.js";
 import { type CounterProfile, type Weakness } from "./counters.js";
 import { shortReason } from "./search-reasons.js";
 
@@ -73,19 +74,28 @@ export function archetypeSupportMatcher(query: EffectQuery, profiles: ReadonlyMa
     archetype,
     hooks: synergyHookMatcher(profiles.get(archetype), archetype),
   }));
-  return (candidate: { card: Card; tags?: MatchTags }): { score: number; reason: string } | null => {
+  return (candidate: { card: Card; tags?: MatchTags }): { score: number; reason: string; synergyCategory: SynergyCategory } | null => {
     const baseScore = matchCard(candidate.card, candidate.tags, base);
     if (baseScore === null) return null;
     const matches: Array<{ score: number; label: string }> = [];
+    let synergyCategory: SynergyCategory = "outside";
     for (const target of targets) {
       const named = candidate.tags && [...candidate.tags.supports.archetypes, ...candidate.tags.supports.names]
         .some(name => compactEffectName(name) === compactEffectName(target.archetype));
-      const member = belongsTo(candidate.card, target.archetype);
-      const match = member || named ? { score: 300, label: `Supports ${target.archetype}` } : target.hooks(candidate);
+      const member = (candidate.card.archetypes
+        ? candidate.card.archetypes.some(name => compactEffectName(name) === compactEffectName(target.archetype))
+        : archetypeMember(candidate.card, target.archetype))
+        || compactEffectName(candidate.card.name) === compactEffectName(target.archetype);
+      // Name-related cards remain useful support, but membership uses actual catalog membership.
+      const support = named || belongsTo(candidate.card, target.archetype);
+      if (member) synergyCategory = "member";
+      else if (support && synergyCategory === "outside") synergyCategory = "support";
+      const match = member || support ? { score: 300, label: `Supports ${target.archetype}` } : target.hooks(candidate);
       if (!match || match.score < SYNERGY_SCORE_FLOOR) return null;
       matches.push(match);
     }
     return {
+      synergyCategory,
       // The weakest connection controls a multi-target match. Hook counts cannot inflate it.
       score: Math.min(...matches.map(match => match.score)) + Math.min(9, baseScore),
       reason: shortReason(matches.length > 1 ? `Works with ${targets.map(target => target.archetype).join(" + ")}`

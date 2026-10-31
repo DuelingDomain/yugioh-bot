@@ -92,6 +92,8 @@ describe.skipIf(!directory || !existsSync(`${directory}/cards.cdb`))("Name + tex
         fireEvent.click(offer);
         expect(onTab).toHaveBeenCalledWith("bridges");
       } else expect(last.effectTotal).toBeGreaterThan(0);
+      expect(screen.getByRole("heading", { name: "Archetype cards" })).toBeVisible();
+      if (!text.includes("and Blue-Eyes")) expect(screen.getByRole("heading", { name: "Works with" })).toBeVisible();
     } finally { names.mockRestore(); }
   });
   it("shows two distinct lists and the bridge offer when the pool has no shared synergy", async () => {
@@ -107,7 +109,7 @@ describe.skipIf(!directory || !existsSync(`${directory}/cards.cdb`))("Name + tex
       await waitFor(() => expect(screen.getByRole("heading", { name: "Works with Temple of the Kings" })).toBeVisible(), { timeout: 5000 });
       expect(last.effectHits).toEqual([]);
       expect(last.effectTotal).toBe(0);
-      expect(screen.getByRole("heading", { name: "Works with Blue-Eyes" })).toBeVisible();
+      expect(screen.getByRole("heading", { name: "Archetype cards — Blue-Eyes" })).toBeVisible();
       expect(screen.getByText("No shared synergy found. Suggestions for each archetype:")).toBeVisible();
       expect(screen.getByRole("button", { name: /^Trap Trick(?:,|$)/ })).toBeVisible();
       expect(screen.getByRole("button", { name: "Sage with Eyes of Blue" })).toBeVisible();

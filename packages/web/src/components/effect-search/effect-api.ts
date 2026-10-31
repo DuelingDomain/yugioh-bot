@@ -12,6 +12,7 @@ export type EffectIntent = NonNullable<import("@yugidraft/shared/cards/effects")
 
 /** A card that matched a description, with the one-line reason it matched. */
 export interface EffectCard extends CardSummary {
+  synergyCategory?: import("@yugidraft/shared/cards/effects").SynergyCategory;
   score: number;
   reason: string;
 }

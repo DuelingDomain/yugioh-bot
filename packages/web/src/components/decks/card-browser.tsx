@@ -466,18 +466,30 @@ export function CardBrowser({
   }
 
   /** The title above the first card of a group: partners of a card, or the effect hits under the name results. */
+  function synergyHeading(hits: NonNullable<CardQueryResult["effectHits"]>, index: number, target?: string) {
+    const category = hits[index]?.synergyCategory;
+    if (!category || (index > 0 && (hits[index - 1]?.synergyCategory === "outside") === (category === "outside"))) return null;
+    const outside = category === "outside";
+    const title = outside ? target ? `Works with ${target}` : "Works with" : target ? `Archetype cards — ${target}` : "Archetype cards";
+    const count = hits.filter(card => (card.synergyCategory === "outside") === outside).length;
+    return <li className={styles.effectHeading}><h3>{title}</h3><span>{count} {count === 1 ? "card" : "cards"}</span></li>;
+  }
+
   function heading(position: number) {
     if (partner?.hook) return null;
     if (partner) return position === 0 ? <li className={styles.effectHeading}><h3>Works with {partner.name}</h3><span>{total.toLocaleString("en-US")} {total === 1 ? "card" : "cards"}</span></li> : null;
     if (effectGroups) {
       let start = cards.length;
       for (const group of effectGroups) {
-        if (position === start && group.cards.length) return <li className={styles.effectHeading}><h3>Works with {group.archetype}</h3><span>{group.total} matches</span></li>;
+        if (position >= start && position < start + group.cards.length) return synergyHeading(group.cards, position - start, group.archetype)
+          ?? (position === start ? <li className={styles.effectHeading}><h3>Works with {group.archetype}</h3><span>{group.total} matches</span></li> : null);
         start += group.cards.length;
       }
       return null;
     }
-    if (position !== cards.length || effectCards.length === 0) return null;
+    const synergy = synergyHeading(effectCards, position - cards.length);
+    if (synergy) return synergy;
+    if (effectCards[0]?.synergyCategory || position !== cards.length || effectCards.length === 0) return null;
     // "Cards like X" heads its own group; "How to beat X" already heads the page, so its cards are "Answers".
     if (intent?.kind === "similar") return <li className={styles.effectHeading}><IntentHeading intent={intent} testId="intent-group-heading" /><span>{effectTotal.toLocaleString("en-US")} matches</span></li>;
     return <li className={styles.effectHeading}><h3>{intent?.kind === "counters" ? "Cards that stop it" : "Cards that do this"}</h3><span>{effectTotal.toLocaleString("en-US")} matches</span></li>;

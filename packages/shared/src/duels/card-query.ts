@@ -248,7 +248,7 @@ export interface CardQueryResult {
   reading?: Interpretation | null;
   /** "How it plays" for the archetype the reading names. Only on the first page. */
   profile?: ArchetypeGuide;
-  effectHits?: Array<DeckCardInfo & { altArtCount: number; score: number; reason: string }>;
+  effectHits?: Array<DeckCardInfo & { altArtCount: number; score: number; reason: string; synergyCategory?: import("../cards/effects/synergy-search-hooks.js").SynergyCategory }>;
   effectTotal?: number;
   /** Only present when no card qualifies for every requested archetype. */
   effectGroups?: Array<{ archetype: string; cards: NonNullable<CardQueryResult["effectHits"]>; total: number }>;

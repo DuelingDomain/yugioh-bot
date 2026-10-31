@@ -26,6 +26,8 @@ it.each(["Temple of the Kings synergy", "synergy with Temple of the Kings", "car
   expect(result.cards.map(card => card.passcode)).toContain(80101899);
   expect(result.cards.map(card => card.passcode)).toContain(29762407);
   expect(result.cards.find(card => card.passcode === 80101899)?.reason).toContain("Sets Traps");
+  expect(result.cards.find(card => card.passcode === 80101899)?.synergyCategory).toBe("outside");
+  expect(result.cards.find(card => card.passcode === 29762407)?.synergyCategory).toBe("member");
 });
 
 it.each(["Monarch synergy", "cards that work with Monarch"])("uses the archetype rather than a fuzzy card anchor: %s", text => {
@@ -92,7 +94,7 @@ it("rejects generic Trap removal and type-only partners even in a tiny explicit 
   } finally { db.exec("ROLLBACK TO generic_test; RELEASE generic_test"); }
 });
 
-it("caps high-quality results at 40 before pagination", () => {
+it("reserves outside space even when more than 40 members qualify", () => {
   db.exec("SAVEPOINT cap_test");
   try {
     const insert = db.prepare(`INSERT INTO card_catalog
@@ -100,7 +102,8 @@ it("caps high-quality results at 40 before pagination", () => {
       VALUES(?,?,'Effect Monster','effect','Tribute Summon this card.','Monarch','image','small','[]','now')`);
     for (let n = 0; n < 50; n++) insert.run(900000000 + n, `Monarch fixture ${n}`);
     const result = service.effectSearch("Monarch synergy", undefined, { limit: 120 });
-    expect(result.total).toBe(40);
-    expect(result.cards).toHaveLength(40);
+    expect(result.cards.filter(card => card.synergyCategory !== "outside")).toHaveLength(15);
+    expect(result.cards.find(card => card.passcode === 52112003)?.synergyCategory).toBe("outside");
+    expect(result.total).toBe(result.cards.length);
   } finally { db.exec("ROLLBACK TO cap_test; RELEASE cap_test"); }
 });

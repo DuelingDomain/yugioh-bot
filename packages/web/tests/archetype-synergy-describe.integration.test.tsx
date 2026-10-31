@@ -39,7 +39,7 @@ it("renders separate Describe lists through the real resolver and keeps selectio
   const input = screen.getByRole("combobox", { name: "Describe the cards" });
   fireEvent.change(input, { target: { value: "synergy with Temple of the Kings and Blue-Eyes" } });
   expect(await screen.findByRole("heading", { name: "Works with Temple of the Kings" })).toBeVisible();
-  expect(screen.getByRole("heading", { name: "Works with Blue-Eyes" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Archetype cards — Blue-Eyes" })).toBeVisible();
   expect(screen.getByText("No shared synergy found. Suggestions for each archetype:")).toBeVisible();
   expect(within(screen.getByRole("listbox")).getAllByRole("option")).toHaveLength(2);
   fireEvent.keyDown(input, { key: "Enter" });
@@ -47,4 +47,29 @@ it("renders separate Describe lists through the real resolver and keeps selectio
   fireEvent.keyDown(input, { key: "Enter" });
   expect(screen.getByText("2 selected")).toBeVisible();
   expect(state.fallback).not.toHaveBeenCalled();
+});
+
+it("groups a named anchor and outside partners through the resolver without breaking selection", async () => {
+  vi.stubEnv("DISCORD_GUILD_ID", "synergy-describe");
+  vi.stubEnv("EFFECT_SEARCH", "1");
+  vi.stubEnv("DUEL_DATA_DIR", "/tmp/no-synergy-describe-engine");
+  state.db!.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)
+    VALUES(29762407,'Temple of the Kings','Spell Card','spell','You can activate 1 Trap Card the turn it was Set.','image','small','[]','now')`).run();
+  try {
+    const { POST } = await import("../app/api/cards/resolve/route");
+    vi.stubGlobal("fetch", async (_url: unknown, init?: RequestInit) => POST(new Request("http://local/api/cards/resolve", init)));
+    function Pane() {
+      const [batch, setBatch] = useState(EMPTY_BATCH);
+      return <><DescribePane batch={batch} onBatch={setBatch} held={() => 0} kindLine={card => card.type} /><output>{batch.cards.size} selected</output></>;
+    }
+    render(<Pane />);
+    const input = screen.getByRole("combobox", { name: "Describe the cards" });
+    fireEvent.change(input, { target: { value: "Temple of the Kings synergy" } });
+    expect(await screen.findByRole("heading", { name: "Archetype cards" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Works with" })).toBeVisible();
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByText("2 selected")).toBeVisible();
+  } finally { state.db!.prepare("DELETE FROM card_catalog WHERE ygoprodeck_id=29762407").run(); }
 });

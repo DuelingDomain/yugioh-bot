@@ -10,6 +10,7 @@ import { allShownSelected, type Batch, type Selectable } from "./selection";
 import styles from "./effect-search.module.css";
 
 export interface RowCard extends CardSummary {
+  synergyCategory?: import("@yugidraft/shared/cards/effects").SynergyCategory;
   /** One line on why the card is in the list. */
   reason?: string;
 }

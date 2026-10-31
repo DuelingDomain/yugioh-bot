@@ -17,7 +17,7 @@ import { cachedEffectReading, effectArchetypes } from "../cards/effects/reading-
 import { intentReading, searchIntentTarget, synergyTarget, archetypeSupportMatcher, cardSimilarity, counterProfileFromHooks, counterLink } from "../cards/effects/search-intents.js";
 import { effectMatchReason, softTextScore, shortReason } from "../cards/effects/search-reasons.js";
 import { ArchetypeProfile } from "../cards/effects/synergy.js";
-import { SYNERGY_SEARCH_LIMIT } from "../cards/effects/synergy-search-hooks.js";
+import { SYNERGY_ARCHETYPE_LIMIT, SYNERGY_OUTSIDE_LIMIT } from "../cards/effects/synergy-search-hooks.js";
 import { createInsightCatalog, type InsightCatalog } from "./card-insight-catalog.js";
 import { readArchetypeGuide, readArchetypeHook, readInsightProfiles, readNamedInsightProfiles } from "./card-insight-profiles.js";
 import { suggestDeckRows, type DeckSuggestionOptions, type DeckSuggestionLegality } from "./deck-suggestions.js";
@@ -237,7 +237,7 @@ export function createCardInsightService(db: Database.Database, options: {
           const candidate = catalog.candidate(anchor);
           return { reading, ...rank(catalog, candidate ? [candidate] : [], pool, effective) };
         }
-        const ranked: Retained[] = [];
+        const ranked: Retained[] = [], outsideRanked: Retained[] = [];
         const supportProfiles = readNamedInsightProfiles(db, reading.query.supports?.archetypes ?? []);
         const supportMatch = archetypeSupportMatcher(reading.query, supportProfiles);
         const supportMatchers = new WeakMap<import("../cards/effects/query.js").EffectQuery, ReturnType<typeof archetypeSupportMatcher>>();
@@ -269,18 +269,25 @@ export function createCardInsightService(db: Database.Database, options: {
           return base + softTextScore(candidate.card, query.text);
         };
         const master = domain(opts.format) && opts.deckMaster !== undefined ? catalog.candidate(opts.deckMaster) : undefined;
-        let total = 0;
+        let total = 0, archetypeTotal = 0, outsideTotal = 0;
         for (const candidate of catalog.candidates(pool)) {
           if (!allowed(candidate, opts)) continue;
           const score = match(candidate);
           if (score === null) continue;
           total++;
-          retain(ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + (roleIntent ? 0 : cardEraBoost(candidate.card, opts.era)), linkedCards: 0, reason: supportMatch ? supportMatch(candidate)!.reason : roleIntent ? rankArchetypeRole(candidate.card,candidate.tags,roleIntent.archetype,roleIntent.role,archetypeMember(candidate.card,roleIntent.archetype),staples!)!.reason : reading.query.intent?.kind === "staples" && staples!.cards.size ? stapleReason(staples!.cards.get(candidate.card.id)!, staples!.label) : counter && archetype ? counterLink(counter, archetype, candidate)!.reason
+          const support = supportMatch?.(candidate);
+          const outside = support?.synergyCategory === "outside";
+          if (support) { if (outside) outsideTotal++; else archetypeTotal++; }
+          retain(outside ? outsideRanked : ranked, { passcode: candidate.card.id, name: candidate.card.name, score: score + (roleIntent ? 0 : cardEraBoost(candidate.card, opts.era)), linkedCards: 0, ...(support ? { synergyCategory: support.synergyCategory } : {}), reason: support ? support.reason : roleIntent ? rankArchetypeRole(candidate.card,candidate.tags,roleIntent.archetype,roleIntent.role,archetypeMember(candidate.card,roleIntent.archetype),staples!)!.reason : reading.query.intent?.kind === "staples" && staples!.cards.size ? stapleReason(staples!.cards.get(candidate.card.id)!, staples!.label) : counter && archetype ? counterLink(counter, archetype, candidate)!.reason
             : similar ? shortReason(`Similar ${candidate.tags?.roles.find(role => similar.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${similar.card.name}`)
             : effectMatchReason(candidate.card, candidate.tags, reading.query, candidate.tags?.summary),
-            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, supportMatch ? Math.min(SYNERGY_SEARCH_LIMIT, limitOf(opts.limit)) : limitOf(opts.limit), currentMonth, effective);
+            ...(master ? { deckMasterFit: cardSynergy(master, candidate).score > 0 } : {}) }, candidate, supportMatch ? outside ? SYNERGY_OUTSIDE_LIMIT : SYNERGY_ARCHETYPE_LIMIT : limitOf(opts.limit), currentMonth, effective);
         }
-        if (supportMatch) total = Math.min(SYNERGY_SEARCH_LIMIT, total);
+        if (supportMatch) {
+          total = Math.min(SYNERGY_ARCHETYPE_LIMIT, archetypeTotal) + Math.min(SYNERGY_OUTSIDE_LIMIT, outsideTotal);
+          ranked.push(...outsideRanked);
+          ranked.length = Math.min(ranked.length, limitOf(opts.limit));
+        }
         if (supportMatch && !total && reading.query.supports!.archetypes.length > 1) {
           const groups = reading.query.supports!.archetypes.map(archetype => {
             const query = { ...reading.query, supports: { ...reading.query.supports!, archetypes: [archetype] } };

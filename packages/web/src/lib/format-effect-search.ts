@@ -15,9 +15,9 @@ export async function loadFormatEffectSearch(input: Extract<CardInsightRequest,{
         ...(input.genesysRemaining===undefined?{}:{genesysPoints:{min:0,max:input.genesysRemaining}}),limit:Math.min(limit-offset,30),effectOffset:offset}});
     if(!response.ok)return response;
     const data=response.data as unknown as CardQueryResult;first??=data;
-    cards.push(...(data.effectHits??[]).map(card=>({passcode:card.canonicalPasscode??card.code,name:card.name,score:card.score,reason:card.reason,linkedCards:0,release:card.release})));
+    cards.push(...(data.effectHits??[]).map(card=>({passcode:card.canonicalPasscode??card.code,name:card.name,score:card.score,reason:card.reason,linkedCards:0,release:card.release,...(card.synergyCategory?{synergyCategory:card.synergyCategory}:{})})));
     if(cards.length>=(data.effectTotal??0)||!data.effectHits?.length)break;
   }
-  const groups=first?.effectGroups?.map(group=>({...group,cards:group.cards.slice(0,limit).map(card=>({passcode:card.canonicalPasscode??card.code,name:card.name,score:card.score,reason:card.reason,linkedCards:0,release:card.release}))}));
+  const groups=first?.effectGroups?.map(group=>({...group,cards:group.cards.slice(0,limit).map(card=>({passcode:card.canonicalPasscode??card.code,name:card.name,score:card.score,reason:card.reason,linkedCards:0,release:card.release,...(card.synergyCategory?{synergyCategory:card.synergyCategory}:{})}))}));
   return {ok:true,result:{reading:first?.reading??null,cards,total:first?.effectTotal??0,...(groups?{groups}:{}),...(first?.profile?{guide:first.profile}:{})}};
 }

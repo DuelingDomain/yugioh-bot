@@ -127,7 +127,7 @@ async function handlePOST(request: Request) {
     const details = new Map(catalog.findByIds(hits.map(card => card.passcode)).map(card => [card.ygoprodeckId, card]));
     const decorate = (rows: typeof result.cards) => rows.flatMap(hit => {
       const card = details.get(hit.passcode);
-      return card ? [{ ...toCardSummary(card), score: hit.score, reason: hit.reason, release: hit.release }] : [];
+      return card ? [{ ...toCardSummary(card), score: hit.score, reason: hit.reason, release: hit.release, ...(hit.synergyCategory ? { synergyCategory: hit.synergyCategory } : {}) }] : [];
     });
     const cards = decorate(result.cards);
     const groups = result.groups?.map(group => ({ ...group, cards: decorate(group.cards) }));

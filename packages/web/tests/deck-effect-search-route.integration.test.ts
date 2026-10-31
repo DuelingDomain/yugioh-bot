@@ -92,6 +92,7 @@ it.each([
   const result = await response.json();
   expect(result.effectHits.map((card: DeckCardInfo) => card.code)).toContain(code);
   expect(result.effectHits.find((card: DeckCardInfo) => card.code === code).reason).not.toBe("Matches your search");
+  expect(result.effectHits.find((card: DeckCardInfo) => card.code === code).synergyCategory).toBe("outside");
   expect(state.fallback).not.toHaveBeenCalled();
 });
 it("returns separately labelled archetype lists instead of a generic intersection", async () => {
@@ -274,6 +275,22 @@ it('routes format searches through the signed host from both web entry points',a
  expect(response.status).toBe(200);const found=await response.json();
  expect(found.total).toBe(expected.effectTotal);expect(found.cards.map((card:{passcode:number})=>card.passcode)).toEqual(expected.effectHits.map((card:DeckCardInfo)=>card.code));
  expect(found.reading.chips).toContain('Pool: TCG only');
+});
+
+it("preserves synergy categories through format search adapters and resolve decoration", async () => {
+  state.db!.exec("SAVEPOINT format_synergy");
+  try {
+    const insert = state.db!.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at) VALUES(?,?,?,?,?,'image','small','[]','now')`);
+    insert.run(29762407, "Temple of the Kings", "Spell Card", "spell", "You can activate 1 Trap Card the turn it was Set.");
+    insert.run(80101899, "Trap Trick", "Trap Card", "trap", "Set 1 Normal Trap directly from your Deck.");
+    const body = { op: "effectSearch", text: "Temple of the Kings synergy TCG only", limit: 40, pool: [29762407, 80101899] };
+    for (const path of ["../app/api/cards/insights/route", "../app/api/cards/resolve/route"]) {
+      const { POST } = await import(path);
+      const response = await POST(new Request("http://web/api/cards/insights", { method: "POST", body: JSON.stringify(body) }));
+      const data = await response.json();
+      expect({ status: response.status, data }).toMatchObject({ status: 200, data: { cards: [{ synergyCategory: "member" }, { synergyCategory: "outside" }] } });
+    }
+  } finally { state.db!.exec("ROLLBACK TO format_synergy; RELEASE format_synergy"); }
 });
 
 

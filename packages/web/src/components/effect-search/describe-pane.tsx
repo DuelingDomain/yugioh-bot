@@ -344,12 +344,18 @@ export function DescribePane({
             busy={drill ? drill.cards == null : searching}
             onToggle={toggleCard}
             keyboardActive={keyboard}
-            heading={!drill && result?.groups ? index => {
-              let start = 0;
-              for (const group of result.groups!) {
-                if (index === start && group.cards.length) return `Works with ${group.archetype}`;
+            heading={!drill ? index => {
+              let start = 0, target: string | undefined;
+              if (result?.groups) for (const group of result.groups) {
+                if (index < start + group.cards.length) { target = group.archetype; break; }
                 start += group.cards.length;
               }
+              const category = cards[index]?.synergyCategory;
+              if (category && (index === start || (cards[index - 1]?.synergyCategory === "outside") !== (category === "outside"))) {
+                return category === "outside" ? target ? `Works with ${target}` : "Works with"
+                  : target ? `Archetype cards — ${target}` : "Archetype cards";
+              }
+              if (target && index === start) return `Works with ${target}`;
               return undefined;
             } : undefined}
           />

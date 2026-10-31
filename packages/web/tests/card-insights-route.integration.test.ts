@@ -54,14 +54,14 @@ it("preserves separate synergy lists through insight, resolve and browser calls 
     const text = "synergy with Temple of the Kings and Blue-Eyes";
     const body = { op: "effectSearch", text, pool: [80101899, 8240199] };
     const found = await (await request(body)).json();
-    expect(found).toMatchObject({ total: 0, cards: [], groups: [{ archetype: "Temple of the Kings", cards: [{ passcode: 80101899 }] }, { archetype: "Blue-Eyes", cards: [{ passcode: 8240199 }] }] });
+    expect(found).toMatchObject({ total: 0, cards: [], groups: [{ archetype: "Temple of the Kings", cards: [{ passcode: 80101899, synergyCategory: "outside" }] }, { archetype: "Blue-Eyes", cards: [{ passcode: 8240199, synergyCategory: "support" }] }] });
     const { POST: resolveCards } = await import("../app/api/cards/resolve/route");
     const resolved = await resolveCards(new Request("http://local/api/cards/resolve", { method: "POST", body: JSON.stringify(body) }));
-    expect(await resolved.json()).toMatchObject({ total: 0, cards: [], groups: [{ cards: [{ id: 80101899 }] }, { cards: [{ id: 8240199 }] }] });
+    expect(await resolved.json()).toMatchObject({ total: 0, cards: [], groups: [{ cards: [{ id: 80101899, synergyCategory: "outside" }] }, { cards: [{ id: 8240199, synergyCategory: "support" }] }] });
     const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => resolveCards(new Request("http://local/api/cards/resolve", init)));
     try {
       const { effectSearch } = await import("../src/components/effect-search/effect-api");
-      expect(await effectSearch(text)).toMatchObject({ total: 0, cards: [], groups: [{ cards: [{ id: 80101899 }] }, { cards: [{ id: 8240199 }] }] });
+      expect(await effectSearch(text)).toMatchObject({ total: 0, cards: [], groups: [{ cards: [{ id: 80101899, synergyCategory: "outside" }] }, { cards: [{ id: 8240199, synergyCategory: "support" }] }] });
     } finally { fetch.mockRestore(); }
     expect(state.fallback).not.toHaveBeenCalled();
   } finally { state.db!.exec("ROLLBACK TO synergy_groups; RELEASE synergy_groups"); }

@@ -491,6 +491,7 @@ export function cardSynergy(anchor: Candidate, candidate: Candidate): CardLink {
 }
 
 export interface RankedInsightCard {
+  synergyCategory?: import("./synergy-search-hooks.js").SynergyCategory;
   release?: import("./releases.js").CardReleaseInfo;
   passcode: number;
   name: string;

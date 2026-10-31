@@ -1,5 +1,7 @@
 # Synergy search quality correction — 2026-10-31
 
+> The mixed 40-card cap below is superseded by [the guaranteed outside-share correction](archetype-synergy-outside-share.md), which also reports the requested top 10 outside partners.
+
 This corrects the rejected matcher in `922de6930` and supersedes the conclusions in [the initial investigation](archetype-synergy-search-investigation.md). Base: `a167b80df`, branch `feat/archetype-bridges`.
 
 ## Matching and ranking

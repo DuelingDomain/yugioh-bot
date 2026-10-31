@@ -12,7 +12,7 @@ import {
   compactEffectName, resolveEffectName, cachedEffectReading, intentReading, cardSimilarity, counterProfileFromHooks, counterLink,
   softTextScore, effectMatchReason, shortReason, ArchetypeProfile, archetypeSupportMatcher,
   type ReleaseDates,
-  type Card, type Interpretation,
+  type Card, type Interpretation, type SynergyCategory,
 } from "@yugidraft/shared/cards/effects";
 import { inArchetype, CARD_TYPE_BITS as T } from "@yugidraft/shared/duels";
 import type { CardDatabase } from "./cards.js";
@@ -29,6 +29,7 @@ export interface CardEffectIndex {
   match(code: number, reading: Interpretation, usage?: FormatStaples): number | null;
   popularity(code: number): number;
   reason(code: number, reading: Interpretation, usage?: FormatStaples): string;
+  synergyCategory?(code: number, reading: Interpretation): SynergyCategory | undefined;
 }
 
 // The index reads release dates from its database, so it is only usable while that database is open.
@@ -73,6 +74,16 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
     monsterType: undefined, attribute: undefined, level: undefined, rank: undefined, linkRating: undefined,
     atk: null, def: null, tcgDate: undefined, ocgDate: undefined };
   const canonical = (code: number) => cards.get(code)?.canonicalPasscode ?? code;
+  const memberships = new Map<string, string[]>();
+  const memberNames = (card: { setcodes: number[] }) => {
+    const key = card.setcodes.join(",");
+    let names = memberships.get(key);
+    if (!names) {
+      names = [...cards.setnames()].filter(([code]) => inArchetype(card.setcodes, code)).map(([, name]) => name);
+      memberships.set(key, names);
+    }
+    return names;
+  };
   const summary = db.prepare<[number], { summary: string; tags_json: string }>("SELECT summary,tags_json FROM card_tags WHERE passcode=?");
   const profileRow = db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE");
   const defaultUsage = formatStaples();
@@ -131,6 +142,7 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
       if (!printed) return null;
       const id = card.canonicalPasscode ?? card.code, dates = releaseDates(id);
       current.text = card.description;
+      current.archetypes = memberNames(card);
       current.id = id; current.name = card.name; current.kind = printed.kind; current.subtypes = printed.subtypes;
       current.monsterType = printed.monsterType; current.attribute = printed.attribute;
       current.level = card.type & (T.xyz | T.link) ? undefined : card.level;
@@ -156,6 +168,7 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
       const raw = cards.deckCard(code);
       if (!raw) return "Matches your search";
       const card = engineInsightCard(raw), tags = facets.get(canonical(code)), ctx = context(reading);
+      card.archetypes = memberNames(raw);
       Object.assign(card, releaseDates(canonical(code)));
       if (ctx.support) return ctx.support({ card, tags })?.reason ?? "Matches your search";
       if (reading.query.intent?.kind === "archetype_role" && ctx.role) return rankArchetypeRole(card,tags,reading.query.intent.archetype,reading.query.intent.role,ctx.role.members.has(canonical(code)),usage)?.reason??"Matches your search";
@@ -166,6 +179,14 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
       let full: typeof tags = tags;
       try { if (stored?.tags_json) full = JSON.parse(stored.tags_json) as typeof tags; } catch { /* Keep the compact facets. */ }
       return effectMatchReason(card, full, reading.query, stored?.summary);
+    },
+    synergyCategory: (code, reading) => {
+      const raw = cards.deckCard(code), support = context(reading).support;
+      if (!raw || !support) return undefined;
+      const card = engineInsightCard(raw);
+      card.archetypes = memberNames(raw);
+      Object.assign(card, releaseDates(canonical(code)));
+      return support({ card, tags: facets.get(canonical(code)) })?.synergyCategory;
     },
     popularity: code => facets.get(canonical(code))?.popularity ?? 0,
   };

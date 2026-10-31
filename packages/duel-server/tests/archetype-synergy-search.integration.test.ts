@@ -39,6 +39,7 @@ describe.skipIf(!existsSync(`${engineDataDirectory}/cards.cdb`))("specific syner
     expect(result.effectHits!.map(card => card.name)).toEqual(["Blue-Eyes Tyrant Dragon"]);
     expect(result.effectHits![0]!.reason).toContain("Temple of the Kings + Blue-Eyes");
     expect(result.effectGroups).toBeUndefined();
+    expect(result.effectHits![0]!.synergyCategory).toBe("member");
   });
   it("distinguishes discard costs from discarding by card effect", () => {
     const result = search("Labrynth synergy", { passcodes: [79126789, 60228941, 43316238] });
@@ -47,6 +48,15 @@ describe.skipIf(!existsSync(`${engineDataDirectory}/cards.cdb`))("specific syner
   it("requires Deck milling rather than a generic send cost for Blue-Eyes", () => {
     const result = search("Blue-Eyes synergy", { passcodes: [9064354, 5288597, 81439173] });
     expect(result.effectHits!.map(card => card.name)).toEqual(["Foolish Burial"]);
+  });
+  it("rejects Deck setup restricted to incompatible Attributes or Levels", () => {
+    const result = search("Blue-Eyes synergy", { passcodes: [81439173, 41620959, 62265044, 28985331, 24915933] });
+    expect(result.effectHits!.map(card => card.name)).toEqual(["Foolish Burial", "Dragon Shrine", "Dragon Ravine"]);
+    expect(search("Destiny HERO synergy", { passcodes: [28985331] }).effectHits!.map(card => card.name)).toEqual(["Armageddon Knight"]);
+  });
+  it("does not treat another Type's extra Tribute Summon as Monarch support", () => {
+    const result = search("Monarch synergy", { passcodes: [52112003, 5253985, 35306215, 25280974, 8910240] });
+    expect(result.effectHits!.map(card => card.name)).toEqual(["Card Advance", "Rose Papillon"]);
   });
   it("uses Normal Trap setup rather than Counter-Trap-only searches for Labrynth", () => {
     const result = search("Labrynth synergy", { passcodes: [98301564, 80101899] });
@@ -68,10 +78,16 @@ describe.skipIf(!existsSync(`${engineDataDirectory}/cards.cdb`))("specific syner
     const result = search(text);
     expect(result.effectTotal).toBe(40);
     expect(result.effectHits).toHaveLength(40);
-    expect(result.effectHits!.slice(0, 10).every(card => card.score >= 280)).toBe(true);
+    expect(result.effectHits!.filter(card => card.synergyCategory !== "outside")).toHaveLength(15);
+    expect(result.effectHits!.filter(card => card.synergyCategory === "outside")).toHaveLength(25);
     const page = search(text, { limit: 10, effectOffset: 30 });
     expect(page.effectTotal).toBe(40);
     expect(page.effectHits!.map(card => card.code)).toEqual(result.effectHits!.slice(30).map(card => card.code));
     expect(search(text, { effectOffset: 40 }).effectHits).toEqual([]);
+  });
+  it("keeps the requested Monarch outside partners despite a full member list", () => {
+    const result = search("Monarch synergy");
+    const outside = result.effectHits!.filter(card => card.synergyCategory === "outside");
+    expect(outside.map(card => card.name)).toEqual(expect.arrayContaining(["Soul Exchange", "Lair of Darkness", "Gameciel, the Sea Turtle Kaiju"]));
   });
 });
