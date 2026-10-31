@@ -8,13 +8,13 @@
 - Consolidated the complete browser API surface into `packages/web/src/lib/bridges-api.ts`, with `BridgeRequestError` for list, engines, deep start/status, feedback and archetype-name errors. Loading retries, cancellation, join-only context refresh and retry hints are preserved.
 - Updated integration coverage and `docs/api/archetype-bridges.md`. Kept CLI/scanner `explain` methods because the administrative/evaluation scripts still use them; the player API no longer dispatches that operation.
 
-## Pending the narrow component-file exception
+## Final POST-only cleanup
 
-The owner's instruction says **“Do NOT touch packages/web/src/components.”** The second client module is inside that directory: `packages/web/src/components/bridges/bridges-api.ts`. Existing components import it, and it sends GET when no deck is open. Replacing it with the required re-export shim therefore needs an exception to that explicit restriction. The owner was asked; no answer had arrived at this checkpoint.
+The UI owner's import migration landed in `91475597346e7ab7f507de2ad023d5eee5f4ca62`: bridge components import `@/lib/bridges-api` and no longer import the component-folder client. This satisfied the owner's Step B gate before any component-folder removal.
 
-That file remains untouched. A temporary GET transport adapter delegates to the same POST validator, so existing components remain functional. This means **GET removal and the final removal of duplicate client implementation are not complete**. The exact follow-up is prepared, without applying it, at `/tmp/claude-1000/bridge-client-shim.patch`: replace only the component-local API module with `export * from "@/lib/bridges-api"`, remove the GET adapter, and update the corresponding route assertion. It passes `git apply --check` against this worktree.
+Removed the temporary GET transport adapter and the obsolete `packages/web/src/components/bridges/bridges-api.ts` implementation. `GET /api/cards/bridges` now receives Next.js's 405; JSON POST is the only list transport, with or without an open deck. The canonical client no longer exports the unused `BridgeList` alias or unused shared compatibility re-exports (`ArchetypeBridge`, `RankedEngine`, `BridgePackage`, `BridgeReviewStep`). Deep helper request/response types and names still used by components remain.
 
-No `deck-suggestion*` files or component files were changed by this work.
+Both existing validators remain aligned: POST list bodies reject query parameters, unknown fields and `deckId`; deep `source + target` requests are rejected at both boundaries and pairs use `engines`. The integration route assertion now rejects any GET export. The component client deletion is the only component-folder change in this final cleanup. No `deck-suggestion*` files were edited.
 
 ## Canonical imports for the UI owner
 
@@ -31,27 +31,40 @@ All type exports:
 
 ```ts
 import type {
-  ArchetypeBridge, RankedEngine, BridgeDeck, BridgePackage, CoreCard, EngineCore,
+  BridgeDeck, CoreCard, EngineCore,
   DetectedEngine, EngineSuggestion, BridgeEnginesRequest, BridgeEnginesResponse,
-  BridgeFormat, BridgeReviewStep, BridgeAlternativePath, ShownBridge,
+  BridgeFormat, BridgeAlternativePath, ShownBridge,
   BridgeListRequest, BridgeListResponse, BridgeLoadingResponse, BridgeDeepSearchRequest,
-  BridgeScope, BridgeList, DeepState, DeepStep, DeepStatus, DeepStart,
+  BridgeScope, DeepState, DeepStep, DeepStatus, DeepStart,
 } from "@/lib/bridges-api";
 ```
 
-Compatibility names retained for current component imports: `BridgeScope`, `BridgeList`, `DeepState`, `DeepStep`, `DeepStatus`, `DeepStart`, `BridgeRequestError`, `fetchBridges`, `startDeepSearch`, `pollDeepSearch`, `reportBridge`, `fetchBridgeArchetypes`, and the shared type re-exports. `BridgeScope.target` is list context; the canonical deep helper translates it to an engine set and never sends a pair deep selector. No runtime symbol was removed from the old module.
+`BridgeScope` and `DeepStep` remain in use by components. `DeepState`, `DeepStatus` and `DeepStart` describe the canonical deep helpers' responses. `BridgeScope.target` is translated to an engine set by the deep helper and is never sent as a pair deep selector.
 
 ## Verification
 
+Final cleanup uses integration coverage only. The POST-only assertion first failed because GET was still exported, then passed after removal. An initial test collection attempt could not resolve the missing compiled shared package; building the shared prerequisite resolved that setup issue. Generated shared build output is removed after verification.
+
 | Check | Result |
 | --- | --- |
-| Stored strict runner, batch judge, artifact publication, official-name API, host API and engine lifecycle (six suites, source imports) | 43 passed |
 | Web signed-host routes and canonical browser helpers | 34 passed |
-| Cache integration (sequential retry with 20-second default timeout) | 5 passed |
-| Niche and durable search-job integration | 28 passed |
-| Full worker integration, final complete run | 6 passed, 1 timed out at its explicit 20-second limit |
-| Isolated deep-lane worker case after an earlier scanner-stop failure | Passed in 27.48 seconds |
-| Isolated full-projection worker case after the full-suite timeout | Passed in 17.58 seconds (test body 16.20 seconds) |
-| Shared build, shared/server/web TypeScript, `git diff --check`, prepared-patch applicability | Passed |
+| Stored strict runner, batch judge, artifact publication and host API (four suites) | 22 passed |
+| Shared prerequisite build | Passed |
+| Whitespace and old-client import removal | Passed |
 
-An initial concurrent scanner run also hit the default five-second cache-test timeout. The passing isolated retries do not erase the full worker suite's timing failure. No paid tests ran, and no new unit tests were added. The host DB was compared against its backup across all 90 tables: no changed tables, `quick_check: ok`.
+The earlier broader cleanup had a full worker-suite timeout, with passing isolated retries; that worker suite was not rerun for this narrow final change. The owner-approved paid strict pass completed for $1.950417. Live integrity and foreign-key checks passed; concurrent application updates prevented an all-unrelated-tables-unchanged assertion. A disposable replay confirmed that the 840 judgement writes affect only `bridge_judgement` and its revision trigger. Full counts, scope and the concurrent-table caveat are recorded in `bridge-strict-review-2026-10-31.md`.
+
+Commands (Node v22.23.3):
+
+```sh
+node node_modules/typescript/bin/tsc -p packages/shared/tsconfig.build.json
+node node_modules/vitest/vitest.mjs run \
+  scripts/effects/tests/stored-strict-judging.integration.test.ts \
+  scripts/effects/tests/bridge-batch.integration.test.ts \
+  scripts/effects/tests/bridge-artifacts.integration.test.ts \
+  packages/duel-server/tests/bridge-api.integration.test.ts \
+  --maxWorkers=1 --testTimeout=120000
+# From packages/web:
+node ../../node_modules/vitest/vitest.mjs run \
+  tests/card-bridges-route.integration.test.ts --maxWorkers=1
+```
