@@ -335,7 +335,7 @@ describe("stored multi-engine bridge API", () => {
       expect(workers.bridgeCandidates).not.toHaveBeenCalled(); expect(workers.rateBridge).not.toHaveBeenCalled();
       expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_job").get()).toEqual({ n: 0 });
       for (const request of [{}, { engines: [] }, { engines: ["missing"] }, { engines: Array(5).fill("Odion") },
-        { deck: { ...deck, side: [] } }, { deck: { main: Array(92).fill(1), extra: [] } }, { deck: { main: [0], extra: [] } }, { engines: ["Odion"], userId: 3 }]) {
+        { deck: { ...deck, side: [0] } }, { deck: { main: Array(92).fill(1), extra: [] } }, { deck: { main: [0], extra: [] } }, { engines: ["Odion"], userId: 3 }]) {
         await expect(call(request)).rejects.toMatchObject({ status: 400 });
       }
     } finally { await api.jobs.close(); }
@@ -420,15 +420,14 @@ describe("multi-source deep search", () => {
       expect(await finish(api, user, started.jobId)).toMatchObject({ state: "done", results: [{ target: "Fire King" }], next: [{ engine: "Fire King" }] });
       expect(await api.handle({ userId: other.userId, bridgeRequest: { op: "start", source: "Snake-Eye" } }, "g", other.playerId)).toMatchObject({ jobId: started.jobId, cached: true });
       expect((await api.jobs.status({ userId: other.userId, guildId: "g" }, started.jobId)).results).toHaveLength(1);
-      expect(workers.bridgeCandidates).toHaveBeenCalledTimes(1);
+      expect(workers.bridgeCandidates).toHaveBeenCalledTimes(2);
     } finally { await api.jobs.close(); }
   });
 
-  it("rescans full outgoing rows after a truncated single job and shares deck-free work", async () => {
+  it("scans both complete directions for single and multi jobs and shares deck-free work", async () => {
     const user = seedIdentity(db, { name: "Multi-source" }), other = seedIdentity(db, { name: "Multi subscriber" });
     const service = createBridgeService(db);
     const workers = { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(async (scan: BridgeScan) => {
-      if (scan.op === "live") return service.deepFrom(scan.source, scan.format, 25);
       return service.engineRows([scan.source], scan.format).filter(row => scan.op === "into" ? row.target === scan.source : row.source === scan.source);
     }), rateBridge: vi.fn(async (row: ArchetypeBridge) => approve(row)) };
     const api = new BridgeApi(db, workers);
@@ -436,6 +435,9 @@ describe("multi-source deep search", () => {
     try {
       const first = await call({ op: "start", source: "Odion" }) as { jobId: string };
       expect((await finish(api, user, first.jobId)).state).toBe("done");
+      expect(workers.bridgeCandidates.mock.calls.map(([scan]) => [scan.op, scan.source])).toEqual([
+        ["outgoing", "Odion"], ["into", "Odion"],
+      ]);
       workers.bridgeCandidates.mockClear(); workers.rateBridge.mockClear();
       const multi = await call({ op: "start", deck, engines: ["odion", "ashtra"] }) as { jobId: string };
       const result = await finish(api, user, multi.jobId);

@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { bridgeGate, bridgeProjection, bridgePackage, isBridgeDeck, isBridgeEngineNames, rankEngineCandidates, rankNextEngines,
+import { bridgeGate, bridgeProjection, bridgePackage, isBridgeDeck, isBridgeEngineNames, rankEngineCandidates, rankNextEngines, projectEngineCore,
   type ArchetypeBridge, type BridgeDeck, type BridgeEnginesResponse, type BridgeFormat, type DetectedEngine, type EngineSuggestion } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
 import { BridgeJobError, type BridgeSearchQuery } from "./bridge-search-jobs.js";
@@ -33,10 +33,11 @@ export class BridgeEngineQueries {
     const artwork = this.db.prepare("SELECT card_id FROM card_artworks WHERE artwork_id=?");
     const mainId = (id: number) => (artwork.get(id) as { card_id: number } | undefined)?.card_id ?? id;
     const deck: BridgeDeck | undefined = rawDeck ? { ...rawDeck, main: rawDeck.main.map(mainId), extra: rawDeck.extra.map(mainId),
+      ...(rawDeck.side ? { side: rawDeck.side.map(mainId) } : {}),
       ...(rawDeck.deckMaster === undefined ? {} : { deckMaster: mainId(rawDeck.deckMaster) }) } : undefined;
     const deckCards = deck ? [...deck.main, ...deck.extra] : undefined;
     if (remaining === undefined && deckCards && format === "genesys") {
-      const spent = [...deckCards, ...(deck?.deckMaster === undefined ? [] : [deck.deckMaster])]
+      const spent = [...deckCards, ...(deck?.side ?? []), ...(deck?.deckMaster === undefined ? [] : [deck.deckMaster])]
         .reduce((sum, id) => sum + this.points(id), 0);
       // Missing catalog/points data must not block an explicit bridge search.
       // Keep copy context and use the normal no-allowance projection fallback.
@@ -56,7 +57,7 @@ export class BridgeEngineQueries {
     const canonical = names.map(name => Object.keys(groups).find(key => key.toLowerCase() === name.trim().toLowerCase()));
     if (canonical.some(name => !name)) throw new BridgeJobError("Unknown archetype", 400);
     const engines = [...new Set(canonical as string[])].sort();
-    return { query: { source: engines[0] ?? "", engines, format, ...context },
+    return { query: { source: engines[0] ?? "", engines, format, ...context, ...(deck ? { deck } : {}) },
       ...(detected ? { detected } : {}) };
   }
 
@@ -71,9 +72,15 @@ export class BridgeEngineQueries {
     return { ...pack, genesysPoints: query.format === "genesys" && Number.isFinite(points) ? points : null, points };
   }
 
+  core(engine: string, query: BridgeSearchQuery) {
+    const plan = this.service.corePlan(engine, query.format);
+    const unknownAllowance = query.format === "genesys" && query.deck && query.genesysRemaining === undefined;
+    return projectEngineCore(unknownAllowance ? { ...plan, gaps: [...plan.gaps, "Genesys allowance is unknown because existing deck points are unavailable."] } : plan, query);
+  }
+
   shortlist(rows: ArchetypeBridge[], query: EngineQuery) {
     const eligible = rows.filter(row => ["pending", "shown"].includes(bridgeGate(this.db, row).state));
-    return rankEngineCandidates(query.engines, eligible, this.rankingContext(), 8);
+    return rankEngineCandidates(query.engines, eligible, this.rankingContext(), 8, { acceptedNiche: row => bridgeGate(this.db, row).state === "shown" });
   }
 
   project(rows: ArchetypeBridge[], query: EngineQuery, limit = 4): BridgeEnginesResponse {
@@ -81,7 +88,7 @@ export class BridgeEngineQueries {
     const candidates = rows.filter(row => row.format === query.format && (selected.has(row.source) || selected.has(row.target))
       && (query.format !== "genesys" || this.package([row], query).points <= (query.genesysRemaining ?? 100)));
     const projections = candidates.map(row => bridgeProjection(this.db, row));
-    const shown = projections.flatMap(({ shown }) => shown ? [{ ...shown, ...bridgePackage([shown], query.deckCards) }] : []);
+    const shown = projections.flatMap(({ shown }) => shown ? [{ ...shown, ...bridgePackage([shown], query.deckCards), core: this.core(shown.target, query) }] : []);
     const accepted = shown.map(row => ({ ...row, two_way: shown.some(reverse => reverse.source === row.target && reverse.target === row.source) }));
     const between = accepted.filter(row => selected.has(row.source) && selected.has(row.target));
     const next: EngineSuggestion[] = rankNextEngines(query.engines, accepted, this.rankingContext(), 8, {
@@ -91,7 +98,7 @@ export class BridgeEngineQueries {
       const pack = this.package(row.links.map(link => link.bridge), query);
       const pros = [...new Set(row.links.flatMap(link => link.bridge.review.pros))].slice(0, 3);
       const cons = [...new Set(row.links.flatMap(link => link.bridge.review.cons))].slice(0, 3);
-      return { ...row, cards: pack.cards, missing: pack.missing, alreadyInDeck: pack.alreadyInDeck, genesysPoints: pack.genesysPoints, pros, cons };
+      return { ...row, cards: pack.cards, missing: pack.missing, alreadyInDeck: pack.alreadyInDeck, genesysPoints: pack.genesysPoints, pros, cons, core: this.core(row.engine, query) };
     }).slice(0, limit);
     return { engines: query.engines, between, next,
       inReview: projections.filter(({ gate }) => ["pending", "review"].includes(gate.state)).length };

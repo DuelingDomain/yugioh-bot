@@ -5,6 +5,7 @@ import { shownBridge, type ShownBridge } from "../cards/effects/bridge-judge.js"
 import { detectDeckEngines, type BridgeDeck } from "../cards/effects/bridge-engines.js";
 import { formatStaples } from "../cards/effects/staples.js";
 import type { BridgeGraphData } from "../cards/effects/bridge-types.js";
+import { deriveEngineCore, type EngineCorePlan } from "../cards/effects/engine-core.js";
 import { type EngineRankingContext } from "../cards/effects/bridge-engine-ranking.js";
 
 /** Construct in the duel-host scanner or an administrative process, never in the web process. */
@@ -21,20 +22,35 @@ export function createBridgeService(db: Database.Database) {
     return graph!;
   };
   let ranking: { version: string; context: EngineRankingContext } | undefined;
+  const cores = new Map<string, EngineCorePlan>();
   const stored = (source: string, target: string, format: BridgeFormat): ArchetypeBridge | null => {
     const row = db.prepare("SELECT bridge_json FROM archetype_bridge WHERE source=? COLLATE NOCASE AND target=? COLLATE NOCASE AND format=?").get(source.trim(), target.trim(), format) as { bridge_json: string } | undefined;
     return row ? JSON.parse(row.bridge_json) as ArchetypeBridge : null;
   };
   return {
+    corePlan(engine: string, format: BridgeFormat): EngineCorePlan {
+      const { version } = parsedGraph();
+      const revision = (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
+      const key = JSON.stringify([version, revision, format, engine]);
+      let plan = cores.get(key);
+      if (!plan) {
+        plan = deriveEngineCore(live().data, engine, format);
+        cores.set(key, plan);
+        if (cores.size > 512) cores.delete(cores.keys().next().value!);
+      }
+      return plan;
+    },
     rankingContext(): EngineRankingContext {
-      const { version, data: { groups, engine_ranking: stats } } = parsedGraph();
-      if (ranking?.version === version) return ranking.context;
+      const { version, data: { engine_ranking: stats } } = parsedGraph();
+      const revision = (db.prepare("SELECT revision FROM card_catalog_revision WHERE id=1").get() as { revision: number }).revision;
+      const rankingVersion = `${version}:${revision}`;
+      if (ranking?.version === rankingVersion) return ranking.context;
       if (!stats) throw new Error("Bridge ranking snapshot has not been imported");
       const engine = live();
-      const context: EngineRankingContext = { groups, hubs: new Set(stats.hubs),
+      const context: EngineRankingContext = { groups: engine.data.groups, hubs: new Set(stats.hubs),
         idf: { advanced: new Map(Object.entries(stats.idf.advanced)), genesys: new Map(Object.entries(stats.idf.genesys)) },
         related: (a, b) => engine.relatedEngines(a, b) };
-      ranking = { version, context }; return context;
+      ranking = { version: rankingVersion, context }; return context;
     },
     engineRows(engines: readonly string[], format: BridgeFormat): ArchetypeBridge[] {
       const rows = new Map<string, ArchetypeBridge>();
@@ -45,7 +61,7 @@ export function createBridgeService(db: Database.Database) {
       return [...rows.values()];
     },
     detectEngines(deck: BridgeDeck, format: BridgeFormat = "advanced", guildId?: string) {
-      const { data: { groups } } = parsedGraph();
+      const groups = live().data.groups;
       const skip = new Set(formatStaples(format === "advanced" ? "normal" : format, undefined, db, guildId).cards.keys());
       const handTraps = db.prepare(`SELECT passcode FROM card_tags WHERE EXISTS
         (SELECT 1 FROM json_each(tags_json,'$.roles') WHERE value='hand_trap')`).all() as { passcode: number }[];

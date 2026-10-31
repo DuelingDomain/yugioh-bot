@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
-import { bridgeGate, type ArchetypeBridge, type BridgeFormat, type EngineSuggestion } from "@yugidraft/shared/cards/effects";
+import { bridgeGate, type ArchetypeBridge, type BridgeFormat, type BridgeDeck, type EngineSuggestion } from "@yugidraft/shared/cards/effects";
 import { bridgeRevision } from "./bridge-revision.js";
 import { retryStartupDatabase } from "./startup-database.js";
 
-export interface BridgeSearchQuery { source: string; target?: string; engines?: string[]; format: BridgeFormat; genesysRemaining?: number; deckCards?: number[] }
+export interface BridgeSearchQuery { source: string; target?: string; engines?: string[]; format: BridgeFormat; genesysRemaining?: number; deckCards?: number[]; deck?: BridgeDeck }
 export interface BridgeSearchActor { userId: number; guildId: string }
 export type BridgeJobState = "queued" | "running" | "done" | "failed";
 export type BridgeJobStep = "candidates" | "checking" | "rating" | "done";
@@ -53,13 +53,16 @@ export class BridgeSearchJobs {
     CREATE INDEX IF NOT EXISTS bridge_deep_query ON bridge_deep_job(query_key,created_at DESC);
     CREATE TABLE IF NOT EXISTS bridge_deep_actor (
       job_id TEXT NOT NULL REFERENCES bridge_deep_job(id) ON DELETE CASCADE,
-      actor_hash TEXT NOT NULL, guild_id TEXT NOT NULL, admitted_at INTEGER NOT NULL, ended_at INTEGER, genesys_remaining INTEGER, deck_cards_json TEXT,
+      actor_hash TEXT NOT NULL, guild_id TEXT NOT NULL, admitted_at INTEGER NOT NULL, ended_at INTEGER, genesys_remaining INTEGER, deck_cards_json TEXT, deck_context_json TEXT,
       counts_toward_limit INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY(job_id,actor_hash,guild_id)
     );
     CREATE INDEX IF NOT EXISTS bridge_deep_user ON bridge_deep_actor(actor_hash,admitted_at DESC);`);
       if (!(db.prepare("PRAGMA table_info(bridge_deep_job)").all() as { name: string }[]).some(column => column.name === "review_incomplete")) {
         db.exec("ALTER TABLE bridge_deep_job ADD COLUMN review_incomplete INTEGER");
+      }
+      if (!(db.prepare("PRAGMA table_info(bridge_deep_actor)").all() as { name: string }[]).some(column => column.name === "deck_context_json")) {
+        db.exec("ALTER TABLE bridge_deep_actor ADD COLUMN deck_context_json TEXT");
       }
       if (!(db.prepare("PRAGMA table_info(bridge_deep_actor)").all() as { name: string }[]).some(column => column.name === "counts_toward_limit")) {
         db.exec("ALTER TABLE bridge_deep_actor ADD COLUMN counts_toward_limit INTEGER NOT NULL DEFAULT 1");
@@ -95,6 +98,7 @@ export class BridgeSearchJobs {
     const key = this.queryKey(query), now = this.now(), hash = this.actorHash(actor);
     const failed = JSON.stringify([...this.failedCompletions.keys()]);
     const remaining = query.genesysRemaining ?? null, deckCards = query.deckCards ? JSON.stringify(query.deckCards) : null;
+    const deckContext = query.deck ? JSON.stringify(query.deck) : null;
     const cached = this.db.prepare("SELECT * FROM bridge_deep_job WHERE query_key=? AND state='done' AND ended_at>? ORDER BY ended_at DESC LIMIT 1").get(key, now - 86_400_000) as JobRow | undefined;
     // Evidence validation can be expensive; keep it outside the admission write lock.
     // Permanent reviews are complete, even though the UI still hides those rows.
@@ -107,9 +111,9 @@ export class BridgeSearchJobs {
         ORDER BY j.created_at LIMIT 1`).get(hash, failed) as JobRow | undefined;
     const pendingForQuery = () => this.db.prepare(`SELECT * FROM bridge_deep_job WHERE query_key=? AND state IN ('queued','running')
         AND id NOT IN (SELECT value FROM json_each(?)) ORDER BY created_at LIMIT 1`).get(key, failed) as JobRow | undefined;
-    const subscription = (id: string) => this.db.prepare("SELECT genesys_remaining,deck_cards_json FROM bridge_deep_actor WHERE job_id=? AND actor_hash=? AND guild_id=?")
-      .get(id, hash, actor.guildId) as { genesys_remaining: number | null; deck_cards_json: string | null } | undefined;
-    const contextMatches = (saved: ReturnType<typeof subscription>) => saved && saved.genesys_remaining === remaining && saved.deck_cards_json === deckCards;
+    const subscription = (id: string) => this.db.prepare("SELECT genesys_remaining,deck_cards_json,deck_context_json FROM bridge_deep_actor WHERE job_id=? AND actor_hash=? AND guild_id=?")
+      .get(id, hash, actor.guildId) as { genesys_remaining: number | null; deck_cards_json: string | null; deck_context_json: string | null } | undefined;
+    const contextMatches = (saved: ReturnType<typeof subscription>) => saved && saved.genesys_remaining === remaining && saved.deck_cards_json === deckCards && saved.deck_context_json === deckContext;
     const checkExisting = (job: JobRow | undefined) => {
       if (job && job.query_key !== key) {
         const running = JSON.parse(job.query_json) as BridgeSearchQuery;
@@ -129,10 +133,10 @@ export class BridgeSearchJobs {
       const existing = existingForActor();
       const subscribe = (job: JobRow, cached: boolean) => {
         const saved = subscription(job.id);
-        if (!saved) this.db.prepare("INSERT INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at,ended_at,genesys_remaining,deck_cards_json,counts_toward_limit) VALUES(?,?,?,?,?,?,?,?)")
-          .run(job.id, hash, actor.guildId, now, job.ended_at, remaining, deckCards, join ? 0 : 1);
-        else if (!contextMatches(saved)) this.db.prepare("UPDATE bridge_deep_actor SET genesys_remaining=?,deck_cards_json=? WHERE job_id=? AND actor_hash=? AND guild_id=?")
-          .run(remaining, deckCards, job.id, hash, actor.guildId);
+        if (!saved) this.db.prepare("INSERT INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at,ended_at,genesys_remaining,deck_cards_json,deck_context_json,counts_toward_limit) VALUES(?,?,?,?,?,?,?,?,?)")
+          .run(job.id, hash, actor.guildId, now, job.ended_at, remaining, deckCards, deckContext, join ? 0 : 1);
+        else if (!contextMatches(saved)) this.db.prepare("UPDATE bridge_deep_actor SET genesys_remaining=?,deck_cards_json=?,deck_context_json=? WHERE job_id=? AND actor_hash=? AND guild_id=?")
+          .run(remaining, deckCards, deckContext, job.id, hash, actor.guildId);
         return { jobId: job.id, state: job.state, cached };
       };
       if (existing) {
@@ -161,8 +165,8 @@ export class BridgeSearchJobs {
         ...(query.engines && query.engines.length > 1 ? { engines: query.engines } : {}) };
       this.db.prepare("INSERT INTO bridge_deep_job(id,query_key,query_json,state,step,created_at) VALUES(?,?,?,'queued','candidates',?)")
         .run(id, key, JSON.stringify(workQuery), now);
-      this.db.prepare("INSERT INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at,genesys_remaining,deck_cards_json) VALUES(?,?,?,?,?,?)")
-        .run(id, hash, actor.guildId, now, query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null);
+      this.db.prepare("INSERT INTO bridge_deep_actor(job_id,actor_hash,guild_id,admitted_at,genesys_remaining,deck_cards_json,deck_context_json) VALUES(?,?,?,?,?,?,?)")
+        .run(id, hash, actor.guildId, now, query.genesysRemaining ?? null, query.deckCards ? JSON.stringify(query.deckCards) : null, deckContext);
       return { jobId: id, state: "queued" as BridgeJobState, cached: false };
     });
     let admitted: ReturnType<typeof admit>;
@@ -179,13 +183,14 @@ export class BridgeSearchJobs {
 
   async status(actor: BridgeSearchActor, jobId: string) {
     const row = this.db.prepare(`SELECT j.id,j.query_key,j.query_json,j.state,j.step,j.progress,j.error,j.ended_at,
-      a.genesys_remaining,a.deck_cards_json FROM bridge_deep_job j JOIN bridge_deep_actor a ON a.job_id=j.id
-      WHERE j.id=? AND a.actor_hash=? AND a.guild_id=?`).get(jobId, this.actorHash(actor), actor.guildId) as JobRow & { genesys_remaining: number | null; deck_cards_json: string | null } | undefined;
+      a.genesys_remaining,a.deck_cards_json,a.deck_context_json FROM bridge_deep_job j JOIN bridge_deep_actor a ON a.job_id=j.id
+      WHERE j.id=? AND a.actor_hash=? AND a.guild_id=?`).get(jobId, this.actorHash(actor), actor.guildId) as JobRow & { genesys_remaining: number | null; deck_cards_json: string | null; deck_context_json: string | null } | undefined;
     if (!row) throw new BridgeJobError("Not found", 404);
     const failed = this.failedCompletions.get(row.id);
     if (failed) { row.state = "failed"; row.error = failed; }
     const query = { ...JSON.parse(row.query_json) as BridgeSearchQuery, genesysRemaining: row.genesys_remaining ?? undefined,
-      deckCards: row.deck_cards_json ? JSON.parse(row.deck_cards_json) as number[] : undefined };
+      deckCards: row.deck_cards_json ? JSON.parse(row.deck_cards_json) as number[] : undefined,
+      deck: row.deck_context_json ? JSON.parse(row.deck_context_json) as BridgeDeck : undefined };
     if (row.query_key !== this.queryKey(query)) throw new BridgeJobError("Not found", 404);
     const visible = row.state === "done" ? await this.completedProjection(actor, row, query) : { results: [], inReview: 0 };
     return { jobId: row.id, state: row.state, step: row.step, progress: row.progress,

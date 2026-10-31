@@ -1,6 +1,7 @@
 import type { ArchetypeBridge, BridgeFormat, BridgeGrade, BridgeGraphData } from "./bridge-types.js";
 import type { ShownBridge } from "./bridge-judge.js";
 import { bridgePackage, type BridgePackage } from "./bridge-package.js";
+import type { EngineCore } from "./engine-core.js";
 
 export interface EngineLink<T extends ArchetypeBridge = ShownBridge> { from: string; to: string; bridge: T }
 export interface RankedEngine<T extends ArchetypeBridge = ShownBridge> {
@@ -9,6 +10,7 @@ export interface RankedEngine<T extends ArchetypeBridge = ShownBridge> {
 }
 export interface EngineSuggestion extends RankedEngine, BridgePackage {
   genesysPoints: number | null; pros: string[]; cons: string[];
+  core?: EngineCore;
 }
 export interface BridgeEnginesResponse {
   engines: string[]; detected?: import("./bridge-engines.js").DetectedEngine[];
@@ -23,6 +25,8 @@ export interface EngineRankingOptions<T extends ArchetypeBridge = ShownBridge> {
   deckCards?: readonly number[];
   /** Subscriber-specific package checks run before deduplication and limits. */
   eligible?: (row: RankedEngine<T>) => boolean;
+  /** Raw shortlists must supply the current two-review gate, never a stored flag. */
+  acceptedNiche?: (row: T) => boolean;
 }
 
 /** Compute once per artifact on host start, independently of review status. */
@@ -67,14 +71,17 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
     byTarget.set(target, [...(byTarget.get(target) ?? []), row]);
   }
   const value = (row: T) => bridgePairValue(row, context);
-  const ranked: RankedEngine<T>[] = [];
-  for (const [engine, pairs] of byTarget) {
+  const checkedNiche = (row: T) => row.tier === "niche" && row.validation === "deterministic"
+    && !hubBridge(row, context) && bridgeAccessPath(row, context.groups) !== undefined
+    && (options.acceptedNiche ? options.acceptedNiche(row) : "judge" in row && row.judge === "accepted");
+  const ranked: RankedEngine<T>[] = [], nicheLane = new Set<RankedEngine<T>>();
+  const candidateFor = (engine: string, pairs: T[]): RankedEngine<T> | undefined => {
     const best = (source: string, target: string) => pairs.filter(row => row.source === source && row.target === target)
       .sort((a, b) => value(b) - value(a) || a.evidence_hash.localeCompare(b.evidence_hash))[0];
     const forwards = engines.flatMap(source => { const row = best(source, engine); return row ? [row] : []; }).sort((a, b) => value(b) - value(a) || a.source.localeCompare(b.source));
     const back = engines.flatMap(target => { const row = best(engine, target); return row ? [row] : []; }).sort((a, b) => value(b) - value(a) || a.target.localeCompare(b.target))[0];
     const display = [...forwards.slice(0, back ? 2 : 3), ...(back ? [back] : [])];
-    if (!display.length) continue;
+    if (!display.length) return;
     const links = engines.map(source => {
       const forward = best(source, engine);
       const reverse = best(engine, source);
@@ -86,29 +93,56 @@ export function rankEngineCandidates<T extends ArchetypeBridge>(engines: readonl
     const weights = [1, 0.8, 0.6, 0.5];
     const score = links.sort((a, b) => b.value - a.value).reduce((sum, link, i) => sum + link.value * weights[i]!, 0)
       * (1 + 0.3 * (covered - 1)) * (context.idf[display[0]!.format].get(engine) ?? 1);
-    if (score < 4) continue;
     const strongest = [...display].sort((a, b) => value(b) - value(a))[0]!;
     const tier = display.every(row => row.tier === "niche") ? "niche" : "strict";
-    const candidate: RankedEngine<T> = { engine, score: Math.round(score * 1000) / 1000, grade: tier === "niche" ? "Niche" : strongest.grade, tier,
+    return { engine, score, grade: tier === "niche" ? "Niche" : strongest.grade, tier,
       covered, of: engines.length, twoWay: links.filter(link => link.twoWay).map(link => link.source).sort(),
       links: display.map(bridge => ({ from: bridge.source, to: bridge.target, bridge })) };
+  };
+  for (const [engine, pairs] of byTarget) {
+    let candidate = candidateFor(engine, pairs);
+    if (!candidate) continue;
+    if (candidate.score < 4) {
+      // Scores still order this bounded lane. Only complete physical paths with
+      // both current reviews contribute; pending companions cannot inflate it.
+      candidate = candidateFor(engine, pairs.filter(checkedNiche));
+      if (!candidate) continue;
+      nicheLane.add(candidate);
+    }
+    candidate.score = Math.round(candidate.score * 1000) / 1000;
     if (!options.eligible || options.eligible(candidate)) ranked.push(candidate);
   }
   // Ownership must precede path/group deduplication and truncation, or a fully
   // owned high score can suppress a useful package with missing cards.
   const owned = new Set(options.deckCards === undefined ? [] : ranked.filter(row => bridgePackage(row.links.map(link => link.bridge), options.deckCards).alreadyInDeck));
+  const compare = (a: RankedEngine<T>, b: RankedEngine<T>) => Number(owned.has(a)) - Number(owned.has(b)) || b.score - a.score || a.engine.localeCompare(b.engine);
+  const ordered = ranked.sort(compare), niches = ordered.filter(row => nicheLane.has(row));
   const paths = new Set<string>(), results: RankedEngine<T>[] = [];
-  for (const row of ranked.sort((a, b) => Number(owned.has(a)) - Number(owned.has(b)) || b.score - a.score || a.engine.localeCompare(b.engine))) {
+  const add = (row: RankedEngine<T>) => {
     const used = row.links.flatMap(link => { const path = bridgeAccessPath(link.bridge, context.groups); return path ? [path] : []; });
-    if (used.some(path => paths.has(path))) continue;
+    if (used.some(path => paths.has(path))) return false;
     if (results.some(higher => {
       const ids = context.groups[row.engine] ?? [], other = new Set(context.groups[higher.engine]);
       return ids.length > 0 && ids.filter(id => other.has(id)).length >= 0.5 * ids.length;
-    })) continue;
+    })) return false;
     results.push(row); used.forEach(path => paths.add(path));
-    if (results.length >= limit) break;
+    return true;
+  };
+  if (limit <= 0) return [];
+  // Reserve at most two of the eight review slots for already accepted Niche
+  // access. Cached paths can backfill without consuming the new-review budget.
+  const reserved = Math.min(2, niches.length, limit), first = Math.max(0, limit - reserved);
+  let primaryCount = 0, admitted = 0;
+  for (const row of ordered) {
+    if (nicheLane.has(row)) {
+      if (admitted < reserved && add(row)) admitted++;
+    } else if (primaryCount < first && add(row)) primaryCount++;
   }
-  return limit > 0 ? results : [];
+  for (const row of ordered) {
+    if (results.length >= limit) break;
+    if (!nicheLane.has(row) && !results.includes(row)) add(row);
+  }
+  return results.sort(compare);
 }
 
 /** Only accepted pairs contribute to score, coverage, or two-way claims. */

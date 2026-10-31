@@ -12,6 +12,7 @@ export * from "./bridge-engines.js";
 export * from "./bridge-engine-ranking.js";
 export * from "./bridge-package.js";
 export * from "./bridge-capabilities.js";
+export * from "./bridge-grounding.js";
 export * from "./bridge-engine.js";
 export * from "./bridge-artifact.js";
 export * from "./bridge-judge.js";
@@ -33,3 +34,5 @@ export * from "./archetype-roles.js";
 export * from "./format-query.js";
 
 export * from "./role-ranking.js";
+
+export * from "./engine-core.js";

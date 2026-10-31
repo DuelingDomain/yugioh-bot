@@ -106,7 +106,7 @@ it("accepts bounded list context, preserves legacy GET and rejects malformed POS
   expect(calls.at(-1)!.bridgeRequest).toEqual({ op: "from", source: "Odion", format: "advanced" });
   const forwarded = calls.length;
   for (const value of [{}, { deck }, { source: "Odion", deckId: 23 }, { deckId: 23, deck },
-    { source: "Odion", deck: null }, { source: "Odion", deck: { ...deck, side: [] } },
+    { source: "Odion", deck: null }, { source: "Odion", deck: { ...deck, bench: [] } },
     { source: "Odion", deck: { main: Array(92).fill(1), extra: [] } },
     ...[0, -1, 0.5, 0x100000000, "123"].map(id => ({ source: "Odion", deck: { main: [id], extra: [] } })),
     ...[-1, 1001, 0.5, "100", null].map(pointCap => ({ source: "Odion", deck: { ...deck, pointCap } })),
@@ -144,7 +144,7 @@ it("forwards bounded open decks and corrected engines without exposing pending r
   }
   expect(calls).toHaveLength(forwarded);
   for (const value of [{}, { format: "advanced" }, { engines: [], format: "advanced" }, { engines: Array(5).fill("Odion"), format: "advanced" },
-    { engines: ["Odion"], format: "advanced", userId: 2 }, { deck: { ...deck, side: [] }, format: "advanced" },
+    { engines: ["Odion"], format: "advanced", userId: 2 }, { deck: { ...deck, bench: [] }, format: "advanced" },
     { deck: { main: Array(92).fill(1), extra: [] }, format: "advanced" }, { deck: { main: [-1], extra: [] }, format: "advanced" }]) {
     expect((await engines(value)).status).toBe(400);
   }
@@ -167,6 +167,93 @@ it("forwards bounded open decks and corrected engines without exposing pending r
   }
   reply = { ...reply as object, next: [{ ...next, links: [{ ...next.links[0], bridge: { ...shown(), judge: "pending" } }] }] };
   expect((await engines({ engines: ["Odion"], format: "advanced" })).status).toBe(502);
+});
+
+it("forwards format, singleton and Side context through the same deck boundary on every route", async () => {
+  const deck = { main: [29762407], extra: [1710647], side: [89631139], deckMaster: 97522863,
+    pointCap: 250, mode: "domain", singleton: true };
+  reply = { results: [shown()], inReview: 0 };
+  expect((await list({ source: "Odion", deck })).status).toBe(200);
+  expect(calls.at(-1)!.bridgeRequest).toMatchObject({ deck });
+  reply = { engines: ["Odion"], detected: [], between: [], next: [], inReview: 0 };
+  expect((await engines({ engines: ["Odion"], deck, format: "advanced" })).status).toBe(200);
+  expect(calls.at(-1)!.bridgeRequest).toMatchObject({ deck });
+  reply = { jobId: "bridge-job-1", state: "queued", cached: false };
+  expect((await start({ engines: ["Odion"], deck })).status).toBe(202);
+  expect(calls.at(-1)!.bridgeRequest).toMatchObject({ deck });
+  const forwarded = calls.length;
+  for (const invalid of [{ mode: "genesys" }, { mode: null }, { singleton: "true" }, { singleton: null },
+    { side: [-1] }, { side: Array(92).fill(1) }]) {
+    const value = { ...deck, ...invalid };
+    expect((await list({ source: "Odion", deck: value })).status).toBe(400);
+    expect((await engines({ engines: ["Odion"], deck: value, format: "advanced" })).status).toBe(400);
+    expect((await start({ engines: ["Odion"], deck: value })).status).toBe(400);
+  }
+  expect(calls).toHaveLength(forwarded);
+});
+
+it("passes real host engine cores through engines, between, list and completed-job validators", async () => {
+  const { importBridgeArtifact, buildBridgeJudgeEvidence, BRIDGE_JUDGE_FRAMINGS, makeBridgeJudgementRecord,
+    saveBridgeJudgement } = await import("@yugidraft/shared/cards/effects");
+  const { createBridgeService } = await import("@yugidraft/shared/services");
+  const { BridgeEngineQueries } = await import("../../duel-server/src/bridge-engine-queries");
+  const db = state.db!;
+  importBridgeArtifact(db);
+  const row = createBridgeService(db).bridgeBetween("Odion", "Argostars")!;
+  const evidence = buildBridgeJudgeEvidence(db, row)!;
+  for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, {
+    verdict: "valid", grade: "good", pros: [], cons: [], lock_note: "", line: ["Temple of the Kings", "Argostars - Slayer Eteo"], format_ok: true,
+  }));
+  const projection = new BridgeEngineQueries(db).project([row], { source: "Odion", engines: ["Odion"], format: "advanced" });
+  const next = projection.next[0]!;
+  expect(next.engine).toBe("Argostars");
+  expect(next).toHaveProperty("core");
+  const core = next.core!;
+  expect(core.cards.length).toBeGreaterThan(0);
+  expect(core.cards.every(card => card.needed === Math.max(0, card.copies - card.held))).toBe(true);
+  expect(core.caption.length).toBeGreaterThan(0);
+  expect(next.links[0]!.bridge.core).toEqual(core);
+  reply = projection;
+  let response = await engines({ engines: ["Odion"], format: "advanced" });
+  expect(response.status).toBe(200); expect(await response.json()).toEqual(reply);
+  const bridge = next.links[0]!.bridge;
+  reply = { results: [bridge], inReview: 0 };
+  response = await lookup();
+  expect(response.status).toBe(200); expect(await response.json()).toEqual(reply);
+  reply = { engines: ["Odion", "Argostars"], between: [bridge], next: [], inReview: 0 };
+  response = await engines({ engines: ["Odion", "Argostars"], format: "advanced" });
+  expect(response.status).toBe(200); expect(await response.json()).toEqual(reply);
+  reply = { jobId: "bridge-job-1", state: "done", step: "done", progress: 100, results: [bridge], next: [next], inReview: 0 };
+  response = await poll();
+  expect(response.status).toBe(200); expect(await response.json()).toEqual(reply);
+  const card = core.cards[0]!;
+  for (const invalidCore of [null, { ...core, ready: "true" }, { ...core, cards: [{ ...card, needed: card.copies + 1 }] },
+    { ...core, cards: [{ ...card, section: "side" }] }, { ...core, cards: [{ ...card, points: -1 }] }]) {
+    reply = { ...projection, next: [{ ...next, core: invalidCore }] };
+    expect((await engines({ engines: ["Odion"], format: "advanced" })).status).toBe(502);
+    reply = { results: [{ ...bridge, core: invalidCore }], inReview: 0 };
+    expect((await lookup()).status).toBe(502);
+    reply = { jobId: "bridge-job-1", state: "done", step: "done", progress: 100, results: [{ ...bridge, core: invalidCore }], inReview: 0 };
+    expect((await poll()).status).toBe(502);
+  }
+});
+
+it("accepts low-score Niche suggestions and keeps the strict response floor", async () => {
+  const bridge = { ...shown(), grade: "Niche", tier: "niche", score: 0.5,
+    review: { ...shown().review, grade: "niche" } };
+  const next = { engine: "Argostars", score: 0, grade: "Niche", tier: "niche", covered: 1, of: 1, twoWay: [],
+    links: [{ from: "Odion", to: "Argostars", bridge }], cards: [123], missing: [123], alreadyInDeck: false,
+    genesysPoints: null, pros: [], cons: [] };
+  for (const score of [0, 0.148, 1.796, 3.999]) {
+    reply = { engines: ["Odion"], between: [], next: [{ ...next, score }], inReview: 0 };
+    expect((await engines({ engines: ["Odion"], format: "advanced" })).status).toBe(200);
+    reply = { jobId: "bridge-job-1", state: "done", step: "done", progress: 100, results: [], next: [{ ...next, score }], inReview: 0 };
+    expect((await poll()).status).toBe(200);
+  }
+  for (const invalid of [{ score: -1 }, { score: "0" }, { tier: "strict", score: 3.999 }]) {
+    reply = { engines: ["Odion"], between: [], next: [{ ...next, ...invalid }], inReview: 0 };
+    expect((await engines({ engines: ["Odion"], format: "advanced" })).status).toBe(502);
+  }
 });
 
 it("runs the browser engines helper through the authenticated signed-host route", async () => {

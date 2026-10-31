@@ -60,7 +60,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
         expect.objectContaining({ target: forward.target, alreadyInDeck: true, missing: [] }),
       ]) });
       expect(await call()).toMatchObject({ results: [{ alreadyInDeck: false }] });
-      for (const context of [{ deck: null }, { deck: { ...deck, side: [] } }, { deck: { main: [0], extra: [] } },
+      for (const context of [{ deck: null }, { deck: { ...deck, side: [0] } }, { deck: { main: [0], extra: [] } },
         { deck: { main: Array(92).fill(1), extra: [] } }, { deck: { ...deck, pointCap: 1001 } },
         { deck, deckId: 1 }, { deck, genesysRemaining: -1 }, { deck, engines: [forward.source] }]) {
         await expect(call(context)).rejects.toMatchObject({ status: 400 });

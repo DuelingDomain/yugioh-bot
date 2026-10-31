@@ -1,6 +1,6 @@
 import type { BridgeDeck, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, ShownBridge } from "@yugidraft/shared/cards/effects";
 
-export type { BridgeDeck, BridgePackage, DetectedEngine, EngineSuggestion, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, BridgeReviewStep, ShownBridge } from "@yugidraft/shared/cards/effects";
+export type { BridgeDeck, BridgePackage, CoreCard, EngineCore, DetectedEngine, EngineSuggestion, BridgeEnginesRequest, BridgeEnginesResponse, BridgeFormat, BridgeReviewStep, ShownBridge } from "@yugidraft/shared/cards/effects";
 
 /** The selected source stays authoritative; an open deck supplies only copies and points. */
 export type BridgeListRequest = {

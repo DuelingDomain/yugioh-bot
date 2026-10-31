@@ -4,6 +4,7 @@ import type { Capability, CapabilityKey, CardCapability, BridgeFormat, BridgeGra
 import { REASON_CAPS } from "./bridge-types.js";
 import { actionEvidence, allowedByLock, bridgeHash, canReceiveSummon, genericLinkOneMaterial, faceDownNeedEvidence, matchesBridgeFilter, mentionReachesCard, namedIn, particularFilter, positiveMention, printedText, quotedNames, sameName, sentences, sharedSmallWorldStats, trapMonsterEvidence, trapTurnSetEvidence } from "./bridge-text.js";
 import { bridgeMaterials } from "./bridge-materials.js";
+import { groundBridgeGraph } from "./bridge-grounding.js";
 
 export function bridgeLegal(card: Card, format: BridgeFormat): boolean {
   if (!card.formats.includes("TCG") || card.prerelease || card.subtypes.includes("token")) return false;
@@ -73,6 +74,8 @@ export class BridgeEngine {
   private readonly names: string[];
 
   constructor(readonly data: BridgeGraphData) {
+    data = groundBridgeGraph(data);
+    this.data = data;
     this.rows = new Map(data.capabilities.map(row => [row.id, row]));
     this.groups = new Map(Object.entries(data.groups).map(([name, ids]) => [name, new Set(ids)]));
     this.names = [...this.groups.keys()].sort();
@@ -103,7 +106,8 @@ export class BridgeEngine {
         candidates = pools.length ? [...pools.sort((a, b) => a.size - b.size)[0]!] : all;
       }
       const targets = new Set(candidates.filter(target => target !== id && legal.has(target) && (capability.targets || matchesBridgeFilter(f, legal.get(target)!.card))
-        && (capability.key !== "special_summon" || summonable.has(target))
+        && (capability.key !== "special_summon" || summonable.has(target)
+          || capability.from?.includes("extra_deck") && canReceiveSummon(legal.get(target)!.card, printedText(row.card)))
         && (capability.key !== "normal_summon" || normalSummonable.has(target))
         && (!capability.from?.length || capability.from.some(zone => zone === "deck" ? !isExtraDeckCard(legal.get(target)!.card) : zone === "extra_deck" ? isExtraDeckCard(legal.get(target)!.card) : true))));
       if (!targets.size) continue;
@@ -937,5 +941,5 @@ export function bridgeGroups(capabilities: readonly CardCapability[], profiles: 
       delete merged[alias];
     }
   }
-  return engineGroups(merged, capabilities, policies);
+  return groundBridgeGraph({ groups: engineGroups(merged, capabilities, policies), capabilities: [...capabilities], target_means: { advanced: {}, genesys: {} } }).groups;
 }

@@ -29,7 +29,7 @@ export class BridgeApi {
     this.jobs = new BridgeSearchJobs(db, {
       // Old subscriber arrays included Side or Deck Master without recording
       // their zones. Require refreshed context; evidence/review caches survive.
-      now, version: () => `${this.groups().source_version}:${BRIDGE_JUDGE_VERSION}:main-extra-packages-v1`,
+      now, version: () => `${this.groups().source_version}:${BRIDGE_JUDGE_VERSION}:main-extra-packages-v1:full-engine-recall-v1:engine-core-v1`,
       project: async (rows, query) => {
         const multi = await workers.bridgeEngineProjection(rows, { ...query, engines: query.engines ?? [query.source] });
         return query.engines ? { results: [], ...multi } : { ...this.project(rows, query, true), next: multi.next };
@@ -42,6 +42,9 @@ export class BridgeApi {
       },
       execute: async (query, progress) => {
         if (query.engines) return searchBridgeEngines(this.db, workers, { ...query, engines: query.engines }, progress);
+        // Next-engine discovery needs both complete directions. The legacy
+        // directed list is projected separately from these same saved rows.
+        if (!query.target) return searchBridgeEngines(this.db, workers, { ...query, engines: [query.source] }, progress);
         const result = await workers.bridgeCandidates({ kind: "bridges", source: query.source, format: query.format,
           ...(query.target ? { op: "explain", target: query.target } : { op: "live" }) }, value => {
           progress("candidates", Math.floor(25 * value.completed / Math.max(1, value.total)));
@@ -94,10 +97,11 @@ export class BridgeApi {
       throw new BridgeJobError("Invalid bridge query", 400);
     }
     const { groups } = this.groups();
-    let source = input.source as string | undefined, remaining = input.genesysRemaining as number | undefined, deckCards: number[] | undefined;
+    let source = input.source as string | undefined, remaining = input.genesysRemaining as number | undefined, deckCards: number[] | undefined, deck: BridgeDeck | undefined;
     if (input.deck !== undefined) {
       const context = this.engineQueries.deckContext(input.deck as BridgeDeck, input.format === "genesys" ? "genesys" : "advanced", remaining);
       deckCards = context.deckCards;
+      deck = context.deck;
       remaining = context.genesysRemaining;
     }
     if (input.deckId !== undefined) {
@@ -107,7 +111,9 @@ export class BridgeApi {
       catch { throw new BridgeJobError("Deck not found", 404); }
       const artwork = this.db.prepare("SELECT card_id FROM card_artworks WHERE artwork_id=?");
       const mainId = (id: number) => (artwork.get(id) as { card_id: number } | undefined)?.card_id ?? id;
-      deckCards = [...saved.deck.main, ...saved.deck.extra].map(mainId);
+      deck = { main: saved.deck.main.map(mainId), extra: saved.deck.extra.map(mainId), side: saved.deck.side.map(mainId), mode: saved.mode,
+        ...(saved.deck.deckMaster === undefined ? {} : { deckMaster: mainId(saved.deck.deckMaster) }), ...(saved.genesys ? { pointCap: saved.genesys.pointCap } : {}) };
+      deckCards = [...deck.main, ...deck.extra];
       const cards = new Set(saved.deck.main.map(mainId));
       source = Object.entries(groups).map(([key, ids]) => ({ key, count: ids.filter(id => cards.has(id)).length }))
         .filter(row => row.count > 0).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))[0]?.key;
@@ -131,7 +137,7 @@ export class BridgeApi {
     if (!resolved || input.target !== undefined && !target) throw new BridgeJobError("Unknown archetype", 400);
     if (resolved === target) throw new BridgeJobError("Choose two different archetypes", 400);
     return { source: resolved, ...(target ? { target } : {}), format: input.format === "genesys" ? "genesys" : "advanced",
-      ...(remaining === undefined ? {} : { genesysRemaining: remaining }), ...(deckCards ? { deckCards } : {}) };
+      ...(remaining === undefined ? {} : { genesysRemaining: remaining }), ...(deckCards ? { deckCards } : {}), ...(deck ? { deck } : {}) };
   }
 
   private incrementalPoints(row: ArchetypeBridge, query: BridgeSearchQuery): number {
@@ -169,7 +175,7 @@ export class BridgeApi {
         const reverse = deep ? this.service.deepBetween(row.target, row.source, row.format) : this.service.bridgeBetween(row.target, row.source, row.format);
         const twoWay = !!reverse && !!shownBridge(this.db, reverse)
           && (reverse.format !== "genesys" || this.incrementalPoints(reverse, query) <= (query.genesysRemaining ?? 100));
-        return [{ ...shown, ...bridgePackage([shown], query.deckCards), two_way: twoWay }]; });
+        return [{ ...shown, ...bridgePackage([shown], query.deckCards), core: this.engineQueries.core(shown.target, query), two_way: twoWay }]; });
     const results = deep ? this.service.deepTargets(shown, 10) : this.service.distinctTargets(shown, 4);
     return { results, inReview: candidates.filter(row => ["pending", "review"].includes(bridgeGate(this.db, row).state)).length };
   }

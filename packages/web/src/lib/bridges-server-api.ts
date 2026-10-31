@@ -6,7 +6,7 @@ import { env } from "./env";
 import { callDuelHost } from "./duel-host";
 import { apiErrorResponse } from "./api-errors";
 import { readJsonBody } from "./bug-reports/read-body";
-import { BridgePackageSchema, isBridgeDeck, isBridgeEngineNames, type BridgeEnginesRequest } from "@yugidraft/shared/cards/effects";
+import { BridgePackageSchema, EngineCoreSchema, isBridgeDeck, isBridgeEngineNames, type BridgeEnginesRequest } from "@yugidraft/shared/cards/effects";
 import { isBridgeLoadingResponse, type BridgeDeepSearchRequest, type BridgeListRequest, type BridgeLoadingResponse } from "./bridges-api";
 
 type BridgeFormat = "advanced" | "genesys";
@@ -124,6 +124,7 @@ export function readBridgeJob(request: Request, value: string): BridgeRequest | 
 function shownBridge(value: unknown, deep: boolean): boolean {
   if (!object(value) || !name(value.source, 160) || !name(value.target, 160) || !format(value.format)
     || !BridgePackageSchema.safeParse(value).success
+    || value.core !== undefined && !EngineCoreSchema.safeParse(value.core).success
     || value.judge !== "accepted" || value.validation !== "deterministic" || !hash(value.evidence_hash)
     || value.engine_status !== "unverified"
     || typeof value.score !== "number" || !Number.isFinite(value.score) || value.score < 0 || value.score > 100
@@ -150,7 +151,8 @@ const state = (value: unknown) => value === "queued" || value === "running" || v
 function engineSuggestions(value: unknown, expectedFormat?: BridgeFormat, max = 4): boolean {
   return Array.isArray(value) && value.length <= max && value.every(row => object(row) && name(row.engine, 160)
     && BridgePackageSchema.safeParse(row).success
-    && typeof row.score === "number" && Number.isFinite(row.score) && row.score >= 4
+    && (row.core === undefined || EngineCoreSchema.safeParse(row.core).success)
+    && typeof row.score === "number" && Number.isFinite(row.score) && row.score >= 0 && (row.tier === "niche" || row.score >= 4)
     && typeof row.grade === "string" && ["Strong", "Good", "Niche", "Risky"].includes(row.grade)
     && (row.tier === "strict" || row.tier === "niche") && integer(row.of, 4) && row.of >= 1 && integer(row.covered, row.of)
     && Array.isArray(row.twoWay) && row.twoWay.length <= row.of && row.twoWay.every(value => name(value, 160))

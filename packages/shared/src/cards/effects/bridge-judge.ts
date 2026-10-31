@@ -5,6 +5,7 @@ import * as z from "zod";
 import { BridgeEngine, bridgeLegal } from "./bridge-engine.js";
 import { isExtraDeckCard } from "./card.js";
 import { storedBridgeEngine } from "./bridge-graph-store.js";
+import { groundBridgeGraph } from "./bridge-grounding.js";
 import { actionEvidence, bridgeHash, canReceiveSummon, matchesBridgeFilter, printedText } from "./bridge-text.js";
 import { NO_FILTER } from "./tags.js";
 import type { ArchetypeBridge, BridgeFormat, BridgeReason, CardCapability, SummonLock } from "./bridge-types.js";
@@ -94,13 +95,14 @@ export function buildBridgeJudgeEvidence(db: Database.Database, bridge: Archetyp
 function buildBridgeJudgeContext(db: Database.Database, bridge: ArchetypeBridge): BridgeJudgeContext | null {
   try {
     if (bridge.validation !== "deterministic" || !/^[a-f0-9]{64}$/.test(bridge.evidence_hash) || !bridge.reasons.length || !bridge.cards.length || bridge.source === bridge.target) return null;
-    const rows = bridge.cards.map(id => {
+    const sourceRows = bridge.cards.map(id => {
       const stored = db.prepare("SELECT capabilities_json,text_hash,evidence_hash FROM card_capability WHERE passcode=?").get(id) as { capabilities_json: string; text_hash: string; evidence_hash: string } | undefined;
       if (!stored) throw new Error("Missing bridge card");
       const row = JSON.parse(stored.capabilities_json) as CardCapability;
       if (row.id !== id || row.card.id !== id || row.text_hash !== stored.text_hash || row.text_hash !== bridgeHash(printedText(row.card)) || row.evidence_hash !== stored.evidence_hash || !bridgeLegal(row.card, bridge.format)) throw new Error("Changed bridge evidence");
       return row;
     });
+    const rows = groundBridgeGraph({ capabilities: sourceRows, groups: {}, target_means: { advanced: {}, genesys: {} } }).capabilities;
     if (new Set(bridge.cards).size !== bridge.cards.length || bridge.reasons.some(reason => reason.cards.some(id => !bridge.cards.includes(id)))) return null;
     const validator = new BridgeEngine({ capabilities: rows, groups: {}, target_means: { advanced: {}, genesys: {} } });
     if (bridge.reasons.some(reason => !validator.validateReason(reason, bridge.format))) return null;
@@ -270,7 +272,7 @@ export const ShownBridgeReviewSchema = BridgeJudgementSchema.pick({ pros: true, 
   .extend({ lock_note: z.string(), line: z.array(z.string().min(1).max(200)).min(1).max(3), steps: z.array(BridgeReviewStepSchema).min(1).max(3) })
   .refine(review => review.steps.length === review.line.length && review.steps.every((step, i) => step.card === review.line[i]),
     { message: "Review steps must match the reviewed line in order" });
-export interface ShownBridge extends ArchetypeBridge, BridgePackage { judge: "accepted"; review: z.infer<typeof ShownBridgeReviewSchema> }
+export interface ShownBridge extends ArchetypeBridge, BridgePackage { judge: "accepted"; core?: import("./engine-core.js").EngineCore; review: z.infer<typeof ShownBridgeReviewSchema> }
 export function bridgeProjection(db: Database.Database, bridge: ArchetypeBridge): { gate: BridgeGate; shown: ShownBridge | null } {
   const gate = bridgeGate(db, bridge);
   return { gate, shown: shownFromGate(bridge, gate) };
