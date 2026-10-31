@@ -43,7 +43,8 @@ including after a deep job saves them in the shared candidate table.
   grade: "strong" | "good" | "niche" | "risky",
   pros: string[], cons: string[], // zero to three of each
   lock_note: string, line: string[], // one to three exact supplied card names in order
-  steps: { card: string; text: string }[] // exactly one entry per line name, in the same order
+  steps: { card: string; text: string }[], // exactly one entry per line name, in the same order
+  alternative_paths?: { line: string[]; steps: { card: string; text: string }[] }[] // at most three
 } }
 ```
 
@@ -62,6 +63,28 @@ and web response validators check the shape and ordered alignment. The web
 accepts older responses without `steps` during rollout; `pathSteps` prefers an
 aligned caption, including empty text, and uses its existing reason fallback
 only when the caption is absent.
+
+`review.alternative_paths` contains up to three other grounded paths already supplied
+in the same pair review. Each path has one to three exact evidence-card names in
+`line`, and matching ordered `steps` with the same name and caption bounds as
+`review.steps`. These are alternatives considered by the pair judges, not separate
+per-path verdicts or a mandatory combined combo. Older responses may omit the
+field; current host projections return an array, possibly empty. No component
+rendering or controls are added in this build. The field is derived after review,
+outside judge input/hashes and all shared or subscriber-specific query keys.
+
+The generator retains up to four distinct grounded reasons per directed pair.
+Practical Deck access, then hand/GY access and activation permissions precede
+material or cost setups and naming overlap. Different physical outlets get slots
+before redundant paths from one outlet; additional recipients can then fill spare
+slots. Both existing Haiku framings see these alternatives together. The limit
+remains twelve new directed-pair reviews; alternatives add no provider requests.
+Unchanged checked inputs reuse their cached verdicts. A still-valid accepted stored
+line is retained when a fresh scan finds more alternatives for the same pair;
+only that previously reviewed evidence is projected, and new alternatives are not
+claimed as reviewed. Current text, access, judge identities and feedback are all
+rechecked before reuse. The managed search version
+changes so completed searches rescan with the new generator on the next start.
 
 For a saved Genesys deck, a supplied `genesysRemaining` takes precedence; otherwise the host derives remaining points from its cap and existing copies, including Side. For an open deck, list reads use the same points accounting as engines, described below. Only additional required copies consume that allowance. Source queries without deck context compare the complete evidence package against `genesysRemaining`, defaulting to 100. Card legality and the two review gates apply in either case.
 
@@ -218,6 +241,27 @@ insufficient: Paleozoic Traps merely played alongside Odion do not qualify.
 Name-label groups, same-deck families, negated entry chains and unsupported
 material/placement setups remain excluded.
 
+Set access checks the actual printed recipient and its origin. Named/archetype
+Spell/Trap filters and narrower subtype filters (for example, Continuous Trap or
+Normal Trap) qualify even when many cards fit them. An unrestricted any-card,
+Spell/Trap or any-Trap effect still cannot establish access alone. Hand, Deck, GY
+and other printed origins retain their setup requirements; Setting never implies
+activation. Arias the Labrynth Butler and Argostars - Fierce Parthe keep their
+permission scoped to the Trap just Set. Global permissions also respect the
+printed Normal/Continuous Trap restriction and activation conditions. Delayed
+activation prohibitions are not waived.
+
+Toy Box itself cannot Set Ashtra cards. Its checked path Sets a qualifying
+original-name Toy monster as a Spell, then an Ashtra monster reveals and actually
+returns that Set resource to pay its printed hand Summon procedure. This complete
+resource path uses `reason.setup: {card, using, capability: "face_down_card"}`.
+A Set affinity without that procedure, or a recipient that would be banished
+instead of returning to hand, is insufficient. Older tag recipient indexes are
+rechecked against current identity filters; omitted trap-monster/attack-only
+restrictions and explicit exclusions are preserved. Unsupported qualifiers fail
+closed.
+
+
 Admission permits one queued/running search per application user across guilds. Another identical POST returns that job ID; a different active query returns 409. There is no completion or failure cooldown; at most 15 new jobs are admitted per user per rolling hour, and a multi-engine job counts as one search. Two jobs run globally in the host, with a queue bounded to 100 waiting jobs. Completion writes retry without blocking on SQLite locks for at most five seconds. If persistence still fails, status reports a terminal in-memory failure and releases the global and user slots; startup recovery persists interrupted jobs after a restart. Identical query keys share pending work and completed results for 24 hours, without new review calls; artifact/prompt versions invalidate that reuse. Each subscriber retains its own points and deck context. Cached completed queries bypass new-work admission. The hourly limit returns HTTP 429, `Retry-After: <seconds>`, and JSON `{error:string,retryAfter:number}`. Invalid requests return 400, missing subscriptions/decks 404, missing guild membership 403, and unavailable bridge data or a full queue 503. The UI shows a countdown only for the hourly-limit 429 with `retryAfter`; completion and failure enable the button immediately.
 
 `POST /api/cards/bridges/feedback` accepts `{evidenceHash:string,reason?:string}` (64 lowercase hex characters, optional reason up to 512 characters) and returns `{accepted:true,hidden:boolean}`. Reports are idempotent per application user and evidence hash. Two distinct unresolved reports hide that evidence immediately, including cached results.
@@ -319,16 +363,23 @@ All files live in `packages/shared/data/effects/`. The independent `bridges-mani
 | `bridges-advanced.jsonl.gz`, `bridges-genesys.jsonl.gz` | `ArchetypeBridge`, up to 25 per source |
 | `bridges-manifest.json` | `{schema_version:1,algorithm_version,inputs:{tags,profiles,engine,metadata,genesys_revision,groups},files:{capabilities,advanced,genesys},groups,target_means,reason_frequencies,group_policies,materials,version}` |
 | `bridge-groups.json` | Group curation, aliases, exclusions and membership selectors (hashed in the manifest inputs) |
-| `bridges-golden.json` | `{pairs:[{source,target,format,expected:"bridge"|"not_bridge",tier?:"deep",min_grade?,cards?,why,source_url}]}` |
+| `bridges-golden.json` | `{pairs:[{source,target,format,expected:"bridge"|"not_bridge",tier?:"deep",access_path?:boolean,min_grade?,cards?,why,source_url}]}` |
 | `bridge-judgements.jsonl.gz` | `{evidence_hash,input_hash,judge,framing,model,result,created_at}`; current reviews plus inert historical identities |
 
 Each file descriptor is `{path,records,bytes,sha256,gzipBytes,gzipSha256}`. `version` hashes the manifest identity without itself. `groups` maps exact primary archetypes with profiles to IDs, folding duplicate case variants; Odion additionally groups exact Temple references and Apophis names. `materials` stores complete supported material lines by format and source. Unsupported material procedures fail closed.
 
 `Capability` is `{key,value?,filter?:CardFilter,from?:string[],effect?:number,evidence,targets?:number[]}`. The closed 33-key vocabulary is `CAPABILITY_KEYS`. Targets are precomputed over the identity universe and filtered for format legality at runtime. `SummonLock` is `{scope,allow:CardFilter,extra_deck_only,self_removal,unresolved,evidence}`.
 
-`ArchetypeBridge` is `{source,target,format,tier?:"niche",score,raw_score,target_mean,two_way,grade,reasons,cards,warnings,genesys_points,validation,judge,engine_status,evidence_hash}`. Each reason has `{key,weight,cards,evidence,description,steps?,materials?,cost?}`. Steps are `{from,to,capability}`; `cost` is `{card,using,capability,effect}`. `materials` retains repeated passcodes when multiple copies are required. Evidence hashes incorporate contributing IDs, reason keys, material lines and card text/capability hashes, including evidence that contributed to aggregate scoring. Deep-only hashes also bind the tier and cost identities.
+`ArchetypeBridge` is `{source,target,format,tier?:"niche",score,raw_score,target_mean,two_way,grade,reasons,cards,warnings,genesys_points,validation,judge,engine_status,evidence_hash}`. Each reason has `{key,weight,cards,evidence,description,alternative?:true,steps?,materials?,cost?,setup?}`. Steps are `{from,to,capability}`; `cost` is `{card,using,capability,effect}`. `alternative?: true` marks additional recipients of an already scored action; these paths do not add aggregate score. `setup` binds the checked target hand-Summon consumer and the actual Set resource. `materials` retains repeated passcodes when multiple copies are required. Evidence hashes incorporate contributing IDs, reason keys, material lines and card text/capability hashes, including evidence that contributed to aggregate scoring. Deep-only hashes also bind the tier, cost and Set-resource setup identities.
 
-Golden labels with `tier: "deep"` are evaluated against the deep top ten and
+Golden labels with `tier: "deep", access_path: true` check a directed physical
+access regression through the current generator and checked judge-evidence builder,
+independently of list truncation. They report `access_path_labels`,
+`access_path_hits` and `access_path_recall`; `--check` requires full access recall
+and the minimum grade. They do not enter top-ten recall or strict precision.
+No model calls are made by this check.
+
+Golden labels with `tier: "deep"` without `access_path` are evaluated against the deep top ten and
 excluded from strict recall/precision denominators. The evaluator reports
 strict `recall_at_4` and `recall_at_10` separately from `deep_recall_at_10` for
 these deep-only positives. `--check` requires all deep positives to be found

@@ -1,6 +1,7 @@
 import { isExtraDeckCard } from "./card.js";
 import { actionEvidence, alternativeFusionProcedure, matchesBridgeFilter, namedIn, printedText, sameName } from "./bridge-text.js";
 import type { BridgeGraphData, Capability, CardCapability } from "./bridge-types.js";
+import { groundedSetCapabilities } from "./bridge-set-access.js";
 
 const grounded = new WeakMap<BridgeGraphData, BridgeGraphData>();
 const checkedQualifiers = new Set(["non-Wyrm", 'except "Tearlaments Reinoheart"', "different names, up to 2, face-up in your Spell & Trap Zone",
@@ -43,7 +44,7 @@ export function groundBridgeGraph(data: BridgeGraphData): BridgeGraphData {
   if (cached) return cached;
   const capabilities = data.capabilities.map(row => {
     let changed = false;
-    const provides = row.provides.map(capability => {
+    const provides = groundedSetCapabilities(row, data.capabilities).map(capability => {
       if (!checkedQualifier(row, capability)) return capability;
       changed = true;
       return { ...capability, targets: data.capabilities.filter(target => capability.filter && matchesBridgeFilter(capability.filter, target.card)
@@ -63,7 +64,7 @@ export function groundBridgeGraph(data: BridgeGraphData): BridgeGraphData {
       }
       changed = true;
     }
-    return changed ? { ...row, provides } : row;
+    return changed || provides.length !== row.provides.length || provides.some((entry, i) => entry !== row.provides[i]) ? { ...row, provides } : row;
   });
   const blueEyes = data.groups["Blue-Eyes"];
   const groups = blueEyes ? { ...data.groups, "Blue-Eyes": [...new Set([...blueEyes, ...capabilities.filter(blueEyesSupport).map(row => row.id)])].sort((a, b) => a - b) } : data.groups;

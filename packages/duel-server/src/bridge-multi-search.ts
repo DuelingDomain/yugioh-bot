@@ -3,6 +3,7 @@ import { bridgeGate, type ArchetypeBridge } from "@yugidraft/shared/cards/effect
 import { BridgeReviewUnavailableError, type BridgeJobStep } from "./bridge-search-jobs.js";
 import { type EngineQuery } from "./bridge-engine-queries.js";
 import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
+import { reuseAcceptedBridge } from "./bridge-reviewed-candidates.js";
 
 /** The budget counts pairs requiring new reviews, never cached verdicts or subscribers. */
 export async function searchBridgeEngines(db: Database.Database, workers: Pick<DeckSuggestionWorkers, "bridgeCandidates" | "rateBridge" | "bridgeEngineShortlist">,
@@ -22,7 +23,7 @@ export async function searchBridgeEngines(db: Database.Database, workers: Pick<D
       scanned++; progress("candidates", Math.floor(28 * scanned / total));
     }
   }
-  const all = [...pairs.values()].filter(row => row.format === query.format);
+  const all = [...pairs.values()].filter(row => row.format === query.format).map(row => reuseAcceptedBridge(db, row));
   progress("checking", 30);
   const version = (db.prepare("SELECT source_version FROM bridge_graph WHERE id=1").get() as { source_version: string }).source_version;
   db.transaction(() => {

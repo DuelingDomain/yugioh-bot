@@ -738,3 +738,34 @@ it("passes real host step projections through lookup, engines and deep routes", 
     }
   }
 });
+
+it("validates grounded alternative paths through engines and completed deep jobs", async () => {
+  const { importBridgeArtifact, buildBridgeJudgeEvidence, BRIDGE_JUDGE_FRAMINGS, makeBridgeJudgementRecord,
+    saveBridgeJudgement, shownBridge, BridgeAlternativePathSchema } = await import("@yugidraft/shared/cards/effects");
+  const { createBridgeService } = await import("@yugidraft/shared/services");
+  const db = state.db!; importBridgeArtifact(db);
+  const row = createBridgeService(db).deepBetween("Labrynth", "Ashtra")!;
+  const evidence = buildBridgeJudgeEvidence(db, row)!;
+  const line = row.reasons[0]!.cards.map(id => evidence.cards.find(card => card.id === id)!.name);
+  for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing, {
+    verdict: "valid", grade: "good", pros: [], cons: [], lock_note: "", line, format_ok: true,
+  }));
+  const bridge = shownBridge(db, row)!;
+  expect(bridge.review.alternative_paths!.length).toBeGreaterThanOrEqual(1);
+  const validate = async (paths: unknown, expected: number) => {
+    const changed = { ...bridge, review: { ...bridge.review, alternative_paths: paths } };
+    reply = { engines: ["Labrynth", "Ashtra"], between: [changed], next: [], inReview: 0 };
+    expect((await engines({ engines: ["Labrynth", "Ashtra"], format: "advanced" })).status).toBe(expected);
+    reply = { jobId: "bridge-job-1", state: "done", step: "done", progress: 100, results: [changed], inReview: 0 };
+    expect((await poll()).status).toBe(expected);
+  };
+  await validate(bridge.review.alternative_paths, 200);
+  await validate(undefined, 200);
+  const path = bridge.review.alternative_paths![0]!;
+  for (const paths of [null, [path, path, path, path], [{ ...path, line: [] }],
+    [{ ...path, steps: [{ card: "Invented card", text: "" }] }],
+    [{ ...path, steps: path.steps.map(step => ({ ...step, text: "x".repeat(501) })) }]]) {
+    if (Array.isArray(paths) && paths.length === 1) expect(BridgeAlternativePathSchema.safeParse(paths[0]).success).toBe(false);
+    await validate(paths, 502);
+  }
+});

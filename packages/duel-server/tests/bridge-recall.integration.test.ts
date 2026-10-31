@@ -19,6 +19,22 @@ const ownerDeck = {
   extra: [97800311,97800311,60465049,17020474,9464441,43419178,43419178,29301450,1528054,65741787,98978921],
 };
 
+it("reuses a still-valid accepted line when a scan discovers alternative evidence", async () => {
+  const { db, queries, review, workers, pair } = fixture();
+  try {
+    const old = pair("Odion", "Blue-Eyes");
+    review(old);
+    const current = { ...old, evidence_hash: "f".repeat(64), warnings: [...old.warnings, "Alternative discovery revision"] };
+    workers.bridgeCandidates.mockImplementation(async scan => scan.op === "outgoing" ? [current] : []);
+    const records = db.prepare("SELECT judgement_json FROM bridge_judgement ORDER BY judge").all();
+    const result = await searchBridgeEngines(db, workers, { source: "Odion", engines: ["Odion"], format: "advanced" }, () => {});
+    expect(result.rows[0]!.evidence_hash).toBe(old.evidence_hash);
+    expect(queries.project(result.rows, { source: "Odion", engines: ["Odion"], format: "advanced" }, 6).next.map(row => row.engine)).toContain("Blue-Eyes");
+    expect(workers.rateBridge).not.toHaveBeenCalled();
+    expect(db.prepare("SELECT judgement_json FROM bridge_judgement ORDER BY judge").all()).toEqual(records);
+  } finally { db.close(); }
+});
+
 function fixture() {
   const db = new Database(":memory:"); migrate(db); importBridgeArtifact(db);
   const queries = new BridgeEngineQueries(db), service = createBridgeService(db);
@@ -92,7 +108,7 @@ describe("checked physical Niche recall and incoming single-engine discovery", (
         ["outgoing", "Kashtira"], ["into", "Kashtira"], ["outgoing", "Odion"], ["into", "Odion"],
         ["outgoing", "Primite"], ["into", "Primite"],
       ]);
-      expect(service.deepBetween("Odion", "Labrynth")).toBeNull();
+      expect(service.deepBetween("Odion", "Labrynth")).toMatchObject({ tier: "niche", judge: "pending" });
       review(pair("Odion", "Blue-Eyes"), ["valid", "invalid"]);
       expect(bridgeGate(db, pair("Odion", "Blue-Eyes")).state).toBe("review");
       expect(queries.project(rows, query, 6).next.map(row => row.engine)).not.toContain("Blue-Eyes");

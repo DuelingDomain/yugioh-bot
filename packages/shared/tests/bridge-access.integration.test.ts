@@ -99,6 +99,7 @@ describe("deep-only access paths on the pinned catalog", () => {
     const capabilities = structuredClone(data.capabilities);
     const setter = capabilities.find(row => row.id === 53143898)!;
     setter.provides = setter.provides.filter(capability => capability.key !== "set_spell_trap");
+    setter.card.text = setter.card.text.replace(/When this card is Normal Summoned:[^.]+\./, "");
     const missing = new BridgeEngine({ ...data, capabilities });
     expect(missing.deepBetween("Odion", "Altergeist")).toBeNull();
     // Artemis needs another Magistus Summon before it can equip and search.

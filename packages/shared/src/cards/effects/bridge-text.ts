@@ -66,6 +66,17 @@ export function matchesBridgeFilter(filter: CardFilter, card: Card): boolean {
   const exceptName = /^except ["“]([^"”]+)["”]$/i.exec(other);
   if (exceptName) { if (sameName(card.name, exceptName[1]!)) return false; }
   else if (/^non-Wyrm$/i.test(other)) { if (card.kind !== "monster" || card.monsterType === "Wyrm") return false; }
+  else if (/^non-["“][^"”]+["”](?: Normal Trap, different names)?$/i.test(other)) {
+    const excluded = /["“]([^"”]+)["”]/.exec(other)![1]!;
+    if (matchesBridgeFilter({ ...NO_FILTER, archetypes: [excluded] }, card)) return false;
+  }
+  else if (other === "can Set themselves from hand as Spells") {
+    if (card.kind !== "monster" || !/Toy/i.test(card.name) || !/You can Set this card from your hand to your Spell & Trap Zone as a Spell\./i.test(printedText(card))) return false;
+  }
+  else if (/^with an effect that Special Summons itself as a monster$/i.test(other)) { if (!trapMonsterEvidence(card)) return false; }
+  else if (/^that can only be activated when an attack is declared$/i.test(other)) {
+    if (!/^(?:When|If) (?:an? |your |your opponent['’]s )?(?:opponent['’]s )?monster(?: you control)? declares an attack\s*:/i.test(printedText(card))) return false;
+  }
   else if (/^except Field Spells, each with a different name, equal to the number of targeted face-down cards$/i.test(other)) {
     if (card.kind === "spell" && card.subtypes.includes("field")) return false;
   }
@@ -109,13 +120,21 @@ const actionText: Partial<Record<CapabilityKey, RegExp>> = {
 };
 export function actionEvidence(card: Card, key: CapabilityKey, filter?: CardFilter): string | undefined {
   const regex = actionText[key];
-  return regex ? sentences(printedText(card)).find(text => regex.test(text) && (!filter || !particularFilter(filter) || filterPrinted(filter, text))) : undefined;
+  return regex ? sentences(printedText(card)).find(text => regex.test(text)
+    && (key !== "set_spell_trap" || /\bSet\s+(?:(?:up to )?\d+|an?\b|this\b|it\b|that\b|them\b|those\b|the\b|on\b|from\b|non-|["“])/i.test(text) && !/cannot Set/i.test(text))
+    && (!filter || !particularFilter(filter) || filterPrinted(filter, text))) : undefined;
 }
 
 export function trapTurnSetEvidence(card: Card): string | undefined {
   // A permission on a single Trap just Set by an effect (Fierce Parthe) is not a global rule.
-  return sentences(printedText(card)).find(text => /(?:you can activate|trap cards? can be activated)\s*(?:up to )?(?:1 |one )?(?:trap cards?\s*)?(?:the turn (?:it|they) (?:was|were|is|are) set)/i.test(text)
-    && /trap card/i.test(text) && !/this card|that card|those cards/i.test(text));
+  return sentences(printedText(card)).find(text => /(?:you can activate|trap cards? can be activated)\s*(?:up to )?(?:1 |one )?(?:(?:Normal |Continuous )?trap cards?\s*)?(?:the turn (?:it|they) (?:was|were|is|are) set|that was Set this turn)/i.test(text)
+    && /trap card/i.test(text) && !/activate this card|this card can be activated|that card|those cards/i.test(text));
+}
+export function trapTurnSetAllows(card: Card, target: Card): boolean {
+  const evidence = trapTurnSetEvidence(card);
+  if (!evidence || target.kind !== "trap" || /cannot (?:be )?activated? (?:the|this) turn/i.test(printedText(target))) return false;
+  return (!/Normal Trap/i.test(evidence) || target.subtypes.includes("normal"))
+    && (!/Continuous Trap/i.test(evidence) || target.subtypes.includes("continuous"));
 }
 export function faceDownNeedEvidence(card: Card): string | undefined {
   return sentences(printedText(card)).find(text => /(?:face-down cards?|set (?:trap )?cards?)/i.test(text)

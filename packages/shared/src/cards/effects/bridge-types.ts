@@ -47,6 +47,8 @@ export interface BridgeReason {
   key: BridgeReasonKey;
   weight: number;
   ancillary?: boolean;
+  /** Another grounded recipient of the same action; does not add aggregate score. */
+  alternative?: true;
   cards: number[];
   /** Printed evidence in the same order as cards. */
   evidence: string[];
@@ -56,6 +58,8 @@ export interface BridgeReason {
   materials?: number[];
   /** A source card pays the same effect's specific cost before that effect reaches the target. */
   cost?: { card: number; using: number; capability: CapabilityKey; effect: number };
+  /** A checked Set recipient pays this target's printed reveal/return hand Summon procedure. */
+  setup?: { card: number; using: number; capability: "face_down_card" };
 }
 export type BridgeGrade = "Strong" | "Good" | "Niche" | "Risky";
 export interface ArchetypeBridge {

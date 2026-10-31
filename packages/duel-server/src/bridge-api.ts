@@ -10,6 +10,7 @@ import { BridgeFastQueries } from "./bridge-fast-queries.js";
 import { searchBridgeEngines } from "./bridge-multi-search.js";
 import { bridgeRevision } from "./bridge-revision.js";
 import { bridgeProjectionRows, compactBridgeRows } from "./bridge-projection-input.js";
+import { reuseAcceptedBridge } from "./bridge-reviewed-candidates.js";
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const name = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 160;
@@ -29,7 +30,7 @@ export class BridgeApi {
     this.jobs = new BridgeSearchJobs(db, {
       // Old subscriber arrays included Side or Deck Master without recording
       // their zones. Require refreshed context; evidence/review caches survive.
-      now, version: () => `${this.groups().source_version}:${BRIDGE_JUDGE_VERSION}:main-extra-packages-v1:full-engine-recall-v1:engine-core-v1`,
+      now, version: () => `${this.groups().source_version}:${BRIDGE_JUDGE_VERSION}:main-extra-packages-v1:full-engine-recall-v1:engine-core-v1:set-access-alternatives-v1`,
       project: async (rows, query) => {
         const multi = await workers.bridgeEngineProjection(rows, { ...query, engines: query.engines ?? [query.source] });
         return query.engines ? { results: [], ...multi } : { ...this.project(rows, query, true), next: multi.next };
@@ -49,7 +50,7 @@ export class BridgeApi {
           ...(query.target ? { op: "explain", target: query.target } : { op: "live" }) }, value => {
           progress("candidates", Math.floor(25 * value.completed / Math.max(1, value.total)));
         });
-        const rows = this.service.deepTargets(Array.isArray(result) ? result : result ? [result] : [], 25);
+        const rows = this.service.deepTargets((Array.isArray(result) ? result : result ? [result] : []).map(row => reuseAcceptedBridge(this.db, row)), 25);
         progress("checking", 30);
         const version = this.groups().source_version;
         this.db.transaction(() => {

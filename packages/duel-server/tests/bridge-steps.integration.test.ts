@@ -133,3 +133,20 @@ describe("grounded shown bridge steps", () => {
     }
   });
 });
+
+it("projects alternative Set paths from cached verdicts for different subscriber decks", () => {
+  const service = createBridgeService(db), queries = new BridgeEngineQueries(db);
+  const row = service.deepBetween("Labrynth", "Ashtra")!;
+  const evidence = buildBridgeJudgeEvidence(db, row)!;
+  const line = row.reasons[0]!.cards.map(id => evidence.cards.find(card => card.id === id)!.name);
+  approve(row, line);
+  const records = db.prepare("SELECT judgement_json FROM bridge_judgement ORDER BY judge").all();
+  const empty = queries.project([row], { source: "Labrynth", engines: ["Labrynth", "Ashtra"], format: "advanced", deckCards: [] }, 6);
+  const owned = queries.project([row], { source: "Labrynth", engines: ["Labrynth", "Ashtra"], format: "advanced", deckCards: row.cards }, 6);
+  const first = empty.between.find(bridge => bridge.source === "Labrynth")!, second = owned.between.find(bridge => bridge.source === "Labrynth")!;
+  expect(first.review.alternative_paths!.length).toBeGreaterThanOrEqual(1);
+  expect(second.review.alternative_paths).toEqual(first.review.alternative_paths);
+  expect(first.missing.length).toBeGreaterThan(0); expect(second.missing).toEqual([]);
+  expect(buildBridgeJudgeEvidence(db, row)!.input_hash).toBe(evidence.input_hash);
+  expect(db.prepare("SELECT judgement_json FROM bridge_judgement ORDER BY judge").all()).toEqual(records);
+});

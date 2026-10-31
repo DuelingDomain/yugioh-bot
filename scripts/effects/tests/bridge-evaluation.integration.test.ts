@@ -14,8 +14,8 @@ describe("bridge golden evaluation", () => {
       const deep = golden.pairs.filter((pair: { tier?: string }) => pair.tier === "deep");
       writeFileSync(path, JSON.stringify({ core_sources: ["Odion"], pairs: deep }));
       const result = evaluateBridges(path);
-      expect(result.advanced).toMatchObject({ positive_labels: 0, recall_at_4: null, recall_at_10: null, deep_positive_labels: 2, deep_hits_at_10: 2, deep_recall_at_10: 1, known_false_bridges: 0 });
-      expect(result.genesys).toMatchObject({ positive_labels: 0, deep_positive_labels: 1, deep_hits_at_10: 1, deep_recall_at_10: 1, known_false_bridges: 0 });
+      expect(result.advanced).toMatchObject({ positive_labels: 0, recall_at_4: null, recall_at_10: null, deep_positive_labels: 2, deep_hits_at_10: 2, deep_recall_at_10: 1, access_path_labels: 5, access_path_hits: 5, access_path_recall: 1, known_false_bridges: 0 });
+      expect(result.genesys).toMatchObject({ positive_labels: 0, deep_positive_labels: 1, deep_hits_at_10: 1, deep_recall_at_10: 1, access_path_labels: 5, access_path_hits: 5, access_path_recall: 1, known_false_bridges: 0 });
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
   it("rejects nonexistent engine labels and excluded labels that still exist", () => {

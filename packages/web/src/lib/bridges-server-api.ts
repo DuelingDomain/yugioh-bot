@@ -6,7 +6,7 @@ import { env } from "./env";
 import { callDuelHost } from "./duel-host";
 import { apiErrorResponse } from "./api-errors";
 import { readJsonBody } from "./bug-reports/read-body";
-import { BridgePackageSchema, EngineCoreSchema, isBridgeDeck, isBridgeEngineNames, type BridgeEnginesRequest } from "@yugidraft/shared/cards/effects";
+import { BridgeAlternativePathSchema, BridgePackageSchema, EngineCoreSchema, isBridgeDeck, isBridgeEngineNames, type BridgeEnginesRequest } from "@yugidraft/shared/cards/effects";
 import { isBridgeLoadingResponse, type BridgeDeepSearchRequest, type BridgeListRequest, type BridgeLoadingResponse } from "./bridges-api";
 
 type BridgeFormat = "advanced" | "genesys";
@@ -136,6 +136,8 @@ function shownBridge(value: unknown, deep: boolean): boolean {
   if (!object(review)) return false;
   const line = review.line;
   return typeof review.grade === "string" && ["strong", "good", "niche", "risky"].includes(review.grade)
+    && (review.alternative_paths === undefined || Array.isArray(review.alternative_paths) && review.alternative_paths.length <= 3
+      && review.alternative_paths.every(path => BridgeAlternativePathSchema.safeParse(path).success))
     && (value.tier !== "niche" || review.grade === "niche")
     && strings(review.pros, 0, 3, 500) && strings(review.cons, 0, 3, 500)
     // The host falls back to joined printed locks, which have no judge-note length cap.

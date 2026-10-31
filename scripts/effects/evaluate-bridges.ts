@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { migrate } from "@yugidraft/shared/db";
-import { importBridgeArtifact, readBridgeManifest } from "@yugidraft/shared/cards/effects";
+import { buildBridgeJudgeEvidence, importBridgeArtifact, readBridgeManifest } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
 import type { BridgeFormat } from "@yugidraft/shared/cards/effects";
 
@@ -12,12 +12,15 @@ export interface GoldenBridgePair {
   min_grade?: string; cards?: (number | string)[]; why: string; source_url: string;
   /** Deep-only labels do not enter strict Suggestions recall or precision. */
   tier?: "deep";
+  /** A directed physical access regression, independent of the top-ten display cap. */
+  access_path?: boolean;
   excluded_group?: boolean; rejected_evidence_cards?: (number | string)[];
 }
 
 export function evaluateBridges(path = resolve(import.meta.dirname, "../../packages/shared/data/effects/bridges-golden.json")) {
   const golden = JSON.parse(readFileSync(path, "utf8")) as { core_sources?: string[]; pairs: GoldenBridgePair[] };
-  if (!Array.isArray(golden.pairs) || !golden.pairs.length || golden.pairs.some(pair => !["advanced", "genesys"].includes(pair.format) || !["bridge", "not_bridge"].includes(pair.expected) || pair.tier !== undefined && pair.tier !== "deep" || !pair.source || !pair.target || !pair.why || !pair.source_url)) throw new Error("Invalid or empty bridge golden set");
+  if (!Array.isArray(golden.pairs) || !golden.pairs.length || golden.pairs.some(pair => !["advanced", "genesys"].includes(pair.format) || !["bridge", "not_bridge"].includes(pair.expected) || pair.tier !== undefined && pair.tier !== "deep"
+    || pair.access_path !== undefined && (typeof pair.access_path !== "boolean" || pair.tier !== "deep") || !pair.source || !pair.target || !pair.why || !pair.source_url)) throw new Error("Invalid or empty bridge golden set");
   const db = new Database(":memory:");
   try {
     migrate(db); importBridgeArtifact(db);
@@ -33,6 +36,7 @@ export function evaluateBridges(path = resolve(import.meta.dirname, "../../packa
     return Object.fromEntries((["advanced", "genesys"] as const).map(format => {
       const labels = golden.pairs.filter(pair => pair.format === format), sources = new Set(coreSources);
       let correct5 = 0, labelled5 = 0, positive4 = 0, positive10 = 0, positiveLabels = 0, retrieved5 = 0, deepPositiveLabels = 0, deepPositive10 = 0;
+      let accessLabels = 0, accessHits = 0;
       const ranked = new Map([...new Set([...sources, ...labels.map(pair => pair.source)])].map(source => [source, service.bridgesFrom(source, format, 25)]));
       const deepRanked = new Map(labels.filter(pair => pair.tier === "deep").map(pair => [pair.source, service.deepFrom(pair.source, format, 10)]));
       const pairLabels = new Map<string, GoldenBridgePair>();
@@ -42,19 +46,22 @@ export function evaluateBridges(path = resolve(import.meta.dirname, "../../packa
         pairLabels.set(key, pair);
       }
       const outcomes = labels.map(pair => {
-        const found = (pair.tier === "deep" ? deepRanked : ranked).get(pair.source)!, rank = found.findIndex(row => row.target.toLowerCase() === pair.target.toLowerCase()) + 1;
+        const found = (pair.tier === "deep" ? deepRanked : ranked).get(pair.source)!, rank = pair.access_path ? 0 : found.findIndex(row => row.target.toLowerCase() === pair.target.toLowerCase()) + 1;
+        const access = pair.access_path ? service.deepBetween(pair.source, pair.target, format) : null;
+        const accessOk = !!access && !!buildBridgeJudgeEvidence(db, access);
         if (pair.expected === "bridge") {
-          if (pair.tier === "deep") { deepPositiveLabels++; if (rank > 0 && rank <= 10) deepPositive10++; }
+          if (pair.access_path) { accessLabels++; if (accessOk) accessHits++; }
+          else if (pair.tier === "deep") { deepPositiveLabels++; if (rank > 0 && rank <= 10) deepPositive10++; }
           else { positiveLabels++; if (rank > 0 && rank <= 10) positive10++;
             if (service.bridgesFrom(pair.source, format, 4).some(row => row.target.toLowerCase() === pair.target.toLowerCase())) positive4++; }
         }
-        const bridge = rank ? found[rank - 1]! : null;
+        const bridge = pair.access_path ? accessOk ? access : null : rank ? found[rank - 1]! : null;
         const explained = pair.expected === "not_bridge" ? pair.tier === "deep" ? service.deepBetween(pair.source, pair.target, format) : service.explain(pair.source, pair.target, format) : null;
         const explainedNames = explained?.cards.map(id => (db.prepare("SELECT json_extract(capabilities_json,'$.card.name') AS name FROM card_capability WHERE passcode=?").get(id) as { name: string }).name) ?? [];
         const falseBridge = !!explained && (!pair.rejected_evidence_cards?.length || pair.rejected_evidence_cards.some(card => typeof card === "number" ? explained.cards.includes(card) : explainedNames.includes(card)));
         const grades = ["risky", "niche", "good", "strong"];
         const names = bridge?.cards.map(id => (db.prepare("SELECT json_extract(capabilities_json,'$.card.name') AS name FROM card_capability WHERE passcode=?").get(id) as { name: string }).name) ?? [];
-        return { ...pair, rank: rank || null, grade: bridge?.grade ?? null, false_bridge: falseBridge,
+        return { ...pair, rank: rank || null, ...(pair.access_path ? { access_ok: accessOk } : {}), grade: bridge?.grade ?? null, false_bridge: falseBridge,
           grade_ok: !pair.min_grade || !!bridge && grades.indexOf(bridge.grade.toLowerCase()) >= grades.indexOf(pair.min_grade.toLowerCase()),
           matched_evidence_cards: pair.cards?.filter(card => typeof card === "number" ? bridge?.cards.includes(card) : names.includes(card)) ?? [],
           available: !!manifest.groups[pair.source] && !!manifest.groups[pair.target] };
@@ -69,6 +76,7 @@ export function evaluateBridges(path = resolve(import.meta.dirname, "../../packa
         judged_precision_at_5: labelled5 ? correct5 / labelled5 : null, recall_at_4: positiveLabels ? positive4 / positiveLabels : null, recall_at_10: positiveLabels ? positive10 / positiveLabels : null,
         deep_recall_at_10: deepPositiveLabels ? deepPositive10 / deepPositiveLabels : null,
         deep_positive_labels: deepPositiveLabels, deep_hits_at_10: deepPositive10,
+        access_path_labels: accessLabels, access_path_hits: accessHits, access_path_recall: accessLabels ? accessHits / accessLabels : null,
         known_false_bridges: outcomes.filter(pair => pair.false_bridge).length,
         labelled_top_5: labelled5, retrieved_top_5: retrieved5, judgement_coverage_at_5: retrieved5 ? labelled5 / retrieved5 : 0,
         positive_labels: positiveLabels, hits_at_10: positive10, outcomes }];
@@ -79,6 +87,6 @@ export function evaluateBridges(path = resolve(import.meta.dirname, "../../packa
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const result = evaluateBridges(process.argv.find(arg => arg.endsWith(".json")));
   console.log(JSON.stringify(result, null, 2));
-  if (process.argv.includes("--check") && Object.values(result).some(row => row.known_false_bridges > 0 || row.judgement_coverage_at_5 < 0.8 || row.precision_at_5 === null || row.precision_at_5 < 0.9 || row.recall_at_10 !== null && row.recall_at_10 < 0.6 || row.deep_recall_at_10 !== null && row.deep_recall_at_10 < 1 || row.outcomes.some(pair => pair.tier === "deep" && !pair.grade_ok))) process.exitCode = 1;
+  if (process.argv.includes("--check") && Object.values(result).some(row => row.known_false_bridges > 0 || row.judgement_coverage_at_5 < 0.8 || row.precision_at_5 === null || row.precision_at_5 < 0.9 || row.recall_at_10 !== null && row.recall_at_10 < 0.6 || row.deep_recall_at_10 !== null && row.deep_recall_at_10 < 1 || row.access_path_recall !== null && row.access_path_recall < 1 || row.outcomes.some(pair => pair.tier === "deep" && !pair.grade_ok))) process.exitCode = 1;
   if (process.argv.includes("--strict-precision") && Object.values(result).some(row => row.precision_at_5 === null || row.judgement_coverage_at_5 !== 1)) process.exitCode = 1;
 }

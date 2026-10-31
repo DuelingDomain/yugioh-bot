@@ -136,7 +136,7 @@ describe("round 3 bridge rules on the pinned catalog", () => {
       }
       const fabled = engine.between("Fiendsmith", "Fabled", format)!;
       expect(fabled.grade).toBe("Niche");
-      expect(fabled.reasons.find(reason => reason.key === "gy_fuel")).toMatchObject({ ancillary: true, weight: 1 });
+      expect(engine.reasons("Fiendsmith", "Fabled", format).find(reason => reason.key === "gy_fuel")).toMatchObject({ ancillary: true, weight: 1 });
     }
   }, 15_000);
 

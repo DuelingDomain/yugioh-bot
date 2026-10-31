@@ -1602,6 +1602,202 @@
       "tier": "deep",
       "why": "Temple activation permission only lets already available Traps activate sooner. No Odion card reaches a Paleozoic card and no specific target-engine Deck setter supplies the Trap; generic any-Trap toolboxes do not establish access.",
       "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Temple%20of%20the%20Kings"
+    },
+    {
+      "source": "Toy",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "bridge",
+      "tier": "deep",
+      "access_path": true,
+      "min_grade": "Niche",
+      "cards": [
+        24878656,
+        65504487,
+        1710647
+      ],
+      "why": "Toy Box Sets an eligible Toy monster as a Spell; an Ashtra hand Summon reveals and returns that actual Set resource. Toy Box cannot directly Set an Ashtra card.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Toy%20Box"
+    },
+    {
+      "source": "Labrynth",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "bridge",
+      "tier": "deep",
+      "access_path": true,
+      "min_grade": "Niche",
+      "cards": [
+        73602965,
+        81497285,
+        37839434
+      ],
+      "why": "Arias Sets a Normal Trap from hand and permits activation this turn; Lady Labrynth Sets a Normal Trap from Deck. Ashtra Traps fit those printed narrow filters. These are alternative paths.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Arias%20the%20Labrynth%20Butler"
+    },
+    {
+      "source": "Lady of Lament",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "bridge",
+      "tier": "deep",
+      "access_path": true,
+      "min_grade": "Niche",
+      "cards": [
+        25643346,
+        50699850,
+        37839434
+      ],
+      "why": "Malice and Loris can Set an Ashtra Normal Trap from their printed GY/banishment origins, retaining the Tribute or trigger setup and leave-field restrictions.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Malice%2C%20Lady%20of%20Lament"
+    },
+    {
+      "source": "Sunvine",
+      "target": "Argostars",
+      "format": "advanced",
+      "expected": "bridge",
+      "tier": "deep",
+      "access_path": true,
+      "min_grade": "Niche",
+      "cards": [
+        27946124,
+        65889305
+      ],
+      "why": "Sunvine Shrine Sets a Continuous Trap from the GY. Argostars Continuous Trap Monsters fit; the opponent End Phase and GY setup remain requirements.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Sunvine%20Shrine"
+    },
+    {
+      "source": "Supreme King",
+      "target": "Argostars",
+      "format": "advanced",
+      "expected": "bridge",
+      "tier": "deep",
+      "access_path": true,
+      "min_grade": "Niche",
+      "cards": [
+        40456412,
+        30964246
+      ],
+      "why": "Miracle of the Supreme King can Set a Quick-Play Spell from Deck after its printed requirements. Argostars - Giantslaying is a real target member with that subtype.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Miracle%20of%20the%20Supreme%20King"
+    },
+    {
+      "source": "Toy",
+      "target": "Argostars",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Toy Box only Sets qualifying original-name Toy monsters; it cannot Set Argostars cards, and Argostars has no checked reveal-return hand Summon using that Set resource.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Toy%20Box"
+    },
+    {
+      "source": "Sangen",
+      "target": "Ashtra",
+      "format": "advanced",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Sangen Furo banishes its Set recipient when it leaves the field, so that resource cannot actually be returned to hand to pay an Ashtra hand Summon procedure.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Sangen%20Furo"
+    },
+    {
+      "source": "Toy",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "bridge",
+      "tier": "deep",
+      "access_path": true,
+      "min_grade": "Niche",
+      "cards": [
+        24878656,
+        65504487,
+        1710647
+      ],
+      "why": "Toy Box Sets an eligible Toy monster as a Spell; an Ashtra hand Summon reveals and returns that actual Set resource. Toy Box cannot directly Set an Ashtra card.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Toy%20Box"
+    },
+    {
+      "source": "Labrynth",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "bridge",
+      "tier": "deep",
+      "access_path": true,
+      "min_grade": "Niche",
+      "cards": [
+        73602965,
+        81497285,
+        37839434
+      ],
+      "why": "Arias Sets a Normal Trap from hand and permits activation this turn; Lady Labrynth Sets a Normal Trap from Deck. Ashtra Traps fit those printed narrow filters. These are alternative paths.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Arias%20the%20Labrynth%20Butler"
+    },
+    {
+      "source": "Lady of Lament",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "bridge",
+      "tier": "deep",
+      "access_path": true,
+      "min_grade": "Niche",
+      "cards": [
+        25643346,
+        50699850,
+        37839434
+      ],
+      "why": "Malice and Loris can Set an Ashtra Normal Trap from their printed GY/banishment origins, retaining the Tribute or trigger setup and leave-field restrictions.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Malice%2C%20Lady%20of%20Lament"
+    },
+    {
+      "source": "Sunvine",
+      "target": "Argostars",
+      "format": "genesys",
+      "expected": "bridge",
+      "tier": "deep",
+      "access_path": true,
+      "min_grade": "Niche",
+      "cards": [
+        27946124,
+        65889305
+      ],
+      "why": "Sunvine Shrine Sets a Continuous Trap from the GY. Argostars Continuous Trap Monsters fit; the opponent End Phase and GY setup remain requirements.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Sunvine%20Shrine"
+    },
+    {
+      "source": "Supreme King",
+      "target": "Argostars",
+      "format": "genesys",
+      "expected": "bridge",
+      "tier": "deep",
+      "access_path": true,
+      "min_grade": "Niche",
+      "cards": [
+        40456412,
+        30964246
+      ],
+      "why": "Miracle of the Supreme King can Set a Quick-Play Spell from Deck after its printed requirements. Argostars - Giantslaying is a real target member with that subtype.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Miracle%20of%20the%20Supreme%20King"
+    },
+    {
+      "source": "Toy",
+      "target": "Argostars",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Toy Box only Sets qualifying original-name Toy monsters; it cannot Set Argostars cards, and Argostars has no checked reveal-return hand Summon using that Set resource.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Toy%20Box"
+    },
+    {
+      "source": "Sangen",
+      "target": "Ashtra",
+      "format": "genesys",
+      "expected": "not_bridge",
+      "tier": "deep",
+      "access_path": true,
+      "why": "Sangen Furo banishes its Set recipient when it leaves the field, so that resource cannot actually be returned to hand to pay an Ashtra hand Summon procedure.",
+      "source_url": "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Sangen%20Furo"
     }
   ],
   "core_sources": [

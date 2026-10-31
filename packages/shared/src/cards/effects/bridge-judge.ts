@@ -12,8 +12,9 @@ import type { ArchetypeBridge, BridgeFormat, BridgeReason, CardCapability, Summo
 import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudgeSpend, releaseBridgeJudgeSpend, settleBridgeJudgeSpend, startBridgeJudgeSpend, type BridgeJudgeSpendSummary, type BridgeJudgeUsage } from "./bridge-judge-ledger.js";
 import { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS } from "./bridge-judge-model.js";
 import { BRIDGE_FACT_CHECK_SYSTEM, bridgeTextFields, deterministicBridgePros, groundBridgeSentences, validBridgeCitations } from "./bridge-judge-text.js";
-import { deterministicBridgeSteps } from "./bridge-step-text.js";
+import { deterministicBridgeSteps, deterministicBridgeAlternatives } from "./bridge-step-text.js";
 import { bridgePackage, type BridgePackage } from "./bridge-package.js";
+import { setActivationEvidence, setReturnSummonEvidence } from "./bridge-set-access.js";
 export { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS, bridgeJudgeRates } from "./bridge-judge-model.js";
 
 export const BRIDGE_JUDGE_FRAMINGS = ["mechanic", "skeptic"] as const;
@@ -159,10 +160,21 @@ function buildBridgeJudgeContext(db: Database.Database, bridge: ArchetypeBridge)
         }
         if (reason.cost) steps.unshift({ action: reason.cost.capability, card: name(reason.cost.card), target: name(reason.cost.using),
           detail: "Pay this supplied source card as the specific cost of the same effect that reaches the target; do not treat a cost as a resolving effect." });
+        if (reason.setup) steps.push({ action: "reveal_return_set", card: name(reason.setup.card), target: name(reason.setup.using), from_zones: ["hand"],
+          detail: setReturnSummonEvidence(rows.find(row => row.id === reason.setup!.card)!.card)! });
+        for (const step of reason.steps ?? []) if (step.capability === "set_spell_trap") {
+          const source = rows.find(row => row.id === step.from)!, target = rows.find(row => row.id === step.to)!;
+          const capability = source.provides.find(cap => cap.key === "set_spell_trap" && cap.filter && matchesBridgeFilter(cap.filter, target.card));
+          const permission = capability && setActivationEvidence(source.card, target.card, capability);
+          if (permission) steps.push({ action: "activate_set", card: target.card.name, target: source.card.name,
+            detail: permission + " This permission applies to the Trap just Set by this effect; its activation conditions still apply." });
+        }
         if (reason.key === "rule_enabler") {
           const trap = reason.cards.find(id => rows.find(row => row.id === id)!.card.kind === "trap");
           if (trap) steps.push(
-            { action: "activate", card: name(reason.cards[0]!), target: name(trap), detail: "Activate this Spell from hand into its proper zone. Its continuous permission applies while face-up; do not activate the permission as a separate effect." },
+            { action: "activate", card: name(reason.cards[0]!), target: name(trap), detail: rows.find(row => row.id === reason.cards[0])!.card.kind === "spell"
+              ? "Activate this Spell from hand into its proper zone. Its continuous permission applies while face-up; do not activate the permission as a separate effect."
+              : "Use the supplied card's printed Trap activation permission, paying its costs and meeting its conditions. This does not waive the target Trap's activation conditions." },
             ...(!reason.steps?.some(step => step.capability === "set_spell_trap" && step.to === trap) ? [{ action: "set", card: name(trap), target: name(trap), detail: "Set this Trap from hand into a free Spell/Trap Zone. A normal Set cannot take a card from the Deck." }] : []),
             { action: "activate", card: name(trap), target: name(trap), detail: "Activate the Set Trap this turn under that permission; resolve its chosen legal effect. A later Extra Deck Summon is optional." });
         }
@@ -268,8 +280,14 @@ export function bridgeGate(db: Database.Database, bridge: ArchetypeBridge): Brid
 
 export const BridgeReviewStepSchema = z.object({ card: z.string().min(1).max(200), text: z.string().max(500) }).strict();
 export type BridgeReviewStep = z.infer<typeof BridgeReviewStepSchema>;
+export const BridgeAlternativePathSchema = z.object({
+  line: z.array(z.string().min(1).max(200)).min(1).max(3), steps: z.array(BridgeReviewStepSchema).min(1).max(3),
+}).strict().refine(path => path.steps.length === path.line.length && path.steps.every((step, i) => step.card === path.line[i]),
+  { message: "Alternative steps must match their line in order" });
+export type BridgeAlternativePath = z.infer<typeof BridgeAlternativePathSchema>;
 export const ShownBridgeReviewSchema = BridgeJudgementSchema.pick({ pros: true, cons: true, lock_note: true, line: true, grade: true })
-  .extend({ lock_note: z.string(), line: z.array(z.string().min(1).max(200)).min(1).max(3), steps: z.array(BridgeReviewStepSchema).min(1).max(3) })
+  .extend({ lock_note: z.string(), line: z.array(z.string().min(1).max(200)).min(1).max(3), steps: z.array(BridgeReviewStepSchema).min(1).max(3),
+    alternative_paths: z.array(BridgeAlternativePathSchema).max(3).optional() })
   .refine(review => review.steps.length === review.line.length && review.steps.every((step, i) => step.card === review.line[i]),
     { message: "Review steps must match the reviewed line in order" });
 export interface ShownBridge extends ArchetypeBridge, BridgePackage { judge: "accepted"; core?: import("./engine-core.js").EngineCore; review: z.infer<typeof ShownBridgeReviewSchema> }
@@ -288,7 +306,8 @@ function shownFromGate(bridge: ArchetypeBridge, gate: BridgeGate): ShownBridge |
   const { evidence, capabilities } = gate;
   const review = ShownBridgeReviewSchema.parse({ grade, pros: result.pros, cons: result.cons,
     lock_note: result.lock_note || evidence.cards.flatMap(card => card.locks.map(lock => `${card.name}: ${lock.evidence}`)).join(" "),
-    line: result.line, steps: deterministicBridgeSteps(evidence, result.line, capabilities) });
+    line: result.line, steps: deterministicBridgeSteps(evidence, result.line, capabilities),
+    alternative_paths: deterministicBridgeAlternatives(evidence, result.line, capabilities) });
   return { ...bridge, ...bridgePackage([bridge]), grade: grades[grade], judge: "accepted", review };
 }
 
