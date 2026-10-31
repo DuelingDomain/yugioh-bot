@@ -9,9 +9,18 @@ export function readInsightProfiles(
   cards: readonly Candidate[],
   warn: (message: string) => void = message => log("warn", message),
 ): ReadonlyMap<string, ArchetypeProfile> {
+  return readNamedInsightProfiles(db, cards.flatMap(({ card }) => card.archetype ? [card.archetype] : []), warn);
+}
+
+/** Read only the named profiles needed by one search; corrupt optional profiles are skipped. */
+export function readNamedInsightProfiles(
+  db: Database.Database,
+  archetypes: readonly string[],
+  warn: (message: string) => void = message => log("warn", message),
+): ReadonlyMap<string, ArchetypeProfile> {
   const profiles = new Map<string, ArchetypeProfile>();
   const find = db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE");
-  for (const archetype of new Set(cards.flatMap(({ card }) => card.archetype ? [card.archetype] : []))) {
+  for (const archetype of new Set(archetypes)) {
     const row = find.get(archetype);
     if (!row) continue;
     try {

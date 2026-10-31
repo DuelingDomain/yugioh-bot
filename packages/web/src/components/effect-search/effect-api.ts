@@ -12,6 +12,7 @@ export type EffectIntent = NonNullable<import("@yugidraft/shared/cards/effects")
 
 /** A card that matched a description, with the one-line reason it matched. */
 export interface EffectCard extends CardSummary {
+  synergyCategory?: import("@yugidraft/shared/cards/effects").SynergyCategory;
   score: number;
   reason: string;
 }
@@ -20,6 +21,7 @@ export interface EffectSearchResult {
   cards: EffectCard[];
   /** How many cards match in all. `cards` holds the best of them. */
   total: number;
+  groups?: Array<{ archetype: string; cards: EffectCard[]; total: number }>;
   /** How the text was read: one chip per part. Null when the text does not read as an effect. */
   chips: string[] | null;
   /** "How it plays" for the archetype the text names, when there is one. */
@@ -81,14 +83,14 @@ export async function effectSearch(text: string, options: EffectSearchOptions = 
   if (options.sort === "newest") body.sort = "newest";
   if (options.era !== undefined) body.era = options.era;
   if (options.omittedChips?.length) body.omittedChips = options.omittedChips;
-  const data = await post<{ cards: EffectCard[]; total: number; reading: { chips: string[]; query?: { intent?: EffectIntent } } | null; guide?: ArchetypeGuide; relax?: EffectSearchResult["relax"] }>(
+  const data = await post<{ cards: EffectCard[]; total: number; groups?: EffectSearchResult["groups"]; reading: { chips: string[]; query?: { intent?: EffectIntent } } | null; guide?: ArchetypeGuide; relax?: EffectSearchResult["relax"] }>(
     "/api/cards/resolve",
     body,
     "The description search did not work.",
     options.signal,
   );
-  putCards(data.cards);
-  return { cards: data.cards, total: data.total, chips: data.reading?.chips ?? null, relax: data.relax ?? [], ...(data.reading?.query?.intent ? { intent: data.reading.query.intent } : {}), ...(data.guide ? { guide: data.guide } : {}) };
+  putCards([...data.cards, ...(data.groups?.flatMap(group => group.cards) ?? [])]);
+  return { cards: data.cards, total: data.total, ...(data.groups ? { groups: data.groups } : {}), chips: data.reading?.chips ?? null, relax: data.relax ?? [], ...(data.reading?.query?.intent ? { intent: data.reading.query.intent } : {}), ...(data.guide ? { guide: data.guide } : {}) };
 }
 
 /** The cards for one row of "How it plays": cards that are this kind ("is") or that help the deck ("support"). */

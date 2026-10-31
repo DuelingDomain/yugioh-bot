@@ -32,10 +32,19 @@ beforeAll(() => {
     {code:97268402,name:"Effect Veiler",type:0x21},
     {code:89631139,name:"Blue-Eyes White Dragon",type:0x11},
     {code:79816536,name:"Summoner's Art",type:0x2},
+    {code:29762407,name:"Temple of the Kings",type:0x2},
+    {code:80101899,name:"Trap Trick",type:0x4},
+    {code:52112003,name:"Card Advance",type:0x2},
+    {code:62265044,name:"Dragon Ravine",type:0x80002},
+    {code:4929256,name:"Mobius the Frost Monarch",type:0x21},
   ]);
   const engine = new Database(join(directory,"cards.cdb"));
   engine.prepare("UPDATE datas SET race=?,attribute=?,level=? WHERE id=?").run(0x2,0x10,1,97268402);
   engine.prepare("UPDATE datas SET race=?,attribute=?,level=? WHERE id=?").run(0x2000,0x10,8,89631139);
+  const printed = engine.prepare("UPDATE texts SET desc=? WHERE id=?");
+  printed.run("Set 1 Normal Trap directly from your Deck.", 80101899);
+  printed.run("You can Tribute Summon 1 monster in addition to your Normal Summon/Set this turn.", 52112003);
+  printed.run("Discard 1 card; send 1 Dragon monster from your Deck to the GY.", 62265044);
   engine.close();
   const insert = state.db.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,archetype,image_url,image_url_small,card_sets_json,cached_at) VALUES(?,?,?,?,?,?,?,?,'fixture','fixture','[]','now')`);
   insert.run(89631139, "Blue-Eyes White Dragon", "Dragon / Normal Monster", "normal", "A powerful dragon.", "LIGHT", 8, "Blue-Eyes");
@@ -71,6 +80,38 @@ it("forwards an authenticated scoped reading to the real signed host and keeps s
   const response=await post({text:"hand traps that negate",passcodes:[14558127,97268402,89631139]});
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({effectSearchEnabled:true,cards:[],effectTotal:2,reading:{chips:["Role: hand trap","Does: negate"]},effectHits:expect.arrayContaining([expect.objectContaining({code:97268402,reason:expect.any(String)})])});
+});
+it.each([
+  ["Temple of the Kings synergy", 80101899],
+  ["Monarch synergy", 52112003],
+  ["cards that work with Monarch", 52112003],
+  ["Monarch synergy before 2020", 52112003],
+] as const)("finds stored-hook partners through the signed Cards-tab route: %s", async (text, code) => {
+  const response = await post({ text });
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result.effectHits.map((card: DeckCardInfo) => card.code)).toContain(code);
+  expect(result.effectHits.find((card: DeckCardInfo) => card.code === code).reason).not.toBe("Matches your search");
+  expect(result.effectHits.find((card: DeckCardInfo) => card.code === code).synergyCategory).toBe("outside");
+  expect(state.fallback).not.toHaveBeenCalled();
+});
+it("returns separately labelled archetype lists instead of a generic intersection", async () => {
+  const response = await post({ text: "synergy with Temple of the Kings and Blue-Eyes" });
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result.effectHits).toEqual([]);
+  expect(result.effectTotal).toBe(0);
+  expect(result.effectGroups.map((group: { archetype: string }) => group.archetype)).toEqual(["Temple of the Kings", "Blue-Eyes"]);
+  expect(result.effectGroups[0].cards.map((card: DeckCardInfo) => card.code)).toContain(80101899);
+  expect(result.effectGroups[1].cards.map((card: DeckCardInfo) => card.code)).toContain(62265044);
+  expect(state.fallback).not.toHaveBeenCalled();
+});
+it("preserves explicit pools in both fallback lists", async () => {
+  const response = await post({ text: "synergy with Temple of the Kings and Blue-Eyes", passcodes: [80101899] });
+  const result = await response.json();
+  expect(result.effectGroups[0].cards.map((card: DeckCardInfo) => card.code)).toEqual([80101899]);
+  expect(result.effectGroups[1].cards).toEqual([]);
+  expect(state.fallback).not.toHaveBeenCalled();
 });
 it("uses the same Outside row through the signed deck-search and insight entry points", async () => {
   vi.stubEnv("DECK_SUGGESTIONS", "1");
@@ -234,6 +275,22 @@ it('routes format searches through the signed host from both web entry points',a
  expect(response.status).toBe(200);const found=await response.json();
  expect(found.total).toBe(expected.effectTotal);expect(found.cards.map((card:{passcode:number})=>card.passcode)).toEqual(expected.effectHits.map((card:DeckCardInfo)=>card.code));
  expect(found.reading.chips).toContain('Pool: TCG only');
+});
+
+it("preserves synergy categories through format search adapters and resolve decoration", async () => {
+  state.db!.exec("SAVEPOINT format_synergy");
+  try {
+    const insert = state.db!.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at) VALUES(?,?,?,?,?,'image','small','[]','now')`);
+    insert.run(29762407, "Temple of the Kings", "Spell Card", "spell", "You can activate 1 Trap Card the turn it was Set.");
+    insert.run(80101899, "Trap Trick", "Trap Card", "trap", "Set 1 Normal Trap directly from your Deck.");
+    const body = { op: "effectSearch", text: "Temple of the Kings synergy TCG only", limit: 40, pool: [29762407, 80101899] };
+    for (const path of ["../app/api/cards/insights/route", "../app/api/cards/resolve/route"]) {
+      const { POST } = await import(path);
+      const response = await POST(new Request("http://web/api/cards/insights", { method: "POST", body: JSON.stringify(body) }));
+      const data = await response.json();
+      expect({ status: response.status, data }).toMatchObject({ status: 200, data: { cards: [{ synergyCategory: "member" }, { synergyCategory: "outside" }] } });
+    }
+  } finally { state.db!.exec("ROLLBACK TO format_synergy; RELEASE format_synergy"); }
 });
 
 

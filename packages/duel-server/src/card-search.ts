@@ -28,6 +28,8 @@ import { cardBlockIndex, type CardBlockEntry } from "./card-block-list.js";
 import type { CardDatabase } from "./cards.js";
 import { effectSearchEnabled, dateSearchEligible, describeFormat, formatStaples, stapleReason, resolveEffectName, matchesReleased, compareNewest, cardReleaseInfo, type ReleaseDates } from "@yugidraft/shared/cards/effects";
 import { cardEffectIndex, type CardEffectIndex } from "./card-effects.js";
+import { SYNERGY_SEARCH_LIMIT, selectSynergyResults, type SynergyCategory } from "@yugidraft/shared/cards/effects";
+import type { Interpretation } from "@yugidraft/shared/cards/effects";
 
 type Kind = "monster" | "spell" | "trap" | "other";
 
@@ -307,7 +309,7 @@ function sortEntries(found: Entry[], query: CardQuery, member: Matcher | null, r
 }
 
 /** Runs a validated deck-editor query over the engine catalog. */
-export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>, options: { effects?: CardEffectIndex; releases?: ReadonlyMap<number, ReleaseDates>; effectSearchEnabled?: boolean; formatAllowed?: ReadonlySet<number>; guildId?: string } = {}): CardQueryResult {
+export function queryCards(cards: CardDatabase, query: CardQuery, entries?: readonly CardBlockEntry[], genesysPoints?: ReadonlyMap<number, number | null>, options: { effects?: CardEffectIndex; releases?: ReadonlyMap<number, ReleaseDates>; effectSearchEnabled?: boolean; formatAllowed?: ReadonlySet<number>; guildId?: string; reading?: Interpretation } = {}): CardQueryResult {
   const index = indexFor(cards);
   const currentMonth = new Date().toISOString().slice(0, 7);
   const blocked = blocksFor(cards, entries);
@@ -317,7 +319,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const popularity = (entry: Entry) => releaseIndex?.popularity(entry.card.code) ?? 0;
   const releaseFor = (entry: Entry): ReleaseDates => releases?.get(entry.card.canonicalPasscode ?? entry.card.code) ?? {};
   const effects = enabled ? releaseIndex : undefined;
-  let reading = effects && !query.exact && query.scope !== "name" ? effects.readQuery(query.text, query.effectOmit) : null;
+  let reading = effects && !query.exact && query.scope !== "name" ? options.reading ?? effects.readQuery(query.text, query.effectOmit) : null;
   const datedQuery = { ...query, released: query.released ?? reading?.query.released, sort: query.sort === "match" && reading?.query.sort === "newest" ? "newest" as const : query.sort };
   const usesUsage = reading?.query.intent?.kind === "staples" || reading?.query.intent?.kind === "archetype_role";
   const staples = usesUsage ? effects?.staples?.(reading?.query.formatFilter?.format??query.format, query.banlist, options.guildId) ?? formatStaples(reading?.query.formatFilter?.format??query.format, query.banlist) : undefined;
@@ -345,7 +347,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
   const checks = compile(reading ? { ...datedQuery, scope: "name" } : datedQuery, index, genesysPoints, releaseFor);
   const passes = (entry: Entry) => checks.every((check) => check(entry)) && formatChecks.every(check=>check(entry));
   const effectChecks = reading ? [...compile({ ...datedQuery, text: "" }, index, genesysPoints, releaseFor),...formatChecks] : [];
-  const effectFound: Array<{ entry: Entry; score: number }> = [];
+  let effectFound: Array<{ entry: Entry; score: number; synergyCategory?: SynergyCategory }> = [];
 
   const trimmed = query.text.trim();
   const exact = /^\d+$/.test(trimmed) ? index.byCode.get(Number(trimmed)) : undefined;
@@ -396,9 +398,21 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
       || (newest ? popularity() : b.score - a.score)
       || (newest ? b.score - a.score : popularity()) || a.entry.card.code - b.entry.card.code;
   });
+  const supportSearch = !reading?.query.intent && !!reading?.query.supports?.archetypes.length;
+  if (supportSearch) effectFound = selectSynergyResults(effectFound.map(hit => ({
+    ...hit, synergyCategory: effects!.synergyCategory?.(hit.entry.card.code, reading!),
+  })));
+  const effectGroups = supportSearch && !effectFound.length && reading!.query.supports!.archetypes.length > 1
+    ? reading!.query.supports!.archetypes.map(archetype => {
+      const single = { ...reading!, query: { ...reading!.query, supports: { ...reading!.query.supports!, archetypes: [archetype] } } };
+      // Reuse all pool, format, date and card filters. Each independent list is capped and
+      // returned whole; it has its own heading and is never paginated as an intersection.
+      const result = queryCards(cards, { ...query, offset: 0, effectOffset: 0, limit: SYNERGY_SEARCH_LIMIT }, entries, genesysPoints, { ...options, reading: single });
+      return { archetype, cards: result.effectHits ?? [], total: result.effectTotal ?? 0 };
+    }) : undefined;
   const effectOffset = query.effectOffset ?? query.offset;
   const relax: Array<{ chip: string; count: number }> = [];
-  if (reading && !effectFound.length && !sorted.length) {
+  if (reading && !effectGroups && !effectFound.length && !sorted.length) {
     for (const chip of reading.chips) {
       if (chip.startsWith("Text:") || chip.startsWith("Sort:") || describeFormat(reading.query.formatFilter).includes(chip)) continue;
       const relaxed = effects!.readQuery(query.text, [...(query.effectOmit ?? []), chip]);
@@ -416,7 +430,7 @@ export function queryCards(cards: CardDatabase, query: CardQuery, entries?: read
     total: sorted.length,
     offset: query.offset,
     effectSearchEnabled: enabled,
-    ...(enabled ? { reading, effectHits: effectFound.slice(effectOffset, effectOffset + Math.min(query.limit, 30)).map(({ entry, score }) => ({ ...decorate(entry), score, reason: formatReason(entry, reading?.query.intent?.kind === "staples" && staples?.cards.size ? stapleReason(staples.cards.get(entry.card.canonicalPasscode ?? entry.card.code)!, staples.label) : effects!.reason(entry.card.code, reading!, staples)) })), effectTotal: effectFound.length, effectOffset, relax: relax.slice(0, 2) } : {}),
+    ...(enabled ? { reading, effectHits: effectFound.slice(effectOffset, effectOffset + Math.min(query.limit, supportSearch ? SYNERGY_SEARCH_LIMIT : 30)).map(({ entry, score, synergyCategory }) => ({ ...decorate(entry), score, ...(synergyCategory ? { synergyCategory } : {}), reason: formatReason(entry, reading?.query.intent?.kind === "staples" && staples?.cards.size ? stapleReason(staples.cards.get(entry.card.canonicalPasscode ?? entry.card.code)!, staples.label) : effects!.reason(entry.card.code, reading!, staples)) })), effectTotal: effectFound.length, ...(effectGroups ? { effectGroups } : {}), effectOffset, relax: relax.slice(0, 2) } : {}),
   };
 }
 

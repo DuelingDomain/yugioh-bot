@@ -255,7 +255,7 @@ export interface Candidate {
 }
 
 /** A hook that fits more than this share of all cards describes nothing in particular, and is not used. */
-const TOO_COMMON_SHARE = 0.05;
+export const TOO_COMMON_SHARE = 0.05;
 
 export interface HookResult {
   hook: Hook;
@@ -491,6 +491,7 @@ export function cardSynergy(anchor: Candidate, candidate: Candidate): CardLink {
 }
 
 export interface RankedInsightCard {
+  synergyCategory?: import("./synergy-search-hooks.js").SynergyCategory;
   release?: import("./releases.js").CardReleaseInfo;
   passcode: number;
   name: string;

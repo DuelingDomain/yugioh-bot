@@ -45,6 +45,28 @@ async function request(body: unknown, headers?: HeadersInit) {
   return POST(new Request("http://local/api/cards/insights", { method: "POST", body: JSON.stringify(body), headers }));
 }
 
+it("preserves separate synergy lists through insight, resolve and browser calls without AI fallback", async () => {
+  state.db!.exec("SAVEPOINT synergy_groups");
+  try {
+    const insert = state.db!.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at) VALUES(?,?,?,?,?,'image','small','[]','now')`);
+    insert.run(80101899, "Trap Trick", "Trap Card", "trap", "Banish 1 Normal Trap from your Deck, and Set 1 card with the same name directly from your Deck.");
+    insert.run(8240199, "Sage with Eyes of Blue", "Effect Monster", "effect", 'Special Summon 1 "Blue-Eyes" monster from your Deck.');
+    const text = "synergy with Temple of the Kings and Blue-Eyes";
+    const body = { op: "effectSearch", text, pool: [80101899, 8240199] };
+    const found = await (await request(body)).json();
+    expect(found).toMatchObject({ total: 0, cards: [], groups: [{ archetype: "Temple of the Kings", cards: [{ passcode: 80101899, synergyCategory: "outside" }] }, { archetype: "Blue-Eyes", cards: [{ passcode: 8240199, synergyCategory: "support" }] }] });
+    const { POST: resolveCards } = await import("../app/api/cards/resolve/route");
+    const resolved = await resolveCards(new Request("http://local/api/cards/resolve", { method: "POST", body: JSON.stringify(body) }));
+    expect(await resolved.json()).toMatchObject({ total: 0, cards: [], groups: [{ cards: [{ id: 80101899, synergyCategory: "outside" }] }, { cards: [{ id: 8240199, synergyCategory: "support" }] }] });
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => resolveCards(new Request("http://local/api/cards/resolve", init)));
+    try {
+      const { effectSearch } = await import("../src/components/effect-search/effect-api");
+      expect(await effectSearch(text)).toMatchObject({ total: 0, cards: [], groups: [{ cards: [{ id: 80101899, synergyCategory: "outside" }] }, { cards: [{ id: 8240199, synergyCategory: "support" }] }] });
+    } finally { fetch.mockRestore(); }
+    expect(state.fallback).not.toHaveBeenCalled();
+  } finally { state.db!.exec("ROLLBACK TO synergy_groups; RELEASE synergy_groups"); }
+});
+
 describe("authenticated public-catalog insight operations", () => {
   it("gates suggestion rows separately and returns all rows and the complete-Main-Deck hint", async () => {
     const body = { op: "suggestRows", deck: { main: [46986414], extra: [], side: [] }, format: "normal" };

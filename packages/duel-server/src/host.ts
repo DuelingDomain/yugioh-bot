@@ -3678,7 +3678,7 @@ export function createDuelHost(options: {
           {deckMaster:query.deckMaster,cardBlocks:cardRequestEntries({...body,mode},guildId,actor)}).allowed):undefined;
         const search = () => queryCards(catalog, query, entries, points, { effects, releases, effectSearchEnabled: enabled, formatAllowed, guildId });
         let result = search();
-        if (enabled && !query.exact && query.scope !== "name" && query.text.trim() && query.passcodes?.length !== 0 && !query.effectOmit?.length && !result.total && !result.reading?.query.intent && !result.reading?.query.formatFilter && !result.reading?.query.recruiter && !result.reading?.query.released && !result.reading?.query.sort) {
+        if (enabled && !query.exact && query.scope !== "name" && query.text.trim() && query.passcodes?.length !== 0 && !query.effectOmit?.length && !result.total && !result.reading?.query.intent && !result.reading?.query.supports?.archetypes.length && !result.reading?.query.formatFilter && !result.reading?.query.recruiter && !result.reading?.query.released && !result.reading?.query.sort) {
           const { lowConfidenceReading } = await import("@yugidraft/shared/cards/effects");
           if (!result.effectTotal || lowConfidenceReading(query.text, result.reading ?? null)) {
             const { fallbackEffectReading } = await import("@yugidraft/shared/cards/effects/reading-fallback");

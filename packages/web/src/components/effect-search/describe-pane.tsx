@@ -171,7 +171,7 @@ export function DescribePane({
     row?.focus({ preventScroll: true });
   }, [drill]);
 
-  const searchCards: readonly RowCard[] = answer?.result?.cards ?? NO_CARDS;
+  const searchCards: readonly RowCard[] = React.useMemo(() => answer?.result?.groups?.flatMap(group => group.cards) ?? answer?.result?.cards ?? NO_CARDS, [answer?.result]);
   const cards: readonly RowCard[] = drill ? (drill.cards ?? NO_CARDS) : searchCards;
   const selectable = React.useCallback((card: CardSummary) => held(card) === 0, [held]);
 
@@ -321,13 +321,14 @@ export function DescribePane({
         </>
       ) : null}
       {relaxHints?.length ? <RelaxHints relax={relaxHints} onRemove={(chip) => setOmitted((now) => (now.includes(chip) ? now : [...now, chip]))} /> : null}
+      {!drill && result?.groups ? <p role="status">No shared synergy found. Suggestions for each archetype:</p> : null}
       {cards.length > 0 && !error && (
         <div onPointerMove={() => keyboard && setKeyboard(false)}>
           <SelectAllShown
             cards={cards}
             batch={batch}
             selectable={selectable}
-            total={drill ? cards.length : result?.total}
+            total={drill || result?.groups ? cards.length : result?.total}
             onSelectAll={() => onBatch((b) => selectAllShown(b, cards, selectable))}
             onClear={() => onBatch((b) => without(b, cards.map((c) => c.id)))}
           />
@@ -343,6 +344,20 @@ export function DescribePane({
             busy={drill ? drill.cards == null : searching}
             onToggle={toggleCard}
             keyboardActive={keyboard}
+            heading={!drill ? index => {
+              let start = 0, target: string | undefined;
+              if (result?.groups) for (const group of result.groups) {
+                if (index < start + group.cards.length) { target = group.archetype; break; }
+                start += group.cards.length;
+              }
+              const category = cards[index]?.synergyCategory;
+              if (category && (index === start || (cards[index - 1]?.synergyCategory === "outside") !== (category === "outside"))) {
+                return category === "outside" ? target ? `Works with ${target}` : "Works with"
+                  : target ? `Archetype cards — ${target}` : "Archetype cards";
+              }
+              if (target && index === start) return `Works with ${target}`;
+              return undefined;
+            } : undefined}
           />
         </div>
       )}

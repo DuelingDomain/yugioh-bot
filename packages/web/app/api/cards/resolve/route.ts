@@ -112,7 +112,7 @@ async function handlePOST(request: Request) {
     } else {
       const service = createCardInsightService(db, { guildId: env.discordGuildId });
       result = service.effectSearch(input.text, input.pool, input);
-      if (!input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
+      if (!input.exact && input.pool?.length !== 0 && !input.omittedChips?.length && !result.reading?.query.supports?.archetypes.length && (!result.total || lowConfidenceReading(input.text, result.reading))) {
         if (await fallbackEffectReading(db, input.text, actor.userId)) result = service.effectSearch(input.text, input.pool, input);
       }
     }
@@ -120,15 +120,18 @@ async function handlePOST(request: Request) {
     // Only explicit pools may need remote display metadata; cap lookups on this debounced path.
     const lookupBudget = createCardLookupBudget();
     lookupBudget.remaining = EFFECT_SEARCH_LOOKUP_LIMIT;
+    const hits = [...result.cards, ...(result.groups?.flatMap(group => group.cards) ?? [])];
     const unknownIds = input.pool !== undefined
-      ? await ensureCatalogCards(catalog, result.cards.map(card => card.passcode), lookupBudget)
+      ? await ensureCatalogCards(catalog, hits.map(card => card.passcode), lookupBudget)
       : [];
-    const details = new Map(catalog.findByIds(result.cards.map(card => card.passcode)).map(card => [card.ygoprodeckId, card]));
-    const cards = result.cards.flatMap(hit => {
+    const details = new Map(catalog.findByIds(hits.map(card => card.passcode)).map(card => [card.ygoprodeckId, card]));
+    const decorate = (rows: typeof result.cards) => rows.flatMap(hit => {
       const card = details.get(hit.passcode);
-      return card ? [{ ...toCardSummary(card), score: hit.score, reason: hit.reason, release: hit.release }] : [];
+      return card ? [{ ...toCardSummary(card), score: hit.score, reason: hit.reason, release: hit.release, ...(hit.synergyCategory ? { synergyCategory: hit.synergyCategory } : {}) }] : [];
     });
-    return NextResponse.json({ ...result, cards, unknownIds, effectSearchEnabled: true, deckSuggestionsEnabled: deckSuggestionsEnabled() }, { headers: { "Cache-Control": "private, no-store" } });
+    const cards = decorate(result.cards);
+    const groups = result.groups?.map(group => ({ ...group, cards: decorate(group.cards) }));
+    return NextResponse.json({ ...result, cards, ...(groups ? { groups } : {}), unknownIds, effectSearchEnabled: true, deckSuggestionsEnabled: deckSuggestionsEnabled() }, { headers: { "Cache-Control": "private, no-store" } });
   }
   const setNames = Array.isArray(body.setNames) ? body.setNames.filter((s): s is string => typeof s === "string") : [];
   const customCardIds = Array.isArray(body.customCardIds)
