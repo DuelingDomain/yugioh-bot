@@ -168,6 +168,27 @@ describe("stored multi-engine bridge API", () => {
     } finally { release(); await Promise.allSettled(pending); await api.jobs.close(); }
   });
 
+  it("allows a cold first engines request to finish after five seconds", async () => {
+    const actor = seedIdentity(db);
+    let started!: () => void;
+    const ready = new Promise<void>(resolve => { started = resolve; });
+    const scan = vi.fn(async (_input: Record<string, unknown>, _guildId: string, timeoutMs?: number) => {
+      started();
+      await new Promise(resolve => setTimeout(resolve, 6000));
+      return { engines: ["Odion"], between: [], next: [], inReview: 0 };
+    });
+    const api = new BridgeApi(db, { bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines: scan, bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
+    vi.useFakeTimers();
+    try {
+      const pending = api.handle({ userId: actor.userId, bridgeRequest: { op: "engines", engines: ["Odion"] } }, "g", actor.playerId);
+      const result = expect(pending).resolves.toMatchObject({ engines: ["Odion"] });
+      await ready;
+      expect(scan.mock.calls[0]![2]).toBeGreaterThan(15_000);
+      await vi.advanceTimersByTimeAsync(6000);
+      await result;
+    } finally { vi.useRealTimers(); await api.jobs.close(); }
+  });
+
   it("keeps concurrent detected and corrected waiters tied to their own request keys", async () => {
     for (const correctedFirst of [false, true]) {
       let release!: () => void;

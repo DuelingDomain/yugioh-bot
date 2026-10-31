@@ -226,7 +226,10 @@ export async function callDuelHost(input: {
     log("warn", "[duel-host] configuration is incomplete");
     return { ok: false, response: failure({ error: configProblem, ...(!replayOp ? { code: "DUEL_ENGINE_CONFIG" } : {}) }, 503), retryable: false };
   }
-  const transport = signedTransport({ ...cfg, signal, purpose: "duel-host", ...(input.op === "engine-data-status" || input.op === "bug-context" || input.op === "bridges" ? { timeoutMs: 5000 }
+  const bridgeRead = input.op === "bridges" && ["engines", "from", "between"].includes(input.bridgeRequest?.op ?? "");
+  const bridgeReadTimeoutMs = 25_000;
+  const transport = signedTransport({ ...cfg, signal, purpose: "duel-host", ...(bridgeRead ? { timeoutMs: bridgeReadTimeoutMs }
+    : input.op === "engine-data-status" || input.op === "bug-context" || input.op === "bridges" ? { timeoutMs: 5000 }
     : input.op === "normalize-codes" || input.op === "validate-deck-master" ? { timeoutMs: 20000 }
     : replayOp ? { timeoutMs: 30_000 } : {}) });
   const payload: Record<string, unknown> = {
@@ -281,6 +284,7 @@ export async function callDuelHost(input: {
   if (input.choice !== undefined) payload.choice = input.choice;
   if (input.chainMode !== undefined) payload.mode = input.chainMode;
 
+  const started = performance.now();
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {
     // Next's ResponseAborted has no message. A caller disconnect is expected,
@@ -288,6 +292,13 @@ export async function callDuelHost(input: {
     if (signal?.aborted) {
       log("info", "[duel-host] request cancelled", { operation: input.op, hostStatus: result.status, hostBody: result.text.slice(0, 2048) });
       return { ok: false, response: failure({ error: "The duel engine request was cancelled." }, 503), retryable: false };
+    }
+    // The web's own deadline can race an empty-message fetch abort. A read
+    // still initializing is retryable; it is not evidence that bridge data is absent.
+    if (bridgeRead && result.status === 0 && (result.text === "Internal request timed out"
+      || performance.now() - started >= bridgeReadTimeoutMs)) {
+      log("info", "[duel-host] bridge read still loading", { operation: input.bridgeRequest?.op, hostStatus: result.status });
+      return { ok: false, response: failure({ error: "Bridges are still loading. Try again shortly.", code: "BRIDGES_LOADING", retryAfter: 1 }, 503), retryable: true };
     }
     const context = { tags: { operation: input.op }, extra: { hostStatus: result.status, hostBody: result.text.slice(0, 2048) } };
     const hostError = () => new Error(`Duel host ${input.op} failed (HTTP ${result.status}): ${result.text.trim().slice(0, 2048) || "<empty response body>"}`);

@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import type { BridgeDeck, BridgeEnginesResponse } from "@yugidraft/shared/cards/effects";
 import { BridgeJobError } from "./bridge-search-jobs.js";
 import { validateBridgeEngineInput } from "./bridge-engine-queries.js";
-import type { DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
+import { BRIDGE_ENGINES_TIMEOUT_MS, type DeckSuggestionWorkers } from "./deck-suggestion-workers.js";
 import { bridgeRevision } from "./bridge-revision.js";
 
 type QueryWaiter = { deadline: number; abandoned: boolean };
@@ -21,7 +21,7 @@ export class BridgeFastQueries {
     return bridgeRevision(this.db);
   }
 
-  run(input: Record<string, unknown>, guildId: string, userId: number, deadline = performance.now() + 4500, signal?: AbortSignal): Promise<BridgeEnginesResponse> {
+  run(input: Record<string, unknown>, guildId: string, userId: number, deadline = performance.now() + BRIDGE_ENGINES_TIMEOUT_MS, signal?: AbortSignal): Promise<BridgeEnginesResponse> {
     // Each caller keeps its own deadline even when joining existing work.
     return new Promise((resolve, reject) => {
       const waiter: QueryWaiter = { deadline, abandoned: false };

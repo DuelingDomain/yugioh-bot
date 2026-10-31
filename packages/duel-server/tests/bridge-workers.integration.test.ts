@@ -214,7 +214,7 @@ describe("bridge scanner isolation", () => {
         expect(jobs[0]!.worker).toBe(scanner);
       } finally { await cold.close(); }
     } finally { await workers.close(); db.close(); rmSync(directory, { recursive: true, force: true }); }
-  }, 20_000);
+  }, 45_000); // Several real deep scans plus cold initialization; individual query deadlines are asserted above.
 
   it("judges on the host with at most two requests while both scanners remain free", async () => {
     const db = new Database(":memory:"); migrate(db); importCardEffectArtifact(db); importBridgeArtifact(db);

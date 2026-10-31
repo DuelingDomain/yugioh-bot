@@ -119,6 +119,90 @@ it("runs the browser engines helper through the authenticated signed-host route"
   await expect(fetchBridgeEngines({ engines: ["Odion"], format: "advanced" })).rejects.toMatchObject({ status: 502 });
 });
 
+it("keeps first engines and list requests loading past the old five-second timeout", async () => {
+  const { POST } = await import("../app/api/cards/bridges/engines/route");
+  const { GET } = await import("../app/api/cards/bridges/route");
+  const hostFetch = globalThis.fetch;
+  let started!: () => void;
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    started();
+    await new Promise(resolve => setTimeout(resolve, 6000));
+    return hostFetch(url, init);
+  });
+  vi.useFakeTimers();
+  try {
+    for (const op of ["engines", "from", "between"]) {
+      reply = op === "engines" ? { engines: ["Odion"], between: [], next: [], inReview: 0 } : { results: [], inReview: 0 };
+      const ready = new Promise<void>(resolve => { started = resolve; });
+      const pending = op === "engines"
+        ? POST(new Request("http://web.test/api/cards/bridges/engines", { method: "POST", body: JSON.stringify({ engines: ["Odion"], format: "advanced" }) }))
+        : GET(new Request(`http://web.test/api/cards/bridges?source=Odion${op === "between" ? "&target=Argostars" : ""}`));
+      let settled = false;
+      void pending.then(() => { settled = true; });
+      await ready;
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1000);
+      const response = await pending;
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(reply);
+    }
+  } finally { vi.useRealTimers(); }
+});
+
+it("keeps the browser engines promise loading through retryable host responses", async () => {
+  const { fetchBridgeEngines } = await import("../src/lib/bridges-api");
+  const { POST } = await import("../app/api/cards/bridges/engines/route");
+  const hostFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => url === "/api/cards/bridges/engines"
+    ? POST(new Request(`http://web.test${url}`, init)) : hostFetch(url, init));
+  replyStatus = 503; reply = { error: "Bridge query timed out. Try again shortly.", retryAfter: 1 };
+  const query = { engines: ["Odion"], format: "advanced" as const };
+  const loading = await engines(query);
+  expect(loading.status).toBe(202);
+  expect(loading.headers.get("retry-after")).toBe("1");
+  expect(await loading.json()).toEqual({ state: "loading", retryAfter: 1 });
+  replyStatus = 200; reply = { state: "loading", retryAfter: 2 };
+  const forwarded = await engines(query);
+  expect(forwarded.status).toBe(202);
+  expect(forwarded.headers.get("retry-after")).toBe("2");
+  expect(await forwarded.json()).toEqual(reply);
+  replyStatus = 503; reply = { error: "Bridge query timed out. Try again shortly.", retryAfter: 1 };
+  vi.useFakeTimers();
+  try {
+    let settled = false;
+    const pending = fetchBridgeEngines(query);
+    void pending.then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+    replyStatus = 200; reply = { engines: ["Odion"], between: [], next: [], inReview: 0 };
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await pending).toEqual(reply);
+
+    replyStatus = 503; reply = { error: "Bridge scanner queue is busy", retryAfter: 1 };
+    const controller = new AbortController();
+    const cancelled = fetchBridgeEngines(query, controller.signal);
+    const rejection = expect(cancelled).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(0);
+    const count = calls.length;
+    controller.abort();
+    await rejection;
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(calls).toHaveLength(count);
+  } finally { vi.useRealTimers(); }
+});
+
+it("rejects malformed loading responses and preserves permanent engines failures", async () => {
+  const { fetchBridgeEngines } = await import("../src/lib/bridges-api");
+  const query = { engines: ["Odion"], format: "advanced" as const };
+  replyStatus = 503; reply = { error: "Bridge data is unavailable" };
+  expect((await engines(query)).status).toBe(503);
+  for (const retryAfter of [0, -1, 11, 1.5, "1", null, undefined]) {
+    vi.stubGlobal("fetch", async () => Response.json({ state: "loading", retryAfter }, { status: 202 }));
+    await expect(fetchBridgeEngines(query)).rejects.toMatchObject({ status: 502 });
+  }
+});
+
 it("cancels signed-host engine work when the browser request is aborted", async () => {
   const { POST } = await import("../app/api/cards/bridges/engines/route");
   let started!: () => void;
@@ -316,19 +400,19 @@ it("preserves the hourly-limit response and countdown header", async () => {
   expect(await response.json()).toEqual(reply);
 });
 
-it("preserves valid retry hints for busy bridge status, starts and fast operations", async () => {
+it("preserves valid retry hints for busy bridge status and starts, and keeps engines loading", async () => {
   replyStatus = 503;
-  for (const [request, error, retryAfter] of [
-    [() => poll(), "Bridge status is busy", 1],
-    [() => start({ source: "Odion" }), "Bridge search queue is busy", 10],
-    [() => engines({ engines: ["Odion"], format: "advanced" }), "Bridge engines are busy", 2],
+  for (const [request, error, retryAfter, status] of [
+    [() => poll(), "Bridge status is busy", 1, 503],
+    [() => start({ source: "Odion" }), "Bridge search queue is busy", 10, 503],
+    [() => engines({ engines: ["Odion"], format: "advanced" }), "Bridge engines are busy", 2, 202],
   ] as const) {
     reply = { error, retryAfter };
     const response = await request();
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(status);
     expect(response.headers.get("retry-after")).toBe(String(retryAfter));
     expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expect(await response.json()).toMatchObject({ error, retryAfter });
+    expect(await response.json()).toMatchObject(status === 202 ? { state: "loading", retryAfter } : { error, retryAfter });
   }
   for (const retryAfter of [undefined, null, "1", 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
     reply = { error: "Bridge status is busy", retryAfter };
@@ -374,17 +458,40 @@ it("does not present pending or malformed host bridges", async () => {
   expect((await poll()).status).toBe(502);
 });
 
-it("bounds stalled signed host calls without holding a poll open", async () => {
+it("bounds stalled list reads with a still-loading response after twenty-five seconds", async () => {
   const { GET } = await import("../app/api/cards/bridges/route");
   vi.useFakeTimers();
   vi.stubGlobal("fetch", () => new Promise<Response>(() => {}));
   try {
     const pending = GET(new Request("http://web.test/api/cards/bridges?source=Odion"));
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(25_000);
     const response = await pending;
     expect(response.status).toBe(503);
-    expect((await response.json()).error).toContain("timed out");
+    expect(response.headers.get("retry-after")).toBe("1");
+    expect((await response.json()).error).toContain("still loading");
   } finally { vi.useRealTimers(); }
+});
+
+it("keeps engines loading after the web's own timeout and keeps status polls bounded to five seconds", async () => {
+  const { POST } = await import("../app/api/cards/bridges/engines/route");
+  const { GET } = await import("../app/api/cards/bridges/deep-search/[jobId]/route");
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.useFakeTimers();
+  vi.stubGlobal("fetch", (_url: string, init: RequestInit) => new Promise<Response>((_, reject) => {
+    init.signal!.addEventListener("abort", () => reject(new Error("")), { once: true });
+  }));
+  try {
+    const pending = POST(new Request("http://web.test/api/cards/bridges/engines", { method: "POST", body: JSON.stringify({ engines: ["Odion"], format: "advanced" }) }));
+    await vi.advanceTimersByTimeAsync(25_000);
+    const response = await pending;
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ state: "loading", retryAfter: 1 });
+    expect(errors).not.toHaveBeenCalled();
+
+    const status = GET(new Request("http://web.test/api/cards/bridges/deep-search/bridge-job-1"), { params: Promise.resolve({ jobId: "bridge-job-1" }) });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect((await status).status).toBe(503);
+  } finally { vi.useRealTimers(); errors.mockRestore(); }
 });
 
 it("lists bridge feedback only for owners and binds their identity to host review", async () => {
