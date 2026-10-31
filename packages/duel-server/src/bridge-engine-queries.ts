@@ -28,32 +28,35 @@ export class BridgeEngineQueries {
     catch { throw new BridgeJobError("Bridge data is unavailable", 503); }
   }
 
-  resolve(input: Record<string, unknown>, guildId: string): { query: EngineQuery; detected?: DetectedEngine[] } {
-    validateBridgeEngineInput(input);
-    if (!this.db.prepare("SELECT 1 FROM bridge_graph WHERE id=1").get()) throw new BridgeJobError("Bridge data is unavailable", 503);
-    const format: BridgeFormat = input.format === "genesys" ? "genesys" : "advanced";
-    const rawDeck = input.deck as BridgeDeck | undefined;
+  /** Normalize subscriber copies and points without detecting or selecting engines. */
+  deckContext(rawDeck: BridgeDeck | undefined, format: BridgeFormat, remaining?: number) {
     const artwork = this.db.prepare("SELECT card_id FROM card_artworks WHERE artwork_id=?");
     const mainId = (id: number) => (artwork.get(id) as { card_id: number } | undefined)?.card_id ?? id;
     const deck: BridgeDeck | undefined = rawDeck ? { ...rawDeck, main: rawDeck.main.map(mainId), extra: rawDeck.extra.map(mainId),
       ...(rawDeck.deckMaster === undefined ? {} : { deckMaster: mainId(rawDeck.deckMaster) }) } : undefined;
+    const deckCards = deck ? [...deck.main, ...deck.extra] : undefined;
+    if (remaining === undefined && deckCards && format === "genesys") {
+      const spent = [...deckCards, ...(deck?.deckMaster === undefined ? [] : [deck.deckMaster])]
+        .reduce((sum, id) => sum + this.points(id), 0);
+      // Missing catalog/points data must not block an explicit bridge search.
+      // Keep copy context and use the normal no-allowance projection fallback.
+      if (Number.isFinite(spent)) remaining = (deck?.pointCap ?? 100) - spent;
+    }
+    return { deck, ...(remaining === undefined ? {} : { genesysRemaining: remaining }), ...(deckCards ? { deckCards } : {}) };
+  }
+
+  resolve(input: Record<string, unknown>, guildId: string): { query: EngineQuery; detected?: DetectedEngine[] } {
+    validateBridgeEngineInput(input);
+    if (!this.db.prepare("SELECT 1 FROM bridge_graph WHERE id=1").get()) throw new BridgeJobError("Bridge data is unavailable", 503);
+    const format: BridgeFormat = input.format === "genesys" ? "genesys" : "advanced";
+    const { deck, ...context } = this.deckContext(input.deck as BridgeDeck | undefined, format, input.genesysRemaining as number | undefined);
     const detected = deck ? this.service.detectEngines(deck, format, guildId) : undefined;
     const names = input.engines as string[] | undefined ?? detected?.filter(row => row.status === "engine").map(row => row.name) ?? [];
     const groups = this.rankingContext().groups;
     const canonical = names.map(name => Object.keys(groups).find(key => key.toLowerCase() === name.trim().toLowerCase()));
     if (canonical.some(name => !name)) throw new BridgeJobError("Unknown archetype", 400);
     const engines = [...new Set(canonical as string[])].sort();
-    const deckCards = deck ? [...deck.main, ...deck.extra] : undefined;
-    let remaining = input.genesysRemaining as number | undefined;
-    if (remaining === undefined && deckCards && format === "genesys") {
-      const spent = [...deckCards, ...(deck?.deckMaster === undefined ? [] : [deck.deckMaster])]
-        .reduce((sum, id) => sum + this.points(id), 0);
-      // Missing catalog/points data must not block an explicit engine search.
-      // Keep copy context and use the normal no-allowance projection fallback.
-      if (Number.isFinite(spent)) remaining = (deck?.pointCap ?? 100) - spent;
-    }
-    return { query: { source: engines[0] ?? "", engines, format,
-      ...(remaining === undefined ? {} : { genesysRemaining: remaining }), ...(deckCards ? { deckCards } : {}) },
+    return { query: { source: engines[0] ?? "", engines, format, ...context },
       ...(detected ? { detected } : {}) };
   }
 

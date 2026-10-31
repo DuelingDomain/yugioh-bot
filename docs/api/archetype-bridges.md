@@ -8,12 +8,35 @@ All player routes require an authenticated application user with a player in the
 
 `GET /api/cards/bridges?source=Odion&format=advanced` returns at most four shown bridges. Optional query parameters are `target`, `genesysRemaining` (integer 0–1000), and `format=advanced|genesys` (default Advanced). Supply a positive integer `deckId` instead of `source` to infer the archetype from the authenticated owner's saved deck. Exactly one source selector is required. A target requests both directed lookups; `reverse` is present for that lookup.
 
+`POST /api/cards/bridges` reads the same stored list (`from`/`between` on the host) and also accepts the open deck as subscriber context. It uses JSON like the engines endpoint, with a 4096-byte body limit and no query parameters. Unknown fields are rejected. `deck` uses the same validation as engines: Main and Extra arrays, optional Deck Master and point cap, at most 91 total positive uint32 IDs, and an integer cap from 0–1000. Supply `source` with optional `deck`, or an owner-scoped `deckId` without `deck`. A deck alone is not a list selector. `source` and optional `target` remain authoritative; deck detection never changes them. This operation performs no deep scan or paid review.
+
+```ts
+// Import from packages/web/src/lib/bridges-api.ts (browser-safe).
+type BridgeListRequest = {
+  target?: string;
+  format?: BridgeFormat; // "advanced" | "genesys", defaults to Advanced
+  genesysRemaining?: number; // integer 0–1000, including zero
+} & (
+  | { source: string; deck?: BridgeDeck; deckId?: never }
+  | { deckId: number; source?: never; deck?: never }
+);
+type BridgeListResponse = { results: ShownBridge[]; reverse?: ShownBridge[]; inReview: number };
+export async function fetchBridges(query: BridgeListRequest, signal?: AbortSignal): Promise<BridgeListResponse>;
+
+// One selected engine, with the editor's current copies and Side-aware allowance:
+await fetchBridges({ source: "Odion", format: "genesys",
+  deck: { main: [29762407, 97522863], extra: [1710647], pointCap: 250 },
+  genesysRemaining: 37 }, signal);
+```
+
+The helper sends POST JSON and preserves HTTP errors as `Error` objects with `status` and an optional `retryAfter` in seconds; cancellation uses the supplied signal. The existing component-local `fetchBridges` in `src/components/bridges/bridges-api.ts` still sends GET until the UI switches to this library helper. GET remains supported without an open-deck payload. Both transports return the same response shape and use private, no-store responses. List evidence is cached only by source, target and format with the bridge revision; deck copies and allowance are applied separately to every response and never enter that shared cache key. Context cannot leak between callers or change cached evidence.
+
 Suggestions and free two-archetype lookups use the existing strict candidates,
 score floor and top-four selection. Deep-only rows never enter these results,
 including after a deep job saves them in the shared candidate table.
 
 ```ts
-// GET response, HTTP 200
+// GET or POST list response, HTTP 200
 { results: ShownBridge[], reverse?: ShownBridge[], inReview: number }
 // Every ShownBridge includes all ArchetypeBridge fields and:
 { judge: "accepted", missing: number[], alreadyInDeck: boolean, review: {
@@ -40,7 +63,7 @@ accepts older responses without `steps` during rollout; `pathSteps` prefers an
 aligned caption, including empty text, and uses its existing reason fallback
 only when the caption is absent.
 
-For a saved Genesys deck, a supplied `genesysRemaining` takes precedence; otherwise the host derives remaining points from its cap and existing copies, including Side. Only additional required copies consume that allowance. Source-only queries compare the complete evidence package against `genesysRemaining`, defaulting to 100. Card legality and the two review gates apply in either case.
+For a saved Genesys deck, a supplied `genesysRemaining` takes precedence; otherwise the host derives remaining points from its cap and existing copies, including Side. For an open deck, list reads use the same points accounting as engines, described below. Only additional required copies consume that allowance. Source queries without deck context compare the complete evidence package against `genesysRemaining`, defaulting to 100. Card legality and the two review gates apply in either case.
 
 `POST /api/cards/bridges/engines` is a SQLite-only fast operation (`engines` on the host). It reads stored candidates without a deep scan or a paid review. Unknown fields are rejected, the body is bounded to 4096 bytes, and each supplied passcode is a positive uint32. At least one of `deck` and `engines` is required; supplying both detects the deck but uses the corrected engines. Names are canonicalized, deduplicated and sorted. An empty detection is a successful empty result. Chip corrections affect Bridges only.
 
@@ -78,7 +101,7 @@ The shared `BridgePackageSchema` validates host projections and web responses: c
 
 Deep-work keys include the `main-extra-packages-v1` context namespace. Older subscriber copy arrays did not retain zones and cannot safely be reinterpreted; their status IDs return 404 and are not reused. New explicit start requests supply current context. Existing evidence and independent-review caches remain reusable.
 
-For both fast engine requests and deep searches, a supplied `genesysRemaining` is the subscriber's remaining Genesys allowance and takes precedence over host deck accounting, including zero. The editor computes it using the deck's real cap and Side Deck; `deck` itself contains Main, Extra and optional Deck Master, with no Side field. Without an explicit allowance, the host subtracts those supplied cards' points from `deck.pointCap` (integer 0–1000, default 100), including the Deck Master. If any deck card has unknown points, the host skips that calculation, retains the copy context and uses the normal 100-point fallback; the engine search remains available. An explicit allowance skips deck accounting. Missing bridge cards still need known points to pass affordability checks. Without either deck context or an explicit allowance, Genesys affordability defaults to 100. These fields do not change Advanced affordability.
+For POST list reads, fast engine requests and deep searches, a supplied `genesysRemaining` is the subscriber's remaining Genesys allowance and takes precedence over host deck accounting, including zero. The editor computes it using the deck's real cap and Side Deck; `deck` itself contains Main, Extra and optional Deck Master, with no Side field. Without an explicit allowance, the host subtracts those supplied cards' points from `deck.pointCap` (integer 0–1000, default 100), including the Deck Master. If any deck card has unknown points, the host skips that calculation, retains the copy context and uses the normal 100-point fallback; the bridge search remains available. An explicit allowance skips deck accounting. Missing bridge cards still need known points to pass affordability checks. Without either deck context or an explicit allowance, Genesys affordability defaults to 100. These fields do not change Advanced affordability.
 
 Fast engine detection and projection use two read-only scanners shared with Suggestions. Deep candidate scans and shortlists have a separate scanner, so fast requests and status polls cannot reject a running deep job through queue pressure. Equivalent fast requests share work, with at most eight distinct requests globally. Each user can retain two queued query keys behind their running request; subsequent edits replace the oldest queued input. The interactive scanner queue allows eight waiting calls. Engines calls have a 20-second budget including cold worker/DB/graph initialization, actor wait and scanner queue wait. Completed-status scanner calls retain their 4.5-second budget. Host overload or deadline expiry returns 503 with a one-second retry hint. A cold scanner may finish warming after its caller deadline, up to the existing 30-second hard cap; a warm scanner that times out is retired. A five-second, 64-entry fast cache includes guild, engine set, deck context, explicit `genesysRemaining` and persisted revisions of bridge evidence/reviews, catalog and saved-deck detection inputs. Duel writes do not invalidate it. Feedback and judgement writes, including through other connections, invalidate it immediately. This fast result cache is separate from the deck-independent shared deep-work cache.
 
@@ -88,7 +111,7 @@ The web's own read deadline, including an empty-message fetch abort at that dead
 
 Host construction does not load ranking data. With `EFFECT_SEARCH=0` and an older graph lacking `engine_ranking`, the duel host still starts; engine requests return 503 until a compatible artifact is imported. Replacing the graph with an older version also degrades engine requests without affecting duels.
 
-Browser callers can import `fetchBridgeEngines`, `BridgeLoadingResponse`, `isBridgeLoadingResponse`, `BridgeEnginesRequest`, `BridgeDeepSearchRequest`, `ShownBridge`, and `BridgeReviewStep` from `packages/web/src/lib/bridges-api.ts`. Server validation and signed-host helpers live in `bridges-server-api.ts`; web processes never construct the graph.
+Browser callers can import `fetchBridges`, `BridgeListRequest`, `BridgeListResponse`, `fetchBridgeEngines`, `BridgeLoadingResponse`, `isBridgeLoadingResponse`, `BridgeEnginesRequest`, `BridgeDeepSearchRequest`, `ShownBridge`, and `BridgeReviewStep` from `packages/web/src/lib/bridges-api.ts`. Server validation and signed-host helpers live in `bridges-server-api.ts`; web processes never construct the graph.
 
 Caller cancellation is an expected web-to-host outcome, including Next.js's empty-message `ResponseAborted` reason. It returns a descriptive cancellation response without reporting an exception. Unexpected transport/HTTP failures always have a nonempty diagnostic message and include `hostStatus` and a redacted, bounded `hostBody` (at most 2048 characters); empty or invalid successful bodies log the same host details. A failed engines request is not a successful detection of zero engines.
 
