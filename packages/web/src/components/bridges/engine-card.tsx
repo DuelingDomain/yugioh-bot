@@ -2,11 +2,13 @@
 
 import { AlertTriangle, ChevronRight } from "lucide-react";
 import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
+import type { CardAdder } from "@/components/decks/card-adder";
 import { cn } from "@/lib/utils";
 import type { EngineSuggestion } from "@/lib/bridges-api";
 import type { ShownBridge } from "./bridges-api";
 import { GradeTag, OwnedTag, Points, type CardPropsFor } from "./bridge-card";
-import { PathThumbs, pathSteps } from "./bridge-path";
+import { AddPathCards, PathThumbs, pathSteps, type PathStep } from "./bridge-path";
+import { AddEngineCards, EngineCoreGroup, coreCodes } from "./engine-core";
 import { bridgeCodes } from "./bridges-model";
 import { cardsState, useBridgeCards } from "./use-bridges";
 import styles from "./bridges.module.css";
@@ -42,12 +44,15 @@ function linkEnds(engine: EngineSuggestion, from: string, to: string): string {
 }
 
 /** One engine that fits next: grade, how many of your engines it links to, the path of each link, the cards, the points. */
-export function EngineCard({ engine, mode, cards, cardProps, genesys, onOpen, onOpenLink, lit, fresh }: {
+export function EngineCard({ engine, mode, cards, cardProps, genesys, adder, limit, onOpen, onOpenLink, lit, fresh }: {
   engine: EngineSuggestion;
   mode: DuelMode;
   cards: ReadonlyMap<number, DeckCardInfo>;
   cardProps: CardPropsFor;
   genesys: boolean;
+  /** Adds the bridge cards and the engine core that the deck lacks. Not given: no buttons. */
+  adder?: CardAdder;
+  limit?: (card: DeckCardInfo) => 0 | 1 | 2 | 3;
   onOpen?: (engine: EngineSuggestion) => void;
   /** A link opens the details of its bridge. */
   onOpenLink?: (bridge: ShownBridge) => void;
@@ -59,6 +64,13 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, onOpen, on
   const word = engineGrade(engine);
   const covered = `Links ${engine.covered} of ${engine.of}`;
   const need = needText(engine);
+  // The bridge cards of the engine: the cards of every link's line, once each.
+  const line: PathStep[] = [];
+  for (const link of engine.links) {
+    for (const step of pathSteps(link.bridge, cards, cardsState(link.bridge.cards, mode))) {
+      if (!line.some((known) => known.name === step.name)) line.push(step);
+    }
+  }
   const title = (
     <>
       <strong className={styles.target}>{engine.engine}</strong>
@@ -96,6 +108,13 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, onOpen, on
         })}
       </ul>
       {need ? <p className={styles.need} data-testid="engine-need">{need}</p> : null}
+      {engine.core ? <EngineCoreGroup core={engine.core} cards={cards} cardProps={cardProps} genesys={genesys} held={adder?.held} limit={limit} heading="h5" /> : null}
+      {adder ? (
+        <div className={styles.addRow}>
+          <AddPathCards steps={line} held={adder.held} adder={adder} owned={engine.alreadyInDeck} />
+          <AddEngineCards core={engine.core} line={line} cards={cards} mode={mode} adder={adder} genesys={genesys} />
+        </div>
+      ) : null}
       <Points pros={engine.pros} cons={engine.cons} clamp={2} />
       {genesys && engine.genesysPoints != null ? (
         <ul className={styles.warnings} aria-label="Warnings"><li><AlertTriangle size={13} strokeWidth={1.8} aria-hidden /><span>Needs about {engine.genesysPoints} Genesys points for its missing cards.</span></li></ul>
@@ -104,12 +123,14 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, onOpen, on
   );
 }
 
-/** A list of engines. The cards of all engines load together, so the thumbnails fill in at once. */
-export function EngineList({ engines, mode, genesys, cardProps, onCatalog, onOpen, onOpenLink, label, lit, fresh }: {
+/** A list of engines. The cards of all engines (their links and their core) load together, so the thumbnails fill in at once. */
+export function EngineList({ engines, mode, genesys, cardProps, adder, limit, onCatalog, onOpen, onOpenLink, label, lit, fresh }: {
   engines: readonly EngineSuggestion[];
   mode: DuelMode;
   genesys: boolean;
   cardProps: CardPropsFor;
+  adder?: CardAdder;
+  limit?: (card: DeckCardInfo) => 0 | 1 | 2 | 3;
   onCatalog: (cards: DeckCardInfo[]) => void;
   onOpen?: (engine: EngineSuggestion) => void;
   onOpenLink?: (bridge: ShownBridge) => void;
@@ -118,10 +139,10 @@ export function EngineList({ engines, mode, genesys, cardProps, onCatalog, onOpe
   /** Engines only the deep search found. */
   fresh?: ReadonlySet<string>;
 }) {
-  const cards = useBridgeCards(bridgeCodes(engines.flatMap((engine) => engine.links.map((link) => link.bridge))), mode, onCatalog);
+  const cards = useBridgeCards([...new Set([...bridgeCodes(engines.flatMap((engine) => engine.links.map((link) => link.bridge))), ...engines.flatMap((engine) => coreCodes(engine.core))])], mode, onCatalog);
   return (
     <ul className={styles.list} aria-label={label}>
-      {engines.map((engine) => <EngineCard key={engine.engine} engine={engine} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} onOpen={onOpen} onOpenLink={onOpenLink} lit={lit === engine.engine} fresh={fresh?.has(engine.engine)} />)}
+      {engines.map((engine) => <EngineCard key={engine.engine} engine={engine} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} adder={adder} limit={limit} onOpen={onOpen} onOpenLink={onOpenLink} lit={lit === engine.engine} fresh={fresh?.has(engine.engine)} />)}
     </ul>
   );
 }

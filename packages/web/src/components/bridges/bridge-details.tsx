@@ -12,6 +12,7 @@ import type { CardAdder } from "@/components/decks/card-adder";
 import { AddPathCards, PathSteps, pathSteps } from "./bridge-path";
 import { GradeBadge, ProsCons, ReportBridge, Warnings, directionText, type CardPropsFor } from "./bridge-card";
 import { roleFor } from "./bridges-model";
+import { AddEngineCards, EngineCoreGroup, OtherWays, coreCodes } from "./engine-core";
 import { cardsState, useBridgeCards } from "./use-bridges";
 import type { ShownBridge } from "./bridges-api";
 import styles from "./bridges.module.css";
@@ -39,8 +40,9 @@ function BridgeDrill({ source, target, onBack }: { source: string; target: strin
 }
 
 /**
- * One bridge in full: the line in order as card images with what each step does, the good and bad points, the lock note, the warnings, and every bridge
- * card as a tile that works like a tile in Suggestions.
+ * One bridge in full: the bridge cards (the line in order as card images with what each step does, and the other ways
+ * in), the engine core with what the deck holds of it, the good and bad points, the lock note, the warnings, and every
+ * evidence card as a tile that works like a tile in Suggestions.
  */
 export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, limit, genesys, adder, onBack }: {
   bridge: ShownBridge;
@@ -54,9 +56,14 @@ export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, l
   adder?: CardAdder;
   onBack: () => void;
 }) {
-  const cards = useBridgeCards(bridge.cards, mode, onCatalog);
+  const core = bridge.core;
+  // The core cards and the other ways in load with the bridge cards, so they fill in at once.
+  const codes = [...new Set([...bridge.cards, ...coreCodes(core)])];
+  const cards = useBridgeCards(codes, mode, onCatalog);
+  const state = cardsState(codes, mode);
   const steps = pathSteps(bridge, cards, cardsState(bridge.cards, mode));
   const held = adder?.held ?? deckCount;
+  const others = bridge.review.alternative_paths ?? [];
   return (
     <div className={styles.details} data-testid="bridge-details">
       <BridgeDrill source={bridge.source} target={bridge.target} onBack={onBack} />
@@ -67,17 +74,25 @@ export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, l
       </div>
 
       <section aria-labelledby={`line-${bridge.evidence_hash}`}>
-        <h4 id={`line-${bridge.evidence_hash}`} className={styles.subTitle}>The line</h4>
+        <h4 id={`line-${bridge.evidence_hash}`} className={styles.subTitle}>Bridge cards</h4>
         <PathSteps steps={steps} cardProps={cardProps} deckCount={deckCount} held={held} limit={limit} />
         {adder ? <AddPathCards steps={steps} held={held} adder={adder} owned={bridge.alreadyInDeck} /> : null}
+        <OtherWays paths={others} codes={codes} cards={cards} state={state} cardProps={cardProps} />
       </section>
+
+      {core ? (
+        <div data-testid="bridge-engine-core">
+          <EngineCoreGroup core={core} cards={cards} cardProps={cardProps} genesys={genesys} held={adder?.held} limit={limit} />
+          {adder ? <AddEngineCards core={core} line={steps} cards={cards} mode={mode} adder={adder} genesys={genesys} /> : null}
+        </div>
+      ) : null}
 
       <ProsCons bridge={bridge} />
       {bridge.review.lock_note ? <p className={styles.lockNote}><strong>Lock.</strong> {bridge.review.lock_note}</p> : null}
       <Warnings bridge={bridge} genesys={genesys} />
 
       <section aria-labelledby={`cards-${bridge.evidence_hash}`}>
-        <h4 id={`cards-${bridge.evidence_hash}`} className={styles.subTitle}>Bridge cards</h4>
+        <h4 id={`cards-${bridge.evidence_hash}`} className={styles.subTitle}>Evidence cards</h4>
         <ul className={tileStyles.grid} data-testid="bridge-cards">
           {bridge.cards.map((code) => {
             const card = cards.get(code);

@@ -129,13 +129,44 @@ const BRIDGES: FixtureBridge[] = [
     ["Dragon Shrine sends Dragons both ways.", "Dragon Spirit of White is a Level 1 Dragon Tuner."], ["Needs Blue-Eyes monsters in the Main Deck.", "Few cards in common."], "No summon lock."),
   bridge("Dragunity", "Chaos", "Good", 61, false, ["Chaos Sorcerer", "Dragunity Dux"], ["Dragunity Dux", "Chaos Sorcerer"], ["Both play Dragons and Light monsters.", "Dux can be a Chaos banish cost."], ["It does not lead back.", "Few cards in common."], "No summon lock."),
 ];
+/** Other ways in, as the host sends them: the first bridge gets three, the second one. */
+const withAlternatives = (row: FixtureBridge, paths: string[][]) => {
+  (row.review as any).alternative_paths = paths.map((line) => ({ line, steps: line.map((card) => ({ card, text: `${card} is another way in.` })) }));
+};
+withAlternatives(BRIDGES[0]!, [["Dragon Shrine", "Dragunity Dux"], ["Sage with Eyes of Blue", "Dragunity Phalanx"], ["Dragunity Dux"]]);
+withAlternatives(BRIDGES[1]!, [["Redox, Dragon Ruler of Boulders"]]);
+
+/** The engine core of each target, as the host sends it: role, copies and section per card; a core with gaps is not ready. */
+const CORES: Record<string, { caption: string; gaps?: string[]; cards: [string, "main" | "extra", string, number, number?][] }> = {
+  "Dragunity": { caption: "Phalanx starts the engine and Dux adds pressure.", cards: [["Dragunity Phalanx", "main", "starter", 3], ["Dragunity Dux", "main", "payoff", 2], ["Dragon Shrine", "main", "support", 1]] },
+  "Dragon Ruler": { caption: "Tidal and Redox fill the Graveyard.", cards: [["Tidal, Dragon Ruler of Waterfalls", "main", "starter", 3], ["Redox, Dragon Ruler of Boulders", "main", "extender", 2], ["Foolish Burial", "main", "support", 1]] },
+  "Chaos": { caption: "Chaos needs a banish line.", gaps: ["Black Luster Soldier needs a Ritual route that we could not confirm.", "Chaos Sorcerer has no second starter."], cards: [["Chaos Sorcerer", "main", "starter", 3], ["Black Luster Soldier - Envoy of the Beginning", "main", "payoff", 1]] },
+  "Red-Eyes": { caption: "Red-Eyes Fusion makes the Dragoon.", cards: [["Red-Eyes Black Dragon", "main", "starter", 3], ["Red-Eyes Fusion", "main", "support", 2], ["Red-Eyes Dark Dragoon", "extra", "payoff", 1, 3]] },
+  "Dark Magician": { caption: "Dark Magician is the start.", cards: [["Dark Magician", "main", "starter", 3], ["Magician of Black Chaos", "main", "payoff", 1]] },
+  "Blue-Eyes": { caption: "Sage and Shrine start Blue-Eyes.", cards: [["Sage with Eyes of Blue", "main", "starter", 3], ["Dragon Shrine", "main", "support", 2]] },
+  "Melodious": { caption: "Terraforming finds the field spell.", cards: [["Terraforming", "main", "searcher", 2], ["Dragon Spirit of White", "main", "extender", 1], ["Foolish Burial", "main", "support", 1]] },
+};
+/** Copies of each card the open deck holds (Main and Extra), from the deck of the last Bridges request. */
+let deckCounts = new Map<number, number>();
+const countCodes = (codes: number[]) => { const counts = new Map<number, number>(); for (const code of codes) counts.set(code, (counts.get(code) ?? 0) + 1); return counts; };
+function coreOf(target: string, format = "advanced") {
+  const plan = CORES[target];
+  if (!plan) return undefined;
+  const cards = plan.cards.map(([name, section, role, copies, points]) => {
+    const held = deckCounts.get(id(name)) ?? 0;
+    return { code: id(name), name, section, role, copies, held, needed: Math.max(0, copies - held), ...(format === "genesys" && points != null ? { points } : {}) };
+  });
+  const gaps = plan.gaps ?? [];
+  return { cards, ready: cards.length > 0 && gaps.length === 0, gaps, caption: plan.caption };
+}
 const ARCHETYPE_NAMES = ["Blue-Eyes", "Chaos", "Dark Magician", "Dragon Ruler", "Dragunity", "Red-Eyes"];
 const known = (name: string) => ARCHETYPE_NAMES.find((entry) => entry.toLowerCase() === name.trim().toLowerCase());
 /** `owned`: the deck already holds the whole package of the rows with that target, as a host answer with deck context says. */
 /** `held` (the open deck's Main and Extra) makes the package count real: only cards the deck lacks are missing. */
 const asFormat = (list: FixtureBridge[], format: string, owned = "", held?: ReadonlySet<number>) => list.map((entry) => {
   const missing = entry.target === owned ? [] : held ? entry.cards.filter((code) => !held.has(code)) : entry.cards;
-  return { ...entry, format, missing, alreadyInDeck: missing.length === 0, ...(format === "genesys" ? { genesys_points: entry.genesys_points ?? 4 } : {}) };
+  const core = coreOf(entry.target, format);
+  return { ...entry, format, missing, alreadyInDeck: missing.length === 0, ...(core ? { core } : {}), ...(format === "genesys" ? { genesys_points: entry.genesys_points ?? 4 } : {}) };
 });
 
 // ---- Request log and answer control ---------------------------------------------------------------
@@ -178,7 +209,7 @@ function melodious(format: string, held: Set<number>) {
   });
   const cards = [...new Set(links.flatMap((link) => link.bridge.cards))];
   return { engine: "Melodious", score: 13.2, grade: "Good", tier: "strict", covered: 2, of: 2, twoWay: [], links, cards, missing: cards.filter((code) => !held.has(code)), alreadyInDeck: false,
-    genesysPoints: format === "genesys" ? 6 : null, pros: links[0]!.bridge.review.pros, cons: links[0]!.bridge.review.cons };
+    genesysPoints: format === "genesys" ? 6 : null, pros: links[0]!.bridge.review.pros, cons: links[0]!.bridge.review.cons, core: coreOf("Melodious", format) };
 }
 const isBlueDragunity = (set: readonly string[]) => [...set].sort().join("|") === "Blue-Eyes|Dragunity";
 
@@ -200,13 +231,14 @@ function enginesAnswer(body: any) {
     const cards = [...new Set(links.flatMap((link) => link.bridge.cards))];
     return [{ engine: target, score: links.reduce((sum, link) => sum + link.bridge.score, 0) / 10, grade, tier: grade === "Niche" ? "niche" : "strict", covered: links.length, of: set.length,
       twoWay: links.filter((link) => link.bridge.two_way).map((link) => link.from), links, cards, missing: target === engineControl.owned ? [] : cards.filter((code) => !held.has(code)), alreadyInDeck: target === engineControl.owned, genesysPoints: format === "genesys" ? 6 : null,
-      pros: links[0]!.bridge.review.pros, cons: links[0]!.bridge.review.cons }];
+      pros: links[0]!.bridge.review.pros, cons: links[0]!.bridge.review.cons, core: coreOf(target, format) }];
   }).concat(bridgeControl.storedExtra && isBlueDragunity(set) && !engineControl.nextEmpty ? [melodious(format, held) as any] : []).sort((a, b) => b.covered - a.covered || b.score - a.score).slice(0, 4);
   return { engines: set, ...(body.deck ? { detected } : {}), between, next, inReview: bridgeControl.reviewCount };
 }
 
 async function api(method: string, url: URL, body: any) {
   const path = url.pathname;
+  if (path.startsWith("/api/cards/bridges") && body) deckCounts = countCodes([...(body.deck?.main ?? []), ...(body.deck?.extra ?? [])]);
   if (path === "/api/decks/1" && method === "GET") {
     const deck = control.deck === "full" ? FULL_DECK : control.deck === "empty" ? { main: [], extra: [], side: [] } : SMALL_DECK;
     return json(200, { deck: { id: 1, name: "Blue-Eyes", mode: control.mode, genesys: control.genesys ? { pointCap: 100 } : null, deck, createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z" } });
@@ -1840,7 +1872,7 @@ try {
   const mainBefore = await mainCount();
   const extraBefore = await extraCount();
   if (notIn > 0) {
-    check("p3", "the button names how many cards it adds", (await addButton.innerText()) === `Add ${notIn} ${notIn === 1 ? "card" : "cards"}`, await addButton.innerText());
+    check("p3", "the Add bridge button names how many cards it adds", (await addButton.innerText()) === `Add bridge (${notIn})`, await addButton.innerText());
     check("p3", "the cards that go in are named before the click, with their section", /^Adds .*Main Deck/.test(await pDetails.getByTestId("bridge-add-list").innerText()), await pDetails.getByTestId("bridge-add-list").innerText());
     await shot("p-details-before-add-1920x1080");
     await addButton.click();
@@ -1851,7 +1883,7 @@ try {
     await page.keyboard.press("Control+z");
     await page.waitForTimeout(400);
     check("p3", "one undo takes all the added cards out", (await mainCount()) === mainBefore, { mainBefore, now: await mainCount() });
-    check("p3", "after the undo the button offers the cards again", (await addButton.innerText()) === `Add ${notIn} ${notIn === 1 ? "card" : "cards"}`, await addButton.innerText());
+    check("p3", "after the undo the button offers the cards again", (await addButton.innerText()) === `Add bridge (${notIn})`, await addButton.innerText());
   } else {
     check("p3", "the deck holds every card, so the button says so", (await addButton.innerText()).includes("Already in deck"));
   }
@@ -1955,7 +1987,7 @@ try {
     await shot(`q-owned-list-${viewport.name}`);
     await owned.locator("button[data-bridge]").click();
     await pDetails.waitFor();
-    check("q2", `${viewport.name}: its details have no Add cards button, only Already in deck`, (await pDetails.getByTestId("bridge-add").getAttribute("data-state")) === "owned" && (await pDetails.getByRole("button", { name: /Add \d+ card/ }).count()) === 0 && (await pDetails.getByTestId("bridge-add").innerText()).includes("Already in deck"));
+    check("q2", `${viewport.name}: its details have no Add cards button, only Already in deck`, (await pDetails.getByTestId("bridge-add").getAttribute("data-state")) === "owned" && (await pDetails.getByRole("button", { name: /^Add bridge/ }).count()) === 0 && (await pDetails.getByTestId("bridge-add").innerText()).includes("Already in deck"));
     await shot(`q-owned-details-${viewport.name}`);
     await bridges.getByRole("button", { name: /^Back/ }).click();
   }
@@ -2017,6 +2049,120 @@ try {
   await page.waitForTimeout(400);
   check("r4", "one pick asks for its list with the open deck", bridgeCalls.listBodies.length >= 1 && bridgeCalls.listBodies.at(-1)?.source === "Blue-Eyes" && bridgeCalls.listBodies.at(-1)?.deck?.main?.length === small.length + 2, bridgeCalls.listBodies.at(-1));
   check("r4", "that list says Already in deck for the package the deck holds", (await ownedRow.count()) === 1);
+
+  // s. Engine core next to the bridge cards: images with role, copies and what the deck holds; Add bridge and Add engine; other ways in.
+  engineControl.mode = "single";
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await fresh();
+  await goTab("Bridges");
+  await pItems.first().waitFor({ timeout: 15_000 });
+  await pItems.first().locator("button[data-bridge]").click();
+  await pDetails.waitFor();
+  const sHeads = await pDetails.locator("h4, h5").allInnerTexts();
+  check("s1", "the details name two groups, Bridge cards and Engine core", sHeads.includes("Bridge cards") && sHeads.includes("Engine core"), sHeads);
+  const sCards = pDetails.getByTestId("engine-core-card");
+  const sName = (text: string) => sCards.filter({ hasText: text });
+  check("s1", "the core shows its caption and one card with an image per core card, in order", (await pDetails.getByTestId("engine-core-caption").innerText()) === "Phalanx starts the engine and Dux adds pressure." && (await sCards.count()) === 3 && (await sCards.locator("img").count()) === 3
+    && JSON.stringify(await pDetails.getByTestId("engine-core-name").allInnerTexts()) === JSON.stringify(["Dragunity Phalanx", "Dragunity Dux", "Dragon Shrine"]));
+  check("s1", "each core card shows its role, copies and section", JSON.stringify(await pDetails.getByTestId("engine-core-role").allInnerTexts()) === JSON.stringify(["Starter", "Payoff", "Support"]) && JSON.stringify(await pDetails.getByTestId("engine-core-copies").allInnerTexts()) === JSON.stringify(["×3", "×2", "×1"])
+    && (await pDetails.getByTestId("engine-core-section").allInnerTexts()).every((text: string) => text === "Main"));
+  check("s1", "a card the deck holds says In deck, one it lacks says Need", (await sName("Dragon Shrine").getByTestId("engine-core-deck").innerText()) === "In deck ×1" && (await sName("Dragunity Phalanx").getByTestId("engine-core-deck").innerText()) === "Need ×3" && (await sName("Dragunity Dux").getByTestId("engine-core-deck").innerText()) === "Need ×2");
+  check("s1", "the core of an advanced deck shows no Genesys points", (await pDetails.getByTestId("engine-core-points").count()) === 0);
+  const bridgeBtn = pDetails.getByTestId("bridge-add");
+  const coreBtn = pDetails.getByTestId("core-add");
+  check("s2", "Add bridge counts the missing line cards and Add engine counts the copies of the core, not their sum", (await bridgeBtn.innerText()) === "Add bridge (1)" && (await coreBtn.innerText()) === "Add engine (5)", [await bridgeBtn.innerText(), await coreBtn.innerText()]);
+  check("s2", "Add engine names each card with its copies and section", /^Adds Dragunity Phalanx ×3 \(Main Deck\), Dragunity Dux ×2 \(Main Deck\)\./.test(await pDetails.getByTestId("core-add-list").innerText()), await pDetails.getByTestId("core-add-list").innerText());
+  await shot("s-details-core-1920x1080");
+  const sMain = await mainCount();
+  await coreBtn.click();
+  await page.waitForTimeout(500);
+  check("s3", "Add engine puts all needed copies in the deck", (await mainCount()) === sMain + 5, { before: sMain, now: await mainCount() });
+  check("s3", "afterwards both buttons say Already in deck and each core card says In deck", (await bridgeBtn.innerText()).includes("Already in deck") && (await coreBtn.innerText()).includes("Already in deck") && (await pDetails.getByTestId("engine-core-need").count()) === 0 && (await sName("Dragunity Phalanx").getByTestId("engine-core-deck").innerText()) === "In deck ×3");
+  await shot("s-details-core-added-1920x1080");
+  await page.keyboard.press("Control+z");
+  await page.waitForTimeout(400);
+  check("s3", "one undo takes all five copies out", (await mainCount()) === sMain && (await coreBtn.innerText()) === "Add engine (5)", { now: await mainCount() });
+  await bridgeBtn.click();
+  await page.waitForTimeout(400);
+  check("s3", "Add bridge adds only the line card, and Add engine then needs the rest", (await mainCount()) === sMain + 1 && (await bridgeBtn.innerText()).includes("Already in deck") && (await coreBtn.innerText()) === "Add engine (4)", [await mainCount(), await coreBtn.innerText()]);
+  await page.keyboard.press("Control+z");
+  await page.waitForTimeout(400);
+
+  // Other ways in: two rows, the rest behind a button.
+  const sOther = pDetails.getByTestId("bridge-other-ways");
+  check("s4", "other ways in show two rows with a button for the third", (await sOther.getByTestId("bridge-other-row").count()) === 2 && (await sOther.getByTestId("bridge-other-more").innerText()) === "Show 1 more" && (await sOther.getByTestId("bridge-other-more").getAttribute("aria-expanded")) === "false");
+  check("s4", "a row is card images with arrows in play order", JSON.stringify(await sOther.getByTestId("bridge-other-row").first().locator("button").evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.getAttribute("aria-label")))) === JSON.stringify(["Dragon Shrine", "Dragunity Dux"]) && (await sOther.getByTestId("bridge-other-row").first().locator("svg").count()) === 1);
+  await sOther.getByTestId("bridge-other-more").click();
+  check("s4", "the button shows the third row and then offers fewer", (await sOther.getByTestId("bridge-other-row").count()) === 3 && (await sOther.getByTestId("bridge-other-more").innerText()) === "Show fewer");
+  await sOther.getByTestId("bridge-other-more").click();
+  await bridges.getByRole("button", { name: /^Back/ }).click();
+
+  // A core with a gap is not ready: the gaps show, there is no Add engine, and the bridge can still be added.
+  await items.filter({ hasText: "Chaos" }).first().locator("button[data-bridge]").click();
+  await pDetails.waitFor();
+  check("s5", "a core with gaps says Not ready and names every gap", (await pDetails.getByTestId("engine-core-gaps").innerText()) === "Not ready: Black Luster Soldier needs a Ritual route that we could not confirm. Chaos Sorcerer has no second starter.", await pDetails.getByTestId("engine-core-gaps").innerText());
+  check("s5", "it still shows its cards but has no Add engine button", (await pDetails.getByTestId("engine-core-card").count()) === 2 && (await pDetails.getByTestId("core-add").count()) === 0 && (await pDetails.getByRole("button", { name: /^Add engine/ }).count()) === 0 && (await pDetails.getByTestId("bridge-add").count()) === 1);
+  await shot("s-details-not-ready-1920x1080");
+  await bridges.getByRole("button", { name: /^Back/ }).click();
+
+  // Genesys: the core shows the points of its cards.
+  control.genesys = true;
+  await fresh();
+  await goTab("Bridges");
+  await pItems.first().waitFor({ timeout: 15_000 });
+  await items.filter({ hasText: "Red-Eyes" }).first().locator("button[data-bridge]").click();
+  await pDetails.waitFor();
+  check("s7", "a Genesys deck shows the points of a core card", (await pDetails.getByTestId("engine-core-card").filter({ hasText: "Red-Eyes Dark Dragoon" }).getByTestId("engine-core-points").innerText()) === "3 pts" && (await pDetails.getByTestId("engine-core-card").filter({ hasText: "Red-Eyes Dark Dragoon" }).getByTestId("engine-core-section").innerText()) === "Extra");
+  await shot("s-details-genesys-1920x1080");
+  control.genesys = false;
+
+  // The next engine card shows its core and both buttons, and Add engine adds the core in one step.
+  engineControl.mode = "multi";
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await fresh();
+    await goTab("Bridges");
+    await bridges.getByTestId("engines-next").getByTestId("engine-item").first().waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(500);
+    const chaos = bridges.getByTestId("engines-next").locator('[data-engine="Chaos"]');
+    const ruler = bridges.getByTestId("engines-next").locator('[data-engine="Dragon Ruler"]');
+    await chaos.scrollIntoViewIfNeeded();
+    check("s8", `${viewport.name}: an engine with a core gap says Not ready and has no Add engine`, (await chaos.getByTestId("engine-core-gaps").innerText()).startsWith("Not ready: ") && (await chaos.getByTestId("core-add").count()) === 0 && (await chaos.getByTestId("bridge-add").count()) === 1);
+    await ruler.scrollIntoViewIfNeeded();
+    check("s8", `${viewport.name}: a ready engine shows its core cards with images, and both buttons`, (await ruler.getByTestId("engine-core-card").count()) === 3 && (await ruler.getByTestId("engine-core-card").locator("img").count()) === 3 && (await ruler.getByTestId("bridge-add").innerText()) === "Add bridge (1)" && (await ruler.getByTestId("core-add").innerText()) === "Add engine (5)", [await ruler.getByTestId("bridge-add").innerText(), await ruler.getByTestId("core-add").innerText()]);
+    check("s8", `${viewport.name}: the engine card does not scroll the page sideways and stays in the column`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1) && await ruler.evaluate((node: HTMLElement) => node.scrollWidth <= node.clientWidth + 1));
+    if (viewport.width < 960) check("s8", "on a phone both Add buttons are at least 40px tall", (await ruler.getByTestId("core-add").evaluate((node: HTMLElement) => node.getBoundingClientRect().height)) >= 40 && (await ruler.getByTestId("bridge-add").evaluate((node: HTMLElement) => node.getBoundingClientRect().height)) >= 40);
+    await shot(`s-engine-core-${viewport.name}`);
+    if (viewport.width === 1920) {
+      const before = await mainCount();
+      await ruler.getByTestId("core-add").click();
+      await page.waitForTimeout(500);
+      check("s8", "Add engine on the card adds its core in one step", (await mainCount()) === before + 5 && (await ruler.getByTestId("core-add").innerText()).includes("Already in deck"), { before, now: await mainCount() });
+      await page.keyboard.press("Control+z");
+      await page.waitForTimeout(400);
+      check("s8", "one undo takes the core out again", (await mainCount()) === before && (await ruler.getByTestId("core-add").innerText()) === "Add engine (5)");
+    }
+  }
+
+  // Details at every size: the core and the other ways in fit, and the phone buttons are easy to hit.
+  engineControl.mode = "single";
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await fresh();
+    await goTab("Bridges");
+    await pItems.first().waitFor({ timeout: 15_000 });
+    await pItems.first().locator("button[data-bridge]").click();
+    await pDetails.waitFor();
+    await page.waitForTimeout(300);
+    await pDetails.getByTestId("bridge-other-ways").scrollIntoViewIfNeeded();
+    check("s9", `${viewport.name}: other ways in show two rows and fit the width`, (await pDetails.getByTestId("bridge-other-row").count()) === 2 && await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1) && await pDetails.getByTestId("bridge-other-ways").evaluate((node: HTMLElement) => node.scrollWidth <= node.clientWidth + 1));
+    await shot(`s-details-other-ways-${viewport.name}`);
+    await pDetails.getByTestId("bridge-engine-core").scrollIntoViewIfNeeded();
+    check("s9", `${viewport.name}: the engine core fits the width and its images are all inside the column`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1) && await pDetails.getByTestId("bridge-engine-core").evaluate((node: HTMLElement) => { const edge = node.getBoundingClientRect().right + 1; return node.scrollWidth <= node.clientWidth + 1 && [...node.querySelectorAll("img")].every((img) => img.getBoundingClientRect().right <= edge); }));
+    if (viewport.width < 960) check("s9", "on a phone Add engine and the core card images are big enough to hit", (await pDetails.getByTestId("core-add").evaluate((node: HTMLElement) => node.getBoundingClientRect().height)) >= 40 && (await pDetails.getByTestId("engine-core-card").first().locator("button").evaluate((node: HTMLElement) => node.getBoundingClientRect().width)) >= 40);
+    await shot(`s-details-core-${viewport.name}`);
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
 
   // z. The views for review at every size: deck engines, picks, link details, deep search done, and Suggest.
   engineControl.mode = "multi";

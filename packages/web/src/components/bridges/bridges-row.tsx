@@ -390,7 +390,7 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
                   <section aria-label={`Next engine for ${names}`} data-testid={deepNext.length > 0 ? "deep-results" : "engines-next"}>
                     <h4 className={styles.subTitle}>Next engine for {names}</h4>
                     {deepNext.length > 0 ? <p className={styles.note} data-testid="deep-from">From your deep search{fresh.size > 0 ? `: ${fresh.size} new` : ""}.</p> : null}
-                    <EngineList engines={next} mode={mode} genesys={genesys} cardProps={cardProps} onCatalog={onCatalog} label={`Next engine for ${names}`} lit={lit} fresh={fresh} onOpenLink={openBridge} />
+                    <EngineList engines={next} mode={mode} genesys={genesys} cardProps={cardProps} adder={adder} limit={limit} onCatalog={onCatalog} label={`Next engine for ${names}`} lit={lit} fresh={fresh} onOpenLink={openBridge} />
                   </section>
                 ) : null}
                 {deepDone && deepNext.length === 0 ? (
