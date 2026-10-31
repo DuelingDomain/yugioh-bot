@@ -4,14 +4,14 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "re
 import { ChevronRight } from "lucide-react";
 import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
 import type { CardAdder } from "@/components/decks/card-adder";
-import { BridgeCard, GradeBadge, directionText, type CardPropsFor } from "./bridge-card";
+import { BridgeCard, GradeBadge, OwnedTag, directionText, type CardPropsFor } from "./bridge-card";
 import { BridgeDetails } from "./bridge-details";
 import { BridgeSearch } from "./bridge-search";
 import { DeepProgress, DeepSearchButton } from "./deep-search";
 import { EngineChips } from "./engine-chips";
 import { EngineList } from "./engine-card";
 import { BridgeRequestError, type BridgeScope, type ShownBridge } from "./bridges-api";
-import { BRIDGES_SHOWN, DEEP_BRIDGES_SHOWN, bridgeCodes, deepWorkKey } from "./bridges-model";
+import { BRIDGES_SHOWN, DEEP_BRIDGES_SHOWN, actionableFirst, bridgeCodes, capActionable, deepWorkKey } from "./bridges-model";
 import { MAX_ENGINES, NO_EDITS, bridgeDeck, bridgeFormat, hasEdits, lightEngines, readEdits, toggleEngine, writeEdits, type EngineEdits } from "./engines-model";
 import { useBridgeCards, useBridgeList, useDeepSearch } from "./use-bridges";
 import { refreshEngines, useDeckEngines, useEnginesAnswer } from "./use-engines";
@@ -57,7 +57,7 @@ function BridgeList({ bridges, mode, genesys, cardProps, onCatalog, showSource, 
   const cards = useBridgeCards(bridgeCodes(bridges), mode, onCatalog);
   return (
     <ul className={styles.list} aria-label={label}>
-      {bridges.map((bridge) => <BridgeCard key={`${bridge.source}>${bridge.target}:${bridge.evidence_hash}`} bridge={bridge} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} showSource={showSource} onOpen={onOpen} />)}
+      {actionableFirst(bridges).map((bridge) => <BridgeCard key={`${bridge.source}>${bridge.target}:${bridge.evidence_hash}`} bridge={bridge} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} showSource={showSource} onOpen={onOpen} />)}
     </ul>
   );
 }
@@ -77,13 +77,14 @@ function BetweenList({ bridges, title, onOpen }: { bridges: readonly ShownBridge
       <h4 className={styles.subTitle}>{title}</h4>
       <ul className={styles.betweenRows} aria-label={title}>
         {shown.map((bridge) => (
-          <li key={`${bridge.source}>${bridge.target}:${bridge.evidence_hash}`} data-testid="bridge-item" data-grade={bridge.review.grade}>
+          <li key={`${bridge.source}>${bridge.target}:${bridge.evidence_hash}`} data-testid="bridge-item" data-grade={bridge.review.grade} data-owned={bridge.alreadyInDeck ? "" : undefined}>
             <button type="button" className={styles.betweenRow} data-bridge={bridge.evidence_hash}
               aria-label={`${bridge.source} to ${bridge.target}. ${bridge.tier === "niche" ? "Niche" : bridge.grade}, ${directionText(bridge).toLowerCase()}. Open details`} onClick={() => onOpen(bridge)}>
               <strong className={styles.betweenEnds}>{bridge.source}<span className={styles.arrow} aria-hidden> → </span>{bridge.target}</strong>
               <span className={styles.betweenTags}>
                 <GradeBadge bridge={bridge} />
                 <span className={styles.way} data-way={bridge.two_way ? "two" : "one"}>{directionText(bridge)}</span>
+                {bridge.alreadyInDeck ? <OwnedTag /> : null}
                 <ChevronRight size={15} strokeWidth={1.8} aria-hidden className={styles.chevron} />
               </span>
             </button>
@@ -246,11 +247,11 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
   }, [ask, active]);
 
   const result = setResult;
-  const between = result?.between ?? [];
-  const fastNext = result?.next ?? [];
+  const between = actionableFirst(result?.between ?? []);
+  const fastNext = actionableFirst(result?.next ?? []);
   // A finished deep search for this set takes the place of the fast list: one list, its new engines marked.
   const deepDone = set.length > 1 && deep.phase === "done";
-  const deepNext = deepDone ? deep.next : [];
+  const deepNext = deepDone ? actionableFirst(deep.next) : [];
   const next = deepNext.length > 0 ? deepNext : fastNext;
   // "New" is measured against the fast list from before the deep search ended. The fast answer is asked again once it
   // ends and then holds the rows the deep search stored, so it alone would take the marks away a moment later.
@@ -302,7 +303,7 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
   if (disabled) return null;
 
   const common = { mode, genesys, cardProps, onCatalog, onOpen: openBridge };
-  const top = list?.results.slice(0, BRIDGES_SHOWN) ?? [];
+  const top = capActionable(list?.results ?? [], BRIDGES_SHOWN);
   const noData = error instanceof BridgeRequestError && error.status === 400;
   // The host could not read the deck (in Genesys, a card with no known points): its words say why.
   const deckRefused = !pickMode && !empty && engines.error?.status === 400 ? engines.error.message : null;
@@ -342,7 +343,11 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
             <EngineChips title="Archetypes to compare" set={set} busy={setLoading}
               onRemove={(name) => setPicks((now) => now.filter((item) => item !== name))}
               onAdd={(name) => setPicks((now) => (now.includes(name) || now.length >= MAX_ENGINES ? now : [...now, name]))} />
-          ) : !empty && !deckRefused ? (
+          ) : !empty && !deckRefused && engines.waiting ? (
+            <div className={styles.chipSkeletons} data-testid="engine-chips-loading" role="status" aria-label="Looking for the engines of your deck">
+              <span className={styles.chipSkeleton} aria-hidden /><span className={styles.chipSkeleton} aria-hidden />
+            </div>
+          ) : !empty && !deckRefused && !(engines.error && engines.found.length === 0) ? (
             <EngineChips title="Engines in this deck" set={set} light={lightEngines(engines.detected, set)} edited={hasEdits(edits)} busy={engines.loading} keepOne
               onRemove={(name) => setEdits((now) => toggleEngine(now, engines.found, name, false))}
               onAdd={(name) => setEdits((now) => toggleEngine(now, engines.found, name, true))}
@@ -405,7 +410,7 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
             <div className={styles.deepResults} data-testid="deep-results">
               <h4 className={styles.subTitle}>Deep search results</h4>
               {deep.results.length > 0
-                ? <BridgeList {...common} bridges={deep.results.slice(0, DEEP_BRIDGES_SHOWN)} label="Deep search results" />
+                ? <BridgeList {...common} bridges={capActionable(deep.results, DEEP_BRIDGES_SHOWN)} label="Deep search results" />
                 : <p className={styles.hint} data-testid="deep-none">The deep search found no more bridges that passed our checks.</p>}
             </div>
           ) : null}

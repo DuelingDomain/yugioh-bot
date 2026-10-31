@@ -131,8 +131,15 @@ export function PathSteps({ steps, cardProps, deckCount, held, limit }: {
  * go in (and where), and which cannot (banlist, a full section). It never says "Already in deck" while a card of the
  * line is still loading or was not found: it says so and names that card.
  */
-export function AddPathCards({ steps, held, adder }: { steps: readonly PathStep[]; held: (card: DeckCardInfo) => number; adder: CardAdder }) {
+export function AddPathCards({ steps, held, adder, owned = false }: { steps: readonly PathStep[]; held: (card: DeckCardInfo) => number; adder: CardAdder; /** The host says the deck holds the whole package: no Add, a quiet label. */ owned?: boolean }) {
   if (steps.length === 0) return null;
+  if (owned) {
+    return (
+      <div className={styles.addBox} data-testid="bridge-add-box">
+        <span className={styles.owned} data-testid="bridge-add" data-state="owned"><Check size={12} strokeWidth={2} aria-hidden />Already in deck</span>
+      </div>
+    );
+  }
   const loading = steps.some((step) => step.status === "loading");
   const unfound = steps.filter((step) => step.status === "missing").map((step) => step.name);
   const unloaded = steps.filter((step) => step.status === "failed").map((step) => step.name);

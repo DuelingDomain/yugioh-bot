@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { bridgeGate, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_VERSION, shownBridge, type ArchetypeBridge, type BridgeGraphData } from "@yugidraft/shared/cards/effects";
+import { bridgeGate, bridgePackage, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_VERSION, shownBridge, type ArchetypeBridge, type BridgeGraphData } from "@yugidraft/shared/cards/effects";
 import { createBridgeService, createSavedDeckService } from "@yugidraft/shared/services";
 import { isOwnerUser } from "@yugidraft/shared/access/owner-access";
 import { createHash } from "node:crypto";
@@ -27,7 +27,9 @@ export class BridgeApi {
     this.engineQueries = new BridgeEngineQueries(db);
     this.fastQueries = new BridgeFastQueries(db, workers, now);
     this.jobs = new BridgeSearchJobs(db, {
-      now, version: () => `${this.groups().source_version}:${BRIDGE_JUDGE_VERSION}`,
+      // Old subscriber arrays included Side or Deck Master without recording
+      // their zones. Require refreshed context; evidence/review caches survive.
+      now, version: () => `${this.groups().source_version}:${BRIDGE_JUDGE_VERSION}:main-extra-packages-v1`,
       project: async (rows, query) => {
         const multi = await workers.bridgeEngineProjection(rows, { ...query, engines: query.engines ?? [query.source] });
         return query.engines ? { results: [], ...multi } : { ...this.project(rows, query, true), next: multi.next };
@@ -96,15 +98,17 @@ export class BridgeApi {
       let saved;
       try { saved = createSavedDeckService(this.db).get(Number(input.deckId), guildId, userId); }
       catch { throw new BridgeJobError("Deck not found", 404); }
-      const cards = new Set(saved.deck.main);
+      const artwork = this.db.prepare("SELECT card_id FROM card_artworks WHERE artwork_id=?");
+      const mainId = (id: number) => (artwork.get(id) as { card_id: number } | undefined)?.card_id ?? id;
+      deckCards = [...saved.deck.main, ...saved.deck.extra].map(mainId);
+      const cards = new Set(saved.deck.main.map(mainId));
       source = Object.entries(groups).map(([key, ids]) => ({ key, count: ids.filter(id => cards.has(id)).length }))
         .filter(row => row.count > 0).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))[0]?.key;
       if (!source) throw new BridgeJobError("The deck needs an archetype before searching bridges", 400);
       if (input.format === "genesys") {
-        deckCards = [...saved.deck.main, ...saved.deck.extra, ...saved.deck.side];
         if (remaining === undefined) {
           let spent = 0;
-          for (const id of deckCards) {
+          for (const id of [...deckCards, ...saved.deck.side.map(mainId), ...(saved.deck.deckMaster === undefined ? [] : [mainId(saved.deck.deckMaster)])]) {
             const row = this.db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode=?").get(id) as { capabilities_json: string } | undefined;
             const points = row ? JSON.parse(row.capabilities_json).card.genesysPoints as number | undefined : undefined;
             if (points === undefined) throw new BridgeJobError("Genesys points are unavailable for this deck", 400);
@@ -158,7 +162,7 @@ export class BridgeApi {
         const reverse = deep ? this.service.deepBetween(row.target, row.source, row.format) : this.service.bridgeBetween(row.target, row.source, row.format);
         const twoWay = !!reverse && !!shownBridge(this.db, reverse)
           && (reverse.format !== "genesys" || this.incrementalPoints(reverse, query) <= (query.genesysRemaining ?? 100));
-        return [{ ...shown, two_way: twoWay }]; });
+        return [{ ...shown, ...bridgePackage([shown], query.deckCards), two_way: twoWay }]; });
     const results = deep ? this.service.deepTargets(shown, 10) : this.service.distinctTargets(shown, 4);
     return { results, inReview: candidates.filter(row => ["pending", "review"].includes(bridgeGate(this.db, row).state)).length };
   }

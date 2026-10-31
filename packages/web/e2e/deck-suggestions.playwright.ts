@@ -131,14 +131,15 @@ const BRIDGES: FixtureBridge[] = [
 ];
 const ARCHETYPE_NAMES = ["Blue-Eyes", "Chaos", "Dark Magician", "Dragon Ruler", "Dragunity", "Red-Eyes"];
 const known = (name: string) => ARCHETYPE_NAMES.find((entry) => entry.toLowerCase() === name.trim().toLowerCase());
-const asFormat = (list: FixtureBridge[], format: string) => list.map((entry) => ({ ...entry, format, ...(format === "genesys" ? { genesys_points: entry.genesys_points ?? 4 } : {}) }));
+/** `owned`: the deck already holds the whole package of the rows with that target, as a host answer with deck context says. */
+const asFormat = (list: FixtureBridge[], format: string, owned = "") => list.map((entry) => ({ ...entry, format, missing: entry.target === owned ? [] : entry.cards, alreadyInDeck: entry.target === owned, ...(format === "genesys" ? { genesys_points: entry.genesys_points ?? 4 } : {}) }));
 
 // ---- Request log and answer control ---------------------------------------------------------------
 const insightRequests: { deck: { main: number[] }; pool?: number[]; at: number }[] = [];
 const control = { delayMs: 0, emptyRows: false, deck: "small" as "small" | "full" | "empty", genesys: false, mode: "normal" as "normal" | "domain" };
 /** Bridges: every call the row made, and how the stand-in host should answer. */
 const bridgeCalls = { lists: [] as string[], starts: [] as Record<string, unknown>[], polls: 0, feedback: [] as Record<string, unknown>[], archetypes: 0 };
-const bridgeControl = { listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok" as "ok" | "fail", reviewCount: 3, feedbackFails: false, started: 0, deepNone: false,
+const bridgeControl = { ownedTarget: "", listStatus: 200, none: false, pollDelayMs: 0, startRetryAfter: 0, jobMode: "ok" as "ok" | "fail", reviewCount: 3, feedbackFails: false, started: 0, deepNone: false,
   /** The deep search on Blue-Eyes + Dragunity finds Melodious (not in the fast list) and drops Dragon Ruler. */
   deepExtra: false,
   /** A status the host answers a join-only request with (404 or 409), or 0. */
@@ -150,7 +151,7 @@ const bridgeControl = { listStatus: 200, none: false, pollDelayMs: 0, startRetry
 /** Engines: the calls of the fast operation, and how the stand-in host detects the deck. */
 const engineCalls: Record<string, any>[] = [];
 const multiJobs = new Map<string, ReturnType<typeof enginesAnswer>>();
-const engineControl = { mode: "single" as "single" | "multi" | "none", status: 200, delayMs: 0, nextEmpty: false };
+const engineControl = { mode: "single" as "single" | "multi" | "none", status: 200, delayMs: 0, nextEmpty: false, owned: "" };
 /** The stand-in host's deep jobs: one per search (engines and format, or source), shared like the host shares them. */
 const deepJobs = new Map<string, { id: string; done: boolean }>();
 const deepWork = (body: any) => body.engines?.length > 1 ? JSON.stringify(["multi", [...body.engines].map((name: string) => name.toLowerCase()).sort(), body.format ?? "advanced"]) : JSON.stringify([String(body.engines?.[0] ?? body.source ?? "").toLowerCase(), body.target ?? "", body.format ?? "advanced"]);
@@ -172,7 +173,7 @@ function melodious(format: string, held: Set<number>) {
     return { from, to: "Melodious", bridge: row };
   });
   const cards = [...new Set(links.flatMap((link) => link.bridge.cards))];
-  return { engine: "Melodious", score: 13.2, grade: "Good", tier: "strict", covered: 2, of: 2, twoWay: [], links, cards, missing: cards.filter((code) => !held.has(code)),
+  return { engine: "Melodious", score: 13.2, grade: "Good", tier: "strict", covered: 2, of: 2, twoWay: [], links, cards, missing: cards.filter((code) => !held.has(code)), alreadyInDeck: false,
     genesysPoints: format === "genesys" ? 6 : null, pros: links[0]!.bridge.review.pros, cons: links[0]!.bridge.review.cons };
 }
 const isBlueDragunity = (set: readonly string[]) => [...set].sort().join("|") === "Blue-Eyes|Dragunity";
@@ -187,14 +188,14 @@ function enginesAnswer(body: any) {
     : [{ name: "Blue-Eyes", weight: 6, copies: 6, distinct: 5, status: "engine", hybrids: [] }, { name: "Dragunity", weight: 2, copies: 2, distinct: 2, status: "light", hybrids: [] }];
   const set: string[] = body.engines ? [...new Set<string>(body.engines.flatMap((name: string) => known(name) ?? []))].sort() : detected.filter((entry) => entry.status === "engine").map((entry) => entry.name).sort();
   const held = new Set<number>(body.deck?.main ?? []);
-  const between = set.length > 1 ? asFormat(BRIDGES.filter((entry) => set.includes(entry.source) && set.includes(entry.target)), format) : [];
+  const between = set.length > 1 ? asFormat(BRIDGES.filter((entry) => set.includes(entry.source) && set.includes(entry.target)), format, engineControl.owned) : [];
   const next = set.length === 0 || engineControl.nextEmpty ? [] : ARCHETYPE_NAMES.filter((name) => !set.includes(name)).flatMap((target) => {
-    const links = set.flatMap((from) => { const row = BRIDGES.find((entry) => entry.source === from && entry.target === target); return row ? [{ from, to: target, bridge: asFormat([row], format)[0]! }] : []; });
+    const links = set.flatMap((from) => { const row = BRIDGES.find((entry) => entry.source === from && entry.target === target); return row ? [{ from, to: target, bridge: asFormat([row], format, engineControl.owned)[0]! }] : []; });
     if (links.length === 0) return [];
     const grade = links.map((link) => link.bridge.grade).sort((a, b) => GRADE_ORDER.indexOf(a) - GRADE_ORDER.indexOf(b))[0]!;
     const cards = [...new Set(links.flatMap((link) => link.bridge.cards))];
     return [{ engine: target, score: links.reduce((sum, link) => sum + link.bridge.score, 0) / 10, grade, tier: grade === "Niche" ? "niche" : "strict", covered: links.length, of: set.length,
-      twoWay: links.filter((link) => link.bridge.two_way).map((link) => link.from), links, cards, missing: cards.filter((code) => !held.has(code)), genesysPoints: format === "genesys" ? 6 : null,
+      twoWay: links.filter((link) => link.bridge.two_way).map((link) => link.from), links, cards, missing: target === engineControl.owned ? [] : cards.filter((code) => !held.has(code)), alreadyInDeck: target === engineControl.owned, genesysPoints: format === "genesys" ? 6 : null,
       pros: links[0]!.bridge.review.pros, cons: links[0]!.bridge.review.cons }];
   }).concat(bridgeControl.storedExtra && isBlueDragunity(set) && !engineControl.nextEmpty ? [melodious(format, held) as any] : []).sort((a, b) => b.covered - a.covered || b.score - a.score).slice(0, 4);
   return { engines: set, ...(body.deck ? { detected } : {}), between, next, inReview: bridgeControl.reviewCount };
@@ -230,7 +231,7 @@ async function api(method: string, url: URL, body: any) {
       const pair = (from: string, to: string) => asFormat(bridgeControl.none ? [] : BRIDGES.filter((entry) => entry.source === from && entry.target === to), format);
       return json(200, { results: pair(source, other), reverse: pair(other, source), inReview: bridgeControl.reviewCount });
     }
-    return json(200, { results: asFormat(bridgeControl.none ? [] : BRIDGES.filter((entry) => entry.source === source).sort((a, b) => b.score - a.score), format), inReview: bridgeControl.reviewCount });
+    return json(200, { results: asFormat(bridgeControl.none ? [] : BRIDGES.filter((entry) => entry.source === source).sort((a, b) => b.score - a.score), format, bridgeControl.ownedTarget), inReview: bridgeControl.reviewCount });
   }
   if (path === "/api/cards/bridges/engines" && method === "POST") {
     engineCalls.push(body);
@@ -1201,6 +1202,21 @@ try {
   await goTab("Bridges");
   await bridges.getByRole("alert").first().waitFor({ timeout: 15_000 });
   check("u9", "a failed engine answer says so and offers Try again", (await bridges.getByRole("alert").first().innerText()).includes("not available") && (await bridges.getByRole("button", { name: "Try again" }).count()) === 1);
+  check("u9", "a failed engine answer shows no empty Engines in this deck heading and one message", (await bridges.getByTestId("engine-chips").count()) === 0 && (await bridges.getByText("Engines in this deck").count()) === 0 && (await bridges.getByRole("alert").count()) === 1);
+  await shot("u9-engines-failed");
+  engineControl.status = 200;
+  await bridges.getByRole("button", { name: "Try again" }).click();
+  await bridges.getByTestId("engine-chips").waitFor({ timeout: 15_000 });
+  check("u9", "Try again brings the engines back", (await bridges.getByTestId("engine-chip").count()) > 0 && (await bridges.getByRole("alert").count()) === 0);
+  engineControl.status = 500;
+  engineControl.delayMs = 2000;
+  await fresh();
+  await goTab("Bridges");
+  await bridges.getByTestId("engine-chips-loading").waitFor({ timeout: 5_000 });
+  check("u9", "while the engines load a skeleton shows, not an empty heading", (await bridges.getByTestId("engine-chips").count()) === 0 && (await bridges.getByRole("status", { name: "Looking for the engines of your deck" }).count()) === 1);
+  await shot("u9-engines-loading");
+  engineControl.delayMs = 0;
+  await bridges.getByRole("alert").first().waitFor({ timeout: 15_000 });
   engineControl.status = 404;
   await fresh();
   await page.waitForTimeout(300);
@@ -1911,6 +1927,44 @@ try {
     await shot(`p-details-${viewport.name}`);
   }
   await page.setViewportSize({ width: 1920, height: 1080 });
+
+  // q. Packages the deck already holds: a quiet "Already in deck" state below the recommended rows, no Add.
+  engineControl.mode = "single";
+  bridgeControl.ownedTarget = "Dragon Ruler";
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await fresh();
+    await goTab("Bridges");
+    await pItems.first().waitFor({ timeout: 15_000 });
+    await page.waitForTimeout(400);
+    const owned = bridges.getByTestId("bridge-item").and(bridges.locator("[data-owned]"));
+    check("q1", `${viewport.name}: a package the deck holds shows Already in deck and is not first`, (await owned.count()) === 1 && (await owned.getByTestId("bridge-owned").innerText()).includes("Already in deck") && (await pItems.first().getAttribute("data-owned")) === null, await pItems.count());
+    check("q1", `${viewport.name}: it sits below every recommended row`, (await pItems.last().getAttribute("data-owned")) !== null && (await pItems.count()) === 5);
+    await owned.scrollIntoViewIfNeeded();
+    await shot(`q-owned-list-${viewport.name}`);
+    await owned.locator("button[data-bridge]").click();
+    await pDetails.waitFor();
+    check("q2", `${viewport.name}: its details have no Add cards button, only Already in deck`, (await pDetails.getByTestId("bridge-add").getAttribute("data-state")) === "owned" && (await pDetails.getByRole("button", { name: /Add \d+ card/ }).count()) === 0 && (await pDetails.getByTestId("bridge-add").innerText()).includes("Already in deck"));
+    await shot(`q-owned-details-${viewport.name}`);
+    await bridges.getByRole("button", { name: /^Back/ }).click();
+  }
+  bridgeControl.ownedTarget = "";
+  engineControl.mode = "multi";
+  engineControl.owned = "Chaos";
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await fresh();
+  await goTab("Bridges");
+  await bridges.getByTestId("engines-next").getByTestId("engine-item").first().waitFor({ timeout: 15_000 });
+  const ownedEngines = bridges.getByTestId("engines-next").getByTestId("engine-item");
+  check("q3", "an engine whose package the deck holds says Already in deck and sits last", (await ownedEngines.last().getAttribute("data-owned")) !== null && (await ownedEngines.first().getAttribute("data-owned")) === null && (await ownedEngines.last().getByTestId("bridge-owned").count()) === 1, await ownedEngines.count());
+  await ownedEngines.last().scrollIntoViewIfNeeded();
+  await shot("q-owned-engine-1920x1080");
+  await ownedEngines.last().getByTestId("engine-link").first().click();
+  await bridges.getByTestId("bridge-details").waitFor({ timeout: 10_000 });
+  check("q3", "a link of that engine opens details without Add cards", (await pDetails.getByTestId("bridge-add").getAttribute("data-state")) === "owned");
+  await bridges.getByRole("button", { name: /^Back/ }).click();
+  engineControl.owned = "";
+  engineControl.mode = "single";
 
   // z. The views for review at every size: deck engines, picks, link details, deep search done, and Suggest.
   engineControl.mode = "multi";

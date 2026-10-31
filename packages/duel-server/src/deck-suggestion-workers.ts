@@ -7,6 +7,8 @@ import type { BridgeProjectionInput } from "./bridge-projection-input.js";
 import type { DeckSuggestionLegality, DeckSuggestionQuery, DeckSuggestionResult, CardEffectSearchResult } from "@yugidraft/shared/services";
 
 type Lane = "deep" | "interactive";
+// Includes cold worker/DB/graph initialization and queue wait, below the web's 25s read budget.
+export const BRIDGE_ENGINES_TIMEOUT_MS = 20_000;
 type Job = { worker: Worker; lane: Lane; suggestionsOnly: boolean; bridgeWarm: boolean; retiring?: boolean; reject?: (error: Error) => void; idle?: ReturnType<typeof setTimeout> };
 export type SuggestionScan = { guildId?: string; query: DeckSuggestionQuery; legality: DeckSuggestionLegality; deckMaster?: number };
 export type BridgeScan = { kind: "bridges"; source: string; format: BridgeFormat } & (
@@ -56,7 +58,7 @@ export class DeckSuggestionWorkers {
     return this.queuedBridge("deep", scan, progress) as Promise<BridgeScanResult>;
   }
 
-  bridgeEngines(input: Record<string, unknown>, guildId: string, timeoutMs = 4500): Promise<BridgeEnginesResponse> {
+  bridgeEngines(input: Record<string, unknown>, guildId: string, timeoutMs = BRIDGE_ENGINES_TIMEOUT_MS): Promise<BridgeEnginesResponse> {
     return this.queuedBridge("interactive", { kind: "bridge-engines", input, guildId }, undefined, timeoutMs) as Promise<BridgeEnginesResponse>;
   }
 

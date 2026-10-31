@@ -226,3 +226,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) { .bar span { transition: none; } }
+
+/* The deck already holds the whole package: a quiet state, and the row reads as done, not as a recommendation. */
+.owned { display: inline-flex; align-items: center; gap: 4px; min-height: 20px; padding: 0 8px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--rule-lo); color: var(--ink-3); font-size: 11.5px; }
+.item[data-owned] .target, .betweenRow:has(.owned) .betweenEnds { color: var(--ink-3); }
+.item[data-owned] { background: rgb(239 231 213 / 0.018); }
+.chipSkeletons { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.chipSkeleton { display: block; width: 104px; height: 30px; border-radius: 999px; background: rgb(239 231 213 / 0.04); }

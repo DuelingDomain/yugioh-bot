@@ -117,7 +117,7 @@ function hostErrorBody(text: string, status: number): { expected: boolean; body:
   canOpenUnchecked?: boolean; reason?: ReplayUnverifiedReason; limit?: number; forksUrl?: string; retryAfter?: number } } | undefined {
   try {
     const parsed: unknown = JSON.parse(text);
-    if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") {
+    if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string" && parsed.error.trim()) {
       const recovery = "code" in parsed && parsed.code === "FORK_LIMIT"
         && "limit" in parsed && typeof parsed.limit === "number" && Number.isSafeInteger(parsed.limit) && parsed.limit > 0
         && "forksUrl" in parsed && parsed.forksUrl === "/api/admin/duels/forks"
@@ -232,7 +232,10 @@ export async function callDuelHost(input: {
     log("warn", "[duel-host] configuration is incomplete");
     return { ok: false, response: failure({ error: configProblem, ...(!replayOp ? { code: "DUEL_ENGINE_CONFIG" } : {}) }, 503), retryable: false };
   }
-  const transport = signedTransport({ ...cfg, signal, purpose: "duel-host", ...(input.op === "engine-data-status" || input.op === "bug-context" || input.op === "bridges" ? { timeoutMs: 5000 }
+  const bridgeRead = input.op === "bridges" && ["engines", "from", "between"].includes(input.bridgeRequest?.op ?? "");
+  const bridgeReadTimeoutMs = 25_000;
+  const transport = signedTransport({ ...cfg, signal, purpose: "duel-host", ...(bridgeRead ? { timeoutMs: bridgeReadTimeoutMs }
+    : input.op === "engine-data-status" || input.op === "bug-context" || input.op === "bridges" ? { timeoutMs: 5000 }
     : input.op === "normalize-codes" || input.op === "validate-deck-master" ? { timeoutMs: 20000 }
     : replayOp ? { timeoutMs: 30_000 } : {}) });
   const payload: Record<string, unknown> = {
@@ -295,8 +298,24 @@ export async function callDuelHost(input: {
   if (input.control !== undefined) payload.control = input.control;
   if (input.to !== undefined) payload.to = input.to;
 
+  const started = performance.now();
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {
+    // Next's ResponseAborted has no message. A caller disconnect is expected,
+    // and must never turn into a reported Error("") or a false host outage.
+    if (signal?.aborted) {
+      log("info", "[duel-host] request cancelled", { operation: input.op, hostStatus: result.status, hostBody: result.text.slice(0, 2048) });
+      return { ok: false, response: failure({ error: "The duel engine request was cancelled." }, 503), retryable: false };
+    }
+    // The web's own deadline can race an empty-message fetch abort. A read
+    // still initializing is retryable; it is not evidence that bridge data is absent.
+    if (bridgeRead && result.status === 0 && (result.text === "Internal request timed out"
+      || performance.now() - started >= bridgeReadTimeoutMs)) {
+      log("info", "[duel-host] bridge read still loading", { operation: input.bridgeRequest?.op, hostStatus: result.status });
+      return { ok: false, response: failure({ error: "Bridges are still loading. Try again shortly.", code: "BRIDGES_LOADING", retryAfter: 1 }, 503), retryable: true };
+    }
+    const context = { tags: { operation: input.op }, extra: { hostStatus: result.status, hostBody: result.text.slice(0, 2048) } };
+    const hostError = () => new Error(`Duel host ${input.op} failed (HTTP ${result.status}): ${result.text.trim().slice(0, 2048) || "<empty response body>"}`);
     if (input.op === "bug-context") {
       // Capture retries use the original host result. Other operations map some 4xx responses to 503.
       const timedOut = result.status === 0 && result.text === "Internal request timed out";
@@ -305,7 +324,7 @@ export async function callDuelHost(input: {
         retryable: timedOut || (result.status >= 500 && result.status < 600) };
     }
     if (result.status < 400) {
-      report(new Error(result.text), { tags: { operation: input.op } });
+      report(hostError(), context);
       const error = result.text === "Internal request timed out"
         ? "The duel engine request timed out. It may be restarting. Try again in a moment."
         : "The duel engine did not answer. It may be restarting. Try again in a moment.";
@@ -314,23 +333,25 @@ export async function callDuelHost(input: {
     if (result.status === 401) {
       // The host answers 401 only for a bad signature.
       const error = "The duel engine refused the web server: their DUEL_INTERNAL_SECRET values do not match. Ask the server admin to fix .env and restart both services.";
-      log("warn", "[duel-host] request was refused", { status: result.status });
+      log("warn", "[duel-host] request was refused", { operation: input.op, hostStatus: result.status, hostBody: result.text.slice(0, 2048) });
       return { ok: false, response: failure({ error, ...(!replayOp ? { code: "DUEL_ENGINE_CONFIG" } : {}) }, 503) };
     }
     const parsed = hostErrorBody(result.text, result.status);
     if (!parsed || (result.status === 500 && !parsed.expected)) {
-      const { body, status } = errorResponseBody(new Error(result.text), { tags: { operation: input.op } });
+      const { body, status } = errorResponseBody(hostError(), context);
       return { ok: false, response: NextResponse.json(body, { status, headers: { "cache-control": "private, no-store" } }) };
     }
     return { ok: false, response: failure(parsed.body, result.status) };
   }
   if (!result.text) {
+    log("warn", "[duel-host] empty response", { operation: input.op, hostStatus: result.status, hostBody: result.text });
     return { ok: false, response: failure({ error: "Empty engine response" }, 502) };
   }
   let data: unknown;
   try {
     data = JSON.parse(result.text);
   } catch {
+    log("warn", "[duel-host] invalid JSON response", { operation: input.op, hostStatus: result.status, hostBody: result.text.slice(0, 2048) });
     return { ok: false, response: failure({ error: "Invalid engine response" }, 502) };
   }
   return { ok: true, data: input.op === "admin-spectate" ? data : redactDuelResult(data, input.guildId, input.playerId) };

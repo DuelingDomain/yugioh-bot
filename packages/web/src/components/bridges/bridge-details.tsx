@@ -69,7 +69,7 @@ export function BridgeDetails({ bridge, mode, onCatalog, cardProps, deckCount, l
       <section aria-labelledby={`line-${bridge.evidence_hash}`}>
         <h4 id={`line-${bridge.evidence_hash}`} className={styles.subTitle}>The line</h4>
         <PathSteps steps={steps} cardProps={cardProps} deckCount={deckCount} held={held} limit={limit} />
-        {adder ? <AddPathCards steps={steps} held={held} adder={adder} /> : null}
+        {adder ? <AddPathCards steps={steps} held={held} adder={adder} owned={bridge.alreadyInDeck} /> : null}
       </section>
 
       <ProsCons bridge={bridge} />

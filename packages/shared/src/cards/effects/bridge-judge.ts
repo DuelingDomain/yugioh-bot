@@ -12,6 +12,7 @@ import { BRIDGE_JUDGE_OUTPUT_TOKENS, bridgeJudgeSpendSummary, reserveBridgeJudge
 import { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS } from "./bridge-judge-model.js";
 import { BRIDGE_FACT_CHECK_SYSTEM, bridgeTextFields, deterministicBridgePros, groundBridgeSentences, validBridgeCitations } from "./bridge-judge-text.js";
 import { deterministicBridgeSteps } from "./bridge-step-text.js";
+import { bridgePackage, type BridgePackage } from "./bridge-package.js";
 export { BRIDGE_JUDGE_MODEL, BRIDGE_JUDGE_MODELS, bridgeJudgeRates } from "./bridge-judge-model.js";
 
 export const BRIDGE_JUDGE_FRAMINGS = ["mechanic", "skeptic"] as const;
@@ -269,7 +270,7 @@ export const ShownBridgeReviewSchema = BridgeJudgementSchema.pick({ pros: true, 
   .extend({ lock_note: z.string(), line: z.array(z.string().min(1).max(200)).min(1).max(3), steps: z.array(BridgeReviewStepSchema).min(1).max(3) })
   .refine(review => review.steps.length === review.line.length && review.steps.every((step, i) => step.card === review.line[i]),
     { message: "Review steps must match the reviewed line in order" });
-export interface ShownBridge extends ArchetypeBridge { judge: "accepted"; review: z.infer<typeof ShownBridgeReviewSchema> }
+export interface ShownBridge extends ArchetypeBridge, BridgePackage { judge: "accepted"; review: z.infer<typeof ShownBridgeReviewSchema> }
 export function bridgeProjection(db: Database.Database, bridge: ArchetypeBridge): { gate: BridgeGate; shown: ShownBridge | null } {
   const gate = bridgeGate(db, bridge);
   return { gate, shown: shownFromGate(bridge, gate) };
@@ -286,7 +287,7 @@ function shownFromGate(bridge: ArchetypeBridge, gate: BridgeGate): ShownBridge |
   const review = ShownBridgeReviewSchema.parse({ grade, pros: result.pros, cons: result.cons,
     lock_note: result.lock_note || evidence.cards.flatMap(card => card.locks.map(lock => `${card.name}: ${lock.evidence}`)).join(" "),
     line: result.line, steps: deterministicBridgeSteps(evidence, result.line, capabilities) });
-  return { ...bridge, grade: grades[grade], judge: "accepted", review };
+  return { ...bridge, ...bridgePackage([bridge]), grade: grades[grade], judge: "accepted", review };
 }
 
 export interface BridgeJudgeOptions {

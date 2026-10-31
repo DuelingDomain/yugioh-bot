@@ -6,8 +6,8 @@ import { env } from "./env";
 import { callDuelHost } from "./duel-host";
 import { apiErrorResponse } from "./api-errors";
 import { readJsonBody } from "./bug-reports/read-body";
-import { isBridgeDeck, isBridgeEngineNames, type BridgeEnginesRequest } from "@yugidraft/shared/cards/effects";
-import type { BridgeDeepSearchRequest } from "./bridges-api";
+import { BridgePackageSchema, isBridgeDeck, isBridgeEngineNames, type BridgeEnginesRequest } from "@yugidraft/shared/cards/effects";
+import { isBridgeLoadingResponse, type BridgeDeepSearchRequest, type BridgeLoadingResponse } from "./bridges-api";
 
 type BridgeFormat = "advanced" | "genesys";
 type BridgeQuery = ({ source: string; deckId?: never } | { deckId: number; source?: never }) & {
@@ -120,6 +120,7 @@ export function readBridgeJob(request: Request, value: string): BridgeRequest | 
 
 function shownBridge(value: unknown, deep: boolean): boolean {
   if (!object(value) || !name(value.source, 160) || !name(value.target, 160) || !format(value.format)
+    || !BridgePackageSchema.safeParse(value).success
     || value.judge !== "accepted" || value.validation !== "deterministic" || !hash(value.evidence_hash)
     || value.engine_status !== "unverified"
     || typeof value.score !== "number" || !Number.isFinite(value.score) || value.score < 0 || value.score > 100
@@ -145,6 +146,7 @@ const results = (value: unknown, expectedFormat?: BridgeFormat, deep = false) =>
 const state = (value: unknown) => value === "queued" || value === "running" || value === "done" || value === "failed";
 function engineSuggestions(value: unknown, expectedFormat?: BridgeFormat, max = 4): boolean {
   return Array.isArray(value) && value.length <= max && value.every(row => object(row) && name(row.engine, 160)
+    && BridgePackageSchema.safeParse(row).success
     && typeof row.score === "number" && Number.isFinite(row.score) && row.score >= 4
     && typeof row.grade === "string" && ["Strong", "Good", "Niche", "Risky"].includes(row.grade)
     && (row.tier === "strict" || row.tier === "niche") && integer(row.of, 4) && row.of >= 1 && integer(row.covered, row.of)
@@ -166,7 +168,7 @@ function detectedEngines(value: unknown): boolean {
 function validResponse(value: unknown, request: BridgeRequest): boolean {
   if (!object(value)) return false;
   switch (request.op) {
-    case "engines": return Array.isArray(value.engines) && value.engines.length <= 4 && value.engines.every(value => name(value, 160))
+    case "engines": return isBridgeLoadingResponse(value) || Array.isArray(value.engines) && value.engines.length <= 4 && value.engines.every(value => name(value, 160))
       && (request.deck === undefined ? value.detected === undefined : detectedEngines(value.detected))
       && Array.isArray(value.between) && value.between.length <= 12 && value.between.every(row => shownBridge(row, true) && object(row)
         && row.format === request.format && (value.engines as string[]).includes(String(row.source)) && (value.engines as string[]).includes(String(row.target)))
@@ -198,8 +200,25 @@ export async function callBridgeHost(actor: { guildId: string; userId: number; p
 
 export async function answerBridgeRequest(actor: { guildId: string; userId: number; playerId: number }, request: BridgeRequest, signal?: AbortSignal) {
   const response = await callBridgeHost(actor, request, signal);
-  if (!response.ok) return response.response;
+  if (!response.ok) {
+    const retryAfter = Number(response.response.headers.get("retry-after"));
+    // Cold initialization and queue pressure are temporary. Keep the browser
+    // helper pending instead of turning these into a false unavailable/empty state.
+    if (request.op === "engines" && !signal?.aborted && response.response.status === 503
+      && Number.isSafeInteger(retryAfter) && retryAfter > 0) {
+      const loading: BridgeLoadingResponse = { state: "loading", retryAfter: Math.min(10, retryAfter) };
+      const answer = bridgeJson(loading, 202);
+      answer.headers.set("retry-after", String(loading.retryAfter));
+      return answer;
+    }
+    return response.response;
+  }
   const data = response.data as Record<string, unknown>;
+  if (request.op === "engines" && isBridgeLoadingResponse(data)) {
+    const answer = bridgeJson(data, 202);
+    answer.headers.set("retry-after", String(data.retryAfter));
+    return answer;
+  }
   return bridgeJson(data, request.op === "start" && (data.state === "queued" || data.state === "running") ? 202 : 200);
 }
 

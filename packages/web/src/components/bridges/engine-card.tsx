@@ -5,7 +5,7 @@ import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
 import type { EngineSuggestion } from "@/lib/bridges-api";
 import type { ShownBridge } from "./bridges-api";
-import { GradeTag, Points, type CardPropsFor } from "./bridge-card";
+import { GradeTag, OwnedTag, Points, type CardPropsFor } from "./bridge-card";
 import { PathThumbs, pathSteps } from "./bridge-path";
 import { bridgeCodes } from "./bridges-model";
 import { cardsState, useBridgeCards } from "./use-bridges";
@@ -66,7 +66,7 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, onOpen, on
     </>
   );
   return (
-    <li className={cn(styles.item, styles.engine)} data-grade={word.toLowerCase()} data-testid="engine-item" data-engine={engine.engine} data-lit={lit ? "" : undefined}
+    <li className={cn(styles.item, styles.engine)} data-grade={word.toLowerCase()} data-testid="engine-item" data-engine={engine.engine} data-lit={lit ? "" : undefined} data-owned={engine.alreadyInDeck ? "" : undefined}
       tabIndex={lit ? -1 : undefined}>
       {onOpen ? (
         <button type="button" className={styles.open} aria-label={`${engine.engine}. ${word}, ${linksText(engine).toLowerCase()}. Open details`} onClick={() => onOpen(engine)}>{title}</button>
@@ -76,6 +76,7 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, onOpen, on
         <GradeTag grade={word.toLowerCase()} text={word} testId="engine-grade" />
         {engine.of > 1 ? <span className={styles.way} data-testid="engine-covered" title={linksText(engine)}>{covered}</span> : null}
         {engine.twoWay.length > 0 ? <span className={styles.way} data-way="two" data-testid="engine-two-way" title={`Also leads back to ${engine.twoWay.join(", ")}`}>Two-way</span> : null}
+        {engine.alreadyInDeck ? <OwnedTag /> : null}
         {fresh ? <span className={styles.way} data-way="new" data-testid="engine-new" title="The deep search found this engine">New</span> : null}
       </div>
       <ul className={styles.paths} aria-label="How it connects" data-testid="engine-paths">
