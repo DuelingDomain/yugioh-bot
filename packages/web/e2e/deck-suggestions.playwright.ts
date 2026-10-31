@@ -796,6 +796,9 @@ try {
   check("h1c", "Details opens the full page of the bridge from an open card too", (await bridges.getByTestId("bridge-details").count()) === 1);
   await bridges.getByRole("button", { name: /^Back/ }).click();
   await items.first().waitFor();
+  check("h1c", "Back from Details leaves the card open", (await rowOf(0).getByTestId("engine-toggle").getAttribute("aria-expanded")) === "true" && (await rowOf(0).getByTestId("engine-body").count()) === 1);
+  check("h1c", "and the card is in view", await rowOf(0).evaluate((node: HTMLElement) => { const r = node.getBoundingClientRect(); return r.bottom > 0 && r.top < window.innerHeight; }));
+  check("h1c", "the card has one line only, so its body repeats no link name", (await rowOf(0).getByTestId("engine-body").locator("h5").filter({ hasText: "↔" }).count()) === 0);
   await reset();
   check("h1c", "nothing is remembered: after a reload every card is closed", (await items.getByTestId("engine-body").count()) === 0);
   check("h1", "the list text says nothing about AI", !/\bai\b|\bllm\b|judge/i.test(await bridges.innerText()));
@@ -869,6 +872,7 @@ try {
   control.genesys = true;
   await reset();
   check("h5", "a Genesys deck asks for Genesys engines with its points left", engineCalls[0]?.format === "genesys" && typeof engineCalls[0]?.genesysRemaining === "number", engineCalls[0]);
+  check("h5", "a closed Genesys card shows its point cost in the header", (await items.nth(3).getByTestId("engine-toggle").getByTestId("engine-points").count()) === 1 && (await items.nth(3).getByTestId("engine-body").count()) === 0, await items.nth(3).innerText());
   await openCard(items.nth(3));
   check("h5", "the Genesys points of an engine show in its card once it is open", (await items.nth(3).innerText()).includes("Genesys points"), await items.nth(3).innerText());
   await shot("bridges-genesys-1920x1080");
@@ -1149,6 +1153,7 @@ try {
   const chaosThumbs = await chaos.getByTestId("engine-paths").locator('ol[aria-label$="path of cards"] button').evaluateAll((nodes: HTMLElement[]) => nodes.map((node) => node.getAttribute("aria-label")));
   check("u2", "an engine shows the access path of each link as card images", paths.includes("Blue-Eyes → Chaos") && paths.includes("Dragunity → Chaos") && chaosThumbs.includes("Monster Reborn") && chaosThumbs.includes("Dragunity Dux"), { paths, chaosThumbs });
   await openCard(chaos);
+  check("u2", "an engine with two links names each link above its line", (await chaos.getByTestId("engine-body").locator("h5").filter({ hasText: /→|↔/ }).count()) === 2, await chaos.getByTestId("engine-body").locator("h5").allInnerTexts());
   check("u2", "an engine shows its core with what the deck lacks (one count, no host text above the buttons), and each link says Details", (await chaos.getByTestId("engine-need").count()) === 0 && (await chaos.getByTestId("engine-core-card").count()) > 0 && (await chaos.getByTestId("engine-link").first().innerText()).includes("Details"), await chaos.innerText());
   check("u2", "an engine shows good and bad points", (await chaos.getByRole("list", { name: "Good" }).locator("li").count()) >= 1 && (await chaos.getByRole("list", { name: "Bad" }).locator("li").count()) >= 1);
   check("u2", "only a two-way engine gets the two-way badge", (await chaos.getByTestId("engine-two-way").count()) === 0 && (await engineItems.nth(2).getByTestId("engine-two-way").count()) === 1);
