@@ -46,15 +46,15 @@ describe("grounded shown bridge steps", () => {
       for (const [i, row] of rows.entries()) {
         const projected = shownBridge(db, row)!;
         expect(projected.review.steps.map(step => step.card)).toEqual(i === 0 ? odionLine : sinfulLine);
+        expect(projected.review.steps.every(step => !step.text.includes("printed conditions"))).toBe(true);
         if (i === 0) {
-          expect(projected.review.steps[0]!.text).toContain("allows Ashtra Divine Domain to be activated the turn it is Set");
+          expect(projected.review.steps[0]!.text).toBe("allows 1 Trap per turn (Ashtra Divine Domain) to be activated the turn it is Set.");
           expect(projected.review.steps[1]!.text).toContain("Set Ashtra Divine Domain from the Deck");
-          expect(projected.review.steps[2]!.text).toContain("Temple of the Kings");
+          expect(projected.review.steps[2]!.text).toBe("can be activated the turn it is Set as the 1 Trap per turn allowed by Temple of the Kings.");
         } else {
           expect(projected.review.steps[0]!.text).toContain("add Regenesis Lord from the Deck to the hand");
           expect(projected.review.steps[0]!.text).not.toContain("Summon");
           expect(projected.review.steps[1]!.text).toContain("Set Regenesis Birth from the Deck");
-          expect(projected.review.steps[1]!.text).toContain("printed conditions");
           expect(projected.review.steps[2]!.text).toContain("Set from the Deck by Regenesis Lord");
         }
         const fast = await call({ op: "from", source: row.source }) as { results: ShownBridge[] };
@@ -76,6 +76,17 @@ describe("grounded shown bridge steps", () => {
       expect(BRIDGE_JUDGE_IDENTITIES).toEqual(identities);
     } finally { await api.jobs.close(); }
   }, 30_000);
+
+  it("reads each card capability once when projecting an approved bridge", () => {
+    const row = createBridgeService(db).bridgeBetween("Odion", "Ashtra")!;
+    approve(row, odionLine);
+    const prepare = vi.spyOn(db, "prepare");
+    try {
+      expect(shownBridge(db, row)!.review.steps.map(step => step.card)).toEqual(odionLine);
+      expect(prepare.mock.calls.filter(([sql]) => /FROM card_capability WHERE passcode=\?/.test(sql))).toHaveLength(row.cards.length);
+      expect(prepare.mock.calls.filter(([sql]) => sql.startsWith("SELECT plan FROM card_tag_profiles"))).toHaveLength(2);
+    } finally { prepare.mockRestore(); }
+  });
 
   it("describes checked materials, same-effect costs and zones without filling unrelated steps", () => {
     const service = createBridgeService(db);

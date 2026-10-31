@@ -23,7 +23,6 @@ export function deterministicBridgeSteps(evidence: BridgeJudgeEvidence, line: re
   const add = (map: Map<string, string>, card: string, text: string) => {
     if (present.has(card) && text.length <= 500 && !map.has(card)) map.set(card, text);
   };
-  const conditions = ", subject to its printed conditions.";
   const action = (source: string, target: string, key: string, from?: string[]) => {
     if (!present.has(source) || !present.has(target)) return;
     const zone = origin(from);
@@ -42,8 +41,8 @@ export function deterministicBridgeSteps(evidence: BridgeJudgeEvidence, line: re
     };
     const verb = verbs[key as CapabilityKey];
     if (!verb) return;
-    add(outgoing, source, `can ${verb[0]}${conditions}`);
-    add(incoming, target, `can ${verb[1]}${conditions}`);
+    add(outgoing, source, `can ${verb[0]}.`);
+    add(incoming, target, `can ${verb[1]}.`);
   };
   // Primary reasons win over optional benefits; only describe relations between reviewed cards.
   for (const reason of [...evidence.reasons].sort((a, b) => Number(!!a.ancillary) - Number(!!b.ancillary))) {
@@ -55,13 +54,13 @@ export function deterministicBridgeSteps(evidence: BridgeJudgeEvidence, line: re
         && (!need.from?.length || compatibleOrigins(need.from, using.card).length > 0));
       const verbs: Partial<Record<CapabilityKey, string>> = { discard: "discarded", tribute: "Tributed", banish: "banished", send_to_gy: "sent to the GY" };
       if (consumer && using && need && verbs[cost.capability] && present.has(consumer.card.name)) {
-        add(outgoing, using.card.name, `can be ${verbs[cost.capability]}${origin(compatibleOrigins(need.from, using.card))} as cost for ${consumer.card.name}'s effect${conditions}`);
+        add(outgoing, using.card.name, `can be ${verbs[cost.capability]}${origin(compatibleOrigins(need.from, using.card))} as cost for ${consumer.card.name}'s effect.`);
       }
     }
     const extra = cards.find(row => isExtraDeckCard(row.card));
     if (extra && present.has(extra.card.name)) for (const id of reason.materials ?? []) {
       const material = rows.get(id);
-      if (material) add(outgoing, material.card.name, `can be used as material for ${extra.card.name}${conditions}`);
+      if (material) add(outgoing, material.card.name, `can be used as material for ${extra.card.name}.`);
     }
     for (const step of reason.steps ?? []) {
       const source = rows.get(step.from), target = rows.get(step.to);
@@ -77,8 +76,9 @@ export function deterministicBridgeSteps(evidence: BridgeJudgeEvidence, line: re
     if (reason.key === "rule_enabler") {
       const enabler = cards[0], trap = cards[1];
       if (!enabler || trap?.card.kind !== "trap" || !present.has(enabler.card.name) || !present.has(trap.card.name)) continue;
-      add(outgoing, enabler.card.name, `allows ${trap.card.name} to be activated the turn it is Set${conditions}`);
-      add(outgoing, trap.card.name, `can be activated the turn it is Set under ${enabler.card.name}${conditions}`);
+      const onePerTurn = enabler.card.name === "Temple of the Kings";
+      add(outgoing, enabler.card.name, `allows ${onePerTurn ? `1 Trap per turn (${trap.card.name})` : trap.card.name} to be activated the turn it is Set.`);
+      add(outgoing, trap.card.name, `can be activated the turn it is Set ${onePerTurn ? "as the 1 Trap per turn allowed by" : "under"} ${enabler.card.name}.`);
       // Strict permission reasons retain their engine's supporter without a separate access edge.
       for (const supporter of cards.slice(2)) {
         const setter = supporter.provides.find(capability => capability.key === "set_spell_trap" && capability.from?.includes("deck")
@@ -92,8 +92,8 @@ export function deterministicBridgeSteps(evidence: BridgeJudgeEvidence, line: re
   for (const proposed of evidence.proposed_lines) for (const step of proposed.steps) {
     if (!step.target || !present.has(step.card) || !present.has(step.target)) continue;
     if (step.action === "satisfy_control_condition") {
-      add(outgoing, step.card, `while controlled, satisfies the monster requirement for ${step.target}'s activation${conditions}`);
-      add(incoming, step.target, `can use ${step.card} for its controlled-monster requirement${conditions}`);
+      add(outgoing, step.card, `while controlled, satisfies the monster requirement for ${step.target}'s activation.`);
+      add(incoming, step.target, `can use ${step.card} for its controlled-monster requirement.`);
     } else if (step.action === "special_summon" && step.card === step.target) {
       action(step.card, step.target, step.action, step.from_zones);
     }
