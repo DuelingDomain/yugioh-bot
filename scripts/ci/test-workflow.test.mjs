@@ -12,7 +12,8 @@ const runGate = (job, env) => spawnSync("bash", ["-e", "-o", "pipefail", "-c", j
 const areaJobs = {
   web: ['unit-web', 'unit-web-build'], shared: ['unit-shared'], bot: ['unit-bot'],
   ws: ['unit-ws'], worker: ['unit-worker'], duel_unit: ['unit-duel'], e2e: ['unit-e2e'],
-  ci_scripts: ['ci-scripts'], engine: ['core-cache', 'cores', 'engine-shards', 'engine-legacy-shards', 'native', 'rule-coverage'],
+  ci_scripts: ['ci-scripts'], engine: ['core-cache', 'cores', 'engine-shards', 'engine-legacy-shards', 'rule-coverage'],
+  core: ['native', 'engine-differential'],
 };
 const gateJobs = () => Object.fromEntries(jobs['ci-result'].needs.map(name => [name, {
   result: name === 'changes' ? 'success' : 'skipped', outputs: {},
@@ -47,6 +48,27 @@ test('CI result requires every selected group, including all engine suites', () 
       results[name].result = 'success';
     }
   }
+});
+
+test('TS engine changes allow skipped core checks; core selection requires both jobs', () => {
+  const results = gateJobs();
+  results.changes.outputs = { engine: 'true', core: 'false' };
+  for (const name of areaJobs.engine) results[name].result = 'success';
+  assert.equal(gate(results, 'pull_request'), 0);
+  results.changes.outputs.core = 'true';
+  assert.notEqual(gate(results, 'pull_request'), 0);
+  for (const name of areaJobs.core) {
+    assert.deepEqual(jobs[name].needs, ['cores', 'changes']);
+    assert.match(jobs[name].if, /needs\.changes\.outputs\.core == 'true'/);
+    assert.match(jobs[name].if, /needs\.cores\.result == 'success'/);
+    results[name].result = 'success';
+  }
+  assert.equal(gate(results, 'pull_request'), 0);
+  assert.equal(jobs.changes.outputs.core, '${{ steps.diff.outputs.core }}');
+  assert.equal(jobs['engine-shards'].strategy.matrix.include.some(leg => leg.suite === 'differential'), false);
+  assert.deepEqual(jobs['engine-differential'].strategy.matrix.shard, [1, 2]);
+  assert.equal(jobs['engine-differential'].strategy['fail-fast'], false);
+  assert.match(jobs['engine-differential'].steps.at(-1).run, /run-engine-tests\.mjs differential .*matrix\.shard.*\/2/);
 });
 
 test('pure known data changes require consumer integration tests and skip web build', () => {
@@ -89,7 +111,7 @@ test('slow jobs are required only for their selected inputs; main uses real prod
 });
 
 test('app groups run only when their area is selected', () => {
-  for (const [area, names] of Object.entries(areaJobs).filter(([area]) => area !== 'engine')) {
+  for (const [area, names] of Object.entries(areaJobs).filter(([area]) => !['engine', 'core'].includes(area))) {
     for (const name of names) {
       assert.equal(jobs[name].needs, 'changes', name);
       assert.match(jobs[name].if, new RegExp(`needs\\.changes\\.outputs\\.${area} == 'true'`));
