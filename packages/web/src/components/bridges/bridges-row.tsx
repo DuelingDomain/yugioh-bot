@@ -17,13 +17,6 @@ import { useBridgeCards, useBridgeList, useDeepSearch } from "./use-bridges";
 import { refreshEngines, useDeckEngines, useEnginesAnswer } from "./use-engines";
 import styles from "./bridges.module.css";
 
-/**
- * What the Suggest tab asks of this tab. `engine`: show that engine (one engine: the details of its link; several:
- * its card in the list). `deep`: bring the Deep search button to the player. `pick`: open Pick archetypes. `count`
- * grows with every ask, so asking again for the same thing works.
- */
-export type BridgesAsk = ({ kind: "engine"; name: string } | { kind: "deep" } | { kind: "pick" }) & { count: number };
-
 type Props = {
   /** The archetype the editor found in the deck. Only a start for the two-archetype search; the engines come from the host. */
   archetype: string | null;
@@ -47,7 +40,6 @@ type Props = {
   active?: boolean;
   /** A deep search just finished. */
   onDeepFinished?: () => void;
-  ask?: BridgesAsk | null;
 };
 
 type ListProps = Pick<Props, "mode" | "genesys" | "cardProps" | "onCatalog"> & { bridges: readonly ShownBridge[]; showSource?: boolean; onOpen: (bridge: ShownBridge) => void; label: string };
@@ -107,16 +99,12 @@ function scrollBox(node: HTMLElement | null): HTMLElement | null {
   return document.scrollingElement instanceof HTMLElement ? document.scrollingElement : null;
 }
 
-/** A line about an ask that could not be shown. `resetFor`: the engine that a Reset to deck would bring back. */
-type Notice = { text: string; resetFor?: string };
-type FocusTarget = "deep" | "add" | "lit" | "notice";
-
 /**
  * The Bridges tab of the deck editor: the engines of the deck (or picked archetypes), the bridges between them and the
  * engine to add next. Deep search sits right under the chips, so it is never far down. A bridge opens its details in
  * place, and Back returns to the same place in the list. Only bridges that passed the checks reach this tab.
  */
-export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, genesys, genesysRemaining, cardProps, deckCount, limit, adder, onCatalog, onDisabled, active = true, onDeepFinished, ask = null }: Props) {
+export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, genesys, genesysRemaining, cardProps, deckCount, limit, adder, onCatalog, onDisabled, active = true, onDeepFinished }: Props) {
   const onDisabledRef = useRef(onDisabled);
   onDisabledRef.current = onDisabled;
   const onDeepFinishedRef = useRef(onDeepFinished);
@@ -194,9 +182,7 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
   useEffect(() => { if (disabled) onDisabledRef.current?.(); }, [disabled]);
   // A new set of engines or a new format closes the details of the old one.
   const scopeId = `${set.join("|")}|${format}|${pickMode}`;
-  const [lit, setLit] = useState<string | null>(null);
-  const [notice, setNotice] = useState<Notice | null>(null);
-  useEffect(() => { setOpen(null); setLit(null); setNotice(null); }, [scopeId]);
+  useEffect(() => { setOpen(null); }, [scopeId]);
 
   useLayoutEffect(() => {
     if (open || !cameFrom.current) return;
@@ -219,34 +205,6 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
     cameFrom.current = { hash: bridge.evidence_hash, index: from, scroll: scrollBox(rootRef.current)?.scrollTop ?? 0 };
     setOpen(bridge);
   }
-
-  // Focus that waits for the next paint: the node it goes to is only there once the tab has rendered.
-  const [focusTo, setFocusTo] = useState<{ target: FocusTarget; tick: number } | null>(null);
-  const focusOn = (target: FocusTarget) => setFocusTo((before) => ({ target, tick: (before?.tick ?? 0) + 1 }));
-  useEffect(() => {
-    if (!focusTo || !active || open) return;
-    const root = rootRef.current;
-    const selector = { deep: '[data-testid="deep-search-button"]', add: '[data-testid="engine-add"]', lit: '[data-testid="engine-item"][data-lit]', notice: '[data-testid="bridges-notice"]' }[focusTo.target];
-    const node = root?.querySelector<HTMLElement>(selector);
-    // A button that is off cannot take the focus: the tab title does, so the player still lands in the tab.
-    const target = node && !(node instanceof HTMLButtonElement && node.disabled) ? node : root?.querySelector<HTMLElement>("h3");
-    target?.focus({ preventScroll: true });
-    (node ?? target)?.scrollIntoView?.({ block: "nearest" });
-    setFocusTo(null);
-  }, [focusTo, active, open]);
-
-  // An ask from the Suggest tab: leave Pick mode (or go to it) and the details first, then answer it once the list is in.
-  const handled = useRef(0);
-  const [pending, setPending] = useState<BridgesAsk | null>(null);
-  useEffect(() => {
-    if (!ask || handled.current === ask.count || !active) return;
-    handled.current = ask.count;
-    setOpen(null);
-    setNotice(null);
-    setLit(null);
-    setPickMode(ask.kind === "pick");
-    setPending(ask);
-  }, [ask, active]);
 
   const result = setResult;
   const between = actionableFirst(result?.between ?? []);
@@ -271,36 +229,6 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
     const known = new Set(kept.split("\n"));
     return new Set(deepNext.filter((engine) => !known.has(engine.engine)).map((engine) => engine.engine));
   }, [deepNext, fastBefore, liveDone, workKey]);
-
-  useEffect(() => {
-    if (!pending || !active) return;
-    if (pending.kind === "pick") { if (!pickMode) return; setPending(null); focusOn("add"); return; }
-    if (pickMode) return;
-    if (pending.kind === "deep") { setPending(null); focusOn("deep"); return; }
-    if (engines.waiting || engines.loading) return;
-    const name = pending.name;
-    const answer = engines.result;
-    setPending(null);
-    const say = (text: string, resetFor?: string) => { setNotice({ text, ...(resetFor ? { resetFor } : {}) }); focusOn("notice"); };
-    if (!answer) { say(engines.error ? `${name} cannot be shown: ${engines.error.message}` : `${name} cannot be shown right now.`); return; }
-    if (set.includes(name)) { say(`${name} is already one of your engines.`); return; }
-    // Only an engine on screen can be shown: deep results take the place of the fast list.
-    const engine = next.find((entry) => entry.engine === name);
-    if (!engine && deepNext.length > 0 && answer.next.some((entry) => entry.engine === name)) {
-      say(`${name} is not among your deep search results for ${names}.`);
-      return;
-    }
-    if (!engine) {
-      const edited = hasEdits(edits);
-      say(`${name} is not a next engine for ${names || "these engines"}.${edited ? " Suggest uses the engines the deck has without your chip changes." : ""}`, edited ? name : undefined);
-      return;
-    }
-    // One engine: the details of the link that makes it fit. Several: its card in the list, marked.
-    if (set.length === 1) { const link = engine.links[0]; if (link) openBridge(link.bridge); return; }
-    setLit(name);
-    focusOn("lit");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, active, pickMode, engines.waiting, engines.loading, engines.result, engines.error, set, next, deepNext]);
 
   if (disabled) return null;
 
@@ -355,13 +283,6 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
               onAdd={(name) => setEdits((now) => toggleEngine(now, engines.found, name, true))}
               onReset={() => setEdits(() => NO_EDITS)} />
           ) : null}
-          {notice ? (
-            <p className={styles.notice} role="status" tabIndex={-1} data-testid="bridges-notice">
-              {notice.text}
-              {notice.resetFor ? <> <button type="button" className={styles.link} data-testid="bridges-notice-reset" onClick={() => { const name = notice.resetFor!; setNotice(null); setEdits(() => NO_EDITS); setPending({ kind: "engine", name, count: -1 }); }}>Reset to deck and show it</button></> : null}
-            </p>
-          ) : null}
-
           {/* Deep search sits under the chips: the second thing a player looks for, never a long scroll away. */}
           <div className={styles.actions}>
             <DeepSearchButton deep={deep} cooldown={cooldown} blocked={blocked} disabled={!scope} again={stale} describedBy={hintId} onStart={() => void start()} />
@@ -390,7 +311,7 @@ export function BridgesRow({ archetype, deckId = null, deck, deckMaster, mode, g
                   <section aria-label={`Next engine for ${names}`} data-testid={deepNext.length > 0 ? "deep-results" : "engines-next"}>
                     <h4 className={styles.subTitle}>Next engine for {names}</h4>
                     {deepNext.length > 0 ? <p className={styles.note} data-testid="deep-from">From your deep search{fresh.size > 0 ? `: ${fresh.size} new` : ""}.</p> : null}
-                    <EngineList engines={next} mode={mode} genesys={genesys} cardProps={cardProps} adder={adder} limit={limit} onCatalog={onCatalog} label={`Next engine for ${names}`} lit={lit} fresh={fresh} onOpenLink={openBridge} />
+                    <EngineList engines={next} mode={mode} genesys={genesys} cardProps={cardProps} adder={adder} limit={limit} onCatalog={onCatalog} label={`Next engine for ${names}`} fresh={fresh} onOpenLink={openBridge} />
                   </section>
                 ) : null}
                 {deepDone && deepNext.length === 0 ? (

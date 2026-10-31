@@ -3,7 +3,6 @@
 import { useRef, useState, type ButtonHTMLAttributes } from "react";
 import { AlertTriangle, Check, ChevronRight, Flag, Minus, Plus } from "lucide-react";
 import type { DeckCardInfo, DuelMode } from "@yugidraft/shared/duels";
-import { CardArt } from "@/components/decks/card-art";
 import { cn } from "@/lib/utils";
 import { reportBridge, type ShownBridge } from "@/lib/bridges-api";
 import { PathThumbs, pathSteps } from "./bridge-path";
@@ -36,31 +35,6 @@ export function synergyText(from: string, to: string): string {
 /** A grade word as a badge. `grade` is the lower-case grade that sets the color; `text` is the word. */
 export function GradeTag({ grade, text, testId = "bridge-grade" }: { grade: string; text: string; testId?: string }) {
   return <span className={styles.grade} data-grade={grade} data-testid={testId}>{text}</span>;
-}
-
-/** Small card images for a list of passcodes. */
-export function CodeThumbs({ codes, label, cards, cardProps, limit = 4 }: { codes: readonly number[]; label: string; cards: ReadonlyMap<number, DeckCardInfo>; cardProps: CardPropsFor; limit?: number }) {
-  const shown = codes.slice(0, limit);
-  const more = codes.length - shown.length;
-  return (
-    <ul className={styles.thumbs} aria-label={label}>
-      {shown.map((code) => {
-        const card = cards.get(code);
-        return (
-          <li key={code}>
-            {card ? (
-              <button type="button" className={styles.thumb} aria-label={card.name} title={card.name} {...cardProps(card)}>
-                <CardArt code={code} name={card.name} />
-              </button>
-            ) : (
-              <span className={styles.thumb} role="img" aria-label="Card"><CardArt code={code} name="" /></span>
-            )}
-          </li>
-        );
-      })}
-      {more > 0 ? <li className={styles.thumbMore} aria-label={`${more} more cards`}>+{more}</li> : null}
-    </ul>
-  );
 }
 
 /** Warnings of a bridge: format, lock and points. */

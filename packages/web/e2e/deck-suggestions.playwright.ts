@@ -468,10 +468,10 @@ try {
     await goTab(tab);
   };
   // Positions are relative to the panel, so a scroll of the list (hover scrolls a tile into view) is not a move.
-  const tileBoxes = () => panel.evaluate((root: HTMLElement) => { const base = root.getBoundingClientRect(); return [...root.querySelectorAll('section[aria-labelledby^="suggest-"]:not([aria-labelledby="suggest-engines"]) button')].map((node) => { const box = node.getBoundingClientRect(); return [Math.round(box.x - base.x), Math.round(box.y - base.y), Math.round(box.width), Math.round(box.height)]; }); });
-  const rowTitles = () => panel.locator("h3:not(#suggest-engines)").allTextContents();
-  // The four card rows; the "Engines that fit" row above them has its own tests.
-  const tileButtons = panel.locator('section[aria-labelledby^="suggest-"]:not([aria-labelledby="suggest-engines"]) button');
+  const tileBoxes = () => panel.evaluate((root: HTMLElement) => { const base = root.getBoundingClientRect(); return [...root.querySelectorAll('section[aria-labelledby^="suggest-"] button')].map((node) => { const box = node.getBoundingClientRect(); return [Math.round(box.x - base.x), Math.round(box.y - base.y), Math.round(box.width), Math.round(box.height)]; }); });
+  const rowTitles = () => panel.locator("h3").allTextContents();
+  // The four card rows.
+  const tileButtons = panel.locator('section[aria-labelledby^="suggest-"] button');
 
   if (process.env.SUGGESTIONS_BRIDGES_ONLY !== "1") {
   await page.goto(`${ORIGIN}/index.html?scenario=pool`);
@@ -499,55 +499,18 @@ try {
     await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
     const after = await listTop();
     check("layout", `${viewport.name}: list top is stable on first answer`, Math.abs(after - before) <= 40, { before, after });
-    check("layout", `${viewport.name}: all four slots are present`, await panel.locator('section[aria-labelledby^="suggest-"]:not([aria-labelledby="suggest-engines"])').count() === 4);
+    check("layout", `${viewport.name}: all four slots are present`, await panel.locator('section[aria-labelledby^="suggest-"]').count() === 4);
     control.emptyRows = true; control.delayMs = 0;
     await panel.locator('section[aria-labelledby="suggest-archetype"] button').first().dblclick();
     await panel.getByText("No archetype support fits your deck yet.").waitFor({ timeout: 10_000 });
     const emptyTop = await listTop();
     check("layout", `${viewport.name}: list top is stable when all rows empty`, Math.abs(emptyTop - after) <= 1, { after, emptyTop });
-    check("layout", `${viewport.name}: empty rows retain four slots`, await panel.locator('section[aria-labelledby^="suggest-"]:not([aria-labelledby="suggest-engines"])').count() === 4);
+    check("layout", `${viewport.name}: empty rows retain four slots`, await panel.locator('section[aria-labelledby^="suggest-"]').count() === 4);
     await shot(`stable-empty-${viewport.name}`);
     control.emptyRows = false;
 
-    // The Engines that fit row keeps one height: a slow engine answer, then an empty one, moves no card row.
-    engineControl.delayMs = 2500;
-    await open("small");
-    await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
-    const waitingBoxes = await tileBoxes();
-    const loadingEngines = await page.getByTestId("engines-fit").getByRole("status").count();
-    await page.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
-    const answeredBoxes = await tileBoxes();
-    const moved = (a: number[][], b: number[][]) => a.map((box, i) => b[i] && box.every((value, axis) => Math.abs(value - b[i]![axis]!) <= 1) ? null : [i, box, b[i]]).filter(Boolean);
-    check("layout", `${viewport.name}: the engine answer moves no card row`, loadingEngines === 1 && answeredBoxes.length === waitingBoxes.length && moved(waitingBoxes, answeredBoxes).length === 0, { loadingEngines, moved: moved(waitingBoxes, answeredBoxes).slice(0, 3) });
-    engineControl.delayMs = 0; engineControl.nextEmpty = true;
-    await panel.locator('section[aria-labelledby="suggest-staples"] button').first().dblclick();
-    await page.getByTestId("engines-fit-empty").waitFor({ timeout: 15_000 });
-    await page.waitForTimeout(400);
-    const emptyBoxes = await tileBoxes();
-    check("layout", `${viewport.name}: an empty engine answer after a deck edit moves no card row`, moved(answeredBoxes, emptyBoxes).length === 0, moved(answeredBoxes, emptyBoxes).slice(0, 3));
-    engineControl.nextEmpty = false;
   }
   control.delayMs = 0;
-  // The Engines that fit row keeps its height at the other sizes too.
-  for (const viewport of VIEWPORTS.filter(viewport => [390, 2560].includes(viewport.width))) {
-    await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    engineControl.delayMs = 2500;
-    await open("small");
-    await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
-    const waitingBoxes = await tileBoxes();
-    const loadingEngines = await page.getByTestId("engines-fit").getByRole("status").count();
-    await page.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
-    const answeredBoxes = await tileBoxes();
-    const moved = (a: number[][], b: number[][]) => a.map((box, i) => b[i] && box.every((value, axis) => Math.abs(value - b[i]![axis]!) <= 1) ? null : [i, box, b[i]]).filter(Boolean);
-    check("layout", `${viewport.name}: the engine answer moves no card row`, loadingEngines === 1 && answeredBoxes.length === waitingBoxes.length && moved(waitingBoxes, answeredBoxes).length === 0, { loadingEngines, moved: moved(waitingBoxes, answeredBoxes).slice(0, 3) });
-    engineControl.delayMs = 0; engineControl.nextEmpty = true;
-    await panel.locator('section[aria-labelledby="suggest-staples"] button').first().dblclick();
-    await page.getByTestId("engines-fit-empty").waitFor({ timeout: 15_000 });
-    await page.waitForTimeout(400);
-    const emptyBoxes = await tileBoxes();
-    check("layout", `${viewport.name}: an empty engine answer after a deck edit moves no card row`, moved(answeredBoxes, emptyBoxes).length === 0, moved(answeredBoxes, emptyBoxes).slice(0, 3));
-    engineControl.nextEmpty = false;
-  }
   await page.setViewportSize({ width: 1920, height: 1080 });
 
   // a. A small deck: three ready rows, the Extra row as a hint.
@@ -982,6 +945,8 @@ try {
     control.deck = deck; insightRequests.length = 0; bridgeCalls.lists.length = 0; bridgeCalls.listBodies.length = 0; engineCalls.length = 0; deepJobs.clear(); bridgeCalls.polls = 0; bridgeControl.storedExtra = false; bridgeControl.pollBusy = 0;
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
     await page.evaluate(() => { try { sessionStorage.clear(); localStorage.clear(); } catch { /* Storage is not available. */ } });
+    // The first load may have asked for the tab the last test left open: that is not the new page's request.
+    insightRequests.length = 0; bridgeCalls.lists.length = 0; bridgeCalls.listBodies.length = 0; engineCalls.length = 0;
     await page.goto(`${ORIGIN}/index.html?deck=1&flag=on`);
     await page.getByRole("tab", { name: "Cards", exact: true }).first().waitFor({ state: "visible", timeout: 8000 });
     // The editor measures its width after the first paint, so the phone and desktop tab lists settle a moment later.
@@ -999,7 +964,6 @@ try {
   check("t1", "Suggest and Bridges ask for nothing until opened", insightRequests.length === 0 && bridgeCalls.lists.length === 0, { insight: insightRequests.length, bridges: bridgeCalls.lists.length });
   check("t1", "each tab names its panel and the panel names its tab", await page.evaluate(() => [...document.querySelectorAll('[role="tablist"][data-testid="editor-tabs-bar"] [role="tab"]')].every((tab) => { const panel = document.getElementById(tab.getAttribute("aria-controls") ?? ""); return panel?.getAttribute("role") === "tabpanel" && panel.getAttribute("aria-labelledby") === tab.id; })));
   check("t1", "the Cards panel is visible and the others are empty until opened", await page.locator("#deck-editor-cards").isVisible() && (await page.locator("#deck-editor-suggest").innerHTML()) === "" && (await page.locator("#deck-editor-bridges").innerHTML()) === "");
-  check("t1", "the Engines that fit slot has no chips yet", (await page.locator('[data-testid="engines-fit"]').count()) === 0);
   await shot("tabs-cards-1920x1080");
 
   // Arrow keys move between the tabs, wrap, and Home / End jump to the ends.
@@ -1281,138 +1245,9 @@ try {
   check("u9", "a server with no bridges hides the row and its tab", (await bridges.count()) === 0 && (await page.getByRole("tab", { name: "Bridges", exact: true }).count()) === 0);
   engineControl.status = 200;
 
-  // v. Engines that fit: the top row of the Suggest tab.
+  // The stand-in host is set back to one engine and a working list for the next group.
   engineControl.mode = "single"; engineControl.status = 200; engineControl.nextEmpty = false; engineControl.delayMs = 0;
   bridgeControl.listStatus = 200; bridgeControl.none = false;
-  await page.setViewportSize({ width: 1920, height: 1080 });
-  await fresh();
-  await goTab("Suggest");
-  const fit = page.getByTestId("engines-fit");
-  await fit.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
-  const fitItems = fit.getByTestId("engine-fit-item");
-  check("v1", "the row is the first in the Suggest tab", (await panel.locator("h3").first().innerText()) === "Engines that fit", await panel.locator("h3").allInnerTexts());
-  check("v1", "it shows the top three engines, best first", JSON.stringify(await fitItems.locator("strong").allInnerTexts()) === JSON.stringify(["Dragunity", "Dragon Ruler", "Chaos"]), await fitItems.locator("strong").allInnerTexts());
-  check("v1", "each engine shows a grade and names the deck engine it links", (await fitItems.first().getByTestId("engine-fit-grade").innerText()).length > 0 && (await fitItems.first().getByTestId("engine-fit-links").innerText()) === "Links Blue-Eyes", await fitItems.first().innerText());
-  check("v1", "each engine shows small cards", (await fitItems.first().getByRole("list", { name: /cards$/ }).locator("li").count()) >= 2);
-  check("v1", "the row asked the host once", engineCalls.length === 1, engineCalls.length);
-  const callsAtSuggest = engineCalls.length;
-  await shot("fit-1920x1080");
-
-  // A tap opens the engine in the Bridges tab; Bridges shares the answer, so the host is not asked again.
-  await fitItems.first().getByRole("button", { name: /Open in Bridges/ }).click();
-  check("v2", "the Bridges tab opens", (await tabState("Bridges")) === "true");
-  await bridges.getByTestId("bridge-drill").waitFor({ timeout: 15_000 });
-  check("v2", "the bridge to that engine opens its details", (await bridges.getByTestId("bridge-drill").innerText()).includes("Dragunity"), await bridges.getByTestId("bridge-drill").innerText());
-  check("v2", "the Bridges tab reused the answer of Suggest", engineCalls.length === callsAtSuggest, engineCalls.length - callsAtSuggest);
-  check("v2", "the focus is on Back in the details that opened", await page.evaluate(() => /^Back/.test(document.activeElement?.textContent ?? "")));
-
-  // A tap from Suggest leaves Pick mode: the deck's engine, not the picks, shows the tapped engine.
-  await bridges.getByRole("button", { name: /^Back/ }).click();
-  await page.waitForTimeout(100);
-  check("v2", "Back from an asked bridge leaves the focus in the tab", await page.evaluate(() => document.activeElement !== document.body && !!document.activeElement?.closest('[data-testid="bridges-row"]')), await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 80)));
-  await bridges.getByTestId("engine-modes").getByRole("button", { name: "Pick archetypes" }).click();
-  await bridges.getByTestId("engine-add").click();
-  await bridges.getByTestId("engine-add-form").getByRole("combobox").fill("Red-Eyes");
-  await bridges.getByTestId("engine-add-form").getByRole("button", { name: "Add", exact: true }).click();
-  await goTab("Suggest");
-  await fitItems.nth(2).getByRole("button", { name: /Open in Bridges/ }).click();
-  await bridges.getByTestId("bridge-drill").waitFor({ timeout: 15_000 });
-  check("v2", "a tap while Bridges is in Pick mode goes back to the deck and opens the engine", (await bridges.getByTestId("engine-modes").count()) === 0 && (await bridges.getByTestId("bridge-drill").innerText()).includes("Chaos"), await bridges.getByTestId("bridge-drill").innerText());
-  await bridges.getByRole("button", { name: /^Back/ }).click();
-  check("v2", "Back from there shows Use my deck", (await bridges.getByTestId("engine-modes").getByRole("button", { name: "Use my deck" }).getAttribute("aria-pressed")) === "true");
-
-  // With two engines, the tap shows the engine card in the Bridges list.
-  engineControl.mode = "multi";
-  await fresh();
-  await goTab("Suggest");
-  await fit.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
-  const multiFirst = await fit.getByTestId("engine-fit-item").first().getAttribute("data-engine");
-  check("v3", "two engines still show a short list that names both linked engines", (await fit.getByTestId("engine-fit-item").count()) <= 3 && (await fit.getByTestId("engine-fit-links").first().innerText()) === "Links Blue-Eyes + Dragunity", await fit.innerText());
-  await fit.getByTestId("engine-fit-item").first().getByRole("button", { name: /Open in Bridges/ }).click();
-  await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
-  await bridges.locator(`[data-testid="engine-item"][data-lit]`).waitFor({ timeout: 5000 });
-  check("v3", "the tapped engine is marked in the Bridges list", (await bridges.locator('[data-testid="engine-item"][data-lit]').getAttribute("data-engine")) === multiFirst, multiFirst);
-  await page.waitForTimeout(200);
-  check("v3", "the marked engine has the focus", await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.engine ?? null) === multiFirst, await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 80)));
-
-  // With edited chips the tapped engine can be a chip already, or not a next engine: a line says so and offers a reset.
-  await bridges.getByTestId("engine-chips").getByRole("button", { name: /^Add Chaos/ }).click();
-  await bridges.getByTestId("engines-next").locator("h4", { hasText: "Chaos" }).waitFor({ timeout: 15_000 });
-  await goTab("Suggest");
-  await fit.getByTestId("engine-fit-item").first().getByRole("button", { name: /Open in Bridges/ }).click();
-  await bridges.getByTestId("bridges-notice").waitFor({ timeout: 10_000 });
-  check("v3", "a tapped engine that is a chip already gets a short line", (await bridges.getByTestId("bridges-notice").innerText()).includes("Chaos is already one of your engines"), await bridges.getByTestId("bridges-notice").innerText());
-  // Only Red-Eyes is left: nothing in the stored rows leads from it to Chaos.
-  await bridges.getByTestId("engine-chips").getByRole("button", { name: "Remove Chaos" }).click();
-  await bridges.getByTestId("engine-chips").getByTestId("engine-add").click();
-  await bridges.getByTestId("engine-add-form").getByRole("combobox").fill("Red-Eyes");
-  await bridges.getByTestId("engine-add-form").getByRole("button", { name: "Add", exact: true }).click();
-  await bridges.getByTestId("engine-chips").getByRole("button", { name: "Remove Blue-Eyes" }).click();
-  await bridges.getByTestId("engine-chips").getByRole("button", { name: "Remove Dragunity" }).click();
-  await bridges.getByTestId("bridges-empty").waitFor({ timeout: 15_000 });
-  await goTab("Suggest");
-  await fit.getByTestId("engine-fit-item").first().getByRole("button", { name: /Open in Bridges/ }).click();
-  await bridges.getByTestId("bridges-notice").waitFor({ timeout: 10_000 });
-  check("v3", "a tapped engine that the edited chips do not reach says so, with a reset", (await bridges.getByTestId("bridges-notice").innerText()).includes("not a next engine") && (await bridges.getByTestId("bridges-notice-reset").count()) === 1, await bridges.getByTestId("bridges-notice").innerText());
-  check("v3", "the line has the focus", await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) === "bridges-notice");
-  await bridges.getByTestId("bridges-notice-reset").click();
-  await bridges.locator('[data-testid="engine-item"][data-lit]').waitFor({ timeout: 10_000 });
-  check("v3", "the reset brings the deck's engines back and marks the engine", (await bridges.locator('[data-testid="engine-item"][data-lit]').getAttribute("data-engine")) === multiFirst && (await bridges.getByTestId("engine-chip").count()) === 2);
-
-  // No engine passed the checks: a plain hint that points to Deep search.
-  engineControl.mode = "single"; engineControl.nextEmpty = true;
-  await fresh();
-  await goTab("Suggest");
-  await fit.getByTestId("engines-fit-empty").waitFor({ timeout: 15_000 });
-  const emptyText = await fit.getByTestId("engines-fit-empty").innerText();
-  check("v4", "the empty state points to Deep search in the Bridges tab", emptyText.includes("Deep search") && emptyText.includes("Bridges tab"), emptyText);
-  check("v4", "the empty state is not an error", (await fit.getByRole("alert").count()) === 0);
-  await shot("fit-empty-1920x1080");
-  await fit.getByRole("button", { name: /Deep search/ }).click();
-  check("v4", "its link opens the Bridges tab", (await tabState("Bridges")) === "true");
-  await page.waitForFunction(() => document.activeElement?.getAttribute("data-testid") === "deep-search-button", null, { timeout: 10_000 }).catch(() => undefined);
-  check("v4", "the Deep search button has the focus and works", await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) === "deep-search-button" && await bridges.getByTestId("deep-search-button").isEnabled());
-  engineControl.nextEmpty = false;
-
-  // No engine in the deck: the hint points to Pick archetypes, never to a Deep search that is off.
-  engineControl.mode = "none";
-  await fresh();
-  await goTab("Suggest");
-  await fit.getByTestId("engines-fit-empty").waitFor({ timeout: 15_000 });
-  const noneText = await fit.getByTestId("engines-fit-empty").innerText();
-  check("v4", "a deck with no engine gets a hint to pick archetypes", noneText.includes("pick archetypes") && !noneText.includes("Deep search"), noneText);
-  await fit.getByRole("button", { name: /pick archetypes/ }).click();
-  await bridges.getByTestId("engine-add").waitFor({ timeout: 10_000 });
-  await page.waitForTimeout(200);
-  check("v4", "its link opens Bridges in Pick archetypes with the focus on Add", (await bridges.getByTestId("engine-modes").getByRole("button", { name: "Pick archetypes" }).getAttribute("aria-pressed")) === "true" && await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) === "engine-add");
-  engineControl.mode = "single";
-
-  // The host fails: the rest of Suggest still works.
-  engineControl.status = 500;
-  await fresh();
-  await goTab("Suggest");
-  await fit.getByTestId("engines-fit-empty").waitFor({ timeout: 15_000 });
-  check("v5", "a failed answer says the engines are not available and offers Try again in place", (await fit.getByTestId("engines-fit-empty").innerText()).includes("not available") && (await fit.getByRole("button", { name: "Try again" }).count()) === 1 && !(await fit.getByTestId("engines-fit-empty").innerText()).includes("Deep search"));
-  check("v5", "the four rows still load", (await tileButtons.count()) > 0 || await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().isVisible());
-  engineControl.status = 404;
-  await fresh();
-  await goTab("Suggest");
-  await page.waitForTimeout(800);
-  check("v5", "a server with no bridges has no row", (await fit.count()) === 0);
-  engineControl.status = 200;
-
-  // The row at every width.
-  for (const viewport of VIEWPORTS) {
-    await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    await fresh();
-    await goTab("Suggest");
-    await fit.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
-    await page.waitForTimeout(400);
-    check("v6", `${viewport.name}: the page does not scroll sideways`, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
-    const inside = await fit.evaluate((root: HTMLElement) => { const edge = root.getBoundingClientRect().right + 1; return [...root.querySelectorAll("li, button")].every((node) => node.getBoundingClientRect().right <= edge); });
-    check("v6", `${viewport.name}: the engines stay inside the column`, inside);
-    await shot(`fit-${viewport.name}`);
-  }
   await page.setViewportSize({ width: 1920, height: 1080 });
 
   // w. Deep search on a set of engines.
@@ -1580,14 +1415,6 @@ try {
       await bridges.getByTestId("deep-results").getByTestId("engine-item").first().waitFor({ timeout: 20_000 });
       await page.waitForTimeout(1500);
       check("w9", "after a reload no engine is marked New, and the note does not count new ones", (await bridges.getByTestId("engine-new").count()) === 0 && !(await bridges.getByTestId("deep-from").innerText()).includes("new"), await bridges.getByTestId("deep-from").innerText());
-      // Suggest lists Dragon Ruler (a fast engine) that the deep results left out: a tap says so, never nothing.
-      await goTab("Suggest");
-      const ruler = fit.locator('[data-testid="engine-fit-item"][data-engine="Dragon Ruler"]');
-      await ruler.waitFor({ state: "visible", timeout: 15_000 });
-      await ruler.getByRole("button", { name: /Open in Bridges/ }).click();
-      await bridges.getByTestId("bridges-notice").waitFor({ timeout: 10_000 });
-      await page.waitForTimeout(200);
-      check("w9", "a tapped engine that the deep results left out gets a line with the focus", (await bridges.getByTestId("bridges-notice").innerText()).includes("not among your deep search results") && await page.evaluate(() => document.activeElement?.getAttribute("data-testid")) === "bridges-notice", await bridges.getByTestId("bridges-notice").innerText());
     }
   }
   bridgeControl.deepExtra = false;
@@ -1653,7 +1480,7 @@ try {
   }
   engineControl.mode = "single";
 
-  // y. The Domain formats have no Bridges: no tab (desktop or phone), no Engines that fit row, and no request.
+  // y. The Domain formats have no Bridges: no tab (desktop or phone) and no request.
   control.genesys = false; engineControl.mode = "multi";
   for (const [format, genesysOn] of [["domain", false], ["domain", true]] as const) {
     for (const viewport of VIEWPORTS) {
@@ -1671,7 +1498,6 @@ try {
       check("y1", `${label}: the remembered Bridges tab falls back to Cards`, (await page.getByRole("tab", { name: "Cards", exact: true }).first().getAttribute("aria-selected")) === "true" || viewport.width === 390);
       await goTab("Suggest");
       await page.waitForTimeout(800);
-      check("y1", `${label}: Suggest has no Engines that fit row`, (await page.getByTestId("engines-fit").count()) === 0 && (await page.getByTestId("engines-fit-empty").count()) === 0 && (await page.locator("#suggest-engines").count()) === 0);
       check("y1", `${label}: no bridges or engines request is made`, bridgeCalls.lists.length === 0 && engineCalls.length === 0 && bridgeCalls.starts.length === 0 && bridgeCalls.archetypes === 0, { lists: bridgeCalls.lists.length, engines: engineCalls.length });
       if (!genesysOn) await shot(`domain-no-bridges-${viewport.name}`);
     }
@@ -1713,11 +1539,6 @@ try {
   await bridges.getByTestId("engines-next").waitFor({ timeout: 15_000 });
   check("x2", "after a reload the chips are the edited set", JSON.stringify(await chipNames()) === JSON.stringify(["Blue-Eyes", "Dragunity"]) && (await chips.getByTestId("engine-reset").count()) === 1, await chipNames());
 
-  // The edits are for Bridges only: the Suggest row still reads the deck's own engines.
-  await goTab("Suggest");
-  await fit.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
-  check("x2", "the Suggest row ignores the chip edits", (await fit.getByTestId("engine-fit-links").first().innerText()) === "Links Blue-Eyes");
-  await goTab("Bridges");
   await chips.getByTestId("engine-reset").click();
   await items.first().waitFor({ state: "visible", timeout: 15_000 });
   const afterReset = await page.evaluate(() => { try { return Object.keys(localStorage).filter((key) => key.startsWith("bridges:engines:")); } catch { return ["error"]; } });
@@ -2257,7 +2078,6 @@ try {
     await paneTop("bridges");
     await shot(`z-bridges-pick-${viewport.name}`);
     await goTab("Suggest");
-    await fit.getByTestId("engine-fit-item").first().waitFor({ state: "visible", timeout: 15_000 });
     await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
     await page.waitForTimeout(400);
     await shot(`z-suggest-${viewport.name}`);

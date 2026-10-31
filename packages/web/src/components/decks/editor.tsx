@@ -293,7 +293,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   const [bridgesDot, setBridgesDot] = useState(false);
   // Bridges need Suggestions, and a draft pool (no free choice of cards) has none.
   const suggestOn = suggestionsFlag && !suggestDenied;
-  // Bridges are for Standard and Genesys. The Domain formats have none: no tab, no "Engines that fit" row, no request.
+  // Bridges are for Standard and Genesys. The Domain formats have none: no tab, no request.
   const bridgesOn = suggestOn && !pool && !bridgesDenied && mode !== "domain";
   const columnTabs = useMemo<ColumnTab[]>(() => ["cards", ...(suggestOn ? ["suggest" as const] : []), ...(bridgesOn ? ["bridges" as const] : [])], [suggestOn, bridgesOn]);
   const activeTab = shownTab(tab, columnTabs, isPhone);
