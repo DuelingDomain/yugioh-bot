@@ -6,7 +6,7 @@ import { env } from "./env";
 import { callDuelHost } from "./duel-host";
 import { apiErrorResponse } from "./api-errors";
 import { readJsonBody } from "./bug-reports/read-body";
-import { BridgeAlternativePathSchema, BridgePackageSchema, EngineCoreSchema, isBridgeDeck, isBridgeEngineNames, type BridgeEnginesRequest } from "@yugidraft/shared/cards/effects";
+import { bridgeGroupName, BridgeAlternativePathSchema, BridgePackageSchema, EngineCoreSchema, isBridgeDeck, isBridgeEngineNames, type BridgeEnginesRequest } from "@yugidraft/shared/cards/effects";
 import { isBridgeLoadingResponse, type BridgeDeepSearchRequest, type BridgeListRequest, type BridgeLoadingResponse } from "./bridges-api";
 
 type BridgeFormat = "advanced" | "genesys";
@@ -246,5 +246,5 @@ export function bridgeErrorResponse(error: unknown) {
 /** The archetypes that have bridge data, for the two-archetype search box. A name list only; no bridge is exposed here. */
 export function listBridgeArchetypes(): string[] {
   const rows = getDb().prepare("SELECT source AS name FROM archetype_bridge UNION SELECT target FROM archetype_bridge ORDER BY name COLLATE NOCASE").all() as { name: string }[];
-  return rows.map(row => row.name);
+  return [...new Set(rows.map(row => bridgeGroupName(row.name)))].sort((a, b) => a.localeCompare(b));
 }

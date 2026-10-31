@@ -88,6 +88,8 @@ export interface ArchetypeBridge {
 }
 export interface BridgeProgress { phase: "index" | "score" | "validate" | "done"; completed: number; total: number }
 export interface BridgeGroupPolicy {
+  /** Official label; the policy key remains the stable storage identity. */
+  display_name?: string;
   curated?: boolean;
   excluded?: boolean;
   aliases?: string[];

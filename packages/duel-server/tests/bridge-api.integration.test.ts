@@ -191,7 +191,7 @@ describe("authenticated bridge API and judged deep-search lifecycle", () => {
     }
     const job = await call({ op: "start", source: "Odion", target: "Argostars" }) as { jobId: string };
     expect(await call({ op: "start", source: "Odion", target: "Argostars", join: true })).toMatchObject({ jobId: job.jobId, cached: false });
-    await expect(call({ op: "start", source: "Blue-Eyes" })).rejects.toMatchObject({ status: 409, message: "A deep search for Odion is still running", retryAfter: 10 });
+    await expect(call({ op: "start", source: "Blue-Eyes" })).rejects.toMatchObject({ status: 409, message: "A deep search for Temple of the Kings is still running", retryAfter: 10 });
     expect(await call({ op: "status", jobId: job.jobId })).toMatchObject({ state: "running", results: [] });
     complete();
     for (let i = 0; i < 30 && (await call({ op: "status", jobId: job.jobId }) as { state: string }).state !== "done"; i++) await new Promise(resolve => setImmediate(resolve));

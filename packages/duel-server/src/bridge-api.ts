@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { bridgeGate, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_VERSION, isBridgeDeck, type ArchetypeBridge, type BridgeDeck, type BridgeGraphData } from "@yugidraft/shared/cards/effects";
+import { bridgeGate, displayBridgeGroups, resolveBridgeGroup, BRIDGE_JUDGE_IDENTITIES, BRIDGE_JUDGE_VERSION, isBridgeDeck, type ArchetypeBridge, type BridgeDeck, type BridgeGraphData } from "@yugidraft/shared/cards/effects";
 import { createSavedDeckService } from "@yugidraft/shared/services";
 import { isOwnerUser } from "@yugidraft/shared/access/owner-access";
 import { createHash } from "node:crypto";
@@ -126,7 +126,7 @@ export class BridgeApi {
         }
       }
     }
-    const canonical = (value: string) => Object.keys(groups).find(key => key.toLowerCase() === value.trim().toLowerCase());
+    const canonical = (value: string) => resolveBridgeGroup(value, groups);
     const resolved = canonical(source!);
     const target = input.target === undefined ? undefined : canonical(input.target as string);
     if (!resolved || input.target !== undefined && !target) throw new BridgeJobError("Unknown archetype", 400);
@@ -136,6 +136,14 @@ export class BridgeApi {
   }
 
   async handle(body: Record<string, unknown>, guildId: string, playerId: number, signal?: AbortSignal) {
+    try { return displayBridgeGroups(await this.handleStable(body, guildId, playerId, signal)); }
+    catch (error) {
+      if (error instanceof BridgeJobError) throw new BridgeJobError(displayBridgeGroups(error.message), error.status, error.retryAfter);
+      throw error;
+    }
+  }
+
+  private async handleStable(body: Record<string, unknown>, guildId: string, playerId: number, signal?: AbortSignal) {
     const player = this.db.prepare("SELECT p.user_id FROM players p JOIN users u ON u.id=p.user_id WHERE p.id=? AND p.guild_id=?")
       .get(playerId, guildId) as { user_id: number } | undefined;
     if (!player || !Number.isSafeInteger(body.userId) || body.userId !== player.user_id) throw new BridgeJobError("Authenticated guild player is required", 403);

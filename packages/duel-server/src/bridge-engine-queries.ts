@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { bridgeGate, bridgeProjection, bridgePackage, shownBridge, isBridgeDeck, isBridgeEngineNames, rankEngineCandidates, rankNextEngines, projectEngineCore,
+import { bridgeGate, bridgeProjection, bridgePackage, shownBridge, isBridgeDeck, isBridgeEngineNames, resolveBridgeGroup, rankEngineCandidates, rankNextEngines, projectEngineCore,
   type ArchetypeBridge, type BridgeDeck, type BridgeEnginesResponse, type BridgeFormat, type DetectedEngine, type EngineSuggestion } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
 import { BridgeJobError, type BridgeSearchQuery } from "./bridge-search-jobs.js";
@@ -55,7 +55,7 @@ export class BridgeEngineQueries {
     const detected = deck ? this.service.detectEngines(deck, format, guildId) : undefined;
     const names = input.engines as string[] | undefined ?? detected?.filter(row => row.status === "engine").map(row => row.name) ?? [];
     const groups = this.rankingContext().groups;
-    const canonical = names.map(name => Object.keys(groups).find(key => key.toLowerCase() === name.trim().toLowerCase()));
+    const canonical = names.map(name => resolveBridgeGroup(name, groups));
     if (canonical.some(name => !name)) throw new BridgeJobError("Unknown archetype", 400);
     const engines = [...new Set(canonical as string[])].sort();
     return { query: { source: engines[0] ?? "", engines, format, ...context, ...(deck ? { deck } : {}) },

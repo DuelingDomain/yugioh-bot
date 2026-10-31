@@ -182,7 +182,7 @@ describe("stored multi-engine bridge API", () => {
     vi.useFakeTimers();
     try {
       const pending = api.handle({ userId: actor.userId, bridgeRequest: { op: "engines", engines: ["Odion"] } }, "g", actor.playerId);
-      const result = expect(pending).resolves.toMatchObject({ engines: ["Odion"] });
+      const result = expect(pending).resolves.toMatchObject({ engines: ["Temple of the Kings"] });
       await ready;
       expect(scan.mock.calls[0]![2]).toBeGreaterThan(15_000);
       await vi.advanceTimersByTimeAsync(6000);
@@ -237,10 +237,10 @@ describe("stored multi-engine bridge API", () => {
       expect(scan).toHaveBeenCalledTimes(1);
       release();
       await expect(running).resolves.toMatchObject({ engines: ["Genex"] });
-      await expect(corrected).resolves.toMatchObject({ engines: ["Odion"], detected: expect.any(Array) });
+      await expect(corrected).resolves.toMatchObject({ engines: ["Temple of the Kings"], detected: expect.any(Array) });
       await expect(newest).resolves.toMatchObject({ engines: ["Ashtra"], detected: expect.any(Array) });
       expect(scan.mock.calls.map(([input]) => input.engines)).toEqual([["Genex"], ["Odion"], ["Ashtra"]]);
-      await expect(call({ deck, engines: ["Odion"] })).resolves.toMatchObject({ engines: ["Odion"] });
+      await expect(call({ deck, engines: ["Odion"] })).resolves.toMatchObject({ engines: ["Temple of the Kings"] });
       await expect(call({ deck, engines: ["Ashtra"] })).resolves.toMatchObject({ engines: ["Ashtra"] });
       expect(scan).toHaveBeenCalledTimes(3);
     } finally { release(); await Promise.allSettled([running, evicted, corrected, newest]); await api.jobs.close(); }
@@ -314,7 +314,7 @@ describe("stored multi-engine bridge API", () => {
     const api = new BridgeApi(db, workers);
     const call = (request: Record<string, unknown>) => api.handle({ userId: user.userId, bridgeRequest: { op: "engines", format: "advanced", ...request } }, "g", user.playerId) as Promise<BridgeEnginesResponse>;
     try {
-      expect(await call({ deck })).toMatchObject({ engines: ["Ashtra", "Odion"], next: [], between: [], detected: expect.any(Array) });
+      expect(await call({ deck })).toMatchObject({ engines: ["Ashtra", "Temple of the Kings"], next: [], between: [], detected: expect.any(Array) });
       const service = createBridgeService(db);
       for (const [from, to] of [["Odion", "Ashtra"], ["Ashtra", "Odion"], ["Odion", "Argostars"], ["Ashtra", "Argostars"], ["Argostars", "Odion"]]) {
         const row = service.bridgeBetween(from!, to!); if (row) approve(row);
@@ -331,8 +331,8 @@ describe("stored multi-engine bridge API", () => {
       expect(argostars.score).toBeGreaterThanOrEqual(4);
       expect(argostars.missing).not.toContain(29762407);
       expect(result.next.every(row => !/synchron/i.test(row.engine))).toBe(true);
-      expect(await call({ deck, engines: ["odion"] })).toMatchObject({ engines: ["Odion"], detected: expect.any(Array) });
-      expect(await call({ engines: ["odion", " ASHTRA "] })).toMatchObject({ engines: ["Ashtra", "Odion"] });
+      expect(await call({ deck, engines: ["odion"] })).toMatchObject({ engines: ["Temple of the Kings"], detected: expect.any(Array) });
+      expect(await call({ engines: ["odion", " ASHTRA "] })).toMatchObject({ engines: ["Ashtra", "Temple of the Kings"] });
       expect(workers.bridgeCandidates).not.toHaveBeenCalled(); expect(workers.rateBridge).not.toHaveBeenCalled();
       expect(db.prepare("SELECT count(*) AS n FROM bridge_deep_job").get()).toEqual({ n: 0 });
       for (const request of [{}, { engines: [] }, { engines: ["missing"] }, { engines: Array(5).fill("Odion") },

@@ -2,6 +2,8 @@
 
 Deterministic candidates feed two independent, cached reviews. Player routes return a bridge only when both reviewers accept its checked evidence, agree within one grade, and pass format and feedback checks. Player results say `validation: "deterministic"`, `judge: "accepted"`, and `engine_status: "unverified"`. Candidate CLI methods retain `judge: "pending"`. The player Suggestions row and progress-bar component remain for the UI stage; their server contract is implemented below.
 
+Engine labels use official archetype or key-card names. `Temple of the Kings` is the display name of the stable internal `Odion` identity. Both spellings are accepted as request selectors, including saved chip edits; response labels and the archetype-name list use `Temple of the Kings`. Display translation occurs after review validation and does not change evidence hashes, judge inputs or stored cache identities. Artifact group policies carry `display_name` separately from their stable keys.
+
 ## HTTP interfaces
 
 All player routes require an authenticated application user with a player in the configured guild. The web server derives identity from the session and proxies to the HMAC-signed `POST /internal/duel` operation `bridges`. The host rechecks the user/player/guild mapping on every request, including cache hits and polling. Responses use `Cache-Control: private, no-store`. Client guild/user/player fields are rejected.
