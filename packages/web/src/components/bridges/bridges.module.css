@@ -16,12 +16,10 @@
 .list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 268px), 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
 .item { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; gap: 7px; box-sizing: border-box; min-height: 200px; min-width: 0; padding: 10px; border-radius: 10px; background: rgb(239 231 213 / 0.035); box-shadow: 0 0 0 1px rgb(239 231 213 / 0.09); }
 .item:hover, .item:focus-within { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.24); }
-.open { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.open:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 6px; }
+.open { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
 .target { min-width: 0; overflow: hidden; color: var(--ink); font-size: 14px; font-weight: 500; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
 .arrow { color: var(--ink-4); }
 .chevron { flex: none; color: var(--ink-4); }
-.open:hover .chevron { color: var(--ink); }
 .skeletons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 268px), 1fr)); gap: 8px; }
 .skeleton { display: block; height: 300px; border-radius: 10px; background: rgb(239 231 213 / 0.04); }
 @container (min-width: 320px) { .skeleton { height: 250px; } }
@@ -79,7 +77,7 @@
 
 /* "Details" beside the chevron: an item that opens says so in words. */
 .openHint { display: inline-flex; flex: none; align-items: center; gap: 2px; color: var(--ink-3); font-size: 12px; font-weight: 400; }
-.open:hover .openHint, .pathButton:hover .openHint { color: var(--ink); }
+.pathButton:hover .openHint { color: var(--ink); }
 
 /* The path in a list: small cards with an arrow before each but the first. An arrow wraps with the card after it. */
 .path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px; margin: 0; padding: 0; list-style: none; }
@@ -161,7 +159,7 @@ button.coreArt:hover { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.5); }
 
 /* The engines of the open deck as chips, and the engines that fit next. */
 .chips { display: grid; gap: 8px; min-width: 0; }
-.chipRow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 10px; row-gap: 6px; min-width: 0; }
+.chipRow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; row-gap: 6px; min-width: 0; }
 .chipList { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-height: 28px; box-sizing: border-box; padding: 0 4px 0 10px; border: 0; border-radius: 999px; background: var(--pen-soft); color: var(--ink); font: inherit; font-size: 12.5px; }
 .chipName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -172,7 +170,7 @@ button.coreArt:hover { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.5); }
 .chipAdd { gap: 4px; padding: 0 10px; background: none; box-shadow: inset 0 0 0 1px var(--rule-lo); color: var(--ink-2); cursor: pointer; }
 .chipAdd:hover { box-shadow: inset 0 0 0 1px var(--rule); color: var(--ink); }
 .chipAdd:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.chipReset { min-height: 28px; padding: 0 4px; }
+.chipReset { min-height: 28px; margin-left: 4px; padding: 0 4px; }
 .addForm { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
 .also { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; color: var(--ink-3); font-size: 12.5px; }
 .alsoItem { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 0 8px; border: 0; border-radius: 999px; background: none; box-shadow: inset 0 0 0 1px var(--rule-lo); color: var(--ink-2); font: inherit; font-size: 12px; cursor: pointer; }
@@ -192,8 +190,6 @@ button.coreArt:hover { box-shadow: 0 0 0 1px rgb(239 231 213 / 0.5); }
 .paths { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .paths > li { display: grid; gap: 1px; min-width: 0; font-size: 12px; line-height: 1.35; }
 .pathEnds { color: var(--ink); font-weight: 500; }
-.pathLine { overflow: hidden; color: var(--ink-3); text-overflow: ellipsis; white-space: nowrap; }
-.engineCards { display: grid; gap: 4px; min-width: 0; }
 .need { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.35; }
 .betweenList { display: grid; gap: 12px; }
 /* Engine cards keep one order in the meta row (grade, links, two-way, new), with no part pushed to the far edge. */

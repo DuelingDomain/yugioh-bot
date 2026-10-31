@@ -11,7 +11,7 @@ export function errorText(error: unknown): string {
   return "Could not reach the server. Check your connection and try again.";
 }
 
-export type DeepPhase = "idle" | "starting" | "running" | "done" | "failed";
+type DeepPhase = "idle" | "starting" | "running" | "done" | "failed";
 export type Deep = { phase: DeepPhase; step: DeepStep; progress: number; results: ShownBridge[]; next: EngineSuggestion[]; inReview: number | null; error: string | null };
 const IDLE: Deep = { phase: "idle", step: "candidates", progress: 0, results: [], next: [], inReview: null, error: null };
 
@@ -75,7 +75,7 @@ const doneDeep = (status: { results: ShownBridge[]; next?: EngineSuggestion[]; i
 const failedDeep = (error: string, step: DeepStep = "candidates", progress = 0, inReview: number | null = null): Deep =>
   ({ ...IDLE, phase: "failed", step, progress, inReview, error });
 
-export type DeepSearchOptions = {
+type DeepSearchOptions = {
   /** The engines in words ("Blue-Eyes + Dragunity"), to name a search that runs while the tab shows another set. */
   names: string;
   /** The tab is on screen. A deck edit reaches the host only then. */

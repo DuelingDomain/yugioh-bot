@@ -61,7 +61,7 @@ export function alternativeSteps(path: BridgeAlternativePath, codes: readonly nu
 }
 
 /** The cards of the line that the deck (Main and Extra) does not hold yet, once each. */
-export function missingSteps(steps: readonly PathStep[], held: (card: DeckCardInfo) => number): DeckCardInfo[] {
+function missingSteps(steps: readonly PathStep[], held: (card: DeckCardInfo) => number): DeckCardInfo[] {
   const seen = new Set<string>();
   const out: DeckCardInfo[] = [];
   for (const { card } of steps) {
@@ -143,7 +143,7 @@ export function PathSteps({ steps, cardProps, deckCount, held, limit }: {
 }
 
 /** What an add button shows: the cards that go in (and where), the ones that cannot, and what is not known yet. */
-export type AddView = {
+type AddView = {
   /** Sets the test ids: `bridge-add`, `core-add`. */
   prefix: "bridge" | "core";
   /** "Add bridge" or "Add engine". */

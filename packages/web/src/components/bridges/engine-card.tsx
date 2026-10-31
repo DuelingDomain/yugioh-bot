@@ -13,13 +13,13 @@ import { cardsState, useBridgeCards } from "./use-bridges";
 import styles from "./bridges.module.css";
 
 /** The grade word of an engine. A niche engine always says Niche, like a niche bridge. */
-export const engineGrade = (engine: EngineSuggestion) => (engine.tier === "niche" ? "Niche" : engine.grade);
+const engineGrade = (engine: EngineSuggestion) => (engine.tier === "niche" ? "Niche" : engine.grade);
 
 /** A resource synergy: the source gives the target a resource, but it is no way in. It never counts as a link. */
-export const isSynergy = (engine: EngineSuggestion) => engine.kind === "synergy";
+const isSynergy = (engine: EngineSuggestion) => engine.kind === "synergy";
 
 /** What the deck still needs: cards it holds against copies to add. */
-export function needText(engine: EngineSuggestion): string {
+function needText(engine: EngineSuggestion): string {
   const missing = new Set(engine.missing);
   const held = engine.cards.filter((code) => !missing.has(code)).length;
   const add = engine.missing.length;
@@ -28,12 +28,12 @@ export function needText(engine: EngineSuggestion): string {
 }
 
 /** The engines of the set that a suggestion links to, in the order of its links. */
-export function linkedEngines(engine: EngineSuggestion): string[] {
+function linkedEngines(engine: EngineSuggestion): string[] {
   return [...new Set(engine.links.map((link) => (link.from === engine.engine ? link.to : link.from)))];
 }
 
 /** "Links Odion + Ashtra", or "Links Odion · 1 of 2" when it does not link the whole set. */
-export function linksText(engine: EngineSuggestion): string {
+function linksText(engine: EngineSuggestion): string {
   const linked = linkedEngines(engine);
   if (isSynergy(engine)) return `Synergy with ${linked.join(" + ")}`;
   const words = `Links ${linked.join(" + ")}`;
@@ -47,7 +47,7 @@ function linkEnds(engine: EngineSuggestion, from: string, to: string): string {
 }
 
 /** One engine that fits next: grade, how many of your engines it links to, the path of each link, the cards, the points. */
-export function EngineCard({ engine, mode, cards, cardProps, genesys, adder, limit, onOpen, onOpenLink, fresh }: {
+function EngineCard({ engine, mode, cards, cardProps, genesys, adder, limit, onOpenLink, fresh }: {
   engine: EngineSuggestion;
   mode: DuelMode;
   cards: ReadonlyMap<number, DeckCardInfo>;
@@ -56,7 +56,6 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, adder, lim
   /** Adds the bridge cards and the engine core that the deck lacks. Not given: no buttons. */
   adder?: CardAdder;
   limit?: (card: DeckCardInfo) => 0 | 1 | 2 | 3;
-  onOpen?: (engine: EngineSuggestion) => void;
   /** A link opens the details of its bridge. */
   onOpenLink?: (bridge: ShownBridge) => void;
   /** Only the deep search found it. */
@@ -76,17 +75,9 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, adder, lim
   }
   // The Add engine note says what the copies cost; then the host's total for the missing cards is not shown too.
   const engineNote = adder && engine.core?.ready ? engineAdd(engine.core, line, cards, mode, adder, genesys).note : undefined;
-  const title = (
-    <>
-      <strong className={styles.target}>{engine.engine}</strong>
-      {onOpen ? <ChevronRight size={15} strokeWidth={1.8} aria-hidden className={styles.chevron} /> : null}
-    </>
-  );
   return (
     <li className={cn(styles.item, styles.engine)} data-grade={synergy ? undefined : word.toLowerCase()} data-kind={synergy ? "synergy" : undefined} data-testid="engine-item" data-engine={engine.engine} data-owned={engine.alreadyInDeck ? "" : undefined}>
-      {onOpen ? (
-        <button type="button" className={styles.open} aria-label={`${engine.engine}. ${word}, ${linksText(engine).toLowerCase()}. Open details`} onClick={() => onOpen(engine)}>{title}</button>
-      ) : <div className={styles.open}>{title}</div>}
+      <div className={styles.open}><strong className={styles.target}>{engine.engine}</strong></div>
       {/* Always in this order (grade, links, two-way, new), so the eye finds each in the same place on every card. */}
       <div className={styles.engineMeta}>
         {synergy ? <SynergyTag testId="engine-synergy" /> : <GradeTag grade={word.toLowerCase()} text={word} testId="engine-grade" />}
@@ -129,7 +120,7 @@ export function EngineCard({ engine, mode, cards, cardProps, genesys, adder, lim
 }
 
 /** A list of engines. The cards of all engines (their links and their core) load together, so the thumbnails fill in at once. */
-export function EngineList({ engines, mode, genesys, cardProps, adder, limit, onCatalog, onOpen, onOpenLink, label, fresh }: {
+export function EngineList({ engines, mode, genesys, cardProps, adder, limit, onCatalog, onOpenLink, label, fresh }: {
   engines: readonly EngineSuggestion[];
   mode: DuelMode;
   genesys: boolean;
@@ -137,7 +128,6 @@ export function EngineList({ engines, mode, genesys, cardProps, adder, limit, on
   adder?: CardAdder;
   limit?: (card: DeckCardInfo) => 0 | 1 | 2 | 3;
   onCatalog: (cards: DeckCardInfo[]) => void;
-  onOpen?: (engine: EngineSuggestion) => void;
   onOpenLink?: (bridge: ShownBridge) => void;
   label: string;
   /** Engines only the deep search found. */
@@ -148,7 +138,7 @@ export function EngineList({ engines, mode, genesys, cardProps, adder, limit, on
   const ordered = [...engines.filter((engine) => !isSynergy(engine)), ...engines.filter(isSynergy)];
   return (
     <ul className={styles.list} aria-label={label}>
-      {ordered.map((engine) => <EngineCard key={engine.engine} engine={engine} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} adder={adder} limit={limit} onOpen={onOpen} onOpenLink={onOpenLink} fresh={fresh?.has(engine.engine)} />)}
+      {ordered.map((engine) => <EngineCard key={engine.engine} engine={engine} mode={mode} cards={cards} cardProps={cardProps} genesys={genesys} adder={adder} limit={limit} onOpenLink={onOpenLink} fresh={fresh?.has(engine.engine)} />)}
     </ul>
   );
 }

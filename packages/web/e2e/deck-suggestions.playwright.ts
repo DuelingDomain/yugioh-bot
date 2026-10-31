@@ -1118,7 +1118,7 @@ try {
   await chips.getByRole("button", { name: "Remove Blue-Eyes" }).click();
   await items.first().waitFor({ state: "visible", timeout: 15_000 });
   check("u4", "a removed deck engine leaves the other chip and shows the reset link", JSON.stringify(await chipNames()) === JSON.stringify(["Dragunity"]) && (await chips.getByTestId("engine-reset").innerText()) === "Reset to deck", await chipNames());
-  check("u4", "the reset link is outside the chip list, so a screen reader counts the chips only", (await chips.getByRole("list").first().getByTestId("engine-reset").count()) === 0 && (await chips.getByRole("listitem").count()) === (await chips.getByTestId("engine-chip").count()) + (await chips.getByTestId("engine-add").count()));
+  check("u4", "Add and Reset are outside the chip list, so a screen reader counts the chips only", (await chips.getByRole("list").first().getByTestId("engine-reset").count()) === 0 && (await chips.getByRole("list").first().getByTestId("engine-add").count()) === 0 && (await chips.getByTestId("engine-add").count()) === 1 && (await chips.getByRole("listitem").count()) === (await chips.getByTestId("engine-chip").count()));
   check("u4", "the reset link is a short inline link in the row of the chips", await chips.evaluate((root: HTMLElement) => { const link = root.querySelector('[data-testid="engine-reset"]')!.getBoundingClientRect(); const list = root.querySelector("ul")!.getBoundingClientRect(); return link.width < 160 && link.top < list.bottom && link.left >= list.right - 1; }));
   await chips.scrollIntoViewIfNeeded();
   await shot("chips-reset-1920x1080");

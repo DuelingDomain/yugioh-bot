@@ -22,7 +22,6 @@ import {
   type DuelDeckCardRef,
   type DuelMode,
   type GenesysSettings,
-  type SavedDeck,
   type SelectableCardArtwork,
 } from "@yugidraft/shared/duels";
 import {
@@ -43,7 +42,7 @@ import {
   X,
 } from "lucide-react";
 import { canBeDeckMaster, isSpellOrTrapType, SPELL_TRAP_MASTER_MESSAGE } from "@/components/duel/deck-card-types";
-import { selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
+import type { DeckMasterSelection } from "@/components/duel/ydk";
 import { SheetRoot, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { useDeckSuggestionsEnabled } from "@/components/effect-search/capability-context";
 import { useTabDirection } from "@/lib/tab-motion";
@@ -129,7 +128,6 @@ import {
   shuffled,
   snapshotOf,
   sortDeck,
-  uniqueCodes,
   type CopyProblem,
   type CardSource,
   type DeckSection,

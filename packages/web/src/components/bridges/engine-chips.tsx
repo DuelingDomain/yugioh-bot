@@ -79,13 +79,11 @@ export function EngineChips({ title, set, light, edited, busy, keepOne, onRemove
                 onClick={() => remove(name, index)}><X size={13} strokeWidth={2} aria-hidden /></button>
             </li>
           ))}
-          {!full && !adding ? (
-            <li>
-              <button ref={addButton} type="button" className={cn(styles.chip, styles.chipAdd)} data-testid="engine-add" onClick={() => setAdding(true)}><Plus size={13} strokeWidth={2} aria-hidden />Add</button>
-            </li>
-          ) : null}
         </ul>
-        {/* Next to the list, not in it: a screen reader counts the chips and nothing else. */}
+        {/* Add and Reset sit next to the list, not in it: a screen reader counts the chips and nothing else. */}
+        {!full && !adding ? (
+          <button ref={addButton} type="button" className={cn(styles.chip, styles.chipAdd)} data-testid="engine-add" onClick={() => setAdding(true)}><Plus size={13} strokeWidth={2} aria-hidden />Add</button>
+        ) : null}
         {edited && onReset ? (
           <button type="button" className={cn(styles.link, styles.chipReset)} data-testid="engine-reset" onClick={() => { onReset(); moveFocus(null); }}>{resetLabel}</button>
         ) : null}

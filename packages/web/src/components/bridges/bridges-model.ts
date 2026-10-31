@@ -66,15 +66,6 @@ export function bridgeCodes(bridges: readonly ShownBridge[]): number[] {
   return [...new Set(bridges.flatMap((bridge) => bridge.cards))];
 }
 
-/** The printed evidence of a bridge card: the first reason that names it. */
-export function evidenceFor(bridge: ShownBridge, code: number): string {
-  for (const reason of bridge.reasons) {
-    const at = reason.cards.indexOf(code);
-    if (at >= 0) return reason.evidence[at] || reason.description;
-  }
-  return "";
-}
-
 /** One short sentence for the "why" under a card of the details list. */
 export function roleFor(bridge: ShownBridge, code: number): string {
   for (const reason of bridge.reasons) if (reason.cards.includes(code)) return reason.description;
