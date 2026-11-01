@@ -23,7 +23,7 @@ export const phoneMessageSchema = z.discriminatedUnion("type",[
   z.object({type:z.literal("cancel"),id}),
 ]);
 export type PhoneMessage = z.infer<typeof phoneMessageSchema>;
-export type PhoneReading = { guesses:{cardId:number;name:string;score:number|null}[];reader:"vision"|"priors"|"none";frames:number;note:string;tier?:"sure"|"not sure"|"low match";visionTimingsMs?:Record<string,number>;backend?:string };
+export type PhoneReading = { guesses:{cardId:number;name:string;score:number|null}[];reader:"vision"|"priors"|"none";frames:number;note:string;tier?:"sure"|"not sure"|"low match";faceDown?:boolean;covered?:boolean;visionTimingsMs?:Record<string,number>;backend?:string };
 export type PhoneScan = {id:string;zone:PhoneZone;reading:PhoneReading;ms:number;pairId:string};
 export type PhoneMember = { id:string;seat:number;userId:number;paired:boolean;mode:string };
 /** Phone identity, role and seat are immutable server-minted metadata. DB roster excludes revoked pairs. */
