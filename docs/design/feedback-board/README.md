@@ -1,6 +1,6 @@
 # Feedback board design workshop
 
-**Status: in progress, no direction chosen (2026-10-31).** Design only. No app code is written until the owner approves a direction and the open questions are answered.
+**Status: direction chosen (2026-10-31): A · The Ladder. All nine open questions answered.** Next: spec, implementation plan, then the build on its own branch off main.
 
 Players need a place in the web app to suggest features and vote on them, with the owner approving ideas and showing what's in progress and done. This folder holds the workshop page that compares three approaches, its sources, and the research behind it.
 
@@ -40,17 +40,17 @@ All three are small builds (S).
 
 Recommendation on the page: A's ladder as the board, plus B's one-card pick as the after-game prompt and a "Vote on new ideas" entry. This covers A's weak spot, which is that new ideas start at the bottom.
 
-## Open questions (go through them one at a time, in this order)
+## Owner answers (2026-10-31)
 
-1. Which direction: A, B, C or a blend?
-2. Board name: "Next Turn" (A and C) or "Ideas" (B)?
-3. Who counts as Team: only the owner, or named helpers too?
-4. Who may vote: after one finished activity, or anyone signed in?
-5. Show both vote counts, or one net score?
-6. How often the after-game ask appears.
-7. The rank system: are all six parts really open, or are some decided?
-8. Author name shown by default?
-9. Starting state: are Card details on phones and Theme drafts really In progress?
+1. **Direction:** A · The Ladder. The after-game ask is A's one ladder row, not B's card.
+2. **Name:** "Ideas".
+3. **Team:** a new permission. Holders' posts skip approval and carry the Team label. The owner holds it now; more users get it later.
+4. **Who votes:** anyone who has finished one duel, draft or tournament match.
+5. **Vote counts:** both counts shown. Rank is up minus down; ties go to more up votes.
+6. **After-game ask:** at most once a day per player, only when there is an idea they haven't voted on. Never blocks Exit, Rematch or Replay.
+7. **Rank system:** all six parts start as Open ideas.
+8. **Author name:** the author chooses when posting; the name shows once the idea is approved, only if they chose to show it.
+9. **Starting state:** Card details on phones and Theme drafts start In progress; Readable text and Format names are Open; Daily puzzle (NT-120) is left off.
 
 ## Files
 
