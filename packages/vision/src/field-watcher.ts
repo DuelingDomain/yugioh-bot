@@ -7,7 +7,7 @@ import { fieldCenter, fieldOrientation, mapFieldZone, quadIou, type FieldCalibra
 
 export interface FieldTrack {
   id:string; card:DetectedQuad; zone:FieldZone; position:'attack'|'defense'; faceDown:boolean; cardId?:string;
-  state:'candidate'|'identified'|'prompt'|'dismissed'; firstSeen:number; lastSeen:number; removed:boolean;
+  state:'candidate'|'identified'|'prompt'|'dismissed'; firstSeen:number; lastSeen:number; removed:boolean; visible?:boolean;
 }
 export type FieldEvent = { type:'placed'|'moved'|'flipped'|'removed'|'prompt'; track:FieldTrack; result?:RecognitionResult; latencyMs?:number; reason?:'uncertain'|'recognition-error'|'reappeared'; source:'auto' };
 export interface FieldMetrics { detectorMs:number; recognitionMs:number; dutyPercent:number; intervalMs:number; samples:number; skipped:number; placements:number; latencyMs:number; errors:number }
@@ -46,7 +46,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     while(retained.size>6){const frame=retained.values().next().value!;for(const t of tracks)if(t.best?.frame===frame)t.best=undefined;closeFieldFrame(frame);retained.delete(frame);}
   }
   function invalidateRead(t:InternalTrack) {if(t.read){t.read=undefined;t.needsRead=t.view.state!=='dismissed';}}
-  function interruptWindow() {previousAt=-Infinity;for(const t of tracks){invalidateRead(t);t.stableSince=NaN;t.observations=0;t.clearMissing=0;t.missingSamples=0;t.best=undefined;}pruneFrames();}
+  function interruptWindow() {previousAt=-Infinity;for(const t of tracks){t.view.visible=false;invalidateRead(t);t.stableSince=NaN;t.observations=0;t.clearMissing=0;t.missingSamples=0;t.best=undefined;}pruneFrames();}
   async function read(t:InternalTrack,input:FieldFrame,card:DetectedQuad,pending:PendingRead,generation:number) {
     try {
       const start=now();
@@ -72,6 +72,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(gap>maxGap)interruptWindow();previousAt=sample.at;
       const evidence=analyze(current);
       if(reading) {
+        for(const t of tracks)if(evidence.motion(t.view.card)>.025)t.view.visible=false;
         // Keep sampling motion/appearance while the worker embeds. Never infer
         // stillness or disappearance from a stale outline during this interval.
         for(const t of tracks)if(t.read&&(evidence.motion(t.view.card)>.025||(t.appearance?.length&&evidence.appearance&&!sameFieldAppearance(t.appearance,evidence.appearance(t.view.card))))) {
@@ -109,6 +110,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       for(const t of tracks) {
         const c=matched.get(t);
         if(!c) {
+          t.view.visible=false;
           invalidateRead(t);
           t.missed=true;t.best=undefined;t.stableSince=NaN;t.observations=0;
           // Consecutive clear detector samples only: hidden tabs, overload and motion cannot remove cards.
@@ -124,6 +126,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const position=fieldOrientation(c,current.width,current.height);
         const appearanceChanged=t.read?.appearance?.length&&evidence.appearance&&!sameFieldAppearance(t.read.appearance,evidence.appearance(c));
         const clean=!appearanceChanged&&c.confidence>=.7&&!c.partial&&!c.covered&&!isCovered(c,cards)&&evidence.motion(c)<=.025;
+        t.view.visible=c.confidence>=.7&&!c.partial&&!c.covered&&!isCovered(c,cards);
         if(clean&&!t.appearance?.length)t.appearance=evidence.appearance?.(c);
         const still=quadIou(t.anchor,c)>=.84&&distance(t.anchor,c)<.012&&t.kind===c.kind&&t.position===position;
         if(!clean||!still||!Number.isFinite(t.stableSince)) {

@@ -281,3 +281,12 @@ test('one missed sample before a known card settles cannot create another instan
   at=333;await watcher.tick();outlines=[];at=666;await watcher.tick();outlines=[card(.3,.3)];for(let i=0;i<6;i++){at+=333;await watcher.tick();}
   assert.equal(reads,0);assert.equal(watcher.getSnapshot().tracks.length,1);assert.equal(watcher.getSnapshot().tracks[0].id,'known-early-miss');watcher.dispose();
 });
+
+test('tracked click geometry is visible only while the detector sees the card',async()=>{
+  const r=fieldRig();for(let i=0;i<6;i++)await r.tick();
+  assert.equal(r.watcher.getSnapshot().tracks[0].visible,true);
+  const outline=r.watcher.getSnapshot().tracks[0].card;r.outlines=[];await r.tick();
+  assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);
+  r.outlines=[outline];await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].visible,true);
+  r.watcher.stop();assert.equal(r.watcher.getSnapshot().tracks[0].visible,false);r.watcher.dispose();
+});
