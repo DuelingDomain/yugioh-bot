@@ -25,6 +25,12 @@ test('flat catalog search preserves cosine, alternate-art deduplication, ties an
     assert.equal(topK(new Float32Array([.6,.8]),index,1,{voiceMentioned:['tie']})[0].cardId,'tie');
   }
 });
+test('catalog ties follow the first eligible artwork after zero norms and class restrictions',()=>{
+  const index={meta:{...meta,count:3,entries:[{cardId:'alt',passcode:1,name:'Alt',frameClass:'Spell'},{cardId:'other',passcode:2,name:'Other',frameClass:'Effect'},{cardId:'alt',passcode:1,name:'Alt',frameClass:'Effect'}]},vectors:new Float32Array([1,0,1,0,1,0])};
+  assert.deepEqual(topK(new Float32Array([1,0]),index,2,{frameClasses:['Effect']}).map(c=>c.cardId),['other','alt']);
+  const zeroFirst={...index,vectors:new Float32Array([0,0,1,0,1,0])};
+  assert.deepEqual(topK(new Float32Array([1,0]),zeroFirst,2).map(c=>c.cardId),['other','alt']);
+});
 test('Laplacian variance distinguishes flat and detailed frames', () => {
   const data = new Uint8ClampedArray(16 * 16 * 4).fill(128);
   const flat = sharpness({ width: 16, height: 16, data });

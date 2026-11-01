@@ -18,7 +18,8 @@ export function prepareSearch(index:LoadedIndex):SearchData {
     let norm=0;for(let d=row*dim,end=d+dim;d<end;d++)norm+=vectors[d]*vectors[d];
     inverseNorms[row]=norm?1/Math.sqrt(norm):0;
     const id=entries[row].cardId,rows=rowsByCard.get(id);
-    if(rows)rows.push(row);else {order.set(id,order.size);rowsByCard.set(id,[row]);}
+    if(rows)rows.push(row);else rowsByCard.set(id,[row]);
+    if(norm&&!order.has(id))order.set(id,row);
   }
   const value={inverseNorms,rowsByCard,order};prepared.set(index,value);return value;
 }
@@ -49,7 +50,7 @@ export function topK(query: Float32Array, index: LoadedIndex, k = 5, priors?: Re
     const score = Math.max(-1, Math.min(1, rank));
     const last=best[limit-1];
     if(last&&rank<last.rank)continue;
-    const ordinal=order.get(entry.cardId)!;
+    const ordinal=filter?rowsByCard.get(entry.cardId)!.find(r=>inverseNorms[r]&&filter.has(entries[r].frameClass??''))!:order.get(entry.cardId)!;
     if(last&&(rank<last.rank||(rank===last.rank&&ordinal>=last.order)))continue;
     const existing=best.findIndex(c=>c.cardId===entry.cardId);
     if(existing>=0){if(rank<=best[existing].rank)continue;best.splice(existing,1);}
