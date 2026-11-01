@@ -22,15 +22,15 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@yugidraft/shared", "@yugidraft/vision"],
   serverExternalPackages: ["better-sqlite3", "sharp"],
   images: { unoptimized: true },
-  // Keep Clerk's OAuth popups and YouTube embeds on all other pages unaffected.
+  // Cross-origin isolation for the card reader's threaded WASM. Keep Clerk's OAuth popups and YouTube embeds on all other pages unaffected.
+  // The lab and its worker use require-corp. Remote tables use credentialless so Clerk avatars, scripts and any other
+  // cross-origin image without a CORP header still load (they are fetched without cookies).
   async headers() {
-    return ["/dev/vision-lab/:path*", "/duels/remote/:path*"].map(source => ({
-      source,
-      headers: [
-        { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
-        { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
-      ],
-    }));
+    const coop = { key: "Cross-Origin-Opener-Policy", value: "same-origin" };
+    return [
+      { source: "/dev/vision-lab/:path*", headers: [coop, { key: "Cross-Origin-Embedder-Policy", value: "require-corp" }] },
+      { source: "/duels/remote/:path*", headers: [coop, { key: "Cross-Origin-Embedder-Policy", value: "credentialless" }] },
+    ];
   },
 };
 
