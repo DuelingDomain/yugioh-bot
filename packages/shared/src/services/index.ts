@@ -94,3 +94,5 @@ export * from "./admin-spectate.js";
 export * from "./creator-access.js";
 
 export * from "./remote-duels.js";
+
+export * from "./remote-access.js";

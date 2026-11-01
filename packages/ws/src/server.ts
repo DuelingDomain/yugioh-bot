@@ -1,3 +1,5 @@
+import { registerRemoteEventHandlers } from "./remote-events.js";
+import { createRemoteAccessReader } from "@yugidraft/shared/services";
 import Database from "better-sqlite3";
 import { createServiceReporter } from "@yugidraft/shared/health";
 import { registerAdminSpectateHandlers } from "./admin-spectate-events.js";
@@ -55,6 +57,24 @@ const draftEvents = registerEventHandlers(io, roomManager, {
 const duelEvents = registerDuelEventHandlers(io, { secret: WS_INTERNAL_SECRET, canReadDuel: duelAccess.canReadDuel,
   beforePresence: (slug, guildId) => adminEvents.prune("duel", slug, guildId) });
 
+const remoteAccess = process.env.REMOTE_DUELS === "1" ? createRemoteAccessReader() : null;
+const remoteEvents = remoteAccess ? registerRemoteEventHandlers(io, {
+  secret: WS_INTERNAL_SECRET, canRead: remoteAccess.canRead,
+  readSnapshot: (slug, guildId) => {
+    try { return remoteAccess.snapshot(slug, guildId); }
+    catch (error) { if (error instanceof Error && "status" in error && error.status === 404) return null; throw error; }
+  },
+}) : null;
+if (remoteAccess && remoteEvents) {
+  const sweep = () => {
+    try { for (const table of remoteAccess.sweepIdle()) remoteEvents.publish(table.slug, table.guildId); }
+    catch { log("warn", "[ws] Remote idle sweep unavailable"); }
+  };
+  const timer = setInterval(sweep, 30_000); timer.unref();
+  sweep();
+  httpServer.on("close", () => { clearInterval(timer); remoteAccess.close(); });
+}
+
 httpServer.listen(WS_PORT, () => {
   console.log(`[ws] Socket.IO server listening on port ${WS_PORT}`);
   console.log(`[ws] CORS configured for origin: ${WEB_URL}`);
@@ -63,6 +83,7 @@ httpServer.listen(WS_PORT, () => {
 if (WS_INTERNAL_SECRET) {
   listenInternalHttp({
     io, secret: WS_INTERNAL_SECRET, port: WS_INTERNAL_PORT,
+    readRemoteBroadcast: remoteEvents?.snapshot,
     beforeDraftBroadcast: slug => { adminEvents.prune("draft", slug); draftEvents.pruneDraftRoom(slug); },
     beforeTournamentBroadcast: draftEvents.pruneTournamentRoom,
     beforeDuelBroadcast: (slug, guildId) => {

@@ -9,3 +9,5 @@ export function getRemoteGame(id: string): GameModule {
   const game = remoteGames.find(game => game.id === id);
   remoteAssert(game, "Unsupported game"); return game;
 }
+
+export * from "./realtime.js";

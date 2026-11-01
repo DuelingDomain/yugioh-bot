@@ -154,6 +154,14 @@ export function createRemoteDuelService(db: Database.Database) {
         return room(load(slug, guildId), userId);
       });
     },
+    /** Trusted server transport only. Never expose this without the session/member guard. */
+    snapshot(slug: string, guildId: string) {
+      return db.transaction(() => {
+        const row = load(slug, guildId);
+        return { table: table(row), state: JSON.parse(row.state_json) as RemoteState,
+          events: (db.prepare("select * from remote_events where table_id=? and seq>? order by seq").all(row.id, Math.max(0, row.last_seq - 50)) as EventRow[]).map(event) };
+      })();
+    },
     replay(slug: string, guildId: string, userId: number): RemoteState {
       return db.transaction(() => {
         const row = load(slug, guildId); member(row, userId);

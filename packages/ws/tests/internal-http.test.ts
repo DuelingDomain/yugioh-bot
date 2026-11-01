@@ -171,3 +171,16 @@ it("refuses duel broadcasts without a database guard or when the guard fails", a
   expect((await createInternalHttpHandler({ io: io as any, secret: SECRET, beforeDuelBroadcast: () => { throw new Error("Unavailable"); } })(await request())).status).toBe(503);
   expect(emit).not.toHaveBeenCalled();
 });
+
+it("reads remote snapshots after pruning and routes signed updates to a guild-scoped room", async () => {
+  const { io, to, emit } = makeIo();
+  const snapshot = { table: { slug: "alpha", guildId: "g1", lastSeq: 2 }, state: {}, events: [] };
+  const readRemoteBroadcast = vi.fn().mockReturnValue(snapshot);
+  const handle = createInternalHttpHandler({ io: io as any, secret: SECRET, readRemoteBroadcast });
+  expect((await handle(await makeRequest("/internal/remote/changed", { slug: "alpha", guildId: "g1" }))).status).toBe(204);
+  expect(readRemoteBroadcast).toHaveBeenCalledWith("alpha", "g1");
+  expect(to).toHaveBeenCalledWith("remote:g1:alpha");
+  expect(emit).toHaveBeenCalledWith("remote:changed", snapshot);
+  readRemoteBroadcast.mockReturnValue(null);
+  expect((await handle(await makeRequest("/internal/remote/changed", { slug: "alpha", guildId: "g2" }))).status).toBe(404);
+});
