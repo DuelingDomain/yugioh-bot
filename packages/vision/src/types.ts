@@ -44,7 +44,7 @@ export interface PeekResult {
 export interface BoardCard extends PeekResult { outline: DetectedQuad; index: number; side: BoardSide; error?: string }
 export interface ReadAllOptions { cards?: DetectedQuad[]; priors?: RecognitionPriors; signal?: AbortSignal }
 export interface BoardResult { near: BoardCard[]; far: BoardCard[]; timingsMs: { detect: number; total: number } }
-export interface RecognizeOptions { clickPoint?: Point; k?: number; priors?: RecognitionPriors; card?: DetectedQuad; includeCrop?: boolean }
+export interface RecognizeOptions { clickPoint?: Point; k?: number; priors?: RecognitionPriors; card?: DetectedQuad; includeCrop?: boolean; includeFeedback?: boolean }
 export interface Candidate { cardId: string; score: number }
 export interface RecognitionResult {
   candidates: Candidate[];
@@ -52,8 +52,9 @@ export interface RecognitionResult {
   cropJpeg?: string;
   /** Core-only pixels; worker converts to JPEG and removes these. */
   warpedCard?: { width: number; height: number; data: Uint8ClampedArray | Uint8Array };
+  feedback?: { embedding:number[];gameId:string;modelId:string;modelSha256:string;indexVersion:string;layoutKey:string;space:'art-box'|'whole-card';deltaVersion:string };
   tier: RecognitionTier;
-  quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; hypothesis?: 'art-box' | 'whole-card' };
+  quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; confusionChecked?:boolean; hypothesis?: 'art-box' | 'whole-card' };
   timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number };
   backend: 'webgpu' | 'wasm';
   /** Worker diagnostics; absent when the core pipeline is used directly. */

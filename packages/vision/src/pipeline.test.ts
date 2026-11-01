@@ -37,3 +37,26 @@ test('clipped selected quad preserves whole-card shape and cannot be sure',async
   assert.notEqual(result.tier,'sure');
   assert.equal(result.warpedCard?.width,10);
 });
+test('feedback evidence is opt-in, bound to a detected warp and carries its vector and versions',async()=>{
+  const plain=await fixture(false).recognize([frame],{card:selected});
+  assert.equal(plain.feedback,undefined);
+  const result=await fixture(false).recognize([frame],{card:selected,includeFeedback:true});
+  assert.ok(result.feedback);assert.equal(result.feedback.embedding.length,2);
+  assert.equal(result.feedback.space,'art-box');assert.ok(result.warpedCard);
+  const clipped=await fixture(false).recognize([frame],{card:{...selected,quad:selected.quad.map(p=>({x:p.x-.2,y:p.y})),partial:true},includeFeedback:true});
+  assert.equal(clipped.feedback,undefined);
+});
+test('learned references compete with the main index without manufacturing sure',async()=>{
+  const p=fixture(false);
+  p.setLearning({version:'v',references:[{cardId:'B',embedding:[.9,Math.sqrt(1-.9*.9)],space:'art-box'}],confusions:[]});
+  const result=await p.recognize([frame],{card:selected});
+  assert.equal(result.candidates[0].cardId,'B');
+  p.setLearning({version:'empty',references:[],confusions:[]});
+  assert.equal((await p.recognize([frame],{card:selected})).candidates[0].cardId,'A');
+});
+test('confusion pairs trigger another hypothesis and suppress a narrow sure winner',async()=>{
+  const p=fixture(false);
+  p.setLearning({version:'v',references:[],confusions:[{a:'A',b:'B'}]});
+  const result=await p.recognize([frame],{card:selected});
+  assert.ok(result.quality.confusionChecked);
+});

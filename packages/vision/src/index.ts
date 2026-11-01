@@ -6,3 +6,5 @@ export type { GameProfile, ConfidenceThresholds, RecognitionTier, EmbeddingModel
 export { hitTestQuad } from './scene';
 export type { DetectedQuad } from './types';
 export type { PeekOptions, PeekResult, ReadAllOptions, BoardResult, BoardCard, BoardSide } from './types';
+
+export type { FeedbackSource } from './client';

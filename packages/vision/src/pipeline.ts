@@ -2,6 +2,7 @@
 // Modified: browser-frame API, game profile, sharpest-three temporal fusion and priors.
 // Retains warp -> hypotheses -> staged embedding -> per-card search -> decide flow.
 // Extension-only badge rescues are omitted. See licenses/duel-lens.LICENSE.
+import { emptyLearning, indexVersion, learnedTopK, type LearningSnapshot } from './learning';
 import { boardSide, isCovered, validateBoard } from './board';
 import { CARD_DETECTOR } from './detector/spec';
 import { detectFullArtLayout } from './full-art';
@@ -28,6 +29,12 @@ function fallbackQuad(img: RGBAImage, profile: GameProfile, click?: Point): Quad
 
 export class RecognitionPipeline {
   constructor(private profile: GameProfile, private index: LoadedIndex, private detector: ModelSession, private embedder: ModelSession, private Tensor: TensorCtor, private fullArtIndex?: LoadedIndex) {}
+  private learning:LearningSnapshot=emptyLearning();
+  setLearning(value:LearningSnapshot) { this.learning=value; }
+  private search(vector:Float32Array,index:LoadedIndex,k=5,priors?:RecognizeOptions['priors'],frameClass?:string) {
+    return learnedTopK(vector,index,this.learning,index===this.fullArtIndex?'whole-card':'art-box',k,priors,frameClass);
+  }
+  private confused(list:Candidate[]) {return this.learning.confusions.some(p=>p.a===list[0]?.cardId||p.b===list[0]?.cardId);}
   async detectCards(frame: RGBAImage): Promise<DetectedQuad[]> {
     if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000 || frame.data.length!==frame.width*frame.height*4) throw new Error('Invalid frame');
     const cards=await detect(this.detector,this.Tensor,frame,this.profile.detector.longSide,CARD_DETECTOR.minScore);
@@ -67,7 +74,7 @@ export class RecognitionPipeline {
     const start = performance.now();
     const ranked = frames.map((frame, index) => ({ frame, index, sharpness: sharpness(frame, opts.clickPoint) })).sort((a, b) => b.sharpness - a.sharpness).slice(0, 3);
     const timings = { sharpness: performance.now() - start, detect: 0, warp: 0, embed: 0, search: 0, total: 0 };
-    const views: { vector: Float32Array; detected: boolean; corners: boolean; unambiguous: boolean; frameClass?: string; index: LoadedIndex; fullArt: boolean; partial: boolean; crop: RGBAImage; alternatives: {index:LoadedIndex;vector:Float32Array}[] }[] = [];
+    const views: { vector: Float32Array; detected: boolean; corners: boolean; unambiguous: boolean; confusionChecked:boolean; frameClass?: string; index: LoadedIndex; fullArt: boolean; partial: boolean; crop: RGBAImage; alternatives: {index:LoadedIndex;vector:Float32Array}[] }[] = [];
     const thresholds = this.profile.embedding.thresholds;
     let covered=Boolean(opts.card?.covered);
     for (const { frame } of ranked) {
@@ -108,10 +115,10 @@ export class RecognitionPipeline {
         if (vector.length !== this.index.meta.dim) throw new Error('Model embedding dimension mismatch');
         timings.embed += performance.now() - t;
         t = performance.now();
-        vectors.push(vector); lists.push(topK(vector, this.index, 10));
+        vectors.push(vector); lists.push(this.search(vector, this.index, 10));
         merged = mergeCandidates(lists, 10);
         timings.search += performance.now() - t;
-        if (decide(merged, thresholds, this.profile.cardBack.cardId).confident) break;
+        if (decide(merged, thresholds, this.profile.cardBack.cardId).confident && !this.confused(merged)) break;
       }
       // Keep the vector of the hypothesis that actually supplied the winning visual match.
       let winner = 0;
@@ -126,14 +133,16 @@ export class RecognitionPipeline {
           t=performance.now();
           const [vector]=await embedImages(this.embedder,this.Tensor,this.profile.embedding,[rotation ? rotate180(warped) : warped]);
           timings.embed+=performance.now()-t; t=performance.now();
-          const list=topK(vector,this.fullArtIndex,10);
+          const list=this.search(vector,this.fullArtIndex,10);
           if(!fullBest || (list[0]?.score ?? -Infinity)>fullBest.score) fullBest={vector,score:list[0]?.score ?? -Infinity};
           if((list[0]?.score ?? -Infinity)>(merged[0]?.score ?? -Infinity)) {winningIndex=this.fullArtIndex;winningVector=vector;winningRotation=rotation;}
           merged=mergeCandidates([merged,list],10);timings.search+=performance.now()-t;
         }
       }
       if(this.fullArtIndex && fullBest) alternatives.push({index:this.fullArtIndex,vector:fullBest.vector});
-      views.push({ alternatives, vector: winningVector, index:winningIndex,fullArt,partial,crop:winningRotation===180?rotate180(warped):warped, detected: Boolean(card || opts.card), corners: found, unambiguous: decide(merged, thresholds, this.profile.cardBack.cardId).confident, frameClass });
+      const confusionChecked=this.confused(merged);
+      const independentlyClear=!confusionChecked || (lists.length>=2 && lists.every(list=>list[0]?.cardId===merged[0]?.cardId && list[0].score-(list[1]?.score??0)>=.06));
+      views.push({ confusionChecked, alternatives, vector: winningVector, index:winningIndex,fullArt,partial,crop:winningRotation===180?rotate180(warped):warped, detected: Boolean(card || opts.card), corners: found, unambiguous: independentlyClear && decide(merged, thresholds, this.profile.cardBack.cardId).confident, frameClass });
     }
     const t = performance.now(), k = opts.k ?? 5;
     let candidates: Candidate[] = [], visual: Candidate[] = [];
@@ -147,8 +156,8 @@ export class RecognitionPipeline {
         const average=new Float32Array(index.meta.dim);
         for(const view of group) for(let d=0;d<average.length;d++) average[d]+=view.vector[d]*(view.corners?1:.65);
         const query=normalize(average);
-        visualLists.push(topK(query,index,Math.max(k,2)));
-        rankedLists.push(topK(query,index,Math.max(k,2),opts.priors,index===this.index?frameClass:undefined));
+        visualLists.push(this.search(query,index,Math.max(k,2)));
+        rankedLists.push(this.search(query,index,Math.max(k,2),opts.priors,index===this.index?frameClass:undefined));
       }
       visual=mergeCandidates(visualLists,Math.max(k,2));
       candidates=mergeCandidates(rankedLists,Math.max(k,2));
@@ -163,6 +172,9 @@ export class RecognitionPipeline {
     // A prior may improve the suggestions but cannot promote an uncertain visual result.
     if (tier === 'sure' && candidates[0]?.cardId !== visual[0]?.cardId) tier = 'not sure';
     timings.search += performance.now() - t; timings.total = performance.now() - start;
-    return { candidates: candidates.slice(0, k), ...(opts.includeCrop && views[0] ? {warpedCard: views[0].crop} : {}), tier, quality: { sharpness: ranked[0]?.sharpness ?? 0, detected: views.some(v => v.detected), cornersFound: views.some(v => v.corners), framesUsed: views.length, selectedFrameIndices: ranked.map(v => v.index), fallback, frameClass, covered, fullArt:views.some(v=>v.fullArt), fullArtReferences:this.fullArtIndex?.meta.count ?? 0, partial:views.some(v=>v.partial), hypothesis:views[0]?.index===this.fullArtIndex?'whole-card':'art-box' }, timingsMs: timings, backend: this.detector.backend === 'webgpu' && this.embedder.backend === 'webgpu' ? 'webgpu' : 'wasm' };
+    const evidence=views[0];
+    const collect=opts.includeFeedback && evidence?.corners && !fallback && !covered && !views.some(v=>v.partial) && opts.card?.kind!=='face-down' && candidates[0]?.cardId!==this.profile.cardBack.cardId;
+    const feedback=collect?{embedding:Array.from(evidence.vector),gameId:this.profile.id,modelId:this.profile.embedding.id,modelSha256:this.profile.embedding.sha256,indexVersion:indexVersion(evidence.index.meta),layoutKey:evidence.index.meta.layoutKey??'',space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const,deltaVersion:this.learning.version}:undefined;
+    return { candidates: candidates.slice(0, k), feedback, ...((opts.includeCrop || collect) && views[0] ? {warpedCard: views[0].crop} : {}), tier, quality: { confusionChecked:views.some(v=>v.confusionChecked), sharpness: ranked[0]?.sharpness ?? 0, detected: views.some(v => v.detected), cornersFound: views.some(v => v.corners), framesUsed: views.length, selectedFrameIndices: ranked.map(v => v.index), fallback, frameClass, covered, fullArt:views.some(v=>v.fullArt), fullArtReferences:this.fullArtIndex?.meta.count ?? 0, partial:views.some(v=>v.partial), hypothesis:views[0]?.index===this.fullArtIndex?'whole-card':'art-box' }, timingsMs: timings, backend: this.detector.backend === 'webgpu' && this.embedder.backend === 'webgpu' ? 'webgpu' : 'wasm' };
   }
 }
