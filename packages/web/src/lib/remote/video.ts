@@ -1,3 +1,5 @@
+import { DesktopPhoneLink } from "./phone-desktop";
+import type { PhoneReading, PhoneScan } from "./phone-protocol";
 import {
   ConnectionState, Room, RoomEvent, Track, VideoPresets, createLocalVideoTrack,
   type ConnectionQuality, type LocalVideoTrack, type RemoteVideoTrack, type RemoteAudioTrack,
@@ -7,7 +9,7 @@ import {
   type VideoMember, type RecognitionRequest, type RecognitionResult,
 } from "./video-protocol";
 
-export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean };
+export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean; phone?: boolean; mode?: string };
 export type VideoSnapshot = {
   connection: ConnectionState; feeds: VideoFeed[]; devices: MediaDeviceInfo[];
   cameraId: string; microphone: boolean; error: string; result?: { fromSeat: number; message: RecognitionResult };
@@ -19,6 +21,7 @@ export type RecognizeRawFeed = (input: { track: MediaStreamTrack; request: Recog
 
 export class RemoteVideo {
   private room = new Room({ adaptiveStream: true, dynacast: true });
+  readonly phone: DesktopPhoneLink;
   private camera?: LocalVideoTrack;
   private channel?: RecognitionChannel;
   private scans = new AbortController();
@@ -27,9 +30,13 @@ export class RemoteVideo {
   private starting = false;
   private closed = false;
   private snapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "" };
-  constructor(private options: { slug: string; guildId: string; seat: number; members: VideoMember[]; recognize?: RecognizeRawFeed }) {
+  constructor(private options: { slug: string; guildId: string; seat: number; members: VideoMember[]; recognize?: RecognizeRawFeed;
+    readPhone?: (canvas: HTMLCanvasElement, point: {x:number;y:number}, signal: AbortSignal) => Promise<PhoneReading>;
+    onPhoneScan?: (scan: PhoneScan | null) => void; onPhonePresence?: () => void }) {
+    this.phone = new DesktopPhoneLink(this.room, { ...options, read: options.readPhone, onScan: options.onPhoneScan, changed: () => this.sync() });
+    this.room.on(RoomEvent.ParticipantConnected, () => this.options.onPhonePresence?.());
     const sync = () => this.sync();
-    for (const event of [RoomEvent.TrackSubscribed, RoomEvent.TrackUnsubscribed, RoomEvent.TrackUnpublished, RoomEvent.ParticipantConnected,
+    for (const event of [RoomEvent.TrackPublished, RoomEvent.TrackSubscribed, RoomEvent.TrackUnsubscribed, RoomEvent.TrackUnpublished, RoomEvent.ParticipantConnected,
       RoomEvent.ParticipantDisconnected, RoomEvent.TrackMuted, RoomEvent.TrackUnmuted,
       RoomEvent.ConnectionQualityChanged, RoomEvent.LocalTrackPublished, RoomEvent.LocalTrackUnpublished,
       RoomEvent.ParticipantMetadataChanged]) this.room.on(event, sync);
@@ -37,9 +44,13 @@ export class RemoteVideo {
       this.patch({ connection }); this.sync();
       if (connection === ConnectionState.Disconnected) { this.channel?.close(); this.scans.abort(); }
     });
-    this.room.on(RoomEvent.DataReceived, (bytes, participant, _kind, topic) => {
-      if (!participant || bytes.byteLength > 8192 || !this.channel) return;
-      const from = this.seatOf(participant); if (from === undefined) return;
+    this.room.on(RoomEvent.DataReceived, (bytes, participant, _kind, topic, _encryption, identity) => {
+      if (bytes.byteLength > 8192 || !this.channel) return;
+      // OSS may omit data-only newcomers from remoteParticipants. The sixth argument is
+      // SFU-authenticated; bind it to the current HTTP roster, never to message JSON.
+      const from = participant ? this.seatOf(participant) : this.options.members.find(member =>
+        member.userId !== null && identity === `remote-user-${member.userId}`)?.seat;
+      if (from === undefined) return;
       try {
         const value = JSON.parse(new TextDecoder().decode(bytes));
         if (topic === PENDING_TOPIC) this.channel.announce(from, value.requestId, value.feedOwnerSeat);
@@ -65,33 +76,44 @@ export class RemoteVideo {
     const local = this.room.localParticipant;
     if (this.camera && this.room.state !== ConnectionState.Disconnected) feeds.push({ seat: this.options.seat, video: this.camera, quality: local.connectionQuality, muted: this.camera.isMuted });
     for (const participant of this.room.remoteParticipants.values()) {
-      const seat = this.seatOf(participant); if (seat === undefined) continue;
+      const phoneSeat = this.phone.seat(participant);
+      const seat = phoneSeat ?? this.seatOf(participant);
       const camera = participant.getTrackPublication(Track.Source.Camera);
+      // Never subscribe to a revoked device, unknown identity, extra camera or unsupported source.
+      for (const publication of participant.trackPublications.values()) {
+        const allowed = seat !== undefined && (phoneSeat !== undefined
+          ? publication === camera && this.phone.mode(participant) !== "scan"
+          : publication.source === Track.Source.Camera || publication.source === Track.Source.Microphone);
+        if (publication.isDesired !== allowed) publication.setSubscribed(allowed);
+      }
+      if (seat === undefined) continue;
       const mic = participant.getTrackPublication(Track.Source.Microphone);
-      feeds.push({ seat, video: camera?.track?.kind === Track.Kind.Video ? camera.videoTrack : undefined,
+      feeds.push({ seat, phone: phoneSeat !== undefined, mode: phoneSeat !== undefined ? this.phone.mode(participant) : undefined, video: camera?.track?.kind === Track.Kind.Video && this.phone.mode(participant) !== "scan" ? camera.videoTrack : undefined,
         audio: mic?.track?.kind === Track.Kind.Audio ? mic.audioTrack as RemoteAudioTrack : undefined,
         quality: participant.connectionQuality, muted: camera?.isMuted ?? false });
     }
-    this.patch({ feeds });
+    for(const phone of this.phone.dataOnlyFeeds())feeds.push({...phone,phone:true,quality:local.connectionQuality,muted:false});
+    this.patch({ feeds: feeds.filter(f => f.phone || !feeds.some(p => p.phone && p.seat === f.seat)) });
   }
   private async refreshDevices() {
-    const devices = await Room.getLocalDevices("videoinput");
+    const devices = await Room.getLocalDevices("videoinput", false);
     this.patch({ devices, cameraId: await this.camera?.getDeviceId() ?? this.snapshot.cameraId });
   }
-  async connect(deviceId = this.snapshot.cameraId) {
+  async connect(deviceId = this.snapshot.cameraId, capture = true) {
     if (this.closed || this.starting) return;
     this.starting = true; const epoch = ++this.epoch;
     this.patch({ error: "", connection: ConnectionState.Connecting });
     try {
       await this.room.disconnect(); this.camera = undefined;
-      const response = await fetch(`/api/remote/${encodeURIComponent(this.options.slug)}/livekit`, { method: "POST", cache: "no-store" });
+      const response = await fetch(`/api/remote/${encodeURIComponent(this.options.slug)}/livekit${capture ? "" : "?receive=1"}`, { method: "POST", cache: "no-store" });
       const credentials = await response.json();
       if (!response.ok) throw new Error(credentials.error ?? "Video is unavailable");
       if (credentials.seat !== this.options.seat || credentials.room !== `remote-${this.options.slug}`) throw new Error("Video membership changed; reload the table");
       if (this.closed || epoch !== this.epoch) return;
       this.patch({ connection: ConnectionState.Connecting });
-      await this.room.connect(credentials.url, credentials.token, { autoSubscribe: true });
+      await this.room.connect(credentials.url, credentials.token, { autoSubscribe: false });
       if (this.closed || epoch !== this.epoch) { await this.room.disconnect(); return; }
+      if (capture) {
       const camera = await createLocalVideoTrack({ deviceId: deviceId ? { exact: deviceId } : undefined,
         facingMode: "environment", resolution: { width: 1920, height: 1080, frameRate: 24 } });
       if (this.closed || epoch !== this.epoch) { camera.stop(); await this.room.disconnect(); return; }
@@ -100,24 +122,36 @@ export class RemoteVideo {
         videoCodec: "vp8", simulcast: true, videoSimulcastLayers: [VideoPresets.h360, VideoPresets.h720],
         videoEncoding: { maxBitrate: 3_000_000, maxFramerate: 24 }, degradationPreference: "maintain-resolution" });
       if (this.closed || epoch !== this.epoch) { await this.room.disconnect(); return; }
+      }
       this.scans = new AbortController();
       this.channel = new RecognitionChannel(this.options.seat, async (message, destination, announcement) => {
-        const participant = destination === undefined ? undefined : [...this.room.remoteParticipants.values()].find(p => this.seatOf(p) === destination);
-        if (destination !== undefined && !participant) throw new Error("The feed owner is disconnected");
+        const member = this.options.members.find(p => p.seat === destination && p.userId !== null);
+        const identity = member ? `remote-user-${member.userId}` : undefined;
+        if (destination !== undefined && !identity) throw new Error("The feed owner is disconnected");
         const data = announcement ? { requestId: message.requestId, feedOwnerSeat: "feedOwnerSeat" in message ? message.feedOwnerSeat : undefined } : message;
         const bytes = new TextEncoder().encode(JSON.stringify(data));
         if (bytes.byteLength > 8192) throw new Error("Recognition message is too large");
         await this.room.localParticipant.publishData(bytes, { reliable: true, topic: announcement ? PENDING_TOPIC : RECOGNITION_TOPIC,
-          destinationIdentities: participant ? [participant.identity] : undefined });
+          destinationIdentities: identity ? [identity] : undefined });
       }, async request => {
+        if (this.phone.forSeat(this.options.seat)) {
+          const result = await this.phone.read(request.x, request.y, this.scans.signal);
+          return result.guesses.map(g => ({ ...g, score: Math.max(0, Math.min(1, g.score ?? 0)) }));
+        }
         if (!this.rawLocalTrack || !this.options.recognize) return []; // Attach @yugidraft/vision here via options.recognize.
         return this.options.recognize({ track: this.rawLocalTrack, request, signal: this.scans.signal });
-      }, (message, fromSeat) => this.patch({ result: { fromSeat, message } }));
+      }, (message, fromSeat) => this.patch({ result: { fromSeat, message } }), Date.now,
+        owner => this.phone.forSeat(owner) ? 60_000 : 10_000);
       this.patch({ connection: this.room.state, microphone: false }); this.sync(); await this.refreshDevices();
     } catch (error) {
       this.camera?.stop(); this.camera = undefined; await this.room.disconnect();
       if (epoch === this.epoch) { this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false }); this.fail(error); }
     } finally { this.starting = false; }
+  }
+  async suspendCamera() {
+    const camera = this.camera; this.camera = undefined;
+    if (camera) { await this.room.localParticipant.unpublishTrack(camera); camera.stop(); }
+    this.sync();
   }
   async selectCamera(deviceId: string) {
     const camera = this.camera; const epoch = this.epoch;
@@ -139,9 +173,10 @@ export class RemoteVideo {
   startAudio() { return this.room.startAudio(); }
   fail(error: unknown) { this.patch({ error: error instanceof Error ? error.message : "Video failed" }); }
   async stop() {
+    this.phone.reset();
     ++this.epoch; this.channel?.close(); this.channel = undefined; this.scans.abort();
     this.camera?.stop(); this.camera = undefined; await this.room.disconnect();
     this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false, result: undefined });
   }
-  dispose() { this.closed = true; this.listeners.clear(); void this.stop(); }
+  dispose() { this.phone.dispose(); this.closed = true; this.listeners.clear(); void this.stop(); }
 }

@@ -21,6 +21,8 @@ import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
 import { RemoteLobbyRoom } from "./lobby";
 import { duelFontClasses } from "@/components/duel/fonts";
+import { PhonePairing } from "../phone/pairing";
+import { PhoneScanReview } from "../phone/scan-review";
 import s from "./remote-ui.module.css";
 
 const UNDO_MS = 5000;
@@ -39,18 +41,17 @@ export function RemoteTableScreen({ slug }: { slug: string }) {
     <p role="status" style={{ color: "var(--ink2)" }}>{ctl.loadError ? `${ctl.loadError.message}. Join an open seat to enter.` : "Loading table…"}</p>
     {ctl.loadError ? <button type="button" className={`${s.btn} ${s.go}`} disabled={ctl.busy} onClick={() => void ctl.operation("seat")}>Join available seat</button> : null}
     {ctl.error ? <p role="alert" style={{ color: "var(--loss)" }}>{ctl.error}</p> : null}</div></div>;
-  if (room.status === "lobby") return <RemoteLobbyRoom ctl={ctl} room={room} />;
-  return <VideoHubProvider room={room}><Table ctl={ctl} room={room} /></VideoHubProvider>;
+  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} /> : <Table ctl={ctl} room={room} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
 }
 
-function CameraControl() {
+function CameraControl({room}: {room:RemoteRoom}) {
   const hub = useVideoHub();
-  if (!hub.cameraOn) return <div className={s.camsel}><button type="button" className={`${s.btn} ${s.go}`} disabled={hub.starting} onClick={() => void hub.enableCamera()} data-testid="camera-on">
+  if (!hub.cameraOn) return <div className={s.camsel}><PhonePairing room={room} /><button type="button" className={`${s.btn} ${s.go}`} disabled={hub.starting} onClick={() => void hub.enableCamera()} data-testid="camera-on">
     {hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button></div>;
-  return <div className={s.camsel}>
+  return <div className={s.camsel}><PhonePairing room={room} />
     {hub.devices.length > 1 ? <select aria-label="Choose camera" value={hub.cameraId} onChange={event => void hub.selectCamera(event.target.value)}>
       {hub.devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select> : null}
-    <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => void hub.disableCamera()}>Camera off</button>
+    <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => void hub.disableCamera()}>{hub.phones.some(p => p.seat===room.mySeat) ? "Leave table video" : "Camera off"}</button>
   </div>;
 }
 
@@ -505,9 +506,9 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && card.zone === "monster") void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message}
-            cameraControl={seat === mySeat ? <CameraControl /> : undefined} turnIn={turnIn && seat === state.turnSeat}
+            cameraControl={seat === mySeat ? <CameraControl room={room} /> : undefined} turnIn={turnIn && seat === state.turnSeat}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void hub.enableCamera(); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button> : undefined}
-            emptyFeedText={bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
+            emptyFeedText={hub.manual(seat) ? "No camera (manual). Use voice, typing and your board twin." : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
         })}
       </main>
       <footer className={s.dock} aria-label="Voice and undo">
