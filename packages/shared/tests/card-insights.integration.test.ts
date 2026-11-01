@@ -476,12 +476,21 @@ describe("SQL insights over the real pinned artifact", () => {
 });
 
 
-it('honors a cached hard reading before the legacy works-with anchor shortcut', async () => {
+it('prefers deterministic archetype synergy to a cached hard reading', async () => {
   const { interpret } = await import('../src/cards/effects/query.js');
   const reading = interpret('hand traps that negate')!;
   const phrase = 'works with Dark Magician';
   db.prepare("INSERT INTO effect_readings VALUES(?,'done',?,0)").run(phrase.toLowerCase(), JSON.stringify(reading.query));
   const service = createCardInsightService(db, { dataDirectory: directory });
+  expect(service.readQuery(phrase)?.query.supports?.archetypes).toEqual(['Dark Magician']);
+  expect(service.effectSearch(phrase, [7084129,97268402]).cards.map(card => card.passcode)).toEqual([7084129]);
+});
+
+it('still uses cached readings for phrases without a deterministic intent', async () => {
+  const { interpret } = await import('../src/cards/effects/query.js');
+  const reading = interpret('hand traps that negate')!;
+  const phrase = 'end their combo before it begins';
+  db.prepare("INSERT INTO effect_readings VALUES(?,'done',?,0)").run(phrase, JSON.stringify(reading.query));
   expect(service.readQuery(phrase)).toEqual(reading);
   expect(service.effectSearch(phrase, [7084129,97268402]).cards.map(card => card.passcode)).toEqual([97268402]);
 });

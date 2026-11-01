@@ -145,13 +145,13 @@ export function createCardInsightService(db: Database.Database, options: {
       const card = id === undefined ? undefined : db.prepare<[number], { name: string }>("SELECT name FROM card_catalog WHERE ygoprodeck_id=?").get(id);
       return card && id !== undefined ? { id, name: card.name } : undefined;
     }, name => resolveEffectName([...effectArchetypes(db)].map(name => ({ name })), name)?.name);
-    if (intent?.query.intent) return intent;
+    // Named synergy is deterministic too, even though it uses supports rather than intent.
+    if (intent) return intent;
     if (searchIntentTarget(text)?.kind === "outside") return null;
     const deterministic=interpret(text,matcher);
     if (deterministic && (deterministic.query.recruiter || deterministic.query.formatFilter || deterministic.query.released || deterministic.query.sort)) return deterministic;
     const cached = cachedEffectReading(db, text);
     if (cached) return cached;
-    if (intent) return intent;
     if (!target) return deterministic;
     const named = resolveTarget(target);
     const name = named === undefined ? undefined : (db.prepare("SELECT name FROM card_catalog WHERE ygoprodeck_id=?").get(named) as { name: string } | undefined)?.name;

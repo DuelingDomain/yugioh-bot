@@ -25,6 +25,18 @@ beforeAll(() => {
 });
 afterAll(() => db.close());
 
+it.each(["Monarch synergy", "synergy with Monarch", "cards that work with Monarch", "synergy with Temple of the Kings and Blue-Eyes"])("ignores stale cached readings for deterministic synergy: %s", text => {
+  db.exec("SAVEPOINT stale_synergy_reading");
+  try {
+    const expected = service.effectSearch(text);
+    expect(expected.reading?.query.supports?.archetypes.length).toBeGreaterThan(0);
+    const stale = service.readQuery("hand traps that negate")!;
+    db.prepare("INSERT INTO effect_readings VALUES(?,'done',?,0)").run(text.toLowerCase(), JSON.stringify(stale.query));
+    expect(service.effectSearch(text)).toEqual(expected);
+    expect(service.effectSearch(text, undefined, { omittedChips: expected.reading!.chips }).total).toBe(6);
+  } finally { db.exec("ROLLBACK TO stale_synergy_reading; RELEASE stale_synergy_reading"); }
+});
+
 it.each(["Temple of the Kings synergy", "synergy with Temple of the Kings", "cards that work with Temple of the Kings"])("finds outside Trap partners through the stored profile: %s", text => {
   const result = service.effectSearch(text);
   expect(result.cards.map(card => card.passcode)).toContain(80101899);
