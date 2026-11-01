@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from 
 import { dirname, join, resolve } from 'node:path';
 import sharp from 'sharp';
 import { z } from 'zod';
+import { isOwnerUser } from '../access/owner-access.js';
 
 export const VISION_FEEDBACK_LIMITS = {maxSamples:5000,maxBytes:64*1024*1024,retentionMs:30*86400_000};
 const id = z.string().min(1).max(64).regex(/^[\w:.-]+$/);
@@ -59,7 +60,8 @@ export function createVisionFeedbackService(db:Database.Database, options:Partia
   }
   function preference(userId:number) {
     const row=db.prepare<[number],{enabled:number;asked_at:number}>('select enabled,asked_at from vision_feedback_preferences where user_id=?').get(userId);
-    return {enabled:row?.enabled===1,askedAt:row?.asked_at??null,collectionEnabled:process.env.REMOTE_VISION_FEEDBACK==='1'};
+    const isAdmin=isOwnerUser(userId);
+    return {enabled:row?row.enabled===1:isAdmin,isAdmin,askedAt:row?.asked_at??null,collectionEnabled:process.env.REMOTE_VISION_FEEDBACK==='1'};
   }
   function setPreference(userId:number,enabled:boolean) {
     db.prepare(`insert into vision_feedback_preferences(user_id,enabled,asked_at) values(?,?,?)
@@ -84,8 +86,14 @@ export function createVisionFeedbackService(db:Database.Database, options:Partia
     const fingerprint=digest(JSON.stringify([digest(crop),s.chosenCardId,s.gameId,s.modelSha256,s.indexVersion,s.layoutKey,s.space]));
     return db.transaction(()=>{
       allowed();prune();
+      // The authenticated account's server-side owner policy is the only approval authority.
+      const admin=isOwnerUser(userId);
       const previous=db.prepare<[number,string],{id:string}>('select id from vision_samples where user_id=? and fingerprint=?').get(userId,fingerprint);
-      if(previous)return previous;
+      if(previous){
+        if(admin)db.prepare("update vision_samples set review='approved',reviewed_by=?,reviewed_at=? where id=? and review='pending'").run(userId,now(),previous.id);
+        return previous;
+      }
+      if(admin)db.prepare('insert into vision_feedback_preferences(user_id,enabled,asked_at) values(?,1,?) on conflict(user_id) do nothing').run(userId,now());
       const t=now(),p=db.prepare<[number],{last_sample_at:number|null;window_at:number;attempts:number}>('select last_sample_at,window_at,attempts from vision_feedback_preferences where user_id=?').get(userId)!;
       if((p.last_sample_at!==null&&t-p.last_sample_at<1000)||(t-p.window_at<3600_000&&p.attempts>=60))throw new Error('rate_limited');
       if(crop.length>limits.maxBytes||limits.maxSamples<1)throw new Error('storage_limit');
@@ -94,6 +102,7 @@ export function createVisionFeedbackService(db:Database.Database, options:Partia
       try {
         db.prepare(`insert into vision_samples(id,user_id,created_at,fingerprint,crop_bytes,embedding_json,top5_json,chosen_card_id,tier,source,frame_class,sharpness,game_id,model_id,model_sha256,index_version,layout_key,space)
           values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(sampleId,userId,t,fingerprint,crop.length,JSON.stringify(s.embedding.map(v=>v/norm)),JSON.stringify(s.top5),s.chosenCardId,s.tier,s.source,s.frameClass??null,s.sharpness,s.gameId,s.modelId,s.modelSha256,s.indexVersion,s.layoutKey,s.space);
+        if(admin)db.prepare("update vision_samples set review='approved',reviewed_by=?,reviewed_at=? where id=?").run(userId,t,sampleId);
         db.prepare('update vision_feedback_preferences set last_sample_at=?,window_at=?,attempts=? where user_id=?').run(t,t-p.window_at>=3600_000?t:p.window_at,t-p.window_at>=3600_000?1:p.attempts+1,userId);
         prune();return {id:sampleId};
       } catch(e){try{unlinkSync(path(sampleId));}catch{}throw e;}

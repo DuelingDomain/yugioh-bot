@@ -170,7 +170,7 @@ it("clears presence when the account is deleted", async () => {
 
 it('vision feedback keeps consent default-off, checks origin and protects review and crop routes', async()=>{
   const {GET,PATCH,DELETE:deleteOwn}=await import('../app/api/remote-vision/feedback/route');
-  expect(await (await GET()).json()).toMatchObject({enabled:false,askedAt:null});
+  expect(await (await GET()).json()).toMatchObject({enabled:true,isAdmin:true,askedAt:null});
   const req=(enabled:boolean,origin='https://app.example.test')=>new Request('https://app.example.test/api/remote-vision/feedback',{method:'PATCH',headers:{origin,'content-type':'application/json'},body:JSON.stringify({enabled})});
   expect((await PATCH(req(true,'https://evil.test'))).status).toBe(403);
   expect((await PATCH(req(false))).status).toBe(200);
@@ -180,6 +180,7 @@ it('vision feedback keeps consent default-off, checks origin and protects review
   const {GET:review}=await import('../app/api/admin/console/vision/route');
   expect((await review()).status).toBe(200);
   auth.mockResolvedValue({user:{id:'2',name:'Ann'}});expect((await review()).status).toBe(404);
+  expect(await (await GET()).json()).toMatchObject({enabled:false,isAdmin:false,askedAt:null});
   auth.mockResolvedValue(null);expect((await GET()).status).toBe(401);
 });
 
@@ -189,10 +190,12 @@ it('captures bounded crops through the authenticated API and withdraws moderatio
   try {
     const {GET,PATCH,POST,DELETE:removeOwn}=await import('../app/api/remote-vision/feedback/route');
     const req=(body:unknown,method='POST',origin='https://app.example.test')=>new Request('https://app.example.test/api/remote-vision/feedback',{method,headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
+    auth.mockResolvedValue({user:{id:'2',name:'Ann'}});
     expect((await POST(req({}))).status).toBe(403);
     const prompt=await (await PATCH(req({asked:true},'PATCH'))).json();expect(prompt).toMatchObject({enabled:false,prompted:true});
     expect(await (await PATCH(req({asked:true},'PATCH'))).json()).toMatchObject({prompted:false,enabled:false});
     await PATCH(req({enabled:true},'PATCH'));
+    auth.mockResolvedValue({user:{id:'1',name:'Operator'}});
     const meta={gameId:'yugioh',modelId:'m',modelSha256:'a'.repeat(64),generatedAt:'v1',count:2,dim:2,layoutKey:'layout',entries:[{cardId:'A'},{cardId:'B'}]};
     await mkdir(join(dir,'vision'));await writeFile(join(dir,'vision/yugioh-index.meta.json'),JSON.stringify(meta));
     const jpegBase64=(await sharp({create:{width:224,height:326,channels:3,background:'white'}}).jpeg().toBuffer()).toString('base64');
@@ -211,6 +214,8 @@ it('captures bounded crops through the authenticated API and withdraws moderatio
     const {GET:crop}=await import('../app/api/admin/console/vision/[id]/crop/route');
     const {GET:learning}=await import('../app/api/remote-vision/learning/route');
     expect((await crop(req(null),ctx)).status).toBe(200);
+    expect(db.prepare('select review,reviewed_by from vision_samples where id=?').get(id)).toEqual({review:'approved',reviewed_by:1});
+    expect((await (await learning()).json()).references).toHaveLength(1);
     expect((await review(req({review:'approved'},'PATCH'),ctx)).status).toBe(200);
     const learned=await (await learning()).json();expect(learned.references).toHaveLength(1);expect(learned.references[0].userId).toBeUndefined();
     auth.mockResolvedValue({user:{id:'2',name:'Ann'}});expect((await crop(req(null),ctx)).status).toBe(404);expect((await remove(req(null,'DELETE'),ctx)).status).toBe(404);

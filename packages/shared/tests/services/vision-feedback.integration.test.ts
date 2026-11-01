@@ -11,7 +11,7 @@ let now = 100_000;
 const sample = (extra = {}) => ({ jpegBase64, embedding: [1,0], top5: [{cardId:'A',score:.91},{cardId:'B',score:.8}], chosenCardId:'B', tier:'sure', source:'pick', gameId:'yugioh', modelId:'model', modelSha256:'a'.repeat(64), indexVersion:'v1', layoutKey:'layout', space:'art-box', sharpness:42, frameClass:'Effect', ...extra });
 const service = (extra = {}) => createVisionFeedbackService(db, {dataDir:directory, now:()=>now, ...extra});
 beforeEach(async()=>{
-  now=100_000;vi.stubEnv('REMOTE_VISION_FEEDBACK','1');
+  now=100_000;vi.stubEnv('REMOTE_VISION_FEEDBACK','1');vi.stubEnv('OWNER_USER_IDS','');
   db=new Database(':memory:');migrate(db);db.pragma('foreign_keys=on');
   db.exec("insert into users(id,username,display_name) values(1,'a','A'),(2,'b','B')");
   directory=mkdtempSync(join(tmpdir(),'vision-feedback-'));
@@ -24,6 +24,29 @@ it('defaults off, persists a single answered prompt, respects global off and per
   s.setPreference(1,true);expect(s.preference(1).askedAt).toBe(now);
   vi.stubEnv('REMOTE_VISION_FEEDBACK','0');await expect(s.record(1,sample())).rejects.toThrow('collection_disabled');
   s.setPreference(1,false);expect(s.deleteForUser(1)).toBe(0);
+});
+it('defaults owner feedback on and immediately approves correct and corrected samples without another user',async()=>{
+  vi.stubEnv('OWNER_USER_IDS','1');
+  const s=service();expect(s.preference(1)).toMatchObject({enabled:true,isAdmin:true,askedAt:null});
+  expect(s.preference(2)).toMatchObject({enabled:false,isAdmin:false});
+  const correct=await s.record(1,sample({chosenCardId:'A'}));
+  expect(s.allSamples()[0]).toMatchObject({id:correct.id,review:'approved'});
+  expect(s.learning().references).toHaveLength(1);
+  expect(db.prepare('select reviewed_by,reviewed_at from vision_samples where id=?').get(correct.id)).toEqual({reviewed_by:1,reviewed_at:now});
+  now+=2000;await s.record(1,sample());
+  expect(s.learning().references).toHaveLength(2);
+  s.setPreference(1,false);expect(s.preference(1).enabled).toBe(false);
+  await expect(s.record(1,sample())).rejects.toThrow('consent_required');
+  s.setPreference(1,true);vi.stubEnv('REMOTE_VISION_FEEDBACK','0');
+  await expect(s.record(1,sample())).rejects.toThrow('collection_disabled');
+});
+it('approves an existing pending owner confirmation on retry while preserving explicit moderation rejection',async()=>{
+  const s=service();s.setPreference(1,true);const saved=await s.record(1,sample());
+  vi.stubEnv('OWNER_USER_IDS','1');await s.record(1,sample());
+  expect(s.allSamples()[0].review).toBe('approved');
+  s.review(saved.id,'rejected',1);await s.record(1,sample());
+  expect(s.allSamples()[0].review).toBe('rejected');
+  expect(s.learning().references).toHaveLength(0);
 });
 it('requires independent users or admin approval, rejects poisoned references and withdraws deleted evidence',async()=>{
   const s=service();s.setPreference(1,true);s.setPreference(2,true);
