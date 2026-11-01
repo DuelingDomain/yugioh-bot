@@ -99,3 +99,12 @@
 .correction li button { width: 100%; text-align: left; }
 .correction > button { justify-self: start; }
 .lab :is(button,input,select):focus-visible { outline: 2px solid var(--color-accent-secondary); outline-offset: 3px; }
+.outlines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.outlines polygon { fill: rgb(212 175 55 / .06); stroke: #e7bd57; stroke-width: 3; vector-effect: non-scaling-stroke; pointer-events: auto; cursor: pointer; }
+.outlines polygon:focus-visible, .outlines polygon:hover { fill: rgb(212 175 55 / .22); stroke: #fff2c4; outline: none; }
+.popover { position: fixed;  z-index: 30; display: grid; gap: 8px; width: min(390px,calc(100vw - 32px)); max-height: 55vh; overflow-y: auto; padding: 16px; border: 1px solid var(--color-accent-gold); border-radius: 6px; background: var(--color-bg-surface); box-shadow: 0 8px 36px #0008; }
+.popover > button { text-align: left; }
+.popover > button:first-child { justify-self: end; }
+.popover > span, .ai > span, .ai p { color: var(--color-text-secondary); font-size: 12px; }
+.ai { display: grid; gap: 8px; margin-top: 16px; }
+.ai > button { justify-self: start; }
