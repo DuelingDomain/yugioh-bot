@@ -1,9 +1,9 @@
-import { boundsOf } from './geometry';
+import { boundsOf, warpQuad, type Quad } from './geometry';
 import { sharpness } from './quality';
 import type { DetectedQuad } from './types';
 import type { RGBAImage } from './pixels';
 export type FieldFrame=ImageBitmap|ImageData;
-export interface FieldAnalysis { motion(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[] }
+export interface FieldAnalysis { motion(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; appearance?(card:DetectedQuad):number[] }
 export function closeFieldFrame(frame:FieldFrame) { if('close' in frame)frame.close(); }
 export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
   return 'close' in frame?createImageBitmap(frame):new ImageData(new Uint8ClampedArray(frame.data),frame.width,frame.height);
@@ -22,6 +22,11 @@ export function createFieldAnalyzer() {
     const before=previous;previous=image;
     const crop=(card:DetectedQuad,padding:number)=>{const b=boundsOf(card.quad);return {left:Math.max(1,Math.floor((b.x-b.w*padding)*image.width)),top:Math.max(1,Math.floor((b.y-b.h*padding)*image.height)),right:Math.min(image.width-1,Math.ceil((b.x+b.w*(1+padding))*image.width)),bottom:Math.min(image.height-1,Math.ceil((b.y+b.h*(1+padding))*image.height))};};
     return {
+      appearance(card) {
+        const patch=warpQuad(image,card.quad.map(p=>({x:p.x*image.width,y:p.y*image.height})) as Quad,8,12);
+        if(!patch)return [];
+        return Array.from(patch.data).filter((_,i)=>i%4!==3).map(v=>v/255);
+      },
       halo(card) {
         const b=boundsOf(card.quad),values:number[]=[];
         // Sparse RGB ring outside the card: a stationary hand/arm must clear it
@@ -51,4 +56,11 @@ export function createFieldAnalyzer() {
       },
     };
   };
+}
+
+/** Cheap pixel evidence for reconnecting a temporarily hidden card, never an identity decision. */
+export function sameFieldAppearance(a?:number[],b?:number[]):boolean {
+  if(!a?.length||a.length!==b?.length)return false;
+  const error=(reverse:boolean)=>a.reduce((s,v,i)=>{const j=reverse?(Math.floor((a.length-1-i)/3)*3+i%3):i;return s+(v-b![j])**2;},0)/a.length;
+  return Math.min(error(false),error(true))<.009;
 }

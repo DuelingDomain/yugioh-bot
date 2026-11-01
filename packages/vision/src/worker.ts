@@ -70,7 +70,8 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
     learningTimer=setInterval(()=>{void learningCache?.refresh();},60_000);
 
   } catch (error) {
-    await Promise.allSettled(sessions.map(s => s.release())); sessions = []; detectorSession=undefined; throw error;
+    await Promise.allSettled(sessions.filter(s=>s!==detectorSession).map(s => s.release()));
+    sessions=detectorSession?[detectorSession]:[];pipeline=undefined;throw error;
   }
 }
 function pixels(frame: ImageBitmap | ImageData): RGBAImage {
@@ -122,5 +123,10 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         scope.postMessage({ id: message.id, result: { ...publicResult, runtime: runtimeDiagnostics() } });
       }
     } catch (error) { scope.postMessage({ id: message.id, error: error instanceof Error ? error.message : String(error) }); }
+    finally {
+      // Also release transferred pixels when lazy model/index loading fails before pixels().
+      if('frame' in message && 'close' in message.frame)message.frame.close();
+      if('frames' in message)for(const frame of message.frames)if('close' in frame)frame.close();
+    }
   });
 };

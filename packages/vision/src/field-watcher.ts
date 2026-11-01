@@ -2,7 +2,7 @@ import type { Recognizer } from './client';
 import type { DetectedQuad, GameProfile, RecognitionPriors, RecognitionResult } from './types';
 import { boundsOf } from './geometry';
 import { isCovered } from './board';
-import { createFieldAnalyzer, cloneFieldFrame, closeFieldFrame, type FieldFrame, type FieldAnalysis } from './field-motion';
+import { createFieldAnalyzer, cloneFieldFrame, closeFieldFrame, sameFieldAppearance, type FieldFrame, type FieldAnalysis } from './field-motion';
 import { fieldCenter, fieldOrientation, mapFieldZone, quadIou, type FieldCalibration, type FieldZone } from './field-zones';
 
 export interface FieldTrack {
@@ -13,7 +13,7 @@ export type FieldEvent = { type:'placed'|'moved'|'flipped'|'removed'|'prompt'; t
 export interface FieldMetrics { detectorMs:number; recognitionMs:number; dutyPercent:number; intervalMs:number; samples:number; skipped:number; placements:number; latencyMs:number; errors:number }
 export interface FieldSnapshot { status:'stopped'|'watching'|'hidden'|'busy'|'budget'|'error'; tracks:FieldTrack[]; metrics:FieldMetrics; error?:string }
 export interface FieldBuffer { sample():Promise<{frame:FieldFrame;at:number}> }
-export interface KnownFieldCard { id:string; card?:DetectedQuad; zone:FieldZone; cardId?:string; faceDown?:boolean }
+export interface KnownFieldCard { id:string; card?:DetectedQuad; zone:FieldZone; cardId?:string; faceDown?:boolean; position?:FieldTrack['position'] }
 export interface FieldWatcherOptions {
   recognizer:Pick<Recognizer,'detectCards'|'recognize'>; buffer:FieldBuffer; profile:GameProfile;
   getPriors?:()=>RecognitionPriors; getKnownCards?:()=>KnownFieldCard[]; calibration?:FieldCalibration;
@@ -22,7 +22,7 @@ export interface FieldWatcherOptions {
   /** Dependency injection for replay/tests; production defaults sample browser pixels. */
   analyze?:(frame:FieldFrame)=>FieldAnalysis; clone?:(frame:FieldFrame)=>Promise<FieldFrame>;
 }
-interface InternalTrack { view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; halo?:number[]; stableSince:number; observations:number; clearMissing:number; missingSamples:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean }
+interface InternalTrack { view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; clearMissing:number; missingSamples:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean }
 const distance=(a:DetectedQuad,b:DetectedQuad)=>{const x=fieldCenter(a),y=fieldCenter(b);return Math.hypot(x.x-y.x,x.y-y.y);};
 const copy=(track:FieldTrack):FieldTrack=>({...track,card:structuredClone(track.card)});
 /** Owner-only caller, native frame buffer. One detector/read at a time; no AI or uploads. */
@@ -52,7 +52,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   async function tick() {
     if(disposed||inFlight)return;
     if(hidden()||idle()){status=hidden()?'hidden':'busy';metrics.skipped++;interruptWindow();notify();return;}
-    const generation=epoch;inFlight=true;const start=now();let current:FieldFrame|undefined,detectFrame:FieldFrame|undefined;
+    const generation=epoch;inFlight=true;const start=now();let recognitionWork=0;const samplesBefore=metrics.samples;let current:FieldFrame|undefined,detectFrame:FieldFrame|undefined;
     try {
       const sample=await options.buffer.sample();current=sample.frame;
       if(generation!==epoch||disposed)return;
@@ -71,7 +71,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const pairs=tracks.flatMap(t=>cards.map(c=>{
         const a=boundsOf(t.view.card.quad),b=boundsOf(c.quad),ratio=(a.w*a.h)/(b.w*b.h||1);
         const overlap=quadIou(t.view.card,c),d=distance(t.view.card,c);
-        return {t,c,score:overlap+(1-d)*.1,eligible:ratio>.35&&ratio<2.85&&(overlap>=.12||d<.16)};
+        return {t,c,score:overlap+(1-d)*.1,eligible:ratio>.35&&ratio<2.85&&(overlap>=.12||d<.16)&&(!(t.view.state==='identified'&&t.missed&&t.view.card.kind==='face-up'&&c.kind==='face-up')||(!t.appearance?.length&&overlap>=.84&&d<.012)||sameFieldAppearance(t.appearance,evidence.appearance?.(c)))};
       })).filter(p=>p.eligible).sort((a,b)=>b.score-a.score);
       for(const {t,c} of pairs)if(!matched.has(t)&&!taken.has(c)){matched.set(t,c);taken.add(c);}
       // A single recently hidden instance and a single new outline can be followed
@@ -80,18 +80,18 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const incoming=cards.filter(c=>!taken.has(c));
       if(lost.length===1&&incoming.length===1) {
         const a=boundsOf(lost[0].view.card.quad),b=boundsOf(incoming[0].quad),ratio=a.w*a.h/(b.w*b.h||1);
-        if(ratio>.5&&ratio<2){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
+        if(ratio>.5&&ratio<2&&sameFieldAppearance(lost[0].appearance,evidence.appearance?.(incoming[0]))){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
       }
       for(const c of cards)if(!taken.has(c)&&tracks.length<maxTracks) {
         const zone=mapFieldZone(c,calibration,cards).zone;
         const known=options.getKnownCards?.().find(k=>!tracks.some(t=>t.view.id===k.id)&&(k.card?quadIou(k.card,c)>.5:k.zone===zone));
-        const t:InternalTrack={view:{id:known?.id??`fw-${session}-${++serial}`,card:c,zone,position:fieldOrientation(c,current.width,current.height),faceDown:c.kind==='face-down',cardId:known?.faceDown?undefined:known?.cardId,state:known?'identified':'candidate',firstSeen:sample.at,lastSeen:sample.at,removed:false},anchor:c,...(known?{announced:c,announcedZone:known.zone,announcedPosition:fieldOrientation(c,current.width,current.height)}:{}),stableSince:sample.at,observations:0,clearMissing:0,missingSamples:0,kind:c.kind,position:fieldOrientation(c,current.width,current.height),needsRead:!known};
+        const t:InternalTrack={view:{id:known?.id??`fw-${session}-${++serial}`,card:c,zone,position:fieldOrientation(c,current.width,current.height),faceDown:known?.faceDown??c.kind==='face-down',cardId:known?.faceDown?undefined:known?.cardId,state:known?'identified':'candidate',firstSeen:sample.at,lastSeen:sample.at,removed:false},anchor:c,...(known?{announced:c,announcedZone:known.zone,announcedPosition:known.position??fieldOrientation(c,current.width,current.height)}:{}),missed:false,stableSince:sample.at,observations:0,clearMissing:0,missingSamples:0,kind:c.kind,position:fieldOrientation(c,current.width,current.height),needsRead:!known||(!known.faceDown&&!known.cardId)};
         tracks.push(t);matched.set(t,c);
       }
       for(const t of tracks) {
         const c=matched.get(t);
         if(!c) {
-          t.best=undefined;t.stableSince=NaN;t.observations=0;
+          t.missed=true;t.best=undefined;t.stableSince=NaN;t.observations=0;
           // Consecutive clear detector samples only: hidden tabs, overload and motion cannot remove cards.
           const halo=evidence.halo?.(t.view.card),blocked=halo&&t.halo&&halo.filter((v,i)=>Math.abs(v-t.halo![i])>.1).length/halo.length>.2;
           if(evidence.motion(t.view.card)>.025||blocked){t.clearMissing=0;t.missingSamples=0;continue;}
@@ -99,11 +99,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           if(t.view.state==='identified'&&!t.view.removed&&t.clearMissing>removalMs&&t.missingSamples>=3){t.view.removed=true;emit('removed',t);}
           continue;
         }
-        t.reappeared ||= t.view.removed;t.view.removed=false;t.clearMissing=0;t.missingSamples=0;t.view.lastSeen=sample.at;t.view.card=c;
+        t.reappeared ||= t.view.removed;t.missed=false;t.view.removed=false;t.clearMissing=0;t.missingSamples=0;t.view.lastSeen=sample.at;t.view.card=c;
         // Uncalibrated ordering is assigned at settlement, then kept until the card actually moves.
         if(calibration||t.view.state==='candidate'||distance(t.anchor,c)>.02)t.view.zone=mapFieldZone(c,calibration,cards).zone;
         const position=fieldOrientation(c,current.width,current.height);
         const clean=c.confidence>=.7&&!c.partial&&!c.covered&&!isCovered(c,cards)&&evidence.motion(c)<=.025;
+        if(clean&&!t.appearance?.length)t.appearance=evidence.appearance?.(c);
         const still=quadIou(t.anchor,c)>=.84&&distance(t.anchor,c)<.012&&t.kind===c.kind&&t.position===position;
         if(!clean||!still||!Number.isFinite(t.stableSince)) {
           t.anchor=c;t.stableSince=clean?sample.at:NaN;t.observations=0;t.best=undefined;t.kind=c.kind;t.position=position;
@@ -120,7 +121,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           if(t.announced&&(quadIou(t.announced,c)<.7||distance(t.announced,c)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==position)){emit('moved',t);t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;}
           if(wasFaceDown!==t.view.faceDown){emit('flipped',t);t.needsRead=!t.view.faceDown&&!t.view.cardId;}
         }
-        t.halo=evidence.halo?.(c);
+        t.halo=evidence.halo?.(c);t.appearance=evidence.appearance?.(c);
         if(!t.needsRead){t.best=undefined;continue;}
         t.needsRead=false;
         if(t.view.faceDown) {
@@ -130,7 +131,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         try {
           input=await clone(best.frame);const readStart=now();
           const result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{card:best.card,k:5,maxFrames:1,priors:options.getPriors?.()});
-          metrics.recognitionMs=now()-readStart;
+          metrics.recognitionMs=now()-readStart;recognitionWork+=metrics.recognitionMs;
           if(generation!==epoch||disposed)return;
           const safe=result.tier==='sure'&&result.candidates[0]&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown&&result.candidates[0].cardId!==options.profile.cardBack.cardId;
           metrics.latencyMs=now()-t.view.firstSeen;
@@ -149,7 +150,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(generation===epoch&&!disposed){status='error';error=cause instanceof Error?cause.message:String(cause);metrics.errors++;interruptWindow();}
     } finally {
       if(detectFrame)closeFieldFrame(detectFrame);if(current)closeFieldFrame(current);
-      const elapsed=now()-start;ema=ema?ema*.8+elapsed*.2:elapsed;
+      const elapsed=Math.max(0,now()-start-recognitionWork);
+      // Startup/model downloads and occasional recognition are not the continuous detector load.
+      if(metrics.samples>samplesBefore)ema=ema?ema*.8+elapsed*.2:Math.min(elapsed,80);
       metrics.intervalMs=Math.max(250,Math.min(5000,ema/budget));metrics.dutyPercent=Math.min(100,100*ema/metrics.intervalMs);
       if(status==='watching'&&metrics.intervalMs>500)status='budget';inFlight=false;notify();
     }
@@ -171,7 +174,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     getSnapshot():FieldSnapshot{return {status,tracks:tracks.map(t=>copy(t.view)),metrics:{...metrics},error};},
     setCalibration(value?:FieldCalibration){calibration=value;interruptWindow();},
     confirm(id:string,cardId?:string){const t=tracks.find(t=>t.view.id===id);if(t){t.view.cardId=cardId;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.best=undefined;pruneFrames();notify();}},
-    dismiss(id:string){const t=tracks.find(t=>t.view.id===id);if(t){t.view.state='dismissed';t.needsRead=false;t.best=undefined;pruneFrames();notify();}},
+    dismiss(id:string){const t=tracks.find(t=>t.view.id===id);if(t){if(t.view.state!=='identified')t.view.state='dismissed';t.needsRead=false;t.best=undefined;pruneFrames();notify();}},
     forget(id:string){const i=tracks.findIndex(t=>t.view.id===id);if(i>=0)tracks.splice(i,1);pruneFrames();notify();},
   };
 }
