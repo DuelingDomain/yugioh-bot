@@ -6,7 +6,7 @@ export type Priors = { decklist: number[]; seen: number[] };
 export type ReaderStatus = "vision" | "priors" | "none";
 export type ReadResult = {
   guesses: Guess[]; reader: ReaderStatus; frames: number; note: string; tier?: "sure" | "not sure" | "low match";
-  /** Set when this browser read the card itself. Lets the tray ask for an optional AI second opinion on the same crop. */
+  /** Set when this browser read the card itself. Names the kept crop: the tray can ask AI about it, and a confirmed choice can be saved as a training sample. */
   aiToken?: number;
 };
 /** The card box the detector found, as fractions of the frame. Passing it makes the reader crop that exact card. */
@@ -14,7 +14,7 @@ export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "fa
 
 type Meta = { entries: { cardId: string; passcode: number; name: string }[] };
 type DetectedQuad = ReadCard & { refined: boolean };
-type RawResult = { candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string };
+type RawResult = { candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object };
 type AIReading = { name: string | null; passcode?: number; match: { passcode: number; name: string } | null };
 type RawPeek = { cardId?: string; name: string | null; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
 type RawBoardCard = RawPeek & { outline: DetectedQuad; index: number; side: "near" | "far"; error?: string };
@@ -25,9 +25,12 @@ type VisionRecognizer = {
   readAll(frame: ImageBitmap, opts: { cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawBoard>;
   detectCards(frame: ImageBitmap): Promise<ReadCard[]>;
   askAI(result: RawResult, options?: { explicitRequest?: boolean; signal?: AbortSignal }): Promise<AIReading>;
+  recordFeedback(result: RawResult, chosenCardId: string, source: FeedbackSource): Promise<unknown>;
   dispose(): void;
 };
 
+export type FeedbackSource = "pick" | "search" | "voice" | "ai";
+const READ_TIMEOUT_MS = 10_000;
 const RING_MS = 1000;
 const FRAME_GAP_MS = 200;
 const MAX_FRAMES = 6;
@@ -129,8 +132,35 @@ function enqueue<T>(job: () => Promise<T>): Promise<T> {
   chain = run.catch(() => undefined);
   return run;
 }
-export function readCard(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal, card?: ReadCard, frames?: HTMLCanvasElement[]): Promise<ReadResult> {
-  return enqueue(() => readCardNow(track, point, priors, signal, card, frames));
+/** Whether recognition may keep a card crop for the training set. Set from the signed-in person's opt-in. */
+let feedbackCapture = false;
+export function setFeedbackCapture(on: boolean) { feedbackCapture = on; }
+
+/**
+ * Reads one card. The time limit starts when the job leaves the reader queue, so a board read ahead of it does not use it up.
+ * A read that runs too long answers with the decklist instead of failing.
+ */
+export function readCard(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, outer: AbortSignal, card?: ReadCard, frames?: HTMLCanvasElement[]): Promise<ReadResult> {
+  return enqueue(async () => {
+    const timeout = AbortSignal.timeout(READ_TIMEOUT_MS);
+    const signal = AbortSignal.any([outer, timeout]);
+    try { return await readCardNow(track, point, priors, signal, card, frames); }
+    catch (error) {
+      if (timeout.aborted && !outer.aborted) return fallbackRead(priors, "The read took too long. Showing cards from the decklist.");
+      throw error;
+    }
+  });
+}
+
+/** Saves a confirmed card as a training sample. One sample per read; never throws. */
+export async function recordFeedback(token: number, passcode: number, source: FeedbackSource): Promise<{ ok: boolean; note: string }> {
+  const raw = raws.get(token); if (!raw?.feedback) return { ok: false, note: "" };
+  const [vision, found] = await Promise.all([loadRecognizer(), loadMeta()]);
+  const entry = found?.entries.find(item => item.passcode === passcode);
+  if (!vision || !entry) return { ok: false, note: "" };
+  raw.feedback = undefined;
+  try { await vision.recordFeedback(raw, entry.cardId, source); return { ok: true, note: "Saved to the training set" }; }
+  catch (error) { return { ok: false, note: error instanceof Error ? error.message : "The sample could not be saved" }; }
 }
 
 /** Last raw reads, kept so Ask AI can reuse the crop. The crop stays in this browser until the person asks. */
@@ -152,11 +182,12 @@ export async function askAi(token: number, signal?: AbortSignal): Promise<AiAnsw
 }
 
 /** Reads one card at a click point. Frames stay in this browser; only public passcodes leave it. */
+function fallbackRead(priors: Priors, note: string): ReadResult {
+  const ids = [...new Set([...priors.seen, ...priors.decklist])].slice(0, 5);
+  return { guesses: ids.map(cardId => ({ cardId, name: "", score: null })), reader: ids.length ? "priors" : "none", frames: 0, note };
+}
 async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal, card?: ReadCard, kept?: HTMLCanvasElement[]): Promise<ReadResult> {
-  const fallback = (note: string): ReadResult => {
-    const ids = [...new Set([...priors.seen, ...priors.decklist])].slice(0, 5);
-    return { guesses: ids.map(cardId => ({ cardId, name: "", score: null })), reader: ids.length ? "priors" : "none", frames: 0, note };
-  };
+  const fallback = (note: string) => fallbackRead(priors, note);
   if (!track && !kept?.length) return fallback("No camera frame available. Showing cards from the decklist.");
   const vision = await loadRecognizer();
   const found = await loadMeta();
@@ -166,7 +197,7 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
   if (!frames.length) return fallback("The camera gave no frames. Showing cards from the decklist.");
   const byId = new Map(found.entries.map(entry => [entry.cardId, entry]));
   try {
-    const result = await vision.recognize(frames, { clickPoint: point, k: 5, ...(card ? { card: toQuad(card) } : {}), includeCrop: true, priors: priorsFor(found, priors) });
+    const result = await vision.recognize(frames, { clickPoint: point, k: 5, ...(card ? { card: toQuad(card) } : {}), includeCrop: true, ...(feedbackCapture ? { includeFeedback: true } : {}), priors: priorsFor(found, priors) });
     signal.throwIfAborted();
     const guesses = result.candidates.flatMap(candidate => {
       const entry = byId.get(candidate.cardId);

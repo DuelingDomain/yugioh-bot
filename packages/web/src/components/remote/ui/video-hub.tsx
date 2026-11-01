@@ -6,7 +6,7 @@ import type { RemoteRoom } from "@yugidraft/shared/remote";
 import { RemoteVideo, type VideoSnapshot } from "@/lib/remote/video";
 import { cardInfo, loadCards } from "./catalog";
 import { deckIdsOf, seenCardIds } from "./model";
-import { makeRecognizeRawFeed, readCard, askAi, peekCard, readBoard, disposeRecognizer, type AiAnswer, type BoardAnswer, type PeekAnswer, type ReadCard, type ReadResult } from "./recognizer";
+import { makeRecognizeRawFeed, readCard, askAi, recordFeedback, peekCard, readBoard, disposeRecognizer, type AiAnswer, type BoardAnswer, type FeedbackSource, type PeekAnswer, type ReadCard, type ReadResult } from "./recognizer";
 
 export type Health = { q: "good" | "warn" | "bad" | "off"; label: string; detail: string };
 /** Something a <video> element can show. Local previews and LiveKit tracks look the same to the tile. */
@@ -32,6 +32,8 @@ type Hub = {
   read(seat: number, x: number, y: number, card?: ReadCard, frames?: HTMLCanvasElement[]): Promise<ReadResult>;
   /** Optional AI second opinion on a read. Owner only; answers "off" where the server has it disabled. */
   askAi(token: number): Promise<AiAnswer>;
+  /** Saves a confirmed card as a training sample (only when this person opted in). Never throws. */
+  recordFeedback(token: number, passcode: number, source: FeedbackSource): Promise<{ ok: boolean; note: string }>;
   /** Names one outlined card of a frozen frame. Local only. */
   peek(seat: number, frame: HTMLCanvasElement, card: ReadCard, cards: ReadCard[], signal: AbortSignal): Promise<PeekAnswer>;
   /** Reads all outlined cards of a frozen frame. Local only. */
@@ -40,7 +42,7 @@ type Hub = {
 const noop = async () => undefined;
 const Ctx = createContext<Hub>({ solo: true, connection: "off", cameraOn: false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
   sourceFor: () => null, health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
-  read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }), askAi: async () => ({ status: "off", note: "" }),
+  read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }), askAi: async () => ({ status: "off", note: "" }), recordFeedback: async () => ({ ok: false, note: "" }),
   peek: async () => ({ status: "unavailable", note: "" }), readBoard: async () => ({ status: "unavailable", note: "" }) });
 export const useVideoHub = () => useContext(Ctx);
 
@@ -137,25 +139,32 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     done({ guesses: result.message.candidates.map(c => ({ cardId: c.cardId, name: c.name, score: c.score })), reader: "vision", frames: 0, note: `Read on seat ${result.fromSeat + 1}'s device` });
   }, [snap.result]);
 
+  const snapRef = useRef(snap); snapRef.current = snap;
   const read = useCallback(async (seat: number, x: number, y: number, card?: ReadCard, frames?: HTMLCanvasElement[]): Promise<ReadResult> => {
     const current = roomRef.current;
     const priors = { decklist: deckIdsOf(current, seat), seen: seenCardIds(current) };
+    // Own feed: the reader limits itself to 10 s from the moment its job starts.
+    if (seat === mySeat) {
+      const track = solo ? localRef.current?.getVideoTracks()[0] : controller?.rawLocalTrack;
+      return readCard(track ?? null, { x, y }, priors, new AbortController().signal, card, frames);
+    }
+    const noSignal = new AbortController().signal;
+    // No feed to ask (bot seat, camera off, not connected): go straight to the decklist.
+    const feed = snapRef.current.feeds.find(f => f.seat === seat)?.video;
+    if (!controller || !feed) return readCard(null, { x, y }, priors, noSignal);
     const abort = new AbortController(); const timer = setTimeout(() => abort.abort(), 10_000);
+    let requestId = "";
     try {
-      if (seat === mySeat) {
-        const track = solo ? localRef.current?.getVideoTracks()[0] : controller?.rawLocalTrack;
-        return await readCard(track ?? null, { x, y }, priors, abort.signal, card, frames);
-      }
-      if (!controller) return await readCard(null, { x, y }, priors, abort.signal);
       const early = new Promise<ReadResult>(resolve => {
-        controller.requestRecognition(seat, x, y).then(id => wait.current.set(id, resolve)).catch(e => { controller.fail(e); resolve({ guesses: [], reader: "none", frames: 0, note: e instanceof Error ? e.message : "Request failed" }); });
+        controller.requestRecognition(seat, x, y).then(id => { requestId = id; if (abort.signal.aborted) wait.current.delete(id); else wait.current.set(id, resolve); })
+          .catch(e => { controller.fail(e); resolve({ guesses: [], reader: "none", frames: 0, note: e instanceof Error ? e.message : "Request failed" }); });
         abort.signal.addEventListener("abort", () => resolve({ guesses: [], reader: "none", frames: 0, note: "No answer from the feed owner" }), { once: true });
       });
       const answer = await early;
       if (answer.guesses.length) return answer;
-      const fallback = await readCard(null, { x, y }, priors, abort.signal);
+      const fallback = await readCard(null, { x, y }, priors, noSignal);
       return { ...fallback, note: answer.note || "The feed owner's reader found no card. Showing cards from the decklist." };
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); if (requestId) wait.current.delete(requestId); }
   }, [mySeat, solo, controller]);
 
   const priorsOf = useCallback((seat: number) => ({ decklist: deckIdsOf(roomRef.current, seat), seen: seenCardIds(roomRef.current) }), []);
@@ -166,7 +175,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     solo, connection: solo ? (local ? "local" : "off") : snap.connection, cameraOn: solo ? !!local : connected, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
     error: localError || snap.error, devices: solo ? localDevices : snap.devices, cameraId: solo ? localCamera : snap.cameraId, micPublished: micOn && connected,
     sourceFor, health, setFrozen: (seat, value) => setFrozenState(old => old[seat] === value ? old : { ...old, [seat]: value }),
-    enableCamera, disableCamera, selectCamera, setMic, read, askAi, peek, readBoard: board,
+    enableCamera, disableCamera, selectCamera, setMic, read, askAi, recordFeedback, peek, readBoard: board,
   }), [solo, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, disableCamera, selectCamera, setMic, read, peek, board]);
   return <Ctx value={value}>{children}</Ctx>;
 }

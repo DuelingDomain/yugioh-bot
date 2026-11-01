@@ -10,7 +10,9 @@ import { useVideoHub, type Health } from "./video-hub";
 import s from "./remote-ui.module.css";
 
 /** A card the table has identified on a feed. Normalized to the video frame (0..1). `quad` is set when it came from an outline. */
-export type FeedMark = { id: string; x: number; y: number; label: string; notInDecklist: boolean; show: boolean; cardCode?: number; quad?: Pt[] };
+export type FeedMark = { id: string; x: number; y: number; label: string; notInDecklist: boolean; show: boolean; cardCode?: number; quad?: Pt[];
+  /** The person may add this card to the decklist: it is theirs (or a solo table) and the deck stays valid. */
+  canAdd?: boolean };
 /** A reticle for a read in progress, finished or failed. */
 export type FeedReticle = { id: string; x: number; y: number; state: "reading" | "done" | "fail"; text: string; quad?: Pt[] };
 /** What a click on an outlined card sends up. `anchor` is the card's box on screen (viewport pixels) for popovers. */
@@ -377,7 +379,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
       {frozen && frozen.status === "ready" ? <div className={s.qnums} style={boxStyle} aria-hidden="true">
         {frozen.cards.map((card, index) => <span key={card.id} className={`${s.qn} ${index === shown || card.id === selected ? s.qnOn : ""}`} style={{ left: `${card.bounds.left * 100}%`, top: `${card.bounds.top * 100}%` }}>{index + 1}</span>)}
       </div> : null}
-      {frozen && frozen.status === "ready" && peekLabel && shownCard && peekLabel.id === shownCard.id && !selected ? <div className={`${s.peek2} ${peekLabel.state === "loading" ? s.peek2Wait : ""} ${peekLabel.covered ? s.peek2Cov : ""}`} role="status" data-testid="peek-label"
+      {frozen && frozen.status === "ready" && peekLabel && shownCard && peekLabel.id === shownCard.id && !selected ? <div className={`${s.peek2} ${peekLabel.state === "loading" ? s.peek2Wait : ""} ${peekLabel.covered ? s.peek2Cov : ""}`} aria-live="off" data-testid="peek-label"
         style={{ left: box ? box.left + shownCard.bounds.right * box.width + 8 : 0, top: box ? box.top + shownCard.bounds.top * box.height : 0, transform: shownCard.bounds.right > 0.7 ? "translateX(calc(-100% - 16px - " + ((shownCard.bounds.right - shownCard.bounds.left) * (box?.width ?? 0)) + "px))" : undefined }}>
         <b>{peekLabel.text}</b>
         {peekLabel.tier && peekLabel.state !== "loading" ? <em>{peekLabel.tier === "sure" ? "Sure" : peekLabel.tier === "not sure" ? "Not sure" : "Low match"}</em> : null}
@@ -392,7 +394,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
         return <div key={mark.id} className={`${s.lk} ${mark.notInDecklist ? s.nid : ""} ${mark.show ? s.show : ""}`} style={r} data-testid="lock">
           <span className={s.lb} style={flip ? { top: "auto", bottom: "calc(100% + 8px)" } : undefined}>{mark.label}</span>
           {mark.notInDecklist ? <span className={s.nidc} style={flip ? { top: "auto", bottom: "calc(100% + 32px)" } : undefined}>
-            <Icon name="warn" />Not in decklist<button type="button" onClick={() => onAdd(mark)}>Add to decklist</button>
+            <Icon name="warn" />Not in decklist{mark.canAdd ? <button type="button" onClick={() => onAdd(mark)}>Add to decklist</button> : null}
           </span> : null}
         </div>;
       })}

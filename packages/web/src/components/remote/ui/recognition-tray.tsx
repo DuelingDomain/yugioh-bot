@@ -14,22 +14,24 @@ export type TrayState = {
   /** How sure the local reader was, and the kept crop for an optional AI second opinion (own camera reads only). */
   tier?: Tier; aiToken?: number; covered?: boolean;
 };
-export type Pick = { cardId: number; name: string; via: "click" | "typed" | "voice" };
+import type { FeedbackSource } from "./recognizer";
+/** `feedback` names how a person chose this card; set only for an explicit choice, so it can be saved as a training sample. */
+export type Pick = { cardId: number; name: string; via: "click" | "typed" | "voice"; feedback?: FeedbackSource };
 
 /**
  * The popup for a card that was just clicked on a feed. It opens at once with a skeleton, then shows the large card,
  * its full text and tier. When the reader is not sure, a slim strip of the top 5 guesses lets the person choose:
  * keys 1-5 pick, arrows move the preview, Enter picks the previewed card, typing searches the whole catalog.
  */
-export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying }: {
-  tray: TrayState; inDeck: (cardId: number) => boolean | null; onPick: (pick: Pick) => void; onClose: () => void; onSay: () => void; saying: boolean;
+export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, aiAllowed }: {
+  tray: TrayState; aiAllowed: boolean; inDeck: (cardId: number) => boolean | null; onPick: (pick: Pick) => void; onClose: () => void; onSay: () => void; saying: boolean;
 }) {
   const [query, setQuery] = useState(""); const [found, setFound] = useState<Guess[] | null>(null); const [, tick] = useState(0);
   const [cursor, setCursor] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const hub = useVideoHub();
   const [ai, setAi] = useState<{ status: "idle" | "asking" | "done" | "none" | "off" | "error"; guess?: Guess; note?: string }>({ status: "idle" });
-  const canAsk = tray.status === "guesses" && tray.aiToken !== undefined && tray.tier !== "sure" && ai.status !== "off" && ai.status !== "done";
+  const canAsk = aiAllowed && tray.status === "guesses" && tray.aiToken !== undefined && tray.tier !== "sure" && ai.status !== "off" && ai.status !== "done";
   async function askAi() {
     if (tray.aiToken === undefined) return;
     setAi({ status: "asking" });
@@ -50,7 +52,7 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying }
   const base = ai.guess ? [ai.guess, ...tray.guesses.filter(g => g.cardId !== ai.guess?.cardId)].slice(0, 5) : tray.guesses;
   const list = found ?? base;
   const nameOf = (g: Guess) => g.name || cardInfo(g.cardId)?.name || `Card ${g.cardId}`;
-  const choose = (g: Guess, via: Pick["via"]) => onPick({ cardId: g.cardId, name: nameOf(g), via });
+  const choose = (g: Guess, via: Pick["via"]) => onPick({ cardId: g.cardId, name: nameOf(g), via, feedback: g.source === "ai" ? "ai" : found ? "search" : "pick" });
   const reading = tray.status === "reading";
   const placing = tray.status === "sure";
   const current = list[Math.min(cursor, list.length - 1)];

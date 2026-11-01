@@ -6,11 +6,19 @@ import { identifyRemoteVisionCard, readRemoteVisionAIRequest, RemoteVisionAIErro
 export const runtime = "nodejs";
 const headers = { "Cache-Control": "private, no-store" };
 
+/** Whether this person may use the AI second opinion. The table hides the button when it is false. */
+export async function GET() {
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
+  const allowed = isOwnerUser(actor.userId) && process.env.REMOTE_DUELS === "1" && process.env.REMOTE_VISION_AI === "1" && !!process.env.ANTHROPIC_API_KEY?.trim();
+  return Response.json({ allowed }, { headers });
+}
+
 export async function POST(request: Request) {
   const actor = await requireWebAccess();
   if (!actor.ok) return actor.response;
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-  if (!isOwnerUser(actor.userId) || process.env.REMOTE_VISION_AI !== "1" || !apiKey) {
+  if (!isOwnerUser(actor.userId) || process.env.REMOTE_DUELS !== "1" || process.env.REMOTE_VISION_AI !== "1" || !apiKey) {
     return Response.json({ error: "not_found" }, { status: 404, headers });
   }
   const input = await readRemoteVisionAIRequest(request);

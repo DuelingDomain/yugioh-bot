@@ -15,7 +15,9 @@ const KINDS: { id: LogKind | "all"; label: string }[] = [
 ];
 
 /** Right overlay drawer. Closed by default. It never reads out loud (aria-live off). */
-export function LogDrawer({ open, entries, seats, rules, onClose }: { open: boolean; entries: LogEntry[]; seats: TableSeat[]; rules: string[]; onClose: () => void }) {
+export function LogDrawer({ open, entries, seats, rules, onClose, extra, onConcede }: { open: boolean; entries: LogEntry[]; seats: TableSeat[]; rules: string[]; onClose: () => void;
+  /** Extra table settings (for example the training-set switch). */ extra?: ReactNode; onConcede?: () => void }) {
+  const [confirm, setConfirm] = useState(false);
   const [tab, setTab] = useState<"log" | "table">("log");
   const [filter, setFilter] = useState<LogKind | "all">("all");
   const shown = entries.filter(entry => filter === "all" || entry.kind === filter);
@@ -42,6 +44,14 @@ export function LogDrawer({ open, entries, seats, rules, onClose }: { open: bool
       </div>
       <p className={s.ordnote}>Pass turn moves the highlight to the next seat in this order. The log is quiet by default: it never reads out loud. A short peek shows the newest line when the phase changes.</p>
       <div className={s.rules}>{rules.map(rule => <div key={rule}><Icon name="check" />{rule}</div>)}</div>
+      {extra}
+      {onConcede ? <div className={s.concede}>
+        {confirm ? <>
+          <p>Give up this duel? You are out and the other players carry on.</p>
+          <button type="button" className={`${s.btn} ${s.sm} ${s.danger}`} onClick={() => { setConfirm(false); onConcede(); }} data-testid="concede-yes">Yes, concede</button>
+          <button type="button" className={`${s.btn} ${s.sm}`} onClick={() => setConfirm(false)}>Keep playing</button>
+        </> : <button type="button" className={`${s.btn} ${s.sm} ${s.danger}`} onClick={() => setConfirm(true)} data-testid="concede">Concede</button>}
+      </div> : null}
     </div>}
     <div className={s.dfoot}>Newest line at the top.</div>
   </aside>;
@@ -78,6 +88,16 @@ export function HistoryPopover({ open, items, canUndo, style, onUndo }: { open: 
       <span><b>{item.label}</b><small>{index === 0 ? (canUndo ? "Newest. Same as the Undo button" : "Newest. The undo window has closed") : "Older. Only the newest action can be undone"}</small></span>
       {index === 0 ? <button type="button" className={`${s.btn} ${s.sm}`} disabled={!canUndo} onClick={onUndo}>Undo</button> : <span />}
     </li>)}</ol> : <p className={s.empty}>Nothing to undo yet.</p>}
+  </div>;
+}
+
+/** The table closes after 10 idle minutes. This shows from minute 8 with a live countdown. */
+export function IdleBanner({ closesAt, now, onStay }: { closesAt: number | null; now: number; onStay: () => void }) {
+  if (closesAt === null) return null;
+  const left = Math.max(0, Math.ceil((closesAt - now) / 1000));
+  return <div className={s.idle} role="alert" data-testid="idle-banner">
+    <span>This table closes in <b>{Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}</b> because nobody has played.</span>
+    <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} onClick={onStay} data-testid="idle-stay">Still playing</button>
   </div>;
 }
 

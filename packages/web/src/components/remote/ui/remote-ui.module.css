@@ -625,3 +625,11 @@
 .qflash{position:absolute;z-index:4;overflow:visible;pointer-events:none}
 .qflash polygon{fill:rgb(232 185 79/.12);stroke:var(--gold);stroke-width:2.5;vector-effect:non-scaling-stroke;stroke-linejoin:round;filter:drop-shadow(0 0 6px rgb(232 185 79/.8));animation:qflash 1.15s ease-out both}
 @keyframes qflash{0%{opacity:0;transform:scale(1.04);transform-origin:center}12%{opacity:1;transform:scale(1)}70%{opacity:1}100%{opacity:0}}
+
+/* ============ concede + idle warning ============ */
+.concede{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.concede p{flex-basis:100%;margin:0;font-size:13px;color:var(--ink2)}
+.danger{border-color:color-mix(in srgb,var(--bad,#e5484d) 60%,transparent);color:var(--bad,#ff8a8f)}
+.idle{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:12px;background:var(--panel,#1b1830);border:1px solid var(--warn,#d9a441);color:var(--ink,#f2f0ff);font-size:14px;max-width:min(92vw,560px)}
+.idle b{font-variant-numeric:tabular-nums}
+@media (max-width:700px){.idle{top:56px;flex-wrap:wrap}}
