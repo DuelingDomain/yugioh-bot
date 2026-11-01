@@ -5,7 +5,7 @@ import { getRemoteGame, remoteActionSchema, remoteAssert, type RemoteAction, typ
 
 export const REMOTE_IDLE_WARNING_MS = 8 * 60_000;
 export const REMOTE_IDLE_CLOSE_MS = 10 * 60_000;
-type Row = { id: number; slug: string; guild_id: string; game_id: string; seat_count: SeatCount; status: RemoteStatus;
+type Row = { id: number; slug: string; guild_id: string; game_id: string; seat_count: SeatCount; status: RemoteStatus; solo: number;
   created_by: number; state_json: string; last_seq: number; created_at: number; started_at: number | null; ended_at: number | null;
   last_event_at: number; idle_warning_at: number | null; end_reason: string | null };
 type EventRow = { seq: number; idempotency_key: string; actor_seat: number | null; user_id: number | null; action_json: string; created_at: number };
@@ -19,16 +19,17 @@ export function createRemoteDuelService(db: Database.Database) {
     remoteAssert(row, "Remote table not found", 404, "REMOTE_NOT_FOUND"); return row;
   }
   function seats(row: Row): RemoteSeat[] {
-    return (db.prepare("select seat,user_id,display_name,ready from remote_seats where table_id=? order by seat").all(row.id) as
-      { seat: number; user_id: number; display_name: string; ready: number }[])
-      .map(s => ({ seat: s.seat, userId: s.user_id, displayName: s.display_name, ready: !!s.ready }));
+    return (db.prepare(`select seat,user_id,display_name,ready,0 as bot from remote_seats where table_id=?
+      union all select seat,null,display_name,1,1 from remote_bot_seats where table_id=? order by seat`).all(row.id, row.id) as
+      { seat: number; user_id: number | null; display_name: string; ready: number; bot: number }[])
+      .map(s => ({ seat: s.seat, userId: s.user_id, bot: !!s.bot, displayName: s.display_name, ready: !!s.ready }));
   }
   function member(row: Row, userId: number): RemoteSeat {
     const seat = seats(row).find(s => s.userId === userId);
     remoteAssert(seat, "Remote table not found", 404, "REMOTE_NOT_FOUND"); return seat;
   }
   function table(row: Row): RemoteTable {
-    return { slug: row.slug, guildId: row.guild_id, gameId: row.game_id, seatCount: row.seat_count, status: row.status, createdBy: row.created_by,
+    return { slug: row.slug, guildId: row.guild_id, gameId: row.game_id, seatCount: row.seat_count, status: row.status, solo: !!row.solo, createdBy: row.created_by,
       createdAt: row.created_at, startedAt: row.started_at, endedAt: row.ended_at, lastEventAt: row.last_event_at,
       lastSeq: row.last_seq, endReason: row.end_reason, idleWarningAt: row.idle_warning_at, seats: seats(row) };
   }
@@ -52,20 +53,25 @@ export function createRemoteDuelService(db: Database.Database) {
   }
   function name(value: string) { remoteAssert(typeof value === "string" && value.trim().length > 0 && value.length <= 100, "Invalid display name"); return value.trim(); }
   const api = {
-    create(input: { guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount }, now = Date.now()): RemoteRoom {
+    create(input: { guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; solo?: boolean }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const game = getRemoteGame(input.gameId);
         remoteAssert(game.seatsAllowed.includes(input.seatCount) && input.guildId, "Invalid table settings");
+        remoteAssert(input.solo === undefined || typeof input.solo === "boolean", "Invalid solo setting");
         const displayName = name(input.displayName);
         remoteAssert(db.prepare("select 1 from users where id=?").get(input.userId), "User not found", 404);
         const slug = generateWebSlug();
         const initial = game.initialState({ seatCount: input.seatCount });
-        db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,created_at,last_event_at) values(?,?,?,?,'lobby',?,?,?,?)")
-          .run(slug, input.guildId, input.gameId, input.seatCount, input.userId, JSON.stringify(initial), now, now);
+        db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,created_at,last_event_at,solo) values(?,?,?,?,'lobby',?,?,?,?,?)")
+          .run(slug, input.guildId, input.gameId, input.seatCount, input.userId, JSON.stringify(initial), now, now, Number(input.solo ?? false));
         const row = load(slug, input.guildId);
         db.prepare("insert into remote_seats(table_id,seat,user_id,display_name) values(?,0,?,?)").run(row.id, input.userId, displayName);
-        append(row, { type: "table.created", gameId: input.gameId, seatCount: input.seatCount }, now, input.userId, 0);
+        append(row, { type: "table.created", gameId: input.gameId, seatCount: input.seatCount, solo: input.solo ?? false }, now, input.userId, 0);
         append(load(slug, input.guildId), { type: "seat.joined", seat: 0, userId: input.userId }, now, input.userId, 0);
+        if (input.solo) for (let seat = 1; seat < input.seatCount; seat++) {
+          db.prepare("insert into remote_bot_seats(table_id,seat,display_name) values(?,?,?)").run(row.id, seat, `Test Bot ${seat}`);
+          append(load(slug, input.guildId), { type: "seat.joined", seat, userId: null, bot: true }, now, input.userId, 0);
+        }
         return room(load(slug, input.guildId), input.userId);
       });
     },
@@ -74,7 +80,7 @@ export function createRemoteDuelService(db: Database.Database) {
     },
     list(guildId: string, userId: number, scope: "mine" | "open" = "mine"): RemoteTable[] {
       const rows = db.prepare(`select t.* from remote_tables t where t.guild_id=? and ${scope === "open"
-        ? "t.status='lobby' and (select count(*) from remote_seats s where s.table_id=t.id)<t.seat_count"
+        ? "t.solo=0 and t.status='lobby' and (select count(*) from remote_seats s where s.table_id=t.id)<t.seat_count"
         : "exists(select 1 from remote_seats s where s.table_id=t.id and s.user_id=?)"} order by t.created_at desc,t.id desc limit 100`)
         .all(...(scope === "open" ? [guildId] : [guildId, userId])) as Row[];
       return rows.map(table);
@@ -83,6 +89,7 @@ export function createRemoteDuelService(db: Database.Database) {
       return transaction(() => {
         const row = load(slug, guildId); assertOpen(row, now);
         if (seats(row).some(s => s.userId === userId)) return room(row, userId);
+        remoteAssert(!row.solo, "Solo tables only accept their owner", 403, "SOLO_OWNER_ONLY");
         remoteAssert(row.status === "lobby", "Table is no longer in its lobby", 409);
         const occupied = seats(row).map(s => s.seat);
         const seat = requestedSeat ?? Array.from({ length: row.seat_count }, (_, n) => n).find(n => !occupied.includes(n));
@@ -134,7 +141,8 @@ export function createRemoteDuelService(db: Database.Database) {
         const row = load(slug, guildId); const s = member(row, userId);
         const parsed = remoteActionSchema.safeParse(input.action); remoteAssert(parsed.success, "Invalid remote action");
         const command = parsed.data;
-        remoteAssert(command.actorSeat === s.seat, "Actor seat does not match session", 403, "ACTOR_SEAT_MISMATCH");
+        const delegatedBot = row.solo && row.created_by === userId && seats(row).some(seat => seat.seat === command.actorSeat && seat.bot && seat.userId === null);
+        remoteAssert(command.actorSeat === s.seat || delegatedBot, "Actor seat does not match session or an owned solo bot", 403, "ACTOR_SEAT_MISMATCH");
         remoteAssert(!command.idempotencyKey.startsWith("sys:"), "Reserved idempotency key");
         const old = db.prepare("select * from remote_events where table_id=? and idempotency_key=?").get(row.id, command.idempotencyKey) as EventRow | undefined;
         if (old) {
@@ -148,7 +156,7 @@ export function createRemoteDuelService(db: Database.Database) {
         remoteAssert(now - row.last_event_at < REMOTE_IDLE_CLOSE_MS && (row.status === "active" || (row.end_reason === "game" && command.type === "undo")), "Table is not active", 409, "TABLE_ENDED");
         const action = { ...command, at: now };
         const state = getRemoteGame(row.game_id).reduce(JSON.parse(row.state_json), action);
-        append(row, action, now, userId, s.seat);
+        append(row, action, now, userId, command.actorSeat);
         db.prepare("update remote_tables set state_json=?,status=?,ended_at=?,end_reason=? where id=?")
           .run(JSON.stringify(state), state.ended ? "ended" : "active", state.ended ? now : null, state.ended ? "game" : null, row.id);
         return room(load(slug, guildId), userId);

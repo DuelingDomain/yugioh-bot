@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
-import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, type GameModule } from "../../src/remote/index.js";
+import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, type GameModule, type RemoteRoom, type SeatCount } from "../../src/remote/index.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -14,6 +14,97 @@ function setup() {
   const table = service.create({ guildId: "g", userId: users[0], displayName: "A", gameId: "ygo", seatCount: 3 }, 1000);
   return { db, users, service, table };
 }
+describe("solo remote tables", () => {
+  it.each([2, 3, 4] as SeatCount[])("fills a %i-seat solo table with userless, ready bots and runs the full action loop", seatCount => {
+    const { service, users, db } = setup();
+    let room = service.create({ guildId: "g", userId: users[0], displayName: "Owner", gameId: "ygo", seatCount, solo: true }, 2000);
+    expect(room.solo).toBe(true);
+    expect(room.mySeat).toBe(0);
+    expect(room.seats).toHaveLength(seatCount);
+    expect(room.seats[0]).toMatchObject({ userId: users[0], bot: false });
+    expect(room.seats.slice(1).every(s => s.userId === null && s.bot && s.ready && s.displayName.startsWith("Test Bot"))).toBe(true);
+    expect(service.list("g", users[0], "open").some(t => t.slug === room.slug)).toBe(false);
+    expect(() => service.join(room.slug, "g", users[1], "Intruder", 1, 2001)).toThrow(/solo/i);
+    expect(() => service.get(room.slug, "g", users[1])).toThrow(/not found/i);
+    expect(() => service.start(room.slug, "g", users[0], 2001)).toThrow(/ready/i);
+    service.ready(room.slug, "g", users[0], true, 2002);
+    room = service.start(room.slug, "g", users[0], 2003);
+    let n = 0;
+    const act = (actorSeat: number, action: Record<string, unknown>) => {
+      room = service.act(room.slug, "g", users[0], { baseSeq: room.lastSeq,
+        action: remoteActionSchema.parse({ ...action, actorSeat, idempotencyKey: `solo-${seatCount}-${++n}` }) }, 2100 + n);
+    };
+    act(0, { type: "twin.place", seat: 0, zone: "monster", card: { ref: "blue", name: "Blue-Eyes White Dragon", race: "Dragon", slot: 1 } });
+    act(1, { type: "twin.place", seat: 1, zone: "monster", card: { ref: "dark", name: "Dark Magician", slot: 3 } });
+    act(1, { type: "twin.flip", seat: 1, cardRef: "dark", faceUp: false });
+    act(1, { type: "twin.flip", seat: 1, cardRef: "dark", faceUp: true });
+    act(1, { type: "twin.move", seat: 1, cardRef: "dark", zone: "extra-monster", slot: 1 });
+    act(0, { type: "card.identified", seat: 0, cardId: 89631139, source: "click" });
+    act(1, { type: "lp.change", seat: 1, delta: -500, reason: "Solo correction" });
+    const key = room.state.undo!.actionId;
+    act(1, { type: "log.note", text: "Bot field adjusted" });
+    act(0, { type: "undo", targetActionId: key });
+    expect(room.state.seats[1].resources.lp).toBe(8000);
+    for (let seat = 0; seat < seatCount; seat++) act(seat, { type: "turn.end" });
+    act(0, { type: "phase.set", phase: "battle" });
+    const result = ygoModule.resolveAttack(room.state, { text: "my dragon attacks Test Bot 1's magician", players: room.seats }, 0);
+    expect(result.status).toBe("unique");
+    act(0, result.candidates[0].proposal);
+    expect(room.state.attack).toMatchObject({ attackerSeat: 0, targetSeat: 1, targetCardRef: "dark" });
+    act(1, { type: "attack.resolve", attackId: room.state.attack!.id, outcome: "resolved" });
+    act(1, { type: "twin.remove", seat: 1, cardRef: "dark" });
+    expect(service.replay(room.slug, "g", users[0])).toEqual(room.state);
+    expect(room.events.filter(e => !e.id.startsWith("sys:")).every(e => e.userId === users[0] && e.action.type !== "table.created")).toBe(true);
+    expect(room.events.some(e => e.actorSeat === 1 && e.userId === users[0])).toBe(true);
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+  });
+
+  it("rejects forged actors and keeps normal twin ownership, idempotency and undo rules", () => {
+    const { service, users } = setup();
+    let room = service.create({ guildId: "g", userId: users[0], displayName: "Owner", gameId: "ygo", seatCount: 3, solo: true }, 2000);
+    service.ready(room.slug, "g", users[0], true, 2001);
+    room = service.start(room.slug, "g", users[0], 2002);
+    const command = { type: "twin.place" as const, actorSeat: 1, idempotencyKey: "bot-place", seat: 1, zone: "monster", card: { ref: "bot", faceUp: true, position: "attack" as const } };
+    expect(() => service.act(room.slug, "g", users[1], { baseSeq: room.lastSeq, action: command }, 2100)).toThrow(/not found/i);
+    expect(() => service.act(room.slug, "g", users[0], { baseSeq: room.lastSeq, action: { ...command, actorSeat: 3 } }, 2100)).toThrow(/seat/i);
+    expect(() => service.act(room.slug, "g", users[0], { baseSeq: room.lastSeq, action: { ...command, actorSeat: 0 } }, 2100)).toThrow(/owner/i);
+    room = service.act(room.slug, "g", users[0], { baseSeq: room.lastSeq, action: command }, 2100);
+    expect(service.act(room.slug, "g", users[0], { baseSeq: 0, action: command }, 2200).lastSeq).toBe(room.lastSeq);
+    expect(() => service.act(room.slug, "g", users[0], { baseSeq: room.lastSeq, action: { ...command, actorSeat: 2 } }, 2200)).toThrow(/different action/i);
+    const before = room;
+    room = service.act(room.slug, "g", users[0], { baseSeq: room.lastSeq, action: { type: "player.concede", actorSeat: 0, idempotencyKey: "owner-out" } }, 2300);
+    room = service.act(room.slug, "g", users[0], { baseSeq: room.lastSeq, action: { type: "turn.end", actorSeat: 1, idempotencyKey: "bot-turn" } }, 2400);
+    expect(room.state.turnSeat).toBe(1);
+    expect(before.state.seats[0].eliminated).toBe(false);
+    expect(service.replay(room.slug, "g", users[0])).toEqual(room.state);
+  });
+
+  it("migrates existing remote rows additively and reruns without changing data", () => {
+    const { service, table, users, db } = setup();
+    // Recreate the exact pre-solo state: no new column or bot storage.
+    db.exec("drop table remote_bot_seats; alter table remote_tables drop column solo");
+    migrate(db); migrate(db);
+    const existing = service.get(table.slug, "g", users[0]);
+    expect(existing.solo).toBe(false);
+    expect(existing.seats).toHaveLength(1);
+    expect(existing.seats[0]).toMatchObject({ bot: false, userId: users[0] });
+    expect(existing.events).toEqual(table.events);
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+  });
+
+  it("warns and expires solo lobbies and games with the same idle clock", () => {
+    const { service, users } = setup();
+    const create = () => service.create({ guildId: "g", userId: users[0], displayName: "Owner", gameId: "ygo", seatCount: 2, solo: true }, 2000);
+    const lobby = create(); let active = create();
+    service.ready(active.slug, "g", users[0], true, 2000); active = service.start(active.slug, "g", users[0], 2000);
+    expect(service.sweepIdle(2000 + 8 * 60_000).filter(t => t.solo)).toHaveLength(2);
+    expect(service.get(active.slug, "g", users[0]).lastEventAt).toBe(2000);
+    expect(service.sweepIdle(2000 + 10 * 60_000).filter(t => t.solo && t.status === "ended")).toHaveLength(2);
+    expect(() => service.ready(lobby.slug, "g", users[0], true, 602001)).toThrow(/ended/i);
+    expect(() => service.act(active.slug, "g", users[0], { baseSeq: service.get(active.slug, "g", users[0]).lastSeq,
+      action: { type: "log.note", actorSeat: 1, idempotencyKey: "late", text: "Too late" } }, 602001)).toThrow(/active/i);
+  });
+});
 describe("remote foundation", () => {
   it("validates the action bus and keeps the reducer pure with FFA battle/turn rules", () => {
     expect(remoteActionSchema.safeParse({ type: "lp.change", actorSeat: 0, idempotencyKey: "bad", seat: 9, delta: -1, reason: "damage" }).success).toBe(false);

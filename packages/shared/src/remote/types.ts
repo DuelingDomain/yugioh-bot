@@ -29,10 +29,10 @@ export interface GameModule {
   resolveAttack(state: RemoteState, input: string | AttackHints, actorSeat: number): AttackResolution;
 }
 export type RemoteStatus = "lobby" | "active" | "ended";
-export type RemoteSeat = { seat: number; userId: number; displayName: string; ready: boolean };
+export type RemoteSeat = { seat: number; userId: number | null; bot: boolean; displayName: string; ready: boolean };
 export type RemoteSystemAction =
-  | { type: "table.created"; gameId: string; seatCount: SeatCount }
-  | { type: "seat.joined"; seat: number; userId: number }
+  | { type: "table.created"; gameId: string; seatCount: SeatCount; solo?: boolean }
+  | { type: "seat.joined"; seat: number; userId: number | null; bot?: boolean }
   | { type: "seat.left"; seat: number; userId: number }
   | { type: "seat.ready"; seat: number; ready: boolean }
   | { type: "table.started" }
@@ -43,7 +43,7 @@ export type RemoteEvent = {
   action: RemoteAction | RemoteSystemAction;
 };
 export type RemoteTable = {
-  slug: string; guildId: string; gameId: string; seatCount: SeatCount; status: RemoteStatus;
+  slug: string; guildId: string; gameId: string; seatCount: SeatCount; status: RemoteStatus; solo: boolean;
   createdBy: number; createdAt: number; startedAt: number | null; endedAt: number | null;
   lastEventAt: number; lastSeq: number; endReason: string | null; idleWarningAt: number | null;
   seats: RemoteSeat[];

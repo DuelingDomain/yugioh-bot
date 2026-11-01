@@ -1720,6 +1720,13 @@ function migrateRemoteDuels(db: Database.Database) {
       primary key (table_id,seat), unique (table_id,user_id)
     );
     create index if not exists remote_seats_user_idx on remote_seats(user_id,table_id);
+    -- Keep existing human-seat rows and their NOT NULL user FK intact.
+    create table if not exists remote_bot_seats (
+      table_id integer not null references remote_tables(id),
+      seat integer not null check (seat between 1 and 3),
+      display_name text not null,
+      primary key (table_id,seat)
+    );
     create table if not exists remote_events (
       id integer primary key autoincrement,
       table_id integer not null references remote_tables(id),
@@ -1736,4 +1743,5 @@ function migrateRemoteDuels(db: Database.Database) {
     create trigger if not exists remote_events_no_delete before delete on remote_events
       begin select raise(abort, 'remote_events is append-only'); end;
   `);
+  addColumnIfMissing(db, "remote_tables", "solo", "integer not null default 0 check (solo in (0,1))");
 }
