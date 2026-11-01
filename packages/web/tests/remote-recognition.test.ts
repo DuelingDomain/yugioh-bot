@@ -60,3 +60,70 @@ it("releases child workers on a language-load error before Tesseract initializat
   void scope.onmessage!({ data: { image: "frame" } });
   expect(terminated).toHaveBeenCalledOnce(); expect(postMessage).toHaveBeenCalledWith({ error: expect.any(String) }); expect(close).toHaveBeenCalledOnce();
 });
+
+// Media transport uses the same browser-safe recognition contract as the WS relay.
+it("marks missing frames frozen at three seconds and recovers on the next frame", async () => {
+  const { FrameHealth } = await import("../src/lib/remote/video-protocol");
+  const health = new FrameHealth(100);
+  expect(health.frozen(3099)).toBe(false);
+  expect(health.frozen(3100)).toBe(true);
+  health.frame(3200);
+  expect(health.frozen(3201)).toBe(false);
+});
+
+it("binds media to authenticated seat metadata rather than names or track labels", async () => {
+  const { participantSeat } = await import("../src/lib/remote/video-protocol");
+  const members = [{ seat: 1, userId: 12 }];
+  const metadata = JSON.stringify({ guildId: "g", tableId: "t", userId: 12, seat: 1 });
+  expect(participantSeat("remote-user-12", metadata, "g", "t", members)).toBe(1);
+  expect(participantSeat("forged", metadata, "g", "t", members)).toBeUndefined();
+  expect(participantSeat("remote-user-12", metadata, "other", "t", members)).toBeUndefined();
+  expect(participantSeat("remote-user-12", metadata, "g", "t", [])).toBeUndefined();
+});
+
+it("routes requests only to the raw feed owner and accepts one correlated bounded result", async () => {
+  const { RecognitionChannel } = await import("../src/lib/remote/video-protocol");
+  const sends: { message: unknown; destination?: number }[] = [];
+  const result = vi.fn(); const recognize = vi.fn(async () => [{ cardId: 1, name: "Card", score: 0.9 }]);
+  let now = 0;
+  const channel = new RecognitionChannel(1, async (message, destination) => { sends.push({ message, destination }); }, recognize, result, () => now);
+  const request = { type: "recognition.request", requestId: "one", feedOwnerSeat: 1, x: 0.4, y: 0.5 } as const;
+  await channel.receive(0, request);
+  expect(recognize).toHaveBeenCalledWith(request);
+  expect(sends[0]).toEqual({ message: { type: "recognition.result", requestId: "one", candidates: [{ cardId: 1, name: "Card", score: 0.9 }] }, destination: undefined });
+  await channel.receive(1, sends[0].message);
+  expect(result).toHaveBeenCalledTimes(1);
+  now = 101; await channel.receive(1, sends[0].message);
+  expect(result).toHaveBeenCalledTimes(1);
+  await channel.receive(0, { ...request, requestId: "bad", x: 2 });
+  expect(recognize).toHaveBeenCalledTimes(1);
+  now = 202; await channel.request(0, 0.2, 0.3, "outgoing");
+  expect(sends.at(-1)?.destination).toBe(0);
+  await channel.receive(2, { type: "recognition.result", requestId: "outgoing", candidates: [] });
+  expect(result).toHaveBeenCalledTimes(1);
+  now = 10_203; await channel.receive(0, { type: "recognition.result", requestId: "outgoing", candidates: [] });
+  expect(result).toHaveBeenCalledTimes(1);
+  channel.close();
+});
+
+it("announces only correlation metadata, targets the owner, and broadcasts suggestions to every seat", async () => {
+  const { RecognitionChannel } = await import("../src/lib/remote/video-protocol");
+  const results = [vi.fn(), vi.fn(), vi.fn()]; const recognizers = [vi.fn(async () => []), vi.fn(async () => [{ cardId: 2, name: "Card two", score: 1 }]), vi.fn(async () => [])];
+  const queue: (() => Promise<void>)[] = [];
+  const channels: InstanceType<typeof RecognitionChannel>[] = [];
+  for (let seat = 0; seat < 3; seat++) channels.push(new RecognitionChannel(seat, async (message, destination, announcement) => {
+    for (let receiver = 0; receiver < 3; receiver++) {
+      if (receiver === seat || (destination !== undefined && receiver !== destination)) continue;
+      queue.push(async () => {
+        if (announcement && message.type === "recognition.request") channels[receiver].announce(seat, message.requestId, message.feedOwnerSeat);
+        else await channels[receiver].receive(seat, message);
+      });
+    }
+  }, recognizers[seat], results[seat]));
+  await channels[0].request(1, 0.2, 0.8, "shared");
+  while (queue.length) await queue.shift()!();
+  expect(recognizers[0]).not.toHaveBeenCalled(); expect(recognizers[2]).not.toHaveBeenCalled();
+  expect(recognizers[1]).toHaveBeenCalledOnce();
+  for (const result of results) expect(result).toHaveBeenCalledWith({ type: "recognition.result", requestId: "shared", candidates: [{ cardId: 2, name: "Card two", score: 1 }] }, 1);
+  channels.forEach(channel => channel.close());
+});

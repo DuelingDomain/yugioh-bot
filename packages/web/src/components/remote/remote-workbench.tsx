@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
@@ -10,6 +11,9 @@ import { RemoteSeatPanel } from "./remote-seat-panel";
 import { LocalCamera } from "./local-camera";
 import { RemoteCommands, proposalLabel } from "./remote-commands";
 import { RemoteDeckAssistant, RemoteInstanceMerge, RemoteSetupControls } from "./remote-deck-controls";
+
+const RemoteVideoProvider = dynamic(() => import("./remote-video").then(module => module.RemoteVideoProvider), { ssr: false });
+const RemoteVideoTile = dynamic(() => import("./remote-video").then(module => module.RemoteVideoTile), { ssr: false });
 
 const button = "rounded border border-current px-3 py-2 text-sm disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-4";
 async function api<T>(path: string, body?: unknown): Promise<T> {
@@ -123,6 +127,13 @@ export function RemoteTableRoom({ slug }: { slug: string }) {
   const canUndo = undo && now - undo.at <= 5000 && room?.endReason !== "idle";
   const actingSeat = room?.solo ? selectedSeat : room?.mySeat ?? 0;
   const turnActor = room?.solo ? room.state.seats.find(s => s.seat === room.state.turnSeat && !s.eliminated)?.seat ?? room.state.seats.find(s => !s.eliminated)?.seat ?? 0 : room?.mySeat ?? 0;
+  const seatPanels = room ? (
+    <div className={`grid items-start gap-4 ${room.seatCount === 3 ? "lg:grid-cols-3" : "md:grid-cols-2"}`}>
+      {room.seats.map(seat => <RemoteSeatPanel key={seat.seat} seat={seat} state={room.state.seats[seat.seat]} editable={room.solo || seat.seat === room.mySeat} busy={busy || room.status !== "active"} onAction={action}>
+          {room.solo ? <LocalCamera disabled={busy || room.status !== "active"} onIdentify={card => action({ type: "card.identified", actorSeat: room.mySeat, seat: room.mySeat, cardId: card.id, name: card.name, source: "click" })} /> : <RemoteVideoTile seat={seat.seat} />}
+      </RemoteSeatPanel>)}
+    </div>
+  ) : null;
   return <div className="mx-auto max-w-7xl space-y-5">
     <h1 className="text-2xl font-semibold">{room?.solo ? "Solo test" : "Remote table"} <span className="font-mono text-lg opacity-60">{slug}</span></h1>
     <p role="status">{room?.status === "ended" ? "Table ended" : realtime}</p>
@@ -158,11 +169,7 @@ export function RemoteTableRoom({ slug }: { slug: string }) {
         {pending && error ? <button className={button} disabled={busy} onClick={() => void postAction(pending)}>Retry last action</button> : null}
       </div>
       <p className="border-y border-current/20 py-3 font-mono">Turn {room.state.turn} · {room.seats.find(s => s.seat === room.state.turnSeat)?.displayName} · {ygoModule.phases.find(p => p.id === room.state.phase)?.name}{room.state.ended ? ` · Winner: ${room.seats.find(s => s.seat === room.state.winnerSeat)?.displayName ?? "none"}` : ""}</p>
-      <div className={`grid items-start gap-4 ${room.seatCount === 3 ? "lg:grid-cols-3" : "md:grid-cols-2"}`}>
-        {room.seats.map(seat => <RemoteSeatPanel key={seat.seat} seat={seat} state={room.state.seats[seat.seat]} editable={room.solo || seat.seat === room.mySeat} busy={busy || room.status !== "active"} onAction={action}>
-          {seat.seat === room.mySeat ? <LocalCamera disabled={busy || room.status !== "active"} onIdentify={card => action({ type: "card.identified", actorSeat: room.mySeat, seat: room.mySeat, cardId: card.id, name: card.name, source: "click" })} /> : <div className="flex aspect-video items-center justify-center border border-dashed border-current/20 text-sm opacity-60">Remote video provider pending</div>}
-        </RemoteSeatPanel>)}
-      </div>
+      {room.solo ? seatPanels : <RemoteVideoProvider room={room}>{seatPanels}</RemoteVideoProvider>}
       <RemoteDeckAssistant room={room} busy={busy} onAction={action} />
       {room.status === "active" ? room.seats.filter(s => room.solo || s.seat === room.mySeat).map(s =>
         <RemoteInstanceMerge key={s.seat} room={room} seat={s.seat} busy={busy || room.state.seats[s.seat].eliminated} onAction={action} />) : null}
