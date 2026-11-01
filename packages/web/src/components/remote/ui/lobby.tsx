@@ -54,6 +54,8 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
   const [banlist, setBanlist] = useState(current.settings.banlist);
   const [points, setPoints] = useState(current.settings.genesys?.pointCap ?? 100);
   const [lp, setLp] = useState(current.settings.startingLP);
+  const [publicityDraft,setPublicityDraft]=useState<boolean|null>(null);
+  const showCardsSetFromDeck=publicityDraft ?? room.showCardsSetFromDeck ?? true;
   const me = room.seats.find(seat => seat.seat === room.mySeat);
   const host = me?.userId === room.createdBy;
   const decks = saved.data?.decks ?? [];
@@ -65,7 +67,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
     {error ? <p className={l.err} role="alert">{error}</p> : saved.error ? <p className={l.err} role="alert">{saved.error.message}</p> : null}
 
     <form className={l.card} aria-label="Rules" onSubmit={e => { e.preventDefault();
-      void operation("format", { format, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }); }}>
+      void operation("format", { format, showCardsSetFromDeck, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }).then(()=>setPublicityDraft(null)); }}>
       <h2>Rules</h2>
       <fieldset disabled={busy || !host} className={l.row} style={{ border: 0, padding: 0, margin: 0 }}>
         <label className={l.field}>Duel format<select value={format} data-testid="room-format" onChange={e => { setFormat(e.target.value); setBanlist(normalizeRemoteFormat(e.target.value).settings.banlist); }}>
@@ -75,8 +77,10 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
           : <label className={l.field}>Banlist<select value={banlist} onChange={e => setBanlist(e.target.value)}>
             {DUEL_BANLIST_OPTIONS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
         <label className={l.field}>Starting LP<input type="number" min={1} max={100000} value={lp} onChange={e => setLp(Number(e.target.value))} /></label>
+        <label className={l.check}><input type="checkbox" checked={showCardsSetFromDeck} onChange={e=>setPublicityDraft(e.target.checked)} />Cards Set from Deck are shown to all</label>
         {host ? <button className={l.btn} data-testid="apply-rules">Apply rules</button> : null}
       </fieldset>
+      <p className={l.note}>Also applies to cards searched from Deck to hand. Candidate lists are visible only to the controller.</p>
       <p className={l.note}>{host ? "Changing the rules clears every ready mark." : "Only the host changes the rules."}</p>
     </form>
 
@@ -93,7 +97,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
           <div className={l.deckrow}>
             <label className={l.field}>Deck<select disabled={busy || !editable} value={seat.deck?.savedDeckId ?? ""} data-testid={`deck-${seat.seat}`}
               onChange={e => void operation("deck", { savedDeckId: e.target.value ? Number(e.target.value) : null, seat: seat.seat })}>
-              <option value="">{room.solo ? "No deck (optional)" : "Choose a saved deck"}</option>
+              <option value="">{!editable ? seat.deckRegistered ? "Deck registered (private)" : "No deck selected" : room.solo ? "No deck (optional)" : "Choose a saved deck"}</option>
               {choices.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}</select></label>
             {seat.deck?.validation.issues.length ? <ul className={l.issues} role="alert">{seat.deck.validation.issues.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul>
               : seat.deck ? <p className={l.valid}>Valid for this table.</p> : null}

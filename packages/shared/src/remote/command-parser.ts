@@ -26,6 +26,15 @@ export const parseRemoteCommand: GameModule["parseCommand"] = ({ text, actorSeat
   if (words === "resolve attack" || words === "cancel attack") {
     if (state.attack) proposal = { type: "attack.resolve", actorSeat, attackId: state.attack.id, outcome: words === "resolve attack" ? "resolved" : "cancelled" };
   }
+  const activate = raw.match(/^(?:I\s+)?activate(?:\s+(.+))?$/i);
+  if (activate) {
+    const query = activate[1]?.replace(/^(?:the )?effect (?:of )?/i, "").trim();
+    const cards = query ? seat.twin.filter(c=>fold(c.name ?? "")===fold(query) || fold(c.ref)===fold(query)) : [];
+    const identified = !query && state.identified?.seat===actorSeat ? state.identified : undefined;
+    const card = cards.length===1 ? cards[0] : undefined;
+    const code=card?.cardId ?? card?.passcode ?? identified?.cardId ?? identified?.passcode;
+    proposal = {type:"effect.activated",actorSeat,source:{...(code ? {cardId:code} : {}), ...(card ? {cardRef:card.ref} : {}), ...(query ? {name:query} : {})}};
+  }
   const identified = words.match(/^identify (\d{1,10})$/);
   if (identified) proposal = { type: "card.identified", actorSeat, seat: actorSeat, cardId: Number(identified[1]), source: "voice" };
   if (/^note /i.test(raw)) proposal = { type: "log.note", actorSeat, text: raw.slice(5).trim() };

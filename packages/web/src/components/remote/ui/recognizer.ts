@@ -232,10 +232,11 @@ export function detectCards(frame: ImageBitmap): Promise<Detection> {
   });
 }
 
-/** Adapter for RemoteVideo: answers a remote request from the raw local track. The owner's own decklist is the prior. */
-export function makeRecognizeRawFeed(getPriors: () => Priors, resolveNames: (ids: number[]) => Promise<Map<number, string>>): RecognizeRawFeed {
+/** Adapter for RemoteVideo: reads raw buffered frames without seeding peer guesses from private state. */
+export function makeRecognizeRawFeed(resolveNames: (ids: number[]) => Promise<Map<number, string>>): RecognizeRawFeed {
   return async ({ track, request, signal }) => {
-    const result = await readCard(track, { x: request.x, y: request.y }, getPriors(), signal, undefined, undefined, true);
+    const result = await readCard(track, { x: request.x, y: request.y }, { decklist: [], seen: [] }, signal, undefined, undefined, true);
+    if (result.reader !== "vision") return [];
     const names = await resolveNames(result.guesses.filter(g => !g.name).map(g => g.cardId));
     const candidates = result.guesses.map(g => ({ cardId: g.cardId, name: g.name || names.get(g.cardId) || `Card ${g.cardId}`, score: g.score ?? 0 })).slice(0, 5);
     return { candidates, tier: result.tier ?? "low match", faceDown: !!result.faceDown, covered: !!result.covered };

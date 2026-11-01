@@ -71,7 +71,6 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     const video = new RemoteVideo({
       slug: room.slug, guildId: room.guildId, seat: mySeat, members: JSON.parse(members),
       recognize: makeRecognizeRawFeed(
-        () => ({ decklist: deckIdsOf(roomRef.current, mySeat), seen: seenCardIds(roomRef.current) }),
         async ids => { await loadCards(ids); return new Map(ids.flatMap(id => { const info = cardInfo(id); return info ? [[id, info.name] as const] : []; })); }),
     });
     setController(video); setSnap(video.getSnapshot());
