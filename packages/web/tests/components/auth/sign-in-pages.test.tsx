@@ -10,8 +10,11 @@ vi.mock("next/font/local", () => ({
   default: ({ variable }: { variable: string }) => ({ variable, className: "font-class" }),
 }));
 
-const { signInFlow, signUpFlow, ssoFlow, redirect, hardNavigate, authState, routerReplace } = vi.hoisted(() => ({
-  authState: { isLoaded: true, isSignedIn: false },
+const { signInFlow, signUpFlow, ssoFlow, redirect, hardNavigate, authState, routerReplace, clerkSignOut, clerkUser, reloadPage } = vi.hoisted(() => ({
+  authState: { isLoaded: true, isSignedIn: false, pending: false },
+  clerkSignOut: vi.fn(async (_callback?: () => void) => {}),
+  reloadPage: vi.fn(),
+  clerkUser: { username: "owner", primaryEmailAddress: { emailAddress: "owner@example.com" } } as { username: string | null; primaryEmailAddress: { emailAddress: string } },
   routerReplace: vi.fn(),
   signInFlow: vi.fn(),
   signUpFlow: vi.fn(),
@@ -23,13 +26,18 @@ vi.mock("@/hooks/use-sign-in-flow", () => ({ useSignInFlow: signInFlow }));
 vi.mock("@/hooks/use-sign-up-flow", () => ({ useSignUpFlow: signUpFlow }));
 vi.mock("@/hooks/use-sso-callback", () => ({ useSsoCallback: ssoFlow }));
 vi.mock("next/navigation", () => ({ redirect, useRouter: () => ({ replace: routerReplace }) }));
-vi.mock("@clerk/nextjs", () => ({ useAuth: () => authState }));
-vi.mock("@/components/auth/navigate", () => ({ hardNavigate }));
+vi.mock("@clerk/nextjs", () => ({
+  useAuth: (options?: { treatPendingAsSignedOut?: boolean }) => ({ ...authState, isSignedIn: authState.isSignedIn && (!authState.pending || options?.treatPendingAsSignedOut === false) }),
+  useUser: () => ({ isLoaded: authState.isLoaded, isSignedIn: authState.isSignedIn, user: authState.isSignedIn ? clerkUser : null }),
+  useClerk: () => ({ signOut: clerkSignOut }),
+}));
+vi.mock("@/components/auth/navigate", () => ({ hardNavigate, reloadPage }));
 
 import LoginPage from "../../../app/(auth)/login/page";
 import SignInPage from "../../../app/(auth)/sign-in/[[...sign-in]]/page";
 import SignUpPage from "../../../app/(auth)/sign-up/[[...sign-up]]/page";
 import SsoCallbackPage from "../../../app/(auth)/sso-callback/page";
+import { JoinCard } from "@/components/auth/join-card";
 import AccessPage from "../../../app/(auth)/access/page";
 
 const MARKETING = "https://marketing.example";
@@ -48,6 +56,10 @@ const signInActions = () => ({
 const signUpActions = () => ({ submitAccount: vi.fn(), continueWithDiscord: vi.fn(), submitCode: vi.fn(), resendCode: vi.fn() });
 
 beforeEach(() => {
+  authState.pending = false;
+  clerkUser.username = "owner";
+  clerkSignOut.mockImplementation(async callback => { callback?.(); });
+  window.history.replaceState({}, "", "/");
   authState.isLoaded = true;
   authState.isSignedIn = false;
   vi.stubEnv("MARKETING_URL", MARKETING);
@@ -424,6 +436,70 @@ describe("already signed in", () => {
     expect(routerReplace).toHaveBeenCalledWith("/cubes");
   });
 
+  it("keeps a signed-in invitation on the sign-up page without starting or redirecting the ticket", async () => {
+    authState.isSignedIn = true;
+    const url = "/sign-up?__clerk_ticket=secret%2Bticket&via=creator&redirect_url=%2Fcubes#invite";
+    window.history.replaceState({}, "", url);
+    const params = { __clerk_ticket: "secret+ticket", via: "creator", redirect_url: "/cubes" };
+    const view = await renderSignUp(state("invite", { lockedEmail: "invited@example.com" }), params);
+    expect(screen.getByRole("status")).toHaveTextContent("You're signed in as owner. To accept this invite with a new account, sign out first.");
+    expect(routerReplace).not.toHaveBeenCalled();
+    expect(signUpFlow).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Create account" })).toBeNull();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Sign out and continue" }));
+    expect(clerkSignOut).toHaveBeenCalledExactlyOnceWith(reloadPage);
+    expect(reloadPage).toHaveBeenCalledOnce();
+    // Stay blocked until the full navigation, even when Clerk clears the session before redirecting.
+    authState.isSignedIn = false;
+    view.rerender(await SignUpPage({ searchParams: Promise.resolve(params) }));
+    expect(signUpFlow).not.toHaveBeenCalled();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Continue with invite" }));
+    expect(reloadPage).toHaveBeenCalledTimes(2);
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(url);
+    view.unmount();
+    await renderSignUp(state("invite", { lockedEmail: "invited@example.com" }), params);
+    expect(signUpFlow).toHaveBeenCalledWith({ ticket: "secret+ticket", returnTo: "/cubes" });
+    expect(screen.getByLabelText("Email address")).toHaveValue("invited@example.com");
+  });
+
+  it("blocks a pending Clerk session from starting the ticket flow", async () => {
+    authState.isSignedIn = true;
+    authState.pending = true;
+    await renderSignUp(state("invite"), { __clerk_ticket: "ticket" });
+    expect(screen.getByRole("button", { name: "Sign out and continue" })).toBeVisible();
+    expect(signUpFlow).not.toHaveBeenCalled();
+    expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it("waits for session readiness before starting a ticket, then keeps the success card", async () => {
+    authState.isLoaded = false;
+    const view = await renderSignUp(state("invite", { lockedEmail: "invited@example.com" }), { __clerk_ticket: "ticket" });
+    expect(signUpFlow).not.toHaveBeenCalled();
+    authState.isLoaded = true;
+    view.rerender(await SignUpPage({ searchParams: Promise.resolve({ __clerk_ticket: "ticket" }) }));
+    expect(signUpFlow).toHaveBeenCalledWith({ ticket: "ticket", returnTo: "/dashboard" });
+    authState.isSignedIn = true;
+    signUpFlow.mockReturnValue({ state: state("success"), actions: signUpActions() });
+    view.rerender(await SignUpPage({ searchParams: Promise.resolve({ __clerk_ticket: "ticket" }) }));
+    expect(screenOf(view.container)).toBe("success");
+    expect(screen.queryByRole("button", { name: "Sign out and continue" })).toBeNull();
+    expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it("falls back to email and allows retrying when sign-out fails", async () => {
+    authState.isSignedIn = true;
+    clerkUser.username = null;
+    clerkSignOut.mockRejectedValueOnce(new Error("offline"));
+    await renderSignUp(state("invite"), { __clerk_ticket: "ticket" });
+    expect(screen.getByRole("status")).toHaveTextContent("You're signed in as owner@example.com.");
+    const button = screen.getByRole("button", { name: "Sign out and continue" });
+    await userEvent.setup().click(button);
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn’t sign out. Try again.");
+    expect(button).toBeEnabled();
+    await userEvent.setup().click(button);
+    expect(clerkSignOut).toHaveBeenCalledTimes(2);
+  });
+
   it("waits for Clerk to load, and does nothing for a signed-out visitor", async () => {
     authState.isLoaded = false;
     authState.isSignedIn = true;
@@ -452,5 +528,34 @@ describe("already signed in", () => {
     authState.isSignedIn = true;
     await renderCallback(state("signing"));
     expect(routerReplace).not.toHaveBeenCalled();
+  });
+});
+
+describe("creator join session notice", () => {
+  const props = { code: "CreatorCode1", state: "open" as const, creatorName: "Kaiba", spotsLeft: 1, waitlistSource: "creator:CreatorCode1", marketingUrl: MARKETING };
+
+  it("shows the current account above a usable email form and signs out back to the join URL", async () => {
+    authState.isSignedIn = true;
+    window.history.replaceState({}, "", `/join/${props.code}`);
+    render(<JoinCard {...props} />);
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent("You're signed in as owner. To accept this invite with a new account, sign out first.");
+    const email = screen.getByLabelText("Email address");
+    expect(notice.compareDocumentPosition(email) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(email).toBeEnabled();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ status: "sent" })));
+    const user = userEvent.setup();
+    await user.type(email, "new@example.com");
+    await user.click(screen.getByRole("button", { name: "Send my invite" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Check your inbox");
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(clerkSignOut).toHaveBeenCalledWith(reloadPage);
+    expect(reloadPage).toHaveBeenCalledOnce();
+  });
+
+  it("has no notice for signed-out visitors", () => {
+    render(<JoinCard {...props} />);
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Send my invite" })).toBeEnabled();
   });
 });

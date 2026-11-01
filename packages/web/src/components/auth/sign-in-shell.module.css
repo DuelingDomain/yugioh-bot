@@ -34,6 +34,8 @@
 .fine { font-size: 13px; line-height: 1.5; color: var(--text-3); margin-top: -4px; }
 .banner { display: flex; gap: 11px; align-items: flex-start; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(244, 63, 94, .55); background: rgba(244, 63, 94, .1); color: #FFD3DB; font-size: 15px; line-height: 1.4; }
 .banner svg { flex: none; width: 20px; height: 20px; margin-top: 1px; color: var(--rose-text); }
+.banner > span { min-width: 0; }
+.sessionNotice { display: grid; gap: 12px; overflow-wrap: anywhere; }
 
 .spinner { width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(243, 221, 160, .25); border-top-color: var(--gold-hi); animation: dd-spin .75s linear infinite; }
 @keyframes dd-spin { to { transform: rotate(360deg); } }
