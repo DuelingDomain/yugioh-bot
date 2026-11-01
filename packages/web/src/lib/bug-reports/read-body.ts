@@ -17,7 +17,9 @@ export async function readJsonBody(request: Request, maxBytes = BUG_REPORT_BODY_
   if (declared !== null) {
     const length = Number(declared);
     if (Number.isFinite(length) && length > maxBytes) {
-      await request.body?.cancel().catch(() => undefined);
+      // A cloned request tees the stream. Cancellation waits for the other
+      // branch, which the caller may need to read after our size response.
+      void request.body?.cancel().catch(() => undefined);
       return { ok: false, response: tooLarge() };
     }
   }
@@ -32,7 +34,7 @@ export async function readJsonBody(request: Request, maxBytes = BUG_REPORT_BODY_
         if (done) break;
         total += value.byteLength;
         if (total > maxBytes) {
-          await reader.cancel().catch(() => undefined);
+          void reader.cancel().catch(() => undefined);
           return { ok: false, response: tooLarge() };
         }
         chunks.push(value);
