@@ -25,6 +25,7 @@ export interface GameProfile {
   borderSamples: FractionalBox[];
   textBoxColor?: [number, number, number];
   indexUrl: string; metaUrl: string;
+  thresholdsUrl?:string;
   embedding: EmbeddingModelSpec;
   detector: { url: string; sha256: string; longSide: number };
   /** Missed detection: card height as a fraction of frame height. */
@@ -44,7 +45,7 @@ export interface PeekResult {
 export interface BoardCard extends PeekResult { outline: DetectedQuad; index: number; side: BoardSide; error?: string }
 export interface ReadAllOptions { cards?: DetectedQuad[]; priors?: RecognitionPriors; signal?: AbortSignal }
 export interface BoardResult { near: BoardCard[]; far: BoardCard[]; timingsMs: { detect: number; total: number } }
-export interface RecognizeOptions { clickPoint?: Point; k?: number; priors?: RecognitionPriors; card?: DetectedQuad; includeCrop?: boolean; includeFeedback?: boolean; /** Live clicks inspect the single sharpest recent frame. Default: three-frame fusion. */ maxFrames?: 1 | 3 }
+export interface RecognizeOptions { clickPoint?: Point; k?: number; priors?: RecognitionPriors; card?: DetectedQuad; includeCrop?: boolean; includeFeedback?: boolean; /** Live clicks inspect the single sharpest recent frame. Default: three-frame fusion. */ maxFrames?: 1 | 3; /** Retain raw decision evidence for offline threshold replay. */ includeRaw?: boolean; /** Disable temporal early exit for calibration/motion audits. */ earlyExit?: boolean }
 export interface Candidate { cardId: string; score: number }
 export interface RecognitionResult {
   candidates: Candidate[];
@@ -52,11 +53,16 @@ export interface RecognitionResult {
   detectedCard?: DetectedQuad;
   /** Present only on request; never uploaded automatically. */
   cropJpeg?: string;
+  /** Separate high-resolution source warp for explicit AI reads. */
+  aiCropJpeg?: string;
+  aiCandidateNames?: string[];
+  aiWarpedCard?: { width: number; height: number; data: Uint8ClampedArray | Uint8Array };
+  raw?: RecognitionEvidence;
   /** Core-only pixels; worker converts to JPEG and removes these. */
   warpedCard?: { width: number; height: number; data: Uint8ClampedArray | Uint8Array };
   feedback?: { embedding:number[];gameId:string;modelId:string;modelSha256:string;indexVersion:string;layoutKey:string;space:'art-box'|'whole-card';deltaVersion:string };
   tier: RecognitionTier;
-  quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; confusionChecked?:boolean; hypothesis?: 'art-box' | 'whole-card' };
+  quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; confusionChecked?:boolean; faceDown?:boolean; framesAgree?:boolean; notInDecklist?:boolean; hypothesis?: 'art-box' | 'whole-card' };
   timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number };
   backend: 'webgpu' | 'wasm';
   /** Worker diagnostics; absent when the core pipeline is used directly. */
@@ -65,3 +71,11 @@ export interface RecognitionResult {
 export interface IndexEntry { cardId: string; passcode: number; name: string; imageId?: number; frameClass?: string; imageUrl?: string; thumbnailUrl?: string }
 export interface IndexMeta { version: 1; gameId?: string; layoutKey?: string; modelId: string; modelSha256: string; dim: number; count: number; dtype: 'float32' | 'int8'; quant?: 'float32' | 'int8'; builtAt?: string; entries: IndexEntry[]; generatedAt?: string; catalog?: string }
 export interface LoadedIndex { meta: IndexMeta; vectors: Float32Array | Int8Array }
+
+/** Scores before thresholds, with all non-threshold safety decisions frozen. */
+export interface RecognitionEvidence {
+  visual: Candidate[]; ranked?:Candidate[]; winnerId?: string; cardBackId: string; blocked: string[];
+  frames: { frameIndex:number; hypotheses?:Candidate[][]; clean:Candidate[]; ranked:Candidate[]; deck:Candidate[]; faceDown:boolean; eligible:boolean }[];
+  thresholds: ConfidenceThresholds; modelId:string; modelSha256:string; indexVersion:string; layoutKey:string; learningVersion:string;
+  priors?:RecognitionPriors; earlyExit:boolean;
+}

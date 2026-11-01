@@ -18,7 +18,7 @@ import { mkdir, readFile, rename, writeFile, link, copyFile } from 'node:fs/prom
 import { availableParallelism } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { catalogCards, CATALOG_VERSION, type CatalogCard } from './catalog';
+import { catalogCards, physicalCatalogCards, CATALOG_VERSION, type CatalogCard } from './catalog';
 import * as ort from 'onnxruntime-node';
 import sharp from 'sharp';
 import { embedImages, type SessionLike, type TensorCtor } from '../../packages/vision/src/embed';
@@ -93,7 +93,7 @@ async function catalogAt(cache: string, explicit?: string, refresh = false): Pro
   }
   const raw = explicit ? await readFile(resolve(explicit)) : await download(API);
   const parsed = JSON.parse(raw.toString());
-  const cards = catalogCards(parsed);
+  const cards = physicalCatalogCards(catalogCards(parsed));
   const catalog = { version: CATALOG_VERSION, source: explicit ? `file:${resolve(explicit)} (YGOPRODeck cardinfo snapshot)` : API,
     sha256: sha(raw), fetchedAt: new Date().toISOString(), cards };
   await atomic(cache, JSON.stringify(catalog));

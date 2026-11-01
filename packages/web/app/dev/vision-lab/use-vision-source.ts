@@ -1,27 +1,18 @@
 "use client";
 
+import {createOwnFeedBuffer} from "@yugidraft/vision";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Source = "camera" | "photo" | null;
-interface Frame { bitmap: ImageBitmap; capturedAt: number }
-const BUFFER_MS = 1_000;
-const MAX_FRAMES = 6;
-const CAPTURE_INTERVAL_MS = 200;
-
-function closeFrames(frames: Frame[]) {
-  for (const { bitmap } of frames) bitmap.close();
-}
-
 /** Owns full-resolution originals. Only cloned snapshots leave this hook for the worker. */
 export function useVisionSource(onReset: () => void) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const ringRef = useRef<Frame[]>([]);
+  const bufferRef=useRef<ReturnType<typeof createOwnFeedBuffer>|null>(null);
   const photoRef = useRef<ImageBitmap | null>(null);
   const photoUrlRef = useRef<string | null>(null);
   const sourceRef = useRef<Source>(null);
   const epochRef = useRef(0);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameWorkRef = useRef<Promise<void>>(Promise.resolve());
   const mountedRef = useRef(true);
   const [source, setSource] = useState<Source>(null);
@@ -41,18 +32,14 @@ export function useVisionSource(onReset: () => void) {
 
   const release = useCallback(() => {
     epochRef.current += 1;
-    if (timerRef.current !== null) clearTimeout(timerRef.current);
-    timerRef.current = null;
+    bufferRef.current?.stop();bufferRef.current=null;
     for (const track of streamRef.current?.getTracks() ?? []) track.stop();
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
-    const oldFrames = ringRef.current;
     const oldPhoto = photoRef.current;
-    ringRef.current = [];
     photoRef.current = null;
     sourceRef.current = null;
     void serial(async () => {
-      closeFrames(oldFrames);
       oldPhoto?.close();
     });
     if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current);
@@ -108,29 +95,7 @@ export function useVisionSource(onReset: () => void) {
         setError("Camera disconnected. Start it again or upload a photo.");
       }, { once: true });
 
-      const capture = async () => {
-        if (epoch !== epochRef.current || !mountedRef.current) return;
-        try {
-          await serial(async () => {
-            if (epoch !== epochRef.current || video.readyState < 2) return;
-            const bitmap = await createImageBitmap(video);
-            if (epoch !== epochRef.current) { bitmap.close(); return; }
-            const now = performance.now();
-            ringRef.current.push({ bitmap, capturedAt: now });
-            while (ringRef.current.length > MAX_FRAMES || now - ringRef.current[0].capturedAt > BUFFER_MS) {
-              ringRef.current.shift()!.bitmap.close();
-            }
-            setFrameCount(ringRef.current.length);
-          });
-        } catch {
-          if (epoch !== epochRef.current || !mountedRef.current) return;
-          stop();
-          setError("Could not capture a camera frame. Restart the camera or upload a photo.");
-          return;
-        }
-        if (epoch === epochRef.current && mountedRef.current) timerRef.current = setTimeout(() => { void capture(); }, CAPTURE_INTERVAL_MS);
-      };
-      void capture();
+      bufferRef.current=createOwnFeedBuffer(video,count=>{if(epoch===epochRef.current && mountedRef.current)setFrameCount(count);});
     } catch (cause) {
       if (epoch !== epochRef.current || !mountedRef.current) return;
       stop();
@@ -165,12 +130,14 @@ export function useVisionSource(onReset: () => void) {
     const epoch = epochRef.current;
     return serial(async () => {
       if (epoch !== epochRef.current) throw new Error("The image source changed. Try again.");
-      const now = performance.now();
-      if (sourceRef.current === "camera") {
-        while (ringRef.current.length && now - ringRef.current[0].capturedAt > BUFFER_MS) ringRef.current.shift()!.bitmap.close();
+      if(sourceRef.current==='camera') {
+        if(!bufferRef.current)throw new Error('Waiting for a camera frame.');
+        const frames=await bufferRef.current.snapshot();
+        if(epoch!==epochRef.current){frames.forEach(f=>f.close());throw new Error('The image source changed.');}
+        return frames;
       }
-      const originals = sourceRef.current === "photo" && photoRef.current ? [photoRef.current] : ringRef.current.map(frame => frame.bitmap);
-      if (!originals.length) throw new Error("Waiting for a camera frame. Try again in a moment.");
+      const originals=photoRef.current?[photoRef.current]:[];
+      if(!originals.length)throw new Error('Waiting for an image.');
       const clones: ImageBitmap[] = [];
       try {
         for (const original of originals) clones.push(await createImageBitmap(original));

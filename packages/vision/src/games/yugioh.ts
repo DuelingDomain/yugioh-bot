@@ -17,6 +17,7 @@ export const yugioh: GameProfile = {
   textBoxColor: [226, 214, 186],
   embedding: duelLensModel,
   detector: { url: '/dev/vision-assets/models/card-detector.onnx', sha256: '542a03b523cb1398a1b5437dae665908b3bdf61be9b30a2a52e7bcea25dce03c', longSide: 960 },
+  thresholdsUrl:'/dev/vision-assets/yugioh-thresholds.json',
   indexUrl: '/dev/vision-assets/yugioh-index.bin', metaUrl: '/dev/vision-assets/yugioh-index.meta.json',
   fullArtIndex: { indexUrl: '/dev/vision-assets/yugioh-full-art.bin', metaUrl: '/dev/vision-assets/yugioh-full-art.meta.json' },
   fallbackHeight: 0.65,

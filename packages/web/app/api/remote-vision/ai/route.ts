@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     const db = getDb();
     const retryAfter = takeRemoteVisionAISlot(db, actor.userId);
     if (retryAfter !== null) return Response.json({ error: "rate_limited" }, { status: 429, headers: { ...headers, "Retry-After": String(retryAfter) } });
-    return Response.json(await identifyRemoteVisionCard(db, input.value.jpegBase64, apiKey), { headers });
+    return Response.json(await identifyRemoteVisionCard(db, input.value.jpegBase64, apiKey, input.value.candidateNames), { headers });
   } catch (error) {
     // Provider/decoder errors may echo private image data; never log them.
     const status = error instanceof RemoteVisionAIError ? error.status : 503;
