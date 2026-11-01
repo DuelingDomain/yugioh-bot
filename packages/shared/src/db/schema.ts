@@ -822,18 +822,25 @@ export function migrate(db: Database.Database) {
     bridge_graph: ["graph_json", "source_version"],
   };
   db.transaction(() => {
-    // Replace definitions by name on every migration, including removed inputs.
-    // IF NOT EXISTS alone would leave the old column lists active on upgrades.
-    for (const table of ["card_catalog", "card_tags", "card_tag_profiles", "card_release", "archetypes", ...Object.keys(bridgeInputs)]) {
-      for (const event of ["insert", "update", "delete"]) db.exec(`drop trigger if exists ${table}_bridge_engine_${event}`);
-    }
+    // Upgrade changed definitions and remove old inputs without rewriting an
+    // already current schema on every startup.
+    const definitions = new Map<string, string>();
     for (const [table, columns] of Object.entries(bridgeInputs)) for (const event of ["insert", "update", "delete"]) {
       const changed = event === "update" ? `when ${columns.map(column => `old.${column} is not new.${column}`).join(" or ")}` : "";
-      db.exec(`create trigger ${table}_bridge_engine_${event}
+      definitions.set(`${table}_bridge_engine_${event}`, `CREATE TRIGGER ${table}_bridge_engine_${event}
         after ${event} on ${table} ${changed} begin
           update bridge_engine_revision set revision=revision+1 where id=1;
-        end;`);
+        end`);
     }
+    const existing = new Map((db.prepare("SELECT name,sql FROM sqlite_master WHERE type='trigger'").all() as { name: string; sql: string }[])
+      .map(row => [row.name, row.sql]));
+    for (const table of ["card_catalog", "card_tags", "card_tag_profiles", "card_release", "archetypes", ...Object.keys(bridgeInputs)]) {
+      for (const event of ["insert", "update", "delete"]) {
+        const name = `${table}_bridge_engine_${event}`;
+        if (existing.has(name) && existing.get(name) !== definitions.get(name)) db.exec(`drop trigger ${name}`);
+      }
+    }
+    for (const [name, sql] of definitions) if (existing.get(name) !== sql) db.exec(sql);
   }).immediate();
   db.exec(`create table if not exists bridge_revision (
     id integer primary key check (id = 1), revision integer not null default 0
