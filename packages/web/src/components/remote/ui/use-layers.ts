@@ -10,7 +10,7 @@ const FIRST = '[data-autofocus],li[role=option],input[type=text]';
 
 /**
  * Focus goes into the layer when it opens, Tab stays inside, Esc closes, a press outside closes
- * (the tray ignores that), and focus returns to whatever opened it.
+ * (a press on a camera feed keeps a card popup open, because that click starts the next read), and focus returns to whatever opened it.
  */
 export function useLayers() {
   const [layer, setLayer] = useState<LayerId | null>(null);
@@ -52,7 +52,8 @@ export function useLayers() {
     function down(event: PointerEvent) {
       const target = event.target as HTMLElement | null; if (!target) return;
       const id = layerRef.current;
-      if (id === "tray") return;
+      // A press on a camera feed starts a new read, which replaces the popup. Anywhere else outside closes it.
+      if ((id === "tray" || id === "card") && target.closest("[data-remote-seat]")) return;
       if (target.closest(`[data-layer="${id}"]`) || (opener.current && opener.current.contains(target)) || target.closest("[data-layer-opener]")) return;
       setLayer(null); opener.current = null;
     }

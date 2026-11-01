@@ -29,7 +29,7 @@ type Hub = {
   selectCamera(id: string): Promise<void>;
   setMic(on: boolean): void;
   /** Reads the card at a normalized point of a seat's feed. */
-  read(seat: number, x: number, y: number, card?: ReadCard): Promise<ReadResult>;
+  read(seat: number, x: number, y: number, card?: ReadCard, frames?: HTMLCanvasElement[]): Promise<ReadResult>;
   /** Optional AI second opinion on a read. Owner only; answers "off" where the server has it disabled. */
   askAi(token: number): Promise<AiAnswer>;
   /** Names one outlined card of a frozen frame. Local only. */
@@ -131,14 +131,14 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     done({ guesses: result.message.candidates.map(c => ({ cardId: c.cardId, name: c.name, score: c.score })), reader: "vision", frames: 0, note: `Read on seat ${result.fromSeat + 1}'s device` });
   }, [snap.result]);
 
-  const read = useCallback(async (seat: number, x: number, y: number, card?: ReadCard): Promise<ReadResult> => {
+  const read = useCallback(async (seat: number, x: number, y: number, card?: ReadCard, frames?: HTMLCanvasElement[]): Promise<ReadResult> => {
     const current = roomRef.current;
     const priors = { decklist: deckIdsOf(current, seat), seen: seenCardIds(current) };
     const abort = new AbortController(); const timer = setTimeout(() => abort.abort(), 10_000);
     try {
       if (seat === mySeat) {
         const track = solo ? localRef.current?.getVideoTracks()[0] : controller?.rawLocalTrack;
-        return await readCard(track ?? null, { x, y }, priors, abort.signal, card);
+        return await readCard(track ?? null, { x, y }, priors, abort.signal, card, frames);
       }
       if (!controller) return await readCard(null, { x, y }, priors, abort.signal);
       const early = new Promise<ReadResult>(resolve => {

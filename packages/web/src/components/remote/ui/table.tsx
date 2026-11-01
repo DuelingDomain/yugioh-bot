@@ -8,7 +8,8 @@ import { CardPopover, InspectorBody, type CardActions, type Subject } from "./ca
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
 import { Banner, HealthPopover, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
-import type { BoardReading, FeedHit, FeedMark, FeedReticle } from "./feed";
+import type { BoardReading, FeedHit, FeedMark, FeedPoint, FeedReticle, FeedStart } from "./feed";
+import type { PopAt, Tier } from "./popup";
 import { interpret, trySaying, type VoiceIntent } from "./grammar";
 import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, foundationZone, hasDeck, PHASES, PHASE_LONG, readCardOf, seenCardIds, sg, type TwinCard, type ZoneKey } from "./model";
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
@@ -27,7 +28,7 @@ const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const typing = (target: EventTarget | null) => !!(target as HTMLElement | null)?.closest?.("input,textarea,select,[contenteditable=true]");
 
-type ReadCtx = { seat: number; x: number; y: number; quad?: { x: number; y: number }[]; anchor?: FeedHit["anchor"]; id: number };
+type ReadCtx = { seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; tier?: Tier; covered?: boolean };
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
@@ -147,22 +148,17 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   // ---- feed marks, recognition ----
   const [marks, setMarks] = useState<Record<number, FeedMark[]>>({}); const [reticles, setReticles] = useState<Record<number, FeedReticle[]>>({});
   const [tray, setTray] = useState<TrayState | null>(null); const ctx = useRef<ReadCtx | null>(null); const readCounter = useRef(0);
-  const [popStyle, setPopStyle] = useState<CSSProperties>({}); const [adding, setAdding] = useState(false); const [fresh, setFresh] = useState<string | undefined>();
+  const [popAt, setPopAt] = useState<PopAt>({ anchor: null, feed: null }); const beginId = useRef(0); const [adding, setAdding] = useState(false); const [fresh, setFresh] = useState<string | undefined>();
   const [rv, setRv] = useState<Record<number, ZoneKey>>({}); const [selected, setSelected] = useState<{ seat: number; ref: string } | null>(null);
   const [picking, setPicking] = useState<{ seat: number; ref: string } | null>(null);
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
-  const near = (anchor: FeedHit["anchor"] | undefined, width: number): CSSProperties => {
-    const w = typeof window === "undefined" ? 1280 : window.innerWidth; const h = typeof window === "undefined" ? 800 : window.innerHeight;
-    if (!anchor) return { left: Math.max(8, w / 2 - width / 2), top: 90 };
-    const right = anchor.right + 12 + width < w; const left = right ? anchor.right + 12 : Math.max(8, anchor.left - width - 12);
-    return { left, top: Math.max(60, Math.min(anchor.top, h - 360)) };
-  };
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
 
   const identify = useCallback(async (pick: Pick, source: "click" | "auto" | "voice" | "typed") => {
     const at = ctx.current; if (!at) return;
     const { seat } = at; const current = R.current.room;
-    layers.close("tray"); setTray(null);
+    // The popup stays (as a "card found" state) until the card is placed, then the card popup replaces it.
+    const bail = () => { layers.close("tray"); setTray(null); };
     await loadCards([pick.cardId]);
     const found = cardInfo(pick.cardId);
     const owns = current.solo || seat === current.mySeat;
@@ -174,40 +170,58 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     // The card goes on the virtual field first, so the sighting attaches to that same physical card.
     if (owns) {
       const place = await act({ type: "twin.place", actorSeat: current.solo ? seat : current.mySeat, seat, zone: row, card: { ref, cardId: pick.cardId, name: pick.name, ...(slot ? { slot } : {}), faceUp: true, position: "attack" } });
-      if (!place) return;
+      if (!place) { bail(); return; }
       setFresh(ref);
     }
     const updated = await act({ type: "card.identified", actorSeat: current.mySeat, seat, cardId: pick.cardId, name: pick.name, source, ...(owns ? { cardRef: ref, zone: row, ...(slot ? { slot } : {}) } : {}) });
-    if (!updated) return;
-    setSubject({ cardId: pick.cardId, seat, ...(owns ? { ref } : {}), name: pick.name, notInDecklist: updated.state.identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: updated.state.identified?.addErrors ?? [], via: source });
+    if (!updated) { bail(); return; }
+    setSubject({ cardId: pick.cardId, seat, ...(at.tier ? { tier: at.tier } : {}), ...(at.covered ? { covered: true } : {}), ...(owns ? { ref } : {}), name: pick.name, notInDecklist: updated.state.identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: updated.state.identified?.addErrors ?? [], via: source });
     const not = updated.state.identified?.notInDecklist ?? flagFor(seat, pick.cardId) ?? false;
     const markId = `m${at.id}`;
     setMarks(all => ({ ...all, [seat]: [...(all[seat] ?? []).slice(-7), { id: markId, x: at.x, y: at.y, label: pick.name, notInDecklist: !!not, show: true, cardCode: pick.cardId, quad: at.quad }] }));
     setTimeout(() => setMarks(all => ({ ...all, [seat]: (all[seat] ?? []).map(mark => mark.id === markId ? { ...mark, show: false } : mark) })), 2600);
-    setPopStyle(near(at.anchor, 380)); layers.open("card");
+    setPopAt(at.at); layers.open("card");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [act, layers]);
 
-  const startRead = useCallback(async (seat: number, x: number, y: number, hit?: FeedHit) => {
+  /** A click landed on a live feed: the popup opens at once with its skeleton, before the card is found. */
+  const beginRead = useCallback((seat: number, start: FeedStart) => {
+    const id = ++readCounter.current; beginId.current = id;
+    const at: PopAt = { anchor: start.anchor, feed: start.feed };
+    ctx.current = { seat, x: start.x, y: start.y, at, id };
+    setTray({ seat, ownerName: name(seat), status: "reading", guesses: [], note: "", reader: "", at });
+    layers.open("tray");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layers, name]);
+
+  const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint }) => {
+    const hit = found?.hit; const extra = hit ?? found?.point;
+    // A live click that was closed (Esc, outside press) while the card was being found is dropped.
+    if (extra?.live && readCounter.current !== beginId.current) return;
     const id = ++readCounter.current; const owner = name(seat);
-    ctx.current = { seat, x, y, quad: hit?.quad, anchor: hit?.anchor, id };
+    const at: PopAt = { anchor: hit?.anchor ?? found?.point?.anchor ?? ctx.current?.at.anchor ?? null, feed: extra?.feed ?? ctx.current?.at.feed ?? null };
+    ctx.current = { seat, x, y, quad: hit?.quad, at, id, ...(hit?.covered ? { covered: true } : {}) };
+    if (extra?.live) beginId.current = id;
     if (hit?.covered) toast("This card is partly covered by another card. The read may be wrong. Check the guess.", 4200);
     const rid = `r${id}`; reticle(seat, { id: rid, x, y, state: "reading", text: "Reading…", quad: hit?.quad }, rid);
-    setTray({ seat, ownerName: owner, status: "reading", guesses: [], note: "", reader: "", style: near(hit?.anchor, 392) });
+    setTray({ seat, ownerName: owner, status: "reading", guesses: [], note: "", reader: "", at });
     layers.open("tray");
-    const result = await hub.read(seat, x, y, hit ? readCardOf(hit) : undefined);
+    const result = await hub.read(seat, x, y, hit ? readCardOf(hit) : undefined, extra?.frames);
     if (readCounter.current !== id) return;
     const top = result.guesses[0];
+    if (ctx.current && ctx.current.id === id && result.tier) ctx.current.tier = result.tier;
     if (result.tier === "sure" && top && result.reader === "vision" && !hit?.covered) {
       await loadCards([top.cardId]);
+      if (readCounter.current !== id) return;
       reticle(seat, { id: rid, x, y, state: "done", text: top.name || cardInfo(top.cardId)?.name || "Card", quad: hit?.quad }, rid);
       setTimeout(() => reticle(seat, null, rid), 1500);
+      setTray(old => old && readCounter.current === id ? { ...old, status: "sure", guesses: [top], note: result.note, reader: result.reader, tier: result.tier } : old);
       void identify({ cardId: top.cardId, name: top.name || cardInfo(top.cardId)?.name || `Card ${top.cardId}`, via: "click" }, "auto");
       return;
     }
     reticle(seat, { id: rid, x, y, state: result.guesses.length ? "done" : "fail", text: result.guesses.length ? "Which card?" : "No match", quad: hit?.quad }, rid);
     setTimeout(() => reticle(seat, null, rid), 1800);
-    setTray(old => old && readCounter.current === id ? { ...old, status: result.guesses.length ? "guesses" : "empty", guesses: result.guesses, note: result.note, reader: result.reader, tier: result.tier, aiToken: result.aiToken } : old);
+    setTray(old => old && readCounter.current === id ? { ...old, status: result.guesses.length ? "guesses" : "empty", guesses: result.guesses, note: result.note, reader: result.reader, tier: result.tier, aiToken: result.aiToken, ...(hit?.covered ? { covered: true } : {}) } : old);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hub, identify, layers, name]);
   const closeTray = () => { readCounter.current++; setTray(null); layers.close("tray"); };
@@ -439,8 +453,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const actions: CardActions = {
     canAdd: !!subject && live && (solo || subject.seat === mySeat) && !subject.addErrors.length, adding, onAdd: () => subject && void addToDeck(subject.seat, subject.cardId),
     canAttack: !!subjectCard && !block, attackHint: block || "Pick this monster as the attacker", onAttack: () => subjectCard && subject && startAttack(subject.seat, subjectCard),
-    onWrong: () => { if (!subject) return; layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: "empty", guesses: [], note: "Search for the right card or say its name.", reader: "", style: popStyle }); layers.open("tray"); },
-    onFull: () => layers.open("insp"),
+    onWrong: () => { if (!subject) return; layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: "empty", guesses: [], note: "Search for the right card or say its name.", reader: "", at: popAt }); layers.open("tray"); },
+    onPin: () => layers.open("insp"),
   };
   const openSubject = (card: TwinCard, fromField = true) => {
     const id = cardCode(card); if (!id) { toast("This card is not identified yet. Click it on the camera feed."); return; }
@@ -483,7 +497,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
           return <SeatPanel key={seat} index={seat} seat={seat} name={name(seat)} color={COLORS[seat]} you={seat === mySeat} turn={seat === state.turnSeat} next={seat === nextSeat && seatCount > 2}
             speaking={seat === mySeat && voice.speaking} frozen={hub.health(seat).label === "Frozen"} eliminated={!!state.seats[seat]?.eliminated} lp={lpOf(seat)} startingLp={startingLp}
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
-            marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onPoint={(sd, x, y) => void startRead(sd, x, y)} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, hit)}
+            marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReadBoard={readBoardInto}
             twin={twin} info={info} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
@@ -512,7 +526,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     </InspectorDrawer>
     <HealthPopover open={layers.layer === "health"} rows={healthRows} onClose={() => layers.close("health")} />
     <HistoryPopover open={layers.layer === "hist"} items={history} canUndo={canUndo} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={() => { void doUndo(); layers.close("hist"); }} />
-    {layers.layer === "card" && subject ? <CardPopover subject={subject} info={subjectInfo} style={popStyle} warning={deckFlag(room, subject.seat)?.message} actions={actions} onClose={() => layers.close("card")} /> : null}
+    {layers.layer === "card" && subject ? <CardPopover subject={subject} info={subjectInfo} at={popAt} warning={deckFlag(room, subject.seat)?.message} actions={actions} onClose={() => layers.close("card")} /> : null}
     {tray ? <RecognitionTray tray={tray} onClose={closeTray} saying={micState === "listen"} onSay={() => toast("Say the card name, or “number two”.")}
       inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => void identify(pick, pick.via === "typed" ? "typed" : pick.via)} /> : null}
     <Peek peek={peek} />

@@ -129,8 +129,8 @@ function enqueue<T>(job: () => Promise<T>): Promise<T> {
   chain = run.catch(() => undefined);
   return run;
 }
-export function readCard(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal, card?: ReadCard): Promise<ReadResult> {
-  return enqueue(() => readCardNow(track, point, priors, signal, card));
+export function readCard(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal, card?: ReadCard, frames?: HTMLCanvasElement[]): Promise<ReadResult> {
+  return enqueue(() => readCardNow(track, point, priors, signal, card, frames));
 }
 
 /** Last raw reads, kept so Ask AI can reuse the crop. The crop stays in this browser until the person asks. */
@@ -152,16 +152,17 @@ export async function askAi(token: number, signal?: AbortSignal): Promise<AiAnsw
 }
 
 /** Reads one card at a click point. Frames stay in this browser; only public passcodes leave it. */
-async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal, card?: ReadCard): Promise<ReadResult> {
+async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal, card?: ReadCard, kept?: HTMLCanvasElement[]): Promise<ReadResult> {
   const fallback = (note: string): ReadResult => {
     const ids = [...new Set([...priors.seen, ...priors.decklist])].slice(0, 5);
     return { guesses: ids.map(cardId => ({ cardId, name: "", score: null })), reader: ids.length ? "priors" : "none", frames: 0, note };
   };
-  if (!track) return fallback("No camera frame available. Showing cards from the decklist.");
+  if (!track && !kept?.length) return fallback("No camera frame available. Showing cards from the decklist.");
   const vision = await loadRecognizer();
   const found = await loadMeta();
   if (!vision || !found) return fallback("Card reader data is not installed here. Showing cards from the decklist.");
-  const frames = await sampleFrames(track, signal);
+  // Frames the feed already holds (its ring buffer) read at once. Without them the track is sampled for about a second.
+  const frames = kept?.length ? await Promise.all(kept.map(frame => createImageBitmap(frame))) : await sampleFrames(track!, signal);
   if (!frames.length) return fallback("The camera gave no frames. Showing cards from the decklist.");
   const byId = new Map(found.entries.map(entry => [entry.cardId, entry]));
   try {
@@ -171,7 +172,7 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
       const entry = byId.get(candidate.cardId);
       return entry ? [{ cardId: entry.passcode, name: entry.name, score: candidate.score }] : [];
     }).slice(0, 5);
-    return { guesses, reader: "vision", frames: frames.length, note: `Sharpest of ${frames.length} frames`, tier: result.tier, aiToken: result.cropJpeg ? keep(result) : undefined };
+    return { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, tier: result.tier, aiToken: result.cropJpeg ? keep(result) : undefined };
   } catch (error) {
     if (signal.aborted) throw error;
     return fallback("The card reader failed. Showing cards from the decklist.");

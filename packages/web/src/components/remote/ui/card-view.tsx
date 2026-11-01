@@ -3,6 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import { cardArt, isMonsterInfo, type CardInfo } from "./catalog";
 import { Icon } from "./icons";
+import { BigArt, CardText, PopupFrame, TierChip, type PopAt, type Tier } from "./popup";
 import s from "./remote-ui.module.css";
 
 /** One card the table is looking at: from a feed click, the field, or the tray. */
@@ -10,6 +11,8 @@ export type Subject = {
   cardId: number; seat: number; ref?: string; name?: string;
   /** null = no decklist to compare with. */
   notInDecklist: boolean | null; addErrors: string[]; via: string;
+  /** How sure the reader was when it named this card (feed reads only). */
+  tier?: Tier; covered?: boolean;
 };
 
 function Art({ id }: { id: number }) {
@@ -38,7 +41,7 @@ export function DeckBadges({ subject, warning }: { subject: Subject; warning?: s
 export type CardActions = {
   canAdd: boolean; adding: boolean; onAdd: () => void;
   canAttack: boolean; attackHint: string; onAttack: () => void;
-  onWrong?: () => void; onFull?: () => void;
+  onWrong?: () => void; onPin?: () => void;
 };
 
 function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
@@ -46,30 +49,30 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
     {subject.notInDecklist === true && a.canAdd ? <button type="button" className={`${s.btn} ${s.go}`} disabled={a.adding} onClick={a.onAdd}><Icon name="plus" />Add to decklist</button> : null}
     <button type="button" className={s.btn} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}><Icon name="sword" />Attack from here</button>
     {a.onWrong ? <button type="button" className={`${s.btn} ${s.q}`} onClick={a.onWrong}>Wrong card?</button> : null}
-    {a.onFull ? <button type="button" className={`${s.btn} ${s.q}`} onClick={a.onFull}><Icon name="card" />Full card</button> : null}
+    {a.onPin ? <button type="button" className={`${s.btn} ${s.q}`} onClick={a.onPin} data-testid="pin-inspector"><Icon name="card" />Pin to inspector</button> : null}
   </div>;
 }
 
-/** Small card panel that opens next to a card on a feed. */
-export function CardPopover({ subject, info, style, warning, actions, onClose }: {
-  subject: Subject; info: CardInfo | undefined; style: CSSProperties; warning?: string; actions: CardActions; onClose: () => void;
+/** The identified card, large, beside the card that was clicked on a feed. Same layout as the tray, so the two swap without a jump. */
+export function CardPopover({ subject, info, at, warning, actions, onClose }: {
+  subject: Subject; info: CardInfo | undefined; at: PopAt; warning?: string; actions: CardActions; onClose: () => void;
 }) {
   const name = info?.name ?? subject.name ?? `Card ${subject.cardId}`;
-  return <div className={`${s.pop} ${s.cpop} ${s.show}`} data-layer="card" role="dialog" aria-label={`${name}, card details`} style={style} data-testid="card-popover">
-    <button type="button" className={`${s.ibtn} ${s.cpclose}`} aria-label="Close card" onClick={onClose}><Icon name="x" /></button>
-    <Art id={subject.cardId} />
-    <div className={s.cpm}>
-      <h2 className={s.dname} style={{ margin: 0 }} data-testid="popover-name">{name}</h2>
-      <p className={s.dmeta}>{meta(info)}</p>
-      <Stats info={info} />
-      <DeckBadges subject={subject} warning={warning} />
+  return <PopupFrame at={at} layer="card" label={`${name}, card details`} testid="card-popover" className={s.bigCard}>
+    <button type="button" className={`${s.ibtn} ${s.bclose}`} aria-label="Close card" onClick={onClose}><Icon name="x" /></button>
+    <BigArt id={subject.cardId} label={name} />
+    <div className={s.bmain}>
+      <CardText info={info} name={subject.name} fallbackName={`Card ${subject.cardId}`}>
+        <div className={s.bchips}>
+          <TierChip tier={subject.tier} />
+          {subject.covered ? <span className={`${s.tier} ${s.tierLow}`}>Covered</span> : null}
+          <DeckBadges subject={subject} warning={warning} />
+        </div>
+      </CardText>
+      {subject.addErrors.length && subject.notInDecklist ? <p className={s.bnote}>{subject.addErrors[0]}</p> : null}
     </div>
-    <div className={s.cpx}>
-      {info?.effectText ? <p className={s.dtxt} style={{ margin: 0 }}>{info.effectText}</p> : null}
-      {subject.addErrors.length && subject.notInDecklist ? <p className={s.statline}>{subject.addErrors[0]}</p> : null}
-      <Actions a={actions} subject={subject} />
-    </div>
-  </div>;
+    <div className={s.bbar}><Actions a={actions} subject={subject} /></div>
+  </PopupFrame>;
 }
 
 /** The same card in the left inspector drawer, with bigger art. */
@@ -88,6 +91,6 @@ export function InspectorBody({ subject, info, warning, actions, sourceLine }: {
     <div className={`${s.dchk} ${subject.notInDecklist ? s.bad : s.ok}`}>
       <DeckBadges subject={subject} warning={warning} />
     </div>
-    <Actions a={{ ...actions, onFull: undefined }} subject={subject} />
+    <Actions a={{ ...actions, onPin: undefined }} subject={subject} />
   </div>;
 }

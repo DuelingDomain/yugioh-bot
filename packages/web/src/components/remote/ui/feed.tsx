@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { watchVideoFrames } from "@/lib/remote/video-protocol";
 import { Icon } from "./icons";
+import type { Rect } from "./popup";
 import { detectCards, type BoardRead, type Peek } from "./recognizer";
 import { hitTest, neighbour, toFeedCards, type FeedCard, type Pt } from "./quads";
 import { useVideoHub, type Health } from "./video-hub";
@@ -13,7 +14,19 @@ export type FeedMark = { id: string; x: number; y: number; label: string; notInD
 /** A reticle for a read in progress, finished or failed. */
 export type FeedReticle = { id: string; x: number; y: number; state: "reading" | "done" | "fail"; text: string; quad?: Pt[] };
 /** What a click on an outlined card sends up. `anchor` is the card's box on screen (viewport pixels) for popovers. */
-export type FeedHit = { x: number; y: number; quad: Pt[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean; covered: boolean; index: number; count: number; anchor: { left: number; top: number; right: number; bottom: number } };
+export type FeedHit = {
+  x: number; y: number; quad: Pt[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean; covered: boolean; index: number; count: number;
+  anchor: Rect;
+  /** The video area on screen, so a popup can stay inside the feed. */
+  feed: Rect;
+  /** The sharpest frames around the click. The reader uses them at once instead of sampling the camera again. */
+  frames?: HTMLCanvasElement[];
+  /** True for a click on the live feed. The table then drops the result if the person closed the popup meanwhile. */
+  live?: boolean;
+};
+/** Where a click landed, before the card under it is known. */
+export type FeedStart = { x: number; y: number; anchor: Rect; feed: Rect };
+export type FeedPoint = { anchor: Rect; feed: Rect; frames?: HTMLCanvasElement[]; live?: boolean };
 type Box = { left: number; top: number; width: number; height: number };
 type Frozen = { pinned: boolean; status: "detecting" | "ready" | "unavailable" | "error"; cards: FeedCard[]; note: string; ms: number; canvas: HTMLCanvasElement; pending: Pt | null };
 
@@ -21,9 +34,11 @@ const CARD_H = 0.34; // card height as a share of the frame height
 const CARD_ASPECT = 0.686;
 const DWELL_MS = 650;
 const AUTO_KEY = "dd-remote-hover-freeze";
+const RING_SIZE = 6; const RING_GAP_MS = 140; const RING_MAX_PX = 1280; const FLASH_MS = 1200;
 const TYPING = "input,textarea,select,[contenteditable=true]";
 
-const readAuto = () => { try { return localStorage.getItem(AUTO_KEY) !== "0"; } catch { return true; } };
+// Hover freeze is an opt-in mode now. A click on the live feed is the main way to read a card.
+const readAuto = () => { try { return localStorage.getItem(AUTO_KEY) === "1"; } catch { return false; } };
 const bounds = (quad: Pt[]) => { const xs = quad.map(p => p.x); const ys = quad.map(p => p.y); return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) }; };
 
 /** What a board read hands back. `near` is the feed owner\'s side of the mat; `far` is the opposite side. */
@@ -31,9 +46,34 @@ export type BoardReading = { near: BoardRead[]; far: BoardRead[]; ms: number };
 type PeekLabel = { id: string; state: "loading" | "ready" | "none"; text: string; tier?: Peek["tier"]; covered?: boolean };
 type BoardState = { state: "reading" | "done" | "fail"; text: string };
 
-export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSelect, onAdd, onReadBoard, holdSelection, extra, emptyText }: {
+/** How sharp the frame is around a point (variance of a Laplacian over a small gray crop). Higher is sharper. */
+function sharpAt(canvas: HTMLCanvasElement, p: Pt, scratch: HTMLCanvasElement): number {
+  const side = Math.min(canvas.width, canvas.height, 256); const size = 128;
+  const sx = Math.max(0, Math.min(canvas.width - side, p.x * canvas.width - side / 2)); const sy = Math.max(0, Math.min(canvas.height - side, p.y * canvas.height - side / 2));
+  scratch.width = size; scratch.height = size;
+  const context = scratch.getContext("2d", { willReadFrequently: true }); if (!context) return 0;
+  context.drawImage(canvas, sx, sy, side, side, 0, 0, size, size);
+  const { data } = context.getImageData(0, 0, size, size); const gray = new Float32Array(size * size);
+  for (let i = 0; i < gray.length; i++) gray[i] = data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114;
+  let sum = 0; let sumSq = 0; let n = 0;
+  for (let y = 1; y < size - 1; y++) for (let x = 1; x < size - 1; x++) {
+    const i = y * size + x; const v = 4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - size] - gray[i + size];
+    sum += v; sumSq += v * v; n++;
+  }
+  return sumSq / n - (sum / n) ** 2;
+}
+function copyOf(canvas: HTMLCanvasElement) {
+  const copy = document.createElement("canvas"); copy.width = canvas.width; copy.height = canvas.height;
+  copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
+}
+
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoint, onSelect, onAdd, onReadBoard, holdSelection, extra, emptyText }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
-  onPoint: (seat: number, x: number, y: number) => void; onSelect: (seat: number, hit: FeedHit) => void; onAdd: (mark: FeedMark) => void;
+  /** A click landed on the live feed. The table opens its popup at once, before the card is found. */
+  onBegin: (seat: number, start: FeedStart) => void;
+  /** A click that found no outlined card. The table reads at that point. */
+  onPoint: (seat: number, x: number, y: number, extra: FeedPoint) => void;
+  onSelect: (seat: number, hit: FeedHit) => void; onAdd: (mark: FeedMark) => void;
   /** Called with the cards read from the whole frame. Resolves to a short summary for the feed. */
   onReadBoard?: (seat: number, reading: BoardReading) => Promise<string>;
   /** True while the table shows a popover or tray for a card on this feed. */
@@ -48,7 +88,9 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
   const [active, setActive] = useState(-1); const [hover, setHover] = useState(-1); const [selected, setSelected] = useState<string | null>(null);
   const [peekLabel, setPeekLabel] = useState<PeekLabel | null>(null); const [board, setBoard] = useState<BoardState | null>(null);
   const peekCache = useRef(new Map<string, PeekLabel>()); const boardRun = useRef<AbortController | null>(null);
-  const [hovered, setHovered] = useState(false); const [auto, setAuto] = useState(true); const [say, setSay] = useState("");
+  const [hovered, setHovered] = useState(false); const [auto, setAuto] = useState(false); const [say, setSay] = useState("");
+  const [flash, setFlash] = useState<{ quad: Pt[]; key: number } | null>(null); const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ring = useRef<{ canvas: HTMLCanvasElement; at: number }[]>([]); const scratch = useRef<HTMLCanvasElement | null>(null);
   const frozenRef = useRef<Frozen | null>(null); frozenRef.current = frozen;
   const run = useRef(0); const dwell = useRef<ReturnType<typeof setTimeout> | null>(null); const lastMove = useRef<Pt>({ x: -1, y: -1 });
   const setFrozenHealth = hub.setFrozen;
@@ -75,6 +117,42 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
     return () => { observer.disconnect(); element.removeEventListener("loadedmetadata", measure); element.removeEventListener("resize", measure); };
   }, [source]);
 
+  // While the pointer is over a live feed, the last few frames are kept. A click then reads the sharpest one at once.
+  const grab = useCallback((target?: HTMLCanvasElement) => {
+    const element = video.current; if (!element || !element.videoWidth || element.readyState < 2) return null;
+    const scale = Math.min(1, RING_MAX_PX / Math.max(element.videoWidth, element.videoHeight));
+    const w = Math.round(element.videoWidth * scale); const h = Math.round(element.videoHeight * scale);
+    const canvas = target ?? document.createElement("canvas");
+    if (canvas.width !== w) canvas.width = w; if (canvas.height !== h) canvas.height = h;
+    const context = canvas.getContext("2d"); if (!context) return null;
+    context.drawImage(element, 0, 0, w, h); return canvas;
+  }, []);
+  useEffect(() => {
+    if (!hovered || !source || frozen) return;
+    const tick = () => {
+      const list = ring.current; const reuse = list.length >= RING_SIZE ? list.shift()?.canvas : undefined;
+      const canvas = grab(reuse); if (canvas) list.push({ canvas, at: performance.now() });
+    };
+    tick(); const timer = setInterval(tick, RING_GAP_MS);
+    return () => clearInterval(timer);
+  }, [hovered, source, frozen, grab]);
+  useEffect(() => { ring.current = []; return () => { ring.current = []; }; }, [source]);
+  useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
+  /** The two sharpest frames around a point, copied so the ring can go on. */
+  const sharpest = useCallback((p: Pt): HTMLCanvasElement[] => {
+    const fresh = grab(); const pool = [...ring.current.map(item => item.canvas), ...(fresh ? [fresh] : [])];
+    if (!pool.length) return [];
+    scratch.current ??= document.createElement("canvas");
+    let ranked: { canvas: HTMLCanvasElement; score: number }[];
+    try { ranked = pool.map(canvas => ({ canvas, score: sharpAt(canvas, p, scratch.current!) })).sort((a, b) => b.score - a.score); }
+    catch { ranked = pool.map(canvas => ({ canvas, score: 0 })); }
+    return ranked.slice(0, 2).map(({ canvas }) => canvas === fresh ? canvas : copyOf(canvas));
+  }, [grab]);
+  const flashQuad = useCallback((quad: Pt[]) => {
+    setFlash({ quad, key: Date.now() }); if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(null), FLASH_MS);
+  }, []);
+
   const unfreeze = useCallback((message = "") => {
     run.current++; boardRun.current?.abort(); boardRun.current = null; setBoard(null); setPeekLabel(null); peekCache.current.clear(); if (dwell.current) clearTimeout(dwell.current);
     setFrozenState(null); setActive(-1); setHover(-1); setSelected(null); if (message) setSay(message);
@@ -97,11 +175,24 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
     return { left: rect.left + bx.left + b.left * bx.width, right: rect.left + bx.left + b.right * bx.width, top: rect.top + bx.top + b.top * bx.height, bottom: rect.top + bx.top + b.bottom * bx.height };
   }, [box]);
 
+  const feedRect = useCallback((): Rect => {
+    const rect = cam.current!.getBoundingClientRect(); const bx = box ?? { left: 0, top: 0, width: rect.width, height: rect.height };
+    return { left: rect.left + bx.left, top: rect.top + bx.top, right: rect.left + bx.left + bx.width, bottom: rect.top + bx.top + bx.height };
+  }, [box]);
+  /** A card-sized box around a click, until the real outline is known. */
+  const around = useCallback((p: Pt): Rect => {
+    const feed = feedRect(); const h = (feed.bottom - feed.top) * CARD_H; const w = h * CARD_ASPECT;
+    const cx = feed.left + p.x * (feed.right - feed.left); const cy = feed.top + p.y * (feed.bottom - feed.top);
+    return { left: cx - w / 2, right: cx + w / 2, top: cy - h / 2, bottom: cy + h / 2 };
+  }, [feedRect]);
+
   const choose = useCallback((card: FeedCard, count: number, index: number) => {
     setActive(index); setSelected(card.id); setFrozenState(f => f && { ...f, pinned: true });
     setSay(`Card ${index + 1} of ${count}, ${card.kind === "face-up" ? "face up" : "face down"}, selected.`);
-    onSelect(seat, { x: card.cx, y: card.cy, quad: card.quad, kind: card.kind, confidence: card.confidence, refined: card.refined, covered: card.covered, index, count, anchor: anchorOf(card.quad) });
-  }, [anchorOf, onSelect, seat]);
+    // The card quad belongs to the frozen frame, so the reader gets that same frame.
+    const canvas = frozenRef.current?.canvas;
+    onSelect(seat, { x: card.cx, y: card.cy, quad: card.quad, kind: card.kind, confidence: card.confidence, refined: card.refined, covered: card.covered, index, count, anchor: anchorOf(card.quad), feed: feedRect(), ...(canvas ? { frames: [copyOf(canvas)] } : {}) });
+  }, [anchorOf, feedRect, onSelect, seat]);
 
   const freeze = useCallback(async (pinned: boolean, pending: Pt | null = null) => {
     const element = video.current; if (!element || !element.videoWidth) return;
@@ -126,19 +217,36 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
     if (!frozen || frozen.status === "detecting" || !frozen.pending || !box) return;
     const p = frozen.pending; setFrozenState(f => f && { ...f, pending: null });
     const hit = hitTest(frozen.cards, p, { w: box.width, h: box.height });
-    if (hit) choose(hit, frozen.cards.length, frozen.cards.indexOf(hit)); else onPoint(seat, p.x, p.y);
-  }, [frozen, box, choose, onPoint, seat]);
+    if (hit) choose(hit, frozen.cards.length, frozen.cards.indexOf(hit)); else onPoint(seat, p.x, p.y, { anchor: around(p), feed: feedRect(), frames: [copyOf(frozen.canvas)] });
+  }, [frozen, box, choose, onPoint, seat, around, feedRect]);
 
+  /**
+   * A click on the live feed (no freeze). The popup opens at once. Meanwhile the sharpest buffered frame is searched for the card
+   * under the click, a gold outline flashes on the video, and the reader gets that frame.
+   */
+  async function liveClick(p: Pt) {
+    if (!box) return;
+    const token = ++run.current; const frames = sharpest(p); const feed = feedRect();
+    onBegin(seat, { x: p.x, y: p.y, anchor: around(p), feed }); setSay("Reading card.");
+    const bitmap = frames[0] ? await createImageBitmap(frames[0]).catch(() => null) : null;
+    const found = bitmap ? await detectCards(bitmap) : null;
+    if (token !== run.current) return;
+    const cards = found?.status === "ready" ? toFeedCards(found.cards) : [];
+    const hit = hitTest(cards, p, { w: box.width, h: box.height });
+    if (!hit) { onPoint(seat, p.x, p.y, { anchor: around(p), feed, frames, live: true }); return; }
+    flashQuad(hit.quad);
+    onSelect(seat, { x: hit.cx, y: hit.cy, quad: hit.quad, kind: hit.kind, confidence: hit.confidence, refined: hit.refined, covered: hit.covered, index: cards.indexOf(hit), count: cards.length, anchor: anchorOf(hit.quad), feed, frames, live: true });
+  }
   function click(event: React.MouseEvent<HTMLDivElement>) {
     if ((event.target as HTMLElement).closest("button")) return;
     const p = point(event.clientX, event.clientY); if (!p || !box) return;
     wrap.current?.focus({ preventScroll: true });
     const f = frozenRef.current;
-    if (!f) { void freeze(true, p); return; }
+    if (!f) { void liveClick(p); return; }
     setFrozenState(old => old && { ...old, pinned: true });
     if (f.status === "detecting") { setFrozenState(old => old && { ...old, pending: p }); return; }
     const hit = hitTest(f.cards, p, { w: box.width, h: box.height });
-    if (hit) choose(hit, f.cards.length, f.cards.indexOf(hit)); else onPoint(seat, p.x, p.y);
+    if (hit) choose(hit, f.cards.length, f.cards.indexOf(hit)); else onPoint(seat, p.x, p.y, { anchor: around(p), feed: feedRect(), frames: [copyOf(f.canvas)] });
   }
   function move(event: ReactPointerEvent<HTMLDivElement>) {
     const p = point(event.clientX, event.clientY);
@@ -248,7 +356,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
     : frozen.status === "unavailable" ? "Outlines need the card reader. Click a card to read it here." : "Outlines failed. Click a card to read it here.";
 
   return <div className={s.cams} ref={wrap} tabIndex={source ? 0 : -1} role="group" onKeyDown={key} onPointerEnter={() => setHovered(true)} onPointerLeave={leave}
-    aria-label={`${name}'s field camera. ${you ? "Your" : "Their"} view. Press F to freeze the frame and outline every card. Then Tab moves between cards and Enter opens one.`}
+    aria-label={`${name}'s field camera. ${you ? "Your" : "Their"} view. Click a card to read it. Press F to freeze the frame and outline every card. Then Tab moves between cards and Enter opens one.`}
     data-testid={`feed-box-${seat}`} data-frozen={isFrozen ? frozen.status : "live"}>
     <div className={`${s.fcam} ${isFrozen ? s.fcamFrozen : ""}`} ref={cam} onClick={click} onPointerMove={move} data-testid={`feed-${seat}`} data-remote-seat={seat}
       style={{ cursor: !source ? "default" : hover >= 0 ? "pointer" : "crosshair" }}>
@@ -257,6 +365,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
       </div>}
       {frozen ? <div className={s.still} style={boxStyle} data-testid="frozen-frame"><div className={s.stillCanvas} ref={holder} /><i className={s.stillScan} hidden={frozen.status !== "detecting"} /></div> : null}
       <div className={s.grain} />
+      {flash && !frozen ? <svg key={flash.key} className={s.qflash} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="click-flash">
+        <polygon points={flash.quad.map(p => `${p.x},${p.y}`).join(" ")} /></svg> : null}
       {frozen && frozen.status === "ready" ? <svg className={s.quads} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="quads">
         <defs><mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width="1" height="1"><rect width="1" height="1" fill="#fff" />
           {spot ? <polygon points={spot.quad.map(p => `${p.x},${p.y}`).join(" ")} fill="#000" /> : null}</mask></defs>
