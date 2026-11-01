@@ -2,6 +2,7 @@ import { ATTRIBUTES, MONSTER_TYPES, isBarredFromGenesys, isExtraDeckCard, type C
 import type { ArchetypeProfile } from "./synergy.js";
 import type { Capability, CapabilityKey, CardCapability, BridgeFormat, BridgeGraphData, BridgeProgress, ArchetypeBridge, BridgeReason, BridgeReasonKey } from "./bridge-types.js";
 import { REASON_CAPS } from "./bridge-types.js";
+import { NO_FILTER } from "./tags.js";
 import { actionEvidence, allowedByLock, bridgeHash, canReceiveSummon, genericLinkOneMaterial, faceDownNeedEvidence, matchesBridgeFilter, mentionReachesCard, namedIn, particularFilter, positiveMention, printedText, quotedNames, sameName, sentences, sharedSmallWorldStats, trapMonsterEvidence, trapTurnSetEvidence, trapTurnSetAllows } from "./bridge-text.js";
 import { bridgeMaterials } from "./bridge-materials.js";
 import { groundBridgeGraph } from "./bridge-grounding.js";
@@ -33,31 +34,38 @@ const costCanUse = (cost: Capability, card: Card): boolean => !!cost.filter && !
   && (!cost.evidence.includes(":") || /^(?:\(Quick Effect\)|Once per turn|During your Main Phase|(?:If|When) this card is (?:Normal|Normal or Special) Summoned)\s*:/i.test(cost.evidence))
   && !!cost.from?.some(zone => zone === "hand" || zone === "deck" ? !isExtraDeckCard(card)
     : zone === "extra_deck" ? isExtraDeckCard(card) : zone === "field" ? !isExtraDeckCard(card) && availableMaterial(card) : true);
-const groupNames = new Map<string, (name: string) => boolean>();
-function groupNameIn(card: Card, name: string, aliases: string[] = []): boolean {
+const groupNames = new Map<string, (card: Card) => boolean>();
+function groupNameMatcher(name: string, aliases: string[] = []): (card: Card) => boolean {
   const key = JSON.stringify([name, aliases]);
   let matches = groupNames.get(key);
   if (!matches) {
     const normalized = name.normalize("NFKC").toLowerCase();
     const patterns = [normalized, ...aliases.map(alias => alias.toLowerCase())]
       .map(value => new RegExp(`(?:^|[^a-z0-9])${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:s|es)?(?:$|[^a-z0-9])`, "i"));
-    matches = value => patterns.some(pattern => pattern.test(value));
+    const names = [name, ...aliases];
+    matches = card => patterns.some(pattern => pattern.test(card.name)) || names.some(value => !!card.archetype
+      && sameName(card.archetype, value) && card.name.toLowerCase().includes(value.toLowerCase()));
     groupNames.set(key, matches);
   }
-  return matches(card.name) || [name, ...aliases].some(value => !!card.archetype && sameName(card.archetype, value) && card.name.toLowerCase().includes(value.toLowerCase()));
+  return matches;
 }
+const groupNameIn = (card: Card, name: string, aliases?: string[]): boolean => groupNameMatcher(name, aliases)(card);
 function engineGroups(groups: Record<string, number[]>, rows: readonly CardCapability[], policies: BridgeGraphData["group_policies"] = {}): Record<string, number[]> {
   const cards = new Map(rows.map(row => [row.id, row.card]));
   return Object.fromEntries(Object.entries(groups).filter(([name, ids]) => {
     const policy = policies[name];
-    const matches = (id: number) => cards.has(id) && groupNameIn(cards.get(id)!, name, policy?.aliases);
+    const matchesCard = groupNameMatcher(name, policy?.aliases);
+    const matches = (id: number) => cards.has(id) && matchesCard(cards.get(id)!);
     const monsters = ids.filter(id => cards.get(id)?.kind === "monster" && !isExtraDeckCard(cards.get(id)!));
     const namedMonsters = monsters.filter(matches).length;
     return !policy?.excluded && ids.length >= 3 && (policy?.curated
       || ids.filter(matches).length >= ids.length / 2
       || namedMonsters >= 3 && namedMonsters >= monsters.length / 2);
   })
-    .map(([name, ids]) => [name, [...new Set([...ids, ...rows.filter(row => groupNameIn(row.card, name, policies[name]?.aliases)).map(row => row.id)])].sort((a, b) => a - b)]));
+    .map(([name, ids]) => {
+      const matches = groupNameMatcher(name, policies[name]?.aliases);
+      return [name, [...new Set([...ids, ...rows.filter(row => matches(row.card)).map(row => row.id)])].sort((a, b) => a - b)];
+    }));
 }
 
 export class BridgeEngine {
@@ -160,13 +168,14 @@ export class BridgeEngine {
         searchers: [...new Set(monsters.flatMap(card => searchersByTarget.get(card.id) ?? []))].filter(edge => !ids.has(edge.from)), extras: [] });
     }
     const active = [...contexts.values()].filter(context => context.ids.size >= 3);
+    const availableMaterials = new Map(active.map(context => [context, context.monsters.filter(availableMaterial)]));
     if (Object.keys(this.data.materials?.[format] ?? {}).length) {
       for (const [name, extras] of Object.entries(this.data.materials![format])) if (contexts.has(name)) contexts.get(name)!.extras = extras;
     } else for (const [id, row] of legal) {
       if (!isExtraDeckCard(row.card)) continue;
       if (!edgesFrom.get(id)?.some(edge => edge.named && [...edge.targets].some(target => [...contexts.values()].some(context => context.ids.has(target))))) continue;
       // Multiple bodies need a summon setup line, not just matching material stats.
-      const made = active.flatMap(context => { const materials = bridgeMaterials(row.card, context.monsters.filter(availableMaterial), format); return materials?.length === 1 ? [{ context, materials }] : []; });
+      const made = active.flatMap(context => { const materials = bridgeMaterials(row.card, availableMaterials.get(context)!, format); return materials?.length === 1 ? [{ context, materials }] : []; });
       if (!made.length) continue;
       const rarity = Math.min(1, Math.log(active.length / made.length) / Math.log(Math.max(2, active.length / 10)));
       if (rarity <= 0) continue;
@@ -1041,6 +1050,13 @@ export function indexBridgeCapabilities(rows: CardCapability[]): void {
     byName.set(card.name.toLowerCase(), [card]);
   }
   const all = rows.map(row => row.card), cache = new Map<string, number[]>();
+  // Different level/type filters often share an archetype. Resolve its printed
+  // aliases once across the catalog instead of rescanning every card per filter.
+  const archetypePool = (name: string) => {
+    const key = `archetype:${name}`;
+    if (!indexes.has(key)) indexes.set(key, all.filter(card => matchesBridgeFilter({ ...NO_FILTER, archetypes: [name] }, card)));
+    return indexes.get(key)!;
+  };
   for (const row of rows) for (const capability of row.provides) {
     const filter = capability.filter;
     if (!filter || filter.this_card || !edgeKeys.has(capability.key) || !particularFilter(filter)) continue;
@@ -1048,6 +1064,7 @@ export function indexBridgeCapabilities(rows: CardCapability[]): void {
     let targets = cache.get(key);
     if (!targets) {
       const pools = [filter.names.length ? filter.names.flatMap(name => byName.get(name.toLowerCase()) ?? []) : all,
+        filter.archetypes.length ? [...new Set(filter.archetypes.flatMap(archetypePool))] : all,
         filter.types.length ? filter.types.flatMap(type => indexes.get(`type:${type}`) ?? []) : all,
         filter.attributes.length ? filter.attributes.flatMap(attribute => indexes.get(`attribute:${attribute}`) ?? []) : all,
         filter.kinds.length ? filter.kinds.flatMap(kind => indexes.get(`kind:${kind}`) ?? []) : all];
