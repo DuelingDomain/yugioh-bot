@@ -2169,6 +2169,31 @@ try {
   await page.setViewportSize({ width: 1920, height: 1080 });
   engineControl.mode = "single";
 
+  // off. BRIDGES_ENABLED is off on the server: no tab, no offer, the Suggest tab and the card search stay, and no request reaches a bridges route.
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    const offRequests: string[] = [];
+    const onRequest = (request: { url(): string }) => { if (new URL(request.url()).pathname.startsWith("/api/cards/bridges")) offRequests.push(new URL(request.url()).pathname); };
+    page.on("request", onRequest);
+    engineCalls.length = 0; bridgeCalls.archetypes = 0; bridgeCalls.starts.length = 0; bridgeCalls.polls = 0;
+    control.deck = "small";
+    await page.goto(`${ORIGIN}/index.html?deck=1&flag=on&bridges=off`);
+    await page.getByRole("tab", { name: "Cards", exact: true }).waitFor({ state: "visible", timeout: 10_000 });
+    check("off", `${viewport.name}: the editor has no Bridges tab, and keeps Cards and Suggest`, (await page.getByRole("tab", { name: /^Bridges/ }).count()) === 0 && (await page.getByRole("tab", { name: /^Suggest/ }).count()) === 1);
+    await goTab("Cards");
+    await search().fill("synergy with Blue-Eyes and Chaos");
+    await page.waitForTimeout(1200);
+    check("off", `${viewport.name}: a search that names two archetypes makes no See bridges offer`, (await page.getByTestId("bridges-ask").count()) === 0);
+    await goTab("Suggest");
+    await panel.locator('section[aria-labelledby="suggest-archetype"] li > button').first().waitFor({ state: "visible", timeout: 15_000 });
+    check("off", `${viewport.name}: the Suggest tab still shows its synergy rows (Archetype support, Outside the archetype)`, JSON.stringify(await rowTitles()).includes("Archetype support") && JSON.stringify(await rowTitles()).includes("Outside the archetype"), await rowTitles());
+    await page.waitForTimeout(600);
+    check("off", `${viewport.name}: no request reached a bridges route`, offRequests.length === 0 && engineCalls.length === 0 && bridgeCalls.archetypes === 0 && bridgeCalls.starts.length === 0 && bridgeCalls.polls === 0, { offRequests, engines: engineCalls.length, archetypes: bridgeCalls.archetypes });
+    if (viewport.width === 1920) await shot("off-no-bridges-1920x1080");
+    page.off("request", onRequest);
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
+
   check("all", "no browser errors", pageErrors.length === 0, pageErrors);
   check("all", "every API call the editor made is mirrored", unrouted.length === 0, [...new Set(unrouted)]);
 } catch (error) {

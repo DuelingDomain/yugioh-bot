@@ -24,6 +24,7 @@ const shown = () => ({ source: "Odion", target: "Argostars", format: "advanced",
 
 beforeEach(() => {
   vi.resetModules();
+  vi.stubEnv("BRIDGES_ENABLED", "1");
   vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
   vi.stubEnv("OWNER_USER_IDS", "1");
   vi.stubEnv("DUEL_INTERNAL_URL", "http://duel.internal:4003");

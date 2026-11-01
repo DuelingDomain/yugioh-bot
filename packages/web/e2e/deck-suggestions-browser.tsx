@@ -21,7 +21,7 @@ function PoolHarness() {
 function Harness() {
   if (params.get("scenario") === "pool") return <PoolHarness />;
   return (
-    <EffectSearchProvider enabled suggestionsEnabled={params.get("flag") !== "off"}>
+    <EffectSearchProvider enabled suggestionsEnabled={params.get("flag") !== "off"} bridgesEnabled={params.get("bridges") !== "off"}>
       <div style={{ display: "flex" }}>
         <div className="harness-rail" />
         <div style={{ flex: 1, minWidth: 0 }}>
