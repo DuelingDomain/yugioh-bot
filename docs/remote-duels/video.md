@@ -51,7 +51,7 @@ The browser receives the URL and a short-lived token from the authenticated rout
 
 `src/lib/remote/video.ts` owns the SDK lifecycle. `RemoteVideo` exposes subscribe/getSnapshot, connect/stop/dispose, selectCamera(deviceId), setMicrophone, requestRecognition, and **rawLocalTrack**. Capture targets 1920×1080 at 24 fps with detail preference, simulcast and adaptation for receivers; recognition always reads the raw local capture. Track mapping checks token metadata against the current HTTP seat roster, so names and track labels cannot claim another seat. The provider/controls/tiles in `components/remote/remote-video.tsx` are replaceable without modifying the controller or routes.
 
-`video-protocol.ts` uses `remoteDataMessageSchema`. Requests are reliable packets directed only to the feed owner's LiveKit identity. A separate `remote.recognition.pending.v1` announcement sends peers only `{requestId,feedOwnerSeat}` for correlation; it has no coordinates/frames. Results use the contract's `recognition.result` and broadcast on `remote.recognition.v1`. Every peer checks sender membership, requested owner, first result, ten-second deadline, 128 pending cap and 8-KiB payload cap. The adapter throttles requests at 100 ms per sender. These are client checks on an SFU data channel; the existing WS fallback remains the server-enforced option for shared-across-tabs cooldown and adversarial relay validation. They are not persisted or automatically converted to game actions.
+`video-protocol.ts` uses `remoteDataMessageSchema`. Requests are reliable packets directed only to the feed owner's LiveKit identity. A separate `remote.recognition.pending.v1` announcement sends peers only `{requestId,feedOwnerSeat}` for correlation; it has no coordinates/frames. Results use the contract's `recognition.result` and broadcast on `remote.recognition.v1`. Every peer checks sender membership, requested owner, first result, ten-second deadline (60 seconds for a paired-phone feed), 128 pending cap and 8-KiB payload cap. The adapter throttles requests at 100 ms per sender. These are client checks on an SFU data channel; the existing WS fallback remains the server-enforced option for shared-across-tabs cooldown and adversarial relay validation. They are not persisted or automatically converted to game actions.
 
 Pass a `RecognizeRawFeed` callback to `RemoteVideo` to attach **@yugidraft/vision**. It receives `{track,request,signal}`; crop normalized `x/y` from that raw track, return at most five `{cardId,name,score}` guesses. The default returns zero candidates and the proof UI says vision integration is pending. No model/assets are loaded, and no frames are sent. A future UI must offer explicit candidate selection and submit `card.identified` through the existing authoritative action route.
 
@@ -68,3 +68,28 @@ On 2026-10-31 with Node 22.23.3, Docker Desktop under WSL2 and LiveKit 1.13.11:
 - 58 targeted web tests passed: `duel-actor-auth`, `remote-recognition`, `remote-video`, `remote-solo-controls`, `remote-room-ordering`.
 - Shared build and web/e2e TypeScript checks passed.
 - The focused two-context fake-media browser test passed against real HTTP, Socket.IO and LiveKit services. Cloud/tunnel operation is configured and documented, but was not exercised with project credentials.
+
+## Phone camera runbook
+
+Use **Use phone as camera** in a table lobby or active table. Scan the QR on the phone, tap **Connect camera**, allow camera permission, then frame the mat. The desktop switches as soon as the signed phone track is accepted; a webcam on the desktop is unnecessary. Use **Scan mode** without a stand; choose a zone, tap **Scan card**, then choose the card on the desktop to announce/place it. **Re-pair phone**, **Revoke phone**, and **No camera (manual)** are available beside the seat camera controls.
+
+For an actual phone, serve the web app on an HTTPS origin reachable by both devices. A QR pointing to `localhost` on a development desktop is only usable in that same machine's browser; the phone needs the reachable HTTPS/tunnel origin. Use a matching WSS game socket and public LiveKit Cloud or correctly configured public ICE/TURN. The loopback-only dev LiveKit cannot carry a real phone's media merely by tunneling the web app. Keep this page foregrounded/unlocked, especially on iOS. Unsupported lens/torch/focus/wake capabilities are hidden or report a best-effort fallback. The framing/light/detail checks are advisory; there is no browser thermal sensor claim.
+
+Focused proof, from the phone worktree with Node 22 (web 3436, WS 3437, internal 4437; no engine or STT service):
+
+```sh
+export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
+npm ci
+npm run build --workspace=packages/shared
+# Reuse already prepared assets read-only, or prepare data/vision per its README.
+VISION_DATA_DIR=/path/to/prepared/data/vision \
+E2E_PHONE_FRAME=/path/to/prepared/data/vision/benchmark/photo-00.jpg \
+E2E_PHONE_SHOTS=/path/to/phone-shots \
+  npm exec --workspace=packages/e2e -- playwright test -c playwright.remote-phone.config.ts
+```
+
+`photo-00.jpg` in the existing vision benchmark is Sacred Sword of Seven Stars (`45725480`), centered at `.5,.5`. The fake phone camera alternates sharp/blurred frames; the test checks the burst selects the highest sharpness score, uses real JPEG/data packets and real desktop inference. The phone context is signed out, at 390×844 with 4× CPU throttle; landscape 844×390 is also captured. The desktop denies camera calls. API tests cover expiry/replay, simultaneous redemption/issuance, scope and re-pair/leave/end revocation. Device source grants and active reconnection/removal are checked against this test's own ephemeral LiveKit room. The stack never starts/stops/reconfigures the existing media server or reserved ports. App processes stop by child PID.
+
+Artifacts and measured timings from this run are under the owner's requested `data/briefs/remote-duels/phone-shots/`, including `timings.json`. They measure a synthetic indexed-card fixture and mobile CPU emulation, not physical-phone accuracy, camera lens controls or thermal behavior. The default is still transfer + desktop recognition; optional phone inference/controller/STT remains follow-up work. See the [phone contract](contract.md#phone-field-cameras-and-handheld-scans) for the data path, bounds and pinned OSS revocation limitation.
+
+Phone proof on 2026-11-01: **6 e2e tests + 36 existing targeted web tests passed**, with shared build and web/e2e TypeScript checks. At 4× phone CPU throttle, 1080p burst selection/JPEG transfer took **976–1,660 ms**; scan-to-desktop-confirmation took **14.61 s cold**, then **3.52 / 3.91 s warm** on the indexed fixture. The three-context opponent click returned the real card name from the owner desktop, including its first cold read. A scan-only phone can reload/resume without a camera track; replacement while a confirmation is open clears the previous scan.

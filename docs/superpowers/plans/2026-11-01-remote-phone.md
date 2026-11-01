@@ -1,0 +1,22 @@
+# Remote phone camera implementation plan
+
+**Goal:** Pair a phone to a physical-duel seat in seconds without a phone login; support field video, handheld scans and manual play.
+
+**Architecture:** Signed, five-minute, single-use invitations are consumed atomically in SQLite. A separate renewable device credential is restricted to that table/seat/user and checked against current membership. The phone joins LiveKit with camera/data publication only. The owner desktop joins without requiring its own camera and runs the existing vision reader on bounded, chunked, on-demand JPEGs. No images are persisted. Scans are confirmed before the desktop submits identification and placement through its authenticated action route. Phone/controller/game credentials never overlap.
+
+**Design:** Match the existing Concept D dark table, fine borders, compact uppercase captions and violet/green state colors. Phone has a large preview/framing guide and thumb-sized scan button, explicit video/scan modes, zone selection and conditional hardware controls. QR/short-code pairing lives in lobby and table. Manual mode remains a normal playable table.
+
+**Files:** New `remote/phone-*` server/client helpers, pairing routes, public camera page and phone components/CSS; small adapter edits to video controller/hub/table/lobby/proxy. New isolated Playwright configuration/stack/spec; contract and video documentation.
+
+- [x] Add focused e2e coverage first: no-login pairing, one use, expiry, scope/revocation and manual mode. Run to establish missing feature failures.
+- [x] Add signed pair/device tokens, atomic pair storage, camera-only grants, renewal/revoke and short-code redemption. Verify via real isolated HTTP stack.
+- [x] Add on-demand full-resolution JPEG transfer with bounded chunks/deadlines and sender validation; adapt owner recognition without a local camera.
+- [x] Add mobile camera page: rear/ultra-wide selection, resolution, torch/focus/exposure, wake lock, quality hints, orientation, network recovery and scan bursts.
+- [x] Add desktop pairing/scan confirmation, seat labels, lobby preview and manual mode. Verify scan recognition -> confirmed twin through existing actions.
+- [x] Run focused typechecks/e2e, real vision timing measurement (phone capture under mobile CPU throttle, inference on desktop), inspect screenshots, review security/lifecycle, document limits and commit/push. No PR or merge.
+
+**Verification:** Node 22.23.3; web 3436, WS 3437/internal 4437; existing LiveKit 7880 read-only use. Isolated database and no engine. Test mobile camera as an unsigned-in second context with fake media, including actual JPEG/data-channel transport and real vision assets if available. Physical phone torch/focus/heat remain hardware-dependent and explicitly reported.
+
+**Review decisions:** Phone identities use immutable `field-phone` metadata and a unique active DB pair per owner; recognition always targets `remote-user-{owner}`. Short codes have 40 bits of entropy, a five-minute DB/signature deadline, bounded attempt buckets and atomic redemption. Phone bursts are five frames 100 ms apart, selected by sampled Laplacian variance; JPEGs use correlated 10k-character chunks, 1.5M-character/1080p bounds, SOF validation before decode and deadlines. Only one scan/confirmation is active. Stable action keys permit retry without duplicate announcements/twins. Solo switches to a receive-only desktop LiveKit connection when a phone is selected. Revocation is transactional on leave/end, with durable SFU cleanup and an idle janitor. The pinned OSS SFU ignores JWT revocation cutoff; trusted subscribers explicitly reject revoked IDs and the janitor removes rejoined IDs. No assertion of provider-level JWT revocation or hard per-source track-count grants is made.
+
+**Measured proof (2026-11-01):** All six isolated phone e2e tests and 36 existing targeted web tests passed, plus shared build and web/e2e TypeScript. The 4× CPU-throttled phone captured/chunked the selected 1920×1080 JPEG in 976–1,660 ms; scan-to-desktop-confirmation was 14,613 ms cold and 3,515 / 3,905 ms warm for the indexed fixture. Physical-phone hardware and local phone inference were not measured. Screenshots and numeric capture diagnostics are in `data/briefs/remote-duels/phone-shots/` outside this worktree. A three-context proof covers a receiver-only opponent making the first cold read of the phone feed; scan-only page reload and re-pair while a confirmation is open also pass.
