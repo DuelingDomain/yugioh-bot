@@ -2,6 +2,8 @@ import { remoteActionSchema, remoteAssert, type RemoteAction } from "../actions.
 import type { GameModule, RemotePosition, RemoteState } from "../types.js";
 import { resolveAttack } from "../attack-resolver.js";
 import { parseRemoteCommand } from "../command-parser.js";
+import { initialDeckChecks, type RemoteReductionContext } from "../deck-checks.js";
+import { applyLiveDeckChecks } from "../live-deck-checks.js";
 
 const phases = [
   { id: "draw", name: "Draw" }, { id: "standby", name: "Standby" }, { id: "main1", name: "Main 1" },
@@ -11,6 +13,9 @@ const zones = [
   { id: "monster", name: "Monster", shape: "row" }, { id: "spell-trap", name: "Spell / Trap", shape: "row" },
   { id: "extra-monster", name: "Extra Monster", shape: "row" }, { id: "field", name: "Field", shape: "single" },
   { id: "graveyard", name: "Graveyard", shape: "pile" }, { id: "banished", name: "Banished", shape: "pile" },
+  { id: "hand", name: "Hand (hidden)", shape: "pile" }, { id: "deck", name: "Deck (hidden)", shape: "pile" },
+  { id: "extra", name: "Extra Deck", shape: "pile" }, { id: "pendulum", name: "Pendulum", shape: "row" },
+  { id: "hand-reveal", name: "Hand reveal", shape: "pile" },
 ] as const;
 export function ygoBattleAllowed(state: RemotePosition): boolean {
   return state.seatCount === 2 ? state.turn > 1 : state.seats.every(s => s.eliminated || state.startedSeats.includes(s.seat));
@@ -19,7 +24,7 @@ function position(state: RemoteState): RemotePosition {
   const { updatedAt: _at, undo: _undo, ...board } = state;
   return structuredClone(board);
 }
-function reduce(state: RemoteState, input: RemoteAction): RemoteState {
+function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReductionContext): RemoteState {
   const parsed = remoteActionSchema.safeParse(input);
   remoteAssert(parsed.success, "Invalid remote action");
   const action = parsed.data;
@@ -33,7 +38,8 @@ function reduce(state: RemoteState, input: RemoteAction): RemoteState {
   }
   remoteAssert(!state.ended, "Game has ended", 409);
   remoteAssert(!state.seats[action.actorSeat].eliminated, "Actor seat is eliminated", 403);
-  const next: RemoteState = { ...structuredClone(state), updatedAt: at };
+  let next: RemoteState = { ...structuredClone(state), updatedAt: at };
+  next.deckChecks ??= initialDeckChecks();
   const ownTurn = () => remoteAssert(action.actorSeat === state.turnSeat || state.seats[state.turnSeat].eliminated, "Only the turn player can advance", 403);
   const seat = (n: number) => {
     const s = next.seats[n]; remoteAssert(s && !s.eliminated, "Target seat is unavailable", 409); return s;
@@ -87,10 +93,19 @@ function reduce(state: RemoteState, input: RemoteAction): RemoteState {
       remoteAssert(state.attack?.id === action.attackId, "Attack is no longer pending", 409);
       remoteAssert(action.actorSeat === state.attack.attackerSeat || action.actorSeat === state.attack.targetSeat, "Only the attacker or target can resolve an attack", 403);
       next.attack = null; break;
-    case "card.identified":
-      seat(action.seat); remoteAssert(action.cardId || action.passcode, "A cardId or passcode is required");
-      if (action.zone) validZone(action.zone);
-      next.identified = { seat: action.seat, cardId: action.cardId, passcode: action.passcode, zone: action.zone, source: action.source }; break;
+    case "card.identified": case "cards.identified": {
+      seat(action.seat);
+      const sightings = action.type === "card.identified" ? [action] : action.cards;
+      for (const card of sightings) {
+        remoteAssert(card.cardId || card.passcode, "A cardId or passcode is required");
+        if (card.zone) validZone(card.zone);
+        if (card.cardRef) remoteAssert(seat(action.seat).twin.some(c => c.ref === card.cardRef), "Unknown twin card", 409);
+      }
+      break;
+    }
+    case "deck.add": ownField(action.seat); break;
+    case "deck.flag.dismiss": break;
+    case "twin.merge": ownField(action.seat); break;
     case "twin.place": {
       const s = ownField(action.seat); validZone(action.zone);
       remoteAssert(s.twin.length < 100 && !s.twin.some(c => c.ref === action.card.ref), "Duplicate card ref or field is full", 409);
@@ -111,6 +126,7 @@ function reduce(state: RemoteState, input: RemoteAction): RemoteState {
     }
     case "log.note": return next;
   }
+  next = applyLiveDeckChecks(next, action, context);
   for (const s of next.seats) if (s.eliminated) s.twin = [];
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
   const living = next.seats.filter(s => !s.eliminated);
@@ -125,6 +141,6 @@ export const ygoModule: GameModule = {
     remoteAssert([2, 3, 4].includes(seatCount) && Number.isInteger(firstSeat) && firstSeat >= 0 && firstSeat < seatCount, "Invalid seats");
     return { gameId: "ygo", seatCount, phase: "draw", turn: 1, turnSeat: firstSeat, startedSeats: [firstSeat],
       seats: Array.from({ length: seatCount }, (_, seat) => ({ seat, resources: { lp: 8000 }, eliminated: false, twin: [] })),
-      ended: false, winnerSeat: null, attack: null, identified: null, updatedAt: 0, undo: null };
+      ended: false, winnerSeat: null, attack: null, identified: null, deckChecks: initialDeckChecks(), updatedAt: 0, undo: null };
   }, reduce, parseCommand: parseRemoteCommand, resolveAttack,
 };

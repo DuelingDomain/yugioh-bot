@@ -1744,4 +1744,11 @@ function migrateRemoteDuels(db: Database.Database) {
       begin select raise(abort, 'remote_events is append-only'); end;
   `);
   addColumnIfMissing(db, "remote_tables", "solo", "integer not null default 0 check (solo in (0,1))");
+  addColumnIfMissing(db, "remote_tables", "format_json", "text");
+  for (const table of ["remote_seats", "remote_bot_seats"]) {
+    addColumnIfMissing(db, table, "saved_deck_id", "integer");
+    addColumnIfMissing(db, table, "deck_json", "text");
+  }
+  addColumnIfMissing(db, "remote_events", "effects_json", "text");
+  addColumnIfMissing(db, "remote_events", "messages_json", "text");
 }

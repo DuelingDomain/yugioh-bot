@@ -24,6 +24,8 @@ import { cardBlockIndex, type CardBlockEntry } from "./card-block-index.js";
 export type { MultiplayerTable };
 
 export interface InspectDeckOptions {
+  /** Physical remote tables do not require executable card scripts. */
+  physicalTable?: boolean;
   /** Current host admission policy (manual entries first). Never used by engine recovery. */
   cardBlocks?: readonly CardBlockEntry[];
   /** Table the deck is for. Default "1v1" adds no multiplayer rule. */
@@ -1043,9 +1045,15 @@ export function inspectDeck(
   }
 
   const collectEngineCards = () => {
-    collectLoadableIssues(main, () => "main", catalog, cardPool, issues);
-    collectLoadableIssues(extra, () => "extra", catalog, cardPool, issues);
-    collectLoadableIssues(side, (item) => (isExtraDeckMonster(item.card) ? "extra" : "side"), catalog, cardPool, issues);
+    if (!options.physicalTable) {
+      collectLoadableIssues(main, () => "main", catalog, cardPool, issues);
+      collectLoadableIssues(extra, () => "extra", catalog, cardPool, issues);
+      collectLoadableIssues(side, (item) => (isExtraDeckMonster(item.card) ? "extra" : "side"), catalog, cardPool, issues);
+    } else for (const item of [...main, ...extra, ...side]) {
+      const section = item.section === "side" && isExtraDeckMonster(item.card) ? "extra" : item.section;
+      const message = playableSectionMessage(item.card, section) ?? (cardPool ? cardPoolMessage(item.card, cardPool) : undefined);
+      if (message) issues.push({ message, cards: [locatedRef(item)] });
+    }
   };
 
   if (mode === "normal") {
@@ -1099,7 +1107,7 @@ export function inspectDeck(
           const message = cardPoolMessage(dm, cardPool);
           if (message) issues.push({ message, cards: [dmRef] });
         }
-        if (settings) {
+        if (settings && !options.physicalTable) {
           const message = cardScriptMessage(dm, catalog);
           if (message) issues.push({ message, cards: [dmRef] });
         }
@@ -1176,3 +1184,23 @@ export function validateDeck(
 export { cardBlockIndex } from "./card-block-index.js";
 export type { CardBlockEntry } from "./card-block-index.js";
 export { banlistLimitsFor } from "./banlists/index.js";
+
+/** Card facts from the validator's own identity groups and selected banlist. */
+export function remoteDeckCardFacts(mode: DuelMode, dataDirectory: string, settings: DuelSettings, codes: readonly number[]): import("../remote/deck-checks.js").RemoteCardFacts {
+  const catalog = loadCatalog(dataDirectory);
+  const prepared = suggestionIdentityIndex(catalog);
+  const remaps = loadCardPasscodeRemaps(dataDirectory);
+  const limits = settings.genesys ? null : banlistLimitsFor(settings.banlist);
+  const facts: import("../remote/deck-checks.js").RemoteCardFacts = {};
+  for (const raw of codes) {
+    const code = remaps.get(raw) ?? raw;
+    const card = catalog.cards.get(code);
+    if (!card) continue;
+    const canonical = canonicalCardCode(code, catalog.cards);
+    const max = mode === "domain" ? 1 : 3;
+    facts[raw] = { code, copyKey: prepared.copyGroups[canonical] ?? canonical, name: card.name,
+      section: isExtraDeckMonster(card) ? "extra" : "main",
+      limit: Math.min(max, limits ? listedLimitForIdentity(componentOf(card, prepared.identities), prepared.identities, catalog, limits) ?? max : max) };
+  }
+  return facts;
+}

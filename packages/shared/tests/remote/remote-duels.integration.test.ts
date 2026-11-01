@@ -1,5 +1,9 @@
 import Database from "better-sqlite3";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createSavedDeckService } from "../../src/services/saved-decks.js";
 import { migrate } from "../../src/db/index.js";
 import { seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
@@ -10,10 +14,233 @@ afterEach(() => databases.splice(0).forEach(db => db.close()));
 function setup() {
   const db = new Database(":memory:"); databases.push(db); db.pragma("foreign_keys = ON"); migrate(db);
   const users = ["a", "b", "c", "d"].map(key => seedUser(db, key).userId);
-  const service = createRemoteDuelService(db);
-  const table = service.create({ guildId: "g", userId: users[0], displayName: "A", gameId: "ygo", seatCount: 3 }, 1000);
+  const service = createRemoteDuelService(db, { dataDirectory: deckData });
+  let table = service.create({ guildId: "g", userId: users[0], displayName: "A", gameId: "ygo", seatCount: 3 }, 1000);
+  table = registerTestDeck(db, service, table.slug, users[0], 1000);
   return { db, users, service, table };
 }
+
+function registerTestDeck(db: Database.Database, service: ReturnType<typeof createRemoteDuelService>, slug: string, user: number, now: number) {
+  const saved = createSavedDeckService(db, new Map()).create("g", user, { name: "Remote fixture", mode: "normal",
+    deck: { main: Array.from({length:40},(_,i)=>i+1), extra: [], side: [] } });
+  return service.selectDeck(slug, "g", user, { savedDeckId: saved.id }, now);
+}
+
+const deckData = mkdtempSync(join(tmpdir(), "remote-deck-checks-"));
+mkdirSync(join(deckData, "card-scripts"));
+writeFileSync(join(deckData, "strings.conf"), "");
+{
+  const catalog = new Database(join(deckData, "cards.cdb"));
+  catalog.exec("create table datas(id integer primary key,ot integer,alias integer,setcode integer,type integer,race integer,attribute integer); create table texts(id integer primary key,name text,desc text)");
+  const add = (id: number, name: string, type = 0x11, alias = 0) => {
+    catalog.prepare("insert into datas values(?,3,?,0,?,1,1)").run(id, alias, type);
+    catalog.prepare("insert into texts values(?,?, '')").run(id, name);
+    writeFileSync(join(deckData, "card-scripts", "c" + id + ".lua"), "");
+  };
+  for (let i = 1; i <= 100; i++) add(i, "Filler " + i);
+  add(14558127, "Ash Blossom", 0x21); add(55144522, "Pot of Greed", 2);
+  add(101, "Fusion", 0x41); add(102, "Link", 0x4000021);
+  add(103, "Outside Domain", 0x11);
+  catalog.prepare("update datas set race=2,attribute=2 where id=103").run();
+  add(104, "Ash Blossom", 0x21, 14558127);
+  catalog.close();
+}
+afterAll(() => rmSync(deckData, { recursive: true, force: true }));
+function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" = "domain", solo = true) {
+  const { db, users } = setup();
+  const service = createRemoteDuelService(db, { dataDirectory: deckData });
+  let room = service.create({ guildId: "g", userId: users[0], displayName: "Sulman", gameId: "ygo", seatCount: 2, solo, format }, 2000);
+  const decks = createSavedDeckService(db, new Map());
+  const save = (main = Array.from({ length: format.includes("domain") ? 60 : 40 }, (_, i) => i + 1), extra: number[] = [], owner = users[0]) =>
+    decks.create("g", owner, { name: "Registered", mode: format.includes("domain") ? "domain" : "normal",
+      deck: { main, extra, side: [], ...(format.includes("domain") ? { deckMaster: 100 } : {}) } });
+  const select = (id: number | null, seat = 0) => room = service.selectDeck(room.slug, "g", users[0], { savedDeckId: id, seat }, 2001);
+  const start = () => { service.ready(room.slug, "g", users[0], true, 2002); room = service.start(room.slug, "g", users[0], 2003); };
+  let n = 0;
+  const act = (input: Record<string, unknown>) => room = service.act(room.slug, "g", users[0], { baseSeq: room.lastSeq,
+    action: remoteActionSchema.parse({ actorSeat: 0, idempotencyKey: "check-" + (++n), ...input }) }, 2100 + n);
+  const place = (ref: string, zone = "monster", slot = 1, cardId = 14558127) => act({ type: "twin.place", seat: 0, zone, card: { ref, cardId, slot } });
+  return { db, users, service, save, select, start, act, place, get room() { return room; } };
+}
+describe("remote deck registration and live checks", () => {
+  it("blocks multiplayer readiness without a deck and rejects invalid selected decks in solo", () => {
+    const live = deckSession("normal", false);
+    expect(() => live.service.ready(live.room.slug, "g", live.users[0], true, 2001)).toThrow(/select.*deck/i);
+    const solo = deckSession("domain");
+    solo.select(solo.save([1, 1]).id);
+    expect(solo.room.seats[0].deck?.validation.issues.map(i => i.message)).toEqual(expect.arrayContaining(["Main Deck must have exactly 60 cards", "Duplicate card: filler 1"]));
+    expect(() => solo.start()).toThrow(/60 cards|Duplicate card/);
+    solo.select(null); solo.start(); expect(solo.room.status).toBe("active");
+  });
+  it("snapshots owned saved decks and resets ready on format changes", () => {
+    const s = deckSession("normal"); const saved = s.save();
+    expect(() => s.select(s.save(undefined, [], s.users[1]).id)).toThrow(/not found/i);
+    s.select(saved.id); s.service.ready(s.room.slug, "g", s.users[0], true, 2002);
+    const configured = s.service.configure(s.room.slug, "g", s.users[0], { format: "domain" }, 2003);
+    expect(configured.seats[0].ready).toBe(false);
+    expect(configured.seats[0].deck?.validation.issues.some(i => /Deck Master/.test(i.message))).toBe(true);
+    expect(() => s.service.configure(s.room.slug, "g", s.users[1], { format: "normal" }, 2004)).toThrow();
+    expect(createSavedDeckService(s.db).get(saved.id, "g", s.users[0]).deck).toEqual(saved.deck);
+  });
+  it("recognizes an unregistered card, offers a valid addition, logs it and replays", () => {
+    const s = deckSession("normal"); const original = s.save(); s.select(original.id); s.start();
+    s.act({ type: "card.identified", seat: 0, cardId: 14558127, source: "click" });
+    expect(s.room.state.identified).toMatchObject({ name: "Ash Blossom", notInDecklist: true, addErrors: [] });
+    s.act({ type: "deck.add", seat: 0, cardId: 14558127 });
+    expect(s.room.state.identified?.notInDecklist).toBe(false);
+    expect(s.room.events.at(-1)?.messages).toContain("Sulman added Ash Blossom to their decklist");
+    expect(s.room.seats[0].deck?.deck.main).toHaveLength(41);
+    expect(createSavedDeckService(s.db).get(original.id, "g", s.users[0]).deck.main).toHaveLength(40);
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
+  it.each(["normal", "domain"] as const)("shows why an addition cannot stay legal in %s", format => {
+    const s = deckSession(format); s.select(s.save(Array.from({ length: 60 }, (_, i) => i + 1)).id); s.start();
+    s.act({ type: "card.identified", seat: 0, cardId: 14558127, source: "click" });
+    expect(s.room.state.identified?.notInDecklist).toBe(true);
+    expect(s.room.state.identified?.addErrors.some(e => /60/.test(e))).toBe(true);
+    const seq = s.room.lastSeq;
+    expect(() => s.act({ type: "deck.add", seat: 0, cardId: 14558127 })).toThrow(/60/);
+    expect(s.service.get(s.room.slug, "g", s.users[0]).lastSeq).toBe(seq);
+  });
+  it("uses full Domain membership and Genesys rules for registration", () => {
+    const domain = deckSession("domain");
+    domain.select(domain.save([...Array.from({length:59},(_,i)=>i+1),103]).id);
+    expect(domain.room.seats[0].deck?.validation.issues.some(i => /outside.*Domain/.test(i.message))).toBe(true);
+    const genesys = deckSession("genesys"); genesys.select(genesys.save().id);
+    expect(genesys.room.seats[0].deck?.validation.issues.some(i => /points are unknown/.test(i.message))).toBe(true);
+    expect(() => genesys.start()).toThrow(/points/);
+  });
+  it.each(["hand", "deck"])("does not flag a card bounced to %s and replayed with a new scan/ref", zone => {
+    const s = deckSession(); s.start(); s.place("first");
+    s.act({ type: "twin.move", seat: 0, cardRef: "first", zone });
+    s.act({ type: "card.identified", seat: 0, cardId: 14558127, zone: "monster", slot: 2, source: "auto" });
+    s.place("replayed", "monster", 2);
+    expect(s.room.state.deckChecks.flags).toEqual([]);
+    expect(s.room.state.deckChecks.instances).toHaveLength(1);
+  });
+  it("does not flag a card sent to GY then revived or re-scanned", () => {
+    const s = deckSession(); s.start(); s.place("one");
+    s.act({ type: "twin.move", seat: 0, cardRef: "one", zone: "graveyard" });
+    s.act({ type: "card.identified", seat: 0, cardId: 14558127, zone: "graveyard", source: "auto" });
+    s.act({ type: "twin.move", seat: 0, cardRef: "one", zone: "monster", slot: 3 });
+    s.act({ type: "card.identified", seat: 0, cardId: 14558127, zone: "monster", slot: 3, source: "auto" });
+    expect(s.room.state.deckChecks.flags).toEqual([]);
+    expect(s.room.state.deckChecks.instances).toHaveLength(1);
+  });
+  it.each(["monster", "graveyard"])("proves two concurrent copies with the first still in %s", zone => {
+    const s = deckSession(); s.start(); s.place("first", zone, 1); s.place("second", "monster", 2);
+    expect(s.room.state.deckChecks.flags).toHaveLength(1);
+    const flag = s.room.state.deckChecks.flags[0];
+    expect(flag.message).toMatch(/Deck no longer valid: 2 copies of Ash Blossom seen \(Domain allows 1\)/);
+    expect(flag.proof.join(" and ")).toMatch(zone === "monster" ? /field zone 1.*field zone 2/ : /GY.*field zone 2/);
+    expect(s.room.events.at(-1)?.messages?.join(" ")).toContain("at the same time");
+    expect(s.room.state.ended).toBe(false);
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
+  it("reuses instances through unlocated recognition, flips and removals", () => {
+    const s = deckSession(); s.start(); s.place("one");
+    for (let i=0;i<3;i++) s.act({ type: "card.identified", seat: 0, cardId: 14558127, source: "auto" });
+    s.act({ type: "twin.flip", seat: 0, cardRef: "one", faceUp: false }); s.place("two", "monster", 2);
+    s.act({ type: "twin.remove", seat: 0, cardRef: "two" }); s.place("three", "monster", 3);
+    expect(s.room.state.deckChecks.flags).toEqual([]);
+    expect(s.room.state.deckChecks.instances).toHaveLength(1);
+  });
+  it("proves a recognition batch of hand reveals and ignores later re-sightings", () => {
+    const s = deckSession(); s.start();
+    s.act({ type: "cards.identified", seat: 0, source: "auto", cards: [
+      { cardId: 14558127, observationId: "region-1", zone: "hand-reveal" },
+      { cardId: 14558127, observationId: "region-2", zone: "hand-reveal" },
+    ] });
+    expect(s.room.state.deckChecks.flags).toHaveLength(1);
+    expect(s.room.state.deckChecks.flags[0].proof.join(" ")).toMatch(/same recognition batch/);
+    s.act({ type: "card.identified", seat: 0, cardId: 14558127, source: "auto" });
+    expect(s.room.state.deckChecks.instances).toHaveLength(2);
+    expect(s.room.state.deckChecks.flags).toHaveLength(1);
+  });
+  it("flags forbidden cards and uses artwork identity for singleton proof", () => {
+    const banned = deckSession("normal"); banned.start();
+    banned.act({ type: "card.identified", seat: 0, cardId: 55144522, source: "click" });
+    expect(banned.room.state.deckChecks.flags[0]?.message).toMatch(/Pot of Greed.*allows 0/);
+    const domain = deckSession(); domain.start(); domain.place("a"); domain.place("b", "monster", 2, 104);
+    expect(domain.room.state.deckChecks.flags).toHaveLength(1);
+  });
+  it("logs dismissal and instance merge, with deterministic replay", () => {
+    const s = deckSession(); s.start(); s.place("first"); s.place("second", "monster", 2);
+    const flag = s.room.state.deckChecks.flags[0];
+    s.act({ type: "deck.flag.dismiss", flagId: flag.id, reason: "Wrong recognition" });
+    expect(s.room.state.deckChecks.flags[0].dismissed).toBe(true);
+    const instances = s.room.state.deckChecks.instances;
+    s.act({ type: "twin.merge", seat: 0, keepInstanceId: instances[0].id, removeInstanceId: instances[1].id, reason: "Same physical card" });
+    expect(s.room.state.deckChecks.instances).toHaveLength(1);
+    expect(s.room.state.seats[0].twin).toHaveLength(1);
+    expect(s.room.events.at(-1)?.messages?.join(" ")).toMatch(/merged/);
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
+  it("does not use old scans or overlapping field coordinates as concurrent proof", () => {
+    const s = deckSession(); s.start();
+    s.act({ type: "card.identified", seat: 0, cardId: 14558127, zone: "monster", slot: 1, source: "auto" });
+    s.place("one", "monster", 2);
+    expect(s.room.state.deckChecks.flags).toEqual([]);
+    s.place("different", "monster", 2, 1);
+    s.act({ type: "card.identified", seat: 0, cardRef: "different", cardId: 14558127, zone: "monster", slot: 2, source: "auto" });
+    expect(s.room.state.deckChecks.flags).toEqual([]);
+  });
+  it("recognizes two cards in the same pile in one batch, without counting duplicate field coordinates", () => {
+    const s = deckSession(); s.start();
+    s.act({ type: "cards.identified", seat: 0, source: "auto", cards: [
+      { cardId: 14558127, observationId: "a", zone: "graveyard" },
+      { cardId: 14558127, observationId: "b", zone: "graveyard" },
+    ] });
+    expect(s.room.state.deckChecks.flags).toHaveLength(1);
+    const overlap = deckSession(); overlap.start();
+    overlap.act({ type: "cards.identified", seat: 0, source: "auto", cards: [
+      { cardId: 14558127, observationId: "a", zone: "monster", slot: 1 },
+      { cardId: 14558127, observationId: "b", zone: "monster", slot: 1 },
+    ] });
+    expect(overlap.room.state.deckChecks.flags).toEqual([]);
+  });
+  it("applies current Advanced limits and full validation to banned/duplicate additions", () => {
+    const s = deckSession("normal"); s.select(s.save().id); s.start();
+    s.act({ type: "card.identified", seat: 0, cardId: 55144522, source: "typed" });
+    expect(s.room.state.identified?.addErrors.join(" ")).toMatch(/forbidden/);
+    expect(() => s.act({ type: "deck.add", seat: 0, cardId: 55144522 })).toThrow(/forbidden/);
+    for (let i=0;i<3;i++) s.act({ type: "deck.add", seat: 0, cardId: 14558127 });
+    expect(() => s.act({ type: "deck.add", seat: 0, cardId: 14558127 })).toThrow(/More than 3/);
+    for (let i=1;i<=3;i++) s.place("ash"+i, "monster", i);
+    expect(s.room.state.deckChecks.flags.filter(f => f.copyKey === 14558127)).toHaveLength(0);
+    s.place("ash4", "monster", 4);
+    expect(s.room.state.deckChecks.flags.filter(f => f.copyKey === 14558127)).toHaveLength(1);
+  });
+  it.each(["genesys", "genesys-domain"] as const)("uses current points and type bans for %s additions", format => {
+    const s = deckSession(format);
+    s.db.prepare("insert into genesys_points_meta values(1,'test','2026-10-05','test','test')").run();
+    const point = s.db.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at,genesys_points,genesys_revision) values(?,?,'Normal Monster','normal','','','[]','test',?,'test')");
+    for (let i=1;i<=104;i++) point.run(i, "Card "+i, 0);
+    point.run(14558127, "Ash Blossom", 101);
+    s.select(s.save().id); s.start();
+    s.act({ type: "card.identified", seat: 0, cardId: 14558127, source: "typed" });
+    expect(s.room.state.identified?.addErrors.join(" ")).toMatch(/101 Genesys points; the cap is 100/);
+    expect(() => s.act({ type: "deck.add", seat: 0, cardId: 14558127 })).toThrow(/Genesys points/);
+    s.act({ type: "card.identified", seat: 0, cardId: 102, source: "typed" });
+    expect(s.room.state.identified?.addErrors.join(" ")).toMatch(/Link or Pendulum/);
+  });
+  it("undoes a valid deck edit in both the state and seat snapshot", () => {
+    const s = deckSession("normal"); s.select(s.save().id); s.start();
+    s.act({ type: "deck.add", seat: 0, cardId: 14558127 });
+    const actionId = s.room.state.undo!.actionId;
+    s.act({ type: "undo", targetActionId: actionId });
+    expect(s.room.seats[0].deck?.deck.main).toHaveLength(40);
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
+  it("adds the new columns to populated pre-deck tables without rewriting events", () => {
+    const { db, service, table, users } = setup();
+    const events = service.get(table.slug,"g",users[0]).events;
+    db.exec("alter table remote_tables drop column format_json; alter table remote_seats drop column saved_deck_id; alter table remote_seats drop column deck_json; alter table remote_bot_seats drop column saved_deck_id; alter table remote_bot_seats drop column deck_json; alter table remote_events drop column effects_json; alter table remote_events drop column messages_json");
+    migrate(db); migrate(db);
+    expect(service.get(table.slug,"g",users[0]).events).toEqual(events);
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+  });
+});
 describe("solo remote tables", () => {
   it("parses voice controls for the selected bot through the same reducer", () => {
     let state = ygoModule.initialState({ seatCount: 3 }); let n = 0;
@@ -166,7 +393,9 @@ describe("remote foundation", () => {
     expect(() => service.get(table.slug, "other", users[0])).toThrow(/not found/i);
     expect(() => service.get(table.slug, "g", users[3])).toThrow(/not found/i);
     service.join(table.slug, "g", users[1], "B", 1, 1100);
+  registerTestDeck(db, service, table.slug, users[1], 1100);
     service.join(table.slug, "g", users[2], "C", 2, 1200);
+    registerTestDeck(db, service, table.slug, users[2], 1200);
     for (const user of users.slice(0, 3)) service.ready(table.slug, "g", user, true, 1300);
     let room = service.start(table.slug, "g", users[0], 1400);
     const command = { type: "lp.change" as const, actorSeat: 0, idempotencyKey: "hit", seat: 1, delta: -500, reason: "effect" };
@@ -181,7 +410,7 @@ describe("remote foundation", () => {
     expect(() => db.prepare("delete from remote_events").run()).toThrow(/append.only/i);
   });
   it("warns at eight minutes and closes at ten without warning renewing activity", () => {
-    const { service, table, users } = setup();
+    const { service, table, users, db } = setup();
     expect(service.sweepIdle(1000 + 8 * 60_000 - 1)).toHaveLength(0);
     expect(service.sweepIdle(1000 + 8 * 60_000)).toHaveLength(1);
     expect(service.get(table.slug, "g", users[0]).lastEventAt).toBe(1000);
@@ -228,11 +457,13 @@ describe("remote board and transactional edge cases", () => {
     expect(state.seats.map(s => s.seat)).toEqual([0, 1, 2, 3]); expect(state.phase).toBe("battle");
   });
   it("guards readiness, occupied seats and key reuse, and allows a five-second undo of a winning action", () => {
-    const { service, table, users } = setup();
+    const { service, table, users, db } = setup();
     expect(() => service.start(table.slug, "g", users[0], 1100)).toThrow(/ready/);
     service.join(table.slug, "g", users[1], "B", 1, 1100);
+  registerTestDeck(db, service, table.slug, users[1], 1100);
     expect(() => service.join(table.slug, "g", users[2], "C", 1, 1100)).toThrow(/seat/i);
     service.join(table.slug, "g", users[2], "C", 2, 1100);
+    registerTestDeck(db, service, table.slug, users[2], 1100);
     users.slice(0, 3).forEach(user => service.ready(table.slug, "g", user, true, 1200));
     let room = service.start(table.slug, "g", users[0], 1300);
     for (const seat of [1, 2]) room = service.act(table.slug, "g", users[seat], { baseSeq: room.lastSeq,
@@ -254,12 +485,14 @@ it("revokes departed seat tokens and keeps the final game snapshot readable to s
   const claims = { slug: table.slug, guildId: "g", userId: users[1], seat: 1, expiresAt: 999999 };
   expect(canReadRemote(db, claims)).toBe(false);
   service.join(table.slug, "g", users[1], "B", 1, 1100);
+  registerTestDeck(db, service, table.slug, users[1], 1100);
   expect(canReadRemote(db, claims)).toBe(true);
   expect(canReadRemote(db, { ...claims, guildId: "other" })).toBe(false);
   expect(canReadRemote(db, { ...claims, seat: 2 })).toBe(false);
   service.leave(table.slug, "g", users[1], 1200);
   expect(canReadRemote(db, claims)).toBe(false);
   service.join(table.slug, "g", users[2], "C", 1, 1300);
+  registerTestDeck(db, service, table.slug, users[2], 1300);
   expect(canReadRemote(db, claims)).toBe(false);
   const final = service.leave(table.slug, "g", users[0], 1400);
   expect(final.status).toBe("ended");
@@ -508,9 +741,11 @@ describe("tolerant voice attack resolution", () => {
   });
 
   it("persists public annotations and replays a confirmed proposal through the normal event store", () => {
-    const { service, table, users } = setup();
+    const { service, table, users, db } = setup();
     service.join(table.slug, "g", users[1], "Imran", 1, 1100);
+    registerTestDeck(db, service, table.slug, users[1], 1100);
     service.join(table.slug, "g", users[2], "Sara", 2, 1100);
+    registerTestDeck(db, service, table.slug, users[2], 1100);
     users.slice(0, 3).forEach(user => service.ready(table.slug, "g", user, true, 1200));
     let room = service.start(table.slug, "g", users[0], 1300);
     let seq = 0;

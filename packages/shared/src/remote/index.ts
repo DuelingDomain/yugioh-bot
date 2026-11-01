@@ -12,3 +12,6 @@ export function getRemoteGame(id: string): GameModule {
 }
 
 export * from "./realtime.js";
+
+export * from "./deck-checks.js";
+export * from "./live-deck-checks.js";
