@@ -4,6 +4,7 @@ import type { DetectedQuad, Point } from './types';
 export type FieldZone = `M${1|2|3|4|5}` | `S${1|2|3|4|5}` | 'FIELD' | 'EMZ1' | 'EMZ2' | 'GY' | 'BANISHED' | 'DECK' | 'EXTRA';
 export type FieldFormat = 'normal' | 'domain' | 'genesys' | 'genesys-domain';
 export const hasExtraMonsterZones = (format:FieldFormat='normal') => format==='normal'||format==='domain';
+const inExtraMonsterRow = ({x,y}:Point,format:FieldFormat='normal') => hasExtraMonsterZones(format)&&y<.2&&((x>=.308&&x<=.436)||(x>=.564&&x<=.692));
 export interface FieldCalibration { version: 1; corners: Point[] }
 export const fieldCenter = (card: Pick<DetectedQuad,'quad'>): Point => ({x:card.quad.reduce((s,p)=>s+p.x,0)/4,y:card.quad.reduce((s,p)=>s+p.y,0)/4});
 /** Clockwise TL, TR, BR, BL of the owner's mat. Two opposite corners also work. */
@@ -30,13 +31,13 @@ function onMat(p:Point, calibration?:FieldCalibration):Point {
 export function mapFieldZone(card:DetectedQuad, calibration?:FieldCalibration, peers:DetectedQuad[]=[], format:FieldFormat='normal'):{zone:FieldZone;calibrated:boolean} {
   const {x,y}=onMat(fieldCenter(card),calibration);
   let zone:FieldZone;
-  if(hasExtraMonsterZones(format)&&y<.2&&((x>=.308&&x<=.436)||(x>=.564&&x<=.692)))zone=x<.5?'EMZ1':'EMZ2';
+  if(inExtraMonsterRow({x,y},format))zone=x<.5?'EMZ1':'EMZ2';
   else if(x<.18)zone=y<.56?'FIELD':'EXTRA';
   else if(x>.82)zone=y<.25?'BANISHED':y<.56?'GY':'DECK';
   else {
     const row=y<.56?'M':'S';
     // Without calibration use left-to-right ordering when several cards share a row.
-    const same=peers.filter(p=>{const c=fieldCenter(p);return c.x>=.18&&c.x<=.82&&(c.y<.56)===(y<.56);}).sort((a,b)=>fieldCenter(a).x-fieldCenter(b).x);
+    const same=peers.filter(p=>{const c=fieldCenter(p);return c.x>=.18&&c.x<=.82&&!inExtraMonsterRow(c,format)&&(c.y<.56)===(y<.56);}).sort((a,b)=>fieldCenter(a).x-fieldCenter(b).x);
     const rank=same.findIndex(p=>Math.hypot(fieldCenter(p).x-x,fieldCenter(p).y-y)<.015);
     const col=!calibration&&same.length>1&&rank>=0?rank+1:Math.max(1,Math.min(5,Math.floor((x-.18)/.128)+1));
     zone=`${row}${col}` as FieldZone;

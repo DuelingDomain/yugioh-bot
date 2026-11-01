@@ -70,7 +70,7 @@ export function AutoFieldWatcher({room,action}:{room:RemoteRoom;action(proposal:
     return {left:Math.max(4,Math.min(h.width-224,r.left-h.left+(r.width-width)/2+cx*width-105)),top:Math.max(40,Math.min(h.height-145,r.top-h.top+(r.height-height)/2+cy*height+4))};
   }
   if(!host)return null;
-  const label=watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
+  const label=watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watch.snapshot.status==='error'?'Watcher unavailable':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
   return createPortal(<div onClick={e=>e.stopPropagation()} onPointerDown={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}>
     <div style={{position:'absolute',top:8,left:8,zIndex:22,display:'flex',gap:5,flexWrap:'wrap',maxWidth:'calc(100% - 16px)'}}>
       <label style={control}><input type="checkbox" checked={watch.enabled} onChange={e=>watch.setEnabled(e.target.checked)}/> Auto-detect cards</label>

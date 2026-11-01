@@ -44,8 +44,8 @@ export function AutoDetectLab() {
       <label>Format <select aria-label="Auto-detect format" disabled={!!source} value={format} onChange={e=>setFormat(e.target.value as FieldFormat)}><option value="normal">Advanced</option><option value="domain">Domain</option><option value="genesys">Genesys</option><option value="genesys-domain">Genesys Domain</option></select></label>
       <button type="button" disabled={!source} onClick={()=>setCalibrating(true)}>{watch.calibration?'Recalibrate':'Calibrate zones'}</button>
     </div>
-    <p role="status" data-testid="auto-detect-status">{source&&watch.enabled?'Watching field':'Start your camera to watch placements'} · {watch.snapshot.status}</p>
-    <p>Place a card and keep your hand clear for about one second. Sure reads fill the local twin with Undo. Other reads offer five choices. Removal always needs a choice.</p>
+    <p role="status" data-testid="auto-detect-status">{watch.snapshot.status==='starting'?'Preparing card reader…':source&&watch.enabled?'Watching field':'Start your camera to watch placements'} · {watch.snapshot.status}</p>
+    <p>Place a card and keep your hand clear. Reading starts after about half a second of stability and confirms on a later frame. Sure reads fill the local twin with Undo. Other reads offer five choices. Removal always needs a choice.</p>
     <label>Deck card IDs (optional) <input aria-label="Auto-detect deck priors" value={deck} onChange={e=>setDeck(e.target.value)} placeholder="46986414, 89631139"/></label>
     <div style={{position:'relative',maxWidth:1100,background:'#18221c',minHeight:200}}>
       <video ref={video} autoPlay muted playsInline style={{display:'block',width:'100%'}}/>

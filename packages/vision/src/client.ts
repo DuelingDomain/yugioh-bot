@@ -11,6 +11,8 @@ export interface RecognizerConfig {
   backend?: 'auto' | 'wasm'; workerUrl?: string; runtimeBase?: string;
 }
 export interface Recognizer {
+  /** Explicit camera startup: load the resident index/embedder and warm inference before placements. */
+  prepare():Promise<void>;
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
   recognize(frames: ImageBitmap[] | ImageData[], opts?: RecognizeOptions): Promise<RecognitionResult>;
   detectCards(frame: ImageBitmap | ImageData): Promise<DetectedQuad[]>;
@@ -27,6 +29,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   const profile = config.profile ?? yugioh;
   let worker: Worker | undefined, disposed = false, serial = 0, initial: Promise<unknown> | undefined;
   let inFlight = false;
+  let prepared:Promise<void>|undefined;
   const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
   const failAll = (error: Error) => { for (const value of pending.values()) value.reject(error); pending.clear(); };
   function request(message: object, transfers: Transferable[] = []): Promise<unknown> {
@@ -45,7 +48,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
         const value = pending.get(id); if (!value) return; pending.delete(id);
         if (error) value.reject(new Error(error)); else value.resolve(result);
       };
-      worker.onerror = event => { failAll(new Error(event.message || 'Recognition worker failed')); worker?.terminate(); worker = undefined; initial = undefined; };
+      worker.onerror = event => { failAll(new Error(event.message || 'Recognition worker failed')); worker?.terminate(); worker = undefined; initial = undefined;prepared=undefined; };
       worker.onmessageerror = () => failAll(new Error('Recognition worker message failed'));
       initial = request({ type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/' }).catch(error => { worker?.terminate(); worker = undefined; initial = undefined; throw error; });
     }
@@ -59,7 +62,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     if(opts.cards) validateBoard(opts.cards);
     if('card' in opts) validateOptions({card:opts.card});
     const {signal,...workerOptions}=opts;
-    const abort=()=>{worker?.terminate();worker=undefined;initial=undefined;failAll(new DOMException('Recognition aborted','AbortError'));};
+    const abort=()=>{worker?.terminate();worker=undefined;initial=undefined;prepared=undefined;failAll(new DOMException('Recognition aborted','AbortError'));};
     inFlight=true;
     signal?.addEventListener('abort',abort,{once:true});
     try {
@@ -69,6 +72,10 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     } finally {signal?.removeEventListener('abort',abort);inFlight=false;}
   }
   return {
+    prepare(){
+      if(disposed)return Promise.reject(new Error('Recognizer is disposed'));
+      return prepared??=initialize().then(async()=>{if(disposed)throw new Error('Recognizer is disposed');await request({type:'prepare'});}).catch(error=>{prepared=undefined;throw error;});
+    },
     async peek(frame, opts) { return await boardRequest('peek',frame,opts) as PeekResult; },
     async readAll(frame, opts={}) { return await boardRequest('readAll',frame,opts) as BoardResult; },
     async recognize(frames, opts = {}) {

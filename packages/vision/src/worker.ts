@@ -2,6 +2,7 @@
 import { createModelSession, runtimeDiagnostics, Tensor, type ModelSession } from './runtime';
 import { fullArtProfile } from './full-art';
 import { RecognitionPipeline } from './pipeline';
+import { embedImages } from './embed';
 import { detectScene } from './detect-scene';
 import { indexVersion, type LearningSnapshot } from './learning';
 import { calibratedThresholds } from './threshold-config';
@@ -56,6 +57,8 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
       } else if(reply.status!==404) throw new Error('Cannot load full-art metadata');
     }
     pipeline = new RecognitionPipeline(profile, index, detector, embedder, Tensor, fullArtIndex);
+    // Compile kernels outside placement/click latency. Never use this warm-up as evidence.
+    await embedImages(embedder,Tensor,profile.embedding,[{width:8,height:8,data:new Uint8ClampedArray(8*8*4).fill(128)}]);
     clearInterval(learningTimer);
     learningCache=new LearningCache(async()=>{
       const response=await fetch('/api/remote-vision/learning',{cache:'no-store',signal:AbortSignal.timeout(1500)});
@@ -98,7 +101,7 @@ async function jpeg(image:RGBAImage,width:number,maxBytes:number):Promise<string
     return btoa(binary);
   }
 }
-type Request = { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string } | { id: number; type: 'detect'; frame: ImageBitmap | ImageData } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
+type Request = { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string } | {id:number;type:'prepare'} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
 let queue = Promise.resolve();
 scope.onmessage = (event: MessageEvent<Request>) => {
   const message = event.data;
@@ -110,6 +113,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         if(!configuration||!detectorSession)throw new Error('Recognizer has not initialized');
         if(message.type==='detect') {scope.postMessage({id:message.id,result:await detectScene(pixels(message.frame),configuration.profile,detectorSession,Tensor)});return;}
         if(!pipeline)await initialize(configuration.profile,configuration.backend,configuration.runtimeBase);
+        if(message.type==='prepare'){scope.postMessage({id:message.id,result:null});return;}
         if(learningCache)pipeline!.setLearning(learningCache.current());
         if(message.type==='peek') {scope.postMessage({id:message.id,result:await pipeline!.peek(pixels(message.frame),message.opts)});return;}
         if(message.type==='readAll') {scope.postMessage({id:message.id,result:await pipeline!.readAll(pixels(message.frame),message.opts)});return;}

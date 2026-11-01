@@ -81,7 +81,7 @@ test('full catalog retains Tokens, Skills and alternate artwork', () => {
 });
 
 import { createRecognizer } from './client';
-import { webRuntime, type WebOrt } from './web-runtime';
+import { webRuntime, openModelSession, type WebOrt } from './web-runtime';
 test('game shorthand validates before allocating a worker and disposal rejects recognition', async () => {
   assert.throws(() => createRecognizer({game: 'unknown' as 'yugioh'}), /Unsupported game/);
   const reader = createRecognizer({game: 'yugioh'}); reader.dispose();
@@ -94,6 +94,22 @@ test('isolated WASM enables four threads and SIMD; other pages keep one thread',
   assert.equal(ort!.env.wasm.numThreads, 4); assert.equal(ort!.env.wasm.simd, true);
   webRuntime({...deps, crossOriginIsolated: false});
   assert.equal(ort!.env.wasm.numThreads, 1);
+});
+test('auto uses an available WebGPU adapter and retries a failed run on threaded SIMD WASM',async(t)=>{
+  t.mock.method(console,'debug',()=>{});t.mock.method(console,'warn',()=>{});
+  let fail=false,gpuRuns=0,wasmRuns=0;
+  class Tensor {constructor(public type:string,public data:Float32Array,public dims:number[]){}}
+  const output={vector:{data:new Float32Array([1,0]),dims:[1,2]}};
+  const build=(gpu:boolean)=>({env:{wasm:{}},Tensor,InferenceSession:{create:async()=>({release:async()=>{},run:async()=>{
+    if(gpu){gpuRuns++;if(fail)throw new Error('GPU device lost');}else wasmRuns++;return output;
+  }})}} as unknown as WebOrt);
+  const wasm=build(false),gpu=build(true);
+  const {session}=await openModelSession('model.onnx','test-model',{ort:wasm,ortWebGpu:async()=>gpu,gpu:{requestAdapter:async()=>({info:{vendor:'test-gpu'}})},fetch:async()=>new Response(new Uint8Array([1,2,3])),getURL:path=>path,crossOriginIsolated:true,hardwareConcurrency:8});
+  const feeds={input:new Tensor('float32',new Float32Array([1]),[1])};
+  await session.run(feeds);assert.equal(session.ep,'webgpu');assert.equal(gpuRuns,1);assert.equal(wasmRuns,0);
+  fail=true;await session.run(feeds);assert.equal(session.ep,'wasm');assert.equal(wasmRuns,1);
+  await session.run(feeds);assert.equal(gpuRuns,2);assert.equal(wasmRuns,2);
+  assert.equal(wasm.env.wasm.numThreads,4);assert.equal(wasm.env.wasm.simd,true);await session.release();
 });
 
 import { detectFullArtLayout, fullArtProfile } from './full-art';

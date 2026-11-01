@@ -44,7 +44,7 @@ test('client exposes both worker operations and abort releases its worker for an
     constructor(){workers.push(this);}
     postMessage(message:Record<string,unknown>){
       messages.push(message);
-      if(message.type==='init') queueMicrotask(()=>this.onmessage?.({data:{id:message.id,result:null}}));
+      if(message.type==='init'||message.type==='prepare') queueMicrotask(()=>this.onmessage?.({data:{id:message.id,result:null}}));
       if(message.type==='peek') queueMicrotask(()=>this.onmessage?.({data:{id:message.id,result:{name:'Alpha',tier:'sure'}}}));
     }
     terminate(){this.terminated=true;}
@@ -52,6 +52,8 @@ test('client exposes both worker operations and abort releases its worker for an
   globalThis.Worker=FakeWorker as unknown as typeof Worker;
   const reader=createRecognizer({backend:'wasm'});
   try {
+    await Promise.all([reader.prepare(),reader.prepare()]);
+    assert.equal(messages.filter(m=>m.type==='prepare').length,1);
     assert.equal((await reader.peek(frame as ImageData,{card:card(.1,.1)})).name,'Alpha');
     const controller=new AbortController();
     const reading=reader.readAll(frame as ImageData,{cards:[],signal:controller.signal});
@@ -61,6 +63,7 @@ test('client exposes both worker operations and abort releases its worker for an
     assert.equal(workers[0].terminated,true);
     await reader.peek(frame as ImageData,{card:card(.1,.1)});
     assert.equal(workers.length,2);
+    await reader.prepare();assert.equal(messages.filter(m=>m.type==='prepare').length,2);
     assert.equal('signal' in (messages.find(m=>m.type==='readAll')!.opts as object),false);
   } finally {reader.dispose();globalThis.Worker=original;}
 });
@@ -166,6 +169,11 @@ test('both calibrated EMZ sit above M2/M4 only in Advanced and Domain',()=>{
   assert.deepEqual(zones.fieldZoneLocation('EMZ1'),{zone:'extra-monster',slot:1});
   assert.deepEqual(zones.fieldZoneLocation('EMZ2'),{zone:'extra-monster',slot:2});
 });
+test('EMZ outlines do not shift uncalibrated main-row ordering',()=>{
+  const main=[card(.25,.3,.04,.06),card(.65,.3,.04,.06)],extra=[card(.35,.05,.04,.06),card(.61,.05,.04,.06)];
+  assert.equal(zones.mapFieldZone(main[1],undefined,main).zone,'M2');
+  assert.equal(zones.mapFieldZone(main[1],undefined,[...main,...extra]).zone,'M2');
+});
 
 test('a large move through a brief hand occlusion keeps the physical id without another read',async()=>{
   const r=fieldRig();r.outlines=[card(.2,.3)];for(let i=0;i<6;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
@@ -201,7 +209,44 @@ test('a stationary arm over the last clear halo suppresses removal until the sur
 test('stopping a watcher during inference discards its late placement result',async()=>{
   let at=0,resolve!:(result:RecognitionResult)=>void;const delayed=new Promise<RecognitionResult>(done=>{resolve=done;}),events:field.FieldEvent[]=[];
   const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:()=>delayed},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1}),clone:async f=>f});watcher.subscribe(e=>events.push(e));
-  for(let i=0;i<4;i++){at+=333;await watcher.tick();}at+=333;const pending=watcher.tick();await new Promise(r=>setImmediate(r));watcher.dispose();resolve(sureResult());await pending;assert.equal(events.length,0);
+  for(let i=0;i<3;i++){at+=250;await watcher.tick();}await new Promise(r=>setImmediate(r));watcher.dispose();resolve(sureResult());await new Promise(r=>setImmediate(r));assert.equal(events.length,0);
+});
+
+test('recognition starts after 500 ms and publishes only after the next clean detector frame',async()=>{
+  const r=fieldRig();await r.tick(250);await r.tick(250);assert.equal(r.reads,0);
+  await r.tick(250);assert.equal(r.reads,1);assert.equal(r.events.length,0);
+  await new Promise(done=>setImmediate(done));await r.tick(250);
+  assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events[0].latencyMs,750);r.watcher.dispose();
+});
+test('a new card gets a short sampling burst even while placement motion is clearing',async()=>{
+  const r=fieldRig();r.motion=.2;await r.tick(250);
+  assert.equal(r.watcher.getSnapshot().metrics.intervalMs,200);assert.equal(r.reads,0);
+  r.motion=0;for(let i=0;i<5;i++)await r.tick(250);assert.equal(r.events.filter(e=>e.type==='placed').length,1);r.watcher.dispose();
+});
+test('tracking continues during a slow read and motion invalidates the late identity',async()=>{
+  let at=0,sampled=0,detects=0,motion=0,resolve!:(r:RecognitionResult)=>void;
+  const pending=new Promise<RecognitionResult>(done=>{resolve=done;}),events:field.FieldEvent[]=[];
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>{detects++;return [card(.3,.3)];},recognize:()=>pending},buffer:{sample:async()=>{sampled++;return {frame:frame as ImageData,at};}},now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>motion,sharpness:()=>1}),clone:async f=>f});watcher.subscribe(e=>events.push(e));
+  for(let i=0;i<3;i++){at+=250;await watcher.tick();}
+  motion=.3;at+=250;await watcher.tick();assert.equal(sampled,4);assert.equal(detects,3);
+  resolve(sureResult());await new Promise(done=>setImmediate(done));motion=0;at+=250;await watcher.tick();
+  assert.equal(events.length,0);assert.equal(watcher.getSnapshot().tracks[0].state,'candidate');watcher.dispose();
+});
+test('dismissal while the sharpest-frame clone is pending cannot start a stale read',async()=>{
+  let at=0,clones=0,reads=0,unblock!:(value:ImageData)=>void;
+  const events:field.FieldEvent[]=[],cloning=new Promise<ImageData>(done=>{unblock=done;});
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:async()=>{reads++;return sureResult();}},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1}),clone:async f=>++clones===4?cloning:f});watcher.subscribe(e=>events.push(e));
+  at=250;await watcher.tick();at=500;await watcher.tick();at=750;const pending=watcher.tick();await new Promise(done=>setImmediate(done));
+  watcher.dismiss(watcher.getSnapshot().tracks[0].id);unblock(frame as ImageData);await pending;
+  for(let i=0;i<4;i++){at+=250;await watcher.tick();}
+  assert.equal(reads,0);assert.equal(events.length,0);assert.equal(watcher.getSnapshot().tracks[0].state,'dismissed');watcher.dispose();
+});
+test('the confirming detector frame must still match the read appearance after inference completes',async()=>{
+  let at=0,appearance=Array(12).fill(.2),resolve!:(value:RecognitionResult)=>void;
+  const pending=new Promise<RecognitionResult>(done=>{resolve=done;}),events:field.FieldEvent[]=[];
+  const watcher=field.createFieldWatcher({profile:yugioh,recognizer:{detectCards:async()=>[card(.3,.3)],recognize:()=>pending},buffer:{sample:async()=>({frame:frame as ImageData,at})},now:()=>at,hidden:()=>false,analyze:()=>({motion:()=>0,sharpness:()=>1,appearance:()=>appearance}),clone:async f=>f});watcher.subscribe(e=>events.push(e));
+  for(let i=0;i<3;i++){at+=250;await watcher.tick();}resolve(sureResult());await new Promise(done=>setImmediate(done));
+  appearance=Array(12).fill(.8);at+=250;await watcher.tick();assert.equal(events.length,0);assert.equal(watcher.getSnapshot().tracks[0].state,'candidate');watcher.dispose();
 });
 
 test('a different card after disappearance is recognized as a new physical instance',async()=>{

@@ -393,6 +393,16 @@ it('shows the default-off consent prompt once under React StrictMode',async()=>{
 
 // Field watcher lifecycle shares this existing browser test file.
 import { useFieldWatcher } from "../src/lib/remote/use-field-watcher";
+it('desktop outlined clicks read the exact held frame once without resampling or redetecting',async()=>{
+  const {readCard,disposeRecognizer}=await import('../src/components/remote/ui/recognizer');
+  const first=document.createElement('canvas'),second=document.createElement('canvas');first.width=second.width=640;first.height=second.height=480;
+  try {
+    await readCard(null,{x:.25,y:.5},{decklist:[],seen:[]},new AbortController().signal,quads[0],[first,second]);
+    expect(createBitmap).toHaveBeenCalledTimes(1);expect(createBitmap).toHaveBeenCalledWith(first);
+    expect(state.recognize).toHaveBeenCalledWith(expect.any(Array),expect.objectContaining({card:quads[0],maxFrames:1}));
+    expect(state.detectCards).not.toHaveBeenCalled();
+  }finally{disposeRecognizer();}
+});
 import { HoloField } from "../src/components/remote/ui/holo-field";
 import { cellsFor, foundationZone } from "../src/components/remote/ui/model";
 it('renders two interactive EMZ above the main row only for Advanced and Domain',()=>{
