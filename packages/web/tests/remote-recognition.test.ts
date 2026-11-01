@@ -19,7 +19,7 @@ it("reads a local frame and sends only the public passcode to the existing catal
   const fetcher = vi.fn().mockResolvedValue(Response.json({ cards: [{ id: 46986414, name: "Dark Magician" }] })); vi.stubGlobal("fetch", fetcher);
   expect(await recognizeLocalCard(canvas, new AbortController().signal)).toEqual([{ id: 46986414, name: "Dark Magician" }]);
   expect(ocr.post).toHaveBeenCalledWith({ image: expect.any(Blob) });
-  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ customCardIds: [46986414] });
+  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ lookupIds: [46986414] });
   expect(ocr.terminate).toHaveBeenCalledOnce();
 });
 
