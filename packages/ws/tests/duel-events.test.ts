@@ -411,12 +411,15 @@ describe("remote rooms", () => {
   });
 });
 
-it("sends remote private snapshots only to the authenticated seat's sockets", async () => {
+it.each([true,false])("sends only the chosen Deck identity publicly when publicity is %s", async show => {
   const { ygoModule, projectRemoteSnapshot }=await import("@yugidraft/shared/remote");
   const server=await setupTestServer();
   const state=ygoModule.initialState({seatCount:2});
   state.deckChecks.registrations[0]={savedDeckId:77,name:"Secret deck",deck:{main:[53582587],extra:[],side:[]},validation:{issues:[]}};
   state.effectTracking={contexts:{},origins:[{id:"secret",seat:0,ref:"set",destination:"set",source:{cardId:70825459,name:"Trap Tracks"},announceRecommended:false,derivedFrom:"text",chosenCardId:53582587,candidates:[{cardId:53582587,copyKey:53582587,name:"Torrential Tribute",copies:1}]}],notes:[]};
+  state.showCardsSetFromDeck=show;
+  state.seats[0].twin=[{ref:"set",zone:"spell-trap",faceUp:false,position:"attack",cardId:53582587,name:"Torrential Tribute",...(show ? {publicIdentity:true} : {})}];
+  if(show) state.effectTracking.origins[0].announcedCard={cardId:53582587,name:"Torrential Tribute"};
   const raw={table:{slug:"remote",guildId:"g",lastSeq:2,seats:[{seat:0,deck:state.deckChecks.registrations[0]}]},state,events:[]} as any;
   const remote=registerRemoteEventHandlers(server.io as any,{secret:SECRET,canRead:()=>true,readSnapshot:()=>projectRemoteSnapshot(raw),
     readPrivateSnapshot:claims=>projectRemoteSnapshot(raw,new Set([claims.seat]))});
@@ -430,6 +433,8 @@ it("sends remote private snapshots only to the authenticated seat's sockets", as
     remote.publish("remote","g");
     expect((await own).state.effectTracking.origins[0].candidates).toHaveLength(1);
     for(const update of [await other, await publicUpdate]) {
+      expect(update.state.seats[0].twin[0].cardId).toBe(show ? 53582587 : undefined);
+      expect(update.state.seats[0].twin[0].faceUp).toBe(false);
       const data=JSON.stringify(update); expect(data).not.toContain("Secret deck"); expect(data).not.toContain('"candidates"'); expect(data).not.toContain('"chosenCardId"');
     }
   } finally {a.disconnect();b.disconnect();await server.io.close();}
