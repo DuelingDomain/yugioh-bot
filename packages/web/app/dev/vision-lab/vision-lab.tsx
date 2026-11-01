@@ -84,7 +84,7 @@ export function VisionLab() {
       if (run !== runRef.current) return;
       if (!recognizerRef.current || recognizerRef.current.backend !== backend) {
         recognizerRef.current?.value.dispose();
-        recognizerRef.current = { backend, value: createRecognizer({ profile: yugioh, backend }) };
+        recognizerRef.current = { backend, value: createRecognizer({ game: "yugioh", backend }) };
       }
       // The worker takes ownership of these clones; the source keeps its originals.
       const next = await recognizerRef.current.value.recognize(frames, { clickPoint: point, k: 5 });

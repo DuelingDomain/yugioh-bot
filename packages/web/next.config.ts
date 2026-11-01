@@ -22,6 +22,16 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@yugidraft/shared", "@yugidraft/vision"],
   serverExternalPackages: ["better-sqlite3", "sharp"],
   images: { unoptimized: true },
+  // Keep Clerk's OAuth popups and YouTube embeds on all other pages unaffected.
+  async headers() {
+    return ["/dev/vision-lab/:path*", "/duels/remote/:path*"].map(source => ({
+      source,
+      headers: [
+        { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+        { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+      ],
+    }));
+  },
 };
 
 const org = process.env.SENTRY_ORG?.trim();

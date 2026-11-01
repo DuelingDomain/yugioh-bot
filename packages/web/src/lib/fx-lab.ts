@@ -25,6 +25,7 @@ export function isFxLabPublicPath(pathname: string): boolean {
     pathname === "/dev/sign-in-preview" ||
     pathname === "/dev/delete-account-preview" ||
     pathname === "/dev/vision-lab" ||
+    pathname.startsWith("/dev/vision-lab/assets/") ||
     pathname === "/dev/vision-assets" ||
     pathname.startsWith("/dev/vision-assets/") ||
     /^\/api\/cards\/\d+\/image$/.test(pathname) ||

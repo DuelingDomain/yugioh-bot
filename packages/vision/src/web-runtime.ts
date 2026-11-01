@@ -78,6 +78,8 @@ export function webRuntime(deps: WebRuntimeDeps = {}): WebRuntime {
   // so its thread workers start from that file rather than from the offscreen bundle.
   ort.env.wasm.wasmPaths = getURL('ort/');
   ort.env.wasm.numThreads = isolated ? wasmThreads(cores) : 1;
+  // This shipped binary contains fixed-width SIMD; require feature detection explicitly.
+  ort.env.wasm.simd = true;
 
   async function fetchPackaged(path: string, what: string): Promise<Response> {
     let res: Response;

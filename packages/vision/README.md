@@ -12,7 +12,7 @@ From this worktree, with Node 22 on PATH:
 export PATH=/home/sulman633/.nvm/versions/node/v22.23.3/bin:$PATH
 npm ci
 npx tsx scripts/vision/prepare.ts
-npx tsx scripts/vision/build-index.ts --selection subset
+npx tsx scripts/vision/build-index.ts --selection full
 npm run dev --workspace=@yugioh-discord-bot/web -- --port 3417
 ```
 
@@ -30,6 +30,11 @@ E2E_AUTH=1 E2E_AUTH_SECRET=vision-lab-local-only-633-not-a-real-key \
 This does not sign a user in. It permits the gated public lab to render without
 initializing Clerk. Camera access needs localhost or HTTPS.
 
+For a quick first trial, use `--selection subset` instead. Full coverage
+includes Tokens, Skills and every named card/artwork in the source snapshot.
+The single unnamed `???` record (nine images) is excluded as an upstream
+placeholder. Older filtered catalog caches are automatically refetched once.
+
 Use **Start camera**, then click a card. The caller owns a one-second ring of up
 to six full-resolution frames; the worker selects the sharpest three near the
 click. **Upload photo** exercises the same path with one frame. The page shows
@@ -40,8 +45,9 @@ quality, no photos. Confirmations live only for the current page session.
 
 Models, index, worker, cached artwork and benchmark photos are all under ignored
 `data/vision/`. In development `/dev/vision-assets/<path>` streams those files
-with proper JavaScript/WASM MIME types. Artwork thumbnails are hardlinked from the
-local cache, so the isolated lab needs neither the app database nor image hotlinks. `VISION_DATA_DIR` can override this root
+with proper JavaScript/WASM MIME types. Worker/runtime requests use the isolated
+alias `/dev/vision-lab/assets/<path>`; both routes retain the same lab gate.
+Artwork thumbnails are hardlinked from the local cache, so the isolated lab needs neither the app database nor image hotlinks. `VISION_DATA_DIR` can override this root
 (use an absolute path consistently in both tools and the web server). Generated
 assets are excluded from route traces, pruned from production standalone output,
 and remain outside `public/` to retain the request-time gate. No service on
@@ -51,11 +57,11 @@ downloading models; rerun it after worker changes.
 ## API
 
 ```ts
-import { createRecognizer, yugioh } from '@yugidraft/vision';
-const reader = createRecognizer({ profile: yugioh }); // backend: 'auto' | 'wasm'
+import { createRecognizer } from '@yugidraft/vision';
+const reader = createRecognizer({ game: 'yugioh' }); // lazy worker; auto prefers WebGPU
 const result = await reader.recognize(frames, {
   clickPoint: { x: 0.5, y: 0.5 }, // normalized source pixels, not CSS pixels
-  k: 5,
+  // k defaults to 5; optional override: 1–100
   priors: {
     decklist: ['14558127'], seen: ['23434538'], voiceMentioned: ['46986414'],
     // frameClasses: ['Spell'], // optional explicit hard restriction
@@ -64,9 +70,29 @@ const result = await reader.recognize(frames, {
 // { candidates: [{cardId, score}], tier: 'sure' | 'not sure' | 'low match',
 //   quality: { sharpness, detected, cornersFound, framesUsed,
 //              selectedFrameIndices, fallback, frameClass? },
-//   timingsMs: { sharpness, detect, warp, embed, search, total }, backend }
+//   timingsMs: { sharpness, detect, warp, embed, search, total }, backend,
+//   runtime: { crossOriginIsolated, wasmThreads, simd } }
 reader.dispose();
 ```
+
+The five `candidates` are distinct card IDs, merging alternate artworks by their
+best match. `tier` describes confidence in the visual winner; lower suggestions
+are alternatives, not separately accepted cards. `priors` are optional and never
+turn a weak visual result into `sure`. Use `{ game: 'yugioh', backend: 'wasm' }`
+to skip GPU probing on CPU-only devices. Unknown game IDs fail before a worker
+is allocated. The existing `{ profile: yugioh }` form remains compatible; an
+explicit `profile` takes precedence and permits another game's data/URLs.
+
+Defaults use the gated local lab assets. The API does not enable those assets
+in production: they still require `DUEL_FX_LAB=1`. A production Remote Duel
+integration can supply its own `profile` model/index URLs, `workerUrl` and
+`runtimeBase` when mounting the generated files. Serve the worker and runtime
+under `/duels/remote/…` so their responses receive the same isolation headers.
+Index metadata must be generated for that exact profile: `embedding.url` currently
+participates in `layoutKey`. Relocating the embedding URL therefore requires
+matching regenerated metadata, even with unchanged weights/preprocessing.
+Changing only `workerUrl`, `runtimeBase`, `indexUrl` or `metaUrl` does not change
+that identity. No camera frames are sent to those asset endpoints.
 
 `frames` is `ImageBitmap[]` or `ImageData[]`, 1–12 images, each 3 pixels to 16 MP.
 ImageBitmaps transfer to the worker and are consumed; ImageData is copied. Clone
@@ -95,8 +121,32 @@ the embedding index; a face-down detector prediction alone never identifies it.
 The full upstream runtime handles WebGPU adapter/build/session/run timeouts,
 nonfinite GPU outputs and failures by retrying on a separate WASM runtime. A
 failed GPU stays disabled for that worker. WASM uses one thread without cross
-origin isolation, otherwise half the logical cores capped at four. The lab does
-not change global COOP/COEP headers or the app's OAuth behavior.
+origin isolation, otherwise half the logical cores capped at four. Fixed-width
+SIMD is explicitly enabled and the matching `ort-wasm-simd-threaded.wasm` is
+served locally; this binary already provided SIMD in the original baseline.
+Threading supplies the new speedup. `runtime` reports the worker's actual
+isolation and ONNX WASM configuration after initialization/fallback.
+
+COOP `same-origin` and COEP `require-corp` apply **only** to
+`/dev/vision-lab/:path*` and `/duels/remote/:path*`. The worker, runtime modules
+and WASM thread workers use `/dev/vision-lab/assets/…`, reusing the existing
+gated, traversal-safe file handler. Index/model/thumbnail URLs remain same-origin
+under `/dev/vision-assets/…`. Headers on the page alone are insufficient: the
+worker's own script and thread runtime must also opt in. Enter/leave isolated
+screens with a full document navigation; a Next.js client transition cannot
+change an existing document's isolation. Browsers without isolation keep the
+one-thread fallback. See [ORT flags](https://onnxruntime.ai/docs/tutorials/web/env-flags-and-session-options.html)
+and [worker isolation](https://developer.mozilla.org/en-US/docs/Web/API/WorkerGlobalScope/crossOriginIsolated).
+
+HTTP checks verify no COOP/COEP on sign-in, sign-up, SSO callback, regular duels,
+the sign-in preview or the legacy asset URLs. The real lab upload returned five
+candidates without browser errors; the real trailer component opened/closed its
+YouTube iframe on a non-isolated page. The 50 selected existing proxy/auth/trailer
+tests pass. Production build/standalone packaging pass, with generated vision
+assets excluded; disabled production lab/worker/model URLs return 404. Raw
+application checks are in `data/vision/benchmark/application-checks.json`.
+Live Clerk OAuth was not exercised because this worktree has no Clerk
+keys; the lab uses the existing offline auth mode.
 
 ## Game profiles and index format
 
@@ -122,8 +172,9 @@ vectors. Int8 is `round(127 × L2-normalized vector)`. Search renormalizes store
 rows to remove quantization norm drift. JSON retains `modelId`, `dim`, `count`,
 `quant`, `builtAt`, `entries`, adding `dtype`, game ID, model SHA256 and layout
 identity; entries carry generic string `cardId`, passcode, name, image ID and
-frame class. A passcode of 0 marks an as-yet unassigned code (seven recent cards
-in this snapshot) or the card-back sentinel. Header, metadata and vector length are validated before inference.
+frame class. A passcode of 0 marks an entry without an eight-digit game passcode
+(including nonstandard catalog IDs and newly announced cards), or the card-back
+sentinel. Header, metadata and vector length are validated before inference.
 
 ## Index build and assets
 
@@ -136,7 +187,7 @@ The Yu-Gi-Oh catalog adapter is intentionally outside the generic runtime.
 
 Subset selection combines 1,000 cards ranked by repository format staple/generic
 deck usage (then catalog views), with recent released cards. It includes all
-alternate artworks, skips Tokens/Skills, and fills unavailable cards with the
+alternate artworks, Tokens and Skills, and fills unavailable cards with the
 next recent releases. Derived 224px JPEGs and model/profile-keyed float vectors
 are resumable. Local `data/card-images/<imageId>.jpg` full cards are preferred;
 otherwise use YGOPRODeck cropped art, falling back to the full render and the
@@ -145,8 +196,49 @@ profile art window. Downloads are serial, ≥255 ms apart, with retries and
 and inference speed are recorded in `yugioh-index.build.json`. Card-back image
 placeholders are removed with Duel Lens's cosine ≥ .90 rule.
 
-Verified local coverage: **2,000 cards, 2,030 artwork vectors + one card-back
-vector**. Index binary: **779,924 bytes**. The source catalog contains 14,422
+### Full catalog, verified 2026-11-01 UTC
+
+**14,652 cards, 14,816 artwork vectors + one card-back vector** (14,817 total).
+This includes 230 Tokens/Skills and 164 alternate images beyond one per card.
+Every named catalog card/image ID and every thumbnail was checked against the
+source snapshot. There are **zero missing artworks, failures or card-back
+placeholder exclusions** among these named entries. The source's one unnamed
+`???` record with nine images is excluded as an upstream placeholder before selection.
+
+| Metric | Measured result |
+| --- | --- |
+| Full build wall time | **3,318.094 s = 55m 18.1s** |
+| YGIX int8 binary | **5,689,748 bytes (5.43 MiB)** |
+| Metadata JSON | **3,551,731 bytes (3.39 MiB)** |
+| Resumable cache, logical bytes | 396,801,329 bytes (378.42 MiB) |
+| Entire `data/vision/` after cleanup, allocated disk space | 561,487,872 bytes (535.48 MiB), hardlinks counted once |
+| Reused / newly embedded artwork vectors | 2,030 / 12,786 |
+| New images downloaded / read from local full-card cache | 12,784 / 2 |
+| Serial HTTP requests (including retries/full-render fallbacks) | 12,943 |
+| Native CPU embedding, four threads | **37.7 ms/art mean** |
+
+Downloads and native inference overlap the rate-limit wait. The reported wall
+time is the full invocation, including the concurrent application checks.
+Artwork is retained as 224px JPEGs alongside float embedding checkpoints;
+thumbnail hardlinks share the JPEG storage. The raw and normalized catalog snapshots are
+also kept for provenance. The binary is 384 dimensions, int8, with the standard
+20-byte YGIX header. All outputs remain ignored under `data/vision/`:
+`yugioh-index.bin`, `yugioh-index.meta.json`, `yugioh-index.build.json` and
+`cache/25a56963ff4ae74df99b3995/`. The source SHA256 is
+`698f7dcff6092a055e606e24f83d0bc8d944aac622bc1bd539d8bebd8c3bded3`.
+The exact measured invocation was:
+
+```sh
+npx tsx scripts/vision/build-index.ts --selection full --threads 4 \
+  --catalog data/vision/cache/cardinfo.json
+```
+
+A subsequent `--selection full --threads 4` resumes the normalized catalog and
+vectors without needing to download or embed these artworks again. It still
+validates and rewrites the index; no second full build was needed for this report.
+
+Original subset build (retained as the baseline): **2,000 cards, 2,030 artwork vectors + one card-back
+vector**. Index binary: **779,924 bytes**. The original filtered source catalog contained 14,422
 cards / 14,572 artworks after Token/Skill exclusions; fresh serial downloads
 alone would take at least 61.9 minutes at this rate, so the subset was selected.
 The measured resumable build reused 1,921 vectors and embedded 109 at 31.9 ms/art
@@ -176,7 +268,14 @@ checks hashes and never runs upstream install/training scripts.
 
 Run `npx tsx scripts/vision/benchmark.ts` after preparing models/index. It launches
 an ephemeral localhost asset server and headless Chromium with GPU disabled,
-then exercises the actual browser Worker/ONNX WASM path. Seed 633 selects 30
+then exercises the actual browser Worker/ONNX WASM path. It uses the full Chromium
+executable in new headless mode (`channel: 'chromium'`). Isolation is on by
+default; `--isolation off` reproduces single-thread WASM against the same index.
+Use `--backend auto` to try WebGPU with `--enable-unsafe-webgpu`,
+`--use-angle=swiftshader`, `--enable-unsafe-swiftshader`. `--label <name>` writes
+`results-<name>.json`; `--quick` runs three clean photos for a path probe only.
+Reports include page/worker isolation, real runtime thread/SIMD flags, requested
+WASM files, adapter info, console fallback reasons, pipeline and API wall latency. Seed 633 selects 30
 catalog cards, five per condition: clean, blur, perspective/rotation, glare,
 coloured sleeves, combined. Photos and raw results stay under
 `data/vision/benchmark/`. Detector misses/errors stay in the accuracy denominator.
@@ -186,7 +285,83 @@ WASM embedding parity. Duel Lens's seeded degradation helper is reused for the
 ring; a full-scene renderer adds the perspective/sleeve geometry needed to test
 the detector.
 
-Measured on Ryzen 7 9800X3D, WSL2, Chromium 153.0.8010.12, **single-thread WASM**, GPU disabled, no cross-origin isolation (2026-11-01 UTC):
+### Full-index CPU comparison
+
+Ryzen 7 9800X3D, WSL2 exposing eight logical CPUs, 47 GB RAM, Chromium
+153.0.8010.12 in new headless mode, GPU disabled, 2026-11-01 UTC. Both runs use
+**the same 14,652-card index and unchanged seed-633 30-photo corpus**. The full
+index builder had exited before measurement. SIMD is active in both runs;
+isolation enables the additional WASM threads.
+
+| Metric | One thread, isolation off | Four threads, isolation on |
+| --- | --- | --- |
+| Warm pipeline median / p95 | **483.4 / 535.4 ms** | **182.0 / 274.8 ms** |
+| Warm API wall median / p95 | 484.8 / 536.7 ms | **183.4 / 276.1 ms** |
+| Warm pipeline mean | 496.2 ms | 192.0 ms |
+| Cold API wall, models/index/runtime included | 1,548.4 ms | 896.0 ms |
+| Median detect / embed / search | 138.3 / 303.1 / 23.1 ms | 45.0 / 94.1 / 23.9 ms |
+| Top-1 / top-5 | 30/30 / 30/30 | 30/30 / 30/30 |
+| Detected / corners found | 30/30 / 30/30 | 30/30 / 30/30 |
+| Six-frame ring, sharpest three [0,1,2] | 1,438.2 ms, correct top-1 | 504.9 ms, correct top-1 |
+| Off-card fallback | 905.6 ms, `low match` | 292.0 ms, `low match` |
+| Native / WASM embedding cosine | 0.999999998 | 0.999999998 |
+
+The comparable full-index median improves **2.66× (62.3% lower latency)** and
+meets the **<250 ms single-frame median** target. The API wall timer includes
+worker transfer/conversion and response; `timingsMs.total` measures the pipeline.
+Frame fetch/decode and initial loading are outside the warm pipeline timer.
+Each condition remains 5/5 top-1 and top-5. Both runs produce 29 `sure` and one
+`not sure`; ImageData/`k=1` identifies the correct card. The multi-frame ring
+still embeds three selected views, so its latency is higher than a single frame.
+
+The worker reports `crossOriginIsolated: true`, `wasmThreads: 4`, `simd: true`
+and loads `/dev/vision-lab/assets/ort/ort-wasm-simd-threaded.wasm`; the control
+reports isolation false and one thread. Raw records, stage timings, backend and
+runtime diagnostics are in `data/vision/benchmark/results-full-single.json` and
+`results-full-threaded.json`. Reproduce them with:
+
+```sh
+npx tsx scripts/vision/benchmark.ts --isolation off --label full-single
+npx tsx scripts/vision/benchmark.ts --label full-threaded
+npx tsx scripts/vision/benchmark.ts --backend auto --label full-webgpu
+```
+
+### Headless WebGPU with SwiftShader
+
+The final full-index run uses `--enable-unsafe-webgpu --use-angle=swiftshader
+--enable-unsafe-swiftshader` in headless Chrome/Chromium 153. The adapter reports
+vendor `google`, architecture `swiftshader`, `isFallbackAdapter: true`.
+**All 30 recorded recognitions report `backend: 'webgpu'`**, with 30/30 top-1 and
+top-5, 30/30 detections/corners and no inference fallback in this final run.
+Both original models create WebGPU sessions (622 ms detector, 298 ms embedder);
+their first WebGPU runs take 7,054 ms and 3,689 ms respectively.
+
+| Software WebGPU metric | Result |
+| --- | --- |
+| Warm pipeline median / p95 | **8,580.4 / 9,580.3 ms** |
+| Warm API wall median / p95 | 8,581.8 / 9,581.7 ms |
+| Cold API wall, including load and first shaders/runs | 12,165.8 ms |
+| Six-frame ring, sharpest three | 25,769.5 ms, correct top-1 |
+| Off-card fallback | 13,778.2 ms, `low match` |
+
+This proves the actual detector/embedder WebGPU path on a software adapter; it
+provides no speedup on this CPU. Use `backend: 'wasm'` on this machine. The full
+report is `data/vision/benchmark/results-full-webgpu.json`, including provider
+logs, adapter details and every per-frame result. Its plain WASM fetch also
+covers the separate native/WASM parity probe; the recognition records themselves
+all remain WebGPU.
+
+Earlier three-photo probes, performed while indexing/application validation was
+running, created both SwiftShader sessions but the detector hit Duel Lens's
+**10,000 ms per-run watchdog**. Both models then switched to the separate WASM
+runtime and returned correct matches. This also verifies the existing failure
+path; the original watchdog is retained. Raw early probe:
+`data/vision/benchmark/results-chrome-swiftshader-probe.json` (13,960.3 ms cold).
+No physical GPU performance was measured.
+
+Original **2,000-card subset baseline**, Ryzen 7 9800X3D, WSL2, Chromium
+153.0.8010.12 headless shell, **single-thread WASM**, GPU disabled, no cross-origin
+isolation (2026-11-01 UTC):
 
 | Metric | Result |
 | --- | --- |
@@ -207,7 +382,7 @@ These are synthetic transforms of indexed card images, not a held-out real
 webcam benchmark. They cannot establish real webcam accuracy, unfamiliar-card
 rejection, foil robustness or safe automatic acceptance. The camera ring and Stop/release behavior were exercised with Chromium's fake
 media device. Physical webcam capture still needs a human hardware check on this
-WSL machine; WebGPU could not be measured without a usable GPU.
+WSL machine. The software WebGPU experiment does not measure physical GPU performance.
 
 ## Ports and application code
 
