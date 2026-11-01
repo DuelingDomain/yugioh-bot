@@ -54,7 +54,9 @@ export function useRemoteRoom(slug: string) {
     socket.on("disconnect", () => setRealtime("Reconnecting…"));
     socket.on("remote:subscription-expired", () => void join());
     socket.on("remote:data", payload => { if (payload.slug === slug) for (const handler of dataHandlers.current) handler(payload); });
-    socket.on("remote:changed", snapshot => {
+    // Public notifications never replace the viewer's private state. GET also recovers a lost private delivery.
+    socket.on("remote:changed", snapshot => { if(snapshot.table.slug===slug) void mutate(); });
+    socket.on("remote:private", snapshot => {
       if (snapshot.table.slug !== slug) return;
       void mutate(current => current && current.lastSeq <= snapshot.table.lastSeq
         ? { ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat } : current, { revalidate: false });

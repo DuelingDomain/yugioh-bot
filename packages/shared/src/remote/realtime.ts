@@ -14,6 +14,7 @@ export type RemoteDataPayload = { slug: string; fromSeat: number; message: Remot
 export type RemoteSnapshot = { table: RemoteTable; state: RemoteState; events: RemoteEvent[] };
 export type RemoteAck = { ok: true } | { ok: false; error: string; retryAfterMs?: number };
 export interface RemoteServerEvents {
+  "remote:private": (payload: RemoteSnapshot) => void;
   "remote:changed": (payload: RemoteSnapshot) => void;
   "remote:data": (payload: RemoteDataPayload) => void;
   "remote:subscription-expired": (payload: { slug: string }) => void;

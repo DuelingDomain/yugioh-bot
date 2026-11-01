@@ -410,3 +410,27 @@ describe("remote rooms", () => {
     } finally { a.disconnect(); b.disconnect(); c.disconnect(); await server.io.close(); }
   });
 });
+
+it("sends remote private snapshots only to the authenticated seat's sockets", async () => {
+  const { ygoModule, projectRemoteSnapshot }=await import("@yugidraft/shared/remote");
+  const server=await setupTestServer();
+  const state=ygoModule.initialState({seatCount:2});
+  state.deckChecks.registrations[0]={savedDeckId:77,name:"Secret deck",deck:{main:[53582587],extra:[],side:[]},validation:{issues:[]}};
+  state.effectTracking={contexts:{},origins:[{id:"secret",seat:0,ref:"set",destination:"set",source:{cardId:70825459,name:"Trap Tracks"},announceRecommended:false,derivedFrom:"text",chosenCardId:53582587,candidates:[{cardId:53582587,copyKey:53582587,name:"Torrential Tribute",copies:1}]}],notes:[]};
+  const raw={table:{slug:"remote",guildId:"g",lastSeq:2,seats:[{seat:0,deck:state.deckChecks.registrations[0]}]},state,events:[]} as any;
+  const remote=registerRemoteEventHandlers(server.io as any,{secret:SECRET,canRead:()=>true,readSnapshot:()=>projectRemoteSnapshot(raw),
+    readPrivateSnapshot:claims=>projectRemoteSnapshot(raw,new Set([claims.seat]))});
+  const a=createClient(server.url), b=createClient(server.url);
+  try {
+    await Promise.all([a,b].map(waitForConnect));
+    for(const [socket,userId,seat] of [[a,10,0],[b,11,1]] as const) await new Promise(resolve=>socket.emit("remote:join",{token:createRemoteConnectionToken({userId,seat,slug:"remote",guildId:"g",expiresAt:Date.now()+60_000},SECRET)},resolve));
+    const own=new Promise<any>(resolve=>a.once("remote:private",resolve));
+    const other=new Promise<any>(resolve=>b.once("remote:private",resolve));
+    const publicUpdate=new Promise<any>(resolve=>b.once("remote:changed",resolve));
+    remote.publish("remote","g");
+    expect((await own).state.effectTracking.origins[0].candidates).toHaveLength(1);
+    for(const update of [await other, await publicUpdate]) {
+      const data=JSON.stringify(update); expect(data).not.toContain("Secret deck"); expect(data).not.toContain('"candidates"'); expect(data).not.toContain('"chosenCardId"');
+    }
+  } finally {a.disconnect();b.disconnect();await server.io.close();}
+});
