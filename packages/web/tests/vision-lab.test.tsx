@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DetectedQuad, RecognitionResult } from "@yugidraft/vision";
 
@@ -10,9 +10,11 @@ const state = vi.hoisted(() => ({
   hitTestQuad: vi.fn(), snapshot: vi.fn(), loadPhoto: vi.fn(), startCamera: vi.fn(), stop: vi.fn(),
 }));
 
-vi.mock("@yugidraft/vision", () => ({
+vi.mock("@yugidraft/vision", async importOriginal => ({
+  ...await importOriginal<typeof import("@yugidraft/vision")>(),
   createRecognizer: state.createRecognizer,
   hitTestQuad: state.hitTestQuad,
+  isPhysicalEntry: () => true,
   yugioh: { id: "yugioh", metaUrl: "/test/vision-meta.json", embedding: { id: "test-model" }, cardBack: { cardId: "card-back", imageUrl: "/test/back.jpg" } },
 }));
 vi.mock("../app/dev/vision-lab/use-vision-source", async () => {
@@ -150,7 +152,7 @@ describe("vision lab source and selected cards", () => {
     fireEvent.click(preview(), { detail: 1, clientX: 450, clientY: 240 });
     await screen.findByRole("dialog", { name: "Card matches" });
     expect(state.hitTestQuad).toHaveBeenCalledWith(quads, { x: 450 / 640, y: .5 }, { width: 640, height: 480 });
-    expect(state.recognize.mock.calls[0][1]).toEqual({ clickPoint: { x: 450 / 640, y: .5 }, k: 5, includeCrop: true, includeFeedback:false, card: quads[1] });
+    expect(state.recognize.mock.calls[0][1]).toEqual({ clickPoint: { x: 450 / 640, y: .5 }, k: 5, includeCrop: true, includeFeedback:false, includeRaw:false, earlyExit:true, card: quads[1] });
     expect(state.recognize.mock.calls[0][1].card).toBe(quads[1]);
     fireEvent.keyDown(window, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Recognize selected card" }));
@@ -386,4 +388,22 @@ it('shows the default-off consent prompt once under React StrictMode',async()=>{
   expect(fetcher.mock.calls.filter(([,init])=>init?.method==='PATCH'&&JSON.parse(init.body).asked)).toHaveLength(1);
   fireEvent.click(screen.getByRole('button',{name:'No thanks'}));
   await waitFor(()=>expect(screen.queryByRole('button',{name:'No thanks'})).toBeNull());expect(state.recordFeedback).not.toHaveBeenCalled();
+});
+
+
+// Field watcher lifecycle shares this existing browser test file.
+import { useFieldWatcher } from "../src/lib/remote/use-field-watcher";
+it('the watcher hook only starts for an active feed owner and persists its default-on toggle',async()=>{
+  localStorage.clear();const create=vi.fn(async()=>null),onEvent=vi.fn();
+  const hook=renderHook(({owner})=>useFieldWatcher({owner,active:true,seatKey:'test-seat',sourceKey:'camera',create,onEvent}),{initialProps:{owner:false}});
+  await act(async()=>undefined);expect(create).not.toHaveBeenCalled();expect(hook.result.current.enabled).toBe(true);
+  hook.rerender({owner:true});await waitFor(()=>expect(create).toHaveBeenCalledOnce());
+  act(()=>hook.result.current.setEnabled(false));expect(JSON.parse(localStorage.getItem('dd-field-watcher:v1:test-seat')!)).toMatchObject({enabled:false});
+  hook.unmount();const again=renderHook(()=>useFieldWatcher({owner:true,active:true,seatKey:'test-seat',create,onEvent}));await act(async()=>undefined);
+  expect(again.result.current.enabled).toBe(false);expect(create).toHaveBeenCalledOnce();again.unmount();localStorage.clear();
+});
+it('the watcher hook discards resource setup that resolves after unmount',async()=>{
+  localStorage.clear();const ready=deferred<null>(),create=vi.fn(()=>ready.promise);
+  const hook=renderHook(()=>useFieldWatcher({owner:true,active:true,seatKey:'late-seat',create,onEvent:vi.fn()}));await waitFor(()=>expect(create).toHaveBeenCalledOnce());
+  hook.unmount();await act(async()=>{ready.resolve(null);await ready.promise;});localStorage.clear();
 });

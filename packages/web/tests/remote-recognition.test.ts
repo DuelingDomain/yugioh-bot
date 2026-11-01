@@ -127,3 +127,19 @@ it("announces only correlation metadata, targets the owner, and broadcasts sugge
   for (const result of results) expect(result).toHaveBeenCalledWith({ type: "recognition.result", requestId: "shared", candidates: [{ cardId: 2, name: "Card two", score: 1 }], tier: "sure", faceDown: false, covered: false }, 1);
   channels.forEach(channel => channel.close());
 });
+
+it("auto placement records source before placing, so Undo targets the added twin", async () => {
+  const { fieldPlacementProposals } = await import("../src/lib/remote/field-proposals");
+  const track = {id:"physical-1",zone:"M3",position:"defense",faceDown:false} as import("@yugidraft/vision").FieldTrack;
+  const proposals = fieldPlacementProposals({track,seat:0,cardId:46986414,name:"Dark Magician"});
+  expect(proposals.map(p=>p.type)).toEqual(["card.identified","twin.place"]);
+  expect(proposals[0]).toMatchObject({source:"auto",cardId:46986414});
+  expect(proposals[1]).toMatchObject({zone:"monster",card:{ref:"physical-1",slot:3,position:"defense"}});
+});
+it("automatic face-down placement sends no identity and an existing physical ref is never placed twice", async () => {
+  const { fieldPlacementProposals } = await import("../src/lib/remote/field-proposals");
+  const track = {id:"physical-1",zone:"S2",position:"attack",faceDown:true} as import("@yugidraft/vision").FieldTrack;
+  expect(fieldPlacementProposals({track,seat:0,cardId:46986414,name:"Secret"})).toEqual([{type:"twin.place",actorSeat:0,seat:0,zone:"spell-trap",card:{ref:"physical-1",slot:2,faceUp:false,position:"attack"}}]);
+  track.faceDown=false;
+  expect(fieldPlacementProposals({track,seat:0,cardId:46986414,name:"Known",existing:true})).toHaveLength(1);
+});

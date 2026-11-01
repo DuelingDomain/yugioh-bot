@@ -17,7 +17,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "attack.resolve": return { kind: "AT", text: `Attack ${a.outcome === "cancelled" ? "cancelled" : "resolved"}`, undoable: true };
     case "card.identified": {
       const found = card(a.cardId ?? a.passcode) ?? a.name;
-      return { kind: "CD", text: `${found ?? "A card"} identified on ${name(a.seat)}'s field`, undoable: true };
+      return { kind: "CD", text: `${found ?? "A card"} identified on ${name(a.seat)}'s field${a.source === "auto" ? " · auto" : ""}`, undoable: true };
     }
     case "cards.identified": return { kind: "CD", text: `${a.cards.length} cards identified`, undoable: true };
     case "deck.add": return { kind: "CD", text: `${card(a.cardId) ?? "Card"} added to ${name(a.seat)}'s decklist`, undoable: true };
