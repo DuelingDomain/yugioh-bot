@@ -199,4 +199,27 @@ test.describe("remote duels screen, two players on LiveKit", () => {
       await shot(b, "two-players-undo");
     } finally { await Promise.allSettled([alice.close(), bob.close()]); }
   });
+
+  test("two-player table fits every screen size, with the health chip in reach", async ({ browser }) => {
+    test.setTimeout(240_000);
+    const alice = await browser.newContext(); const bob = await browser.newContext();
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, "http://localhost:3310");
+      const slug = await startTwoPlayerTable(alice.request, bob.request);
+      const a = await alice.newPage(); const b = await bob.newPage();
+      await fakeCamera(a); await fakeCamera(b);
+      await Promise.all([a.goto(`/duels/remote/${slug}`), b.goto(`/duels/remote/${slug}`)]);
+      for (const page of [a, b]) { await expect(page.getByTestId("remote-table")).toBeVisible(); await page.getByTestId("camera-on-feed").click(); }
+      await expect.poll(() => b.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 40_000 }).toBeGreaterThan(0);
+      for (const [w, h] of [[1920, 1080], [2560, 1440], [1366, 768], [390, 844]] as const) {
+        await b.setViewportSize({ width: w, height: h }); await b.waitForTimeout(600);
+        await expect(b.getByTestId("health-chip")).toBeVisible();
+        const box = await b.getByTestId("health-chip").boundingBox();
+        expect(box && box.height >= 24 && box.x >= 0 && box.x + box.width <= w).toBe(true);
+        expect(await b.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        await shot(b, `two-players-${w}x${h}`);
+        if (w === 390) { await b.getByTestId("health-chip").click(); await expect(b.getByTestId("health-popover")).toBeVisible(); await shot(b, "two-players-390-health"); await b.keyboard.press("Escape"); }
+      }
+    } finally { await Promise.allSettled([alice.close(), bob.close()]); }
+  });
 });
