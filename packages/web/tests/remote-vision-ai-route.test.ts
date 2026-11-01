@@ -26,6 +26,7 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.resetModules();
   vi.stubEnv("OWNER_USER_IDS", "7,8");
+  vi.stubEnv("REMOTE_DUELS", "1");
   vi.stubEnv("REMOTE_VISION_AI", "1");
   vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
   vi.stubEnv("NEXT_PUBLIC_REMOTE_VISION_LAB", "1");

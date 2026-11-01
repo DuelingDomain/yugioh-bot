@@ -10,7 +10,8 @@ const state = vi.hoisted(() => ({
   hitTestQuad: vi.fn(), snapshot: vi.fn(), loadPhoto: vi.fn(), startCamera: vi.fn(), stop: vi.fn(),
 }));
 
-vi.mock("@yugidraft/vision", () => ({
+vi.mock("@yugidraft/vision", async importOriginal => ({
+  ...await importOriginal<typeof import("@yugidraft/vision")>(),
   createRecognizer: state.createRecognizer,
   hitTestQuad: state.hitTestQuad,
   yugioh: { id: "yugioh", metaUrl: "/test/vision-meta.json", embedding: { id: "test-model" }, cardBack: { cardId: "card-back", imageUrl: "/test/back.jpg" } },
@@ -41,11 +42,11 @@ const quads: DetectedQuad[] = [
   { quad: [{ x: .6, y: .2 }, { x: .9, y: .2 }, { x: .9, y: .8 }, { x: .6, y: .8 }], kind: "face-down", confidence: .87, partial: true },
 ];
 const cards = [
-  { cardId: "46986414", passcode: 46986414, name: "Dark Magician" },
-  { cardId: "89631139", passcode: 89631139, name: "Blue-Eyes White Dragon" },
-  { cardId: "83764718", passcode: 83764718, name: "Monster Reborn" },
-  { cardId: "55144522", passcode: 55144522, name: "Pot of Greed" },
-  { cardId: "12580477", passcode: 12580477, name: "Raigeki" },
+  { cardId: "46986414", passcode: 46986414, frameClass: "Normal", name: "Dark Magician" },
+  { cardId: "89631139", passcode: 89631139, frameClass: "Normal", name: "Blue-Eyes White Dragon" },
+  { cardId: "83764718", passcode: 83764718, frameClass: "Spell", name: "Monster Reborn" },
+  { cardId: "55144522", passcode: 55144522, frameClass: "Spell", name: "Pot of Greed" },
+  { cardId: "12580477", passcode: 12580477, frameClass: "Spell", name: "Raigeki" },
 ];
 const result: RecognitionResult = {
   candidates: cards.map((card, i) => ({ cardId: card.cardId, score: .9 - i * .05 })), tier: "not sure", backend: "wasm", cropJpeg: "test-crop-only",
@@ -150,7 +151,7 @@ describe("vision lab source and selected cards", () => {
     fireEvent.click(preview(), { detail: 1, clientX: 450, clientY: 240 });
     await screen.findByRole("dialog", { name: "Card matches" });
     expect(state.hitTestQuad).toHaveBeenCalledWith(quads, { x: 450 / 640, y: .5 }, { width: 640, height: 480 });
-    expect(state.recognize.mock.calls[0][1]).toEqual({ clickPoint: { x: 450 / 640, y: .5 }, k: 5, includeCrop: true, includeFeedback:false, card: quads[1] });
+    expect(state.recognize.mock.calls[0][1]).toEqual({ clickPoint: { x: 450 / 640, y: .5 }, k: 5, includeCrop: true, includeFeedback:false, includeRaw:false, earlyExit:true, card: quads[1] });
     expect(state.recognize.mock.calls[0][1].card).toBe(quads[1]);
     fireEvent.keyDown(window, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Recognize selected card" }));
@@ -179,7 +180,7 @@ describe('live card inspection and owner capture',()=>{
     expect(document.querySelector('video')).not.toHaveAttribute('hidden');
     expect(screen.getByRole('button',{name:'Freeze & outline cards'})).toBeInTheDocument();
     await waitFor(()=>expect(state.recognize).toHaveBeenCalled());
-    expect(state.recognize.mock.calls[0][1]).toMatchObject({clickPoint:{x:.25,y:.5},maxFrames:1});
+    expect(state.recognize.mock.calls[0][1]).toMatchObject({clickPoint:{x:.25,y:.5},earlyExit:true,includeRaw:false});
     await act(async()=>{pending.resolve({...result,detectedCard:quads[0]});await pending.promise;});
     expect(screen.getByLabelText('Selected card outline').querySelector('polygon')).toHaveAttribute('points','64,48 256,48 256,432 64,432');
     expect(state.detectCards).not.toHaveBeenCalled();expect(state.stop).not.toHaveBeenCalled();

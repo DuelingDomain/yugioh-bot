@@ -12,6 +12,7 @@ vi.mock("livekit-client", () => ({
     state = "disconnected"; remoteParticipants = new Map();
     localParticipant = { connectionQuality: "excellent", publishTrack: vi.fn(async () => {}), setMicrophoneEnabled: vi.fn(async () => {}) };
     on() { return this; }
+    off() { return this; }
     async connect() { this.state = "connected"; }
     async disconnect() { this.state = "disconnected"; }
   },

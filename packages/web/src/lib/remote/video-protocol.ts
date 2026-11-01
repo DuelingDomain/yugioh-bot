@@ -54,8 +54,9 @@ export class RecognitionChannel {
   constructor(private seat: number, private send: Send,
     private recognize: (request: RecognitionRequest) => Promise<RecognitionAnswer>,
     private onResult: (result: RecognitionResult, fromSeat: number) => void,
-    private now = () => Date.now()) {}
-  private prune() { for (const [id, value] of this.pending) if (this.now() - value.at > 10_000) this.pending.delete(id); }
+    private now = () => Date.now(),
+    private lifetime = (_owner: number) => 10_000) {}
+  private prune() { for (const [id, value] of this.pending) if (this.now() - value.at > this.lifetime(value.owner)) this.pending.delete(id); }
   announce(from: number, requestId: string, owner: number) {
     this.prune();
     const parsed = remoteDataMessageSchema.safeParse({ type: "recognition.request", requestId, feedOwnerSeat: owner, x: 0, y: 0 });
@@ -87,7 +88,7 @@ export class RecognitionChannel {
       pending.started = true;
       let answer: RecognitionAnswer;
       try { answer = await this.recognize(message); } catch { answer = NO_ANSWER; }
-      if (this.closed || this.now() - pending.at > 10_000) return;
+      if (this.closed || this.now() - pending.at > this.lifetime(pending.owner)) return;
       const result = remoteDataMessageSchema.parse({ type: "recognition.result", requestId: message.requestId, ...answer }) as RecognitionResult;
       await this.send(result);
       await this.receive(this.seat, result);
