@@ -28,7 +28,7 @@ self.onmessage=async()=>{
     const index=filterPhysicalIndex(decodeIndex(await(await fetch('/dev/vision-assets/yugioh-index.bin')).arrayBuffer(),meta));
     const started=performance.now();prepareSearch(index);const prepareMs=performance.now()-started;
     const samples={before:[],catalog:[],deck:[]};let mismatches=0,maxScoreDelta=0;
-    const deck=new Set(index.meta.entries.slice(0,60).map(e=>e.cardId));
+    const deckCardIds=[...new Set(['45725480',...index.meta.entries.map(e=>e.cardId)])].slice(0,60),deck=new Set(deckCardIds);
     for(let n=0;n<150;n++) {
       const row=(n*97)%index.meta.count,query=normalize(Float32Array.from(index.vectors.subarray(row*meta.dim,(row+1)*meta.dim)));
       const results={};
@@ -39,7 +39,7 @@ self.onmessage=async()=>{
       if(results.before.some((c,i)=>c.cardId!==results.catalog[i]?.cardId))mismatches++;
       for(let i=0;i<results.before.length;i++)maxScoreDelta=Math.max(maxScoreDelta,Math.abs(results.before[i].score-results.catalog[i].score));
     }
-    self.postMessage({rows:index.meta.count,cards:new Set(index.meta.entries.map(e=>e.cardId)).size,dim:meta.dim,dtype:meta.dtype,prepareMs,samples,mismatches,maxScoreDelta});
+    self.postMessage({rows:index.meta.count,cards:new Set(index.meta.entries.map(e=>e.cardId)).size,dim:meta.dim,dtype:meta.dtype,deckCardIds,prepareMs,samples,mismatches,maxScoreDelta});
   }catch(error){self.postMessage({error:String(error)});}
 };`,resolveDir:directory,sourcefile:'search-benchmark.ts',loader:'ts'},outfile:join(directory,'search-benchmark.js'),bundle:true,format:'esm',platform:'browser',target:'es2022'});
 const mime:Record<string,string>={'.js':'text/javascript','.mjs':'text/javascript','.wasm':'application/wasm','.json':'application/json','.png':'image/png','.mp4':'video/mp4'};
@@ -78,7 +78,7 @@ try {
   console.log('Reader ready:',JSON.stringify(ready));
   const trials=Number(process.env.LATENCY_TRIALS??20);
   if(!Number.isInteger(trials)||trials<1||trials>100)throw new Error('LATENCY_TRIALS must be 1–100 per condition');
-  const measurements=await page.evaluate(async trials=>{
+  const measurements=await page.evaluate(async({trials,deckCardIds})=>{
     const {api,reader}=window as any,bitmap=await createImageBitmap(await(await fetch('/dev/vision-assets/benchmark/field-watcher/card.png')).blob());
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;document.body.append(canvas);const ctx=canvas.getContext('2d')!;
     let show=false,x=460;const paint=()=>{ctx.fillStyle='#26392f';ctx.fillRect(0,0,1280,720);if(show)ctx.drawImage(bitmap,x,170,180,262);};paint();const painter=setInterval(paint,65);
@@ -87,7 +87,7 @@ try {
     const delay=(ms:number)=>new Promise(r=>setTimeout(r,ms));
     try {
       for(let n=0;n<trials*2;n++) {
-        const deck=n%2===0,priors=deck?{decklist:['45725480']}:undefined;
+        const deck=n%2===0,priors=deck?{decklist:deckCardIds}:undefined;
         show=false;paint();await delay(270);
         const events:any[]=[],watcher=api.createFieldWatcher({recognizer:reader,buffer,profile:api.yugioh,getPriors:()=>priors});
         watcher.subscribe((event:any)=>events.push({...event,wallAt:performance.now()}));watcher.start();await delay(350+(n%4)*45);
@@ -109,7 +109,7 @@ try {
       await reader.askAI(clicks.at(-1).result,{explicitRequest:true});
       return {placements,clicks,expiredRefused};
     }finally{buffer.stop();clearInterval(painter);(video.srcObject as MediaStream).getTracks().forEach(t=>t.stop());video.remove();canvas.remove();bitmap.close();reader.dispose();}
-  },trials);
+  },{trials,deckCardIds:search.deckCardIds as string[]});
   const summarize=(deck:boolean)=>({
     placement:distribution(measurements.placements.filter((t:any)=>t.deck===deck&&t.event?.type==='placed').map((t:any)=>t.wallMs)),
     click:distribution(measurements.clicks.filter((t:any)=>t.deck===deck).map((t:any)=>t.wallMs)),
