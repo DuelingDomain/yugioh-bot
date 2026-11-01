@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
-import { ygoModule, remoteActionSchema, type GameModule } from "../../src/remote/index.js";
+import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, type GameModule } from "../../src/remote/index.js";
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
@@ -135,4 +135,270 @@ it("revokes departed seat tokens and keeps the final game snapshot readable to s
   expect(final.status).toBe("ended");
   expect(canReadRemote(db, { ...claims, userId: users[0], seat: 0 })).toBe(true);
   expect(service.snapshot(table.slug, "g").table.status).toBe("ended");
+});
+
+describe("tolerant voice attack resolution", () => {
+  const players = [
+    { seat: 0, displayName: "Alex", nicknames: ["Al"] },
+    { seat: 1, displayName: "Imran Khan", nicknames: ["Immy"] },
+    { seat: 2, displayName: "Sara", nicknames: ["Saz"] },
+  ];
+  function board(seatCount: 2 | 3 | 4 = 2) {
+    let state = ygoModule.initialState({ seatCount });
+    let seq = 0;
+    const place = (seat: number, card: Record<string, unknown>, zone = "monster") => {
+      state = ygoModule.reduce(state, remoteActionSchema.parse({
+        type: "twin.place", actorSeat: seat, seat, zone, card,
+        idempotencyKey: `voice-${++seq}`,
+      }));
+    };
+    place(0, { ref: "blue", name: "Blue-Eyes White Dragon", race: "Dragon", slot: 1, cardId: 89631139 });
+    place(1, { ref: "dark", name: "Dark Magician", race: "Spellcaster", slot: 3, cardId: 46986414 });
+    return { get state() { return state; }, place };
+  }
+  const resolve = (state: ReturnType<typeof ygoModule.initialState>, text: string, actorSeat = 0) =>
+    ygoModule.resolveAttack(state, { text, players }, actorSeat);
+
+  it.each([
+    "Blue Eyes attacks the magician",
+    "my dragon attacks his monster",
+    "my dragon attacks her monster",
+    "my dragon attacks their monster",
+    "blew eyes attacks dark magishun",
+    "Blue Ice attacks Dark Magician",
+    "Blue Eyex attacks Dark Magiciat",
+    "Bule Eyes attacks the magican",
+    "my drag attacks the mag",
+  ])("proposes one matching field pair for '%s'", text => {
+    const b = board();
+    const before = structuredClone(b.state);
+    const result = resolve(b.state, text);
+    expect(result.status).toBe("unique");
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0].proposal).toEqual({
+      type: "attack.declare", actorSeat: 0, attackerSeat: 0, attackerCardRef: "blue", targetSeat: 1, targetCardRef: "dark",
+    });
+    expect(result.candidates[0].score).toBeGreaterThan(0);
+    expect(result.candidates[0].score).toBeLessThanOrEqual(1);
+    expect(b.state).toEqual(before);
+    expect(resolve(b.state, text)).toEqual(result);
+  });
+
+  it.each(["attack Imran's dragon", "attack Immy’s dragon", "attack Imran Khan's dragon"])("scopes '%s' by current player names/nicknames", text => {
+    const b = board(3);
+    b.place(1, { ref: "red", name: "Red-Eyes Black Dragon", race: "Dragon", slot: 5 });
+    b.place(2, { ref: "sara-dragon", name: "Stardust Dragon", race: "Dragon", slot: 1 });
+    const result = resolve(b.state, text);
+    expect(result.status).toBe("unique");
+    expect(result.candidates[0].proposal).toMatchObject({ targetSeat: 1, targetCardRef: "red" });
+  });
+
+  it("matches race words even when absent from the printed card name", () => {
+    const b = board();
+    b.place(0, { ref: "buster", name: "Buster Blader", race: "Warrior", slot: 5 });
+    const result = resolve(b.state, "my warrior attacks his spellcaster");
+    expect(result.status).toBe("unique");
+    expect(result.candidates[0].proposal).toMatchObject({ attackerCardRef: "buster", targetCardRef: "dark" });
+  });
+
+  it("returns all fitting pairs ranked for quick pick instead of silently selecting the highest score", () => {
+    const b = board();
+    b.place(0, { ref: "dragonling", name: "Dragonling", race: "Dragon", slot: 5 });
+    b.place(1, { ref: "magician-girl", name: "Dark Magician Girl", race: "Spellcaster", slot: 5 });
+    const result = resolve(b.state, "my dragon attacks Dark Magician");
+    expect(result.status).toBe("ambiguous");
+    expect(result.candidates).toHaveLength(4);
+    expect(result.candidates[0].proposal.targetCardRef).toBe("dark");
+    expect(result.candidates.map(c => c.score)).toEqual(result.candidates.map(c => c.score).sort((a, b) => b - a));
+    expect(new Set(result.candidates.map(c => `${c.proposal.attackerCardRef}/${c.proposal.targetCardRef}`)).size).toBe(4);
+  });
+
+  it.each([
+    ["my left monster attacks the middle monster", "blue", "dark"],
+    ["my right dragon attacks the right monster", "red", "girl"],
+    ["my zone 1 attacks zone 3", "blue", "dark"],
+    ["my zone five attacks zone five", "red", "girl"],
+  ])("uses fixed owner-view field positions in '%s'", (text, attackerCardRef, targetCardRef) => {
+    const b = board();
+    b.place(0, { ref: "red", name: "Red-Eyes Black Dragon", race: "Dragon", slot: 5 });
+    b.place(1, { ref: "girl", name: "Dark Magician Girl", race: "Spellcaster", slot: 5 });
+    const result = resolve(b.state, text);
+    expect(result.status).toBe("unique");
+    expect(result.candidates[0].proposal).toMatchObject({ attackerCardRef, targetCardRef });
+  });
+
+  it("accepts parsed hints and keeps explicit refs/seat/slot constraints conjunctive", () => {
+    const b = board(3);
+    b.place(1, { ref: "red", name: "Red-Eyes Black Dragon", race: "Dragon", slot: 5 });
+    const result = ygoModule.resolveAttack(b.state, {
+      attacker: { cardRef: "blue" }, target: { text: "dragon", slot: 5 }, targetSeat: 1,
+    }, 0);
+    expect(result.status).toBe("unique");
+    expect(result.candidates[0].proposal).toMatchObject({ attackerCardRef: "blue", targetCardRef: "red", targetSeat: 1 });
+    expect(ygoModule.resolveAttack(b.state, { attacker: { cardRef: "blue", slot: 5 }, targetSeat: 1 }, 0).status).toBe("none");
+    expect(ygoModule.resolveAttack(b.state, { targetSeat: 2, targetPlayer: "Imran", players }, 0).status).toBe("none");
+  });
+
+  it.each([1, 2, 3, 4, 5])("resolves zone %i without depending on twin array order", slot => {
+    const b = board();
+    b.place(1, { ref: `slot-${slot}`, slot });
+    const state = structuredClone(b.state);
+    state.seats[1].twin.reverse();
+    const result = resolve(state, `my dragon attacks zone ${slot}`);
+    expect(result.candidates.some(c => c.proposal.targetCardRef === `slot-${slot}`)).toBe(true);
+    expect(result.status).toBe(slot === 3 ? "ambiguous" : "unique");
+  });
+
+  it("keeps legacy twins useful without catalog metadata and exposes the registry hook", () => {
+    const state = ygoModule.initialState({ seatCount: 2 });
+    state.seats[0].twin.push({ ref: "old-own", zone: "monster", cardId: 89631139, faceUp: true, position: "attack" });
+    state.seats[1].twin.push({ ref: "old-other", zone: "monster", faceUp: false, position: "defense" });
+    expect(getRemoteGame("ygo").resolveAttack).toBe(resolveAttack);
+    expect(resolveAttack(state, "my monster attacks their monster", 0).status).toBe("unique");
+    expect(resolveAttack(state, "Blue Eyes attacks their monster", 0).status).toBe("none");
+    expect(resolveAttack(state, "my monster attacks the left monster", 0).status).toBe("none");
+  });
+
+  it("bounds public metadata at the shared action boundary", () => {
+    const place = (card: Record<string, unknown>) => remoteActionSchema.safeParse({
+      type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", idempotencyKey: "metadata", card: { ref: "bounded", ...card },
+    }).success;
+    for (const slot of [0, 6, 1.5, Number.NaN]) expect(place({ slot })).toBe(false);
+    expect(place({ name: " " })).toBe(false);
+    expect(place({ name: "x".repeat(201) })).toBe(false);
+    expect(place({ race: "x".repeat(41) })).toBe(false);
+    expect(place({ name: "Blue-Eyes White Dragon", race: "Dragon", slot: 5 })).toBe(true);
+  });
+
+  it("keeps unnamed FFA opponents and duplicate nicknames ambiguous", () => {
+    const b = board(3);
+    b.place(2, { ref: "sara-dragon", name: "Stardust Dragon", race: "Dragon", slot: 1 });
+    expect(resolve(b.state, "my dragon attacks his monster").candidates.map(c => c.proposal.targetSeat)).toEqual([1, 2]);
+    const result = ygoModule.resolveAttack(b.state, {
+      text: "my dragon attacks Sam's monster",
+      players: [{ seat: 1, displayName: "Sam" }, { seat: 2, displayName: "Sara", nicknames: ["Sam"] }],
+    }, 0);
+    expect(result.status).toBe("ambiguous");
+    expect(result.candidates).toHaveLength(2);
+    const reordered = structuredClone(b.state);
+    reordered.seats.reverse();
+    for (const seat of reordered.seats) seat.twin.reverse();
+    expect(resolve(reordered, "my dragon attacks their monster")).toEqual(resolve(b.state, "my dragon attacks their monster"));
+  });
+
+  it("keeps player names that overlap card words from consuming card references", () => {
+    const b = board(3);
+    const result = ygoModule.resolveAttack(b.state, {
+      text: "Blue Eyes attacks Dark Magician",
+      players: [{ seat: 0, displayName: "Blue" }, { seat: 2, displayName: "Dark" }],
+    }, 0);
+    expect(result.status).toBe("unique");
+    expect(result.candidates[0].proposal).toMatchObject({ attackerCardRef: "blue", targetCardRef: "dark", targetSeat: 1 });
+  });
+
+  it.each([
+    { text: "my dragon attacks my monster", target: { text: "his monster" } },
+    { text: "my dragon attacks zone 1", target: { text: "zone 3" } },
+    { text: "my dragon attacks Sara's monster", target: { text: "" } },
+    { text: "my unicorn attacks his monster", attacker: { text: "dragon" } },
+  ])("keeps raw utterance and parsed constraints conjunctive: %j", hints => {
+    expect(ygoModule.resolveAttack(board(3).state, { ...hints, players }, 0).status).toBe("none");
+  });
+
+  it.each([
+    "my unicorn attacks his monster",
+    "my dragon attacks Nobody's monster",
+    "my dragon attacks my monster",
+    "Imran's monster attacks my dragon",
+    "my dragon attacks zone 6",
+    "my dragon attacks zone 0",
+    "my dragon attacks the left middle monster",
+    "hello there",
+    "",
+  ])("returns none for incompatible or missing intent '%s'", text => {
+    expect(resolve(board().state, text)).toEqual({ status: "none", candidates: [] });
+  });
+
+  it("ignores off-field/non-monster cards and does not infer direct attacks from missing twins", () => {
+    const b = board();
+    b.place(0, { ref: "dead-blue", name: "Blue-Eyes White Dragon", race: "Dragon" }, "graveyard");
+    b.place(1, { ref: "banished-dark", name: "Dark Magician", race: "Spellcaster" }, "banished");
+    b.place(1, { ref: "spell-dark", name: "Dark Magician", race: "Spellcaster" }, "spell-trap");
+    expect(resolve(b.state, "Blue Eyes attacks the magician").candidates).toHaveLength(1);
+    const empty = structuredClone(b.state);
+    empty.seats[1].twin = [];
+    expect(resolve(empty, "my dragon attacks his monster").status).toBe("none");
+  });
+
+  it("can identify extra-monster and unnamed face-down twins by public slot without reading hidden metadata", () => {
+    const b = board();
+    b.place(0, { ref: "extra", name: "Stardust Dragon", race: "Dragon", slot: 2 }, "extra-monster");
+    b.place(1, { ref: "set", faceUp: false, slot: 1 });
+    const result = resolve(b.state, "my extra monster on the right attacks his left monster");
+    expect(result.status).toBe("unique");
+    expect(result.candidates[0].proposal).toMatchObject({ attackerCardRef: "extra", targetCardRef: "set" });
+    const hidden = structuredClone(b.state);
+    hidden.seats[1].twin.find(c => c.ref === "set")!.name = "Secret Unicorn";
+    expect(resolve(hidden, "my dragon attacks unicorn").status).toBe("none");
+  });
+
+  it("supports raw strings, nonzero actor seats and explicit direct proposals", () => {
+    const b = board();
+    const raw = ygoModule.resolveAttack(b.state, "my magician attacks his dragon", 1);
+    expect(raw.status).toBe("unique");
+    expect(raw.candidates[0].proposal).toMatchObject({ actorSeat: 1, attackerSeat: 1, attackerCardRef: "dark", targetSeat: 0, targetCardRef: "blue" });
+    const direct = resolve(b.state, "my dragon attacks Imran directly");
+    expect(direct.status).toBe("unique");
+    expect(direct.candidates[0].proposal).toEqual({ type: "attack.declare", actorSeat: 0, attackerSeat: 0, attackerCardRef: "blue", targetSeat: 1, direct: true });
+  });
+
+  it("excludes eliminated/self seats and unavailable actors", () => {
+    const b = board(3);
+    b.place(2, { ref: "sara-dragon", name: "Stardust Dragon", race: "Dragon", slot: 1 });
+    const state = structuredClone(b.state);
+    state.seats[1].eliminated = true;
+    expect(resolve(state, "my dragon attacks his monster").candidates.map(c => c.proposal.targetSeat)).toEqual([2]);
+    expect(resolve(state, "attack Imran's monster").status).toBe("none");
+    expect(resolve(state, "attack Alex's monster").status).toBe("none");
+    expect(resolve(state, "attack his monster", 1).status).toBe("none");
+    expect(resolve(state, "attack his monster", 9).status).toBe("none");
+    state.ended = true;
+    expect(resolve(state, "attack his monster").status).toBe("none");
+  });
+
+  it("preserves slot metadata on same-zone moves and clears stale positions on cross-zone moves", () => {
+    const b = board();
+    const move = (state: typeof b.state, zone: string, slot?: number) => ygoModule.reduce(state, remoteActionSchema.parse({
+      type: "twin.move", actorSeat: 0, seat: 0, cardRef: "blue", zone, slot, idempotencyKey: `move-${zone}`,
+    }));
+    const repositioned = move(b.state, "monster", 5);
+    expect(repositioned.seats[0].twin[0].slot).toBe(5);
+    expect(move(repositioned, "monster").seats[0].twin[0].slot).toBe(5);
+    expect(move(repositioned, "graveyard").seats[0].twin[0].slot).toBeUndefined();
+  });
+
+  it("persists public annotations and replays a confirmed proposal through the normal event store", () => {
+    const { service, table, users } = setup();
+    service.join(table.slug, "g", users[1], "Imran", 1, 1100);
+    service.join(table.slug, "g", users[2], "Sara", 2, 1100);
+    users.slice(0, 3).forEach(user => service.ready(table.slug, "g", user, true, 1200));
+    let room = service.start(table.slug, "g", users[0], 1300);
+    let seq = 0;
+    const act = (actorSeat: number, action: Record<string, unknown>) => {
+      room = service.act(table.slug, "g", users[actorSeat], { baseSeq: room.lastSeq,
+        action: remoteActionSchema.parse({ ...action, actorSeat, idempotencyKey: `confirmed-${++seq}` }) }, 1300 + seq);
+    };
+    act(0, { type: "twin.place", seat: 0, zone: "monster", card: { ref: "blue", name: "Blue-Eyes White Dragon", race: "Dragon", slot: 1 } });
+    act(1, { type: "twin.place", seat: 1, zone: "monster", card: { ref: "red", name: "Red-Eyes Black Dragon", race: "Dragon", slot: 5 } });
+    act(0, { type: "turn.end" }); act(1, { type: "turn.end" }); act(2, { type: "turn.end" });
+    act(0, { type: "phase.set", phase: "battle" });
+    const before = service.get(table.slug, "g", users[0]);
+    const result = ygoModule.resolveAttack(before.state, { text: "attack Imran's dragon", players: before.seats }, before.mySeat);
+    expect(result.status).toBe("unique");
+    expect(service.get(table.slug, "g", users[0])).toEqual(before);
+    act(0, result.candidates[0].proposal);
+    expect(room.state.attack).toMatchObject({ attackerCardRef: "blue", targetCardRef: "red", targetSeat: 1 });
+    expect(service.replay(table.slug, "g", users[0])).toEqual(room.state);
+    expect(room.events.some(e => JSON.stringify(e).includes("attack Imran"))).toBe(false);
+  });
 });

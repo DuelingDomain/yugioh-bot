@@ -1,4 +1,5 @@
 import type { RemoteAction, RemoteActionProposal, TwinCard } from "./actions.js";
+import type { AttackHints, AttackResolution } from "./attack-resolver.js";
 
 export type SeatCount = 2 | 3 | 4;
 export type RemoteSeatState = { seat: number; resources: Record<string, number>; eliminated: boolean; twin: TwinCard[] };
@@ -24,6 +25,8 @@ export interface GameModule {
   reduce(state: RemoteState, action: RemoteAction): RemoteState;
   /** Extension point for the speech worker. Null means no proposal; never executes an action. */
   parseCommand(input: { text: string; actorSeat: number; state: RemoteState }): RemoteActionProposal | null;
+  /** Pure board-based suggestions, never execution. Multiple fitting pairs require a quick pick. */
+  resolveAttack(state: RemoteState, input: string | AttackHints, actorSeat: number): AttackResolution;
 }
 export type RemoteStatus = "lobby" | "active" | "ended";
 export type RemoteSeat = { seat: number; userId: number; displayName: string; ready: boolean };

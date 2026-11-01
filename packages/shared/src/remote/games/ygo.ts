@@ -1,5 +1,6 @@
 import { remoteActionSchema, remoteAssert, type RemoteAction } from "../actions.js";
 import type { GameModule, RemotePosition, RemoteState } from "../types.js";
+import { resolveAttack } from "../attack-resolver.js";
 
 const phases = [
   { id: "draw", name: "Draw" }, { id: "standby", name: "Standby" }, { id: "main1", name: "Main 1" },
@@ -97,7 +98,12 @@ function reduce(state: RemoteState, input: RemoteAction): RemoteState {
     case "twin.move": case "twin.flip": case "twin.remove": {
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card, "Unknown twin card", 409);
-      if (action.type === "twin.move") { validZone(action.zone); card.zone = action.zone; }
+      if (action.type === "twin.move") {
+        validZone(action.zone);
+        if (card.zone !== action.zone) delete card.slot;
+        if (action.slot !== undefined) card.slot = action.slot;
+        card.zone = action.zone;
+      }
       if (action.type === "twin.flip") card.faceUp = action.faceUp;
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);
       break;
@@ -119,5 +125,5 @@ export const ygoModule: GameModule = {
     return { gameId: "ygo", seatCount, phase: "draw", turn: 1, turnSeat: firstSeat, startedSeats: [firstSeat],
       seats: Array.from({ length: seatCount }, (_, seat) => ({ seat, resources: { lp: 8000 }, eliminated: false, twin: [] })),
       ended: false, winnerSeat: null, attack: null, identified: null, updatedAt: 0, undo: null };
-  }, reduce, parseCommand: () => null,
+  }, reduce, parseCommand: () => null, resolveAttack,
 };
