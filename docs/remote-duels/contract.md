@@ -8,7 +8,7 @@ Remote Duels track physical games without running ocgcore or resolving effects o
 - Server service: `createRemoteDuelService(db)` from `@yugidraft/shared/services` (`packages/shared/src/services/remote-duels.ts`).
 - Room token helpers: `@yugidraft/shared/ws` (`remote-token.ts`). Server only.
 - UI: `packages/web/src/components/remote/remote-workbench.tsx` and adjacent seat, command and local-camera components. Keep the HTTP/action/event contract when replacing the UI.
-- Video extension: `POST /api/remote/[slug]/livekit`. Solo uses local webcam preview; multiplayer LiveKit token minting remains a 503 stub. Speech uses optional browser SpeechRecognition with a typed-command fallback. Recognition uses on-demand browser OCR and the existing card catalog; `RemoteDataMessage` remains the remote recognition relay extension.
+- Video extension: `POST /api/remote/[slug]/livekit`. Solo uses local webcam preview; multiplayer mints seated, guild-scoped LiveKit credentials. See [video runbook](video.md). Speech uses optional browser SpeechRecognition with a typed-command fallback. Recognition uses on-demand browser OCR and the existing card catalog; `RemoteDataMessage` remains the remote recognition relay extension.
 
 `GameModule` exposes `id`, `name`, `phases`, `seatsAllowed: readonly (2|3|4)[]`, `resources`, `zones`, `initialState`, `reduce(state, action, context?)`, `resolveAttack(state, input, actorSeat)` and `parseCommand(input): RemoteActionProposal | null` (the action union without key/time). Register additional modules in `remoteGames`. Game rules live in the module; transport and membership stay generic. Resource values are `state.seats[seat].resources[id]`. Phase/zone identifiers are strings owned by the module.
 
@@ -178,7 +178,7 @@ All responses use `Cache-Control: private, no-store`. All routes return 404 when
 | `GET /api/remote/[slug]` | optional `?afterSeq=N` | `RemoteRoom`: table metadata + `mySeat`, `state`, `events`. |
 | `POST /api/remote/[slug]/actions` | `{baseSeq:number,action:RemoteAction}` | `RemoteRoom`. `action.actorSeat` must match the session seat or a persisted bot of the session owner's solo table. No separate identity override. |
 | `GET /api/remote/[slug]/connection` | no query parameters | `{token,guildId,seat,expiresAt}`; seated, unexpired table only; 503 if WS secret missing. |
-| `POST /api/remote/[slug]/livekit` | none | Solo: `200 {mode:'solo',required:false,code:'SOLO_LOCAL_PREVIEW',message}` with no token, independent of LIVEKIT configuration. Multiplayer stub: 503 `LIVEKIT_UNAVAILABLE` if any required LIVEKIT var is missing; otherwise 503 `LIVEKIT_NOT_IMPLEMENTED`. Ended/expired tables are refused. |
+| `POST /api/remote/[slug]/livekit` | none | Solo: `200 {mode:'solo',required:false,code:'SOLO_LOCAL_PREVIEW',message}` with no token, independent of LIVEKIT configuration. Multiplayer: `200 {url,token,room,seat}`, five-minute token for `remote-{slug}`, authenticated `users.id` identity and immutable guild/table/seat metadata; camera/mic/data publishing and subscribe-all in that room. 503 `LIVEKIT_UNAVAILABLE` if any required LIVEKIT var is missing. Ended/expired tables are refused. |
 
 `RemoteRoom` includes table fields, normalized `format`, `seats` (with registered `deck` snapshots), `mySeat`, `state`, and recent `events`. Default recent history is the latest 50 events. `afterSeq` returns up to 200 events in ascending order; page until caught up. The state and `lastSeq` are always the latest snapshot, even if event pagination lags. Use the last *returned event's* seq to page history, not snapshot `lastSeq`. Every lifecycle event also advances `lastSeq`.
 
@@ -200,7 +200,7 @@ The MVP follows the existing single-WS-process room pattern. It does not add a R
 
 ## Recognition data messages
 
-`RemoteDataMessage` and `remoteDataMessageSchema` are browser-safe. The future LiveKit adapter may carry the same typed messages on its data channel. The foundation exposes a Socket.IO fallback:
+`RemoteDataMessage` and `remoteDataMessageSchema` are browser-safe. The LiveKit adapter carries these messages on its reliable data channel (owner-targeted requests, broadcast results); see [video runbook](video.md) for correlation announcements and client-validation limits. The foundation exposes a Socket.IO fallback:
 
 ```ts
 socket.emit('remote:data', {
@@ -236,7 +236,7 @@ Remote tables, including active solo tables, never enter engine `duels`/`drafts`
 | `WS_PORT` | Ws Socket.IO listener, default 3001. |
 | `WEB_URL` | Ws allowed origin, local `http://localhost:3000`. |
 | `NEXT_PUBLIC_WS_URL` | Browser ws URL, local `http://localhost:3001`; unset behind same-origin proxy. |
-| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Web only, reserved multiplayer video provider config. Never needed for solo. Multiplayer stub stays 503 until video worker implements minting. |
+| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Web only, multiplayer video provider config. Never needed for solo. Local: `ws://127.0.0.1:7880`, `devkey`, `secret`; or a Cloud URL and project credentials. See [video runbook](video.md). |
 | existing Clerk config | Existing sign-in flow; or repository's explicitly enabled offline E2E session for local smoke tests. |
 
 From the new worktree, using separate terminals with the same exported environment:
