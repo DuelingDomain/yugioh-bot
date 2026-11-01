@@ -1,0 +1,48 @@
+/** Data-only contracts: another game can supply these without changing the engine. */
+export interface Point { x: number; y: number }
+export interface FractionalBox { x: number; y: number; w: number; h: number }
+export interface ConfidenceThresholds {
+  score: number; margin: number; floor: number;
+  second?: { score: number; margin: number }; cardBackMargin?: number;
+}
+export type RecognitionTier = 'sure' | 'not sure' | 'low match';
+export interface EmbeddingModelSpec {
+  thresholds: ConfidenceThresholds; maxBatch?: number;
+  id: string; url: string; sha256: string; inputSize: number; dim: number;
+  inputName: string; outputName: string; pooling: 'none' | 'cls';
+  mean: [number, number, number]; std: [number, number, number];
+}
+export interface GameProfile {
+  id: string;
+  card: { width: number; height: number; warpWidth: number; warpHeight: number };
+  artWindow: FractionalBox;
+  /** Optional alternative windows (e.g. full-art variants); all use the same artwork index. */
+  alternateArtWindows?: FractionalBox[];
+  cardBack: { cardId: string; imageUrl: string };
+  /** Border sample windows avoid art, text and sleeves. RGB prototypes are conservative hints. */
+  frameClasses: { id: string; rgb: [number, number, number] }[];
+  borderSamples: FractionalBox[];
+  textBoxColor?: [number, number, number];
+  indexUrl: string; metaUrl: string;
+  embedding: EmbeddingModelSpec;
+  detector: { url: string; sha256: string; longSide: number };
+  /** Missed detection: card height as a fraction of frame height. */
+  fallbackHeight: number;
+}
+export interface RecognitionPriors {
+  decklist?: string[]; seen?: string[]; voiceMentioned?: string[];
+  /** Explicit caller restriction; inferred border colour remains a soft filter. */
+  frameClasses?: string[];
+}
+export interface RecognizeOptions { clickPoint?: Point; k?: number; priors?: RecognitionPriors }
+export interface Candidate { cardId: string; score: number }
+export interface RecognitionResult {
+  candidates: Candidate[];
+  tier: RecognitionTier;
+  quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean };
+  timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number };
+  backend: 'webgpu' | 'wasm';
+}
+export interface IndexEntry { cardId: string; passcode: number; name: string; imageId?: number; frameClass?: string; imageUrl?: string; thumbnailUrl?: string }
+export interface IndexMeta { version: 1; gameId?: string; layoutKey?: string; modelId: string; modelSha256: string; dim: number; count: number; dtype: 'float32' | 'int8'; quant?: 'float32' | 'int8'; builtAt?: string; entries: IndexEntry[]; generatedAt?: string; catalog?: string }
+export interface LoadedIndex { meta: IndexMeta; vectors: Float32Array | Int8Array }

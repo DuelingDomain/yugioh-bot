@@ -24,6 +24,9 @@ export async function packageStandalone({
     await mkdir(dirname(target), { recursive: true });
     await cp(resolve(repositoryRoot, file), target, { force: true, verbatimSymlinks: true });
   }
+  // Broad instrumentation/seed traces must not package local recognition assets.
+  // An explicitly enabled lab mounts these separately through VISION_DATA_DIR.
+  await rm(resolve(outputRoot, "data/vision"), { recursive: true, force: true });
   // Both bundled routes and unbundled shared imports need the small usage table.
   const staples = resolve(outputRoot, "packages/shared/data/staples");
   await mkdir(staples, { recursive: true });
