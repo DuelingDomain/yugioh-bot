@@ -15,11 +15,13 @@ mkdirSync(directory, { recursive: true });
 process.env.E2E_WEB_PORT = "3310";
 const { seedDatabase } = await import("./seed.mjs");
 const databasePath = resolve(directory, "ui.sqlite");
-await seedDatabase({ databasePath });
+const { engineDataDirectory, remoteTestDeck } = await import("./remote-decks.mjs");
+const dataDirectory = engineDataDirectory();
+await seedDatabase({ databasePath, savedDecks: [remoteTestDeck(dataDirectory)] });
 const secret = process.env.E2E_AUTH_SECRET;
 if (!secret || secret.length < 32) throw new Error("Use playwright.remote-ui.config.ts for throwaway auth");
 const env = {
-  ...process.env, DATABASE_PATH: databasePath, REMOTE_DUELS: "1",
+  ...process.env, DATABASE_PATH: databasePath, REMOTE_DUELS: "1", DUEL_DATA_DIR: dataDirectory,
   DISCORD_GUILD_ID: "900000000000000001", DOTENV_CONFIG_PATH: resolve(directory, "none.env"),
   WS_INTERNAL_SECRET: secret, WS_PORT: "3312", WS_INTERNAL_PORT: "4312",
   WS_INTERNAL_URL: "http://127.0.0.1:4312", WEB_URL: "http://localhost:3310", NEXT_PUBLIC_WS_URL: "http://localhost:3312",
@@ -43,5 +45,15 @@ function run(args, cwd) {
   child.once("error", () => stop(1)); child.once("exit", () => { if (!stopping) stop(1); });
 }
 run([resolve(root, "node_modules/tsx/dist/cli.mjs"), "src/server.ts"], resolve(root, "packages/ws"));
-// Direct Next CLI avoids leaving npm's grandchildren behind when Playwright terminates the stack.
-run([resolve(root, "node_modules/next/dist/bin/next"), "dev", "--webpack", "-p", "3310"], resolve(root, "packages/web"));
+const next = resolve(root, "node_modules/next/dist/bin/next");
+if (process.env.E2E_PROD === "1") {
+  // Production build: what players get (no dev-only routes, request-time gates, COOP/COEP headers). Slower to start.
+  await new Promise((done, fail) => {
+    const build = spawn(process.execPath, [next, "build", "--webpack"], { cwd: resolve(root, "packages/web"), env: { ...env, NODE_ENV: "production" }, stdio: "inherit" });
+    build.once("exit", code => code === 0 ? done() : fail(new Error(`next build failed (${code})`)));
+  });
+  run([next, "start", "-p", "3310"], resolve(root, "packages/web"));
+} else {
+  // Direct Next CLI avoids leaving npm's grandchildren behind when Playwright terminates the stack.
+  run([next, "dev", "--webpack", "-p", "3310"], resolve(root, "packages/web"));
+}

@@ -541,6 +541,11 @@
 .fzchip .ic{width:13px;height:13px}
 .fzbtn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:6px;background:rgb(7 4 14/.86);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
 .fzbtn:hover{border-color:var(--gold);color:var(--gold-ink)}
+/* Own camera controls sit over the bottom left of the feed. They show on hover or focus, and always on touch screens. */
+.camsel{position:absolute;left:8px;bottom:8px;z-index:7;display:flex;align-items:center;gap:6px;max-width:calc(100% - 16px);opacity:0;pointer-events:none;transition:opacity .15s}
+.cams:hover .camsel,.cams:focus-within .camsel{opacity:1;pointer-events:auto}
+.camsel select{min-width:0;max-width:200px;height:26px;border-radius:6px;background:rgb(7 4 14/.9);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+@media (hover:none){.camsel{opacity:1;pointer-events:auto}}
 .fzauto[aria-pressed=true]{border-color:rgb(232 185 79/.5);color:var(--gold-ink)}
 .fzbtn kbd{padding:1px 4px}
 .cams:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}

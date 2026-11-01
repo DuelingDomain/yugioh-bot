@@ -14,11 +14,13 @@ mkdirSync(directory, { recursive: true });
 process.env.E2E_WEB_PORT = "3310";
 const { seedDatabase } = await import("./seed.mjs");
 const databasePath = resolve(directory, "video.sqlite");
-await seedDatabase({ databasePath });
+const { engineDataDirectory, remoteTestDeck } = await import("./remote-decks.mjs");
+const dataDirectory = engineDataDirectory();
+await seedDatabase({ databasePath, savedDecks: [remoteTestDeck(dataDirectory)] });
 const secret = process.env.E2E_AUTH_SECRET;
 if (!secret || secret.length < 32) throw new Error("Use playwright.remote-video.config.ts for throwaway auth");
 const env = {
-  ...process.env, DATABASE_PATH: databasePath, REMOTE_DUELS: "1",
+  ...process.env, DATABASE_PATH: databasePath, REMOTE_DUELS: "1", DUEL_DATA_DIR: dataDirectory,
   DISCORD_GUILD_ID: "900000000000000001", DOTENV_CONFIG_PATH: resolve(directory, "none.env"),
   WS_INTERNAL_SECRET: secret, WS_PORT: "3312", WS_INTERNAL_PORT: "4312",
   WS_INTERNAL_URL: "http://127.0.0.1:4312", WEB_URL: "http://localhost:3310", NEXT_PUBLIC_WS_URL: "http://localhost:3312",

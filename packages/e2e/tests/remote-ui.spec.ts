@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { authenticatePlayer } from "../stack/login-auth.mjs";
+import { startTwoPlayerTable } from "./remote-table";
 
 const SHOTS = process.env.E2E_SHOTS ?? "";
 // A still picture of two cards on a table, served as the camera. Chrome's fake-file camera is not reliable between tests.
@@ -153,4 +154,49 @@ test.describe("remote duels screen, solo", () => {
       await page.keyboard.press("Escape");
     });
   }
+});
+
+test.describe("remote duels screen, two players on LiveKit", () => {
+  test("Bob reads Alice's feed, both see it, and the other player can undo", async ({ browser }) => {
+    test.setTimeout(300_000);
+    const alice = await browser.newContext(); const bob = await browser.newContext();
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, "http://localhost:3310");
+      const slug = await startTwoPlayerTable(alice.request, bob.request);
+      const a = await alice.newPage(); const b = await bob.newPage();
+      // Only Alice's camera shows cards. Bob's page needs a camera to join the table, nothing more.
+      await fakeCamera(a); await fakeCamera(b);
+      await Promise.all([a.goto(`/duels/remote/${slug}`), b.goto(`/duels/remote/${slug}`)]);
+      for (const page of [a, b]) { await expect(page.getByTestId("remote-table")).toBeVisible(); await page.getByTestId("camera-on-feed").click(); }
+      const video = b.locator('[data-testid="feed-0"] video');
+      await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 40_000 }).toBeGreaterThan(0);
+      await shot(b, "two-players-bob");
+      await b.getByTestId("feed-0").hover(); await b.waitForTimeout(500);
+      const p = await video.evaluate((v: HTMLVideoElement) => {
+        const r = v.getBoundingClientRect(); const sc = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
+        const w = v.videoWidth * sc; const h = v.videoHeight * sc;
+        return { x: r.left + (r.width - w) / 2 + 0.338 * w, y: r.top + (r.height - h) / 2 + 0.486 * h };
+      });
+      await b.mouse.click(p.x, p.y);
+      await expect(b.getByTestId("card-popover")).toBeVisible({ timeout: 90_000 });
+      await expect(b.getByTestId("popover-name")).toHaveText("Dark Magician");
+      await b.keyboard.press("Escape");
+      // Alice sees the result in her log: the identification travelled through the table, not only Bob's screen.
+      await a.getByTestId("log-button").click();
+      await expect(a.getByTestId("log-list")).toContainText("Dark Magician identified on E2E Alice", { timeout: 20_000 });
+      await a.keyboard.press("Escape");
+      await shot(a, "two-players-alice-log");
+      // Alice changes her LP. Bob undoes it from his own screen.
+      const lp = (page: Page) => page.getByTestId("lp-value-0");
+      const before = Number((await lp(b).textContent())?.replace(/\D/g, ""));
+      await a.getByRole("button", { name: "E2E Alice minus 500" }).click();
+      await expect(lp(a)).toContainText(String(before - 500));
+      await expect(lp(b)).toContainText(String(before - 500));
+      await expect(b.getByTestId("undo")).toBeEnabled();
+      await b.getByTestId("undo").click();
+      await expect(lp(a)).toContainText(String(before));
+      await expect(lp(b)).toContainText(String(before));
+      await shot(b, "two-players-undo");
+    } finally { await Promise.allSettled([alice.close(), bob.close()]); }
+  });
 });

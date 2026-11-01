@@ -50,8 +50,8 @@ export function RemoteTableScreen({ slug }: { slug: string }) {
 
 function CameraControl() {
   const hub = useVideoHub();
-  if (!hub.cameraOn) return <div className={s.camsel}><button type="button" className={`${s.btn} ${s.go}`} disabled={hub.starting} onClick={() => void hub.enableCamera()} data-testid="camera-on">
-    {hub.starting ? "Starting…" : hub.solo ? "Turn camera on" : "Join table video"}</button></div>;
+  // Joining is the button inside the empty feed. This control only appears once the camera is on.
+  if (!hub.cameraOn) return null;
   return <div className={s.camsel}>
     {hub.devices.length > 1 ? <select aria-label="Choose camera" value={hub.cameraId} onChange={event => void hub.selectCamera(event.target.value)}>
       {hub.devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select> : null}

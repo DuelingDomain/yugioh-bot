@@ -54,6 +54,8 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const [controller, setController] = useState<RemoteVideo | null>(null);
   const [snap, setSnap] = useState<VideoSnapshot>(emptySnapshot);
   const [frozen, setFrozenState] = useState<Record<number, boolean>>({});
+  // Stable: the feed restarts its frame watch when this changes, and a restart would hide a stall for 3 s each time.
+  const setFrozen = useCallback((seat: number, value: boolean) => setFrozenState(old => old[seat] === value ? old : { ...old, [seat]: value }), []);
   const [local, setLocal] = useState<MediaStream | null>(null);
   const [starting, setStarting] = useState(false);
   const [localError, setLocalError] = useState("");
@@ -121,6 +123,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const health = useCallback((seat: number): Health => {
     if (room.seats.find(s => s.seat === seat)?.bot) return { q: "off", label: "No camera", detail: "Test opponent" };
     if (solo) return local ? { q: "good", label: "Live", detail: "Local preview" } : { q: "off", label: "Camera off", detail: "Turn the camera on" };
+    if (snap.connection === ConnectionState.Reconnecting) return { q: "warn", label: "Reconnecting", detail: "Your connection to table video dropped" };
     const feed = snap.feeds.find(f => f.seat === seat);
     if (!feed?.video) return { q: "bad", label: "No feed", detail: connected ? "Disconnected" : "Table video is off" };
     if (frozen[seat]) return { q: "bad", label: "Frozen", detail: "No frames for 3 s" };
@@ -129,7 +132,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     if (/poor/i.test(q)) return { q: "warn", label: "Weak", detail: "Poor connection" };
     if (/lost/i.test(q)) return { q: "bad", label: "Lost", detail: "Connection lost" };
     return { q: "good", label: "Good", detail: q === "unknown" ? "Live" : q };
-  }, [room.seats, solo, local, snap.feeds, connected, frozen]);
+  }, [room.seats, solo, local, snap.feeds, snap.connection, connected, frozen]);
 
   const wait = useRef(new Map<string, (r: ReadResult) => void>());
   useEffect(() => {
@@ -174,8 +177,8 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const value = useMemo<Hub>(() => ({
     solo, connection: solo ? (local ? "local" : "off") : snap.connection, cameraOn: solo ? !!local : connected, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
     error: localError || snap.error, devices: solo ? localDevices : snap.devices, cameraId: solo ? localCamera : snap.cameraId, micPublished: micOn && connected,
-    sourceFor, health, setFrozen: (seat, value) => setFrozenState(old => old[seat] === value ? old : { ...old, [seat]: value }),
+    sourceFor, health, setFrozen,
     enableCamera, disableCamera, selectCamera, setMic, read, askAi, recordFeedback, peek, readBoard: board,
-  }), [solo, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, disableCamera, selectCamera, setMic, read, peek, board]);
+  }), [solo, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, disableCamera, selectCamera, setMic, setFrozen, read, peek, board]);
   return <Ctx value={value}>{children}</Ctx>;
 }
