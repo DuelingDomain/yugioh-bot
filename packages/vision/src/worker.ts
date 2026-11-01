@@ -29,7 +29,9 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
     const decoded=decodeIndex(await response.arrayBuffer(),meta);
     const index=profile.id==='yugioh'?filterPhysicalIndex(decoded):decoded;
     if(profile.thresholdsUrl) {
-      const response=await fetch(profile.thresholdsUrl,{cache:'no-store',signal:AbortSignal.timeout(1500)});
+      // Eager initialization can hit a cold asset route. A 1.5s timeout repeatedly discarded
+      // prewarm attempts before a read; preserve calibration validation while allowing startup.
+      const response=await fetch(profile.thresholdsUrl,{cache:'no-store',signal:AbortSignal.timeout(10_000)});
       if(response.ok)profile={...profile,embedding:{...profile.embedding,thresholds:calibratedThresholds(await response.json(),profile,index)}};
       else if(response.status!==404)throw new Error('Cannot load webcam thresholds');
     }

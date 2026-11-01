@@ -13,7 +13,7 @@ const card = (x: number, y: number, w = .15, h = .25): DetectedQuad => ({
 });
 const frame = {width:100,height:100,data:new Uint8ClampedArray(40_000).fill(120)};
 function pipeline() {
-  const profile = {...yugioh,card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
+  const profile = {...yugioh,id:'fixture',card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
   const index = {meta:{dim:2,count:2,entries:[{cardId:'A',name:'Alpha'},{cardId:'B',name:'Beta'}]},vectors:new Float32Array([1,0,0,1])} as LoadedIndex;
   class Tensor {constructor(public type:unknown,public data:unknown,public dims:unknown){}}
   const detector = {backend:'wasm',run:()=>{throw new Error('supplied outlines must avoid repeated detection');}} as unknown as ModelSession;
@@ -52,6 +52,9 @@ test('client exposes both worker operations and abort releases its worker for an
   globalThis.Worker=FakeWorker as unknown as typeof Worker;
   const reader=createRecognizer({backend:'wasm'});
   try {
+    await Promise.all([reader.warmup(),reader.warmup()]);
+    assert.equal(workers.length,1);
+    assert.equal(messages.filter(m=>m.type==='init').length,1);
     assert.equal((await reader.peek(frame as ImageData,{card:card(.1,.1)})).name,'Alpha');
     const controller=new AbortController();
     const reading=reader.readAll(frame as ImageData,{cards:[],signal:controller.signal});
@@ -62,6 +65,7 @@ test('client exposes both worker operations and abort releases its worker for an
     await reader.peek(frame as ImageData,{card:card(.1,.1)});
     assert.equal(workers.length,2);
     assert.equal('signal' in (messages.find(m=>m.type==='readAll')!.opts as object),false);
+    reader.dispose();await assert.rejects(reader.warmup(),/disposed/);
   } finally {reader.dispose();globalThis.Worker=original;}
 });
 test('peek returns the best local name without exporting pixels and covered answers cannot be sure', async () => {

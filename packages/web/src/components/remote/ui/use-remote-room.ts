@@ -81,9 +81,9 @@ export function useRemoteRoom(slug: string) {
   }, [slug, router, mutate]);
 
   /** Posts one action; resolves to the updated room, or null when the foundation refused it. */
-  const action = useCallback(async (payload: RemoteActionProposal): Promise<RemoteRoom | null> => {
+  const action = useCallback(async (payload: RemoteActionProposal, idempotencyKey = crypto.randomUUID()): Promise<RemoteRoom | null> => {
     const current = roomRef.current; if (!current) return null;
-    const input = { baseSeq: Math.max(current.lastSeq, lastSeq.current), action: { ...payload, idempotencyKey: crypto.randomUUID() } as RemoteAction };
+    const input = { baseSeq: Math.max(current.lastSeq, lastSeq.current), action: { ...payload, idempotencyKey } as RemoteAction };
     setError("");
     try {
       const updated = await remoteApi<RemoteRoom>(`/${slug}/actions`, input);
