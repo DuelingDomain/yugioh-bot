@@ -108,6 +108,7 @@ test('physical filter removes skills/nonphysical rows, preserves tokens and coll
   index.meta.entries[2]={cardId:'999',passcode:0,name:'Token'};
   index.meta.entries[3]={cardId:'8',passcode:8,name:'Duplicate',imageId:1,frameClass:'Effect'};
   index.meta.entries[4]={...index.meta.entries[3],cardId:'9'};
+  index.meta.entries[0].name='Skill Drain';
   assert.deepEqual(filterPhysicalIndex(index).meta.entries.map(e=>e.cardId),['1','999','8']);
 });
 
@@ -160,4 +161,44 @@ test('temporal frames redetect moved outlines instead of reusing a selected quad
 test('a first clean sure frame stops before subsequent detector/embed runs',async()=>{
   const counter={detect:0};const result=await temporalFixture(counter).recognize([frame,frame,frame],{includeRaw:true});
   assert.equal(result.tier,'sure');assert.equal(counter.detect,1);assert.equal(result.quality.framesUsed,1);assert.equal(result.raw?.earlyExit,true);
+});
+import {tuneThresholds,realsetMetrics,type RealsetSample} from './calibration';
+test('threshold tuner keeps zero wrong sure on cards and negatives with a safety gap',async()=>{
+  const result=await fixture(false).recognize([frame],{card:selected,includeRaw:true});
+  const sample=(id:string,label:string|null,score:number,runner:number):RealsetSample=>{
+    const raw=structuredClone(result.raw!);const list=[{cardId:'A',score},{cardId:'B',score:runner}];raw.visual=list;raw.ranked=list;raw.winnerId='A';raw.frames=[{...raw.frames[0],clean:list,ranked:list,hypotheses:[list]}];
+    return {id,capturedAt:'now',label,condition:'mocked',cardWidthPx:100,source:'photo',width:20,height:30,clickPoint:{x:.5,y:.5},tier:'sure',raw,latencyMs:1};
+  };
+  const samples=[sample('right','A',.98,.4),sample('wrong','B',.9,.6),sample('object',null,.93,.4)];
+  const tuned=tuneThresholds(samples,.01);assert.equal(tuned.metrics.sureButWrong,0);assert.equal(tuned.metrics.sure,1);assert.ok(tuned.thresholds.score>.94 || tuned.thresholds.margin>.54);
+  assert.equal(realsetMetrics(samples,tuned.thresholds).negativeSure,0);assert.throws(()=>tuneThresholds(samples.slice(0,1)),/negatives/);
+});
+test('calibration guards wrong individual whole-card views even when later art rescues capture',async()=>{
+  const result=await fixture(false).recognize([frame],{card:selected,includeRaw:true});
+  const raw=structuredClone(result.raw!),list=(id:string,score:number)=>[{cardId:id,score},{cardId:id==='A'?'B':'A',score:.1}];
+  raw.visual=list('A',.95);raw.ranked=raw.visual;raw.frames[0].clean=raw.visual;raw.frames[0].ranked=raw.visual;
+  raw.frames[0].hypotheses=[list('A',.85),list('A',.95),list('B',.90)];
+  const base:RealsetSample={id:'card',capturedAt:'now',label:'A',condition:'mock',cardWidthPx:100,source:'photo',width:20,height:30,clickPoint:{x:.5,y:.5},tier:'sure',raw,latencyMs:1};
+  const negative={...base,id:'negative',label:null,raw:{...raw,visual:list('B',.2),frames:[]}};
+  const tuned=tuneThresholds([base,negative]);
+  assert.ok(tuned.thresholds.score>.91 || tuned.thresholds.margin>.81);
+});
+test('AI abstains when mocked provider returns a name outside its closed candidate list',async()=>{
+  const {identifyRemoteVisionCard}=await import('../../web/src/lib/remote-vision-ai');
+  const {MODEL}=await import('@yugidraft/shared/cards/effects/budget-ledger');
+  const original=globalThis.fetch;
+  try {
+    globalThis.fetch=async()=>Response.json({model:MODEL,stop_reason:'end_turn',content:[{type:'text',text:JSON.stringify({name:'Wrong card'})}]});
+    const result=await identifyRemoteVisionCard({prepare:()=>{throw Error('Out-of-list name reached catalog');}} as never,'mock-jpeg','mock-key',['Right card']);
+    assert.equal(result.match,null);
+  } finally {globalThis.fetch=original;}
+});
+import {calibratedThresholds} from './threshold-config';
+import {indexVersion} from './learning';
+test('runtime refuses thresholds calibrated for a different index or model',()=>{
+  const index=searchIndex(['1','2'],[1,0,0,1]);index.meta.layoutKey='layout';
+  const config={version:1,modelId:yugioh.embedding.id,modelSha256:yugioh.embedding.sha256,indexVersion:indexVersion(index.meta),layoutKey:'layout',thresholds:{score:.9,margin:.04,floor:.74},sampleCount:2,negativeCount:1,sureButWrong:0,safetyGap:.01};
+  assert.equal(calibratedThresholds(config,yugioh,index).score,.9);
+  assert.throws(()=>calibratedThresholds({...config,indexVersion:'stale'},yugioh,index),/Incompatible/);
+  assert.throws(()=>calibratedThresholds({...config,modelSha256:'wrong'},yugioh,index),/Incompatible/);
 });

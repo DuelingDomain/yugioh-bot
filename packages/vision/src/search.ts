@@ -35,7 +35,11 @@ export function topK(query: Float32Array, index: LoadedIndex, k = 5, priors?: Re
 /** Deck suggestions win ambiguous reads; a clear catalog answer always wins.
  * Confidence is still checked against the unboosted full catalog by the pipeline.
  */
-export function preferDeck(deck: Candidate[], catalog: Candidate[], thresholds: ConfidenceThresholds): Candidate[] {
+export function preferDeck(deck: Candidate[], catalog: Candidate[], thresholds: ConfidenceThresholds, cleanCatalog:Candidate[]=catalog): Candidate[] {
+  if(decide(cleanCatalog,thresholds).confident) {
+    const winner=catalog.find(c=>c.cardId===cleanCatalog[0]?.cardId);
+    return winner?[winner,...catalog.filter(c=>c.cardId!==winner.cardId)]:catalog;
+  }
   if (!decide(deck, thresholds).confident || decide(catalog, thresholds).confident) return catalog;
   const first = deck[0];
   if (first.score < (catalog[0]?.score ?? 0) - thresholds.margin) return catalog;

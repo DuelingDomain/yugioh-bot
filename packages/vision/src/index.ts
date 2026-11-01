@@ -15,3 +15,5 @@ export {catalogCardId,isPhysicalEntry,filterPhysicalIndex,PHYSICAL_INDEX_POLICY}
 export {replayTier} from './decision';
 export type {RemoteRecognitionResult} from './remote-result';
 export type {RecognitionEvidence} from './types';
+
+export type {RealsetSample,RealsetExport} from './calibration';

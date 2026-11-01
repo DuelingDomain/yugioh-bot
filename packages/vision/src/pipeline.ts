@@ -135,7 +135,7 @@ export class RecognitionPipeline {
         merged = mergeCandidates(lists, 10);
         if(opts.priors?.decklist?.length)merged=preferDeck(merged.filter(c=>opts.priors!.decklist!.includes(c.cardId)),merged,thresholds);
         timings.search += performance.now() - t;
-        if ((!faceDown || merged[0]?.cardId===this.profile.cardBack.cardId) && decide(mergeCandidates(cleanLists,10), thresholds, this.profile.cardBack.cardId).confident && !merged.some(c=>this.learning.confusions.some(p=>p.a===c.cardId||p.b===c.cardId))) break;
+        if (!opts.includeRaw && (!faceDown || merged[0]?.cardId===this.profile.cardBack.cardId) && decide(mergeCandidates(cleanLists,10), thresholds, this.profile.cardBack.cardId).confident && !merged.some(c=>this.learning.confusions.some(p=>p.a===c.cardId||p.b===c.cardId))) break;
       }
       // Keep the vector of the hypothesis that actually supplied the winning visual match.
       let winner = 0;
@@ -164,9 +164,10 @@ export class RecognitionPipeline {
       const independentlyClear=!confusionChecked || (checks.length>=2 && checks.every(list=>list[0]?.cardId===merged[0]?.cardId && list[0].score-(list[1]?.score??0)>=.06));
       if(!views.length&&found)detectedCard=selected??{quad:corners.map(p=>({x:p.x/frame.width,y:p.y/frame.height})),kind:card!.kind,confidence:card!.conf,partial,covered};
       const clean=mergeCandidates(cleanLists,10);
+      if(opts.priors?.decklist?.length)merged=preferDeck(merged.filter(c=>opts.priors!.decklist!.includes(c.cardId)),merged,thresholds,clean);
       const eligible=found && !partial && !covered && (!fullArt || Boolean(this.fullArtIndex?.meta.count)) && independentlyClear && (!faceDown || merged[0]?.cardId===this.profile.cardBack.cardId);
       const deck=opts.priors?.decklist?.length?topK(winningVector,winningIndex,10,undefined,undefined,new Set(opts.priors.decklist)):[];
-      frameEvidence.push({frameIndex,clean,ranked:merged,deck,faceDown,eligible});
+      frameEvidence.push({frameIndex,hypotheses:cleanLists,clean,ranked:merged,deck,faceDown,eligible});
       usedIndices.push(frameIndex);
       // This source warp retains text detail; it never passes through the 295px embedding warp.
       let aiCrop:RGBAImage|undefined;
@@ -194,7 +195,7 @@ export class RecognitionPipeline {
       }
       visual=mergeCandidates(visualLists,Math.max(k,10));
       candidates=mergeCandidates(rankedLists,Math.max(k,10));
-      if(opts.priors?.decklist?.length)candidates=preferDeck(candidates.filter(c=>opts.priors!.decklist!.includes(c.cardId)),candidates,thresholds);
+      if(opts.priors?.decklist?.length)candidates=preferDeck(candidates.filter(c=>opts.priors!.decklist!.includes(c.cardId)),candidates,thresholds,visual);
       if (fallback) {
         visual = visual.map(c => ({ ...c, score: c.score * .85 }));
         candidates = candidates.map(c => ({ ...c, score: c.score * .85 }));
@@ -207,7 +208,7 @@ export class RecognitionPipeline {
     if(views.some(v=>v.fullArt) && !this.fullArtIndex?.meta.count)blocked.push('full-art-without-references');
     if(views.some(v=>v.faceDown) && candidates[0]?.cardId!==this.profile.cardBack.cardId)blocked.push('face-down');
     if(this.confused(visual) && (visual[0].score-(visual[1]?.score??0)<.06 || !views.every(v=>v.confusionChecked)))blocked.push('confusion');
-    const raw:RecognitionEvidence={visual,winnerId:candidates[0]?.cardId,cardBackId:this.profile.cardBack.cardId,blocked,frames:frameEvidence,
+    const raw:RecognitionEvidence={visual,ranked:candidates,winnerId:candidates[0]?.cardId,cardBackId:this.profile.cardBack.cardId,blocked,frames:frameEvidence,
       thresholds,modelId:this.profile.embedding.id,modelSha256:this.profile.embedding.sha256,indexVersion:indexVersion(this.index.meta),layoutKey:this.index.meta.layoutKey??'',learningVersion:this.learning.version,priors:opts.priors,earlyExit};
     const tier=replayTier(raw,thresholds);
     timings.search += performance.now() - t; timings.total = performance.now() - start;

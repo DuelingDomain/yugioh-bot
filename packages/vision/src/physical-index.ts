@@ -9,7 +9,7 @@ export function catalogCardId(entry?: IndexEntry): number | undefined {
 }
 export function isPhysicalEntry(entry: IndexEntry): boolean {
   if(entry.cardId==='__card_back__')return true;
-  if(!catalogCardId(entry) || /\bskill(?: card)?\b/i.test(entry.name))return false;
+  if(!catalogCardId(entry) || /\(Skill Card\)$/i.test(entry.name))return false;
   // Field Tokens have catalog IDs even when no printed passcode exists.
   if(/\btoken\b/i.test(entry.name) && !entry.frameClass)return true;
   return entry.passcode>0 && physicalFrames.has(entry.frameClass??'');

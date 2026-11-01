@@ -25,6 +25,7 @@ export interface GameProfile {
   borderSamples: FractionalBox[];
   textBoxColor?: [number, number, number];
   indexUrl: string; metaUrl: string;
+  thresholdsUrl?:string;
   embedding: EmbeddingModelSpec;
   detector: { url: string; sha256: string; longSide: number };
   /** Missed detection: card height as a fraction of frame height. */
@@ -73,8 +74,8 @@ export interface LoadedIndex { meta: IndexMeta; vectors: Float32Array | Int8Arra
 
 /** Scores before thresholds, with all non-threshold safety decisions frozen. */
 export interface RecognitionEvidence {
-  visual: Candidate[]; winnerId?: string; cardBackId: string; blocked: string[];
-  frames: { frameIndex:number; clean:Candidate[]; ranked:Candidate[]; deck:Candidate[]; faceDown:boolean; eligible:boolean }[];
+  visual: Candidate[]; ranked?:Candidate[]; winnerId?: string; cardBackId: string; blocked: string[];
+  frames: { frameIndex:number; hypotheses?:Candidate[][]; clean:Candidate[]; ranked:Candidate[]; deck:Candidate[]; faceDown:boolean; eligible:boolean }[];
   thresholds: ConfidenceThresholds; modelId:string; modelSha256:string; indexVersion:string; layoutKey:string; learningVersion:string;
   priors?:RecognitionPriors; earlyExit:boolean;
 }

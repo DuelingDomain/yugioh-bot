@@ -3,6 +3,7 @@ import { createModelSession, runtimeDiagnostics, Tensor, type ModelSession } fro
 import { fullArtProfile } from './full-art';
 import { RecognitionPipeline } from './pipeline';
 import { indexVersion, type LearningSnapshot } from './learning';
+import { calibratedThresholds } from './threshold-config';
 import { LearningCache } from './learning-cache';
 import { filterPhysicalIndex } from './physical-index';
 import { decodeIndex } from './index-format';
@@ -27,6 +28,11 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
     if (!response.ok) throw new Error(`Cannot load index: HTTP ${response.status}`);
     const decoded=decodeIndex(await response.arrayBuffer(),meta);
     const index=profile.id==='yugioh'?filterPhysicalIndex(decoded):decoded;
+    if(profile.thresholdsUrl) {
+      const response=await fetch(profile.thresholdsUrl,{cache:'no-store',signal:AbortSignal.timeout(1500)});
+      if(response.ok)profile={...profile,embedding:{...profile.embedding,thresholds:calibratedThresholds(await response.json(),profile,index)}};
+      else if(response.status!==404)throw new Error('Cannot load webcam thresholds');
+    }
     // Sequential session creation avoids simultaneous WASM runtime initialization.
     const detector = await createModelSession(profile.detector.url, profile.detector.sha256, backend, runtimeBase); sessions.push(detector);
     const embedder = await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase); sessions.push(embedder);
