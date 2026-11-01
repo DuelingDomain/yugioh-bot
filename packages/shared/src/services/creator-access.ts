@@ -21,6 +21,52 @@ export type GrantStatus = "sending" | "sent" | "failed" | "signed_up" | "revoked
 export type GrantView = GrantStatus | "expired";
 export type LinkState = "open" | "full" | "expired" | "revoked";
 
+/** Display context only: no invitation secrets or email addresses. */
+export interface CreatorSignUpAttribution {
+  creatorName: string;
+  kind: GrantKind;
+  linkLabel: string | null;
+  linkType: "Personal" | "Friends" | "Community" | null;
+}
+
+/**
+ * Read-only attribution for a verified user.created webhook, before local Clerk sync.
+ * Match ddGrant with the same inbox check as attributeSignUp, then fall back to the
+ * email key. A delayed webhook must not credit a grant made after the account.
+ * Expired/revoked grants still describe the invitation the person signed up with.
+ */
+export function resolveCreatorSignUpAttribution(db: Database.Database, input: {
+  email: string | null; clerkUserId: string; grantId?: unknown; createdAt: number;
+}): CreatorSignUpAttribution | null {
+  type Row = {
+    creator_name: string; kind: GrantKind; label: string | null; max_uses: number | null;
+    email_key: string; created_at: number; user_id: number | null; clerk_user_id: string | null;
+  };
+  const select = `select c.name as creator_name, g.kind, l.label, l.max_uses,
+    g.email_key, g.created_at, g.user_id, u.clerk_user_id
+    from creator_grants g join creators c on c.id = g.creator_id
+    left join creator_links l on l.id = g.link_id left join users u on u.id = g.user_id`;
+  const key = input.email ? emailKey(input.email) : null;
+  let grant: Row | undefined;
+  if (typeof input.grantId === "number" && Number.isSafeInteger(input.grantId) && input.grantId > 0) {
+    const byId = db.prepare<[number], Row>(`${select} where g.id = ?`).get(input.grantId);
+    if (byId && input.createdAt >= byId.created_at && (key === null || byId.email_key === key)) grant = byId;
+  }
+  if (!grant && key) {
+    const byKey = db.prepare<[string], Row>(`${select} where g.email_key = ?`).get(key);
+    if (byKey && input.createdAt >= byKey.created_at) grant = byKey;
+  }
+  if (!grant || (grant.user_id !== null && grant.clerk_user_id !== input.clerkUserId)) return null;
+  const isLink = grant.kind === "link";
+  return {
+    creatorName: grant.creator_name, kind: grant.kind,
+    linkLabel: isLink ? grant.label : null,
+    linkType: !isLink || grant.max_uses === null ? null
+      : grant.max_uses === LINK_PRESETS.personal.maxUses ? "Personal"
+      : grant.max_uses === LINK_PRESETS.friends.maxUses ? "Friends" : "Community",
+  };
+}
+
 /** Clerk invitation lifetime per grant kind. An unused link invitation frees its use after this time. */
 export const LINK_INVITE_DAYS = 7;
 export const ALLOWLIST_INVITE_DAYS = 30;

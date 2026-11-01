@@ -5,7 +5,7 @@ import { ClerkBackendError, createClerkBackend, type ClerkBackend } from "../../
 import { deleteUserAccount } from "../../src/services/account-deletion.js";
 import {
   ALLOWLIST_INVITE_DAYS, CreatorAccessError, LINK_INVITE_DAYS, LINK_PRESETS, RESEND_COOLDOWN_MS, SENDING_LEASE_MS,
-  createCreatorAccessService, type CreatorAccessService,
+  createCreatorAccessService, resolveCreatorSignUpAttribution, type CreatorAccessService,
 } from "../../src/services/creator-access.js";
 
 // Creator fast-track on a real in-memory SQLite. Clerk is a stub object (or createClerkBackend with a fetch stub);
@@ -82,6 +82,70 @@ beforeEach(() => {
 afterEach(() => {
   db.close();
   vi.restoreAllMocks();
+});
+
+describe("creator sign-up alert attribution", () => {
+  const resolve = (email: string | null, grantId?: unknown, createdAt = T0 + 60_000) =>
+    resolveCreatorSignUpAttribution(db, { email, grantId, createdAt, clerkUserId: "user_new" });
+
+  it.each([[1, "Personal"], [3, "Friends"], [50, "Community"]] as const)("resolves a %s-use link before local sign-in without changing the grant", async (uses, linkType) => {
+    const creator = setup();
+    const { claim } = await claimAndSend(link(creator.id, uses).code, "a.b+invite@googlemail.com");
+    const grantId = (claim as { grantId: number }).grantId;
+    const before = JSON.stringify(grants());
+    expect(resolve("ab+account@gmail.com", grantId)).toEqual({ creatorName: "Kaiba Plays", kind: "link", linkLabel: "Video", linkType });
+    expect(JSON.stringify(grants())).toBe(before);
+    expect(db.prepare("select count(*) as n from users").get()).toEqual({ n: 1 });
+  });
+
+  it.each([undefined, null, "1", -1, 1.5, {}, 99999])("falls back to the email key with ddGrant %j", async grantId => {
+    const creator = setup();
+    await service.addAllowlistEmails(creator.id, ["a.b+invite@googlemail.com"], 1);
+    expect(resolve("ab+account@gmail.com", grantId)).toEqual({ creatorName: "Kaiba Plays", kind: "allowlist", linkLabel: null, linkType: null });
+  });
+
+  it("ignores a mismatched metadata grant and falls back to the matching inbox", async () => {
+    const creator = setup();
+    const { claim } = await claimAndSend(link(creator.id, 1).code, "personal@example.test");
+    const other = service.createCreator({ name: "Yugi", actorUserId: 1 });
+    await service.addAllowlistEmails(other.id, ["friend@example.test"], 1);
+    expect(resolve("friend@example.test", (claim as { grantId: number }).grantId)?.creatorName).toBe("Yugi");
+    expect(resolve("stranger@example.test", (claim as { grantId: number }).grantId)).toBeNull();
+  });
+
+  it("uses trusted metadata for an email-less user, including revoked invitations", async () => {
+    const creator = setup();
+    const personal = link(creator.id, 1);
+    const { claim } = await claimAndSend(personal.code, "personal@example.test");
+    await service.revokeLink(creator.id, personal.id);
+    expect(resolve(null, (claim as { grantId: number }).grantId)).toMatchObject({ creatorName: "Kaiba Plays", linkType: "Personal" });
+    expect(resolve(null)).toBeNull();
+  });
+
+  it("does not credit a grant created after the sign-up or bound to another Clerk user", async () => {
+    const creator = setup();
+    const { claim } = await claimAndSend(link(creator.id, 3).code, "friend@example.test");
+    const grantId = (claim as { grantId: number }).grantId;
+    expect(resolve("friend@example.test", undefined, T0 - 1)).toBeNull();
+    db.exec("insert into users(id,username,display_name,clerk_user_id) values(2,'other','Other','user_other')");
+    service.attributeSignUp({ userId: 2, email: "friend@example.test", grantId });
+    expect(resolve("friend@example.test", grantId)).toBeNull();
+    db.exec("update users set clerk_user_id='user_new' where id=2");
+    expect(resolve("friend@example.test", grantId)?.linkType).toBe("Friends");
+  });
+
+  it("does not attribute a delayed metadata event to a later creator that reused the expired grant", async () => {
+    const creator = setup();
+    const { claim } = await claimAndSend(link(creator.id, 1).code, "friend@example.test");
+    const grantId = (claim as { grantId: number }).grantId;
+    clock += 8 * DAY;
+    const later = service.createCreator({ name: "Later creator", actorUserId: 1 });
+    const reused = service.claimLinkGrant(link(later.id, 3).code, "friend@example.test");
+    expect(reused).toEqual({ kind: "claimed", grantId });
+    expect(resolve("friend@example.test", grantId, T0 + 60_000)).toBeNull();
+    expect(resolve(null, grantId, T0 + 60_000)).toBeNull();
+    expect(resolve("friend@example.test", grantId, clock + 60_000)?.creatorName).toBe("Later creator");
+  });
 });
 
 describe("creator links", () => {

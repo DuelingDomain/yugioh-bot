@@ -178,7 +178,9 @@ it.each([false, true])("posts waitlist and signup embeds with the email flag %s 
   const f = await fixture();
   vi.stubEnv("DISCORD_ADMIN_SHOW_FULL_EMAIL", fullEmail ? "1" : "0");
   f.enqueue();
-  enqueueJoinRequest(f.db, { email: "newuser@example.com", subjectId: "user_new", source: "sign-up" });
+  enqueueJoinRequest(f.db, { email: "newuser@example.com", subjectId: "user_new", source: "sign-up",
+    creatorInvite: { creatorName: "Kaiba Plays", kind: "link", linkLabel: "Launch crew", linkType: "Friends" },
+    heardFrom: { heardFrom: "youtube", detail: "Launch video" } });
   await f.start(createWaitlistFeature({ backend: f.backend }));
   await expect.poll(() => posts(f).length).toBe(2);
   const [pending, signup] = posts(f);
@@ -191,6 +193,10 @@ it.each([false, true])("posts waitlist and signup embeds with the email flag %s 
   ]));
   expect(pending.body.components[0].components.map((button: any) => button.label)).toEqual(["Approve", "Reject"]);
   expect(signup.body.components).toEqual([]);
+  expect(signup.body.embeds[0].fields).toEqual(expect.arrayContaining([
+    { name: "Creator invite", value: "Kaiba Plays · Launch crew \\(Friends\\)" },
+    { name: "Heard from", value: "YouTube · Launch video" },
+  ]));
   for (const post of posts(f)) expect(post.body).toMatchObject({ enforce_nonce: true, nonce: expect.any(String), allowed_mentions: { parse: [] } });
   expect(f.db.prepare("select status,payload_json from discord_outbox").all()).toEqual([
     { status: "posted", payload_json: null }, { status: "posted", payload_json: null },
