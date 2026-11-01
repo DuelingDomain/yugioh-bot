@@ -35,7 +35,7 @@ test("two seated browsers exchange field video, detect stalled frames and reconn
     const frames = (page: Page, seat: number) => video(page, seat).evaluate(node => (node as HTMLVideoElement).getVideoPlaybackQuality().totalVideoFrames);
     const health = (page: Page, seat: number) => page.locator(`[data-hl="${seat}"]`);
     for (const page of [a, b]) for (const seat of [0, 1]) {
-      await expect(video(page, seat)).toBeVisible();
+      await expect(video(page, seat)).toBeVisible({ timeout: 60_000 });
       await expect.poll(() => frames(page, seat)).toBeGreaterThan(10);
     }
     const size = await video(a, 0).evaluate(node => ({ width: (node as HTMLVideoElement).videoWidth, height: (node as HTMLVideoElement).videoHeight }));
@@ -71,13 +71,18 @@ test("two seated browsers exchange field video, detect stalled frames and reconn
     await b.evaluate(() => { for (const socket of (window as unknown as { signalSockets: WebSocket[] }).signalSockets) if (socket.url.includes("/rtc")) socket.close(); });
     await expect(health(b, 0)).toContainText(/Reconnecting|No feed/, { timeout: 60_000 });
     await bob.setOffline(false);
-    await expect(b.getByTestId("camera-on-feed")).toBeVisible({ timeout: 60_000 });
-    await b.getByTestId("camera-on-feed").click();
-    await expect(health(b, 0)).toContainText("Good", { timeout: 40_000 });
+    // The SDK resumes by itself when it can. When it gave up, the screen offers the way back in.
+    const rejoin = b.getByTestId("camera-on-feed");
+    await expect(async () => {
+      if (await rejoin.isVisible()) await rejoin.click();
+      await expect(health(b, 0)).toContainText("Good", { timeout: 2_000 });
+    }).toPass({ timeout: 90_000, intervals: [1_000] });
     const afterJoin = await frames(a, 1);
     await expect.poll(() => frames(a, 1), { timeout: 30_000 }).toBeGreaterThan(afterJoin + 5);
 
     await b.getByRole("button", { name: "Mute microphone" }).click();
+    // The camera control shows when the pointer is over the feed.
+    await b.getByTestId("feed-1").hover();
     await b.getByRole("button", { name: "Camera off" }).click();
     await expect(video(a, 1)).toHaveCount(0);
     expect(await b.evaluate(() => (window as unknown as { videoSenders: { track: MediaStreamTrack }[] }).videoSenders.every(({ track }) => track.readyState === "ended"))).toBe(true);

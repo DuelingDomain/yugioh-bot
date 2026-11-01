@@ -10,7 +10,7 @@ import {
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean };
 export type VideoSnapshot = {
   connection: ConnectionState; feeds: VideoFeed[]; devices: MediaDeviceInfo[];
-  cameraId: string; microphone: boolean; error: string; result?: { fromSeat: number; message: RecognitionResult };
+  cameraId: string; microphone: boolean; error: string; /** The signal link dropped and the SDK is trying to resume it. */ signalLost?: boolean; result?: { fromSeat: number; message: RecognitionResult };
 };
 /** @yugidraft/vision integration point: crop/recognize on this unprocessed local capture track.
  * Honor signal; return at most five candidates, with the reader's tier, within 10 seconds. No frames enter the data channel.
@@ -33,8 +33,10 @@ export class RemoteVideo {
       RoomEvent.ParticipantDisconnected, RoomEvent.TrackMuted, RoomEvent.TrackUnmuted,
       RoomEvent.ConnectionQualityChanged, RoomEvent.LocalTrackPublished, RoomEvent.LocalTrackUnpublished,
       RoomEvent.ParticipantMetadataChanged]) this.room.on(event, sync);
+    this.room.on(RoomEvent.SignalReconnecting, () => this.patch({ signalLost: true }));
+    this.room.on(RoomEvent.SignalConnected, () => this.patch({ signalLost: false }));
     this.room.on(RoomEvent.ConnectionStateChanged, connection => {
-      this.patch({ connection }); this.sync();
+      this.patch({ connection, ...(connection === ConnectionState.Connected ? { signalLost: false } : {}) }); this.sync();
       if (connection === ConnectionState.Disconnected) { this.channel?.close(); this.scans.abort(); }
     });
     this.room.on(RoomEvent.DataReceived, (bytes, participant, _kind, topic) => {

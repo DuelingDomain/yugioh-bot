@@ -123,7 +123,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const health = useCallback((seat: number): Health => {
     if (room.seats.find(s => s.seat === seat)?.bot) return { q: "off", label: "No camera", detail: "Test opponent" };
     if (solo) return local ? { q: "good", label: "Live", detail: "Local preview" } : { q: "off", label: "Camera off", detail: "Turn the camera on" };
-    if (snap.connection === ConnectionState.Reconnecting) return { q: "warn", label: "Reconnecting", detail: "Your connection to table video dropped" };
+    if (snap.connection === ConnectionState.Reconnecting || (snap.signalLost && snap.connection !== ConnectionState.Disconnected)) return { q: "warn", label: "Reconnecting", detail: "Your connection to table video dropped" };
     const feed = snap.feeds.find(f => f.seat === seat);
     if (!feed?.video) return { q: "bad", label: "No feed", detail: connected ? "Disconnected" : "Table video is off" };
     if (frozen[seat]) return { q: "bad", label: "Frozen", detail: "No frames for 3 s" };
