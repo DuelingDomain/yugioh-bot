@@ -1,6 +1,6 @@
-# Remote Duels foundation contract
+# Remote Duels contract
 
-Remote Duels track physical games. They do not run ocgcore or infer hidden cards, battle damage, card legality, or effects. The current module is Standard MR5 Yu-Gi-Oh!, with 2-player play and 3/4-player FFA. The owner MVP spec takes precedence over the earlier engine/app design report (LiveKit, 2–4 seats, and `lobby|active|ended`).
+Remote Duels track physical games without running ocgcore or resolving effects or battle damage. Saved decks are checked against the table's format; live deck checks are assistive and require explicit recognition or simultaneous public evidence. The module supports Advanced, Domain, Genesys and Genesys Domain with 2-player play and 3/4-player FFA. The owner MVP spec takes precedence over the earlier engine/app design report (LiveKit, 2–4 seats, and `lobby|active|ended`).
 
 ## Imports and ownership
 
@@ -10,15 +10,15 @@ Remote Duels track physical games. They do not run ocgcore or infer hidden cards
 - UI: `packages/web/src/components/remote/remote-workbench.tsx` and adjacent seat, command and local-camera components. Keep the HTTP/action/event contract when replacing the UI.
 - Video extension: `POST /api/remote/[slug]/livekit`. Solo uses local webcam preview; multiplayer LiveKit token minting remains a 503 stub. Speech uses optional browser SpeechRecognition with a typed-command fallback. Recognition uses on-demand browser OCR and the existing card catalog; `RemoteDataMessage` remains the remote recognition relay extension.
 
-`GameModule` exposes `id`, `name`, `phases`, `seatsAllowed: readonly (2|3|4)[]`, `resources`, `zones`, `initialState`, `reduce(state, action)`, `resolveAttack(state, input, actorSeat)` and `parseCommand(input): RemoteActionProposal | null` (the action union without key/time). Register additional modules in `remoteGames`. Game rules live in the module; transport and membership stay generic. Resource values are `state.seats[seat].resources[id]`. Phase/zone identifiers are strings owned by the module.
+`GameModule` exposes `id`, `name`, `phases`, `seatsAllowed: readonly (2|3|4)[]`, `resources`, `zones`, `initialState`, `reduce(state, action, context?)`, `resolveAttack(state, input, actorSeat)` and `parseCommand(input): RemoteActionProposal | null` (the action union without key/time). Register additional modules in `remoteGames`. Game rules live in the module; transport and membership stay generic. Resource values are `state.seats[seat].resources[id]`. Phase/zone identifiers are strings owned by the module.
 
 ## Identity, seats and lifecycle
 
 All HTTP operations use the existing `requireWebAccess()` session guard and configured `DISCORD_GUILD_ID`, matching current duel access. Application `users.id` is the remote identity; it is neither a Discord snowflake nor `players.id`. The current app has no separate Discord membership gate. Do not introduce a Discord REST lookup. The server checks that the command's actor seat equals the session user's stored remote seat, or is a persisted bot belonging to that user's own solo table.
 
-Seats are **zero-based**, fixed in clockwise order. The creator occupies seat 0. A signed-in user can list open lobbies and join an available seat in the configured guild. Only seated users can read state/events or mint media/room credentials; there are no spectators. Open-list responses contain table metadata and seats, never game state/events. This foundation uses open guild lobbies; private invites and ranked results are outside this contract.
+Seats are **zero-based**, fixed in clockwise order. The creator occupies seat 0. A signed-in user can list open lobbies and join an available seat in the configured guild. Only seated users can read state/events or mint media/room credentials; there are no spectators. Open-list responses contain table metadata and seats with deck registrations stripped, never game state/events. This foundation uses open guild lobbies; private invites and ranked results are outside this contract.
 
-Players set readiness explicitly; only the creator starts, after every seat is occupied and ready. Seat 0 starts. Lobby guests can leave and free their seat; creator departure ends the lobby. An active player uses `player.concede`; their membership remains so they can read the result and undo. Tables end on a game winner or idle closure. No Elo, seasons, tournament results, engine workers or engine `duels.kind` writes occur.
+Players select a valid saved deck before readying; only the creator starts after every seat is occupied, ready and valid. Solo permits an omitted deck. Seat 0 starts. Lobby guests can leave and free their seat; creator departure ends the lobby. An active player uses `player.concede`; their membership remains so they can read the result and undo. Tables end on a game winner or idle closure. No Elo, seasons, tournament results, engine workers or engine `duels.kind` writes occur.
 
 ## Solo test tables
 
@@ -47,6 +47,26 @@ Supported examples (all act as the selected seat):
 - `identify 89631139`, `resolve attack`, `cancel attack`, `undo`, `concede`, `note agreed correction`.
 - Attack phrases described below, including `my dragon attacks Test Bot 1's magician`. The same assistant also supports selecting attacker/target cards by click.
 
+## Deck registration and live checks
+
+The host chooses `format: 'normal'|'domain'|'genesys'|'genesys-domain'`; `normal` is labeled **Advanced**. `normalizeRemoteFormat(format, rules?)` uses shared `normalizeDuelSettings`, the current pinned TCG banlist default for Advanced, no banlist for Domain, and the existing Genesys points/cap normalizer. Deck validation stays enabled. Setup offers the format, existing banlist options, Genesys cap and starting LP. Rules are immutable after start; changing them in the lobby clears human readiness and revalidates selected decks.
+
+`POST .../deck` selects an existing saved deck owned by the session user in this guild. Solo owners may select one of their decks for each bot too. The table snapshots `{savedDeckId,name,deck,validation}`; source-deck edits/deletion do not change the snapshot. Invalid selections remain visible with the full validator's `issues` and deck-editor error messages. Both ready-up and start rerun validation; `DECK_REQUIRED` or `DECK_INVALID` returns 409. Solo permits an omitted deck, but selected decks, including bots', must validate before start.
+
+The canonical validator and compiled banlists live in `packages/shared/src/deck-legality/` (`@yugidraft/shared/deck-legality`); duel-server retains compatibility exports and its existing operational admission policy. Remote uses the same sizes, identity/copy groups, banlists, playable sections, Domain singleton/Deck Master/membership and Genesys points/type checks. Physical tables omit engine-script executability and engine-only operational blocks. Read-only engine card data, strings and Domain script metadata are still needed; **no running duel host or WASM core is needed**. Genesys uses the application's current verified points snapshot and refuses unknown points; see [points sync](../architecture/card-data/genesys-points.md).
+
+`card.identified` always preserves recognition. When absent from that seat's registered list (including proven artwork/name identities), `state.identified` carries `{name?,notInDecklist:true,addErrors:string[]}`. The page shows **Not in decklist** and one **Add to decklist** action. The service constructs a candidate in the correct Main/Extra section and reruns the full validator. A failing addition returns its reasons with no event/deck mutation; recognition and play remain available. Successful `deck.add` edits only the table snapshot and logs “Sulman added Ash Blossom to their decklist” for every seated player. Undo restores state and seat columns together.
+
+`state.deckChecks` contains normalized `format`, per-seat `registrations`, physical `instances` and `flags`. Repeated scans never accumulate lifetime copy counts:
+
+- A known twin ref moves/flips the same instance. Moving to hand/deck, removing a twin, or turning it face down hides it; later sightings reuse a hidden instance before creating another. Replacing a hidden/same-place tile removes the stale alias.
+- Cross-event proof requires another known copy to remain in a public **twin** location with no intervening logged move. Public locations include field rows, GY, banished, face-up Extra and Pendulum. An unlocated scan or old untwinned scan supplies no independent anchor. Overlapping coordinates cannot prove two places.
+- `cards.identified` represents **one frame/batch of distinct physical detections**, never OCR candidate alternatives or observations assembled across time. Each detection needs a unique `observationId`; optional zone/slot/ref adds location evidence. Hand reveals can prove simultaneous copies inside this batch, then become hidden. A one-card batch reuses the existing instance. Referenced scans use the twin's actual position and visibility, and only its owner can attach recognition.
+- Only proven concurrent copies beyond the selected limit create “Deck no longer valid” flags. Domain/Genesys Domain allow 1; Advanced uses its banlist limit or 3; Genesys uses 3. A forbidden card needs one recognized copy. Each flag includes instance IDs, count, limit and proof, e.g. “2 copies of Ash Blossom seen at the same time: field zone 2 and GY.” Flags **never** prevent LP, phases, attacks or other duel actions.
+- Any living player can `deck.flag.dismiss` with a reason; the owner can `twin.merge` two same-card instances with a reason. Both are logged and replayable. Merge removes the duplicate tile and dismisses proof involving the removed instance. Dismissed proof is not repeated for the same instance set. Unknown catalog/identity data produces no inferred violation.
+
+Pure browser-safe exports in `shared/remote`: `normalizeRemoteFormat`, `initialDeckChecks`, `applyRemoteFormat`, `isInRemoteDeck`, `proposeRemoteDeckAddition` (with an injected deterministic full-validator callback), `observeRemoteCard` (returns new checks and instance), `remotePhysicalSlot`, `remoteLocationsDistinct`, `flagRemoteCopies` and `applyLiveDeckChecks`. None reads a clock, catalog, database or network, or mutates its inputs. `game.reduce(state, action, context?)` accepts server-resolved `RemoteReductionContext` facts and validated registrations. The service persists facts beside the original command so replay never consults a newer banlist/points/catalog. Context is forbidden in client action bodies.
+
 ## Actions and reducer
 
 An action is a discriminated union validated by `remoteActionSchema`. Every action has:
@@ -65,7 +85,11 @@ An action is a discriminated union validated by `remoteActionSchema`. Every acti
 | `lp.change` | `seat`, integer nonzero `delta`, `reason` (1–200 chars) | Any living seated actor may record agreed damage/healing for a living seat. Clamp at 0; max LP 999999. Zero eliminates. |
 | `attack.declare` | `attackerSeat`, optional `attackerCardRef`, `targetSeat`, either `targetCardRef` or `direct: true` | Turn player in an available Battle Phase; opponent target must be living. Supplied card refs must exist on the indicated twins. |
 | `attack.resolve` | `attackId`, `outcome: 'resolved'|'cancelled'` | Attacker or target clears the pending attack. Does **not** change LP; emit confirmed `lp.change` separately. |
-| `card.identified` | `seat`, `cardId` and/or `passcode`, optional `zone`, `source: 'click'|'auto'|'voice'|'typed'` | Public last-identified card plus event log. At least one positive numeric ID required. Does not automatically place a twin. |
+| `card.identified` | `seat`, `cardId` and/or `passcode`, optional `name,zone,slot,cardRef`, `source: 'click'|'auto'|'voice'|'typed'` | Public recognition, badge/add verdict and assistive proof. Referenced twin edits require its owner. |
+| `cards.identified` | `seat,source,cards` (1–20 sightings, each with identification fields and unique `observationId`) | One simultaneous frame/batch. Last detection is shown by the minimal UI. |
+| `deck.add` | `seat,cardId` | Owner adds one copy to the table deck; full validation required. |
+| `deck.flag.dismiss` | `flagId,reason` | Log a correction and dismiss proof without stopping play. |
+| `twin.merge` | `seat,keepInstanceId,removeInstanceId,reason` | Owner merges two same-card instances and removes the duplicate tile. |
 | `twin.place` | `seat`, `zone`, `card` | Field owner only. `card: {ref, cardId?, passcode?, name?, race?, slot?, faceUp?:true, position?:'attack'|'defense'}`; instance ref is unique within the seat. Defaults: face-up, attack. Public `name` is 1–200 trimmed chars, `race` 1–40; optional integer `slot` is 1–5. |
 | `twin.move` | `seat`, `zone`, `cardRef`, optional `slot` | Owner moves an existing instance. An explicit slot replaces its old slot; omitting it preserves the slot within the same zone and clears it when changing zones. |
 | `twin.flip` | `seat`, `cardRef`, `faceUp` | Owner sets face visibility. |
@@ -76,7 +100,7 @@ An action is a discriminated union validated by `remoteActionSchema`. Every acti
 
 Undo restores a bounded pre-action game position; it never deletes events. All board-changing actions replace the undo slot; `log.note` preserves it. Undo clears the slot and cannot itself be undone. A newer board-changing action makes older actions unavailable. Only `undo` may reopen a game-ended table; idle/creator closures cannot reopen. Idempotent retries do not renew the undo window. Logs remain visible after undo so readers see the correction.
 
-Yu-Gi-Oh phase IDs: `draw`, `standby`, `main1`, `battle`, `main2`, `end`. Display names: Draw, Standby, Main 1, Battle, Main 2, End. LP starts at 8000 independently for each seat. Zone IDs: `monster`, `spell-trap`, `extra-monster`, `field`, `graveyard`, `banished`. Twins are optional **public** field annotations, max 100 instances per seat, not an authoritative inventory. Do not put private hands, Deck order, face-down identities or unannounced cards into them. The UI must omit private card IDs when placing face-down cards; the server does not maintain private views.
+Yu-Gi-Oh phase IDs: `draw`, `standby`, `main1`, `battle`, `main2`, `end`. Display names: Draw, Standby, Main 1, Battle, Main 2, End. LP starts at the configured value (default 8000) independently for each seat. Zone IDs: `monster`, `spell-trap`, `extra-monster`, `field`, `graveyard`, `banished`, `hand`, `deck`, `extra`, `pendulum`, `hand-reveal`. Hand/deck annotations are hidden instance locations, never private hand contents or deck order. Twins are optional **public** field annotations, max 100 instances per seat, not an authoritative inventory. Do not put private hands, Deck order, face-down identities or unannounced cards into them. The UI must omit private card IDs when placing face-down cards; the server does not maintain private views.
 
 Relevant rules from [ADR 0002](../adr/0002-multiplayer-duel-rules.md): clockwise order and fixed seats (`R-FFA-ORDER`); 2-player turn 1 skips Battle; in FFA Battle opens when the last currently living duelist starts their first turn (`R-FFA-NO-ATTACK`), accounting for early elimination. Zero LP and concession eliminate; future turns skip that seat; last living seat wins. If the turn player leaves, remaining living players may advance the remaining phases/end that turn, preserving fixed seats. Normal effects/response windows remain physical, with no chain simulation. Standard MR5's first player skips their first draw (`R-FFA-FIRST-DRAW`), a physical instruction, not an automatic card change. An opponent monster/direct target follows `R-FFA-ATTACK`; because the twin is optional, physical monster presence and direct-attack legality are agreed by the players rather than inferred from missing twin cards.
 
@@ -129,13 +153,13 @@ Additive, rerunnable migration in `packages/shared/src/db/schema.ts`:
 
 `remote_tables.state_json` caches the game state. `service.replay(slug,guildId,userId)` reconstructs it from initial state and gameplay events. Lifecycle metadata/seats are materialized transactionally; their system events remain in the same log. Game state can have `ended:false` when the *table* ended from idle or lobby departure: table status is authoritative for lifecycle.
 
-The solo migration only adds `remote_tables.solo` and creates `remote_bot_seats`; it never rebuilds or rewrites existing seats/events. Existing tables become `solo:false`. It is safe to rerun. Human-seat NOT NULL user FKs and account history remain intact.
+The solo migration adds `remote_tables.solo` and creates `remote_bot_seats`. The deck migration adds nullable `remote_tables.format_json`, `saved_deck_id`/`deck_json` on both seat tables, and nullable `effects_json`/`messages_json` on events. No rows or old events are rebuilt or rewritten; migrations are safe to rerun. Old rows default to Advanced and no registered deck. Historical source-deck IDs have no saved-deck FK, so deleting a source cannot destroy a table snapshot. Human-seat NOT NULL user FKs and account history remain intact.
 
-Service methods: `create`, `join`, `leave`, `ready`, `start`, `get`, `list`, `act`, `replay`, `sweepIdle`; `snapshot` is a trusted internal transport read with **no** viewer authorization and must never be exposed through an unguarded route. The exported TypeScript signatures are the source for argument details. Mutations run in one `BEGIN IMMEDIATE` transaction: load guild/slug, verify identity, check sequence, reduce, append event, update cache and timestamps. An invalid action rolls back entirely. Duplicate gameplay keys return current state only when the same authenticated user submits the same command (client `at` excluded). Different contents/user give `409 IDEMPOTENCY_CONFLICT`. Duplicate lookup precedes the sequence/lifecycle check, so a lost response can be retried safely even after later actions or game end.
+Service methods: `create`, `configure`, `selectDeck`, `join`, `leave`, `ready`, `start`, `get`, `list`, `act`, `replay`, `sweepIdle`; `snapshot` is a trusted internal transport read with **no** viewer authorization and must never be exposed through an unguarded route. The exported TypeScript signatures are the source for argument details. Mutations run in one `BEGIN IMMEDIATE` transaction: load guild/slug, verify identity, check sequence, reduce, append event, update cache and timestamps. An invalid action rolls back entirely. Duplicate gameplay keys return current state only when the same authenticated user submits the same command (client `at` excluded). Different contents/user give `409 IDEMPOTENCY_CONFLICT`. Duplicate lookup precedes the sequence/lifecycle check, so a lost response can be retried safely even after later actions or game end.
 
-System actions: `table.created {gameId,seatCount,solo?:boolean}`, `seat.joined {seat,userId:number|null,bot?:boolean}`, `seat.left {seat,userId}`, `seat.ready {seat,ready}`, `table.started`, `idle.warning {closesAt}`, `table.ended {reason:'idle'|'creator-left'}`. Old events may omit solo/bot flags. Bot creation emits `seat.joined` with null user and `bot:true`, attributed to the owner. System event IDs start `sys:` and cannot be submitted as gameplay actions. Join events deliberately contain no personal-name snapshot; names are read from seats. Remote references count as account history, and account deletion anonymizes seat names while preserving event history and IDs.
+System actions: `table.created {gameId,seatCount,solo?:boolean,format?}`, `table.configured {format,registrations}`, `seat.deck {seat,registration}`, `seat.joined {seat,userId:number|null,bot?:boolean}`, `seat.left {seat,userId}`, `seat.ready {seat,ready}`, `table.started`, `idle.warning {closesAt}`, `table.ended {reason:'idle'|'creator-left'}`. Old events may omit solo/bot flags. Bot creation emits `seat.joined` with null user and `bot:true`, attributed to the owner. System event IDs start `sys:` and cannot be submitted as gameplay actions. Join events deliberately contain no personal-name snapshot; names are read from seats. Remote references count as account history, and account deletion anonymizes seat names while preserving event history and IDs.
 
-`RemoteEvent = {id,seq,actorSeat,userId,at,action}`; `id` equals the idempotency key, not the integer storage ID. All event history is public to the table. Do not store audio, video, frames or raw speech transcripts; voice workers emit parsed actions only.
+`RemoteEvent = {id,seq,actorSeat,userId,at,action,effects?,messages?}`; `id` equals the idempotency key, not the integer storage ID. All event history is public to the table. `effects_json` stores authoritative validation/card facts. `messages_json` stores `{seat,text}` templates without copied player names; `messages` resolves current seat names when read, preserving account anonymization and the append-only log. Do not store audio, video, frames or raw speech transcripts; voice workers emit parsed actions only.
 
 ## HTTP routes
 
@@ -143,10 +167,12 @@ All responses use `Cache-Control: private, no-store`. All routes return 404 when
 
 | Method and route | Input | Response |
 | --- | --- | --- |
-| `POST /api/remote` | `{gameId:'ygo',seatCount:2|3|4,solo?:boolean}` | `201 RemoteRoom`, creator seat 0; solo fills the remaining seats with bots. Nonboolean solo is rejected. |
+| `POST /api/remote` | `{gameId:'ygo',seatCount:2|3|4,solo?:boolean,format?:string,rules?:Partial<DuelSettings>}` | `201 RemoteRoom`, creator seat 0; solo fills the remaining seats with bots. Nonboolean solo is rejected. |
 | `GET /api/remote?scope=mine|open` | default mine | `{tables:RemoteTable[]}`; max 100. Open means unfilled lobbies. |
 | `POST /api/remote/[slug]/seat` | `{seat?:0|1|2|3}`; omitted seat selects first available | `RemoteRoom`. Repeated join by same user returns their existing seat. |
 | `POST /api/remote/[slug]/leave` | none | `RemoteTable`. Lobby only. |
+| `POST /api/remote/[slug]/format` | `{format,rules?}` | `RemoteRoom`. Host only, lobby only; clear readiness and revalidate decks. |
+| `POST /api/remote/[slug]/deck` | `{savedDeckId:number|null,seat?:number}` | `RemoteRoom`. Lobby only; owned saved-deck selection; solo owner may target a bot. |
 | `POST /api/remote/[slug]/ready` | `{ready:boolean}` | `RemoteRoom`. Lobby only. |
 | `POST /api/remote/[slug]/start` | none | `RemoteRoom`. Creator only; all seats ready. |
 | `GET /api/remote/[slug]` | optional `?afterSeq=N` | `RemoteRoom`: table metadata + `mySeat`, `state`, `events`. |
@@ -154,7 +180,7 @@ All responses use `Cache-Control: private, no-store`. All routes return 404 when
 | `GET /api/remote/[slug]/connection` | no query parameters | `{token,guildId,seat,expiresAt}`; seated, unexpired table only; 503 if WS secret missing. |
 | `POST /api/remote/[slug]/livekit` | none | Solo: `200 {mode:'solo',required:false,code:'SOLO_LOCAL_PREVIEW',message}` with no token, independent of LIVEKIT configuration. Multiplayer stub: 503 `LIVEKIT_UNAVAILABLE` if any required LIVEKIT var is missing; otherwise 503 `LIVEKIT_NOT_IMPLEMENTED`. Ended/expired tables are refused. |
 
-`RemoteRoom` includes table fields, `seats`, `mySeat`, `state`, and recent `events`. Default recent history is the latest 50 events. `afterSeq` returns up to 200 events in ascending order; page until caught up. The state and `lastSeq` are always the latest snapshot, even if event pagination lags. Use the last *returned event's* seq to page history, not snapshot `lastSeq`. Every lifecycle event also advances `lastSeq`.
+`RemoteRoom` includes table fields, normalized `format`, `seats` (with registered `deck` snapshots), `mySeat`, `state`, and recent `events`. Default recent history is the latest 50 events. `afterSeq` returns up to 200 events in ascending order; page until caught up. The state and `lastSeq` are always the latest snapshot, even if event pagination lags. Use the last *returned event's* seq to page history, not snapshot `lastSeq`. Every lifecycle event also advances `lastSeq`.
 
 Errors: `{error,code?}` with 400 malformed/action failure, 401 missing session, 403 actor/turn/owner refusal, 404 missing guild-scoped table or nonmember read, 409 lifecycle/seat/sequence conflict, 503 unavailable provider. `STALE_SEQUENCE` means fetch current state and reconsider the action; do not blindly replay a phase/turn intent. For transport failure, retry the same body/key. The server never accepts stale `baseSeq` for a new action.
 
@@ -201,6 +227,7 @@ Remote tables, including active solo tables, never enter engine `duels`/`drafts`
 | Variable | Where / default |
 | --- | --- |
 | `REMOTE_DUELS=1` | Web and ws. Off by default (`0` in `.env.example` and Compose). Gates UI/nav/API/room registration/sweep. |
+| `DUEL_DATA_DIR` | Web read-only card bundle (`cards.cdb`, `strings.conf`, `card-scripts`). Uses the existing deck data-directory resolver if omitted. Needed for selected-deck validation and live identity/banlist facts; not a running engine. |
 | `DATABASE_PATH` | Web and ws; **same absolute path** recommended. Web migrates automatically; ws never creates/migrates DB. Use a worktree-local file for local work. |
 | `DISCORD_GUILD_ID` | Web configured data scope. |
 | `WS_INTERNAL_SECRET` | Same secret in web/ws; derives remote-room tokens and signed internal broadcast. |
@@ -233,4 +260,17 @@ npm run dev:ws
 
 Web opens/migrates the DB before ws can read it; if ws starts first it retries on subsequent joins/sweeps. For solo, sign in with one existing local account, visit `/duels/remote`, select **Solo test** and 2/3/4 seats, create, toggle ready, and start. Enable the webcam when desired; bots remain static. Populate both twins, end turns through the opening round, choose Battle, then preview/confirm an attack against a bot monster. Test bot LP, voice/typed edits, notes and undo in the same page. No engine, autonomous bot service, LiveKit config or second account is needed. OCR downloads assets on first scan; speech capture depends on browser support, with typed commands always available.
 
-For multiplayer, use two or more accounts/browser profiles, create a normal table, join, ready every seat and start. LP/phase changes appear in each room. The worktree's ignored `.env` (ws) and `packages/web/.env.local` (web) contain the local flag only; exports above configure both processes.
+For multiplayer, use two or more accounts/browser profiles, choose the format, create a table, join, select a saved deck at each seat, resolve every validation error, ready and start. In solo, deck selection is optional; chosen decks still must validate. Use a populated read-only DUEL_DATA_DIR and current application Genesys points for deck checks. With a registered deck, recognize an unlisted card to see its badge/add action; place distinct copies in separate public zones to see proof, dismissal and merge controls. LP/phase changes appear in each room. The worktree's ignored `.env` (ws) and `packages/web/.env.local` (web) contain the local flag only; exports above configure both processes.
+
+## Targeted validation
+
+Use Node 22 and build shared before the web/ws/duel-server tests. Run Vitest directly with explicit paths; the duel-server npm test script includes its whole test directory.
+
+| Workspace | Explicit test files / filter | Passed |
+| --- | --- | --- |
+| shared | `tests/remote/remote-duels.integration.test.ts`, `tests/services/account-deletion.test.ts`, `tests/services/users-linking.test.ts`, `tests/services/user-history.test.ts`, `tests/ws/duel-token.test.ts` | 182 (92 remote integration) |
+| web | `tests/remote-deck-controls.test.tsx`, `tests/remote-solo-controls.test.tsx`, `tests/remote-room-ordering.test.tsx`, `tests/remote-recognition.test.ts`, `tests/duel-actor-auth.test.ts` | 55 |
+| ws | `tests/duel-events.test.ts`, `tests/internal-http.test.ts` with `-t remote` | 2 |
+| duel-server | `tests/deck-legality-domain-text.test.ts`, `tests/card-block-list-admission.test.ts` | 159 |
+
+Total: **398 targeted tests**, plus shared/web/ws/duel-server typechecks and shared build. The remote integration fixture supplies its own private card database and scripts; no running engine, network points sync, or application data writes are needed. Coverage includes bounce/replay, GY/revive, simultaneous field/GY copies, hand batches, ambiguous/overlapping coordinates, hidden reuse/reveal, banned/limited cards, full Domain/Genesys validation, deck edits and undo, migration, ownership/privacy, account anonymization and replay. Generated shared build output and web typecheck cache are removed after verification.
