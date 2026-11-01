@@ -99,7 +99,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       for (const card of sightings) {
         remoteAssert(card.cardId || card.passcode, "A cardId or passcode is required");
         if (card.zone) validZone(card.zone);
-        if (card.cardRef) remoteAssert(seat(action.seat).twin.some(c => c.ref === card.cardRef), "Unknown twin card", 409);
+        if (card.cardRef) remoteAssert(ownField(action.seat).twin.some(c => c.ref === card.cardRef), "Unknown twin card", 409);
       }
       break;
     }

@@ -1,7 +1,8 @@
-import { normalizeDuelSettings, PINNED_TCG_BANLIST_ID, type DuelSettings, type DuelSettingsMode } from "../duels/settings.js";
+import { DuelSettingsError, normalizeDuelSettings, PINNED_TCG_BANLIST_ID, type DuelSettings, type DuelSettingsMode } from "../duels/settings.js";
 import type { DuelDeck, DuelDeckValidation } from "../duels/index.js";
 import type { CardInsightFormat } from "../services/card-insights.js";
-import { remoteAssert } from "./actions.js";
+import { remoteAssert, RemoteDuelError } from "./actions.js";
+import type { RemoteState } from "./types.js";
 
 export type RemoteFormat = { id: CardInsightFormat; mode: DuelSettingsMode; settings: DuelSettings };
 export const REMOTE_FORMATS = [
@@ -15,12 +16,17 @@ export function normalizeRemoteFormat(id: unknown = "normal", rules?: unknown): 
   const mode = format.includes("domain") ? "domain" : "normal";
   remoteAssert(rules === undefined || (!!rules && typeof rules === "object" && !Array.isArray(rules)), "Invalid rules");
   const raw = (rules ?? {}) as Record<string, unknown>;
-  const settings = normalizeDuelSettings(mode, {
-    ...raw, validateDeck: true,
-    banlist: raw.banlist ?? (format === "normal" ? PINNED_TCG_BANLIST_ID : "none"),
-    genesys: format.includes("genesys") ? raw.genesys ?? {} : null,
-  });
-  return { id: format, mode, settings };
+  try {
+    const settings = normalizeDuelSettings(mode, {
+      ...raw, validateDeck: true,
+      banlist: raw.banlist ?? (format === "normal" ? PINNED_TCG_BANLIST_ID : "none"),
+      genesys: format.includes("genesys") ? raw.genesys ?? {} : null,
+    });
+    return { id: format, mode, settings };
+  } catch (error) {
+    if (error instanceof DuelSettingsError) throw new RemoteDuelError(error.message);
+    throw error;
+  }
 }
 export type RemoteDeckRegistration = { savedDeckId: number; name: string; deck: DuelDeck; validation: DuelDeckValidation };
 export type RemoteCardFact = { code: number; copyKey: number; name: string; limit: number; section: "main" | "extra" };
@@ -44,6 +50,14 @@ export type RemoteReductionContext = {
 };
 export function initialDeckChecks(format = normalizeRemoteFormat()): RemoteDeckChecks {
   return { format, registrations: {}, instances: [], flags: [] };
+}
+export function applyRemoteFormat(input: RemoteState, format: RemoteFormat): RemoteState {
+  const state = structuredClone(input);
+  state.deckChecks ??= initialDeckChecks();
+  state.deckChecks.format = structuredClone(format);
+  for (const seat of state.seats) seat.resources.lp = format.settings.startingLP;
+  state.undo = null;
+  return state;
 }
 /** Full-validator callback must be deterministic for the supplied catalog/points snapshot. */
 export function proposeRemoteDeckAddition(
@@ -76,6 +90,8 @@ export function observeRemoteCard(input: RemoteDeckChecks, sight: Sighting, acti
   // A batch's distinct physical regions exclude already-used instances; a repeated coordinate does not.
   const atPlace = same.find(i => samePlace(i) && (slot !== undefined || !used.has(i.id)));
   let instance = pinned ?? atPlace ?? same.find(i => !i.public && !used.has(i.id));
+  if (!instance && sight.observationId && (!publicView || zone === undefined))
+    instance = same.find(i => !used.has(i.id));
   if (!instance && !sight.observationId && !publicView) instance = same[0];
   if (!instance && !sight.observationId && publicView && !ref) {
     // Only an anchored twin in another public place supplies cross-event proof.

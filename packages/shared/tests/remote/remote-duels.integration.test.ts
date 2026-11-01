@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSavedDeckService } from "../../src/services/saved-decks.js";
+import { deleteUserAccount, DELETED_PLAYER_NAME } from "../../src/services/account-deletion.js";
 import { migrate } from "../../src/db/index.js";
 import { seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
@@ -240,6 +241,47 @@ describe("remote deck registration and live checks", () => {
     expect(service.get(table.slug,"g",users[0]).events).toEqual(events);
     expect(db.pragma("foreign_key_check")).toEqual([]);
   });
+  it("reuses the known public instance for an unlocated one-card recognition batch", () => {
+    const s = deckSession(); s.start(); s.place("one");
+    s.act({ type: "cards.identified", seat: 0, source: "auto", cards: [{ cardId: 14558127, observationId: "region" }] });
+    expect(s.room.state.deckChecks.instances).toHaveLength(1);
+    expect(s.room.state.deckChecks.flags).toEqual([]);
+  });
+  it("binds recognition to the referenced twin's known position and visibility", () => {
+    const s = deckSession(); s.start();
+    s.act({ type: "twin.place", seat: 0, zone: "monster", card: { ref: "a", slot: 1 } });
+    s.act({ type: "twin.place", seat: 0, zone: "monster", card: { ref: "b", slot: 2 } });
+    s.act({ type: "card.identified", seat: 0, cardRef: "a", cardId: 14558127, source: "click" });
+    s.act({ type: "card.identified", seat: 0, cardRef: "b", cardId: 14558127, source: "click" });
+    expect(s.room.state.deckChecks.flags).toHaveLength(1);
+    expect(s.room.state.deckChecks.flags[0].proof.join(" and ")).toMatch(/field zone 1 and field zone 2/);
+    const hidden = deckSession(); hidden.start(); hidden.place("public");
+    hidden.act({ type: "twin.place", seat: 0, zone: "monster", card: { ref: "hidden", slot: 2, faceUp: false } });
+    hidden.act({ type: "card.identified", seat: 0, cardRef: "hidden", cardId: 14558127, zone: "graveyard", source: "click" });
+    expect(hidden.room.state.deckChecks.flags).toEqual([]);
+    hidden.act({ type: "twin.flip", seat: 0, cardRef: "hidden", faceUp: true });
+    expect(hidden.room.state.deckChecks.flags).toHaveLength(1);
+  });
+  it("preserves twin ownership and keeps saved-deck snapshots out of open listings", () => {
+    const s = deckSession(); s.select(s.save().id);
+    expect(s.service.list("g",s.users[1],"open").flatMap(t => t.seats).every(seat => !seat.deck)).toBe(true);
+    s.start(); s.act({ type: "twin.place", actorSeat: 1, seat: 1, zone: "monster", card: { ref: "bot", slot: 1 } });
+    expect(() => s.act({ type: "card.identified", seat: 1, cardRef: "bot", cardId: 14558127, source: "click" })).toThrow(/owner/);
+  });
+  it("uses configured starting LP and preserves it through replay", () => {
+    const s = deckSession();
+    const room = s.service.configure(s.room.slug,"g",s.users[0],{format:"domain",rules:{startingLP:12000}},2001);
+    expect(room.state.seats.every(seat => seat.resources.lp === 12000)).toBe(true);
+    expect(s.service.replay(room.slug,"g",s.users[0])).toEqual(room.state);
+  });
+  it("renders logged deck edits with current seat names without copying personal names into events", () => {
+    const s = deckSession("normal"); s.select(s.save().id); s.start();
+    s.act({ type: "deck.add", seat: 0, cardId: 14558127 });
+    expect(s.room.events.at(-1)?.messages).toContain("Sulman added Ash Blossom to their decklist");
+    expect(JSON.stringify(s.db.prepare("select * from remote_events").all())).not.toContain("Sulman");
+    deleteUserAccount(s.db,s.users[0]);
+    expect(s.service.get(s.room.slug,"g",s.users[0]).events.at(-1)?.messages).toContain(DELETED_PLAYER_NAME+" added Ash Blossom to their decklist");
+  });
 });
 describe("solo remote tables", () => {
   it("parses voice controls for the selected bot through the same reducer", () => {
@@ -393,7 +435,7 @@ describe("remote foundation", () => {
     expect(() => service.get(table.slug, "other", users[0])).toThrow(/not found/i);
     expect(() => service.get(table.slug, "g", users[3])).toThrow(/not found/i);
     service.join(table.slug, "g", users[1], "B", 1, 1100);
-  registerTestDeck(db, service, table.slug, users[1], 1100);
+    registerTestDeck(db, service, table.slug, users[1], 1100);
     service.join(table.slug, "g", users[2], "C", 2, 1200);
     registerTestDeck(db, service, table.slug, users[2], 1200);
     for (const user of users.slice(0, 3)) service.ready(table.slug, "g", user, true, 1300);
@@ -460,7 +502,7 @@ describe("remote board and transactional edge cases", () => {
     const { service, table, users, db } = setup();
     expect(() => service.start(table.slug, "g", users[0], 1100)).toThrow(/ready/);
     service.join(table.slug, "g", users[1], "B", 1, 1100);
-  registerTestDeck(db, service, table.slug, users[1], 1100);
+    registerTestDeck(db, service, table.slug, users[1], 1100);
     expect(() => service.join(table.slug, "g", users[2], "C", 1, 1100)).toThrow(/seat/i);
     service.join(table.slug, "g", users[2], "C", 2, 1100);
     registerTestDeck(db, service, table.slug, users[2], 1100);
@@ -485,7 +527,7 @@ it("revokes departed seat tokens and keeps the final game snapshot readable to s
   const claims = { slug: table.slug, guildId: "g", userId: users[1], seat: 1, expiresAt: 999999 };
   expect(canReadRemote(db, claims)).toBe(false);
   service.join(table.slug, "g", users[1], "B", 1, 1100);
-  registerTestDeck(db, service, table.slug, users[1], 1100);
+    registerTestDeck(db, service, table.slug, users[1], 1100);
   expect(canReadRemote(db, claims)).toBe(true);
   expect(canReadRemote(db, { ...claims, guildId: "other" })).toBe(false);
   expect(canReadRemote(db, { ...claims, seat: 2 })).toBe(false);

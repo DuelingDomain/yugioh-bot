@@ -7,6 +7,7 @@ const cardId = z.number().int().positive().max(0xffffffff);
 const slot = z.number().int().min(1).max(5);
 const sighting = {
   cardId: cardId.optional(), passcode: cardId.optional(), zone: zone.optional(),
+  name: z.string().trim().min(1).max(200).optional(),
   slot: slot.optional(), cardRef: id.optional(),
 };
 export const twinCardSchema = z.strictObject({
