@@ -11,8 +11,6 @@ export function catalogCards(parsed: any): CatalogCard[] {
   if (!Array.isArray(rows) || !rows.length) throw new Error('Catalog has no cards');
   return rows.flatMap((row: any) => {
     if (!Number.isSafeInteger(row.id) || row.id < 1 || typeof row.name !== 'string' || !Array.isArray(row.card_images)) return [];
-    if(/skill/i.test(row.type??'') || /skill/i.test(row.frameType??''))return [];
-    if(row.type!=='Token' && row.id>99_999_999 && !row.card_images.some((im:any)=>Number.isSafeInteger(im.id)&&im.id>0&&im.id<=99_999_999))return [];
     // Only the unnamed upstream placeholder lacks a usable card identity.
     if (row.name === '???') return [];
     const images = row.card_images.filter((im: any) => Number.isSafeInteger(im.id ?? row.id) && im.image_url)
@@ -25,4 +23,10 @@ export function catalogCards(parsed: any): CatalogCard[] {
       views: Number(misc.views ?? 0), date: dates.sort()[0] ?? '0000-00-00',
       sets: (row.card_sets ?? []).map((set: any) => set.set_name).filter((name: unknown) => typeof name === 'string'), images }];
   });
+}
+
+/** Index selection policy is separate from parsing the complete source catalog. */
+export function physicalCatalogCards(cards:CatalogCard[]):CatalogCard[] {
+  return cards.filter(card=>!(/skill/i.test(card.type)||/skill/i.test(card.frameType)) &&
+    (card.type==='Token' || card.id<=99_999_999 || card.images.some(im=>im.id>0&&im.id<=99_999_999)));
 }

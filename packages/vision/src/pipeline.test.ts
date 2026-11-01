@@ -208,3 +208,9 @@ test('ambiguous catalog suggestions prefer deck; a clear off-deck card still win
   assert.equal(preferDeck(deck,catalog,t)[0].cardId,'2');
   assert.equal(preferDeck(deck,[{cardId:'1',score:.96},deck[0]],t)[0].cardId,'1');
 });
+
+import {catalogCards,physicalCatalogCards} from '../../../scripts/vision/catalog';
+test('builder selects physical catalog entries while source parsing retains all records',()=>{
+  const rows=['Trap Card','Token','Skill Card'].map((type,i)=>({id:i+1,type,name:type==='Trap Card'?'Skill Drain':type,card_images:[{id:i+1,image_url:'https://example.test/card.jpg'}]}));
+  const all=catalogCards(rows);assert.equal(all.length,3);assert.deepEqual(physicalCatalogCards(all).map(c=>c.name),['Skill Drain','Token']);
+});
