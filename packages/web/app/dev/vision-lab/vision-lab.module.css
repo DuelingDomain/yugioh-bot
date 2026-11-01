@@ -59,7 +59,7 @@
 .emptyMatches p { max-width: 270px; color: var(--color-text-secondary); font-size: 13px; line-height: 1.5; }
 .diagnostics { margin-top: 28px; }
 .quality, .timings { display: grid; gap: 1px; background: var(--color-border); }
-.quality { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.quality { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .timings { grid-template-columns: repeat(6, minmax(0, 1fr)); margin-top: 1px; }
 .quality > div, .timings > div { min-width: 0; padding: 12px; background: var(--color-bg-surface); }
 .quality dt, .timings dt { margin-bottom: 5px; color: var(--color-text-secondary); font-size: 11px; }
@@ -108,3 +108,8 @@
 .popover > span, .ai > span, .ai p { color: var(--color-text-secondary); font-size: 12px; }
 .ai { display: grid; gap: 8px; margin-top: 16px; }
 .ai > button { justify-self: start; }
+.peek { position: fixed; z-index: 40; display: grid; gap: 4px; width: min(260px,calc(100vw - 16px)); padding: 10px 12px; color: var(--color-text-primary); background: var(--color-bg-surface); border: 1px solid var(--color-accent-gold); border-radius: 4px; box-shadow: 0 6px 20px #0006; }
+.peek span { color: var(--color-text-secondary); font-size: 12px; }
+.board { margin-top: 24px; padding: 16px; background: var(--color-bg-surface); border: 1px solid var(--color-border); }
+.board h3 { margin-top: 12px; }
+.board p, .board li { font-size: 13px; color: var(--color-text-secondary); }
