@@ -8,7 +8,7 @@ import type { RemoteRoom } from "@yugidraft/shared/remote";
 import { RemoteVideo, type VideoSnapshot } from "@/lib/remote/video";
 import { cardInfo, loadCards } from "./catalog";
 import { deckIdsOf, seenCardIds } from "./model";
-import { makeRecognizeRawFeed, readCard, askAi, peekCard, readBoard, disposeRecognizer, type AiAnswer, type BoardAnswer, type PeekAnswer, type ReadCard, type ReadResult } from "./recognizer";
+import { makeRecognizeRawFeed, readCard, askAi, peekCard, readBoard, disposeRecognizer, prewarmRecognizer, type AiAnswer, type BoardAnswer, type PeekAnswer, type ReadCard, type ReadResult } from "./recognizer";
 
 export type Health = { q: "good" | "warn" | "bad" | "off"; label: string; detail: string };
 /** Something a <video> element can show. Local previews and LiveKit tracks look the same to the tile. */
@@ -81,6 +81,8 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   const members = JSON.stringify(room.seats.map(({ seat, userId }) => ({ seat, userId })));
   const mySeat = room.mySeat;
 
+  useEffect(() => { if(room.status==="ended")disposeRecognizer();else void prewarmRecognizer(); }, [room.slug, room.status === "ended", localOnly, phoneWanted]);
+
   useEffect(() => {
     if (localOnly || room.status === "ended") return;
     const video = new RemoteVideo({
@@ -93,7 +95,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     });
     setController(video); setSnap(video.getSnapshot());
     const off = video.subscribe(() => setSnap(video.getSnapshot()));
-    return () => { off(); video.dispose(); setController(null); setSnap(emptySnapshot); disposeRecognizer(); };
+    return () => { off(); video.dispose(); setController(null); setSnap(emptySnapshot); };
     // The roster changes must keep the camera and the room connection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room.slug, room.guildId, mySeat, localOnly, room.status === "ended"]);

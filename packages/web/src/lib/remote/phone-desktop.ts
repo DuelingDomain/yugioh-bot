@@ -1,8 +1,10 @@
 import { ConnectionState, Room, RoomEvent, type RemoteParticipant } from "livekit-client";
-import { boundedJpegSize, PHONE_TOPIC, CHUNK_CHARS, MAX_JPEG_CHARS, phoneMessageSchema, phoneSeat, type PhoneMember, type PhoneMessage, type PhoneReading, type PhoneScan, type PhoneZone } from "./phone-protocol";
+import { boundedJpegSize, PHONE_TOPIC, CHUNK_CHARS, MAX_JPEG_CHARS, phoneMessageSchema, phoneSeat, type PhoneCrop, type PhoneCaptureTiming, type PhoneMember, type PhoneMessage, type PhoneReading, type PhoneScan, type PhoneZone } from "./phone-protocol";
 import type { VideoMember } from "./video-protocol";
 
-type Capture = {identity:string;start:number;x:number;y:number;chunks:string[];count?:number;width?:number;height?:number;decoding?:boolean;timer:ReturnType<typeof setTimeout>;resolve:(frame:HTMLCanvasElement)=>void;reject:(e:Error)=>void};
+type StepTiming = {requestMs:number;captureMs:number;encodeMs:number;transferMs:number;decodeMs:number};
+type Still = {frame:HTMLCanvasElement;point:{x:number;y:number};started:number;id:string;timing:StepTiming};
+type Capture = {identity:string;start:number;started:number;requestMs:number;x:number;y:number;chunks:string[];count?:number;width?:number;height?:number;crop?:PhoneCrop;timing?:PhoneCaptureTiming;metadata?:string;decoding?:boolean;timer:ReturnType<typeof setTimeout>;resolve:(still:Still)=>void;reject:(e:Error)=>void};
 export class DesktopPhoneLink {
   private pending=new Map<string,Capture>();
   private scanIds=new Set<string>();
@@ -45,14 +47,15 @@ export class DesktopPhoneLink {
     return this.room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(message)),{reliable:true,topic:PHONE_TOPIC,destinationIdentities:[identity]});
   }
   private cancel(id:string,reason:string) {const p=this.pending.get(id);if(p){clearTimeout(p.timer);this.pending.delete(id);p.reject(new Error(reason));}}
-  capture(x:number,y:number,id=crypto.randomUUID()):Promise<HTMLCanvasElement> {
+  capture(x:number,y:number,id=crypto.randomUUID()):Promise<Still> {
     const phone=this.forSeat(this.options.seat);
     if(!phone) return Promise.reject(new Error("Phone disconnected. Reconnect it or use manual play."));
     if(this.pending.size) return Promise.reject(new Error("Wait for the current phone scan"));
     return new Promise((resolve,reject)=>{
       const timer=setTimeout(()=>this.cancel(id,"Phone did not send a still in time"),20_000);
-      this.pending.set(id,{identity:phone.identity,start:Date.now(),x,y,chunks:[],timer,resolve,reject});
-      void this.send({type:"capture",id,x,y},phone.identity).catch(()=>this.cancel(id,"Phone disconnected"));
+      this.pending.set(id,{identity:phone.identity,start:Date.now(),started:performance.now(),requestMs:0,x,y,chunks:[],timer,resolve,reject});
+      const pending=this.pending.get(id)!;
+      void this.send({type:"capture",id,x,y},phone.identity).then(()=>{pending.requestMs=performance.now()-pending.started;}).catch(()=>this.cancel(id,"Phone disconnected"));
     });
   }
   async read(x:number,y:number,signal:AbortSignal):Promise<PhoneReading> {
@@ -61,8 +64,15 @@ export class DesktopPhoneLink {
     if(this.reading||this.scanning||this.readyScanId)throw new Error("Finish the current phone read first");
     this.reading=true;
     const id=crypto.randomUUID();const abort=()=>this.cancel(id,"Scan cancelled");signal.addEventListener("abort",abort,{once:true});
-    try {const frame=await this.capture(x,y,id);signal.throwIfAborted();return await this.options.read(frame,{x,y},signal);}
+    try {const still=await this.capture(x,y,id);signal.throwIfAborted();return await this.recognize(still,signal);}
     finally {this.reading=false;signal.removeEventListener("abort",abort);}
+  }
+  private async recognize(still:Still,signal:AbortSignal) {
+    signal.throwIfAborted();const started=performance.now();
+    const reading=await this.options.read!(still.frame,still.point,signal);
+    signal.throwIfAborted();
+    window.dispatchEvent(new CustomEvent("remote-phone-read",{detail:{id:still.id,...still.timing,cropPoint:still.point,width:still.frame.width,height:still.frame.height,recognizeMs:performance.now()-started,totalMs:performance.now()-still.started,reader:reading.reader,visionTimingsMs:reading.visionTimingsMs,backend:reading.backend}}));
+    return reading;
   }
   private clearReady(){this.readyScanId=undefined;this.readyScanIdentity=undefined;this.options.onScan?.(null);}
   private disconnected=(p:RemoteParticipant)=>{
@@ -93,12 +103,16 @@ export class DesktopPhoneLink {
     if(m.type !== "frame") return;
     const p=this.pending.get(m.id);
     if(!p || p.decoding || p.identity!==sender.identity || Date.now()-p.start>20_000 || m.width*m.height>2_073_600) return;
-    if(p.count!==undefined && (p.count!==m.count || p.width!==m.width || p.height!==m.height)) {this.cancel(m.id,"Invalid phone frame");return;}
+    const metadata=JSON.stringify({count:m.count,width:m.width,height:m.height,crop:m.crop,timing:m.timing});
+    if(p.metadata!==undefined && p.metadata!==metadata){this.cancel(m.id,"Invalid phone frame");return;}
+    if(m.crop && (m.crop.sourceWidth*m.crop.sourceHeight>2_073_600 || m.crop.left+m.width>m.crop.sourceWidth || m.crop.top+m.height>m.crop.sourceHeight || p.x*m.crop.sourceWidth<m.crop.left || p.x*m.crop.sourceWidth>m.crop.left+m.width || p.y*m.crop.sourceHeight<m.crop.top || p.y*m.crop.sourceHeight>m.crop.top+m.height)) {this.cancel(m.id,"Invalid phone crop");return;}
+    p.metadata=metadata;p.crop=m.crop;p.timing=m.timing;
     if(m.index>=m.count || (m.index<m.count-1 && m.data.length!==CHUNK_CHARS)) {this.cancel(m.id,"Invalid phone chunk");return;}
     p.count=m.count;p.width=m.width;p.height=m.height;p.chunks[m.index]=m.data;
     if(p.chunks.filter(Boolean).length!==m.count) return;
     p.decoding=true;
     const encoded=p.chunks.join("");if(encoded.length>MAX_JPEG_CHARS){this.cancel(m.id,"Phone still too large");return;}
+    const received=performance.now();
     void (async()=>{
       const raw=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));
       const size=boundedJpegSize(raw);
@@ -107,7 +121,13 @@ export class DesktopPhoneLink {
       try {
         if(this.closed || this.pending.get(m.id)!==p || !this.phone(p.identity))return;
         if(bitmap.width!==m.width || bitmap.height!==m.height) throw new Error("Unexpected phone still dimensions");
-        const canvas=document.createElement("canvas");canvas.width=bitmap.width;canvas.height=bitmap.height;canvas.getContext("2d")!.drawImage(bitmap,0,0);this.pending.delete(m.id);clearTimeout(p.timer);p.resolve(canvas);
+        const canvas=document.createElement("canvas");canvas.width=bitmap.width;canvas.height=bitmap.height;canvas.getContext("2d")!.drawImage(bitmap,0,0);this.pending.delete(m.id);clearTimeout(p.timer);
+        const point=p.crop?{x:(p.x*p.crop.sourceWidth-p.crop.left)/m.width,y:(p.y*p.crop.sourceHeight-p.crop.top)/m.height}:{x:p.x,y:p.y};
+        const captureMs=p.timing?.captureMs??0,encodeMs=p.timing?.encodeMs??0;
+        // Subtract measured phone work from desktop elapsed time. This includes BOTH network
+        // legs, chunk sending and scheduling; no assumption about synchronized device clocks.
+        const transportMs=Math.max(0,received-p.started-captureMs-encodeMs),requestMs=Math.min(p.requestMs,transportMs);
+        p.resolve({frame:canvas,point,started:p.started,id:m.id,timing:{requestMs,captureMs,encodeMs,transferMs:transportMs-requestMs,decodeMs:performance.now()-received}});
       } finally {bitmap.close();}
     })().catch(e=>this.cancel(m.id,e instanceof Error?e.message:"Invalid phone frame"));
   };
@@ -119,8 +139,8 @@ export class DesktopPhoneLink {
     const cancel=()=>this.cancel(id,"Scan cancelled");abort.signal.addEventListener("abort",cancel,{once:true});
     const timer=setTimeout(()=>abort.abort(),60_000);
     try {
-      const frame=await this.capture(.5,.5,id);
-      const reading=await this.options.read(frame,{x:.5,y:.5},abort.signal);
+      const still=await this.capture(.5,.5,id);
+      const reading=await this.recognize(still,abort.signal);
       if(this.closed || abort.signal.aborted || !this.phone(participant.identity)) return;
       this.readyScanId=id;this.readyScanIdentity=participant.identity;
       this.options.onScan?.({id,zone,reading,ms:Math.round(performance.now()-started),pairId:participant.identity.slice("remote-phone-".length)});

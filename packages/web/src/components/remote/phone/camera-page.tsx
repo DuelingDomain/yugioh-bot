@@ -43,7 +43,7 @@ export function PhoneCameraPage({slug}:{slug:string}){
           {state.caps.zoom && state.caps.zoom.min<1?<button onClick={()=>void camera?.constraint({zoom:state.caps.zoom!.min})}>0.5× / widest view</button>:null}
         </div>
         <label className={s.selectLabel}>Place this scan in<select aria-label="Scan zone" value={zone} onChange={e=>setZone(e.target.value as PhoneZone)}>{PHONE_ZONES.map(z=><option key={z}>{z}</option>)}</select></label>
-        <button className={s.scan} disabled={!paired||!state.ownerReady||state.busy} onClick={()=>void camera?.scan(zone)} data-testid="phone-scan"><span aria-hidden="true">⌖</span>{state.busy?"Reading card…":"Scan card"}<small>SHARPEST OF 5 · READ ON YOUR DESKTOP</small></button>
+        <button className={s.scan} disabled={!paired||!state.ownerReady||state.busy} onPointerDown={event=>{if(event.button===0&&event.isPrimary)void camera?.scan(zone);}} onClick={event=>{if(event.detail===0)void camera?.scan(zone);}} data-testid="phone-scan"><span aria-hidden="true">⌖</span>{state.busy?"Reading card…":"Scan card"}<small>SHARPEST BUFFERED FRAME · READ ON YOUR DESKTOP</small></button>
         {state.busy&&paired?<button className={s.disconnect} onClick={()=>camera?.cancelScan()}>Cancel scan</button>:null}
         <p className={s.note} role="status" data-testid="phone-note">{paired&&!state.ownerReady?"Waiting for your desktop. Keep the table open there.":state.note}</p>
         <p className={s.help}>{state.wake} {state.battery}</p>

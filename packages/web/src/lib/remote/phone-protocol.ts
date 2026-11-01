@@ -7,18 +7,23 @@ export const PHONE_ZONES = ["M1","M2","M3","M4","M5","S1","S2","S3","S4","S5","F
 export const phoneZoneSchema = z.enum(PHONE_ZONES);
 export type PhoneZone = z.infer<typeof phoneZoneSchema>;
 const id = z.string().uuid();
+const duration = z.number().finite().min(0).max(60_000);
+const cropSchema = z.object({left:z.number().int().min(0).max(1920),top:z.number().int().min(0).max(1920),sourceWidth:z.number().int().min(16).max(1920),sourceHeight:z.number().int().min(16).max(1920)});
+const captureTimingSchema = z.object({captureMs:duration,encodeMs:duration});
+export type PhoneCrop = z.infer<typeof cropSchema>;
+export type PhoneCaptureTiming = z.infer<typeof captureTimingSchema>;
 export const phoneMessageSchema = z.discriminatedUnion("type",[
   z.object({type:z.literal("ready")}),
   z.object({type:z.literal("capture"),id,x:z.number().min(0).max(1),y:z.number().min(0).max(1)}),
   z.object({type:z.literal("scan"),id,zone:phoneZoneSchema}),
   z.object({type:z.literal("frame"),id,index:z.number().int().min(0).max(149),count:z.number().int().min(1).max(150),
-    data:z.string().min(1).max(CHUNK_CHARS).regex(/^[A-Za-z0-9+/=]+$/),width:z.number().int().min(16).max(1920),height:z.number().int().min(16).max(1920)}),
+    data:z.string().min(1).max(CHUNK_CHARS).regex(/^[A-Za-z0-9+/=]+$/),width:z.number().int().min(16).max(1920),height:z.number().int().min(16).max(1920),crop:cropSchema.optional(),timing:captureTimingSchema.optional()}),
   z.object({type:z.literal("status"),mode:z.enum(["video","scan"])}),
   z.object({type:z.literal("answer"),id,done:z.boolean().optional(),note:z.string().max(300),guesses:z.array(z.object({cardId:z.number().int().positive(),name:z.string().max(200),score:z.number().nullable()})).max(5)}),
   z.object({type:z.literal("cancel"),id}),
 ]);
 export type PhoneMessage = z.infer<typeof phoneMessageSchema>;
-export type PhoneReading = { guesses:{cardId:number;name:string;score:number|null}[];reader:"vision"|"priors"|"none";frames:number;note:string;tier?:"sure"|"not sure"|"low match" };
+export type PhoneReading = { guesses:{cardId:number;name:string;score:number|null}[];reader:"vision"|"priors"|"none";frames:number;note:string;tier?:"sure"|"not sure"|"low match";visionTimingsMs?:Record<string,number>;backend?:string };
 export type PhoneScan = {id:string;zone:PhoneZone;reading:PhoneReading;ms:number;pairId:string};
 export type PhoneMember = { id:string;seat:number;userId:number;paired:boolean;mode:string };
 /** Phone identity, role and seat are immutable server-minted metadata. DB roster excludes revoked pairs. */

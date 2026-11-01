@@ -8,18 +8,21 @@ export type ReadResult = {
   guesses: Guess[]; reader: ReaderStatus; frames: number; note: string; tier?: "sure" | "not sure" | "low match";
   /** Set when this browser read the card itself. Lets the tray ask for an optional AI second opinion on the same crop. */
   aiToken?: number;
+  visionTimingsMs?: Record<string,number>;
+  backend?: string;
 };
 /** The card box the detector found, as fractions of the frame. Passing it makes the reader crop that exact card. */
 export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; partial: boolean; covered?: boolean };
 
 type Meta = { entries: { cardId: string; passcode: number; name: string }[] };
 type DetectedQuad = ReadCard & { refined: boolean };
-type RawResult = { candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string };
+type RawResult = { candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string;timingsMs?:Record<string,number>;backend?:string };
 type AIReading = { name: string | null; passcode?: number; match: { passcode: number; name: string } | null };
 type RawPeek = { cardId?: string; name: string | null; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
 type RawBoardCard = RawPeek & { outline: DetectedQuad; index: number; side: "near" | "far"; error?: string };
 type RawBoard = { near: RawBoardCard[]; far: RawBoardCard[]; timingsMs: { detect: number; total: number } };
 type VisionRecognizer = {
+  warmup(): Promise<void>;
   recognize(frames: ImageBitmap[], opts?: object): Promise<RawResult>;
   peek(frame: ImageBitmap, opts: { card: ReadCard; cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawPeek>;
   readAll(frame: ImageBitmap, opts: { cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawBoard>;
@@ -34,6 +37,21 @@ const MAX_FRAMES = 6;
 
 let meta: Promise<Meta | null> | null = null;
 let recognizer: Promise<VisionRecognizer | null> | null = null;
+let warming: Promise<void> | null = null;
+let recognizerEpoch=0;
+/** Start on table open, without needing a local camera or waiting for a phone read. */
+export function prewarmRecognizer(): Promise<void> {
+  const epoch=recognizerEpoch;
+  warming ??= (async () => {
+    const started = performance.now();
+    let ready = false;let reason:string|undefined;
+    try { const vision = await loadRecognizer(); if(vision) { await vision.warmup(); ready = true; } }
+    catch(error) { reason=error instanceof Error?error.message:"Initialization failed"; }
+    window.dispatchEvent(new CustomEvent("remote-recognizer-warmup", {detail:{ms:performance.now()-started,ready,...(reason?{reason}:{})}}));
+    if(!ready && epoch===recognizerEpoch)warming = null;
+  })();
+  return warming;
+}
 /** Loaded once per page. A missing local index (404) is a normal state, not an error. */
 function loadMeta() {
   meta ??= import("@yugidraft/vision").then(async ({ yugioh }) => {
@@ -99,7 +117,7 @@ export function readBoard(frame: HTMLCanvasElement, cards: ReadCard[], priors: P
 }
 
 export function disposeRecognizer() {
-  const current = recognizer; recognizer = null;
+  const current = recognizer; recognizer = null; warming = null;recognizerEpoch++;
   void current?.then(value => value?.dispose());
 }
 
@@ -172,7 +190,7 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
       const entry = byId.get(candidate.cardId);
       return entry ? [{ cardId: entry.passcode, name: entry.name, score: candidate.score }] : [];
     }).slice(0, 5);
-    return { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, tier: result.tier, aiToken: result.cropJpeg ? keep(result) : undefined };
+    return { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, tier: result.tier, aiToken: result.cropJpeg ? keep(result) : undefined,visionTimingsMs:result.timingsMs,backend:result.backend };
   } catch (error) {
     if (signal.aborted) throw error;
     return fallback("The card reader failed. Showing cards from the decklist.");

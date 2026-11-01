@@ -11,6 +11,8 @@ export interface RecognizerConfig {
   backend?: 'auto' | 'wasm'; workerUrl?: string; runtimeBase?: string;
 }
 export interface Recognizer {
+  /** Load the worker, index and model sessions before a person asks to read a card. Safe to call repeatedly. */
+  warmup(): Promise<void>;
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
   recognize(frames: ImageBitmap[] | ImageData[], opts?: RecognizeOptions): Promise<RecognitionResult>;
   detectCards(frame: ImageBitmap | ImageData): Promise<DetectedQuad[]>;
@@ -69,6 +71,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     } finally {signal?.removeEventListener('abort',abort);inFlight=false;}
   }
   return {
+    async warmup() { if(disposed) throw new Error('Recognizer is disposed'); await initialize(); if(disposed) throw new Error('Recognizer is disposed'); },
     async peek(frame, opts) { return await boardRequest('peek',frame,opts) as PeekResult; },
     async readAll(frame, opts={}) { return await boardRequest('readAll',frame,opts) as BoardResult; },
     async recognize(frames, opts = {}) {

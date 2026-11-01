@@ -93,6 +93,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   const ring = useRef<{ canvas: HTMLCanvasElement; at: number }[]>([]); const scratch = useRef<HTMLCanvasElement | null>(null);
   const frozenRef = useRef<Frozen | null>(null); frozenRef.current = frozen;
   const run = useRef(0); const dwell = useRef<ReturnType<typeof setTimeout> | null>(null); const lastMove = useRef<Pt>({ x: -1, y: -1 });
+  const phonePointerHandled=useRef(false);
   const setFrozenHealth = hub.setFrozen;
 
   useEffect(() => { setAuto(readAuto()); }, []);
@@ -226,6 +227,11 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
    */
   async function liveClick(p: Pt) {
     if (!box) return;
+    if(hub.phones.some(phone=>phone.seat===seat&&phone.paired)) {
+      ++run.current;const feed=feedRect();
+      onBegin(seat,{x:p.x,y:p.y,anchor:around(p),feed});setSay("Reading card.");
+      onPoint(seat,p.x,p.y,{anchor:around(p),feed,live:true});return;
+    }
     const token = ++run.current; const frames = sharpest(p); const feed = feedRect();
     onBegin(seat, { x: p.x, y: p.y, anchor: around(p), feed }); setSay("Reading card.");
     const bitmap = frames[0] ? await createImageBitmap(frames[0]).catch(() => null) : null;
@@ -239,6 +245,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   }
   function click(event: React.MouseEvent<HTMLDivElement>) {
     if ((event.target as HTMLElement).closest("button")) return;
+    if(event.detail>0 && phonePointerHandled.current){phonePointerHandled.current=false;return;}
     const p = point(event.clientX, event.clientY); if (!p || !box) return;
     wrap.current?.focus({ preventScroll: true });
     const f = frozenRef.current;
@@ -249,6 +256,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
     if (hit) choose(hit, f.cards.length, f.cards.indexOf(hit)); else onPoint(seat, p.x, p.y, { anchor: around(p), feed: feedRect(), frames: [copyOf(f.canvas)] });
   }
   function move(event: ReactPointerEvent<HTMLDivElement>) {
+    if(phonePointerHandled.current && event.buttons!==0)return;
     const p = point(event.clientX, event.clientY);
     const f = frozenRef.current;
     if (f) {
@@ -358,7 +366,10 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, onPoin
   return <div className={s.cams} ref={wrap} tabIndex={source ? 0 : -1} role="group" onKeyDown={key} onPointerEnter={() => setHovered(true)} onPointerLeave={leave}
     aria-label={`${name}'s field camera. ${you ? "Your" : "Their"} view. Click a card to read it. Press F to freeze the frame and outline every card. Then Tab moves between cards and Enter opens one.`}
     data-testid={`feed-box-${seat}`} data-frozen={isFrozen ? frozen.status : "live"}>
-    <div className={`${s.fcam} ${isFrozen ? s.fcamFrozen : ""}`} ref={cam} onClick={click} onPointerMove={move} data-testid={`feed-${seat}`} data-remote-seat={seat}
+    <div className={`${s.fcam} ${isFrozen ? s.fcamFrozen : ""}`} ref={cam} onClick={click} onPointerMove={move}
+      onPointerDown={event=>{phonePointerHandled.current=false;if(event.button!==0||!event.isPrimary||frozenRef.current||(event.target as HTMLElement).closest("button")||!hub.phones.some(phone=>phone.seat===seat&&phone.paired))return;const p=point(event.clientX,event.clientY);if(p){phonePointerHandled.current=true;if(dwell.current){clearTimeout(dwell.current);dwell.current=null;}wrap.current?.focus({preventScroll:true});void liveClick(p);}}}
+      onPointerCancel={()=>{phonePointerHandled.current=false;}}
+      data-testid={`feed-${seat}`} data-remote-seat={seat}
       style={{ cursor: !source ? "default" : hover >= 0 ? "pointer" : "crosshair" }}>
       {source ? <video ref={video} autoPlay playsInline muted aria-hidden="true" /> : <div className={s.nofeed}>
         <Icon name="cam" /><span>{emptyText}</span>{emptyAction}
