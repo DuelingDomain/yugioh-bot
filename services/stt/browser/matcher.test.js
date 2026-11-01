@@ -12,6 +12,7 @@ test('Python-compatible card correction preserves commands and Unicode spans', (
   assert.equal(result.normalizedText, '🐉 Blue-Eyes White Dragon attacks Dark Magician');
   assert.deepEqual(result.cardMatches.map(m => m.passcode), [89631139, 46986414]);
   assert.deepEqual(result.cardMatches[0].span, [2, 25]);
+  assert.equal(result.cardMatches[0].score, 0.9818);
   for (const text of ['I activate ash blossom and joyous spring', 'I activate ash', 'I activate ashe']) {
     assert.equal(matcher.match(text, ['Ash Blossom & Joyous Spring']).cardMatches[0].passcode, 14558127);
   }
