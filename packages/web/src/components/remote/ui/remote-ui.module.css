@@ -525,3 +525,7 @@
 .cd .art:has(.artImg)::before,.cd .art:has(.artImg)::after{display:none}
 .seat.out{opacity:.6}
 .hl.off{color:var(--ink3)}
+.thumb{width:48px;height:60px;border-radius:5px;border:1px solid var(--line2);flex:none;background:#05030b;display:grid;place-items:center;color:var(--ink3)}
+.noGuess{cursor:default;color:var(--ink3);display:block;padding:10px}
+.gl li kbd{justify-self:center}
+.th34{display:block}
