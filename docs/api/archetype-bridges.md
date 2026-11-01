@@ -4,6 +4,16 @@ Deterministic candidates feed two independent, cached reviews. Player routes ret
 
 Engine labels use official archetype or key-card names. `Temple of the Kings` is the display name of the stable internal `Odion` identity. Both spellings are accepted as request selectors, including saved chip edits; response labels and the archetype-name list use `Temple of the Kings`. Display translation occurs after review validation and does not change evidence hashes, judge inputs or stored cache identities. Artifact group policies carry `display_name` separately from their stable keys.
 
+## Feature flag
+
+Bridges are off by default in every environment. Set `BRIDGES_ENABLED=1` in the web server's environment (read at request time; the compose file passes it to `web`) to turn them on. Any other value, or none, keeps them off. Only the web server reads it: the app layout (`app/(app)/layout.tsx`) hands the answer to the page through `EffectSearchProvider`, so the browser never reads an environment variable. Bridges also need `EFFECT_SEARCH=1` and `DECK_SUGGESTIONS=1`, like the Suggest tab.
+
+While it is off:
+
+- The deck editor has no Bridges tab, the Cards search makes no "See bridges for A + B" offer (the normal synergy results stay), and the browser makes no request to a bridges route.
+- Every `POST /api/cards/bridges/*` route, `GET /api/cards/bridges/archetypes` and `GET /api/cards/bridges/deep-search/[jobId]` answers 404 `{"error":"Not found"}` before any session or host work. `GET /api/admin/console/bridges` (owner only) is not part of the flag.
+- The duel host keeps the `bridges` operation loaded, but it only creates its tables and fails jobs that a restart interrupted. A deep search worker or a review call starts only when a request reaches it, and none does.
+
 ## HTTP interfaces
 
 All player routes require an authenticated application user with a player in the configured guild. The web server derives identity from the session and proxies to the HMAC-signed `POST /internal/duel` operation `bridges`. The host rechecks the user/player/guild mapping on every request, including cache hits and polling. Responses use `Cache-Control: private, no-store`. Client guild/user/player fields are rejected.

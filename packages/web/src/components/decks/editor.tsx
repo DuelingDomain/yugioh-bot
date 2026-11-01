@@ -44,7 +44,7 @@ import {
 import { canBeDeckMaster, isSpellOrTrapType, SPELL_TRAP_MASTER_MESSAGE } from "@/components/duel/deck-card-types";
 import type { DeckMasterSelection } from "@/components/duel/ydk";
 import { SheetRoot, StatusLine, SvButton, Zone } from "@/components/sheet";
-import { useDeckSuggestionsEnabled } from "@/components/effect-search/capability-context";
+import { useBridgesEnabled, useDeckSuggestionsEnabled } from "@/components/effect-search/capability-context";
 import { useTabDirection } from "@/lib/tab-motion";
 import { cn } from "@/lib/utils";
 import { useDuelRoomActivity } from "@/lib/hooks/use-duel-room-activity";
@@ -285,6 +285,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   // The tab of the editor. A phone has four; a desktop has the column's three, and "deck" there is the Cards tab.
   const [tab, setTabState] = useState<EditorTab>("deck");
   const suggestionsFlag = useDeckSuggestionsEnabled();
+  const bridgesFlag = useBridgesEnabled();
   const [suggestDenied, setSuggestDenied] = useState(false);
   const [bridgesDenied, setBridgesDenied] = useState(false);
   // A deep search finished while the Bridges tab was hidden.
@@ -292,7 +293,7 @@ export function SavedDeckEditor({ deckId, pool, roomSlug, viewerId }: { deckId?:
   // Bridges need Suggestions, and a draft pool (no free choice of cards) has none.
   const suggestOn = suggestionsFlag && !suggestDenied;
   // Bridges are for Standard and Genesys. The Domain formats have none: no tab, no request.
-  const bridgesOn = suggestOn && !pool && !bridgesDenied && mode !== "domain";
+  const bridgesOn = bridgesFlag && suggestOn && !pool && !bridgesDenied && mode !== "domain";
   const columnTabs = useMemo<ColumnTab[]>(() => ["cards", ...(suggestOn ? ["suggest" as const] : []), ...(bridgesOn ? ["bridges" as const] : [])], [suggestOn, bridgesOn]);
   const activeTab = shownTab(tab, columnTabs, isPhone);
   // The tab as a phone shows it. The phone layout is CSS (a container query), so it is right from the first paint,
