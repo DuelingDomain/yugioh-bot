@@ -618,7 +618,8 @@ textarea.crNotes { font-family: inherit; font-size: 14.5px; min-height: 84px; }
 .crErr { font-size: 13px; color: var(--crit); }
 .crActs { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .crActs .aside { margin-left: auto; }
-.crSheet .seg { flex-wrap: wrap; }
+.crSheet .seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.crSheet .seg button { height: auto; min-height: 44px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 6px 10px; }
 
 /* email results, joined people, invites not used */
 .crRes { margin-top: 4px; }

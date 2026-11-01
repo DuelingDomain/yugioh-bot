@@ -26,7 +26,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ cod
     const body: BusyResponse = { error: "busy", retryAfterSeconds };
     return reply(body, 429);
   };
-  // Every 200 and 503 waits for the answer floor, so a fast "already" reads like a slow Clerk send.
+  // Success, retry and email mismatch wait for the floor, so account/grant existence cannot change the timing.
   const sent = async () => { await waitForAnswerFloor(startedAt); return reply({ status: "sent" }, 200); };
   const retryLater = async () => { await waitForAnswerFloor(startedAt); return reply({ error: "retry_later" }, 503); };
   const closed = (state: Exclude<LinkState, "open">) => reply({ status: state }, 409);
@@ -68,6 +68,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ cod
     }
     if (claim.kind !== "claimed") releaseJoinSend(code);
     switch (claim.kind) {
+      case "email_mismatch":
+        await waitForAnswerFloor(startedAt);
+        return reply({ error: "email_mismatch" }, 403);
       case "already": return sent();
       case "full": case "expired": case "revoked": return closed(claim.kind);
       case "not_found": return unknown();

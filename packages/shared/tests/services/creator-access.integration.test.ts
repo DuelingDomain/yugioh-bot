@@ -4,8 +4,8 @@ import { migrate } from "../../src/db/schema.js";
 import { ClerkBackendError, createClerkBackend, type ClerkBackend } from "../../src/clerk/backend.js";
 import { deleteUserAccount } from "../../src/services/account-deletion.js";
 import {
-  ALLOWLIST_INVITE_DAYS, CreatorAccessError, LINK_INVITE_DAYS, RESEND_COOLDOWN_MS, SENDING_LEASE_MS,
-  createCreatorAccessService, type CreatorAccessService,
+  ALLOWLIST_INVITE_DAYS, CreatorAccessError, LINK_INVITE_DAYS, LINK_PRESETS, RESEND_COOLDOWN_MS, SENDING_LEASE_MS,
+  createCreatorAccessService, resolveCreatorSignUpAttribution, type CreatorAccessService,
 } from "../../src/services/creator-access.js";
 
 // Creator fast-track on a real in-memory SQLite. Clerk is a stub object (or createClerkBackend with a fetch stub);
@@ -84,7 +84,145 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("creator sign-up alert attribution", () => {
+  const resolve = (email: string | null, grantId?: unknown, createdAt = T0 + 60_000) =>
+    resolveCreatorSignUpAttribution(db, { email, grantId, createdAt, clerkUserId: "user_new" });
+
+  it.each([[1, "Personal"], [3, "Friends"], [50, "Community"]] as const)("resolves a %s-use link before local sign-in without changing the grant", async (uses, linkType) => {
+    const creator = setup();
+    const { claim } = await claimAndSend(link(creator.id, uses).code, "a.b+invite@googlemail.com");
+    const grantId = (claim as { grantId: number }).grantId;
+    const before = JSON.stringify(grants());
+    expect(resolve("ab+account@gmail.com", grantId)).toEqual({ creatorName: "Kaiba Plays", kind: "link", linkLabel: "Video", linkType });
+    expect(JSON.stringify(grants())).toBe(before);
+    expect(db.prepare("select count(*) as n from users").get()).toEqual({ n: 1 });
+  });
+
+  it.each([undefined, null, "1", -1, 1.5, {}, 99999])("falls back to the email key with ddGrant %j", async grantId => {
+    const creator = setup();
+    await service.addAllowlistEmails(creator.id, ["a.b+invite@googlemail.com"], 1);
+    expect(resolve("ab+account@gmail.com", grantId)).toEqual({ creatorName: "Kaiba Plays", kind: "allowlist", linkLabel: null, linkType: null });
+  });
+
+  it("ignores a mismatched metadata grant and falls back to the matching inbox", async () => {
+    const creator = setup();
+    const { claim } = await claimAndSend(link(creator.id, 1).code, "personal@example.test");
+    const other = service.createCreator({ name: "Yugi", actorUserId: 1 });
+    await service.addAllowlistEmails(other.id, ["friend@example.test"], 1);
+    expect(resolve("friend@example.test", (claim as { grantId: number }).grantId)?.creatorName).toBe("Yugi");
+    expect(resolve("stranger@example.test", (claim as { grantId: number }).grantId)).toBeNull();
+  });
+
+  it("uses trusted metadata for an email-less user, including revoked invitations", async () => {
+    const creator = setup();
+    const personal = link(creator.id, 1);
+    const { claim } = await claimAndSend(personal.code, "personal@example.test");
+    await service.revokeLink(creator.id, personal.id);
+    expect(resolve(null, (claim as { grantId: number }).grantId)).toMatchObject({ creatorName: "Kaiba Plays", linkType: "Personal" });
+    expect(resolve(null)).toBeNull();
+  });
+
+  it("does not credit a grant created after the sign-up or bound to another Clerk user", async () => {
+    const creator = setup();
+    const { claim } = await claimAndSend(link(creator.id, 3).code, "friend@example.test");
+    const grantId = (claim as { grantId: number }).grantId;
+    expect(resolve("friend@example.test", undefined, T0 - 1)).toBeNull();
+    db.exec("insert into users(id,username,display_name,clerk_user_id) values(2,'other','Other','user_other')");
+    service.attributeSignUp({ userId: 2, email: "friend@example.test", grantId });
+    expect(resolve("friend@example.test", grantId)).toBeNull();
+    db.exec("update users set clerk_user_id='user_new' where id=2");
+    expect(resolve("friend@example.test", grantId)?.linkType).toBe("Friends");
+  });
+
+  it("does not attribute a delayed metadata event to a later creator that reused the expired grant", async () => {
+    const creator = setup();
+    const { claim } = await claimAndSend(link(creator.id, 1).code, "friend@example.test");
+    const grantId = (claim as { grantId: number }).grantId;
+    clock += 8 * DAY;
+    const later = service.createCreator({ name: "Later creator", actorUserId: 1 });
+    const reused = service.claimLinkGrant(link(later.id, 3).code, "friend@example.test");
+    expect(reused).toEqual({ kind: "claimed", grantId });
+    expect(resolve("friend@example.test", grantId, T0 + 60_000)).toBeNull();
+    expect(resolve(null, grantId, T0 + 60_000)).toBeNull();
+    expect(resolve("friend@example.test", grantId, clock + 60_000)?.creatorName).toBe("Later creator");
+  });
+});
+
 describe("creator links", () => {
+  it("stores the lock for the owner, hides it publicly, and accepts the same Gmail inbox", async () => {
+    const creator = setup();
+    const locked = service.createLink(creator.id, {
+      ...LINK_PRESETS.personal, lockedEmail: " A.B+creator@GoogleMail.com ", actorUserId: 1,
+    })!;
+    expect(locked).toMatchObject({ lockedEmail: "a.b+creator@googlemail.com", maxUses: 1, expiresAt: T0 + 14 * DAY });
+    expect(linkView(creator.id, locked.id)).toMatchObject({ lockedEmail: "a.b+creator@googlemail.com" });
+    expect(db.prepare("select locked_email, locked_email_key from creator_links where id = ?").get(locked.id))
+      .toEqual({ locked_email: "a.b+creator@googlemail.com", locked_email_key: "ab@gmail.com" });
+    expect(service.publicLink(locked.code)).toEqual({ state: "open", creatorName: "Kaiba Plays", spotsLeft: 1 });
+    expect((await claimAndSend(locked.code, "ab+fan@gmail.com")).send).toEqual({ kind: "sent" });
+    expect(clerk.createInvitation).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ emailAddress: "ab+fan@gmail.com" }));
+  });
+
+  it("rejects a different inbox before checking accounts or live grants, without consuming a use", async () => {
+    const creator = setup();
+    await claimAndSend(link(creator.id, 5).code, "granted@example.test");
+    const locked = service.createLink(creator.id, {
+      maxUses: 1, expiresInDays: 14, lockedEmail: "target@example.test", actorUserId: 1,
+    })!;
+    const before = grants();
+    for (const email of ["stranger@example.test", "owner@example.test", "granted@example.test"]) {
+      expect(service.claimLinkGrant(locked.code, email)).toEqual({ kind: "email_mismatch" });
+    }
+    expect(grants()).toEqual(before);
+    expect(clerk.createInvitation).toHaveBeenCalledOnce();
+    expect(linkView(creator.id, locked.id)).toMatchObject({ used: 0, state: "open" });
+    expect((await claimAndSend(locked.code, "target+friend@example.test")).send).toEqual({ kind: "sent" });
+  });
+
+  it("rejects an email lock with more than one use before creating a link", () => {
+    const creator = setup();
+    expect(() => service.createLink(creator.id, {
+      maxUses: 3, expiresInDays: 14, lockedEmail: "target@example.test", actorUserId: 1,
+    })).toThrow(expect.objectContaining({ status: 400, code: "invalid_max_uses" }));
+    expect(service.creatorDetail(creator.id)!.links).toEqual([]);
+  });
+
+  it("clears the display email on revoke and preserves the inbox key", async () => {
+    const creator = setup();
+    const locked = service.createLink(creator.id, {
+      ...LINK_PRESETS.personal, lockedEmail: "a.b+creator@googlemail.com", actorUserId: 1,
+    })!;
+    expect(await service.revokeLink(creator.id, locked.id)).toEqual({ invitationsRevoked: 0 });
+    expect(linkView(creator.id, locked.id)).toMatchObject({ lockedEmail: null, state: "revoked" });
+    expect(db.prepare("select locked_email, locked_email_key from creator_links where id = ?").get(locked.id))
+      .toEqual({ locked_email: null, locked_email_key: "ab@gmail.com" });
+    expect(service.claimLinkGrant(locked.code, "ab@gmail.com")).toEqual({ kind: "revoked" });
+  });
+
+  it.each([undefined, null, "", "   "])("leaves an optional empty email lock %j unlocked", (lockedEmail) => {
+    const creator = setup();
+    const unlocked = service.createLink(creator.id, { maxUses: 1, expiresInDays: 90, lockedEmail, actorUserId: 1 })!;
+    expect(unlocked).toMatchObject({ lockedEmail: null, expiresAt: T0 + 90 * DAY });
+    expect(service.claimLinkGrant(unlocked.code, "anyone@example.test").kind).toBe("claimed");
+  });
+
+  it.each(["not-an-email", "a@localhost", "@example.test", "a\u200b@example.test", "a".repeat(255) + "@example.test", 42, false, {}])
+    ("rejects an invalid email lock %j before creating a link", (lockedEmail) => {
+      const creator = setup();
+      expect(() => service.createLink(creator.id, {
+        maxUses: 1, expiresInDays: 14, lockedEmail: lockedEmail as string, actorUserId: 1,
+      })).toThrow(expect.objectContaining({ status: 400, code: "invalid_locked_email" }));
+      expect(service.creatorDetail(creator.id)!.links).toEqual([]);
+    });
+
+  it("Friends admits three different inboxes and defaults to 14 days", async () => {
+    const creator = setup();
+    const friends = service.createLink(creator.id, { ...LINK_PRESETS.friends, actorUserId: 1 })!;
+    expect(friends).toMatchObject({ maxUses: 3, expiresAt: T0 + 14 * DAY, lockedEmail: null });
+    for (let i = 0; i < 3; i++) expect((await claimAndSend(friends.code, `friend${i}@example.test`)).send).toEqual({ kind: "sent" });
+    expect(service.claimLinkGrant(friends.code, "fourth@example.test")).toEqual({ kind: "full" });
+  });
+
   it("lets 50 parallel claims+sends through a 50-use link; the 51st is full", async () => {
     const creator = setup();
     const community = link(creator.id, 50);
@@ -425,9 +563,43 @@ describe("sign-up attribution and account deletion", () => {
     expect(grant((loose.claim as { grantId: number }).grantId)).toBeUndefined();
     expect(grant((keep.claim as { grantId: number }).grantId)).toMatchObject({ status: "sent" });
   });
+
+  it.each(["ab+account@gmail.com", null])("account deletion scrubs and revokes matching email locks without unlocking them (account email %j)", async (accountEmail) => {
+    const creator = setup();
+    const locked = service.createLink(creator.id, { ...LINK_PRESETS.personal, lockedEmail: "a.b+creator@googlemail.com", actorUserId: 1 })!;
+    const other = service.createLink(creator.id, { ...LINK_PRESETS.personal, lockedEmail: "other@example.test", actorUserId: 1 })!;
+    const { claim } = await claimAndSend(locked.code, "ab@gmail.com");
+    db.exec("insert into users(id, username, display_name, email) values (10, 'locked', 'Locked', 'ab+account@gmail.com')");
+    service.attributeSignUp({ userId: 10, email: "ab+account@gmail.com", grantId: (claim as { grantId: number }).grantId });
+    db.prepare("update users set email = ? where id = 10").run(accountEmail);
+    deleteUserAccount(db, 10);
+    expect(linkView(creator.id, locked.id)).toMatchObject({ lockedEmail: null, state: "revoked" });
+    expect(db.prepare("select locked_email, locked_email_key from creator_links where id = ?").get(locked.id))
+      .toEqual({ locked_email: null, locked_email_key: null });
+    expect(service.claimLinkGrant(locked.code, "someone@example.test")).toEqual({ kind: "revoked" });
+    expect(linkView(creator.id, other.id)).toMatchObject({ lockedEmail: "other@example.test", state: "open" });
+    expect(grants()).toEqual([]);
+  });
 });
 
 describe("migration", () => {
+  it("adds nullable lock columns to existing links without changing their data or access", () => {
+    const creator = setup();
+    const existing = link(creator.id, 5);
+    const columns = db.prepare("pragma table_info(creator_links)").all() as { name: string }[];
+    for (const column of ["locked_email", "locked_email_key"]) {
+      if (columns.some(c => c.name === column)) db.exec(`alter table creator_links drop column ${column}`);
+    }
+    migrate(db);
+    migrate(db);
+    const added = (db.prepare("pragma table_info(creator_links)").all() as { name: string; notnull: number }[])
+      .filter(c => c.name.startsWith("locked_email"));
+    expect(added).toHaveLength(2);
+    expect(added.every(c => c.notnull === 0)).toBe(true);
+    expect(linkView(creator.id, existing.id)).toEqual({ ...existing, lockedEmail: null });
+    expect(service.claimLinkGrant(existing.code, "legacy@example.test").kind).toBe("claimed");
+  });
+
   it("is safe to run twice and keeps creator data", async () => {
     const creator = setup();
     await claimAndSend(link(creator.id, 5).code, "keep@example.test");

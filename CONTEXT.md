@@ -29,7 +29,7 @@ A content creator we give instant alpha access to, stored in `creators`. Only an
 _Avoid_: influencer, partner
 
 **Creator link**:
-A `/join/<code>` URL of a **Creator** (`creator_links`) with a fixed number of uses and an expiry. Personal = 1 use; Community = many uses. The owner can revoke it. Distinct from a tournament **Invite link**.
+A `/join/<code>` URL of a **Creator** (`creator_links`) with a fixed number of uses and an expiry. Personal = 1 use locked to the creator's email; Friends = 3 uses; Community = many uses; Custom = an owner-chosen number of uses with an optional email lock. An **Email lock** limits claims to one inbox and requires a single-use link. The owner can revoke it. Distinct from a tournament **Invite link**.
 
 **Grant**:
 One email that may join now because of a **Creator** (`creator_grants`), made by a **Creator link** or by an owner allowlist email. It sends one Clerk invitation and, after sign-up, records which **Creator** brought the **User** (`users.creator_id`).

@@ -33,8 +33,6 @@ test("every engine input still enables the full engine suites on push", () => {
     "packages/shared/src/duels/banlist.ts",
     "packages/shared/src/services/duels.ts",
     "packages/shared/src/services/replay-forks.ts",
-    "packages/shared/src/db/schema.ts",
-    // The host now imports services that PRs historically exempted.
     "packages/shared/src/services/bug-reports.ts",
     "packages/shared/src/services/drafts.ts",
     "packages/shared/package.json",
@@ -68,13 +66,14 @@ test("PRs and main use the same import-aware engine rule", () => {
       "packages/e2e/src/duel.ts", "packages/shared/tests/duels.test.ts",
       "packages/shared/src/maintenance/repair-ratings.ts", "packages/shared/src/util/eastern-time.ts",
       "packages/shared/src/future-unused-module.ts", "packages/shared/data/staples/usage.json",
+      "packages/shared/src/db/schema.ts", "packages/shared/src/services/creator-access.ts",
       "packages/shared/data/effects/tags.json", "packages/duel-server/domain-core/proposals/future.md",
       "scripts/effects/tag.ts", "scripts/staples/update.ts", "scripts/deployment/prepare-runtime-data.sh",
       "scripts/ci/publish-images.mjs", "Dockerfile",
       "packages/duel-server/README.md",
     ]) assert.deepEqual(changedLayers([file], event), noEngine, `${event}: ${file}`);
     for (const file of ["packages/shared/src/services/duels.ts", "packages/shared/src/services/drafts.ts",
-      "packages/shared/src/db/schema.ts", "packages/shared/src/cards/effects/artifact.ts",
+      "packages/shared/src/cards/effects/artifact.ts",
       "packages/shared/src/duels/settings.ts", "packages/duel-server/scripts/install-engine-bundle.sh",
       "scripts/ci/build-core.sh", "scripts/ci/publish-engine-data.mjs", "scripts/native/checks/run.sh",
       "docs/adr/0002-multiplayer-duel-rules.md", "docs/specs/multiplayer-rule-coverage.md",
@@ -94,6 +93,169 @@ test("missing diffs and manual/scheduled events still run every layer", () => {
     assert.deepEqual(changedLayers(null, event), allLayers);
   }
   for (const event of ["workflow_dispatch", "schedule"]) assert.deepEqual(changedLayers([], event), allLayers);
+});
+
+test("shared database and service changes retain consumer checks without engine suites", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of ["packages/shared/src/db/schema.ts", "packages/shared/src/services/creator-access.ts"]) {
+      const layers = classify([file], event);
+      assert.equal(layers.engine, false, `${event}: ${file}`);
+      for (const area of ["shared", "duel_unit", "web", "bot", "ws", "worker", "e2e"]) {
+        assert.equal(layers[area], true, `${event}: ${file}: ${area}`);
+      }
+    }
+  }
+});
+
+test("shared duel rules and engine runtime imports retain engine coverage", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of [
+      "packages/shared/src/duels/settings.ts",
+      "packages/shared/src/duels/future-rule.ts",
+      // cards.ts imports this outside shared/duels.
+      "packages/shared/src/observability/index.ts",
+      // Deck validation uses passcode remaps even though they live under db/.
+      "packages/shared/src/db/card-passcode-remaps.ts",
+    ]) assert.equal(classify([file], event).engine, true, `${event}: ${file}`);
+  }
+});
+
+test("TS-only engine PRs and main pushes skip native and differential core checks", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of [
+      "packages/duel-server/src/engine.ts", "packages/duel-server/tests/engine.test.ts",
+      "packages/shared/src/duels/settings.ts", "packages/shared/src/services/duels.ts",
+      "data/duel-engine-next/cards.cdb",
+      "tsconfig.json", "turbo.json", ".github/workflows/deploy.yml",
+      ".github/actions/setup-ci-node/action.yml", ".github/actions/prepare-production-bundle/action.yml",
+      "packages/duel-server/domain-core/proposals/core.cpp", "packages/duel-server/domain-core/patches/README.md",
+    ]) {
+      const result = classify([file], event);
+      assert.equal(result.core, false, `${event}: ${file}`);
+    }
+    assert.equal(classify(["packages/duel-server/src/engine.ts"], event).engine, true, event);
+  }
+});
+
+test("every golden input selects the native core job that runs golden checks", () => {
+  const inputs = [
+    ".github/workflows/test.yml",
+    "scripts/ci/changed-layers.mjs",
+    "packages/duel-server/card-script-patches/c123.lua",
+    "packages/duel-server/domain-core/patches/0001-core.patch",
+    "packages/duel-server/domain-core/multi-scripts/c123.lua",
+    "packages/duel-server/domain-core/pins.json",
+    "packages/duel-server/scripts/native/nduel.cpp",
+    "packages/duel-server/scripts/native/checks/checks.tsv",
+    "packages/duel-server/scripts/run-nduel.sh",
+    "packages/duel-server/scripts/build-native-core.sh",
+    "packages/duel-server/scripts/prepare-multi-core-tree.sh",
+    "packages/duel-server/scripts/multi-core-common.sh",
+    "packages/duel-server/scripts/prepare-data.ts",
+    "packages/duel-server/scripts/released-card-data.ts",
+    "packages/duel-server/scripts/card-script-patches.ts",
+  ];
+  for (const event of ["pull_request", "push"]) {
+    for (const file of inputs) {
+      const result = classify([file], event);
+      assert.equal(result.golden, true, `${event}: ${file}`);
+      assert.equal(result.core, true, `${event}: golden checks need the native job: ${file}`);
+      assert.equal(result.engine, true, `${event}: native checks need the engine bundle: ${file}`);
+    }
+  }
+});
+
+test("differential tests and their helpers select both core checks", () => {
+  const inputs = [
+    "packages/duel-server/tests/differential/differential.test.ts",
+    "packages/duel-server/tests/differential/differential-extended.test.ts",
+    "packages/duel-server/tests/differential/helpers/future-helper.ts",
+    "packages/duel-server/tests/fuzz/generators.ts",
+    "packages/duel-server/tests/fuzz/helpers/future-helper.ts",
+    "packages/duel-server/tests/support/cores.ts",
+    "packages/duel-server/tests/support/shard.ts",
+    "packages/duel-server/tests/support/setup.ts",
+  ];
+  for (const event of ["pull_request", "push"]) {
+    for (const file of inputs) {
+      const result = classify([file], event);
+      assert.equal(result.core, true, `${event}: ${file}`);
+      assert.equal(result.engine, true, `${event}: ${file}`);
+      assert.equal(result.golden, false, `${event}: ${file}`);
+      assert.equal(result.tests_only, event === "pull_request", `${event}: ${file}`);
+    }
+  }
+});
+
+test("differential job control files select both core checks", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of [
+      "scripts/ci/run-engine-tests.mjs",
+      "scripts/ci/engine-test-plan.mjs",
+      "packages/duel-server/vitest.config.ts",
+    ]) {
+      const result = classify([file], event);
+      assert.equal(result.core, true, `${event}: ${file}`);
+      assert.equal(result.engine, true, `${event}: ${file}`);
+      assert.equal(result.golden, false, `${event}: ${file}`);
+      assert.equal(result.tests_only, false, `${event}: ${file}`);
+    }
+  }
+});
+
+test("core sources, pins, patches, native tooling and build inputs select both core checks", () => {
+  const inputs = [
+    "packages/duel-server/domain-core/src/field.cpp",
+    "packages/duel-server/domain-core/src/apply-core-fixes.mjs",
+    "packages/duel-server/domain-core/lua/domain.lua",
+    "packages/duel-server/domain-core/patches/0001-core.patch",
+    "packages/duel-server/domain-core/pins.json",
+    "packages/duel-server/domain-core/expected-sha256.txt",
+    "packages/duel-server/legacy-1v1/domain-core/src/domain_master.cpp",
+    "packages/duel-server/legacy-1v1/domain-core/lua/domain.lua",
+    "packages/duel-server/legacy-1v1/domain-core/pins.json",
+    "packages/duel-server/legacy-1v1/expected-sha256.txt",
+    "packages/duel-server/legacy-1v1/scripts/build-domain-core.sh",
+    "packages/duel-server/scripts/build-domain-core.ts",
+    "packages/duel-server/scripts/build-domain-core.sh",
+    "packages/duel-server/scripts/build-standard-core.sh",
+    "packages/duel-server/scripts/build-multi-core.sh",
+    "packages/duel-server/scripts/build-native-core.sh",
+    "packages/duel-server/scripts/multi-core-common.sh",
+    "packages/duel-server/scripts/prepare-multi-core-tree.sh",
+    "packages/duel-server/scripts/check-legacy-pin.sh",
+    "packages/duel-server/scripts/run-nduel.sh",
+    "packages/duel-server/scripts/native/checks/run.sh",
+    "packages/duel-server/scripts/native/checks/checks.tsv",
+    "packages/duel-server/scripts/native/checks/zones.cpp",
+    "scripts/native/checks/run.sh",
+    "patches/ocgcore-wasm+0.1.2.patch",
+    "scripts/ci/build-core.sh", "scripts/ci/parallel-emxx.py", "scripts/ci/bin/em++",
+    "scripts/ci/core-cache-key.mjs", "scripts/ci/assemble-core-bundle.mjs", "scripts/ci/changed-layers.mjs",
+    ".github/workflows/test.yml", ".github/actions/restore-engine-bundle/action.yml",
+    "packages/duel-server/package.json",
+    "package.json", "package-lock.json", ".nvmrc",
+  ];
+  for (const event of ["pull_request", "push"]) {
+    for (const file of inputs) {
+      const result = classify(["packages/duel-server/src/engine.ts", file, "README.md"], event);
+      assert.equal(result.core, true, `${event}: ${file}`);
+      assert.equal(classify([file], event).engine, true, `${event}: core checks need the engine bundle`);
+      assert.equal(result.tests_only, false, `${event}: ${file}`);
+    }
+  }
+});
+
+test("core checks always run nightly, manually and when the diff is unavailable", () => {
+  for (const event of ["pull_request", "push", "schedule", "workflow_dispatch"]) {
+    assert.equal(classify(null, event).core, true, event);
+  }
+  for (const event of ["schedule", "workflow_dispatch"]) {
+    for (const files of [[], ["packages/duel-server/src/engine.ts"]]) assert.equal(classify(files, event).core, true, event);
+  }
+  for (const event of ["pull_request", "push"]) {
+    for (const files of [[], ["README.md"], ["packages/web/src/app/page.tsx"]]) assert.equal(classify(files, event).core, false, event);
+  }
 });
 
 test("Docker inputs select release safety script checks", () => {
@@ -148,16 +310,16 @@ test("shared graph follows export aliases, barrels, relative and dynamic imports
   const files = engineSharedFiles({
     "packages/duel-server/src/host.ts": 'import { service } from "@yugidraft/shared/services"; import("@yugidraft/shared/lazy");',
     "packages/shared/src/services/index.ts": 'export * from "./duels.js";',
-    "packages/shared/src/services/duels.ts": 'import type { Schema } from "../db/schema.js";',
+    "packages/shared/src/services/duels.ts": 'import type { Rules } from "../rules.js"; export const service = true;',
     "packages/shared/src/unused.ts": 'export const unused = true;',
   }, { "./services": { default: "./dist/services/index.js" }, "./lazy": { source: "./src/lazy.ts" } });
-  for (const file of ["services/index.ts", "services/duels.ts", "db/schema.ts", "lazy.ts"]) {
+  for (const file of ["services/index.ts", "services/duels.ts", "rules.ts", "lazy.ts"]) {
     assert.ok(files.has("packages/shared/src/" + file), file);
   }
   assert.equal(files.has("packages/shared/src/unused.ts"), false);
 });
 
-test("shared graph starts from duel tests and follows their test-only imports", () => {
+test("shared graph starts from core suites and follows their test-only imports", () => {
   const files = engineSharedFiles({
     "packages/duel-server/tests/host.test.ts": 'import { fixture } from "@yugidraft/shared/test-only";',
     "packages/shared/src/test-only/index.ts": 'export * from "../deleted.js";',
@@ -166,6 +328,64 @@ test("shared graph starts from duel tests and follows their test-only imports", 
   assert.ok(files.has("packages/shared/src/test-only/index.ts"));
   assert.ok(files.has("packages/shared/src/deleted.ts"));
   assert.equal(files.has("packages/shared/src/unused.ts"), false);
+});
+
+test("shared graph excludes HTTP startup and unit-only service imports", () => {
+  const files = engineSharedFiles({
+    "packages/duel-server/src/server.ts": 'import "@yugidraft/shared/http-only";',
+    "packages/duel-server/tests/unit-only.test.ts": 'import("@yugidraft/shared/services");',
+    "packages/shared/src/services/index.ts": 'export * from "./creator-access.js";',
+    "packages/shared/src/services/creator-access.ts": 'export const creator = true;',
+  }, {});
+  assert.equal(files.has("packages/shared/src/http-only.ts"), false);
+  assert.equal(files.has("packages/shared/src/services/creator-access.ts"), false);
+});
+
+test("shared graph finds new core suites through helpers and keeps legacy suites", () => {
+  const files = engineSharedFiles({
+    "packages/duel-server/tests/future.test.ts": 'import "./helpers/future.js"; import "@yugidraft/shared/future-rules";',
+    "packages/duel-server/tests/helpers/future.ts": 'import "../support/cores.js";',
+    "packages/duel-server/tests/legacy-main/future.test.ts": 'import "@yugidraft/shared/legacy-rules";',
+    "packages/duel-server/tests/support/setup.ts": 'import "@yugidraft/shared/test-setup";',
+  }, {});
+  for (const file of ["future-rules.ts", "legacy-rules.ts", "test-setup.ts"]) {
+    assert.ok(files.has("packages/shared/src/" + file), file);
+  }
+});
+
+test("shared graph resolves named application barrel imports without unrelated services or DB setup", () => {
+  const files = engineSharedFiles({
+    "packages/duel-server/src/host.ts": 'import { engineRule as rule } from "@yugidraft/shared/services"; import { remap } from "@yugidraft/shared/db";',
+    "packages/duel-server/src/worker.ts": 'import { otherRule } from "@yugidraft/shared/services";',
+    "packages/duel-server/tests/host.test.ts": 'import { migrate } from "@yugidraft/shared/db";',
+    "packages/shared/src/services/index.ts": 'export * from "./rules.js"; export { original as otherRule } from "./other.js"; export * from "./creator-access.js";',
+    "packages/shared/src/services/rules.ts": 'export { engineRule } from "./nested.js";',
+    "packages/shared/src/services/nested.ts": 'export const engineRule = true;',
+    "packages/shared/src/services/creator-access.ts": 'export const creator = true;',
+    "packages/shared/src/db/index.ts": 'export { remap } from "./card-passcode-remaps.js"; export { migrate } from "./schema.js";',
+    "packages/shared/src/db/card-passcode-remaps.ts": 'export const remap = true;',
+    "packages/shared/src/db/schema.ts": 'import "../services/creator-access.js"; export const migrate = true;',
+  }, { "./db": "./dist/db/index.js", "./services": "./dist/services/index.js" });
+  for (const file of ["services/rules.ts", "services/nested.ts", "services/other.ts", "db/card-passcode-remaps.ts"]) {
+    assert.ok(files.has("packages/shared/src/" + file), file);
+  }
+  assert.equal(files.has("packages/shared/src/services/creator-access.ts"), false);
+  assert.equal(files.has("packages/shared/src/db/schema.ts"), false);
+});
+
+test("shared graph keeps namespace, dynamic and unresolved barrel exports conservative", () => {
+  for (const statement of [
+    'import * as services from "@yugidraft/shared/services";',
+    'import("@yugidraft/shared/services");',
+    'import { deletedExport } from "@yugidraft/shared/services";',
+  ]) {
+    const files = engineSharedFiles({
+      "packages/duel-server/src/host.ts": statement,
+      "packages/shared/src/services/index.ts": 'export * from "./rules.js";',
+      "packages/shared/src/services/rules.ts": 'export const rule = true;',
+    }, {});
+    assert.ok(files.has("packages/shared/src/services/rules.ts"), statement);
+  }
 });
 
 test("shared source imported only by duel tests selects engine checks", () => {
@@ -180,6 +400,7 @@ for (const [file, groups, engine] of [
   ["packages/web/src/components/duel/table/seat-state.ts", ["web", "e2e"], true],
   ["packages/e2e/stack/start.mjs", ["e2e", "duel_unit"], false],
   ["packages/duel-server/card-block-list.json", ["duel_unit", "web"], true],
+  ["scripts/ci/publish-engine-data.mjs", ["duel_unit", "ci_scripts"], true],
 ]) {
   test(`test-only cross-package dependency selects its callers: ${file}`, () => {
     for (const event of ["pull_request", "push"]) {
@@ -299,9 +520,20 @@ test("the CLI uses the whole pushed range, not just the last commit", t => {
   const tip = f.commit("packages/web/src/app/other.tsx");
   const result = f.run(web, tip);
   assert.equal(result.engine, "true");
+  assert.equal(result.core, "false");
   assert.equal(result.tests_only, "false");
   assert.equal(result.base, web);
   assert.equal(result.head, tip);
+});
+
+test("push ranges and renamed or deleted core inputs keep both core checks selected", t => {
+  const f = fixture(t);
+  f.commit("packages/duel-server/domain-core/patches/0001-core.patch");
+  const tip = f.commit("packages/duel-server/src/engine.ts");
+  assert.equal(f.run(f.base, tip).core, "true");
+  f.git("mv", "packages/duel-server/domain-core/patches/0001-core.patch", "old-core.txt");
+  f.git("commit", "-m", "Move core patch out of core paths");
+  assert.equal(f.run(tip, f.git("rev-parse", "HEAD")).core, "true");
 });
 
 test("a merge push compares to before (the first parent), not the PR merge base", t => {
@@ -338,6 +570,7 @@ test("zero, missing, unavailable and non-ancestor push bases fail open to every 
   for (const before of ["", "0".repeat(40), "f".repeat(40), other]) {
     const result = f.run(before, head);
     assert.equal(result.engine, "true", before);
+    assert.equal(result.core, "true", before);
     assert.equal(result.golden, "true", before);
     assert.equal(result.tests_only, "false", before);
   }
@@ -351,6 +584,7 @@ test("a failed git diff enables every layer", t => {
   writeFileSync(join(bin, "git"), '#!/bin/sh\n[ "$1" != diff ]\n', { mode: 0o755 });
   const result = f.run(f.base, head, { PATH: `${bin}:${process.env.PATH}` });
   assert.equal(result.engine, "true");
+  assert.equal(result.core, "true");
   assert.equal(result.golden, "true");
 });
 
@@ -364,10 +598,13 @@ test("PR API pages include both sides of renames and fail open on errors or capp
   const pages = [[{ filename: "README.md" }], [{ filename: "docs/moved.md", previous_filename: "packages/duel-server/src/engine.ts" }]];
   const renamed = f.run(f.base, head, { ...env, PR_FILES: JSON.stringify(pages) });
   assert.equal(renamed.engine, "true");
+  assert.equal(renamed.core, "false");
   assert.equal(renamed.docs_only, "false");
+  const coreRename = [[{ filename: "docs/old-core.md", previous_filename: "packages/duel-server/domain-core/src/field.cpp" }]];
+  assert.equal(f.run(f.base, head, { ...env, PR_FILES: JSON.stringify(coreRename) }).core, "true");
   assert.equal(f.run(f.base, head, { ...env, PR_FILES: '[[{"filename":"README.md"}]]' }).docs_only, "true");
   for (const extra of [{ API_FAIL: "1" }, { PR_FILES: "invalid JSON" }, { PR_FILES: JSON.stringify([Array.from({ length: 3000 }, () => ({ filename: "README.md" }))]) }]) {
     const result = f.run(f.base, head, { ...env, ...extra });
-    for (const flag of ["engine", "web", "shared", "ci_scripts", "effects", "prod_build"]) assert.equal(result[flag], "true", flag);
+    for (const flag of ["engine", "core", "web", "shared", "ci_scripts", "effects", "prod_build"]) assert.equal(result[flag], "true", flag);
   }
 });

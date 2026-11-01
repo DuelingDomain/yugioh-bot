@@ -100,6 +100,10 @@ function InviteForm({ code, creatorName, spotsLeft, onClosed }: { code: string; 
       if ((response.status === 409 || response.status === 404) && isClosed(body?.status)) { onClosed(body.status); return; }
       if (response.status === 404) { onClosed("revoked"); return; }
       if (response.status === 400 && body?.error === "invalid_email") { setFieldError(BAD_EMAIL); return; }
+      if (response.status === 403 && body?.error === "email_mismatch") {
+        setFieldError("This invite is for a different email address.");
+        return;
+      }
       if (response.status === 429) {
         const header = Number(response.headers.get("retry-after"));
         setBanner(busy(typeof body?.retryAfterSeconds === "number" ? body.retryAfterSeconds : Number.isFinite(header) && header > 0 ? header : null));

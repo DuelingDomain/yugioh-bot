@@ -23,9 +23,11 @@ import {
 } from "@/components/auth/community-links";
 
 beforeEach(() => {
+  // jsdom has no layout, so offsetParent is always null; treat every attached element as visible.
+  Object.defineProperty(HTMLElement.prototype, "offsetParent", { configurable: true, get() { return this.parentNode; } });
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); Reflect.deleteProperty(HTMLElement.prototype, "offsetParent"); vi.unstubAllGlobals(); });
 
 const shell = () => (
   <SignInShell marketingUrl="https://duelingdomain.com">
@@ -88,13 +90,19 @@ describe("sign-in community links", () => {
     expect(html).not.toContain("youtube-nocookie");
     const { container } = render(shell());
     expect(container.querySelector("iframe")).toBeNull();
-    expect(screen.getByRole("img", { name: /Poster for the launch trailer/ })).toHaveAttribute("src", TRAILER_POSTER_SRC);
+    expect(container.querySelector(`img[src="${TRAILER_POSTER_SRC}"]`)).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Watch trailer/ })).toHaveAttribute("aria-haspopup", "dialog");
   });
 
-  it("swaps the poster for a 16:9 privacy-enhanced iframe on click", () => {
+  it("opens the privacy-enhanced iframe in a large dialog on click", () => {
     const { container } = render(shell());
-    fireEvent.click(screen.getByRole("button", { name: "Play the launch trailer" }));
-    const frame = container.querySelector("iframe");
+    const opener = screen.getByRole("button", { name: /Watch trailer/ });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = screen.getByRole("dialog", { name: TRAILER_TITLE });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(container.querySelector("iframe")).toBeNull();
+    const frame = dialog.querySelector("iframe");
     expect(frame).not.toBeNull();
     expect(frame).toHaveAttribute("src", "https://www.youtube-nocookie.com/embed/9CahDbFr0jA?autoplay=1&rel=0&playsinline=1");
     expect(frame).toHaveAttribute("title", "Dueling Domain launch trailer (YouTube)");
@@ -104,7 +112,53 @@ describe("sign-in community links", () => {
     expect(frame).toHaveAttribute("allow", "autoplay; encrypted-media; picture-in-picture; fullscreen");
     expect(frame).toHaveAttribute("allowfullscreen");
     expect(frame).toHaveAttribute("referrerpolicy", "strict-origin-when-cross-origin");
-    expect(screen.queryByRole("button", { name: "Play the launch trailer" })).toBeNull();
-    expect(document.activeElement).toBe(frame);
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close the trailer" }));
+  });
+
+  it("closes with the button, Escape and the backdrop, removes the iframe and returns focus", () => {
+    render(shell());
+    const opener = screen.getByRole("button", { name: /Watch trailer/ });
+    const closers: Array<() => void> = [
+      () => fireEvent.click(screen.getByRole("button", { name: "Close the trailer" })),
+      () => fireEvent.keyDown(document, { key: "Escape" }),
+      () => fireEvent.click(screen.getByRole("dialog").firstElementChild as Element),
+    ];
+    for (const close of closers) {
+      opener.focus();
+      fireEvent.click(opener);
+      expect(document.querySelector("iframe")).not.toBeNull();
+      close();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(document.querySelector("iframe")).toBeNull();
+      expect(document.body.style.overflow).toBe("");
+      expect(document.activeElement).toBe(opener);
+    }
+  });
+
+  it("sends focus back into the dialog from the guards and restores the page when it closes", () => {
+    render(shell());
+    const opener = screen.getByRole("button", { name: /Watch trailer/ });
+    fireEvent.click(opener);
+    const dialog = screen.getByRole("dialog");
+    const guards = [...dialog.children].filter((el) => el.tagName === "SPAN") as HTMLElement[];
+    expect(guards).toHaveLength(2);
+    guards[1].focus();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close the trailer" }));
+    guards[0].focus();
+    expect(document.activeElement).toBe(dialog.querySelector("iframe"));
+    expect(document.body).toHaveAttribute("data-trailer-open");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(document.body).not.toHaveAttribute("data-trailer-open");
+    expect(document.body.style.paddingRight).toBe("");
+  });
+
+  it("opens the same dialog from the phone link on a plain click only", () => {
+    render(shell());
+    const link = screen.getByRole("link", { name: /Watch the trailer/ });
+    fireEvent.click(link, { ctrlKey: true });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(link);
+    expect(screen.getByRole("dialog", { name: TRAILER_TITLE })).toBeInTheDocument();
   });
 });

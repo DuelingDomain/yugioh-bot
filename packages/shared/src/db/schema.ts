@@ -1768,6 +1768,9 @@ function migrateCreatorAccess(db: Database.Database) {
     create index if not exists creator_grants_creator_idx on creator_grants(creator_id, status);
     create index if not exists creator_grants_user_idx on creator_grants(user_id) where user_id is not null;
   `);
+  // Additive and nullable: existing production links remain unlocked.
+  addColumnIfMissing(db, "creator_links", "locked_email_key", "text");
+  addColumnIfMissing(db, "creator_links", "locked_email", "text");
   addColumnIfMissing(db, "users", "heard_from", "text");
   addColumnIfMissing(db, "users", "heard_from_detail", "text");
   addColumnIfMissing(db, "users", "creator_id", "integer references creators(id) on delete set null");

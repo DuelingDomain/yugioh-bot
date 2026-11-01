@@ -69,6 +69,19 @@ afterEach(() => {
 });
 
 describe("shared Discord administration with SQLite", () => {
+  it("keeps creator context in the existing sign-up alert and redacts emails in attribution text", async () => {
+    await notifyJoinRequest(db, { email, subjectId: "user_member", source: "sign-up",
+      creatorInvite: { creatorName: "Kaiba *Plays*", kind: "link", linkLabel: "player@example.test", linkType: "Friends" },
+      heardFrom: { heardFrom: "friend", detail: "Ask player@example.test" } });
+    const [row] = claimOutbox(db, 1);
+    expect(row.kind).toBe("signup_alert");
+    expect(row.payload_json).not.toContain(email);
+    expect(JSON.parse(row.payload_json)).toMatchObject({ allowed_mentions: { parse: [] }, embeds: [{ fields: expect.arrayContaining([
+      { name: "Creator invite", value: "Kaiba \\*Plays\\* · \\[email hidden\\] \\(Friends\\)" },
+      { name: "Heard from", value: "A friend · Ask \\[email hidden\\]" },
+    ]) }] });
+  });
+
   it("uses the stored account link and current owner list for both actor types", () => {
     expect(lookupSiteAccount(db, { discordUserId: "discord-owner" })).toMatchObject({ siteUserId: 1 });
     expect(isAdminActor(db, owner)).toBe(true);
