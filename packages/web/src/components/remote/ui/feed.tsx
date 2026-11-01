@@ -13,7 +13,7 @@ export type FeedMark = { id: string; x: number; y: number; label: string; notInD
 /** A reticle for a read in progress, finished or failed. */
 export type FeedReticle = { id: string; x: number; y: number; state: "reading" | "done" | "fail"; text: string; quad?: Pt[] };
 /** What a click on an outlined card sends up. `anchor` is the card's box on screen (viewport pixels) for popovers. */
-export type FeedHit = { x: number; y: number; quad: Pt[]; kind: "face-up" | "face-down"; index: number; count: number; anchor: { left: number; top: number; right: number; bottom: number } };
+export type FeedHit = { x: number; y: number; quad: Pt[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean; index: number; count: number; anchor: { left: number; top: number; right: number; bottom: number } };
 type Box = { left: number; top: number; width: number; height: number };
 type Frozen = { pinned: boolean; status: "detecting" | "ready" | "unavailable" | "error"; cards: FeedCard[]; note: string; ms: number; canvas: HTMLCanvasElement; pending: Pt | null };
 
@@ -91,7 +91,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
   const choose = useCallback((card: FeedCard, count: number, index: number) => {
     setActive(index); setSelected(card.id); setFrozenState(f => f && { ...f, pinned: true });
     setSay(`Card ${index + 1} of ${count}, ${card.kind === "face-up" ? "face up" : "face down"}, selected.`);
-    onSelect(seat, { x: card.cx, y: card.cy, quad: card.quad, kind: card.kind, index, count, anchor: anchorOf(card.quad) });
+    onSelect(seat, { x: card.cx, y: card.cy, quad: card.quad, kind: card.kind, confidence: card.confidence, refined: card.refined, index, count, anchor: anchorOf(card.quad) });
   }, [anchorOf, onSelect, seat]);
 
   const freeze = useCallback(async (pinned: boolean, pending: Pt | null = null) => {

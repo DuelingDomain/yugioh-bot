@@ -4,11 +4,14 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { cardArt, cardInfo, isMonsterInfo, searchCards, loadCards } from "./catalog";
 import { Icon } from "./icons";
 import type { Guess } from "./recognizer";
+import { useVideoHub } from "./video-hub";
 import s from "./remote-ui.module.css";
 
 export type TrayState = {
   seat: number; ownerName: string; status: "reading" | "guesses" | "empty";
   guesses: Guess[]; note: string; reader: string; style: CSSProperties;
+  /** How sure the local reader was, and the kept crop for an optional AI second opinion (own camera reads only). */
+  tier?: "sure" | "not sure" | "low match"; aiToken?: number;
 };
 export type Pick = { cardId: number; name: string; via: "click" | "typed" | "voice" };
 
@@ -18,6 +21,16 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying }
 }) {
   const [query, setQuery] = useState(""); const [found, setFound] = useState<Guess[] | null>(null); const [, tick] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  const hub = useVideoHub();
+  const [ai, setAi] = useState<{ status: "idle" | "asking" | "done" | "none" | "off" | "error"; guess?: Guess; note?: string }>({ status: "idle" });
+  const canAsk = tray.status === "guesses" && tray.aiToken !== undefined && tray.tier !== "sure" && ai.status !== "off" && ai.status !== "done";
+  async function askAi() {
+    if (tray.aiToken === undefined) return;
+    setAi({ status: "asking" });
+    const answer = await hub.askAi(tray.aiToken);
+    if (answer.status === "ok") { await loadCards([answer.guess.cardId]); setAi({ status: "done", guess: answer.guess }); }
+    else setAi({ status: answer.status, note: answer.note });
+  }
   const guessKey = tray.guesses.map(g => g.cardId).join(",");
   useEffect(() => { void loadCards(tray.guesses.map(g => g.cardId)).then(() => tick(n => n + 1)); }, [guessKey, tray.guesses]);
   useEffect(() => {
@@ -28,7 +41,8 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying }
     return () => { live = false; clearTimeout(timer); };
   }, [query]);
 
-  const list = found ?? tray.guesses;
+  const base = ai.guess ? [ai.guess, ...tray.guesses.filter(g => g.cardId !== ai.guess?.cardId)].slice(0, 5) : tray.guesses;
+  const list = found ?? base;
   const nameOf = (g: Guess) => g.name || cardInfo(g.cardId)?.name || `Card ${g.cardId}`;
   const choose = (g: Guess, via: Pick["via"]) => onPick({ cardId: g.cardId, name: nameOf(g), via });
   useEffect(() => {
@@ -57,12 +71,16 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying }
           <kbd>{i + 1}</kbd>
           <span className={s.th34}><img className={s.artImg} src={cardArt(g.cardId, "small")} alt="" loading="lazy" onError={event => { event.currentTarget.style.display = "none"; }} /></span>
           <span><b className={s.gn}>{nameOf(g)}</b>
-            <span className={s.gs}>{found ? "Search result" : g.score === null ? "From your decklist" : "Art match"}{isMonsterInfo(info) ? <> · ATK <span className={s.atk}>{info?.atk}</span></> : null}
+            <span className={s.gs}>{found ? "Search result" : g.source === "ai" ? "AI second opinion" : g.score === null ? "From your decklist" : "Art match"}{isMonsterInfo(info) ? <> · ATK <span className={s.atk}>{info?.atk}</span></> : null}
               {deck === false ? <span className={`${s.why} ${s.w}`}>NOT IN DECKLIST</span> : null}</span></span>
           <span className={s.cf}>{g.score === null ? <em>–</em> : <><em>{Math.round(g.score * 100)}%</em><i><s style={{ width: `${Math.round(g.score * 100)}%` }} /></i></>}</span>
         </li>;
       })}
     </ul>}
+    {canAsk || ai.note ? <div className={s.hint} data-testid="ask-ai-row">
+      {canAsk ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => void askAi()} disabled={ai.status === "asking"} data-testid="ask-ai">{ai.status === "asking" ? "Asking the AI…" : "Ask AI"}</button> : null}
+      {ai.note ? <span role="status">{ai.status === "off" ? "AI second opinion is not available for this account." : ai.note}</span> : null}
+    </div> : null}
     <div className={s.srch}><Icon name="search" /><input ref={input} type="text" placeholder="Type to search any card" aria-label="Search any card" autoComplete="off" value={query}
       onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && list[0]) { event.preventDefault(); choose(list[0], found ? "typed" : "click"); } }} /></div>
     <div className={s.hint}><span><kbd>1</kbd>–<kbd>5</kbd> pick · <kbd>Enter</kbd> top guess · <kbd>Esc</kbd> close</span><span className={s.sp} />

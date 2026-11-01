@@ -132,3 +132,7 @@ export function battleMath(args: {
   return { title: `${attacker.name} attacks ${target.name}`, sub: bits.join(" · "), result, attackerAtk: attacker.atk, targetValue: value, targetDef: target.defense,
     damageSeat, damage, destroyTarget, destroyAttacker, direct: false };
 }
+
+/** The detector card handed to the reader, so it crops that exact card. */
+export const readCardOf = (hit: { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean }) =>
+  ({ quad: hit.quad, kind: hit.kind, confidence: hit.confidence, partial: !hit.refined });
