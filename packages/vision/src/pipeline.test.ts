@@ -83,7 +83,7 @@ test('a late whole-card confusion winner is checked in both whole-card rotations
 });
 
 // Review regressions share this single small, API-free test file.
-import {topK} from './search';
+import {topK,preferDeck} from './search';
 import {learnedTopK} from './learning';
 const searchIndex=(ids:string[],vectors:number[])=>({meta:{dim:2,count:ids.length,entries:ids.map(cardId=>({cardId,passcode:Number(cardId)||1,name:cardId,frameClass:'Effect'}))},vectors:new Float32Array(vectors)}) as LoadedIndex;
 test('deck restriction searches only its artwork rows before catalog fallback',()=>{
@@ -201,4 +201,10 @@ test('runtime refuses thresholds calibrated for a different index or model',()=>
   assert.equal(calibratedThresholds(config,yugioh,index).score,.9);
   assert.throws(()=>calibratedThresholds({...config,indexVersion:'stale'},yugioh,index),/Incompatible/);
   assert.throws(()=>calibratedThresholds({...config,modelSha256:'wrong'},yugioh,index),/Incompatible/);
+});
+
+test('ambiguous catalog suggestions prefer deck; a clear off-deck card still wins',()=>{
+  const t=yugioh.embedding.thresholds,deck=[{cardId:'2',score:.81}],catalog=[{cardId:'1',score:.82},deck[0]];
+  assert.equal(preferDeck(deck,catalog,t)[0].cardId,'2');
+  assert.equal(preferDeck(deck,[{cardId:'1',score:.96},deck[0]],t)[0].cardId,'1');
 });
