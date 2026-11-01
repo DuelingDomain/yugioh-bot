@@ -44,6 +44,7 @@ writeFileSync(join(deckData, "strings.conf"), "");
   add(103, "Outside Domain", 0x11);
   catalog.prepare("update datas set race=2,attribute=2 where id=103").run();
   add(104, "Ash Blossom", 0x21, 14558127);
+  add(33396948, "Limited Test");
   catalog.close();
 }
 afterAll(() => rmSync(deckData, { recursive: true, force: true }));
@@ -133,7 +134,7 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.state.deckChecks.flags).toHaveLength(1);
     const flag = s.room.state.deckChecks.flags[0];
     expect(flag.message).toMatch(/Deck no longer valid: 2 copies of Ash Blossom seen \(Domain allows 1\)/);
-    expect(flag.proof.join(" and ")).toMatch(zone === "monster" ? /field zone 1.*field zone 2/ : /GY.*field zone 2/);
+    expect(flag.proof).toEqual(expect.arrayContaining(zone === "monster" ? ["field zone 1", "field zone 2"] : ["GY", "field zone 2"]));
     expect(s.room.events.at(-1)?.messages?.join(" ")).toContain("at the same time");
     expect(s.room.state.ended).toBe(false);
     expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
@@ -246,6 +247,30 @@ describe("remote deck registration and live checks", () => {
     s.act({ type: "cards.identified", seat: 0, source: "auto", cards: [{ cardId: 14558127, observationId: "region" }] });
     expect(s.room.state.deckChecks.instances).toHaveLength(1);
     expect(s.room.state.deckChecks.flags).toEqual([]);
+  });
+  it("does not prove extra copies from unspecified row slots or a single field position", () => {
+    const s = deckSession(); s.start(); s.place("one");
+    s.act({ type: "cards.identified", seat: 0, source: "auto", cards: [{ cardId: 14558127, zone: "monster", observationId: "region" }] });
+    expect(s.room.state.deckChecks.flags).toEqual([]);
+    const ambiguous = deckSession(); ambiguous.start();
+    ambiguous.act({type:"twin.place",seat:0,zone:"monster",card:{ref:"unknown-slot",cardId:14558127}});
+    ambiguous.place("known-slot","monster",2);
+    expect(ambiguous.room.state.deckChecks.flags).toEqual([]);
+    const field = deckSession(); field.start(); field.place("field-a","field",1); field.place("field-b","field",2);
+    expect(field.room.state.deckChecks.flags).toEqual([]);
+  });
+  it("does not count conflicting same-slot batch refs as separate physical detections", () => {
+    const s = deckSession(); s.start(); s.place("a"); s.place("b","monster",1,1);
+    s.act({ type:"cards.identified",seat:0,source:"auto",cards:[
+      {cardId:14558127,cardRef:"a",observationId:"a"}, {cardId:14558127,cardRef:"b",observationId:"b"},
+    ]});
+    expect(s.room.state.deckChecks.flags).toEqual([]);
+  });
+  it("applies an Advanced limited-card cap to simultaneous copies", () => {
+    const s = deckSession("normal"); s.start(); s.place("one","monster",1,33396948);
+    expect(s.room.state.deckChecks.flags).toEqual([]);
+    s.place("two","monster",2,33396948);
+    expect(s.room.state.deckChecks.flags[0]?.message).toMatch(/2 copies of Limited Test seen.*Advanced allows 1/);
   });
   it("binds recognition to the referenced twin's known position and visibility", () => {
     const s = deckSession(); s.start();

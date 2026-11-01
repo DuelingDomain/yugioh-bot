@@ -1,6 +1,6 @@
 import type { RemoteAction } from "./actions.js";
 import { remoteAssert } from "./actions.js";
-import { flagRemoteCopies, observeRemoteCard, remotePublicZone, type RemoteCardInstance, type RemoteReductionContext } from "./deck-checks.js";
+import { flagRemoteCopies, observeRemoteCard, remoteLocationsDistinct, remotePhysicalSlot, remotePublicZone, type RemoteCardInstance, type RemoteReductionContext } from "./deck-checks.js";
 import type { RemoteState } from "./types.js";
 
 /** Pure. All catalog/validation facts are explicit replay inputs. */
@@ -21,7 +21,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
       const instance = observation.instance;
       next.seats[seat].twin = next.seats[seat].twin.filter(t => {
         if (t.ref === card.cardRef || !instance.refs.includes(t.ref)) return true;
-        const duplicate = !remotePublicZone(t.zone, t.faceUp) || (t.zone === card.zone && t.slot === card.slot);
+        const duplicate = !remotePublicZone(t.zone, t.faceUp) || (t.zone === card.zone && !remoteLocationsDistinct(t, card));
         if (duplicate) instance.refs = instance.refs.filter(ref => ref !== t.ref);
         return !duplicate;
       });
@@ -47,7 +47,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
       const twin = next.seats[action.seat].twin.find(c => c.ref === action.cardRef);
       if (!twin) { instance.public = false; instance.anchored = false; delete instance.zone; delete instance.slot; }
       else {
-        instance.zone = twin.zone; instance.slot = twin.slot;
+        instance.zone = twin.zone; instance.slot = remotePhysicalSlot(twin.zone, twin.slot);
         instance.public = remotePublicZone(twin.zone, twin.faceUp); instance.anchored = instance.public;
         if (instance.public) seen.push(instance);
       }
@@ -78,20 +78,20 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   }
   // A previously ambiguous hidden ref becomes a proven second copy only when both twins are public.
   for (const instance of [...checks.instances]) {
-    const twins = next.seats[instance.seat].twin.filter(t => instance.refs.includes(t.ref) && remotePublicZone(t.zone, t.faceUp));
-    const positions = new Set<string>();
+    const twins = next.seats[instance.seat].twin.filter(t => instance.refs.includes(t.ref) && remotePublicZone(t.zone, t.faceUp))
+      .sort((a,b) => Number(remotePhysicalSlot(b.zone,b.slot) !== undefined) - Number(remotePhysicalSlot(a.zone,a.slot) !== undefined));
+    const positions: typeof twins = [];
     const distinct = twins.filter(t => {
-      const place = t.zone + ":" + (t.slot ?? "");
-      if (positions.has(place)) return false;
-      positions.add(place); return true;
+      if (!positions.every(other => remoteLocationsDistinct(other,t))) return false;
+      positions.push(t); return true;
     });
     if (!distinct.length) continue;
     const first = distinct.find(t => t.zone === instance.zone && t.slot === instance.slot) ?? distinct[0];
-    instance.zone = first.zone; instance.slot = first.slot; instance.public = true; instance.anchored = true;
+    instance.zone = first.zone; instance.slot = remotePhysicalSlot(first.zone, first.slot); instance.public = true; instance.anchored = true;
     for (const twin of distinct.filter(t => t !== first)) {
       instance.refs = instance.refs.filter(ref => ref !== twin.ref);
       const extra: RemoteCardInstance = { ...structuredClone(instance), id: "instance:" + action.idempotencyKey + ":" + checks.instances.length,
-        refs: [twin.ref], zone: twin.zone, slot: twin.slot };
+        refs: [twin.ref], zone: twin.zone, slot: remotePhysicalSlot(twin.zone,twin.slot) };
       checks.instances.push(extra); seen.push(extra);
     }
   }

@@ -74,18 +74,30 @@ export function isInRemoteDeck(deck: DuelDeck, fact: RemoteCardFact, facts: Remo
 export function remotePublicZone(zone?: string, faceUp = true): boolean {
   return faceUp && !!zone && ["monster", "spell-trap", "extra-monster", "field", "graveyard", "banished", "extra", "pendulum"].includes(zone);
 }
+export function remotePhysicalSlot(zone?: string, slot?: number): number | undefined {
+  const max = zone === "monster" || zone === "spell-trap" ? 5 : zone === "extra-monster" || zone === "pendulum" ? 2 : 0;
+  return slot !== undefined && slot >= 1 && slot <= max ? slot : undefined;
+}
+export function remoteLocationsDistinct(a: { zone?: string; slot?: number }, b: { zone?: string; slot?: number }): boolean {
+  if (!a.zone || !b.zone) return false;
+  if (a.zone !== b.zone) return true;
+  const left = remotePhysicalSlot(a.zone, a.slot), right = remotePhysicalSlot(b.zone, b.slot);
+  return left !== undefined && right !== undefined && left !== right;
+}
 export function instanceLocation(instance: Pick<RemoteCardInstance, "zone" | "slot">): string {
   const name = instance.zone === "monster" ? "field" : instance.zone === "graveyard" ? "GY" : instance.zone ?? "revealed card";
-  return name + (instance.slot ? " zone " + instance.slot : "");
+  const slot = remotePhysicalSlot(instance.zone, instance.slot);
+  return name + (slot ? " zone " + slot : "");
 }
 type Sighting = { seat: number; fact: RemoteCardFact; zone?: string; slot?: number; ref?: string; faceUp?: boolean; observationId?: string };
 /** Pure. Unlocated/repeated sightings cannot prove new copies. */
 export function observeRemoteCard(input: RemoteDeckChecks, sight: Sighting, actionId: string, used: ReadonlySet<string> = new Set()): { checks: RemoteDeckChecks; instance: RemoteCardInstance } {
   const checks = structuredClone(input);
-  const { fact, seat, zone, slot, ref } = sight;
+  const { fact, seat, zone, ref } = sight;
+  const slot = remotePhysicalSlot(zone, sight.slot);
   const same = checks.instances.filter(i => i.seat === seat && i.copyKey === fact.copyKey);
   const publicView = remotePublicZone(zone, sight.faceUp);
-  const samePlace = (i: RemoteCardInstance) => publicView && i.public && i.zone === zone && i.slot === slot;
+  const samePlace = (i: RemoteCardInstance) => publicView && i.public && i.zone === zone && !remoteLocationsDistinct(i, { zone, slot });
   const pinned = ref ? checks.instances.find(i => i.seat === seat && i.refs.includes(ref)) : undefined;
   // A batch's distinct physical regions exclude already-used instances; a repeated coordinate does not.
   const atPlace = same.find(i => samePlace(i) && (slot !== undefined || !used.has(i.id)));
@@ -95,12 +107,12 @@ export function observeRemoteCard(input: RemoteDeckChecks, sight: Sighting, acti
   if (!instance && !sight.observationId && !publicView) instance = same[0];
   if (!instance && !sight.observationId && publicView && !ref) {
     // Only an anchored twin in another public place supplies cross-event proof.
-    const anchor = same.find(i => i.public && i.anchored && (i.zone !== zone || (slot !== undefined && i.slot !== slot)));
+    const anchor = same.find(i => i.public && i.anchored && remoteLocationsDistinct(i, { zone, slot }));
     if (!anchor) instance = same[0];
   }
   if (!instance && !sight.observationId && publicView && ref) {
     // Two unspecified positions in one row/pile are not proof of two different places.
-    instance = same.find(i => i.public && i.zone === zone && (slot === undefined || i.slot === undefined));
+    instance = same.find(i => samePlace(i));
   }
   if (!instance) {
     instance = { id: "instance:" + actionId + ":" + checks.instances.length, seat, ...fact, refs: [], public: false, anchored: false };
@@ -128,14 +140,16 @@ export function flagRemoteCopies(input: RemoteDeckChecks, seen: RemoteCardInstan
   }
   for (const observed of groups.values()) {
     const lead = observed[0];
-    const places = new Set<string>();
-    const concurrent = checks.instances.filter(i => {
-      if (i.seat !== lead.seat || i.copyKey !== lead.copyKey || !i.public) return false;
-      const place = i.zone + ":" + (i.slot ?? "");
-      if (places.has(place)) return false;
-      places.add(place); return true;
-    });
-    if (batch) for (const i of observed) if (!concurrent.some(c => c.id === i.id)) concurrent.push(i);
+    const concurrent: RemoteCardInstance[] = [];
+    const publicCopies = checks.instances.filter(i => i.seat === lead.seat && i.copyKey === lead.copyKey && i.public)
+      .sort((a, b) => Number(remotePhysicalSlot(b.zone, b.slot) !== undefined) - Number(remotePhysicalSlot(a.zone, a.slot) !== undefined));
+    for (const i of publicCopies) if (concurrent.every(c => remoteLocationsDistinct(c, i))) concurrent.push(i);
+    if (batch) for (const i of observed) {
+      if (concurrent.some(c => c.id === i.id)) continue;
+      const precise = remotePhysicalSlot(i.zone, i.slot) !== undefined || i.zone === "field";
+      if (precise && concurrent.some(c => c.zone === i.zone && !remoteLocationsDistinct(c, i))) continue;
+      concurrent.push(i);
+    }
     const count = Math.max(1, concurrent.length);
     if (count <= lead.limit) continue;
     const ids = (concurrent.length ? concurrent : [lead]).map(i => i.id).sort();
