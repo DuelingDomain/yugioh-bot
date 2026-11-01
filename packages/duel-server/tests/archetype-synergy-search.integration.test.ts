@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { existsSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
+import { createCardInsightService } from "@yugidraft/shared/services";
 import { importCardEffectArtifact } from "@yugidraft/shared/cards/effects";
 import { emptyCardQuery, inArchetype } from "@yugidraft/shared/duels";
 import { loadCardDatabase } from "../src/cards.js";
@@ -20,6 +21,18 @@ describe.skipIf(!existsSync(`${engineDataDirectory}/cards.cdb`))("specific syner
   afterAll(() => { cards?.close(); db?.close(); });
   const search = (text: string, extra: Partial<ReturnType<typeof emptyCardQuery>> = {}) =>
     queryCards(cards, { ...emptyCardQuery(), text, limit: 120, ...extra }, undefined, undefined, { effects, effectSearchEnabled: true });
+
+  it("returns the full 15 plus 25 synergy selection for the Describe pane's 30-card request", () => {
+    const service = createCardInsightService(db, { dataDirectory: engineDataDirectory });
+    const pool = [...cards.all()].map(card => card.code);
+    for (const limit of [undefined, 1, 30, 120]) {
+      const result = service.effectSearch("Monarch synergy", pool, { limit });
+      expect(result.total).toBe(40);
+      expect(result.cards).toHaveLength(40);
+      expect(result.cards.filter(card => card.synergyCategory !== "outside")).toHaveLength(15);
+      expect(result.cards.filter(card => card.synergyCategory === "outside")).toHaveLength(25);
+    }
+  });
 
   it("keeps named Temple support first and rejects incidental Trap interactions", () => {
     const result = search("Temple of the Kings synergy");

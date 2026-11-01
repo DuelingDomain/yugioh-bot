@@ -178,7 +178,7 @@ it("caps each outside archetype before the result share while keeping ungrouped 
     for (const [at, [code]] of kaiju.entries()) db.prepare("INSERT INTO card_release(passcode,tcg_date,quality,source_version) VALUES(?,?,'ok','integration') ON CONFLICT(passcode) DO UPDATE SET tcg_date=excluded.tcg_date,ocg_date=NULL").run(code, `202${at}-01`);
     const newest = service.effectSearch("Monarch synergy", pool, { sort: "newest", limit: 1 });
     expect(newest.total).toBe(3);
-    expect(newest.cards.map(card => card.passcode)).toEqual([48770333]);
+    expect(newest.cards.map(card => card.passcode)).toEqual([48770333, 28674152, 93332803]);
   } finally { db.exec("ROLLBACK TO diversity_test; RELEASE diversity_test"); }
 });
 

@@ -295,7 +295,9 @@ export function createCardInsightService(db: Database.Database, options: {
             return card ? memberships(card) : [];
           });
           total = selected.length;
-          ranked.splice(0, ranked.length, ...selected.slice(0, limitOf(opts.limit)));
+          // The selection already reserves and caps both shares. Describe requests
+          // a smaller generic page, but must receive the complete synergy selection.
+          ranked.splice(0, ranked.length, ...selected);
         }
         if (supportMatch && !total && reading.query.supports!.archetypes.length > 1) {
           const groups = reading.query.supports!.archetypes.map(archetype => {
