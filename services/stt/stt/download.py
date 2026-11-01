@@ -1,5 +1,6 @@
 """Fetch only required model files into an external, ignored model directory."""
 import argparse
+import hashlib
 import os
 from pathlib import Path
 from huggingface_hub import hf_hub_download
@@ -37,14 +38,22 @@ def download_vad() -> Path:
         MODEL_ROOT.mkdir(parents=True, exist_ok=True)
         temporary = target.with_suffix('.partial')
         # Official sherpa-onnx ASR model release (Silero v5, 512-sample windows).
-        urllib.request.urlretrieve('https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx', temporary)
+        url = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx'
+        with urllib.request.urlopen(url, timeout=120) as response:
+            temporary.write_bytes(response.read())
+        if hashlib.sha256(temporary.read_bytes()).hexdigest() != '9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6':
+            temporary.unlink()
+            raise ValueError('Silero model checksum changed; verify the upstream release before updating')
         temporary.replace(target)
     return target
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('models', nargs='*', choices=list(MODELS), default=['parakeet', 'zipformer'])
+    parser.add_argument('models', nargs='*', metavar='MODEL', help='whisper, parakeet, zipformer (default: whisper parakeet)')
     args = parser.parse_args()
-    for name in args.models:
+    names = args.models or ['whisper', 'parakeet']
+    if any(name not in MODELS for name in names):
+        parser.error('Choose whisper, parakeet or zipformer')
+    for name in names:
         print(download(name), flush=True)
     print(download_vad(), flush=True)

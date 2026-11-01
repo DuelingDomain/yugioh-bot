@@ -183,7 +183,10 @@ async def websocket(ws: WebSocket):
     await ws.accept()
     if not authorized(ws.headers):
         try:
-            raw_auth = await asyncio.wait_for(ws.receive_text(), timeout=5)
+            auth_message = await asyncio.wait_for(ws.receive(), timeout=5)
+            raw_auth = auth_message.get('text')
+            if not isinstance(raw_auth, str):
+                raise ValueError('Authentication must be a JSON text frame')
             if len(raw_auth) > 4096:
                 raise ValueError('Authentication message too large')
             auth = json.loads(raw_auth)

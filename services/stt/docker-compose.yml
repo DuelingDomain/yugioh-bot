@@ -1,0 +1,28 @@
+# Standalone; does not start or alter the main application stack.
+services:
+  stt:
+    build:
+      context: .
+    ports:
+      - "127.0.0.1:4020:4020"
+    environment:
+      STT_MODEL: ${STT_MODEL:-whisper}
+      STT_THREADS: ${STT_THREADS:-4}
+      STT_PARTIAL_MODEL: ${STT_PARTIAL_MODEL:-parakeet}
+      STT_MAX_ACTIVE: ${STT_MAX_ACTIVE:-4}
+      STT_API_KEY: ${STT_API_KEY:-}
+      STT_ALLOWED_ORIGINS: ${STT_ALLOWED_ORIGINS:-}
+      STT_MODEL_DIR: /data/stt-models
+      # If no cards.cdb is mounted, first start caches YGOPRODeck names here.
+      STT_CARD_CATALOG: ${STT_CARD_CATALOG:-}
+    volumes:
+      - ../../data/stt-models:/data/stt-models
+      - ../../data/duel-engine:/data/duel-engine:ro
+    user: "${STT_UID:-1000}:${STT_GID:-1000}"
+    init: true
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 6g
+    cpus: 4
+    stop_grace_period: 30s
