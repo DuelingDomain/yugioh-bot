@@ -6,6 +6,8 @@ import {
   participantSeat, RecognitionChannel, RECOGNITION_TOPIC, PENDING_TOPIC, NO_ANSWER,
   type VideoMember, type RecognitionAnswer, type RecognitionRequest, type RecognitionResult,
 } from "./video-protocol";
+import {FieldTrackCache,FIELD_TRACKS_TOPIC} from './field-track-cache';
+import type {RemoteFieldTracks} from '@yugidraft/shared/remote';
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean };
 export type VideoSnapshot = {
@@ -26,6 +28,7 @@ export class RemoteVideo {
   private epoch = 0;
   private starting = false;
   private closed = false;
+  private fieldTracks=new FieldTrackCache();
   private snapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "" };
   constructor(private options: { slug: string; guildId: string; seat: number; members: VideoMember[]; recognize?: RecognizeRawFeed }) {
     const sync = () => this.sync();
@@ -37,13 +40,16 @@ export class RemoteVideo {
     this.room.on(RoomEvent.SignalConnected, () => this.patch({ signalLost: false }));
     this.room.on(RoomEvent.ConnectionStateChanged, connection => {
       this.patch({ connection, ...(connection === ConnectionState.Connected ? { signalLost: false } : {}) }); this.sync();
+      if (connection !== ConnectionState.Connected) this.fieldTracks.clear();
       if (connection === ConnectionState.Disconnected) { this.channel?.close(); this.scans.abort(); }
     });
     this.room.on(RoomEvent.DataReceived, (bytes, participant, _kind, topic) => {
-      if (!participant || bytes.byteLength > 8192 || !this.channel) return;
+      if (!participant || bytes.byteLength > 8192) return;
       const from = this.seatOf(participant); if (from === undefined) return;
       try {
         const value = JSON.parse(new TextDecoder().decode(bytes));
+        if(topic===FIELD_TRACKS_TOPIC){this.fieldTracks.receive(from,value);return;}
+        if(!this.channel)return;
         if (topic === PENDING_TOPIC) this.channel.announce(from, value.requestId, value.feedOwnerSeat);
         else if (topic === RECOGNITION_TOPIC) void this.channel.receive(from, value).catch(error => this.fail(error));
       } catch { /* Invalid data is ignored, never executed or persisted. */ }
@@ -75,6 +81,7 @@ export class RemoteVideo {
         quality: participant.connectionQuality, muted: camera?.isMuted ?? false });
     }
     this.patch({ feeds });
+    this.fieldTracks.retain(new Set(feeds.filter(f=>f.video&&!f.muted).map(f=>f.seat)));
   }
   private async refreshDevices() {
     const devices = await Room.getLocalDevices("videoinput");
@@ -112,6 +119,8 @@ export class RemoteVideo {
         await this.room.localParticipant.publishData(bytes, { reliable: true, topic: announcement ? PENDING_TOPIC : RECOGNITION_TOPIC,
           destinationIdentities: participant ? [participant.identity] : undefined });
       }, async request => {
+        const cached=!request.force?this.trackedAt(this.options.seat,request.x,request.y):undefined;
+        if(cached)return {candidates:[{cardId:cached.cardId,name:cached.name??`Card ${cached.cardId}`,score:0}],tier:'sure',faceDown:false,covered:false};
         if (!this.rawLocalTrack || !this.options.recognize) return NO_ANSWER; // Attach @yugidraft/vision here via options.recognize.
         return this.options.recognize({ track: this.rawLocalTrack, request, signal: this.scans.signal });
       }, (message, fromSeat) => this.patch({ result: { fromSeat, message } }));
@@ -134,13 +143,26 @@ export class RemoteVideo {
     if (this.closed) { await this.room.disconnect(); return; }
     this.patch({ microphone: enabled });
   }
-  requestRecognition(seat: number, x = 0.5, y = 0.5) {
+  trackedAt(seat:number,x:number,y:number) {return this.room.state===ConnectionState.Connected?this.fieldTracks.hit(seat,x,y):undefined;}
+  trackedCards(seat:number){return this.room.state===ConnectionState.Connected?this.fieldTracks.snapshot(seat):[];}
+  async publishFieldTracks(message:RemoteFieldTracks) {
+    if(this.room.state!==ConnectionState.Connected)return;
+    this.fieldTracks.receive(this.options.seat,message);
+    let bytes=new TextEncoder().encode(JSON.stringify(message));
+    // Long names are already in the public twin state; retain every quad within
+    // the same small packet budget used by recognition messages.
+    if(bytes.byteLength>8192)bytes=new TextEncoder().encode(JSON.stringify({...message,cards:message.cards.map(({name:_,...card})=>card)}));
+    if(bytes.byteLength>8192)throw new Error('Field snapshot is too large');
+    await this.room.localParticipant.publishData(bytes,{reliable:true,topic:FIELD_TRACKS_TOPIC});
+  }
+  requestRecognition(seat: number, x = 0.5, y = 0.5, force=false) {
     if (!this.channel || this.room.state !== ConnectionState.Connected) return Promise.reject(new Error("Connect table video first"));
-    return this.channel.request(seat, x, y);
+    return this.channel.request(seat, x, y,undefined,force);
   }
   startAudio() { return this.room.startAudio(); }
   fail(error: unknown) { this.patch({ error: error instanceof Error ? error.message : "Video failed" }); }
   async stop() {
+    this.fieldTracks.clear();
     ++this.epoch; this.channel?.close(); this.channel = undefined; this.scans.abort();
     this.camera?.stop(); this.camera = undefined; await this.room.disconnect();
     this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false, result: undefined });

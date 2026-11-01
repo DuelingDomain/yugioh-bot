@@ -143,3 +143,52 @@ it("automatic face-down placement sends no identity and an existing physical ref
   track.faceDown=false;
   expect(fieldPlacementProposals({track,seat:0,cardId:46986414,name:"Known",existing:true})).toHaveLength(1);
 });
+
+it("hit-tests owner and observer tracked copies locally and replaces moved/expired snapshots",async()=>{
+  const {FieldTrackCache}=await import('../src/lib/remote/field-track-cache');let now=0;
+  const owner=new FieldTrackCache(()=>now),observer=new FieldTrackCache(()=>now);
+  const quad=[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}];
+  const card={ref:'physical-a',cardId:46986414,name:'Dark Magician',quad};
+  const packet={type:'field.tracks',cards:[card,{...card,ref:'physical-b',quad:quad.map(p=>({...p,x:p.x+.4}))}]};
+  for(const cache of [owner,observer]){expect(cache.receive(1,packet)).toBe(true);expect(cache.hit(1,.3,.3)?.ref).toBe('physical-a');expect(cache.hit(1,.7,.3)?.ref).toBe('physical-b');expect(cache.hit(0,.3,.3)).toBeUndefined();}
+  observer.receive(1,{...packet,cards:[{...card,quad:quad.map(p=>({...p,y:p.y+.4}))}]});
+  expect(observer.hit(1,.3,.3)).toBeUndefined();expect(observer.hit(1,.3,.7)?.cardId).toBe(46986414);
+  now=3001;expect(owner.hit(1,.3,.3)).toBeUndefined();
+  observer.receive(1,packet);observer.clear(1);expect(observer.hit(1,.3,.3)).toBeUndefined();
+});
+it("rejects invalid geometry/pixels and exports only safe visible public tracks",async()=>{
+  const {FieldTrackCache,fieldTrackMessage}=await import('../src/lib/remote/field-track-cache');
+  const quad=[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}],cache=new FieldTrackCache();
+  const track={id:'physical',cardId:'46986414',state:'identified',visible:true,faceDown:false,removed:false,zone:'M2',card:{kind:'face-up',confidence:.9,partial:false,quad}} as any;
+  const entries=new Map([['46986414',{cardId:'46986414',passcode:46986414,name:'Dark Magician'}]]);
+  const project=(tracks:any[],status='watching')=>fieldTrackMessage({status,tracks} as any,entries);
+  expect(project([track]).cards).toEqual([{ref:'physical',cardId:46986414,name:'Dark Magician',quad}]);
+  for(const patch of [{visible:false},{faceDown:true},{removed:true},{state:'prompt'},{zone:'DECK'},{card:{...track.card,covered:true}},{card:{...track.card,kind:'face-down'}}])expect(project([{...track,...patch}]).cards).toEqual([]);
+  expect(project([track],'stopped').cards).toEqual([]);
+  expect(cache.receive(0,{...project([track]),jpeg:'private'})).toBe(false);
+  expect(cache.receive(0,{type:'field.tracks',cards:[{ref:'x',cardId:1,quad:quad.map(p=>({...p,x:2}))}]})).toBe(false);
+  expect(cache.receive(0,{type:'field.tracks',cards:[{ref:'x',cardId:1,quad:[quad[0],quad[0],quad[0],quad[0]]}]})).toBe(false);
+});
+it("automatic placement preserves calibrated main, spell and EMZ slots and DEF orientation",async()=>{
+  const {fieldPlacementProposals}=await import('../src/lib/remote/field-proposals');
+  for(const [zone,expected,slot] of [['M4','monster',4],['S3','spell-trap',3],['EMZ1','extra-monster',1],['EMZ2','extra-monster',2]] as const){
+    const track={id:'physical',zone,position:'defense',faceDown:false} as import('@yugidraft/vision').FieldTrack;
+    expect(fieldPlacementProposals({track,seat:1,cardId:46986414,name:'Dark Magician'})[1]).toMatchObject({actorSeat:1,seat:1,zone:expected,card:{ref:'physical',slot,position:'defense',faceUp:true}});
+  }
+});
+it('a corrected public physical ref replaces the watcher identity in every exported snapshot',async()=>{
+  const {fieldTrackMessage}=await import('../src/lib/remote/field-track-cache');
+  const quad=[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}];
+  const snapshot={status:'watching',tracks:[{id:'same-ref',cardId:'1',state:'identified',visible:true,faceDown:false,removed:false,zone:'M2',card:{kind:'face-up',confidence:.9,quad}}]} as any;
+  const entries=new Map([['1',{cardId:'1',passcode:1,name:'Old'}],['2',{cardId:'2',passcode:2,name:'Corrected'}]]);
+  expect(fieldTrackMessage(snapshot,entries,[{id:'same-ref',zone:'M2',cardId:'2'}]).cards[0]).toMatchObject({ref:'same-ref',cardId:2,name:'Corrected'});
+  expect(fieldTrackMessage(snapshot,entries,[{id:'same-ref',zone:'M2',faceDown:true}]).cards).toEqual([]);
+});
+it('track snapshots use the canonical catalog ID for Tokens and alternate image passcodes',async()=>{
+  const {fieldTrackMessage}=await import('../src/lib/remote/field-track-cache');
+  const quad=[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.5},{x:.2,y:.5}];
+  for(const passcode of [0,123]){
+    const snapshot={status:'watching',tracks:[{id:'token',cardId:'100000001',state:'identified',visible:true,faceDown:false,removed:false,zone:'M2',card:{kind:'face-up',confidence:.9,quad}}]} as any;
+    expect(fieldTrackMessage(snapshot,new Map([['100000001',{cardId:'100000001',passcode,name:'Token'}]])).cards[0].cardId).toBe(100000001);
+  }
+});
