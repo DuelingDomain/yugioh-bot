@@ -100,7 +100,7 @@ if ALLOWED_ORIGINS:
 
 
 def authorized(headers):
-    return not API_KEY or hmac.compare_digest(headers.get('authorization', ''), f'Bearer {API_KEY}')
+    return not API_KEY or hmac.compare_digest(headers.get('authorization', '').encode(), f'Bearer {API_KEY}'.encode())
 
 
 def pcm(data):
@@ -177,10 +177,23 @@ class Utterance:
 
 @app.websocket('/ws')
 async def websocket(ws: WebSocket):
-    if not authorized(ws.headers) or (ALLOWED_ORIGINS and ws.headers.get('origin') and ws.headers['origin'] not in ALLOWED_ORIGINS):
+    if ALLOWED_ORIGINS and ws.headers.get('origin') and ws.headers['origin'] not in ALLOWED_ORIGINS:
         await ws.close(code=1008)
         return
     await ws.accept()
+    if not authorized(ws.headers):
+        try:
+            raw_auth = await asyncio.wait_for(ws.receive_text(), timeout=5)
+            if len(raw_auth) > 4096:
+                raise ValueError('Authentication message too large')
+            auth = json.loads(raw_auth)
+            if not isinstance(auth, dict) or auth.get('type') != 'auth' or not isinstance(auth.get('token'), str):
+                raise ValueError('Expected auth message')
+            if not hmac.compare_digest(auth['token'].encode(), API_KEY.encode()):
+                raise ValueError('Invalid token')
+        except (ValueError, TimeoutError, WebSocketDisconnect):
+            await ws.close(code=1008)
+            return
     engine = ws.app.state.engine
     utterance = None
     send_lock = asyncio.Lock()
