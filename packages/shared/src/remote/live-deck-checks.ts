@@ -31,7 +31,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
     const sightings = action.type === "card.identified" ? [action] : action.cards;
     for (const card of sightings) {
       const twin = card.cardRef ? next.seats[action.seat].twin.find(t => t.ref === card.cardRef) : undefined;
-      const distinct=!!twin && next.effectTracking?.origins.some(o=>o.seat===action.seat && o.ref===twin.ref);
+      const distinct=context.showCardsSetFromDeck!==undefined && !!twin && next.effectTracking?.origins.some(o=>o.seat===action.seat && o.ref===twin.ref);
       observe(action.seat, twin ? { ...card, zone: twin.zone, slot: twin.slot, faceUp: twin.faceUp, publicIdentity: twin.publicIdentity, distinct } : card);
       const code = card.cardId ?? card.passcode;
       next.identified = { seat: action.seat, ...(card.cardRef ? {cardRef:card.cardRef} : {}), ...(context.privateRecognition ? {private:true} : {}), cardId: card.cardId, passcode: card.passcode, zone: card.zone,

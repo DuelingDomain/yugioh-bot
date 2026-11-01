@@ -82,7 +82,7 @@ export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState
       const picked=origin.pool?.find(c=>c.cardId===origin.chosenCardId);
       remoteAssert(picked,"Unknown searched card"); origin.announcedCard={cardId:picked.cardId,name:picked.name};
       const twin=next.seats[origin.seat].twin.find(c=>c.ref===origin.ref);
-      if(twin) twin.publicIdentity=true;
+      if(twin && context.showCardsSetFromDeck!==undefined) twin.publicIdentity=true;
     }
   }
   if(action.type==="effect.context.clear") delete tracking.contexts[action.actorSeat];

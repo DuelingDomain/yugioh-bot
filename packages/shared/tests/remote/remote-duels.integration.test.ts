@@ -908,13 +908,22 @@ function originSession(showCardsSetFromDeck = false) {
 }
 const originOf = (s: ReturnType<typeof originSession>) => s.room.state.effectTracking!.origins.at(-1)!;
 describe("remote effect origins and hidden information", () => {
-  it.each([false,true])("preserves old private-event semantics across migration and replay (camera=%s)", recognized => {
-    const s=originSession(); s.act({type:"effect.activated",source:{cardId:70825459}});
-    s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"legacy-set",faceUp:false}});
-    s.act({type:"effect.choose",originId:originOf(s).id,cardId:53582587});
-    if(recognized) s.act({type:"card.identified",seat:0,cardRef:"legacy-set",cardId:53582587,source:"auto"});
+  it.each(["set-private","set-camera","hand-private","hand-announced"])("preserves old private-event semantics across migration and replay (%s)", mode => {
+    const hand=mode.startsWith("hand");
+    const s=originSession(); s.act({type:"effect.activated",source:{cardId:hand ? 73628505 : 70825459}});
+    if(!hand) s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"legacy-set",faceUp:false}});
+    s.act({type:"effect.choose",originId:originOf(s).id,cardId:hand ? 47355498 : 53582587});
+    if(mode==="set-camera") s.act({type:"card.identified",seat:0,cardRef:"legacy-set",cardId:53582587,source:"auto"});
+    if(mode==="hand-announced") s.act({type:"effect.announce",originId:originOf(s).id});
     // Copy a pre-option fixture, leaving the original append-only events untouched.
     const legacyState=structuredClone(s.room.state);
+    if(mode==="hand-announced") {
+      // Original announcements exposed announcedCard, but did not mark/observe the private hand twin.
+      delete legacyState.seats[0].twin[0].publicIdentity;
+      legacyState.deckChecks.instances=[];
+      const origin=legacyState.effectTracking!.origins[0]; delete origin.revealedCardId;
+      origin.candidates=structuredClone(origin.pool);
+    }
     delete legacyState.showCardsSetFromDeck;
     if(legacyState.undo) delete legacyState.undo.before.showCardsSetFromDeck;
     const oldId=(s.db.prepare("select id from remote_tables where slug=?").get(s.room.slug) as {id:number}).id;
@@ -937,7 +946,7 @@ describe("remote effect origins and hidden information", () => {
     expect(s.service.replay("legacy","g",s.users[0])).toEqual(cached.state);
     s.service.act("legacy","g",s.users[0],{baseSeq:cached.lastSeq,action:{type:"lp.change",actorSeat:0,seat:0,delta:-100,reason:"effect",idempotencyKey:"after-upgrade"}},2300);
     const publicView=s.service.snapshot("legacy","g");
-    expect(publicView.state.seats[0].twin[0].cardId).toBe(recognized ? 53582587 : undefined);
+    expect(publicView.state.seats[0].twin[0].cardId).toBe(mode==="set-camera" ? 53582587 : undefined);
     expect(s.service.replay("legacy","g",s.users[0])).toEqual(s.service.get("legacy","g",s.users[0]).state);
   });
   it("keeps Extra Deck placements and returns private even when their faceUp flag is true", () => {
