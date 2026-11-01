@@ -393,6 +393,25 @@ it('shows the default-off consent prompt once under React StrictMode',async()=>{
 
 // Field watcher lifecycle shares this existing browser test file.
 import { useFieldWatcher } from "../src/lib/remote/use-field-watcher";
+import { HoloField } from "../src/components/remote/ui/holo-field";
+import { cellsFor, foundationZone } from "../src/components/remote/ui/model";
+it('renders two interactive EMZ above the main row only for Advanced and Domain',()=>{
+  const twin=[{ref:'extra-right',zone:'extra-monster',slot:2,faceUp:false,position:'attack' as const}];
+  const onRv=vi.fn(),onAttack=vi.fn();
+  const props={seat:0,name:'Owner',twin,info:()=>undefined,rv:'m4' as const,onRv,picking:true,warnRefs:new Set<string>(),onActivate:vi.fn(),onAttack,onInspect:vi.fn()};
+  const view=render(<HoloField {...props} format="normal"/>);
+  expect(screen.getByRole('button',{name:/Extra Monster Zone, left: empty/i})).toBeVisible();
+  const right=screen.getByRole('button',{name:/Extra Monster Zone, right: face-down/i});
+  expect(right).toHaveAttribute('data-zone','emz2');
+  fireEvent.keyDown(screen.getByRole('button',{name:/Monster zone 4: empty/i}),{key:'ArrowUp'});
+  expect(onRv).toHaveBeenCalledWith('emz2');fireEvent.keyDown(right,{key:'a'});expect(onAttack).toHaveBeenCalledWith('emz2',twin[0]);
+  expect(cellsFor(twin).emz2.card?.ref).toBe('extra-right');
+  expect(foundationZone('emz2')).toEqual({zone:'extra-monster',slot:2});
+  for(const format of ['domain','genesys','genesys-domain'] as const) {
+    view.rerender(<HoloField {...props} format={format}/>);
+    expect(screen.queryAllByRole('button',{name:/Extra Monster Zone,/i})).toHaveLength(format==='domain'?2:0);
+  }
+});
 it('the watcher hook only starts for an active feed owner and persists its default-on toggle',async()=>{
   localStorage.clear();const create=vi.fn(async()=>null),onEvent=vi.fn();
   const hook=renderHook(({owner})=>useFieldWatcher({owner,active:true,seatKey:'test-seat',sourceKey:'camera',create,onEvent}),{initialProps:{owner:false}});

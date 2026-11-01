@@ -9,14 +9,16 @@ export const COLORS = ["167 139 255", "240 128 170", "121 217 168", "255 160 110
 
 /** The 14 cells of the holo field, in grid order (row 1 then row 2). */
 export const ZK = ["gy", "m1", "m2", "m3", "m4", "m5", "ex", "f", "s1", "s2", "s3", "s4", "s5", "deck"] as const;
-export type ZoneKey = (typeof ZK)[number];
+export const EMZ_KEYS = ['emz1','emz2'] as const;
+export type ZoneKey = (typeof ZK)[number] | (typeof EMZ_KEYS)[number];
 export const ZN: Record<ZoneKey, string> = {
   gy: "Graveyard", m1: "Monster zone 1", m2: "Monster zone 2", m3: "Monster zone 3", m4: "Monster zone 4", m5: "Monster zone 5", ex: "Extra Deck",
   f: "Field zone", s1: "Spell and Trap zone 1", s2: "Spell and Trap zone 2", s3: "Spell and Trap zone 3", s4: "Spell and Trap zone 4", s5: "Spell and Trap zone 5", deck: "Deck",
+  emz1: "Extra Monster Zone, left", emz2: "Extra Monster Zone, right",
 };
-export const zoneLabel = (z: ZoneKey) => ({ gy: "GY", ex: "EX", f: "FIELD", deck: "DECK" } as Record<string, string>)[z] ?? (z[0] === "m" ? "M" + z[1] : "S" + z[1]);
+export const zoneLabel = (z: ZoneKey) => ({ gy: "GY", ex: "EX", f: "FIELD", deck: "DECK", emz1:'EMZ L',emz2:'EMZ R' } as Record<string, string>)[z] ?? (z[0] === "m" ? "M" + z[1] : "S" + z[1]);
 export const isPile = (z: ZoneKey) => z === "gy" || z === "ex" || z === "deck";
-export const isMonsterZone = (z: ZoneKey) => z[0] === "m";
+export const isMonsterZone = (z: ZoneKey) => z[0] === "m" || z.startsWith('emz');
 
 /** Foundation zone + slot for a cell. */
 export function foundationZone(z: ZoneKey): { zone: string; slot?: number } {
@@ -24,6 +26,7 @@ export function foundationZone(z: ZoneKey): { zone: string; slot?: number } {
   if (z === "ex") return { zone: "extra" };
   if (z === "f") return { zone: "field" };
   if (z === "deck") return { zone: "deck" };
+  if (z.startsWith('emz')) return {zone:'extra-monster',slot:Number(z.at(-1))};
   return { zone: z[0] === "m" ? "monster" : "spell-trap", slot: Number(z[1]) };
 }
 
@@ -34,15 +37,15 @@ export const phaseIndex = (id: string) => Math.max(0, PHASES.findIndex(p => p.id
 
 /** Zones that do not fit the 7x2 grid. They show in a compact strip under the field. */
 export const EXTRA_ZONES = [
-  { id: "extra-monster", label: "EMZ" }, { id: "pendulum", label: "PZ" }, { id: "banished", label: "BAN" },
+  { id: "pendulum", label: "PZ" }, { id: "banished", label: "BAN" },
   { id: "hand", label: "HAND" }, { id: "hand-reveal", label: "SHOWN" },
 ] as const;
 
 export type Cell = { card?: TwinCard; count: number };
 /** Puts twin cards into grid cells. Cards without a slot take the first free slot of their row. */
 export function cellsFor(twin: readonly TwinCard[]): Record<ZoneKey, Cell> {
-  const cells = Object.fromEntries(ZK.map(k => [k, { count: 0 }])) as Record<ZoneKey, Cell>;
-  const rows: Record<string, { prefix: string; list: TwinCard[] }> = { monster: { prefix: "m", list: [] }, "spell-trap": { prefix: "s", list: [] } };
+  const cells = Object.fromEntries([...EMZ_KEYS,...ZK].map(k => [k, { count: 0 }])) as Record<ZoneKey, Cell>;
+  const rows: Record<string, { prefix: string; slots:number; list: TwinCard[] }> = { monster: { prefix: "m",slots:5, list: [] }, "spell-trap": { prefix: "s",slots:5, list: [] },'extra-monster':{prefix:'emz',slots:2,list:[]} };
   for (const card of twin) {
     if (card.zone === "graveyard") cells.gy.count++;
     else if (card.zone === "extra") cells.ex.count++;
@@ -50,13 +53,13 @@ export function cellsFor(twin: readonly TwinCard[]): Record<ZoneKey, Cell> {
     else if (card.zone === "field") { cells.f.card = card; cells.f.count = 1; }
     else if (rows[card.zone]) rows[card.zone].list.push(card);
   }
-  for (const { prefix, list } of Object.values(rows)) {
+  for (const { prefix, slots, list } of Object.values(rows)) {
     const used = new Set<number>(); const loose: TwinCard[] = [];
     for (const card of list) {
-      if (card.slot && !used.has(card.slot)) { used.add(card.slot); cells[`${prefix}${card.slot}` as ZoneKey] = { card, count: 1 }; } else loose.push(card);
+      if (card.slot && card.slot<=slots && !used.has(card.slot)) { used.add(card.slot); cells[`${prefix}${card.slot}` as ZoneKey] = { card, count: 1 }; } else loose.push(card);
     }
     for (const card of loose) {
-      const free = [1, 2, 3, 4, 5].find(n => !used.has(n)); if (!free) break;
+      const free = [1, 2, 3, 4, 5].find(n => n<=slots&&!used.has(n)); if (!free) break;
       used.add(free); cells[`${prefix}${free}` as ZoneKey] = { card, count: 1 };
     }
   }

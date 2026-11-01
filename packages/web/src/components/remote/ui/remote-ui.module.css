@@ -180,6 +180,7 @@
 .fplate.pick{cursor:crosshair;border-color:var(--lossd);box-shadow:0 0 0 3px rgb(228 90 77/.25),0 0 18px rgb(228 90 77/.5)}
 .field{--gp:4px;--cw:min((100cqw - 6 * var(--gp)) / 7,(100cqh - var(--gp)) / 2.92);
   display:grid;grid-template-columns:repeat(7,var(--cw));grid-template-rows:repeat(2,calc(var(--cw) * 1.458));gap:var(--gp)}
+.field[data-emz=true]{--cw:min((100cqw - 6 * var(--gp)) / 7,(100cqh - 2 * var(--gp)) / 4.374);grid-template-rows:repeat(3,calc(var(--cw) * 1.458))}
 .zc{position:relative;border:1px solid rgb(167 139 255/.22);border-radius:4px;background:rgb(167 139 255/.05)}
 .zc[data-z=f],.zc[data-z=gy],.zc[data-z=deck],.zc[data-z=ex]{border-style:dashed}
 .zc .zl{position:absolute;inset:0;display:grid;place-items:center;font:700 9px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.1em;color:#a994ee;pointer-events:none}

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedPoint, type FeedReticle, type FeedStart } from "./feed";
 import { HoloField } from "./holo-field";
+import type { FieldFormat } from '@yugidraft/vision';
 import { Icon } from "./icons";
 import { sg, MINUS, type TwinCard, type ZoneKey } from "./model";
 import type { CardInfo } from "./catalog";
@@ -21,6 +22,7 @@ export function parseLpInput(raw: string): number | null {
 }
 
 export type SeatPanelProps = {
+  format?:FieldFormat;
   index: number; seat: number; name: string; color: string; you: boolean; turn: boolean; next: boolean; speaking: boolean; frozen: boolean; eliminated: boolean;
   lp: number; startingLp: number; health: Health; healthOpen: boolean; onHealth: (button: HTMLElement) => void;
   marks: FeedMark[]; reticles: FeedReticle[]; onBegin: (seat: number, start: FeedStart) => void; onPoint: (seat: number, x: number, y: number, extra: FeedPoint) => void; onSelect: (seat: number, hit: FeedHit) => void; holdSelection: boolean; onAdd: (mark: FeedMark) => void; onReadBoard?: (seat: number, reading: BoardReading) => Promise<string>;
@@ -69,7 +71,7 @@ export function SeatPanel(p: SeatPanelProps) {
             <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}
               aria-label={p.pickPlate ? `Attack ${p.name} directly` : `${p.name}, ${p.lp} life points`}><span className={s.pip} />{p.name} <span className={s.num}>{p.lp}</span></button>
-            <HoloField seat={p.seat} name={p.name} twin={p.twin} info={p.info} rv={p.rv} onRv={p.onRv} picking={p.picking} selectedRef={p.selectedRef} targetRef={p.targetRef}
+            <HoloField seat={p.seat} name={p.name} twin={p.twin} info={p.info} format={p.format} rv={p.rv} onRv={p.onRv} picking={p.picking} selectedRef={p.selectedRef} targetRef={p.targetRef}
               freshRef={p.freshRef} warnRefs={p.warnRefs} onActivate={p.onActivate} onAttack={p.onAttack} onInspect={p.onInspect} />
           </div>
           <div className={s.projector} />

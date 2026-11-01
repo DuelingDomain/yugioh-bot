@@ -60,7 +60,7 @@ export function AutoFieldWatcher({room,action}:{room:RemoteRoom;action(proposal:
     }).catch(()=>setNotice('Could not update the field. Try a card prompt.'));
   }
   const watch=useFieldWatcher({owner:source?.local===true,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,sourceKey:source,
-    async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
+    async create(){const resources=await ownFieldResources(()=>({decklist:deckIdsOf(current.current.room,seat),seen:seenCardIds(current.current.room)}));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   enabledRef.current=watch.enabled;
   const video=host?.querySelector('video')??null;
   function anchor(track:FieldTrack):CSSProperties {
@@ -86,6 +86,6 @@ export function AutoFieldWatcher({room,action}:{room:RemoteRoom;action(proposal:
       <button type="button" onClick={()=>{watch.dismiss(event.track.id);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));}}>Dismiss</button>
     </div>):null}
     {notice?<div style={{...control,position:'absolute',bottom:8,left:8,zIndex:23,maxWidth:'calc(100% - 16px)'}} role="status">{notice} {undoId&&room.state.undo?.actionId===undoId?<button type="button" onClick={()=>void current.current.action({type:'undo',actorSeat:seat,targetActionId:undoId}).then(ok=>{if(ok){setNotice('Automatic placement undone');setUndoId('');}})}>Undo</button>:null}</div>:null}
-    {calibrating?<FieldCalibrationControl video={video} onSave={grid=>{watch.setCalibration(grid);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}
+    {calibrating?<FieldCalibrationControl video={video} format={room.format?.id??room.state.deckChecks.format.id} onSave={grid=>{watch.setCalibration(grid);setCalibrating(false);}} onCancel={()=>setCalibrating(false)}/>:null}
   </div>,host);
 }

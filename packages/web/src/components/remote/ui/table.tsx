@@ -337,7 +337,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   // ---- attacks ----
   const attackBlock = (seat: number, card?: TwinCard): string => {
     if (!live) return "The table is closed."; if (!card) return "No card selected.";
-    if (card.zone !== "monster") return "Only monsters in a monster zone can attack.";
+    if (card.zone !== "monster"&&card.zone!=="extra-monster") return "Only monsters in a monster zone can attack.";
     if (seat !== state.turnSeat) return `Only ${name(state.turnSeat)}'s monsters can attack this turn.`;
     if (!myTurn) return "Wait for your turn.";
     if (state.phase !== "battle") return "Move to the Battle Phase first.";
@@ -573,10 +573,10 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
             marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReadBoard={readBoardInto}
-            twin={twin} info={info} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
+            twin={twin} info={info} format={format.id} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} pickPlate={plate}
-            onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && card.zone === "monster") void declare(seat, card.ref); else if (card) openSubject(card); }}
+            onActivate={(_key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster"||card.zone==='extra-monster')) void declare(seat, card.ref); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             cameraControl={seat === mySeat ? <CameraControl /> : undefined} turnIn={turnIn && seat === state.turnSeat}

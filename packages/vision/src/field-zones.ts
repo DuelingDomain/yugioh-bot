@@ -2,6 +2,8 @@ import { boundsOf, polygonArea } from './geometry';
 import type { DetectedQuad, Point } from './types';
 
 export type FieldZone = `M${1|2|3|4|5}` | `S${1|2|3|4|5}` | 'FIELD' | 'EMZ1' | 'EMZ2' | 'GY' | 'BANISHED' | 'DECK' | 'EXTRA';
+export type FieldFormat = 'normal' | 'domain' | 'genesys' | 'genesys-domain';
+export const hasExtraMonsterZones = (format:FieldFormat='normal') => format==='normal'||format==='domain';
 export interface FieldCalibration { version: 1; corners: Point[] }
 export const fieldCenter = (card: Pick<DetectedQuad,'quad'>): Point => ({x:card.quad.reduce((s,p)=>s+p.x,0)/4,y:card.quad.reduce((s,p)=>s+p.y,0)/4});
 /** Clockwise TL, TR, BR, BL of the owner's mat. Two opposite corners also work. */
@@ -25,10 +27,10 @@ function onMat(p:Point, calibration?:FieldCalibration):Point {
   }
   return {x:u,y:v};
 }
-export function mapFieldZone(card:DetectedQuad, calibration?:FieldCalibration, peers:DetectedQuad[]=[]):{zone:FieldZone;calibrated:boolean} {
+export function mapFieldZone(card:DetectedQuad, calibration?:FieldCalibration, peers:DetectedQuad[]=[], format:FieldFormat='normal'):{zone:FieldZone;calibrated:boolean} {
   const {x,y}=onMat(fieldCenter(card),calibration);
   let zone:FieldZone;
-  if(y<.2 && x>.22 && x<.78)zone=x<.5?'EMZ1':'EMZ2';
+  if(hasExtraMonsterZones(format)&&y<.2&&((x>=.308&&x<=.436)||(x>=.564&&x<=.692)))zone=x<.5?'EMZ1':'EMZ2';
   else if(x<.18)zone=y<.56?'FIELD':'EXTRA';
   else if(x>.82)zone=y<.25?'BANISHED':y<.56?'GY':'DECK';
   else {

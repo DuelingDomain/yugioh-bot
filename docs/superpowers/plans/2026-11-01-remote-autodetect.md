@@ -13,3 +13,26 @@ Architecture: detector-only worker initialization; an adaptive, serial watcher i
 - [x] Run vision/web checks and browser checks, review, commit in small steps, push `feat/remote-autodetect` without a PR.
 
 No changes to the main checkout or existing protected services. Reuse dependency/model cache without downloading a new index. Test on an unused port or an ephemeral listener.
+
+## Coordinator follow-up: format and latency
+
+Approved scope: two EMZ above the main row for Advanced/Domain, none for either
+Genesys format; placement identification in 1–2 seconds and desktop clicks under
+300 ms. Keep uncertainty, physical IDs, owner scope and Undo intact.
+
+- [ ] Add failing geometry/UI cases for both EMZ slots and all four table formats;
+  pass table format through the watcher, calibration and virtual field. Verify
+  keyboard navigation and ordinary placement/attack targeting, then commit.
+- [ ] Benchmark the existing full index. Cache row norms and card row lookup,
+  scan flat vectors with bounded top-k selection, and retain prepared data in the
+  worker. Preserve exact cosine/prior/alternate-art behavior in existing tests.
+- [ ] Start reads after 500 ms stable; continue pixel tracking during inference
+  and require a subsequent clean detector frame before publishing. Test late
+  results, motion, misses, cancellation and sharpest-frame ownership.
+- [ ] Explicitly prepare the full reader when auto-detect starts (detector-only
+  callers remain lazy). Keep auto WebGPU selection and isolated threaded WASM.
+  Remove avoidable click sampling/frame work and verify meaningful regressions.
+- [ ] Extend the real Chromium benchmark with full-catalog p50/p95, balanced
+  with/without-deck placement trials, desktop clicks and cold-ready timing.
+  Verify asset request counts prove resident index reuse. Run existing checks,
+  document measured scope and target results, commit small, push; no PR.

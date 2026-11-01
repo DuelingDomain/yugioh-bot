@@ -154,6 +154,19 @@ test('field calibration maps perspective grid, side piles, EMZ and defense orien
   assert.throws(()=>zones.createFieldCalibration([{x:0,y:0},{x:0,y:0}]),/calibration/i);
 });
 
+test('both calibrated EMZ sit above M2/M4 only in Advanced and Domain',()=>{
+  const calibration=zones.createFieldCalibration([{x:.1,y:.1},{x:.9,y:.9}]);
+  for(const format of ['normal','domain','genesys','genesys-domain'] as const) {
+    for(const [x,expected] of [[.37,'EMZ1'],[.63,'EMZ2']] as const) {
+      const onMat=card(.1+x*.8-.012,.168,.024,.024);
+      const zone=zones.mapFieldZone(onMat,calibration,[],format).zone;
+      assert.equal(zone,format.startsWith('genesys')?(x<.5?'M2':'M4'):expected);
+    }
+  }
+  assert.deepEqual(zones.fieldZoneLocation('EMZ1'),{zone:'extra-monster',slot:1});
+  assert.deepEqual(zones.fieldZoneLocation('EMZ2'),{zone:'extra-monster',slot:2});
+});
+
 test('a large move through a brief hand occlusion keeps the physical id without another read',async()=>{
   const r=fieldRig();r.outlines=[card(.2,.3)];for(let i=0;i<6;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
   r.outlines=[];r.motion=.2;await r.tick();await r.tick();r.motion=0;r.outlines=[card(.65,.3)];for(let i=0;i<6;i++)await r.tick();

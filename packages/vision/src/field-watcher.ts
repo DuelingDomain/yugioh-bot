@@ -3,7 +3,7 @@ import type { DetectedQuad, GameProfile, RecognitionPriors, RecognitionResult } 
 import { boundsOf } from './geometry';
 import { isCovered } from './board';
 import { createFieldAnalyzer, cloneFieldFrame, closeFieldFrame, sameFieldAppearance, type FieldFrame, type FieldAnalysis } from './field-motion';
-import { fieldCenter, fieldOrientation, mapFieldZone, quadIou, type FieldCalibration, type FieldZone } from './field-zones';
+import { fieldCenter, fieldOrientation, mapFieldZone, quadIou, type FieldCalibration, type FieldZone, type FieldFormat } from './field-zones';
 
 export interface FieldTrack {
   id:string; card:DetectedQuad; zone:FieldZone; position:'attack'|'defense'; faceDown:boolean; cardId?:string;
@@ -16,7 +16,7 @@ export interface FieldBuffer { sample():Promise<{frame:FieldFrame;at:number}> }
 export interface KnownFieldCard { id:string; card?:DetectedQuad; zone:FieldZone; cardId?:string; faceDown?:boolean; position?:FieldTrack['position'] }
 export interface FieldWatcherOptions {
   recognizer:Pick<Recognizer,'detectCards'|'recognize'>; buffer:FieldBuffer; profile:GameProfile;
-  getPriors?:()=>RecognitionPriors; getKnownCards?:()=>KnownFieldCard[]; calibration?:FieldCalibration;
+  getPriors?:()=>RecognitionPriors; getKnownCards?:()=>KnownFieldCard[]; calibration?:FieldCalibration; format?:FieldFormat;
   stableMs?:number; removalMs?:number; cpuBudget?:number; maxTracks?:number;
   now?:()=>number; hidden?:()=>boolean; cpuBusy?:()=>boolean;
   /** Dependency injection for replay/tests; production defaults sample browser pixels. */
@@ -83,7 +83,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(ratio>.5&&ratio<2&&sameFieldAppearance(lost[0].appearance,evidence.appearance?.(incoming[0]))){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
       }
       for(const c of cards)if(!taken.has(c)&&tracks.length<maxTracks) {
-        const zone=mapFieldZone(c,calibration,cards).zone;
+        const zone=mapFieldZone(c,calibration,cards,options.format).zone;
         const known=options.getKnownCards?.().find(k=>!tracks.some(t=>t.view.id===k.id)&&(k.card?quadIou(k.card,c)>.5:k.zone===zone));
         const t:InternalTrack={view:{id:known?.id??`fw-${session}-${++serial}`,card:c,zone,position:fieldOrientation(c,current.width,current.height),faceDown:known?.faceDown??c.kind==='face-down',cardId:known?.faceDown?undefined:known?.cardId,state:known?'identified':'candidate',firstSeen:sample.at,lastSeen:sample.at,removed:false},anchor:c,...(known?{announced:c,announcedZone:known.zone,announcedPosition:known.position??fieldOrientation(c,current.width,current.height)}:{}),missed:false,stableSince:sample.at,observations:0,clearMissing:0,missingSamples:0,kind:c.kind,position:fieldOrientation(c,current.width,current.height),needsRead:!known||(!known.faceDown&&!known.cardId)};
         tracks.push(t);matched.set(t,c);
@@ -101,7 +101,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         }
         t.reappeared ||= t.view.removed;t.missed=false;t.view.removed=false;t.clearMissing=0;t.missingSamples=0;t.view.lastSeen=sample.at;t.view.card=c;
         // Uncalibrated ordering is assigned at settlement, then kept until the card actually moves.
-        if(calibration||t.view.state==='candidate'||distance(t.anchor,c)>.02)t.view.zone=mapFieldZone(c,calibration,cards).zone;
+        if(calibration||t.view.state==='candidate'||distance(t.anchor,c)>.02)t.view.zone=mapFieldZone(c,calibration,cards,options.format).zone;
         const position=fieldOrientation(c,current.width,current.height);
         const clean=c.confidence>=.7&&!c.partial&&!c.covered&&!isCovered(c,cards)&&evidence.motion(c)<=.025;
         if(clean&&!t.appearance?.length)t.appearance=evidence.appearance?.(c);
