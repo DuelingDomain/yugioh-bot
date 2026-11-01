@@ -1,11 +1,11 @@
-/** Yu-Gi-Oh catalog adapter; full coverage includes Tokens, Skills and every alternate image. */
+/** Yu-Gi-Oh catalog adapter; physical coverage retains field Tokens and alternate images, excluding Skills and nonphysical records. */
 export type CatalogCard = {
   id: number; name: string; frameType: string; type: string;
   views: number; date: string; sets: string[];
   images: { id: number; cropped: string; full: string }[];
 };
 
-export const CATALOG_VERSION = 2;
+export const CATALOG_VERSION = 3;
 export function catalogCards(parsed: any): CatalogCard[] {
   const rows = Array.isArray(parsed) ? parsed : parsed.data;
   if (!Array.isArray(rows) || !rows.length) throw new Error('Catalog has no cards');
@@ -23,4 +23,10 @@ export function catalogCards(parsed: any): CatalogCard[] {
       views: Number(misc.views ?? 0), date: dates.sort()[0] ?? '0000-00-00',
       sets: (row.card_sets ?? []).map((set: any) => set.set_name).filter((name: unknown) => typeof name === 'string'), images }];
   });
+}
+
+/** Index selection policy is separate from parsing the complete source catalog. */
+export function physicalCatalogCards(cards:CatalogCard[]):CatalogCard[] {
+  return cards.filter(card=>!(/skill/i.test(card.type)||/skill/i.test(card.frameType)) &&
+    (card.type==='Token' || card.id<=99_999_999 || card.images.some(im=>im.id>0&&im.id<=99_999_999)));
 }

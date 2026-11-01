@@ -5,6 +5,7 @@ import { backfillMainArtworkRows } from "../services/card-artworks.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { isExtraDeckFrame } from "../services/card-catalog.js";
 import { migrateCubeOwnerNames } from "./cube-owner-names.js";
+import { migrateVisionFeedback } from "./vision-feedback.js";
 import { migrateWaitlistAdminSource } from "./waitlist-admin-source.js";
 
 function hasColumn(db: Database.Database, table: string, column: string) {
@@ -1355,6 +1356,8 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "users", "image_url", "text");
   migrateCreatorAccess(db);
   migrateRemoteDuels(db);
+
+  migrateVisionFeedback(db);
   db.exec(`
     create index if not exists users_last_seen_idx on users(last_seen_at) where last_seen_at is not null;
     create table if not exists worker_heartbeat (

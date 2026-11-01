@@ -2,6 +2,7 @@ import { yugioh } from './games/yugioh';
 import { validateOptions } from './options';
 import { validateBoard } from './board';
 import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, PeekOptions, PeekResult, ReadAllOptions, BoardResult } from './types';
+export type FeedbackSource='pick'|'search'|'voice'|'ai';
 export interface AIReading { name: string | null; setCode?: string; passcode?: number; match: {passcode: number; name: string} | null }
 export interface RecognizerConfig {
   game?: 'yugioh';
@@ -18,6 +19,7 @@ export interface Recognizer {
   /** Reads at most 60 outlined cards sequentially. Abort terminates the active worker; next use reinitializes. */
   readAll(frame: ImageBitmap | ImageData, opts?: ReadAllOptions): Promise<BoardResult>;
   askAI(result: RecognitionResult, options?: { explicitRequest?: boolean; signal?: AbortSignal }): Promise<AIReading>;
+  recordFeedback(result:RecognitionResult,chosenCardId:string,source:FeedbackSource):Promise<{id:string}>;
   dispose(): void;
 }
 export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
@@ -37,7 +39,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   }
   function initialize() {
     if (!initial) {
-      worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js', { type: 'module', name: 'card-recognition' });
+      worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=physical-v1', { type: 'module', name: 'card-recognition' });
       worker.onmessage = event => {
         const { id, result, error } = event.data;
         const value = pending.get(id); if (!value) return; pending.delete(id);
@@ -93,10 +95,19 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     async askAI(result, options={}) {
       if(disposed) throw new Error('Recognizer is disposed');
       if(result.tier==='sure' && !options.explicitRequest) throw new Error('AI requires uncertainty or an explicit request');
-      if(!result.cropJpeg) throw new Error('Recognize with includeCrop to ask AI');
-      const response=await fetch('/api/remote-vision/ai',{method:'POST',signal:options.signal,headers:{'content-type':'application/json'},body:JSON.stringify({jpegBase64:result.cropJpeg,localTier:result.tier,explicitRequest:options.explicitRequest??false})});
+      const jpeg=result.aiCropJpeg??result.cropJpeg; // Compatible with pre-upgrade explicit crop callers.
+      if(!jpeg) throw new Error('Recognize with includeCrop to ask AI');
+      const response=await fetch('/api/remote-vision/ai',{method:'POST',signal:options.signal,headers:{'content-type':'application/json'},body:JSON.stringify({jpegBase64:jpeg,candidateNames:result.aiCandidateNames,localTier:result.tier,explicitRequest:options.explicitRequest??false})});
       if(!response.ok) throw new Error(response.status===404?'AI reading is disabled or requires owner access':response.status===429?'AI rate limit reached':response.status===504?'AI reading timed out':'AI reading unavailable');
       return response.json() as Promise<AIReading>;
+    },
+    async recordFeedback(result,chosenCardId,source) {
+      if(disposed)throw new Error('Recognizer is disposed');
+      if(!result.feedback || !result.cropJpeg)throw new Error('No eligible card crop; recognize with includeFeedback after opting in');
+      const {deltaVersion:_,...evidence}=result.feedback;
+      const response=await fetch('/api/remote-vision/feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...evidence,jpegBase64:result.cropJpeg,top5:result.candidates.slice(0,5),chosenCardId,source,tier:result.tier,frameClass:result.quality.frameClass,sharpness:result.quality.sharpness})});
+      if(!response.ok)throw new Error(response.status===403?'Feedback needs your opt-in':response.status===429?'Feedback rate limit reached':'Feedback could not be saved');
+      return response.json();
     },
     dispose() { disposed = true; worker?.terminate(); worker = undefined; failAll(new Error('Recognizer disposed')); },
   };

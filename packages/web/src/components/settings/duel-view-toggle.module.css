@@ -5,6 +5,16 @@
   min-width: 0;
 }
 
+/* The lab uses app tokens; account settings provide these through their sheet root. */
+.adminControl {
+  --rule-hi: var(--color-border);
+  --gold: var(--color-accent-gold);
+  --gold-ink: var(--color-accent-gold);
+  --ink-2: var(--color-text-secondary);
+  padding-bottom: 16px;
+  font-size: 13px;
+}
+
 .row.row :global(.sv-row-in) {
   align-items: center;
   padding-top: 14px;

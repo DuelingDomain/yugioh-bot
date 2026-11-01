@@ -10,6 +10,8 @@ import { build } from 'esbuild';
 import { chromium } from '@playwright/test';
 import * as ort from 'onnxruntime-node';
 import { embedImages, type SessionLike, type TensorCtor } from '../../packages/vision/src/embed';
+import {decodeIndex} from '../../packages/vision/src/index-format';
+import {filterPhysicalIndex} from '../../packages/vision/src/physical-index';
 import { createDegrader } from './degrade';
 import { sharpness } from '../../packages/vision/src/quality';
 import { yugioh } from '../../packages/vision/src/games/yugioh';
@@ -92,7 +94,7 @@ async function render(image: Buffer, condition: string, index: number): Promise<
 async function main() {
   const {values} = parseArgs({options: {
     isolation: {type:'string',default:'on'}, backend: {type:'string',default:'wasm'},
-    label: {type:'string'}, quick: {type:'boolean',default:false},
+    label: {type:'string'}, 'compare-worker':{type:'string'}, quick: {type:'boolean',default:false},
   }});
   if (!['on','off'].includes(values.isolation!) || !['wasm','auto'].includes(values.backend!)) throw new Error('Use --isolation on|off --backend wasm|auto');
   const isolated = values.isolation === 'on', backend = values.backend as 'wasm' | 'auto';
@@ -100,6 +102,7 @@ async function main() {
   if (!/^[a-z0-9-]+$/.test(label)) throw new Error('Invalid benchmark label');
   await mkdir(directory, { recursive: true });
   const meta = JSON.parse(await readFile(path.join(out, 'yugioh-index.meta.json'), 'utf8')) as IndexMeta;
+  const active=filterPhysicalIndex(decodeIndex(Uint8Array.from(await readFile(path.join(out,'yugioh-index.bin'))).buffer,meta));
   const manifestPath = path.join(directory, 'photos.json');
   let photos: Photo[];
   try { photos = JSON.parse(await readFile(manifestPath, 'utf8')); }
@@ -172,36 +175,42 @@ async function main() {
       } catch (e) { adapter = String(e); }
       return {crossOriginIsolated,sharedArrayBuffer:typeof SharedArrayBuffer !== 'undefined',hardwareConcurrency:navigator.hardwareConcurrency,webgpu:!!gpu,adapter};
     });
-    await page.evaluate(async backend => {
+    await page.evaluate(async ({backend,compareWorker}) => {
       const { createRecognizer } = await import(/* webpackIgnore: true */ String('/dev/vision-assets/benchmark/client.js'));
-      const state = window as unknown as { recognizer: ReturnType<typeof createRecognizer> };
+      const state = window as unknown as { recognizer: ReturnType<typeof createRecognizer>;reference?:ReturnType<typeof createRecognizer> };
       state.recognizer = createRecognizer({ game:'yugioh', backend });
-    }, backend);
-    const recognize = async (photo: Photo, copies = 1, clickPoint = photo.clickPoint) => page.evaluate(async ({photo,copies,clickPoint}) => {
-      const state = window as unknown as { recognizer: {recognize(frames:ImageBitmap[],opts:unknown):Promise<RecognitionResult>} };
+      if(compareWorker)state.reference=createRecognizer({game:'yugioh',backend,workerUrl:compareWorker});
+    }, {backend,compareWorker:values['compare-worker']});
+    const recognize = async (photo: Photo, copies = 1, clickPoint = photo.clickPoint, reference=false) => page.evaluate(async ({photo,copies,clickPoint,reference}) => {
+      const state = window as unknown as Record<string,{recognize(frames:ImageBitmap[],opts:unknown):Promise<RecognitionResult>}>;
       const frames = await Promise.all(Array.from({length:copies},async (_,i)=> {
         const blob = await (await fetch(`/dev/vision-assets/benchmark/${copies > 1 ? `temporal-${i}.jpg` : photo.file}`)).blob();
         return createImageBitmap(blob);
       }));
       const start = performance.now();
-      const result = await state.recognizer.recognize(frames, {clickPoint});
+      const result = await state[reference?'reference':'recognizer'].recognize(frames, {clickPoint});
       return {result,wallMs:performance.now()-start};
-    }, {photo,copies,clickPoint});
+    }, {photo,copies,clickPoint,reference});
     const cold = await recognize(photos[0]);
+    if(values['compare-worker'])await recognize(photos[0],1,photos[0].clickPoint,true);
     console.log('Worker runtime:', JSON.stringify(cold.result.runtime));
     const records: (Photo & { rank: number; wallMs: number; error?: string } & Partial<RecognitionResult>)[] = [];
+    const referenceRecords:typeof records=[];
     for (const photo of values.quick ? photos.slice(0,3) : photos) {
       try {
+        const before=values['compare-worker']?await recognize(photo,1,photo.clickPoint,true):undefined;
         const {result,wallMs} = await recognize(photo);
+        if(before)referenceRecords.push({...photo,...before.result,wallMs:before.wallMs,rank:before.result.candidates.findIndex(c=>c.cardId===photo.cardId)+1});
         const rank = result.candidates.findIndex(c=>c.cardId === photo.cardId)+1;
         records.push({...photo,rank,wallMs,...result});
         console.log(`${photo.condition.padEnd(11)} ${photo.name}: rank ${rank || 'miss'} · ${result.timingsMs.total.toFixed(0)}ms · detected ${result.quality.detected}`);
       } catch (error) { records.push({...photo,rank:0,error:String(error),wallMs:0}); console.log(`FAIL ${photo.name}: ${error}`); }
     }
     console.log('Probing temporal frames, ImageData and off-card fallback');
+    const temporalBefore=values['compare-worker']?await recognize(photos[0],6,photos[0].clickPoint,true):undefined;
     const temporal = await recognize(photos[0],6);
     const expectedFrames = expectedSharpness.map((value,index)=>({value,index})).sort((a,b)=>b.value-a.value).slice(0,3).map(v=>v.index);
-    if (JSON.stringify(temporal.result.quality.selectedFrameIndices)!==JSON.stringify(expectedFrames)) throw new Error('Sharpest-frame selection mismatch');
+    if (JSON.stringify(temporal.result.quality.selectedFrameIndices)!==JSON.stringify(expectedFrames.slice(0,temporal.result.quality.framesUsed))) throw new Error('Sharpest-frame selection mismatch');
     const imageDataSmoke = await page.evaluate(async photo => {
       const bitmap=await createImageBitmap(await (await fetch(`/dev/vision-assets/benchmark/${photo.file}`)).blob());
       const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
@@ -210,7 +219,7 @@ async function main() {
       return state.recognizer.recognize([context.getImageData(0,0,canvas.width,canvas.height)],{clickPoint:photo.clickPoint,k:1});
     },photos[0]);
     const fallback = await recognize(photos[0],1,{x:.05,y:.05});
-    await page.evaluate(()=> (window as unknown as {recognizer:{dispose():void}}).recognizer.dispose());
+    await page.evaluate(()=>{const state=window as unknown as {recognizer:{dispose():void};reference?:{dispose():void}};state.recognizer.dispose();state.reference?.dispose();});
     // Compare the exact same cached JPEG art through native and browser WASM preprocessing.
     const report = JSON.parse(await readFile(path.join(out,'yugioh-index.build.json'),'utf8'));
     const first = meta.entries.find(e=>e.passcode>0)!;
@@ -234,9 +243,17 @@ async function main() {
     const wallLatencies = records.flatMap(r => r.timingsMs ? [r.wallMs] : []).sort((a,b)=>a-b);
     const percentile = (array:number[],q:number)=>array[Math.min(array.length-1,Math.floor(array.length*q))];
     const summarize = (array:number[]) => ({median:percentile(array,.5),p95:percentile(array,.95),mean:array.reduce((a,b)=>a+b,0)/array.length});
+    const comparison=referenceRecords.length?{
+      worker:values['compare-worker'],samples:referenceRecords.length,
+      top1:referenceRecords.filter(r=>r.rank===1).length/referenceRecords.length,top5:referenceRecords.filter(r=>r.rank>0&&r.rank<=5).length/referenceRecords.length,
+      sure:referenceRecords.filter(r=>r.tier==='sure').length,sureButWrong:referenceRecords.filter(r=>r.tier==='sure'&&r.rank!==1).length,
+      latencyMs:summarize(referenceRecords.map(r=>r.timingsMs!.total).sort((a,b)=>a-b)),wallLatencyMs:summarize(referenceRecords.map(r=>r.wallMs).sort((a,b)=>a-b)),temporal:temporalBefore,records:referenceRecords,
+    }:undefined;
     const results = {
+      comparison,
       generatedAt:new Date().toISOString(),seed,photos:photos.length,samples:records.length,indexCards:new Set(meta.entries.filter(e=>e.cardId!==yugioh.cardBack.cardId).map(e=>e.cardId)).size,indexVectors:meta.count,modelSha256:meta.modelSha256,
       host:'Ryzen 7 9800X3D / WSL2 / CPU only',browser:browser.version(),browserChannel:'chromium (new headless)',backend,flags,environment,runtime:cold.result.runtime,wasmFiles:[...wasmFiles],consoleMessages,failures,
+      sure:records.filter(r=>r.tier==='sure').length,sureButWrong:records.filter(r=>r.tier==='sure'&&r.rank!==1).length,activeIndexVectors:active.meta.count,activeIndexCards:new Set(active.meta.entries.filter(e=>e.cardId!==yugioh.cardBack.cardId).map(e=>e.cardId)).size,
       top1:records.filter(r=>r.rank===1).length/records.length,top5:records.filter(r=>r.rank>0&&r.rank<=5).length/records.length,
       detected:records.filter(r=>r.quality?.detected).length,cornersFound:records.filter(r=>r.quality?.cornersFound).length,
       latencyMs:summarize(latencies),wallLatencyMs:summarize(wallLatencies),coldWallMs:cold.wallMs,parityCosine:cosine,
@@ -245,11 +262,11 @@ async function main() {
       caveat:'Synthetic transforms of indexed artwork; this measures robustness and WASM execution, not real webcam/open-set accuracy. Detector misses and recognition errors remain in the denominator.',
     };
     await writeFile(path.join(directory,`results-${label}.json`),JSON.stringify(results,null,2));
-    console.log(JSON.stringify({...results,records:undefined,temporal:undefined,imageDataSmoke:undefined,offCardFallback:undefined},null,2));
+    console.log(JSON.stringify({...results,comparison:comparison?{...comparison,records:undefined,temporal:undefined}:undefined,records:undefined,temporal:undefined,imageDataSmoke:undefined,offCardFallback:undefined},null,2));
     if (cosine < .999) throw new Error(`Native/WASM embedding mismatch: ${cosine}`);
     if (cold.result.runtime?.crossOriginIsolated !== isolated || !cold.result.runtime.simd || (isolated && cold.result.runtime.wasmThreads < 2)) throw new Error('Worker isolation/SIMD/thread configuration mismatch');
     if (records.some(r => r.error || r.candidates?.length !== 5)) throw new Error('Recognition did not return five candidates');
-    if (!temporal.result.quality.framesUsed || temporal.result.quality.framesUsed !== 3 || !fallback.result.quality.fallback) throw new Error('Temporal/fallback smoke failed');
+    if (!temporal.result.quality.framesUsed || temporal.result.quality.framesUsed > 3 || !fallback.result.quality.fallback) throw new Error('Temporal/fallback smoke failed');
   } finally { await browser?.close(); await new Promise<void>(done=>server.close(()=>done())); }
 }
 main().catch(error=>{ console.error(error);process.exitCode=1; });

@@ -102,10 +102,38 @@
 .outlines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .outlines polygon { fill: rgb(212 175 55 / .06); stroke: #e7bd57; stroke-width: 3; vector-effect: non-scaling-stroke; pointer-events: auto; cursor: pointer; }
 .outlines polygon:focus-visible, .outlines polygon:hover { fill: rgb(212 175 55 / .22); stroke: #fff2c4; outline: none; }
-.popover { position: fixed;  z-index: 30; display: grid; gap: 8px; width: min(390px,calc(100vw - 32px)); max-height: 55vh; overflow-y: auto; padding: 16px; border: 1px solid var(--color-accent-gold); border-radius: 6px; background: var(--color-bg-surface); box-shadow: 0 8px 36px #0008; }
+.popover { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 30; display: grid; gap: 16px; width: min(940px,calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; padding: 20px; border: 1px solid var(--color-accent-gold); border-radius: 8px; background: var(--color-bg-surface); box-shadow: 0 16px 80px #000b; }
 .popover > button { text-align: left; }
 .popover > button:first-child { justify-self: end; }
 .popover > span, .ai > span, .ai p { color: var(--color-text-secondary); font-size: 12px; }
+.resultLayout { display: grid; grid-template-columns: minmax(0,360px) minmax(0,1fr); gap: 28px; align-items: start; }
+.resultArt { display: block; width: 100%; height: auto; aspect-ratio: 360 / 524; object-fit: contain; border-radius: 8px; background: var(--color-bg-deep); }
+.resultDetails { display: grid; gap: 16px; min-width: 0; }
+.resultDetails h2 { font-family: var(--font-display); font-size: clamp(24px,3vw,34px); line-height: 1.15; overflow-wrap: anywhere; }
+.resultDetails .tier { justify-self: start; margin: 0; font-size: 15px; }
+.resultDetails > button { justify-self: start; min-width: 160px; min-height: 48px; font-size: 16px; }
+.cardType { color: var(--color-text-secondary); font-size: 14px; }
+.cardStats { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cardText { font-size: 16px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.popupAlternatives { display: grid; gap: 6px; padding-top: 16px; border-top: 1px solid var(--color-border); }
+.popupAlternatives h3 { margin-bottom: 6px; font-size: 15px; }
+.popupAlternatives > button { display: grid; grid-template-columns: 24px minmax(0,1fr) auto; gap: 12px; align-items: center; min-height: 44px; text-align: left; }
+.popupAlternatives > button > span:last-child { color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+.skeletonArt, .skeletonText { background: var(--color-border); animation: readingPulse 1.4s ease-in-out infinite; }
+.skeletonText { width: 100%; height: 24px; border-radius: 4px; }
+.skeletonText:last-child { width: 70%; }
+.liveFlash { animation: cardFlash 1.4s ease-out both; }
+.liveFlash polygon { stroke: #ffdc83; stroke-width: 5; fill: rgb(255 220 131 / .16); pointer-events: none; }
+@keyframes readingPulse { 50% { opacity: .35; } }
+@keyframes cardFlash { 0%,35% { opacity: 1; } 100% { opacity: 0; } }
+@media (max-width: 700px) {
+  .popover { padding: 16px; gap: 12px; }
+  .resultLayout { grid-template-columns: minmax(0,1fr); gap: 20px; }
+  .resultArt { max-width: 360px; justify-self: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeletonArt, .skeletonText, .liveFlash { animation: none; }
+}
 .ai { display: grid; gap: 8px; margin-top: 16px; }
 .ai > button { justify-self: start; }
 .peek { position: fixed; z-index: 40; display: grid; gap: 4px; width: min(260px,calc(100vw - 16px)); padding: 10px 12px; color: var(--color-text-primary); background: var(--color-bg-surface); border: 1px solid var(--color-accent-gold); border-radius: 4px; box-shadow: 0 6px 20px #0006; }

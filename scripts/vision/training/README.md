@@ -86,3 +86,12 @@ app. Before adopting new weights, update the game model spec/hash, rebuild the
 artwork index, benchmark the real worker, and recalibrate confidence on held-out
 physical webcam images. Existing model/index caches are intentionally separate
 from training outputs.
+
+## Consented player corrections
+
+`npx tsx scripts/vision/feedback.ts export --out <empty-private-directory>` exports
+admin-approved samples from `DATABASE_PATH` as a labelled manifest and trainer
+`list.json`. Pass it to `train.py --real <directory>/list.json`. It resolves
+anchors against prepared trainer entries and uses exact card warps (`mCrop:0`).
+See [feedback runbook](../../../docs/runbooks/vision-feedback.md) for consent,
+retention, deletion of exported copies, and the actual-pipeline regression gate.
