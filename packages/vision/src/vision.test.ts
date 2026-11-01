@@ -56,3 +56,29 @@ test('back placeholders are excluded and artwork cropping follows the supplied g
   const crops=buildHypotheses(image,image,null,{userBoxWithCard:false},{...yugioh,artWindow:{x:.2,y:.3,w:.4,h:.5}});
   assert.equal(crops[0].image.width,4); assert.equal(crops[0].image.height,5);
 });
+
+import { catalogCards } from '../../../scripts/vision/catalog';
+test('full catalog retains Tokens, Skills and alternate artwork', () => {
+  const rows = ['Effect Monster', 'Token', 'Skill Card'].map((type, i) => ({
+    id: i + 1, name: type, type, card_images: [{id: i + 1, image_url: 'https://images.ygoprodeck.com/card.jpg'},
+      {id: i + 101, image_url: 'https://images.ygoprodeck.com/alt.jpg'}],
+  }));
+  const cards = catalogCards({data: rows});
+  assert.equal(cards.length, 3); assert.equal(cards.flatMap(c => c.images).length, 6);
+});
+
+import { createRecognizer } from './client';
+import { webRuntime, type WebOrt } from './web-runtime';
+test('game shorthand validates before allocating a worker and disposal rejects recognition', async () => {
+  assert.throws(() => createRecognizer({game: 'unknown' as 'yugioh'}), /Unsupported game/);
+  const reader = createRecognizer({game: 'yugioh'}); reader.dispose();
+  await assert.rejects(reader.recognize([]), /disposed/);
+});
+test('isolated WASM enables four threads and SIMD; other pages keep one thread', () => {
+  const ort = {env: {wasm: {}}} as WebOrt;
+  const deps = {ort, getURL: (path: string) => path, hardwareConcurrency: 16};
+  webRuntime({...deps, crossOriginIsolated: true});
+  assert.equal(ort!.env.wasm.numThreads, 4); assert.equal(ort!.env.wasm.simd, true);
+  webRuntime({...deps, crossOriginIsolated: false});
+  assert.equal(ort!.env.wasm.numThreads, 1);
+});

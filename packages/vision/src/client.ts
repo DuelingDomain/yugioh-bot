@@ -1,13 +1,20 @@
 import { yugioh } from './games/yugioh';
 import { validateOptions } from './options';
 import type { GameProfile, RecognitionResult, RecognizeOptions } from './types';
-export interface RecognizerConfig { profile?: GameProfile; backend?: 'auto' | 'wasm'; workerUrl?: string; runtimeBase?: string }
+export interface RecognizerConfig {
+  game?: 'yugioh';
+  /** Override the built-in game profile (including model/index URLs). */
+  profile?: GameProfile;
+  backend?: 'auto' | 'wasm'; workerUrl?: string; runtimeBase?: string;
+}
 export interface Recognizer {
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
   recognize(frames: ImageBitmap[] | ImageData[], opts?: RecognizeOptions): Promise<RecognitionResult>;
   dispose(): void;
 }
 export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
+  if (config.game !== undefined && config.game !== 'yugioh') throw new Error(`Unsupported game: ${config.game}`);
+  const profile = config.profile ?? yugioh;
   let worker: Worker | undefined, disposed = false, serial = 0, initial: Promise<unknown> | undefined;
   let inFlight = false;
   const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
@@ -22,7 +29,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   }
   function initialize() {
     if (!initial) {
-      worker = new Worker(config.workerUrl ?? '/dev/vision-assets/worker.js', { type: 'module', name: 'card-recognition' });
+      worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js', { type: 'module', name: 'card-recognition' });
       worker.onmessage = event => {
         const { id, result, error } = event.data;
         const value = pending.get(id); if (!value) return; pending.delete(id);
@@ -30,7 +37,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       };
       worker.onerror = event => { failAll(new Error(event.message || 'Recognition worker failed')); worker?.terminate(); worker = undefined; initial = undefined; };
       worker.onmessageerror = () => failAll(new Error('Recognition worker message failed'));
-      initial = request({ type: 'init', profile: config.profile ?? yugioh, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-assets/ort/' }).catch(error => { worker?.terminate(); worker = undefined; initial = undefined; throw error; });
+      initial = request({ type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/' }).catch(error => { worker?.terminate(); worker = undefined; initial = undefined; throw error; });
     }
     return initial;
   }

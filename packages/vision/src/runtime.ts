@@ -5,7 +5,7 @@ import { openModelSession } from './web-runtime';
 import type { SessionLike } from './embed';
 export interface ModelSession extends SessionLike { readonly backend: 'webgpu' | 'wasm'; release(): Promise<void> }
 /** Browser adapter around Duel Lens's runtime: local paths and pinned model hashes. */
-export async function createModelSession(url: string, sha256: string, backend: 'auto' | 'wasm' = 'auto', runtimeBase = '/dev/vision-assets/ort/'): Promise<ModelSession> {
+export async function createModelSession(url: string, sha256: string, backend: 'auto' | 'wasm' = 'auto', runtimeBase = '/dev/vision-lab/assets/ort/'): Promise<ModelSession> {
   const fetchChecked: typeof fetch = async (input, init) => {
     const response = await fetch(input, init);
     if (!response.ok) return response;
@@ -22,3 +22,7 @@ export async function createModelSession(url: string, sha256: string, backend: '
   return { get backend() { return session.ep; }, run: feeds => session.run(feeds), release: () => session.release() };
 }
 export const Tensor = ort.Tensor;
+export function runtimeDiagnostics() {
+  return { crossOriginIsolated: globalThis.crossOriginIsolated === true,
+    wasmThreads: ort.env.wasm.numThreads ?? 1, simd: ort.env.wasm.simd === true };
+}

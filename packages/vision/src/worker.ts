@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { createModelSession, Tensor, type ModelSession } from './runtime';
+import { createModelSession, runtimeDiagnostics, Tensor, type ModelSession } from './runtime';
 import { RecognitionPipeline } from './pipeline';
 import { decodeIndex } from './index-format';
 import { validateIndexProfile } from './profile';
@@ -53,7 +53,8 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         const images: RGBAImage[] = [];
         try { for (const frame of message.frames) images.push(pixels(frame)); }
         finally { for (const frame of message.frames) if ('close' in frame) frame.close(); }
-        scope.postMessage({ id: message.id, result: await pipeline.recognize(images, message.opts) });
+        const result = await pipeline.recognize(images, message.opts);
+        scope.postMessage({ id: message.id, result: { ...result, runtime: runtimeDiagnostics() } });
       }
     } catch (error) { scope.postMessage({ id: message.id, error: error instanceof Error ? error.message : String(error) }); }
   });

@@ -26,7 +26,7 @@ let clerkProxy: NextMiddleware | undefined;
 export default async function proxy(request: NextRequest, event: NextFetchEvent) {
   const path = request.nextUrl.pathname;
   // Keep local models and the camera lab unavailable even if Clerk cannot initialize.
-  if ((path === "/dev/vision-lab" || path === "/dev/vision-assets" || path.startsWith("/dev/vision-assets/")) && !fxLabEnabled()) {
+  if ((path === "/dev/vision-lab" || path.startsWith("/dev/vision-lab/assets/") || path === "/dev/vision-assets" || path.startsWith("/dev/vision-assets/")) && !fxLabEnabled()) {
     return new NextResponse(null, { status: 404 });
   }
   if (request.nextUrl.pathname === "/monitoring") return NextResponse.next();
