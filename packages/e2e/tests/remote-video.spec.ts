@@ -81,8 +81,7 @@ test("two seated browsers exchange field video, detect stalled frames and reconn
     await expect.poll(() => frames(a, 1), { timeout: 30_000 }).toBeGreaterThan(afterJoin + 5);
 
     await b.getByRole("button", { name: "Mute microphone" }).click();
-    // The camera control shows when the pointer is over the feed.
-    await b.getByTestId("feed-1").hover();
+    // The camera control is always in the row under the feed.
     await b.getByRole("button", { name: "Camera off" }).click();
     await expect(video(a, 1)).toHaveCount(0);
     expect(await b.evaluate(() => (window as unknown as { videoSenders: { track: MediaStreamTrack }[] }).videoSenders.every(({ track }) => track.readyState === "ended"))).toBe(true);

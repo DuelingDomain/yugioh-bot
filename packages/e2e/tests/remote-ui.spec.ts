@@ -6,21 +6,21 @@ import { startTwoPlayerTable } from "./remote-table";
 const SHOTS = process.env.E2E_SHOTS ?? "";
 // A still picture of two cards on a table, served as the camera. Chrome's fake-file camera is not reliable between tests.
 const FRAME = process.env.E2E_FAKE_FRAME ? readFileSync(process.env.E2E_FAKE_FRAME).toString("base64") : "";
-async function fakeCamera(page: Page) {
-  if (!FRAME) return;
-  await page.addInitScript(data => {
-    const canvas = document.createElement("canvas"); canvas.width = 1280; canvas.height = 720;
+async function fakeCamera(page: Page, shape: "16:9" | "4:3" | "" = "") {
+  if (!FRAME && !shape) return;
+  await page.addInitScript(([data, size]) => {
+    const canvas = document.createElement("canvas"); canvas.width = size[0]; canvas.height = size[1];
     const context = canvas.getContext("2d")!; let image: ImageBitmap | null = null;
-    const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
-    void createImageBitmap(new Blob([bytes], { type: "image/jpeg" })).then(bitmap => { image = bitmap; });
-    const paint = () => { if (image) context.drawImage(image, 0, 0, 1280, 720); else { context.fillStyle = "#2a3a2e"; context.fillRect(0, 0, 1280, 720); } };
+    if (data) { const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
+      void createImageBitmap(new Blob([bytes], { type: "image/jpeg" })).then(bitmap => { image = bitmap; }); }
+    const paint = () => { if (image) context.drawImage(image, 0, 0, size[0], size[1]); else { context.fillStyle = "#2a3a2e"; context.fillRect(0, 0, size[0], size[1]); } };
     setInterval(paint, 50);
     navigator.mediaDevices.getUserMedia = async constraints => {
       if (!constraints?.video) throw new DOMException("No video", "NotFoundError");
       paint(); return canvas.captureStream(15);
     };
     navigator.mediaDevices.enumerateDevices = async () => [];
-  }, FRAME);
+  }, [FRAME, shape === "4:3" ? [960, 720] : [1280, 720]] as [string, number[]]);
 }
 const shot = async (page: Page, name: string) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` }); };
 
@@ -102,13 +102,26 @@ test.describe("remote duels screen, solo", () => {
     expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.x + box!.width).toBeLessThanOrEqual(view.width);
     expect(box!.y).toBeGreaterThanOrEqual(0); expect(box!.y + box!.height).toBeLessThanOrEqual(view.height);
     await shot(page, "live-click-popup");
+    // One outline for the card, never two.
+    expect(await page.getByTestId("lock").count()).toBeLessThanOrEqual(1);
     await page.keyboard.press("Escape");
     await expect(page.locator('[data-layer="tray"], [data-layer="card"]')).toHaveCount(0);
+    // The outline goes with the popup.
+    await expect(page.getByTestId("lock")).toHaveCount(0);
+    await expect(page.getByTestId("reticle")).toHaveCount(0);
     // A second click, then a press outside the feed closes it too.
     await page.mouse.click(p.x, p.y);
     await expect(page.locator('[data-layer="tray"], [data-layer="card"]').first()).toBeVisible({ timeout: 2_000 });
     await page.getByTestId("remote-table").click({ position: { x: 4, y: 4 } });
     await expect(page.locator('[data-layer="tray"], [data-layer="card"]')).toHaveCount(0);
+    await expect(page.getByTestId("lock")).toHaveCount(0);
+    // A third read, then the camera goes off: no outline stays on the empty feed.
+    await page.mouse.click(p.x, p.y);
+    await expect(page.getByTestId("card-popover")).toBeVisible({ timeout: 90_000 });
+    // The popup covers the row, so press the button through the page.
+    await page.getByTestId("camera-row").getByRole("button", { name: /Camera off/ }).evaluate((b: HTMLElement) => b.click());
+    await expect(page.getByTestId("lock")).toHaveCount(0);
+    await expect(page.getByTestId("reticle")).toHaveCount(0);
   });
 
   test("F freezes the frame and outlines the cards", async ({ page, context }) => {
@@ -124,9 +137,86 @@ test.describe("remote duels screen, solo", () => {
     await expect(page.getByTestId("quad").first()).toBeVisible({ timeout: 90_000 });
     expect(await page.getByTestId("quad").count()).toBeGreaterThanOrEqual(1);
     await shot(page, "freeze-outlines");
+    expect(await page.getByTestId("lock").count()).toBeLessThanOrEqual(1);
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("frozen-frame")).toHaveCount(0);
+    // Unfreezing clears every outline and label.
+    await expect(page.getByTestId("quad")).toHaveCount(0);
+    await expect(page.getByTestId("lock")).toHaveCount(0);
+    await expect(page.getByTestId("reticle")).toHaveCount(0);
   });
+
+  // Master Rule 5 field: two Extra Monster Zones above the main row, shared with the facing seat. Genesys has none.
+  test("virtual field shows Extra Monster Zones and Pendulum labels, and hides them for Genesys", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2);
+    const path = `/api/remote/${slug}`;
+    const act = async (action: Record<string, unknown>) => {
+      const room = await (await context.request.get(path)).json();
+      const response = await context.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { idempotencyKey: crypto.randomUUID(), ...action } } });
+      expect(response.status(), await response.text()).toBe(200);
+    };
+    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "extra-monster", card: { ref: "link0", cardId: 5318639, name: "Mystical Space Typhoon", slot: 1, faceUp: true, position: "attack" } });
+    await act({ type: "twin.place", actorSeat: 1, seat: 1, zone: "extra-monster", card: { ref: "link1", cardId: 73628505, name: "Terraforming", slot: 1, faceUp: true, position: "attack" } });
+    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "pendulum", card: { ref: "scale", cardId: 47355498, name: "Necrovalley", slot: 2, faceUp: true, position: "attack" } });
+    await page.goto(`/duels/remote/${slug}`);
+    const field = page.getByTestId("field-0");
+    const e1 = field.locator('[data-zone="e1"]'); const e2 = field.locator('[data-zone="e2"]'); const m2 = field.locator('[data-zone="m2"]');
+    await expect(e1).toBeVisible(); await expect(e2).toBeVisible();
+    const [b1, b2, bm] = await Promise.all([e1.boundingBox(), e2.boundingBox(), m2.boundingBox()]);
+    expect(b1!.y + b1!.height).toBeLessThanOrEqual(bm!.y + 2);
+    expect(b2!.x).toBeGreaterThan(b1!.x);
+    await expect(e1).toHaveAttribute("aria-label", /Mystical Space Typhoon/);
+    // Seat 1's zone 1 is seat 0's zone 2: it shows as taken there, and as a card on the other seat.
+    await expect(e2).toHaveAttribute("aria-label", /taken by their monster/);
+    await expect(page.getByTestId("field-1").locator('[data-zone="e1"]')).toHaveAttribute("aria-label", /Terraforming/);
+    await expect(field.locator('[data-zone="s5"]')).toHaveAttribute("aria-label", /Necrovalley/);
+    await expect(field.locator('[data-zone="s1"]')).toContainText("PZ");
+    await expect(field.locator('[data-zone="ex"]')).toContainText(/EXTRA/);
+    await shot(page, "field-emz-1v1");
+    // Genesys: no Extra Monster Zones and no Pendulum label.
+    const created = await context.request.post("/api/remote", { data: { gameId: "ygo", seatCount: 2, solo: true, format: "genesys" } });
+    expect(created.status()).toBe(201); const genesys = await created.json();
+    await context.request.post(`/api/remote/${genesys.slug}/ready`, { data: { ready: true } });
+    expect((await context.request.post(`/api/remote/${genesys.slug}/start`, { data: {} })).status()).toBe(200);
+    await page.goto(`/duels/remote/${genesys.slug}`);
+    await expect(page.getByTestId("field-0")).toBeVisible();
+    await expect(page.getByTestId("field-0").locator('[data-zone="e1"]')).toHaveCount(0);
+    await expect(page.getByTestId("field-0").locator('[data-zone="s1"]')).not.toContainText("PZ");
+  });
+
+  // The feed box takes the camera's real shape, the camera row sits under it, and the virtual field is smaller.
+  for (const [width, height, label] of [[1920, 1080, "1080p"], [2560, 1440, "1440p"], [1366, 768, "1366"], [390, 844, "390"]] as const) {
+    for (const [count, mode] of [[2, "1v1"], [3, "3"], [4, "4"]] as const) {
+      for (const shape of ["16:9", "4:3"] as const) {
+        test(`video box matches the camera and controls fit: ${label} ${mode} ${shape}`, async ({ page, context }) => {
+          test.setTimeout(120_000);
+          await page.setViewportSize({ width, height });
+          const slug = await soloTable(context.request, count);
+          await fakeCamera(page, shape);
+          await page.goto(`/duels/remote/${slug}`);
+          await page.getByTestId("camera-on-feed").click();
+          const video = page.locator('[data-testid="feed-0"] video');
+          await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+          await page.waitForTimeout(500);
+          const m = await page.evaluate(() => {
+            const rect = (id: string) => { const r = document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect(); return r ? { x: r.left, y: r.top, w: r.width, h: r.height } : null; };
+            const v = document.querySelector('[data-testid="feed-0"] video') as HTMLVideoElement;
+            return { box: rect("feed-box-0"), row: rect("camera-row"), field: rect("field-0"), vw: v.videoWidth, vh: v.videoHeight };
+          });
+          expect(m.box && m.row).toBeTruthy();
+          // No bars: the box has the video's shape (2% tolerance for rounding).
+          expect(Math.abs(m.box!.w / m.box!.h - m.vw / m.vh) / (m.vw / m.vh)).toBeLessThan(0.02);
+          // Controls: one row under the video, inside the window, not over the box.
+          expect(m.row!.y).toBeGreaterThanOrEqual(m.box!.y + m.box!.h - 1);
+          expect(m.row!.x).toBeGreaterThanOrEqual(-1); expect(m.row!.x + m.row!.w).toBeLessThanOrEqual(width + 1);
+          expect(m.row!.y + m.row!.h).toBeLessThanOrEqual(height + 1);
+          const clipped = await page.getByTestId("camera-row").evaluate(row => [...row.querySelectorAll("button,select")].some(b => { const r = b.getBoundingClientRect(); const o = row.getBoundingClientRect(); return r.right > o.right + 1 || r.left < o.left - 1; }));
+          expect(clipped).toBe(false);
+          await shot(page, `feed-${label}-${mode}-${shape.replace(":", "x")}`);
+        });
+      }
+    }
+  }
 
   for (const [width, height, label] of [[1366, 768, "1366"], [390, 844, "390"]] as const) {
     test(`card popup stays inside the window at ${label}`, async ({ page, context }) => {
