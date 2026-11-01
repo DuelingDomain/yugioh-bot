@@ -69,7 +69,7 @@ export function JoinCardView({ code, state, creatorName, spotsLeft, waitlistSour
     <SignInShell marketingUrl={marketingUrl ?? undefined}>
       {link === "open"
         ? <InviteForm code={code} creatorName={creatorName} spotsLeft={spotsLeft} onClosed={setLink} notice={notice} />
-        : <ClosedForm state={link} creatorName={creatorName} source={waitlistSource} announce={link !== state} notice={notice} />}
+        : <ClosedForm state={link} creatorName={creatorName} source={waitlistSource} announce={link !== state} />}
     </SignInShell>
   );
 }
@@ -171,7 +171,7 @@ const CLOSED_COPY: Record<Exclude<LinkState, "open">, { title: ReactNode; lede: 
 
 type WaitlistPhase = "idle" | "pending" | "joined" | "exists";
 
-function ClosedForm({ state, creatorName, source, announce, notice }: { state: Exclude<LinkState, "open">; creatorName: string; source: string; announce: boolean; notice?: ReactNode }) {
+function ClosedForm({ state, creatorName, source, announce }: { state: Exclude<LinkState, "open">; creatorName: string; source: string; announce: boolean }) {
   const [phase, setPhase] = useState<WaitlistPhase>("idle");
   const [fieldError, setFieldError] = useState<string | undefined>();
   const [banner, setBanner] = useState<string | null>(null);
@@ -223,7 +223,6 @@ function ClosedForm({ state, creatorName, source, announce, notice }: { state: E
         foot={<SignInFootLinks lead={<SignInLead />} />}
       >
         <div ref={anchor} className={shell.form} data-status={phase}>
-          {notice}
           <DoneRow title={already ? "Already on the waitlist" : "On the waitlist"} subtitle="Nothing else to do for now." />
           <button type="button" className={`${shell.btn} ${shell["btn-alt"]}`} onClick={() => setPhase("idle")}>Use a different email</button>
         </div>
@@ -236,7 +235,6 @@ function ClosedForm({ state, creatorName, source, announce, notice }: { state: E
   return (
     <SignInStep eyebrow={creatorName && state !== "revoked" ? `Invite from ${creatorName}` : "Creator invite"} title={copy.title} lede={copy.lede} screen={`join-${state}`} foot={<SignInFootLinks lead={<SignInLead />} />}>
       <form ref={anchor} className={shell.form} noValidate aria-busy={pending} onSubmit={submit} data-clerk="creator-join-waitlist" data-state={state}>
-        {notice}
         {banner && <SignInBanner tone="bad" code="waitlist">{banner}</SignInBanner>}
         <TextField id="f-join-wl-email" name="email" label="Email address" type="email" autoComplete="email" inputMode="email" placeholder="you@email.com" defaultValue={email} error={fieldError} />
         <Honeypot />

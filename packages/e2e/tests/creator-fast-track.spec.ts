@@ -329,7 +329,7 @@ test("every new screen at 1920, 2560, 1366 and 390 wide, with no sideways scroll
 test("signed-in invite notices fit desktop and mobile", async ({ browser }) => {
   const shots = process.env.E2E_INVITE_FLOW_SHOTS_DIR;
   if (shots) mkdirSync(shots, { recursive: true });
-  for (const size of [{ name: "desktop", width: 1920, height: 1080 }, { name: "mobile", width: 390, height: 844 }]) {
+  for (const size of [{ name: "desktop", width: 1920, height: 1080 }, { name: "768p", width: 1366, height: 768 }, { name: "mobile", width: 390, height: 844 }]) {
     const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, reducedMotion: "reduce" });
     try {
       const page = await context.newPage();

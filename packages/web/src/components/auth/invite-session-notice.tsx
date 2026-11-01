@@ -24,15 +24,17 @@ export function InviteSessionNotice({ identity, onSignOut, continueInvite = fals
   }
 
   return (
-    <SignInBanner tone="info">
-      <span className={shell.sessionNotice}>
-        <span>You're signed in as {identity}. To accept this invite with a new account, sign out first.</span>
-        <button type="button" className={`${shell.btn} ${shell["btn-alt"]}`} disabled={pending} onClick={() => void signOut()}>
-          {pending ? "Signing out…" : continueInvite ? "Sign out and continue" : "Sign out"}
-        </button>
-        {failed && <span role="alert">Couldn’t sign out. Try again.</span>}
-      </span>
-    </SignInBanner>
+    <>
+      <SignInBanner tone="info">
+        <span className={shell.sessionNotice}>
+          <span>You're signed in as {identity}. To accept this invite with a new account, sign out first.</span>
+          <button type="button" className={`${shell.btn} ${shell["btn-alt"]}`} aria-disabled={pending} onClick={() => void signOut()}>
+            {pending ? "Signing out…" : continueInvite ? "Sign out and continue" : "Sign out"}
+          </button>
+        </span>
+      </SignInBanner>
+      {failed && <SignInBanner tone="bad">Couldn’t sign out. Try again.</SignInBanner>}
+    </>
   );
 }
 
@@ -44,15 +46,15 @@ export function ClerkInviteSessionNotice({ continueInvite = false }: { continueI
   if (!user) return continueInvite && isLoaded
     ? <button type="button" className={`${shell.btn} ${shell["btn-alt"]}`} onClick={reloadPage}>Continue with invite</button>
     : null;
-  // Use the completion callback: Clerk’s redirectUrl can soft-navigate without resetting the ticket gate.
+  // Reload even if Clerk has no sessions left and skips its completion callback.
   return <InviteSessionNotice identity={user.username || user.primaryEmailAddress?.emailAddress || "your current account"}
-    continueInvite={continueInvite} onSignOut={() => signOut(reloadPage)} />;
+    continueInvite={continueInvite} onSignOut={async () => { await signOut(reloadPage); reloadPage(); }} />;
 }
 
-export function InviteSessionStep({ children, marketingUrl }: { children: ReactNode; marketingUrl: string | null }) {
+export function InviteSessionStep({ children, marketingUrl, creatorInvite = false }: { children: ReactNode; marketingUrl: string | null; creatorInvite?: boolean }) {
   return (
     <SignInShell marketingUrl={marketingUrl ?? undefined}>
-      <SignInStep eyebrow="Creator invite" title={<>Accept your <em>invite</em></>} screen="invite-signed-in" foot={<SignInFootLinks waitlist={false} />}>
+      <SignInStep eyebrow={creatorInvite ? "Creator invite" : "Invite"} title={<>Accept your <em>invite</em></>} screen="invite-signed-in" foot={<SignInFootLinks waitlist={false} />}>
         <div className={shell.form}>{children}</div>
       </SignInStep>
     </SignInShell>

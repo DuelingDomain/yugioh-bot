@@ -28,7 +28,7 @@ export type PreviewView = "sign-in" | "sign-up" | "sso-callback" | "signing-stuc
 export function ViewPreview({ view }: { view: PreviewView }) {
   const notice = <InviteSessionNotice identity="cardshark" onSignOut={noop} continueInvite={view === "sign-up-signed-in"} />;
   if (view === "join-signed-in") return <JoinCardView code="PreviewCode1" state="open" creatorName="Kaiba Plays" spotsLeft={1} waitlistSource="creator:PreviewCode1" marketingUrl={MARKETING} notice={notice} />;
-  if (view === "sign-up-signed-in") return <InviteSessionStep marketingUrl={MARKETING}>{notice}</InviteSessionStep>;
+  if (view === "sign-up-signed-in") return <InviteSessionStep marketingUrl={MARKETING} creatorInvite>{notice}</InviteSessionStep>;
   if (view === "sign-in") return <SignInView flow={{ state: state(), actions: signInActions }} marketingUrl={MARKETING} />;
   const stuck = { tone: "bad" as const, body: "Sign-in is having trouble. Try again in a moment.", code: "fetch_timeout" };
   if (view === "signing-stuck") return <AccountView callback flow={{ state: state({ step: "signing", banner: stuck }), actions: accountActions }} marketingUrl={MARKETING} />;

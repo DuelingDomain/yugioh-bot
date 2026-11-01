@@ -446,7 +446,7 @@ function NewLinkForm({ creatorId, actions, onCreated }: { creatorId: number; act
         </CrField>
       </div>
       {preset === "custom" ? (
-        <CrField id={`cr-lock-${creatorId}`} label="Locked to email" optional error={lockError} hint="Optional. Only this inbox can claim the invite when set, with 1 use. Leave empty for any email.">
+        <CrField id={`cr-lock-${creatorId}`} label="Locked to email" optional error={lockError} hint="Only this inbox can claim the invite when set, with 1 use. Leave empty for any email.">
           {(aria) => <input ref={lockInput} id={`cr-lock-${creatorId}`} name="lockedEmail" type="email" maxLength={254} autoComplete="off" value={lockedEmail} onChange={(e) => { setLockedEmail(e.target.value); setLockError(undefined); }} className={styles.crInput} placeholder="creator@example.com" {...aria} />}
         </CrField>
       ) : <p className={styles.crHint}>Any email can claim this link and skip the waitlist. A use is counted when the invite email is sent.</p>}

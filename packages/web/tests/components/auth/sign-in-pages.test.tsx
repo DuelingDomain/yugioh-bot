@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -67,6 +67,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -448,13 +449,13 @@ describe("already signed in", () => {
     expect(screen.queryByRole("button", { name: "Create account" })).toBeNull();
     await userEvent.setup().click(screen.getByRole("button", { name: "Sign out and continue" }));
     expect(clerkSignOut).toHaveBeenCalledExactlyOnceWith(reloadPage);
-    expect(reloadPage).toHaveBeenCalledOnce();
+    expect(reloadPage).toHaveBeenCalledTimes(2);
     // Stay blocked until the full navigation, even when Clerk clears the session before redirecting.
     authState.isSignedIn = false;
     view.rerender(await SignUpPage({ searchParams: Promise.resolve(params) }));
     expect(signUpFlow).not.toHaveBeenCalled();
     await userEvent.setup().click(screen.getByRole("button", { name: "Continue with invite" }));
-    expect(reloadPage).toHaveBeenCalledTimes(2);
+    expect(reloadPage).toHaveBeenCalledTimes(3);
     expect(window.location.pathname + window.location.search + window.location.hash).toBe(url);
     view.unmount();
     await renderSignUp(state("invite", { lockedEmail: "invited@example.com" }), params);
@@ -469,6 +470,53 @@ describe("already signed in", () => {
     expect(screen.getByRole("button", { name: "Sign out and continue" })).toBeVisible();
     expect(signUpFlow).not.toHaveBeenCalled();
     expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it("offers a reload after 30 seconds when Clerk never loads the invitation session", async () => {
+    vi.useFakeTimers();
+    authState.isLoaded = false;
+    const { container } = await renderSignUp(state("invite"), { __clerk_ticket: "ticket" });
+    act(() => { vi.advanceTimersByTime(29_999); });
+    expect(screenOf(container)).toBe("checking-invite");
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(screenOf(container)).toBe("err-service");
+    expect(screen.getByRole("alert")).toHaveAttribute("data-code", "fetch_timeout");
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(signUpFlow).not.toHaveBeenCalled();
+    vi.useRealTimers();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+    expect(reloadPage).toHaveBeenCalledOnce();
+  });
+
+  it.each([[undefined, "Invite"], ["creator", "Creator invite"]])("labels a blocked invitation with via=%s as %s", async (via, eyebrow) => {
+    authState.isSignedIn = true;
+    await renderSignUp(state("invite"), { __clerk_ticket: "ticket", ...(via ? { via } : {}) });
+    expect(screen.getByText(eyebrow, { exact: true })).toBeVisible();
+  });
+
+  it("reloads after sign-out resolves without calling its completion callback", async () => {
+    authState.isSignedIn = true;
+    clerkSignOut.mockImplementationOnce(async () => {});
+    await renderSignUp(state("invite"), { __clerk_ticket: "ticket" });
+    await userEvent.setup().click(screen.getByRole("button", { name: "Sign out and continue" }));
+    expect(reloadPage).toHaveBeenCalledOnce();
+  });
+
+  it("keeps focus on sign-out while preventing repeated requests", async () => {
+    authState.isSignedIn = true;
+    let complete!: () => void;
+    clerkSignOut.mockImplementationOnce(() => new Promise<void>(resolve => { complete = resolve; }));
+    await renderSignUp(state("invite"), { __clerk_ticket: "ticket" });
+    const user = userEvent.setup();
+    const button = screen.getByRole("button", { name: "Sign out and continue" });
+    await user.click(button);
+    expect(button).toHaveFocus();
+    expect(button).toBeEnabled();
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    await user.click(button);
+    expect(clerkSignOut).toHaveBeenCalledOnce();
+    await act(async () => { complete(); });
+    expect(reloadPage).toHaveBeenCalledOnce();
   });
 
   it("waits for session readiness before starting a ticket, then keeps the success card", async () => {
@@ -494,8 +542,12 @@ describe("already signed in", () => {
     expect(screen.getByRole("status")).toHaveTextContent("You're signed in as owner@example.com.");
     const button = screen.getByRole("button", { name: "Sign out and continue" });
     await userEvent.setup().click(button);
-    expect(screen.getByRole("alert")).toHaveTextContent("Couldn’t sign out. Try again.");
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Couldn’t sign out. Try again.");
+    expect(alert).toHaveAttribute("data-tone", "bad");
+    expect(within(screen.getByRole("status")).queryByRole("alert")).toBeNull();
     expect(button).toBeEnabled();
+    expect(button).toHaveAttribute("aria-disabled", "false");
     await userEvent.setup().click(button);
     expect(clerkSignOut).toHaveBeenCalledTimes(2);
   });
@@ -550,7 +602,31 @@ describe("creator join session notice", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Check your inbox");
     await user.click(screen.getByRole("button", { name: "Sign out" }));
     expect(clerkSignOut).toHaveBeenCalledWith(reloadPage);
-    expect(reloadPage).toHaveBeenCalledOnce();
+    expect(reloadPage).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["full", "expired", "revoked"] as const)("omits the sign-out notice on a %s link and its waitlist confirmation", async linkState => {
+    authState.isSignedIn = true;
+    render(<JoinCard {...props} state={linkState} />);
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ status: "joined" })));
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Email address"), "new@example.com");
+    await user.click(screen.getByRole("button", { name: "Join the waitlist" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("You’re on the list");
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+  });
+
+  it("removes the sign-out notice when an open link closes during submission", async () => {
+    authState.isSignedIn = true;
+    render(<JoinCard {...props} />);
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeVisible();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ status: "full" }, { status: 409 })));
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Email address"), "new@example.com");
+    await user.click(screen.getByRole("button", { name: "Send my invite" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("This invite link is full");
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
   });
 
   it("has no notice for signed-out visitors", () => {
