@@ -19,6 +19,7 @@ import {
   EMPTY_HISTORY_FILTERS, hasHistoryFilters, mergeLobbySearch, parseHistoryParams, presetRange, rememberHistorySearch,
   type HistoryFilters, type HistoryPreset, type HistoryStatus,
 } from "./history-filters";
+import { RemoteTablesPanel } from "@/components/remote/ui/tables-panel";
 import { MatchChips } from "./match-chips";
 import { isNotableSeries, SeriesBadges } from "./series-banner";
 import { cx, SheetButton, sheetButtonClass, SheetSegmented, SheetSelect, sheetRoot } from "./sheet-ui";
@@ -451,13 +452,15 @@ function HistoryFilterBar({ canSeeAll, showStatus, filters, q, card, rangeError,
 type MorePages = { key: string; items: DuelListItem[]; cursor: string | null; loading: boolean; error: string | null };
 
 /** The page URL is the source of the first view, scope and filters, so Back from a replay restores what the user had. */
-export function DuelLobby({ initialView, initialScope, initialFilters, viewerId }: {
+export function DuelLobby({ initialView, initialScope, initialFilters, viewerId, remoteDuels = false }: {
   /** The signed-in user: the saved history search belongs to this user only. */
   viewerId?: number | string;
   /** Overrides the view in the URL. */
   initialView?: DuelListView;
   initialScope?: DuelHistoryScope;
   initialFilters?: HistoryFilters;
+  /** REMOTE_DUELS is on: show the Remote Duels section next to the live tables. */
+  remoteDuels?: boolean;
 }) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -711,6 +714,8 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId 
           <p role="status" className={ui.srOnly}>{live.text}</p>
         ) : null}
       </section>
+
+      {remoteDuels && !history ? <RemoteTablesPanel /> : null}
 
       <Modal open={closing != null} onClose={dismiss} title={copy?.title}>
         <p className="text-sm text-text-secondary">{copy?.body}</p>

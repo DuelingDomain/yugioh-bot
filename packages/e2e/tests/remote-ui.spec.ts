@@ -200,6 +200,40 @@ test.describe("remote duels screen, two players on LiveKit", () => {
     } finally { await Promise.allSettled([alice.close(), bob.close()]); }
   });
 
+  test("Duels → New → Remote Duel → Create room lands on the table", async ({ page, context }) => {
+    await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, "http://localhost:3310");
+    await page.goto("/duels");
+    await expect(page.getByTestId("remote-tables-panel")).toBeVisible();
+    for (const [w, h] of [[1920, 1080], [2560, 1440], [1366, 768], [390, 844]] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto("/duels");
+      await expect(page.getByRole("heading", { name: "Remote Duels" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "New Remote Duel" })).toBeVisible();
+      await shot(page, `duels-${w}x${h}`);
+      await page.goto("/duels/new");
+      await expect(page.getByRole("heading", { name: "Play" })).toBeVisible();
+      await shot(page, `new-online-${w}x${h}`);
+      await page.locator("label", { has: page.getByRole("radio", { name: "Remote Duel" }) }).click();
+      await expect(page.getByTestId("remote-setup")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Create room" })).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await shot(page, `new-remote-${w}x${h}`);
+    }
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto("/duels");
+    await page.getByRole("link", { name: "Create game" }).click();
+    await page.locator("label", { has: page.getByRole("radio", { name: "Remote Duel" }) }).click();
+    await page.getByTestId("create-solo").check();
+    await page.getByTestId("create-room").click();
+    await expect(page).toHaveURL(/\/duels\/remote\/[^/]+$/);
+    await expect(page.getByTestId("remote-lobby-room")).toBeVisible();
+    await shot(page, "created-room-1920");
+    // The new table is listed on the Duels page with a way back in.
+    await page.goto("/duels");
+    await expect(page.getByTestId("remote-tables-panel").getByText("Your table")).toBeVisible();
+    await shot(page, "duels-with-table-1920");
+  });
+
   test("two-player table fits every screen size, with the health chip in reach", async ({ browser }) => {
     test.setTimeout(240_000);
     const alice = await browser.newContext(); const bob = await browser.newContext();
