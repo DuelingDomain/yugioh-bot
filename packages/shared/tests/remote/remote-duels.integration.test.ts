@@ -97,6 +97,37 @@ function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" 
   return { db, users, service, save, select, start, act, place, get room() { return room; } };
 }
 describe("remote deck registration and live checks", () => {
+  it("defaults Deck choice publicity on and preserves a strict table option through configuration and replay", () => {
+    const s = deckSession("normal");
+    expect(s.room.showCardsSetFromDeck).toBe(true);
+    expect(s.room.state.showCardsSetFromDeck).toBe(true);
+    const strict = s.service.configure(s.room.slug, "g", s.users[0], { format: "normal", showCardsSetFromDeck: false }, 2001);
+    expect(strict.showCardsSetFromDeck).toBe(false);
+    expect(strict.state.showCardsSetFromDeck).toBe(false);
+    expect(s.service.replay(strict.slug, "g", s.users[0])).toEqual(strict.state);
+    const unchanged = s.service.configure(strict.slug, "g", s.users[0], { format: "normal" }, 2002);
+    expect(unchanged.showCardsSetFromDeck).toBe(false);
+    expect(s.service.list("g", s.users[0]).find(t => t.slug === strict.slug)?.showCardsSetFromDeck).toBe(false);
+    expect(() => s.service.configure(strict.slug, "g", s.users[0], { format: "normal", showCardsSetFromDeck: "false" as unknown as boolean }, 2003)).toThrow(/publicity setting/i);
+    const created = s.service.create({guildId:"g",userId:s.users[0],displayName:"A",gameId:"ygo",seatCount:2,showCardsSetFromDeck:false},2004);
+    expect(created.showCardsSetFromDeck).toBe(false);
+    expect(s.service.replay(created.slug,"g",s.users[0])).toEqual(created.state);
+    expect(() => s.service.create({guildId:"g",userId:s.users[0],displayName:"A",gameId:"ygo",seatCount:2,showCardsSetFromDeck:0 as unknown as boolean},2005)).toThrow(/publicity setting/i);
+    s.start();
+    expect(() => s.service.configure(strict.slug,"g",s.users[0],{format:"normal",showCardsSetFromDeck:true},2200)).toThrow(/lobby/i);
+  });
+  it("adds default-on Deck publicity to populated tables without rewriting their state or events", () => {
+    const {db, service, table, users} = setup();
+    const before = db.prepare("select state_json from remote_tables where slug=?").get(table.slug);
+    const events = service.get(table.slug,"g",users[0]).events;
+    db.exec("alter table remote_tables drop column show_cards_set_from_deck");
+    migrate(db); migrate(db);
+    expect(db.prepare("select show_cards_set_from_deck from remote_tables where slug=?").get(table.slug)).toEqual({show_cards_set_from_deck:1});
+    expect(db.prepare("select state_json from remote_tables where slug=?").get(table.slug)).toEqual(before);
+    expect(service.get(table.slug,"g",users[0]).events).toEqual(events);
+    expect(service.get(table.slug,"g",users[0]).showCardsSetFromDeck).toBe(true);
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+  });
   it("blocks multiplayer readiness without a deck and rejects invalid selected decks in solo", () => {
     const live = deckSession("normal", false);
     expect(() => live.service.ready(live.room.slug, "g", live.users[0], true, 2001)).toThrow(/select.*deck/i);

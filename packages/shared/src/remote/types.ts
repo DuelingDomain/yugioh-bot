@@ -13,6 +13,8 @@ export type RemotePosition = {
   identified: { seat: number; cardRef?: string; private?: boolean; cardId?: number; passcode?: number; zone?: string; source: "click" | "auto" | "voice" | "typed"; name?: string; notInDecklist?: boolean; addErrors: string[] } | null;
   deckChecks: RemoteDeckChecks;
   effectTracking?: RemoteEffectTracking;
+  /** Older JSON snapshots omit this default-on table rule. */
+  showCardsSetFromDeck?: boolean;
 };
 export type RemoteState = RemotePosition & {
   updatedAt: number;
@@ -36,8 +38,8 @@ export interface GameModule {
 export type RemoteStatus = "lobby" | "active" | "ended";
 export type RemoteSeat = { seat: number; userId: number | null; bot: boolean; displayName: string; ready: boolean; deckRegistered?: boolean; deck?: RemoteDeckRegistration | null };
 export type RemoteSystemAction =
-  | { type: "table.created"; gameId: string; seatCount: SeatCount; solo?: boolean; format?: RemoteFormat }
-  | { type: "table.configured"; format: RemoteFormat; registrations: RemoteDeckChecks["registrations"] }
+  | { type: "table.created"; gameId: string; seatCount: SeatCount; solo?: boolean; format?: RemoteFormat; showCardsSetFromDeck?: boolean }
+  | { type: "table.configured"; format: RemoteFormat; registrations: RemoteDeckChecks["registrations"]; showCardsSetFromDeck?: boolean }
   | { type: "seat.deck"; seat: number; registration: RemoteDeckRegistration | null }
   | { type: "seat.joined"; seat: number; userId: number | null; bot?: boolean }
   | { type: "seat.left"; seat: number; userId: number }
@@ -57,5 +59,6 @@ export type RemoteTable = {
   lastEventAt: number; lastSeq: number; endReason: string | null; idleWarningAt: number | null;
   seats: RemoteSeat[];
   format?: RemoteFormat;
+  showCardsSetFromDeck?: boolean;
 };
 export type RemoteRoom = RemoteTable & { state: RemoteState; events: RemoteEvent[]; mySeat: number };

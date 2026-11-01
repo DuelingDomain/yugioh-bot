@@ -1745,6 +1745,7 @@ function migrateRemoteDuels(db: Database.Database) {
   `);
   addColumnIfMissing(db, "remote_tables", "solo", "integer not null default 0 check (solo in (0,1))");
   addColumnIfMissing(db, "remote_tables", "format_json", "text");
+  addColumnIfMissing(db, "remote_tables", "show_cards_set_from_deck", "integer not null default 1 check (show_cards_set_from_deck in (0,1))");
   for (const table of ["remote_seats", "remote_bot_seats"]) {
     addColumnIfMissing(db, table, "saved_deck_id", "integer");
     addColumnIfMissing(db, table, "deck_json", "text");
