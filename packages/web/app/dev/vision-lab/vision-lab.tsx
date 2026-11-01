@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
-import { createRecognizer, yugioh, hitTestQuad, type DetectedQuad, type AIReading, type IndexMeta, type RecognitionResult } from "@yugidraft/vision";
+import { createRecognizer, yugioh, hitTestQuad, type DetectedQuad, type AIReading, type IndexMeta, type RecognitionResult, type FeedbackSource } from "@yugidraft/vision";
+import { VisionFeedbackSetting, type FeedbackPreference } from "@/components/settings/vision-feedback-setting";
 import { useVisionSource } from "./use-vision-source";
 import { useOutlineReads } from "./use-outline-reads";
 import styles from "./vision-lab.module.css";
@@ -50,6 +51,9 @@ export function VisionLab() {
   const [query, setQuery] = useState("");
   const [confirmed, setConfirmed] = useState<string | null>(null);
   const [corrections, setCorrections] = useState<Correction[]>([]);
+  const [feedbackPreference,setFeedbackPreference]=useState<FeedbackPreference|null>(null);
+  const [feedbackStatus,setFeedbackStatus]=useState('');
+  const feedbackEnabled=Boolean(feedbackPreference?.enabled&&feedbackPreference.collectionEnabled);
   const [metadataError, setMetadataError] = useState(false);
   function reader() {
     if(!recognizerRef.current || recognizerRef.current.backend!==backend) {
@@ -147,7 +151,7 @@ export function VisionLab() {
         recognizerRef.current = { backend, value: createRecognizer({ game: "yugioh", backend }) };
       }
       // The worker takes ownership of these clones; the source keeps its originals.
-      const next = await recognizerRef.current.value.recognize(frames, { clickPoint: point, k: 5, includeCrop:true, card:selectedCard });
+      const next = await recognizerRef.current.value.recognize(frames, { clickPoint: point, k: 5, includeCrop:true,includeFeedback:feedbackEnabled, card:selectedCard });
       if (run === runRef.current) { setResult(next); setConfirmed(null); setQuery("");setPopover(true); }
     } catch (cause) {
       if (run === runRef.current) setError(cause instanceof Error ? cause.message : "Recognition failed. Try again.");
@@ -184,12 +188,16 @@ export function VisionLab() {
     void recognize(next.point,hit>=0?quads[hit]:undefined);
   };
 
-  const confirm = useCallback((cardId: string) => {
+  const confirm = useCallback((cardId: string, source:FeedbackSource="pick") => {
     if (!result || busy) return;
     setConfirmed(cardId);setPopover(false);previewRef.current?.focus();
+    if(feedbackEnabled && result.feedback && recognizerRef.current) {
+      setFeedbackStatus('Saving recognition sample…');
+      void recognizerRef.current.value.recordFeedback(result,cardId,source).then(()=>setFeedbackStatus('Recognition sample saved.'),error=>setFeedbackStatus(error instanceof Error?error.message:'Feedback could not be saved.'));
+    }
     setCorrections(log => [...log, { at: new Date().toISOString(), guessed: result.candidates[0]?.cardId,
       chosen: cardId, tier: result.tier, sharpness: result.quality.sharpness }]);
-  }, [result, busy]);
+  }, [result, busy,feedbackEnabled]);
   useEffect(() => {
     const pick = (event: KeyboardEvent) => {
       if(event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.repeat) return;
@@ -237,6 +245,8 @@ export function VisionLab() {
         <span className={styles.local}>Recognition runs in your browser</span>
       </header>
 
+      <VisionFeedbackSetting onChange={setFeedbackPreference} promptOnly />
+      {feedbackStatus?<p role="status">{feedbackStatus}</p>:null}
       <div className={styles.workspace}>
         <section className={styles.capture} aria-labelledby="capture-heading">
           <div className={styles.sectionHead}>
@@ -337,13 +347,13 @@ export function VisionLab() {
             <span>Sends this small card crop to Anthropic. Owner access and server opt-in required.</span>
             {result.quality.fullArt && !result.quality.fullArtReferences ? <p>Possible full-art layout; no verified full-art references. Use name correction or Ask AI.</p> : null}
             {aiError ? <p role="alert">{aiError}</p> : null}
-            {aiReading ? <p role="status">{aiReading.match ? <><strong>{aiReading.match.name}</strong>{aiReading.setCode?` · ${aiReading.setCode}`:''} <button type="button" onClick={()=>confirm(String(aiReading.match!.passcode))}>Confirm AI match</button></> : 'AI could not identify a catalog card.'}</p> : null}
+            {aiReading ? <p role="status">{aiReading.match ? <><strong>{aiReading.match.name}</strong>{aiReading.setCode?` · ${aiReading.setCode}`:''} <button type="button" onClick={()=>confirm(String(aiReading.match!.passcode),"ai")}>Confirm AI match</button></> : 'AI could not identify a catalog card.'}</p> : null}
           </div> : null}
           {confirmed ? <p className={styles.confirmed} role="status">Confirmed: {cards.get(confirmed)?.name ?? confirmed}</p> : null}
           <div className={styles.correction}>
             <label htmlFor="vision-correction">Wrong card? Find it by name or passcode</label>
             <input id="vision-correction" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search the local index…" disabled={!result || busy} />
-            {matches.length ? <ul>{matches.map(card => <li key={card.cardId}><button type="button" onClick={() => confirm(card.cardId)}>{card.name}</button></li>)}</ul> : query.trim().length >= 2 ? <p>No match in this index. Build the full catalog to add more cards.</p> : null}
+            {matches.length ? <ul>{matches.map(card => <li key={card.cardId}><button type="button" onClick={() => confirm(card.cardId,"search")}>{card.name}</button></li>)}</ul> : query.trim().length >= 2 ? <p>No match in this index. Build the full catalog to add more cards.</p> : null}
             <button type="button" onClick={exportCorrections} disabled={!corrections.length}>Export {corrections.length} confirmation{corrections.length === 1 ? "" : "s"}</button>
           </div>
           <p className={styles.hint}>Similarity ranks artwork matches; it is not a confidence percentage.</p>

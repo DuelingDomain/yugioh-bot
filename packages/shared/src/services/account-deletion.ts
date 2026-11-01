@@ -74,7 +74,7 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     const counts: Record<string, number> = {};
     const note = (key: string, changes: number) => { if (changes > 0) counts[key] = changes; };
     if (!user) return { userId, mode: "removed", counts };
-    note("vision_samples", createVisionFeedbackService(db).deleteForUser(userId));
+    note("vision_samples", db.prepare("delete from vision_samples where user_id=?").run(userId).changes);
     db.prepare("delete from vision_feedback_preferences where user_id=?").run(userId);
 
     const players = db.prepare<[number], PlayerRow>("select id, display_name from players where user_id = ?").all(userId);
@@ -184,5 +184,9 @@ export function deleteUserAccount(db: Database.Database, userId: number): Accoun
     }
     return { userId, mode: "anonymised", counts };
   });
-  return run.immediate();
+  const result=run.immediate();
+  // Filesystem cleanup follows the successful account transaction, so a rolled
+  // back deletion leaves both metadata and crop bytes intact.
+  createVisionFeedbackService(db).prune();
+  return result;
 }

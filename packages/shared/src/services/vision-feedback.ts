@@ -81,7 +81,7 @@ export function createVisionFeedbackService(db:Database.Database, options:Partia
       crop=await image.rotate().resize({width:224,withoutEnlargement:true}).jpeg({quality:72}).toBuffer();
       if(crop.length>32768)throw new Error();
     }catch{throw new Error('invalid_sample');}
-    const fingerprint=digest(JSON.stringify([digest(crop),s.chosenCardId,s.gameId,s.modelSha256,s.indexVersion,s.space]));
+    const fingerprint=digest(JSON.stringify([digest(crop),s.chosenCardId,s.gameId,s.modelSha256,s.indexVersion,s.layoutKey,s.space]));
     return db.transaction(()=>{
       allowed();prune();
       const previous=db.prepare<[number,string],{id:string}>('select id from vision_samples where user_id=? and fingerprint=?').get(userId,fingerprint);
@@ -109,10 +109,9 @@ export function createVisionFeedbackService(db:Database.Database, options:Partia
       const perCard=new Map<string,VisionSample[]>();
       for(const s of group){const g=perCard.get(s.chosenCardId)??[];if(g.length<100)g.push(s);perCard.set(s.chosenCardId,g);}
       for(const s of group){
+        if(references.length>=512)break;
         const supporters=(perCard.get(s.chosenCardId)??[]).filter(other=>other.userId!==s.userId&&cosine(s.embedding,other.embedding)>=.97);
-        const conflict=group.some(other=>other.chosenCardId!==s.chosenCardId&&cosine(s.embedding,other.embedding)>=.97);
-        if(s.review!=='approved'&&(!supporters.length||conflict))continue;
-        if(references.length>=512)continue;
+        if(s.review!=='approved'&&!supporters.length)continue;
         references.push({id:s.id,userId:s.userId,chosenCardId:s.chosenCardId,embedding:s.embedding,gameId:s.gameId,modelId:s.modelId,modelSha256:s.modelSha256,layoutKey:s.layoutKey,indexVersion:s.indexVersion,space:s.space,supportUserIds:s.review==='approved'?[s.userId]:[...new Set([s.userId,...supporters.map(o=>o.userId)])]});
       }
       const pairs=new Map<string,{a:string;b:string;users:Set<number>;count:number}>();
@@ -127,6 +126,7 @@ export function createVisionFeedbackService(db:Database.Database, options:Partia
     const learned=learning();return {collectionEnabled:process.env.REMOTE_VISION_FEEDBACK==='1',samples:samples.slice(0,100).map(({embedding:_,layoutKey:__,...s})=>s),accuracy:[...daily.values()],confusions:learned.confusions,learnedCount:learned.references.length,total:samples.length,bytes:samples.reduce((n,s)=>n+s.cropBytes,0),limits};
   }
   return {preference,setPreference,record,prune,learning,summary,
+    markAsked:(userId:number)=>{const changed=db.prepare('insert into vision_feedback_preferences(user_id,enabled,asked_at) values(?,0,?) on conflict(user_id) do nothing').run(userId,now()).changes;return {...preference(userId),prompted:changed===1};},
     allSamples:()=>{prune();return rows();},
     crop:(sampleId:string)=>db.prepare('select 1 from vision_samples where id=?').get(sampleId)?readFileSync(path(sampleId)):null,
     review:(sampleId:string,status:'approved'|'rejected',actorId:number)=>db.prepare('update vision_samples set review=?,reviewed_by=?,reviewed_at=? where id=?').run(status,actorId,now(),sampleId).changes,

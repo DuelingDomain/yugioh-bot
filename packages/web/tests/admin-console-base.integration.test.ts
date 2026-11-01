@@ -167,3 +167,58 @@ it("clears presence when the account is deleted", async () => {
   deleteUserAccount(db, 2);
   expect(db.prepare("select last_seen_at s, last_route r, online_since o, image_url i from users where id=2").get()).toEqual({ s: null, r: null, o: null, i: null });
 });
+
+it('vision feedback keeps consent default-off, checks origin and protects review and crop routes', async()=>{
+  const {GET,PATCH,DELETE:deleteOwn}=await import('../app/api/remote-vision/feedback/route');
+  expect(await (await GET()).json()).toMatchObject({enabled:false,askedAt:null});
+  const req=(enabled:boolean,origin='https://app.example.test')=>new Request('https://app.example.test/api/remote-vision/feedback',{method:'PATCH',headers:{origin,'content-type':'application/json'},body:JSON.stringify({enabled})});
+  expect((await PATCH(req(true,'https://evil.test'))).status).toBe(403);
+  expect((await PATCH(req(false))).status).toBe(200);
+  expect(await (await GET()).json()).toMatchObject({enabled:false,askedAt:expect.any(Number)});
+  vi.stubEnv('REMOTE_VISION_FEEDBACK','0');
+  expect((await deleteOwn(new Request('https://app.example.test/api/remote-vision/feedback',{method:'DELETE',headers:{origin:'https://app.example.test'}}))).status).toBe(200);
+  const {GET:review}=await import('../app/api/admin/console/vision/route');
+  expect((await review()).status).toBe(200);
+  auth.mockResolvedValue({user:{id:'2',name:'Ann'}});expect((await review()).status).toBe(404);
+  auth.mockResolvedValue(null);expect((await GET()).status).toBe(401);
+});
+
+it('captures bounded crops through the authenticated API and withdraws moderation/deletion evidence',async()=>{
+  const {mkdtemp,rm,writeFile,mkdir,readdir}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');const sharp=(await import('sharp')).default;
+  const dir=await mkdtemp(join(tmpdir(),'vision-route-'));vi.stubEnv('DATA_DIR',dir);vi.stubEnv('VISION_DATA_DIR',join(dir,'vision'));vi.stubEnv('REMOTE_VISION_FEEDBACK','1');
+  try {
+    const {GET,PATCH,POST,DELETE:removeOwn}=await import('../app/api/remote-vision/feedback/route');
+    const req=(body:unknown,method='POST',origin='https://app.example.test')=>new Request('https://app.example.test/api/remote-vision/feedback',{method,headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
+    expect((await POST(req({}))).status).toBe(403);
+    const prompt=await (await PATCH(req({asked:true},'PATCH'))).json();expect(prompt).toMatchObject({enabled:false,prompted:true});
+    expect(await (await PATCH(req({asked:true},'PATCH'))).json()).toMatchObject({prompted:false,enabled:false});
+    await PATCH(req({enabled:true},'PATCH'));
+    const meta={gameId:'yugioh',modelId:'m',modelSha256:'a'.repeat(64),generatedAt:'v1',count:2,dim:2,layoutKey:'layout',entries:[{cardId:'A'},{cardId:'B'}]};
+    await mkdir(join(dir,'vision'));await writeFile(join(dir,'vision/yugioh-index.meta.json'),JSON.stringify(meta));
+    const jpegBase64=(await sharp({create:{width:224,height:326,channels:3,background:'white'}}).jpeg().toBuffer()).toString('base64');
+    const sample={jpegBase64,embedding:[1,0],top5:[{cardId:'A',score:.9},{cardId:'B',score:.8}],chosenCardId:'B',tier:'sure',source:'voice',gameId:'yugioh',modelId:'m',modelSha256:'a'.repeat(64),indexVersion:`${'a'.repeat(64)}:v1:2`,layoutKey:'layout',space:'art-box',sharpness:42};
+    await writeFile(join(dir,'vision/yugioh-full-art.meta.json'),JSON.stringify({...meta,layoutKey:'whole',count:1,entries:[{cardId:'B'}]}));
+    const {validFeedbackIndex}=await import('../src/lib/vision-feedback');
+    expect(await validFeedbackIndex({...sample,chosenCardId:'A',space:'whole-card',layoutKey:'whole',indexVersion:`${'a'.repeat(64)}:v1:1`})).toBe(true);
+    expect((await POST(req({...sample,chosenCardId:'unknown'}))).status).toBe(400);
+    expect((await POST(req(sample,'POST','https://evil.test'))).status).toBe(403);
+    expect((await POST(req({...sample,extra:'full-frame'}))).status).toBe(400);
+    expect((await POST(req({...sample,jpegBase64:'a'.repeat(100_000)}))).status).toBe(413);
+    const saved=await POST(req(sample));expect(saved.status).toBe(201);const {id}=await saved.json();
+    expect((await POST(req(sample))).status).toBe(201);expect(await readdir(join(dir,'vision-feedback'))).toHaveLength(1);
+    const ctx={params:Promise.resolve({id})};
+    const {PATCH:review,DELETE:remove}=await import('../app/api/admin/console/vision/[id]/route');
+    const {GET:crop}=await import('../app/api/admin/console/vision/[id]/crop/route');
+    const {GET:learning}=await import('../app/api/remote-vision/learning/route');
+    expect((await crop(req(null),ctx)).status).toBe(200);
+    expect((await review(req({review:'approved'},'PATCH'),ctx)).status).toBe(200);
+    const learned=await (await learning()).json();expect(learned.references).toHaveLength(1);expect(learned.references[0].userId).toBeUndefined();
+    auth.mockResolvedValue({user:{id:'2',name:'Ann'}});expect((await crop(req(null),ctx)).status).toBe(404);expect((await remove(req(null,'DELETE'),ctx)).status).toBe(404);
+    expect(await (await removeOwn(req(null,'DELETE'))).json()).toEqual({deleted:0});
+    auth.mockResolvedValue({user:{id:'1',name:'Operator'}});
+    await review(req({review:'rejected'},'PATCH'),ctx);expect((await (await learning()).json()).references).toHaveLength(0);
+    vi.stubEnv('REMOTE_VISION_FEEDBACK','0');expect((await POST(req(sample))).status).toBe(404);
+    expect(await (await removeOwn(req(null,'DELETE'))).json()).toEqual({deleted:1});expect(await readdir(join(dir,'vision-feedback'))).toHaveLength(0);
+    expect((await GET()).status).toBe(200);
+  }finally{await rm(dir,{recursive:true,force:true});}
+});

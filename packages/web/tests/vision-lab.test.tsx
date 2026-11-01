@@ -6,7 +6,7 @@ import type { DetectedQuad, RecognitionResult } from "@yugidraft/vision";
 
 const state = vi.hoisted(() => ({
   initialSource: null as "photo" | "camera" | null,
-  createRecognizer: vi.fn(), recognize: vi.fn(), detectCards: vi.fn(), dispose: vi.fn(), askAI: vi.fn(),
+  createRecognizer: vi.fn(), recognize: vi.fn(), detectCards: vi.fn(), dispose: vi.fn(), askAI: vi.fn(), recordFeedback:vi.fn(),
   hitTestQuad: vi.fn(), snapshot: vi.fn(), loadPhoto: vi.fn(), startCamera: vi.fn(), stop: vi.fn(),
 }));
 
@@ -72,8 +72,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.initialSource = "photo";
   snapshots.length = 0; clones.length = 0;
-  state.createRecognizer.mockImplementation(() => ({ recognize: state.recognize, detectCards: state.detectCards, dispose: state.dispose, askAI: state.askAI }));
-  state.recognize.mockResolvedValue(result);
+  state.createRecognizer.mockImplementation(() => ({ recognize: state.recognize, detectCards: state.detectCards, dispose: state.dispose, askAI: state.askAI,recordFeedback:state.recordFeedback }));
+  state.recognize.mockResolvedValue(result);state.recordFeedback.mockResolvedValue({id:"sample"});
   state.detectCards.mockResolvedValue(quads);
   state.hitTestQuad.mockReturnValue(1);
   state.snapshot.mockImplementation(async () => {
@@ -89,7 +89,7 @@ beforeEach(() => {
     static revokeObjectURL = revokeObjectURL;
   });
   vi.stubGlobal("createImageBitmap", createBitmap);
-  fetcher.mockReset().mockImplementation(async () => Response.json({ entries: cards }));
+  fetcher.mockReset().mockImplementation(async (url) => Response.json(String(url).includes("remote-vision/feedback")?{enabled:false,askedAt:1,collectionEnabled:true}:{ entries: cards }));
   vi.stubGlobal("fetch", fetcher);
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
   vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(new Blob(["fixture"], { type: "image/jpeg" })));
@@ -99,7 +99,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 async function renderLab() {
   render(<VisionLab />);
   // Wait for metadata so the assertions exercise named candidates, not placeholder IDs.
-  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
   await act(async () => undefined);
   vi.spyOn(preview(), "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, top: 0, left: 0, right: 640, bottom: 480, width: 640, height: 480, toJSON: () => ({}) });
 }
@@ -126,7 +126,7 @@ describe("vision lab source and selected cards", () => {
     expect(screen.getByRole("img", { name: "Uploaded card photo" })).toHaveAttribute("src", "blob:test-photo");
     expect(state.createRecognizer).not.toHaveBeenCalled();
     expect(state.askAI).not.toHaveBeenCalled();
-    expect(fetcher.mock.calls[0][0]).toBe("/test/vision-meta.json");
+    expect(fetcher.mock.calls.some(c=>c[0]==="/test/vision-meta.json")).toBe(true);
   });
 
   it("freezes a source and exposes each detected quad as a gold-outline card control", async () => {
@@ -148,7 +148,7 @@ describe("vision lab source and selected cards", () => {
     fireEvent.click(preview(), { detail: 1, clientX: 450, clientY: 240 });
     await screen.findByRole("dialog", { name: "Card matches" });
     expect(state.hitTestQuad).toHaveBeenCalledWith(quads, { x: 450 / 640, y: .5 }, { width: 640, height: 480 });
-    expect(state.recognize.mock.calls[0][1]).toEqual({ clickPoint: { x: 450 / 640, y: .5 }, k: 5, includeCrop: true, card: quads[1] });
+    expect(state.recognize.mock.calls[0][1]).toEqual({ clickPoint: { x: 450 / 640, y: .5 }, k: 5, includeCrop: true, includeFeedback:false, card: quads[1] });
     expect(state.recognize.mock.calls[0][1].card).toBe(quads[1]);
     fireEvent.keyDown(window, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Recognize selected card" }));
@@ -257,4 +257,32 @@ describe("vision lab bitmap ownership", () => {
     expect(screen.queryByLabelText("Detected card outlines")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Freeze & outline cards" })).toBeEnabled();
   });
+});
+
+ it('records an opted-in search correction with its recognition evidence, and leaves default-off confirmations local',async()=>{
+  const feedback={embedding:[1,0],gameId:'yugioh',modelId:'m',modelSha256:'a'.repeat(64),indexVersion:'v1',layoutKey:'l',space:'art-box' as const,deltaVersion:'v'};
+  state.recognize.mockResolvedValue({...result,feedback});
+  await renderLab();await recognizeCenter();
+  fireEvent.click(screen.getAllByRole('button',{name:'Confirm match 1: Dark Magician'})[0]);
+  expect(state.recordFeedback).not.toHaveBeenCalled();
+  cleanup();
+  fetcher.mockImplementation(async(url)=>Response.json(String(url).includes('remote-vision/feedback')?{enabled:true,askedAt:1,collectionEnabled:true}:{entries:cards}));
+  render(<VisionLab/>);await act(async()=>undefined);await recognizeCenter();
+  fireEvent.change(screen.getByRole('searchbox'),{target:{value:'Monster'}});
+  fireEvent.click(screen.getByRole('button',{name:'Monster Reborn'}));
+  expect(state.recordFeedback).toHaveBeenCalledWith(expect.objectContaining({feedback}),'83764718','search');
+  await screen.findByText('Recognition sample saved.');
+ });
+it('shows the default-off consent prompt once under React StrictMode',async()=>{
+  let asked=false;
+  fetcher.mockImplementation(async(url,init)=>{
+    if(!String(url).includes('/api/remote-vision/feedback'))return Response.json({entries:cards});
+    if(init?.method==='PATCH'){const body=JSON.parse(init.body);if(body.asked){const prompted=!asked;asked=true;return Response.json({enabled:false,askedAt:1,collectionEnabled:true,prompted});}return Response.json({enabled:body.enabled,askedAt:1,collectionEnabled:true});}
+    return Response.json({enabled:false,askedAt:asked?1:null,collectionEnabled:true});
+  });
+  render(<React.StrictMode><VisionLab/></React.StrictMode>);
+  await screen.findByRole('button',{name:'No thanks'});
+  expect(fetcher.mock.calls.filter(([,init])=>init?.method==='PATCH'&&JSON.parse(init.body).asked)).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button',{name:'No thanks'}));
+  await waitFor(()=>expect(screen.queryByRole('button',{name:'No thanks'})).toBeNull());expect(state.recordFeedback).not.toHaveBeenCalled();
 });
