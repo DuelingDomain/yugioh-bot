@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { createRecognizer, yugioh, hitTestQuad, type DetectedQuad, type AIReading, type IndexMeta, type RecognitionResult } from "@yugidraft/vision";
 import { useVisionSource } from "./use-vision-source";
+import { useOutlineReads } from "./use-outline-reads";
 import styles from "./vision-lab.module.css";
 
 // Correction interaction adapted from Duel Lens's popover/keys/search UI (Apache-2.0).
@@ -50,6 +51,14 @@ export function VisionLab() {
   const [confirmed, setConfirmed] = useState<string | null>(null);
   const [corrections, setCorrections] = useState<Correction[]>([]);
   const [metadataError, setMetadataError] = useState(false);
+  function reader() {
+    if(!recognizerRef.current || recognizerRef.current.backend!==backend) {
+      recognizerRef.current?.value.dispose();recognizerRef.current={backend,value:createRecognizer({game:'yugioh',backend})};
+    }
+    return recognizerRef.current.value;
+  }
+  const outlineReads=useOutlineReads(frozenRef,reader,busyRef,setBusy,setError);
+  const resetOutlineReads=outlineReads.reset;
 
   const disposeRecognizer = useCallback(() => {
     runRef.current += 1;
@@ -59,10 +68,11 @@ export function VisionLab() {
   }, []);
 
   const clearFrozen = useCallback(() => {
+    resetOutlineReads();
     frozenRef.current?.close(); frozenRef.current=null;
     if(frozenUrlRef.current) URL.revokeObjectURL(frozenUrlRef.current);
     frozenUrlRef.current=null;setFrozenUrl(null);setQuads([]);setPopover(false);setSelection(null);
-  },[]);
+  },[resetOutlineReads]);
   const reset = useCallback(() => {
     clearFrozen(); aiControllerRef.current?.abort(); setAiBusy(false);setAiReading(null);setAiError(null);
     disposeRecognizer();
@@ -89,12 +99,6 @@ export function VisionLab() {
   }, []);
 
   useEffect(() => () => { disposeRecognizer(); frozenRef.current?.close(); if(frozenUrlRef.current) URL.revokeObjectURL(frozenUrlRef.current); aiControllerRef.current?.abort(); }, [disposeRecognizer]);
-  const reader = () => {
-    if(!recognizerRef.current || recognizerRef.current.backend!==backend) {
-      recognizerRef.current?.value.dispose();recognizerRef.current={backend,value:createRecognizer({game:'yugioh',backend})};
-    }
-    return recognizerRef.current.value;
-  };
   const freeze = async () => {
     if(busyRef.current) return;
     if(frozenRef.current) { clearFrozen();setResult(null);aiControllerRef.current?.abort();setAiBusy(false);return; }
@@ -135,6 +139,7 @@ export function VisionLab() {
     setError(null);setPopover(false);setResult(null);setConfirmed(null);aiControllerRef.current?.abort();setAiBusy(false);setAiReading(null);setAiError(null);
     let frames: ImageBitmap[] = [];
     try {
+      await outlineReads.cancelPeek();
       frames = frozenRef.current ? [await createImageBitmap(frozenRef.current)] : await source.snapshot();
       if (run !== runRef.current) return;
       if (!recognizerRef.current || recognizerRef.current.backend !== backend) {
@@ -188,6 +193,7 @@ export function VisionLab() {
   useEffect(() => {
     const pick = (event: KeyboardEvent) => {
       if(event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.repeat) return;
+      if(event.key==='Escape' && outlineReads.peek) {event.preventDefault();void outlineReads.cancelPeek();return;}
       if(event.key==='Escape' && popover) {event.preventDefault();setPopover(false);previewRef.current?.focus();return;}
       if (event.target instanceof HTMLElement && (event.target.matches("input,select,textarea") || event.target.isContentEditable)) return;
       if(event.key==='ArrowDown' || event.key==='ArrowUp') {
@@ -199,7 +205,7 @@ export function VisionLab() {
     };
     window.addEventListener("keydown", pick);
     return () => window.removeEventListener("keydown", pick);
-  }, [confirm, result,popover]);
+  }, [confirm, result,popover,outlineReads.peek,outlineReads.cancelPeek]);
   useEffect(()=>{
     if(!popover) return;
     popoverRef.current?.focus();
@@ -258,13 +264,24 @@ export function VisionLab() {
               <span>{source.preparing ? "Your image will appear here." : "Start the camera or upload a photo."}</span>
             </span> : null}
             {frozenUrl ? <svg className={styles.outlines} viewBox={`0 0 ${source.dimensions.width} ${source.dimensions.height}`} aria-label="Detected card outlines">
-              {quads.map((card,index)=><polygon key={index} points={card.quad.map(p=>`${p.x*source.dimensions.width},${p.y*source.dimensions.height}`).join(' ')} role="button" tabIndex={0} aria-label={`Read card ${index+1}${card.kind==='face-down'?' (face down)':''}${card.partial?' (partial)':''}`} onKeyDown={event=>{if(event.key==='Enter' || event.key===' ') {event.preventDefault();event.stopPropagation();const x=card.quad.reduce((s,p)=>s+p.x,0)/4,y=card.quad.reduce((s,p)=>s+p.y,0)/4;const point={x:Math.max(0,Math.min(1,x)),y:Math.max(0,Math.min(1,y))};setSelection({point,card,left:point.x*100,top:point.y*100});void recognize(point,card);}}} />)}
+              {quads.map((card,index)=><polygon key={index} points={card.quad.map(p=>`${p.x*source.dimensions.width},${p.y*source.dimensions.height}`).join(' ')} role="button" tabIndex={0} aria-label={`Read card ${index+1}${card.kind==='face-down'?' (face down)':''}${card.partial?' (partial)':''}`} aria-describedby={outlineReads.peek?.index===index?'card-peek':undefined}
+                onMouseEnter={event=>outlineReads.showPeek(index,quads,event.currentTarget.getBoundingClientRect())}
+                onFocus={event=>{if(!popover)outlineReads.showPeek(index,quads,event.currentTarget.getBoundingClientRect());}}
+                onMouseLeave={event=>{if(document.activeElement!==event.currentTarget)outlineReads.leavePeek();}}
+                onBlur={()=>outlineReads.leavePeek()}
+                onKeyDown={event=>{if(event.key==='Enter' || event.key===' ') {event.preventDefault();event.stopPropagation();const x=card.quad.reduce((s,p)=>s+p.x,0)/4,y=card.quad.reduce((s,p)=>s+p.y,0)/4;const point={x:Math.max(0,Math.min(1,x)),y:Math.max(0,Math.min(1,y))};setSelection({point,card,left:point.x*100,top:point.y*100});void recognize(point,card);}}} />)}
             </svg> : null}
             {selection && source.source ? <span className={styles.target} style={{ left: `${selection.left}%`, top: `${selection.top}%` }} aria-hidden="true" /> : null}
             {busy ? <span className={styles.working}>Recognizing…</span> : null}
           </div>
 
-          {frozenUrl ? <p className={styles.hint}>{quads.length} detected card{quads.length===1?'':'s'} · gold outlines · Tab then Enter to read</p> : null}
+          {frozenUrl ? <><p className={styles.hint}>{quads.length} detected card{quads.length===1?'':'s'} · gold outlines · Hover or focus to peek · Enter to read</p>
+            <div className={styles.controls}>
+              <label>Camera side <select aria-label="Board side" value={outlineReads.side} disabled={busy} onChange={e=>outlineReads.setSide(e.target.value as 'near'|'far')}><option value="near">Near</option><option value="far">Far</option></select></label>
+              <label>Fill seat <select aria-label="Board twin seat" value={outlineReads.seat} disabled={busy} onChange={e=>outlineReads.setSeat(e.target.value)}>{[0,1,2,3].map(seat=><option key={seat} value={seat}>Seat {seat+1}</option>)}</select></label>
+              <button type="button" disabled={busy || !quads.length} onClick={()=>{setPopover(false);setError(null);void outlineReads.readAll(quads);}}>Read all cards</button>
+              {outlineReads.reading ? <button type="button" onClick={outlineReads.cancelBoard}>Cancel board read</button> : null}
+            </div></> : null}
           <div className={styles.sourceInfo}>
             <span>{source.dimensions.width ? `${source.dimensions.width} × ${source.dimensions.height}` : "Full-resolution capture"}</span>
             <span>{source.source === "camera" ? `${source.frameCount}/6 buffered · 5 fps max · 1 second` : source.source === "photo" ? "1 photo frame" : "Camera permission required"}</span>
@@ -339,6 +356,17 @@ export function VisionLab() {
         {result.candidates.slice(0,5).map((candidate,index)=><button type="button" key={candidate.cardId} onClick={()=>{confirm(candidate.cardId);setPopover(false);previewRef.current?.focus();}}>{index+1}. {cards.get(candidate.cardId)?.name ?? candidate.cardId} · {candidate.score.toFixed(3)}</button>)}
         <span>1–5 confirm · ↑/↓ move · Escape closes</span>
       </div> : null}
+      {outlineReads.peek ? <div id="card-peek" role="tooltip" className={styles.peek} style={{left:outlineReads.peek.left,top:outlineReads.peek.top}} onMouseEnter={outlineReads.keepPeek} onMouseLeave={outlineReads.leavePeek}>
+        <strong>{outlineReads.peek.value?.faceDown?'Face down':outlineReads.peek.value?.name??(outlineReads.peek.error?'Peek unavailable':outlineReads.peek.value?'No match':'Reading…')}</strong>
+        <span>{outlineReads.peek.error??outlineReads.peek.value?.tier}</span>
+        {outlineReads.peek.value?.covered ? <span>Covered card · verify manually</span> : null}
+      </div> : null}
+      {outlineReads.board ? <section className={styles.board} aria-label="Board reading">
+        <h2>Board reading · {outlineReads.board.timingsMs.total.toFixed(1)} ms</h2>
+        <p>Near and far follow the image midpoint. Uncertain names need verification.</p>
+        {(['near','far'] as const).map(side=><div key={side}><h3>{side==='near'?'Near':'Far'} · {outlineReads.board![side].length} cards</h3><ul>{outlineReads.board![side].map(card=><li key={card.index}>{card.faceDown?'Face down':card.name??'Unknown'} · {card.tier}{card.covered?' · covered':''}{card.error?` · ${card.error}`:''}</li>)}</ul></div>)}
+        {Object.entries(outlineReads.twins).map(([seat,cards])=><div key={seat} aria-label={`Seat ${Number(seat)+1} board twin`}><h3>Seat {Number(seat)+1} board twin</h3><ul>{cards.map(card=><li key={card.index}>{card.faceDown?'Face down':card.name??'Unknown'}{card.tier!=='sure'?' · unconfirmed':''}</li>)}</ul>{!cards.length?<p>No cards on the selected side.</p>:null}</div>)}
+      </section> : null}
       <section className={styles.diagnostics} aria-labelledby="diagnostics-heading">
         <div className={styles.sectionHead}><h2 id="diagnostics-heading">Recognition diagnostics</h2><span>{result ? `${result.quality.framesUsed} frame${result.quality.framesUsed === 1 ? "" : "s"} used` : "Run recognition to inspect"}</span></div>
         <dl className={styles.quality}>
@@ -347,6 +375,7 @@ export function VisionLab() {
           <div><dt>Corners found</dt><dd>{result ? result.quality.cornersFound ? "Yes" : "No" : "—"}</dd></div>
           <div><dt>Fallback crop</dt><dd>{result ? result.quality.fallback ? "Yes" : "No" : "—"}</dd></div>
           <div><dt>Frame class</dt><dd>{result?.quality.frameClass ?? "—"}</dd></div>
+          <div><dt>Covered guard</dt><dd>{result ? result.quality.covered ? "Suppressed confidence" : "No overlap found" : "—"}</dd></div>
         </dl>
         <dl className={styles.timings}>
           {STAGES.map(stage => <div key={stage}><dt>{stage}</dt><dd>{result ? <>{result.timingsMs[stage].toFixed(1)} <span>ms</span></> : "—"}</dd></div>)}

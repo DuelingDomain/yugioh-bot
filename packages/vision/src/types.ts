@@ -35,7 +35,15 @@ export interface RecognitionPriors {
   /** Explicit caller restriction; inferred border colour remains a soft filter. */
   frameClasses?: string[];
 }
-export interface DetectedQuad { quad: Point[]; kind: 'face-up' | 'face-down'; confidence: number; partial: boolean }
+export interface DetectedQuad { quad: Point[]; kind: 'face-up' | 'face-down'; confidence: number; partial: boolean; covered?: boolean }
+export type BoardSide = 'near' | 'far';
+export interface PeekOptions { card: DetectedQuad; cards?: DetectedQuad[]; priors?: RecognitionPriors; signal?: AbortSignal }
+export interface PeekResult {
+  cardId?: string; name: string | null; tier: RecognitionTier; faceDown: boolean; covered: boolean;
+}
+export interface BoardCard extends PeekResult { outline: DetectedQuad; index: number; side: BoardSide; error?: string }
+export interface ReadAllOptions { cards?: DetectedQuad[]; priors?: RecognitionPriors; signal?: AbortSignal }
+export interface BoardResult { near: BoardCard[]; far: BoardCard[]; timingsMs: { detect: number; total: number } }
 export interface RecognizeOptions { clickPoint?: Point; k?: number; priors?: RecognitionPriors; card?: DetectedQuad; includeCrop?: boolean }
 export interface Candidate { cardId: string; score: number }
 export interface RecognitionResult {
@@ -45,7 +53,7 @@ export interface RecognitionResult {
   /** Core-only pixels; worker converts to JPEG and removes these. */
   warpedCard?: { width: number; height: number; data: Uint8ClampedArray | Uint8Array };
   tier: RecognitionTier;
-  quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; hypothesis?: 'art-box' | 'whole-card' };
+  quality: { sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; hypothesis?: 'art-box' | 'whole-card' };
   timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number };
   backend: 'webgpu' | 'wasm';
   /** Worker diagnostics; absent when the core pipeline is used directly. */

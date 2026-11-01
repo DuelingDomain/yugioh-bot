@@ -4,7 +4,7 @@ import { fullArtProfile } from './full-art';
 import { RecognitionPipeline } from './pipeline';
 import { decodeIndex } from './index-format';
 import { validateIndexProfile } from './profile';
-import type { GameProfile, IndexMeta, RecognizeOptions } from './types';
+import type { GameProfile, IndexMeta, RecognizeOptions, PeekOptions, ReadAllOptions } from './types';
 import type { RGBAImage } from './pixels';
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 let pipeline: RecognitionPipeline | undefined;
@@ -52,7 +52,7 @@ function pixels(frame: ImageBitmap | ImageData): RGBAImage {
   }
   return frame;
 }
-type Request = { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string } | { id: number; type: 'detect'; frame: ImageBitmap | ImageData } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions };
+type Request = { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string } | { id: number; type: 'detect'; frame: ImageBitmap | ImageData } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
 let queue = Promise.resolve();
 scope.onmessage = (event: MessageEvent<Request>) => {
   const message = event.data;
@@ -63,6 +63,8 @@ scope.onmessage = (event: MessageEvent<Request>) => {
       else {
         if (!pipeline) throw new Error('Recognizer has not initialized');
         if(message.type==='detect') { scope.postMessage({id:message.id,result:await pipeline.detectCards(pixels(message.frame))});return; }
+        if(message.type==='peek') {scope.postMessage({id:message.id,result:await pipeline.peek(pixels(message.frame),message.opts)});return;}
+        if(message.type==='readAll') {scope.postMessage({id:message.id,result:await pipeline.readAll(pixels(message.frame),message.opts)});return;}
         const images: RGBAImage[] = [];
         try { for (const frame of message.frames) images.push(pixels(frame)); }
         finally { for (const frame of message.frames) if ('close' in frame) frame.close(); }

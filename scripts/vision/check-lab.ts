@@ -1,13 +1,16 @@
 /** Browser smoke against an already-running isolated worktree lab; AI is mocked. */
 import {chromium,expect} from '@playwright/test';
 import {resolve,join} from 'node:path';
-import {mkdir,writeFile} from 'node:fs/promises';
+import {mkdir,writeFile,readFile} from 'node:fs/promises';
 const origin=process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3417';
 if(new URL(origin).port==='3000') throw new Error('Do not use port 3000');
 const data=resolve(process.env.VISION_DATA_DIR??'data/vision'),directory=join(data,'benchmark');
 const browser=await chromium.launch({channel:'chromium',headless:true,args:['--disable-gpu','--no-sandbox']});
 try {
   const page=await browser.newPage({viewport:{width:1280,height:900}}),errors:string[]=[];
+  await page.addInitScript(`window.__name=(value)=>value; window.visionOperations=[];
+    const post=Worker.prototype.postMessage;
+    Worker.prototype.postMessage=function(message,...rest){window.visionOperations.push(message.type);return post.call(this,message,...rest);};`);
   page.on('pageerror',e=>errors.push(e.message));
   let requests=0,cropBytes=0;
   await page.route('**/api/remote-vision/ai',async route=>{
@@ -41,9 +44,44 @@ try {
   await expect(page.getByRole('status').filter({hasText:'Confirmed:'})).toContainText('Blue-Eyes White Dragon');
   await page.getByRole('button',{name:'Resume',exact:true}).click();
   await expect(outlines).toHaveCount(0);
+  // Round 3: actual local peeks, sequential board read and selected-seat twin.
+  const photos=JSON.parse(await readFile(join(data,'benchmark/photos.json'),'utf8'));
+  await page.getByLabel('Upload a card photo').setInputFiles(join(data,'benchmark/board/board-6.jpg'));
+  await page.getByRole('button',{name:'Freeze & outline cards'}).click();
+  await expect(page.getByRole('button',{name:'Resume',exact:true})).toBeEnabled({timeout:30000});
+  await expect(outlines).toHaveCount(6);
+  const focusStart=Date.now();await outlines.first().focus();
+  const tooltip=page.getByRole('tooltip');
+  await expect(tooltip).toContainText(photos[0].name,{timeout:30000});
+  await expect(tooltip).toContainText(/sure|not sure|low match/);
+  const focusPeekMs=Date.now()-focusStart;
+  await expect(dialog).toBeHidden();
+  await page.keyboard.press('Escape');await expect(tooltip).toBeHidden();
+  await outlines.first().hover();await expect(tooltip).toContainText(photos[0].name);
+  const peekRequests=await page.evaluate(()=>((window as unknown as {visionOperations:string[]}).visionOperations).filter(type=>type==='peek').length);
+  if(peekRequests!==1) throw new Error('Repeated focus/hover failed to reuse snapshot peek cache');
+  await page.getByLabel('Board twin seat').selectOption('1');
+  await page.getByLabel('Board side').selectOption('near');
+  await page.getByRole('button',{name:'Read all cards',exact:true}).click();
+  await outlines.last().hover({force:true}); // Pointer movement must not invalidate an active board run.
+  const board=page.getByRole('region',{name:'Board reading',exact:true});
+  await expect(board).toBeVisible({timeout:30000});
+  await expect(board.getByRole('heading',{name:'Near · 3 cards'})).toBeVisible();
+  await expect(board.getByRole('heading',{name:'Far · 3 cards'})).toBeVisible();
+  await expect(board.getByLabel('Seat 2 board twin').locator('li')).toHaveCount(3);
+  await expect(page.getByRole('button',{name:'Export 1 confirmation'})).toBeEnabled();
+  // Cancel midway and then reset while a later read is active; neither publishes stale board data.
+  await page.getByRole('button',{name:'Read all cards',exact:true}).click();
+  await page.getByRole('button',{name:'Cancel board read'}).click();
+  await expect(page.getByRole('button',{name:'Read all cards',exact:true})).toBeEnabled();
+  await expect(board).toBeHidden();
+  await page.getByRole('button',{name:'Read all cards',exact:true}).click();
+  await page.getByRole('button',{name:'Stop',exact:true}).click();
+  await expect(board).toBeHidden();await expect(tooltip).toBeHidden();await expect(outlines).toHaveCount(0);
+  if(requests!==1) throw new Error('Peek or board triggered an automatic AI call');
   if(errors.length) throw new Error(errors.join('\n'));
   await mkdir(directory,{recursive:true});
-  const report={outlines:count,keyboardPopover:true,focusRestored:true,aiRequests:requests,aiMocked:true,cropJpegBytes:cropBytes,resumeClearsOutlines:true,browserErrors:errors};
-  await writeFile(join(directory,'lab-round2.json'),JSON.stringify(report,null,2));
+  const report={outlines:count,keyboardPopover:true,focusRestored:true,aiRequests:requests,aiMocked:true,cropJpegBytes:cropBytes,resumeClearsOutlines:true,boardOutlines:6,focusPeekMs,peekRequests,hoverCache:true,nearCards:3,farCards:3,seatTwinCards:3,cancelAndReset:true,browserErrors:errors};
+  await writeFile(join(directory,'lab-board.json'),JSON.stringify(report,null,2));
   console.log(JSON.stringify(report,null,2));
 } finally {await browser.close();}
