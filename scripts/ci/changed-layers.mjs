@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync, readdirSync } from "node:fs";
 import { posix } from "node:path";
 import { pathToFileURL } from "node:url";
+import { NEEDS_ENGINE } from "./engine-test-plan.mjs";
 
 const ZERO_SHA = /^0+$/;
 const AREAS = ["web", "bot", "ws", "worker", "shared", "duel_unit", "e2e", "ci_scripts"];
@@ -23,31 +24,92 @@ const docTestInputs = new Map([
 ]);
 const isDoc = (file) => !docTestInputs.has(file) && (/\.md$/i.test(file) || file.startsWith("docs/"));
 
-/** Follow literal module references, including re-exports, type and dynamic imports.
- * Scanning all path literals is deliberately conservative (also catches file readers).
- * Keep unresolved candidate paths so deletion/renaming still selects their callers.
- * Barrels include all exports: changes to their side effects can affect the host.
+// Start at the engine host/workers and core suites, not HTTP/DB startup or unit tests.
+// DB connection/migration are fixture setup; card remaps and engine-used services
+// remain inputs. Resolve their named barrel imports so unrelated services stay out.
+const engineRuntimeRoots = ["host", "engine", "legacy/index", "worker", "engine-resource-worker",
+  "deck-suggestion-worker", "replay-worker", "replay-json-worker"].map(file => `packages/duel-server/src/${file}.ts`);
+const applicationSetup = file => /^packages\/shared\/src\/db\/(?:connection|schema)\.[cm]?[jt]s$/.test(file);
+const applicationBarrel = file => /^packages\/shared\/src\/(?:db|services)\/index\.ts$/.test(file);
+const moduleReferences = source => [...source.matchAll(/["'`]((?:\.\.?\/|@yugidraft\/shared\/)[^"'`\s]+)["'`]/g)];
+
+/** Follow literal imports, re-exports and file readers; keep missing paths for deletions.
+ * Namespace/dynamic imports and unknown exports conservatively retain the whole barrel.
  */
 export function engineSharedFiles(sources, exports) {
+  const resolve = (file, reference) => {
+    let path;
+    if (reference.startsWith("@yugidraft/shared/")) {
+      const subpath = "./" + reference.slice("@yugidraft/shared/".length);
+      const entry = exports[subpath];
+      const target = typeof entry === "string" ? entry : entry?.source ?? entry?.default;
+      path = target ? "packages/shared/" + target.replace(/^\.\//, "").replace(/^dist\//, "src/")
+        : "packages/shared/src/" + subpath.slice(2);
+    } else path = posix.normalize(posix.join(posix.dirname(file), reference));
+    if (!/^(packages\/shared\/src|packages\/duel-server\/(src|tests|scripts))\//.test(path)) return [];
+    const stem = path.replace(/\.[cm]?jsx?$/, "");
+    return [...new Set([path, stem + ".ts", stem + ".tsx", stem + "/index.ts"])];
+  };
+  const exportedNames = (list) => list.split(",").map(item => item.trim().replace(/^type\s+/, "").split(/\s+as\s+/).at(-1)).filter(Boolean);
+  const ownsExport = (file, name, checking = new Set()) => {
+    if (checking.has(file)) return false;
+    checking.add(file);
+    const source = sources[file] ?? "";
+    if (new RegExp(`\\bexport\\s+(?:(?:declare|async|abstract)\\s+)?(?:const|let|var|function|class|interface|type|enum)\\s+${name}\\b`).test(source)) return true;
+    for (const [, list] of source.matchAll(/\bexport\s+(?:type\s+)?\{([^}]+)\}/g)) {
+      if (exportedNames(list).includes(name)) return true;
+    }
+    return [...source.matchAll(/\bexport\s+(?:type\s+)?\*\s+from\s+["']([^"']+)["']/g)]
+      .some(([, reference]) => resolve(file, reference).some(target => ownsExport(target, name, checking)));
+  };
+  const references = new Map(Object.entries(sources).map(([file, source]) => [file, moduleReferences(source)]));
+  const dependencies = new Map([...references].map(([file, refs]) => [file, refs.flatMap(([, reference]) => resolve(file, reference))]));
+  const needsCores = new Set(["packages/duel-server/tests/support/cores.ts"]);
+  let added;
+  do {
+    added = false;
+    for (const [file, deps] of dependencies) {
+      if (!needsCores.has(file) && deps.some(dep => needsCores.has(dep))) {
+        needsCores.add(file);
+        added = true;
+      }
+    }
+  } while (added);
+
   const seen = new Set();
-  const visit = (file) => {
-    if (seen.has(file)) return;
+  const expanded = new Set();
+  const visit = (file, names) => {
+    if (applicationSetup(file)) return;
+    const key = file + (applicationBarrel(file) && names ? ":" + [...names].sort().join(",") : ":*");
+    if (expanded.has(key)) return;
+    expanded.add(key);
     seen.add(file);
-    for (const [, reference] of (sources[file] ?? "").matchAll(/["'`]((?:\.\.?\/|@yugidraft\/shared\/)[^"'`\s]+)["'`]/g)) {
-      let path;
-      if (reference.startsWith("@yugidraft/shared/")) {
-        const subpath = "./" + reference.slice("@yugidraft/shared/".length);
-        const entry = exports[subpath];
-        const target = typeof entry === "string" ? entry : entry?.source ?? entry?.default;
-        path = target ? "packages/shared/" + target.replace(/^\.\//, "").replace(/^dist\//, "src/")
-          : "packages/shared/src/" + subpath.slice(2);
-      } else path = posix.normalize(posix.join(posix.dirname(file), reference));
-      if (!/^(packages\/shared\/src|packages\/duel-server\/(src|tests))\//.test(path)) continue;
-      const stem = path.replace(/\.[cm]?jsx?$/, "");
-      for (const candidate of [path, stem + ".ts", stem + ".tsx", stem + "/index.ts"]) visit(candidate);
+    const source = sources[file] ?? "";
+    const knownNames = names && applicationBarrel(file) ? names.filter(name => ownsExport(file, name)) : undefined;
+    for (const match of references.get(file) ?? []) {
+      const targets = resolve(file, match[1]);
+      const before = source.slice(0, match.index);
+      const named = before.match(/\b(?:import|export)\s+(?:type\s+)?\{([^}]+)\}\s+from\s*$/);
+      const star = /\bexport\s+(?:type\s+)?\*\s+from\s*$/.test(before);
+      if (knownNames && knownNames.length === names.length && (named || star)) {
+        const relevant = named ? knownNames.some(name => exportedNames(named[1]).includes(name))
+          : knownNames.some(name => targets.some(target => ownsExport(target, name)));
+        // A deleted export target has unknown ownership and must keep coverage.
+        if (!relevant && targets.some(target => sources[target] !== undefined)) continue;
+      }
+      const importedNames = named?.[1].split(",").map(item => item.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0]).filter(Boolean);
+      for (const candidate of targets) visit(candidate, importedNames);
     }
   };
-  for (const file of Object.keys(sources)) if (/^packages\/duel-server\/(src|tests)\//.test(file)) visit(file);
+  for (const file of engineRuntimeRoots) visit(file);
+  visit("packages/duel-server/tests/support/setup.ts");
+  visit("packages/duel-server/scripts/rule-coverage.ts");
+  for (const file of Object.keys(sources)) {
+    const relative = file.replace(/^packages\/duel-server\//, "");
+    if (file.startsWith("packages/duel-server/tests/scenarios/") ||
+      (relative.startsWith("tests/") && /\.(test|spec)\.[cm]?[jt]sx?$/.test(relative) &&
+        (needsCores.has(file) || NEEDS_ENGINE.some(pattern => pattern.endsWith("/**") ? relative.startsWith(pattern.slice(0, -2)) : relative === pattern)))) visit(file);
+  }
   return seen;
 }
 
@@ -67,6 +129,7 @@ function sharedEngineInput(file) {
     };
     collect("packages/duel-server/src/");
     collect("packages/duel-server/tests/");
+    collect("packages/duel-server/scripts/");
     collect("packages/shared/src/");
     sharedDependencies = engineSharedFiles(sources, JSON.parse(readFileSync(new URL("packages/shared/package.json", root), "utf8")).exports);
   }
