@@ -135,7 +135,7 @@ export function createVisionFeedbackService(db:Database.Database, options:Partia
     const learned=learning();return {collectionEnabled:process.env.REMOTE_VISION_FEEDBACK==='1',samples:samples.slice(0,100).map(({embedding:_,layoutKey:__,...s})=>s),accuracy:[...daily.values()],confusions:learned.confusions,learnedCount:learned.references.length,total:samples.length,bytes:samples.reduce((n,s)=>n+s.cropBytes,0),limits};
   }
   return {preference,setPreference,record,prune,learning,summary,
-    markAsked:(userId:number)=>{const changed=db.prepare('insert into vision_feedback_preferences(user_id,enabled,asked_at) values(?,0,?) on conflict(user_id) do nothing').run(userId,now()).changes;return {...preference(userId),prompted:changed===1};},
+    markAsked:(userId:number)=>{if(isOwnerUser(userId))return {...preference(userId),prompted:false};const changed=db.prepare('insert into vision_feedback_preferences(user_id,enabled,asked_at) values(?,0,?) on conflict(user_id) do nothing').run(userId,now()).changes;return {...preference(userId),prompted:changed===1};},
     allSamples:()=>{prune();return rows();},
     crop:(sampleId:string)=>db.prepare('select 1 from vision_samples where id=?').get(sampleId)?readFileSync(path(sampleId)):null,
     review:(sampleId:string,status:'approved'|'rejected',actorId:number)=>db.prepare('update vision_samples set review=?,reviewed_by=?,reviewed_at=? where id=?').run(status,actorId,now(),sampleId).changes,

@@ -2,31 +2,32 @@
 import { useEffect, useState } from 'react';
 import { SvButton } from '@/components/sheet';
 import styles from './duel-view-toggle.module.css';
-export interface FeedbackPreference {enabled:boolean;askedAt:number|null;collectionEnabled:boolean}
+export interface FeedbackPreference {enabled:boolean;askedAt:number|null;collectionEnabled:boolean;isAdmin?:boolean}
 export function VisionFeedbackSetting({onChange,promptOnly=false}:{onChange?:(value:FeedbackPreference)=>void;promptOnly?:boolean}) {
   const [value,setValue]=useState<FeedbackPreference|null>(null),[prompt,setPrompt]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
   useEffect(()=>{
     let alive=true;
+    const localOnly=()=>{if(alive)onChange?.({enabled:false,askedAt:null,collectionEnabled:false});};
     void (async()=>{
       try {
-        const reply=await fetch('/api/remote-vision/feedback',{cache:'no-store'});if(!reply.ok)return;
+        const reply=await fetch('/api/remote-vision/feedback',{cache:'no-store',signal:AbortSignal.timeout(5000)});if(!reply.ok){localOnly();return;}
         let pref=await reply.json() as FeedbackPreference;
         if(!alive)return;
-        if(pref.askedAt===null&&pref.collectionEnabled){
+        if(!pref.isAdmin&&pref.askedAt===null&&pref.collectionEnabled){
           const marked=await fetch('/api/remote-vision/feedback',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({asked:true})});
           if(marked.ok){const body=await marked.json();pref=body;if(alive)setPrompt(body.prompted===true);}
         }
         if(alive){setValue(pref);onChange?.(pref);}
-      }catch{/* Anonymous public lab continues with collection off. */}
+      }catch{localOnly();/* Anonymous public lab continues with collection off. */}
     })();return()=>{alive=false;};
   },[onChange]);
   async function update(enabled:boolean) {
     const previous=value;
-    setBusy(true);setMessage('');if(previous)setValue({...previous,enabled});
+    setBusy(true);setMessage('');if(previous){setValue({...previous,enabled});if(!enabled)onChange?.({...previous,enabled:false});}
     try {
       const res=await fetch('/api/remote-vision/feedback',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({enabled})});
       if(!res.ok)throw new Error();const pref=await res.json();setValue(pref);onChange?.(pref);setPrompt(false);setMessage(enabled?'Recognition feedback enabled.':'Recognition feedback disabled.');
-    }catch{setValue(previous);setMessage('Your choice could not be saved. Try again.');}finally{setBusy(false);}
+    }catch{setValue(previous);if(previous)onChange?.(previous);setMessage('Your choice could not be saved. Try again.');}finally{setBusy(false);}
   }
   async function remove() {
     setBusy(true);setMessage('');
@@ -34,6 +35,11 @@ export function VisionFeedbackSetting({onChange,promptOnly=false}:{onChange?:(va
     catch{setMessage('Samples could not be deleted. Try again.');}finally{setBusy(false);}
   }
   if(!value)return null;
+  if(promptOnly&&value.isAdmin)return <div className={`${styles.block} ${styles.adminControl}`}>
+    <label style={{display:'flex',alignItems:'center',gap:10}}><input className={styles.switch} type="checkbox" aria-label="Save to training set" checked={value.enabled} disabled={busy||!value.collectionEnabled} onChange={e=>void update(e.target.checked)} />
+      <span>{!value.collectionEnabled?'Training collection disabled':value.enabled?'Saving to training set':'Training capture paused'}</span></label>
+    {message?<p role="status">{message}</p>:null}
+  </div>;
   if(promptOnly&&!prompt)return <p><a href="/settings/account">Recognition feedback settings</a></p>;
   return <section className="set-sec" aria-labelledby={promptOnly?'vision-feedback-prompt':'vision-feedback-setting'}>
     <div className="set-intro"><h2 id={promptOnly?'vision-feedback-prompt':'vision-feedback-setting'}>Help improve card recognition</h2>

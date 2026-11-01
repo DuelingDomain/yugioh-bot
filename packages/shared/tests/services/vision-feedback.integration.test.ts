@@ -28,6 +28,7 @@ it('defaults off, persists a single answered prompt, respects global off and per
 it('defaults owner feedback on and immediately approves correct and corrected samples without another user',async()=>{
   vi.stubEnv('OWNER_USER_IDS','1');
   const s=service();expect(s.preference(1)).toMatchObject({enabled:true,isAdmin:true,askedAt:null});
+  expect(s.markAsked(1)).toMatchObject({enabled:true,askedAt:null,prompted:false});
   expect(s.preference(2)).toMatchObject({enabled:false,isAdmin:false});
   const correct=await s.record(1,sample({chosenCardId:'A'}));
   expect(s.allSamples()[0]).toMatchObject({id:correct.id,review:'approved'});

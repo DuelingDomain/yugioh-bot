@@ -105,7 +105,9 @@ async function renderLab() {
 }
 async function recognizeCenter() {
   fireEvent.click(screen.getByRole("button", { name: "Recognize center card" }));
-  return screen.findByRole("dialog", { name: "Card matches" });
+  const dialog=await screen.findByRole("dialog", { name: "Card matches" });
+  await waitFor(()=>expect(dialog).toHaveAttribute('aria-busy','false'));
+  return dialog;
 }
 async function freeze() {
   fireEvent.click(screen.getByRole("button", { name: "Freeze & outline cards" }));
@@ -165,6 +167,105 @@ describe("vision lab source and selected cards", () => {
     expect(state.recognize.mock.calls[0][1].card).toBe(quads[0]);
     expect(state.recognize.mock.calls[0][1].clickPoint).toEqual({ x: .25, y: .5 });
     expect(state.hitTestQuad).not.toHaveBeenCalled();
+  });
+});
+
+describe('live card inspection and owner capture',()=>{
+  it('opens a loading popup immediately, keeps the camera live, and flashes the detected card',async()=>{
+    state.initialSource='camera';const pending=deferred<RecognitionResult>();state.recognize.mockReturnValueOnce(pending.promise);
+    await renderLab();fireEvent.click(preview(),{detail:1,clientX:160,clientY:240});
+    const dialog=screen.getByRole('dialog',{name:'Card matches'});
+    expect(dialog).toHaveAttribute('aria-busy','true');expect(within(dialog).getByText('Reading card…')).toBeVisible();
+    expect(document.querySelector('video')).not.toHaveAttribute('hidden');
+    expect(screen.getByRole('button',{name:'Freeze & outline cards'})).toBeInTheDocument();
+    await waitFor(()=>expect(state.recognize).toHaveBeenCalled());
+    expect(state.recognize.mock.calls[0][1]).toMatchObject({clickPoint:{x:.25,y:.5},maxFrames:1});
+    await act(async()=>{pending.resolve({...result,detectedCard:quads[0]});await pending.promise;});
+    expect(screen.getByLabelText('Selected card outline').querySelector('polygon')).toHaveAttribute('points','64,48 256,48 256,432 64,432');
+    expect(state.detectCards).not.toHaveBeenCalled();expect(state.stop).not.toHaveBeenCalled();
+    expect(snapshots[0].close).toHaveBeenCalledTimes(1);
+  });
+  it('shows a full-size route image, complete text and stats, and top-five pick buttons when unsure',async()=>{
+    fetcher.mockImplementation(async(url)=>Response.json(String(url).includes('/api/cards/resolve')?{cards:[{id:46986414,name:'Dark Magician',effectText:'The ultimate wizard in terms of attack and defense.\nFull card text stays readable.',type:'Normal Monster',attribute:'DARK',level:7,atk:2500,def:2100}]}:String(url).includes('feedback')?{enabled:false,askedAt:1,collectionEnabled:true}:{entries:cards}));
+    await renderLab();const dialog=await recognizeCenter();
+    const image=within(dialog).getByRole('img',{name:'Dark Magician'});
+    expect(image).toHaveAttribute('src','/api/cards/46986414/image');expect(image).toHaveAttribute('width','360');
+    expect(await within(dialog).findByText(/Full card text stays readable/)).toBeVisible();
+    expect(within(dialog).getByText('ATK 2500')).toBeVisible();expect(within(dialog).getByText('DEF 2100')).toBeVisible();
+    expect(within(dialog).getByText('Level 7')).toBeVisible();expect(within(dialog).getByText('not sure')).toBeVisible();
+    expect(within(dialog).getAllByRole('button',{name:/Pick match/})).toHaveLength(5);
+  });
+  it('lets an owner confirm a correct sure top-1 without a consent prompt, then pause capture with the toggle',async()=>{
+    const feedback={embedding:[1,0],gameId:'yugioh',modelId:'m',modelSha256:'a'.repeat(64),indexVersion:'v1',layoutKey:'l',space:'art-box' as const,deltaVersion:'v'};
+    state.recognize.mockResolvedValue({...result,tier:'sure',feedback});
+    fetcher.mockImplementation(async(url,init)=>Response.json(String(url).includes('feedback')?{enabled:init?.method==='PATCH'?JSON.parse(init.body).enabled:true,isAdmin:true,askedAt:null,collectionEnabled:true}:{entries:cards}));
+    await renderLab();expect(screen.getByRole('checkbox',{name:'Save to training set'})).toBeChecked();
+    expect(screen.getByText('Saving to training set')).toBeVisible();expect(screen.queryByRole('button',{name:'No thanks'})).toBeNull();
+    expect(fetcher.mock.calls.some(([,init])=>init?.method==='PATCH')).toBe(false);
+    const dialog=await recognizeCenter();expect(state.recognize.mock.calls[0][1].includeFeedback).toBe(true);
+    expect(within(dialog).queryByRole('button',{name:/Pick match/})).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button',{name:'Confirm'}));
+    expect(state.recordFeedback).toHaveBeenCalledWith(expect.objectContaining({feedback}),'46986414','pick');
+    await screen.findByText('Recognition sample saved.');
+    fireEvent.click(screen.getByRole('checkbox',{name:'Save to training set'}));
+    await waitFor(()=>expect(screen.getByRole('checkbox',{name:'Save to training set'})).not.toBeChecked());
+    await recognizeCenter();fireEvent.keyDown(window,{key:'2'});expect(state.recordFeedback).toHaveBeenCalledTimes(1);
+  });
+  it('does not reopen a dismissed loading popup or display stale results after Stop',async()=>{
+    const pending=deferred<RecognitionResult>();state.recognize.mockReturnValueOnce(pending.promise);
+    await renderLab();fireEvent.click(screen.getByRole('button',{name:'Recognize center card'}));
+    expect(screen.getByRole('dialog',{name:'Card matches'})).toBeVisible();
+    await waitFor(()=>expect(state.recognize).toHaveBeenCalled());fireEvent.keyDown(window,{key:'Escape'});
+    await act(async()=>{pending.resolve(result);await pending.promise;});expect(screen.queryByRole('dialog')).toBeNull();
+    const stopped=deferred<RecognitionResult>();state.recognize.mockReturnValueOnce(stopped.promise);
+    fireEvent.click(screen.getByRole('button',{name:'Recognize center card'}));await waitFor(()=>expect(state.recognize).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button',{name:'Stop'}));await act(async()=>{stopped.resolve(result);await stopped.promise;});
+    expect(screen.queryByRole('dialog')).toBeNull();expect(screen.getByText('No card recognized yet')).toBeVisible();
+  });
+  it('ignores live-camera letterboxing and reports a click with no detected card without saving a fallback',async()=>{
+    state.initialSource='camera';await renderLab();
+    vi.mocked(preview().getBoundingClientRect).mockReturnValue({x:0,y:0,top:0,left:0,right:800,bottom:480,width:800,height:480,toJSON:()=>({})});
+    fireEvent.click(preview(),{detail:1,clientX:30,clientY:240});expect(state.snapshot).not.toHaveBeenCalled();expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(preview(),{detail:1,clientX:240,clientY:240});
+    const dialog=await screen.findByRole('dialog');
+    expect(await within(dialog).findByText('No card detected under this click.')).toBeVisible();
+    expect(state.recognize.mock.calls[0][1].clickPoint).toEqual({x:.25,y:.5});
+    expect(within(dialog).queryByRole('button',{name:'Confirm'})).toBeNull();expect(state.recordFeedback).not.toHaveBeenCalled();
+    expect(document.querySelector('video')).not.toHaveAttribute('hidden');
+  });
+  it('keeps confirmation available when full card text cannot load and aborts details on dismissal',async()=>{
+    const pending=deferred<Response>();let signal:AbortSignal|undefined;
+    fetcher.mockImplementation(async(url,init)=>{
+      if(String(url).includes('/api/cards/resolve')){signal=init.signal;return pending.promise;}
+      return Response.json(String(url).includes('feedback')?{enabled:false,askedAt:1,collectionEnabled:true}:{entries:cards});
+    });
+    await renderLab();const dialog=await recognizeCenter();expect(within(dialog).getByRole('button',{name:'Confirm'})).toBeEnabled();
+    fireEvent.keyDown(window,{key:'Escape'});expect(signal?.aborted).toBe(true);
+    await act(async()=>{pending.resolve(Response.json({cards:[]}));await pending.promise;});expect(screen.queryByRole('dialog')).toBeNull();
+  });
+  it('pauses capture immediately while the owner preference request is still in flight',async()=>{
+    const pending=deferred<Response>();
+    state.recognize.mockResolvedValue({...result,feedback:{embedding:[1,0]}});
+    fetcher.mockImplementation(async(url,init)=>{
+      if(String(url).includes('feedback'))return init?.method==='PATCH'?pending.promise:Response.json({enabled:true,isAdmin:true,askedAt:1,collectionEnabled:true});
+      return Response.json({entries:cards});
+    });
+    await renderLab();const dialog=await recognizeCenter();
+    fireEvent.click(screen.getByRole('checkbox',{name:'Save to training set'}));fireEvent.click(within(dialog).getByRole('button',{name:'Confirm'}));
+    expect(state.recordFeedback).not.toHaveBeenCalled();
+    await act(async()=>{pending.resolve(Response.json({enabled:false,isAdmin:true,askedAt:1,collectionEnabled:true}));await pending.promise;});
+  });
+  it('waits for the owner preference before preparing a read so an early confirmation retains evidence',async()=>{
+    const pending=deferred<Response>();
+    fetcher.mockImplementation(async(url)=>String(url).includes('feedback')?pending.promise:Response.json({entries:cards}));
+    await renderLab();expect(screen.getByRole('button',{name:'Recognize center card'})).toBeDisabled();
+    fireEvent.click(preview(),{detail:1,clientX:160,clientY:240});expect(state.recognize).not.toHaveBeenCalled();
+    await act(async()=>{pending.resolve(Response.json({enabled:true,isAdmin:true,askedAt:null,collectionEnabled:true}));await pending.promise;});
+    await recognizeCenter();expect(state.recognize.mock.calls[0][1].includeFeedback).toBe(true);
+  });
+  it('allows local recognition in the public lab when no authenticated feedback preference is available',async()=>{
+    fetcher.mockImplementation(async(url)=>String(url).includes('feedback')?Response.json({error:'unauthorized'},{status:401}):Response.json({entries:cards}));
+    await renderLab();await recognizeCenter();expect(state.recognize.mock.calls[0][1].includeFeedback).toBe(false);
   });
 });
 
