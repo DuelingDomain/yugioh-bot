@@ -17,7 +17,7 @@ const nextConfig: NextConfig = {
   // .next/standalone/.worktrees/domain-multiplayer/... so Docker
   // `node packages/web/server.js` would miss the emitted server.
   outputFileTracingRoot: worktreeRoot,
-  transpilePackages: ["@yugidraft/shared"],
+  transpilePackages: ["@yugidraft/shared", "@yugidraft/vision"],
   serverExternalPackages: ["better-sqlite3", "sharp"],
   images: { unoptimized: true },
 };
