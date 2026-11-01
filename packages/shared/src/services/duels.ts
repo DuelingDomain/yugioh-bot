@@ -72,6 +72,19 @@ import {
 import { newDiceOpening, settleDiceOpening } from "../duels/dice-opening.js";
 import { DECK_SECTION_LIMITS } from "../duels/deck-limits.js";
 
+import {
+  parseSandboxBoard,
+  parseSandboxRun,
+  SandboxBoardError,
+  SANDBOX_LIMITS,
+  type SandboxBoard,
+  type SandboxRun,
+} from "../duels/sandbox-board.js";
+
+/** Service results expose the persisted sandbox flag without changing the shared room protocol. */
+export type SandboxDuelSession = DuelSession & { sandbox?: boolean };
+export type SandboxDuelRoom = DuelRoom & { session: SandboxDuelSession };
+
 const MIN_MAIN = 40;
 const MAX_MAIN = DECK_SECTION_LIMITS.main;
 const MAX_EXTRA = DECK_SECTION_LIMITS.extra;
@@ -132,6 +145,7 @@ export interface DuelSetup {
   replayFork?: ReplayForkSetup;
   /** Resolved policy at start; older journals use tolerant recovery. */
   scriptErrorMode?: DuelScriptErrorMode;
+  sandbox?: { board: SandboxBoard; run: SandboxRun; scenarioId?: number };
   /** The resolved FIRST_TURN_DRAW flag at start. Recovery and replay must keep this rule. */
   firstTurnDraw?: boolean;
   /** Server-owned fork creation rule, preserved when its resource identity is upgraded. */
@@ -156,7 +170,7 @@ export interface DuelSetup {
 }
 
 export interface DuelPrivateState {
-  session: DuelSession;
+  session: SandboxDuelSession;
   decks: DuelDeck[];
   seed: string[] | null;
   bundleVersion: string | null;
@@ -208,6 +222,7 @@ export interface DuelService {
     organizerSeat?: 0 | 1;
     /** Mark the table as a deck-editor test duel (private practice, out of lists and counts). */
     testDuel?: boolean;
+    sandbox?: boolean;
   }): DuelSession;
   list(
     guildId: string,
@@ -244,8 +259,8 @@ export interface DuelService {
    * tournament game preloads the registered deck). CONTRACT: implemented by
    * the series work; the stub throws.
    */
-  markReady(slug: string, guildId: string, playerId: number): DuelSession;
-  markUnready(slug: string, guildId: string, playerId: number): DuelSession;
+  markReady(slug: string, guildId: string, playerId: number): SandboxDuelSession;
+  markUnready(slug: string, guildId: string, playerId: number): SandboxDuelSession;
   /**
    * `organizerPlayerId` null means a system start by the duel host. CONTRACT:
    * null is allowed only for a series game (duels.series_id set).
@@ -346,6 +361,7 @@ type DuelRow = {
   game_number: number | null;
   best_of: number;
   ranked: number;
+  sandbox: number;
   opening_json: string | null;
 };
 
@@ -398,9 +414,13 @@ function assertCardCodes(codes: unknown, label: string, min: number, max: number
 }
 
 export function validateDuelDeckShape(deck: DuelDeck, competitive: boolean): DuelDeck {
+  return validateDeckShape(deck, competitive, MAX_EXTRA);
+}
+
+function validateDeckShape(deck: DuelDeck, competitive: boolean, maxExtra: number): DuelDeck {
   const mainMin = competitive ? MIN_MAIN : 0;
   const main = assertCardCodes(deck.main, "Main deck", mainMin, MAX_MAIN);
-  const extra = assertCardCodes(deck.extra, "Extra deck", 0, MAX_EXTRA);
+  const extra = assertCardCodes(deck.extra, "Extra deck", 0, maxExtra);
   const side = assertCardCodes(deck.side, "Side deck", 0, MAX_SIDE);
   const normalized: DuelDeck = { main, extra, side };
   if (deck.deckMaster !== undefined) {
@@ -451,6 +471,28 @@ function isPolicyMap(value: unknown): value is Record<string, string> {
   );
 }
 
+function validateSandboxSetup(value: unknown): NonNullable<DuelSetup["sandbox"]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new DuelServiceError("sandbox must be an object", 400);
+  }
+  const input = value as Record<string, unknown>;
+  const extra = Object.keys(input).find((key) => key !== "board" && key !== "run" && key !== "scenarioId");
+  if (extra) throw new DuelServiceError(`Unknown sandbox setup field: ${extra}`, 400);
+  if (input.scenarioId !== undefined && (!Number.isSafeInteger(input.scenarioId) || (input.scenarioId as number) < 1)) {
+    throw new DuelServiceError("sandbox.scenarioId must be a positive integer", 400);
+  }
+  try {
+    return {
+      board: parseSandboxBoard(input.board),
+      run: parseSandboxRun(input.run),
+      ...(input.scenarioId === undefined ? {} : { scenarioId: input.scenarioId as number }),
+    };
+  } catch (error) {
+    if (error instanceof SandboxBoardError) throw new DuelServiceError(`sandbox.${error.path}: ${error.message}`, 400);
+    throw error;
+  }
+}
+
 function parseSetup(raw: string | null | undefined, kind: DuelKind, format: DuelFormat): DuelSetup | undefined {
   try {
     const parsed: unknown = raw == null ? undefined : JSON.parse(raw);
@@ -485,6 +527,13 @@ function parseSetup(raw: string | null | undefined, kind: DuelKind, format: Duel
     if (input.testDuel === true) setup.testDuel = true;
     if (isPolicyMap(input.botPolicies)) setup.botPolicies = input.botPolicies;
     if (isDuelEngineChoice(input.engine)) setup.engine = input.engine;
+    if (input.sandbox !== undefined) {
+      try {
+        setup.sandbox = validateSandboxSetup(input.sandbox);
+      } catch (error) {
+        console.warn("[duels] Ignoring invalid saved sandbox setup", error);
+      }
+    }
     return setup;
   } catch {
     throw new DuelServiceError("Duel setup record is invalid", 500);
@@ -497,7 +546,7 @@ export function validateSetup(setup: unknown, recorded?: DuelSetup): DuelSetup {
     throw new DuelServiceError("Duel setup must be an object", 400);
   }
   const input = setup as Record<string, unknown>;
-  const extra = Object.keys(input).find((key) => key !== "scriptErrorMode" && key !== "firstTurnDraw" && key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "eliminatedSeats" && key !== "presetId" && key !== "testDuel" && key !== "botPolicies" && key !== "engine"
+  const extra = Object.keys(input).find((key) => key !== "sandbox" && key !== "scriptErrorMode" && key !== "firstTurnDraw" && key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "eliminatedSeats" && key !== "presetId" && key !== "testDuel" && key !== "botPolicies" && key !== "engine"
     && !(key === "replayFork" && recorded?.replayFork) && !(key === "engineIdentity" && recorded?.engineIdentity)
     && !(key === "keepDamageStepWindows" && recorded?.replayFork && typeof recorded.keepDamageStepWindows === "boolean"));
   if (extra) throw new DuelServiceError(`Unknown duel setup field: ${extra}`, 400);
@@ -573,6 +622,7 @@ export function validateSetup(setup: unknown, recorded?: DuelSetup): DuelSetup {
     if (!isDuelEngineChoice(input.engine)) throw new DuelServiceError("engine must be legacy or pinned", 400);
     out.engine = input.engine;
   }
+  if (input.sandbox !== undefined) out.sandbox = validateSandboxSetup(input.sandbox);
   return out;
 }
 
@@ -668,10 +718,10 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
   const writeHeartbeat = db.prepare<[number]>(`insert into duel_host_heartbeat (id, last_tick_at)
     select 1, ? where exists (select 1 from duels where kind = 'play' and status = 'active' and ${COMPETITIVE_SQL})
     on conflict(id) do update set last_tick_at = excluded.last_tick_at`);
-  const insertDuel = db.prepare<[string, string, string, number, DuelMode, DuelMasterRule, string, string | null, DuelFormat, number, number]>(
+  const insertDuel = db.prepare<[string, string, string, number, DuelMode, DuelMasterRule, string, string | null, DuelFormat, number, number, number]>(
     `
-      insert into duels (guild_id, web_slug, name, organizer_player_id, mode, master_rule, status, settings_json, invite_code, format, best_of, ranked)
-      values (?, ?, ?, ?, ?, ?, 'lobby', ?, ?, ?, ?, ?)
+      insert into duels (guild_id, web_slug, name, organizer_player_id, mode, master_rule, status, settings_json, invite_code, format, best_of, ranked, sandbox)
+      values (?, ?, ?, ?, ?, ?, 'lobby', ?, ?, ?, ?, ?, ?)
     `,
   );
   const insertSeat = db.prepare<[number, number, number]>(
@@ -741,7 +791,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
   const selectDue = db.prepare<[string, number], DuelRow>(
     `
       select * from duels
-      where archived_at is null
+      where sandbox = 0 and archived_at is null
         and status in ('completed', 'interrupted', 'cancelled')
         and ended_at is not null
         and datetime(ended_at) <= datetime('now', ?)
@@ -843,6 +893,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       resultReason: row.result_reason,
       bestOf: row.best_of === 3 ? 3 : 1,
       ranked: row.ranked === 1,
+      sandbox: row.sandbox === 1,
       seriesId: row.series_id ?? null,
       gameNumber: row.game_number ?? null,
       ...(setup?.testDuel ? { testDuel: true } : {}),
@@ -859,6 +910,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
   };
 
   const hasPrivateAccess = (row: DuelRow, playerId: number): boolean => {
+    if (row.sandbox === 1) return row.organizer_player_id === playerId;
     if (isReplayFork(row)) {
       assertReplayForkAccess(db, row.web_slug, { guildId: row.guild_id, playerId });
       return true;
@@ -880,9 +932,25 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     }
   };
 
+  const assertNotSandbox = (row: DuelRow) => {
+    if (row.sandbox === 1) throw new DuelServiceError("This action is not available in a sandbox duel", 409);
+  };
+
+  const assertSandboxMatchRules = (row: DuelRow) => {
+    if (row.sandbox === 1 && (row.ranked !== 0 || row.best_of !== 1 || row.series_id !== null || row.game_number !== null)) {
+      throw new DuelServiceError("Sandbox duels cannot be ranked or linked to a series or tournament", 409);
+    }
+  };
+
+  const checkedSetup = (row: DuelRow, setup: DuelSetup): DuelSetup => {
+    const stored = validateSetup(setup);
+    if (stored.sandbox && row.sandbox !== 1) throw new DuelServiceError("Sandbox setup requires a sandbox duel", 409);
+    return stored;
+  };
+
   /** Openings, presets, tournament games, and later series games use their existing lifecycle. */
   const waitingDeadline = (row: DuelRow): number | null => {
-    if (row.kind !== "play" || row.status !== "lobby" || row.started_at !== null || row.opening_json !== null
+    if (row.sandbox === 1 || row.kind !== "play" || row.status !== "lobby" || row.started_at !== null || row.opening_json !== null
       || parseSetup(row.setup_json, row.kind, rowFormat(row))?.presetId
       || parseSetup(row.setup_json, row.kind, rowFormat(row))?.testDuel) return null;
     const linked = row.series_id === null ? null : series.byId(row.series_id);
@@ -971,6 +1039,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     const row = loadDuelRow(slug, guildId);
     assertPlay(row);
     assertPlayerGuild(actorPlayerId, guildId);
+    assertNotSandbox(row);
     if (row.status !== "lobby") throw new DuelServiceError("Duel already started", 409);
     const format = rowFormat(row);
     if (format === "tag") throw new DuelServiceError("Tag duels have no opening", 409);
@@ -1021,6 +1090,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       ranked?: boolean;
       organizerSeat?: 0 | 1;
       testDuel?: boolean;
+    sandbox?: boolean;
     }) => {
       if (Object.hasOwn(input, "kind")) throw new DuelServiceError("Duel kind is server-owned", 400);
       const format = input.format ?? DEFAULT_DUEL_FORMAT;
@@ -1034,11 +1104,17 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       if (bestOf !== 1 && bestOf !== 3) throw new DuelServiceError("Best of must be 1 or 3", 400);
       const ranked = input.ranked === undefined ? false : input.ranked;
       if (typeof ranked !== "boolean") throw new DuelServiceError("Ranked must be true or false", 400);
+      const sandbox = input.sandbox ?? false;
+      if (typeof sandbox !== "boolean") throw new DuelServiceError("Sandbox must be true or false", 400);
+      if (sandbox && (bestOf !== 1 || ranked)) {
+        throw new DuelServiceError("Sandbox duels cannot be ranked or use a series", 409);
+      }
       if (format !== DEFAULT_DUEL_FORMAT && (bestOf !== 1 || ranked)) {
         throw new DuelServiceError("Only a 1v1 duel can be best of 3 or ranked", 400);
       }
       const settings = rankedDuelSettings(wrapSettingsError(() => normalizeDuelSettings(input.mode, input.settings, format)), ranked);
-      const inviteCode = settings.visibility === "private" ? generateInviteCode() : null;
+      if (sandbox) { settings.visibility = "private"; settings.turnSeconds = 0; }
+      const inviteCode = !sandbox && settings.visibility === "private" ? generateInviteCode() : null;
 
       const result = insertDuel.run(
         input.guildId,
@@ -1052,6 +1128,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         format,
         bestOf,
         ranked ? 1 : 0,
+        sandbox ? 1 : 0,
       );
       const duelId = Number(result.lastInsertRowid);
       const organizerSeat = input.organizerSeat ?? 0;
@@ -1072,6 +1149,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
 
   const takeSeatTx = db.transaction((slug: string, guildId: string, playerId: number, requestedSeat?: number) => {
     const row = loadDuelRow(slug, guildId);
+    assertNotSandbox(row);
     assertPlay(row);
     assertPlayerGuild(playerId, guildId);
     assertRoomAccess(row, playerId);
@@ -1115,6 +1193,10 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     assertPlay(row);
     assertPlayerGuild(organizerPlayerId, guildId);
     assertRoomAccess(row, organizerPlayerId);
+    // The host provisions explicit seats before it saves setup. Normal add-bot actions stay blocked.
+    if (row.sandbox === 1 && (wantedSeat === undefined || row.setup_json != null || row.status !== "lobby")) {
+      throw new DuelServiceError("Sandbox bot seats are fixed after setup", 409);
+    }
     if (row.status !== "lobby") throw new DuelServiceError("Duel is not in lobby", 400);
     if (row.organizer_player_id !== organizerPlayerId) {
       throw new DuelServiceError("Only the organizer can add a practice bot", 403);
@@ -1140,7 +1222,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     }
     if (seat >= seatCount) throw new DuelServiceError("Duel needs an empty opponent seat", 409);
 
-    const normalized = validateDuelDeckShape(deck, rowSettings(row).validateDeck);
+    const normalized = validateDeckShape(deck, rowSettings(row).validateDeck, row.sandbox === 1 ? SANDBOX_LIMITS.extra : MAX_EXTRA);
     try {
       insertBotSeat.run(row.id, seat, JSON.stringify(normalized));
     } catch (error) {
@@ -1156,6 +1238,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     assertPlay(row);
     assertPlayerGuild(organizerPlayerId, guildId);
     assertRoomAccess(row, organizerPlayerId);
+    assertNotSandbox(row);
     if (row.status !== "lobby") throw new DuelServiceError("A practice bot can only be removed before the duel starts", 409);
     assertNoOpening(row);
     if (row.organizer_player_id !== organizerPlayerId) {
@@ -1182,7 +1265,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     const seat = seatRows(row.id).find((entry) => entry.player_id === playerId);
     if (!seat) throw new DuelServiceError("You are not seated in this duel", 403);
 
-    const normalized = validateDuelDeckShape(deck, rowSettings(row).validateDeck);
+    const normalized = validateDeckShape(deck, rowSettings(row).validateDeck, row.sandbox === 1 ? SANDBOX_LIMITS.extra : MAX_EXTRA);
     updateDeck.run(JSON.stringify(normalized), row.id, playerId);
     touchActivity(row.id);
     return mapSession(row);
@@ -1264,6 +1347,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     ) => {
       const row = loadDuelRow(slug, guildId);
       assertPlay(row);
+      assertSandboxMatchRules(row);
       if (row.status !== "lobby") throw new DuelServiceError("Duel is not in lobby", 400);
       if (row.series_id !== null) {
         // A series game: the host starts it (null), or any player of the series.
@@ -1298,15 +1382,17 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       const storedClock = checkedClock(clock, seatCount, row);
       if (competitive(row)) db.prepare("update duels set settings_json = ? where id = ?").run(JSON.stringify(rowSettings(row)), row.id);
       const storedSetup = setup === undefined && engineIdentity === undefined ? null : JSON.stringify({
-        ...validateSetup(setup ?? {}), ...(engineIdentity ? { engineIdentity } : {}),
+        ...checkedSetup(row, setup ?? {}), ...(engineIdentity ? { engineIdentity } : {}),
       });
       db.prepare<[string, string, string | null, string | null, number]>(
         "update duels set status = 'active', seed_json = ?, bundle_version = ?, clock_json = ?, setup_json = coalesce(?, setup_json), opening_json = null, started_at = coalesce(started_at, datetime('now')), last_activity_at = datetime('now') where id = ? and status = 'lobby'",
       ).run(JSON.stringify(seed), bundleVersion, serializeClock(storedClock), storedSetup, row.id);
       const updated = selectDuelById.get(row.id);
       if (!updated || updated.status !== "active") throw new DuelServiceError("Duel is not in lobby", 400);
-      recordDuelEvent(updated, "duel_started");
-      series.onActivate(updated, rowSettings(updated));
+      if (updated.sandbox !== 1) {
+        recordDuelEvent(updated, "duel_started");
+        series.onActivate(updated, rowSettings(updated));
+      }
       const attached = selectDuelById.get(row.id);
       return mapSession(attached ?? updated);
     },
@@ -1339,6 +1425,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       snapshots: DuelFinalSnapshots | undefined,
     ) => {
       const row = loadDuelRow(slug, guildId);
+      assertSandboxMatchRules(row);
       if (row.status === "completed" || row.status === "interrupted" || row.status === "cancelled") {
         return mapSession(row);
       }
@@ -1389,7 +1476,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       >(
         `
           update duels
-          set status = ?, ended_at = datetime('now'), archived_at = coalesce(archived_at, datetime('now')), winner_player_id = ?, winner_seat = ?, result_reason = ?,
+          set status = ?, ended_at = datetime('now'), archived_at = case when sandbox = 1 then archived_at else coalesce(archived_at, datetime('now')) end, winner_player_id = ?, winner_seat = ?, result_reason = ?,
               snapshot_public_json = ?, snapshot_seat0_json = ?, snapshot_seat1_json = ?, snapshot_seats_json = ?, turn_count = ?, snapshot_compacted_at = null, clock_json = null
           where id = ? and status = 'active'
         `,
@@ -1407,7 +1494,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       );
       const updated = selectDuelById.get(row.id);
       if (!updated) throw new DuelServiceError("Duel record is invalid", 500);
-      if (!isReplayFork(updated)) {
+      if (!isReplayFork(updated) && updated.sandbox !== 1) {
         recordDuelEvent(updated, "duel_finished", {
           endedBy: nextStatus,
           ...(turnCount === null ? {} : { turnCount }),
@@ -1420,7 +1507,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
 
   const cancelRow = db.prepare<[string, number | null, number]>(`
     update duels
-    set status = 'cancelled', ended_at = datetime('now'), archived_at = coalesce(archived_at, datetime('now')), winner_player_id = null, winner_seat = null,
+    set status = 'cancelled', ended_at = datetime('now'), archived_at = case when sandbox = 1 then archived_at else coalesce(archived_at, datetime('now')) end, winner_player_id = null, winner_seat = null,
         result_reason = ?, turn_count = coalesce(turn_count, ?), clock_json = null
     where id = ? and status in ('lobby', 'active')
   `);
@@ -1682,7 +1769,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     const cap = Math.min(Math.max(1, Math.floor(limit)), ARCHIVE_DUE_CAP);
     const seconds = Math.max(0, Math.ceil(archiveAfterMs / 1000));
     const due = selectDue.all(`-${seconds} seconds`, cap);
-    const archived: DuelSession[] = [];
+    const archived: SandboxDuelSession[] = [];
     const stamp = db.prepare<[number]>("update duels set archived_at = datetime('now') where id = ? and archived_at is null");
     for (const row of due) {
       if (!isTerminalStatus(row.status)) continue;
@@ -1993,6 +2080,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
 
     admit(slug, guildId, playerId, inviteCode) {
       const row = loadDuelRow(slug, guildId);
+      assertNotSandbox(row);
       assertPlay(row);
       assertPlayerGuild(playerId, guildId);
       assertNotKicked(row, playerId);
@@ -2020,6 +2108,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         const row = loadDuelRow(slug, guildId);
         const recorded = parseSetup(row.setup_json, row.kind, rowFormat(row));
         const checked = setup === null ? null : validateSetup(setup, recorded);
+        if (checked?.sandbox && row.sandbox !== 1) throw new DuelServiceError("Sandbox setup requires a sandbox duel", 409);
         if ((recorded?.replayFork || recorded?.engineIdentity) && checked === null) {
           throw new DuelServiceError("Recorded identity and replay fork mark are immutable", 409);
         }

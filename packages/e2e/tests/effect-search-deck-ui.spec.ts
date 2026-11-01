@@ -133,10 +133,10 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844
       archetype: "Blue-Eyes",
       plan: "Summon Blue-Eyes White Dragon again and again, then end the turn on a boss monster that your opponent cannot easily answer. ".repeat(4).trim(),
       hooks: [
-        { label: "Dragon search", why: "Adds a Blue-Eyes card from the Deck, so the plan starts every turn.", searchable: true },
-        { label: "Level 8 support", why: "Any Level 8 Dragon can be a second body.", searchable: true },
-        { label: "Graveyard recursion", why: "Brings the dragons back after a board wipe.", searchable: false },
-        { label: "Fusion engine", why: "Makes the big Fusion monsters.", searchable: true },
+        { label: "Dragon search", why: "Adds a Blue-Eyes card from the Deck, so the plan starts every turn.", searchable: true, finds: { is: null, support: true } },
+        { label: "Level 8 support", why: "Any Level 8 Dragon can be a second body.", searchable: true, finds: { is: { one: "Level 8 Dragon monster", many: "Level 8 Dragon monsters" }, support: true } },
+        { label: "Graveyard recursion", why: "Brings the dragons back after a board wipe.", searchable: false, finds: { is: null, support: false } },
+        { label: "Fusion engine", why: "Makes the big Fusion monsters.", searchable: true, finds: { is: null, support: true } },
       ],
     };
     await page.route("**/api/decks/cards", async (route) => {
@@ -146,11 +146,11 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844
       const data = (await response.json()) as Record<string, unknown>;
       await route.fulfill({ json: { ...data, effectSearchEnabled: true, ...((body.offset ?? 0) === 0 ? { profile: guide } : {}) } });
     });
-    let hookRequest: { archetype?: string; hook?: number } | null = null;
+    const hookRequests: { archetype?: string; hook?: number; find?: string; members?: boolean }[] = [];
     await page.route("**/api/cards/insights", async (route) => {
-      const body = route.request().postDataJSON() as { op?: string; archetype?: string; hook?: number };
+      const body = route.request().postDataJSON() as { op?: string; archetype?: string; hook?: number; find?: string; members?: boolean };
       if (body.op !== "hookSearch") return route.fallback();
-      hookRequest = body;
+      hookRequests.push(body);
       await route.fulfill({ json: { effectSearchEnabled: true, cards: [] } });
     });
     await page.goto("/decks/new");
@@ -181,12 +181,32 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 390, height: 844
     expect(await hook.boundingBox()).toEqual(before);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 
-    // A hook with data runs a search for the cards that fit it; the same row again goes back.
-    await hook.click();
-    await expect(browser.getByRole("list", { name: "Works with" }).getByText("Dragon search")).toBeVisible();
-    expect(hookRequest).toMatchObject({ archetype: "Blue-Eyes", hook: 0 });
-    await browser.getByRole("button", { name: "Remove Fits Dragon search" }).click();
-    await expect(browser.getByRole("list", { name: "Works with" })).toHaveCount(0);
+    // A hook with data runs a search for the cards that fit it. Back returns to the guide, with the search text kept.
+    const search = browser.getByRole("searchbox", { name: "Search cards" });
+    await hook.focus();
+    await page.keyboard.press("Enter");
+    const drill = browser.getByTestId("hook-drill");
+    // A keyboard user lands on Back, and Back lands on the row they came from.
+    await expect(drill.getByRole("button", { name: /^Back/ })).toBeFocused();
+    await expect(drill).toContainText("Blue-Eyes");
+    await expect(drill).toContainText("Dragon search");
+    await expect(panel).toBeHidden();
+    await expect.poll(() => hookRequests.at(-1)).toMatchObject({ archetype: "Blue-Eyes", hook: 0, find: "support" });
+    expect(hookRequests.at(-1)?.members).toBeUndefined();
+    await page.keyboard.press("Enter");
+    await expect(drill).toHaveCount(0);
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('[data-hook="0:support"]')).toBeFocused();
+    await expect(search).toHaveValue("Blue-Eyes synergies");
+
+    // A row that finds a kind of card has two actions. "All cards" adds the archetype's own cards.
+    await panel.getByRole("button", { name: "Find Level 8 Dragon monsters" }).click();
+    await expect(drill).toContainText("Level 8 Dragon monsters");
+    await expect.poll(() => hookRequests.at(-1)).toMatchObject({ hook: 1, find: "is" });
+    await drill.getByRole("button", { name: "All cards" }).click();
+    await expect.poll(() => hookRequests.at(-1)?.members).toBe(true);
+    await drill.getByRole("button", { name: /^Back/ }).click();
+    await expect(panel).toBeVisible();
     await expect(browser).not.toContainText(/searchygo/i);
     void testInfo;
   });

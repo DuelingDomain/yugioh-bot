@@ -18,7 +18,11 @@ const nextConfig: NextConfig = {
   // `node packages/web/server.js` would miss the emitted server.
   outputFileTracingRoot: worktreeRoot,
   // Local recognition assets are prepared separately and served only by the gated lab.
-  outputFileTracingExcludes: { "/*": ["../../data/vision/**/*"] },
+  // Bridge discovery runs on the duel host; barrel exports must not trace its data into web.
+  outputFileTracingExcludes: {
+    "/*": ["../../data/vision/**/*", "../shared/data/effects/tags.jsonl.gz", "../shared/data/effects/bridge-mechanic-facts.json",
+      "../shared/data/staples/bridge-observations.json"],
+  },
   transpilePackages: ["@yugidraft/shared", "@yugidraft/vision"],
   serverExternalPackages: ["better-sqlite3", "sharp"],
   images: { unoptimized: true },

@@ -392,6 +392,62 @@ export function migrate(db: Database.Database) {
       imported_at text not null default current_timestamp
     );
 
+    create table if not exists card_capability (
+      passcode integer primary key,
+      capabilities_json text not null check(json_valid(capabilities_json)),
+      text_hash text not null,
+      evidence_hash text not null,
+      source_version text not null
+    );
+    create table if not exists archetype_bridge (
+      source text not null collate nocase,
+      target text not null collate nocase,
+      format text not null check(format in ('advanced','genesys')),
+      score real not null check(score >= 0 and score <= 100),
+      grade text not null check(grade in ('Strong','Good','Niche','Risky')),
+      bridge_json text not null check(json_valid(bridge_json)),
+      evidence_hash text not null,
+      source_version text not null,
+      primary key(source,target,format)
+    );
+    create index if not exists archetype_bridge_lookup on archetype_bridge(source,format,score desc);
+    create index if not exists archetype_bridge_target on archetype_bridge(target,format,score desc);
+    create index if not exists archetype_bridge_evidence on archetype_bridge(evidence_hash);
+    create table if not exists bridge_graph (
+      id integer primary key check(id=1), graph_json text not null, source_version text not null
+    );
+    create table if not exists bridge_artifact_import (
+      version text primary key, imported_at text not null default current_timestamp
+    );
+    create table if not exists bridge_judgement (
+      evidence_hash text not null,
+      judge text not null,
+      verdict text not null check(verdict in ('approved','rejected','review')),
+      judgement_json text not null check(json_valid(judgement_json)),
+      created_at text not null default current_timestamp,
+      primary key(evidence_hash,judge)
+    );
+    create table if not exists bridge_judge_spend (
+      id text primary key,
+      request_key text unique,
+      month text not null,
+      state text not null check(state in ('reserved','submission_started','settled')),
+      reserved_micros integer not null check(reserved_micros >= 0),
+      actual_micros integer check(actual_micros >= 0),
+      requests integer not null check(requests > 0),
+      batch integer not null check(batch in (0,1)),
+      usage_json text check(usage_json is null or json_valid(usage_json)),
+      created_at text not null
+    );
+    create table if not exists bridge_feedback (
+      id integer primary key,
+      evidence_hash text not null,
+      actor_hash text not null,
+      reason text not null,
+      created_at text not null default current_timestamp,
+      resolved_at text,
+      unique(evidence_hash,actor_hash)
+    );
     create table if not exists players (
       id integer primary key autoincrement,
       guild_id text not null,
@@ -757,6 +813,40 @@ export function migrate(db: Database.Database) {
         end;`);
     }
   }
+  // Engine plans and legality read the imported capabilities and graph, not
+  // the on-demand catalog, release/tag metadata or archetype directory.
+  db.exec(`create table if not exists bridge_engine_revision (
+    id integer primary key check (id = 1), revision integer not null default 0
+  ); insert or ignore into bridge_engine_revision(id) values(1);`);
+  const bridgeInputs: Record<string, string[]> = {
+    card_capability: ["passcode", "capabilities_json", "text_hash", "evidence_hash"],
+    bridge_graph: ["graph_json", "source_version"],
+  };
+  db.transaction(() => {
+    // Replace definitions by name on every migration, including removed inputs.
+    // IF NOT EXISTS alone would leave the old column lists active on upgrades.
+    for (const table of ["card_catalog", "card_tags", "card_tag_profiles", "card_release", "archetypes", ...Object.keys(bridgeInputs)]) {
+      for (const event of ["insert", "update", "delete"]) db.exec(`drop trigger if exists ${table}_bridge_engine_${event}`);
+    }
+    for (const [table, columns] of Object.entries(bridgeInputs)) for (const event of ["insert", "update", "delete"]) {
+      const changed = event === "update" ? `when ${columns.map(column => `old.${column} is not new.${column}`).join(" or ")}` : "";
+      db.exec(`create trigger ${table}_bridge_engine_${event}
+        after ${event} on ${table} ${changed} begin
+          update bridge_engine_revision set revision=revision+1 where id=1;
+        end;`);
+    }
+  }).immediate();
+  db.exec(`create table if not exists bridge_revision (
+    id integer primary key check (id = 1), revision integer not null default 0
+  ); insert or ignore into bridge_revision(id) values(1);`);
+  for (const table of ["bridge_graph", "archetype_bridge", "card_capability", "bridge_judgement", "bridge_feedback"]) {
+    for (const event of ["insert", "update", "delete"]) {
+      db.exec(`create trigger if not exists ${table}_bridge_${event}
+        after ${event} on ${table} begin
+          update bridge_revision set revision=revision+1 where id=1;
+        end;`);
+    }
+  }
   addColumnIfMissing(db, "drafts", "tournament_id", "integer references tournaments(id)");
   addColumnIfMissing(db, "drafts", "complete_message_id", "text");
   addColumnIfMissing(db, "matches", "notify_channel_id", "text");
@@ -1115,6 +1205,25 @@ export function migrate(db: Database.Database) {
     );
     create index if not exists saved_decks_owner_list_idx on saved_decks (guild_id, owner_user_id, updated_at);
   `);
+
+  db.exec(`
+    create table if not exists sandbox_scenarios (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      owner_player_id integer not null references players(id),
+      name text not null,
+      format text not null,
+      mode text not null,
+      board_json text not null,
+      run_json text not null,
+      created_at text not null default current_timestamp,
+      updated_at text not null default current_timestamp
+    );
+    create index if not exists sandbox_scenarios_guild_updated_idx
+      on sandbox_scenarios (guild_id, updated_at);
+  `);
+
+  addColumnIfMissing(db, "duels", "sandbox", "integer not null default 0");
 
   // Duel series: a match of 1 or 3 games between two players. Every game is a
   // duels row with series_id. When the series has a winner it writes one

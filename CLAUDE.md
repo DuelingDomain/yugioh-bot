@@ -192,3 +192,5 @@ Default canonical vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `
 ### Domain docs
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+Dev sandbox is restricted to signed-in users whose Discord ID is in SANDBOX_DISCORD_IDS.

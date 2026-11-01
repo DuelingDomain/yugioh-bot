@@ -13,6 +13,10 @@ export * from "./replay.js";
 export * from "./replay-fork.js";
 export { isUnknownEngineChoice, sourceEngineChoice } from "./source-engine-choice.js";
 
+export * from "./sandbox-board.js";
+export * from "./sandbox-share.js";
+export * from "./sandbox-ops.js";
+
 export type DuelMode = "normal" | "domain";
 export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "cancelled";
 export type DuelActorRole = "player" | "spectator";
@@ -617,6 +621,7 @@ export interface DuelSeat {
 }
 
 export interface DuelSession {
+  sandbox?: boolean;
   id: number;
   slug: string;
   /** Server-owned immutable kind. Rows from before fork storage are play. */

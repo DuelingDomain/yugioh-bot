@@ -1,3 +1,4 @@
+import { authorizeDuelControl, readSandboxBody, sandboxErrorResponse } from "@/lib/sandbox-access";
 import { NextRequest, NextResponse } from "next/server";
 import type { DuelCommand } from "@yugidraft/shared/duels";
 import { duelAnimationSpeed, readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
@@ -10,19 +11,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { slug } = await params;
 
   let fork = false;
+  let sandbox = false;
   let control: ReturnType<typeof readDuelControl>;
   try {
     const room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
-    control = readDuelControl(request, room, "action");
+    const authorized = await authorizeDuelControl(request, room, "action");
+    if (!authorized.ok) return authorized.response;
+    control = authorized.control;
     fork = room?.session.kind === "replay-fork";
+    sandbox = room.session.sandbox === true;
   } catch (error) {
-    return duelErrorResponse(error);
+    return sandboxErrorResponse(error);
   }
 
   let command: DuelCommand;
   try {
-    command = (await request.json()) as DuelCommand;
-  } catch {
+    command = (sandbox ? await readSandboxBody(request) : await request.json()) as DuelCommand;
+  } catch (error) {
+    if (sandbox) return sandboxErrorResponse(error);
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400, headers: { "cache-control": "private, no-store" } });
   }
 

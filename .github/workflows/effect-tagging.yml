@@ -10,6 +10,7 @@ on:
       - packages/shared/src/cards/effects/tags.ts
       - packages/shared/src/cards/effects/synergy.ts
       - scripts/ci/publish-effect-tags.mjs
+      - scripts/ci/bridge-judgements.mjs
       - .github/workflows/effect-tagging.yml
   schedule:
     - cron: "30 7 * * 1,3,5"
@@ -23,12 +24,24 @@ on:
         description: "One-time initialization before any tagging spend (never reset a lost ledger)"
         type: boolean
         default: false
+      initialize_bridge_ledger:
+        description: "One-time bridge judge state initialization; never reset an existing ledger"
+        type: boolean
+        default: false
       recover_reservation:
         description: "Optional ambiguous reservation ID to reconcile"
         type: string
         required: false
       recover_batch:
         description: "Matching immutable Anthropic Batch ID; completed results must match every custom_id"
+        type: string
+        required: false
+      recover_bridge_reservation:
+        description: "Optional ambiguous bridge judge reservation to reconcile"
+        type: string
+        required: false
+      recover_bridge_batch:
+        description: "Matching immutable bridge Message Batch ID"
         type: string
         required: false
 
@@ -75,7 +88,8 @@ jobs:
       - name: Validate offline Batch/ledger protocol
         run: |
           prlimit --core=0 -- npx tsc -p scripts/effects/tsconfig.json --noEmit
-          prlimit --core=0 -- npx vitest run scripts/effects/tests/effect-tagging.integration.test.ts --maxWorkers=1
+          prlimit --core=0 -- npx vitest run scripts/effects/tests/effect-tagging.integration.test.ts scripts/effects/tests/bridge-batch.integration.test.ts --maxWorkers=1
+          prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check
 
   tag:
     needs: validate
@@ -117,7 +131,7 @@ jobs:
         run: |
           set -euo pipefail
           args=(--engine-directory "$DUEL_DATA_DIR" --output "$EFFECT_ARTIFACT_DIR")
-          if [ "$DRY_RUN" != 'true' ] && [ -n "$ANTHROPIC_API_KEY" ]; then args+=(--live); fi
+          if [ "$DRY_RUN" != 'true' ] && [ -n "$ANTHROPIC_API_KEY" ] && [ '${{ inputs.initialize_bridge_ledger }}' != 'true' ]; then args+=(--live); fi
           if [ "$INITIALIZE_LEDGER" = 'true' ]; then
             test "$DRY_RUN" = 'false'
             args+=(--live --initialize-ledger)
@@ -127,11 +141,11 @@ jobs:
           fi
           prlimit --core=0 -- node --import tsx scripts/effects/tag-cards.ts "${args[@]}"
       - name: Fill missing release months from the free bulk API
-        if: ${{ !inputs.dry_run && !inputs.initialize_ledger }}
+        if: ${{ !inputs.dry_run && !inputs.initialize_ledger && !inputs.initialize_bridge_ledger }}
         continue-on-error: true
         run: prlimit --core=0 -- npm run effects:fill-releases -- --output "$EFFECT_ARTIFACT_DIR"
       - name: Validate and apply only candidate data/pin constants in disposable checkout
-        id: result
+        id: effect_result
         run: |
           if [ ! -f "$EFFECT_ARTIFACT_DIR/update.json" ]; then
             echo 'changed=false' >> "$GITHUB_OUTPUT"
@@ -148,11 +162,53 @@ jobs:
           if (candidate.changed) for (const file of candidate.files) copyFileSync(join(output, file), file);
           JS
       - name: Build and evaluate the actual generated pin before publication
-        if: steps.result.outputs.changed == 'true'
+        if: steps.effect_result.outputs.changed == 'true'
         run: |
           prlimit --core=0 -- npm run build --workspace=packages/shared
           prlimit --core=0 -- npx vitest run packages/shared/tests/effect-artifact.integration.test.ts packages/shared/tests/effect-search.integration.test.ts --maxWorkers=1
           prlimit --core=0 -- npx vitest run packages/duel-server/tests/effect-search.integration.test.ts --maxWorkers=1 --testTimeout=15000
+      - name: Rebuild and evaluate directed bridges after tagging
+        if: steps.effect_result.outputs.changed == 'true'
+        run: |
+          prlimit --core=0 -- npx tsx scripts/effects/rebuild-bridges.ts --engine-directory "$DUEL_DATA_DIR"
+          prlimit --core=0 -- npm run build --workspace=packages/shared
+          prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check
+          prlimit --core=0 -- npx tsx scripts/effects/stage-bridges.ts --output "$EFFECT_ARTIFACT_DIR" --kind effects
+      - name: Initialize bridge judge state without submitting requests
+        if: inputs.initialize_bridge_ledger
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test '${{ inputs.dry_run }}' = 'false'
+          prlimit --core=0 -- npx tsx scripts/effects/judge-bridges.ts --live --initialize-ledger
+      - name: Collect and submit bridge judge batches even when tags are unchanged
+        if: ${{ !inputs.initialize_ledger && !inputs.initialize_bridge_ledger }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BRIDGE_JUDGE_MONTHLY_USD: ${{ vars.BRIDGE_JUDGE_MONTHLY_USD }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          RECOVER_BRIDGE_RESERVATION: ${{ inputs.recover_bridge_reservation }}
+          RECOVER_BRIDGE_BATCH: ${{ inputs.recover_bridge_batch }}
+        run: |
+          set -euo pipefail
+          args=(--output "$EFFECT_ARTIFACT_DIR")
+          if [ "$DRY_RUN" != 'true' ] && [ -n "$ANTHROPIC_API_KEY" ]; then args+=(--live); else args+=(--dry-run); fi
+          if [ -n "$RECOVER_BRIDGE_RESERVATION" ] || [ -n "$RECOVER_BRIDGE_BATCH" ]; then
+            args+=(--recover-reservation "$RECOVER_BRIDGE_RESERVATION" --recover-batch "$RECOVER_BRIDGE_BATCH")
+          fi
+          prlimit --core=0 -- npx tsx scripts/effects/judge-bridges.ts "${args[@]}"
+          prlimit --core=0 -- npx tsx scripts/effects/stage-bridge-judgements.ts --output "$EFFECT_ARTIFACT_DIR"
+      - name: Report combined effect and bridge judgement changes
+        id: result
+        run: |
+          prlimit --core=0 -- node --input-type=module <<'JS'
+          import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const path = join(process.env.EFFECT_ARTIFACT_DIR, 'update.json');
+          const changed = existsSync(path) && JSON.parse(readFileSync(path, 'utf8')).changed;
+          appendFileSync(process.env.GITHUB_OUTPUT, `changed=${Boolean(changed)}\n`);
+          JS
       - name: Publish report
         if: always()
         run: |
@@ -204,7 +260,7 @@ jobs:
   staples:
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
@@ -223,6 +279,8 @@ jobs:
           node-version: "22"
       - name: Refresh bounded public deck usage (no paid tagging key)
         run: prlimit --core=0 -- node scripts/staples/refresh.mjs "$STAPLES_OUTPUT/candidate.json"
+      - name: Install dependencies for derived bridge statistics (no native build)
+        run: npm ci --ignore-scripts
       - name: Validate schema, counts, provenance and additive formats
         run: prlimit --core=0 -- node scripts/staples/publish.mjs --validate-only
       - uses: actions/upload-artifact@v4

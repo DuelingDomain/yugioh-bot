@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { createPrereleaseDateLookup } from "@yugidraft/shared/services";
+import { createPrereleaseDateLookup, readNamedInsightProfiles } from "@yugidraft/shared/services";
 import { spawn } from "node:child_process";
 import { closeSync, mkdtempSync, openSync, readSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,9 +10,9 @@ import { join, resolve } from "node:path";
 import {
   rankArchetypeRole, formatStaples, type FormatStaples, buildArchetypeMatcher, engineInsightCard, interpret, matchCard, omitReadingChips, mayReadEffect,
   compactEffectName, resolveEffectName, cachedEffectReading, intentReading, cardSimilarity, counterProfileFromHooks, counterLink,
-  softTextScore, effectMatchReason, shortReason, ArchetypeProfile,
+  softTextScore, effectMatchReason, shortReason, ArchetypeProfile, archetypeSupportMatcher,
   type ReleaseDates,
-  type Card, type Interpretation,
+  type Card, type Interpretation, type SynergyCategory,
 } from "@yugidraft/shared/cards/effects";
 import { inArchetype, CARD_TYPE_BITS as T } from "@yugidraft/shared/duels";
 import type { CardDatabase } from "./cards.js";
@@ -29,6 +29,7 @@ export interface CardEffectIndex {
   match(code: number, reading: Interpretation, usage?: FormatStaples): number | null;
   popularity(code: number): number;
   reason(code: number, reading: Interpretation, usage?: FormatStaples): string;
+  synergyCategory?(code: number, reading: Interpretation): SynergyCategory | undefined;
 }
 
 // The index reads release dates from its database, so it is only usable while that database is open.
@@ -73,14 +74,25 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
     monsterType: undefined, attribute: undefined, level: undefined, rank: undefined, linkRating: undefined,
     atk: null, def: null, tcgDate: undefined, ocgDate: undefined };
   const canonical = (code: number) => cards.get(code)?.canonicalPasscode ?? code;
+  const memberships = new Map<string, string[]>();
+  const memberNames = (card: { setcodes: number[] }) => {
+    const key = card.setcodes.join(",");
+    let names = memberships.get(key);
+    if (!names) {
+      names = [...cards.setnames()].filter(([code]) => inArchetype(card.setcodes, code)).map(([, name]) => name);
+      memberships.set(key, names);
+    }
+    return names;
+  };
   const summary = db.prepare<[number], { summary: string; tags_json: string }>("SELECT summary,tags_json FROM card_tags WHERE passcode=?");
   const profileRow = db.prepare<[string], { plan: string; hooks_json: string }>("SELECT plan,hooks_json FROM card_tag_profiles WHERE archetype=? COLLATE NOCASE");
   const defaultUsage = formatStaples();
-  const contexts = new WeakMap<Interpretation, { role?: { members: Set<number> }; anchor?: { card: Card; tags?: import("@yugidraft/shared/cards/effects").MatchTags }; counter?: import("@yugidraft/shared/cards/effects").CounterProfile }>();
+  const contexts = new WeakMap<Interpretation, { support?: ReturnType<typeof archetypeSupportMatcher>; role?: { members: Set<number> }; anchor?: { card: Card; tags?: import("@yugidraft/shared/cards/effects").MatchTags }; counter?: import("@yugidraft/shared/cards/effects").CounterProfile }>();
   const context = (reading: Interpretation) => {
     let result = contexts.get(reading);
     if (result) return result;
     result = {};
+    result.support = archetypeSupportMatcher(reading.query, readNamedInsightProfiles(db, reading.query.supports?.archetypes ?? []));
     const intent = reading.query.intent;
     if (intent?.kind === "archetype_role") {
       const codes=[...cards.setnames()].filter(([,name])=>compactEffectName(name)===compactEffectName(intent.archetype)).map(([code])=>code);
@@ -116,7 +128,8 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
       if (names.has(compactEffectName(text))) return null;
       const deterministic=mayReadEffect(text)?interpret(text,findArchetypes):null;
       const explicit=deterministic && (deterministic.query.recruiter || deterministic.query.formatFilter || deterministic.query.released || deterministic.query.sort);
-      const reading = intent(text) ?? (explicit?deterministic:null) ?? cachedEffectReading(db,text,archetypes) ?? deterministic;
+      const targeted = intent(text);
+      const reading = (targeted?.query.intent ? targeted : null) ?? (explicit?deterministic:null) ?? cachedEffectReading(db,text,archetypes) ?? targeted ?? deterministic;
       return reading ? omitReadingChips(reading, omitted) : null;
     },
     match: (code, reading, usage = defaultUsage) => {
@@ -129,18 +142,23 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
       if (!printed) return null;
       const id = card.canonicalPasscode ?? card.code, dates = releaseDates(id);
       current.text = card.description;
+      current.archetypes = memberNames(card);
       current.id = id; current.name = card.name; current.kind = printed.kind; current.subtypes = printed.subtypes;
       current.monsterType = printed.monsterType; current.attribute = printed.attribute;
       current.level = card.type & (T.xyz | T.link) ? undefined : card.level;
       current.rank = card.type & T.xyz ? card.level : undefined; current.linkRating = card.type & T.link ? card.level : undefined;
       current.atk = card.attack >= 0 ? card.attack : null; current.def = card.defense >= 0 ? card.defense : null;
       current.tcgDate = dates?.tcgDate; current.ocgDate = dates?.ocgDate; current.prerelease = dates?.prerelease; current.upcomingDate = dates?.upcomingDate;
-      const tags = facets.get(id), base = matchCard(current, tags, reading.query.intent?.kind === "archetype_role" ? {...reading.query, roles: []} : reading.query);
+      const tags = facets.get(id), candidate = { card: current, tags };
+      const { anchor, counter, role, support } = context(reading);
+      if (support) {
+        const matched = support(candidate);
+        return matched ? matched.score + softTextScore(current, reading.query.text) : null;
+      }
+      const base = matchCard(current, tags, reading.query.intent?.kind === "archetype_role" ? {...reading.query, roles: []} : reading.query);
       if (base === null) return null;
       if (reading.query.intent?.kind === "staples") return usage.cards.size ? usage.cards.get(id)?.playShare ?? null
         : tags?.roles.some(role => ["hand_trap", "board_breaker", "negation"].includes(role)) ? 1 : null;
-      const { anchor, counter, role } = context(reading);
-      const candidate = { card: current, tags };
       if (reading.query.intent?.kind === "archetype_role" && role) return rankArchetypeRole(current,tags,reading.query.intent.archetype,reading.query.intent.role,role.members.has(id),usage)?.score??null;
       const score = reading.query.intent?.kind === "similar" ? (anchor ? cardSimilarity(anchor, candidate) : null)
         : reading.query.intent?.kind === "counters" ? (counter ? counterLink(counter, reading.query.intent.archetype, candidate)?.score ?? null : null) : base;
@@ -150,6 +168,9 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
       const raw = cards.deckCard(code);
       if (!raw) return "Matches your search";
       const card = engineInsightCard(raw), tags = facets.get(canonical(code)), ctx = context(reading);
+      card.archetypes = memberNames(raw);
+      Object.assign(card, releaseDates(canonical(code)));
+      if (ctx.support) return ctx.support({ card, tags })?.reason ?? "Matches your search";
       if (reading.query.intent?.kind === "archetype_role" && ctx.role) return rankArchetypeRole(card,tags,reading.query.intent.archetype,reading.query.intent.role,ctx.role.members.has(canonical(code)),usage)?.reason??"Matches your search";
       if (reading.query.intent?.kind === "counters" && ctx.counter) return counterLink(ctx.counter, reading.query.intent.archetype, { card, tags })?.reason ?? "Disrupts this plan";
       if (reading.query.intent?.kind === "similar") return shortReason(`Similar ${tags?.roles.find(role => ctx.anchor?.tags?.roles.includes(role))?.replaceAll("_", " ") ?? "effects"} to ${reading.query.intent.name}`);
@@ -158,6 +179,14 @@ function installCardEffectIndex(db: Database.Database, cards: CardDatabase, { fa
       let full: typeof tags = tags;
       try { if (stored?.tags_json) full = JSON.parse(stored.tags_json) as typeof tags; } catch { /* Keep the compact facets. */ }
       return effectMatchReason(card, full, reading.query, stored?.summary);
+    },
+    synergyCategory: (code, reading) => {
+      const raw = cards.deckCard(code), support = context(reading).support;
+      if (!raw || !support) return undefined;
+      const card = engineInsightCard(raw);
+      card.archetypes = memberNames(raw);
+      Object.assign(card, releaseDates(canonical(code)));
+      return support({ card, tags: facets.get(canonical(code)) })?.synergyCategory;
     },
     popularity: code => facets.get(canonical(code))?.popularity ?? 0,
   };

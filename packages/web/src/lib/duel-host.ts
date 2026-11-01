@@ -14,13 +14,15 @@ import {
   type DeckSuggestionQuery,
 } from "@yugidraft/shared/services";
 import { isReplayFork, seatCountFor, type CardQuery, type DuelChainMode, type DuelCommand, type DuelDeck, type DuelFirstChoice,
-  type DuelFormat, type DuelMasterRule, type DuelMode, type DuelRpsMove, type DuelRoom, type ReplayForkRequest, type ReplayUnverifiedReason } from "@yugidraft/shared/duels";
+  type DuelFormat, type DuelMasterRule, type DuelMode, type DuelRpsMove, type DuelRoom, type ReplayForkRequest, type ReplayUnverifiedReason,
+  type SandboxHostOp, type SandboxBoard, type SandboxRun, type SandboxBotMode } from "@yugidraft/shared/duels";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import type { CardDataStatus } from "@yugidraft/shared/types";
+import type { BridgeRequest } from "./bridges-server-api";
 
-export type DuelHostOp = "admin-spectate" | "kick" | "invite-player" | "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "suggestion-scope" | "deck-suggestions" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode";
+export type DuelHostOp = "bridges" | "admin-spectate" | "kick" | "invite-player" | "engine-data-status" | "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "validate-deck-master" | "suggestion-scope" | "deck-suggestions" | "cards" | "card-details" | "card-artworks" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "owner-replay" | "replay-fork" | "fork-list" | "fork-restart" | "fork-cancel" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "start-test-duel" | "warm-test-duel" | "report" | "debug-trace" | "bug-context" | "bug-replay-frame" | "chain-mode" | SandboxHostOp;
 
 /** Read-only seat identity stays separate from creator identity. Unknown control flags fail closed. */
 export function readDuelControl(request: Request, room?: DuelRoom, allowed: "view" | "action" | "cards" | "none" = "none") {
@@ -112,10 +114,10 @@ export function redactDuelResult<T>(data: T, guildId: string, playerId: number):
 }
 
 function hostErrorBody(text: string, status: number): { expected: boolean; body: { error: string; code?: string; finalBoard?: "available" | "none";
-  canOpenUnchecked?: boolean; reason?: ReplayUnverifiedReason; limit?: number; forksUrl?: string } } | undefined {
+  canOpenUnchecked?: boolean; reason?: ReplayUnverifiedReason; limit?: number; forksUrl?: string; retryAfter?: number } } | undefined {
   try {
     const parsed: unknown = JSON.parse(text);
-    if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") {
+    if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string" && parsed.error.trim()) {
       const recovery = "code" in parsed && parsed.code === "FORK_LIMIT"
         && "limit" in parsed && typeof parsed.limit === "number" && Number.isSafeInteger(parsed.limit) && parsed.limit > 0
         && "forksUrl" in parsed && parsed.forksUrl === "/api/admin/duels/forks"
@@ -127,7 +129,9 @@ function hostErrorBody(text: string, status: number): { expected: boolean; body:
         ...("code" in parsed && typeof parsed.code === "string"
           && ((status === 409 && ["ENGINE_UNAVAILABLE_FOR_SOURCE", "REPLAY_MISMATCH", "NOT_PLAYABLE", "REPLAY_UNVERIFIED"].includes(parsed.code))
             || (status === 413 && parsed.code === "REPLAY_TOO_LARGE"))
-          && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery, ...unverified } };
+          && "finalBoard" in parsed && (parsed.finalBoard === "available" || parsed.finalBoard === "none") ? { finalBoard: parsed.finalBoard } : {}), ...recovery, ...unverified,
+        ...((status === 429 || status === 503) && "retryAfter" in parsed && typeof parsed.retryAfter === "number" && Number.isSafeInteger(parsed.retryAfter) && parsed.retryAfter > 0
+          ? { retryAfter: parsed.retryAfter } : {}) } };
     }
   } catch {}
   return undefined;
@@ -163,6 +167,11 @@ export async function callDuelHost(input: {
   /** view only: an eliminated FFA player watches through the public view. */
   spectate?: boolean;
   command?: DuelCommand;
+  board?: SandboxBoard;
+  run?: SandboxRun;
+  scenarioId?: number;
+  control?: SandboxBotMode;
+  to?: string;
   /** Bounded presentation preference of this authenticated viewer. */
   animationSpeed?: number;
   deck?: DuelDeck;
@@ -197,6 +206,8 @@ export async function callDuelHost(input: {
   /** deck-suggestions only: strict public query and a completed web result's context version. */
   suggestionQuery?: DeckSuggestionQuery;
   suggestionVersion?: string;
+  /** bridges only: bounded public query; the host rechecks the trusted actor. */
+  bridgeRequest?: BridgeRequest;
   banlist?: string;
   deckMaster?: number;
   /** check-deck only: the server loads this player's durable draft pool. */
@@ -207,21 +218,24 @@ export async function callDuelHost(input: {
   choice?: DuelFirstChoice;
   /** chain-mode only: the response switch position for the caller's own seat. */
   chainMode?: DuelChainMode;
-} & ({ op: "admin-spectate"; userId: number; playerId?: never } | { op: Exclude<DuelHostOp, "admin-spectate">; playerId: number })): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse; retryable?: boolean }> {
+} & ({ op: "admin-spectate"; userId: number; playerId?: never } | { op: Exclude<DuelHostOp, "admin-spectate">; playerId: number }), signal?: AbortSignal): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse; retryable?: boolean }> {
   const replayOp = input.op === "bug-replay-frame" || input.op === "replay" || input.op === "owner-replay" || input.op === "replay-fork"
     || input.op === "fork-list" || input.op === "fork-restart" || input.op === "fork-cancel";
   const failure = (body: NonNullable<ReturnType<typeof hostErrorBody>>["body"], status: number): NextResponse => NextResponse.json({
     ...body, ...(!body.code && (replayOp ? status >= 500 : [502, 503, 504].includes(status))
       ? { code: replayOp ? "ENGINE_BUSY" : "DUEL_ENGINE_ERROR" } : {}),
   }, { status: replayOp && status >= 500 ? 503 : status,
-    headers: { "cache-control": "private, no-store" } });
+    headers: { "cache-control": "private, no-store", ...((status === 429 || status === 503) && body.retryAfter ? { "Retry-After": String(body.retryAfter) } : {}) } });
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
   if (configProblem) {
     log("warn", "[duel-host] configuration is incomplete");
     return { ok: false, response: failure({ error: configProblem, ...(!replayOp ? { code: "DUEL_ENGINE_CONFIG" } : {}) }, 503), retryable: false };
   }
-  const transport = signedTransport({ ...cfg, purpose: "duel-host", ...(input.op === "engine-data-status" || input.op === "bug-context" ? { timeoutMs: 5000 }
+  const bridgeRead = input.op === "bridges" && ["engines", "from", "between"].includes(input.bridgeRequest?.op ?? "");
+  const bridgeReadTimeoutMs = 25_000;
+  const transport = signedTransport({ ...cfg, signal, purpose: "duel-host", ...(bridgeRead ? { timeoutMs: bridgeReadTimeoutMs }
+    : input.op === "engine-data-status" || input.op === "bug-context" || input.op === "bridges" ? { timeoutMs: 5000 }
     : input.op === "normalize-codes" || input.op === "validate-deck-master" ? { timeoutMs: 20000 }
     : replayOp ? { timeoutMs: 30_000 } : {}) });
   const payload: Record<string, unknown> = {
@@ -269,14 +283,39 @@ export async function callDuelHost(input: {
   if (input.suggestionFormat !== undefined) payload.suggestionFormat = input.suggestionFormat;
   if (input.suggestionQuery !== undefined) payload.suggestionQuery = input.suggestionQuery;
   if (input.suggestionVersion !== undefined) payload.suggestionVersion = input.suggestionVersion;
+  if (input.bridgeRequest !== undefined) payload.bridgeRequest = input.bridgeRequest;
   if (input.banlist !== undefined) payload.banlist = input.banlist;
   if (input.deckMaster !== undefined) payload.deckMaster = input.deckMaster;
   if (input.move !== undefined) payload.move = input.move;
   if (input.choice !== undefined) payload.choice = input.choice;
   if (input.chainMode !== undefined) payload.mode = input.chainMode;
 
+  if (input.as !== undefined) payload.as = input.as;
+  if (input.reveal !== undefined) payload.reveal = input.reveal;
+  if (input.board !== undefined) payload.board = input.board;
+  if (input.run !== undefined) payload.run = input.run;
+  if (input.scenarioId !== undefined) payload.scenarioId = input.scenarioId;
+  if (input.control !== undefined) payload.control = input.control;
+  if (input.to !== undefined) payload.to = input.to;
+
+  const started = performance.now();
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {
+    // Next's ResponseAborted has no message. A caller disconnect is expected,
+    // and must never turn into a reported Error("") or a false host outage.
+    if (signal?.aborted) {
+      log("info", "[duel-host] request cancelled", { operation: input.op, hostStatus: result.status, hostBody: result.text.slice(0, 2048) });
+      return { ok: false, response: failure({ error: "The duel engine request was cancelled." }, 503), retryable: false };
+    }
+    // The web's own deadline can race an empty-message fetch abort. A read
+    // still initializing is retryable; it is not evidence that bridge data is absent.
+    if (bridgeRead && result.status === 0 && (result.text === "Internal request timed out"
+      || performance.now() - started >= bridgeReadTimeoutMs)) {
+      log("info", "[duel-host] bridge read still loading", { operation: input.bridgeRequest?.op, hostStatus: result.status });
+      return { ok: false, response: failure({ error: "Bridges are still loading. Try again shortly.", code: "BRIDGES_LOADING", retryAfter: 1 }, 503), retryable: true };
+    }
+    const context = { tags: { operation: input.op }, extra: { hostStatus: result.status, hostBody: result.text.slice(0, 2048) } };
+    const hostError = () => new Error(`Duel host ${input.op} failed (HTTP ${result.status}): ${result.text.trim().slice(0, 2048) || "<empty response body>"}`);
     if (input.op === "bug-context") {
       // Capture retries use the original host result. Other operations map some 4xx responses to 503.
       const timedOut = result.status === 0 && result.text === "Internal request timed out";
@@ -285,7 +324,7 @@ export async function callDuelHost(input: {
         retryable: timedOut || (result.status >= 500 && result.status < 600) };
     }
     if (result.status < 400) {
-      report(new Error(result.text), { tags: { operation: input.op } });
+      report(hostError(), context);
       const error = result.text === "Internal request timed out"
         ? "The duel engine request timed out. It may be restarting. Try again in a moment."
         : "The duel engine did not answer. It may be restarting. Try again in a moment.";
@@ -294,23 +333,25 @@ export async function callDuelHost(input: {
     if (result.status === 401) {
       // The host answers 401 only for a bad signature.
       const error = "The duel engine refused the web server: their DUEL_INTERNAL_SECRET values do not match. Ask the server admin to fix .env and restart both services.";
-      log("warn", "[duel-host] request was refused", { status: result.status });
+      log("warn", "[duel-host] request was refused", { operation: input.op, hostStatus: result.status, hostBody: result.text.slice(0, 2048) });
       return { ok: false, response: failure({ error, ...(!replayOp ? { code: "DUEL_ENGINE_CONFIG" } : {}) }, 503) };
     }
     const parsed = hostErrorBody(result.text, result.status);
     if (!parsed || (result.status === 500 && !parsed.expected)) {
-      const { body, status } = errorResponseBody(new Error(result.text), { tags: { operation: input.op } });
+      const { body, status } = errorResponseBody(hostError(), context);
       return { ok: false, response: NextResponse.json(body, { status, headers: { "cache-control": "private, no-store" } }) };
     }
     return { ok: false, response: failure(parsed.body, result.status) };
   }
   if (!result.text) {
+    log("warn", "[duel-host] empty response", { operation: input.op, hostStatus: result.status, hostBody: result.text });
     return { ok: false, response: failure({ error: "Empty engine response" }, 502) };
   }
   let data: unknown;
   try {
     data = JSON.parse(result.text);
   } catch {
+    log("warn", "[duel-host] invalid JSON response", { operation: input.op, hostStatus: result.status, hostBody: result.text.slice(0, 2048) });
     return { ok: false, response: failure({ error: "Invalid engine response" }, 502) };
   }
   return { ok: true, data: input.op === "admin-spectate" ? data : redactDuelResult(data, input.guildId, input.playerId) };

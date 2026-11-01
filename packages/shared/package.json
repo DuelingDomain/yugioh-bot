@@ -217,6 +217,7 @@
     "backfill:artworks": "node dist/maintenance/backfill-card-artworks.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
     "better-sqlite3": "latest",
     "sharp": "^0.35.5",
     "zod": "^4.6.7"

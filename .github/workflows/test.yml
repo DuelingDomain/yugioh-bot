@@ -518,7 +518,11 @@ jobs:
       - name: Validate effect tagging protocol without paid requests
         run: |
           prlimit --core=0 -- npx tsc -p scripts/effects/tsconfig.json --noEmit
-          prlimit --core=0 -- npx vitest run scripts/effects/tests/effect-tagging.integration.test.ts --maxWorkers=1
+          prlimit --core=0 -- npx vitest run scripts/effects/tests/effect-tagging.integration.test.ts scripts/effects/tests/bridge-batch.integration.test.ts --maxWorkers=1
+      - name: Evaluate bridge precision and recall
+        run: |
+          prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check
+          prlimit --core=0 -- npx vitest run packages/shared/tests/archetype-bridges.integration.test.ts packages/shared/tests/bridge-judge.integration.test.ts packages/duel-server/tests/bridge-workers.integration.test.ts packages/duel-server/tests/bridge-search-jobs.integration.test.ts packages/duel-server/tests/bridge-api.integration.test.ts scripts/effects/tests/bridge-artifacts.integration.test.ts --maxWorkers=1 --testTimeout=15000
 
   unit-web-build:
     name: Web production build

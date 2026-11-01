@@ -1,3 +1,4 @@
+import { requireSandboxActor } from "@/lib/sandbox-access";
 import { NextResponse } from "next/server";
 import { readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor, scenariosEnabled, scenariosOffResponse } from "@/lib/duel-host";
 
@@ -17,6 +18,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   try {
     // Same access rule as the room: throws when this player may not see the duel.
     const room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
+    if (room.session.sandbox) {
+      const sandboxActor = await requireSandboxActor();
+      if (!sandboxActor.ok) return sandboxActor.response;
+    }
     readDuelControl(request, room);
     fork = room?.session.kind === "replay-fork";
   } catch (error) {

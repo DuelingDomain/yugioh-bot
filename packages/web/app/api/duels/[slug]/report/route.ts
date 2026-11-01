@@ -1,3 +1,4 @@
+import { requireSandboxActor } from "@/lib/sandbox-access";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { NextResponse } from "next/server";
@@ -14,7 +15,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
   const { slug } = await params;
-  try { readDuelControl(request, actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false })); }
+  try {
+    const room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
+    if (room.session.sandbox) {
+      const sandboxActor = await requireSandboxActor();
+      if (!sandboxActor.ok) return sandboxActor.response;
+    }
+    readDuelControl(request, room);
+  }
   catch (error) { return duelErrorResponse(error); }
   return NextResponse.json({ enabled: true }, { headers: { "cache-control": "private, no-store" } });
 }
@@ -45,6 +53,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   try {
     // Same access rule as the room: throws when this player may not see the duel.
     const room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
+    if (room.session.sandbox) {
+      const sandboxActor = await requireSandboxActor();
+      if (!sandboxActor.ok) return sandboxActor.response;
+    }
     readDuelControl(request, room);
     fork = room?.session.kind === "replay-fork";
   } catch (error) {

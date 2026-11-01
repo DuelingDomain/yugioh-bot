@@ -3,8 +3,11 @@ import {readReleaseQuery} from "./release-query.js";
 import type { Card } from "./card.js";
 import type { MatchTags } from "./effect-match.js";
 import { matchCard } from "./effect-match.js";
-import { describe, type Interpretation } from "./query.js";
+import { describe, isEmptyObject, type EffectQuery, type Interpretation } from "./query.js";
+import { compactEffectName } from "./name-match.js";
 import { belongsTo, hookQuery, type ArchetypeProfile } from "./synergy.js";
+import { archetypeMember } from "./archetype-roles.js";
+import { synergyHookMatcher, SYNERGY_SCORE_FLOOR, type SynergyCategory } from "./synergy-search-hooks.js";
 import { type CounterProfile, type Weakness } from "./counters.js";
 import { shortReason } from "./search-reasons.js";
 
@@ -18,10 +21,25 @@ export const searchIntentTarget = (text: string): { kind: "similar" | "counters"
   return counter ? { kind: "counters", target: counter[1]!.trim() } : undefined;
 };
 
+export const synergyTarget = (text: string): string | undefined =>
+  text.trim().replace(/[?.!]+$/, "").match(/^(?:cards?\s+that\s+)?(?:works?\s+(?:well\s+)?with|synerg(?:y|ies|izes?|ises?)\s+(?:with|for)|partners?\s+for)\s+(.+)$/i)?.[1];
+
 export function intentReading(text: string, card: (name: string) => { id: number; name: string } | undefined, archetype: (name: string) => string | undefined): Interpretation | null {
   const format=readFormatQuery(text), release=readReleaseQuery(format.text);
   const facets={...(format.filter?{formatFilter:format.filter}:{}),...(release.released?{released:release.released,releaseLabel:release.releaseLabel}:{}),...(release.sort?{sort:release.sort}:{})};
   text=release.text;
+  const synergy = synergyTarget(text) ?? text.trim().replace(/[?.!]+$/, "").match(/^(.+?)\s+(?:synerg(?:y|ies)|partners?|combos?)$/i)?.[1];
+  if (synergy) {
+    const targets = synergy.split(/\s+(?:and|&|\+)\s+|,\s*/i).map(name => name.trim());
+    const resolved = targets.map(name => archetype(name));
+    // An exact archetype wins over a fuzzy card name (Monarch vs. The First Monarch).
+    // Other complete card names still take the individual-card path.
+    if (resolved.every((name, at) => name && compactEffectName(name) === compactEffectName(targets[at]!))) {
+      const empty = { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] };
+      const query = { ...facets, card: empty, roles: [], quick: false, text: "", supports: { ...empty, archetypes: [...new Set(resolved as string[])] } };
+      return { query, chips: describe(query) };
+    }
+  }
   if (!(release.released && /^hand[- ]?traps$/i.test(text.trim())) && /^(?:(?:best|format|generic|popular|current|tcg|domain|genesys)\s+)*(?:staples?|hand[- ]?traps)(?:\s+(?:for (?:this|the) format|this format))?[?.!]*$/i.test(text.trim())) {
     const query = { ...facets, intent: { kind: "staples" as const }, card: { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] }, roles: /hand[- ]?traps/i.test(text) ? ["hand_trap" as const] : [], quick: false, text: "" };
     return { query, chips: describe(query) };
@@ -44,6 +62,46 @@ export function intentReading(text: string, card: (name: string) => { id: number
   if (!intent) return null;
   const query = { ...facets, intent, card: { kinds: [], subtypes: [], types: [], attributes: [], archetypes: [] }, roles: [], quick: false, text: "" };
   return { query, chips: describe(query) };
+}
+
+/** Compile specific engine hooks once for either search entry point.
+ * Multi-target searches require an independently qualified hook into every target. */
+export function archetypeSupportMatcher(query: EffectQuery, profiles: ReadonlyMap<string, ArchetypeProfile>) {
+  if (query.intent || !query.supports?.archetypes.length) return undefined;
+  const support = { ...query.supports, archetypes: [] };
+  const base = { ...query, supports: isEmptyObject(support) ? undefined : support };
+  const targets = query.supports.archetypes.map(archetype => ({
+    archetype,
+    hooks: synergyHookMatcher(profiles.get(archetype), archetype),
+  }));
+  return (candidate: { card: Card; tags?: MatchTags }): { score: number; reason: string; synergyCategory: SynergyCategory } | null => {
+    const baseScore = matchCard(candidate.card, candidate.tags, base);
+    if (baseScore === null) return null;
+    const matches: Array<{ score: number; label: string }> = [];
+    let synergyCategory: SynergyCategory = "outside";
+    for (const target of targets) {
+      const named = candidate.tags && [...candidate.tags.supports.archetypes, ...candidate.tags.supports.names]
+        .some(name => compactEffectName(name) === compactEffectName(target.archetype));
+      const member = (candidate.card.archetypes
+        ? candidate.card.archetypes.some(name => compactEffectName(name) === compactEffectName(target.archetype))
+        : archetypeMember(candidate.card, target.archetype))
+        || compactEffectName(candidate.card.name) === compactEffectName(target.archetype);
+      // Name-related cards remain useful support, but membership uses actual catalog membership.
+      const support = named || belongsTo(candidate.card, target.archetype);
+      if (member) synergyCategory = "member";
+      else if (support && synergyCategory === "outside") synergyCategory = "support";
+      const match = member || support ? { score: 300, label: `Supports ${target.archetype}` } : target.hooks(candidate);
+      if (!match || match.score < SYNERGY_SCORE_FLOOR) return null;
+      matches.push(match);
+    }
+    return {
+      synergyCategory,
+      // The weakest connection controls a multi-target match. Hook counts cannot inflate it.
+      score: Math.min(...matches.map(match => match.score)) + Math.min(9, baseScore),
+      reason: shortReason(matches.length > 1 ? `Works with ${targets.map(target => target.archetype).join(" + ")}`
+        : matches[0]!.score >= 280 ? matches[0]!.label : `${matches[0]!.label} for ${targets[0]!.archetype}`),
+    };
+  };
 }
 
 /** Weighted Jaccard, emphasizing role and action overlap over kind and zones. */

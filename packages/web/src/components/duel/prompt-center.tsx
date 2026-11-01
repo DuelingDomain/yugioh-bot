@@ -1,5 +1,6 @@
 "use client";
 
+import type { SandboxView } from "./api";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Check, EyeOff, Link2 } from "lucide-react";
 import type { DuelAnswer, DuelCard, DuelCardInfo, DuelChainLink, DuelPrompt, DuelPromptOption, DuelZoneRef } from "@yugidraft/shared/duels";
@@ -835,6 +836,7 @@ function ResponseBody({
   busy,
   offline,
   slug,
+  sandbox,
   chain,
   mySeat,
   onSubmit,
@@ -850,6 +852,7 @@ function ResponseBody({
   busy: boolean;
   offline?: boolean;
   slug: string;
+  sandbox?: SandboxView;
   chain: readonly DuelChainLink[];
   mySeat: number | null;
   onSubmit: (answer: DuelAnswer) => void;
@@ -874,6 +877,7 @@ function ResponseBody({
       <AnnounceSearch
         key={prompt.id}
         slug={slug}
+        sandbox={sandbox}
         cardCode={draft.cardCode}
         busy={busy}
         onPick={(card) => {
@@ -1512,6 +1516,7 @@ export interface PromptCenterProps {
   /** The duel is running: prompts are answerable. */
   active: boolean;
   slug: string;
+  sandbox?: SandboxView;
   busy: boolean;
   /** The duel server is unreachable (the room GET failed): strips caption it as Reconnecting, not Syncing. */
   offline?: boolean;
@@ -2156,7 +2161,7 @@ export function PromptCenter(props: PromptCenterProps) {
           </span>
           {hide}
         </header>
-        <ResponseBody prompt={prompt} draft={draft} busy={busy} offline={offline} slug={slug} chain={chain} mySeat={mySeat} onSubmit={onSubmit}
+        <ResponseBody prompt={prompt} draft={draft} busy={busy} offline={offline} slug={slug} sandbox={props.sandbox} chain={chain} mySeat={mySeat} onSubmit={onSubmit}
           onInspectCard={onInspectCard} nameOf={props.nameOf} seatTones={props.seatTones} priority={props.priority} outRows={outRows} leavingSeats={props.leavingSeats} />
         {hasActions || optional ? (
           <footer className={styles.foot}>

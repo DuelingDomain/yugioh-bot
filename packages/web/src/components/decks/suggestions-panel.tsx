@@ -37,13 +37,15 @@ export type BrowserSuggest = {
   banlist?: string;
   deckMaster?: number | null;
   genesysRemaining?: number;
+  /** The saved deck, to keep the player's engine chips for it. Null: the deck is not saved yet. */
+  deckId?: number | null;
 };
 
 type Row = { id: DeckSuggestionRow["id"]; state: DeckSuggestionRow["state"]; hint?: string; minimumMainCards?: number; mainCards?: number; cards: InsightCard[] };
 type Loaded = { key: string; rows: Row[] };
 
 type Props = {
-  /** The search box is empty and the list is not showing partners. */
+  /** The Suggest tab is on screen. A hidden panel stays mounted but asks for nothing; it asks again when it is shown. */
   active: boolean;
   suggest: BrowserSuggest;
   mode: DuelMode;
@@ -66,7 +68,7 @@ function requestKey(props: Pick<Props, "mode" | "genesys" | "pool"> & BrowserSug
 }
 
 /**
- * Suggestion rows above the card list while the search box is empty. The rows stay while a new answer loads,
+ * The Suggest tab of the deck editor. The rows stay while a new answer loads,
  * so the list does not flicker, and every tile has a fixed size, so nothing moves.
  */
 export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardProps, deckCount, limit, onCatalog, onDisabled }: Props) {
@@ -83,6 +85,8 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const latest = useRef({ deck, banlist, deckMaster, genesysRemaining, pool, mode, genesys });
   latest.current = { deck, banlist, deckMaster, genesysRemaining, pool, mode, genesys };
+  const loadedRef = useRef(loaded);
+  loadedRef.current = loaded;
   const onCatalogRef = useRef(onCatalog);
   onCatalogRef.current = onCatalog;
   const onDisabledRef = useRef(onDisabled);
@@ -92,7 +96,7 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
     if (!active || empty || needsMaster) return;
     if (loaded?.key === key && retry === 0) return;
     const controller = new AbortController();
-    // A deck change waits for the last change to settle.
+    // A deck change waits for the last change to settle. The first answer has nothing to wait for.
     const timer = window.setTimeout(() => {
       void (async () => {
         const now = latest.current;
@@ -117,13 +121,11 @@ export function SuggestionsPanel({ active, suggest, mode, genesys, pool, cardPro
           setFailed(key);
         }
       })();
-    }, SUGGESTIONS_DEBOUNCE_MS);
+    }, loadedRef.current ? SUGGESTIONS_DEBOUNCE_MS : 0);
     return () => { window.clearTimeout(timer); controller.abort(); };
     // `loaded` is read only to skip a repeat of an answer that is already shown.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, key, empty, needsMaster, retry]);
-
-  if (!active) return null;
 
   const updating = !empty && !needsMaster && loaded?.key !== key && failed !== key;
   // Keep the same responsive four-tile footprint before and after the first answer,

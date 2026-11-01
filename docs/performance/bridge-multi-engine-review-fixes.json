@@ -1,0 +1,252 @@
+{
+  "before": {
+    "node": "v22.23.3",
+    "samples": [
+      {
+        "engines": [
+          "Odion",
+          "Ashtra"
+        ],
+        "format": "advanced",
+        "cold_ms": 380,
+        "cold_block_ms": 380,
+        "warm_samples": 20,
+        "p95_ms": 21.99,
+        "event_loop_p95_ms": 22.13,
+        "event_loop_max_ms": 22.271479999999883
+      },
+      {
+        "engines": [
+          "The Weather",
+          "Genex",
+          "Synchron",
+          "Blue-Eyes"
+        ],
+        "format": "advanced",
+        "cold_ms": 3062,
+        "cold_block_ms": 3062,
+        "warm_samples": 20,
+        "p95_ms": 1188.72,
+        "event_loop_p95_ms": 1187.89,
+        "event_loop_max_ms": 1244.3202249999995
+      },
+      {
+        "engines": [
+          "Odion",
+          "Ashtra"
+        ],
+        "format": "genesys",
+        "cold_ms": 150,
+        "cold_block_ms": 150,
+        "warm_samples": 20,
+        "p95_ms": 18.49,
+        "event_loop_p95_ms": 18.69,
+        "event_loop_max_ms": 21.124675999999454
+      },
+      {
+        "engines": [
+          "The Weather",
+          "Genex",
+          "Synchron",
+          "Blue-Eyes"
+        ],
+        "format": "genesys",
+        "cold_ms": 1051,
+        "cold_block_ms": 1051,
+        "warm_samples": 20,
+        "p95_ms": 1104.8,
+        "event_loop_p95_ms": 1104,
+        "event_loop_max_ms": 1155.2622530000008
+      }
+    ]
+  },
+  "after_cached_source": {
+    "node": "v22.23.3",
+    "runtime": "source TypeScript workers",
+    "cache": "normal five-second TTL",
+    "samples": [
+      {
+        "engines": [
+          "Odion",
+          "Ashtra"
+        ],
+        "format": "advanced",
+        "cold_ms": 910,
+        "cold_block_ms": 6,
+        "warm_samples": 20,
+        "p95_ms": 0.16,
+        "event_loop_p95_ms": 0.38,
+        "event_loop_max_ms": 0.3948889999996936
+      },
+      {
+        "engines": [
+          "The Weather",
+          "Genex",
+          "Synchron",
+          "Blue-Eyes"
+        ],
+        "format": "advanced",
+        "cold_ms": 2272,
+        "cold_block_ms": 1,
+        "warm_samples": 20,
+        "p95_ms": 0.12,
+        "event_loop_p95_ms": 0.34,
+        "event_loop_max_ms": 0.4082880000005389
+      },
+      {
+        "engines": [
+          "Odion",
+          "Ashtra"
+        ],
+        "format": "genesys",
+        "cold_ms": 140,
+        "cold_block_ms": 0,
+        "warm_samples": 20,
+        "p95_ms": 0.17,
+        "event_loop_p95_ms": 0.38,
+        "event_loop_max_ms": 0.41295199999967735
+      },
+      {
+        "engines": [
+          "The Weather",
+          "Genex",
+          "Synchron",
+          "Blue-Eyes"
+        ],
+        "format": "genesys",
+        "cold_ms": 398,
+        "cold_block_ms": 0,
+        "warm_samples": 20,
+        "p95_ms": 0.09,
+        "event_loop_p95_ms": 0.26,
+        "event_loop_max_ms": 0.2685959999998886
+      }
+    ]
+  },
+  "after_uncached_source": {
+    "node": "v22.23.3",
+    "runtime": "source TypeScript workers",
+    "cache": "invalidated before every call",
+    "samples": [
+      {
+        "engines": [
+          "Odion",
+          "Ashtra"
+        ],
+        "format": "advanced",
+        "cold_ms": 895,
+        "cold_block_ms": 2,
+        "warm_samples": 20,
+        "p95_ms": 8.97,
+        "event_loop_p95_ms": 0.61,
+        "event_loop_max_ms": 0.853045999999722
+      },
+      {
+        "engines": [
+          "The Weather",
+          "Genex",
+          "Synchron",
+          "Blue-Eyes"
+        ],
+        "format": "advanced",
+        "cold_ms": 2291,
+        "cold_block_ms": 0,
+        "warm_samples": 20,
+        "p95_ms": 478.81,
+        "event_loop_p95_ms": 0.85,
+        "event_loop_max_ms": 0.8634240000010323
+      },
+      {
+        "engines": [
+          "Odion",
+          "Ashtra"
+        ],
+        "format": "genesys",
+        "cold_ms": 135,
+        "cold_block_ms": 1,
+        "warm_samples": 20,
+        "p95_ms": 6.67,
+        "event_loop_p95_ms": 0.8,
+        "event_loop_max_ms": 0.8807609999985289
+      },
+      {
+        "engines": [
+          "The Weather",
+          "Genex",
+          "Synchron",
+          "Blue-Eyes"
+        ],
+        "format": "genesys",
+        "cold_ms": 384,
+        "cold_block_ms": 1,
+        "warm_samples": 20,
+        "p95_ms": 392.66,
+        "event_loop_p95_ms": 3.99,
+        "event_loop_max_ms": 8.162003000001278
+      }
+    ]
+  },
+  "after_uncached_built": {
+    "node": "v22.23.3",
+    "runtime": "built JavaScript workers",
+    "cache": "invalidated before every call",
+    "samples": [
+      {
+        "engines": [
+          "Odion",
+          "Ashtra"
+        ],
+        "format": "advanced",
+        "cold_ms": 682,
+        "cold_block_ms": 1,
+        "warm_samples": 20,
+        "p95_ms": 9.12,
+        "event_loop_p95_ms": 0.75,
+        "event_loop_max_ms": 0.8061609999999746
+      },
+      {
+        "engines": [
+          "The Weather",
+          "Genex",
+          "Synchron",
+          "Blue-Eyes"
+        ],
+        "format": "advanced",
+        "cold_ms": 2246,
+        "cold_block_ms": 1,
+        "warm_samples": 20,
+        "p95_ms": 464.31,
+        "event_loop_p95_ms": 0.67,
+        "event_loop_max_ms": 0.84727600000042
+      },
+      {
+        "engines": [
+          "Odion",
+          "Ashtra"
+        ],
+        "format": "genesys",
+        "cold_ms": 142,
+        "cold_block_ms": 1,
+        "warm_samples": 20,
+        "p95_ms": 6.43,
+        "event_loop_p95_ms": 0.64,
+        "event_loop_max_ms": 1.120466000000306
+      },
+      {
+        "engines": [
+          "The Weather",
+          "Genex",
+          "Synchron",
+          "Blue-Eyes"
+        ],
+        "format": "genesys",
+        "cold_ms": 391,
+        "cold_block_ms": 1,
+        "warm_samples": 20,
+        "p95_ms": 388.83,
+        "event_loop_p95_ms": 3,
+        "event_loop_max_ms": 8.836730999999418
+      }
+    ]
+  }
+}

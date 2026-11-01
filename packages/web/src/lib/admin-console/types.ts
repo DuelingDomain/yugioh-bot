@@ -12,7 +12,7 @@ export type SectionResult<T> =
   /** A configured service did not answer. `message` is safe to show: never a key, URL secret or stack. */
   | { state: "error"; message: string; updatedAt: number };
 
-export const SECTION_IDS = ["online", "waitlist", "live", "today", "stats", "errors", "usage", "system", "creators", "vision"] as const;
+export const SECTION_IDS = ["online", "waitlist", "live", "today", "stats", "errors", "usage", "system", "creators", "vision", "bridges"] as const;
 export type SectionId = (typeof SECTION_IDS)[number];
 
 /** How the app keys a person: users.id here. (The Discord-only local build keys people by Discord ID.) */
@@ -347,6 +347,21 @@ export interface DiskStatus {
   trend: { values: number[]; daysUntilFull: number | null } | null;
 }
 
+export interface BridgeFeedbackEntry {
+  evidenceHash: string;
+  source: string;
+  target: string;
+  format: "advanced" | "genesys";
+  users: number;
+  reasons: string[];
+  createdAt: string;
+  hidden: boolean;
+}
+export interface BridgesData {
+  feedback: BridgeFeedbackEntry[];
+  inReview: number;
+}
+
 export interface SectionDataMap {
   vision: ReturnType<ReturnType<typeof import("@yugidraft/shared/services").createVisionFeedbackService>["summary"]>;
   online: OnlineData;
@@ -358,4 +373,5 @@ export interface SectionDataMap {
   usage: UsageData;
   system: SystemData;
   creators: CreatorsData;
+  bridges: BridgesData;
 }

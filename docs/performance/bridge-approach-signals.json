@@ -1,0 +1,3728 @@
+{
+  "baselineCommit": "c74103aa6",
+  "method": "Same migrated scratch backup of the live DB, opened read-only for both projections. Advanced format. No paid judge calls. Historical 235-list fixture supplies the same Labrynth and Snake-Eye decks in both runs.",
+  "observationsVersion": "9bc280803a04313135e640e503a07566495647e3b64063686ff4c49c4e08e35b",
+  "usageVersion": "f44cdc5485cc04082bb925e2ca1dccd7444b3cac32548e351ebeab38cebab2bb",
+  "sample": {
+    "tcg": {
+      "usageDecks": 983,
+      "coPlayDecks": 972,
+      "engines": 89,
+      "pairs": 155,
+      "pairsAtLeastTwo": 79,
+      "coresAtLeastFive": 38
+    },
+    "domain": {
+      "usageDecks": 915,
+      "coPlayDecks": 913,
+      "engines": 329,
+      "pairs": 877,
+      "pairsAtLeastTwo": 263,
+      "coresAtLeastFive": 140
+    },
+    "genesys": {
+      "usageDecks": 962,
+      "coPlayDecks": 964,
+      "engines": 271,
+      "pairs": 546,
+      "pairsAtLeastTwo": 147,
+      "coresAtLeastFive": 111
+    }
+  },
+  "before": {
+    "samples": [
+      {
+        "label": "deck 10",
+        "source": "saved_decks:10",
+        "detected": [
+          {
+            "name": "Odion",
+            "weight": 15,
+            "copies": 16,
+            "distinct": 8,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Ashtra",
+            "weight": 13.5,
+            "copies": 15,
+            "distinct": 9,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Primite",
+            "weight": 6,
+            "copies": 6,
+            "distinct": 3,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Kashtira",
+            "weight": 4,
+            "copies": 4,
+            "distinct": 3,
+            "status": "light",
+            "hybrids": []
+          }
+        ],
+        "engines": [
+          "Ashtra",
+          "Odion",
+          "Primite"
+        ],
+        "next": [
+          {
+            "engine": "Argostars",
+            "kind": "bridge",
+            "score": 5.394,
+            "cards": [
+              21050476,
+              29762407,
+              38379052
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 91438674,
+                  "name": "Argostars - Glorious Adra",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 30964246,
+                  "name": "Argostars - Giantslaying",
+                  "section": "main",
+                  "role": "searcher",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 65889305,
+                  "name": "Argostars - Lightning Tydeu",
+                  "section": "main",
+                  "role": "searcher",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 38379052,
+                  "name": "Argostars - Slayer Eteo",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 91284003,
+                  "name": "Argostars - Swift Capane",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 2674965,
+                  "name": "Argostars - Home Stadium",
+                  "section": "main",
+                  "role": "support",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 21050476,
+                  "name": "Argostars - Fierce Parthe",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 40706444,
+                  "name": "Argostars - Adventurous Arion",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Main Deck needs 11 slots; 0 free."
+              ],
+              "caption": "Adra places the Continuous Traps; Tydeu and Giantslaying search. Arion uses one Argostars monster."
+            },
+            "pros": [
+              "Temple of the Kings allows Argostars - Slayer Eteo to be activated the turn it was Set, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Altergeist",
+            "kind": "bridge",
+            "score": 1.796,
+            "cards": [
+              29762407,
+              53143898,
+              86885905
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 57769391,
+                  "name": "Altergeist Pixiel",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 53143898,
+                  "name": "Altergeist Marionetter",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 35146019,
+                  "name": "Altergeist Manifestation",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Unresolved full dependency procedure for Altergeist; the role proposal is provisional.",
+                "Main Deck needs 6 slots; 0 free."
+              ],
+              "caption": "Altergeist: proposed access, resource and payoff roles from checked directional actions."
+            },
+            "pros": [
+              "Altergeist Marionetter can Set Altergeist Emulatelf from the Deck; Temple of the Kings allows it to be activated the turn it was Set, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Blue-Eyes",
+            "kind": "bridge",
+            "score": 0.148,
+            "cards": [
+              42097666,
+              89631139,
+              97522863
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 8240199,
+                  "name": "Sage with Eyes of Blue",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 80326401,
+                  "name": "Wishes for Eyes of Blue",
+                  "section": "main",
+                  "role": "searcher",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 17947697,
+                  "name": "Maiden of White",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 17725109,
+                  "name": "Roar of the Blue-Eyed Dragons",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 89631139,
+                  "name": "Blue-Eyes White Dragon",
+                  "section": "main",
+                  "role": "material",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 62089826,
+                  "name": "True Light",
+                  "section": "main",
+                  "role": "support",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 42097666,
+                  "name": "Spirit with Eyes of Blue",
+                  "section": "extra",
+                  "role": "searcher",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 59822133,
+                  "name": "Blue-Eyes Spirit Dragon",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 89604813,
+                  "name": "Blue-Eyes Ultimate Spirit Dragon",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Main Deck needs 9 slots; 0 free."
+              ],
+              "caption": "Sage finds the Tuner; Maiden places True Light and Roar supplies White Dragon. Spirit Dragon reaches the Synchro payoff."
+            },
+            "pros": [
+              "Spirit with Eyes of Blue can Special Summon Blue-Eyes White Dragon, subject to its printed conditions."
+            ]
+          }
+        ],
+        "candidateCount": 36,
+        "shortlist": [
+          {
+            "engine": "Labrynth",
+            "kind": "bridge",
+            "score": 13.644,
+            "reasons": [
+              "Temple of the Kings lets you activate a Labrynth Trap the turn it is Set (4 compatible Traps); Labrynth Chandraglier supports this Trap engine",
+              "Labrynth Cooclock lets you activate a Ashtra Trap the turn it is Set (3 compatible Traps); Yoa the Plague Deity Ashtra supports this Trap engine",
+              "Lovely Labrynth of the Silver Castle supplies a Set card used by Yoa the Plague Deity Ashtra"
+            ]
+          },
+          {
+            "engine": "Majespecter",
+            "kind": "bridge",
+            "score": 9.105,
+            "reasons": [
+              "Temple of the Kings lets you activate a Majespecter Trap the turn it is Set (4 compatible Traps); Majespecter Toad - Ogama supports this Trap engine",
+              "Yoa the Plague Deity Ashtra pays Majespecter Wind's tribute cost \u2192 Majespecter Toad - Ogama",
+              "Yoa the Plague Deity Ashtra pays Majesty's Pegasus's tribute cost \u2192 Majespecter Toad - Ogama"
+            ]
+          },
+          {
+            "engine": "Argostars",
+            "kind": "bridge",
+            "score": 7.192,
+            "reasons": [
+              "Temple of the Kings lets you activate a Argostars Trap the turn it is Set (3 compatible Traps); Argostars - Fierce Parthe supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Dragon Ruler",
+            "kind": "bridge",
+            "score": 5.93,
+            "reasons": [
+              "Redox, Dragon Ruler of Boulders \u2192 Primite Dragon Ether Beryl \u2192 Primite Lordly Lode",
+              "Redox, Dragon Ruler of Boulders: search \u2192 Primite Dragon Ether Beryl",
+              "Redox, Dragon Ruler of Boulders: search \u2192 Primite Imperial Dragon"
+            ]
+          },
+          {
+            "engine": "Dinomorphia",
+            "kind": "bridge",
+            "score": 4.95,
+            "reasons": [
+              "Temple of the Kings lets you activate a Dinomorphia Trap the turn it is Set (8 compatible Traps); Dinomorphia Therizia supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Dogmatika",
+            "kind": "bridge",
+            "score": 4.671,
+            "reasons": [
+              "Temple of the Kings lets you activate a Dogmatika Trap the turn it is Set (5 compatible Traps); Dogmatika Fleurdelis, the Thunderbolt supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Altergeist",
+            "kind": "bridge",
+            "score": 1.796,
+            "reasons": [
+              "Temple of the Kings lets you activate a Altergeist Trap the turn it is Set (1 compatible Traps); Altergeist Marionetter supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Toy",
+            "kind": "synergy",
+            "score": 0.945,
+            "reasons": [
+              "Toy Box generates extra Set cards from Deck; reveal and return Toy Magician to Special Summon Yoa the Plague Deity Ashtra from hand"
+            ]
+          }
+        ]
+      },
+      {
+        "label": "deck 9",
+        "source": "saved_decks:9",
+        "detected": [
+          {
+            "name": "Chaos",
+            "weight": 6,
+            "copies": 6,
+            "distinct": 3,
+            "status": "engine",
+            "hybrids": [
+              24088928
+            ],
+            "includes": [
+              "Archfiend"
+            ]
+          },
+          {
+            "name": "Sinful Spoils",
+            "weight": 4,
+            "copies": 4,
+            "distinct": 2,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Diabell",
+            "weight": 3,
+            "copies": 3,
+            "distinct": 1,
+            "status": "light",
+            "hybrids": []
+          },
+          {
+            "name": "Azamina",
+            "weight": 2,
+            "copies": 3,
+            "distinct": 3,
+            "status": "light",
+            "hybrids": []
+          }
+        ],
+        "engines": [
+          "Chaos",
+          "Sinful Spoils"
+        ],
+        "next": [
+          {
+            "engine": "Azamina",
+            "kind": "bridge",
+            "score": 18.166,
+            "cards": [
+              2006591,
+              9785661,
+              20934683,
+              38511382,
+              66328392
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 66328392,
+                  "name": "Deception of the Sinful Spoils",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 1,
+                  "needed": 2
+                },
+                {
+                  "code": 94845588,
+                  "name": "The Hallowed Azamina",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 1,
+                  "needed": 0
+                },
+                {
+                  "code": 20934683,
+                  "name": "Azamina Debtors",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 42201897,
+                  "name": "Azamina Determination",
+                  "section": "main",
+                  "role": "support",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 73391962,
+                  "name": "Azamina Mu Rcielago",
+                  "section": "extra",
+                  "role": "searcher",
+                  "copies": 1,
+                  "held": 1,
+                  "needed": 0
+                },
+                {
+                  "code": 9785661,
+                  "name": "Azamina Sol Erysichthon",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 1,
+                  "needed": 0
+                },
+                {
+                  "code": 46174776,
+                  "name": "Azamina Moa Regina",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": true,
+              "gaps": [],
+              "caption": "Deception searches Azamina access; Hallowed and Debtors use the printed Fusion procedure. Requires monster fodder and Sinful Spoils resources."
+            },
+            "pros": [
+              "Deception of the Sinful Spoils adds Azamina Debtors from the Deck to the hand, subject to its printed conditions.",
+              "Azamina Debtors names Sinful Spoils.",
+              "Azamina Debtors can send Sinful Spoils Awakening to the GY, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Meklord",
+            "kind": "bridge",
+            "score": 11.742,
+            "cards": [
+              2137678,
+              4081825
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 39109382,
+                  "name": "Meklord Assembly",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 77710579,
+                  "name": "Meklord Nucleus Infinity Core",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Unresolved full dependency procedure for Meklord; the role proposal is provisional.",
+                "Missing payoff role."
+              ],
+              "caption": "Meklord: proposed access, resource and payoff roles from checked directional actions."
+            },
+            "pros": [
+              "Chaos Infinity can Special Summon Meklord Army of Granel, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Regenesis",
+            "kind": "bridge",
+            "score": 4.614,
+            "cards": [
+              22812963,
+              26334139,
+              27781371
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 31786838,
+                  "name": "Regenesis",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 95718355,
+                  "name": "Regenesis Archfiend",
+                  "section": "main",
+                  "role": "searcher",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 22938501,
+                  "name": "Regenesis Sage",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 96540807,
+                  "name": "Regenesis Warrior",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 59323650,
+                  "name": "Regenesis Dragon",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 22812963,
+                  "name": "Regenesis Lord",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 27781371,
+                  "name": "Regenesis Birth",
+                  "section": "main",
+                  "role": "support",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": true,
+              "gaps": [],
+              "caption": "Regenesis and Archfiend search the 2500-stat bodies; Lord Sets Birth. Requires the printed reveal and banish setup."
+            },
+            "pros": [
+              "Sinful Spoils Subdual adds Regenesis Lord (Level 10 LIGHT) from the Deck to the hand, subject to its printed conditions."
+            ]
+          }
+        ],
+        "candidateCount": 30,
+        "shortlist": [
+          {
+            "engine": "Azamina",
+            "kind": "bridge",
+            "score": 24.222,
+            "reasons": [
+              "Deception of the Sinful Spoils: search \u2192 Azamina Debtors",
+              "Deception of the Sinful Spoils: search \u2192 Azamina Aphes",
+              "Deception of the Sinful Spoils: search \u2192 Azamina Determination",
+              "Deception of the Sinful Spoils: search \u2192 Elzette, Azamina of the White Forest",
+              "Elzette, Azamina of the White Forest: search \u2192 Sinful Spoils Awakening",
+              "Queen Azamina: search \u2192 Sinful Spoils Awakening",
+              "Azamina Debtors: send_to_gy \u2192 Sinful Spoils Awakening",
+              "The Hallowed Azamina: send_to_gy \u2192 Sinful Spoils Awakening"
+            ]
+          },
+          {
+            "engine": "Black Luster Soldier",
+            "kind": "bridge",
+            "score": 16.681,
+            "reasons": [
+              "Black Luster Soldier - Legendary Swordsman names Chaos Form",
+              "Chaos Form needs or supports Black Luster Soldier",
+              "Chaos Form needs or supports Black Luster Soldier",
+              "Primal Seed names Chaos Emperor Dragon - Envoy of the End"
+            ]
+          },
+          {
+            "engine": "Meklord",
+            "kind": "bridge",
+            "score": 15.656,
+            "reasons": [
+              "Chaos Infinity: special_summon \u2192 Meklord Army of Granel",
+              "Chaos Infinity: special_summon \u2192 Meklord Army Deployer Obbligato",
+              "Chaos Infinity: special_summon \u2192 Meklord Army of Skiel",
+              "Chaos Infinity: special_summon \u2192 Meklord Army of Wisel"
+            ]
+          },
+          {
+            "engine": "Performapal",
+            "kind": "bridge",
+            "score": 8.338,
+            "reasons": [
+              "Performapal Skullcrobat Joker: search \u2192 Magician of Black Chaos",
+              "Performapal Popperup: special_summon \u2192 Magician of Black Chaos",
+              "Performapal Skullcrobat Joker: search \u2192 Dark Magician of Chaos",
+              "Performapal Skullcrobat Joker: search \u2192 Magician of Black Chaos MAX"
+            ]
+          },
+          {
+            "engine": "Toon",
+            "kind": "bridge",
+            "score": 6.316,
+            "reasons": [
+              "Chaos Archfiend pays Archfiend Strategy's banish cost \u2192 Toon Summoned Skull",
+              "Toon Dark Magician Girl needs or supports Magician of Black Chaos",
+              "Toon Dark Magician Girl names Magician of Black Chaos"
+            ]
+          },
+          {
+            "engine": "Regenesis",
+            "kind": "bridge",
+            "score": 4.614,
+            "reasons": [
+              "Sinful Spoils Subdual \u2192 Regenesis Lord \u2192 Regenesis Birth",
+              "Sinful Spoils Subdual: search \u2192 Regenesis Lord"
+            ]
+          }
+        ]
+      },
+      {
+        "label": "Labrynth",
+        "source": "https://ygoprodeck.com/deck/lab-ashtra-dtw-740318",
+        "detected": [
+          {
+            "name": "Labrynth",
+            "weight": 14,
+            "copies": 14,
+            "distinct": 8,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Ashtra",
+            "weight": 10,
+            "copies": 11,
+            "distinct": 8,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Dogmatika",
+            "weight": 2,
+            "copies": 2,
+            "distinct": 1,
+            "status": "light",
+            "hybrids": []
+          },
+          {
+            "name": "Galaxy",
+            "weight": 1.5,
+            "copies": 3,
+            "distinct": 3,
+            "status": "light",
+            "hybrids": [
+              2530830,
+              18963306,
+              39030163
+            ],
+            "includes": [
+              "Cipher",
+              "Galaxy-Eyes",
+              "Photon"
+            ]
+          }
+        ],
+        "engines": [
+          "Ashtra",
+          "Labrynth"
+        ],
+        "next": [
+          {
+            "engine": "Odion",
+            "kind": "bridge",
+            "score": 6.154,
+            "cards": [
+              1710647,
+              29762407,
+              37839434,
+              69299029
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 97522863,
+                  "name": "The Man with the Mark",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 29762407,
+                  "name": "Temple of the Kings",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 89194033,
+                  "name": "Mystical Beast of Serket",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Unresolved full dependency procedure for Odion; the role proposal is provisional."
+              ],
+              "caption": "Odion: proposed access, resource and payoff roles from checked directional actions."
+            },
+            "pros": [
+              "Temple of the Kings allows Ashtra Divine Domain to be activated the turn it was Set, subject to its printed conditions."
+            ]
+          }
+        ],
+        "candidateCount": 28,
+        "shortlist": [
+          {
+            "engine": "Odion",
+            "kind": "bridge",
+            "score": 11.277,
+            "reasons": [
+              "Temple of the Kings lets you activate a Ashtra Trap the turn it is Set (3 compatible Traps); Yoa the Plague Deity Ashtra supports this Trap engine",
+              "Treasures of the Kings supplies a Set card used by Yoa the Plague Deity Ashtra"
+            ]
+          },
+          {
+            "engine": "Majespecter",
+            "kind": "bridge",
+            "score": 7.35,
+            "reasons": [
+              "Yoa the Plague Deity Ashtra pays Majespecter Wind's tribute cost \u2192 Majespecter Toad - Ogama",
+              "Yoa the Plague Deity Ashtra pays Majesty's Pegasus's tribute cost \u2192 Majespecter Toad - Ogama",
+              "Labrynth Cooclock lets you activate a Majespecter Trap the turn it is Set (2 compatible Traps); Majespecter Toad - Ogama supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Dogmatika",
+            "kind": "bridge",
+            "score": 4.671,
+            "reasons": [
+              "Labrynth Cooclock lets you activate a Dogmatika Trap the turn it is Set (5 compatible Traps); Dogmatika Fleurdelis, the Thunderbolt supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Dinomorphia",
+            "kind": "bridge",
+            "score": 4.5,
+            "reasons": [
+              "Labrynth Cooclock lets you activate a Dinomorphia Trap the turn it is Set (4 compatible Traps); Dinomorphia Therizia supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Dracotail",
+            "kind": "bridge",
+            "score": 4.275,
+            "reasons": [
+              "Labrynth Cooclock lets you activate a Dracotail Trap the turn it is Set (3 compatible Traps); Dracotail Faimena supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Volcanic",
+            "kind": "bridge",
+            "score": 4.262,
+            "reasons": [
+              "Labrynth Cooclock lets you activate a Volcanic Trap the turn it is Set (3 compatible Traps); Volcanic Emperor supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Maliss",
+            "kind": "bridge",
+            "score": 4.257,
+            "reasons": [
+              "Labrynth Cooclock lets you activate a Maliss Trap the turn it is Set (3 compatible Traps); Maliss <P> White Rabbit supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Toy",
+            "kind": "synergy",
+            "score": 0.945,
+            "reasons": [
+              "Toy Box generates extra Set cards from Deck; reveal and return Toy Magician to Special Summon Yoa the Plague Deity Ashtra from hand"
+            ]
+          }
+        ]
+      },
+      {
+        "label": "Snake-Eye",
+        "source": "https://ygoprodeck.com/deck/yummy-739239",
+        "detected": [
+          {
+            "name": "Yummy",
+            "weight": 13.5,
+            "copies": 15,
+            "distinct": 10,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Snake-Eye",
+            "weight": 8,
+            "copies": 8,
+            "distinct": 5,
+            "status": "engine",
+            "hybrids": [
+              24081957,
+              89023486
+            ],
+            "includes": [
+              "Sinful Spoils"
+            ]
+          },
+          {
+            "name": "Junk",
+            "weight": 2.5,
+            "copies": 4,
+            "distinct": 3,
+            "status": "light",
+            "hybrids": [
+              9742784,
+              13021682
+            ]
+          },
+          {
+            "name": "Synchron",
+            "weight": 2.5,
+            "copies": 5,
+            "distinct": 4,
+            "status": "light",
+            "hybrids": [
+              9742784,
+              13021682,
+              37799519
+            ]
+          },
+          {
+            "name": "Stardust",
+            "weight": 1.5,
+            "copies": 3,
+            "distinct": 3,
+            "status": "light",
+            "hybrids": [
+              37799519
+            ]
+          }
+        ],
+        "engines": [
+          "Snake-Eye",
+          "Yummy"
+        ],
+        "next": [
+          {
+            "engine": "Fire King",
+            "kind": "bridge",
+            "score": 5.496,
+            "cards": [
+              9674034,
+              57554544,
+              90681088
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 57554544,
+                  "name": "Fire King Island",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 69000994,
+                  "name": "Fire King Avatar Barong",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Unresolved full dependency procedure for Fire King; the role proposal is provisional.",
+                "Missing payoff role."
+              ],
+              "caption": "Fire King: proposed access, resource and payoff roles from checked directional actions."
+            },
+            "pros": [
+              "Snake-Eye Ash adds Legendary Fire King Ponix (Level 1 FIRE) from the Deck to the hand, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Azamina",
+            "kind": "bridge",
+            "score": 5.443,
+            "cards": [
+              20934683,
+              24081957
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 66328392,
+                  "name": "Deception of the Sinful Spoils",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 94845588,
+                  "name": "The Hallowed Azamina",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 20934683,
+                  "name": "Azamina Debtors",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 42201897,
+                  "name": "Azamina Determination",
+                  "section": "main",
+                  "role": "support",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 73391962,
+                  "name": "Azamina Mu Rcielago",
+                  "section": "extra",
+                  "role": "searcher",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 9785661,
+                  "name": "Azamina Sol Erysichthon",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 46174776,
+                  "name": "Azamina Moa Regina",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Extra Deck needs 3 slots; 0 free."
+              ],
+              "caption": "Deception searches Azamina access; Hallowed and Debtors use the printed Fusion procedure. Requires monster fodder and Sinful Spoils resources."
+            },
+            "pros": [
+              "Azamina Debtors can send Sinful Spoils of Subversion - Snake-Eye to the GY, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Diabell",
+            "kind": "bridge",
+            "score": 5.37,
+            "cards": [
+              23151193,
+              26700718
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 78293584,
+                  "name": "Filia Diabell",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 60145298,
+                  "name": "Diabellze the White Witch",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 53765052,
+                  "name": "Diabellze the Original Sinkeeper",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Unresolved full dependency procedure for Diabell; the role proposal is provisional."
+              ],
+              "caption": "Diabell: proposed access, resource and payoff roles from checked directional actions."
+            },
+            "pros": [
+              "Dramatic Snake-Eye Chase can place Diabellstar Vengeance on the field, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Dragon Ruler",
+            "kind": "bridge",
+            "score": 1.8,
+            "cards": [
+              48452496,
+              53797637,
+              53804307
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 26400609,
+                  "name": "Tidal, Dragon Ruler of Waterfalls",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 89399912,
+                  "name": "Tempest, Dragon Ruler of Storms",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 53804307,
+                  "name": "Blaster, Dragon Ruler of Infernos",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Unresolved full dependency procedure for Dragon Ruler; the role proposal is provisional."
+              ],
+              "caption": "Dragon Ruler: proposed access, resource and payoff roles from checked directional actions."
+            },
+            "pros": [
+              "Burner, Dragon Ruler of Sparks can Special Summon Blaster, Dragon Ruler of Infernos, subject to its printed conditions."
+            ]
+          }
+        ],
+        "candidateCount": 9,
+        "shortlist": [
+          {
+            "engine": "Diabell",
+            "kind": "bridge",
+            "score": 9.308,
+            "reasons": [
+              "Dramatic Snake-Eye Chase: place_on_field \u2192 Diabellstar Vengeance",
+              "Dramatic Snake-Eye Chase: place_on_field \u2192 Diabellstar the Black Witch",
+              "Diabellstar the Black Witch: set_spell_trap \u2192 Sinful Spoils of Subversion - Snake-Eye",
+              "Diabellze the White Witch: send_to_gy \u2192 Sinful Spoils of Subversion - Snake-Eye"
+            ]
+          },
+          {
+            "engine": "Fire King",
+            "kind": "bridge",
+            "score": 7.328,
+            "reasons": [
+              "Snake-Eye Ash \u2192 Legendary Fire King Ponix \u2192 Fire King Island",
+              "Snake-Eye Ash: search \u2192 Legendary Fire King Ponix"
+            ]
+          },
+          {
+            "engine": "Azamina",
+            "kind": "bridge",
+            "score": 7.258,
+            "reasons": [
+              "Elzette, Azamina of the White Forest: search \u2192 Sinful Spoils of Subversion - Snake-Eye",
+              "Queen Azamina: search \u2192 Sinful Spoils of Subversion - Snake-Eye",
+              "Azamina Debtors: send_to_gy \u2192 Sinful Spoils of Subversion - Snake-Eye",
+              "The Hallowed Azamina: send_to_gy \u2192 Sinful Spoils of Subversion - Snake-Eye"
+            ]
+          },
+          {
+            "engine": "Ninja",
+            "kind": "bridge",
+            "score": 5.762,
+            "reasons": [
+              "Bat, the Forest Ninja \u2192 Marshmao\u2606Yummy \u2192 Yummyusment\u2605Acroquey",
+              "Bat, the Forest Ninja: search \u2192 Marshmao\u2606Yummy",
+              "Bat, the Forest Ninja: search \u2192 Cupsy\u2606Yummy"
+            ]
+          },
+          {
+            "engine": "Melffy",
+            "kind": "bridge",
+            "score": 5.594,
+            "reasons": [
+              "Melffy Puppy \u2192 Marshmao\u2606Yummy \u2192 Yummyusment\u2605Acroquey",
+              "Melffy Puppy: special_summon \u2192 Marshmao\u2606Yummy",
+              "Melffy Puppy: special_summon \u2192 Cupsy\u2606Yummy"
+            ]
+          },
+          {
+            "engine": "Nimble",
+            "kind": "bridge",
+            "score": 5.594,
+            "reasons": [
+              "Super-Nimble Mega Hamster \u2192 Marshmao\u2606Yummy \u2192 Yummyusment\u2605Acroquey",
+              "Super-Nimble Mega Hamster: special_summon \u2192 Marshmao\u2606Yummy",
+              "Super-Nimble Mega Hamster: special_summon \u2192 Cupsy\u2606Yummy"
+            ]
+          },
+          {
+            "engine": "Dragon Ruler",
+            "kind": "bridge",
+            "score": 1.8,
+            "reasons": [
+              "Snake-Eyes Flamberge Dragon pays Burner, Dragon Ruler of Sparks's discard cost \u2192 Blaster, Dragon Ruler of Infernos"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "after": {
+    "samples": [
+      {
+        "label": "deck 10",
+        "source": "saved_decks:10",
+        "detected": [
+          {
+            "name": "Odion",
+            "weight": 15,
+            "copies": 16,
+            "distinct": 8,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Ashtra",
+            "weight": 13.5,
+            "copies": 15,
+            "distinct": 9,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Primite",
+            "weight": 6,
+            "copies": 6,
+            "distinct": 3,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Kashtira",
+            "weight": 4,
+            "copies": 4,
+            "distinct": 3,
+            "status": "light",
+            "hybrids": []
+          }
+        ],
+        "engines": [
+          "Ashtra",
+          "Odion",
+          "Primite"
+        ],
+        "next": [
+          {
+            "engine": "Argostars",
+            "kind": "bridge",
+            "score": 5.394,
+            "cards": [
+              21050476,
+              29762407,
+              38379052
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 91438674,
+                  "name": "Argostars - Glorious Adra",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 30964246,
+                  "name": "Argostars - Giantslaying",
+                  "section": "main",
+                  "role": "searcher",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 65889305,
+                  "name": "Argostars - Lightning Tydeu",
+                  "section": "main",
+                  "role": "searcher",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 38379052,
+                  "name": "Argostars - Slayer Eteo",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 91284003,
+                  "name": "Argostars - Swift Capane",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 2674965,
+                  "name": "Argostars - Home Stadium",
+                  "section": "main",
+                  "role": "support",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 21050476,
+                  "name": "Argostars - Fierce Parthe",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 40706444,
+                  "name": "Argostars - Adventurous Arion",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Main Deck needs 11 slots; 0 free."
+              ],
+              "caption": "Adra places the Continuous Traps; Tydeu and Giantslaying search. Arion uses one Argostars monster."
+            },
+            "pros": [
+              "Temple of the Kings allows Argostars - Slayer Eteo to be activated the turn it was Set, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Altergeist",
+            "kind": "bridge",
+            "score": 1.796,
+            "cards": [
+              29762407,
+              53143898,
+              86885905
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 57769391,
+                  "name": "Altergeist Pixiel",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 53143898,
+                  "name": "Altergeist Marionetter",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 35146019,
+                  "name": "Altergeist Manifestation",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Unresolved full dependency procedure for Altergeist; the role proposal is provisional.",
+                "Main Deck needs 6 slots; 0 free."
+              ],
+              "caption": "Altergeist: proposed access, resource and payoff roles from checked directional actions."
+            },
+            "pros": [
+              "Altergeist Marionetter can Set Altergeist Emulatelf from the Deck; Temple of the Kings allows it to be activated the turn it was Set, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Blue-Eyes",
+            "kind": "bridge",
+            "score": 0.168,
+            "cards": [
+              42097666,
+              89631139,
+              97522863
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 8240199,
+                  "name": "Sage with Eyes of Blue",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 80326401,
+                  "name": "Wishes for Eyes of Blue",
+                  "section": "main",
+                  "role": "searcher",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 17947697,
+                  "name": "Maiden of White",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 17725109,
+                  "name": "Roar of the Blue-Eyed Dragons",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 89631139,
+                  "name": "Blue-Eyes White Dragon",
+                  "section": "main",
+                  "role": "material",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 62089826,
+                  "name": "True Light",
+                  "section": "main",
+                  "role": "support",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 42097666,
+                  "name": "Spirit with Eyes of Blue",
+                  "section": "extra",
+                  "role": "searcher",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 59822133,
+                  "name": "Blue-Eyes Spirit Dragon",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 89604813,
+                  "name": "Blue-Eyes Ultimate Spirit Dragon",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Main Deck needs 9 slots; 0 free."
+              ],
+              "caption": "Sage finds the Tuner; Maiden places True Light and Roar supplies White Dragon. Spirit Dragon reaches the Synchro payoff."
+            },
+            "pros": [
+              "Spirit with Eyes of Blue can Special Summon Blue-Eyes White Dragon, subject to its printed conditions."
+            ]
+          }
+        ],
+        "candidateCount": 66,
+        "shortlist": [
+          {
+            "engine": "Labrynth",
+            "kind": "bridge",
+            "score": 13.644,
+            "reasons": [
+              "Temple of the Kings lets you activate a Labrynth Trap the turn it is Set (4 compatible Traps); Labrynth Chandraglier supports this Trap engine",
+              "Labrynth Cooclock lets you activate a Ashtra Trap the turn it is Set (3 compatible Traps); Yoa the Plague Deity Ashtra supports this Trap engine",
+              "Lovely Labrynth of the Silver Castle supplies a Set card used by Yoa the Plague Deity Ashtra"
+            ]
+          },
+          {
+            "engine": "Majespecter",
+            "kind": "bridge",
+            "score": 9.105,
+            "reasons": [
+              "Temple of the Kings lets you activate a Majespecter Trap the turn it is Set (4 compatible Traps); Majespecter Toad - Ogama supports this Trap engine",
+              "Yoa the Plague Deity Ashtra pays Majespecter Wind's tribute cost \u2192 Majespecter Toad - Ogama",
+              "Yoa the Plague Deity Ashtra pays Majesty's Pegasus's tribute cost \u2192 Majespecter Toad - Ogama"
+            ]
+          },
+          {
+            "engine": "Argostars",
+            "kind": "bridge",
+            "score": 7.192,
+            "reasons": [
+              "Temple of the Kings lets you activate a Argostars Trap the turn it is Set (3 compatible Traps); Argostars - Fierce Parthe supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Dragon Ruler",
+            "kind": "bridge",
+            "score": 5.93,
+            "reasons": [
+              "Redox, Dragon Ruler of Boulders \u2192 Primite Dragon Ether Beryl \u2192 Primite Lordly Lode",
+              "Redox, Dragon Ruler of Boulders: search \u2192 Primite Dragon Ether Beryl",
+              "Redox, Dragon Ruler of Boulders: search \u2192 Primite Imperial Dragon"
+            ]
+          },
+          {
+            "engine": "Dinomorphia",
+            "kind": "bridge",
+            "score": 4.95,
+            "reasons": [
+              "Temple of the Kings lets you activate a Dinomorphia Trap the turn it is Set (8 compatible Traps); Dinomorphia Therizia supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Traptrix",
+            "kind": "synergy",
+            "score": 4.899,
+            "reasons": [
+              "Shared Normal Trap activation/Set mechanic: Temple of the Kings permits Traptrix Trap Hole Nightmare to activate the turn it was Set; Traptrix Sera responds to Normal Trap activation. Printed conditions and once-per-turn limits still apply; both engines must be available.",
+              "Shared Normal Trap activation mechanic: activating Ashtra Divine Domain can feed Traptrix Sera's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine.",
+              "Shared Normal Trap activation mechanic: activating Primite Howl can feed Traptrix Sera's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+            ]
+          },
+          {
+            "engine": "Dracotail",
+            "kind": "bridge",
+            "score": 4.685,
+            "reasons": [
+              "Temple of the Kings lets you activate a Dracotail Trap the turn it is Set (3 compatible Traps); Dracotail Faimena supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Altergeist",
+            "kind": "bridge",
+            "score": 1.796,
+            "reasons": [
+              "Temple of the Kings lets you activate a Altergeist Trap the turn it is Set (1 compatible Traps); Altergeist Marionetter supports this Trap engine"
+            ]
+          }
+        ]
+      },
+      {
+        "label": "deck 9",
+        "source": "saved_decks:9",
+        "detected": [
+          {
+            "name": "Chaos",
+            "weight": 6,
+            "copies": 6,
+            "distinct": 3,
+            "status": "engine",
+            "hybrids": [
+              24088928
+            ],
+            "includes": [
+              "Archfiend"
+            ]
+          },
+          {
+            "name": "Sinful Spoils",
+            "weight": 4,
+            "copies": 4,
+            "distinct": 2,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Diabell",
+            "weight": 3,
+            "copies": 3,
+            "distinct": 1,
+            "status": "light",
+            "hybrids": []
+          },
+          {
+            "name": "Azamina",
+            "weight": 2,
+            "copies": 3,
+            "distinct": 3,
+            "status": "light",
+            "hybrids": []
+          }
+        ],
+        "engines": [
+          "Chaos",
+          "Sinful Spoils"
+        ],
+        "next": [
+          {
+            "engine": "Azamina",
+            "kind": "bridge",
+            "score": 18.166,
+            "cards": [
+              2006591,
+              9785661,
+              20934683,
+              38511382,
+              66328392
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 66328392,
+                  "name": "Deception of the Sinful Spoils",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 1,
+                  "needed": 2
+                },
+                {
+                  "code": 94845588,
+                  "name": "The Hallowed Azamina",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 1,
+                  "needed": 0
+                },
+                {
+                  "code": 20934683,
+                  "name": "Azamina Debtors",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 42201897,
+                  "name": "Azamina Determination",
+                  "section": "main",
+                  "role": "support",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 73391962,
+                  "name": "Azamina Mu Rcielago",
+                  "section": "extra",
+                  "role": "searcher",
+                  "copies": 1,
+                  "held": 1,
+                  "needed": 0
+                },
+                {
+                  "code": 9785661,
+                  "name": "Azamina Sol Erysichthon",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 1,
+                  "needed": 0
+                },
+                {
+                  "code": 46174776,
+                  "name": "Azamina Moa Regina",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": true,
+              "gaps": [],
+              "caption": "Deception searches Azamina access; Hallowed and Debtors use the printed Fusion procedure. Requires monster fodder and Sinful Spoils resources."
+            },
+            "pros": [
+              "Deception of the Sinful Spoils adds Azamina Debtors from the Deck to the hand, subject to its printed conditions.",
+              "Azamina Debtors names Sinful Spoils.",
+              "Azamina Debtors can send Sinful Spoils Awakening to the GY, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Meklord",
+            "kind": "bridge",
+            "score": 11.742,
+            "cards": [
+              2137678,
+              4081825
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 39109382,
+                  "name": "Meklord Assembly",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 77710579,
+                  "name": "Meklord Nucleus Infinity Core",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Unresolved full dependency procedure for Meklord; the role proposal is provisional.",
+                "Missing payoff role."
+              ],
+              "caption": "Meklord: proposed access, resource and payoff roles from checked directional actions."
+            },
+            "pros": [
+              "Chaos Infinity can Special Summon Meklord Army of Granel, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Regenesis",
+            "kind": "bridge",
+            "score": 4.614,
+            "cards": [
+              22812963,
+              26334139,
+              27781371
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 31786838,
+                  "name": "Regenesis",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 95718355,
+                  "name": "Regenesis Archfiend",
+                  "section": "main",
+                  "role": "searcher",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 22938501,
+                  "name": "Regenesis Sage",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 96540807,
+                  "name": "Regenesis Warrior",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 59323650,
+                  "name": "Regenesis Dragon",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 22812963,
+                  "name": "Regenesis Lord",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 27781371,
+                  "name": "Regenesis Birth",
+                  "section": "main",
+                  "role": "support",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": true,
+              "gaps": [],
+              "caption": "Regenesis and Archfiend search the 2500-stat bodies; Lord Sets Birth. Requires the printed reveal and banish setup."
+            },
+            "pros": [
+              "Sinful Spoils Subdual adds Regenesis Lord (Level 10 LIGHT) from the Deck to the hand, subject to its printed conditions."
+            ]
+          }
+        ],
+        "candidateCount": 143,
+        "shortlist": [
+          {
+            "engine": "Azamina",
+            "kind": "bridge",
+            "score": 24.222,
+            "reasons": [
+              "Deception of the Sinful Spoils: search \u2192 Azamina Debtors",
+              "Deception of the Sinful Spoils: search \u2192 Azamina Aphes",
+              "Deception of the Sinful Spoils: search \u2192 Azamina Determination",
+              "Deception of the Sinful Spoils: search \u2192 Elzette, Azamina of the White Forest",
+              "Elzette, Azamina of the White Forest: search \u2192 Sinful Spoils Awakening",
+              "Queen Azamina: search \u2192 Sinful Spoils Awakening",
+              "Azamina Debtors: send_to_gy \u2192 Sinful Spoils Awakening",
+              "The Hallowed Azamina: send_to_gy \u2192 Sinful Spoils Awakening"
+            ]
+          },
+          {
+            "engine": "Black Luster Soldier",
+            "kind": "bridge",
+            "score": 16.681,
+            "reasons": [
+              "Black Luster Soldier - Legendary Swordsman names Chaos Form",
+              "Chaos Form needs or supports Black Luster Soldier",
+              "Chaos Form needs or supports Black Luster Soldier",
+              "Primal Seed names Chaos Emperor Dragon - Envoy of the End"
+            ]
+          },
+          {
+            "engine": "Meklord",
+            "kind": "bridge",
+            "score": 15.656,
+            "reasons": [
+              "Chaos Infinity: special_summon \u2192 Meklord Army of Granel",
+              "Chaos Infinity: special_summon \u2192 Meklord Army Deployer Obbligato",
+              "Chaos Infinity: special_summon \u2192 Meklord Army of Skiel",
+              "Chaos Infinity: special_summon \u2192 Meklord Army of Wisel"
+            ]
+          },
+          {
+            "engine": "Performapal",
+            "kind": "bridge",
+            "score": 8.338,
+            "reasons": [
+              "Performapal Skullcrobat Joker: search \u2192 Magician of Black Chaos",
+              "Performapal Popperup: special_summon \u2192 Magician of Black Chaos",
+              "Performapal Skullcrobat Joker: search \u2192 Dark Magician of Chaos",
+              "Performapal Skullcrobat Joker: search \u2192 Magician of Black Chaos MAX"
+            ]
+          },
+          {
+            "engine": "Toon",
+            "kind": "bridge",
+            "score": 6.316,
+            "reasons": [
+              "Chaos Archfiend pays Archfiend Strategy's banish cost \u2192 Toon Summoned Skull",
+              "Toon Dark Magician Girl needs or supports Magician of Black Chaos",
+              "Toon Dark Magician Girl names Magician of Black Chaos"
+            ]
+          },
+          {
+            "engine": "Regenesis",
+            "kind": "bridge",
+            "score": 4.614,
+            "reasons": [
+              "Sinful Spoils Subdual \u2192 Regenesis Lord \u2192 Regenesis Birth",
+              "Sinful Spoils Subdual: search \u2192 Regenesis Lord"
+            ]
+          },
+          {
+            "engine": "Traptrix",
+            "kind": "synergy",
+            "score": 1.257,
+            "reasons": [
+              "Shared Normal Trap activation mechanic: activating Sinful Spoils Awakening can feed Traptrix Sera's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+            ]
+          }
+        ]
+      },
+      {
+        "label": "Labrynth",
+        "source": "https://ygoprodeck.com/deck/lab-ashtra-dtw-740318",
+        "detected": [
+          {
+            "name": "Labrynth",
+            "weight": 14,
+            "copies": 14,
+            "distinct": 8,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Ashtra",
+            "weight": 10,
+            "copies": 11,
+            "distinct": 8,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Dogmatika",
+            "weight": 2,
+            "copies": 2,
+            "distinct": 1,
+            "status": "light",
+            "hybrids": []
+          },
+          {
+            "name": "Galaxy",
+            "weight": 1.5,
+            "copies": 3,
+            "distinct": 3,
+            "status": "light",
+            "hybrids": [
+              2530830,
+              18963306,
+              39030163
+            ],
+            "includes": [
+              "Cipher",
+              "Galaxy-Eyes",
+              "Photon"
+            ]
+          }
+        ],
+        "engines": [
+          "Ashtra",
+          "Labrynth"
+        ],
+        "next": [
+          {
+            "engine": "Odion",
+            "kind": "bridge",
+            "score": 6.154,
+            "cards": [
+              1710647,
+              29762407,
+              37839434,
+              69299029
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 97522863,
+                  "name": "The Man with the Mark",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 29762407,
+                  "name": "Temple of the Kings",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 89194033,
+                  "name": "Mystical Beast of Serket",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Unresolved full dependency procedure for Odion; the role proposal is provisional."
+              ],
+              "caption": "Odion: proposed access, resource and payoff roles from checked directional actions."
+            },
+            "pros": [
+              "Temple of the Kings allows Ashtra Divine Domain to be activated the turn it was Set, subject to its printed conditions."
+            ]
+          }
+        ],
+        "candidateCount": 71,
+        "shortlist": [
+          {
+            "engine": "Odion",
+            "kind": "bridge",
+            "score": 11.277,
+            "reasons": [
+              "Temple of the Kings lets you activate a Ashtra Trap the turn it is Set (3 compatible Traps); Yoa the Plague Deity Ashtra supports this Trap engine",
+              "Treasures of the Kings supplies a Set card used by Yoa the Plague Deity Ashtra"
+            ]
+          },
+          {
+            "engine": "Majespecter",
+            "kind": "bridge",
+            "score": 7.35,
+            "reasons": [
+              "Yoa the Plague Deity Ashtra pays Majespecter Wind's tribute cost \u2192 Majespecter Toad - Ogama",
+              "Yoa the Plague Deity Ashtra pays Majesty's Pegasus's tribute cost \u2192 Majespecter Toad - Ogama",
+              "Labrynth Cooclock lets you activate a Majespecter Trap the turn it is Set (2 compatible Traps); Majespecter Toad - Ogama supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Dogmatika",
+            "kind": "bridge",
+            "score": 4.671,
+            "reasons": [
+              "Labrynth Cooclock lets you activate a Dogmatika Trap the turn it is Set (5 compatible Traps); Dogmatika Fleurdelis, the Thunderbolt supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Dinomorphia",
+            "kind": "bridge",
+            "score": 4.5,
+            "reasons": [
+              "Labrynth Cooclock lets you activate a Dinomorphia Trap the turn it is Set (4 compatible Traps); Dinomorphia Therizia supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Dracotail",
+            "kind": "bridge",
+            "score": 4.275,
+            "reasons": [
+              "Labrynth Cooclock lets you activate a Dracotail Trap the turn it is Set (3 compatible Traps); Dracotail Faimena supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Volcanic",
+            "kind": "bridge",
+            "score": 4.262,
+            "reasons": [
+              "Labrynth Cooclock lets you activate a Volcanic Trap the turn it is Set (3 compatible Traps); Volcanic Emperor supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Maliss",
+            "kind": "bridge",
+            "score": 4.257,
+            "reasons": [
+              "Labrynth Cooclock lets you activate a Maliss Trap the turn it is Set (3 compatible Traps); Maliss <P> White Rabbit supports this Trap engine"
+            ]
+          },
+          {
+            "engine": "Traptrix",
+            "kind": "synergy",
+            "score": 3.647,
+            "reasons": [
+              "Shared Normal Trap activation/Set mechanic: Labrynth Cooclock permits Traptrix Trap Hole Nightmare to activate the turn it was Set; Traptrix Sera responds to Normal Trap activation. Printed conditions and once-per-turn limits still apply; both engines must be available.",
+              "Shared Normal Trap activation mechanic: activating Ashtra Divine Domain can feed Traptrix Sera's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine.",
+              "Shared Normal Trap activation mechanic: activating Traptrix Trap Hole Nightmare can feed Lady Labrynth of the Silver Castle's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine."
+            ]
+          }
+        ]
+      },
+      {
+        "label": "Snake-Eye",
+        "source": "https://ygoprodeck.com/deck/yummy-739239",
+        "detected": [
+          {
+            "name": "Yummy",
+            "weight": 13.5,
+            "copies": 15,
+            "distinct": 10,
+            "status": "engine",
+            "hybrids": []
+          },
+          {
+            "name": "Snake-Eye",
+            "weight": 8,
+            "copies": 8,
+            "distinct": 5,
+            "status": "engine",
+            "hybrids": [
+              24081957,
+              89023486
+            ],
+            "includes": [
+              "Sinful Spoils"
+            ]
+          },
+          {
+            "name": "Junk",
+            "weight": 2.5,
+            "copies": 4,
+            "distinct": 3,
+            "status": "light",
+            "hybrids": [
+              9742784,
+              13021682
+            ]
+          },
+          {
+            "name": "Synchron",
+            "weight": 2.5,
+            "copies": 5,
+            "distinct": 4,
+            "status": "light",
+            "hybrids": [
+              9742784,
+              13021682,
+              37799519
+            ]
+          },
+          {
+            "name": "Stardust",
+            "weight": 1.5,
+            "copies": 3,
+            "distinct": 3,
+            "status": "light",
+            "hybrids": [
+              37799519
+            ]
+          }
+        ],
+        "engines": [
+          "Snake-Eye",
+          "Yummy"
+        ],
+        "next": [
+          {
+            "engine": "Fire King",
+            "kind": "bridge",
+            "score": 5.496,
+            "cards": [
+              9674034,
+              57554544,
+              90681088
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 57554544,
+                  "name": "Fire King Island",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 69000994,
+                  "name": "Fire King Avatar Barong",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Unresolved full dependency procedure for Fire King; the role proposal is provisional.",
+                "Missing payoff role."
+              ],
+              "caption": "Fire King: proposed access, resource and payoff roles from checked directional actions."
+            },
+            "pros": [
+              "Snake-Eye Ash adds Legendary Fire King Ponix (Level 1 FIRE) from the Deck to the hand, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Azamina",
+            "kind": "bridge",
+            "score": 5.443,
+            "cards": [
+              20934683,
+              24081957
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 66328392,
+                  "name": "Deception of the Sinful Spoils",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 94845588,
+                  "name": "The Hallowed Azamina",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 20934683,
+                  "name": "Azamina Debtors",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 42201897,
+                  "name": "Azamina Determination",
+                  "section": "main",
+                  "role": "support",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 73391962,
+                  "name": "Azamina Mu Rcielago",
+                  "section": "extra",
+                  "role": "searcher",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 9785661,
+                  "name": "Azamina Sol Erysichthon",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                },
+                {
+                  "code": 46174776,
+                  "name": "Azamina Moa Regina",
+                  "section": "extra",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Extra Deck needs 3 slots; 0 free."
+              ],
+              "caption": "Deception searches Azamina access; Hallowed and Debtors use the printed Fusion procedure. Requires monster fodder and Sinful Spoils resources."
+            },
+            "pros": [
+              "Azamina Debtors can send Sinful Spoils of Subversion - Snake-Eye to the GY, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Diabell",
+            "kind": "bridge",
+            "score": 5.37,
+            "cards": [
+              23151193,
+              26700718
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 78293584,
+                  "name": "Filia Diabell",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 60145298,
+                  "name": "Diabellze the White Witch",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 53765052,
+                  "name": "Diabellze the Original Sinkeeper",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Unresolved full dependency procedure for Diabell; the role proposal is provisional."
+              ],
+              "caption": "Diabell: proposed access, resource and payoff roles from checked directional actions."
+            },
+            "pros": [
+              "Dramatic Snake-Eye Chase can place Diabellstar Vengeance on the field, subject to its printed conditions."
+            ]
+          },
+          {
+            "engine": "Dragon Ruler",
+            "kind": "bridge",
+            "score": 1.8,
+            "cards": [
+              48452496,
+              53797637,
+              53804307
+            ],
+            "core": {
+              "cards": [
+                {
+                  "code": 26400609,
+                  "name": "Tidal, Dragon Ruler of Waterfalls",
+                  "section": "main",
+                  "role": "starter",
+                  "copies": 3,
+                  "held": 0,
+                  "needed": 3
+                },
+                {
+                  "code": 89399912,
+                  "name": "Tempest, Dragon Ruler of Storms",
+                  "section": "main",
+                  "role": "extender",
+                  "copies": 2,
+                  "held": 0,
+                  "needed": 2
+                },
+                {
+                  "code": 53804307,
+                  "name": "Blaster, Dragon Ruler of Infernos",
+                  "section": "main",
+                  "role": "payoff",
+                  "copies": 1,
+                  "held": 0,
+                  "needed": 1
+                }
+              ],
+              "ready": false,
+              "gaps": [
+                "Unresolved full dependency procedure for Dragon Ruler; the role proposal is provisional."
+              ],
+              "caption": "Dragon Ruler: proposed access, resource and payoff roles from checked directional actions."
+            },
+            "pros": [
+              "Burner, Dragon Ruler of Sparks can Special Summon Blaster, Dragon Ruler of Infernos, subject to its printed conditions."
+            ]
+          }
+        ],
+        "candidateCount": 22,
+        "shortlist": [
+          {
+            "engine": "Diabell",
+            "kind": "bridge",
+            "score": 9.308,
+            "reasons": [
+              "Dramatic Snake-Eye Chase: place_on_field \u2192 Diabellstar Vengeance",
+              "Dramatic Snake-Eye Chase: place_on_field \u2192 Diabellstar the Black Witch",
+              "Diabellstar the Black Witch: set_spell_trap \u2192 Sinful Spoils of Subversion - Snake-Eye",
+              "Diabellze the White Witch: send_to_gy \u2192 Sinful Spoils of Subversion - Snake-Eye"
+            ]
+          },
+          {
+            "engine": "Fire King",
+            "kind": "bridge",
+            "score": 7.328,
+            "reasons": [
+              "Snake-Eye Ash \u2192 Legendary Fire King Ponix \u2192 Fire King Island",
+              "Snake-Eye Ash: search \u2192 Legendary Fire King Ponix"
+            ]
+          },
+          {
+            "engine": "Azamina",
+            "kind": "bridge",
+            "score": 7.258,
+            "reasons": [
+              "Elzette, Azamina of the White Forest: search \u2192 Sinful Spoils of Subversion - Snake-Eye",
+              "Queen Azamina: search \u2192 Sinful Spoils of Subversion - Snake-Eye",
+              "Azamina Debtors: send_to_gy \u2192 Sinful Spoils of Subversion - Snake-Eye",
+              "The Hallowed Azamina: send_to_gy \u2192 Sinful Spoils of Subversion - Snake-Eye"
+            ]
+          },
+          {
+            "engine": "Ninja",
+            "kind": "bridge",
+            "score": 5.762,
+            "reasons": [
+              "Bat, the Forest Ninja \u2192 Marshmao\u2606Yummy \u2192 Yummyusment\u2605Acroquey",
+              "Bat, the Forest Ninja: search \u2192 Marshmao\u2606Yummy",
+              "Bat, the Forest Ninja: search \u2192 Cupsy\u2606Yummy"
+            ]
+          },
+          {
+            "engine": "Melffy",
+            "kind": "bridge",
+            "score": 5.594,
+            "reasons": [
+              "Melffy Puppy \u2192 Marshmao\u2606Yummy \u2192 Yummyusment\u2605Acroquey",
+              "Melffy Puppy: special_summon \u2192 Marshmao\u2606Yummy",
+              "Melffy Puppy: special_summon \u2192 Cupsy\u2606Yummy"
+            ]
+          },
+          {
+            "engine": "Nimble",
+            "kind": "bridge",
+            "score": 5.594,
+            "reasons": [
+              "Super-Nimble Mega Hamster \u2192 Marshmao\u2606Yummy \u2192 Yummyusment\u2605Acroquey",
+              "Super-Nimble Mega Hamster: special_summon \u2192 Marshmao\u2606Yummy",
+              "Super-Nimble Mega Hamster: special_summon \u2192 Cupsy\u2606Yummy"
+            ]
+          },
+          {
+            "engine": "Dragon Ruler",
+            "kind": "bridge",
+            "score": 1.8,
+            "reasons": [
+              "Snake-Eyes Flamberge Dragon pays Burner, Dragon Ruler of Sparks's discard cost \u2192 Blaster, Dragon Ruler of Infernos"
+            ]
+          },
+          {
+            "engine": "Infernoid",
+            "kind": "synergy",
+            "score": 0.45,
+            "reasons": [
+              "Complementary GY setup mechanic: Infernoid Tierra's printed send_to_gy effect can use Yummy\u2605Redemption, whose printed GY effect supplies the payoff. All printed costs, zones, locks and timing apply."
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "mechanics": {
+    "advanced": {
+      "profiles": {
+        "Odion": {
+          "engine": "Odion",
+          "members": 12,
+          "mechanics": {
+            "trap_set": {
+              "count": 6,
+              "share": 0.5,
+              "cards": [
+                28649820,
+                59576447,
+                69299029,
+                85888377,
+                95561146,
+                97800311
+              ]
+            },
+            "trap_activation": {
+              "count": 4,
+              "share": 0.3333333333333333,
+              "cards": [
+                29762407,
+                59576447,
+                69299029,
+                97800311
+              ]
+            },
+            "gy": {
+              "count": 6,
+              "share": 0.5,
+              "cards": [
+                29762407,
+                60411677,
+                95561146,
+                96687733,
+                97522863,
+                97800311
+              ]
+            },
+            "banish": {
+              "count": 3,
+              "share": 0.25,
+              "cards": [
+                34926568,
+                89194033,
+                96687733
+              ]
+            },
+            "fusion": {
+              "count": 3,
+              "share": 0.25,
+              "cards": [
+                29762407,
+                96687733,
+                97800311
+              ]
+            },
+            "synchro": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "xyz": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "link": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "ritual": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "face_down": {
+              "count": 1,
+              "share": 0.08333333333333333,
+              "cards": [
+                69299029
+              ]
+            },
+            "discard": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            }
+          }
+        },
+        "Labrynth": {
+          "engine": "Labrynth",
+          "members": 15,
+          "mechanics": {
+            "trap_set": {
+              "count": 12,
+              "share": 0.8,
+              "cards": [
+                1225009,
+                2347656,
+                5380979,
+                32785578,
+                37629703,
+                48745395,
+                68779682,
+                69895264,
+                73602965,
+                74018812,
+                75730490,
+                81497285
+              ]
+            },
+            "trap_activation": {
+              "count": 7,
+              "share": 0.4666666666666667,
+              "cards": [
+                2511,
+                2347656,
+                33407125,
+                48745395,
+                68779682,
+                73602965,
+                81497285
+              ]
+            },
+            "gy": {
+              "count": 10,
+              "share": 0.6666666666666666,
+              "cards": [
+                2511,
+                2347656,
+                5380979,
+                33407125,
+                37629703,
+                69895264,
+                73602965,
+                74018812,
+                75730490,
+                92714517
+              ]
+            },
+            "banish": {
+              "count": 2,
+              "share": 0.13333333333333333,
+              "cards": [
+                69895264,
+                92714517
+              ]
+            },
+            "fusion": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "synchro": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "xyz": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "link": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "ritual": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "face_down": {
+              "count": 1,
+              "share": 0.06666666666666667,
+              "cards": [
+                81497285
+              ]
+            },
+            "discard": {
+              "count": 3,
+              "share": 0.2,
+              "cards": [
+                2511,
+                37629703,
+                74018812
+              ]
+            }
+          }
+        },
+        "Fiendsmith": {
+          "engine": "Fiendsmith",
+          "members": 12,
+          "mechanics": {
+            "trap_set": {
+              "count": 2,
+              "share": 0.16666666666666666,
+              "cards": [
+                26434972,
+                35552985
+              ]
+            },
+            "trap_activation": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "gy": {
+              "count": 11,
+              "share": 0.9166666666666666,
+              "cards": [
+                2463794,
+                11464648,
+                26434972,
+                28803166,
+                32991300,
+                35552985,
+                46640168,
+                60764609,
+                82135803,
+                98567237,
+                99989863
+              ]
+            },
+            "banish": {
+              "count": 5,
+              "share": 0.4166666666666667,
+              "cards": [
+                11464648,
+                26434972,
+                46640168,
+                98567237,
+                99989863
+              ]
+            },
+            "fusion": {
+              "count": 5,
+              "share": 0.4166666666666667,
+              "cards": [
+                11464648,
+                26434972,
+                46640168,
+                49867899,
+                98567237
+              ]
+            },
+            "synchro": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "xyz": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "link": {
+              "count": 4,
+              "share": 0.3333333333333333,
+              "cards": [
+                2463794,
+                28803166,
+                32991300,
+                49867899
+              ]
+            },
+            "ritual": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "face_down": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "discard": {
+              "count": 3,
+              "share": 0.25,
+              "cards": [
+                11464648,
+                60764609,
+                98567237
+              ]
+            }
+          }
+        }
+      },
+      "pairs": [
+        {
+          "source": "Odion",
+          "target": "Labrynth",
+          "complementarity": 2.492,
+          "candidate": {
+            "kind": "synergy",
+            "tier": "niche",
+            "source": "Odion",
+            "target": "Labrynth",
+            "format": "advanced",
+            "score": 3,
+            "raw_score": 3,
+            "target_mean": 0,
+            "two_way": false,
+            "grade": "Niche",
+            "reasons": [
+              {
+                "key": "synergy",
+                "weight": 3,
+                "cards": [
+                  29762407,
+                  81497285,
+                  5380979
+                ],
+                "evidence": [
+                  "You can activate 1 Trap Card the turn it was Set. You can send 1 \"Mystical Beast of Serket\" in your Monster Zone and this card you control to the Graveyard; Special Summon 1 monster from your hand or Deck, or 1 Fusion Monster from your Extra Deck. You can only use each effect of \"Temple of the Kings\" once per turn.",
+                  "While you control a Set card, your opponent cannot target this card with card effects, also it cannot be destroyed by your opponent's card effects. You can only use each of the following effects of \"Lady Labrynth of the Silver Castle\" once per turn. If a \"Labrynth\" card or effect or a Normal Trap Card was activated this turn, except \"Lady Labrynth of the Silver Castle\" (Quick Effect): You can Special Summon this card from your hand in Defense Position. When a Normal Trap Card is activated (Quick Effect): You can Set 1 Normal Trap with a different name directly from your Deck.",
+                  "Special Summon 1 \"Labrynth\" monster from your Deck, also until the end of the next turn after this card resolves, you cannot Special Summon monsters from the Deck or Extra Deck, except Fiend monsters. If a monster leaves the field by your Normal Trap effect, while this card is in your GY, except the turn it was sent there: You can Set this card. You can only use each effect of \"Welcome Labrynth\" once per turn."
+                ],
+                "description": "Shared Normal Trap activation/Set mechanic: Temple of the Kings permits Welcome Labrynth to activate the turn it was Set; Lady Labrynth of the Silver Castle responds to Normal Trap activation. Printed conditions and once-per-turn limits still apply; both engines must be available.",
+                "mechanic": {
+                  "key": "trap_activation",
+                  "provider": 29762407,
+                  "consumer": 81497285,
+                  "resource": 5380979
+                }
+              }
+            ],
+            "cards": [
+              29762407,
+              81497285,
+              5380979
+            ],
+            "warnings": [
+              "Shared/complementary mechanics only; both engines must already be available. Printed conditions and locks apply."
+            ],
+            "genesys_points": null,
+            "validation": "deterministic",
+            "judge": "pending",
+            "engine_status": "unverified",
+            "evidence_hash": "28a33ca70c6221c0293390fefa8c659ef2a3567b8a228a123fbc9b53729fea62"
+          },
+          "gate": "pending"
+        },
+        {
+          "source": "Fiendsmith",
+          "target": "Labrynth",
+          "complementarity": 0.833,
+          "candidate": null,
+          "gate": null
+        }
+      ]
+    },
+    "genesys": {
+      "profiles": {
+        "Odion": {
+          "engine": "Odion",
+          "members": 12,
+          "mechanics": {
+            "trap_set": {
+              "count": 6,
+              "share": 0.5,
+              "cards": [
+                28649820,
+                59576447,
+                69299029,
+                85888377,
+                95561146,
+                97800311
+              ]
+            },
+            "trap_activation": {
+              "count": 4,
+              "share": 0.3333333333333333,
+              "cards": [
+                29762407,
+                59576447,
+                69299029,
+                97800311
+              ]
+            },
+            "gy": {
+              "count": 6,
+              "share": 0.5,
+              "cards": [
+                29762407,
+                60411677,
+                95561146,
+                96687733,
+                97522863,
+                97800311
+              ]
+            },
+            "banish": {
+              "count": 3,
+              "share": 0.25,
+              "cards": [
+                34926568,
+                89194033,
+                96687733
+              ]
+            },
+            "fusion": {
+              "count": 3,
+              "share": 0.25,
+              "cards": [
+                29762407,
+                96687733,
+                97800311
+              ]
+            },
+            "synchro": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "xyz": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "link": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "ritual": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "face_down": {
+              "count": 1,
+              "share": 0.08333333333333333,
+              "cards": [
+                69299029
+              ]
+            },
+            "discard": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            }
+          }
+        },
+        "Labrynth": {
+          "engine": "Labrynth",
+          "members": 15,
+          "mechanics": {
+            "trap_set": {
+              "count": 12,
+              "share": 0.8,
+              "cards": [
+                1225009,
+                2347656,
+                5380979,
+                32785578,
+                37629703,
+                48745395,
+                68779682,
+                69895264,
+                73602965,
+                74018812,
+                75730490,
+                81497285
+              ]
+            },
+            "trap_activation": {
+              "count": 7,
+              "share": 0.4666666666666667,
+              "cards": [
+                2511,
+                2347656,
+                33407125,
+                48745395,
+                68779682,
+                73602965,
+                81497285
+              ]
+            },
+            "gy": {
+              "count": 10,
+              "share": 0.6666666666666666,
+              "cards": [
+                2511,
+                2347656,
+                5380979,
+                33407125,
+                37629703,
+                69895264,
+                73602965,
+                74018812,
+                75730490,
+                92714517
+              ]
+            },
+            "banish": {
+              "count": 2,
+              "share": 0.13333333333333333,
+              "cards": [
+                69895264,
+                92714517
+              ]
+            },
+            "fusion": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "synchro": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "xyz": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "link": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "ritual": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "face_down": {
+              "count": 1,
+              "share": 0.06666666666666667,
+              "cards": [
+                81497285
+              ]
+            },
+            "discard": {
+              "count": 3,
+              "share": 0.2,
+              "cards": [
+                2511,
+                37629703,
+                74018812
+              ]
+            }
+          }
+        },
+        "Fiendsmith": {
+          "engine": "Fiendsmith",
+          "members": 9,
+          "mechanics": {
+            "trap_set": {
+              "count": 2,
+              "share": 0.2222222222222222,
+              "cards": [
+                26434972,
+                35552985
+              ]
+            },
+            "trap_activation": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "gy": {
+              "count": 9,
+              "share": 1,
+              "cards": [
+                11464648,
+                26434972,
+                28803166,
+                35552985,
+                46640168,
+                60764609,
+                82135803,
+                98567237,
+                99989863
+              ]
+            },
+            "banish": {
+              "count": 5,
+              "share": 0.5555555555555556,
+              "cards": [
+                11464648,
+                26434972,
+                46640168,
+                98567237,
+                99989863
+              ]
+            },
+            "fusion": {
+              "count": 4,
+              "share": 0.4444444444444444,
+              "cards": [
+                11464648,
+                26434972,
+                46640168,
+                98567237
+              ]
+            },
+            "synchro": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "xyz": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "link": {
+              "count": 1,
+              "share": 0.1111111111111111,
+              "cards": [
+                28803166
+              ]
+            },
+            "ritual": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "face_down": {
+              "count": 0,
+              "share": 0,
+              "cards": []
+            },
+            "discard": {
+              "count": 3,
+              "share": 0.3333333333333333,
+              "cards": [
+                11464648,
+                60764609,
+                98567237
+              ]
+            }
+          }
+        }
+      },
+      "pairs": [
+        {
+          "source": "Odion",
+          "target": "Labrynth",
+          "complementarity": 2.492,
+          "candidate": {
+            "kind": "synergy",
+            "tier": "niche",
+            "source": "Odion",
+            "target": "Labrynth",
+            "format": "genesys",
+            "score": 3,
+            "raw_score": 3,
+            "target_mean": 0,
+            "two_way": false,
+            "grade": "Niche",
+            "reasons": [
+              {
+                "key": "synergy",
+                "weight": 3,
+                "cards": [
+                  29762407,
+                  81497285,
+                  5380979
+                ],
+                "evidence": [
+                  "You can activate 1 Trap Card the turn it was Set. You can send 1 \"Mystical Beast of Serket\" in your Monster Zone and this card you control to the Graveyard; Special Summon 1 monster from your hand or Deck, or 1 Fusion Monster from your Extra Deck. You can only use each effect of \"Temple of the Kings\" once per turn.",
+                  "While you control a Set card, your opponent cannot target this card with card effects, also it cannot be destroyed by your opponent's card effects. You can only use each of the following effects of \"Lady Labrynth of the Silver Castle\" once per turn. If a \"Labrynth\" card or effect or a Normal Trap Card was activated this turn, except \"Lady Labrynth of the Silver Castle\" (Quick Effect): You can Special Summon this card from your hand in Defense Position. When a Normal Trap Card is activated (Quick Effect): You can Set 1 Normal Trap with a different name directly from your Deck.",
+                  "Special Summon 1 \"Labrynth\" monster from your Deck, also until the end of the next turn after this card resolves, you cannot Special Summon monsters from the Deck or Extra Deck, except Fiend monsters. If a monster leaves the field by your Normal Trap effect, while this card is in your GY, except the turn it was sent there: You can Set this card. You can only use each effect of \"Welcome Labrynth\" once per turn."
+                ],
+                "description": "Shared Normal Trap activation/Set mechanic: Temple of the Kings permits Welcome Labrynth to activate the turn it was Set; Lady Labrynth of the Silver Castle responds to Normal Trap activation. Printed conditions and once-per-turn limits still apply; both engines must be available.",
+                "mechanic": {
+                  "key": "trap_activation",
+                  "provider": 29762407,
+                  "consumer": 81497285,
+                  "resource": 5380979
+                }
+              }
+            ],
+            "cards": [
+              29762407,
+              81497285,
+              5380979
+            ],
+            "warnings": [
+              "Shared/complementary mechanics only; both engines must already be available. Printed conditions and locks apply."
+            ],
+            "genesys_points": 40,
+            "validation": "deterministic",
+            "judge": "pending",
+            "engine_status": "unverified",
+            "evidence_hash": "0b7ca12a50adc703fd27b0357680dcab1ea83d763c6a963ded1704ca7bae068f"
+          },
+          "gate": "pending"
+        },
+        {
+          "source": "Fiendsmith",
+          "target": "Labrynth",
+          "complementarity": 1,
+          "candidate": {
+            "kind": "synergy",
+            "tier": "niche",
+            "source": "Fiendsmith",
+            "target": "Labrynth",
+            "format": "genesys",
+            "score": 2,
+            "raw_score": 2,
+            "target_mean": 0,
+            "two_way": false,
+            "grade": "Niche",
+            "reasons": [
+              {
+                "key": "synergy",
+                "weight": 2,
+                "cards": [
+                  26434972,
+                  81497285
+                ],
+                "evidence": [
+                  "This turn, your LIGHT Fiend monsters cannot be destroyed by battle, also any battle damage you take becomes halved. You can banish this card from your GY; Fusion Summon 1 \"Fiendsmith\" Fusion Monster from your Extra Deck, using monsters you control, and/or monsters in your Spell & Trap Zones that are equipped to a \"Fiendsmith\" monster as an Equip Spell, as material. You can only use this effect of \"Fiendsmith Kyrie\" once per turn.",
+                  "While you control a Set card, your opponent cannot target this card with card effects, also it cannot be destroyed by your opponent's card effects. You can only use each of the following effects of \"Lady Labrynth of the Silver Castle\" once per turn. If a \"Labrynth\" card or effect or a Normal Trap Card was activated this turn, except \"Lady Labrynth of the Silver Castle\" (Quick Effect): You can Special Summon this card from your hand in Defense Position. When a Normal Trap Card is activated (Quick Effect): You can Set 1 Normal Trap with a different name directly from your Deck."
+                ],
+                "description": "Shared Normal Trap activation mechanic: activating Fiendsmith Kyrie can feed Lady Labrynth of the Silver Castle's printed Normal Trap activation trigger. Meet the Trap's conditions and all timing limits; this does not access the other engine.",
+                "mechanic": {
+                  "key": "trap_trigger",
+                  "provider": 26434972,
+                  "consumer": 81497285
+                }
+              }
+            ],
+            "cards": [
+              26434972,
+              81497285
+            ],
+            "warnings": [
+              "Shared/complementary mechanics only; both engines must already be available. Printed conditions and locks apply."
+            ],
+            "genesys_points": 40,
+            "validation": "deterministic",
+            "judge": "pending",
+            "engine_status": "unverified",
+            "evidence_hash": "ef89e8e9c3d62ebf8b2e3d67c07aa25467ecc1aff1fe353ad3399951c231f4bd"
+          },
+          "gate": "pending"
+        }
+      ]
+    }
+  },
+  "sampledCores": [
+    {
+      "engine": "Ashtra",
+      "format": "genesys",
+      "sampleFormat": "genesys",
+      "lists": 25,
+      "before": {
+        "cards": [
+          {
+            "code": 1710647,
+            "name": "Yoa the Plague Deity Ashtra",
+            "section": "main",
+            "role": "starter",
+            "copies": 3,
+            "held": 0,
+            "needed": 3,
+            "points": 3
+          },
+          {
+            "code": 38114652,
+            "name": "Mikumari the Sealing Deity Ashtra",
+            "section": "main",
+            "role": "searcher",
+            "copies": 2,
+            "held": 0,
+            "needed": 2,
+            "points": 5
+          },
+          {
+            "code": 37839434,
+            "name": "Ashtra Divine Domain",
+            "section": "main",
+            "role": "material",
+            "copies": 2,
+            "held": 0,
+            "needed": 2,
+            "points": 0
+          },
+          {
+            "code": 64455720,
+            "name": "Ashtra Insect Poison",
+            "section": "main",
+            "role": "material",
+            "copies": 1,
+            "held": 0,
+            "needed": 1,
+            "points": 0
+          },
+          {
+            "code": 38331244,
+            "name": "Akasuna the Battle Ashtra",
+            "section": "main",
+            "role": "extender",
+            "copies": 1,
+            "held": 0,
+            "needed": 1,
+            "points": 0
+          },
+          {
+            "code": 2906939,
+            "name": "Ashtrashen - Gateway to the Worlds Beyond",
+            "section": "main",
+            "role": "extender",
+            "copies": 1,
+            "held": 0,
+            "needed": 1,
+            "points": 7
+          },
+          {
+            "code": 43419178,
+            "name": "Ashtraya Mikumari-no-Mikoto",
+            "section": "extra",
+            "role": "payoff",
+            "copies": 1,
+            "held": 0,
+            "needed": 1,
+            "points": 0
+          },
+          {
+            "code": 17020474,
+            "name": "Ashtraja Susanoo",
+            "section": "extra",
+            "role": "payoff",
+            "copies": 1,
+            "held": 0,
+            "needed": 1,
+            "points": 0
+          }
+        ],
+        "ready": true,
+        "gaps": [],
+        "caption": "Yoa Sets Ashtra Spell/Traps; Divine Domain supplies a Level 1 Tuner. Requires face-down setup for the bodies."
+      },
+      "after": {
+        "cards": [
+          {
+            "code": 1710647,
+            "name": "Yoa the Plague Deity Ashtra",
+            "section": "main",
+            "role": "starter",
+            "copies": 2,
+            "held": 0,
+            "needed": 2,
+            "points": 3
+          },
+          {
+            "code": 38114652,
+            "name": "Mikumari the Sealing Deity Ashtra",
+            "section": "main",
+            "role": "searcher",
+            "copies": 2,
+            "held": 0,
+            "needed": 2,
+            "points": 5
+          },
+          {
+            "code": 37839434,
+            "name": "Ashtra Divine Domain",
+            "section": "main",
+            "role": "material",
+            "copies": 2,
+            "held": 0,
+            "needed": 2,
+            "points": 0
+          },
+          {
+            "code": 64455720,
+            "name": "Ashtra Insect Poison",
+            "section": "main",
+            "role": "material",
+            "copies": 1,
+            "held": 0,
+            "needed": 1,
+            "points": 0
+          },
+          {
+            "code": 38331244,
+            "name": "Akasuna the Battle Ashtra",
+            "section": "main",
+            "role": "extender",
+            "copies": 2,
+            "held": 0,
+            "needed": 2,
+            "points": 0
+          },
+          {
+            "code": 2906939,
+            "name": "Ashtrashen - Gateway to the Worlds Beyond",
+            "section": "main",
+            "role": "extender",
+            "copies": 2,
+            "held": 0,
+            "needed": 2,
+            "points": 7
+          },
+          {
+            "code": 43419178,
+            "name": "Ashtraya Mikumari-no-Mikoto",
+            "section": "extra",
+            "role": "payoff",
+            "copies": 2,
+            "held": 0,
+            "needed": 2,
+            "points": 0
+          },
+          {
+            "code": 17020474,
+            "name": "Ashtraja Susanoo",
+            "section": "extra",
+            "role": "payoff",
+            "copies": 2,
+            "held": 0,
+            "needed": 2,
+            "points": 0
+          }
+        ],
+        "ready": false,
+        "gaps": [
+          "Observed engine exceeds the 12-copy target; review deck space."
+        ],
+        "caption": "Yoa Sets Ashtra Spell/Traps; Divine Domain supplies a Level 1 Tuner. Requires face-down setup for the bodies. Quantities informed by 25 sampled genesys lists; dependencies remain checked."
+      }
+    },
+    {
+      "engine": "Labrynth",
+      "format": "genesys",
+      "sampleFormat": "genesys",
+      "lists": 25,
+      "before": {
+        "cards": [
+          {
+            "code": 1225009,
+            "name": "Arianna the Labrynth Servant",
+            "section": "main",
+            "role": "starter",
+            "copies": 3,
+            "held": 0,
+            "needed": 3,
+            "points": 0
+          },
+          {
+            "code": 37629703,
+            "name": "Labrynth Chandraglier",
+            "section": "main",
+            "role": "extender",
+            "copies": 2,
+            "held": 0,
+            "needed": 2,
+            "points": 0
+          },
+          {
+            "code": 32785578,
+            "name": "Farewelcome Labrynth",
+            "section": "main",
+            "role": "payoff",
+            "copies": 1,
+            "held": 0,
+            "needed": 1,
+            "points": 0
+          }
+        ],
+        "ready": false,
+        "gaps": [
+          "Unresolved full dependency procedure for Labrynth; the role proposal is provisional."
+        ],
+        "caption": "Labrynth: proposed access, resource and payoff roles from checked directional actions."
+      },
+      "after": {
+        "cards": [
+          {
+            "code": 1225009,
+            "name": "Arianna the Labrynth Servant",
+            "section": "main",
+            "role": "starter",
+            "copies": 2,
+            "held": 0,
+            "needed": 2,
+            "points": 0
+          },
+          {
+            "code": 37629703,
+            "name": "Labrynth Chandraglier",
+            "section": "main",
+            "role": "extender",
+            "copies": 2,
+            "held": 0,
+            "needed": 2,
+            "points": 0
+          },
+          {
+            "code": 33407125,
+            "name": "Labrynth Labyrinth",
+            "section": "main",
+            "role": "payoff",
+            "copies": 1,
+            "held": 0,
+            "needed": 1,
+            "points": 0
+          }
+        ],
+        "ready": false,
+        "gaps": [
+          "Unresolved full dependency procedure for Labrynth; the role proposal is provisional."
+        ],
+        "caption": "Labrynth: proposed access, resource and payoff roles from checked directional actions. Quantities informed by 25 sampled genesys lists; dependencies remain checked."
+      }
+    },
+    {
+      "engine": "Blue-Eyes",
+      "format": "advanced",
+      "sampleFormat": "domain",
+      "lists": 30,
+      "before": {
+        "cards": [
+          {
+            "code": 8240199,
+            "name": "Sage with Eyes of Blue",
+            "section": "main",
+            "role": "starter",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 80326401,
+            "name": "Wishes for Eyes of Blue",
+            "section": "main",
+            "role": "searcher",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 17947697,
+            "name": "Maiden of White",
+            "section": "main",
+            "role": "extender",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 17725109,
+            "name": "Roar of the Blue-Eyed Dragons",
+            "section": "main",
+            "role": "extender",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 89631139,
+            "name": "Blue-Eyes White Dragon",
+            "section": "main",
+            "role": "material",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 62089826,
+            "name": "True Light",
+            "section": "main",
+            "role": "support",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 42097666,
+            "name": "Spirit with Eyes of Blue",
+            "section": "extra",
+            "role": "searcher",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 59822133,
+            "name": "Blue-Eyes Spirit Dragon",
+            "section": "extra",
+            "role": "payoff",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 89604813,
+            "name": "Blue-Eyes Ultimate Spirit Dragon",
+            "section": "extra",
+            "role": "payoff",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          }
+        ],
+        "ready": true,
+        "gaps": [],
+        "caption": "Sage finds the Tuner; Maiden places True Light and Roar supplies White Dragon. Spirit Dragon reaches the Synchro payoff."
+      },
+      "after": {
+        "cards": [
+          {
+            "code": 8240199,
+            "name": "Sage with Eyes of Blue",
+            "section": "main",
+            "role": "starter",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 80326401,
+            "name": "Wishes for Eyes of Blue",
+            "section": "main",
+            "role": "searcher",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 17947697,
+            "name": "Maiden of White",
+            "section": "main",
+            "role": "extender",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 17725109,
+            "name": "Roar of the Blue-Eyed Dragons",
+            "section": "main",
+            "role": "extender",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 89631139,
+            "name": "Blue-Eyes White Dragon",
+            "section": "main",
+            "role": "material",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 62089826,
+            "name": "True Light",
+            "section": "main",
+            "role": "support",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 42097666,
+            "name": "Spirit with Eyes of Blue",
+            "section": "extra",
+            "role": "searcher",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 59822133,
+            "name": "Blue-Eyes Spirit Dragon",
+            "section": "extra",
+            "role": "payoff",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          },
+          {
+            "code": 89604813,
+            "name": "Blue-Eyes Ultimate Spirit Dragon",
+            "section": "extra",
+            "role": "payoff",
+            "copies": 1,
+            "held": 0,
+            "needed": 1
+          }
+        ],
+        "ready": true,
+        "gaps": [],
+        "caption": "Sage finds the Tuner; Maiden places True Light and Roar supplies White Dragon. Spirit Dragon reaches the Synchro payoff. Quantities informed by 30 sampled domain lists; dependencies remain checked."
+      }
+    }
+  ],
+  "implementationCommits": [
+    "303a89441",
+    "1983a93a8"
+  ],
+  "verification": {
+    "integrationPassed": 173,
+    "integrationSkipped": 14,
+    "sharedTypecheck": "passed",
+    "duelServerTypecheck": "passed",
+    "independentReview": "no unresolved important findings"
+  }
+}

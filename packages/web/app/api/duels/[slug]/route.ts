@@ -1,3 +1,4 @@
+import { authorizeDuelControl, sandboxErrorResponse } from "@/lib/sandbox-access";
 import { NextResponse } from "next/server";
 import { duelAnimationSpeed, readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor, redactDuelResult } from "@/lib/duel-host";
 
@@ -12,13 +13,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
 
   try {
     const room = actor.duels.room(slug, actor.guildId, actor.playerId);
-    const control = readDuelControl(request, room, "view");
+    const authorized = await authorizeDuelControl(request, room, "view");
+    if (!authorized.ok) return authorized.response;
+    const control = authorized.control;
     const fork = room.session.kind === "replay-fork";
     const pending = !fork && (room.session.status === "lobby" || room.series?.status === "between_games");
     const openingDue = room.session.status === "lobby" && room.opening != null
       && Date.parse(room.opening.deadlineAt) <= Date.now();
     // Spectators need the host only when an opening deadline has arrived.
-    if (!fork && ((pending && room.mySeat === null && !openingDue) || (!pending && room.session.status !== "active" && !spectate))) {
+    if (!fork && !room.session.sandbox && ((pending && room.mySeat === null && !openingDue) || (!pending && room.session.status !== "active" && !spectate))) {
       return NextResponse.json(redactDuelResult(room, actor.guildId, actor.playerId), { headers });
     }
     try {
@@ -38,6 +41,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     }
     return NextResponse.json(redactDuelResult(room, actor.guildId, actor.playerId), { headers });
   } catch (error) {
-    return duelErrorResponse(error);
+    return sandboxErrorResponse(error);
   }
 }

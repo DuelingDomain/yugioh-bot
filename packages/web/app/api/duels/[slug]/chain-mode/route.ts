@@ -1,3 +1,4 @@
+import { authorizeDuelControl, sandboxErrorResponse } from "@/lib/sandbox-access";
 import { NextRequest, NextResponse } from "next/server";
 import { isDuelChainMode, isReplayFork } from "@yugidraft/shared/duels";
 import { duelAnimationSpeed, readDuelControl, callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
@@ -29,7 +30,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   let binding: { revision?: number; promptId?: string } = {};
   try {
     const room = actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false });
-    control = readDuelControl(request, room, "action");
+    const authorized = await authorizeDuelControl(request, room, "action");
+    if (!authorized.ok) return authorized.response;
+    control = authorized.control;
     fork = room && isReplayFork(room.session);
     if (fork) {
       const supplied = body as { revision?: unknown; promptId?: unknown };
@@ -40,7 +43,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       binding = { revision: supplied.revision as number, ...(supplied.promptId !== undefined ? { promptId: supplied.promptId as string } : {}) };
     }
   } catch (error) {
-    return duelErrorResponse(error);
+    return sandboxErrorResponse(error);
   }
 
   const result = await callDuelHost({

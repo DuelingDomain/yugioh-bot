@@ -1,3 +1,4 @@
+import type { SandboxEngineSnapshot } from "./sandbox-snapshot.js";
 import type { ReplayWorkerOptions, ReplayWorkerResult } from "./replay-worker.js";
 import { workerResponseError } from "./worker-error.js";
 import { report } from "@yugidraft/shared/observability";
@@ -253,6 +254,10 @@ export class GameWorker implements DuelGameWorker {
     return this.request({ op: "chain-mode", seat, mode });
   }
 
+  sandboxSnapshot(): Promise<SandboxEngineSnapshot> {
+    return this.request({ op: "sandbox-snapshot" });
+  }
+
   diagnostics(): Promise<EngineDiagnostic[]> {
     return this.request({ op: "diagnostics" });
   }
@@ -275,7 +280,7 @@ export function limitWorkerOperations(worker: DuelGameWorker, timeoutMs: number,
   let closing: Promise<void> | undefined;
   const pending = new Set<(error: Error) => void>();
   const timeoutError = () => new RequestError("The duel engine did not answer in time.", 503);
-  const operations = new Set(["create", "view", "answer", "search", "eliminate", "setChainMode", "diagnostics", "buildReplay"]);
+  const operations = new Set(["create", "view", "answer", "search", "eliminate", "setChainMode", "diagnostics", "buildReplay", "sandboxSnapshot"]);
 
   function bounded<T>(work: () => Promise<T>, ms: number, isClose = false): Promise<T> {
     let timer: ReturnType<typeof setTimeout>;

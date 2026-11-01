@@ -7,7 +7,7 @@ import { duelSeriesTournamentReadScope } from "./tournament-read-scope.js";
 /** Deck-editor test duels are private practice. They never show in lists, history or counts. A broken setup record counts as no test duel. */
 export const NOT_TEST_DUEL_SQL = "case when json_valid(setup_json) then coalesce(json_extract(setup_json, '$.testDuel'), 0) else 0 end = 0";
 
-export const DUEL_LIST_ACCESS_SQL = `kind = 'play' and ${NOT_TEST_DUEL_SQL} and (
+export const DUEL_LIST_ACCESS_SQL = `kind = 'play' and sandbox = 0 and ${NOT_TEST_DUEL_SQL} and (
   organizer_player_id = @viewer
   or exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer)
   or exists (select 1 from duel_invite_grants g where g.duel_id = duels.id and g.player_id = @viewer)
@@ -71,7 +71,7 @@ export function registerDuelHistoryFunctions(db: Database.Database): void {
 }
 
 /** List metadata only: saved boards, seeds and private engine state stay in SQLite. */
-export const DUEL_LIST_COLUMNS = `duels.id, duels.kind, duels.guild_id, duels.web_slug, duels.name,
+export const DUEL_LIST_COLUMNS = `duels.id, duels.kind, duels.sandbox, duels.guild_id, duels.web_slug, duels.name,
   duels.organizer_player_id, duels.mode, duels.master_rule, duels.status, duels.format, duels.setup_json,
   duels.settings_json, duels.created_at, duels.started_at, duels.ended_at, duels.archived_at,
   duels.last_activity_at, duels.winner_player_id, duels.winner_seat, duels.result_reason,

@@ -10,6 +10,7 @@ import { allShownSelected, type Batch, type Selectable } from "./selection";
 import styles from "./effect-search.module.css";
 
 export interface RowCard extends CardSummary {
+  synergyCategory?: import("@yugidraft/shared/cards/effects").SynergyCategory;
   /** One line on why the card is in the list. */
   reason?: string;
 }
@@ -43,6 +44,7 @@ export function EffectRows({
   trailing,
   keyboardActive,
   testId = "effect-result",
+  heading,
 }: {
   cards: readonly RowCard[];
   batch: Batch;
@@ -62,6 +64,8 @@ export function EffectRows({
   /** True while the keyboard drives the list, so the summary follows the highlighted row. */
   keyboardActive?: boolean;
   testId?: string;
+  /** Separate synergy lists share keyboard navigation while retaining their own headings. */
+  heading?: (index: number) => string | undefined;
 }) {
   const popId = React.useId();
   const [hover, setHover] = React.useState<{ id: number; el: HTMLElement } | null>(null);
@@ -128,8 +132,9 @@ export function EffectRows({
           const can = inCube === 0 && selectable(card);
           const describedBy = shown?.id === card.id ? popId : undefined;
           return (
+            <React.Fragment key={`${index}:${card.id}`}>
+            {heading?.(index) ? <li role="presentation"><h3>{heading(index)}</h3></li> : null}
             <li
-              key={card.id}
               {...opt}
               ref={(el) => {
                 if (el) rows.current.set(card.id, el);
@@ -220,6 +225,7 @@ export function EffectRows({
                 </button>
               </span>
             </li>
+            </React.Fragment>
           );
         })}
       </ul>

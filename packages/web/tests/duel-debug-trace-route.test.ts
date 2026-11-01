@@ -21,6 +21,7 @@ describe("duel debug-trace route", () => {
   beforeEach(() => {
     callDuelHost.mockReset();
     actor.duels.room.mockReset();
+    actor.duels.room.mockReturnValue({ session: { sandbox: false } });
     requireDuelActor.mockClear();
     requireDuelActor.mockImplementation(async () => actor);
   });

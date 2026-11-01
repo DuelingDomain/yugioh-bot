@@ -17,8 +17,12 @@ export async function packageStandalone({
   // trace sees the bundled version, so trace this entry and its dependencies too.
   const repositoryRoot = resolve(webRoot, "../..");
   const outputRoot = resolve(standaloneRoot, "../..");
+  const duelOnly = ["packages/shared/data/effects/tags.jsonl.gz", "packages/shared/data/effects/bridge-mechanic-facts.json",
+    "packages/shared/data/staples/bridge-observations.json"];
+  // Also prune stale files restored from an older standalone/build cache.
+  for (const file of duelOnly) await rm(resolve(outputRoot, file), { force: true });
   const entry = resolve(repositoryRoot, "packages/shared/dist/services/cube-seed-index.js");
-  const { fileList } = await nft.nodeFileTrace([entry], { base: repositoryRoot, processCwd: webRoot });
+  const { fileList } = await nft.nodeFileTrace([entry], { base: repositoryRoot, processCwd: webRoot, ignore: duelOnly });
   for (const file of fileList) {
     const target = resolve(outputRoot, file);
     await mkdir(dirname(target), { recursive: true });

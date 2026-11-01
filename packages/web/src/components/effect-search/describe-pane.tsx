@@ -6,9 +6,10 @@ import type { CardSummary } from "@/lib/card-types";
 import { useResultNav } from "@/lib/hooks/use-result-nav";
 import { EraNote } from "./era-note";
 import { IntentHeading, RelaxHints } from "./search-intent";
-import { HowItPlays } from "./how-it-plays";
+import { HowItPlays, type HookFind } from "./how-it-plays";
+import { HookDrill } from "./hook-drill";
 import type { CardEra } from "@yugidraft/shared/cards/effects";
-import { effectSearch, EffectApiError, type EffectSearchResult } from "./effect-api";
+import { effectSearch, hookSearch, EffectApiError, type EffectCard, type EffectSearchResult } from "./effect-api";
 import { EffectRows, SelectAllShown, type RowCard } from "./effect-rows";
 import { selectAllShown, selectRange, toggle, without, type Batch } from "./selection";
 import styles from "./effect-search.module.css";
@@ -16,6 +17,27 @@ import styles from "./effect-search.module.css";
 const MIN_CHARS = 3;
 const DEBOUNCE_MS = 350;
 const NO_CARDS: RowCard[] = [];
+
+/** One open "How it plays" row: what it finds, and the cards once they load. */
+interface Drill {
+  archetype: string;
+  index: number;
+  find: HookFind;
+  members: boolean;
+  /** What the list shows: the kind of card, or the row's label. */
+  name: string;
+  cards: EffectCard[] | null;
+  error: boolean;
+}
+
+/** The nearest ancestor that scrolls, so Back can put the page back where it was. */
+function scroller(node: HTMLElement | null): HTMLElement | null {
+  for (let at = node?.parentElement ?? null; at; at = at.parentElement) {
+    const overflow = getComputedStyle(at).overflowY;
+    if ((overflow === "auto" || overflow === "scroll") && at.scrollHeight > at.clientHeight) return at;
+  }
+  return null;
+}
 
 interface Answer {
   /** The trimmed text this answer is for. */
@@ -67,6 +89,12 @@ export function DescribePane({
   const [retry, setRetry] = React.useState(0);
   const [keyboard, setKeyboard] = React.useState(false);
   const seq = React.useRef(0);
+  const [drill, setDrill] = React.useState<Drill | null>(null);
+  const paneRef = React.useRef<HTMLDivElement>(null);
+  const cameFrom = React.useRef(0);
+  const restore = React.useRef<number | null>(null);
+  // The row a drill-down was opened from ("2:is"), so Back can put the keyboard focus on it again.
+  const cameButton = React.useRef<string | null>(null);
 
   // Capture once when Describe opens. Cube edits cannot change the ranking under the pointer.
   const [session, setSession] = React.useState({ era, warning: eraWarning });
@@ -113,7 +141,38 @@ export function DescribePane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trimmed, exact, omittedKey, limit, retry, sort, eraKey]);
 
-  const cards: readonly RowCard[] = answer?.result?.cards ?? NO_CARDS;
+  const drillArchetype = drill?.archetype;
+  const drillIndex = drill?.index;
+  const drillFind = drill?.find;
+  const drillMembers = drill?.members;
+  React.useEffect(() => {
+    if (drillArchetype === undefined || drillIndex === undefined || drillFind === undefined || drillMembers === undefined) return;
+    const controller = new AbortController();
+    const same = (now: Drill | null) => now != null && now.archetype === drillArchetype && now.index === drillIndex && now.find === drillFind && now.members === drillMembers;
+    hookSearch(drillArchetype, drillIndex, drillFind, drillMembers, { limit, sort, era: sort === "newest" ? undefined : sessionEra, signal: controller.signal }).then(
+      (found) => setDrill((now) => (same(now) ? { ...now!, cards: found, error: false } : now)),
+      (error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setDrill((now) => (same(now) ? { ...now!, cards: [], error: true } : now));
+      },
+    );
+    return () => controller.abort();
+    // The era is read through its key, as in the description search above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drillArchetype, drillIndex, drillFind, drillMembers, limit, sort, eraKey]);
+  React.useLayoutEffect(() => {
+    if (drill || restore.current == null) return;
+    const box = scroller(paneRef.current);
+    if (box) box.scrollTop = restore.current;
+    restore.current = null;
+    // The rows are shown again in this commit, so the row that opened the drill-down can take the focus back.
+    const row = cameButton.current ? paneRef.current?.querySelector<HTMLElement>(`[data-hook="${cameButton.current}"]`) : null;
+    cameButton.current = null;
+    row?.focus({ preventScroll: true });
+  }, [drill]);
+
+  const searchCards: readonly RowCard[] = React.useMemo(() => answer?.result?.groups?.flatMap(group => group.cards) ?? answer?.result?.cards ?? NO_CARDS, [answer?.result]);
+  const cards: readonly RowCard[] = drill ? (drill.cards ?? NO_CARDS) : searchCards;
   const selectable = React.useCallback((card: CardSummary) => held(card) === 0, [held]);
 
   const toggleCard = (card: CardSummary, range: boolean) =>
@@ -122,7 +181,7 @@ export function DescribePane({
   const nav = useResultNav<RowCard>({
     items: cards,
     query: text,
-    resultsFor: answer?.text ?? "",
+    resultsFor: drill ? text.trim() : answer?.text ?? "",
     setQuery: (next) => {
       setText(next);
       setOmitted([]);
@@ -135,10 +194,26 @@ export function DescribePane({
   const current = answer && answer.text === trimmed ? answer : null;
   const error = current?.error ?? null;
   const result = current?.result ?? null;
+  function openHook(index: number, find: HookFind) {
+    const guide = result?.guide;
+    const hook = guide?.hooks[index];
+    if (!guide || !hook) return;
+    cameFrom.current = scroller(paneRef.current)?.scrollTop ?? 0;
+    cameButton.current = `${index}:${find}`;
+    setDrill({ archetype: guide.archetype, index, find, members: false, name: (find === "is" ? hook.finds?.is?.many : undefined) ?? hook.label, cards: null, error: false });
+  }
+  function closeHook() {
+    restore.current = cameFrom.current;
+    setDrill(null);
+  }
   const allOff = fullChips.length > 0 && omitted.length >= fullChips.length;
 
   let empty: string | null = null;
-  if (!ready) empty = "Say what the card does. For example: hand traps that negate, or special summon from the graveyard.";
+  if (drill) {
+    if (drill.error) empty = "Could not find these cards.";
+    else if (!drill.cards) empty = "Finding cards...";
+    else if (drill.cards.length === 0) empty = drill.members ? "No card fits this." : `No card outside ${drill.archetype} fits this.`;
+  } else if (!ready) empty = "Say what the card does. For example: hand traps that negate, or special summon from the graveyard.";
   else if (searching && cards.length === 0) empty = "Searching...";
   else if (result && cards.length === 0) {
     if (exact) empty = "No card text has those words.";
@@ -146,10 +221,10 @@ export function DescribePane({
     else if (!result.chips) empty = "That did not read as an effect. Try other words, or turn on Exact text to match the written card text.";
     else if (!result.relax?.length) empty = "No cards match all of this. Switch off a part to widen it.";
   }
-  const relaxHints = !exact && !error && !searching && cards.length === 0 ? result?.relax : undefined;
+  const relaxHints = !drill && !exact && !error && !searching && cards.length === 0 ? result?.relax : undefined;
 
   return (
-    <div className={styles.pane} data-testid="describe-pane">
+    <div ref={paneRef} className={styles.pane} data-testid="describe-pane">
       <div>
         <label className="label" htmlFor={inputId}>
           {inputLabel}
@@ -161,6 +236,7 @@ export function DescribePane({
           onChange={(event) => {
             setText(event.target.value);
             setOmitted([]);
+            setDrill(null);
           }}
           placeholder={placeholder}
           autoComplete="off"
@@ -181,6 +257,7 @@ export function DescribePane({
             onChange={(event) => {
               setExact(event.target.checked);
               setOmitted([]);
+              setDrill(null);
             }}
           />
           Exact text
@@ -193,7 +270,11 @@ export function DescribePane({
           </select>
         </label>
       </div>
-      {!exact && ready && fullChips.length > 0 && (
+      {drill ? (
+        <HookDrill archetype={drill.archetype} title={drill.name} members={drill.members} onBack={closeHook}
+          onMembers={(members) => { if (members !== drill.members) setDrill({ ...drill, members, cards: null, error: false }); }} />
+      ) : null}
+      {!drill && !exact && ready && fullChips.length > 0 && (
         <ul className={styles.chips} aria-label="How the text was read" data-testid="reading-chips">
           {fullChips.map((chip) => {
             const off = omitted.includes(chip);
@@ -213,8 +294,8 @@ export function DescribePane({
           })}
         </ul>
       )}
-      {!exact && ready && result?.intent ? <IntentHeading intent={result.intent} count={result.total} /> : null}
-      {!exact && ready && result?.guide ? <HowItPlays guide={result.guide} testId="describe-how-it-plays" /> : null}
+      {!drill && !exact && ready && result?.intent ? <IntentHeading intent={result.intent} count={result.total} /> : null}
+      {!exact && ready && result?.guide ? <div hidden={drill != null}><HowItPlays guide={result.guide} testId="describe-how-it-plays" onHook={openHook} /></div> : null}
       <div className={styles.eraSlot} data-testid="era-note-space">
         {ready && sort === "match" && sessionEra ? <EraNote era={sessionEra} warning={session.warning} /> : null}
       </div>
@@ -228,18 +309,26 @@ export function DescribePane({
           )}
         </div>
       ) : empty ? (
-        <p className={styles.empty} role="status">
-          {empty}
-        </p>
+        <>
+          <p className={styles.empty} role="status">
+            {empty}
+          </p>
+          {drill && !drill.members && drill.cards?.length === 0 && !drill.error ? (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDrill({ ...drill, members: true, cards: null, error: false })}>
+              Show all cards
+            </button>
+          ) : null}
+        </>
       ) : null}
       {relaxHints?.length ? <RelaxHints relax={relaxHints} onRemove={(chip) => setOmitted((now) => (now.includes(chip) ? now : [...now, chip]))} /> : null}
+      {!drill && result?.groups ? <p role="status">No shared synergy found. Suggestions for each archetype:</p> : null}
       {cards.length > 0 && !error && (
         <div onPointerMove={() => keyboard && setKeyboard(false)}>
           <SelectAllShown
             cards={cards}
             batch={batch}
             selectable={selectable}
-            total={result?.total}
+            total={drill || result?.groups ? cards.length : result?.total}
             onSelectAll={() => onBatch((b) => selectAllShown(b, cards, selectable))}
             onClear={() => onBatch((b) => without(b, cards.map((c) => c.id)))}
           />
@@ -250,11 +339,25 @@ export function DescribePane({
             held={held}
             kindLine={kindLine}
             nav={nav}
-            label={`Cards matching ${trimmed}`}
+            label={drill ? `Cards for ${drill.name}` : `Cards matching ${trimmed}`}
             stale={nav.stale}
-            busy={searching}
+            busy={drill ? drill.cards == null : searching}
             onToggle={toggleCard}
             keyboardActive={keyboard}
+            heading={!drill ? index => {
+              let start = 0, target: string | undefined;
+              if (result?.groups) for (const group of result.groups) {
+                if (index < start + group.cards.length) { target = group.archetype; break; }
+                start += group.cards.length;
+              }
+              const category = cards[index]?.synergyCategory;
+              if (category && (index === start || (cards[index - 1]?.synergyCategory === "outside") !== (category === "outside"))) {
+                return category === "outside" ? target ? `Works with ${target}` : "Works with"
+                  : target ? `Archetype cards — ${target}` : "Archetype cards";
+              }
+              if (target && index === start) return `Works with ${target}`;
+              return undefined;
+            } : undefined}
           />
         </div>
       )}

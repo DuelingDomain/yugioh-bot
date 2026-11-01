@@ -14,11 +14,12 @@ export function signedRequestHeaders(cfg: { url: string | URL; method: string; b
   return { "content-type": "application/json", "x-internal-signature": `t=${timestamp},v2=${digest.toString("hex")}` };
 }
 
-export function signedTransport(cfg: { url: string; secret: string; purpose: Purpose; timeoutMs?: number }): SignedPostTransport {
+export function signedTransport(cfg: { url: string; secret: string; purpose: Purpose; timeoutMs?: number; signal?: AbortSignal }): SignedPostTransport {
   return {
     async post(path, body) {
       if (!cfg.url || !cfg.secret) return { ok: false, status: 0, text: "not configured" };
       const controller = cfg.timeoutMs ? new AbortController() : undefined;
+      const signal = controller ? AbortSignal.any([controller.signal, ...(cfg.signal ? [cfg.signal] : [])]) : cfg.signal;
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const url = new URL(`${cfg.url}${path}`);
@@ -27,7 +28,7 @@ export function signedTransport(cfg: { url: string; secret: string; purpose: Pur
           const res = await fetch(url.toString(), {
             method: "POST",
             headers,
-            body, ...(controller ? { signal: controller.signal } : {}),
+            body, ...(signal ? { signal } : {}),
           });
           const text = await res.text();
           return { ok: res.ok, status: res.status, text };
