@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import sharp from 'sharp';
 import { build } from 'esbuild';
 import { chromium } from '@playwright/test';
@@ -89,6 +90,14 @@ async function render(image: Buffer, condition: string, index: number): Promise<
   return output.jpeg({ quality: 82 }).toBuffer();
 }
 async function main() {
+  const {values} = parseArgs({options: {
+    isolation: {type:'string',default:'on'}, backend: {type:'string',default:'wasm'},
+    label: {type:'string'}, quick: {type:'boolean',default:false},
+  }});
+  if (!['on','off'].includes(values.isolation!) || !['wasm','auto'].includes(values.backend!)) throw new Error('Use --isolation on|off --backend wasm|auto');
+  const isolated = values.isolation === 'on', backend = values.backend as 'wasm' | 'auto';
+  const label = values.label ?? `${backend}-${isolated ? 'isolated' : 'single'}`;
+  if (!/^[a-z0-9-]+$/.test(label)) throw new Error('Invalid benchmark label');
   await mkdir(directory, { recursive: true });
   const meta = JSON.parse(await readFile(path.join(out, 'yugioh-index.meta.json'), 'utf8')) as IndexMeta;
   const manifestPath = path.join(directory, 'photos.json');
@@ -130,8 +139,12 @@ async function main() {
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url!, 'http://localhost');
-      if (url.pathname === '/') { response.setHeader('content-type','text/html'); response.end('<!doctype html><title>Vision WASM benchmark</title>'); return; }
-      const file = path.resolve(out, decodeURIComponent(url.pathname.replace('/dev/vision-assets/','')));
+      if (isolated && (url.pathname === '/dev/vision-lab' || url.pathname.startsWith('/dev/vision-lab/') || url.pathname.startsWith('/duels/remote/'))) {
+        response.setHeader('Cross-Origin-Opener-Policy','same-origin');
+        response.setHeader('Cross-Origin-Embedder-Policy','require-corp');
+      }
+      if (url.pathname === '/dev/vision-lab') { response.setHeader('content-type','text/html'); response.end('<!doctype html><title>Vision browser benchmark</title>'); return; }
+      const file = path.resolve(out, decodeURIComponent(url.pathname.replace(/^\/dev\/(?:vision-assets|vision-lab\/assets)\//,'')));
       if (!file.startsWith(out + path.sep) || !(await stat(file)).isFile()) throw new Error('not found');
       response.setHeader('content-type',mime[path.extname(file)] ?? 'application/octet-stream'); response.end(await readFile(file));
     } catch { response.statusCode = 404; response.end('not found'); }
@@ -140,15 +153,30 @@ async function main() {
   const address = server.address() as {port:number};
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
-    browser = await chromium.launch({ headless:true, args: ['--disable-gpu', '--no-sandbox'] });
+    const flags = backend === 'wasm' ? ['--disable-gpu'] : ['--enable-unsafe-webgpu','--use-angle=swiftshader','--enable-unsafe-swiftshader'];
+    browser = await chromium.launch({ channel:'chromium', headless:true, args: [...flags, '--no-sandbox'] });
     const page = await browser.newPage();
+    const consoleMessages: string[] = [], failures: string[] = [], wasmFiles = new Set<string>();
+    page.on('console', message => { if (/DuelLens|webgpu|wasm|WebGPU/i.test(message.text())) consoleMessages.push(message.text()); });
+    page.on('requestfailed', request => failures.push(`${request.url()}: ${request.failure()?.errorText}`));
+    page.on('response', response => { if (response.url().endsWith('.wasm')) wasmFiles.add(new URL(response.url()).pathname); });
     page.on('pageerror', error => console.error('Browser:',error.message));
-    await page.goto(`http://127.0.0.1:${address.port}`);
-    await page.evaluate(async () => {
+    await page.goto(`http://127.0.0.1:${address.port}/dev/vision-lab`);
+    const environment = await page.evaluate(async () => {
+      const gpu = (navigator as unknown as {gpu?: {requestAdapter():Promise<{info:unknown}|null>}}).gpu;
+      let adapter: unknown = null;
+      try {
+        const a = await gpu?.requestAdapter();
+        const info = a?.info as Record<string,unknown> | undefined;
+        adapter = info ? Object.fromEntries(['vendor','architecture','device','description','isFallbackAdapter'].map(key=>[key,info[key]])) : null;
+      } catch (e) { adapter = String(e); }
+      return {crossOriginIsolated,sharedArrayBuffer:typeof SharedArrayBuffer !== 'undefined',hardwareConcurrency:navigator.hardwareConcurrency,webgpu:!!gpu,adapter};
+    });
+    await page.evaluate(async backend => {
       const { createRecognizer } = await import(/* webpackIgnore: true */ String('/dev/vision-assets/benchmark/client.js'));
       const state = window as unknown as { recognizer: ReturnType<typeof createRecognizer> };
-      state.recognizer = createRecognizer({ backend:'wasm' });
-    });
+      state.recognizer = createRecognizer({ game:'yugioh', backend });
+    }, backend);
     const recognize = async (photo: Photo, copies = 1, clickPoint = photo.clickPoint) => page.evaluate(async ({photo,copies,clickPoint}) => {
       const state = window as unknown as { recognizer: {recognize(frames:ImageBitmap[],opts:unknown):Promise<RecognitionResult>} };
       const frames = await Promise.all(Array.from({length:copies},async (_,i)=> {
@@ -156,12 +184,13 @@ async function main() {
         return createImageBitmap(blob);
       }));
       const start = performance.now();
-      const result = await state.recognizer.recognize(frames, {clickPoint,k:5});
+      const result = await state.recognizer.recognize(frames, {clickPoint});
       return {result,wallMs:performance.now()-start};
     }, {photo,copies,clickPoint});
     const cold = await recognize(photos[0]);
+    console.log('Worker runtime:', JSON.stringify(cold.result.runtime));
     const records: (Photo & { rank: number; wallMs: number; error?: string } & Partial<RecognitionResult>)[] = [];
-    for (const photo of photos) {
+    for (const photo of values.quick ? photos.slice(0,3) : photos) {
       try {
         const {result,wallMs} = await recognize(photo);
         const rank = result.candidates.findIndex(c=>c.cardId === photo.cardId)+1;
@@ -169,6 +198,7 @@ async function main() {
         console.log(`${photo.condition.padEnd(11)} ${photo.name}: rank ${rank || 'miss'} · ${result.timingsMs.total.toFixed(0)}ms · detected ${result.quality.detected}`);
       } catch (error) { records.push({...photo,rank:0,error:String(error),wallMs:0}); console.log(`FAIL ${photo.name}: ${error}`); }
     }
+    console.log('Probing temporal frames, ImageData and off-card fallback');
     const temporal = await recognize(photos[0],6);
     const expectedFrames = expectedSharpness.map((value,index)=>({value,index})).sort((a,b)=>b.value-a.value).slice(0,3).map(v=>v.index);
     if (JSON.stringify(temporal.result.quality.selectedFrameIndices)!==JSON.stringify(expectedFrames)) throw new Error('Sharpest-frame selection mismatch');
@@ -191,28 +221,34 @@ async function main() {
     const decoded = await sharp(art).ensureAlpha().raw().toBuffer({resolveWithObject:true});
     const [nv] = await embedImages(native as unknown as SessionLike,ort.Tensor as unknown as TensorCtor,yugioh.embedding,[{data:decoded.data,width:decoded.info.width,height:decoded.info.height}]);
     await native.release();
+    console.log('Checking native/browser embedding parity');
     const browserVector = await page.evaluate(profile => new Promise<number[]>((resolve,reject)=>{
-      const worker = new Worker('/dev/vision-assets/benchmark/parity-worker.js',{type:'module'});
-      worker.onmessage = e=>{worker.terminate();e.data.error?reject(new Error(e.data.error)):resolve(e.data.vector)};
-      worker.onerror = e=>{worker.terminate();reject(new Error(e.message))};
+      const worker = new Worker('/dev/vision-lab/assets/benchmark/parity-worker.js',{type:'module'});
+      const timer = setTimeout(()=>{worker.terminate();reject(new Error('Parity worker timed out'));},60_000);
+      worker.onmessage = e=>{clearTimeout(timer);worker.terminate();e.data.error?reject(new Error(e.data.error)):resolve(e.data.vector)};
+      worker.onerror = e=>{clearTimeout(timer);worker.terminate();reject(new Error(e.message))};
       worker.postMessage({profile,url:'/dev/vision-assets/benchmark/parity.jpg'});
     }),yugioh);
     const cosine = browserVector.reduce((sum,v,i)=>sum+v*nv[i],0);
     const latencies = records.flatMap(r => r.timingsMs ? [r.timingsMs.total] : []).sort((a,b)=>a-b);
+    const wallLatencies = records.flatMap(r => r.timingsMs ? [r.wallMs] : []).sort((a,b)=>a-b);
     const percentile = (array:number[],q:number)=>array[Math.min(array.length-1,Math.floor(array.length*q))];
+    const summarize = (array:number[]) => ({median:percentile(array,.5),p95:percentile(array,.95),mean:array.reduce((a,b)=>a+b,0)/array.length});
     const results = {
-      generatedAt:new Date().toISOString(),seed,photos:photos.length,indexCards:new Set(meta.entries.map(e=>e.cardId)).size,indexVectors:meta.count,modelSha256:meta.modelSha256,
-      host:'Ryzen 7 9800X3D / WSL2 / CPU only',browser:browser.version(),wasmThreads:1,crossOriginIsolated:false,
-      top1:records.filter(r=>r.rank===1).length/photos.length,top5:records.filter(r=>r.rank>0&&r.rank<=5).length/photos.length,
+      generatedAt:new Date().toISOString(),seed,photos:photos.length,samples:records.length,indexCards:new Set(meta.entries.filter(e=>e.cardId!==yugioh.cardBack.cardId).map(e=>e.cardId)).size,indexVectors:meta.count,modelSha256:meta.modelSha256,
+      host:'Ryzen 7 9800X3D / WSL2 / CPU only',browser:browser.version(),browserChannel:'chromium (new headless)',backend,flags,environment,runtime:cold.result.runtime,wasmFiles:[...wasmFiles],consoleMessages,failures,
+      top1:records.filter(r=>r.rank===1).length/records.length,top5:records.filter(r=>r.rank>0&&r.rank<=5).length/records.length,
       detected:records.filter(r=>r.quality?.detected).length,cornersFound:records.filter(r=>r.quality?.cornersFound).length,
-      latencyMs:{median:percentile(latencies,.5),p95:percentile(latencies,.95),mean:latencies.reduce((a,b)=>a+b,0)/latencies.length},coldWallMs:cold.wallMs,parityCosine:cosine,
+      latencyMs:summarize(latencies),wallLatencyMs:summarize(wallLatencies),coldWallMs:cold.wallMs,parityCosine:cosine,
       byCondition:conditions.map(condition=>{const rows=records.filter(r=>r.condition===condition);return {condition,count:rows.length,top1:rows.filter(r=>r.rank===1).length,top5:rows.filter(r=>r.rank>0&&r.rank<=5).length}}),
       temporal,expectedFrames,imageDataSmoke,offCardFallback:fallback,records,
       caveat:'Synthetic transforms of indexed artwork; this measures robustness and WASM execution, not real webcam/open-set accuracy. Detector misses and recognition errors remain in the denominator.',
     };
-    await writeFile(path.join(directory,'results.json'),JSON.stringify(results,null,2));
+    await writeFile(path.join(directory,`results-${label}.json`),JSON.stringify(results,null,2));
     console.log(JSON.stringify({...results,records:undefined,temporal:undefined,imageDataSmoke:undefined,offCardFallback:undefined},null,2));
     if (cosine < .999) throw new Error(`Native/WASM embedding mismatch: ${cosine}`);
+    if (cold.result.runtime?.crossOriginIsolated !== isolated || !cold.result.runtime.simd || (isolated && cold.result.runtime.wasmThreads < 2)) throw new Error('Worker isolation/SIMD/thread configuration mismatch');
+    if (records.some(r => r.error || r.candidates?.length !== 5)) throw new Error('Recognition did not return five candidates');
     if (!temporal.result.quality.framesUsed || temporal.result.quality.framesUsed !== 3 || !fallback.result.quality.fallback) throw new Error('Temporal/fallback smoke failed');
   } finally { await browser?.close(); await new Promise<void>(done=>server.close(()=>done())); }
 }
