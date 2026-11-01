@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { watchVideoFrames } from "@/lib/remote/video-protocol";
 import { Icon } from "./icons";
-import { detectCards } from "./recognizer";
+import { detectCards, type BoardRead, type Peek } from "./recognizer";
 import { hitTest, neighbour, toFeedCards, type FeedCard, type Pt } from "./quads";
 import { useVideoHub, type Health } from "./video-hub";
 import s from "./remote-ui.module.css";
@@ -13,7 +13,7 @@ export type FeedMark = { id: string; x: number; y: number; label: string; notInD
 /** A reticle for a read in progress, finished or failed. */
 export type FeedReticle = { id: string; x: number; y: number; state: "reading" | "done" | "fail"; text: string; quad?: Pt[] };
 /** What a click on an outlined card sends up. `anchor` is the card's box on screen (viewport pixels) for popovers. */
-export type FeedHit = { x: number; y: number; quad: Pt[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean; index: number; count: number; anchor: { left: number; top: number; right: number; bottom: number } };
+export type FeedHit = { x: number; y: number; quad: Pt[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean; covered: boolean; index: number; count: number; anchor: { left: number; top: number; right: number; bottom: number } };
 type Box = { left: number; top: number; width: number; height: number };
 type Frozen = { pinned: boolean; status: "detecting" | "ready" | "unavailable" | "error"; cards: FeedCard[]; note: string; ms: number; canvas: HTMLCanvasElement; pending: Pt | null };
 
@@ -26,9 +26,16 @@ const TYPING = "input,textarea,select,[contenteditable=true]";
 const readAuto = () => { try { return localStorage.getItem(AUTO_KEY) !== "0"; } catch { return true; } };
 const bounds = (quad: Pt[]) => { const xs = quad.map(p => p.x); const ys = quad.map(p => p.y); return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) }; };
 
-export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSelect, onAdd, holdSelection, extra, emptyText }: {
+/** What a board read hands back. `near` is the feed owner\'s side of the mat; `far` is the opposite side. */
+export type BoardReading = { near: BoardRead[]; far: BoardRead[]; ms: number };
+type PeekLabel = { id: string; state: "loading" | "ready" | "none"; text: string; tier?: Peek["tier"]; covered?: boolean };
+type BoardState = { state: "reading" | "done" | "fail"; text: string };
+
+export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSelect, onAdd, onReadBoard, holdSelection, extra, emptyText }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   onPoint: (seat: number, x: number, y: number) => void; onSelect: (seat: number, hit: FeedHit) => void; onAdd: (mark: FeedMark) => void;
+  /** Called with the cards read from the whole frame. Resolves to a short summary for the feed. */
+  onReadBoard?: (seat: number, reading: BoardReading) => Promise<string>;
   /** True while the table shows a popover or tray for a card on this feed. */
   holdSelection: boolean; extra?: ReactNode; emptyText: string;
 }) {
@@ -39,6 +46,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
   const [box, setBox] = useState<Box | null>(null);
   const [frozen, setFrozenState] = useState<Frozen | null>(null);
   const [active, setActive] = useState(-1); const [hover, setHover] = useState(-1); const [selected, setSelected] = useState<string | null>(null);
+  const [peekLabel, setPeekLabel] = useState<PeekLabel | null>(null); const [board, setBoard] = useState<BoardState | null>(null);
+  const peekCache = useRef(new Map<string, PeekLabel>()); const boardRun = useRef<AbortController | null>(null);
   const [hovered, setHovered] = useState(false); const [auto, setAuto] = useState(true); const [say, setSay] = useState("");
   const frozenRef = useRef<Frozen | null>(null); frozenRef.current = frozen;
   const run = useRef(0); const dwell = useRef<ReturnType<typeof setTimeout> | null>(null); const lastMove = useRef<Pt>({ x: -1, y: -1 });
@@ -67,7 +76,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
   }, [source]);
 
   const unfreeze = useCallback((message = "") => {
-    run.current++; if (dwell.current) clearTimeout(dwell.current);
+    run.current++; boardRun.current?.abort(); boardRun.current = null; setBoard(null); setPeekLabel(null); peekCache.current.clear(); if (dwell.current) clearTimeout(dwell.current);
     setFrozenState(null); setActive(-1); setHover(-1); setSelected(null); if (message) setSay(message);
   }, []);
   useEffect(() => { if (!source) unfreeze(); }, [source, unfreeze]);
@@ -91,7 +100,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
   const choose = useCallback((card: FeedCard, count: number, index: number) => {
     setActive(index); setSelected(card.id); setFrozenState(f => f && { ...f, pinned: true });
     setSay(`Card ${index + 1} of ${count}, ${card.kind === "face-up" ? "face up" : "face down"}, selected.`);
-    onSelect(seat, { x: card.cx, y: card.cy, quad: card.quad, kind: card.kind, confidence: card.confidence, refined: card.refined, index, count, anchor: anchorOf(card.quad) });
+    onSelect(seat, { x: card.cx, y: card.cy, quad: card.quad, kind: card.kind, confidence: card.confidence, refined: card.refined, covered: card.covered, index, count, anchor: anchorOf(card.quad) });
   }, [anchorOf, onSelect, seat]);
 
   const freeze = useCallback(async (pinned: boolean, pending: Pt | null = null) => {
@@ -154,6 +163,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
     const f = frozenRef.current;
     if (event.key === "f" || event.key === "F") { event.preventDefault(); if (f) unfreeze("Live feed."); else void freeze(true); return; }
     if (!f) return;
+    if ((event.key === "r" || event.key === "R") && onReadBoard) { event.preventDefault(); void readAll(); return; }
     if (event.key === "Escape") {
       if (selected || holdSelection) { event.preventDefault(); setSelected(null); setSay("Card closed."); } else { event.preventDefault(); unfreeze("Live feed."); }
       return;
@@ -172,6 +182,42 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
     event.preventDefault(); setActive(next); setFrozenState(old => old && { ...old, pinned: true });
     const card = f.cards[next]; setSay(`Card ${next + 1} of ${n}, ${card.kind === "face-up" ? "face up" : "face down"}. Enter opens it.`);
   }
+  // Hover or keyboard focus on an outline names the card after a short pause. The read stays on this device.
+  const shownCard = frozen?.status === "ready" ? frozen.cards[hover >= 0 ? hover : active] : undefined;
+  const frame = frozen?.canvas; const frameCards = frozen?.cards; const shownId = shownCard?.id; const shownKind = shownCard?.kind; const shownCovered = shownCard?.covered;
+  useEffect(() => {
+    if (!shownId || !frame || !frameCards) { setPeekLabel(null); return; }
+    if (shownKind === "face-down") { setPeekLabel({ id: shownId, state: "ready", text: "Face-down card" }); return; }
+    const cached = peekCache.current.get(shownId); if (cached) { setPeekLabel(cached); return; }
+    setPeekLabel({ id: shownId, state: "loading", text: "Reading…", covered: shownCovered });
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      const card = frameCards.find(item => item.id === shownId); if (!card) return;
+      const toRead = (item: FeedCard) => ({ quad: item.quad, kind: item.kind, confidence: item.confidence, partial: !item.refined, ...(item.covered ? { covered: true } : {}) });
+      const answer = await hub.peek(seat, frame, toRead(card), frameCards.map(toRead), controller.signal);
+      if (controller.signal.aborted) return;
+      const label: PeekLabel = answer.status === "ready"
+        ? { id: shownId, state: answer.peek.name ? "ready" : "none", text: answer.peek.name ?? "Not sure", tier: answer.peek.tier, covered: answer.peek.covered || card.covered }
+        : { id: shownId, state: "none", text: "No preview", covered: card.covered };
+      peekCache.current.set(shownId, label); setPeekLabel(label);
+    }, 250);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [shownId, shownKind, shownCovered, frame, frameCards, hub, seat]);
+
+  // Reads every outlined card of the frozen frame and hands the result to the table.
+  const readAll = useCallback(async () => {
+    const f = frozenRef.current; if (!f || f.status !== "ready" || !f.cards.length || board?.state === "reading") return;
+    const controller = new AbortController(); boardRun.current = controller;
+    setBoard({ state: "reading", text: `Reading ${f.cards.length} ${f.cards.length === 1 ? "card" : "cards"}…` }); setSay(`Reading ${f.cards.length} cards.`);
+    const toRead = (item: FeedCard) => ({ quad: item.quad, kind: item.kind, confidence: item.confidence, partial: !item.refined, ...(item.covered ? { covered: true } : {}) });
+    const answer = await hub.readBoard(seat, f.canvas, f.cards.map(toRead), controller.signal);
+    if (controller.signal.aborted) return;
+    boardRun.current = null;
+    if (answer.status !== "ready") { setBoard({ state: "fail", text: answer.note || "Board read failed" }); setSay("Board read failed."); return; }
+    const summary = onReadBoard ? await onReadBoard(seat, { near: answer.near, far: answer.far, ms: answer.ms }) : `${answer.near.length + answer.far.length} read`;
+    setBoard({ state: "done", text: summary }); setSay(summary);
+  }, [board?.state, hub, onReadBoard, seat]);
+
   // F works with the pointer over the feed even when focus sits elsewhere.
   useEffect(() => {
     if (!hovered) return;
@@ -216,10 +262,19 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
           {spot ? <polygon points={spot.quad.map(p => `${p.x},${p.y}`).join(" ")} fill="#000" /> : null}</mask></defs>
         {spot ? <rect className={s.spot} width="1" height="1" mask={`url(#${maskId})`} /> : null}
         {frozen.cards.map((card, index) => <polygon key={card.id} points={card.quad.map(p => `${p.x},${p.y}`).join(" ")} style={{ "--i": index } as CSSProperties}
-          className={`${s.qpoly} ${card.kind === "face-down" ? s.qdown : ""} ${index === shown ? s.qhot : ""} ${card.id === selected ? s.qon : ""}`} data-testid="quad" data-kind={card.kind} data-selected={card.id === selected} data-active={index === active} />)}
+          className={`${s.qpoly} ${card.kind === "face-down" ? s.qdown : ""} ${card.covered ? s.qcov : ""} ${index === shown ? s.qhot : ""} ${card.id === selected ? s.qon : ""}`} data-testid="quad" data-kind={card.kind} data-selected={card.id === selected} data-active={index === active} />)}
       </svg> : null}
       {frozen && frozen.status === "ready" ? <div className={s.qnums} style={boxStyle} aria-hidden="true">
         {frozen.cards.map((card, index) => <span key={card.id} className={`${s.qn} ${index === shown || card.id === selected ? s.qnOn : ""}`} style={{ left: `${card.bounds.left * 100}%`, top: `${card.bounds.top * 100}%` }}>{index + 1}</span>)}
+      </div> : null}
+      {frozen && frozen.status === "ready" && peekLabel && shownCard && peekLabel.id === shownCard.id && !selected ? <div className={`${s.peek2} ${peekLabel.state === "loading" ? s.peek2Wait : ""} ${peekLabel.covered ? s.peek2Cov : ""}`} role="status" data-testid="peek-label"
+        style={{ left: box ? box.left + shownCard.bounds.right * box.width + 8 : 0, top: box ? box.top + shownCard.bounds.top * box.height : 0, transform: shownCard.bounds.right > 0.7 ? "translateX(calc(-100% - 16px - " + ((shownCard.bounds.right - shownCard.bounds.left) * (box?.width ?? 0)) + "px))" : undefined }}>
+        <b>{peekLabel.text}</b>
+        {peekLabel.tier && peekLabel.state !== "loading" ? <em>{peekLabel.tier === "sure" ? "Sure" : peekLabel.tier === "not sure" ? "Not sure" : "Low match"}</em> : null}
+        {peekLabel.covered ? <em>Covered</em> : null}
+      </div> : null}
+      {board ? <div className={`${s.boardbar} ${board.state === "reading" ? s.boardbarWait : ""} ${board.state === "fail" ? s.boardbarFail : ""}`} role="status" data-testid="board-status" data-state={board.state}>
+        <span>{board.text}</span>{board.state === "reading" ? <i aria-hidden="true" /> : <button type="button" onClick={() => setBoard(null)} aria-label="Dismiss"><Icon name="x" /></button>}
       </div> : null}
       {marks.map(mark => {
         const r = rect(mark.x, mark.y, mark.quad); const rh = typeof r.height === "number" ? r.height : 0; const rt = typeof r.top === "number" ? r.top : 0;
@@ -237,6 +292,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onPoint, onSele
     {source ? <div className={`${s.fctl} ${isFrozen ? s.fctlOn : ""}`}>
       {isFrozen ? <>
         <span className={s.fzchip} role="status" data-testid="freeze-status" data-state={frozen.status}><Icon name={frozen.status === "detecting" ? "cam" : "check"} />{chip}</span>
+        {onReadBoard && frozen.status === "ready" && frozen.cards.length ? <button type="button" className={s.fzbtn} disabled={board?.state === "reading"} onClick={() => void readAll()} data-testid="read-board" aria-keyshortcuts="R">
+          {board?.state === "reading" ? "Reading…" : "Read board"} <kbd>R</kbd></button> : null}
         <button type="button" className={s.fzbtn} onClick={() => unfreeze("Live feed.")} data-testid="resume-live">Resume live <kbd>Esc</kbd></button>
       </> : <>
         <button type="button" className={s.fzbtn} onClick={() => void freeze(true)} data-testid="freeze-feed" aria-keyshortcuts="F">Freeze <kbd>F</kbd></button>

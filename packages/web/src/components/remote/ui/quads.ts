@@ -1,7 +1,7 @@
 /** Card outlines found on a frozen feed frame. Corners are fractions of the frame (0..1). */
 export type Pt = { x: number; y: number };
 export type FeedCard = {
-  id: string; quad: Pt[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean;
+  id: string; quad: Pt[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean; covered: boolean;
   cx: number; cy: number; bounds: { left: number; top: number; right: number; bottom: number }; area: number;
 };
 export type Scale = { w: number; h: number };
@@ -13,10 +13,10 @@ function areaOf(quad: readonly Pt[]) {
   return Math.abs(sum) / 2;
 }
 /** Wraps a detector result with the numbers the hit tests and the keyboard order need. */
-export function toFeedCards(list: { quad: Pt[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean }[]): FeedCard[] {
+export function toFeedCards(list: { quad: Pt[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean; covered?: boolean }[]): FeedCard[] {
   const cards = list.filter(card => card.quad.length === 4).map((card, index) => {
     const xs = card.quad.map(p => p.x); const ys = card.quad.map(p => p.y);
-    return { id: `c${index}`, ...card, cx: card.quad.reduce((n, p) => n + p.x, 0) / 4, cy: card.quad.reduce((n, p) => n + p.y, 0) / 4,
+    return { id: `c${index}`, ...card, covered: !!card.covered, cx: card.quad.reduce((n, p) => n + p.x, 0) / 4, cy: card.quad.reduce((n, p) => n + p.y, 0) / 4,
       bounds: { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) }, area: areaOf(card.quad) };
   });
   return readingOrder(cards).map((card, index) => ({ ...card, id: `c${index}` }));

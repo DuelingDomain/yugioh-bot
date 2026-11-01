@@ -6,7 +6,7 @@ import type { RemoteRoom } from "@yugidraft/shared/remote";
 import { RemoteVideo, type VideoSnapshot } from "@/lib/remote/video";
 import { cardInfo, loadCards } from "./catalog";
 import { deckIdsOf, seenCardIds } from "./model";
-import { makeRecognizeRawFeed, readCard, askAi, disposeRecognizer, type AiAnswer, type ReadCard, type ReadResult } from "./recognizer";
+import { makeRecognizeRawFeed, readCard, askAi, peekCard, readBoard, disposeRecognizer, type AiAnswer, type BoardAnswer, type PeekAnswer, type ReadCard, type ReadResult } from "./recognizer";
 
 export type Health = { q: "good" | "warn" | "bad" | "off"; label: string; detail: string };
 /** Something a <video> element can show. Local previews and LiveKit tracks look the same to the tile. */
@@ -32,11 +32,16 @@ type Hub = {
   read(seat: number, x: number, y: number, card?: ReadCard): Promise<ReadResult>;
   /** Optional AI second opinion on a read. Owner only; answers "off" where the server has it disabled. */
   askAi(token: number): Promise<AiAnswer>;
+  /** Names one outlined card of a frozen frame. Local only. */
+  peek(seat: number, frame: HTMLCanvasElement, card: ReadCard, cards: ReadCard[], signal: AbortSignal): Promise<PeekAnswer>;
+  /** Reads all outlined cards of a frozen frame. Local only. */
+  readBoard(seat: number, frame: HTMLCanvasElement, cards: ReadCard[], signal: AbortSignal): Promise<BoardAnswer>;
 };
 const noop = async () => undefined;
 const Ctx = createContext<Hub>({ solo: true, connection: "off", cameraOn: false, starting: false, error: "", devices: [], cameraId: "", micPublished: false,
   sourceFor: () => null, health: () => ({ q: "off", label: "No feed", detail: "" }), setFrozen: () => undefined, enableCamera: noop, disableCamera: noop, selectCamera: noop, setMic: () => undefined,
-  read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }), askAi: async () => ({ status: "off", note: "" }) });
+  read: async () => ({ guesses: [], reader: "none", frames: 0, note: "" }), askAi: async () => ({ status: "off", note: "" }),
+  peek: async () => ({ status: "unavailable", note: "" }), readBoard: async () => ({ status: "unavailable", note: "" }) });
 export const useVideoHub = () => useContext(Ctx);
 
 const emptySnapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "" };
@@ -147,11 +152,15 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     } finally { clearTimeout(timer); }
   }, [mySeat, solo, controller]);
 
+  const priorsOf = useCallback((seat: number) => ({ decklist: deckIdsOf(roomRef.current, seat), seen: seenCardIds(roomRef.current) }), []);
+  const peek = useCallback((seat: number, frame: HTMLCanvasElement, card: ReadCard, cards: ReadCard[], signal: AbortSignal) => peekCard(frame, card, cards, priorsOf(seat), signal), [priorsOf]);
+  const board = useCallback((seat: number, frame: HTMLCanvasElement, cards: ReadCard[], signal: AbortSignal) => readBoard(frame, cards, priorsOf(seat), signal), [priorsOf]);
+
   const value = useMemo<Hub>(() => ({
     solo, connection: solo ? (local ? "local" : "off") : snap.connection, cameraOn: solo ? !!local : connected, starting: starting || snap.connection === ConnectionState.Connecting || snap.connection === ConnectionState.Reconnecting,
     error: localError || snap.error, devices: solo ? localDevices : snap.devices, cameraId: solo ? localCamera : snap.cameraId, micPublished: micOn && connected,
     sourceFor, health, setFrozen: (seat, value) => setFrozenState(old => old[seat] === value ? old : { ...old, [seat]: value }),
-    enableCamera, disableCamera, selectCamera, setMic, read, askAi,
-  }), [solo, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, disableCamera, selectCamera, setMic, read]);
+    enableCamera, disableCamera, selectCamera, setMic, read, askAi, peek, readBoard: board,
+  }), [solo, local, snap, connected, starting, localError, localDevices, localCamera, micOn, sourceFor, health, enableCamera, disableCamera, selectCamera, setMic, read, peek, board]);
   return <Ctx value={value}>{children}</Ctx>;
 }

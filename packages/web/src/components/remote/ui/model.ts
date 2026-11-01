@@ -134,5 +134,5 @@ export function battleMath(args: {
 }
 
 /** The detector card handed to the reader, so it crops that exact card. */
-export const readCardOf = (hit: { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean }) =>
-  ({ quad: hit.quad, kind: hit.kind, confidence: hit.confidence, partial: !hit.refined });
+export const readCardOf = (hit: { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; refined: boolean; covered?: boolean }) =>
+  ({ quad: hit.quad, kind: hit.kind, confidence: hit.confidence, partial: !hit.refined, ...(hit.covered ? { covered: true } : {}) });

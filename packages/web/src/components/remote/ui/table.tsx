@@ -8,7 +8,7 @@ import { CardPopover, InspectorBody, type CardActions, type Subject } from "./ca
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
 import { Banner, HealthPopover, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
-import type { FeedHit, FeedMark, FeedReticle } from "./feed";
+import type { BoardReading, FeedHit, FeedMark, FeedReticle } from "./feed";
 import { interpret, trySaying, type VoiceIntent } from "./grammar";
 import { COLORS, battleMath, cardCode, cardName, cellKeyOf, deckFlag, deckIdsOf, foundationZone, hasDeck, PHASES, PHASE_LONG, readCardOf, seenCardIds, sg, type TwinCard, type ZoneKey } from "./model";
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
@@ -165,20 +165,21 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     layers.close("tray"); setTray(null);
     await loadCards([pick.cardId]);
     const found = cardInfo(pick.cardId);
-    const updated = await act({ type: "card.identified", actorSeat: current.mySeat, seat, cardId: pick.cardId, name: pick.name, source });
-    if (!updated) return;
     const owns = current.solo || seat === current.mySeat;
+    const spellTrap = /spell|trap/i.test(found?.type ?? ""); const fieldSpell = spellTrap && /field/i.test(found?.type ?? "");
+    const row = fieldSpell ? "field" : spellTrap ? "spell-trap" : "monster";
+    const used = new Set(current.state.seats[seat].twin.filter(card => card.zone === row).map(card => card.slot).filter(Boolean));
+    const slot = row === "field" ? undefined : [1, 2, 3, 4, 5].find(n => !used.has(n));
+    const ref = `c${seat}-${pick.cardId}-${Date.now().toString(36)}`;
+    // The card goes on the virtual field first, so the sighting attaches to that same physical card.
     if (owns) {
-      const ownerSeat = current.solo ? seat : current.mySeat;
-      const spellTrap = /spell|trap/i.test(found?.type ?? ""); const fieldSpell = /field/i.test(found?.type ?? "") && /spell/i.test(found?.type ?? "");
-      const row = fieldSpell ? "field" : spellTrap ? "spell-trap" : "monster";
-      const used = new Set(updated.state.seats[seat].twin.filter(card => card.zone === row).map(card => card.slot).filter(Boolean));
-      const slot = row === "field" ? undefined : [1, 2, 3, 4, 5].find(n => !used.has(n));
-      const ref = `c${seat}-${pick.cardId}-${Date.now().toString(36)}`;
-      const place = await act({ type: "twin.place", actorSeat: ownerSeat, seat, zone: row, card: { ref, cardId: pick.cardId, name: pick.name, ...(slot ? { slot } : {}), faceUp: true, position: "attack" } });
-      if (place) setFresh(ref);
-      setSubject({ cardId: pick.cardId, seat, ref, name: pick.name, notInDecklist: updated.state.identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: updated.state.identified?.addErrors ?? [], via: source });
-    } else setSubject({ cardId: pick.cardId, seat, name: pick.name, notInDecklist: updated.state.identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: updated.state.identified?.addErrors ?? [], via: source });
+      const place = await act({ type: "twin.place", actorSeat: current.solo ? seat : current.mySeat, seat, zone: row, card: { ref, cardId: pick.cardId, name: pick.name, ...(slot ? { slot } : {}), faceUp: true, position: "attack" } });
+      if (!place) return;
+      setFresh(ref);
+    }
+    const updated = await act({ type: "card.identified", actorSeat: current.mySeat, seat, cardId: pick.cardId, name: pick.name, source, ...(owns ? { cardRef: ref, zone: row, ...(slot ? { slot } : {}) } : {}) });
+    if (!updated) return;
+    setSubject({ cardId: pick.cardId, seat, ...(owns ? { ref } : {}), name: pick.name, notInDecklist: updated.state.identified?.notInDecklist ?? flagFor(seat, pick.cardId), addErrors: updated.state.identified?.addErrors ?? [], via: source });
     const not = updated.state.identified?.notInDecklist ?? flagFor(seat, pick.cardId) ?? false;
     const markId = `m${at.id}`;
     setMarks(all => ({ ...all, [seat]: [...(all[seat] ?? []).slice(-7), { id: markId, x: at.x, y: at.y, label: pick.name, notInDecklist: !!not, show: true, cardCode: pick.cardId, quad: at.quad }] }));
@@ -190,13 +191,14 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const startRead = useCallback(async (seat: number, x: number, y: number, hit?: FeedHit) => {
     const id = ++readCounter.current; const owner = name(seat);
     ctx.current = { seat, x, y, quad: hit?.quad, anchor: hit?.anchor, id };
+    if (hit?.covered) toast("This card is partly covered by another card. The read may be wrong. Check the guess.", 4200);
     const rid = `r${id}`; reticle(seat, { id: rid, x, y, state: "reading", text: "Reading…", quad: hit?.quad }, rid);
     setTray({ seat, ownerName: owner, status: "reading", guesses: [], note: "", reader: "", style: near(hit?.anchor, 392) });
     layers.open("tray");
     const result = await hub.read(seat, x, y, hit ? readCardOf(hit) : undefined);
     if (readCounter.current !== id) return;
     const top = result.guesses[0];
-    if (result.tier === "sure" && top && result.reader === "vision") {
+    if (result.tier === "sure" && top && result.reader === "vision" && !hit?.covered) {
       await loadCards([top.cardId]);
       reticle(seat, { id: rid, x, y, state: "done", text: top.name || cardInfo(top.cardId)?.name || "Card", quad: hit?.quad }, rid);
       setTimeout(() => reticle(seat, null, rid), 1500);
@@ -221,6 +223,49 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       setSubject(old => old && old.cardId === id && old.seat === seat ? { ...old, notInDecklist: false, addErrors: [] } : old);
     }
   };
+
+  // ---- read the whole board of one feed ----
+  const readBoardInto = useCallback(async (seat: number, reading: BoardReading): Promise<string> => {
+    const { room: now, state: current } = R.current; const owns = now.solo || seat === now.mySeat;
+    const mine = reading.near.length ? reading.near : reading.far;
+    const hidden = mine.filter(card => card.faceDown).length;
+    const usable = mine.filter(card => !card.faceDown && !card.error && card.cardId && card.name);
+    const sure = usable.filter(card => card.tier === "sure" && !card.covered);
+    const unsure = mine.length - hidden - sure.length;
+    await loadCards(sure.map(card => card.cardId!));
+    const onField = [...current.seats[seat].twin];
+    const fresh = sure.filter(card => { const at = onField.findIndex(item => cardCode(item) === card.cardId); if (at >= 0) { onField.splice(at, 1); return false; } return true; })
+      .sort((a, b) => a.quad.reduce((n, p) => n + p.x, 0) - b.quad.reduce((n, p) => n + p.x, 0));
+    const taken: Record<string, Set<number | undefined>> = { monster: new Set(), "spell-trap": new Set() };
+    for (const item of current.seats[seat].twin) taken[item.zone]?.add(item.slot);
+    const placed: { ref: string; card: (typeof fresh)[number]; zone: string; slot?: number }[] = [];
+    for (const card of fresh) {
+      const type = cardInfo(card.cardId)?.type ?? ""; const spellTrap = /spell|trap/i.test(type);
+      const zone = spellTrap && /field/i.test(type) ? "field" : spellTrap ? "spell-trap" : "monster";
+      const slot = zone === "field" ? undefined : [1, 2, 3, 4, 5].find(n => !taken[zone].has(n));
+      if (slot) taken[zone].add(slot);
+      placed.push({ ref: `b${seat}-${card.cardId}-${placed.length}-${Date.now().toString(36)}`, card, zone, slot });
+    }
+    const done: typeof placed = [];
+    if (owns) {
+      for (const item of placed) {
+        const ok = await act({ type: "twin.place", actorSeat: now.solo ? seat : now.mySeat, seat, zone: item.zone, card: { ref: item.ref, cardId: item.card.cardId, name: item.card.name ?? undefined, ...(item.slot ? { slot: item.slot } : {}), faceUp: true, position: "attack" } });
+        if (!ok) break; done.push(item);
+      }
+    }
+    const seenNow = owns ? done : placed;
+    for (let i = 0; i < seenNow.length; i += 20) {
+      const chunk = seenNow.slice(i, i + 20);
+      await act({ type: "cards.identified", actorSeat: now.mySeat, seat, source: "auto", cards: chunk.map((item, n) => ({ observationId: `${item.ref}-${i + n}`, cardId: item.card.cardId, name: item.card.name ?? undefined, zone: item.zone, ...(item.slot ? { slot: item.slot } : {}), ...(owns ? { cardRef: item.ref } : {}) })) });
+    }
+    if (done.length) setFresh(done[done.length - 1].ref);
+    const bits = [owns ? `${done.length} placed on ${name(seat)}'s field` : `${seenNow.length} identified. Only the field owner places cards`];
+    if (onField.length !== current.seats[seat].twin.length && fresh.length < sure.length) bits.push(`${sure.length - fresh.length} already there`);
+    if (unsure > 0) bits.push(`${unsure} unsure or covered, click to confirm`);
+    if (hidden) bits.push(`${hidden} face-down`);
+    bits.push(`${(reading.ms / 1000).toFixed(1)} s`);
+    return bits.join(" · ");
+  }, [act, name]);
 
   // ---- attacks ----
   const attackBlock = (seat: number, card?: TwinCard): string => {
@@ -439,7 +484,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
             speaking={seat === mySeat && voice.speaking} frozen={hub.health(seat).label === "Frozen"} eliminated={!!state.seats[seat]?.eliminated} lp={lpOf(seat)} startingLp={startingLp}
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
             marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onPoint={(sd, x, y) => void startRead(sd, x, y)} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, hit)}
-            holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)}
+            holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReadBoard={readBoardInto}
             twin={twin} info={info} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} pickPlate={plate}

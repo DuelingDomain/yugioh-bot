@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Feed, type FeedHit, type FeedMark, type FeedReticle } from "./feed";
+import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedReticle } from "./feed";
 import { HoloField } from "./holo-field";
 import { Icon } from "./icons";
 import { sg, MINUS, type TwinCard, type ZoneKey } from "./model";
@@ -23,7 +23,7 @@ export function parseLpInput(raw: string): number | null {
 export type SeatPanelProps = {
   index: number; seat: number; name: string; color: string; you: boolean; turn: boolean; next: boolean; speaking: boolean; frozen: boolean; eliminated: boolean;
   lp: number; startingLp: number; health: Health; healthOpen: boolean; onHealth: (button: HTMLElement) => void;
-  marks: FeedMark[]; reticles: FeedReticle[]; onPoint: (seat: number, x: number, y: number) => void; onSelect: (seat: number, hit: FeedHit) => void; holdSelection: boolean; onAdd: (mark: FeedMark) => void;
+  marks: FeedMark[]; reticles: FeedReticle[]; onPoint: (seat: number, x: number, y: number) => void; onSelect: (seat: number, hit: FeedHit) => void; holdSelection: boolean; onAdd: (mark: FeedMark) => void; onReadBoard?: (seat: number, reading: BoardReading) => Promise<string>;
   twin: TwinCard[]; info: (id: number | undefined) => CardInfo | undefined; rv: ZoneKey; onRv: (key: ZoneKey) => void; picking: boolean;
   selectedRef?: string; targetRef?: string; freshRef?: string; warnRefs: ReadonlySet<string>; pickPlate: boolean; plateRef?: (el: HTMLButtonElement | null) => void;
   onActivate: (key: ZoneKey, card: TwinCard | undefined) => void; onAttack: (key: ZoneKey, card: TwinCard) => void; onInspect: (card: TwinCard) => void;
@@ -54,7 +54,7 @@ export function SeatPanel(p: SeatPanelProps) {
       </button>
     </header>
     <div className={s.sbody}>
-      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} emptyText={p.emptyFeedText}
+      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReadBoard={p.onReadBoard} emptyText={p.emptyFeedText}
         extra={<>
           {p.cameraControl}
           <div className={s.fz} aria-live="off">FEED FROZEN<small>Last good frame shown</small></div>

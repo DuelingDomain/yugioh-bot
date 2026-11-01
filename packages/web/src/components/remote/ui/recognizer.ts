@@ -10,14 +10,19 @@ export type ReadResult = {
   aiToken?: number;
 };
 /** The card box the detector found, as fractions of the frame. Passing it makes the reader crop that exact card. */
-export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; partial: boolean };
+export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; partial: boolean; covered?: boolean };
 
 type Meta = { entries: { cardId: string; passcode: number; name: string }[] };
 type DetectedQuad = ReadCard & { refined: boolean };
 type RawResult = { candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string };
 type AIReading = { name: string | null; passcode?: number; match: { passcode: number; name: string } | null };
+type RawPeek = { cardId?: string; name: string | null; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
+type RawBoardCard = RawPeek & { outline: DetectedQuad; index: number; side: "near" | "far"; error?: string };
+type RawBoard = { near: RawBoardCard[]; far: RawBoardCard[]; timingsMs: { detect: number; total: number } };
 type VisionRecognizer = {
   recognize(frames: ImageBitmap[], opts?: object): Promise<RawResult>;
+  peek(frame: ImageBitmap, opts: { card: ReadCard; cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawPeek>;
+  readAll(frame: ImageBitmap, opts: { cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawBoard>;
   detectCards(frame: ImageBitmap): Promise<ReadCard[]>;
   askAI(result: RawResult, options?: { explicitRequest?: boolean; signal?: AbortSignal }): Promise<AIReading>;
   dispose(): void;
@@ -41,10 +46,58 @@ function loadRecognizer() {
   recognizer ??= loadMeta().then(async found => {
     if (!found) return null;
     const { createRecognizer, yugioh } = await import("@yugidraft/vision");
-    return createRecognizer({ profile: yugioh, backend: "auto" }) as VisionRecognizer;
+    return createRecognizer({ profile: yugioh, backend: "auto" }) as unknown as VisionRecognizer;
   }).catch(() => null);
   return recognizer;
 }
+
+const idsFor = (found: Meta, passcodes: number[]) => {
+  const byPasscode = new Map(found.entries.map(entry => [entry.passcode, entry]));
+  return passcodes.map(code => byPasscode.get(code)?.cardId).filter((id): id is string => !!id);
+};
+const priorsFor = (found: Meta, priors: Priors) => ({ decklist: idsFor(found, priors.decklist), seen: idsFor(found, priors.seen) });
+const toQuad = (card: ReadCard): ReadCard => ({ quad: card.quad, kind: card.kind, confidence: card.confidence, partial: card.partial, ...(card.covered ? { covered: true } : {}) });
+
+export type Peek = { cardId?: number; name: string | null; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
+export type PeekAnswer = { status: "ready"; peek: Peek } | { status: "unavailable" | "error"; note: string };
+/** Names one outlined card of a frozen frame, locally. No crop leaves this browser and no AI is asked. */
+export function peekCard(frame: HTMLCanvasElement, card: ReadCard, cards: ReadCard[], priors: Priors, signal: AbortSignal): Promise<PeekAnswer> {
+  return enqueue(async () => {
+    const vision = await loadRecognizer(); const found = await loadMeta();
+    if (!vision || !found) return { status: "unavailable" as const, note: "The card reader is not installed here." };
+    try {
+      signal.throwIfAborted();
+      const bitmap = await createImageBitmap(frame);
+      const answer = await vision.peek(bitmap, { card: toQuad(card), cards: cards.map(toQuad), priors: priorsFor(found, priors), signal });
+      const entry = answer.cardId ? found.entries.find(e => e.cardId === answer.cardId) : undefined;
+      return { status: "ready" as const, peek: { cardId: entry?.passcode, name: answer.name ?? entry?.name ?? null, tier: answer.tier, faceDown: answer.faceDown, covered: answer.covered } };
+    } catch (error) { return { status: "error" as const, note: error instanceof Error ? error.message : "Peek failed" }; }
+  });
+}
+
+export type BoardRead = Peek & { index: number; side: "near" | "far"; quad: { x: number; y: number }[]; error?: string };
+export type BoardAnswer = { status: "ready"; near: BoardRead[]; far: BoardRead[]; ms: number } | { status: "unavailable" | "error"; note: string };
+/** Reads every outlined card of a frozen frame (up to 60), split into the near and far side of the mat. */
+export function readBoard(frame: HTMLCanvasElement, cards: ReadCard[], priors: Priors, signal: AbortSignal): Promise<BoardAnswer> {
+  return enqueue(async () => {
+    const vision = await loadRecognizer(); const found = await loadMeta();
+    if (!vision || !found) return { status: "unavailable" as const, note: "The card reader is not installed here." };
+    try {
+      signal.throwIfAborted();
+      const bitmap = await createImageBitmap(frame);
+      const result = await vision.readAll(bitmap, { cards: cards.map(toQuad), priors: priorsFor(found, priors), signal });
+      const convert = (entry: RawBoardCard): BoardRead => {
+        const match = entry.cardId ? found.entries.find(e => e.cardId === entry.cardId) : undefined;
+        return { cardId: match?.passcode, name: entry.name ?? match?.name ?? null, tier: entry.tier, faceDown: entry.faceDown, covered: entry.covered, index: entry.index, side: entry.side, quad: entry.outline.quad, error: entry.error };
+      };
+      return { status: "ready" as const, near: result.near.map(convert), far: result.far.map(convert), ms: Math.round(result.timingsMs.total) };
+    } catch (error) {
+      if (signal.aborted) return { status: "error" as const, note: "Cancelled." };
+      return { status: "error" as const, note: error instanceof Error ? error.message : "Board read failed" };
+    }
+  });
+}
+
 export function disposeRecognizer() {
   const current = recognizer; recognizer = null;
   void current?.then(value => value?.dispose());
@@ -110,11 +163,9 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
   if (!vision || !found) return fallback("Card reader data is not installed here. Showing cards from the decklist.");
   const frames = await sampleFrames(track, signal);
   if (!frames.length) return fallback("The camera gave no frames. Showing cards from the decklist.");
-  const byPasscode = new Map(found.entries.map(entry => [entry.passcode, entry]));
   const byId = new Map(found.entries.map(entry => [entry.cardId, entry]));
-  const idsFor = (passcodes: number[]) => passcodes.map(code => byPasscode.get(code)?.cardId).filter((id): id is string => !!id);
   try {
-    const result = await vision.recognize(frames, { clickPoint: point, k: 5, ...(card ? { card } : {}), includeCrop: true, priors: { decklist: idsFor(priors.decklist), seen: idsFor(priors.seen) } });
+    const result = await vision.recognize(frames, { clickPoint: point, k: 5, ...(card ? { card: toQuad(card) } : {}), includeCrop: true, priors: priorsFor(found, priors) });
     signal.throwIfAborted();
     const guesses = result.candidates.flatMap(candidate => {
       const entry = byId.get(candidate.cardId);
