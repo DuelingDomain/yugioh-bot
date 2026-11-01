@@ -22,7 +22,7 @@ export async function recognizeLocalCard(canvas: HTMLCanvasElement, signal: Abor
       if (!response.ok) throw new Error(data.error ?? "Card lookup unavailable");
       return (data.cards ?? []).map((card: RecognizedCard) => ({ id: card.id, name: card.name })).slice(0, 5);
     }
-    if (ids.length) { const cards = await resolve({ customCardIds: ids }); if (cards.length) return cards; }
+    if (ids.length) { const cards = await resolve({ lookupIds: ids }); if (cards.length) return cards; }
     const names = text.split(/\r?\n/).map(line => line.replace(/[^\p{L}\p{N}' -]/gu, "").trim()).filter(line => /[a-z]{3}/i.test(line) && line.length <= 200).slice(0, 3);
     for (const name of names) {
       const cards = await resolve({ fuzzyName: name, includeExtra: true });

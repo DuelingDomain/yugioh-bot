@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { cardArt, isMonsterInfo, type CardInfo } from "./catalog";
+import { cardArt, isMonsterInfo, useCardStatus, type CardInfo } from "./catalog";
 import { Icon } from "./icons";
 import s from "./remote-ui.module.css";
 
@@ -99,12 +99,15 @@ export function cardFacts(info: CardInfo | undefined): { facts: string; combat: 
 }
 
 /** Name, facts, combat line and the full card text. `children` sit between the facts and the text. */
-export function CardText({ info, name, fallbackName, children }: { info: CardInfo | undefined; name?: string; fallbackName: string; children?: ReactNode }) {
+export function CardText({ id, info: given, name, fallbackName, children }: { id?: number; info?: CardInfo | undefined; name?: string; fallbackName: string; children?: ReactNode }) {
+  const status = useCardStatus(id); const info = given ?? status.info;
   const { facts, combat } = cardFacts(info);
   return <>
     <h2 className={s.bname} data-testid="popover-name">{info?.name ?? name ?? fallbackName}</h2>
     {children}
     {facts || combat ? <div className={s.bfacts}>{facts ? <p className={s.bdetails}>{facts}</p> : null}{combat ? <p className={s.bcombat}>{combat}</p> : null}</div>
+      : status.failed ? <div className={s.bfacts} role="alert" data-testid="card-load-error"><p className={s.bdetails}>Could not load this card.</p>
+        <button type="button" className={`${s.btn} ${s.sm}`} onClick={status.retry} data-testid="card-load-retry">Try again</button></div>
       : <div className={s.bfacts}><p className={s.bdetails}>Loading card…</p></div>}
     {info?.effectText ? <p className={s.btext} tabIndex={0} aria-label="Card text">{info.effectText}</p> : null}
   </>;

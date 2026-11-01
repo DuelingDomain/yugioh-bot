@@ -82,7 +82,7 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onSay, saying, 
         <i className={s.skline} /><i className={s.skline} style={{ width: "92%" }} /><i className={s.skline} style={{ width: "46%" }} />
         <small>Looking at the sharpest frame of {ownerLine}</small>
       </div> : current ? <>
-        <CardText info={info} name={nameOf(current)} fallbackName={`Card ${current.cardId}`}>
+        <CardText id={current.cardId} info={info} name={nameOf(current)} fallbackName={`Card ${current.cardId}`}>
           <div className={s.bchips}>
             {found ? <span className={s.tier}>Search result</span> : placing || current === list[0] ? <TierChip tier={tray.tier} /> : null}
             {tray.covered ? <span className={`${s.tier} ${s.tierLow}`}>Covered</span> : null}

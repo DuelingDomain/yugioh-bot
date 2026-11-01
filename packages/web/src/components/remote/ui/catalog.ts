@@ -8,18 +8,29 @@ export type CardInfo = Pick<CardSummary, "id" | "name" | "type" | "frameType" | 
 
 const cache = new Map<number, CardInfo>();
 const inflight = new Map<number, Promise<void>>();
+/** Ids the last lookup could not resolve. They show an error with a retry instead of loading for ever. */
+const failed = new Set<number>();
 const listeners = new Set<() => void>();
 
 function remember(cards: CardSummary[]) {
-  for (const card of cards) cache.set(card.id, card);
+  for (const card of cards) { cache.set(card.id, card); failed.delete(card.id); }
   for (const listener of listeners) listener();
 }
+function notify() { for (const listener of listeners) listener(); }
 
 export function cardInfo(id: number | undefined): CardInfo | undefined { return id === undefined ? undefined : cache.get(id); }
+/** True when a card could not be loaded and nothing is loading it now. */
+export function cardFailed(id: number | undefined): boolean { return id !== undefined && failed.has(id) && !cache.has(id) && !inflight.has(id); }
+/** Tries the cards that failed again. */
+export function retryCards(ids: Iterable<number>): Promise<void> {
+  for (const id of ids) failed.delete(id);
+  notify();
+  return loadCards(ids);
+}
 
 async function post(body: unknown): Promise<CardSummary[]> {
   const response = await fetch("/api/cards/resolve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  if (!response.ok) return [];
+  if (!response.ok) throw new Error(`Card lookup failed (${response.status})`);
   return ((await response.json()) as { cards?: CardSummary[] }).cards ?? [];
 }
 
@@ -32,8 +43,11 @@ export function loadCards(ids: Iterable<number>): Promise<void> {
   const jobs: Promise<void>[] = [];
   for (let i = 0; i < missing.length; i += CHUNK) {
     const chunk = missing.slice(i, i + CHUNK);
-    const work = post({ customCardIds: chunk }).then(remember).catch(() => undefined)
-      .finally(() => { for (const id of chunk) inflight.delete(id); });
+    const work = post({ lookupIds: chunk }).then(remember).catch(() => undefined)
+      .finally(() => {
+        for (const id of chunk) { inflight.delete(id); if (!cache.has(id)) failed.add(id); }
+        notify();
+      });
     for (const id of chunk) inflight.set(id, work);
     jobs.push(work);
   }
@@ -42,7 +56,7 @@ export function loadCards(ids: Iterable<number>): Promise<void> {
 
 export async function searchCards(text: string, includeExtra = true): Promise<CardInfo[]> {
   const q = text.trim(); if (q.length < 2) return [];
-  const cards = await post({ fuzzyName: q, includeExtra });
+  const cards = await post({ fuzzyName: q, includeExtra }).catch(() => []);
   remember(cards); return cards.slice(0, 5);
 }
 
@@ -63,5 +77,18 @@ export function useCardInfo(ids: readonly (number | undefined)[]): (id: number |
   return useMemo(() => (id: number | undefined) => cardInfo(id), [tick]);
 }
 
-export const isMonsterInfo = (info: CardInfo | undefined) => !!info && info.atk !== undefined && !/spell|trap/i.test(info.type);
+/** One card's facts, its load state and a retry. Re-renders as the load settles. */
+export function useCardStatus(id: number | undefined): { info: CardInfo | undefined; failed: boolean; retry: () => void } {
+  const [, set] = useState(0);
+  useEffect(() => {
+    const listener = () => set(value => value + 1);
+    listeners.add(listener);
+    if (id !== undefined && id > 0 && !cache.has(id)) void loadCards([id]);
+    return () => { listeners.delete(listener); };
+  }, [id]);
+  return { info: cardInfo(id), failed: cardFailed(id), retry: () => { if (id !== undefined) void retryCards([id]); } };
+}
+
+export const isMonsterInfo = (info: CardInfo | undefined) => !!info && /monster|token/i.test(info.type) && !/spell|trap/i.test(info.type);
+export const isLinkInfo = (info: CardInfo | undefined) => !!info && (/link/i.test(info.frameType) || /link/i.test(info.type));
 export const cardArt = (id: number, size: "small" | "cropped" | "full" = "small") => `/api/cards/${id}/image?variant=${size}`;

@@ -72,6 +72,7 @@ async function handlePOST(request: Request) {
     op?: unknown;
     setNames?: string[];
     customCardIds?: number[];
+    lookupIds?: unknown;
     cardName?: string;
     fuzzyName?: string;
     includeExtra?: boolean;
@@ -143,6 +144,20 @@ async function handlePOST(request: Request) {
 
   const db = getDb();
   const catalog = createCardCatalogService(db, { memberId: actor.userId });
+
+  if (body.lookupIds !== undefined) {
+    // Plain facts for known passcodes. Unlike customCardIds this is not a draft pool: Extra Deck monsters
+    // (Xyz, Synchro, Fusion, Link) and alternate artwork passcodes resolve too, and each missing id is fetched.
+    const ids = body.lookupIds;
+    if (!Array.isArray(ids) || ids.length > 200 || ids.some((id) => typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0)) {
+      return NextResponse.json({ error: "lookupIds must be up to 200 positive card ids." }, { status: 400 });
+    }
+    const wanted = [...new Set(ids as number[])];
+    await ensureCatalogCards(catalog, wanted, createCardLookupBudget());
+    const cards = catalog.findByIds(wanted).map(toCardSummary);
+    const found = new Set(cards.map((card) => card.id));
+    return NextResponse.json({ cards, unknownIds: wanted.filter((id) => !found.has(id)) }, { headers: { "Cache-Control": "private, no-store" } });
+  }
 
   if (body.listText !== undefined) {
     if ([body.setNames, body.customCardIds, body.cardName, body.fuzzyName, body.archetype, body.includeExtra]
