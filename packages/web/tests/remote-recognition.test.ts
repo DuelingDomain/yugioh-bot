@@ -127,3 +127,12 @@ it("announces only correlation metadata, targets the owner, and broadcasts sugge
   for (const result of results) expect(result).toHaveBeenCalledWith({ type: "recognition.result", requestId: "shared", candidates: [{ cardId: 2, name: "Card two", score: 1 }] }, 1);
   channels.forEach(channel => channel.close());
 });
+
+it("parses activation with a named source and activation after identifying a card", async()=>{
+  const {interpret}=await import("../src/components/remote/ui/grammar");
+  const {ygoModule}=await import("@yugidraft/shared/remote");
+  const state=ygoModule.initialState({seatCount:2}); state.identified={seat:0,cardId:70825459,name:"Trap Tracks",source:"voice",addErrors:[]};
+  const ctx={state,players:[{seat:0,displayName:"Alice"}],me:0,trayOpen:false};
+  expect(interpret("I activate Trap Tracks",ctx)).toMatchObject({kind:"effect",proposal:{type:"effect.activated",source:{name:"Trap Tracks"}}});
+  expect(interpret("activate",ctx)).toMatchObject({kind:"effect",proposal:{source:{cardId:70825459}}});
+});

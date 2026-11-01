@@ -41,12 +41,15 @@ export function DeckBadges({ subject, warning }: { subject: Subject; warning?: s
 export type CardActions = {
   canAdd: boolean; adding: boolean; onAdd: () => void;
   canAttack: boolean; attackHint: string; onAttack: () => void;
+  onActivate?: () => void; onReveal?: () => void;
   onWrong?: () => void; onPin?: () => void;
 };
 
 function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
   return <div className={s.dact}>
     {subject.notInDecklist === true && a.canAdd ? <button type="button" className={`${s.btn} ${s.go}`} disabled={a.adding} onClick={a.onAdd}><Icon name="plus" />Add to decklist</button> : null}
+    {a.onActivate ? <button type="button" className={s.btn} onClick={a.onActivate}>Activate</button> : null}
+    {a.onReveal ? <button type="button" className={s.btn} onClick={a.onReveal}>Reveal card</button> : null}
     <button type="button" className={s.btn} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}><Icon name="sword" />Attack from here</button>
     {a.onWrong ? <button type="button" className={`${s.btn} ${s.q}`} onClick={a.onWrong}>Wrong card?</button> : null}
     {a.onPin ? <button type="button" className={`${s.btn} ${s.q}`} onClick={a.onPin} data-testid="pin-inspector"><Icon name="card" />Pin to inspector</button> : null}

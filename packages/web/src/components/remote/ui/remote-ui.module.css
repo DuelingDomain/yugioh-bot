@@ -625,3 +625,12 @@
 .qflash{position:absolute;z-index:4;overflow:visible;pointer-events:none}
 .qflash polygon{fill:rgb(232 185 79/.12);stroke:var(--gold);stroke-width:2.5;vector-effect:non-scaling-stroke;stroke-linejoin:round;filter:drop-shadow(0 0 6px rgb(232 185 79/.8));animation:qflash 1.15s ease-out both}
 @keyframes qflash{0%{opacity:0;transform:scale(1.04);transform-origin:center}12%{opacity:1;transform:scale(1)}70%{opacity:1}100%{opacity:0}}
+
+.effectControls { position: absolute; top: calc(var(--rail) + 6px); right: 18px; z-index: 12; max-width: min(560px, calc(100% - 36px)); max-height: 30vh; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--p1); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; color: var(--ink2); font-size: 13px; }
+.effectControls > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.effectControls p { margin: 0; }
+.effectPicker { display: flex; flex-direction: column; gap: 12px; padding: 20px; max-height: min(650px, 85dvh); overflow: auto; }
+.effectPicker h3, .effectPicker p { margin: 0; }
+.effectCandidates { display: flex; flex-wrap: wrap; gap: 8px; }
+.knownDown { opacity: .5; filter: saturate(.55); width: 100%; height: 100%; }
+.originLabel { position: absolute; bottom: 1px; left: 1px; right: 1px; font-size: 9px; line-height: 1.15; padding: 2px; color: var(--ink); background: #151822e8; text-overflow: ellipsis; overflow: hidden; }

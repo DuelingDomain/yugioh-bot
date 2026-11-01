@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_FORMATS, normalizeRemoteFormat, type RemoteActionProposal, type RemoteRoom } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteRoom } from "@yugidraft/shared/remote";
 import { cardInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
+import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, type Player } from "./chrome";
 import { CardPopover, InspectorBody, type CardActions, type Subject } from "./card-view";
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
@@ -28,7 +29,7 @@ const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const typing = (target: EventTarget | null) => !!(target as HTMLElement | null)?.closest?.("input,textarea,select,[contenteditable=true]");
 
-type ReadCtx = { seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; tier?: Tier; covered?: boolean };
+type ReadCtx = { cardRef?: string; seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; tier?: Tier; covered?: boolean };
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
@@ -150,6 +151,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const [tray, setTray] = useState<TrayState | null>(null); const ctx = useRef<ReadCtx | null>(null); const readCounter = useRef(0);
   const [popAt, setPopAt] = useState<PopAt>({ anchor: null, feed: null }); const beginId = useRef(0); const [adding, setAdding] = useState(false); const [fresh, setFresh] = useState<string | undefined>();
   const [rv, setRv] = useState<Record<number, ZoneKey>>({}); const [selected, setSelected] = useState<{ seat: number; ref: string } | null>(null);
+  const [effectOrigin,setEffectOrigin]=useState<string|null>(null);
   const [picking, setPicking] = useState<{ seat: number; ref: string } | null>(null);
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
@@ -166,9 +168,10 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const row = fieldSpell ? "field" : spellTrap ? "spell-trap" : "monster";
     const used = new Set(current.state.seats[seat].twin.filter(card => card.zone === row).map(card => card.slot).filter(Boolean));
     const slot = row === "field" ? undefined : [1, 2, 3, 4, 5].find(n => !used.has(n));
-    const ref = `c${seat}-${pick.cardId}-${Date.now().toString(36)}`;
+    const revealRef=owns ? remoteRecognitionRef(current.state,seat,pick.cardId,at.cardRef) : undefined;
+    const ref = at.cardRef ?? revealRef ?? `c${seat}-${pick.cardId}-${Date.now().toString(36)}`;
     // The card goes on the virtual field first, so the sighting attaches to that same physical card.
-    if (owns) {
+    if (owns && !at.cardRef && !revealRef) {
       const place = await act({ type: "twin.place", actorSeat: current.solo ? seat : current.mySeat, seat, zone: row, card: { ref, cardId: pick.cardId, name: pick.name, ...(slot ? { slot } : {}), faceUp: true, position: "attack" } });
       if (!place) { bail(); return; }
       setFresh(ref);
@@ -181,6 +184,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setMarks(all => ({ ...all, [seat]: [...(all[seat] ?? []).slice(-7), { id: markId, x: at.x, y: at.y, label: pick.name, notInDecklist: !!not, show: true, cardCode: pick.cardId, quad: at.quad }] }));
     setTimeout(() => setMarks(all => ({ ...all, [seat]: (all[seat] ?? []).map(mark => mark.id === markId ? { ...mark, show: false } : mark) })), 2600);
     setPopAt(at.at); layers.open("card");
+    if(ctx.current) delete ctx.current.cardRef;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [act, layers]);
 
@@ -188,7 +192,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
   const beginRead = useCallback((seat: number, start: FeedStart) => {
     const id = ++readCounter.current; beginId.current = id;
     const at: PopAt = { anchor: start.anchor, feed: start.feed };
-    ctx.current = { seat, x: start.x, y: start.y, at, id };
+    ctx.current = { seat, x: start.x, y: start.y, at, id, ...(ctx.current?.seat===seat && ctx.current.cardRef ? {cardRef:ctx.current.cardRef} : {}) };
     setTray({ seat, ownerName: name(seat), status: "reading", guesses: [], note: "", reader: "", at });
     layers.open("tray");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,11 +200,20 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
 
   const startRead = useCallback(async (seat: number, x: number, y: number, found?: { hit?: FeedHit; point?: FeedPoint }) => {
     const hit = found?.hit; const extra = hit ?? found?.point;
+    if(hit?.kind==="face-down") {
+      const origins=R.current.state.effectTracking?.origins.filter(o=>o.seat===seat && o.destination==="set" && R.current.state.seats[seat].twin.some(c=>c.ref===o.ref && !c.faceUp)) ?? [];
+      if(origins.length && (R.current.room.solo || seat===R.current.room.mySeat)) {
+        setEffectOrigin(origins[0].id); setPopAt({anchor:hit.anchor,feed:hit.feed}); layers.open("effect");
+        ctx.current={seat,x,y,quad:hit.quad,at:{anchor:hit.anchor,feed:hit.feed},id:++readCounter.current};
+        return;
+      }
+      toast(origins.length ? origins.map(o=>"Face-down · Set by "+o.source.name).join("; ") : "Face-down card"); layers.close(); return;
+    }
     // A live click that was closed (Esc, outside press) while the card was being found is dropped.
     if (extra?.live && readCounter.current !== beginId.current) return;
     const id = ++readCounter.current; const owner = name(seat);
     const at: PopAt = { anchor: hit?.anchor ?? found?.point?.anchor ?? ctx.current?.at.anchor ?? null, feed: extra?.feed ?? ctx.current?.at.feed ?? null };
-    ctx.current = { seat, x, y, quad: hit?.quad, at, id, ...(hit?.covered ? { covered: true } : {}) };
+    ctx.current = { seat, x, y, quad: hit?.quad, at, id, ...(ctx.current?.seat===seat && ctx.current.cardRef ? {cardRef:ctx.current.cardRef} : {}), ...(hit?.covered ? { covered: true } : {}) };
     if (extra?.live) beginId.current = id;
     if (hit?.covered) toast("This card is partly covered by another card. The read may be wrong. Check the guess.", 4200);
     const rid = `r${id}`; reticle(seat, { id: rid, x, y, state: "reading", text: "Reading…", quad: hit?.quad }, rid);
@@ -224,8 +237,8 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     setTray(old => old && readCounter.current === id ? { ...old, status: result.guesses.length ? "guesses" : "empty", guesses: result.guesses, note: result.note, reader: result.reader, tier: result.tier, aiToken: result.aiToken, ...(hit?.covered ? { covered: true } : {}) } : old);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hub, identify, layers, name]);
-  const closeTray = () => { readCounter.current++; setTray(null); layers.close("tray"); };
-  useEffect(() => { if (layers.layer !== "tray" && tray) { readCounter.current++; setTray(null); } }, [layers.layer, tray]);
+  const closeTray = () => { if(ctx.current) delete ctx.current.cardRef; readCounter.current++; setTray(null); layers.close("tray"); };
+  useEffect(() => { if (layers.layer !== "tray" && tray) { if(ctx.current) delete ctx.current.cardRef; readCounter.current++; setTray(null); } }, [layers.layer, tray]);
 
   const addToDeck = async (seat: number, id: number | undefined) => {
     if (!id || !live) return; setAdding(true);
@@ -248,7 +261,13 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const unsure = mine.length - hidden - sure.length;
     await loadCards(sure.map(card => card.cardId!));
     const onField = [...current.seats[seat].twin];
-    const fresh = sure.filter(card => { const at = onField.findIndex(item => cardCode(item) === card.cardId); if (at >= 0) { onField.splice(at, 1); return false; } return true; })
+    const revealRefs=remoteRecognitionRefs(current,seat,sure.map(card=>card.cardId!));
+    const reveals=sure.flatMap((card,index)=>{
+      const ref=revealRefs[index];
+      const twin=ref ? current.seats[seat].twin.find(c=>c.ref===ref) : undefined;
+      return twin ? [{ref:twin.ref,card,zone:twin.zone,slot:twin.slot}] : [];
+    });
+    const fresh = sure.filter(card => !reveals.some(item=>item.card===card)).filter(card => { const at = onField.findIndex(item => cardCode(item) === card.cardId); if (at >= 0) { onField.splice(at, 1); return false; } return true; })
       .sort((a, b) => a.quad.reduce((n, p) => n + p.x, 0) - b.quad.reduce((n, p) => n + p.x, 0));
     const taken: Record<string, Set<number | undefined>> = { monster: new Set(), "spell-trap": new Set() };
     for (const item of current.seats[seat].twin) taken[item.zone]?.add(item.slot);
@@ -260,7 +279,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
       if (slot) taken[zone].add(slot);
       placed.push({ ref: `b${seat}-${card.cardId}-${placed.length}-${Date.now().toString(36)}`, card, zone, slot });
     }
-    const done: typeof placed = [];
+    const done: typeof placed = [...reveals];
     if (owns) {
       for (const item of placed) {
         const ok = await act({ type: "twin.place", actorSeat: now.solo ? seat : now.mySeat, seat, zone: item.zone, card: { ref: item.ref, cardId: item.card.cardId, name: item.card.name ?? undefined, ...(item.slot ? { slot: item.slot } : {}), faceUp: true, position: "attack" } });
@@ -366,6 +385,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
     const set = (result: string, ignored = false) => setTranscript(old => ({ ...old, result, ignored }));
     switch (intent.kind) {
+      case "effect": set("Effect activated"); void act(intent.proposal); break;
       case "undo": set("Undone"); void doUndo(); break;
       case "phase": set(`Phase: ${PHASE_LONG[intent.phase] ?? intent.phase}`); void act({ type: "phase.set", actorSeat: me, phase: intent.phase }); break;
       case "turn": set("Needs a confirm"); propose("Pass the turn", `${name(current.turnSeat)} to ${name(nextSeat)}`, "Pass turn", () => passTurn(), requestId); break;
@@ -454,11 +474,15 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     canAdd: !!subject && live && (solo || subject.seat === mySeat) && !subject.addErrors.length, adding, onAdd: () => subject && void addToDeck(subject.seat, subject.cardId),
     canAttack: !!subjectCard && !block, attackHint: block || "Pick this monster as the attacker", onAttack: () => subjectCard && subject && startAttack(subject.seat, subjectCard),
     onWrong: () => { if (!subject) return; layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: "empty", guesses: [], note: "Search for the right card or say its name.", reader: "", at: popAt }); layers.open("tray"); },
+    onActivate: subject && live && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
+    onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     onPin: () => layers.open("insp"),
   };
   const openSubject = (card: TwinCard, fromField = true) => {
-    const id = cardCode(card); if (!id) { toast("This card is not identified yet. Click it on the camera feed."); return; }
     const seat = state.seats.findIndex(item => item.twin.some(c => c.ref === card.ref));
+    const origin=state.effectTracking?.origins.find(o=>o.seat===seat && o.ref===card.ref);
+    if(!card.faceUp && origin && (solo || seat===mySeat)) {setEffectOrigin(origin.id); layers.open("effect"); return;}
+    const id = cardCode(card); if (!id) { toast(card.setBy ? "Face-down · Set by "+card.setBy.name : "This card is not identified yet. Click it on the camera feed."); return; }
     setSubject({ cardId: id, seat, ref: card.ref, name: card.name, notInDecklist: flagFor(seat, id), addErrors: [], via: "field" });
     setSelected({ seat, ref: card.ref }); if (fromField) layers.open("insp");
   };
@@ -486,6 +510,7 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
           onPhase={setPhase} onPass={passTurn} turnIn={turnIn} />
         <LpStrip players={players} turnSeat={state.turnSeat} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {room.status === "ended" || state.ended ? <div className={s.ended} role="status">The table is closed.{state.winnerSeat !== null && state.winnerSeat !== undefined ? ` ${name(state.winnerSeat)} won.` : ""}</div> : null}
+        <EffectControls room={room} act={act} onOpen={id=>{setEffectOrigin(id);layers.open("effect");}} />
         <Banner banner={banner} />
         <svg className={s.arrow} aria-hidden="true">{arrow ? <><defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#f6dc9a" /></marker></defs>
           <path d={arrow.d} fill="none" stroke="rgba(232,185,79,.35)" strokeWidth="9" strokeLinecap="round" />
@@ -530,6 +555,21 @@ function Table({ ctl, room }: { ctl: RoomController; room: RemoteRoom }) {
     {layers.layer === "card" && subject ? <CardPopover subject={subject} info={subjectInfo} at={popAt} warning={deckFlag(room, subject.seat)?.message} actions={actions} onClose={() => layers.close("card")} /> : null}
     {tray ? <RecognitionTray tray={tray} onClose={closeTray} saying={micState === "listen"} onSay={() => toast("Say the card name, or “number two”.")}
       inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => void identify(pick, pick.via === "typed" ? "typed" : pick.via)} /> : null}
+    {layers.layer==="effect" && effectOrigin ? (()=>{
+      const origin=state.effectTracking?.origins.find(o=>o.id===effectOrigin);
+      if(!origin) return null;
+      return <EffectPicker origin={origin} at={popAt}
+        alternatives={(state.effectTracking?.origins ?? []).filter(o=>o.seat===origin.seat && o.destination===origin.destination && state.seats[o.seat].twin.some(c=>c.ref===o.ref && !c.faceUp)).map(o=>({id:o.id,label:`Set by ${o.source.name} · ${state.seats[o.seat].twin.find(c=>c.ref===o.ref)?.zone} ${state.seats[o.seat].twin.find(c=>c.ref===o.ref)?.slot ?? ""}`}))}
+        onOrigin={setEffectOrigin}
+        onActivate={origin.destination==="set" && origin.chosenCardId ? ()=>{void act({type:"effect.activated",actorSeat:origin.seat,source:{cardId:origin.chosenCardId,cardRef:origin.ref}}).then(done=>{if(done) layers.close("effect");});} : undefined}
+        onClose={()=>layers.close("effect")}
+        onPick={id=>{void act({type:"effect.choose",actorSeat:origin.seat,originId:origin.id,cardId:id}).then(done=>{if(done) layers.close("effect");});}}
+        onReveal={origin.destination==="set" && origin.chosenCardId ? ()=>{void act({type:"twin.flip",actorSeat:origin.seat,seat:origin.seat,cardRef:origin.ref,faceUp:true});layers.close("effect");} : undefined}
+        onRecognize={origin.destination==="set" ? ()=>{
+          ctx.current={seat:origin.seat,x:ctx.current?.x ?? .5,y:ctx.current?.y ?? .5,at:popAt,id:++readCounter.current,cardRef:origin.ref};
+          setTray({seat:origin.seat,ownerName:name(origin.seat),status:"empty",guesses:[],note:"Select the revealed card. Its identity will be public.",reader:"",at:popAt});layers.open("tray");
+        } : undefined} />;
+    })() : null}
     <Peek peek={peek} />
     <Toasts items={toasts} />
   </div>;

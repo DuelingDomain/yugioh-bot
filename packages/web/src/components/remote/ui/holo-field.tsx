@@ -60,7 +60,11 @@ export function HoloField({ seat, name, twin, info, rv, onRv, picking, selectedR
         let desc = "empty"; let inner: React.ReactNode = <span className={s.zl}>{zoneLabel(key)}</span>;
         if (pile && cell.count) { desc = `${cell.count} cards`; inner = <><div className={`${s.cd} ${s.back}`} /><span className={s.cnt}>{cell.count}</span></>; }
         else if (unknown) { desc = "unidentified card. Press Enter to identify"; inner = <div className={`${s.cd} ${s.unk}`}><span>?</span></div>; }
-        else if (down) { desc = "face-down card"; inner = <div className={`${s.cd} ${s.back}`} />; }
+        else if (down) {
+          desc = `Face-down${card.setBy ? " · Set by "+card.setBy.name : ""}${cardCode(card) ? " · "+cardName(card,cardInfo) : ""}`;
+          inner = <>{cardCode(card) ? <div className={s.knownDown}><CardFace card={card} info={cardInfo} /></div> : <div className={`${s.cd} ${s.back}`} />}
+            <span className={s.originLabel}>{card.setBy ? "Face-down · Set by "+card.setBy.name : "Face-down"}</span></>;
+        }
         else if (card) { desc = cardName(card, cardInfo) + (isMonsterInfo(cardInfo) ? (defense ? ", defense position" : ", attack position") : ""); inner = <CardFace card={card} info={cardInfo} />; }
         return <div key={key} className={classes} role="button" tabIndex={rv === key ? 0 : -1} data-z={key} data-zone={key} data-seat={seat}
           aria-label={`${name}, ${ZN[key]}: ${desc}`} onFocus={() => onRv(key)} onKeyDown={event => move(event, key)} onClick={() => onActivate(key, card)}>

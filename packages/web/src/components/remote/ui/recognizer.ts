@@ -194,9 +194,11 @@ export function detectCards(frame: ImageBitmap): Promise<Detection> {
 }
 
 /** Adapter for RemoteVideo: answers a remote request from the raw local track. */
-export function makeRecognizeRawFeed(getPriors: () => Priors, resolveNames: (ids: number[]) => Promise<Map<number, string>>): RecognizeRawFeed {
+export function makeRecognizeRawFeed(resolveNames: (ids: number[]) => Promise<Map<number, string>>): RecognizeRawFeed {
   return async ({ track, request, signal }) => {
-    const result = await readCard(track, { x: request.x, y: request.y }, getPriors(), signal);
+    // Peer requests must never receive guesses seeded from a private deck or private twin.
+    const result = await readCard(track, { x: request.x, y: request.y }, {decklist:[],seen:[]}, signal);
+    if(result.reader!=="vision") return [];
     const names = await resolveNames(result.guesses.filter(g => !g.name).map(g => g.cardId));
     return result.guesses.map(g => ({ cardId: g.cardId, name: g.name || names.get(g.cardId) || `Card ${g.cardId}`, score: g.score ?? 0 })).slice(0, 5);
   };

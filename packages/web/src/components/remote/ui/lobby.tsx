@@ -114,7 +114,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
           <div className={l.deckrow}>
             <label className={l.field}>Deck<select disabled={busy || !editable} value={seat.deck?.savedDeckId ?? ""} data-testid={`deck-${seat.seat}`}
               onChange={e => void operation("deck", { savedDeckId: e.target.value ? Number(e.target.value) : null, seat: seat.seat })}>
-              <option value="">{room.solo ? "No deck (optional)" : "Choose a saved deck"}</option>
+              <option value="">{!editable ? seat.deckRegistered ? "Deck registered (private)" : "No deck selected" : room.solo ? "No deck (optional)" : "Choose a saved deck"}</option>
               {choices.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}</select></label>
             {seat.deck?.validation.issues.length ? <ul className={l.issues} role="alert">{seat.deck.validation.issues.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul>
               : seat.deck ? <p className={l.valid}>Valid for this table.</p> : null}
