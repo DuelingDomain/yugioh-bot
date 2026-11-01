@@ -209,6 +209,21 @@ describe("remote duel API foundation", () => {
   const request = (path: string, body?: unknown) => new Request(`http://localhost/api/remote${path}`, {
     method: body === undefined ? "GET" : "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+  it("accepts default-on and strict Deck publicity through creation and lobby rules", async () => {
+    vi.stubEnv("REMOTE_DUELS", "1");
+    const {POST}=await import("../app/api/remote/route");
+    const {POST:configure}=await import("../app/api/remote/[slug]/format/route");
+    for(const showCardsSetFromDeck of [undefined,true,false]) {
+      const response=await POST(request("",{gameId:"ygo",seatCount:2,showCardsSetFromDeck}));
+      expect(response.status).toBe(201);
+      const room=await response.json(); expect(room.showCardsSetFromDeck).toBe(showCardsSetFromDeck ?? true);
+      const context={params:Promise.resolve({slug:room.slug})};
+      const changed=await configure(request("/format",{format:"normal",showCardsSetFromDeck:false}),context);
+      expect(changed.status).toBe(200); expect((await changed.json()).showCardsSetFromDeck).toBe(false);
+      expect((await configure(request("/format",{format:"normal",showCardsSetFromDeck:"false"}),context)).status).toBe(400);
+    }
+    for(const showCardsSetFromDeck of ["true",1,null]) expect((await POST(request("",{gameId:"ygo",seatCount:2,showCardsSetFromDeck}))).status).toBe(400);
+  });
   it.each([2, 3, 4])("creates a %i-seat solo table and authorizes only its owner to act as bots", async seatCount => {
     vi.stubEnv("REMOTE_DUELS", "1");
     const { POST } = await import("../app/api/remote/route");

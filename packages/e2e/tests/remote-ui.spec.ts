@@ -34,7 +34,7 @@ async function soloTable(api: APIRequestContext, seatCount: 2 | 3 | 4) {
 }
 
 test.describe("remote duels screen, solo", () => {
-  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, "http://localhost:3310"); });
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, (process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310")); });
 
   test("1v1 table: phase rail, LP, undo, drawers", async ({ page, context }) => {
     const slug = await soloTable(context.request, 2);
@@ -222,4 +222,112 @@ test.describe("remote duels screen, two players on LiveKit", () => {
       }
     } finally { await Promise.allSettled([alice.close(), bob.close()]); }
   });
+});
+
+test("private Set candidate pick, public reveal and a soft mismatch note",async({page,context})=>{
+  await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,(process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310"));
+  const decks=await (await context.request.get("/api/decks")).json();
+  const deck=decks.decks.find((d:{name:string})=>d.name==="Remote origin fixture");
+  const created=await context.request.post("/api/remote",{data:{gameId:"ygo",seatCount:2,solo:true,showCardsSetFromDeck:false}});
+  let room=await created.json(); const slug=room.slug;
+  const selected=await context.request.post(`/api/remote/${slug}/deck`,{data:{savedDeckId:deck.id}}); expect(selected.status(),await selected.text()).toBe(200);
+  await context.request.post(`/api/remote/${slug}/ready`,{data:{ready:true}});
+  const started=await context.request.post(`/api/remote/${slug}/start`,{data:{}}); expect(started.status(),await started.text()).toBe(200); room=await started.json();
+  const source=await context.request.post(`/api/remote/${slug}/actions`,{data:{baseSeq:room.lastSeq,action:{type:"twin.place",actorSeat:0,seat:0,zone:"spell-trap",card:{ref:"tracks",cardId:70825459,name:"Trap Tracks",slot:1,faceUp:true},idempotencyKey:crypto.randomUUID()}}});
+  expect(source.status(),await source.text()).toBe(200);
+  // Keep image loading offline; the behavior under test is the owned card state.
+  await page.route("**/api/cards/*/image**",route=>route.fulfill({status:204}));
+  await page.goto(`/duels/remote/${slug}`);
+  await page.getByTestId("field-0").locator('[data-zone="s1"]').click();
+  await page.getByRole("button",{name:"Activate",exact:true}).click();
+  await page.getByRole("button",{name:"Set face-down",exact:true}).click();
+  const set=page.getByTestId("field-0").locator('[data-zone="s2"]');
+  await expect(set).toHaveAttribute("aria-label",/Face-down · Set by Trap Tracks/);
+  await set.click();
+  await expect(page.getByTestId("effect-picker")).toBeVisible();
+  await page.getByRole("button",{name:/Torrential Tribute ×1/}).click();
+  await expect(set).toHaveAttribute("aria-label",/Torrential Tribute/);
+  await set.click(); await page.getByRole("button",{name:"Reveal chosen card"}).click();
+  await expect(set).toHaveAttribute("aria-label",/Torrential Tribute/);
+  await expect(set).not.toHaveAttribute("aria-label",/Face-down/);
+  // A later camera correction is assistive: the action succeeds and everyone gets a dismissible note.
+  room=await (await context.request.get(`/api/remote/${slug}`)).json();
+  const ref=room.state.seats[0].twin.find((c:{ref:string})=>c.ref!=="tracks").ref;
+  const corrected=await context.request.post(`/api/remote/${slug}/actions`,{data:{baseSeq:room.lastSeq,action:{type:"card.identified",actorSeat:0,seat:0,cardRef:ref,cardId:5318639,source:"auto",idempotencyKey:crypto.randomUUID()}}});
+  expect(corrected.status()).toBe(200);
+  await expect(page.getByText("Mystical Space Typhoon could not be Set by Trap Tracks",{exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"Dismiss note"}).click();
+  await expect(page.getByText("Mystical Space Typhoon could not be Set by Trap Tracks",{exact:true})).toHaveCount(0);
+});
+
+for (const showCardsSetFromDeck of [true,false]) test(`two browsers honor Deck publicity ${showCardsSetFromDeck}`,async({page,context,browser})=>{
+  const url=process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
+  await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,url);
+  const bob=await browser.newContext();
+  try {
+    await authenticatePlayer(bob.request,{userId:102},process.env.E2E_AUTH_SECRET!,url);
+    const aliceDeck=(await (await context.request.get("/api/decks")).json()).decks.find((d:{name:string})=>d.name==="Remote origin fixture");
+    const bobDeck=(await (await bob.request.get(`${url}/api/decks`)).json()).decks.find((d:{name:string})=>d.name==="Remote origin fixture");
+    let room=await (await context.request.post("/api/remote",{data:{gameId:"ygo",seatCount:2,...(showCardsSetFromDeck ? {} : {showCardsSetFromDeck:false})}})).json();const path=`/api/remote/${room.slug}`;
+    expect((await context.request.post(`${path}/deck`,{data:{savedDeckId:aliceDeck.id}})).status()).toBe(200);
+    expect((await bob.request.post(`${url}${path}/seat`,{data:{seat:1}})).status()).toBe(200);
+    expect((await bob.request.post(`${url}${path}/deck`,{data:{savedDeckId:bobDeck.id}})).status()).toBe(200);
+    await context.request.post(`${path}/ready`,{data:{ready:true}});await bob.request.post(`${url}${path}/ready`,{data:{ready:true}});
+    const start=await context.request.post(`${path}/start`,{data:{}});expect(start.status(),await start.text()).toBe(200);room=await start.json();
+    const act=async(action:Record<string,unknown>)=>{
+      room=await (await context.request.get(path)).json();
+      const response=await context.request.post(`${path}/actions`,{data:{baseSeq:room.lastSeq,action:{actorSeat:0,idempotencyKey:crypto.randomUUID(),...action}}});
+      expect(response.status(),await response.text()).toBe(200);room=await response.json();
+    };
+    await act({type:"effect.activated",source:{cardId:70825459}});
+    await act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"private",slot:1,faceUp:false}});
+    const observer=await bob.newPage();
+    await Promise.all([page,observer].map(p=>p.route("**/api/cards/*/image**",route=>route.fulfill({status:204}))));
+    await Promise.all([page.goto(`/duels/remote/${room.slug}`),observer.goto(`${url}/duels/remote/${room.slug}`)]);
+    await page.getByTestId("field-0").locator('[data-zone="s1"]').click();
+    await page.getByRole("button",{name:/Torrential Tribute ×1/}).click();
+    const otherSet=observer.getByTestId("field-0").locator('[data-zone="s1"]');
+    await expect(otherSet).toHaveAttribute("aria-label",showCardsSetFromDeck ? /Face-down · Set from Deck by Trap Tracks: Torrential Tribute/ : /Face-down · Set by Trap Tracks/);
+    if(!showCardsSetFromDeck) await expect(otherSet).not.toHaveAttribute("aria-label",/Torrential/);
+    await otherSet.click();await expect(observer.getByTestId("effect-picker")).toHaveCount(0);
+    const privateView=await (await bob.request.get(`${url}${path}`)).json();
+    expect(privateView.seats[0].deck).toBeUndefined();expect(privateView.state.effectTracking.origins[0].candidates).toBeUndefined();
+    expect(privateView.state.seats[0].twin[0].cardId).toBe(showCardsSetFromDeck ? 53582587 : undefined);
+    expect(privateView.state.seats[0].twin[0].faceUp).toBe(false);
+    for(const key of ['"pool"','"candidates"','"eligibleIds"','"chosenCardId"']) expect(JSON.stringify(privateView)).not.toContain(key);
+    if(showCardsSetFromDeck) await observer.keyboard.press("Escape");
+    await act({type:"twin.flip",seat:0,cardRef:"private",faceUp:true});
+    await expect(otherSet).toHaveAttribute("aria-label",/Torrential Tribute/);
+    await act({type:"effect.activated",source:{cardId:73628505}});
+    await page.getByRole("button",{name:"Choose searched card · from Terraforming"}).click();
+    await page.getByRole("button",{name:/Necrovalley ×1/}).click();
+    if(!showCardsSetFromDeck) await expect(observer.getByText("Necrovalley added to hand by Terraforming",{exact:true})).toHaveCount(0);
+    const handView=await (await bob.request.get(`${url}${path}`)).json();
+    expect(handView.state.effectTracking.origins.find((o:{destination:string})=>o.destination==="hand").chosenCardId).toBeUndefined();
+    expect(handView.state.effectTracking.origins.find((o:{destination:string})=>o.destination==="hand").candidates).toBeUndefined();
+    if(!showCardsSetFromDeck) await page.getByRole("button",{name:"Announce searched card"}).click();
+    else await expect(page.getByRole("button",{name:"Announce searched card"})).toHaveCount(0);
+    await expect(observer.getByText("Necrovalley added to hand by Terraforming",{exact:true})).toBeVisible();
+  } finally {await bob.close();}
+});
+
+
+test("create and lobby forms expose the default-on Deck publicity rule",async({page,context})=>{
+  const url=process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
+  await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,url);
+  await page.goto("/duels/remote");
+  const label="Cards Set from Deck are shown to all";
+  await expect(page.getByRole("checkbox",{name:label,exact:true})).toBeChecked();
+  await page.getByRole("checkbox",{name:label,exact:true}).uncheck();
+  await page.getByTestId("create-solo").check();
+  await page.getByTestId("create-table").click();
+  await expect(page.getByTestId("remote-lobby-room")).toBeVisible();
+  await expect(page.getByRole("checkbox",{name:label,exact:true})).not.toBeChecked();
+  await page.getByTestId("ready").click();
+  await expect(page.getByTestId("ready")).toHaveText("Not ready");
+  await page.getByRole("checkbox",{name:label,exact:true}).check();
+  await page.getByTestId("apply-rules").click();
+  await expect(page.getByTestId("ready")).toHaveText("Ready");
+  await page.reload();
+  await expect(page.getByRole("checkbox",{name:label,exact:true})).toBeChecked();
 });
