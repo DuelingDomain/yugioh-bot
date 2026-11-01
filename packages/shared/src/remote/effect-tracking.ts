@@ -1,11 +1,11 @@
 import { remoteAssert, type RemoteAction } from "./actions.js";
-import { remotePublicZone, type RemoteReductionContext } from "./deck-checks.js";
+import { remotePublicCard, remotePublicZone, type RemoteReductionContext } from "./deck-checks.js";
 import type { RemoteEffectCandidate, RemoteEffectPlan, RemoteEffectSource } from "./effect-filters.js";
 import type { RemoteState } from "./types.js";
 export type RemoteEffectOrigin = {
   id: string; seat: number; ref: string; destination: "set" | "hand"; source: RemoteEffectSource;
   announceRecommended: boolean; derivedFrom: RemoteEffectPlan["derivedFrom"];
-  /** Present only in the controller projection. */
+  /** Candidates and the controller's selection bookkeeping remain private, even for a public choice. */
   pool?: RemoteEffectCandidate[]; candidates?: RemoteEffectCandidate[]; eligibleIds?: number[]; chosenCardId?: number;
   minimumCopies?: number; announcedCard?: {cardId:number;name:string}; revealedCardId?: number;
 };
@@ -73,29 +73,38 @@ export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState
         remoteAssert(next.seats[origin.seat].twin.length<100,"Field is full",409);
         twin={ref:origin.ref,zone:"hand",faceUp:false,position:"attack"}; next.seats[origin.seat].twin.push(twin);
       }
-      remoteAssert(twin,"Card is no longer on the twin",409); twin.cardId=pick.cardId; twin.name=pick.name;
+      remoteAssert(twin,"Card is no longer on the twin",409); twin.cardId=pick.cardId; delete twin.passcode; twin.name=pick.name;
     } else {
       remoteAssert(origin.destination==="hand" && origin.chosenCardId,"Choose the searched card first",409);
       const picked=origin.pool?.find(c=>c.cardId===origin.chosenCardId);
       remoteAssert(picked,"Unknown searched card"); origin.announcedCard={cardId:picked.cardId,name:picked.name};
+      const twin=next.seats[origin.seat].twin.find(c=>c.ref===origin.ref);
+      if(twin) twin.publicIdentity=true;
     }
   }
   if(action.type==="effect.context.clear") delete tracking.contexts[action.actorSeat];
   if(action.type==="effect.note.dismiss") {
     const note=tracking.notes.find(n=>n.id===action.noteId); remoteAssert(note,"Unknown effect note",409); note.dismissed=true;
   }
-  // An identified physical face-down card is a reveal; attaching its ref prevents a duplicate twin.
+  // Showing an effect-selected card publishes its identity. Public tables retain the physical Set orientation.
   if(action.type==="card.identified" || action.type==="cards.identified") for(const sight of action.type==="card.identified" ? [action] : action.cards) {
     const twin=sight.cardRef ? next.seats[action.seat].twin.find(c=>c.ref===sight.cardRef) : undefined;
-    if(twin && !["hand","deck","extra"].includes(twin.zone) && tracking.origins.some(o=>o.destination==="set" && o.seat===action.seat && o.ref===twin.ref)) {
-      twin.faceUp=true; twin.cardId=sight.cardId ?? sight.passcode; delete twin.passcode;
+    const origin=twin ? tracking.origins.find(o=>o.seat===action.seat && o.ref===twin.ref) : undefined;
+    if(twin && origin && !["deck","extra"].includes(twin.zone) && (next.showCardsSetFromDeck!==false || (origin.destination==="set" && twin.zone!=="hand"))) {
+      if(next.showCardsSetFromDeck===false) twin.faceUp=true;
+      twin.cardId=sight.cardId ?? sight.passcode; delete twin.passcode;
       twin.name=context.facts?.[twin.cardId!]?.name ?? sight.name ?? twin.name;
     }
   }
   for(const origin of tracking.origins) {
     const twin=next.seats[origin.seat].twin.find(c=>c.ref===origin.ref);
     const code=twin?.cardId ?? twin?.passcode;
-    if(twin && code && remotePublicZone(twin.zone,twin.faceUp) && origin.revealedCardId!==code) {
+    if(twin && code && next.showCardsSetFromDeck!==false && !["deck","extra"].includes(twin.zone)) {
+      twin.publicIdentity=true;
+      origin.chosenCardId=code;
+      origin.announcedCard={cardId:code,name:context.facts?.[code]?.name ?? twin.name ?? "Card "+code};
+    }
+    if(twin && code && remotePublicCard(twin) && origin.revealedCardId!==code) {
       origin.revealedCardId=code;
       if(!origin.eligibleIds?.includes(code)) {
         const message=`${context.facts?.[code]?.name ?? twin.name ?? "Card "+code} could not be ${origin.destination==="set" ? "Set" : "added to hand"} by ${origin.source.name}`;

@@ -1,6 +1,6 @@
 import type { RemoteAction } from "./actions.js";
 import { remoteAssert } from "./actions.js";
-import { flagRemoteCopies, observeRemoteCard, remoteLocationsDistinct, remotePhysicalSlot, remotePublicZone, type RemoteCardInstance, type RemoteReductionContext } from "./deck-checks.js";
+import { flagRemoteCopies, observeRemoteCard, remoteLocationsDistinct, remotePhysicalSlot, remotePublicCard, type RemoteCardInstance, type RemoteReductionContext } from "./deck-checks.js";
 import type { RemoteState } from "./types.js";
 
 /** Pure. All catalog/validation facts are explicit replay inputs. */
@@ -9,19 +9,19 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   const checks = next.deckChecks;
   const seen: RemoteCardInstance[] = [];
   const used = new Set<string>();
-  const observe = (seat: number, card: { cardId?: number; passcode?: number; cardRef?: string; zone?: string; slot?: number; faceUp?: boolean; observationId?: string }) => {
+  const observe = (seat: number, card: { cardId?: number; passcode?: number; cardRef?: string; zone?: string; slot?: number; faceUp?: boolean; publicIdentity?: boolean; observationId?: string }) => {
     const code = card.cardId ?? card.passcode;
     const fact = code ? context.facts?.[code] : undefined;
     if (!fact) return;
     const observation = observeRemoteCard(checks, { seat, fact, ref: card.cardRef, ...card }, action.idempotencyKey, used);
     Object.assign(checks, observation.checks);
     used.add(observation.instance.id); seen.push(observation.instance);
-    if (card.cardRef && remotePublicZone(card.zone, card.faceUp)) {
+    if (card.cardRef && remotePublicCard(card)) {
       // Replacing a hidden/same-place alias removes its old tile, so a later move cannot leave a ghost copy.
       const instance = observation.instance;
       next.seats[seat].twin = next.seats[seat].twin.filter(t => {
         if (t.ref === card.cardRef || !instance.refs.includes(t.ref)) return true;
-        const duplicate = !remotePublicZone(t.zone, t.faceUp) || (t.zone === card.zone && !remoteLocationsDistinct(t, card));
+        const duplicate = !remotePublicCard(t) || (t.zone === card.zone && !remoteLocationsDistinct(t, card));
         if (duplicate) instance.refs = instance.refs.filter(ref => ref !== t.ref);
         return !duplicate;
       });
@@ -31,24 +31,32 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
     const sightings = action.type === "card.identified" ? [action] : action.cards;
     for (const card of sightings) {
       const twin = card.cardRef ? next.seats[action.seat].twin.find(t => t.ref === card.cardRef) : undefined;
-      observe(action.seat, twin ? { ...card, zone: twin.zone, slot: twin.slot, faceUp: twin.faceUp } : card);
+      observe(action.seat, twin ? { ...card, zone: twin.zone, slot: twin.slot, faceUp: twin.faceUp, publicIdentity: twin.publicIdentity } : card);
       const code = card.cardId ?? card.passcode;
       next.identified = { seat: action.seat, ...(card.cardRef ? {cardRef:card.cardRef} : {}), ...(context.privateRecognition ? {private:true} : {}), cardId: card.cardId, passcode: card.passcode, zone: card.zone,
         source: action.source, name: (code ? context.facts?.[code]?.name : undefined) ?? card.name,
         notInDecklist: context.identified?.notInDecklist ?? false, addErrors: context.identified?.addErrors ?? [] };
       // An explicit ref attaches recognition to the same physical twin card.
-      if (twin && twin.faceUp) { twin.cardId = card.cardId; twin.passcode = card.passcode; twin.name = next.identified.name ?? twin.name; }
+      if (twin && remotePublicCard(twin)) { twin.cardId = card.cardId; twin.passcode = card.passcode; twin.name = next.identified.name ?? twin.name; }
     }
   }
   if (action.type === "twin.flip" || action.type === "twin.move") {
     const twin=next.seats[action.seat].twin.find(c=>c.ref===action.cardRef);
-    if(twin && remotePublicZone(twin.zone,twin.faceUp)) observe(action.seat,{...twin,cardRef:twin.ref});
+    if(twin && remotePublicCard(twin)) observe(action.seat,{...twin,cardRef:twin.ref});
   }
   if(action.type==="effect.activated" && context.effect?.source.cardRef) {
     const twin=next.seats[action.actorSeat].twin.find(c=>c.ref===context.effect!.source.cardRef);
     if(twin) observe(action.actorSeat,{...twin,cardRef:twin.ref});
   }
-  if (action.type === "twin.place") observe(action.seat, { ...action.card, zone: action.zone, cardRef: action.card.ref });
+  if(action.type==="effect.choose" || action.type==="effect.announce") {
+    const origin=next.effectTracking?.origins.find(o=>o.id===action.originId);
+    const twin=origin ? next.seats[origin.seat].twin.find(c=>c.ref===origin.ref) : undefined;
+    if(origin && twin && remotePublicCard(twin)) observe(origin.seat,{...twin,cardRef:twin.ref});
+  }
+  if (action.type === "twin.place") {
+    const twin=next.seats[action.seat].twin.find(c=>c.ref===action.card.ref)!;
+    observe(action.seat, { ...twin, cardRef: twin.ref });
+  }
   if (action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove") {
     const instance = checks.instances.find(i => i.seat === action.seat && i.refs.includes(action.cardRef));
     if (instance) {
@@ -56,7 +64,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
       if (!twin) { instance.public = false; instance.anchored = false; delete instance.zone; delete instance.slot; }
       else {
         instance.zone = twin.zone; instance.slot = remotePhysicalSlot(twin.zone, twin.slot);
-        instance.public = remotePublicZone(twin.zone, twin.faceUp); instance.anchored = instance.public;
+        instance.public = remotePublicCard(twin); instance.anchored = instance.public;
         if (instance.public) seen.push(instance);
       }
     }
@@ -86,7 +94,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   }
   // A previously ambiguous hidden ref becomes a proven second copy only when both twins are public.
   for (const instance of [...checks.instances]) {
-    const twins = next.seats[instance.seat].twin.filter(t => instance.refs.includes(t.ref) && remotePublicZone(t.zone, t.faceUp))
+    const twins = next.seats[instance.seat].twin.filter(t => instance.refs.includes(t.ref) && remotePublicCard(t))
       .sort((a,b) => Number(remotePhysicalSlot(b.zone,b.slot) !== undefined) - Number(remotePhysicalSlot(a.zone,a.slot) !== undefined));
     const positions: typeof twins = [];
     const distinct = twins.filter(t => {
@@ -105,7 +113,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   }
   Object.assign(checks, flagRemoteCopies(checks, seen, action.idempotencyKey, action.type === "cards.identified"));
   // Hand reveals prove copies within their frame, never as stale anchors for the next scan.
-  for (const instance of checks.instances) if (!next.seats[instance.seat].twin.some(t => instance.refs.includes(t.ref) && remotePublicZone(t.zone, t.faceUp))) {
+  for (const instance of checks.instances) if (!next.seats[instance.seat].twin.some(t => instance.refs.includes(t.ref) && remotePublicCard(t))) {
     instance.anchored = false; instance.public = false;
   }
   return next;

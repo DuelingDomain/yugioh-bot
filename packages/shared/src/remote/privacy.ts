@@ -1,5 +1,6 @@
 import type { RemoteEvent, RemotePosition, RemoteState, RemoteTable } from "./types.js";
 import type { RemoteSnapshot } from "./realtime.js";
+import { remotePublicCard } from "./deck-checks.js";
 const hidden = (zone?:string,faceUp=true) => !faceUp || zone==="hand" || zone==="deck" || zone==="extra";
 function projectPosition<T extends RemotePosition>(state:T, seats:ReadonlySet<number>):T {
   const next=structuredClone(state);
@@ -8,10 +9,10 @@ function projectPosition<T extends RemotePosition>(state:T, seats:ReadonlySet<nu
   next.deckChecks.instances=next.deckChecks.instances.filter(i=>seats.has(i.seat) || (i.public && i.zone!=="extra"));
   if(next.identified && !seats.has(next.identified.seat)) {
     const attached=next.identified.cardRef ? next.seats[next.identified.seat].twin.find(c=>c.ref===next.identified!.cardRef) : undefined;
-    if(next.identified.private || (attached && hidden(attached.zone,attached.faceUp)) || (hidden(next.identified.zone) && next.identified.zone!==undefined)) next.identified=null;
+    if(next.identified.private || (attached ? !remotePublicCard(attached) : hidden(next.identified.zone) && next.identified.zone!==undefined)) next.identified=null;
     else { delete next.identified.notInDecklist; next.identified.addErrors=[]; }
   }
-  for(const seat of next.seats) if(!seats.has(seat.seat)) for(const card of seat.twin) if(hidden(card.zone,card.faceUp)) {
+  for(const seat of next.seats) if(!seats.has(seat.seat)) for(const card of seat.twin) if(hidden(card.zone,card.faceUp) && !remotePublicCard(card)) {
     delete card.cardId; delete card.passcode; delete card.name; delete card.race;
   }
   if(next.effectTracking) {
@@ -42,11 +43,11 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
   if(a.type==="seat.deck" && !seats.has(a.seat)) a.registration=null;
   if(a.type==="table.configured") a.registrations=Object.fromEntries(Object.entries(a.registrations).filter(([seat])=>seats.has(Number(seat))));
   if(!seats.has(actor)) {
-    if(a.type==="effect.choose") { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card choice",idempotencyKey:event.id}; delete next.messages; }
+    if(a.type==="effect.choose" && !event.effects?.publicEffectChoice) { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card choice",idempotencyKey:event.id}; delete next.messages; }
     if(a.type==="twin.place" && hidden(a.zone,a.card.faceUp)) { delete a.card.cardId; delete a.card.passcode; delete a.card.name; delete a.card.race; delete next.messages; }
     if(a.type==="card.identified" || a.type==="cards.identified") {
       const sightings=a.type==="card.identified" ? [a] : a.cards;
-      const privateSight=event.effects?.privateRecognition || sightings.some(s=>s.zone==="hand" || s.zone==="deck" || s.zone==="extra");
+      const privateSight=event.effects?.privateRecognition ?? sightings.some(s=>s.zone==="hand" || s.zone==="deck" || s.zone==="extra");
       if(privateSight) { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card",idempotencyKey:event.id}; delete next.messages; }
     }
   }

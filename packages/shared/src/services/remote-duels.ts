@@ -241,10 +241,11 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         if(command.type==="card.identified" || command.type==="cards.identified") {
           effects.privateRecognition=(command.type==="card.identified" ? [command] : command.cards).some(card=>{
             const twin=card.cardRef ? before.seats[command.seat].twin.find(c=>c.ref===card.cardRef) : undefined;
-            const revealsOrigin=!!twin && !["hand","deck","extra"].includes(twin.zone) && before.effectTracking?.origins.some(o=>o.destination==="set" && o.seat===command.seat && o.ref===twin.ref);
+            const revealsOrigin=!!twin && !["deck","extra"].includes(twin.zone) && before.effectTracking?.origins.some(o=>o.seat===command.seat && o.ref===twin.ref && (before.showCardsSetFromDeck!==false || (o.destination==="set" && twin.zone!=="hand")));
             return !revealsOrigin && (twin ? !twin.faceUp || ["hand","deck","extra"].includes(twin.zone) : ["hand","deck","extra"].includes(card.zone ?? ""));
           });
         }
+        if(command.type==="effect.choose") effects.publicEffectChoice=before.showCardsSetFromDeck!==false;
         if(command.type==="effect.activated") {
           const twin=command.source.cardRef ? before.seats[command.actorSeat].twin.find(c=>c.ref===command.source.cardRef) : undefined;
           remoteAssert(!command.source.cardRef || twin,"Unknown source card",409);
@@ -275,6 +276,10 @@ export function createRemoteDuelService(db: Database.Database, options: { dataDi
         const state = getRemoteGame(row.game_id).reduce(before, action, effects);
         const messages = state.deckChecks.flags.filter(f => !before.deckChecks.flags.some(old => old.id === f.id))
           .map(f => ({ seat: f.seat, text: ": " + f.message }));
+        if(command.type==="effect.choose" && effects.publicEffectChoice) {
+          const origin=state.effectTracking?.origins.find(o=>o.id===command.originId);
+          if(origin?.announcedCard) messages.push({seat:origin.seat,text:origin.destination==="set" ? `: Set from Deck by ${origin.source.name}: ${origin.announcedCard.name}` : `: ${origin.announcedCard.name} added to hand by ${origin.source.name}`});
+        }
         if (command.type === "deck.add") messages.unshift({ seat: command.actorSeat, text: " added " + effects.facts[command.cardId]?.name + " to their decklist" });
         if (command.type === "deck.flag.dismiss") messages.push({ seat: command.actorSeat, text: " dismissed flag " + command.flagId + " as wrong: " + command.reason });
         if (command.type === "twin.merge") messages.push({ seat: command.actorSeat, text: " merged instances " + command.keepInstanceId + " and " + command.removeInstanceId + ": " + command.reason });

@@ -901,11 +901,84 @@ describe("tolerant voice attack resolution", () => {
 const originDeck = [80101899, 70825459, 23898021, 73628505, 32807846, 53582587, 53582587,
   37576645, 37576645, 10045474, 97077563, 5318639, 14087893, 47355498, 67616300, 2460565, 63977008, 89631133,
   46986414, 46986414, 46986414, 71413901, 71413901, 71413901, 73752131, 73752131, 73752131, 9156135, 9156135, 9156135, 45141844, 45141844, 45141844, 97268402, 97268402, 97268402, 31560081, 31560081, 423585, 423585];
-function originSession() {
-  const s = deckSession("normal"); s.select(s.save(originDeck).id); s.start(); return s;
+function originSession(showCardsSetFromDeck = false) {
+  const s = deckSession("normal");
+  if (!showCardsSetFromDeck) s.service.configure(s.room.slug,"g",s.users[0],{format:"normal",showCardsSetFromDeck:false},2000);
+  s.select(s.save(originDeck).id); s.start(); return s;
 }
 const originOf = (s: ReturnType<typeof originSession>) => s.room.state.effectTracking!.origins.at(-1)!;
 describe("remote effect origins and hidden information", () => {
+  it("publishes a default-table Set choice without flipping it or sharing the other candidates", () => {
+    const s=originSession(true); s.act({type:"effect.activated",source:{cardId:70825459}});
+    s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"public-set",faceUp:false,slot:1}});
+    const origin=originOf(s);
+    s.act({type:"effect.choose",originId:origin.id,cardId:53582587});
+    for(const view of [s.service.snapshot(s.room.slug,"g").state,s.service.replay(s.room.slug,"g",s.users[0])]) {
+      expect(view.seats[0].twin[0]).toMatchObject({cardId:53582587,name:"Torrential Tribute",faceUp:false,publicIdentity:true,setBy:{name:"Trap Tracks"}});
+      expect(view.effectTracking!.origins[0].announcedCard).toEqual({cardId:53582587,name:"Torrential Tribute"});
+    }
+    const publicView=s.service.snapshot(s.room.slug,"g");
+    expect(publicView.events.at(-1)?.action).toMatchObject({type:"effect.choose",cardId:53582587});
+    for(const key of ['"pool"','"candidates"','"eligibleIds"','"chosenCardId"','"savedDeckId"','"facts"','"minimumCopies"']) expect(JSON.stringify(publicView)).not.toContain(key);
+    expect(JSON.stringify(publicView)).not.toContain("Reckless Greed");
+    const chooseId=s.room.state.undo!.actionId;
+    s.act({type:"undo",targetActionId:chooseId});
+    expect(s.service.snapshot(s.room.slug,"g").state.seats[0].twin[0].cardId).toBeUndefined();
+    expect(s.service.replay(s.room.slug,"g",s.users[0])).toEqual(s.room.state);
+  });
+  it.each([true,false])("applies Deck publicity %s to search-to-hand choices", show => {
+    const s=originSession(show); s.act({type:"effect.activated",source:{cardId:73628505}});
+    const origin=originOf(s); s.act({type:"effect.choose",originId:origin.id,cardId:47355498});
+    const publicView=s.service.snapshot(s.room.slug,"g");
+    expect(publicView.state.effectTracking!.origins[0].announcedCard?.cardId).toBe(show ? 47355498 : undefined);
+    expect(publicView.state.seats[0].twin[0].cardId).toBe(show ? 47355498 : undefined);
+    expect(publicView.state.effectTracking!.origins[0].candidates).toBeUndefined();
+    expect(JSON.stringify(publicView)).not.toContain("Chicken Game");
+    if(!show) {
+      expect(JSON.stringify(publicView)).not.toContain("Necrovalley");
+      s.act({type:"effect.announce",originId:origin.id});
+      expect(s.service.snapshot(s.room.slug,"g").state.effectTracking!.origins[0].announcedCard?.cardId).toBe(47355498);
+    }
+    expect(s.service.replay(s.room.slug,"g",s.users[0])).toEqual(s.room.state);
+  });
+  it.each([true,false])("handles shown Set camera reads with publicity %s and soft off-candidate notes", show => {
+    const s=originSession(show); s.act({type:"effect.activated",source:{cardId:70825459}});
+    s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"shown",faceUp:false}});
+    s.act({type:"card.identified",seat:0,cardRef:"shown",cardId:5318639,source:"auto"});
+    const publicView=s.service.snapshot(s.room.slug,"g");
+    expect(publicView.state.seats[0].twin[0]).toMatchObject({cardId:5318639,name:"Mystical Space Typhoon",faceUp:!show});
+    expect(publicView.state.effectTracking!.notes[0].message).toBe("Mystical Space Typhoon could not be Set by Trap Tracks");
+    expect(publicView.state.ended).toBe(false);
+    expect(s.service.replay(s.room.slug,"g",s.users[0])).toEqual(s.room.state);
+  });
+  it("publishes a camera-read searched card on a public table and validates the original candidates", () => {
+    const s=originSession(true); s.act({type:"effect.activated",source:{cardId:73628505}});
+    const origin=originOf(s);
+    s.act({type:"twin.place",seat:0,zone:"hand",card:{ref:origin.ref,faceUp:false}});
+    s.act({type:"card.identified",seat:0,cardRef:origin.ref,cardId:5318639,source:"auto"});
+    const publicView=s.service.snapshot(s.room.slug,"g");
+    expect(publicView.state.seats[0].twin[0]).toMatchObject({cardId:5318639,faceUp:false,publicIdentity:true});
+    expect(publicView.state.effectTracking!.origins[0].announcedCard?.cardId).toBe(5318639);
+    expect(publicView.state.effectTracking!.notes[0].message).toBe("Mystical Space Typhoon could not be added to hand by Terraforming");
+    expect(publicView.events.at(-1)?.action.type).toBe("card.identified");
+    expect(JSON.stringify(publicView)).not.toContain("Chicken Game");
+  });
+  it("subtracts known face-down Sets from future candidates and keeps ordinary hidden placements private", () => {
+    const s=originSession(true);
+    for(const ref of ["set-a","set-b"]) {
+      s.act({type:"effect.activated",source:{cardId:70825459}});
+      s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref,faceUp:false,slot:ref==="set-a" ? 1 : 2}});
+      s.act({type:"effect.choose",originId:originOf(s).id,cardId:53582587});
+    }
+    s.act({type:"effect.activated",source:{cardId:70825459}});
+    s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"set-c",faceUp:false,slot:3}});
+    expect(originOf(s).candidates!.some(c=>c.cardId===53582587)).toBe(false);
+    s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"ordinary",faceUp:false,slot:4,cardId:37576645,name:"Reckless Greed"}});
+    const publicView=s.service.snapshot(s.room.slug,"g");
+    expect(publicView.state.seats[0].twin.find(c=>c.ref==="ordinary")?.cardId).toBeUndefined();
+    expect(JSON.stringify(publicView)).not.toContain("Reckless Greed");
+    expect(s.service.replay(s.room.slug,"g",s.users[0])).toEqual(s.room.state);
+  });
   it.each([
     [70825459, [37576645, 53582587, 80101899, 10045474]],
     [23898021, [37576645, 53582587, 70825459, 80101899, 10045474]],
@@ -990,6 +1063,7 @@ it("reuses indexed filters for add-then-Set and keeps compound races exact",asyn
 
 it("projects multiplayer history, replay, hidden placements and private choices for the exact viewer",()=>{
   const s=deckSession("normal",false); s.select(s.save(originDeck).id);
+  s.service.configure(s.room.slug,"g",s.users[0],{format:"normal",showCardsSetFromDeck:false},2001);
   s.service.join(s.room.slug,"g",s.users[1],"Bob",1,2002);
   const deck=s.save(undefined,[],s.users[1]); s.service.selectDeck(s.room.slug,"g",s.users[1],{savedDeckId:deck.id},2003);
   s.service.ready(s.room.slug,"g",s.users[0],true,2004); s.service.ready(s.room.slug,"g",s.users[1],true,2004);

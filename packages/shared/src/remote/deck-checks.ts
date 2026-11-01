@@ -47,6 +47,7 @@ export type RemoteDeckChecks = {
 export type RemoteReductionContext = {
   effect?: { source: import("./effect-filters.js").RemoteEffectSource; plans: import("./effect-filters.js").RemoteEffectPlan[] };
   privateRecognition?: boolean;
+  publicEffectChoice?: boolean;
   facts?: RemoteCardFacts; registration?: RemoteDeckRegistration;
   identified?: { notInDecklist: boolean; addErrors: string[] };
 };
@@ -76,6 +77,9 @@ export function isInRemoteDeck(deck: DuelDeck, fact: RemoteCardFact, facts: Remo
 export function remotePublicZone(zone?: string, faceUp = true): boolean {
   return faceUp && !!zone && ["monster", "spell-trap", "extra-monster", "field", "graveyard", "banished", "extra", "pendulum"].includes(zone);
 }
+export function remotePublicCard(card: {zone?: string; faceUp?: boolean; publicIdentity?: boolean}): boolean {
+  return remotePublicZone(card.zone, card.faceUp) || (!!card.publicIdentity && !!card.zone && !["deck", "extra"].includes(card.zone));
+}
 export function remotePhysicalSlot(zone?: string, slot?: number): number | undefined {
   const max = zone === "monster" || zone === "spell-trap" ? 5 : zone === "extra-monster" || zone === "pendulum" ? 2 : 0;
   return slot !== undefined && slot >= 1 && slot <= max ? slot : undefined;
@@ -91,14 +95,14 @@ export function instanceLocation(instance: Pick<RemoteCardInstance, "zone" | "sl
   const slot = remotePhysicalSlot(instance.zone, instance.slot);
   return name + (slot ? " zone " + slot : "");
 }
-type Sighting = { seat: number; fact: RemoteCardFact; zone?: string; slot?: number; ref?: string; faceUp?: boolean; observationId?: string };
+type Sighting = { seat: number; fact: RemoteCardFact; zone?: string; slot?: number; ref?: string; faceUp?: boolean; publicIdentity?: boolean; observationId?: string };
 /** Pure. Unlocated/repeated sightings cannot prove new copies. */
 export function observeRemoteCard(input: RemoteDeckChecks, sight: Sighting, actionId: string, used: ReadonlySet<string> = new Set()): { checks: RemoteDeckChecks; instance: RemoteCardInstance } {
   const checks = structuredClone(input);
   const { fact, seat, zone, ref } = sight;
   const slot = remotePhysicalSlot(zone, sight.slot);
   const same = checks.instances.filter(i => i.seat === seat && i.copyKey === fact.copyKey);
-  const publicView = remotePublicZone(zone, sight.faceUp);
+  const publicView = remotePublicCard(sight);
   const samePlace = (i: RemoteCardInstance) => publicView && i.public && i.zone === zone && !remoteLocationsDistinct(i, { zone, slot });
   const pinned = ref ? checks.instances.find(i => i.seat === seat && i.refs.includes(ref)) : undefined;
   // A batch's distinct physical regions exclude already-used instances; a repeated coordinate does not.

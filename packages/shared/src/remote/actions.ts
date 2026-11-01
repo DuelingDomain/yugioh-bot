@@ -55,7 +55,11 @@ export type RemoteAction = z.infer<typeof remoteActionSchema>;
 // Distribute over the union so parser proposals retain phase/LP/card-specific fields.
 type Proposal<T> = T extends unknown ? Omit<T, "idempotencyKey" | "at"> : never;
 export type RemoteActionProposal = Proposal<RemoteAction>;
-export type TwinCard = z.infer<typeof twinCardSchema> & { zone: string; setBy?: import("./effect-filters.js").RemoteEffectSource };
+export type TwinCard = z.infer<typeof twinCardSchema> & {
+  zone: string; setBy?: import("./effect-filters.js").RemoteEffectSource;
+  /** Server-authored knowledge; independent of the physical face-up/down state. */
+  publicIdentity?: boolean;
+};
 export class RemoteDuelError extends Error {
   constructor(message: string, public readonly status = 400, public readonly code = "REMOTE_INVALID") { super(message); this.name = "RemoteDuelError"; }
 }
