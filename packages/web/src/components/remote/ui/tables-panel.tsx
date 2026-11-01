@@ -8,11 +8,11 @@ import { cx, sheetButtonClass } from "@/components/duel/sheet-ui";
 import ui from "@/components/duel/sheet-ui.module.css";
 import styles from "@/components/duel/lobby.module.css";
 import { remoteFormatName, remoteTableHref } from "./create";
-import { remoteApi } from "./use-remote-room";
+import { remoteApi } from "./api";
 
 /** The "Remote Duels" section of the Duels page: your tables and the open ones, in the look of the live table rows. */
 export function RemoteTablesPanel() {
-  const mine = useSWR("remote:mine", () => remoteApi<{ tables: RemoteTable[] }>("?scope=mine"), { refreshInterval: 5000 });
+  const mine = useSWR("remote:live", () => remoteApi<{ tables: RemoteTable[] }>("?scope=live"), { refreshInterval: 5000 });
   const open = useSWR("remote:open", () => remoteApi<{ tables: RemoteTable[] }>("?scope=open"), { refreshInterval: 5000 });
   const own = new Set((mine.data?.tables ?? []).map(table => table.slug));
   const tables = [...(mine.data?.tables ?? []), ...(open.data?.tables ?? []).filter(table => !own.has(table.slug))].filter(table => table.status !== "ended");
@@ -30,6 +30,8 @@ export function RemoteTablesPanel() {
       : tables.length === 0 ? <p className={styles.empty}>No remote tables right now.</p>
       : <ul className={styles.list}>{tables.map(table => {
         const yours = own.has(table.slug); const openSeats = table.seatCount - table.seats.length;
+        // "Open" only where someone else can sit down: a solo or full table of yours is still being set up.
+        const status = table.status === "active" ? "In progress" : table.solo || openSeats <= 0 ? "Setting up" : "Open";
         return <li key={table.slug} className={styles.row}>
           {/* A full document load: the table page is cross-origin isolated. */}
           <a href={remoteTableHref(table.slug)} className={styles.rowLink} data-testid={`remote-row-${table.slug}`}>
@@ -41,7 +43,7 @@ export function RemoteTablesPanel() {
               <span className={styles.chips}>
                 <span className={ui.chip}><Camera size={13} strokeWidth={1.6} aria-hidden />Remote</span>
                 {table.solo ? <span className={ui.chip}>Solo test</span> : null}
-                <span className={cx(ui.chip, table.status === "active" && ui.chipGold)}>{table.status === "active" ? "In progress" : "Open"}</span>
+                <span className={cx(ui.chip, table.status === "active" && ui.chipGold)}>{status}</span>
                 <span className={ui.chip}><Users size={13} strokeWidth={1.6} aria-hidden />{table.seats.length}/{table.seatCount}</span>
               </span>
             </span>

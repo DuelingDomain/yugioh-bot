@@ -1,5 +1,5 @@
 import { DuelLobby } from "@/components/duel/lobby";
-import { multiplayerTablesEnabled } from "@/lib/duel-table-capabilities";
+import { duelCreatorCapabilities } from "@/lib/duel-table-capabilities";
 import { remoteDuelsEnabled } from "@/lib/remote-duels";
 import { requireWebAccess } from "@/lib/web-access";
 
@@ -9,5 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function DuelsPage() {
   // Only a label for the saved history search; the API routes check access themselves.
   const access = await requireWebAccess();
-  return <DuelLobby viewerId={access.ok ? access.userId : undefined} remoteDuels={remoteDuelsEnabled()} multiplayerTables={multiplayerTablesEnabled()} />;
+  // The lede lists the table sizes the creator offers: Tag and free-for-all need the flag and a ready multi core.
+  const { multiplayerTables, multiCoreReady } = await duelCreatorCapabilities();
+  return <DuelLobby viewerId={access.ok ? access.userId : undefined} remoteDuels={remoteDuelsEnabled()} multiplayerTables={multiplayerTables && multiCoreReady} />;
 }

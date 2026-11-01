@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
@@ -19,12 +20,14 @@ import {
   EMPTY_HISTORY_FILTERS, hasHistoryFilters, mergeLobbySearch, parseHistoryParams, presetRange, rememberHistorySearch,
   type HistoryFilters, type HistoryPreset, type HistoryStatus,
 } from "./history-filters";
-import { RemoteTablesPanel } from "@/components/remote/ui/tables-panel";
 import { MatchChips } from "./match-chips";
 import { isNotableSeries, SeriesBadges } from "./series-banner";
 import { cx, SheetButton, sheetButtonClass, SheetSegmented, SheetSelect, sheetRoot } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./lobby.module.css";
+
+/** Loaded only when REMOTE_DUELS is on, so the plain Duels page does not carry it. */
+const RemoteTablesPanel = dynamic(() => import("@/components/remote/ui/tables-panel").then((module) => module.RemoteTablesPanel));
 
 export type DuelListView = "live" | "history";
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, Camera, Check, Copy, Globe, Info, Lock, Swords } from "lucide-react";
@@ -22,7 +23,7 @@ import {
   type DuelMode,
   type DuelSettings,
 } from "@yugidraft/shared/duels";
-import { createRemoteRoom, REMOTE_FORMAT_CHOICES, REMOTE_SEAT_CHOICES, remoteFormatName, remoteTableHref, useSavedDecks } from "@/components/remote/ui/create";
+import { createRemoteRoom, remoteFormatId, remoteFormatName, remoteTableHref, useSavedDecks } from "@/components/remote/ui/create";
 import { createDuel, DuelRequestError, type DuelPlayerOption } from "./api";
 import { OpponentPicker } from "./opponent-picker";
 import { HostedTableNotice } from "./hosted-table-notice";
@@ -95,6 +96,9 @@ function presetFor(current: DuelSettings, mode: DuelMode, format: DuelFormat): D
   return current.genesys ? { ...preset, banlist: NO_BANLIST_ID, genesys: current.genesys } : preset;
 }
 
+/** Loaded only when Remote Duel is chosen, so the Online screen does not carry it. */
+const RemoteSetupSection = dynamic(() => import("@/components/remote/ui/setup-section").then((module) => module.RemoteSetupSection));
+
 const BANLISTS = DUEL_BANLIST_OPTIONS.map(({ id, label }) => ({ value: id, label: `Banlist: ${label}` }));
 
 /**
@@ -127,7 +131,6 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const [ranked, setRanked] = useState(false);
   const settings = rankedDuelSettings(casualSettings, ranked);
   const [remote, setRemote] = useState(remoteDuels && initialRemote);
-  const [remoteFormat, setRemoteFormat] = useState("normal");
   const [remoteSeats, setRemoteSeats] = useState(2);
   const [remoteSolo, setRemoteSolo] = useState(false);
   const [remoteDeck, setRemoteDeck] = useState("");
@@ -162,6 +165,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const visibility = challenge ? "private" : settings.visibility;
   const customDomain = mode === "domain" && isCustomDomain(masterRule, settings);
   const genesys = settings.genesys ?? null;
+  const remoteFormatKey = remoteFormatId(mode === "domain", genesys != null);
   const cap = parseGenesysCap(capText);
   const capInvalid = genesys != null && !cap.ok;
   const firstTurnDrawOffered = supportsFirstTurnDrawSetting(mode, format);
@@ -187,13 +191,16 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
 
   async function onCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (inFlight.current || (!remote && capInvalid)) return;
+    if (inFlight.current || capInvalid) return;
     inFlight.current = true;
     setCreating(true);
     setError(null);
     try {
       if (remote) {
-        const room = await createRemoteRoom({ seatCount: remoteSeats, solo: remoteSolo, format: remoteFormat, savedDeckId: remoteDeck ? Number(remoteDeck) : null, showCardsSetFromDeck: remoteShowSet });
+        const room = await createRemoteRoom({
+          seatCount: remoteSeats, solo: remoteSolo, format: remoteFormatKey, savedDeckId: remoteDeck ? Number(remoteDeck) : null, showCardsSetFromDeck: remoteShowSet,
+          rules: genesys && cap.ok ? { genesys: { pointCap: cap.value } } : undefined,
+        });
         navigatedToRoom.current = true;
         // The table page is cross-origin isolated, so it needs a full document load.
         window.location.assign(remoteTableHref(room.slug));
@@ -266,6 +273,60 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
       : []),
   ];
 
+  /** The address follows the Play mode, so a reload or Back opens the mode the screen shows. */
+  function changePlayMode(value: "online" | "remote") {
+    const next = value === "remote";
+    setRemote(next);
+    // An error of one mode does not belong to the other.
+    setError(null);
+    // Online hides Domain when its core is missing; Remote has no such check, so go back to Standard.
+    if (!next && domainBlocked && mode === "domain") { setMode("normal"); setSettings((current) => presetFor(current, "normal", format)); }
+    const params = new URLSearchParams(window.location.search);
+    if (next) params.set("type", "remote"); else params.delete("type");
+    const query = params.toString();
+    // Next syncs its router with this call, and it needs no server round trip: the page is dynamic, so router.replace would fetch it again.
+    window.history.replaceState(window.history.state, "", `/duels/new${query ? `?${query}` : ""}`);
+  }
+
+  // The Duel type and Genesys controls are the same in Online and Remote. Only Online has the Domain core check.
+  const formatControls = (online: boolean) => (
+    <>
+      <div className={styles.wide}>
+        <SheetSegmented label="Duel type" value={mode} choices={online ? duelTypes : FORMATS} onChange={(value) => {
+          setMode(value);
+          setMasterRule(5);
+          // Visibility and Genesys are the organizer's choices, not part of a format preset.
+          setSettings((current) => presetFor(current, value, format));
+        }} />
+        {online && domainBlocked ? (
+          <p className={cx(ui.hint, styles.below)} data-testid="domain-blocked">{domainBlocked}</p>
+        ) : null}
+      </div>
+      <div className={styles.wide}>
+        <label className={styles.toggle}>
+          <input type="checkbox" checked={genesys != null} onChange={(event) => toggleGenesys(event.target.checked)} data-testid="genesys-toggle" />
+          <span>
+            Genesys
+            <small>Every card has a point cost and each duelist&apos;s deck has a point cap. Works with Standard and Domain. No Link or Pendulum monsters, no Forbidden &amp; Limited list.</small>
+          </span>
+        </label>
+      </div>
+      {genesys ? (
+        <div className={styles.wide}>
+          <label>
+            <span className={ui.label}>Point cap per deck</span>
+            <input className={ui.input} type="number" inputMode="numeric" min={0} max={MAX_GENESYS_POINT_CAP} step={1}
+              value={capText} onChange={(event) => changeCap(event.target.value)} aria-invalid={capInvalid}
+              aria-describedby="genesys-cap-hint" data-testid="genesys-cap" />
+          </label>
+          <p id="genesys-cap-hint" className={cx(ui.hint, styles.below)} role={capInvalid ? "alert" : undefined}>
+            {cap.ok ? `Main, Extra and Side count, each copy once${mode === "domain" ? ", and the Deck Master too" : ""}. Each duelist is checked alone; Tag teams do not share a total. 0 allows only 0-point cards.` : cap.message}
+          </p>
+        </div>
+      ) : null}
+    </>
+  );
+
   return (
     <form className={cx(sheetPage, styles.form)} onSubmit={onCreate} aria-busy={creating}>
       <div className={styles.wrap}>
@@ -274,7 +335,9 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
             <ArrowLeft size={15} strokeWidth={1.6} aria-hidden /> All tables
           </Link>
           <h1 className={ui.title}>Custom game creator</h1>
-          <p className={ui.lede}>Set the rules once. They lock when the table opens and stay in match history.</p>
+          <p className={ui.lede}>{remote
+            ? "Pick the duel type and seats. The host can change the rules in the room until the duel starts."
+            : "Set the rules once. They lock when the table opens and stay in match history."}</p>
         </header>
 
         {remote ? null : <HostedTableNotice disabled={creating} refreshVersion={noticeVersion} onCancelled={onTableCancelled} />}
@@ -291,8 +354,8 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 </div>
                 <div className={styles.fields}>
                   <div className={styles.wide}>
-                    <SheetSegmented label="Play mode" value={remote ? "remote" : "online"} choices={PLAY_MODES} onChange={(value) => setRemote(value === "remote")} full />
-                    <p className={cx(ui.hint, styles.below)} data-testid="play-mode-hint">
+                    <SheetSegmented label="Play mode" value={remote ? "remote" : "online"} choices={PLAY_MODES} onChange={changePlayMode} describedBy="play-mode-hint" full />
+                    <p id="play-mode-hint" className={cx(ui.hint, styles.below)} data-testid="play-mode-hint">
                       {remote ? "Remote Duel: physical cards over webcam · voice + card reading." : "Online: the rules engine runs the duel. Remote Duel: physical cards over webcam · voice + card reading."}
                     </p>
                   </div>
@@ -301,40 +364,8 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
             ) : null}
 
             {remote ? (
-              <section className={styles.section} aria-labelledby="creator-remote" data-testid="remote-setup">
-                <div className={styles.side}>
-                  <h2 id="creator-remote" className={ui.sectionTitle}>Remote table</h2>
-                  <p className={ui.hint}>Format, seats and your deck. The table keeps score.</p>
-                </div>
-                <div className={styles.fields}>
-                  <SheetSelect label="Duel format" value={remoteFormat} choices={REMOTE_FORMAT_CHOICES} onChange={setRemoteFormat} />
-                  <SheetSelect label="Your deck" value={remoteDeck} choices={[{ value: "", label: remoteSolo ? "No deck (optional)" : "Choose in the room" },
-                    ...(savedDecks.data?.decks ?? []).map((deck) => ({ value: String(deck.id), label: deck.name }))]} onChange={setRemoteDeck} />
-                  <div className={styles.wide}>
-                    <SheetSegmented label="Seats" value={remoteSeats} choices={REMOTE_SEAT_CHOICES} onChange={setRemoteSeats} full />
-                    <p className={cx(ui.hint, styles.below)}>{remoteSeats === 2 ? "One against one." : "Free for all."} Others join with the link of the room.</p>
-                  </div>
-                  <div className={styles.wide}>
-                    <label className={styles.toggle}>
-                      <input type="checkbox" checked={remoteSolo} onChange={(event) => setRemoteSolo(event.target.checked)} data-testid="create-solo" />
-                      <span>
-                        Solo test with bots
-                        <small>One webcam player with {remoteSeats - 1} test {remoteSeats === 2 ? "opponent" : "opponents"} you control. The camera stays on this device. No video server needed.</small>
-                      </span>
-                    </label>
-                  </div>
-                  <div className={styles.wide}>
-                    <label className={styles.toggle}>
-                      <input type="checkbox" checked={remoteShowSet} onChange={(event) => setRemoteShowSet(event.target.checked)} data-testid="create-show-set" />
-                      <span>
-                        Cards Set from Deck are shown to all
-                        <small>Also applies to cards searched from Deck to hand. Candidate lists are visible only to the controller.</small>
-                      </span>
-                    </label>
-                  </div>
-                  {savedDecks.error ? <p className={cx(ui.alert, styles.wide)} role="alert">{savedDecks.error.message}</p> : null}
-                </div>
-              </section>
+              <RemoteSetupSection formatControls={formatControls(false)} seats={remoteSeats} onSeats={setRemoteSeats} solo={remoteSolo} onSolo={setRemoteSolo}
+                deck={remoteDeck} onDeck={setRemoteDeck} showSet={remoteShowSet} onShowSet={setRemoteShowSet} decks={savedDecks} />
             ) : <>
 
             <section className={styles.section} aria-labelledby="creator-table">
@@ -426,39 +457,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                   </p>
                 </div>
                 ) : null}
-                <div className={styles.wide}>
-                  <SheetSegmented label="Duel type" value={mode} choices={duelTypes} onChange={(value) => {
-                    setMode(value);
-                    setMasterRule(5);
-                    // Visibility and Genesys are the organizer's choices, not part of a format preset.
-                    setSettings((current) => presetFor(current, value, format));
-                  }} />
-                  {domainBlocked ? (
-                    <p className={cx(ui.hint, styles.below)} data-testid="domain-blocked">{domainBlocked}</p>
-                  ) : null}
-                </div>
-                <div className={styles.wide}>
-                  <label className={styles.toggle}>
-                    <input type="checkbox" checked={genesys != null} onChange={(event) => toggleGenesys(event.target.checked)} data-testid="genesys-toggle" />
-                    <span>
-                      Genesys
-                      <small>Every card has a point cost and each duelist&apos;s deck has a point cap. Works with Standard and Domain. No Link or Pendulum monsters, no Forbidden &amp; Limited list.</small>
-                    </span>
-                  </label>
-                </div>
-                {genesys ? (
-                  <div className={styles.wide}>
-                    <label>
-                      <span className={ui.label}>Point cap per deck</span>
-                      <input className={ui.input} type="number" inputMode="numeric" min={0} max={MAX_GENESYS_POINT_CAP} step={1}
-                        value={capText} onChange={(event) => changeCap(event.target.value)} aria-invalid={capInvalid}
-                        aria-describedby="genesys-cap-hint" data-testid="genesys-cap" />
-                    </label>
-                    <p id="genesys-cap-hint" className={cx(ui.hint, styles.below)} role={capInvalid ? "alert" : undefined}>
-                      {cap.ok ? `Main, Extra and Side count, each copy once${mode === "domain" ? ", and the Deck Master too" : ""}. Each duelist is checked alone; Tag teams do not share a total. 0 allows only 0-point cards.` : cap.message}
-                    </p>
-                  </div>
-                ) : null}
+                {formatControls(true)}
                 <SheetSelect label="Master Rules" value={masterRule} choices={format === "1v1" ? MASTER_RULES : MULTIPLAYER_MASTER_RULES} onChange={setMasterRule} disabled={format !== "1v1"} />
                 <SheetSelect label="Game engine" value="automatic" choices={[{ value: "automatic", label: "Automatic" }]} disabled />
               </div>
@@ -571,9 +570,9 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
           <aside className={styles.summary} aria-label="Game summary">
             <div className={styles.card}>
               {remote ? <>
-                <p className={styles.kind}>Remote Duel · {remoteFormatName(remoteFormat)} · {remoteSeats === 2 ? "1v1" : `${remoteSeats}-way`}</p>
+                <p className={styles.kind}>Remote Duel · {remoteFormatName(remoteFormatKey)} · {remoteSeats === 2 ? "1v1" : `${remoteSeats}-way`}</p>
                 <dl className={styles.rows}>
-                  {([["Play", "Physical cards over webcam"], ["Format", remoteFormatName(remoteFormat)], ["Seats", `${remoteSeats} · ${remoteSeats === 2 ? "1v1" : "free for all"}`],
+                  {([["Play", "Physical cards over webcam"], ["Format", remoteFormatName(remoteFormatKey)], ...(genesys ? [["Point cap", `${genesysCapShort(genesys)} per duelist`] as [string, string]] : []), ["Seats", `${remoteSeats} · ${remoteSeats === 2 ? "1v1" : "free for all"}`],
                     ["Set from Deck", remoteShowSet ? "Shown to all" : "Hidden"],
                     ["Players", remoteSolo ? `Solo test, ${remoteSeats - 1} bot${remoteSeats === 2 ? "" : "s"}` : "Open to others"],
                     ["Deck", savedDecks.data?.decks.find((deck) => String(deck.id) === remoteDeck)?.name ?? "Choose in the room"]] as [string, string][]).map(([label, value]) => (
@@ -613,7 +612,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 </div>
               ) : (
                 <div className={styles.actions}>
-                  <SheetButton type="submit" kind="primary" size="lg" block loading={creating} disabled={creating || (!remote && (!name.trim() || capInvalid))} data-testid={remote ? "create-room" : undefined}>
+                  <SheetButton type="submit" kind="primary" size="lg" block loading={creating} disabled={creating || (!remote && !name.trim()) || capInvalid} data-testid={remote ? "create-room" : undefined}>
                     {creating ? (remote ? "Creating room…" : "Creating game…")
                       : remote ? <>Create room<Camera size={17} strokeWidth={1.6} aria-hidden /></>
                       : <>{opponent ? "Send challenge" : "Create game"}<Swords size={17} strokeWidth={1.6} aria-hidden /></>}

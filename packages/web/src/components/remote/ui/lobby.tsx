@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { DUEL_BANLIST_OPTIONS } from "@yugidraft/shared/duels";
 import { REMOTE_FORMATS, normalizeRemoteFormat, type RemoteRoom, type RemoteTable } from "@yugidraft/shared/remote";
 import { duelFontClasses } from "@/components/duel/fonts";
 import { COLORS } from "./model";
-import { remoteApi, type RoomController } from "./use-remote-room";
-import { remoteFormatName, remoteTableHref, useSavedDecks } from "./create";
+import { remoteApi } from "./api";
+import type { RoomController } from "./use-remote-room";
+import { deckFailedKey, remoteFormatName, remoteTableHref, useSavedDecks } from "./create";
 import { PhoneLobbyPreview } from "../phone/lobby-preview";
 import { PhonePairing } from "../phone/pairing";
 import { useVideoHub } from "./video-hub";
@@ -53,6 +54,14 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
   const { operation, busy, error } = ctl;
   const hub = useVideoHub();
   const saved = useSavedDecks();
+  // The create screen leaves a note here when it made the room but could not seat the chosen deck.
+  const [deckNote, setDeckNote] = useState("");
+  useEffect(() => {
+    try {
+      const key = deckFailedKey(room.slug); const note = sessionStorage.getItem(key);
+      if (note) { setDeckNote(note); sessionStorage.removeItem(key); }
+    } catch { /* storage may be blocked */ }
+  }, [room.slug]);
   const current = room.format ?? normalizeRemoteFormat();
   const [format, setFormat] = useState<string>(current.id);
   const [banlist, setBanlist] = useState(current.settings.banlist);
@@ -68,7 +77,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
     <div className={l.head}><h1>{room.solo ? "Solo test" : "Remote table"}</h1><span className={l.slug}>{room.slug}</span>
       <span className={l.tag}>{formatName(current.id)}</span><span className={l.tag}>{room.seatCount} seats</span></div>
     <p className={l.status} role="status">{ctl.realtime}</p>
-    {error ? <p className={l.err} role="alert">{error}</p> : saved.error ? <p className={l.err} role="alert">{saved.error.message}</p> : null}
+    {error ? <p className={l.err} role="alert">{error}</p> : deckNote ? <p className={l.err} role="alert">Your deck was not seated: {deckNote} Pick a deck below.</p> : saved.error ? <p className={l.err} role="alert">{saved.error.message}</p> : null}
 
     <section className={l.card} aria-label="Camera setup"><h2>Choose your field camera</h2><PhonePairing room={room}/><p className={l.note}>Use a phone, a webcam, or play with the board twin and log.</p><p role="status">{hub.health(room.mySeat).label}</p><PhoneLobbyPreview room={room}/></section>
     <form className={l.card} aria-label="Rules" onSubmit={e => { e.preventDefault();
@@ -76,7 +85,7 @@ export function RemoteLobbyRoom({ ctl, room }: { ctl: RoomController; room: Remo
       <h2>Rules</h2>
       <fieldset disabled={busy || !host} className={l.row} style={{ border: 0, padding: 0, margin: 0 }}>
         <label className={l.field}>Duel format<select value={format} data-testid="room-format" onChange={e => { setFormat(e.target.value); setBanlist(normalizeRemoteFormat(e.target.value).settings.banlist); }}>
-          {REMOTE_FORMATS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+          {REMOTE_FORMATS.map(item => <option key={item.value} value={item.value}>{remoteFormatName(item.value)}</option>)}</select></label>
         {format.includes("genesys")
           ? <label className={l.field}>Genesys point cap<input type="number" min={0} max={1000} value={points} onChange={e => setPoints(Number(e.target.value))} /></label>
           : <label className={l.field}>Banlist<select value={banlist} onChange={e => setBanlist(e.target.value)}>
