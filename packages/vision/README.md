@@ -2,7 +2,7 @@
 
 On-device card recognition for the Remote Duels prototype. This is a port of
 [Duel Lens](https://github.com/mathulbrich/duel-lens/tree/f6968f3682d53a79c4a9fef591300615eda61c11),
-with game data separated from the recognition engine. No camera image leaves the browser.
+with game data separated from the recognition engine. Local recognition keeps images in the browser; the optional owner-only **Ask AI** action sends one small warped JPEG to Anthropic.
 
 ## Run the lab
 
@@ -35,7 +35,7 @@ includes Tokens, Skills and every named card/artwork in the source snapshot.
 The single unnamed `???` record (nine images) is excluded as an upstream
 placeholder. Older filtered catalog caches are automatically refetched once.
 
-Use **Start camera**, then click a card. The caller owns a one-second ring of up
+Use **Start camera**, then click a card, or **Freeze & outline cards** to select an exact gold quad with pointer/Tab/Enter. The caller owns a one-second ring of up
 to six full-resolution frames; the worker selects the sharpest three near the
 click. **Upload photo** exercises the same path with one frame. The page shows
 five cached artwork thumbnails/scores, confidence tier, frame quality and stage timings. Click
@@ -61,6 +61,7 @@ import { createRecognizer } from '@yugidraft/vision';
 const reader = createRecognizer({ game: 'yugioh' }); // lazy worker; auto prefers WebGPU
 const result = await reader.recognize(frames, {
   clickPoint: { x: 0.5, y: 0.5 }, // normalized source pixels, not CSS pixels
+  includeCrop: true, // only needed for optional Ask AI; JPEG stays local until requested
   // k defaults to 5; optional override: 1–100
   priors: {
     decklist: ['14558127'], seen: ['23434538'], voiceMentioned: ['46986414'],
@@ -412,3 +413,61 @@ Apache licence and original third-party notices are retained in `src/licenses/`
 and identified in root `NOTICE`; modified files identify the port. Generated
 model/runtime folders also carry their notices. Card art/text/back and derived
 index remain subject to their owners' rights; they are not Apache-licensed.
+
+
+## Round 2: full-art, AI second opinions and source inventory
+
+See [REPORT.md](REPORT.md) for measured results and [PORTING.md](PORTING.md) for
+the exact upstream module/feature inventory and deliberate exclusions.
+
+There are currently **0 verified real full-art print images** in the local
+reference manifest. Full rendered cards and Quarter Century set membership do
+not establish a full-art printing. The existing cache mostly contains cropped
+artwork without print-layout metadata. With no verified whole-card references,
+use local name correction or explicitly ask the owner-enabled AI reader.
+
+`full-art.ts` tests for textured frame rails and absence of a conventional pale
+rules box. This is a layout hint with false negatives, not a print classifier.
+When full-art references exist, the pipeline always compares standard artwork
+and whole-card embeddings (including 180°) against their respective indexes,
+keeps both candidate lists and fuses frames separately for each index.
+The whole-card index has a different layout identity. Add verified local images
+with provenance to `scripts/vision/full-art-prints.json` and run:
+
+```sh
+npx tsx scripts/vision/build-full-art.ts
+npx tsx scripts/vision/benchmark-full-art.ts
+npx tsx scripts/vision/prepare.ts --bundle-only
+```
+
+Each manifest entry is `{cardId, printId, imagePath, source}`; `printId` uniquely
+identifies a printing, `source` is its HTTPS provenance, and `imagePath` is
+relative to the manifest. The builder reads local whole-card images, checks the
+model hash and catalog identity, and records source-image hashes/counts in
+`data/vision/yugioh-full-art.build.json`. Empty coverage removes the optional
+full-art index; the standard index remains usable. Synthetic benchmark references
+are isolated in memory and never count as real prints.
+
+The client API also exposes:
+
+```ts
+const quads = await reader.detectCards(frame); // consumes transferred ImageBitmap
+const result = await reader.recognize(frames, {
+  card: quads[0], // normalized exact frozen quad; bind it to that same snapshot
+  includeCrop: true,
+});
+const reading = await reader.askAI(result, { explicitRequest: true });
+// { name, passcode?, setCode?, match: { passcode, name } | null }
+```
+
+`askAI` permits uncertainty without an explicit flag; a `sure` local result
+requires `explicitRequest: true`. The lab never automatically uploads a crop.
+The server independently enforces that policy on `POST /api/remote-vision/ai`,
+requires an authenticated application owner (`OWNER_USER_IDS`), literal
+`REMOTE_VISION_AI=1` and `ANTHROPIC_API_KEY`, and uses the current shared Haiku
+model (`claude-haiku-5-5`). It permits 20 paid attempts per user per hour via
+SQLite, accepts JPEGs up to 256 KiB / 32–1024 pixels per side, and bounds provider
+fetch plus body reading to four seconds. Images/provider error payloads are
+never logged or stored. Only an unambiguous exact `card_catalog` identity with
+consistent readable hints is returned; otherwise it abstains. Tests mock the
+provider; no live AI accuracy claim is made.
