@@ -559,3 +559,26 @@
 .fzbtn kbd{padding:1px 4px}
 .cams:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
 @media (prefers-reduced-motion:reduce){.stillScan{animation:none;top:50%}}
+
+/* Card popover after a feed click, and small shared bits */
+.cpop{z-index:50;width:372px;max-width:calc(100vw - 16px);padding:12px;border-color:var(--gold);box-shadow:0 24px 70px rgb(0 0 0/.7),0 0 40px rgb(232 185 79/.18)}
+.cpop.show{display:grid;grid-template-columns:108px minmax(0,1fr);gap:6px 14px}
+.cpop .dart{width:108px;margin:0}
+.cpm{min-width:0;display:flex;flex-direction:column;gap:5px}
+.cpm .dname{font-size:19px}
+.cpm .dmeta{margin:0}
+.cpm .dstat{font-size:18px;margin:0;gap:14px}
+.cpx{grid-column:1 / -1;display:grid;gap:8px}
+.cpx .dtxt{max-height:76px;overflow:auto;font-size:13px}
+.cbadges{display:flex;gap:6px;flex-wrap:wrap}
+.cb{display:inline-flex;align-items:center;gap:5px;font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.08em;padding:4px 7px;border-radius:5px;border:1px solid var(--line2);color:var(--pen-ink)}
+.cb.w{color:var(--warn);border-color:rgb(240 178 79/.6)}
+.cb.ok{color:var(--ok);border-color:rgb(121 217 168/.45)}
+.cpclose{position:absolute;right:8px;top:8px}
+.cpop{position:fixed}
+.cpop .dact{margin:0}
+.statline{font-size:12px;color:var(--ink3)}
+.ended{grid-column:1 / -1;text-align:center;padding:6px;color:var(--gold-ink);font-weight:700}
+@media (max-width:900px){
+  .cpop{left:8px!important;right:8px;top:auto!important;bottom:8px;width:auto;max-height:88dvh;overflow:auto}
+}

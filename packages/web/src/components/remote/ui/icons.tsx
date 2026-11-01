@@ -20,6 +20,6 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS;
 
-export function Icon({ name, ...rest }: { name: IconName } & SVGProps<SVGSVGElement>) {
-  return <svg className={s.ic} viewBox="0 0 24 24" aria-hidden="true" {...rest}>{PATHS[name]}</svg>;
+export function Icon({ name, className, ...rest }: { name: IconName } & SVGProps<SVGSVGElement>) {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" {...rest} className={className ? `${s.ic} ${className}` : s.ic}>{PATHS[name]}</svg>;
 }
